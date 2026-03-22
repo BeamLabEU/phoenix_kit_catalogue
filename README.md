@@ -21,7 +21,7 @@ Designed for manufacturing companies (e.g. kitchen/furniture producers) that nee
 Add to your parent app's `mix.exs`:
 
 ```elixir
-{:phoenix_kit_catalogue, path: "../phoenix_kit_catalogue"}
+{:phoenix_kit_catalogue, "~> 0.1.0"}
 ```
 
 Then:
@@ -29,6 +29,9 @@ Then:
 ```bash
 mix deps.get
 ```
+
+> **Development:** During local development, you can use a path dependency instead:
+> `{:phoenix_kit_catalogue, path: "../phoenix_kit_catalogue"}`
 
 The module auto-discovers via beam scanning. Enable it in **Admin > Modules**.
 
