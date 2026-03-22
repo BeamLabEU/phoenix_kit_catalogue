@@ -94,7 +94,10 @@ defmodule PhoenixKitCatalogue do
         highlight_with_subtabs: false,
         live_view: {PhoenixKitCatalogue.Web.CataloguesLive, :index}
       },
-      # Catalogue CRUD
+      # Static paths MUST come before wildcard :uuid paths
+      # so Phoenix router matches them first.
+
+      # Catalogue — static paths
       %Tab{
         id: :admin_catalogue_new,
         label: "New Catalogue",
@@ -107,37 +110,13 @@ defmodule PhoenixKitCatalogue do
         visible: false,
         live_view: {PhoenixKitCatalogue.Web.CatalogueFormLive, :new}
       },
-      %Tab{
-        id: :admin_catalogue_detail,
-        label: "Catalogue",
-        icon: "hero-rectangle-stack",
-        path: "catalogue/:uuid",
-        priority: 662,
-        level: :admin,
-        permission: module_key(),
-        parent: :admin_catalogue,
-        visible: false,
-        live_view: {PhoenixKitCatalogue.Web.CatalogueDetailLive, :show}
-      },
-      %Tab{
-        id: :admin_catalogue_edit,
-        label: "Edit Catalogue",
-        icon: "hero-pencil-square",
-        path: "catalogue/:uuid/edit",
-        priority: 663,
-        level: :admin,
-        permission: module_key(),
-        parent: :admin_catalogue,
-        visible: false,
-        live_view: {PhoenixKitCatalogue.Web.CatalogueFormLive, :edit}
-      },
-      # Manufacturers
+      # Manufacturers — all static paths before any :uuid wildcard
       %Tab{
         id: :admin_catalogue_manufacturers,
         label: "Manufacturers",
         icon: "hero-building-office-2",
         path: "catalogue/manufacturers",
-        priority: 664,
+        priority: 662,
         level: :admin,
         permission: module_key(),
         parent: :admin_catalogue,
@@ -148,7 +127,7 @@ defmodule PhoenixKitCatalogue do
         label: "New Manufacturer",
         icon: "hero-plus",
         path: "catalogue/manufacturers/new",
-        priority: 665,
+        priority: 663,
         level: :admin,
         permission: module_key(),
         parent: :admin_catalogue,
@@ -160,20 +139,20 @@ defmodule PhoenixKitCatalogue do
         label: "Edit Manufacturer",
         icon: "hero-pencil-square",
         path: "catalogue/manufacturers/:uuid/edit",
-        priority: 666,
+        priority: 664,
         level: :admin,
         permission: module_key(),
         parent: :admin_catalogue,
         visible: false,
         live_view: {PhoenixKitCatalogue.Web.ManufacturerFormLive, :edit}
       },
-      # Suppliers
+      # Suppliers — all static paths before any :uuid wildcard
       %Tab{
         id: :admin_catalogue_suppliers,
         label: "Suppliers",
         icon: "hero-truck",
         path: "catalogue/suppliers",
-        priority: 667,
+        priority: 665,
         level: :admin,
         permission: module_key(),
         parent: :admin_catalogue,
@@ -184,7 +163,7 @@ defmodule PhoenixKitCatalogue do
         label: "New Supplier",
         icon: "hero-plus",
         path: "catalogue/suppliers/new",
-        priority: 668,
+        priority: 666,
         level: :admin,
         permission: module_key(),
         parent: :admin_catalogue,
@@ -196,20 +175,70 @@ defmodule PhoenixKitCatalogue do
         label: "Edit Supplier",
         icon: "hero-pencil-square",
         path: "catalogue/suppliers/:uuid/edit",
-        priority: 669,
+        priority: 667,
         level: :admin,
         permission: module_key(),
         parent: :admin_catalogue,
         visible: false,
         live_view: {PhoenixKitCatalogue.Web.SupplierFormLive, :edit}
       },
-      # Categories
+      # Categories — static edit path before catalogue :uuid wildcard
+      %Tab{
+        id: :admin_catalogue_category_edit,
+        label: "Edit Category",
+        icon: "hero-pencil-square",
+        path: "catalogue/categories/:uuid/edit",
+        priority: 668,
+        level: :admin,
+        permission: module_key(),
+        parent: :admin_catalogue,
+        visible: false,
+        live_view: {PhoenixKitCatalogue.Web.CategoryFormLive, :edit}
+      },
+      # Items — static edit path before catalogue :uuid wildcard
+      %Tab{
+        id: :admin_catalogue_item_edit,
+        label: "Edit Item",
+        icon: "hero-pencil-square",
+        path: "catalogue/items/:uuid/edit",
+        priority: 669,
+        level: :admin,
+        permission: module_key(),
+        parent: :admin_catalogue,
+        visible: false,
+        live_view: {PhoenixKitCatalogue.Web.ItemFormLive, :edit}
+      },
+      # Wildcard :uuid routes LAST — these catch anything not matched above
+      %Tab{
+        id: :admin_catalogue_detail,
+        label: "Catalogue",
+        icon: "hero-rectangle-stack",
+        path: "catalogue/:uuid",
+        priority: 670,
+        level: :admin,
+        permission: module_key(),
+        parent: :admin_catalogue,
+        visible: false,
+        live_view: {PhoenixKitCatalogue.Web.CatalogueDetailLive, :show}
+      },
+      %Tab{
+        id: :admin_catalogue_edit,
+        label: "Edit Catalogue",
+        icon: "hero-pencil-square",
+        path: "catalogue/:uuid/edit",
+        priority: 671,
+        level: :admin,
+        permission: module_key(),
+        parent: :admin_catalogue,
+        visible: false,
+        live_view: {PhoenixKitCatalogue.Web.CatalogueFormLive, :edit}
+      },
       %Tab{
         id: :admin_catalogue_category_new,
         label: "New Category",
         icon: "hero-plus",
         path: "catalogue/:catalogue_uuid/categories/new",
-        priority: 670,
+        priority: 672,
         level: :admin,
         permission: module_key(),
         parent: :admin_catalogue,
@@ -217,41 +246,16 @@ defmodule PhoenixKitCatalogue do
         live_view: {PhoenixKitCatalogue.Web.CategoryFormLive, :new}
       },
       %Tab{
-        id: :admin_catalogue_category_edit,
-        label: "Edit Category",
-        icon: "hero-pencil-square",
-        path: "catalogue/categories/:uuid/edit",
-        priority: 671,
-        level: :admin,
-        permission: module_key(),
-        parent: :admin_catalogue,
-        visible: false,
-        live_view: {PhoenixKitCatalogue.Web.CategoryFormLive, :edit}
-      },
-      # Items
-      %Tab{
         id: :admin_catalogue_item_new,
         label: "New Item",
         icon: "hero-plus",
         path: "catalogue/:catalogue_uuid/items/new",
-        priority: 672,
-        level: :admin,
-        permission: module_key(),
-        parent: :admin_catalogue,
-        visible: false,
-        live_view: {PhoenixKitCatalogue.Web.ItemFormLive, :new}
-      },
-      %Tab{
-        id: :admin_catalogue_item_edit,
-        label: "Edit Item",
-        icon: "hero-pencil-square",
-        path: "catalogue/items/:uuid/edit",
         priority: 673,
         level: :admin,
         permission: module_key(),
         parent: :admin_catalogue,
         visible: false,
-        live_view: {PhoenixKitCatalogue.Web.ItemFormLive, :edit}
+        live_view: {PhoenixKitCatalogue.Web.ItemFormLive, :new}
       }
     ]
   end

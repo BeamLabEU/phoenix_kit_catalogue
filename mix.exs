@@ -8,6 +8,7 @@ defmodule PhoenixKitCatalogue.MixProject do
       app: :phoenix_kit_catalogue,
       version: @version,
       elixir: "~> 1.15",
+      elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
       deps: deps(),
       description:
@@ -15,13 +16,24 @@ defmodule PhoenixKitCatalogue.MixProject do
       package: package(),
       dialyzer: [plt_add_apps: [:phoenix_kit]],
       name: "PhoenixKitCatalogue",
-      docs: docs()
+      docs: docs(),
+      aliases: aliases()
     ]
   end
 
   def application do
     [
       extra_applications: [:logger]
+    ]
+  end
+
+  defp elixirc_paths(:test), do: ["lib", "test/support"]
+  defp elixirc_paths(_), do: ["lib"]
+
+  defp aliases do
+    [
+      "test.setup": ["ecto.create --quiet", "ecto.migrate --quiet"],
+      "test.reset": ["ecto.drop --quiet", "test.setup"]
     ]
   end
 

@@ -9,7 +9,7 @@ defmodule PhoenixKitCatalogue.Schemas.Item do
   @primary_key {:uuid, UUIDv7, autogenerate: true}
   @foreign_key_type UUIDv7
 
-  @statuses ~w(active inactive discontinued)
+  @statuses ~w(active inactive discontinued deleted)
   @units ~w(piece m2 running_meter)
 
   schema "phoenix_kit_cat_items" do

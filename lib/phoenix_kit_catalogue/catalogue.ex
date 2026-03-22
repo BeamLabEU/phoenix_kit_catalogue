@@ -195,19 +195,38 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
     query =
       case Keyword.get(opts, :status) do
-        nil -> query
+        nil -> where(query, [c], c.status != "deleted")
         status -> where(query, [c], c.status == ^status)
       end
 
     repo().all(query)
   end
 
+  def deleted_catalogue_count do
+    from(c in Catalogue, where: c.status == "deleted")
+    |> repo().aggregate(:count)
+  end
+
   def get_catalogue(uuid), do: repo().get(Catalogue, uuid)
 
-  def get_catalogue!(uuid) do
+  def get_catalogue!(uuid, opts \\ []) do
+    mode = Keyword.get(opts, :mode, :active)
+
+    {category_query, item_query} =
+      case mode do
+        :active ->
+          {from(c in Category, where: c.status != "deleted", order_by: [asc: :position]),
+           from(i in Item, where: i.status != "deleted", order_by: [asc: :name])}
+
+        :deleted ->
+          # In deleted mode, show both deleted categories and active categories that contain deleted items
+          {from(c in Category, order_by: [asc: :position]),
+           from(i in Item, where: i.status == "deleted", order_by: [asc: :name])}
+      end
+
     Catalogue
     |> repo().get!(uuid)
-    |> repo().preload(categories: {from(c in Category, order_by: [asc: :position]), [:items]})
+    |> repo().preload(categories: {category_query, [items: item_query]})
   end
 
   def create_catalogue(attrs) do
@@ -226,6 +245,62 @@ defmodule PhoenixKitCatalogue.Catalogue do
     repo().delete(catalogue)
   end
 
+  def trash_catalogue(%Catalogue{} = catalogue) do
+    repo().transaction(fn ->
+      now = DateTime.utc_now()
+
+      from(i in Item,
+        join: c in Category,
+        on: i.category_uuid == c.uuid,
+        where: c.catalogue_uuid == ^catalogue.uuid and i.status != "deleted"
+      )
+      |> repo().update_all(set: [status: "deleted", updated_at: now])
+
+      from(c in Category, where: c.catalogue_uuid == ^catalogue.uuid and c.status != "deleted")
+      |> repo().update_all(set: [status: "deleted", updated_at: now])
+
+      catalogue
+      |> Catalogue.changeset(%{status: "deleted"})
+      |> repo().update!()
+    end)
+  end
+
+  def restore_catalogue(%Catalogue{} = catalogue) do
+    repo().transaction(fn ->
+      now = DateTime.utc_now()
+
+      from(c in Category, where: c.catalogue_uuid == ^catalogue.uuid and c.status == "deleted")
+      |> repo().update_all(set: [status: "active", updated_at: now])
+
+      from(i in Item,
+        join: c in Category,
+        on: i.category_uuid == c.uuid,
+        where: c.catalogue_uuid == ^catalogue.uuid and i.status == "deleted"
+      )
+      |> repo().update_all(set: [status: "active", updated_at: now])
+
+      catalogue
+      |> Catalogue.changeset(%{status: "active"})
+      |> repo().update!()
+    end)
+  end
+
+  def permanently_delete_catalogue(%Catalogue{} = catalogue) do
+    repo().transaction(fn ->
+      from(i in Item,
+        join: c in Category,
+        on: i.category_uuid == c.uuid,
+        where: c.catalogue_uuid == ^catalogue.uuid
+      )
+      |> repo().delete_all()
+
+      from(c in Category, where: c.catalogue_uuid == ^catalogue.uuid)
+      |> repo().delete_all()
+
+      repo().delete!(catalogue)
+    end)
+  end
+
   def change_catalogue(%Catalogue{} = catalogue, attrs \\ %{}) do
     Catalogue.changeset(catalogue, attrs)
   end
@@ -236,9 +311,20 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
   def list_categories_for_catalogue(catalogue_uuid) do
     from(c in Category,
-      where: c.catalogue_uuid == ^catalogue_uuid,
+      where: c.catalogue_uuid == ^catalogue_uuid and c.status != "deleted",
       order_by: [asc: :position, asc: :name],
       preload: [:items]
+    )
+    |> repo().all()
+  end
+
+  def list_all_categories do
+    from(c in Category,
+      join: cat in Catalogue,
+      on: c.catalogue_uuid == cat.uuid,
+      where: c.status != "deleted" and cat.status != "deleted",
+      order_by: [asc: cat.name, asc: c.position, asc: c.name],
+      select: %{c | name: fragment("? || ' / ' || ?", cat.name, c.name)}
     )
     |> repo().all()
   end
@@ -260,6 +346,55 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
   def delete_category(%Category{} = category) do
     repo().delete(category)
+  end
+
+  def trash_category(%Category{} = category) do
+    repo().transaction(fn ->
+      from(i in Item, where: i.category_uuid == ^category.uuid and i.status != "deleted")
+      |> repo().update_all(set: [status: "deleted", updated_at: DateTime.utc_now()])
+
+      category
+      |> Category.changeset(%{status: "deleted"})
+      |> repo().update!()
+    end)
+  end
+
+  def restore_category(%Category{} = category) do
+    repo().transaction(fn ->
+      # Cascade upward: if the parent catalogue is deleted, restore it too
+      case repo().get(Catalogue, category.catalogue_uuid) do
+        %Catalogue{status: "deleted"} = cat ->
+          cat |> Catalogue.changeset(%{status: "active"}) |> repo().update!()
+
+        _ ->
+          :ok
+      end
+
+      # Cascade downward: restore all items in this category
+      from(i in Item, where: i.category_uuid == ^category.uuid and i.status == "deleted")
+      |> repo().update_all(set: [status: "active", updated_at: DateTime.utc_now()])
+
+      category
+      |> Category.changeset(%{status: "active"})
+      |> repo().update!()
+    end)
+  end
+
+  def permanently_delete_category(%Category{} = category) do
+    repo().transaction(fn ->
+      from(i in Item, where: i.category_uuid == ^category.uuid)
+      |> repo().delete_all()
+
+      repo().delete!(category)
+    end)
+  end
+
+  def move_category_to_catalogue(%Category{} = category, target_catalogue_uuid) do
+    next_pos = next_category_position(target_catalogue_uuid)
+
+    category
+    |> Category.changeset(%{catalogue_uuid: target_catalogue_uuid, position: next_pos})
+    |> repo().update()
   end
 
   def change_category(%Category{} = category, attrs \\ %{}) do
@@ -285,7 +420,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
   def list_items_for_category(category_uuid) do
     from(i in Item,
-      where: i.category_uuid == ^category_uuid,
+      where: i.category_uuid == ^category_uuid and i.status != "deleted",
       order_by: [asc: :name],
       preload: [:manufacturer]
     )
@@ -296,11 +431,30 @@ defmodule PhoenixKitCatalogue.Catalogue do
     from(i in Item,
       join: c in Category,
       on: i.category_uuid == c.uuid,
-      where: c.catalogue_uuid == ^catalogue_uuid,
+      where: c.catalogue_uuid == ^catalogue_uuid and i.status != "deleted",
       order_by: [asc: c.position, asc: i.name],
       preload: [:category, :manufacturer]
     )
     |> repo().all()
+  end
+
+  def list_uncategorized_items_for_catalogue(_catalogue_uuid, opts \\ []) do
+    mode = Keyword.get(opts, :mode, :active)
+
+    query =
+      from(i in Item,
+        where: is_nil(i.category_uuid),
+        order_by: [asc: i.name],
+        preload: [:manufacturer]
+      )
+
+    query =
+      case mode do
+        :active -> where(query, [i], i.status != "deleted")
+        :deleted -> where(query, [i], i.status == "deleted")
+      end
+
+    repo().all(query)
   end
 
   def get_item(uuid), do: repo().get(Item, uuid)
@@ -325,6 +479,76 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
   def delete_item(%Item{} = item) do
     repo().delete(item)
+  end
+
+  def trash_item(%Item{} = item) do
+    item
+    |> Item.changeset(%{status: "deleted"})
+    |> repo().update()
+  end
+
+  def restore_item(%Item{} = item) do
+    repo().transaction(fn ->
+      # Cascade upward: if the parent category is deleted, restore it too
+      if item.category_uuid do
+        case repo().get(Category, item.category_uuid) do
+          %Category{status: "deleted"} = cat ->
+            cat |> Category.changeset(%{status: "active"}) |> repo().update!()
+
+          _ ->
+            :ok
+        end
+      end
+
+      item
+      |> Item.changeset(%{status: "active"})
+      |> repo().update!()
+    end)
+  end
+
+  def permanently_delete_item(%Item{} = item) do
+    repo().delete(item)
+  end
+
+  def trash_items_in_category(category_uuid) do
+    from(i in Item,
+      where: i.category_uuid == ^category_uuid and i.status != "deleted"
+    )
+    |> repo().update_all(set: [status: "deleted", updated_at: DateTime.utc_now()])
+  end
+
+  def deleted_item_count_for_catalogue(catalogue_uuid) do
+    categorized =
+      from(i in Item,
+        join: c in Category,
+        on: i.category_uuid == c.uuid,
+        where: c.catalogue_uuid == ^catalogue_uuid and i.status == "deleted"
+      )
+      |> repo().aggregate(:count)
+
+    uncategorized =
+      from(i in Item, where: is_nil(i.category_uuid) and i.status == "deleted")
+      |> repo().aggregate(:count)
+
+    categorized + uncategorized
+  end
+
+  def deleted_category_count_for_catalogue(catalogue_uuid) do
+    from(c in Category,
+      where: c.catalogue_uuid == ^catalogue_uuid and c.status == "deleted"
+    )
+    |> repo().aggregate(:count)
+  end
+
+  def deleted_count_for_catalogue(catalogue_uuid) do
+    deleted_item_count_for_catalogue(catalogue_uuid) +
+      deleted_category_count_for_catalogue(catalogue_uuid)
+  end
+
+  def move_item_to_category(%Item{} = item, category_uuid) do
+    item
+    |> Item.changeset(%{category_uuid: category_uuid})
+    |> repo().update()
   end
 
   def change_item(%Item{} = item, attrs \\ %{}) do

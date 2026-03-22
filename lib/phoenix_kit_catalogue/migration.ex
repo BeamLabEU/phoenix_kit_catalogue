@@ -27,7 +27,7 @@ defmodule PhoenixKitCatalogue.Migration do
   use Ecto.Migration
 
   @initial_version 1
-  @current_version 1
+  @current_version 2
   @default_prefix "public"
   @version_table "phoenix_kit_cat_manufacturers"
 

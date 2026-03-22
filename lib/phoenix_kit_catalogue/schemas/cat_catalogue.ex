@@ -9,7 +9,7 @@ defmodule PhoenixKitCatalogue.Schemas.Catalogue do
   @primary_key {:uuid, UUIDv7, autogenerate: true}
   @foreign_key_type UUIDv7
 
-  @statuses ~w(active archived)
+  @statuses ~w(active archived deleted)
 
   schema "phoenix_kit_cat_catalogues" do
     field(:name, :string)
