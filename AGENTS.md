@@ -1,0 +1,189 @@
+# AGENTS.md
+
+This file provides guidance to AI agents working with code in this repository.
+
+## Project Overview
+
+PhoenixKit Catalogue — an Elixir module for product catalogue management, built as a pluggable module for the PhoenixKit framework. Manages manufacturers, suppliers, catalogues, categories, and items with soft-delete cascading, multilingual support, and move operations. Designed for manufacturing companies (e.g. kitchen/furniture producers) that need to organize materials and components.
+
+## Commands
+
+```bash
+mix test                    # Run all tests (integration excluded if no DB)
+mix test test/file_test.exs # Run single test file
+mix test test/file_test.exs:42  # Run specific test by line
+mix format                  # Format code
+mix credo --strict          # Lint / code quality (strict mode)
+mix dialyzer                # Static type checking
+mix precommit               # compile + format + credo --strict + dialyzer
+mix deps.get                # Install dependencies
+```
+
+## Dependencies
+
+This is a **library**, not a standalone app. It requires a sibling `../phoenix_kit` directory (path dependency). The full dependency chain:
+
+- `phoenix_kit` (path: `"../phoenix_kit"`) — provides Module behaviour, Settings, RepoHelper, Dashboard tabs, Multilang
+- `phoenix_live_view` — web framework (LiveView UI)
+
+## Architecture
+
+This is a **PhoenixKit module** that implements the `PhoenixKit.Module` behaviour. It depends on the host PhoenixKit app for Repo, Endpoint, and Settings.
+
+### Core Schemas (all use UUIDv7 primary keys)
+
+- **Catalogue** (`phoenix_kit_cat_catalogues`) — top-level groupings with name, description, notes, status (active/archived/deleted)
+- **Category** (`phoenix_kit_cat_categories`) — subdivisions within a catalogue with position ordering, status (active/deleted)
+- **Item** (`phoenix_kit_cat_items`) — individual products with SKU, price, unit of measure, manufacturer link, status (active/deleted)
+- **Manufacturer** (`phoenix_kit_cat_manufacturers`) — company directory with name, website, logo, status (active/inactive)
+- **Supplier** (`phoenix_kit_cat_suppliers`) — delivery companies with name, website, status (active/inactive)
+- **ManufacturerSupplier** (`phoenix_kit_cat_manufacturer_suppliers`) — many-to-many join table
+
+### Soft-Delete Cascade System
+
+- **Downward on trash:** catalogue → categories → items
+- **Upward on restore:** item → category; category → catalogue + items
+- **Permanent delete** follows same downward cascade but removes from DB
+- All cascading operations wrapped in `Repo.transaction/1`
+
+### Web Layer
+
+- **Admin** (7 LiveViews): CataloguesLive (index for catalogues/manufacturers/suppliers), CatalogueDetailLive, CatalogueFormLive, CategoryFormLive, ItemFormLive, ManufacturerFormLive, SupplierFormLive
+- **Routes**: Admin routes auto-generated from `admin_tabs/0`
+- **Paths**: Centralized path helpers in `Paths` module — always use these instead of hardcoding URLs
+
+### Settings Keys
+
+`catalogue_enabled`
+
+### File Layout
+
+```
+lib/phoenix_kit_catalogue.ex                    # Main module (PhoenixKit.Module behaviour)
+lib/phoenix_kit_catalogue/
+├── catalogue.ex                               # Context module (all CRUD, soft-delete, move ops)
+├── paths.ex                                   # Centralized URL path helpers
+├── migration.ex                               # Versioned migration runner
+├── migration/postgres/
+│   ├── v01.ex                                 # Initial tables + indexes
+│   └── v02.ex                                 # Add status to categories
+├── schemas/
+│   ├── cat_catalogue.ex                       # Catalogue schema + changeset
+│   ├── category.ex                            # Category schema + changeset
+│   ├── item.ex                                # Item schema + changeset
+│   ├── manufacturer.ex                        # Manufacturer schema + changeset
+│   ├── manufacturer_supplier.ex               # Join table schema
+│   └── supplier.ex                            # Supplier schema + changeset
+└── web/
+    ├── catalogues_live.ex                     # Index page (catalogues/manufacturers/suppliers)
+    ├── catalogue_detail_live.ex               # Catalogue detail with categories + items
+    ├── catalogue_form_live.ex                 # Create/edit catalogue
+    ├── category_form_live.ex                  # Create/edit/move category
+    ├── item_form_live.ex                      # Create/edit/move item
+    ├── manufacturer_form_live.ex              # Create/edit manufacturer + supplier links
+    └── supplier_form_live.ex                  # Create/edit supplier + manufacturer links
+```
+
+## Key Conventions
+
+- **UUIDv7 primary keys** — all schemas use `@primary_key {:uuid, UUIDv7, autogenerate: true}` and `uuid_generate_v7()` in migrations (never `gen_random_uuid()`)
+- **Centralized paths via `Paths` module** — never hardcode URLs or route paths in LiveViews; use `Paths` helpers
+- **Admin routes from `admin_tabs/0`** — all admin navigation is auto-generated by PhoenixKit Dashboard from the tabs returned by `admin_tabs/0`; do not manually add admin routes elsewhere
+- **LiveViews use `Phoenix.LiveView` directly** — do not use `PhoenixKitWeb` macros (`use PhoenixKitWeb, :live_view`) in this standalone package; import helpers explicitly
+- **Single context module** — all business logic lives in `PhoenixKitCatalogue.Catalogue`; schemas are data-only with changesets
+- **Multilang fields** — name and description fields use PhoenixKit's `Multilang` module for i18n support
+- **Soft-delete via status field** — catalogues, categories, and items use `status: "deleted"` for soft-delete; manufacturers and suppliers use hard-delete only
+
+## Testing
+
+### Setup
+
+The test database must be created manually:
+
+```bash
+mix test.setup    # Create DB + run migrations
+mix test          # Run all tests
+mix test.reset    # Drop + recreate DB if needed
+```
+
+Integration tests are automatically excluded when the database is unavailable. The test helper runs `PhoenixKitCatalogue.Migration` on first run.
+
+The critical config wiring is in `config/test.exs`:
+
+```elixir
+config :phoenix_kit, repo: PhoenixKitCatalogue.Test.Repo
+```
+
+Without this, all DB calls through `PhoenixKit.RepoHelper` crash with "No repository configured".
+
+### Structure
+
+```
+test/
+├── test_helper.exs                  # DB detection, migration, sandbox setup
+├── support/
+│   ├── test_repo.ex                 # PhoenixKitCatalogue.Test.Repo
+│   └── data_case.ex                 # DataCase (sandbox + :integration tag)
+├── phoenix_kit_catalogue_test.exs   # Module behaviour compliance tests
+└── catalogue_test.exs               # Context integration tests (CRUD, cascade, move)
+```
+
+### Running tests
+
+```bash
+mix test                             # All tests (excludes integration if no DB)
+mix test test/catalogue_test.exs     # Context tests only
+mix test test/catalogue_test.exs:42  # Specific test by line
+```
+
+## PR Reviews
+
+PR reviews are stored in `dev_docs/pull_requests/` and tracked in version control.
+
+### Structure
+
+```
+dev_docs/pull_requests/<year>/<pr_number>-<slug>/CLAUDE_REVIEW.md
+```
+
+- **`<year>`** — year the PR was created (e.g., `2026`)
+- **`<pr_number>`** — GitHub PR number (e.g., `1`)
+- **`<slug>`** — short kebab-case summary from the PR title (e.g., `initial-catalogue-module`)
+- **`CLAUDE_REVIEW.md`** — the review file, always named `CLAUDE_REVIEW.md`
+
+### Review file format
+
+```markdown
+# Code Review: PR #<number> — <title>
+
+**Reviewed:** <date>
+**Reviewer:** Claude (claude-opus-4-6)
+**PR:** <GitHub URL>
+**Author:** <name> (<GitHub login>)
+**Head SHA:** <commit SHA>
+**Status:** <Merged | Open>
+
+## Summary
+<What the PR does>
+
+## Issues Found
+### 1. [<SEVERITY>] <title> — <FIXED if resolved>
+**File:** <path> lines <range>
+<Description, code snippet, fix>
+**Confidence:** <score>/100
+
+## What Was Done Well
+<Positive observations>
+
+## Verdict
+<Approved | Approved with fixes | Needs Work> — <reasoning>
+```
+
+Severity levels: `BUG - CRITICAL`, `BUG - HIGH`, `BUG - MEDIUM`, `NITPICK`, `OBSERVATION`
+
+When issues are fixed in follow-up commits, append `— FIXED` to the issue title and update the Verdict section.
+
+Additional files per PR directory:
+- `README.md` — PR summary (what, why, files changed)
+- `FOLLOW_UP.md` — post-merge issues, discovered bugs
+- `CONTEXT.md` — alternatives considered, trade-offs
