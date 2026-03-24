@@ -104,8 +104,8 @@ defmodule PhoenixKitCatalogueTest do
   end
 
   describe "migration_module/0" do
-    test "returns migration module" do
-      assert PhoenixKitCatalogue.migration_module() == PhoenixKitCatalogue.Migration
+    test "returns nil (migrations handled by PhoenixKit core V87)" do
+      assert PhoenixKitCatalogue.migration_module() == nil
     end
   end
 
