@@ -49,7 +49,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
     Supplier
   }
 
-  alias PhoenixKit.Modules.Entities.Multilang
+  alias PhoenixKit.Utils.Multilang
 
   defp repo, do: PhoenixKit.RepoHelper.repo()
 
