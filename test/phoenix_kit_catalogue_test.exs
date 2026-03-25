@@ -103,12 +103,6 @@ defmodule PhoenixKitCatalogueTest do
     end
   end
 
-  describe "migration_module/0" do
-    test "returns nil (migrations handled by PhoenixKit core V87)" do
-      assert PhoenixKitCatalogue.migration_module() == nil
-    end
-  end
-
   describe "optional callbacks" do
     test "get_config/0 returns a map" do
       config = PhoenixKitCatalogue.get_config()
