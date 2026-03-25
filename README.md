@@ -35,12 +35,6 @@ mix deps.get
 
 The module auto-discovers via beam scanning. Enable it in **Admin > Modules**.
 
-Migrations run automatically with `mix phoenix_kit.update`, or manually:
-
-```elixir
-mix run -e "PhoenixKitCatalogue.Migration.up()"
-```
-
 ## Data Model
 
 ```
@@ -183,15 +177,6 @@ mix test
 - Deleted counts
 - Schema validations (status, unit, price, SKU uniqueness, name length)
 - Manufacturer-supplier link sync
-
-## Migrations
-
-Versioned, idempotent migrations managed via table comments:
-
-| Version | Description |
-|---------|-------------|
-| V01 | Initial schema — all 6 tables with indexes and constraints |
-| V02 | Add `status` column to categories for soft-delete |
 
 ## License
 
