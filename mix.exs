@@ -2,6 +2,7 @@ defmodule PhoenixKitCatalogue.MixProject do
   use Mix.Project
 
   @version "0.1.0"
+  @source_url "https://github.com/BeamLabEU/phoenix_kit_catalogue"
 
   def project do
     [
@@ -16,6 +17,7 @@ defmodule PhoenixKitCatalogue.MixProject do
       package: package(),
       dialyzer: [plt_add_apps: [:phoenix_kit]],
       name: "PhoenixKitCatalogue",
+      source_url: @source_url,
       docs: docs(),
       aliases: aliases()
     ]
@@ -42,7 +44,7 @@ defmodule PhoenixKitCatalogue.MixProject do
 
   defp deps do
     [
-      {:phoenix_kit, path: "../phoenix_kit"},
+      {:phoenix_kit, "~> 1.7"},
       {:phoenix_live_view, "~> 1.0"},
       {:ex_doc, "~> 0.34", only: :dev, runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
@@ -53,6 +55,7 @@ defmodule PhoenixKitCatalogue.MixProject do
   defp package do
     [
       licenses: ["MIT"],
+      links: %{"GitHub" => @source_url},
       files: ~w(lib .formatter.exs mix.exs README.md CHANGELOG.md LICENSE)
     ]
   end
