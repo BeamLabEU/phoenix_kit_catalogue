@@ -130,6 +130,57 @@ mix test test/catalogue_test.exs     # Context tests only
 mix test test/catalogue_test.exs:42  # Specific test by line
 ```
 
+## Versioning & Releases
+
+This project follows [Semantic Versioning](https://semver.org/).
+
+### Version locations
+
+The version must be updated in **three places** when bumping:
+
+1. `mix.exs` — `@version` module attribute (used by Hex, `mix.exs` metadata, and docs)
+2. `lib/phoenix_kit_catalogue.ex` — `def version, do: "x.y.z"` (PhoenixKit.Module callback, runtime-accessible)
+3. `test/phoenix_kit_catalogue_test.exs` — `assert PhoenixKitCatalogue.version() == "x.y.z"` (version compliance test)
+
+### Changelog
+
+Update `CHANGELOG.md` before releasing. Each version gets a section:
+
+```markdown
+## x.y.z - YYYY-MM-DD
+
+### Added / Changed / Fixed / Removed
+- Description of change
+```
+
+Use [Keep a Changelog](https://keepachangelog.com/) categories: `Added`, `Changed`, `Fixed`, `Removed`.
+
+### Tagging & GitHub releases
+
+Tags use **bare version numbers** (no `v` prefix):
+
+```bash
+git tag 0.1.1
+git push origin 0.1.1
+```
+
+GitHub releases are created with `gh release create` using the tag as the release name. The title format is `<version> - <date>`, and the body comes from the corresponding `CHANGELOG.md` section:
+
+```bash
+gh release create 0.1.1 \
+  --title "0.1.1 - 2026-03-25" \
+  --notes "$(changelog body for this version)"
+```
+
+### Full release checklist
+
+1. Update version in `mix.exs`, `lib/phoenix_kit_catalogue.ex`, and the version test
+2. Add changelog entry in `CHANGELOG.md`
+3. Commit: `"Bump version to x.y.z"`
+4. Push to main
+5. Create and push git tag: `git tag x.y.z && git push origin x.y.z`
+6. Create GitHub release: `gh release create x.y.z --title "x.y.z - YYYY-MM-DD" --notes "..."`
+
 ## PR Reviews
 
 PR reviews are stored in `dev_docs/pull_requests/` and tracked in version control.
