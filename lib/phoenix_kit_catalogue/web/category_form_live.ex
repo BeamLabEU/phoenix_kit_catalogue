@@ -37,7 +37,8 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
       end
 
     if is_nil(category) and action == :edit do
-      {:ok, socket |> put_flash(:error, "Category not found.") |> push_navigate(to: Paths.index())}
+      {:ok,
+       socket |> put_flash(:error, "Category not found.") |> push_navigate(to: Paths.index())}
     else
       mount_category_form(socket, action, category, changeset, catalogue_uuid)
     end

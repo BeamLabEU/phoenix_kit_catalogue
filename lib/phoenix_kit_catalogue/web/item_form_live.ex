@@ -25,54 +25,54 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   def mount(params, _session, socket) do
     action = socket.assigns.live_action
 
-    {item, changeset, catalogue_uuid} =
-      case action do
-        :new ->
-          catalogue_uuid = params["catalogue_uuid"]
-          item = %Item{}
-          {item, Catalogue.change_item(item), catalogue_uuid}
+    case load_item(action, params) do
+      {nil, _, _} ->
+        {:ok, socket |> put_flash(:error, "Item not found.") |> push_navigate(to: Paths.index())}
 
-        :edit ->
-          case Catalogue.get_item(params["uuid"]) do
-            nil ->
-              Logger.warning("Item not found for edit: #{params["uuid"]}")
-              {nil, nil, nil}
-
-            item ->
-              item = PhoenixKit.RepoHelper.repo().preload(item, [:category, :manufacturer])
-              catalogue_uuid = if item.category, do: item.category.catalogue_uuid, else: nil
-              {item, Catalogue.change_item(item), catalogue_uuid}
-          end
-      end
-
-    if is_nil(item) and action == :edit do
-      {:ok, socket |> put_flash(:error, "Item not found.") |> push_navigate(to: Paths.index())}
-    else
-      categories =
-        if catalogue_uuid,
-          do: Catalogue.list_categories_for_catalogue(catalogue_uuid),
-          else: Catalogue.list_all_categories()
-
-      manufacturers = Catalogue.list_manufacturers(status: "active")
-
-      all_categories =
-        if action == :edit, do: Catalogue.list_all_categories(), else: []
-
-      {:ok,
-       socket
-       |> assign(
-         page_title: if(action == :new, do: "New Item", else: "Edit #{item.name}"),
-       action: action,
-       item: item,
-       catalogue_uuid: catalogue_uuid,
-       changeset: changeset,
-       categories: categories,
-       manufacturers: manufacturers,
-       all_categories: all_categories,
-       move_target: nil
-     )
-     |> mount_multilang()}
+      {item, changeset, catalogue_uuid} ->
+        {:ok, mount_form(socket, action, item, changeset, catalogue_uuid)}
     end
+  end
+
+  defp load_item(:new, params) do
+    item = %Item{}
+    {item, Catalogue.change_item(item), params["catalogue_uuid"]}
+  end
+
+  defp load_item(:edit, params) do
+    case Catalogue.get_item(params["uuid"]) do
+      nil ->
+        Logger.warning("Item not found for edit: #{params["uuid"]}")
+        {nil, nil, nil}
+
+      item ->
+        item = PhoenixKit.RepoHelper.repo().preload(item, [:category, :manufacturer])
+        catalogue_uuid = if item.category, do: item.category.catalogue_uuid, else: nil
+        {item, Catalogue.change_item(item), catalogue_uuid}
+    end
+  end
+
+  defp mount_form(socket, action, item, changeset, catalogue_uuid) do
+    categories =
+      if catalogue_uuid,
+        do: Catalogue.list_categories_for_catalogue(catalogue_uuid),
+        else: Catalogue.list_all_categories()
+
+    all_categories = if action == :edit, do: Catalogue.list_all_categories(), else: []
+
+    socket
+    |> assign(
+      page_title: if(action == :new, do: "New Item", else: "Edit #{item.name}"),
+      action: action,
+      item: item,
+      catalogue_uuid: catalogue_uuid,
+      changeset: changeset,
+      categories: categories,
+      manufacturers: Catalogue.list_manufacturers(status: "active"),
+      all_categories: all_categories,
+      move_target: nil
+    )
+    |> mount_multilang()
   end
 
   @impl true

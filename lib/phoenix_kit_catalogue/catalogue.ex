@@ -857,20 +857,24 @@ defmodule PhoenixKitCatalogue.Catalogue do
   """
   def restore_item(%Item{} = item) do
     repo().transaction(fn ->
-      if item.category_uuid do
-        case repo().get(Category, item.category_uuid) do
-          %Category{status: "deleted"} = cat ->
-            cat |> Category.changeset(%{status: "active"}) |> repo().update!()
-
-          _ ->
-            :ok
-        end
-      end
+      maybe_restore_parent_category(item.category_uuid)
 
       item
       |> Item.changeset(%{status: "active"})
       |> repo().update!()
     end)
+  end
+
+  defp maybe_restore_parent_category(nil), do: :ok
+
+  defp maybe_restore_parent_category(category_uuid) do
+    case repo().get(Category, category_uuid) do
+      %Category{status: "deleted"} = cat ->
+        cat |> Category.changeset(%{status: "active"}) |> repo().update!()
+
+      _ ->
+        :ok
+    end
   end
 
   @doc """
