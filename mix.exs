@@ -36,8 +36,6 @@ defmodule PhoenixKitCatalogue.MixProject do
     [
       quality: ["format", "credo --strict", "dialyzer"],
       "quality.ci": ["format --check-formatted", "credo --strict", "dialyzer"],
-      "test.setup": ["ecto.create --quiet", "ecto.migrate --quiet"],
-      "test.reset": ["ecto.drop --quiet", "test.setup"],
       precommit: ["compile", "quality"]
     ]
   end

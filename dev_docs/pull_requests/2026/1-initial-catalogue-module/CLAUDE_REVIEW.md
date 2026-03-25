@@ -99,7 +99,6 @@ No tests for `next_category_position` under concurrent load, category reordering
 - **Soft-delete cascade design** — the downward-trash / upward-restore pattern with transactions is well thought out and covers the common cases
 - **Comprehensive context documentation** — every public function in `Catalogue` has `@doc` with type specs and IEx examples
 - **83 tests** for context logic covering CRUD, cascade, restore, move, counts, and validations — solid foundation
-- **Versioned migration system** — idempotent, self-detecting version via table comments, clean separation into v01/v02
 - **Two-step permanent delete confirmation** — good UX safety pattern in all form LiveViews
 - **Centralized `Paths` module** — no hardcoded URLs anywhere in the LiveViews
 - **Clean module boundary** — single context module with data-only schemas, follows PhoenixKit conventions

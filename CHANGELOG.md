@@ -11,5 +11,4 @@
 - Add admin LiveViews: catalogues, categories, items, manufacturers, suppliers with forms
 - Add centralized `Paths` module for route generation
 - Add `css_sources/0` for Tailwind CSS scanning support
-- Add consolidated migration (v1) with all 6 tables
 - Add behaviour compliance and catalogue context test suites

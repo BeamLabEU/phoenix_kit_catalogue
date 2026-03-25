@@ -159,15 +159,17 @@ The module registers admin tabs via `PhoenixKit.Module`:
 
 All forms support multilingual content when the Languages module is enabled.
 
+## Database & Migrations
+
+This package contains **no database migrations**. All tables (`phoenix_kit_cat_*`) and migrations are managed by the parent [phoenix_kit](https://github.com/BeamLabEU/phoenix_kit) project. This module only defines Ecto schemas that map to those tables.
+
 ## Tests
 
 ```bash
-# First time setup
-MIX_ENV=test mix test.setup
-
-# Run tests
 mix test
 ```
+
+The test database must be created and migrated by the parent `phoenix_kit` project first.
 
 83 tests covering:
 - Full CRUD for all entities

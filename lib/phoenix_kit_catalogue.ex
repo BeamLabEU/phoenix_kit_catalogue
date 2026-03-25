@@ -63,10 +63,6 @@ defmodule PhoenixKitCatalogue do
   @impl PhoenixKit.Module
   def version, do: "0.1.0"
 
-  # Migrations are handled by PhoenixKit core (V87).
-  # @impl PhoenixKit.Module
-  # def migration_module, do: nil
-
   @impl PhoenixKit.Module
   def permission_metadata do
     %{
