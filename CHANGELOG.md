@@ -1,3 +1,11 @@
+## 0.1.1 - 2026-03-25
+
+### Changed
+- Remove all migration references — database and migrations are managed by the parent `phoenix_kit` project
+- Add "Database & Migrations" section to README and AGENTS.md explaining where DB lives
+- Remove `test.setup` and `test.reset` mix aliases (no longer needed)
+- Remove test-only migration file and migration runner from test helper
+
 ## 0.1.0 - 2026-03-25
 
 ### Added
