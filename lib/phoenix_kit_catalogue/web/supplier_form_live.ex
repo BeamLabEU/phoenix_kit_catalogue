@@ -42,7 +42,8 @@ defmodule PhoenixKitCatalogue.Web.SupplierFormLive do
       end
 
     if is_nil(supplier) and action == :edit do
-      {:ok, socket |> put_flash(:error, "Supplier not found.") |> push_navigate(to: Paths.suppliers())}
+      {:ok,
+       socket |> put_flash(:error, "Supplier not found.") |> push_navigate(to: Paths.suppliers())}
     else
       all_manufacturers = Catalogue.list_manufacturers(status: "active")
 

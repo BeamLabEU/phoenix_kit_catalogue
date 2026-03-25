@@ -32,8 +32,11 @@ defmodule PhoenixKitCatalogue.MixProject do
 
   defp aliases do
     [
+      quality: ["format", "credo --strict", "dialyzer"],
+      "quality.ci": ["format --check-formatted", "credo --strict", "dialyzer"],
       "test.setup": ["ecto.create --quiet", "ecto.migrate --quiet"],
-      "test.reset": ["ecto.drop --quiet", "test.setup"]
+      "test.reset": ["ecto.drop --quiet", "test.setup"],
+      precommit: ["compile", "quality"]
     ]
   end
 
@@ -50,7 +53,7 @@ defmodule PhoenixKitCatalogue.MixProject do
   defp package do
     [
       licenses: ["MIT"],
-      files: ~w(lib .formatter.exs mix.exs README.md LICENSE)
+      files: ~w(lib .formatter.exs mix.exs README.md CHANGELOG.md LICENSE)
     ]
   end
 

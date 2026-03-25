@@ -36,7 +36,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
       end
 
     if is_nil(catalogue) and action == :edit do
-      {:ok, socket |> put_flash(:error, "Catalogue not found.") |> push_navigate(to: Paths.index())}
+      {:ok,
+       socket |> put_flash(:error, "Catalogue not found.") |> push_navigate(to: Paths.index())}
     else
       {:ok,
        socket

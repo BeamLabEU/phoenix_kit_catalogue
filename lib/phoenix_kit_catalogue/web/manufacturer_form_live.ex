@@ -43,21 +43,25 @@ defmodule PhoenixKitCatalogue.Web.ManufacturerFormLive do
       end
 
     if is_nil(manufacturer) and action == :edit do
-      {:ok, socket |> put_flash(:error, "Manufacturer not found.") |> push_navigate(to: Paths.manufacturers())}
+      {:ok,
+       socket
+       |> put_flash(:error, "Manufacturer not found.")
+       |> push_navigate(to: Paths.manufacturers())}
     else
       all_suppliers = Catalogue.list_suppliers(status: "active")
 
       {:ok,
        socket
        |> assign(
-         page_title: if(action == :new, do: "New Manufacturer", else: "Edit #{manufacturer.name}"),
+         page_title:
+           if(action == :new, do: "New Manufacturer", else: "Edit #{manufacturer.name}"),
          action: action,
          manufacturer: manufacturer,
          changeset: changeset,
-       all_suppliers: all_suppliers,
-       linked_supplier_uuids: MapSet.new(linked_supplier_uuids)
-     )
-     |> mount_multilang()}
+         all_suppliers: all_suppliers,
+         linked_supplier_uuids: MapSet.new(linked_supplier_uuids)
+       )
+       |> mount_multilang()}
     end
   end
 

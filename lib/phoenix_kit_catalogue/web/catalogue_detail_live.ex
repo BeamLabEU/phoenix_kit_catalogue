@@ -27,7 +27,9 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       rescue
         Ecto.NoResultsError ->
           Logger.warning("Catalogue not found: #{uuid}")
-          {:ok, socket |> put_flash(:error, "Catalogue not found.") |> push_navigate(to: Paths.index())}
+
+          {:ok,
+           socket |> put_flash(:error, "Catalogue not found.") |> push_navigate(to: Paths.index())}
       end
     else
       {:ok, socket}
@@ -50,7 +52,9 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
          {:ok, _} <- Catalogue.trash_item(item) do
       {:noreply, socket |> put_flash(:info, "Item moved to deleted.") |> load_catalogue_data()}
     else
-      nil -> {:noreply, socket |> put_flash(:error, "Item not found.") |> load_catalogue_data()}
+      nil ->
+        {:noreply, socket |> put_flash(:error, "Item not found.") |> load_catalogue_data()}
+
       {:error, reason} ->
         Logger.error("Failed to trash item #{uuid}: #{inspect(reason)}")
         {:noreply, socket |> put_flash(:error, "Failed to delete item.") |> load_catalogue_data()}
@@ -62,10 +66,14 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
          {:ok, _} <- Catalogue.restore_item(item) do
       {:noreply, socket |> put_flash(:info, "Item restored.") |> load_catalogue_data()}
     else
-      nil -> {:noreply, socket |> put_flash(:error, "Item not found.") |> load_catalogue_data()}
+      nil ->
+        {:noreply, socket |> put_flash(:error, "Item not found.") |> load_catalogue_data()}
+
       {:error, reason} ->
         Logger.error("Failed to restore item #{uuid}: #{inspect(reason)}")
-        {:noreply, socket |> put_flash(:error, "Failed to restore item.") |> load_catalogue_data()}
+
+        {:noreply,
+         socket |> put_flash(:error, "Failed to restore item.") |> load_catalogue_data()}
     end
   end
 
@@ -80,10 +88,20 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
          |> load_catalogue_data()}
       else
         nil ->
-          {:noreply, socket |> assign(:confirm_delete, nil) |> put_flash(:error, "Item not found.") |> load_catalogue_data()}
+          {:noreply,
+           socket
+           |> assign(:confirm_delete, nil)
+           |> put_flash(:error, "Item not found.")
+           |> load_catalogue_data()}
+
         {:error, reason} ->
           Logger.error("Failed to permanently delete item #{uuid}: #{inspect(reason)}")
-          {:noreply, socket |> assign(:confirm_delete, nil) |> put_flash(:error, "Failed to delete item.") |> load_catalogue_data()}
+
+          {:noreply,
+           socket
+           |> assign(:confirm_delete, nil)
+           |> put_flash(:error, "Failed to delete item.")
+           |> load_catalogue_data()}
       end
     else
       {:noreply, assign(socket, :confirm_delete, {:permanent, uuid})}
@@ -93,12 +111,17 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   def handle_event("trash_category", %{"uuid" => uuid}, socket) do
     with %{} = category <- Catalogue.get_category(uuid),
          {:ok, _} <- Catalogue.trash_category(category) do
-      {:noreply, socket |> put_flash(:info, "Category moved to deleted.") |> load_catalogue_data()}
+      {:noreply,
+       socket |> put_flash(:info, "Category moved to deleted.") |> load_catalogue_data()}
     else
-      nil -> {:noreply, socket |> put_flash(:error, "Category not found.") |> load_catalogue_data()}
+      nil ->
+        {:noreply, socket |> put_flash(:error, "Category not found.") |> load_catalogue_data()}
+
       {:error, reason} ->
         Logger.error("Failed to trash category #{uuid}: #{inspect(reason)}")
-        {:noreply, socket |> put_flash(:error, "Failed to delete category.") |> load_catalogue_data()}
+
+        {:noreply,
+         socket |> put_flash(:error, "Failed to delete category.") |> load_catalogue_data()}
     end
   end
 
@@ -107,10 +130,14 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
          {:ok, _} <- Catalogue.restore_category(category) do
       {:noreply, socket |> put_flash(:info, "Category restored.") |> load_catalogue_data()}
     else
-      nil -> {:noreply, socket |> put_flash(:error, "Category not found.") |> load_catalogue_data()}
+      nil ->
+        {:noreply, socket |> put_flash(:error, "Category not found.") |> load_catalogue_data()}
+
       {:error, reason} ->
         Logger.error("Failed to restore category #{uuid}: #{inspect(reason)}")
-        {:noreply, socket |> put_flash(:error, "Failed to restore category.") |> load_catalogue_data()}
+
+        {:noreply,
+         socket |> put_flash(:error, "Failed to restore category.") |> load_catalogue_data()}
     end
   end
 
@@ -125,10 +152,20 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
          |> load_catalogue_data()}
       else
         nil ->
-          {:noreply, socket |> assign(:confirm_delete, nil) |> put_flash(:error, "Category not found.") |> load_catalogue_data()}
+          {:noreply,
+           socket
+           |> assign(:confirm_delete, nil)
+           |> put_flash(:error, "Category not found.")
+           |> load_catalogue_data()}
+
         {:error, reason} ->
           Logger.error("Failed to permanently delete category #{uuid}: #{inspect(reason)}")
-          {:noreply, socket |> assign(:confirm_delete, nil) |> put_flash(:error, "Failed to delete category.") |> load_catalogue_data()}
+
+          {:noreply,
+           socket
+           |> assign(:confirm_delete, nil)
+           |> put_flash(:error, "Failed to delete category.")
+           |> load_catalogue_data()}
       end
     else
       {:noreply, assign(socket, :confirm_delete, {:permanent_cat, uuid})}

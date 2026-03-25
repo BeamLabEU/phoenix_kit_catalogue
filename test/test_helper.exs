@@ -32,7 +32,11 @@ repo_available =
       {:ok, _} = PhoenixKitCatalogue.Test.Repo.start_link()
 
       migrations_path = Path.join([__DIR__, "support", "postgres", "migrations"])
-      Ecto.Migrator.run(PhoenixKitCatalogue.Test.Repo, migrations_path, :up, all: true, log: false)
+
+      Ecto.Migrator.run(PhoenixKitCatalogue.Test.Repo, migrations_path, :up,
+        all: true,
+        log: false
+      )
 
       Ecto.Adapters.SQL.Sandbox.mode(PhoenixKitCatalogue.Test.Repo, :manual)
       true

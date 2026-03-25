@@ -49,16 +49,21 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   defp load_data(socket, :index) do
     if connected?(socket) do
       mode = socket.assigns.catalogue_view_mode
-      catalogues = if mode == "deleted",
-        do: Catalogue.list_catalogues(status: "deleted"),
-        else: Catalogue.list_catalogues()
+
+      catalogues =
+        if mode == "deleted",
+          do: Catalogue.list_catalogues(status: "deleted"),
+          else: Catalogue.list_catalogues()
+
       deleted_count = Catalogue.deleted_catalogue_count()
 
       # Auto-switch to active if no deleted catalogues
       mode = if deleted_count == 0 && mode == "deleted", do: "active", else: mode
-      catalogues = if mode != socket.assigns.catalogue_view_mode,
-        do: Catalogue.list_catalogues(),
-        else: catalogues
+
+      catalogues =
+        if mode != socket.assigns.catalogue_view_mode,
+          do: Catalogue.list_catalogues(),
+          else: catalogues
 
       assign(socket,
         catalogues: catalogues,
@@ -85,7 +90,8 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   # ── Event handlers ──────────────────────────────────────────────
 
   @impl true
-  def handle_event("switch_catalogue_view", %{"mode" => mode}, socket) when mode in ~w(active deleted) do
+  def handle_event("switch_catalogue_view", %{"mode" => mode}, socket)
+      when mode in ~w(active deleted) do
     {:noreply,
      socket
      |> assign(:catalogue_view_mode, mode)
@@ -96,24 +102,40 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   def handle_event("trash_catalogue", %{"uuid" => uuid}, socket) do
     with %{} = catalogue <- Catalogue.get_catalogue(uuid),
          {:ok, _} <- Catalogue.trash_catalogue(catalogue) do
-      {:noreply, socket |> put_flash(:info, "Catalogue moved to deleted.") |> assign(:confirm_delete, nil) |> load_data(:index)}
+      {:noreply,
+       socket
+       |> put_flash(:info, "Catalogue moved to deleted.")
+       |> assign(:confirm_delete, nil)
+       |> load_data(:index)}
     else
-      nil -> {:noreply, socket |> put_flash(:error, "Catalogue not found.") |> load_data(:index)}
+      nil ->
+        {:noreply, socket |> put_flash(:error, "Catalogue not found.") |> load_data(:index)}
+
       {:error, reason} ->
         Logger.error("Failed to trash catalogue #{uuid}: #{inspect(reason)}")
-        {:noreply, socket |> put_flash(:error, "Failed to delete catalogue.") |> load_data(:index)}
+
+        {:noreply,
+         socket |> put_flash(:error, "Failed to delete catalogue.") |> load_data(:index)}
     end
   end
 
   def handle_event("restore_catalogue", %{"uuid" => uuid}, socket) do
     with %{} = catalogue <- Catalogue.get_catalogue(uuid),
          {:ok, _} <- Catalogue.restore_catalogue(catalogue) do
-      {:noreply, socket |> put_flash(:info, "Catalogue restored.") |> assign(:confirm_delete, nil) |> load_data(:index)}
+      {:noreply,
+       socket
+       |> put_flash(:info, "Catalogue restored.")
+       |> assign(:confirm_delete, nil)
+       |> load_data(:index)}
     else
-      nil -> {:noreply, socket |> put_flash(:error, "Catalogue not found.") |> load_data(:index)}
+      nil ->
+        {:noreply, socket |> put_flash(:error, "Catalogue not found.") |> load_data(:index)}
+
       {:error, reason} ->
         Logger.error("Failed to restore catalogue #{uuid}: #{inspect(reason)}")
-        {:noreply, socket |> put_flash(:error, "Failed to restore catalogue.") |> load_data(:index)}
+
+        {:noreply,
+         socket |> put_flash(:error, "Failed to restore catalogue.") |> load_data(:index)}
     end
   end
 
@@ -121,12 +143,27 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     if socket.assigns.confirm_delete == {:permanent, uuid} do
       with %{} = catalogue <- Catalogue.get_catalogue(uuid),
            {:ok, _} <- Catalogue.permanently_delete_catalogue(catalogue) do
-        {:noreply, socket |> put_flash(:info, "Catalogue permanently deleted.") |> assign(:confirm_delete, nil) |> load_data(:index)}
+        {:noreply,
+         socket
+         |> put_flash(:info, "Catalogue permanently deleted.")
+         |> assign(:confirm_delete, nil)
+         |> load_data(:index)}
       else
-        nil -> {:noreply, socket |> assign(:confirm_delete, nil) |> put_flash(:error, "Catalogue not found.") |> load_data(:index)}
+        nil ->
+          {:noreply,
+           socket
+           |> assign(:confirm_delete, nil)
+           |> put_flash(:error, "Catalogue not found.")
+           |> load_data(:index)}
+
         {:error, reason} ->
           Logger.error("Failed to permanently delete catalogue #{uuid}: #{inspect(reason)}")
-          {:noreply, socket |> assign(:confirm_delete, nil) |> put_flash(:error, "Failed to delete catalogue.") |> load_data(:index)}
+
+          {:noreply,
+           socket
+           |> assign(:confirm_delete, nil)
+           |> put_flash(:error, "Failed to delete catalogue.")
+           |> load_data(:index)}
       end
     else
       {:noreply, assign(socket, :confirm_delete, {:permanent, uuid})}
@@ -137,12 +174,19 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     if socket.assigns.confirm_delete == uuid do
       with %{} = manufacturer <- Catalogue.get_manufacturer(uuid),
            {:ok, _} <- Catalogue.delete_manufacturer(manufacturer) do
-        {:noreply, assign(socket, manufacturers: Catalogue.list_manufacturers(), confirm_delete: nil)}
+        {:noreply,
+         assign(socket, manufacturers: Catalogue.list_manufacturers(), confirm_delete: nil)}
       else
-        nil -> {:noreply, assign(socket, :confirm_delete, nil)}
+        nil ->
+          {:noreply, assign(socket, :confirm_delete, nil)}
+
         {:error, reason} ->
           Logger.error("Failed to delete manufacturer #{uuid}: #{inspect(reason)}")
-          {:noreply, socket |> put_flash(:error, "Failed to delete manufacturer.") |> assign(:confirm_delete, nil)}
+
+          {:noreply,
+           socket
+           |> put_flash(:error, "Failed to delete manufacturer.")
+           |> assign(:confirm_delete, nil)}
       end
     else
       {:noreply, assign(socket, :confirm_delete, uuid)}
@@ -155,10 +199,16 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
            {:ok, _} <- Catalogue.delete_supplier(supplier) do
         {:noreply, assign(socket, suppliers: Catalogue.list_suppliers(), confirm_delete: nil)}
       else
-        nil -> {:noreply, assign(socket, :confirm_delete, nil)}
+        nil ->
+          {:noreply, assign(socket, :confirm_delete, nil)}
+
         {:error, reason} ->
           Logger.error("Failed to delete supplier #{uuid}: #{inspect(reason)}")
-          {:noreply, socket |> put_flash(:error, "Failed to delete supplier.") |> assign(:confirm_delete, nil)}
+
+          {:noreply,
+           socket
+           |> put_flash(:error, "Failed to delete supplier.")
+           |> assign(:confirm_delete, nil)}
       end
     else
       {:noreply, assign(socket, :confirm_delete, uuid)}
