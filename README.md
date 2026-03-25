@@ -1,6 +1,6 @@
 # PhoenixKitCatalogue
 
-Catalogue module for [PhoenixKit](https://github.com/mdon/phoenix_kit) — product catalogue management with manufacturers, suppliers, categories, and items.
+Catalogue module for [PhoenixKit](https://github.com/BeamLabEU/phoenix_kit) — product catalogue management with manufacturers, suppliers, categories, and items.
 
 Designed for manufacturing companies (e.g. kitchen/furniture producers) that need to organize materials and components from multiple manufacturers and suppliers.
 
