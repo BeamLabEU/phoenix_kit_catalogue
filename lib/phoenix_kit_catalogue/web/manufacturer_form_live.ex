@@ -333,12 +333,14 @@ defmodule PhoenixKitCatalogue.Web.ManufacturerFormLive do
        when not is_nil(action) do
     errors
     |> Keyword.get_values(field)
-    |> Enum.map(fn {msg, opts} ->
-      Enum.reduce(opts, msg, fn {key, value}, acc ->
-        String.replace(acc, "%{#{key}}", fn _ -> to_string(value) end)
-      end)
-    end)
+    |> Enum.map(&translate_error/1)
   end
 
   defp changeset_errors(_changeset, _field), do: []
+
+  defp translate_error({msg, opts}) do
+    Enum.reduce(opts, msg, fn {key, value}, acc ->
+      String.replace(acc, "%{#{key}}", fn _ -> to_string(value) end)
+    end)
+  end
 end
