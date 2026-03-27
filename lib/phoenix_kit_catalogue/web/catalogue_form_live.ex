@@ -67,7 +67,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
     changeset =
       socket.assigns.catalogue
       |> Catalogue.change_catalogue(params)
-      |> Map.put(:action, :validate)
+      |> Map.put(:action, socket.assigns.changeset.action)
 
     {:noreply, assign(socket, :changeset, changeset)}
   end
@@ -146,14 +146,22 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
       <%!-- Header --%>
       <div class="flex items-center gap-3">
         <.link navigate={Paths.index()} class="btn btn-ghost btn-sm btn-square">
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            class="h-5 w-5"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
           </svg>
         </.link>
         <div>
           <h1 class="text-2xl font-bold">{@page_title}</h1>
           <p class="text-sm text-base-content/60 mt-0.5">
-            {if @action == :new, do: "Create a new product catalogue to organize categories and items.", else: "Update catalogue details and settings."}
+            {if @action == :new,
+              do: "Create a new product catalogue to organize categories and items.",
+              else: "Update catalogue details and settings."}
           </p>
         </div>
       </div>
@@ -165,73 +173,99 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
             multilang_enabled={@multilang_enabled}
             language_tabs={@language_tabs}
             current_lang={@current_lang}
+            class="card-body pb-0 pt-4"
           />
 
-          <.multilang_fields_wrapper multilang_enabled={@multilang_enabled} current_lang={@current_lang} skeleton_class="card-body flex flex-col gap-5">
+          <.multilang_fields_wrapper
+            multilang_enabled={@multilang_enabled}
+            current_lang={@current_lang}
+            skeleton_class="card-body pt-0 flex flex-col gap-5"
+          >
             <:skeleton>
               <%!-- Name --%>
-              <div class="space-y-2">
-                <div class="skeleton h-4 w-20"></div>
-                <div class="skeleton h-12 w-full"></div>
+              <div class="form-control">
+                <div class="label">
+                  <div class="skeleton h-4 w-14"></div>
+                </div>
+                <div class="skeleton h-12 w-full rounded-lg"></div>
               </div>
               <%!-- Description --%>
-              <div class="space-y-2">
-                <div class="skeleton h-4 w-28"></div>
-                <div class="skeleton h-24 w-full"></div>
-              </div>
-              <div class="divider my-0"></div>
-              <%!-- Status --%>
-              <div class="space-y-2">
-                <div class="skeleton h-4 w-16"></div>
-                <div class="skeleton h-12 w-full"></div>
-              </div>
-              <div class="divider my-0"></div>
-              <%!-- Buttons --%>
-              <div class="flex justify-end gap-3">
-                <div class="skeleton h-12 w-20"></div>
-                <div class="skeleton h-12 w-36"></div>
+              <div class="form-control">
+                <div class="label">
+                  <div class="skeleton h-4 w-24"></div>
+                </div>
+                <div class="skeleton h-20 w-full rounded-lg"></div>
               </div>
             </:skeleton>
-            <div class="card-body flex flex-col gap-5">
+            <div class="card-body pt-0 flex flex-col gap-5">
               <.translatable_field
-                field_name="name" form_prefix="catalogue" changeset={@changeset}
-                schema_field={:name} multilang_enabled={@multilang_enabled}
-                current_lang={@current_lang} primary_language={@primary_language}
-                lang_data={@lang_data} label="Name" placeholder="e.g., Kitchen Furniture"
-                required class="w-full"
-              />
-
-              <.translatable_field
-                field_name="description" form_prefix="catalogue" changeset={@changeset}
-                schema_field={:description} multilang_enabled={@multilang_enabled}
-                current_lang={@current_lang} primary_language={@primary_language}
-                lang_data={@lang_data} label="Description" type="textarea"
-                placeholder="Brief description of what this catalogue contains..."
+                field_name="name"
+                form_prefix="catalogue"
+                changeset={@changeset}
+                schema_field={:name}
+                multilang_enabled={@multilang_enabled}
+                current_lang={@current_lang}
+                primary_language={@primary_language}
+                lang_data={@lang_data}
+                label="Name"
+                placeholder="e.g., Kitchen Furniture"
+                required
                 class="w-full"
               />
 
-              <div class="divider my-0"></div>
-
-              <div class="form-control">
-                <span class="label-text font-semibold mb-2">Status</span>
-                <select name="catalogue[status]" class="select select-bordered w-full transition-colors focus:select-primary">
-                  <option value="active" selected={Ecto.Changeset.get_field(@changeset, :status) == "active"}>Active</option>
-                  <option value="archived" selected={Ecto.Changeset.get_field(@changeset, :status) == "archived"}>Archived</option>
-                </select>
-                <span class="label-text-alt text-base-content/50 mt-1">Archived catalogues are hidden from active views.</span>
-              </div>
-
-              <%!-- Actions --%>
-              <div class="divider my-0"></div>
-
-              <div class="flex justify-end gap-3">
-                <.link navigate={Paths.index()} class="btn btn-ghost">Cancel</.link>
-                <button type="submit" class="btn btn-primary phx-submit-loading:opacity-75">
-                  {if @action == :new, do: "Create Catalogue", else: "Save Changes"}
-                </button>
-              </div>
+              <.translatable_field
+                field_name="description"
+                form_prefix="catalogue"
+                changeset={@changeset}
+                schema_field={:description}
+                multilang_enabled={@multilang_enabled}
+                current_lang={@current_lang}
+                primary_language={@primary_language}
+                lang_data={@lang_data}
+                label="Description"
+                type="textarea"
+                placeholder="Brief description of what this catalogue contains..."
+                class="w-full"
+              />
             </div>
           </.multilang_fields_wrapper>
+
+          <div class="card-body flex flex-col gap-5 pt-0">
+            <div class="divider my-0"></div>
+
+            <div class="form-control">
+              <span class="label-text font-semibold mb-2">Status</span>
+              <label class="select select-bordered w-full transition-colors focus-within:select-primary">
+                <select name="catalogue[status]">
+                  <option
+                    value="active"
+                    selected={Ecto.Changeset.get_field(@changeset, :status) == "active"}
+                  >
+                    Active
+                  </option>
+                  <option
+                    value="archived"
+                    selected={Ecto.Changeset.get_field(@changeset, :status) == "archived"}
+                  >
+                    Archived
+                  </option>
+                </select>
+              </label>
+              <span class="label-text-alt text-base-content/50 mt-1">
+                Archived catalogues are hidden from active views.
+              </span>
+            </div>
+
+            <%!-- Actions --%>
+            <div class="divider my-0"></div>
+
+            <div class="flex justify-end gap-3">
+              <.link navigate={Paths.index()} class="btn btn-ghost">Cancel</.link>
+              <button type="submit" class="btn btn-primary phx-submit-loading:opacity-75">
+                {if @action == :new, do: "Create Catalogue", else: "Save Changes"}
+              </button>
+            </div>
+          </div>
         </div>
       </.form>
 
@@ -240,7 +274,9 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
         <div class="card-body flex flex-row items-center justify-between gap-4">
           <div>
             <span class="text-sm font-semibold text-error">Permanently Delete Catalogue</span>
-            <p class="text-xs text-base-content/50">This will permanently delete this catalogue, all its categories, and all items within them. This cannot be undone.</p>
+            <p class="text-xs text-base-content/50">
+              This will permanently delete this catalogue, all its categories, and all items within them. This cannot be undone.
+            </p>
           </div>
           <button
             :if={!@confirm_delete}
