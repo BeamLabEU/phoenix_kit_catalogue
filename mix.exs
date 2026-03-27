@@ -8,12 +8,12 @@ defmodule PhoenixKitCatalogue.MixProject do
     [
       app: :phoenix_kit_catalogue,
       version: @version,
-      elixir: "~> 1.15",
+      elixir: "~> 1.18",
       elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
       deps: deps(),
       description:
-        "Catalogue module for PhoenixKit — manufacturers, suppliers, and product catalogues",
+        "Catalogue module for PhoenixKit — manufacturers, suppliers, and product catalogues.",
       package: package(),
       dialyzer: [plt_add_apps: [:phoenix_kit]],
       name: "PhoenixKitCatalogue",
@@ -44,7 +44,7 @@ defmodule PhoenixKitCatalogue.MixProject do
     [
       {:phoenix_kit, "~> 1.7"},
       {:phoenix_live_view, "~> 1.0"},
-      {:ex_doc, "~> 0.34", only: :dev, runtime: false},
+      {:ex_doc, "~> 0.39", only: :dev, runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false}
     ]
