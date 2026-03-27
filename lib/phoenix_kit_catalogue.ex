@@ -61,7 +61,7 @@ defmodule PhoenixKitCatalogue do
   # ===========================================================================
 
   @impl PhoenixKit.Module
-  def version, do: "0.1.1"
+  def version, do: "0.1.2"
 
   @impl PhoenixKit.Module
   def permission_metadata do

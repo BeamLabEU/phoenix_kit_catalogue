@@ -1,3 +1,10 @@
+## 0.1.2 - 2026-03-27
+
+### Changed
+- Bump Elixir requirement from ~> 1.15 to ~> 1.18 (align with sibling modules)
+- Bump ex_doc from ~> 0.34 to ~> 0.39
+- Update AGENTS.md: reorganize commands, add critical conventions, commit message rules, external dependencies section, and PR docs templates
+
 ## 0.1.1 - 2026-03-25
 
 ### Changed
