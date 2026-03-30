@@ -16,7 +16,7 @@ defmodule PhoenixKitCatalogue.Schemas.Item do
     field(:name, :string)
     field(:description, :string)
     field(:sku, :string)
-    field(:price, :decimal)
+    field(:base_price, :decimal)
     field(:unit, :string, default: "piece")
     field(:status, :string, default: "active")
     field(:data, :map, default: %{})
@@ -40,7 +40,7 @@ defmodule PhoenixKitCatalogue.Schemas.Item do
   @optional_fields [
     :description,
     :sku,
-    :price,
+    :base_price,
     :unit,
     :status,
     :category_uuid,
@@ -56,7 +56,27 @@ defmodule PhoenixKitCatalogue.Schemas.Item do
     |> validate_length(:sku, max: 100)
     |> validate_inclusion(:status, @statuses)
     |> validate_inclusion(:unit, @units)
-    |> validate_number(:price, greater_than_or_equal_to: 0)
+    |> validate_number(:base_price, greater_than_or_equal_to: 0)
     |> unique_constraint(:sku)
+  end
+
+  @doc """
+  Calculates the sale price for an item given a markup percentage.
+
+  Returns `nil` if the item has no base price.
+  The markup_percentage should be a Decimal (e.g., `Decimal.new("15.0")` for 15%).
+
+  ## Examples
+
+      Item.sale_price(item, Decimal.new("20.0"))  # base_price * 1.20
+      Item.sale_price(item, nil)                   # returns base_price unchanged
+  """
+  def sale_price(%__MODULE__{base_price: nil}, _markup_percentage), do: nil
+
+  def sale_price(%__MODULE__{base_price: base_price}, nil), do: base_price
+
+  def sale_price(%__MODULE__{base_price: base_price}, markup_percentage) do
+    multiplier = Decimal.add(Decimal.new("1"), Decimal.div(markup_percentage, Decimal.new("100")))
+    Decimal.mult(base_price, multiplier) |> Decimal.round(2)
   end
 end

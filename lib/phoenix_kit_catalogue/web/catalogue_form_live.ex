@@ -12,7 +12,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
   alias PhoenixKitCatalogue.Schemas.Catalogue, as: CatalogueSchema
 
   @translatable_fields ["name", "description"]
-  @preserve_fields %{"status" => :status}
+  @preserve_fields %{"status" => :status, "markup_percentage" => :markup_percentage}
 
   @impl true
   def mount(params, _session, socket) do
@@ -232,6 +232,14 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
 
           <div class="card-body flex flex-col gap-5 pt-0">
             <div class="divider my-0"></div>
+
+            <div class="form-control">
+              <span class="label-text font-semibold mb-2">Markup Percentage</span>
+              <input type="number" name="catalogue[markup_percentage]" value={Ecto.Changeset.get_field(@changeset, :markup_percentage)} class="input input-bordered w-full transition-colors focus:input-primary" step="0.01" min="0" placeholder="e.g., 15.0" />
+              <span class="label-text-alt text-base-content/50 mt-1">
+                Applied to all item base prices to calculate sale prices. Leave blank for no markup.
+              </span>
+            </div>
 
             <div class="form-control">
               <span class="label-text font-semibold mb-2">Status</span>

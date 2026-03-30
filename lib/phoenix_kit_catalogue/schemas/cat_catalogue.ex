@@ -14,6 +14,7 @@ defmodule PhoenixKitCatalogue.Schemas.Catalogue do
   schema "phoenix_kit_cat_catalogues" do
     field(:name, :string)
     field(:description, :string)
+    field(:markup_percentage, :decimal, default: Decimal.new("0"))
     field(:status, :string, default: "active")
     field(:data, :map, default: %{})
 
@@ -26,7 +27,7 @@ defmodule PhoenixKitCatalogue.Schemas.Catalogue do
   end
 
   @required_fields [:name]
-  @optional_fields [:description, :status, :data]
+  @optional_fields [:description, :markup_percentage, :status, :data]
 
   def changeset(catalogue, attrs) do
     catalogue
@@ -34,5 +35,6 @@ defmodule PhoenixKitCatalogue.Schemas.Catalogue do
     |> validate_required(@required_fields)
     |> validate_length(:name, min: 1, max: 255)
     |> validate_inclusion(:status, @statuses)
+    |> validate_number(:markup_percentage, greater_than_or_equal_to: 0)
   end
 end
