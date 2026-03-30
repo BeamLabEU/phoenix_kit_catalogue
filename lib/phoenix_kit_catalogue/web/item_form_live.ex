@@ -14,7 +14,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   @translatable_fields ["name", "description"]
   @preserve_fields %{
     "sku" => :sku,
-    "price" => :price,
+    "base_price" => :base_price,
     "unit" => :unit,
     "status" => :status,
     "category_uuid" => :category_uuid,
@@ -293,8 +293,9 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                   <input type="text" name="item[sku]" value={Ecto.Changeset.get_field(@changeset, :sku) || ""} class="input input-bordered w-full font-mono transition-colors focus:input-primary" placeholder="e.g., KF-001" />
                 </div>
                 <div class="form-control">
-                  <span class="label-text font-semibold mb-2">Price</span>
-                  <input type="number" name="item[price]" value={Ecto.Changeset.get_field(@changeset, :price)} class="input input-bordered w-full transition-colors focus:input-primary" step="0.01" min="0" placeholder="0.00" />
+                  <span class="label-text font-semibold mb-2">Base Price</span>
+                  <input type="number" name="item[base_price]" value={Ecto.Changeset.get_field(@changeset, :base_price)} class="input input-bordered w-full transition-colors focus:input-primary" step="0.01" min="0" placeholder="0.00" />
+                  <span class="label-text-alt text-base-content/50 mt-1">Cost/purchase price before catalogue markup.</span>
                 </div>
                 <div class="form-control">
                   <span class="label-text font-semibold mb-2">Unit</span>

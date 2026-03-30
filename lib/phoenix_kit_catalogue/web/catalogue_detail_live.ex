@@ -18,7 +18,9 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         uncategorized_items: [],
         confirm_delete: nil,
         view_mode: "active",
-        deleted_count: 0
+        deleted_count: 0,
+        search_query: "",
+        search_results: nil
       )
 
     if connected?(socket) do
@@ -45,6 +47,23 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
      |> assign(:view_mode, mode)
      |> assign(:confirm_delete, nil)
      |> load_catalogue_data()}
+  end
+
+  def handle_event("search", %{"query" => query}, socket) do
+    query = String.trim(query)
+
+    if query == "" do
+      {:noreply, assign(socket, search_query: "", search_results: nil)}
+    else
+      results =
+        Catalogue.search_items_in_catalogue(socket.assigns.catalogue_uuid, query)
+
+      {:noreply, assign(socket, search_query: query, search_results: results)}
+    end
+  end
+
+  def handle_event("clear_search", _params, socket) do
+    {:noreply, assign(socket, search_query: "", search_results: nil)}
   end
 
   def handle_event("delete_item", %{"uuid" => uuid}, socket) do
@@ -198,7 +217,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
     mode = view_mode_to_atom(view_mode)
     catalogue = Catalogue.get_catalogue!(uuid, mode: mode)
-    uncategorized = Catalogue.list_uncategorized_items_for_catalogue(uuid, mode: mode)
+    uncategorized = Catalogue.list_uncategorized_items(mode: mode)
 
     assign(socket,
       page_title: catalogue.name,
@@ -225,9 +244,11 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     if index != swap_index do
       cat_a = Enum.at(categories, index)
       cat_b = Enum.at(categories, swap_index)
-      Catalogue.update_category(cat_a, %{position: cat_b.position})
-      Catalogue.update_category(cat_b, %{position: cat_a.position})
-      {:noreply, load_catalogue_data(socket)}
+
+      case Catalogue.swap_category_positions(cat_a, cat_b) do
+        {:ok, _} -> {:noreply, load_catalogue_data(socket)}
+        {:error, _} -> {:noreply, put_flash(socket, :error, "Failed to reorder categories.")}
+      end
     else
       {:noreply, socket}
     end
@@ -262,6 +283,9 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
             <p :if={@catalogue.description} class="text-base-content/60 mt-1 ml-10">
               {@catalogue.description}
             </p>
+            <p :if={Decimal.gt?(@catalogue.markup_percentage, Decimal.new("0"))} class="text-sm text-base-content/50 mt-0.5 ml-10">
+              Markup: {Decimal.to_string(@catalogue.markup_percentage, :normal)}%
+            </p>
           </div>
 
           <div :if={@view_mode == "active"} class="flex gap-2">
@@ -277,8 +301,56 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
           </div>
         </div>
 
+        <%!-- Search --%>
+        <div :if={@view_mode == "active"} class="flex gap-2">
+          <form phx-change="search" phx-submit="search" class="flex-1 relative">
+            <input
+              type="text"
+              name="query"
+              value={@search_query}
+              placeholder="Search items by name, description, or SKU..."
+              class="input input-bordered input-sm w-full pr-8"
+              phx-debounce="300"
+              autocomplete="off"
+            />
+            <button
+              :if={@search_query != ""}
+              type="button"
+              phx-click="clear_search"
+              class="absolute right-2 top-1/2 -translate-y-1/2 text-base-content/40 hover:text-base-content cursor-pointer"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </form>
+        </div>
+
+        <%!-- Search results --%>
+        <div :if={@search_results != nil} class="flex flex-col gap-4">
+          <div class="flex items-center justify-between">
+            <span class="text-sm text-base-content/60">
+              {length(@search_results)} result{if length(@search_results) != 1, do: "s"} for "{@search_query}"
+            </span>
+          </div>
+
+          <div :if={@search_results == []} class="card bg-base-100 shadow">
+            <div class="card-body items-center text-center py-8">
+              <p class="text-base-content/60">No items match your search.</p>
+            </div>
+          </div>
+
+          <div :if={@search_results != []} class="card bg-base-100 shadow">
+            <div class="card-body">
+              <div class="overflow-x-auto">
+                <.items_table items={@search_results} view_mode="active" confirm_delete={nil} markup_percentage={@catalogue.markup_percentage} />
+              </div>
+            </div>
+          </div>
+        </div>
+
         <%!-- Status tabs --%>
-        <div :if={@deleted_count > 0} class="flex items-center gap-0.5 border-b border-base-200">
+        <div :if={@deleted_count > 0 and is_nil(@search_results)} class="flex items-center gap-0.5 border-b border-base-200">
           <button
             type="button"
             phx-click="switch_view"
@@ -309,21 +381,22 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
           </button>
         </div>
 
+        <%!-- Normal view (hidden during search) --%>
         <%!-- Empty state --%>
-        <div :if={@catalogue.categories == [] and @uncategorized_items == [] and @view_mode == "active"} class="card bg-base-100 shadow">
+        <div :if={is_nil(@search_results) and @catalogue.categories == [] and @uncategorized_items == [] and @view_mode == "active"} class="card bg-base-100 shadow">
           <div class="card-body items-center text-center py-12">
             <p class="text-base-content/60">No categories or items yet. Add a category or item to get started.</p>
           </div>
         </div>
 
-        <div :if={@catalogue.categories == [] and @uncategorized_items == [] and @view_mode == "deleted"} class="card bg-base-100 shadow">
+        <div :if={is_nil(@search_results) and @catalogue.categories == [] and @uncategorized_items == [] and @view_mode == "deleted"} class="card bg-base-100 shadow">
           <div class="card-body items-center text-center py-12">
             <p class="text-base-content/60">No deleted items.</p>
           </div>
         </div>
 
         <%!-- Categories with items --%>
-        <%= for category <- @catalogue.categories do %>
+        <%= for category <- @catalogue.categories, is_nil(@search_results) do %>
           <%!-- In deleted mode, hide active categories with no deleted items --%>
           <div :if={@view_mode == "active" or category.status == "deleted" or category.items != []} class="card bg-base-100 shadow">
             <div class="card-body">
@@ -398,7 +471,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
               <%!-- Items table --%>
               <div :if={category.items != []} class="overflow-x-auto mt-2">
-                <.items_table items={category.items} view_mode={@view_mode} confirm_delete={@confirm_delete} />
+                <.items_table items={category.items} view_mode={@view_mode} confirm_delete={@confirm_delete} markup_percentage={@catalogue.markup_percentage} />
               </div>
 
               <p :if={category.items == [] and @view_mode == "active"} class="text-sm text-base-content/40 text-center py-4">
@@ -409,7 +482,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         <% end %>
 
         <%!-- Uncategorized items --%>
-        <div :if={@uncategorized_items != []} class="card bg-base-100 shadow">
+        <div :if={is_nil(@search_results) and @uncategorized_items != []} class="card bg-base-100 shadow">
           <div class="card-body">
             <div class="flex items-center gap-2">
               <h3 class="card-title text-lg text-base-content/70">Uncategorized</h3>
@@ -417,7 +490,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
             </div>
 
             <div class="overflow-x-auto mt-2">
-              <.items_table items={@uncategorized_items} view_mode={@view_mode} confirm_delete={@confirm_delete} />
+              <.items_table items={@uncategorized_items} view_mode={@view_mode} confirm_delete={@confirm_delete} markup_percentage={@catalogue.markup_percentage} />
             </div>
           </div>
         </div>
@@ -433,6 +506,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         <tr>
           <th>Name</th>
           <th>SKU</th>
+          <th>Base Price</th>
           <th>Price</th>
           <th>Unit</th>
           <th>Status</th>
@@ -443,7 +517,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         <tr :for={item <- @items}>
           <td class="font-medium">{item.name}</td>
           <td class="text-sm font-mono text-base-content/60">{item.sku || "—"}</td>
-          <td class="text-sm">{format_price(item.price)}</td>
+          <td class="text-sm">{format_price(item.base_price)}</td>
+          <td class="text-sm font-semibold">{format_price(PhoenixKitCatalogue.Schemas.Item.sale_price(item, @markup_percentage))}</td>
           <td class="text-sm">{format_unit(item.unit)}</td>
           <td>
             <span class={["badge badge-xs", item_status_badge(item.status)]}>

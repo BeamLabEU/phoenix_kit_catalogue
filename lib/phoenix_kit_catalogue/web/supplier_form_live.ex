@@ -77,13 +77,20 @@ defmodule PhoenixKitCatalogue.Web.SupplierFormLive do
   defp save_supplier(socket, :new, params) do
     case Catalogue.create_supplier(params) do
       {:ok, supplier} ->
-        Catalogue.sync_supplier_manufacturers(
-          supplier.uuid,
-          MapSet.to_list(socket.assigns.linked_manufacturer_uuids)
-        )
+        case Catalogue.sync_supplier_manufacturers(
+               supplier.uuid,
+               MapSet.to_list(socket.assigns.linked_manufacturer_uuids)
+             ) do
+          {:ok, _} ->
+            {:noreply,
+             socket |> put_flash(:info, "Supplier created.") |> push_navigate(to: Paths.suppliers())}
 
-        {:noreply,
-         socket |> put_flash(:info, "Supplier created.") |> push_navigate(to: Paths.suppliers())}
+          {:error, _} ->
+            {:noreply,
+             socket
+             |> put_flash(:warning, "Supplier created but failed to link some manufacturers.")
+             |> push_navigate(to: Paths.suppliers())}
+        end
 
       {:error, changeset} ->
         {:noreply, assign(socket, :changeset, changeset)}
@@ -93,13 +100,20 @@ defmodule PhoenixKitCatalogue.Web.SupplierFormLive do
   defp save_supplier(socket, :edit, params) do
     case Catalogue.update_supplier(socket.assigns.supplier, params) do
       {:ok, supplier} ->
-        Catalogue.sync_supplier_manufacturers(
-          supplier.uuid,
-          MapSet.to_list(socket.assigns.linked_manufacturer_uuids)
-        )
+        case Catalogue.sync_supplier_manufacturers(
+               supplier.uuid,
+               MapSet.to_list(socket.assigns.linked_manufacturer_uuids)
+             ) do
+          {:ok, _} ->
+            {:noreply,
+             socket |> put_flash(:info, "Supplier updated.") |> push_navigate(to: Paths.suppliers())}
 
-        {:noreply,
-         socket |> put_flash(:info, "Supplier updated.") |> push_navigate(to: Paths.suppliers())}
+          {:error, _} ->
+            {:noreply,
+             socket
+             |> put_flash(:warning, "Supplier updated but failed to sync manufacturer links.")
+             |> push_navigate(to: Paths.suppliers())}
+        end
 
       {:error, changeset} ->
         {:noreply, assign(socket, :changeset, changeset)}

@@ -25,7 +25,9 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
        suppliers: [],
        confirm_delete: nil,
        catalogue_view_mode: "active",
-       deleted_catalogue_count: 0
+       deleted_catalogue_count: 0,
+       search_query: "",
+       search_results: nil
      )}
   end
 
@@ -219,6 +221,21 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     {:noreply, assign(socket, :confirm_delete, nil)}
   end
 
+  def handle_event("search", %{"query" => query}, socket) do
+    query = String.trim(query)
+
+    if query == "" do
+      {:noreply, assign(socket, search_query: "", search_results: nil)}
+    else
+      results = Catalogue.search_items(query)
+      {:noreply, assign(socket, search_query: query, search_results: results)}
+    end
+  end
+
+  def handle_event("clear_search", _params, socket) do
+    {:noreply, assign(socket, search_query: "", search_results: nil)}
+  end
+
   # ── Render ──────────────────────────────────────────────────────
 
   @impl true
@@ -261,8 +278,89 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         </div>
       </div>
 
+      <%!-- Global search --%>
+      <div class="flex gap-2">
+        <form phx-change="search" phx-submit="search" class="flex-1 relative">
+          <input
+            type="text"
+            name="query"
+            value={@search_query}
+            placeholder="Search items across all catalogues..."
+            class="input input-bordered input-sm w-full pr-8"
+            phx-debounce="300"
+            autocomplete="off"
+          />
+          <button
+            :if={@search_query != ""}
+            type="button"
+            phx-click="clear_search"
+            class="absolute right-2 top-1/2 -translate-y-1/2 text-base-content/40 hover:text-base-content cursor-pointer"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </form>
+      </div>
+
+      <%!-- Search results --%>
+      <div :if={@search_results != nil} class="flex flex-col gap-4">
+        <div class="flex items-center justify-between">
+          <span class="text-sm text-base-content/60">
+            {length(@search_results)} result{if length(@search_results) != 1, do: "s"} for "{@search_query}"
+          </span>
+        </div>
+
+        <div :if={@search_results == []} class="card bg-base-100 shadow">
+          <div class="card-body items-center text-center py-8">
+            <p class="text-base-content/60">No items match your search.</p>
+          </div>
+        </div>
+
+        <div :if={@search_results != []} class="overflow-x-auto">
+          <table class="table table-zebra">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>SKU</th>
+                <th>Base Price</th>
+                <th>Catalogue</th>
+                <th>Category</th>
+                <th>Manufacturer</th>
+                <th>Status</th>
+                <th class="text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr :for={item <- @search_results}>
+                <td class="font-medium">{item.name}</td>
+                <td class="text-sm font-mono text-base-content/60">{item.sku || "—"}</td>
+                <td class="text-sm">{format_price(item.base_price)}</td>
+                <td class="text-sm">
+                  <.link :if={item.category} navigate={Paths.catalogue_detail(item.category.catalogue.uuid)} class="link link-hover">
+                    {item.category.catalogue.name}
+                  </.link>
+                </td>
+                <td class="text-sm text-base-content/60">{if item.category, do: item.category.name, else: "—"}</td>
+                <td class="text-sm text-base-content/60">{if item.manufacturer, do: item.manufacturer.name, else: "—"}</td>
+                <td>
+                  <span class={["badge badge-xs", item_status_badge(item.status)]}>
+                    {item.status}
+                  </span>
+                </td>
+                <td class="text-right">
+                  <.link navigate={Paths.item_edit(item.uuid)} class="btn btn-ghost btn-xs">
+                    Edit
+                  </.link>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
       <%!-- Catalogue tab content --%>
-      <div :if={@active_tab == :index} class="flex flex-col gap-4">
+      <div :if={@active_tab == :index and is_nil(@search_results)} class="flex flex-col gap-4">
         <%!-- Status sub-tabs for catalogues --%>
         <div :if={@deleted_catalogue_count > 0} class="flex items-center gap-0.5 border-b border-base-200">
           <button
@@ -298,11 +396,11 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         <.catalogues_table catalogues={@catalogues} confirm_delete={@confirm_delete} view_mode={@catalogue_view_mode} />
       </div>
 
-      <div :if={@active_tab == :manufacturers}>
+      <div :if={@active_tab == :manufacturers and is_nil(@search_results)}>
         <.manufacturers_table manufacturers={@manufacturers} confirm_delete={@confirm_delete} />
       </div>
 
-      <div :if={@active_tab == :suppliers}>
+      <div :if={@active_tab == :suppliers and is_nil(@search_results)}>
         <.suppliers_table suppliers={@suppliers} confirm_delete={@confirm_delete} />
       </div>
     </div>
@@ -503,4 +601,12 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   defp status_badge_class("inactive"), do: "badge-ghost"
   defp status_badge_class("deleted"), do: "badge-error"
   defp status_badge_class(_), do: "badge-ghost"
+
+  defp item_status_badge("active"), do: "badge-success"
+  defp item_status_badge("inactive"), do: "badge-ghost"
+  defp item_status_badge("discontinued"), do: "badge-warning"
+  defp item_status_badge(_), do: "badge-ghost"
+
+  defp format_price(nil), do: "—"
+  defp format_price(price), do: Decimal.to_string(price, :normal)
 end
