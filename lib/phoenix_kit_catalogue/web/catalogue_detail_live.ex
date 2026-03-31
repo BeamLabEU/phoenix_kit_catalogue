@@ -8,9 +8,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   import PhoenixKitWeb.Components.Core.Icon, only: [icon: 1]
   import PhoenixKitWeb.Components.Core.AdminPageHeader, only: [admin_page_header: 1]
   import PhoenixKitWeb.Components.Core.Modal, only: [confirm_modal: 1]
-  import PhoenixKitWeb.Components.Core.TableDefault
-  import PhoenixKitWeb.Components.Core.TableRowMenu
-  import PhoenixKitWeb.Components.Core.Badge, only: [status_badge: 1]
+  import PhoenixKitCatalogue.Web.Components
 
   alias PhoenixKitCatalogue.Catalogue
   alias PhoenixKitCatalogue.Paths
@@ -298,45 +296,23 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         </div>
 
         <%!-- Search --%>
-        <div :if={@view_mode == "active"} class="flex gap-2">
-          <form phx-change="search" phx-submit="search" class="flex-1 relative">
-            <input
-              type="text"
-              name="query"
-              value={@search_query}
-              placeholder="Search items by name, description, or SKU..."
-              class="input input-bordered input-sm w-full pr-8"
-              phx-debounce="300"
-              autocomplete="off"
-            />
-            <button
-              :if={@search_query != ""}
-              type="button"
-              phx-click="clear_search"
-              class="absolute right-2 top-1/2 -translate-y-1/2 text-base-content/40 hover:text-base-content cursor-pointer"
-            >
-              <.icon name="hero-x-mark" class="w-4 h-4" />
-            </button>
-          </form>
-        </div>
+        <.search_input :if={@view_mode == "active"} query={@search_query} placeholder="Search items by name, description, or SKU..." />
 
         <%!-- Search results --%>
         <div :if={@search_results != nil} class="flex flex-col gap-4">
-          <div class="flex items-center justify-between">
-            <span class="text-sm text-base-content/60">
-              {length(@search_results)} result{if length(@search_results) != 1, do: "s"} for "{@search_query}"
-            </span>
-          </div>
+          <.search_results_summary count={length(@search_results)} query={@search_query} />
 
-          <div :if={@search_results == []} class="card bg-base-100 shadow">
-            <div class="card-body items-center text-center py-8">
-              <p class="text-base-content/60">No items match your search.</p>
-            </div>
-          </div>
+          <.empty_state :if={@search_results == []} message="No items match your search." />
 
           <div :if={@search_results != []} class="card bg-base-100 shadow">
             <div class="card-body">
-              <.items_table items={@search_results} view_mode="active" markup_percentage={@catalogue.markup_percentage} wrapper_class="overflow-x-auto shadow-none rounded-none" />
+              <.item_table
+                items={@search_results}
+                columns={[:name, :sku, :base_price, :price, :unit, :status]}
+                markup_percentage={@catalogue.markup_percentage}
+                edit_path={&Paths.item_edit/1}
+                wrapper_class="overflow-x-auto shadow-none rounded-none"
+              />
             </div>
           </div>
         </div>
@@ -452,9 +428,28 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                 {category.description}
               </p>
 
-              <%!-- Items table --%>
-              <div :if={category.items != []} class="mt-2">
-                <.items_table items={category.items} view_mode={@view_mode} markup_percentage={@catalogue.markup_percentage} wrapper_class="overflow-x-auto shadow-none rounded-none" />
+              <%!-- Items table: active mode --%>
+              <div :if={category.items != [] and @view_mode == "active"} class="mt-2">
+                <.item_table
+                  items={category.items}
+                  columns={[:name, :sku, :base_price, :price, :unit, :status]}
+                  markup_percentage={@catalogue.markup_percentage}
+                  edit_path={&Paths.item_edit/1}
+                  on_delete="delete_item"
+                  wrapper_class="overflow-x-auto shadow-none rounded-none"
+                />
+              </div>
+              <%!-- Items table: deleted mode --%>
+              <div :if={category.items != [] and @view_mode == "deleted"} class="mt-2">
+                <.item_table
+                  items={category.items}
+                  columns={[:name, :sku, :base_price, :price, :unit, :status]}
+                  markup_percentage={@catalogue.markup_percentage}
+                  on_restore="restore_item"
+                  on_permanent_delete="show_delete_confirm"
+                  permanent_delete_type="item"
+                  wrapper_class="overflow-x-auto shadow-none rounded-none"
+                />
               </div>
 
               <p :if={category.items == [] and @view_mode == "active"} class="text-sm text-base-content/40 text-center py-4">
@@ -473,7 +468,15 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
             </div>
 
             <div class="overflow-x-auto mt-2">
-              <.items_table items={@uncategorized_items} view_mode={@view_mode} markup_percentage={@catalogue.markup_percentage} />
+              <.item_table
+                items={@uncategorized_items}
+                columns={[:name, :sku, :base_price, :unit, :status]}
+                edit_path={if @view_mode == "active", do: &Paths.item_edit/1}
+                on_delete={if @view_mode == "active", do: "delete_item"}
+                on_restore={if @view_mode == "deleted", do: "restore_item"}
+                on_permanent_delete={if @view_mode == "deleted", do: "show_delete_confirm"}
+                permanent_delete_type="item"
+              />
             </div>
           </div>
         </div>
@@ -504,55 +507,4 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     """
   end
 
-  defp items_table(assigns) do
-    ~H"""
-    <.table_default size="sm" wrapper_class={assigns[:wrapper_class]}>
-      <.table_default_header>
-        <.table_default_row>
-          <.table_default_header_cell>Name</.table_default_header_cell>
-          <.table_default_header_cell>SKU</.table_default_header_cell>
-          <.table_default_header_cell>Base Price</.table_default_header_cell>
-          <.table_default_header_cell>Price</.table_default_header_cell>
-          <.table_default_header_cell>Unit</.table_default_header_cell>
-          <.table_default_header_cell>Status</.table_default_header_cell>
-          <.table_default_header_cell class="text-right">Actions</.table_default_header_cell>
-        </.table_default_row>
-      </.table_default_header>
-      <.table_default_body>
-        <.table_default_row :for={item <- @items}>
-          <.table_default_cell class="font-medium">{item.name}</.table_default_cell>
-          <.table_default_cell class="text-sm font-mono text-base-content/60">{item.sku || "—"}</.table_default_cell>
-          <.table_default_cell class="text-sm">{format_price(item.base_price)}</.table_default_cell>
-          <.table_default_cell class="text-sm font-semibold">{format_price(PhoenixKitCatalogue.Schemas.Item.sale_price(item, @markup_percentage))}</.table_default_cell>
-          <.table_default_cell class="text-sm">{format_unit(item.unit)}</.table_default_cell>
-          <.table_default_cell><.status_badge status={item.status} size={:xs} /></.table_default_cell>
-          <%!-- Active mode actions --%>
-          <.table_default_cell :if={@view_mode == "active"} class="text-right">
-            <.table_row_menu id={"item-menu-#{item.uuid}"}>
-              <.table_row_menu_link navigate={Paths.item_edit(item.uuid)} icon="hero-pencil" label="Edit" />
-              <.table_row_menu_divider />
-              <.table_row_menu_button phx-click="delete_item" phx-value-uuid={item.uuid} icon="hero-trash" label="Delete" variant="error" />
-            </.table_row_menu>
-          </.table_default_cell>
-          <%!-- Deleted mode actions --%>
-          <.table_default_cell :if={@view_mode == "deleted"} class="text-right">
-            <.table_row_menu id={"item-del-menu-#{item.uuid}"}>
-              <.table_row_menu_button phx-click="restore_item" phx-value-uuid={item.uuid} icon="hero-arrow-path" label="Restore" variant="success" />
-              <.table_row_menu_divider />
-              <.table_row_menu_button phx-click="show_delete_confirm" phx-value-uuid={item.uuid} phx-value-type="item" icon="hero-trash" label="Delete Forever" variant="error" />
-            </.table_row_menu>
-          </.table_default_cell>
-        </.table_default_row>
-      </.table_default_body>
-    </.table_default>
-    """
-  end
-
-  defp format_price(nil), do: "—"
-  defp format_price(price), do: Decimal.to_string(price, :normal)
-
-  defp format_unit("piece"), do: "pc"
-  defp format_unit("m2"), do: "m²"
-  defp format_unit("running_meter"), do: "rm"
-  defp format_unit(other), do: other
 end

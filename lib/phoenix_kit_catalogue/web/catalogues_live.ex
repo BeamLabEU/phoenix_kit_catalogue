@@ -12,11 +12,11 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
 
   require Logger
 
-  import PhoenixKitWeb.Components.Core.Icon, only: [icon: 1]
   import PhoenixKitWeb.Components.Core.Modal, only: [confirm_modal: 1]
   import PhoenixKitWeb.Components.Core.TableDefault
   import PhoenixKitWeb.Components.Core.TableRowMenu
   import PhoenixKitWeb.Components.Core.Badge, only: [status_badge: 1]
+  import PhoenixKitCatalogue.Web.Components
 
   alias PhoenixKitCatalogue.Catalogue
   alias PhoenixKitCatalogue.Paths
@@ -283,78 +283,22 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       </div>
 
       <%!-- Global search --%>
-      <div class="flex gap-2">
-        <form phx-change="search" phx-submit="search" class="flex-1 relative">
-          <input
-            type="text"
-            name="query"
-            value={@search_query}
-            placeholder="Search items across all catalogues..."
-            class="input input-bordered input-sm w-full pr-8"
-            phx-debounce="300"
-            autocomplete="off"
-          />
-          <button
-            :if={@search_query != ""}
-            type="button"
-            phx-click="clear_search"
-            class="absolute right-2 top-1/2 -translate-y-1/2 text-base-content/40 hover:text-base-content cursor-pointer"
-          >
-            <.icon name="hero-x-mark" class="w-4 h-4" />
-          </button>
-        </form>
-      </div>
+      <.search_input query={@search_query} placeholder="Search items across all catalogues..." />
 
       <%!-- Search results --%>
       <div :if={@search_results != nil} class="flex flex-col gap-4">
-        <div class="flex items-center justify-between">
-          <span class="text-sm text-base-content/60">
-            {length(@search_results)} result{if length(@search_results) != 1, do: "s"} for "{@search_query}"
-          </span>
-        </div>
+        <.search_results_summary count={length(@search_results)} query={@search_query} />
 
-        <div :if={@search_results == []} class="card bg-base-100 shadow">
-          <div class="card-body items-center text-center py-8">
-            <p class="text-base-content/60">No items match your search.</p>
-          </div>
-        </div>
+        <.empty_state :if={@search_results == []} message="No items match your search." />
 
-        <div :if={@search_results != []}>
-          <.table_default variant="zebra" size="sm">
-            <.table_default_header>
-              <.table_default_row>
-                <.table_default_header_cell>Name</.table_default_header_cell>
-                <.table_default_header_cell>SKU</.table_default_header_cell>
-                <.table_default_header_cell>Base Price</.table_default_header_cell>
-                <.table_default_header_cell>Catalogue</.table_default_header_cell>
-                <.table_default_header_cell>Category</.table_default_header_cell>
-                <.table_default_header_cell>Manufacturer</.table_default_header_cell>
-                <.table_default_header_cell>Status</.table_default_header_cell>
-                <.table_default_header_cell class="text-right">Actions</.table_default_header_cell>
-              </.table_default_row>
-            </.table_default_header>
-            <.table_default_body>
-              <.table_default_row :for={item <- @search_results}>
-                <.table_default_cell class="font-medium">{item.name}</.table_default_cell>
-                <.table_default_cell class="font-mono text-base-content/60 text-sm">{item.sku || "—"}</.table_default_cell>
-                <.table_default_cell class="text-sm">{format_price(item.base_price)}</.table_default_cell>
-                <.table_default_cell class="text-sm">
-                  <.link :if={item.category} navigate={Paths.catalogue_detail(item.category.catalogue.uuid)} class="link link-hover">
-                    {item.category.catalogue.name}
-                  </.link>
-                </.table_default_cell>
-                <.table_default_cell class="text-sm text-base-content/60">{if item.category, do: item.category.name, else: "—"}</.table_default_cell>
-                <.table_default_cell class="text-sm text-base-content/60">{if item.manufacturer, do: item.manufacturer.name, else: "—"}</.table_default_cell>
-                <.table_default_cell><.status_badge status={item.status} size={:xs} /></.table_default_cell>
-                <.table_default_cell class="text-right">
-                  <.table_row_menu id={"search-menu-#{item.uuid}"}>
-                    <.table_row_menu_link navigate={Paths.item_edit(item.uuid)} icon="hero-pencil" label="Edit" />
-                  </.table_row_menu>
-                </.table_default_cell>
-              </.table_default_row>
-            </.table_default_body>
-          </.table_default>
-        </div>
+        <.item_table
+          :if={@search_results != []}
+          items={@search_results}
+          columns={[:name, :sku, :base_price, :catalogue, :category, :manufacturer, :status]}
+          variant="zebra"
+          edit_path={&Paths.item_edit/1}
+          catalogue_path={&Paths.catalogue_detail/1}
+        />
       </div>
 
       <%!-- Catalogue tab content --%>
@@ -455,7 +399,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
             <.table_default_header_cell>Name</.table_default_header_cell>
             <.table_default_header_cell>Status</.table_default_header_cell>
             <.table_default_header_cell>Updated</.table_default_header_cell>
-            <.table_default_header_cell class="text-right">Actions</.table_default_header_cell>
+            <.table_default_header_cell class="text-right whitespace-nowrap">Actions</.table_default_header_cell>
           </.table_default_row>
         </.table_default_header>
         <.table_default_body>
@@ -471,8 +415,8 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
               {Calendar.strftime(catalogue.updated_at, "%Y-%m-%d %H:%M")}
             </.table_default_cell>
             <%!-- Active mode actions --%>
-            <.table_default_cell :if={@view_mode == "active"} class="text-right">
-              <.table_row_menu id={"cat-menu-#{catalogue.uuid}"}>
+            <.table_default_cell :if={@view_mode == "active"} class="text-right whitespace-nowrap">
+              <.table_row_menu mode="auto" id={"cat-menu-#{catalogue.uuid}"}>
                 <.table_row_menu_link navigate={Paths.catalogue_detail(catalogue.uuid)} icon="hero-eye" label="View" />
                 <.table_row_menu_link navigate={Paths.catalogue_edit(catalogue.uuid)} icon="hero-pencil" label="Edit" variant="secondary" />
                 <.table_row_menu_divider />
@@ -480,8 +424,8 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
               </.table_row_menu>
             </.table_default_cell>
             <%!-- Deleted mode actions --%>
-            <.table_default_cell :if={@view_mode == "deleted"} class="text-right">
-              <.table_row_menu id={"cat-del-menu-#{catalogue.uuid}"}>
+            <.table_default_cell :if={@view_mode == "deleted"} class="text-right whitespace-nowrap">
+              <.table_row_menu mode="auto" id={"cat-del-menu-#{catalogue.uuid}"}>
                 <.table_row_menu_button phx-click="restore_catalogue" phx-value-uuid={catalogue.uuid} icon="hero-arrow-path" label="Restore" variant="success" />
                 <.table_row_menu_divider />
                 <.table_row_menu_button phx-click="show_delete_confirm" phx-value-uuid={catalogue.uuid} phx-value-type="catalogue" icon="hero-trash" label="Delete Forever" variant="error" />
@@ -509,7 +453,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
             <.table_default_header_cell>Name</.table_default_header_cell>
             <.table_default_header_cell>Website</.table_default_header_cell>
             <.table_default_header_cell>Status</.table_default_header_cell>
-            <.table_default_header_cell class="text-right">Actions</.table_default_header_cell>
+            <.table_default_header_cell class="text-right whitespace-nowrap">Actions</.table_default_header_cell>
           </.table_default_row>
         </.table_default_header>
         <.table_default_body>
@@ -517,8 +461,8 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
             <.table_default_cell class="font-medium">{m.name}</.table_default_cell>
             <.table_default_cell class="text-sm text-base-content/60">{m.website}</.table_default_cell>
             <.table_default_cell><.status_badge status={m.status} size={:sm} /></.table_default_cell>
-            <.table_default_cell class="text-right">
-              <.table_row_menu id={"mfg-menu-#{m.uuid}"}>
+            <.table_default_cell class="text-right whitespace-nowrap">
+              <.table_row_menu mode="auto" id={"mfg-menu-#{m.uuid}"}>
                 <.table_row_menu_link navigate={Paths.manufacturer_edit(m.uuid)} icon="hero-pencil" label="Edit" />
                 <.table_row_menu_divider />
                 <.table_row_menu_button phx-click="show_delete_confirm" phx-value-uuid={m.uuid} phx-value-type="manufacturer" icon="hero-trash" label="Delete" variant="error" />
@@ -546,7 +490,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
             <.table_default_header_cell>Name</.table_default_header_cell>
             <.table_default_header_cell>Website</.table_default_header_cell>
             <.table_default_header_cell>Status</.table_default_header_cell>
-            <.table_default_header_cell class="text-right">Actions</.table_default_header_cell>
+            <.table_default_header_cell class="text-right whitespace-nowrap">Actions</.table_default_header_cell>
           </.table_default_row>
         </.table_default_header>
         <.table_default_body>
@@ -554,8 +498,8 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
             <.table_default_cell class="font-medium">{s.name}</.table_default_cell>
             <.table_default_cell class="text-sm text-base-content/60">{s.website}</.table_default_cell>
             <.table_default_cell><.status_badge status={s.status} size={:sm} /></.table_default_cell>
-            <.table_default_cell class="text-right">
-              <.table_row_menu id={"supplier-menu-#{s.uuid}"}>
+            <.table_default_cell class="text-right whitespace-nowrap">
+              <.table_row_menu mode="auto" id={"supplier-menu-#{s.uuid}"}>
                 <.table_row_menu_link navigate={Paths.supplier_edit(s.uuid)} icon="hero-pencil" label="Edit" variant="secondary" />
                 <.table_row_menu_divider />
                 <.table_row_menu_button phx-click="show_delete_confirm" phx-value-uuid={s.uuid} phx-value-type="supplier" icon="hero-trash" label="Delete" variant="error" />
@@ -568,6 +512,4 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     """
   end
 
-  defp format_price(nil), do: "—"
-  defp format_price(price), do: Decimal.to_string(price, :normal)
 end
