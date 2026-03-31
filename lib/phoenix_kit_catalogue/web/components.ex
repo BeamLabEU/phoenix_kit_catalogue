@@ -497,7 +497,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
   defp item_actions(assigns) do
     ~H"""
     <.table_default_cell class="text-right whitespace-nowrap">
-      <.table_row_menu id={"item-action-#{@item.uuid}"}>
+      <.table_row_menu mode="auto" id={"item-action-#{@item.uuid}"}>
         <.table_row_menu_link :if={@edit_path} navigate={safe_call(@edit_path, @item.uuid)} icon="hero-pencil" label={Gettext.gettext(PhoenixKitWeb.Gettext, "Edit")} />
         <.table_row_menu_divider :if={@edit_path && (@on_delete || @on_restore)} />
         <.table_row_menu_button :if={@on_delete} phx-click={@on_delete} phx-value-uuid={@item.uuid} icon="hero-trash" label={Gettext.gettext(PhoenixKitWeb.Gettext, "Delete")} variant="error" />

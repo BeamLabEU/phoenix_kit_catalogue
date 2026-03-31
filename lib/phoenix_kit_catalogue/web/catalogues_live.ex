@@ -462,7 +462,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
             </.table_default_cell>
             <%!-- Active mode actions --%>
             <.table_default_cell :if={@view_mode == "active"} class="text-right whitespace-nowrap">
-              <.table_row_menu id={"cat-menu-#{catalogue.uuid}"}>
+              <.table_row_menu mode="auto" id={"cat-menu-#{catalogue.uuid}"}>
                 <.table_row_menu_link navigate={Paths.catalogue_detail(catalogue.uuid)} icon="hero-eye" label="View" />
                 <.table_row_menu_link navigate={Paths.catalogue_edit(catalogue.uuid)} icon="hero-pencil" label="Edit" variant="secondary" />
                 <.table_row_menu_divider />
@@ -471,7 +471,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
             </.table_default_cell>
             <%!-- Deleted mode actions --%>
             <.table_default_cell :if={@view_mode == "deleted"} class="text-right whitespace-nowrap">
-              <.table_row_menu id={"cat-del-menu-#{catalogue.uuid}"}>
+              <.table_row_menu mode="auto" id={"cat-del-menu-#{catalogue.uuid}"}>
                 <.table_row_menu_button phx-click="restore_catalogue" phx-value-uuid={catalogue.uuid} icon="hero-arrow-path" label="Restore" variant="success" />
                 <.table_row_menu_divider />
                 <.table_row_menu_button phx-click="show_delete_confirm" phx-value-uuid={catalogue.uuid} phx-value-type="catalogue" icon="hero-trash" label="Delete Forever" variant="error" />
@@ -528,7 +528,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
             <.table_default_cell class="text-sm text-base-content/60">{m.website}</.table_default_cell>
             <.table_default_cell><.status_badge status={m.status} size={:sm} /></.table_default_cell>
             <.table_default_cell class="text-right whitespace-nowrap">
-              <.table_row_menu id={"mfg-menu-#{m.uuid}"}>
+              <.table_row_menu mode="auto" id={"mfg-menu-#{m.uuid}"}>
                 <.table_row_menu_link navigate={Paths.manufacturer_edit(m.uuid)} icon="hero-pencil" label="Edit" />
                 <.table_row_menu_divider />
                 <.table_row_menu_button phx-click="show_delete_confirm" phx-value-uuid={m.uuid} phx-value-type="manufacturer" icon="hero-trash" label="Delete" variant="error" />
@@ -579,7 +579,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
             <.table_default_cell class="text-sm text-base-content/60">{s.website}</.table_default_cell>
             <.table_default_cell><.status_badge status={s.status} size={:sm} /></.table_default_cell>
             <.table_default_cell class="text-right whitespace-nowrap">
-              <.table_row_menu id={"supplier-menu-#{s.uuid}"}>
+              <.table_row_menu mode="auto" id={"supplier-menu-#{s.uuid}"}>
                 <.table_row_menu_link navigate={Paths.supplier_edit(s.uuid)} icon="hero-pencil" label="Edit" variant="secondary" />
                 <.table_row_menu_divider />
                 <.table_row_menu_button phx-click="show_delete_confirm" phx-value-uuid={s.uuid} phx-value-type="supplier" icon="hero-trash" label="Delete" variant="error" />
