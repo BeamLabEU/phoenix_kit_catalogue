@@ -6,6 +6,8 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
   require Logger
 
   import PhoenixKitWeb.Components.MultilangForm
+  import PhoenixKitWeb.Components.Core.AdminPageHeader, only: [admin_page_header: 1]
+  import PhoenixKitWeb.Components.Core.Modal, only: [confirm_modal: 1]
 
   alias PhoenixKitCatalogue.Catalogue
   alias PhoenixKitCatalogue.Paths
@@ -100,23 +102,23 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
     save_category(socket, socket.assigns.action, params)
   end
 
-  def handle_event("delete_category", _params, socket) do
-    if socket.assigns.confirm_delete_all do
-      case Catalogue.permanently_delete_category(socket.assigns.category) do
-        {:ok, _} ->
-          {:noreply,
-           socket
-           |> put_flash(:info, "Category and all its items permanently deleted.")
-           |> push_navigate(to: Paths.catalogue_detail(socket.assigns.catalogue_uuid))}
+  def handle_event("show_delete_confirm", _params, socket) do
+    {:noreply, assign(socket, :confirm_delete_all, true)}
+  end
 
-        {:error, _} ->
-          {:noreply,
-           socket
-           |> assign(:confirm_delete_all, false)
-           |> put_flash(:error, "Failed to delete category.")}
-      end
-    else
-      {:noreply, assign(socket, :confirm_delete_all, true)}
+  def handle_event("delete_category", _params, socket) do
+    case Catalogue.permanently_delete_category(socket.assigns.category) do
+      {:ok, _} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Category and all its items permanently deleted.")
+         |> push_navigate(to: Paths.catalogue_detail(socket.assigns.catalogue_uuid))}
+
+      {:error, _} ->
+        {:noreply,
+         socket
+         |> assign(:confirm_delete_all, false)
+         |> put_flash(:error, "Failed to delete category.")}
     end
   end
 
@@ -186,21 +188,9 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
     ~H"""
     <div class="flex flex-col mx-auto max-w-2xl px-4 py-8 gap-6">
       <%!-- Header --%>
-      <div class="flex items-center gap-3">
-        <.link navigate={Paths.catalogue_detail(@catalogue_uuid)} class="btn btn-ghost btn-sm btn-square">
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
-          </svg>
-        </.link>
-        <div>
-          <h1 class="text-2xl font-bold">{@page_title}</h1>
-          <p class="text-sm text-base-content/60 mt-0.5">
-            {if @action == :new, do: "Add a new category to organize items within this catalogue.", else: "Update category details and ordering."}
-          </p>
-        </div>
-      </div>
+      <.admin_page_header back={Paths.catalogue_detail(@catalogue_uuid)} title={@page_title} subtitle={if @action == :new, do: "Add a new category to organize items within this catalogue.", else: "Update category details and ordering."} />
 
-      <.form for={to_form(@changeset)} phx-change="validate" phx-submit="save">
+      <.form for={to_form(@changeset)} action="#" phx-change="validate" phx-submit="save">
         <div class="card bg-base-100 shadow-lg">
           <.multilang_tabs multilang_enabled={@multilang_enabled} language_tabs={@language_tabs} current_lang={@current_lang} />
 
@@ -298,19 +288,22 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
             <span class="text-sm font-semibold text-error">Permanently Delete Category</span>
             <p class="text-xs text-base-content/50">This will permanently delete this category and all its items. This cannot be undone.</p>
           </div>
-          <button
-            :if={!@confirm_delete_all}
-            phx-click="delete_category"
-            class="btn btn-outline btn-error btn-sm shrink-0"
-          >
+          <button phx-click="show_delete_confirm" class="btn btn-outline btn-error btn-sm shrink-0">
             Delete Forever
           </button>
-          <span :if={@confirm_delete_all} class="inline-flex gap-1 shrink-0">
-            <button phx-click="delete_category" class="btn btn-error btn-sm">Confirm</button>
-            <button phx-click="cancel_delete" class="btn btn-ghost btn-sm">Cancel</button>
-          </span>
         </div>
       </div>
+
+      <.confirm_modal
+        show={@confirm_delete_all}
+        on_confirm="delete_category"
+        on_cancel="cancel_delete"
+        title="Permanently Delete Category"
+        title_icon="hero-trash"
+        messages={[{:warning, "This will permanently delete this category and all its items."}]}
+        confirm_text="Delete Forever"
+        danger={true}
+      />
     </div>
     """
   end

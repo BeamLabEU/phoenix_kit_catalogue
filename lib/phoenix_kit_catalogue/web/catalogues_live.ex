@@ -12,6 +12,12 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
 
   require Logger
 
+  import PhoenixKitWeb.Components.Core.Icon, only: [icon: 1]
+  import PhoenixKitWeb.Components.Core.Modal, only: [confirm_modal: 1]
+  import PhoenixKitWeb.Components.Core.TableDefault
+  import PhoenixKitWeb.Components.Core.TableRowMenu
+  import PhoenixKitWeb.Components.Core.Badge, only: [status_badge: 1]
+
   alias PhoenixKitCatalogue.Catalogue
   alias PhoenixKitCatalogue.Paths
 
@@ -141,79 +147,77 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     end
   end
 
-  def handle_event("permanently_delete_catalogue", %{"uuid" => uuid}, socket) do
-    if socket.assigns.confirm_delete == {:permanent, uuid} do
-      with %{} = catalogue <- Catalogue.get_catalogue(uuid),
-           {:ok, _} <- Catalogue.permanently_delete_catalogue(catalogue) do
+  def handle_event("show_delete_confirm", %{"uuid" => uuid, "type" => type}, socket) do
+    {:noreply, assign(socket, :confirm_delete, {type, uuid})}
+  end
+
+  def handle_event("permanently_delete_catalogue", _params, socket) do
+    {"catalogue", uuid} = socket.assigns.confirm_delete
+
+    with %{} = catalogue <- Catalogue.get_catalogue(uuid),
+         {:ok, _} <- Catalogue.permanently_delete_catalogue(catalogue) do
+      {:noreply,
+       socket
+       |> put_flash(:info, "Catalogue permanently deleted.")
+       |> assign(:confirm_delete, nil)
+       |> load_data(:index)}
+    else
+      nil ->
         {:noreply,
          socket
-         |> put_flash(:info, "Catalogue permanently deleted.")
          |> assign(:confirm_delete, nil)
+         |> put_flash(:error, "Catalogue not found.")
          |> load_data(:index)}
-      else
-        nil ->
-          {:noreply,
-           socket
-           |> assign(:confirm_delete, nil)
-           |> put_flash(:error, "Catalogue not found.")
-           |> load_data(:index)}
 
-        {:error, reason} ->
-          Logger.error("Failed to permanently delete catalogue #{uuid}: #{inspect(reason)}")
+      {:error, reason} ->
+        Logger.error("Failed to permanently delete catalogue #{uuid}: #{inspect(reason)}")
 
-          {:noreply,
-           socket
-           |> assign(:confirm_delete, nil)
-           |> put_flash(:error, "Failed to delete catalogue.")
-           |> load_data(:index)}
-      end
-    else
-      {:noreply, assign(socket, :confirm_delete, {:permanent, uuid})}
-    end
-  end
-
-  def handle_event("delete_manufacturer", %{"uuid" => uuid}, socket) do
-    if socket.assigns.confirm_delete == uuid do
-      with %{} = manufacturer <- Catalogue.get_manufacturer(uuid),
-           {:ok, _} <- Catalogue.delete_manufacturer(manufacturer) do
         {:noreply,
-         assign(socket, manufacturers: Catalogue.list_manufacturers(), confirm_delete: nil)}
-      else
-        nil ->
-          {:noreply, assign(socket, :confirm_delete, nil)}
-
-        {:error, reason} ->
-          Logger.error("Failed to delete manufacturer #{uuid}: #{inspect(reason)}")
-
-          {:noreply,
-           socket
-           |> put_flash(:error, "Failed to delete manufacturer.")
-           |> assign(:confirm_delete, nil)}
-      end
-    else
-      {:noreply, assign(socket, :confirm_delete, uuid)}
+         socket
+         |> assign(:confirm_delete, nil)
+         |> put_flash(:error, "Failed to delete catalogue.")
+         |> load_data(:index)}
     end
   end
 
-  def handle_event("delete_supplier", %{"uuid" => uuid}, socket) do
-    if socket.assigns.confirm_delete == uuid do
-      with %{} = supplier <- Catalogue.get_supplier(uuid),
-           {:ok, _} <- Catalogue.delete_supplier(supplier) do
-        {:noreply, assign(socket, suppliers: Catalogue.list_suppliers(), confirm_delete: nil)}
-      else
-        nil ->
-          {:noreply, assign(socket, :confirm_delete, nil)}
+  def handle_event("delete_manufacturer", _params, socket) do
+    {"manufacturer", uuid} = socket.assigns.confirm_delete
 
-        {:error, reason} ->
-          Logger.error("Failed to delete supplier #{uuid}: #{inspect(reason)}")
-
-          {:noreply,
-           socket
-           |> put_flash(:error, "Failed to delete supplier.")
-           |> assign(:confirm_delete, nil)}
-      end
+    with %{} = manufacturer <- Catalogue.get_manufacturer(uuid),
+         {:ok, _} <- Catalogue.delete_manufacturer(manufacturer) do
+      {:noreply,
+       assign(socket, manufacturers: Catalogue.list_manufacturers(), confirm_delete: nil)}
     else
-      {:noreply, assign(socket, :confirm_delete, uuid)}
+      nil ->
+        {:noreply, assign(socket, :confirm_delete, nil)}
+
+      {:error, reason} ->
+        Logger.error("Failed to delete manufacturer #{uuid}: #{inspect(reason)}")
+
+        {:noreply,
+         socket
+         |> put_flash(:error, "Failed to delete manufacturer.")
+         |> assign(:confirm_delete, nil)}
+    end
+  end
+
+  def handle_event("delete_supplier", _params, socket) do
+    {"supplier", uuid} = socket.assigns.confirm_delete
+
+    with %{} = supplier <- Catalogue.get_supplier(uuid),
+         {:ok, _} <- Catalogue.delete_supplier(supplier) do
+      {:noreply, assign(socket, suppliers: Catalogue.list_suppliers(), confirm_delete: nil)}
+    else
+      nil ->
+        {:noreply, assign(socket, :confirm_delete, nil)}
+
+      {:error, reason} ->
+        Logger.error("Failed to delete supplier #{uuid}: #{inspect(reason)}")
+
+        {:noreply,
+         socket
+         |> put_flash(:error, "Failed to delete supplier.")
+         |> assign(:confirm_delete, nil)}
     end
   end
 
@@ -296,9 +300,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
             phx-click="clear_search"
             class="absolute right-2 top-1/2 -translate-y-1/2 text-base-content/40 hover:text-base-content cursor-pointer"
           >
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-            </svg>
+            <.icon name="hero-x-mark" class="w-4 h-4" />
           </button>
         </form>
       </div>
@@ -317,45 +319,41 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
           </div>
         </div>
 
-        <div :if={@search_results != []} class="overflow-x-auto">
-          <table class="table table-zebra">
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>SKU</th>
-                <th>Base Price</th>
-                <th>Catalogue</th>
-                <th>Category</th>
-                <th>Manufacturer</th>
-                <th>Status</th>
-                <th class="text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr :for={item <- @search_results}>
-                <td class="font-medium">{item.name}</td>
-                <td class="text-sm font-mono text-base-content/60">{item.sku || "—"}</td>
-                <td class="text-sm">{format_price(item.base_price)}</td>
-                <td class="text-sm">
+        <div :if={@search_results != []}>
+          <.table_default variant="zebra" size="sm">
+            <.table_default_header>
+              <.table_default_row>
+                <.table_default_header_cell>Name</.table_default_header_cell>
+                <.table_default_header_cell>SKU</.table_default_header_cell>
+                <.table_default_header_cell>Base Price</.table_default_header_cell>
+                <.table_default_header_cell>Catalogue</.table_default_header_cell>
+                <.table_default_header_cell>Category</.table_default_header_cell>
+                <.table_default_header_cell>Manufacturer</.table_default_header_cell>
+                <.table_default_header_cell>Status</.table_default_header_cell>
+                <.table_default_header_cell class="text-right">Actions</.table_default_header_cell>
+              </.table_default_row>
+            </.table_default_header>
+            <.table_default_body>
+              <.table_default_row :for={item <- @search_results}>
+                <.table_default_cell class="font-medium">{item.name}</.table_default_cell>
+                <.table_default_cell class="font-mono text-base-content/60 text-sm">{item.sku || "—"}</.table_default_cell>
+                <.table_default_cell class="text-sm">{format_price(item.base_price)}</.table_default_cell>
+                <.table_default_cell class="text-sm">
                   <.link :if={item.category} navigate={Paths.catalogue_detail(item.category.catalogue.uuid)} class="link link-hover">
                     {item.category.catalogue.name}
                   </.link>
-                </td>
-                <td class="text-sm text-base-content/60">{if item.category, do: item.category.name, else: "—"}</td>
-                <td class="text-sm text-base-content/60">{if item.manufacturer, do: item.manufacturer.name, else: "—"}</td>
-                <td>
-                  <span class={["badge badge-xs", item_status_badge(item.status)]}>
-                    {item.status}
-                  </span>
-                </td>
-                <td class="text-right">
-                  <.link navigate={Paths.item_edit(item.uuid)} class="btn btn-ghost btn-xs">
-                    Edit
-                  </.link>
-                </td>
-              </tr>
-            </tbody>
-          </table>
+                </.table_default_cell>
+                <.table_default_cell class="text-sm text-base-content/60">{if item.category, do: item.category.name, else: "—"}</.table_default_cell>
+                <.table_default_cell class="text-sm text-base-content/60">{if item.manufacturer, do: item.manufacturer.name, else: "—"}</.table_default_cell>
+                <.table_default_cell><.status_badge status={item.status} size={:xs} /></.table_default_cell>
+                <.table_default_cell class="text-right">
+                  <.table_row_menu id={"search-menu-#{item.uuid}"}>
+                    <.table_row_menu_link navigate={Paths.item_edit(item.uuid)} icon="hero-pencil" label="Edit" />
+                  </.table_row_menu>
+                </.table_default_cell>
+              </.table_default_row>
+            </.table_default_body>
+          </.table_default>
         </div>
       </div>
 
@@ -393,16 +391,49 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
           </button>
         </div>
 
-        <.catalogues_table catalogues={@catalogues} confirm_delete={@confirm_delete} view_mode={@catalogue_view_mode} />
+        <.catalogues_table catalogues={@catalogues} view_mode={@catalogue_view_mode} />
       </div>
 
       <div :if={@active_tab == :manufacturers and is_nil(@search_results)}>
-        <.manufacturers_table manufacturers={@manufacturers} confirm_delete={@confirm_delete} />
+        <.manufacturers_table manufacturers={@manufacturers} />
       </div>
 
       <div :if={@active_tab == :suppliers and is_nil(@search_results)}>
-        <.suppliers_table suppliers={@suppliers} confirm_delete={@confirm_delete} />
+        <.suppliers_table suppliers={@suppliers} />
       </div>
+
+      <.confirm_modal
+        show={match?({"catalogue", _}, @confirm_delete)}
+        on_confirm="permanently_delete_catalogue"
+        on_cancel="cancel_delete"
+        title="Permanently Delete Catalogue"
+        title_icon="hero-trash"
+        messages={[{:warning, "This will permanently delete this catalogue, all its categories, and all items. This cannot be undone."}]}
+        confirm_text="Delete Forever"
+        danger={true}
+      />
+
+      <.confirm_modal
+        show={match?({"manufacturer", _}, @confirm_delete)}
+        on_confirm="delete_manufacturer"
+        on_cancel="cancel_delete"
+        title="Delete Manufacturer"
+        title_icon="hero-trash"
+        messages={[{:warning, "This will permanently delete this manufacturer. Items referencing it will lose the association."}]}
+        confirm_text="Delete"
+        danger={true}
+      />
+
+      <.confirm_modal
+        show={match?({"supplier", _}, @confirm_delete)}
+        on_confirm="delete_supplier"
+        on_cancel="cancel_delete"
+        title="Delete Supplier"
+        title_icon="hero-trash"
+        messages={[{:warning, "This will permanently delete this supplier. Manufacturer links will be removed."}]}
+        confirm_text="Delete"
+        danger={true}
+      />
     </div>
     """
   end
@@ -417,71 +448,48 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       </div>
     </div>
 
-    <div :if={@catalogues != []} class="overflow-x-auto">
-      <table class="table table-zebra">
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Status</th>
-            <th>Updated</th>
-            <th class="text-right">Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr :for={catalogue <- @catalogues}>
-            <td>
+    <div :if={@catalogues != []}>
+      <.table_default variant="zebra" size="sm">
+        <.table_default_header>
+          <.table_default_row>
+            <.table_default_header_cell>Name</.table_default_header_cell>
+            <.table_default_header_cell>Status</.table_default_header_cell>
+            <.table_default_header_cell>Updated</.table_default_header_cell>
+            <.table_default_header_cell class="text-right">Actions</.table_default_header_cell>
+          </.table_default_row>
+        </.table_default_header>
+        <.table_default_body>
+          <.table_default_row :for={catalogue <- @catalogues}>
+            <.table_default_cell>
               <.link :if={@view_mode == "active"} navigate={Paths.catalogue_detail(catalogue.uuid)} class="link link-hover font-medium">
                 {catalogue.name}
               </.link>
               <span :if={@view_mode == "deleted"} class="font-medium text-base-content/50">{catalogue.name}</span>
-            </td>
-            <td>
-              <span class={["badge badge-sm", status_badge_class(catalogue.status)]}>
-                {catalogue.status}
-              </span>
-            </td>
-            <td class="text-sm text-base-content/60">
+            </.table_default_cell>
+            <.table_default_cell><.status_badge status={catalogue.status} size={:sm} /></.table_default_cell>
+            <.table_default_cell class="text-sm text-base-content/60">
               {Calendar.strftime(catalogue.updated_at, "%Y-%m-%d %H:%M")}
-            </td>
+            </.table_default_cell>
             <%!-- Active mode actions --%>
-            <td :if={@view_mode == "active"} class="text-right">
-              <.link navigate={Paths.catalogue_detail(catalogue.uuid)} class="btn btn-ghost btn-xs">
-                View
-              </.link>
-              <.link navigate={Paths.catalogue_edit(catalogue.uuid)} class="btn btn-ghost btn-xs">
-                Edit
-              </.link>
-              <button phx-click="trash_catalogue" phx-value-uuid={catalogue.uuid} class="btn btn-ghost btn-xs text-error">
-                Delete
-              </button>
-            </td>
+            <.table_default_cell :if={@view_mode == "active"} class="text-right">
+              <.table_row_menu id={"cat-menu-#{catalogue.uuid}"}>
+                <.table_row_menu_link navigate={Paths.catalogue_detail(catalogue.uuid)} icon="hero-eye" label="View" />
+                <.table_row_menu_link navigate={Paths.catalogue_edit(catalogue.uuid)} icon="hero-pencil" label="Edit" variant="secondary" />
+                <.table_row_menu_divider />
+                <.table_row_menu_button phx-click="trash_catalogue" phx-value-uuid={catalogue.uuid} icon="hero-trash" label="Delete" variant="error" />
+              </.table_row_menu>
+            </.table_default_cell>
             <%!-- Deleted mode actions --%>
-            <td :if={@view_mode == "deleted"} class="text-right">
-              <button
-                phx-click="restore_catalogue"
-                phx-value-uuid={catalogue.uuid}
-                class="inline-flex items-center gap-1.5 px-2.5 h-[2.5em] rounded-lg border border-success/30 bg-success/10 hover:bg-success/20 text-success text-xs font-medium transition-colors cursor-pointer"
-              >
-                Restore
-              </button>
-              <button
-                :if={@confirm_delete != {:permanent, catalogue.uuid}}
-                phx-click="permanently_delete_catalogue"
-                phx-value-uuid={catalogue.uuid}
-                class="btn btn-ghost btn-xs text-error"
-              >
-                Delete Forever
-              </button>
-              <span :if={@confirm_delete == {:permanent, catalogue.uuid}} class="inline-flex gap-1">
-                <button phx-click="permanently_delete_catalogue" phx-value-uuid={catalogue.uuid} class="btn btn-error btn-xs">
-                  Confirm
-                </button>
-                <button phx-click="cancel_delete" class="btn btn-ghost btn-xs">Cancel</button>
-              </span>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+            <.table_default_cell :if={@view_mode == "deleted"} class="text-right">
+              <.table_row_menu id={"cat-del-menu-#{catalogue.uuid}"}>
+                <.table_row_menu_button phx-click="restore_catalogue" phx-value-uuid={catalogue.uuid} icon="hero-arrow-path" label="Restore" variant="success" />
+                <.table_row_menu_divider />
+                <.table_row_menu_button phx-click="show_delete_confirm" phx-value-uuid={catalogue.uuid} phx-value-type="catalogue" icon="hero-trash" label="Delete Forever" variant="error" />
+              </.table_row_menu>
+            </.table_default_cell>
+          </.table_default_row>
+        </.table_default_body>
+      </.table_default>
     </div>
     """
   end
@@ -494,49 +502,31 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       </div>
     </div>
 
-    <div :if={@manufacturers != []} class="overflow-x-auto">
-      <table class="table table-zebra">
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Website</th>
-            <th>Status</th>
-            <th class="text-right">Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr :for={m <- @manufacturers}>
-            <td class="font-medium">{m.name}</td>
-            <td class="text-sm text-base-content/60">{m.website}</td>
-            <td>
-              <span class={["badge badge-sm", status_badge_class(m.status)]}>
-                {m.status}
-              </span>
-            </td>
-            <td class="text-right">
-              <.link navigate={Paths.manufacturer_edit(m.uuid)} class="btn btn-ghost btn-xs">
-                Edit
-              </.link>
-              <button
-                :if={@confirm_delete != m.uuid}
-                phx-click="delete_manufacturer"
-                phx-value-uuid={m.uuid}
-                class="btn btn-ghost btn-xs text-error"
-              >
-                Delete
-              </button>
-              <span :if={@confirm_delete == m.uuid} class="inline-flex gap-1">
-                <button phx-click="delete_manufacturer" phx-value-uuid={m.uuid} class="btn btn-error btn-xs">
-                  Confirm
-                </button>
-                <button phx-click="cancel_delete" class="btn btn-ghost btn-xs">
-                  Cancel
-                </button>
-              </span>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+    <div :if={@manufacturers != []}>
+      <.table_default variant="zebra" size="sm">
+        <.table_default_header>
+          <.table_default_row>
+            <.table_default_header_cell>Name</.table_default_header_cell>
+            <.table_default_header_cell>Website</.table_default_header_cell>
+            <.table_default_header_cell>Status</.table_default_header_cell>
+            <.table_default_header_cell class="text-right">Actions</.table_default_header_cell>
+          </.table_default_row>
+        </.table_default_header>
+        <.table_default_body>
+          <.table_default_row :for={m <- @manufacturers}>
+            <.table_default_cell class="font-medium">{m.name}</.table_default_cell>
+            <.table_default_cell class="text-sm text-base-content/60">{m.website}</.table_default_cell>
+            <.table_default_cell><.status_badge status={m.status} size={:sm} /></.table_default_cell>
+            <.table_default_cell class="text-right">
+              <.table_row_menu id={"mfg-menu-#{m.uuid}"}>
+                <.table_row_menu_link navigate={Paths.manufacturer_edit(m.uuid)} icon="hero-pencil" label="Edit" />
+                <.table_row_menu_divider />
+                <.table_row_menu_button phx-click="show_delete_confirm" phx-value-uuid={m.uuid} phx-value-type="manufacturer" icon="hero-trash" label="Delete" variant="error" />
+              </.table_row_menu>
+            </.table_default_cell>
+          </.table_default_row>
+        </.table_default_body>
+      </.table_default>
     </div>
     """
   end
@@ -549,63 +539,34 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       </div>
     </div>
 
-    <div :if={@suppliers != []} class="overflow-x-auto">
-      <table class="table table-zebra">
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Website</th>
-            <th>Status</th>
-            <th class="text-right">Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr :for={s <- @suppliers}>
-            <td class="font-medium">{s.name}</td>
-            <td class="text-sm text-base-content/60">{s.website}</td>
-            <td>
-              <span class={["badge badge-sm", status_badge_class(s.status)]}>
-                {s.status}
-              </span>
-            </td>
-            <td class="text-right">
-              <.link navigate={Paths.supplier_edit(s.uuid)} class="btn btn-ghost btn-xs">
-                Edit
-              </.link>
-              <button
-                :if={@confirm_delete != s.uuid}
-                phx-click="delete_supplier"
-                phx-value-uuid={s.uuid}
-                class="btn btn-ghost btn-xs text-error"
-              >
-                Delete
-              </button>
-              <span :if={@confirm_delete == s.uuid} class="inline-flex gap-1">
-                <button phx-click="delete_supplier" phx-value-uuid={s.uuid} class="btn btn-error btn-xs">
-                  Confirm
-                </button>
-                <button phx-click="cancel_delete" class="btn btn-ghost btn-xs">
-                  Cancel
-                </button>
-              </span>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+    <div :if={@suppliers != []}>
+      <.table_default variant="zebra" size="sm">
+        <.table_default_header>
+          <.table_default_row>
+            <.table_default_header_cell>Name</.table_default_header_cell>
+            <.table_default_header_cell>Website</.table_default_header_cell>
+            <.table_default_header_cell>Status</.table_default_header_cell>
+            <.table_default_header_cell class="text-right">Actions</.table_default_header_cell>
+          </.table_default_row>
+        </.table_default_header>
+        <.table_default_body>
+          <.table_default_row :for={s <- @suppliers}>
+            <.table_default_cell class="font-medium">{s.name}</.table_default_cell>
+            <.table_default_cell class="text-sm text-base-content/60">{s.website}</.table_default_cell>
+            <.table_default_cell><.status_badge status={s.status} size={:sm} /></.table_default_cell>
+            <.table_default_cell class="text-right">
+              <.table_row_menu id={"supplier-menu-#{s.uuid}"}>
+                <.table_row_menu_link navigate={Paths.supplier_edit(s.uuid)} icon="hero-pencil" label="Edit" variant="secondary" />
+                <.table_row_menu_divider />
+                <.table_row_menu_button phx-click="show_delete_confirm" phx-value-uuid={s.uuid} phx-value-type="supplier" icon="hero-trash" label="Delete" variant="error" />
+              </.table_row_menu>
+            </.table_default_cell>
+          </.table_default_row>
+        </.table_default_body>
+      </.table_default>
     </div>
     """
   end
-
-  defp status_badge_class("active"), do: "badge-success"
-  defp status_badge_class("archived"), do: "badge-warning"
-  defp status_badge_class("inactive"), do: "badge-ghost"
-  defp status_badge_class("deleted"), do: "badge-error"
-  defp status_badge_class(_), do: "badge-ghost"
-
-  defp item_status_badge("active"), do: "badge-success"
-  defp item_status_badge("inactive"), do: "badge-ghost"
-  defp item_status_badge("discontinued"), do: "badge-warning"
-  defp item_status_badge(_), do: "badge-ghost"
 
   defp format_price(nil), do: "—"
   defp format_price(price), do: Decimal.to_string(price, :normal)

@@ -289,22 +289,11 @@ defmodule PhoenixKitCatalogue.Catalogue do
       current = linked_supplier_uuids(manufacturer_uuid) |> MapSet.new()
       desired = MapSet.new(supplier_uuids)
 
-      to_add = MapSet.difference(desired, current)
-      to_remove = MapSet.difference(current, desired)
+      MapSet.difference(desired, current)
+      |> Enum.each(&ok_or_rollback(link_manufacturer_supplier(manufacturer_uuid, &1)))
 
-      Enum.each(to_add, fn uuid ->
-        case link_manufacturer_supplier(manufacturer_uuid, uuid) do
-          {:ok, _} -> :ok
-          {:error, reason} -> repo().rollback(reason)
-        end
-      end)
-
-      Enum.each(to_remove, fn uuid ->
-        case unlink_manufacturer_supplier(manufacturer_uuid, uuid) do
-          {:ok, _} -> :ok
-          {:error, reason} -> repo().rollback(reason)
-        end
-      end)
+      MapSet.difference(current, desired)
+      |> Enum.each(&ok_or_rollback(unlink_manufacturer_supplier(manufacturer_uuid, &1)))
 
       :synced
     end)
@@ -322,26 +311,18 @@ defmodule PhoenixKitCatalogue.Catalogue do
       current = linked_manufacturer_uuids(supplier_uuid) |> MapSet.new()
       desired = MapSet.new(manufacturer_uuids)
 
-      to_add = MapSet.difference(desired, current)
-      to_remove = MapSet.difference(current, desired)
+      MapSet.difference(desired, current)
+      |> Enum.each(&ok_or_rollback(link_manufacturer_supplier(&1, supplier_uuid)))
 
-      Enum.each(to_add, fn uuid ->
-        case link_manufacturer_supplier(uuid, supplier_uuid) do
-          {:ok, _} -> :ok
-          {:error, reason} -> repo().rollback(reason)
-        end
-      end)
-
-      Enum.each(to_remove, fn uuid ->
-        case unlink_manufacturer_supplier(uuid, supplier_uuid) do
-          {:ok, _} -> :ok
-          {:error, reason} -> repo().rollback(reason)
-        end
-      end)
+      MapSet.difference(current, desired)
+      |> Enum.each(&ok_or_rollback(unlink_manufacturer_supplier(&1, supplier_uuid)))
 
       :synced
     end)
   end
+
+  defp ok_or_rollback({:ok, _}), do: :ok
+  defp ok_or_rollback({:error, reason}), do: repo().rollback(reason)
 
   # ═══════════════════════════════════════════════════════════════════
   # Catalogues

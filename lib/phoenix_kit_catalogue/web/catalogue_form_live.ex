@@ -6,6 +6,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
   require Logger
 
   import PhoenixKitWeb.Components.MultilangForm
+  import PhoenixKitWeb.Components.Core.AdminPageHeader, only: [admin_page_header: 1]
+  import PhoenixKitWeb.Components.Core.Modal, only: [confirm_modal: 1]
 
   alias PhoenixKitCatalogue.Catalogue
   alias PhoenixKitCatalogue.Paths
@@ -82,23 +84,23 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
     save_catalogue(socket, socket.assigns.action, params)
   end
 
-  def handle_event("delete_catalogue", _params, socket) do
-    if socket.assigns.confirm_delete do
-      case Catalogue.permanently_delete_catalogue(socket.assigns.catalogue) do
-        {:ok, _} ->
-          {:noreply,
-           socket
-           |> put_flash(:info, "Catalogue and all its contents permanently deleted.")
-           |> push_navigate(to: Paths.index())}
+  def handle_event("show_delete_confirm", _params, socket) do
+    {:noreply, assign(socket, :confirm_delete, true)}
+  end
 
-        {:error, _} ->
-          {:noreply,
-           socket
-           |> assign(:confirm_delete, false)
-           |> put_flash(:error, "Failed to delete catalogue.")}
-      end
-    else
-      {:noreply, assign(socket, :confirm_delete, true)}
+  def handle_event("delete_catalogue", _params, socket) do
+    case Catalogue.permanently_delete_catalogue(socket.assigns.catalogue) do
+      {:ok, _} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Catalogue and all its contents permanently deleted.")
+         |> push_navigate(to: Paths.index())}
+
+      {:error, _} ->
+        {:noreply,
+         socket
+         |> assign(:confirm_delete, false)
+         |> put_flash(:error, "Failed to delete catalogue.")}
     end
   end
 
@@ -144,29 +146,9 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
     ~H"""
     <div class="flex flex-col mx-auto max-w-2xl px-4 py-8 gap-6">
       <%!-- Header --%>
-      <div class="flex items-center gap-3">
-        <.link navigate={Paths.index()} class="btn btn-ghost btn-sm btn-square">
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            class="h-5 w-5"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
-          </svg>
-        </.link>
-        <div>
-          <h1 class="text-2xl font-bold">{@page_title}</h1>
-          <p class="text-sm text-base-content/60 mt-0.5">
-            {if @action == :new,
-              do: "Create a new product catalogue to organize categories and items.",
-              else: "Update catalogue details and settings."}
-          </p>
-        </div>
-      </div>
+      <.admin_page_header back={Paths.index()} title={@page_title} subtitle={if @action == :new, do: "Create a new product catalogue to organize categories and items.", else: "Update catalogue details and settings."} />
 
-      <.form for={to_form(@changeset)} phx-change="validate" phx-submit="save">
+      <.form for={to_form(@changeset)} action="#" phx-change="validate" phx-submit="save">
         <%!-- Main content card --%>
         <div class="card bg-base-100 shadow-lg">
           <.multilang_tabs
@@ -286,19 +268,22 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
               This will permanently delete this catalogue, all its categories, and all items within them. This cannot be undone.
             </p>
           </div>
-          <button
-            :if={!@confirm_delete}
-            phx-click="delete_catalogue"
-            class="btn btn-outline btn-error btn-sm shrink-0"
-          >
+          <button phx-click="show_delete_confirm" class="btn btn-outline btn-error btn-sm shrink-0">
             Delete Forever
           </button>
-          <span :if={@confirm_delete} class="inline-flex gap-1 shrink-0">
-            <button phx-click="delete_catalogue" class="btn btn-error btn-sm">Confirm</button>
-            <button phx-click="cancel_delete" class="btn btn-ghost btn-sm">Cancel</button>
-          </span>
         </div>
       </div>
+
+      <.confirm_modal
+        show={@confirm_delete}
+        on_confirm="delete_catalogue"
+        on_cancel="cancel_delete"
+        title="Permanently Delete Catalogue"
+        title_icon="hero-trash"
+        messages={[{:warning, "This will permanently delete this catalogue, all its categories, and all items within them."}]}
+        confirm_text="Delete Forever"
+        danger={true}
+      />
     </div>
     """
   end
