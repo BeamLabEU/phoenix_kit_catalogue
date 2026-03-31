@@ -41,6 +41,32 @@ defmodule PhoenixKitCatalogue.Web.Components do
 
   alias PhoenixKitCatalogue.Schemas.Item
 
+  # ── Local status badge (catalogue statuses don't match upstream badge variants)
+
+  @doc false
+  attr(:status, :string, required: true)
+  attr(:size, :atom, default: :sm)
+
+  def status_badge(assigns) do
+    ~H"""
+    <div class={["badge", status_class(@status), size_class(@size)]}>
+      {String.capitalize(@status)}
+    </div>
+    """
+  end
+
+  defp status_class("active"), do: "badge-success"
+  defp status_class("archived"), do: "badge-ghost"
+  defp status_class("deleted"), do: "badge-error"
+  defp status_class("inactive"), do: "badge-warning"
+  defp status_class(_), do: "badge-neutral"
+
+  defp size_class(:xs), do: "badge-xs"
+  defp size_class(:sm), do: "badge-sm"
+  defp size_class(:md), do: ""
+  defp size_class(:lg), do: "badge-lg"
+  defp size_class(_), do: ""
+
   # ═══════════════════════════════════════════════════════════════════
   # Search input
   # ═══════════════════════════════════════════════════════════════════
@@ -270,9 +296,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
     <.table_default
       variant={@variant}
       size={@size}
-      wrapper_class={@wrapper_class}
       toggleable={@cards}
-      show_toggle={@show_toggle}
       id={@id}
       storage_key={@storage_key}
       items={@items}
@@ -408,7 +432,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
 
   defp item_cell(%{column: :status} = assigns) do
     ~H"""
-    <.table_default_cell><PhoenixKitWeb.Components.Core.Badge.status_badge status={@item.status || "unknown"} size={:xs} /></.table_default_cell>
+    <.table_default_cell><.status_badge status={@item.status || "unknown"} size={:xs} /></.table_default_cell>
     """
   end
 
@@ -473,7 +497,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
   defp item_actions(assigns) do
     ~H"""
     <.table_default_cell class="text-right whitespace-nowrap">
-      <.table_row_menu id={"item-action-#{@item.uuid}"} mode="auto">
+      <.table_row_menu id={"item-action-#{@item.uuid}"}>
         <.table_row_menu_link :if={@edit_path} navigate={safe_call(@edit_path, @item.uuid)} icon="hero-pencil" label={Gettext.gettext(PhoenixKitWeb.Gettext, "Edit")} />
         <.table_row_menu_divider :if={@edit_path && (@on_delete || @on_restore)} />
         <.table_row_menu_button :if={@on_delete} phx-click={@on_delete} phx-value-uuid={@item.uuid} icon="hero-trash" label={Gettext.gettext(PhoenixKitWeb.Gettext, "Delete")} variant="error" />

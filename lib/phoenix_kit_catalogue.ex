@@ -64,7 +64,7 @@ defmodule PhoenixKitCatalogue do
   def version, do: "0.2.0"
 
   @impl PhoenixKit.Module
-  def css_sources, do: [:phoenix_kit_catalogue]
+  def css_sources, do: ["phoenix_kit_catalogue"]
 
   @impl PhoenixKit.Module
   def permission_metadata do
