@@ -36,7 +36,7 @@ defmodule PhoenixKitCatalogue.Web.ManufacturerFormLive do
     if is_nil(manufacturer) and action == :edit do
       {:ok,
        socket
-       |> put_flash(:error, "Manufacturer not found.")
+       |> put_flash(:error, Gettext.gettext(PhoenixKitWeb.Gettext, "Manufacturer not found."))
        |> push_navigate(to: Paths.manufacturers())}
     else
       all_suppliers = Catalogue.list_suppliers(status: "active")
@@ -44,7 +44,7 @@ defmodule PhoenixKitCatalogue.Web.ManufacturerFormLive do
       {:ok,
        assign(socket,
          page_title:
-           if(action == :new, do: "New Manufacturer", else: "Edit #{manufacturer.name}"),
+           if(action == :new, do: Gettext.gettext(PhoenixKitWeb.Gettext, "New Manufacturer"), else: Gettext.gettext(PhoenixKitWeb.Gettext, "Edit %{name}", name: manufacturer.name)),
          action: action,
          manufacturer: manufacturer,
          changeset: changeset,
@@ -89,13 +89,13 @@ defmodule PhoenixKitCatalogue.Web.ManufacturerFormLive do
           {:ok, _} ->
             {:noreply,
              socket
-             |> put_flash(:info, "Manufacturer created.")
+             |> put_flash(:info, Gettext.gettext(PhoenixKitWeb.Gettext, "Manufacturer created."))
              |> push_navigate(to: Paths.manufacturers())}
 
           {:error, _} ->
             {:noreply,
              socket
-             |> put_flash(:warning, "Manufacturer created but failed to link some suppliers.")
+             |> put_flash(:warning, Gettext.gettext(PhoenixKitWeb.Gettext, "Manufacturer created but failed to link some suppliers."))
              |> push_navigate(to: Paths.manufacturers())}
         end
 
@@ -114,13 +114,13 @@ defmodule PhoenixKitCatalogue.Web.ManufacturerFormLive do
           {:ok, _} ->
             {:noreply,
              socket
-             |> put_flash(:info, "Manufacturer updated.")
+             |> put_flash(:info, Gettext.gettext(PhoenixKitWeb.Gettext, "Manufacturer updated."))
              |> push_navigate(to: Paths.manufacturers())}
 
           {:error, _} ->
             {:noreply,
              socket
-             |> put_flash(:warning, "Manufacturer updated but failed to sync supplier links.")
+             |> put_flash(:warning, Gettext.gettext(PhoenixKitWeb.Gettext, "Manufacturer updated but failed to sync supplier links."))
              |> push_navigate(to: Paths.manufacturers())}
         end
 
@@ -137,7 +137,7 @@ defmodule PhoenixKitCatalogue.Web.ManufacturerFormLive do
       <.admin_page_header
         back={Paths.manufacturers()}
         title={@page_title}
-        subtitle={if @action == :new, do: "Add a new manufacturer to your catalogue system.", else: "Update manufacturer details and supplier links."}
+        subtitle={if @action == :new, do: Gettext.gettext(PhoenixKitWeb.Gettext, "Add a new manufacturer to your catalogue system."), else: Gettext.gettext(PhoenixKitWeb.Gettext, "Update manufacturer details and supplier links.")}
       />
 
       <.form for={to_form(@changeset)} action="#" phx-change="validate" phx-submit="save">
@@ -163,7 +163,7 @@ defmodule PhoenixKitCatalogue.Web.ManufacturerFormLive do
                 name="manufacturer[description]"
                 class="textarea textarea-bordered w-full transition-colors focus:textarea-primary"
                 rows="3"
-                placeholder="Brief description of this manufacturer..."
+                placeholder={Gettext.gettext(PhoenixKitWeb.Gettext, "Brief description of this manufacturer...")}
               >{Ecto.Changeset.get_field(@changeset, :description) || ""}</textarea>
             </div>
 
@@ -190,7 +190,7 @@ defmodule PhoenixKitCatalogue.Web.ManufacturerFormLive do
 
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div class="form-control">
-                <span class="label-text font-semibold mb-2">Website</span>
+                <span class="label-text font-semibold mb-2">{Gettext.gettext(PhoenixKitWeb.Gettext, "Website")}</span>
                 <input
                   type="url"
                   name="manufacturer[website]"
@@ -200,19 +200,19 @@ defmodule PhoenixKitCatalogue.Web.ManufacturerFormLive do
                 />
               </div>
               <div class="form-control">
-                <span class="label-text font-semibold mb-2">Contact Info</span>
+                <span class="label-text font-semibold mb-2">{Gettext.gettext(PhoenixKitWeb.Gettext, "Contact Info")}</span>
                 <input
                   type="text"
                   name="manufacturer[contact_info]"
                   value={Ecto.Changeset.get_field(@changeset, :contact_info) || ""}
                   class="input input-bordered w-full transition-colors focus:input-primary"
-                  placeholder="Email or phone"
+                  placeholder={Gettext.gettext(PhoenixKitWeb.Gettext, "Email or phone")}
                 />
               </div>
             </div>
 
             <div class="form-control">
-              <span class="label-text font-semibold mb-2">Logo URL</span>
+              <span class="label-text font-semibold mb-2">{Gettext.gettext(PhoenixKitWeb.Gettext, "Logo URL")}</span>
               <input
                 type="url"
                 name="manufacturer[logo_url]"
@@ -223,19 +223,19 @@ defmodule PhoenixKitCatalogue.Web.ManufacturerFormLive do
             </div>
 
             <div class="form-control">
-              <span class="label-text font-semibold mb-2">Notes</span>
+              <span class="label-text font-semibold mb-2">{Gettext.gettext(PhoenixKitWeb.Gettext, "Notes")}</span>
               <textarea
                 name="manufacturer[notes]"
                 class="textarea textarea-bordered w-full min-h-[5rem] transition-colors focus:textarea-primary"
                 rows="2"
-                placeholder="Internal notes about this manufacturer..."
+                placeholder={Gettext.gettext(PhoenixKitWeb.Gettext, "Internal notes about this manufacturer...")}
               >{Ecto.Changeset.get_field(@changeset, :notes) || ""}</textarea>
             </div>
 
             <div class="divider my-0"></div>
 
             <div class="form-control">
-              <span class="label-text font-semibold mb-2">Status</span>
+              <span class="label-text font-semibold mb-2">{Gettext.gettext(PhoenixKitWeb.Gettext, "Status")}</span>
               <label class="select select-bordered w-full transition-colors focus-within:select-primary">
                 <select name="manufacturer[status]">
                   <option
@@ -317,9 +317,9 @@ defmodule PhoenixKitCatalogue.Web.ManufacturerFormLive do
             <div class="divider my-0"></div>
 
             <div class="flex justify-end gap-3">
-              <.link navigate={Paths.manufacturers()} class="btn btn-ghost">Cancel</.link>
+              <.link navigate={Paths.manufacturers()} class="btn btn-ghost">{Gettext.gettext(PhoenixKitWeb.Gettext, "Cancel")}</.link>
               <button type="submit" class="btn btn-primary phx-submit-loading:opacity-75">
-                {if @action == :new, do: "Create Manufacturer", else: "Save Changes"}
+                {if @action == :new, do: Gettext.gettext(PhoenixKitWeb.Gettext, "Create Manufacturer"), else: Gettext.gettext(PhoenixKitWeb.Gettext, "Save Changes")}
               </button>
             </div>
           </div>
