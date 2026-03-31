@@ -45,6 +45,8 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       socket
       |> assign(:active_tab, action)
       |> assign(:page_title, tab_title(action))
+      |> assign(:search_query, "")
+      |> assign(:search_results, nil)
       |> load_data(action)
 
     {:noreply, socket}
@@ -53,6 +55,13 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   defp tab_title(:index), do: Gettext.gettext(PhoenixKitWeb.Gettext, "Catalogues")
   defp tab_title(:manufacturers), do: Gettext.gettext(PhoenixKitWeb.Gettext, "Manufacturers")
   defp tab_title(:suppliers), do: Gettext.gettext(PhoenixKitWeb.Gettext, "Suppliers")
+
+  defp confirm_delete!(socket) do
+    case socket.assigns.confirm_delete do
+      {_type, _uuid} = value -> value
+      _ -> raise "confirm_delete not set"
+    end
+  end
 
   defp load_data(socket, :index) do
     if connected?(socket) do
@@ -117,13 +126,21 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
        |> load_data(:index)}
     else
       nil ->
-        {:noreply, socket |> put_flash(:error, Gettext.gettext(PhoenixKitWeb.Gettext, "Catalogue not found.")) |> load_data(:index)}
+        {:noreply,
+         socket
+         |> put_flash(:error, Gettext.gettext(PhoenixKitWeb.Gettext, "Catalogue not found."))
+         |> load_data(:index)}
 
       {:error, reason} ->
         Logger.error("Failed to trash catalogue #{uuid}: #{inspect(reason)}")
 
         {:noreply,
-         socket |> put_flash(:error, Gettext.gettext(PhoenixKitWeb.Gettext, "Failed to delete catalogue.")) |> load_data(:index)}
+         socket
+         |> put_flash(
+           :error,
+           Gettext.gettext(PhoenixKitWeb.Gettext, "Failed to delete catalogue.")
+         )
+         |> load_data(:index)}
     end
   end
 
@@ -137,13 +154,21 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
        |> load_data(:index)}
     else
       nil ->
-        {:noreply, socket |> put_flash(:error, Gettext.gettext(PhoenixKitWeb.Gettext, "Catalogue not found.")) |> load_data(:index)}
+        {:noreply,
+         socket
+         |> put_flash(:error, Gettext.gettext(PhoenixKitWeb.Gettext, "Catalogue not found."))
+         |> load_data(:index)}
 
       {:error, reason} ->
         Logger.error("Failed to restore catalogue #{uuid}: #{inspect(reason)}")
 
         {:noreply,
-         socket |> put_flash(:error, Gettext.gettext(PhoenixKitWeb.Gettext, "Failed to restore catalogue.")) |> load_data(:index)}
+         socket
+         |> put_flash(
+           :error,
+           Gettext.gettext(PhoenixKitWeb.Gettext, "Failed to restore catalogue.")
+         )
+         |> load_data(:index)}
     end
   end
 
@@ -152,13 +177,16 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   end
 
   def handle_event("permanently_delete_catalogue", _params, socket) do
-    {"catalogue", uuid} = socket.assigns.confirm_delete
+    {"catalogue", uuid} = confirm_delete!(socket)
 
     with %{} = catalogue <- Catalogue.get_catalogue(uuid),
          {:ok, _} <- Catalogue.permanently_delete_catalogue(catalogue) do
       {:noreply,
        socket
-       |> put_flash(:info, Gettext.gettext(PhoenixKitWeb.Gettext, "Catalogue permanently deleted."))
+       |> put_flash(
+         :info,
+         Gettext.gettext(PhoenixKitWeb.Gettext, "Catalogue permanently deleted.")
+       )
        |> assign(:confirm_delete, nil)
        |> load_data(:index)}
     else
@@ -175,13 +203,16 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         {:noreply,
          socket
          |> assign(:confirm_delete, nil)
-         |> put_flash(:error, Gettext.gettext(PhoenixKitWeb.Gettext, "Failed to delete catalogue."))
+         |> put_flash(
+           :error,
+           Gettext.gettext(PhoenixKitWeb.Gettext, "Failed to delete catalogue.")
+         )
          |> load_data(:index)}
     end
   end
 
   def handle_event("delete_manufacturer", _params, socket) do
-    {"manufacturer", uuid} = socket.assigns.confirm_delete
+    {"manufacturer", uuid} = confirm_delete!(socket)
 
     with %{} = manufacturer <- Catalogue.get_manufacturer(uuid),
          {:ok, _} <- Catalogue.delete_manufacturer(manufacturer) do
@@ -196,13 +227,16 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
 
         {:noreply,
          socket
-         |> put_flash(:error, Gettext.gettext(PhoenixKitWeb.Gettext, "Failed to delete manufacturer."))
+         |> put_flash(
+           :error,
+           Gettext.gettext(PhoenixKitWeb.Gettext, "Failed to delete manufacturer.")
+         )
          |> assign(:confirm_delete, nil)}
     end
   end
 
   def handle_event("delete_supplier", _params, socket) do
-    {"supplier", uuid} = socket.assigns.confirm_delete
+    {"supplier", uuid} = confirm_delete!(socket)
 
     with %{} = supplier <- Catalogue.get_supplier(uuid),
          {:ok, _} <- Catalogue.delete_supplier(supplier) do
@@ -216,7 +250,10 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
 
         {:noreply,
          socket
-         |> put_flash(:error, Gettext.gettext(PhoenixKitWeb.Gettext, "Failed to delete supplier."))
+         |> put_flash(
+           :error,
+           Gettext.gettext(PhoenixKitWeb.Gettext, "Failed to delete supplier.")
+         )
          |> assign(:confirm_delete, nil)}
     end
   end
@@ -282,8 +319,8 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         </div>
       </div>
 
-      <%!-- Global search --%>
-      <.search_input query={@search_query} placeholder={Gettext.gettext(PhoenixKitWeb.Gettext, "Search items across all catalogues...")} />
+      <%!-- Global search (only on catalogues tab) --%>
+      <.search_input :if={@active_tab == :index} query={@search_query} placeholder={Gettext.gettext(PhoenixKitWeb.Gettext, "Search items across all catalogues...")} />
 
       <%!-- Search results --%>
       <div :if={@search_results != nil} class="flex flex-col gap-4">
