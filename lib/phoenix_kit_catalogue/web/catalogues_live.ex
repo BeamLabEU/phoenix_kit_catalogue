@@ -247,37 +247,37 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     ~H"""
     <div class="flex flex-col mx-auto max-w-5xl px-4 py-6 gap-6">
       <%!-- Tab navigation --%>
-      <div class="flex items-center justify-between">
+      <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div role="tablist" class="tabs tabs-bordered">
           <.link
             patch={Paths.index()}
             class={["tab", @active_tab == :index && "tab-active"]}
           >
-            Catalogues
+            {Gettext.gettext(PhoenixKitWeb.Gettext, "Catalogues")}
           </.link>
           <.link
             patch={Paths.manufacturers()}
             class={["tab", @active_tab == :manufacturers && "tab-active"]}
           >
-            Manufacturers
+            {Gettext.gettext(PhoenixKitWeb.Gettext, "Manufacturers")}
           </.link>
           <.link
             patch={Paths.suppliers()}
             class={["tab", @active_tab == :suppliers && "tab-active"]}
           >
-            Suppliers
+            {Gettext.gettext(PhoenixKitWeb.Gettext, "Suppliers")}
           </.link>
         </div>
 
-        <div>
+        <div class="self-end sm:self-auto">
           <.link :if={@active_tab == :index && @catalogue_view_mode == "active"} navigate={Paths.catalogue_new()} class="btn btn-primary btn-sm">
-            New Catalogue
+            {Gettext.gettext(PhoenixKitWeb.Gettext, "New Catalogue")}
           </.link>
           <.link :if={@active_tab == :manufacturers} navigate={Paths.manufacturer_new()} class="btn btn-primary btn-sm">
-            New Manufacturer
+            {Gettext.gettext(PhoenixKitWeb.Gettext, "New Manufacturer")}
           </.link>
           <.link :if={@active_tab == :suppliers} navigate={Paths.supplier_new()} class="btn btn-primary btn-sm">
-            New Supplier
+            {Gettext.gettext(PhoenixKitWeb.Gettext, "New Supplier")}
           </.link>
         </div>
       </div>
