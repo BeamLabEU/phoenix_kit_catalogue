@@ -15,7 +15,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   import PhoenixKitWeb.Components.Core.Modal, only: [confirm_modal: 1]
   import PhoenixKitWeb.Components.Core.TableDefault
   import PhoenixKitWeb.Components.Core.TableRowMenu
-  import PhoenixKitWeb.Components.Core.Badge, only: [status_badge: 1]
+
   import PhoenixKitCatalogue.Web.Components
 
   alias PhoenixKitCatalogue.Catalogue
@@ -298,6 +298,8 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
           variant="zebra"
           edit_path={&Paths.item_edit/1}
           catalogue_path={&Paths.catalogue_detail/1}
+          cards={true}
+          id="global-search-items"
         />
       </div>
 
@@ -393,7 +395,14 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     </div>
 
     <div :if={@catalogues != []}>
-      <.table_default variant="zebra" size="sm">
+      <.table_default
+        variant="zebra" size="sm" toggleable={true}
+        id={"catalogues-#{@view_mode}"} items={@catalogues}
+        card_fields={fn c -> [
+          %{label: "Status", value: String.capitalize(c.status)},
+          %{label: "Updated", value: Calendar.strftime(c.updated_at, "%Y-%m-%d %H:%M")}
+        ] end}
+      >
         <.table_default_header>
           <.table_default_row>
             <.table_default_header_cell>Name</.table_default_header_cell>
@@ -410,7 +419,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
               </.link>
               <span :if={@view_mode == "deleted"} class="font-medium text-base-content/50">{catalogue.name}</span>
             </.table_default_cell>
-            <.table_default_cell><.status_badge status={catalogue.status} size={:sm} /></.table_default_cell>
+            <.table_default_cell><PhoenixKitWeb.Components.Core.Badge.status_badge status={catalogue.status} size={:sm} /></.table_default_cell>
             <.table_default_cell class="text-sm text-base-content/60">
               {Calendar.strftime(catalogue.updated_at, "%Y-%m-%d %H:%M")}
             </.table_default_cell>
@@ -433,6 +442,19 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
             </.table_default_cell>
           </.table_default_row>
         </.table_default_body>
+        <:card_header :let={catalogue}>
+          <.link :if={@view_mode == "active"} navigate={Paths.catalogue_detail(catalogue.uuid)} class="font-medium text-sm link link-hover">{catalogue.name}</.link>
+          <span :if={@view_mode == "deleted"} class="font-medium text-sm text-base-content/50">{catalogue.name}</span>
+        </:card_header>
+        <:card_actions :let={catalogue} :if={@view_mode == "active"}>
+          <.link navigate={Paths.catalogue_detail(catalogue.uuid)} class="btn btn-ghost btn-xs">View</.link>
+          <.link navigate={Paths.catalogue_edit(catalogue.uuid)} class="btn btn-ghost btn-xs">Edit</.link>
+          <button phx-click="trash_catalogue" phx-value-uuid={catalogue.uuid} class="btn btn-ghost btn-xs text-error">Delete</button>
+        </:card_actions>
+        <:card_actions :let={catalogue} :if={@view_mode == "deleted"}>
+          <button phx-click="restore_catalogue" phx-value-uuid={catalogue.uuid} class="btn btn-ghost btn-xs text-success">Restore</button>
+          <button phx-click="show_delete_confirm" phx-value-uuid={catalogue.uuid} phx-value-type="catalogue" class="btn btn-ghost btn-xs text-error">Delete Forever</button>
+        </:card_actions>
       </.table_default>
     </div>
     """
@@ -447,7 +469,14 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     </div>
 
     <div :if={@manufacturers != []}>
-      <.table_default variant="zebra" size="sm">
+      <.table_default
+        variant="zebra" size="sm" toggleable={true}
+        id="manufacturers-list" items={@manufacturers}
+        card_fields={fn m -> [
+          %{label: "Website", value: m.website || "—"},
+          %{label: "Status", value: String.capitalize(m.status)}
+        ] end}
+      >
         <.table_default_header>
           <.table_default_row>
             <.table_default_header_cell>Name</.table_default_header_cell>
@@ -460,7 +489,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
           <.table_default_row :for={m <- @manufacturers}>
             <.table_default_cell class="font-medium">{m.name}</.table_default_cell>
             <.table_default_cell class="text-sm text-base-content/60">{m.website}</.table_default_cell>
-            <.table_default_cell><.status_badge status={m.status} size={:sm} /></.table_default_cell>
+            <.table_default_cell><PhoenixKitWeb.Components.Core.Badge.status_badge status={m.status} size={:sm} /></.table_default_cell>
             <.table_default_cell class="text-right whitespace-nowrap">
               <.table_row_menu mode="auto" id={"mfg-menu-#{m.uuid}"}>
                 <.table_row_menu_link navigate={Paths.manufacturer_edit(m.uuid)} icon="hero-pencil" label="Edit" />
@@ -470,6 +499,13 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
             </.table_default_cell>
           </.table_default_row>
         </.table_default_body>
+        <:card_header :let={m}>
+          <.link navigate={Paths.manufacturer_edit(m.uuid)} class="font-medium text-sm link link-hover">{m.name}</.link>
+        </:card_header>
+        <:card_actions :let={m}>
+          <.link navigate={Paths.manufacturer_edit(m.uuid)} class="btn btn-ghost btn-xs">Edit</.link>
+          <button phx-click="show_delete_confirm" phx-value-uuid={m.uuid} phx-value-type="manufacturer" class="btn btn-ghost btn-xs text-error">Delete</button>
+        </:card_actions>
       </.table_default>
     </div>
     """
@@ -484,7 +520,14 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     </div>
 
     <div :if={@suppliers != []}>
-      <.table_default variant="zebra" size="sm">
+      <.table_default
+        variant="zebra" size="sm" toggleable={true}
+        id="suppliers-list" items={@suppliers}
+        card_fields={fn s -> [
+          %{label: "Website", value: s.website || "—"},
+          %{label: "Status", value: String.capitalize(s.status)}
+        ] end}
+      >
         <.table_default_header>
           <.table_default_row>
             <.table_default_header_cell>Name</.table_default_header_cell>
@@ -497,7 +540,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
           <.table_default_row :for={s <- @suppliers}>
             <.table_default_cell class="font-medium">{s.name}</.table_default_cell>
             <.table_default_cell class="text-sm text-base-content/60">{s.website}</.table_default_cell>
-            <.table_default_cell><.status_badge status={s.status} size={:sm} /></.table_default_cell>
+            <.table_default_cell><PhoenixKitWeb.Components.Core.Badge.status_badge status={s.status} size={:sm} /></.table_default_cell>
             <.table_default_cell class="text-right whitespace-nowrap">
               <.table_row_menu mode="auto" id={"supplier-menu-#{s.uuid}"}>
                 <.table_row_menu_link navigate={Paths.supplier_edit(s.uuid)} icon="hero-pencil" label="Edit" variant="secondary" />
@@ -507,9 +550,15 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
             </.table_default_cell>
           </.table_default_row>
         </.table_default_body>
+        <:card_header :let={s}>
+          <.link navigate={Paths.supplier_edit(s.uuid)} class="font-medium text-sm link link-hover">{s.name}</.link>
+        </:card_header>
+        <:card_actions :let={s}>
+          <.link navigate={Paths.supplier_edit(s.uuid)} class="btn btn-ghost btn-xs">Edit</.link>
+          <button phx-click="show_delete_confirm" phx-value-uuid={s.uuid} phx-value-type="supplier" class="btn btn-ghost btn-xs text-error">Delete</button>
+        </:card_actions>
       </.table_default>
     </div>
     """
   end
-
 end

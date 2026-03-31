@@ -298,23 +298,26 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         <%!-- Search --%>
         <.search_input :if={@view_mode == "active"} query={@search_query} placeholder="Search items by name, description, or SKU..." />
 
+        <%!-- View toggle --%>
+        <.view_mode_toggle storage_key="catalogue-detail-items" />
+
         <%!-- Search results --%>
         <div :if={@search_results != nil} class="flex flex-col gap-4">
           <.search_results_summary count={length(@search_results)} query={@search_query} />
 
           <.empty_state :if={@search_results == []} message="No items match your search." />
 
-          <div :if={@search_results != []} class="card bg-base-100 shadow">
-            <div class="card-body">
-              <.item_table
-                items={@search_results}
-                columns={[:name, :sku, :base_price, :price, :unit, :status]}
-                markup_percentage={@catalogue.markup_percentage}
-                edit_path={&Paths.item_edit/1}
-                wrapper_class="overflow-x-auto shadow-none rounded-none"
-              />
-            </div>
-          </div>
+          <.item_table
+            :if={@search_results != []}
+            items={@search_results}
+            columns={[:name, :sku, :base_price, :price, :unit, :status]}
+            markup_percentage={@catalogue.markup_percentage}
+            edit_path={&Paths.item_edit/1}
+            cards={true}
+            show_toggle={false}
+            storage_key="catalogue-detail-items"
+            id="catalogue-search-items"
+          />
         </div>
 
         <%!-- Status tabs --%>
@@ -436,6 +439,10 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                   markup_percentage={@catalogue.markup_percentage}
                   edit_path={&Paths.item_edit/1}
                   on_delete="delete_item"
+                  cards={true}
+                  show_toggle={false}
+                  storage_key="catalogue-detail-items"
+                  id={"cat-items-active-#{category.uuid}"}
                   wrapper_class="overflow-x-auto shadow-none rounded-none"
                 />
               </div>
@@ -448,6 +455,10 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                   on_restore="restore_item"
                   on_permanent_delete="show_delete_confirm"
                   permanent_delete_type="item"
+                  cards={true}
+                  show_toggle={false}
+                  storage_key="catalogue-detail-items"
+                  id={"cat-items-deleted-#{category.uuid}"}
                   wrapper_class="overflow-x-auto shadow-none rounded-none"
                 />
               </div>
@@ -467,7 +478,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               <span class="badge badge-ghost badge-sm">{length(@uncategorized_items)} items</span>
             </div>
 
-            <div class="overflow-x-auto mt-2">
+            <div class="mt-2">
               <.item_table
                 items={@uncategorized_items}
                 columns={[:name, :sku, :base_price, :unit, :status]}
@@ -476,6 +487,10 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                 on_restore={if @view_mode == "deleted", do: "restore_item"}
                 on_permanent_delete={if @view_mode == "deleted", do: "show_delete_confirm"}
                 permanent_delete_type="item"
+                cards={true}
+                show_toggle={false}
+                storage_key="catalogue-detail-items"
+                id="uncategorized-items"
               />
             </div>
           </div>
@@ -506,5 +521,4 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     </div>
     """
   end
-
 end

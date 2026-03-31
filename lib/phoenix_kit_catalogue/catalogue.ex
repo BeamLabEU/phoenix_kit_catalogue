@@ -738,15 +738,54 @@ defmodule PhoenixKitCatalogue.Catalogue do
   # ═══════════════════════════════════════════════════════════════════
 
   @doc """
+  Lists all non-deleted items across all catalogues, ordered by name.
+
+  Preloads category (with catalogue) and manufacturer.
+
+  ## Options
+
+    * `:status` — filter by status (e.g. `"active"`, `"inactive"`).
+      When nil (default), returns all non-deleted items.
+    * `:limit` — max results to return (default: no limit)
+
+  ## Examples
+
+      Catalogue.list_items()                          # all non-deleted
+      Catalogue.list_items(status: "active")          # only active
+      Catalogue.list_items(limit: 100)                # first 100
+  """
+  def list_items(opts \\ []) do
+    query =
+      from(i in Item,
+        order_by: [asc: :name],
+        preload: [category: :catalogue, manufacturer: []]
+      )
+
+    query =
+      case Keyword.get(opts, :status) do
+        nil -> where(query, [i], i.status != "deleted")
+        status -> where(query, [i], i.status == ^status)
+      end
+
+    query =
+      case Keyword.get(opts, :limit) do
+        nil -> query
+        limit -> limit(query, ^limit)
+      end
+
+    repo().all(query)
+  end
+
+  @doc """
   Lists non-deleted items for a category, ordered by name.
 
-  Preloads manufacturer.
+  Preloads category (with catalogue) and manufacturer.
   """
   def list_items_for_category(category_uuid) do
     from(i in Item,
       where: i.category_uuid == ^category_uuid and i.status != "deleted",
       order_by: [asc: :name],
-      preload: [:manufacturer]
+      preload: [category: :catalogue, manufacturer: []]
     )
     |> repo().all()
   end
@@ -755,7 +794,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
   Lists non-deleted items for a catalogue (across all categories), ordered by
   category position then item name.
 
-  Preloads category and manufacturer.
+  Preloads category (with catalogue) and manufacturer.
   """
   def list_items_for_catalogue(catalogue_uuid) do
     from(i in Item,
@@ -763,7 +802,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
       on: i.category_uuid == c.uuid,
       where: c.catalogue_uuid == ^catalogue_uuid and i.status != "deleted",
       order_by: [asc: c.position, asc: i.name],
-      preload: [:category, :manufacturer]
+      preload: [category: :catalogue, manufacturer: []]
     )
     |> repo().all()
   end
@@ -1070,7 +1109,41 @@ defmodule PhoenixKitCatalogue.Catalogue do
           ilike(i.sku, ^pattern),
       order_by: [asc: c.position, asc: i.name],
       limit: ^limit,
-      preload: [:category, :manufacturer]
+      preload: [category: :catalogue, manufacturer: []]
+    )
+    |> repo().all()
+  end
+
+  @doc """
+  Searches items within a specific category.
+
+  Matches against item name, description, and SKU using case-insensitive
+  partial matching. Only returns non-deleted items.
+
+  Preloads category (with catalogue) and manufacturer.
+
+  ## Options
+
+    * `:limit` — max results to return (default 50)
+
+  ## Examples
+
+      Catalogue.search_items_in_category(category_uuid, "panel")
+  """
+  def search_items_in_category(category_uuid, query, opts \\ []) do
+    limit = Keyword.get(opts, :limit, 50)
+    pattern = "%#{sanitize_like(query)}%"
+
+    from(i in Item,
+      where: i.category_uuid == ^category_uuid,
+      where: i.status != "deleted",
+      where:
+        ilike(i.name, ^pattern) or
+          ilike(i.description, ^pattern) or
+          ilike(i.sku, ^pattern),
+      order_by: [asc: i.name],
+      limit: ^limit,
+      preload: [category: :catalogue, manufacturer: []]
     )
     |> repo().all()
   end
@@ -1083,8 +1156,26 @@ defmodule PhoenixKitCatalogue.Catalogue do
   end
 
   # ═══════════════════════════════════════════════════════════════════
-  # Deleted counts
+  # Counts
   # ═══════════════════════════════════════════════════════════════════
+
+  @doc "Counts non-deleted items belonging to categories in this catalogue."
+  def item_count_for_catalogue(catalogue_uuid) do
+    from(i in Item,
+      join: c in Category,
+      on: i.category_uuid == c.uuid,
+      where: c.catalogue_uuid == ^catalogue_uuid and i.status != "deleted"
+    )
+    |> repo().aggregate(:count)
+  end
+
+  @doc "Counts non-deleted categories for a catalogue."
+  def category_count_for_catalogue(catalogue_uuid) do
+    from(c in Category,
+      where: c.catalogue_uuid == ^catalogue_uuid and c.status != "deleted"
+    )
+    |> repo().aggregate(:count)
+  end
 
   @doc """
   Counts deleted items belonging to categories in this catalogue.
