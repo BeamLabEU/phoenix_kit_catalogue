@@ -5,6 +5,11 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
   require Logger
 
+  import PhoenixKitWeb.Components.Core.Icon, only: [icon: 1]
+  import PhoenixKitWeb.Components.Core.AdminPageHeader, only: [admin_page_header: 1]
+  import PhoenixKitWeb.Components.Core.Modal, only: [confirm_modal: 1]
+  import PhoenixKitCatalogue.Web.Components
+
   alias PhoenixKitCatalogue.Catalogue
   alias PhoenixKitCatalogue.Paths
 
@@ -12,13 +17,15 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   def mount(%{"uuid" => uuid}, _session, socket) do
     socket =
       assign(socket,
-        page_title: "Loading...",
+        page_title: Gettext.gettext(PhoenixKitWeb.Gettext, "Loading..."),
         catalogue_uuid: uuid,
         catalogue: nil,
         uncategorized_items: [],
         confirm_delete: nil,
         view_mode: "active",
-        deleted_count: 0
+        deleted_count: 0,
+        search_query: "",
+        search_results: nil
       )
 
     if connected?(socket) do
@@ -29,7 +36,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
           Logger.warning("Catalogue not found: #{uuid}")
 
           {:ok,
-           socket |> put_flash(:error, "Catalogue not found.") |> push_navigate(to: Paths.index())}
+           socket |> put_flash(:error, Gettext.gettext(PhoenixKitWeb.Gettext, "Catalogue not found.")) |> push_navigate(to: Paths.index())}
       end
     else
       {:ok, socket}
@@ -47,64 +54,83 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
      |> load_catalogue_data()}
   end
 
+  def handle_event("search", %{"query" => query}, socket) do
+    query = String.trim(query)
+
+    if query == "" do
+      {:noreply, assign(socket, search_query: "", search_results: nil)}
+    else
+      results =
+        Catalogue.search_items_in_catalogue(socket.assigns.catalogue_uuid, query)
+
+      {:noreply, assign(socket, search_query: query, search_results: results)}
+    end
+  end
+
+  def handle_event("clear_search", _params, socket) do
+    {:noreply, assign(socket, search_query: "", search_results: nil)}
+  end
+
   def handle_event("delete_item", %{"uuid" => uuid}, socket) do
     with %{} = item <- Catalogue.get_item(uuid),
          {:ok, _} <- Catalogue.trash_item(item) do
-      {:noreply, socket |> put_flash(:info, "Item moved to deleted.") |> load_catalogue_data()}
+      {:noreply, socket |> put_flash(:info, Gettext.gettext(PhoenixKitWeb.Gettext, "Item moved to deleted.")) |> load_catalogue_data()}
     else
       nil ->
-        {:noreply, socket |> put_flash(:error, "Item not found.") |> load_catalogue_data()}
+        {:noreply, socket |> put_flash(:error, Gettext.gettext(PhoenixKitWeb.Gettext, "Item not found.")) |> load_catalogue_data()}
 
       {:error, reason} ->
         Logger.error("Failed to trash item #{uuid}: #{inspect(reason)}")
-        {:noreply, socket |> put_flash(:error, "Failed to delete item.") |> load_catalogue_data()}
+        {:noreply, socket |> put_flash(:error, Gettext.gettext(PhoenixKitWeb.Gettext, "Failed to delete item.")) |> load_catalogue_data()}
     end
   end
 
   def handle_event("restore_item", %{"uuid" => uuid}, socket) do
     with %{} = item <- Catalogue.get_item(uuid),
          {:ok, _} <- Catalogue.restore_item(item) do
-      {:noreply, socket |> put_flash(:info, "Item restored.") |> load_catalogue_data()}
+      {:noreply, socket |> put_flash(:info, Gettext.gettext(PhoenixKitWeb.Gettext, "Item restored.")) |> load_catalogue_data()}
     else
       nil ->
-        {:noreply, socket |> put_flash(:error, "Item not found.") |> load_catalogue_data()}
+        {:noreply, socket |> put_flash(:error, Gettext.gettext(PhoenixKitWeb.Gettext, "Item not found.")) |> load_catalogue_data()}
 
       {:error, reason} ->
         Logger.error("Failed to restore item #{uuid}: #{inspect(reason)}")
 
         {:noreply,
-         socket |> put_flash(:error, "Failed to restore item.") |> load_catalogue_data()}
+         socket |> put_flash(:error, Gettext.gettext(PhoenixKitWeb.Gettext, "Failed to restore item.")) |> load_catalogue_data()}
     end
   end
 
-  def handle_event("permanently_delete_item", %{"uuid" => uuid}, socket) do
-    if socket.assigns.confirm_delete == {:permanent, uuid} do
-      with %{} = item <- Catalogue.get_item(uuid),
-           {:ok, _} <- Catalogue.permanently_delete_item(item) do
+  def handle_event("show_delete_confirm", %{"uuid" => uuid, "type" => type}, socket) do
+    {:noreply, assign(socket, :confirm_delete, {type, uuid})}
+  end
+
+  def handle_event("permanently_delete_item", _params, socket) do
+    {"item", uuid} = socket.assigns.confirm_delete
+
+    with %{} = item <- Catalogue.get_item(uuid),
+         {:ok, _} <- Catalogue.permanently_delete_item(item) do
+      {:noreply,
+       socket
+       |> assign(:confirm_delete, nil)
+       |> put_flash(:info, Gettext.gettext(PhoenixKitWeb.Gettext, "Item permanently deleted."))
+       |> load_catalogue_data()}
+    else
+      nil ->
         {:noreply,
          socket
          |> assign(:confirm_delete, nil)
-         |> put_flash(:info, "Item permanently deleted.")
+         |> put_flash(:error, Gettext.gettext(PhoenixKitWeb.Gettext, "Item not found."))
          |> load_catalogue_data()}
-      else
-        nil ->
-          {:noreply,
-           socket
-           |> assign(:confirm_delete, nil)
-           |> put_flash(:error, "Item not found.")
-           |> load_catalogue_data()}
 
-        {:error, reason} ->
-          Logger.error("Failed to permanently delete item #{uuid}: #{inspect(reason)}")
+      {:error, reason} ->
+        Logger.error("Failed to permanently delete item #{uuid}: #{inspect(reason)}")
 
-          {:noreply,
-           socket
-           |> assign(:confirm_delete, nil)
-           |> put_flash(:error, "Failed to delete item.")
-           |> load_catalogue_data()}
-      end
-    else
-      {:noreply, assign(socket, :confirm_delete, {:permanent, uuid})}
+        {:noreply,
+         socket
+         |> assign(:confirm_delete, nil)
+         |> put_flash(:error, Gettext.gettext(PhoenixKitWeb.Gettext, "Failed to delete item."))
+         |> load_catalogue_data()}
     end
   end
 
@@ -112,63 +138,61 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     with %{} = category <- Catalogue.get_category(uuid),
          {:ok, _} <- Catalogue.trash_category(category) do
       {:noreply,
-       socket |> put_flash(:info, "Category moved to deleted.") |> load_catalogue_data()}
+       socket |> put_flash(:info, Gettext.gettext(PhoenixKitWeb.Gettext, "Category moved to deleted.")) |> load_catalogue_data()}
     else
       nil ->
-        {:noreply, socket |> put_flash(:error, "Category not found.") |> load_catalogue_data()}
+        {:noreply, socket |> put_flash(:error, Gettext.gettext(PhoenixKitWeb.Gettext, "Category not found.")) |> load_catalogue_data()}
 
       {:error, reason} ->
         Logger.error("Failed to trash category #{uuid}: #{inspect(reason)}")
 
         {:noreply,
-         socket |> put_flash(:error, "Failed to delete category.") |> load_catalogue_data()}
+         socket |> put_flash(:error, Gettext.gettext(PhoenixKitWeb.Gettext, "Failed to delete category.")) |> load_catalogue_data()}
     end
   end
 
   def handle_event("restore_category", %{"uuid" => uuid}, socket) do
     with %{} = category <- Catalogue.get_category(uuid),
          {:ok, _} <- Catalogue.restore_category(category) do
-      {:noreply, socket |> put_flash(:info, "Category restored.") |> load_catalogue_data()}
+      {:noreply, socket |> put_flash(:info, Gettext.gettext(PhoenixKitWeb.Gettext, "Category restored.")) |> load_catalogue_data()}
     else
       nil ->
-        {:noreply, socket |> put_flash(:error, "Category not found.") |> load_catalogue_data()}
+        {:noreply, socket |> put_flash(:error, Gettext.gettext(PhoenixKitWeb.Gettext, "Category not found.")) |> load_catalogue_data()}
 
       {:error, reason} ->
         Logger.error("Failed to restore category #{uuid}: #{inspect(reason)}")
 
         {:noreply,
-         socket |> put_flash(:error, "Failed to restore category.") |> load_catalogue_data()}
+         socket |> put_flash(:error, Gettext.gettext(PhoenixKitWeb.Gettext, "Failed to restore category.")) |> load_catalogue_data()}
     end
   end
 
-  def handle_event("permanently_delete_category", %{"uuid" => uuid}, socket) do
-    if socket.assigns.confirm_delete == {:permanent_cat, uuid} do
-      with %{} = category <- Catalogue.get_category(uuid),
-           {:ok, _} <- Catalogue.permanently_delete_category(category) do
+  def handle_event("permanently_delete_category", _params, socket) do
+    {"category", uuid} = socket.assigns.confirm_delete
+
+    with %{} = category <- Catalogue.get_category(uuid),
+         {:ok, _} <- Catalogue.permanently_delete_category(category) do
+      {:noreply,
+       socket
+       |> assign(:confirm_delete, nil)
+       |> put_flash(:info, Gettext.gettext(PhoenixKitWeb.Gettext, "Category permanently deleted."))
+       |> load_catalogue_data()}
+    else
+      nil ->
         {:noreply,
          socket
          |> assign(:confirm_delete, nil)
-         |> put_flash(:info, "Category permanently deleted.")
+         |> put_flash(:error, Gettext.gettext(PhoenixKitWeb.Gettext, "Category not found."))
          |> load_catalogue_data()}
-      else
-        nil ->
-          {:noreply,
-           socket
-           |> assign(:confirm_delete, nil)
-           |> put_flash(:error, "Category not found.")
-           |> load_catalogue_data()}
 
-        {:error, reason} ->
-          Logger.error("Failed to permanently delete category #{uuid}: #{inspect(reason)}")
+      {:error, reason} ->
+        Logger.error("Failed to permanently delete category #{uuid}: #{inspect(reason)}")
 
-          {:noreply,
-           socket
-           |> assign(:confirm_delete, nil)
-           |> put_flash(:error, "Failed to delete category.")
-           |> load_catalogue_data()}
-      end
-    else
-      {:noreply, assign(socket, :confirm_delete, {:permanent_cat, uuid})}
+        {:noreply,
+         socket
+         |> assign(:confirm_delete, nil)
+         |> put_flash(:error, Gettext.gettext(PhoenixKitWeb.Gettext, "Failed to delete category."))
+         |> load_catalogue_data()}
     end
   end
 
@@ -198,7 +222,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
     mode = view_mode_to_atom(view_mode)
     catalogue = Catalogue.get_catalogue!(uuid, mode: mode)
-    uncategorized = Catalogue.list_uncategorized_items_for_catalogue(uuid, mode: mode)
+    uncategorized = Catalogue.list_uncategorized_items(mode: mode)
 
     assign(socket,
       page_title: catalogue.name,
@@ -225,9 +249,11 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     if index != swap_index do
       cat_a = Enum.at(categories, index)
       cat_b = Enum.at(categories, swap_index)
-      Catalogue.update_category(cat_a, %{position: cat_b.position})
-      Catalogue.update_category(cat_b, %{position: cat_a.position})
-      {:noreply, load_catalogue_data(socket)}
+
+      case Catalogue.swap_category_positions(cat_a, cat_b) do
+        {:ok, _} -> {:noreply, load_catalogue_data(socket)}
+        {:error, _} -> {:noreply, put_flash(socket, :error, Gettext.gettext(PhoenixKitWeb.Gettext, "Failed to reorder categories."))}
+      end
     else
       {:noreply, socket}
     end
@@ -246,39 +272,56 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
       <div :if={@catalogue} class="flex flex-col gap-6">
         <%!-- Header --%>
-        <div class="flex items-start justify-between">
-          <div>
-            <div class="flex items-center gap-2">
-              <.link navigate={Paths.index()} class="btn btn-ghost btn-sm btn-square">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
-                </svg>
-              </.link>
-              <h1 class="text-2xl font-bold">{@catalogue.name}</h1>
-              <span class={["badge badge-sm", status_badge(@catalogue.status)]}>
-                {@catalogue.status}
-              </span>
-            </div>
-            <p :if={@catalogue.description} class="text-base-content/60 mt-1 ml-10">
-              {@catalogue.description}
-            </p>
-          </div>
-
-          <div :if={@view_mode == "active"} class="flex gap-2">
+        <.admin_page_header back={Paths.index()} title={@catalogue.name}>
+          <:actions :if={@view_mode == "active"}>
             <.link navigate={Paths.category_new(@catalogue.uuid)} class="btn btn-outline btn-sm">
-              Add Category
+              <.icon name="hero-folder-plus" class="w-4 h-4" /> {Gettext.gettext(PhoenixKitWeb.Gettext, "Add Category")}
             </.link>
             <.link navigate={Paths.item_new(@catalogue.uuid)} class="btn btn-primary btn-sm">
-              Add Item
+              <.icon name="hero-plus" class="w-4 h-4" /> {Gettext.gettext(PhoenixKitWeb.Gettext, "Add Item")}
             </.link>
             <.link navigate={Paths.catalogue_edit(@catalogue.uuid)} class="btn btn-ghost btn-sm">
               Edit
             </.link>
-          </div>
+          </:actions>
+        </.admin_page_header>
+
+        <div :if={@catalogue.description || Decimal.gt?(@catalogue.markup_percentage, Decimal.new("0"))} class="-mt-4">
+          <p :if={@catalogue.description} class="text-base-content/60">
+            {@catalogue.description}
+          </p>
+          <p :if={Decimal.gt?(@catalogue.markup_percentage, Decimal.new("0"))} class="text-sm text-base-content/50 mt-0.5">
+            Markup: {Decimal.to_string(@catalogue.markup_percentage, :normal)}%
+          </p>
+        </div>
+
+        <%!-- Search --%>
+        <.search_input :if={@view_mode == "active"} query={@search_query} placeholder={Gettext.gettext(PhoenixKitWeb.Gettext, "Search items by name, description, or SKU...")} />
+
+        <%!-- View toggle --%>
+        <.view_mode_toggle storage_key="catalogue-detail-items" />
+
+        <%!-- Search results --%>
+        <div :if={@search_results != nil} class="flex flex-col gap-4">
+          <.search_results_summary count={length(@search_results)} query={@search_query} />
+
+          <.empty_state :if={@search_results == []} message={Gettext.gettext(PhoenixKitWeb.Gettext, "No items match your search.")} />
+
+          <.item_table
+            :if={@search_results != []}
+            items={@search_results}
+            columns={[:name, :sku, :base_price, :price, :unit, :status]}
+            markup_percentage={@catalogue.markup_percentage}
+            edit_path={&Paths.item_edit/1}
+            cards={true}
+            show_toggle={false}
+            storage_key="catalogue-detail-items"
+            id="catalogue-search-items"
+          />
         </div>
 
         <%!-- Status tabs --%>
-        <div :if={@deleted_count > 0} class="flex items-center gap-0.5 border-b border-base-200">
+        <div :if={@deleted_count > 0 and is_nil(@search_results)} class="flex items-center gap-0.5 border-b border-base-200">
           <button
             type="button"
             phx-click="switch_view"
@@ -309,21 +352,22 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
           </button>
         </div>
 
+        <%!-- Normal view (hidden during search) --%>
         <%!-- Empty state --%>
-        <div :if={@catalogue.categories == [] and @uncategorized_items == [] and @view_mode == "active"} class="card bg-base-100 shadow">
+        <div :if={is_nil(@search_results) and @catalogue.categories == [] and @uncategorized_items == [] and @view_mode == "active"} class="card bg-base-100 shadow">
           <div class="card-body items-center text-center py-12">
-            <p class="text-base-content/60">No categories or items yet. Add a category or item to get started.</p>
+            <p class="text-base-content/60">{Gettext.gettext(PhoenixKitWeb.Gettext, "No categories or items yet. Add a category or item to get started.")}</p>
           </div>
         </div>
 
-        <div :if={@catalogue.categories == [] and @uncategorized_items == [] and @view_mode == "deleted"} class="card bg-base-100 shadow">
+        <div :if={is_nil(@search_results) and @catalogue.categories == [] and @uncategorized_items == [] and @view_mode == "deleted"} class="card bg-base-100 shadow">
           <div class="card-body items-center text-center py-12">
-            <p class="text-base-content/60">No deleted items.</p>
+            <p class="text-base-content/60">{Gettext.gettext(PhoenixKitWeb.Gettext, "No deleted items.")}</p>
           </div>
         </div>
 
         <%!-- Categories with items --%>
-        <%= for category <- @catalogue.categories do %>
+        <%= for category <- @catalogue.categories, is_nil(@search_results) do %>
           <%!-- In deleted mode, hide active categories with no deleted items --%>
           <div :if={@view_mode == "active" or category.status == "deleted" or category.items != []} class="card bg-base-100 shadow">
             <div class="card-body">
@@ -334,26 +378,23 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                       phx-click="move_category_up"
                       phx-value-uuid={category.uuid}
                       class="btn btn-ghost btn-xs btn-square"
-                      title="Move up"
+                      title={Gettext.gettext(PhoenixKitWeb.Gettext, "Move up")}
                     >
-                      <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 15l7-7 7 7" />
-                      </svg>
+                      <.icon name="hero-chevron-up" class="w-3 h-3" />
                     </button>
                     <button
                       phx-click="move_category_down"
                       phx-value-uuid={category.uuid}
                       class="btn btn-ghost btn-xs btn-square"
-                      title="Move down"
+                      title={Gettext.gettext(PhoenixKitWeb.Gettext, "Move down")}
                     >
-                      <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
-                      </svg>
+                      <.icon name="hero-chevron-down" class="w-3 h-3" />
                     </button>
                   </div>
                   <h3 class={["card-title text-lg", category.status == "deleted" && "text-error/70"]}>{category.name}</h3>
                   <span :if={category.status == "deleted"} class="badge badge-error badge-xs">deleted</span>
                   <span class="badge badge-ghost badge-sm">{length(category.items)} items</span>
+
                 </div>
 
                 <%!-- Active mode: Edit + Delete --%>
@@ -376,19 +417,13 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                     Restore
                   </button>
                   <button
-                    :if={@confirm_delete != {:permanent_cat, category.uuid}}
-                    phx-click="permanently_delete_category"
+                    phx-click="show_delete_confirm"
                     phx-value-uuid={category.uuid}
+                    phx-value-type="category"
                     class="btn btn-ghost btn-xs text-error"
                   >
                     Delete Forever
                   </button>
-                  <span :if={@confirm_delete == {:permanent_cat, category.uuid}} class="inline-flex gap-1">
-                    <button phx-click="permanently_delete_category" phx-value-uuid={category.uuid} class="btn btn-error btn-xs">
-                      Confirm
-                    </button>
-                    <button phx-click="cancel_delete" class="btn btn-ghost btn-xs">Cancel</button>
-                  </span>
                 </div>
               </div>
 
@@ -396,9 +431,36 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                 {category.description}
               </p>
 
-              <%!-- Items table --%>
-              <div :if={category.items != []} class="overflow-x-auto mt-2">
-                <.items_table items={category.items} view_mode={@view_mode} confirm_delete={@confirm_delete} />
+              <%!-- Items table: active mode --%>
+              <div :if={category.items != [] and @view_mode == "active"} class="mt-2">
+                <.item_table
+                  items={category.items}
+                  columns={[:name, :sku, :base_price, :price, :unit, :status]}
+                  markup_percentage={@catalogue.markup_percentage}
+                  edit_path={&Paths.item_edit/1}
+                  on_delete="delete_item"
+                  cards={true}
+                  show_toggle={false}
+                  storage_key="catalogue-detail-items"
+                  id={"cat-items-active-#{category.uuid}"}
+                  wrapper_class="overflow-x-auto shadow-none rounded-none"
+                />
+              </div>
+              <%!-- Items table: deleted mode --%>
+              <div :if={category.items != [] and @view_mode == "deleted"} class="mt-2">
+                <.item_table
+                  items={category.items}
+                  columns={[:name, :sku, :base_price, :price, :unit, :status]}
+                  markup_percentage={@catalogue.markup_percentage}
+                  on_restore="restore_item"
+                  on_permanent_delete="show_delete_confirm"
+                  permanent_delete_type="item"
+                  cards={true}
+                  show_toggle={false}
+                  storage_key="catalogue-detail-items"
+                  id={"cat-items-deleted-#{category.uuid}"}
+                  wrapper_class="overflow-x-auto shadow-none rounded-none"
+                />
               </div>
 
               <p :if={category.items == [] and @view_mode == "active"} class="text-sm text-base-content/40 text-center py-4">
@@ -409,105 +471,54 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         <% end %>
 
         <%!-- Uncategorized items --%>
-        <div :if={@uncategorized_items != []} class="card bg-base-100 shadow">
+        <div :if={is_nil(@search_results) and @uncategorized_items != []} class="card bg-base-100 shadow">
           <div class="card-body">
             <div class="flex items-center gap-2">
-              <h3 class="card-title text-lg text-base-content/70">Uncategorized</h3>
+              <h3 class="card-title text-lg text-base-content/70">{Gettext.gettext(PhoenixKitWeb.Gettext, "Uncategorized")}</h3>
               <span class="badge badge-ghost badge-sm">{length(@uncategorized_items)} items</span>
             </div>
 
-            <div class="overflow-x-auto mt-2">
-              <.items_table items={@uncategorized_items} view_mode={@view_mode} confirm_delete={@confirm_delete} />
+            <div class="mt-2">
+              <.item_table
+                items={@uncategorized_items}
+                columns={[:name, :sku, :base_price, :unit, :status]}
+                edit_path={if @view_mode == "active", do: &Paths.item_edit/1}
+                on_delete={if @view_mode == "active", do: "delete_item"}
+                on_restore={if @view_mode == "deleted", do: "restore_item"}
+                on_permanent_delete={if @view_mode == "deleted", do: "show_delete_confirm"}
+                permanent_delete_type="item"
+                cards={true}
+                show_toggle={false}
+                storage_key="catalogue-detail-items"
+                id="uncategorized-items"
+              />
             </div>
           </div>
         </div>
       </div>
+
+      <.confirm_modal
+        show={match?({"item", _}, @confirm_delete)}
+        on_confirm="permanently_delete_item"
+        on_cancel="cancel_delete"
+        title={Gettext.gettext(PhoenixKitWeb.Gettext, "Permanently Delete Item")}
+        title_icon="hero-trash"
+        messages={[{:warning, Gettext.gettext(PhoenixKitWeb.Gettext, "This item will be permanently deleted. This cannot be undone.")}]}
+        confirm_text={Gettext.gettext(PhoenixKitWeb.Gettext, "Delete Forever")}
+        danger={true}
+      />
+
+      <.confirm_modal
+        show={match?({"category", _}, @confirm_delete)}
+        on_confirm="permanently_delete_category"
+        on_cancel="cancel_delete"
+        title={Gettext.gettext(PhoenixKitWeb.Gettext, "Permanently Delete Category")}
+        title_icon="hero-trash"
+        messages={[{:warning, Gettext.gettext(PhoenixKitWeb.Gettext, "This category and all its items will be permanently deleted. This cannot be undone.")}]}
+        confirm_text={Gettext.gettext(PhoenixKitWeb.Gettext, "Delete Forever")}
+        danger={true}
+      />
     </div>
     """
   end
-
-  defp items_table(assigns) do
-    ~H"""
-    <table class="table table-sm">
-      <thead>
-        <tr>
-          <th>Name</th>
-          <th>SKU</th>
-          <th>Price</th>
-          <th>Unit</th>
-          <th>Status</th>
-          <th class="text-right">Actions</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr :for={item <- @items}>
-          <td class="font-medium">{item.name}</td>
-          <td class="text-sm font-mono text-base-content/60">{item.sku || "—"}</td>
-          <td class="text-sm">{format_price(item.price)}</td>
-          <td class="text-sm">{format_unit(item.unit)}</td>
-          <td>
-            <span class={["badge badge-xs", item_status_badge(item.status)]}>
-              {item.status}
-            </span>
-          </td>
-          <%!-- Active mode actions --%>
-          <td :if={@view_mode == "active"} class="text-right">
-            <.link navigate={Paths.item_edit(item.uuid)} class="btn btn-ghost btn-xs">
-              Edit
-            </.link>
-            <button
-              phx-click="delete_item"
-              phx-value-uuid={item.uuid}
-              class="btn btn-ghost btn-xs text-error"
-            >
-              Delete
-            </button>
-          </td>
-          <%!-- Deleted mode actions --%>
-          <td :if={@view_mode == "deleted"} class="text-right">
-            <button
-              phx-click="restore_item"
-              phx-value-uuid={item.uuid}
-              class="inline-flex items-center gap-1.5 px-2.5 h-[2.5em] rounded-lg border border-success/30 bg-success/10 hover:bg-success/20 text-success text-xs font-medium transition-colors cursor-pointer"
-            >
-              Restore
-            </button>
-            <button
-              :if={@confirm_delete != {:permanent, item.uuid}}
-              phx-click="permanently_delete_item"
-              phx-value-uuid={item.uuid}
-              class="btn btn-ghost btn-xs text-error"
-            >
-              Delete Forever
-            </button>
-            <span :if={@confirm_delete == {:permanent, item.uuid}} class="inline-flex gap-1">
-              <button phx-click="permanently_delete_item" phx-value-uuid={item.uuid} class="btn btn-error btn-xs">
-                Confirm
-              </button>
-              <button phx-click="cancel_delete" class="btn btn-ghost btn-xs">Cancel</button>
-            </span>
-          </td>
-        </tr>
-      </tbody>
-    </table>
-    """
-  end
-
-  defp status_badge("active"), do: "badge-success"
-  defp status_badge("archived"), do: "badge-warning"
-  defp status_badge(_), do: "badge-ghost"
-
-  defp item_status_badge("active"), do: "badge-success"
-  defp item_status_badge("inactive"), do: "badge-ghost"
-  defp item_status_badge("discontinued"), do: "badge-warning"
-  defp item_status_badge("deleted"), do: "badge-error"
-  defp item_status_badge(_), do: "badge-ghost"
-
-  defp format_price(nil), do: "—"
-  defp format_price(price), do: Decimal.to_string(price, :normal)
-
-  defp format_unit("piece"), do: "pc"
-  defp format_unit("m2"), do: "m²"
-  defp format_unit("running_meter"), do: "rm"
-  defp format_unit(other), do: other
 end

@@ -6,13 +6,15 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
   require Logger
 
   import PhoenixKitWeb.Components.MultilangForm
+  import PhoenixKitWeb.Components.Core.AdminPageHeader, only: [admin_page_header: 1]
+  import PhoenixKitWeb.Components.Core.Modal, only: [confirm_modal: 1]
 
   alias PhoenixKitCatalogue.Catalogue
   alias PhoenixKitCatalogue.Paths
   alias PhoenixKitCatalogue.Schemas.Catalogue, as: CatalogueSchema
 
   @translatable_fields ["name", "description"]
-  @preserve_fields %{"status" => :status}
+  @preserve_fields %{"status" => :status, "markup_percentage" => :markup_percentage}
 
   @impl true
   def mount(params, _session, socket) do
@@ -37,12 +39,12 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
 
     if is_nil(catalogue) and action == :edit do
       {:ok,
-       socket |> put_flash(:error, "Catalogue not found.") |> push_navigate(to: Paths.index())}
+       socket |> put_flash(:error, Gettext.gettext(PhoenixKitWeb.Gettext, "Catalogue not found.")) |> push_navigate(to: Paths.index())}
     else
       {:ok,
        socket
        |> assign(
-         page_title: if(action == :new, do: "New Catalogue", else: "Edit #{catalogue.name}"),
+         page_title: if(action == :new, do: Gettext.gettext(PhoenixKitWeb.Gettext, "New Catalogue"), else: Gettext.gettext(PhoenixKitWeb.Gettext, "Edit %{name}", name: catalogue.name)),
          action: action,
          catalogue: catalogue,
          changeset: changeset,
@@ -82,23 +84,23 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
     save_catalogue(socket, socket.assigns.action, params)
   end
 
-  def handle_event("delete_catalogue", _params, socket) do
-    if socket.assigns.confirm_delete do
-      case Catalogue.permanently_delete_catalogue(socket.assigns.catalogue) do
-        {:ok, _} ->
-          {:noreply,
-           socket
-           |> put_flash(:info, "Catalogue and all its contents permanently deleted.")
-           |> push_navigate(to: Paths.index())}
+  def handle_event("show_delete_confirm", _params, socket) do
+    {:noreply, assign(socket, :confirm_delete, true)}
+  end
 
-        {:error, _} ->
-          {:noreply,
-           socket
-           |> assign(:confirm_delete, false)
-           |> put_flash(:error, "Failed to delete catalogue.")}
-      end
-    else
-      {:noreply, assign(socket, :confirm_delete, true)}
+  def handle_event("delete_catalogue", _params, socket) do
+    case Catalogue.permanently_delete_catalogue(socket.assigns.catalogue) do
+      {:ok, _} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, Gettext.gettext(PhoenixKitWeb.Gettext, "Catalogue and all its contents permanently deleted."))
+         |> push_navigate(to: Paths.index())}
+
+      {:error, _} ->
+        {:noreply,
+         socket
+         |> assign(:confirm_delete, false)
+         |> put_flash(:error, Gettext.gettext(PhoenixKitWeb.Gettext, "Failed to delete catalogue."))}
     end
   end
 
@@ -111,7 +113,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
       {:ok, catalogue} ->
         {:noreply,
          socket
-         |> put_flash(:info, "Catalogue created.")
+         |> put_flash(:info, Gettext.gettext(PhoenixKitWeb.Gettext, "Catalogue created."))
          |> push_navigate(to: Paths.catalogue_detail(catalogue.uuid))}
 
       {:error, changeset} ->
@@ -124,7 +126,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
       {:ok, catalogue} ->
         {:noreply,
          socket
-         |> put_flash(:info, "Catalogue updated.")
+         |> put_flash(:info, Gettext.gettext(PhoenixKitWeb.Gettext, "Catalogue updated."))
          |> push_navigate(to: Paths.catalogue_detail(catalogue.uuid))}
 
       {:error, changeset} ->
@@ -144,29 +146,9 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
     ~H"""
     <div class="flex flex-col mx-auto max-w-2xl px-4 py-8 gap-6">
       <%!-- Header --%>
-      <div class="flex items-center gap-3">
-        <.link navigate={Paths.index()} class="btn btn-ghost btn-sm btn-square">
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            class="h-5 w-5"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
-          </svg>
-        </.link>
-        <div>
-          <h1 class="text-2xl font-bold">{@page_title}</h1>
-          <p class="text-sm text-base-content/60 mt-0.5">
-            {if @action == :new,
-              do: "Create a new product catalogue to organize categories and items.",
-              else: "Update catalogue details and settings."}
-          </p>
-        </div>
-      </div>
+      <.admin_page_header back={Paths.index()} title={@page_title} subtitle={if @action == :new, do: Gettext.gettext(PhoenixKitWeb.Gettext, "Create a new product catalogue to organize categories and items."), else: Gettext.gettext(PhoenixKitWeb.Gettext, "Update catalogue details and settings.")} />
 
-      <.form for={to_form(@changeset)} phx-change="validate" phx-submit="save">
+      <.form for={to_form(@changeset)} action="#" phx-change="validate" phx-submit="save">
         <%!-- Main content card --%>
         <div class="card bg-base-100 shadow-lg">
           <.multilang_tabs
@@ -207,8 +189,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
                 current_lang={@current_lang}
                 primary_language={@primary_language}
                 lang_data={@lang_data}
-                label="Name"
-                placeholder="e.g., Kitchen Furniture"
+                label={Gettext.gettext(PhoenixKitWeb.Gettext, "Name")}
+                placeholder={Gettext.gettext(PhoenixKitWeb.Gettext, "e.g., Kitchen Furniture")}
                 required
                 class="w-full"
               />
@@ -222,9 +204,9 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
                 current_lang={@current_lang}
                 primary_language={@primary_language}
                 lang_data={@lang_data}
-                label="Description"
+                label={Gettext.gettext(PhoenixKitWeb.Gettext, "Description")}
                 type="textarea"
-                placeholder="Brief description of what this catalogue contains..."
+                placeholder={Gettext.gettext(PhoenixKitWeb.Gettext, "Brief description of what this catalogue contains...")}
                 class="w-full"
               />
             </div>
@@ -234,7 +216,15 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
             <div class="divider my-0"></div>
 
             <div class="form-control">
-              <span class="label-text font-semibold mb-2">Status</span>
+              <span class="label-text font-semibold mb-2">{Gettext.gettext(PhoenixKitWeb.Gettext, "Markup Percentage")}</span>
+              <input type="number" name="catalogue[markup_percentage]" value={Ecto.Changeset.get_field(@changeset, :markup_percentage)} class="input input-bordered w-full transition-colors focus:input-primary" step="0.01" min="0" placeholder="e.g., 15.0" />
+              <span class="label-text-alt text-base-content/50 mt-1">
+                Applied to all item base prices to calculate sale prices. Leave blank for no markup.
+              </span>
+            </div>
+
+            <div class="form-control">
+              <span class="label-text font-semibold mb-2">{Gettext.gettext(PhoenixKitWeb.Gettext, "Status")}</span>
               <label class="select select-bordered w-full transition-colors focus-within:select-primary">
                 <select name="catalogue[status]">
                   <option
@@ -260,9 +250,9 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
             <div class="divider my-0"></div>
 
             <div class="flex justify-end gap-3">
-              <.link navigate={Paths.index()} class="btn btn-ghost">Cancel</.link>
+              <.link navigate={Paths.index()} class="btn btn-ghost">{Gettext.gettext(PhoenixKitWeb.Gettext, "Cancel")}</.link>
               <button type="submit" class="btn btn-primary phx-submit-loading:opacity-75">
-                {if @action == :new, do: "Create Catalogue", else: "Save Changes"}
+                {if @action == :new, do: Gettext.gettext(PhoenixKitWeb.Gettext, "Create Catalogue"), else: Gettext.gettext(PhoenixKitWeb.Gettext, "Save Changes")}
               </button>
             </div>
           </div>
@@ -273,24 +263,27 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
       <div :if={@action == :edit} class="card bg-base-100 shadow-lg border border-error/20">
         <div class="card-body flex flex-row items-center justify-between gap-4">
           <div>
-            <span class="text-sm font-semibold text-error">Permanently Delete Catalogue</span>
+            <span class="text-sm font-semibold text-error">{Gettext.gettext(PhoenixKitWeb.Gettext, "Permanently Delete Catalogue")}</span>
             <p class="text-xs text-base-content/50">
               This will permanently delete this catalogue, all its categories, and all items within them. This cannot be undone.
             </p>
           </div>
-          <button
-            :if={!@confirm_delete}
-            phx-click="delete_catalogue"
-            class="btn btn-outline btn-error btn-sm shrink-0"
-          >
+          <button phx-click="show_delete_confirm" class="btn btn-outline btn-error btn-sm shrink-0">
             Delete Forever
           </button>
-          <span :if={@confirm_delete} class="inline-flex gap-1 shrink-0">
-            <button phx-click="delete_catalogue" class="btn btn-error btn-sm">Confirm</button>
-            <button phx-click="cancel_delete" class="btn btn-ghost btn-sm">Cancel</button>
-          </span>
         </div>
       </div>
+
+      <.confirm_modal
+        show={@confirm_delete}
+        on_confirm="delete_catalogue"
+        on_cancel="cancel_delete"
+        title={Gettext.gettext(PhoenixKitWeb.Gettext, "Permanently Delete Catalogue")}
+        title_icon="hero-trash"
+        messages={[{:warning, Gettext.gettext(PhoenixKitWeb.Gettext, "This will permanently delete this catalogue, all its categories, and all items within them.")}]}
+        confirm_text={Gettext.gettext(PhoenixKitWeb.Gettext, "Delete Forever")}
+        danger={true}
+      />
     </div>
     """
   end

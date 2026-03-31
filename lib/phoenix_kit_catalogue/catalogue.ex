@@ -27,7 +27,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
       # Create a full hierarchy
       {:ok, cat} = Catalogue.create_catalogue(%{name: "Kitchen"})
       {:ok, category} = Catalogue.create_category(%{name: "Frames", catalogue_uuid: cat.uuid})
-      {:ok, item} = Catalogue.create_item(%{name: "Oak Panel", category_uuid: category.uuid, price: 25.50})
+      {:ok, item} = Catalogue.create_item(%{name: "Oak Panel", category_uuid: category.uuid, base_price: 25.50})
 
       # Soft-delete and restore
       {:ok, _} = Catalogue.trash_catalogue(cat)   # cascades to category + item
@@ -281,39 +281,48 @@ defmodule PhoenixKitCatalogue.Catalogue do
   Syncs the supplier links for a manufacturer to match the given list of supplier UUIDs.
 
   Adds missing links and removes extra ones via set difference.
+  Returns `{:ok, :synced}` on success or `{:error, reason}` on the first failure.
   """
   def sync_manufacturer_suppliers(manufacturer_uuid, supplier_uuids)
       when is_list(supplier_uuids) do
-    current = linked_supplier_uuids(manufacturer_uuid) |> MapSet.new()
-    desired = MapSet.new(supplier_uuids)
+    repo().transaction(fn ->
+      current = linked_supplier_uuids(manufacturer_uuid) |> MapSet.new()
+      desired = MapSet.new(supplier_uuids)
 
-    to_add = MapSet.difference(desired, current)
-    to_remove = MapSet.difference(current, desired)
+      MapSet.difference(desired, current)
+      |> Enum.each(&ok_or_rollback(link_manufacturer_supplier(manufacturer_uuid, &1)))
 
-    Enum.each(to_add, &link_manufacturer_supplier(manufacturer_uuid, &1))
-    Enum.each(to_remove, &unlink_manufacturer_supplier(manufacturer_uuid, &1))
+      MapSet.difference(current, desired)
+      |> Enum.each(&ok_or_rollback(unlink_manufacturer_supplier(manufacturer_uuid, &1)))
 
-    :ok
+      :synced
+    end)
   end
 
   @doc """
   Syncs the manufacturer links for a supplier to match the given list of manufacturer UUIDs.
 
   Adds missing links and removes extra ones via set difference.
+  Returns `{:ok, :synced}` on success or `{:error, reason}` on the first failure.
   """
   def sync_supplier_manufacturers(supplier_uuid, manufacturer_uuids)
       when is_list(manufacturer_uuids) do
-    current = linked_manufacturer_uuids(supplier_uuid) |> MapSet.new()
-    desired = MapSet.new(manufacturer_uuids)
+    repo().transaction(fn ->
+      current = linked_manufacturer_uuids(supplier_uuid) |> MapSet.new()
+      desired = MapSet.new(manufacturer_uuids)
 
-    to_add = MapSet.difference(desired, current)
-    to_remove = MapSet.difference(current, desired)
+      MapSet.difference(desired, current)
+      |> Enum.each(&ok_or_rollback(link_manufacturer_supplier(&1, supplier_uuid)))
 
-    Enum.each(to_add, &link_manufacturer_supplier(&1, supplier_uuid))
-    Enum.each(to_remove, &unlink_manufacturer_supplier(&1, supplier_uuid))
+      MapSet.difference(current, desired)
+      |> Enum.each(&ok_or_rollback(unlink_manufacturer_supplier(&1, supplier_uuid)))
 
-    :ok
+      :synced
+    end)
   end
+
+  defp ok_or_rollback({:ok, _}), do: :ok
+  defp ok_or_rollback({:error, reason}), do: repo().rollback(reason)
 
   # ═══════════════════════════════════════════════════════════════════
   # Catalogues
@@ -684,6 +693,23 @@ defmodule PhoenixKitCatalogue.Catalogue do
     |> repo().update()
   end
 
+  @doc """
+  Atomically swaps the positions of two categories within a transaction.
+
+  ## Examples
+
+      {:ok, _} = Catalogue.swap_category_positions(cat_a, cat_b)
+  """
+  def swap_category_positions(%Category{} = cat_a, %Category{} = cat_b) do
+    repo().transaction(fn ->
+      pos_a = cat_a.position
+      pos_b = cat_b.position
+
+      cat_a |> Category.changeset(%{position: pos_b}) |> repo().update!()
+      cat_b |> Category.changeset(%{position: pos_a}) |> repo().update!()
+    end)
+  end
+
   @doc "Returns a changeset for tracking category changes."
   def change_category(%Category{} = category, attrs \\ %{}) do
     Category.changeset(category, attrs)
@@ -712,15 +738,54 @@ defmodule PhoenixKitCatalogue.Catalogue do
   # ═══════════════════════════════════════════════════════════════════
 
   @doc """
+  Lists all non-deleted items across all catalogues, ordered by name.
+
+  Preloads category (with catalogue) and manufacturer.
+
+  ## Options
+
+    * `:status` — filter by status (e.g. `"active"`, `"inactive"`).
+      When nil (default), returns all non-deleted items.
+    * `:limit` — max results to return (default: no limit)
+
+  ## Examples
+
+      Catalogue.list_items()                          # all non-deleted
+      Catalogue.list_items(status: "active")          # only active
+      Catalogue.list_items(limit: 100)                # first 100
+  """
+  def list_items(opts \\ []) do
+    query =
+      from(i in Item,
+        order_by: [asc: :name],
+        preload: [category: :catalogue, manufacturer: []]
+      )
+
+    query =
+      case Keyword.get(opts, :status) do
+        nil -> where(query, [i], i.status != "deleted")
+        status -> where(query, [i], i.status == ^status)
+      end
+
+    query =
+      case Keyword.get(opts, :limit) do
+        nil -> query
+        limit -> limit(query, ^limit)
+      end
+
+    repo().all(query)
+  end
+
+  @doc """
   Lists non-deleted items for a category, ordered by name.
 
-  Preloads manufacturer.
+  Preloads category (with catalogue) and manufacturer.
   """
   def list_items_for_category(category_uuid) do
     from(i in Item,
       where: i.category_uuid == ^category_uuid and i.status != "deleted",
       order_by: [asc: :name],
-      preload: [:manufacturer]
+      preload: [category: :catalogue, manufacturer: []]
     )
     |> repo().all()
   end
@@ -729,7 +794,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
   Lists non-deleted items for a catalogue (across all categories), ordered by
   category position then item name.
 
-  Preloads category and manufacturer.
+  Preloads category (with catalogue) and manufacturer.
   """
   def list_items_for_catalogue(catalogue_uuid) do
     from(i in Item,
@@ -737,7 +802,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
       on: i.category_uuid == c.uuid,
       where: c.catalogue_uuid == ^catalogue_uuid and i.status != "deleted",
       order_by: [asc: c.position, asc: i.name],
-      preload: [:category, :manufacturer]
+      preload: [category: :catalogue, manufacturer: []]
     )
     |> repo().all()
   end
@@ -745,9 +810,8 @@ defmodule PhoenixKitCatalogue.Catalogue do
   @doc """
   Lists uncategorized items (no category assigned).
 
-  Note: the `catalogue_uuid` parameter is accepted for API consistency but is
-  currently unused — items don't have a direct catalogue FK, so uncategorized
-  items are global.
+  These items are global — they don't belong to any specific catalogue
+  since items only link to catalogues through categories.
 
   ## Options
 
@@ -756,10 +820,10 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
   ## Examples
 
-      Catalogue.list_uncategorized_items_for_catalogue(cat_uuid)
-      Catalogue.list_uncategorized_items_for_catalogue(cat_uuid, mode: :deleted)
+      Catalogue.list_uncategorized_items()
+      Catalogue.list_uncategorized_items(mode: :deleted)
   """
-  def list_uncategorized_items_for_catalogue(_catalogue_uuid, opts \\ []) do
+  def list_uncategorized_items(opts \\ []) do
     mode = Keyword.get(opts, :mode, :active)
 
     query =
@@ -802,7 +866,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
     * `:description` — text description
     * `:sku` — stock keeping unit (unique, max 100 chars)
-    * `:price` — decimal, must be >= 0
+    * `:base_price` — decimal, must be >= 0 (cost/purchase price before markup)
     * `:unit` — `"piece"` (default), `"m2"`, or `"running_meter"`
     * `:status` — `"active"` (default), `"inactive"`, `"discontinued"`, or `"deleted"`
     * `:category_uuid` — the parent category (optional)
@@ -811,7 +875,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
   ## Examples
 
-      Catalogue.create_item(%{name: "Oak Panel 18mm", price: 25.50, sku: "OAK-18"})
+      Catalogue.create_item(%{name: "Oak Panel 18mm", base_price: 25.50, sku: "OAK-18"})
       Catalogue.create_item(%{name: "Hinge", category_uuid: cat.uuid, manufacturer_uuid: m.uuid})
   """
   def create_item(attrs) do
@@ -857,7 +921,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
   """
   def restore_item(%Item{} = item) do
     repo().transaction(fn ->
-      maybe_restore_parent_category(item.category_uuid)
+      maybe_restore_parent_hierarchy(item.category_uuid)
 
       item
       |> Item.changeset(%{status: "active"})
@@ -865,12 +929,23 @@ defmodule PhoenixKitCatalogue.Catalogue do
     end)
   end
 
-  defp maybe_restore_parent_category(nil), do: :ok
+  defp maybe_restore_parent_hierarchy(nil), do: :ok
 
-  defp maybe_restore_parent_category(category_uuid) do
+  defp maybe_restore_parent_hierarchy(category_uuid) do
     case repo().get(Category, category_uuid) do
       %Category{status: "deleted"} = cat ->
+        maybe_restore_parent_catalogue(cat.catalogue_uuid)
         cat |> Category.changeset(%{status: "active"}) |> repo().update!()
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp maybe_restore_parent_catalogue(catalogue_uuid) do
+    case repo().get(Catalogue, catalogue_uuid) do
+      %Catalogue{status: "deleted"} = cat ->
+        cat |> Catalogue.changeset(%{status: "active"}) |> repo().update!()
 
       _ ->
         :ok
@@ -922,30 +997,196 @@ defmodule PhoenixKitCatalogue.Catalogue do
     Item.changeset(item, attrs)
   end
 
+  @doc """
+  Returns pricing info for an item within a catalogue.
+
+  Looks up the catalogue's markup percentage through the item's category,
+  then computes the sale price.
+
+  Returns a map with `:base_price`, `:markup_percentage`, and `:price` (sale price).
+  Returns `nil` values if the item has no base price.
+
+  ## Examples
+
+      Catalogue.item_pricing(item)
+      #=> %{base_price: Decimal.new("100.00"), markup_percentage: Decimal.new("15.0"), price: Decimal.new("115.00")}
+
+      Catalogue.item_pricing(item_without_category)
+      #=> %{base_price: Decimal.new("100.00"), markup_percentage: Decimal.new("0"), price: Decimal.new("100.00")}
+  """
+  def item_pricing(%Item{} = item) do
+    item = repo().preload(item, category: :catalogue)
+
+    markup =
+      case item.category do
+        %{catalogue: %Catalogue{markup_percentage: mp}} when not is_nil(mp) -> mp
+        _ -> Decimal.new("0")
+      end
+
+    %{
+      base_price: item.base_price,
+      markup_percentage: markup,
+      price: Item.sale_price(item, markup)
+    }
+  end
+
   # ═══════════════════════════════════════════════════════════════════
-  # Deleted counts
+  # Search
   # ═══════════════════════════════════════════════════════════════════
 
   @doc """
-  Counts deleted items for a catalogue (both categorized and uncategorized).
+  Searches items across all non-deleted catalogues.
 
-  Uncategorized deleted items are counted globally since items don't have
-  a direct catalogue FK.
+  Matches against item name, description, and SKU using case-insensitive
+  partial matching. Only returns non-deleted items in non-deleted categories
+  of non-deleted catalogues.
+
+  Preloads category (with catalogue) and manufacturer.
+
+  Returns a list of items ordered by name.
+
+  ## Options
+
+    * `:limit` — max results to return (default 50)
+
+  ## Examples
+
+      Catalogue.search_items("oak")
+      Catalogue.search_items("OAK-18", limit: 10)
+  """
+  def search_items(query, opts \\ []) do
+    limit = Keyword.get(opts, :limit, 50)
+    pattern = "%#{sanitize_like(query)}%"
+
+    from(i in Item,
+      join: c in Category,
+      on: i.category_uuid == c.uuid,
+      join: cat in Catalogue,
+      on: c.catalogue_uuid == cat.uuid,
+      where: i.status != "deleted" and c.status != "deleted" and cat.status != "deleted",
+      where:
+        ilike(i.name, ^pattern) or
+          ilike(i.description, ^pattern) or
+          ilike(i.sku, ^pattern),
+      order_by: [asc: i.name],
+      limit: ^limit,
+      preload: [category: :catalogue, manufacturer: []]
+    )
+    |> repo().all()
+  end
+
+  @doc """
+  Searches items within a specific catalogue.
+
+  Matches against item name, description, and SKU using case-insensitive
+  partial matching. Only returns non-deleted items in non-deleted categories.
+
+  Preloads category and manufacturer.
+
+  Returns a list of items ordered by category position then item name.
+
+  ## Options
+
+    * `:limit` — max results to return (default 50)
+
+  ## Examples
+
+      Catalogue.search_items_in_catalogue(catalogue_uuid, "panel")
+      Catalogue.search_items_in_catalogue(catalogue_uuid, "SKU", limit: 25)
+  """
+  def search_items_in_catalogue(catalogue_uuid, query, opts \\ []) do
+    limit = Keyword.get(opts, :limit, 50)
+    pattern = "%#{sanitize_like(query)}%"
+
+    from(i in Item,
+      join: c in Category,
+      on: i.category_uuid == c.uuid,
+      where: c.catalogue_uuid == ^catalogue_uuid,
+      where: i.status != "deleted" and c.status != "deleted",
+      where:
+        ilike(i.name, ^pattern) or
+          ilike(i.description, ^pattern) or
+          ilike(i.sku, ^pattern),
+      order_by: [asc: c.position, asc: i.name],
+      limit: ^limit,
+      preload: [category: :catalogue, manufacturer: []]
+    )
+    |> repo().all()
+  end
+
+  @doc """
+  Searches items within a specific category.
+
+  Matches against item name, description, and SKU using case-insensitive
+  partial matching. Only returns non-deleted items.
+
+  Preloads category (with catalogue) and manufacturer.
+
+  ## Options
+
+    * `:limit` — max results to return (default 50)
+
+  ## Examples
+
+      Catalogue.search_items_in_category(category_uuid, "panel")
+  """
+  def search_items_in_category(category_uuid, query, opts \\ []) do
+    limit = Keyword.get(opts, :limit, 50)
+    pattern = "%#{sanitize_like(query)}%"
+
+    from(i in Item,
+      where: i.category_uuid == ^category_uuid,
+      where: i.status != "deleted",
+      where:
+        ilike(i.name, ^pattern) or
+          ilike(i.description, ^pattern) or
+          ilike(i.sku, ^pattern),
+      order_by: [asc: i.name],
+      limit: ^limit,
+      preload: [category: :catalogue, manufacturer: []]
+    )
+    |> repo().all()
+  end
+
+  defp sanitize_like(query) do
+    query
+    |> String.replace("\\", "\\\\")
+    |> String.replace("%", "\\%")
+    |> String.replace("_", "\\_")
+  end
+
+  # ═══════════════════════════════════════════════════════════════════
+  # Counts
+  # ═══════════════════════════════════════════════════════════════════
+
+  @doc "Counts non-deleted items belonging to categories in this catalogue."
+  def item_count_for_catalogue(catalogue_uuid) do
+    from(i in Item,
+      join: c in Category,
+      on: i.category_uuid == c.uuid,
+      where: c.catalogue_uuid == ^catalogue_uuid and i.status != "deleted"
+    )
+    |> repo().aggregate(:count)
+  end
+
+  @doc "Counts non-deleted categories for a catalogue."
+  def category_count_for_catalogue(catalogue_uuid) do
+    from(c in Category,
+      where: c.catalogue_uuid == ^catalogue_uuid and c.status != "deleted"
+    )
+    |> repo().aggregate(:count)
+  end
+
+  @doc """
+  Counts deleted items belonging to categories in this catalogue.
   """
   def deleted_item_count_for_catalogue(catalogue_uuid) do
-    categorized =
-      from(i in Item,
-        join: c in Category,
-        on: i.category_uuid == c.uuid,
-        where: c.catalogue_uuid == ^catalogue_uuid and i.status == "deleted"
-      )
-      |> repo().aggregate(:count)
-
-    uncategorized =
-      from(i in Item, where: is_nil(i.category_uuid) and i.status == "deleted")
-      |> repo().aggregate(:count)
-
-    categorized + uncategorized
+    from(i in Item,
+      join: c in Category,
+      on: i.category_uuid == c.uuid,
+      where: c.catalogue_uuid == ^catalogue_uuid and i.status == "deleted"
+    )
+    |> repo().aggregate(:count)
   end
 
   @doc "Counts deleted categories for a catalogue."

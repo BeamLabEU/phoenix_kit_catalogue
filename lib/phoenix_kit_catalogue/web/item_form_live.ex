@@ -6,6 +6,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   require Logger
 
   import PhoenixKitWeb.Components.MultilangForm
+  import PhoenixKitWeb.Components.Core.AdminPageHeader, only: [admin_page_header: 1]
 
   alias PhoenixKitCatalogue.Catalogue
   alias PhoenixKitCatalogue.Paths
@@ -14,7 +15,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   @translatable_fields ["name", "description"]
   @preserve_fields %{
     "sku" => :sku,
-    "price" => :price,
+    "base_price" => :base_price,
     "unit" => :unit,
     "status" => :status,
     "category_uuid" => :category_uuid,
@@ -27,7 +28,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
 
     case load_item(action, params) do
       {nil, _, _} ->
-        {:ok, socket |> put_flash(:error, "Item not found.") |> push_navigate(to: Paths.index())}
+        {:ok, socket |> put_flash(:error, Gettext.gettext(PhoenixKitWeb.Gettext, "Item not found.")) |> push_navigate(to: Paths.index())}
 
       {item, changeset, catalogue_uuid} ->
         {:ok, mount_form(socket, action, item, changeset, catalogue_uuid)}
@@ -62,7 +63,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
 
     socket
     |> assign(
-      page_title: if(action == :new, do: "New Item", else: "Edit #{item.name}"),
+      page_title: if(action == :new, do: Gettext.gettext(PhoenixKitWeb.Gettext, "New Item"), else: Gettext.gettext(PhoenixKitWeb.Gettext, "Edit %{name}", name: item.name)),
       action: action,
       item: item,
       catalogue_uuid: catalogue_uuid,
@@ -118,11 +119,11 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
         {:ok, item} ->
           {:noreply,
            socket
-           |> put_flash(:info, "Item moved.")
+           |> put_flash(:info, Gettext.gettext(PhoenixKitWeb.Gettext, "Item moved."))
            |> push_navigate(to: redirect_target(socket, item))}
 
         {:error, _} ->
-          {:noreply, put_flash(socket, :error, "Failed to move item.")}
+          {:noreply, put_flash(socket, :error, Gettext.gettext(PhoenixKitWeb.Gettext, "Failed to move item."))}
       end
     else
       {:noreply, socket}
@@ -134,7 +135,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
       {:ok, item} ->
         {:noreply,
          socket
-         |> put_flash(:info, "Item created.")
+         |> put_flash(:info, Gettext.gettext(PhoenixKitWeb.Gettext, "Item created."))
          |> push_navigate(to: redirect_target(socket, item))}
 
       {:error, changeset} ->
@@ -147,7 +148,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
       {:ok, item} ->
         {:noreply,
          socket
-         |> put_flash(:info, "Item updated.")
+         |> put_flash(:info, Gettext.gettext(PhoenixKitWeb.Gettext, "Item updated."))
          |> push_navigate(to: redirect_target(socket, item))}
 
       {:error, changeset} ->
@@ -185,21 +186,13 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
     ~H"""
     <div class="flex flex-col mx-auto max-w-2xl px-4 py-8 gap-6">
       <%!-- Header --%>
-      <div class="flex items-center gap-3">
-        <.link navigate={if @catalogue_uuid, do: Paths.catalogue_detail(@catalogue_uuid), else: Paths.index()} class="btn btn-ghost btn-sm btn-square">
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
-          </svg>
-        </.link>
-        <div>
-          <h1 class="text-2xl font-bold">{@page_title}</h1>
-          <p class="text-sm text-base-content/60 mt-0.5">
-            {if @action == :new, do: "Add a new product or material to the catalogue.", else: "Update item details, pricing, and classification."}
-          </p>
-        </div>
-      </div>
+      <.admin_page_header
+        back={if @catalogue_uuid, do: Paths.catalogue_detail(@catalogue_uuid), else: Paths.index()}
+        title={@page_title}
+        subtitle={if @action == :new, do: Gettext.gettext(PhoenixKitWeb.Gettext, "Add a new product or material to the catalogue."), else: Gettext.gettext(PhoenixKitWeb.Gettext, "Update item details, pricing, and classification.")}
+      />
 
-      <.form for={to_form(@changeset)} phx-change="validate" phx-submit="save">
+      <.form for={to_form(@changeset)} action="#" phx-change="validate" phx-submit="save">
         <div class="card bg-base-100 shadow-lg">
           <.multilang_tabs multilang_enabled={@multilang_enabled} language_tabs={@language_tabs} current_lang={@current_lang} />
 
@@ -264,7 +257,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                 field_name="name" form_prefix="item" changeset={@changeset}
                 schema_field={:name} multilang_enabled={@multilang_enabled}
                 current_lang={@current_lang} primary_language={@primary_language}
-                lang_data={@lang_data} label="Name" placeholder="e.g., Oak Panel 18mm" required
+                lang_data={@lang_data} label={Gettext.gettext(PhoenixKitWeb.Gettext, "Name")} placeholder={Gettext.gettext(PhoenixKitWeb.Gettext, "e.g., Oak Panel 18mm")} required
                 class="w-full"
               />
 
@@ -272,8 +265,8 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                 field_name="description" form_prefix="item" changeset={@changeset}
                 schema_field={:description} multilang_enabled={@multilang_enabled}
                 current_lang={@current_lang} primary_language={@primary_language}
-                lang_data={@lang_data} label="Description" type="textarea"
-                placeholder="Product specifications, dimensions, materials..."
+                lang_data={@lang_data} label={Gettext.gettext(PhoenixKitWeb.Gettext, "Description")} type="textarea"
+                placeholder={Gettext.gettext(PhoenixKitWeb.Gettext, "Product specifications, dimensions, materials...")}
                 class="w-full"
               />
 
@@ -289,20 +282,23 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
 
               <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div class="form-control">
-                  <span class="label-text font-semibold mb-2">SKU</span>
+                  <span class="label-text font-semibold mb-2">{Gettext.gettext(PhoenixKitWeb.Gettext, "SKU")}</span>
                   <input type="text" name="item[sku]" value={Ecto.Changeset.get_field(@changeset, :sku) || ""} class="input input-bordered w-full font-mono transition-colors focus:input-primary" placeholder="e.g., KF-001" />
                 </div>
                 <div class="form-control">
-                  <span class="label-text font-semibold mb-2">Price</span>
-                  <input type="number" name="item[price]" value={Ecto.Changeset.get_field(@changeset, :price)} class="input input-bordered w-full transition-colors focus:input-primary" step="0.01" min="0" placeholder="0.00" />
+                  <span class="label-text font-semibold mb-2">{Gettext.gettext(PhoenixKitWeb.Gettext, "Base Price")}</span>
+                  <input type="number" name="item[base_price]" value={Ecto.Changeset.get_field(@changeset, :base_price)} class="input input-bordered w-full transition-colors focus:input-primary" step="0.01" min="0" placeholder="0.00" />
+                  <span class="label-text-alt text-base-content/50 mt-1">{Gettext.gettext(PhoenixKitWeb.Gettext, "Cost/purchase price before catalogue markup.")}</span>
                 </div>
                 <div class="form-control">
-                  <span class="label-text font-semibold mb-2">Unit</span>
-                  <select name="item[unit]" class="select select-bordered w-full transition-colors focus:select-primary">
-                    <option value="piece" selected={Ecto.Changeset.get_field(@changeset, :unit) == "piece"}>Piece</option>
-                    <option value="m2" selected={Ecto.Changeset.get_field(@changeset, :unit) == "m2"}>m² (square meter)</option>
-                    <option value="running_meter" selected={Ecto.Changeset.get_field(@changeset, :unit) == "running_meter"}>Running meter</option>
-                  </select>
+                  <span class="label-text font-semibold mb-2">{Gettext.gettext(PhoenixKitWeb.Gettext, "Unit")}</span>
+                  <label class="select select-bordered w-full transition-colors focus-within:select-primary">
+                    <select name="item[unit]">
+                      <option value="piece" selected={Ecto.Changeset.get_field(@changeset, :unit) == "piece"}>{Gettext.gettext(PhoenixKitWeb.Gettext, "Piece")}</option>
+                      <option value="m2" selected={Ecto.Changeset.get_field(@changeset, :unit) == "m2"}>{Gettext.gettext(PhoenixKitWeb.Gettext, "m² (square meter)")}</option>
+                      <option value="running_meter" selected={Ecto.Changeset.get_field(@changeset, :unit) == "running_meter"}>{Gettext.gettext(PhoenixKitWeb.Gettext, "Running meter")}</option>
+                    </select>
+                  </label>
                 </div>
               </div>
 
@@ -318,49 +314,55 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
 
               <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div class="form-control">
-                  <span class="label-text font-semibold mb-2">Category</span>
-                  <select name="item[category_uuid]" class="select select-bordered w-full transition-colors focus:select-primary">
-                    <option value="">-- No category --</option>
-                    <option
-                      :for={cat <- @categories}
-                      value={cat.uuid}
-                      selected={to_string(Ecto.Changeset.get_field(@changeset, :category_uuid)) == to_string(cat.uuid)}
-                    >
-                      {cat.name}
-                    </option>
-                  </select>
+                  <span class="label-text font-semibold mb-2">{Gettext.gettext(PhoenixKitWeb.Gettext, "Category")}</span>
+                  <label class="select select-bordered w-full transition-colors focus-within:select-primary">
+                    <select name="item[category_uuid]">
+                      <option value="">{Gettext.gettext(PhoenixKitWeb.Gettext, "-- No category --")}</option>
+                      <option
+                        :for={cat <- @categories}
+                        value={cat.uuid}
+                        selected={to_string(Ecto.Changeset.get_field(@changeset, :category_uuid)) == to_string(cat.uuid)}
+                      >
+                        {cat.name}
+                      </option>
+                    </select>
+                  </label>
                 </div>
                 <div class="form-control">
-                  <span class="label-text font-semibold mb-2">Manufacturer</span>
-                  <select name="item[manufacturer_uuid]" class="select select-bordered w-full transition-colors focus:select-primary">
-                    <option value="">-- No manufacturer --</option>
-                    <option
-                      :for={m <- @manufacturers}
-                      value={m.uuid}
-                      selected={to_string(Ecto.Changeset.get_field(@changeset, :manufacturer_uuid)) == to_string(m.uuid)}
-                    >
-                      {m.name}
-                    </option>
-                  </select>
+                  <span class="label-text font-semibold mb-2">{Gettext.gettext(PhoenixKitWeb.Gettext, "Manufacturer")}</span>
+                  <label class="select select-bordered w-full transition-colors focus-within:select-primary">
+                    <select name="item[manufacturer_uuid]">
+                      <option value="">{Gettext.gettext(PhoenixKitWeb.Gettext, "-- No manufacturer --")}</option>
+                      <option
+                        :for={m <- @manufacturers}
+                        value={m.uuid}
+                        selected={to_string(Ecto.Changeset.get_field(@changeset, :manufacturer_uuid)) == to_string(m.uuid)}
+                      >
+                        {m.name}
+                      </option>
+                    </select>
+                  </label>
                 </div>
               </div>
 
               <div class="form-control">
-                <span class="label-text font-semibold mb-2">Status</span>
-                <select name="item[status]" class="select select-bordered w-full transition-colors focus:select-primary">
-                  <option value="active" selected={Ecto.Changeset.get_field(@changeset, :status) == "active"}>Active</option>
-                  <option value="inactive" selected={Ecto.Changeset.get_field(@changeset, :status) == "inactive"}>Inactive</option>
-                  <option value="discontinued" selected={Ecto.Changeset.get_field(@changeset, :status) == "discontinued"}>Discontinued</option>
-                </select>
-                <span class="label-text-alt text-base-content/50 mt-1">Discontinued items are kept for reference but hidden from active listings.</span>
+                <span class="label-text font-semibold mb-2">{Gettext.gettext(PhoenixKitWeb.Gettext, "Status")}</span>
+                <label class="select select-bordered w-full transition-colors focus-within:select-primary">
+                  <select name="item[status]">
+                    <option value="active" selected={Ecto.Changeset.get_field(@changeset, :status) == "active"}>{Gettext.gettext(PhoenixKitWeb.Gettext, "Active")}</option>
+                    <option value="inactive" selected={Ecto.Changeset.get_field(@changeset, :status) == "inactive"}>{Gettext.gettext(PhoenixKitWeb.Gettext, "Inactive")}</option>
+                    <option value="discontinued" selected={Ecto.Changeset.get_field(@changeset, :status) == "discontinued"}>{Gettext.gettext(PhoenixKitWeb.Gettext, "Discontinued")}</option>
+                  </select>
+                </label>
+                <span class="label-text-alt text-base-content/50 mt-1">{Gettext.gettext(PhoenixKitWeb.Gettext, "Discontinued items are kept for reference but hidden from active listings.")}</span>
               </div>
 
               <%!-- Actions --%>
               <div class="divider my-0"></div>
 
               <div class="flex justify-end gap-3">
-                <.link navigate={if @catalogue_uuid, do: Paths.catalogue_detail(@catalogue_uuid), else: Paths.index()} class="btn btn-ghost">Cancel</.link>
-                <button type="submit" class="btn btn-primary phx-submit-loading:opacity-75">{if @action == :new, do: "Create Item", else: "Save Changes"}</button>
+                <.link navigate={if @catalogue_uuid, do: Paths.catalogue_detail(@catalogue_uuid), else: Paths.index()} class="btn btn-ghost">{Gettext.gettext(PhoenixKitWeb.Gettext, "Cancel")}</.link>
+                <button type="submit" class="btn btn-primary phx-submit-loading:opacity-75">{if @action == :new, do: Gettext.gettext(PhoenixKitWeb.Gettext, "Create Item"), else: Gettext.gettext(PhoenixKitWeb.Gettext, "Save Changes")}</button>
               </div>
             </div>
           </.multilang_fields_wrapper>
@@ -370,14 +372,16 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
       <%!-- Move to another category — only in edit mode --%>
       <div :if={@action == :edit && @all_categories != []} class="card bg-base-100 shadow-lg">
         <div class="card-body flex flex-col gap-3">
-          <h3 class="text-sm font-semibold text-base-content/80">Move to Another Category</h3>
-          <p class="text-xs text-base-content/50">Move this item to a category in any catalogue.</p>
+          <h3 class="text-sm font-semibold text-base-content/80">{Gettext.gettext(PhoenixKitWeb.Gettext, "Move to Another Category")}</h3>
+          <p class="text-xs text-base-content/50">{Gettext.gettext(PhoenixKitWeb.Gettext, "Move this item to a category in any catalogue.")}</p>
           <div class="flex items-end gap-3">
             <div class="form-control flex-1">
-              <select phx-change="select_move_target" name="category_uuid" class="select select-bordered w-full select-sm transition-colors focus:select-primary">
-                <option value="">-- Select category --</option>
-                <option :for={cat <- @all_categories} value={cat.uuid}>{cat.name}</option>
-              </select>
+              <label class="select select-bordered w-full select-sm transition-colors focus-within:select-primary">
+                <select phx-change="select_move_target" name="category_uuid">
+                  <option value="">{Gettext.gettext(PhoenixKitWeb.Gettext, "-- Select category --")}</option>
+                  <option :for={cat <- @all_categories} value={cat.uuid}>{cat.name}</option>
+                </select>
+              </label>
             </div>
             <button
               type="button"
