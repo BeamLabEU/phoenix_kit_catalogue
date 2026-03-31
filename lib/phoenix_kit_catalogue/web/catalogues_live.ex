@@ -25,7 +25,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   def mount(_params, _session, socket) do
     {:ok,
      assign(socket,
-       page_title: "Catalogue",
+       page_title: Gettext.gettext(PhoenixKitWeb.Gettext, "Catalogue"),
        catalogues: [],
        manufacturers: [],
        suppliers: [],
@@ -50,9 +50,9 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     {:noreply, socket}
   end
 
-  defp tab_title(:index), do: "Catalogues"
-  defp tab_title(:manufacturers), do: "Manufacturers"
-  defp tab_title(:suppliers), do: "Suppliers"
+  defp tab_title(:index), do: Gettext.gettext(PhoenixKitWeb.Gettext, "Catalogues")
+  defp tab_title(:manufacturers), do: Gettext.gettext(PhoenixKitWeb.Gettext, "Manufacturers")
+  defp tab_title(:suppliers), do: Gettext.gettext(PhoenixKitWeb.Gettext, "Suppliers")
 
   defp load_data(socket, :index) do
     if connected?(socket) do
@@ -112,18 +112,18 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
          {:ok, _} <- Catalogue.trash_catalogue(catalogue) do
       {:noreply,
        socket
-       |> put_flash(:info, "Catalogue moved to deleted.")
+       |> put_flash(:info, Gettext.gettext(PhoenixKitWeb.Gettext, "Catalogue moved to deleted."))
        |> assign(:confirm_delete, nil)
        |> load_data(:index)}
     else
       nil ->
-        {:noreply, socket |> put_flash(:error, "Catalogue not found.") |> load_data(:index)}
+        {:noreply, socket |> put_flash(:error, Gettext.gettext(PhoenixKitWeb.Gettext, "Catalogue not found.")) |> load_data(:index)}
 
       {:error, reason} ->
         Logger.error("Failed to trash catalogue #{uuid}: #{inspect(reason)}")
 
         {:noreply,
-         socket |> put_flash(:error, "Failed to delete catalogue.") |> load_data(:index)}
+         socket |> put_flash(:error, Gettext.gettext(PhoenixKitWeb.Gettext, "Failed to delete catalogue.")) |> load_data(:index)}
     end
   end
 
@@ -132,18 +132,18 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
          {:ok, _} <- Catalogue.restore_catalogue(catalogue) do
       {:noreply,
        socket
-       |> put_flash(:info, "Catalogue restored.")
+       |> put_flash(:info, Gettext.gettext(PhoenixKitWeb.Gettext, "Catalogue restored."))
        |> assign(:confirm_delete, nil)
        |> load_data(:index)}
     else
       nil ->
-        {:noreply, socket |> put_flash(:error, "Catalogue not found.") |> load_data(:index)}
+        {:noreply, socket |> put_flash(:error, Gettext.gettext(PhoenixKitWeb.Gettext, "Catalogue not found.")) |> load_data(:index)}
 
       {:error, reason} ->
         Logger.error("Failed to restore catalogue #{uuid}: #{inspect(reason)}")
 
         {:noreply,
-         socket |> put_flash(:error, "Failed to restore catalogue.") |> load_data(:index)}
+         socket |> put_flash(:error, Gettext.gettext(PhoenixKitWeb.Gettext, "Failed to restore catalogue.")) |> load_data(:index)}
     end
   end
 
@@ -158,7 +158,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
          {:ok, _} <- Catalogue.permanently_delete_catalogue(catalogue) do
       {:noreply,
        socket
-       |> put_flash(:info, "Catalogue permanently deleted.")
+       |> put_flash(:info, Gettext.gettext(PhoenixKitWeb.Gettext, "Catalogue permanently deleted."))
        |> assign(:confirm_delete, nil)
        |> load_data(:index)}
     else
@@ -166,7 +166,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         {:noreply,
          socket
          |> assign(:confirm_delete, nil)
-         |> put_flash(:error, "Catalogue not found.")
+         |> put_flash(:error, Gettext.gettext(PhoenixKitWeb.Gettext, "Catalogue not found."))
          |> load_data(:index)}
 
       {:error, reason} ->
@@ -175,7 +175,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         {:noreply,
          socket
          |> assign(:confirm_delete, nil)
-         |> put_flash(:error, "Failed to delete catalogue.")
+         |> put_flash(:error, Gettext.gettext(PhoenixKitWeb.Gettext, "Failed to delete catalogue."))
          |> load_data(:index)}
     end
   end
@@ -196,7 +196,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
 
         {:noreply,
          socket
-         |> put_flash(:error, "Failed to delete manufacturer.")
+         |> put_flash(:error, Gettext.gettext(PhoenixKitWeb.Gettext, "Failed to delete manufacturer."))
          |> assign(:confirm_delete, nil)}
     end
   end
@@ -216,7 +216,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
 
         {:noreply,
          socket
-         |> put_flash(:error, "Failed to delete supplier.")
+         |> put_flash(:error, Gettext.gettext(PhoenixKitWeb.Gettext, "Failed to delete supplier."))
          |> assign(:confirm_delete, nil)}
     end
   end
@@ -283,13 +283,13 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       </div>
 
       <%!-- Global search --%>
-      <.search_input query={@search_query} placeholder="Search items across all catalogues..." />
+      <.search_input query={@search_query} placeholder={Gettext.gettext(PhoenixKitWeb.Gettext, "Search items across all catalogues...")} />
 
       <%!-- Search results --%>
       <div :if={@search_results != nil} class="flex flex-col gap-4">
         <.search_results_summary count={length(@search_results)} query={@search_query} />
 
-        <.empty_state :if={@search_results == []} message="No items match your search." />
+        <.empty_state :if={@search_results == []} message={Gettext.gettext(PhoenixKitWeb.Gettext, "No items match your search.")} />
 
         <.item_table
           :if={@search_results != []}
@@ -352,10 +352,10 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         show={match?({"catalogue", _}, @confirm_delete)}
         on_confirm="permanently_delete_catalogue"
         on_cancel="cancel_delete"
-        title="Permanently Delete Catalogue"
+        title={Gettext.gettext(PhoenixKitWeb.Gettext, "Permanently Delete Catalogue")}
         title_icon="hero-trash"
-        messages={[{:warning, "This will permanently delete this catalogue, all its categories, and all items. This cannot be undone."}]}
-        confirm_text="Delete Forever"
+        messages={[{:warning, Gettext.gettext(PhoenixKitWeb.Gettext, "This will permanently delete this catalogue, all its categories, and all items. This cannot be undone.")}]}
+        confirm_text={Gettext.gettext(PhoenixKitWeb.Gettext, "Delete Forever")}
         danger={true}
       />
 
@@ -363,10 +363,10 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         show={match?({"manufacturer", _}, @confirm_delete)}
         on_confirm="delete_manufacturer"
         on_cancel="cancel_delete"
-        title="Delete Manufacturer"
+        title={Gettext.gettext(PhoenixKitWeb.Gettext, "Delete Manufacturer")}
         title_icon="hero-trash"
-        messages={[{:warning, "This will permanently delete this manufacturer. Items referencing it will lose the association."}]}
-        confirm_text="Delete"
+        messages={[{:warning, Gettext.gettext(PhoenixKitWeb.Gettext, "This will permanently delete this manufacturer. Items referencing it will lose the association.")}]}
+        confirm_text={Gettext.gettext(PhoenixKitWeb.Gettext, "Delete")}
         danger={true}
       />
 
@@ -374,10 +374,10 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         show={match?({"supplier", _}, @confirm_delete)}
         on_confirm="delete_supplier"
         on_cancel="cancel_delete"
-        title="Delete Supplier"
+        title={Gettext.gettext(PhoenixKitWeb.Gettext, "Delete Supplier")}
         title_icon="hero-trash"
-        messages={[{:warning, "This will permanently delete this supplier. Manufacturer links will be removed."}]}
-        confirm_text="Delete"
+        messages={[{:warning, Gettext.gettext(PhoenixKitWeb.Gettext, "This will permanently delete this supplier. Manufacturer links will be removed.")}]}
+        confirm_text={Gettext.gettext(PhoenixKitWeb.Gettext, "Delete")}
         danger={true}
       />
     </div>
@@ -389,7 +389,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     <div :if={@catalogues == []} class="card bg-base-100 shadow">
       <div class="card-body items-center text-center py-12">
         <p class="text-base-content/60">
-          {if @view_mode == "deleted", do: "No deleted catalogues.", else: "No catalogues yet."}
+          {if @view_mode == "deleted", do: Gettext.gettext(PhoenixKitWeb.Gettext, "No deleted catalogues."), else: Gettext.gettext(PhoenixKitWeb.Gettext, "No catalogues yet.")}
         </p>
       </div>
     </div>
@@ -399,16 +399,16 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         variant="zebra" size="sm" toggleable={true}
         id={"catalogues-#{@view_mode}"} items={@catalogues}
         card_fields={fn c -> [
-          %{label: "Status", value: String.capitalize(c.status)},
-          %{label: "Updated", value: Calendar.strftime(c.updated_at, "%Y-%m-%d %H:%M")}
+          %{label: Gettext.gettext(PhoenixKitWeb.Gettext, "Status"), value: String.capitalize(c.status)},
+          %{label: Gettext.gettext(PhoenixKitWeb.Gettext, "Updated"), value: Calendar.strftime(c.updated_at, "%Y-%m-%d %H:%M")}
         ] end}
       >
         <.table_default_header>
           <.table_default_row>
-            <.table_default_header_cell>Name</.table_default_header_cell>
-            <.table_default_header_cell>Status</.table_default_header_cell>
-            <.table_default_header_cell>Updated</.table_default_header_cell>
-            <.table_default_header_cell class="text-right whitespace-nowrap">Actions</.table_default_header_cell>
+            <.table_default_header_cell>{Gettext.gettext(PhoenixKitWeb.Gettext, "Name")}</.table_default_header_cell>
+            <.table_default_header_cell>{Gettext.gettext(PhoenixKitWeb.Gettext, "Status")}</.table_default_header_cell>
+            <.table_default_header_cell>{Gettext.gettext(PhoenixKitWeb.Gettext, "Updated")}</.table_default_header_cell>
+            <.table_default_header_cell class="text-right whitespace-nowrap">{Gettext.gettext(PhoenixKitWeb.Gettext, "Actions")}</.table_default_header_cell>
           </.table_default_row>
         </.table_default_header>
         <.table_default_body>
@@ -447,13 +447,13 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
           <span :if={@view_mode == "deleted"} class="font-medium text-sm text-base-content/50">{catalogue.name}</span>
         </:card_header>
         <:card_actions :let={catalogue} :if={@view_mode == "active"}>
-          <.link navigate={Paths.catalogue_detail(catalogue.uuid)} class="btn btn-ghost btn-xs">View</.link>
-          <.link navigate={Paths.catalogue_edit(catalogue.uuid)} class="btn btn-ghost btn-xs">Edit</.link>
-          <button phx-click="trash_catalogue" phx-value-uuid={catalogue.uuid} class="btn btn-ghost btn-xs text-error">Delete</button>
+          <.link navigate={Paths.catalogue_detail(catalogue.uuid)} class="btn btn-ghost btn-xs">{Gettext.gettext(PhoenixKitWeb.Gettext, "View")}</.link>
+          <.link navigate={Paths.catalogue_edit(catalogue.uuid)} class="btn btn-ghost btn-xs">{Gettext.gettext(PhoenixKitWeb.Gettext, "Edit")}</.link>
+          <button phx-click="trash_catalogue" phx-value-uuid={catalogue.uuid} class="btn btn-ghost btn-xs text-error">{Gettext.gettext(PhoenixKitWeb.Gettext, "Delete")}</button>
         </:card_actions>
         <:card_actions :let={catalogue} :if={@view_mode == "deleted"}>
-          <button phx-click="restore_catalogue" phx-value-uuid={catalogue.uuid} class="btn btn-ghost btn-xs text-success">Restore</button>
-          <button phx-click="show_delete_confirm" phx-value-uuid={catalogue.uuid} phx-value-type="catalogue" class="btn btn-ghost btn-xs text-error">Delete Forever</button>
+          <button phx-click="restore_catalogue" phx-value-uuid={catalogue.uuid} class="btn btn-ghost btn-xs text-success">{Gettext.gettext(PhoenixKitWeb.Gettext, "Restore")}</button>
+          <button phx-click="show_delete_confirm" phx-value-uuid={catalogue.uuid} phx-value-type="catalogue" class="btn btn-ghost btn-xs text-error">{Gettext.gettext(PhoenixKitWeb.Gettext, "Delete Forever")}</button>
         </:card_actions>
       </.table_default>
     </div>
@@ -473,16 +473,16 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         variant="zebra" size="sm" toggleable={true}
         id="manufacturers-list" items={@manufacturers}
         card_fields={fn m -> [
-          %{label: "Website", value: m.website || "—"},
-          %{label: "Status", value: String.capitalize(m.status)}
+          %{label: Gettext.gettext(PhoenixKitWeb.Gettext, "Website"), value: m.website || "—"},
+          %{label: Gettext.gettext(PhoenixKitWeb.Gettext, "Status"), value: String.capitalize(m.status)}
         ] end}
       >
         <.table_default_header>
           <.table_default_row>
-            <.table_default_header_cell>Name</.table_default_header_cell>
-            <.table_default_header_cell>Website</.table_default_header_cell>
-            <.table_default_header_cell>Status</.table_default_header_cell>
-            <.table_default_header_cell class="text-right whitespace-nowrap">Actions</.table_default_header_cell>
+            <.table_default_header_cell>{Gettext.gettext(PhoenixKitWeb.Gettext, "Name")}</.table_default_header_cell>
+            <.table_default_header_cell>{Gettext.gettext(PhoenixKitWeb.Gettext, "Website")}</.table_default_header_cell>
+            <.table_default_header_cell>{Gettext.gettext(PhoenixKitWeb.Gettext, "Status")}</.table_default_header_cell>
+            <.table_default_header_cell class="text-right whitespace-nowrap">{Gettext.gettext(PhoenixKitWeb.Gettext, "Actions")}</.table_default_header_cell>
           </.table_default_row>
         </.table_default_header>
         <.table_default_body>
@@ -503,8 +503,8 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
           <.link navigate={Paths.manufacturer_edit(m.uuid)} class="font-medium text-sm link link-hover">{m.name}</.link>
         </:card_header>
         <:card_actions :let={m}>
-          <.link navigate={Paths.manufacturer_edit(m.uuid)} class="btn btn-ghost btn-xs">Edit</.link>
-          <button phx-click="show_delete_confirm" phx-value-uuid={m.uuid} phx-value-type="manufacturer" class="btn btn-ghost btn-xs text-error">Delete</button>
+          <.link navigate={Paths.manufacturer_edit(m.uuid)} class="btn btn-ghost btn-xs">{Gettext.gettext(PhoenixKitWeb.Gettext, "Edit")}</.link>
+          <button phx-click="show_delete_confirm" phx-value-uuid={m.uuid} phx-value-type="manufacturer" class="btn btn-ghost btn-xs text-error">{Gettext.gettext(PhoenixKitWeb.Gettext, "Delete")}</button>
         </:card_actions>
       </.table_default>
     </div>
@@ -524,16 +524,16 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         variant="zebra" size="sm" toggleable={true}
         id="suppliers-list" items={@suppliers}
         card_fields={fn s -> [
-          %{label: "Website", value: s.website || "—"},
-          %{label: "Status", value: String.capitalize(s.status)}
+          %{label: Gettext.gettext(PhoenixKitWeb.Gettext, "Website"), value: s.website || "—"},
+          %{label: Gettext.gettext(PhoenixKitWeb.Gettext, "Status"), value: String.capitalize(s.status)}
         ] end}
       >
         <.table_default_header>
           <.table_default_row>
-            <.table_default_header_cell>Name</.table_default_header_cell>
-            <.table_default_header_cell>Website</.table_default_header_cell>
-            <.table_default_header_cell>Status</.table_default_header_cell>
-            <.table_default_header_cell class="text-right whitespace-nowrap">Actions</.table_default_header_cell>
+            <.table_default_header_cell>{Gettext.gettext(PhoenixKitWeb.Gettext, "Name")}</.table_default_header_cell>
+            <.table_default_header_cell>{Gettext.gettext(PhoenixKitWeb.Gettext, "Website")}</.table_default_header_cell>
+            <.table_default_header_cell>{Gettext.gettext(PhoenixKitWeb.Gettext, "Status")}</.table_default_header_cell>
+            <.table_default_header_cell class="text-right whitespace-nowrap">{Gettext.gettext(PhoenixKitWeb.Gettext, "Actions")}</.table_default_header_cell>
           </.table_default_row>
         </.table_default_header>
         <.table_default_body>
@@ -554,8 +554,8 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
           <.link navigate={Paths.supplier_edit(s.uuid)} class="font-medium text-sm link link-hover">{s.name}</.link>
         </:card_header>
         <:card_actions :let={s}>
-          <.link navigate={Paths.supplier_edit(s.uuid)} class="btn btn-ghost btn-xs">Edit</.link>
-          <button phx-click="show_delete_confirm" phx-value-uuid={s.uuid} phx-value-type="supplier" class="btn btn-ghost btn-xs text-error">Delete</button>
+          <.link navigate={Paths.supplier_edit(s.uuid)} class="btn btn-ghost btn-xs">{Gettext.gettext(PhoenixKitWeb.Gettext, "Edit")}</.link>
+          <button phx-click="show_delete_confirm" phx-value-uuid={s.uuid} phx-value-type="supplier" class="btn btn-ghost btn-xs text-error">{Gettext.gettext(PhoenixKitWeb.Gettext, "Delete")}</button>
         </:card_actions>
       </.table_default>
     </div>
