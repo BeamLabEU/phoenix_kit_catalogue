@@ -120,16 +120,18 @@ defmodule PhoenixKitCatalogue.CatalogueTest do
       assert Catalogue.linked_supplier_uuids(m.uuid) == []
     end
 
-    test "sync_manufacturer_suppliers/2" do
+    test "sync_manufacturer_suppliers/2 returns {:ok, :synced}" do
       m = create_manufacturer()
       s1 = create_supplier(%{name: "S1"})
       s2 = create_supplier(%{name: "S2"})
 
-      Catalogue.sync_manufacturer_suppliers(m.uuid, [s1.uuid, s2.uuid])
+      assert {:ok, :synced} =
+               Catalogue.sync_manufacturer_suppliers(m.uuid, [s1.uuid, s2.uuid])
+
       assert MapSet.new(Catalogue.linked_supplier_uuids(m.uuid)) == MapSet.new([s1.uuid, s2.uuid])
 
       # Remove s1, keep s2
-      Catalogue.sync_manufacturer_suppliers(m.uuid, [s2.uuid])
+      assert {:ok, :synced} = Catalogue.sync_manufacturer_suppliers(m.uuid, [s2.uuid])
       assert Catalogue.linked_supplier_uuids(m.uuid) == [s2.uuid]
     end
 
@@ -159,15 +161,28 @@ defmodule PhoenixKitCatalogue.CatalogueTest do
   # ═══════════════════════════════════════════════════════════════════
 
   describe "catalogues" do
-    test "create_catalogue/1" do
+    test "create_catalogue/1 defaults markup_percentage to 0" do
       assert {:ok, c} = Catalogue.create_catalogue(%{name: "Kitchen"})
       assert c.name == "Kitchen"
       assert c.status == "active"
+      assert Decimal.equal?(c.markup_percentage, Decimal.new("0"))
+    end
+
+    test "create_catalogue/1 with markup_percentage" do
+      assert {:ok, c} = Catalogue.create_catalogue(%{name: "Kitchen", markup_percentage: 15.0})
+      assert Decimal.equal?(c.markup_percentage, Decimal.new("15.0"))
     end
 
     test "create_catalogue/1 requires name" do
       assert {:error, changeset} = Catalogue.create_catalogue(%{})
       assert errors_on(changeset).name
+    end
+
+    test "create_catalogue/1 validates markup_percentage >= 0" do
+      assert {:error, changeset} =
+               Catalogue.create_catalogue(%{name: "X", markup_percentage: -5})
+
+      assert errors_on(changeset).markup_percentage
     end
 
     test "list_catalogues/0 excludes deleted" do
@@ -319,6 +334,17 @@ defmodule PhoenixKitCatalogue.CatalogueTest do
       create_category(cat, %{position: 5})
       assert Catalogue.next_category_position(cat.uuid) == 6
     end
+
+    test "swap_category_positions/2 atomically swaps" do
+      cat = create_catalogue()
+      c1 = create_category(cat, %{name: "First", position: 0})
+      c2 = create_category(cat, %{name: "Second", position: 1})
+
+      assert {:ok, _} = Catalogue.swap_category_positions(c1, c2)
+
+      assert Catalogue.get_category(c1.uuid).position == 1
+      assert Catalogue.get_category(c2.uuid).position == 0
+    end
   end
 
   # ═══════════════════════════════════════════════════════════════════
@@ -422,9 +448,14 @@ defmodule PhoenixKitCatalogue.CatalogueTest do
       assert errors_on(changeset).unit
     end
 
-    test "create_item/1 validates price >= 0" do
-      assert {:error, changeset} = Catalogue.create_item(%{name: "X", price: -1})
-      assert errors_on(changeset).price
+    test "create_item/1 validates base_price >= 0" do
+      assert {:error, changeset} = Catalogue.create_item(%{name: "X", base_price: -1})
+      assert errors_on(changeset).base_price
+    end
+
+    test "create_item/1 with base_price" do
+      assert {:ok, i} = Catalogue.create_item(%{name: "Panel", base_price: "25.50"})
+      assert Decimal.equal?(i.base_price, Decimal.new("25.50"))
     end
 
     test "update_item/2" do
@@ -475,6 +506,24 @@ defmodule PhoenixKitCatalogue.CatalogueTest do
       item = Catalogue.get_item(item.uuid)
       {:ok, _} = Catalogue.restore_item(item)
 
+      assert Catalogue.get_category(category.uuid).status == "active"
+      assert Catalogue.get_item(item.uuid).status == "active"
+    end
+
+    test "restore_item/1 cascades upward to deleted parent catalogue" do
+      cat = create_catalogue()
+      category = create_category(cat)
+      item = create_item(%{name: "Item", category_uuid: category.uuid})
+
+      Catalogue.trash_catalogue(cat)
+      assert Catalogue.get_catalogue(cat.uuid).status == "deleted"
+      assert Catalogue.get_category(category.uuid).status == "deleted"
+      assert Catalogue.get_item(item.uuid).status == "deleted"
+
+      item = Catalogue.get_item(item.uuid)
+      {:ok, _} = Catalogue.restore_item(item)
+
+      assert Catalogue.get_catalogue(cat.uuid).status == "active"
       assert Catalogue.get_category(category.uuid).status == "active"
       assert Catalogue.get_item(item.uuid).status == "active"
     end
@@ -540,13 +589,13 @@ defmodule PhoenixKitCatalogue.CatalogueTest do
       assert Catalogue.deleted_item_count_for_catalogue(cat.uuid) == 1
     end
 
-    test "deleted_item_count_for_catalogue/1 includes uncategorized deleted items" do
+    test "deleted_item_count_for_catalogue/1 does not count uncategorized items" do
       cat = create_catalogue()
       item = create_item(%{name: "Orphan"})
       Catalogue.trash_item(item)
 
-      # Uncategorized deleted items are counted globally
-      assert Catalogue.deleted_item_count_for_catalogue(cat.uuid) >= 1
+      # Uncategorized items don't belong to any catalogue
+      assert Catalogue.deleted_item_count_for_catalogue(cat.uuid) == 0
     end
 
     test "deleted_category_count_for_catalogue/1" do
@@ -576,26 +625,406 @@ defmodule PhoenixKitCatalogue.CatalogueTest do
   # ═══════════════════════════════════════════════════════════════════
 
   describe "uncategorized items" do
-    test "list_uncategorized_items_for_catalogue/2 active mode excludes deleted" do
+    test "list_uncategorized_items/1 active mode excludes deleted" do
       create_item(%{name: "Active Orphan"})
       i2 = create_item(%{name: "Deleted Orphan"})
       Catalogue.trash_item(i2)
 
-      active = Catalogue.list_uncategorized_items_for_catalogue("any", mode: :active)
+      active = Catalogue.list_uncategorized_items(mode: :active)
       names = Enum.map(active, & &1.name)
       assert "Active Orphan" in names
       refute "Deleted Orphan" in names
     end
 
-    test "list_uncategorized_items_for_catalogue/2 deleted mode shows only deleted" do
+    test "list_uncategorized_items/1 deleted mode shows only deleted" do
       create_item(%{name: "Active Orphan"})
       i2 = create_item(%{name: "Deleted Orphan"})
       Catalogue.trash_item(i2)
 
-      deleted = Catalogue.list_uncategorized_items_for_catalogue("any", mode: :deleted)
+      deleted = Catalogue.list_uncategorized_items(mode: :deleted)
       names = Enum.map(deleted, & &1.name)
       refute "Active Orphan" in names
       assert "Deleted Orphan" in names
+    end
+  end
+
+  # ═══════════════════════════════════════════════════════════════════
+  # Sale price calculation
+  # ═══════════════════════════════════════════════════════════════════
+
+  describe "sale price" do
+    alias PhoenixKitCatalogue.Schemas.Item
+
+    test "sale_price/2 with markup" do
+      item = %Item{base_price: Decimal.new("100.00")}
+      markup = Decimal.new("20.0")
+
+      assert Decimal.equal?(Item.sale_price(item, markup), Decimal.new("120.00"))
+    end
+
+    test "sale_price/2 with nil base_price" do
+      item = %Item{base_price: nil}
+      assert is_nil(Item.sale_price(item, Decimal.new("20.0")))
+    end
+
+    test "sale_price/2 with nil markup returns base_price" do
+      item = %Item{base_price: Decimal.new("50.00")}
+      assert Decimal.equal?(Item.sale_price(item, nil), Decimal.new("50.00"))
+    end
+
+    test "sale_price/2 with zero markup returns base_price" do
+      item = %Item{base_price: Decimal.new("50.00")}
+      assert Decimal.equal?(Item.sale_price(item, Decimal.new("0")), Decimal.new("50.00"))
+    end
+
+    test "sale_price/2 rounds to 2 decimal places" do
+      item = %Item{base_price: Decimal.new("33.33")}
+      markup = Decimal.new("33.33")
+
+      result = Item.sale_price(item, markup)
+      assert Decimal.equal?(result, Decimal.new("44.44"))
+    end
+  end
+
+  # ═══════════════════════════════════════════════════════════════════
+  # Item pricing (full API)
+  # ═══════════════════════════════════════════════════════════════════
+
+  describe "item_pricing/1" do
+    test "returns base_price, markup_percentage, and computed price" do
+      cat = create_catalogue(%{name: "Marked Up", markup_percentage: 20})
+      category = create_category(cat)
+      item = create_item(%{name: "Panel", base_price: "100.00", category_uuid: category.uuid})
+
+      pricing = Catalogue.item_pricing(item)
+
+      assert Decimal.equal?(pricing.base_price, Decimal.new("100.00"))
+      assert Decimal.equal?(pricing.markup_percentage, Decimal.new("20"))
+      assert Decimal.equal?(pricing.price, Decimal.new("120.00"))
+    end
+
+    test "uses 0% markup when catalogue has default" do
+      cat = create_catalogue(%{name: "No Markup"})
+      category = create_category(cat)
+      item = create_item(%{name: "Panel", base_price: "50.00", category_uuid: category.uuid})
+
+      pricing = Catalogue.item_pricing(item)
+
+      assert Decimal.equal?(pricing.markup_percentage, Decimal.new("0"))
+      assert Decimal.equal?(pricing.price, Decimal.new("50.00"))
+    end
+
+    test "uses 0% markup for uncategorized items" do
+      item = create_item(%{name: "Orphan", base_price: "75.00"})
+
+      pricing = Catalogue.item_pricing(item)
+
+      assert Decimal.equal?(pricing.markup_percentage, Decimal.new("0"))
+      assert Decimal.equal?(pricing.price, Decimal.new("75.00"))
+    end
+
+    test "returns nil price when base_price is nil" do
+      cat = create_catalogue(%{name: "Cat", markup_percentage: 10})
+      category = create_category(cat)
+      item = create_item(%{name: "No Price", category_uuid: category.uuid})
+
+      pricing = Catalogue.item_pricing(item)
+
+      assert is_nil(pricing.base_price)
+      assert is_nil(pricing.price)
+      assert Decimal.equal?(pricing.markup_percentage, Decimal.new("10"))
+    end
+  end
+
+  # ═══════════════════════════════════════════════════════════════════
+  # Search
+  # ═══════════════════════════════════════════════════════════════════
+
+  describe "search_items/1 (global)" do
+    test "finds items by name" do
+      cat = create_catalogue()
+      category = create_category(cat)
+      create_item(%{name: "Oak Panel 18mm", category_uuid: category.uuid})
+      create_item(%{name: "Birch Veneer", category_uuid: category.uuid})
+
+      results = Catalogue.search_items("oak")
+      assert length(results) == 1
+      assert hd(results).name == "Oak Panel 18mm"
+    end
+
+    test "finds items by SKU" do
+      cat = create_catalogue()
+      category = create_category(cat)
+      create_item(%{name: "Panel", sku: "OAK-18", category_uuid: category.uuid})
+
+      results = Catalogue.search_items("OAK-18")
+      assert length(results) == 1
+    end
+
+    test "finds items by description" do
+      cat = create_catalogue()
+      category = create_category(cat)
+
+      create_item(%{
+        name: "Panel",
+        description: "Premium hardwood panel",
+        category_uuid: category.uuid
+      })
+
+      results = Catalogue.search_items("hardwood")
+      assert length(results) == 1
+    end
+
+    test "is case-insensitive" do
+      cat = create_catalogue()
+      category = create_category(cat)
+      create_item(%{name: "Oak Panel", category_uuid: category.uuid})
+
+      assert length(Catalogue.search_items("OAK PANEL")) == 1
+      assert length(Catalogue.search_items("oak panel")) == 1
+    end
+
+    test "excludes deleted items" do
+      cat = create_catalogue()
+      category = create_category(cat)
+      item = create_item(%{name: "Deleted Oak", category_uuid: category.uuid})
+      Catalogue.trash_item(item)
+
+      assert Catalogue.search_items("oak") == []
+    end
+
+    test "excludes items in deleted catalogues" do
+      cat = create_catalogue()
+      category = create_category(cat)
+      create_item(%{name: "Hidden Oak", category_uuid: category.uuid})
+      Catalogue.trash_catalogue(cat)
+
+      assert Catalogue.search_items("oak") == []
+    end
+
+    test "preloads category with catalogue and manufacturer" do
+      cat = create_catalogue(%{name: "Kitchen"})
+      category = create_category(cat, %{name: "Frames"})
+      m = create_manufacturer(%{name: "Blum"})
+      create_item(%{name: "Oak Panel", category_uuid: category.uuid, manufacturer_uuid: m.uuid})
+
+      [item] = Catalogue.search_items("oak")
+      assert item.category.name == "Frames"
+      assert item.category.catalogue.name == "Kitchen"
+      assert item.manufacturer.name == "Blum"
+    end
+
+    test "respects limit option" do
+      cat = create_catalogue()
+      category = create_category(cat)
+      for n <- 1..5, do: create_item(%{name: "Oak #{n}", category_uuid: category.uuid})
+
+      assert length(Catalogue.search_items("oak", limit: 3)) == 3
+    end
+
+    test "handles LIKE special characters safely" do
+      cat = create_catalogue()
+      category = create_category(cat)
+      create_item(%{name: "100% Oak", category_uuid: category.uuid})
+
+      # Should not treat % as wildcard
+      assert Catalogue.search_items("100%") == [hd(Catalogue.search_items("100%"))]
+    end
+  end
+
+  describe "search_items_in_catalogue/2" do
+    test "only returns items within the specified catalogue" do
+      cat1 = create_catalogue(%{name: "Kitchen"})
+      cat2 = create_catalogue(%{name: "Bathroom"})
+      c1 = create_category(cat1)
+      c2 = create_category(cat2)
+      create_item(%{name: "Oak Panel", category_uuid: c1.uuid})
+      create_item(%{name: "Oak Shelf", category_uuid: c2.uuid})
+
+      results = Catalogue.search_items_in_catalogue(cat1.uuid, "oak")
+      assert length(results) == 1
+      assert hd(results).name == "Oak Panel"
+    end
+
+    test "returns empty for no match" do
+      cat = create_catalogue()
+      category = create_category(cat)
+      create_item(%{name: "Birch Veneer", category_uuid: category.uuid})
+
+      assert Catalogue.search_items_in_catalogue(cat.uuid, "oak") == []
+    end
+  end
+
+  describe "search_items_in_category/2" do
+    test "only returns items within the specified category" do
+      cat = create_catalogue()
+      c1 = create_category(cat, %{name: "Frames"})
+      c2 = create_category(cat, %{name: "Doors"})
+      create_item(%{name: "Oak Frame", category_uuid: c1.uuid})
+      create_item(%{name: "Oak Door", category_uuid: c2.uuid})
+
+      results = Catalogue.search_items_in_category(c1.uuid, "oak")
+      assert length(results) == 1
+      assert hd(results).name == "Oak Frame"
+    end
+
+    test "excludes deleted items" do
+      cat = create_catalogue()
+      category = create_category(cat)
+      item = create_item(%{name: "Oak Panel", category_uuid: category.uuid})
+      Catalogue.trash_item(item)
+
+      assert Catalogue.search_items_in_category(category.uuid, "oak") == []
+    end
+  end
+
+  # ═══════════════════════════════════════════════════════════════════
+  # Item listing
+  # ═══════════════════════════════════════════════════════════════════
+
+  describe "list_items/1" do
+    test "returns all non-deleted items" do
+      cat = create_catalogue()
+      category = create_category(cat)
+      create_item(%{name: "Active", category_uuid: category.uuid})
+      deleted = create_item(%{name: "Deleted", category_uuid: category.uuid})
+      Catalogue.trash_item(deleted)
+
+      items = Catalogue.list_items()
+      names = Enum.map(items, & &1.name)
+      assert "Active" in names
+      refute "Deleted" in names
+    end
+
+    test "filters by status" do
+      cat = create_catalogue()
+      category = create_category(cat)
+      create_item(%{name: "Active", category_uuid: category.uuid, status: "active"})
+      create_item(%{name: "Inactive", category_uuid: category.uuid, status: "inactive"})
+
+      items = Catalogue.list_items(status: "inactive")
+      assert length(items) == 1
+      assert hd(items).name == "Inactive"
+    end
+
+    test "respects limit" do
+      cat = create_catalogue()
+      category = create_category(cat)
+      for n <- 1..5, do: create_item(%{name: "Item #{n}", category_uuid: category.uuid})
+
+      assert length(Catalogue.list_items(limit: 3)) == 3
+    end
+
+    test "preloads category with catalogue and manufacturer" do
+      cat = create_catalogue(%{name: "Kitchen"})
+      category = create_category(cat, %{name: "Frames"})
+      m = create_manufacturer(%{name: "Blum"})
+      create_item(%{name: "Panel", category_uuid: category.uuid, manufacturer_uuid: m.uuid})
+
+      [item] = Catalogue.list_items()
+      assert item.category.name == "Frames"
+      assert item.category.catalogue.name == "Kitchen"
+      assert item.manufacturer.name == "Blum"
+    end
+  end
+
+  describe "list_items_for_category/1" do
+    test "returns non-deleted items ordered by name" do
+      cat = create_catalogue()
+      category = create_category(cat)
+      create_item(%{name: "Zebra", category_uuid: category.uuid})
+      create_item(%{name: "Alpha", category_uuid: category.uuid})
+      deleted = create_item(%{name: "Gone", category_uuid: category.uuid})
+      Catalogue.trash_item(deleted)
+
+      items = Catalogue.list_items_for_category(category.uuid)
+      assert length(items) == 2
+      assert hd(items).name == "Alpha"
+    end
+  end
+
+  describe "list_items_for_catalogue/1" do
+    test "returns items across categories ordered by position then name" do
+      cat = create_catalogue()
+      c1 = create_category(cat, %{name: "Second", position: 1})
+      c2 = create_category(cat, %{name: "First", position: 0})
+      create_item(%{name: "B Item", category_uuid: c1.uuid})
+      create_item(%{name: "A Item", category_uuid: c2.uuid})
+
+      items = Catalogue.list_items_for_catalogue(cat.uuid)
+      assert length(items) == 2
+      # First position category's items come first
+      assert hd(items).name == "A Item"
+    end
+  end
+
+  # ═══════════════════════════════════════════════════════════════════
+  # Active counts
+  # ═══════════════════════════════════════════════════════════════════
+
+  describe "item_count_for_catalogue/1" do
+    test "counts non-deleted items" do
+      cat = create_catalogue()
+      category = create_category(cat)
+      create_item(%{name: "Active", category_uuid: category.uuid})
+      deleted = create_item(%{name: "Deleted", category_uuid: category.uuid})
+      Catalogue.trash_item(deleted)
+
+      assert Catalogue.item_count_for_catalogue(cat.uuid) == 1
+    end
+  end
+
+  describe "category_count_for_catalogue/1" do
+    test "counts non-deleted categories" do
+      cat = create_catalogue()
+      create_category(cat, %{name: "Active"})
+      deleted = create_category(cat, %{name: "Deleted"})
+      Catalogue.trash_category(deleted)
+
+      assert Catalogue.category_count_for_catalogue(cat.uuid) == 1
+    end
+  end
+
+  # ═══════════════════════════════════════════════════════════════════
+  # Supplier-manufacturer sync (reverse direction)
+  # ═══════════════════════════════════════════════════════════════════
+
+  describe "sync_supplier_manufacturers/2" do
+    test "syncs manufacturer links for a supplier" do
+      s = create_supplier()
+      m1 = create_manufacturer(%{name: "M1"})
+      m2 = create_manufacturer(%{name: "M2"})
+
+      assert {:ok, :synced} = Catalogue.sync_supplier_manufacturers(s.uuid, [m1.uuid, m2.uuid])
+
+      assert MapSet.new(Catalogue.linked_manufacturer_uuids(s.uuid)) ==
+               MapSet.new([m1.uuid, m2.uuid])
+
+      # Remove m1, keep m2
+      assert {:ok, :synced} = Catalogue.sync_supplier_manufacturers(s.uuid, [m2.uuid])
+      assert Catalogue.linked_manufacturer_uuids(s.uuid) == [m2.uuid]
+    end
+  end
+
+  # ═══════════════════════════════════════════════════════════════════
+  # Multilang
+  # ═══════════════════════════════════════════════════════════════════
+
+  describe "multilang" do
+    test "set_translation/4 and get_translation/2 round-trip" do
+      cat = create_catalogue(%{name: "Kitchen"})
+
+      {:ok, updated} =
+        Catalogue.set_translation(cat, "ja", %{"_name" => "キッチン"}, &Catalogue.update_catalogue/2)
+
+      data = Catalogue.get_translation(updated, "ja")
+      assert data["_name"] == "キッチン"
+    end
+
+    test "get_translation/2 returns empty map for missing language" do
+      cat = create_catalogue(%{name: "Kitchen"})
+      data = Catalogue.get_translation(cat, "ja")
+      assert data == %{}
     end
   end
 

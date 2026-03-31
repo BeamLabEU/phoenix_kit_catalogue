@@ -61,7 +61,10 @@ defmodule PhoenixKitCatalogue do
   # ===========================================================================
 
   @impl PhoenixKit.Module
-  def version, do: "0.1.2"
+  def version, do: "0.2.0"
+
+  @impl PhoenixKit.Module
+  def css_sources, do: [:phoenix_kit_catalogue]
 
   @impl PhoenixKit.Module
   def permission_metadata do
@@ -77,8 +80,9 @@ defmodule PhoenixKitCatalogue do
   def admin_tabs do
     [
       # Main tab — parent container, redirects to first subtab.
-      # match: fn -> false prevents the parent itself from ever highlighting;
-      # subtab_display: :always ensures subtabs are always visible.
+      # match: :prefix keeps subtabs open on any /catalogue/* subpage;
+      # highlight_with_subtabs: false suppresses parent highlight when a subtab is active.
+      # Note: parent highlights on hidden subpages (e.g. /catalogue/new) — acceptable tradeoff.
       %Tab{
         id: :admin_catalogue,
         label: "Catalogue",
@@ -87,9 +91,9 @@ defmodule PhoenixKitCatalogue do
         priority: 660,
         level: :admin,
         permission: module_key(),
-        match: fn _current_path -> false end,
+        match: :prefix,
         group: :admin_modules,
-        subtab_display: :always,
+        subtab_display: :when_active,
         highlight_with_subtabs: false,
         redirect_to_first_subtab: true,
         live_view: {PhoenixKitCatalogue.Web.CataloguesLive, :index}

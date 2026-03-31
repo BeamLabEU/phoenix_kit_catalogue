@@ -46,9 +46,9 @@ This is a **PhoenixKit module** that implements the `PhoenixKit.Module` behaviou
 
 ### Core Schemas (all use UUIDv7 primary keys)
 
-- **Catalogue** (`phoenix_kit_cat_catalogues`) — top-level groupings with name, description, notes, status (active/archived/deleted)
+- **Catalogue** (`phoenix_kit_cat_catalogues`) — top-level groupings with name, description, markup_percentage (default 0%), status (active/archived/deleted)
 - **Category** (`phoenix_kit_cat_categories`) — subdivisions within a catalogue with position ordering, status (active/deleted)
-- **Item** (`phoenix_kit_cat_items`) — individual products with SKU, price, unit of measure, manufacturer link, status (active/deleted)
+- **Item** (`phoenix_kit_cat_items`) — individual products with SKU, base_price, unit of measure, manufacturer link, status (active/deleted). Sale price computed via catalogue's markup_percentage
 - **Manufacturer** (`phoenix_kit_cat_manufacturers`) — company directory with name, website, logo, status (active/inactive)
 - **Supplier** (`phoenix_kit_cat_suppliers`) — delivery companies with name, website, status (active/inactive)
 - **ManufacturerSupplier** (`phoenix_kit_cat_manufacturer_suppliers`) — many-to-many join table
@@ -56,13 +56,14 @@ This is a **PhoenixKit module** that implements the `PhoenixKit.Module` behaviou
 ### Soft-Delete Cascade System
 
 - **Downward on trash:** catalogue → categories → items
-- **Upward on restore:** item → category; category → catalogue + items
+- **Upward on restore:** item → category → catalogue; category → catalogue + items
 - **Permanent delete** follows same downward cascade but removes from DB
 - All cascading operations wrapped in `Repo.transaction/1`
 
 ### Web Layer
 
 - **Admin** (7 LiveViews): CataloguesLive (index for catalogues/manufacturers/suppliers), CatalogueDetailLive, CatalogueFormLive, CategoryFormLive, ItemFormLive, ManufacturerFormLive, SupplierFormLive
+- **Components** (`PhoenixKitCatalogue.Web.Components`): Reusable components — `item_table`, `search_input`, `search_results_summary`, `empty_state`, `view_mode_toggle`. All features opt-in via attrs. All text localized via `Gettext.gettext(PhoenixKitWeb.Gettext, ...)`. Components never crash — unknown columns, unloaded associations, nil values, and bad function arguments produce "—" placeholders and Logger warnings.
 - **Routes**: Admin routes auto-generated from `admin_tabs/0`
 - **Paths**: Centralized path helpers in `Paths` module — always use these instead of hardcoding URLs
 
@@ -85,6 +86,7 @@ lib/phoenix_kit_catalogue/
 │   ├── manufacturer_supplier.ex               # Join table schema
 │   └── supplier.ex                            # Supplier schema + changeset
 └── web/
+    ├── components.ex                          # Reusable components (item_table, search_input, etc.)
     ├── catalogues_live.ex                     # Index page (catalogues/manufacturers/suppliers)
     ├── catalogue_detail_live.ex               # Catalogue detail with categories + items
     ├── catalogue_form_live.ex                 # Create/edit catalogue
