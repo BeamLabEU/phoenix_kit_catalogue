@@ -1,4 +1,4 @@
-## 0.2.0 - 2026-03-31
+## 0.1.3 - 2026-03-31
 
 ### Added
 - **Pricing system** — rename `price` to `base_price` on items, add `markup_percentage` to catalogues (default 0%), computed sale price via `Item.sale_price/2` and `Catalogue.item_pricing/1`

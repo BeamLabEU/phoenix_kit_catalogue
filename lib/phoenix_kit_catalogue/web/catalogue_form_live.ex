@@ -39,12 +39,18 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
 
     if is_nil(catalogue) and action == :edit do
       {:ok,
-       socket |> put_flash(:error, Gettext.gettext(PhoenixKitWeb.Gettext, "Catalogue not found.")) |> push_navigate(to: Paths.index())}
+       socket
+       |> put_flash(:error, Gettext.gettext(PhoenixKitWeb.Gettext, "Catalogue not found."))
+       |> push_navigate(to: Paths.index())}
     else
       {:ok,
        socket
        |> assign(
-         page_title: if(action == :new, do: Gettext.gettext(PhoenixKitWeb.Gettext, "New Catalogue"), else: Gettext.gettext(PhoenixKitWeb.Gettext, "Edit %{name}", name: catalogue.name)),
+         page_title:
+           if(action == :new,
+             do: Gettext.gettext(PhoenixKitWeb.Gettext, "New Catalogue"),
+             else: Gettext.gettext(PhoenixKitWeb.Gettext, "Edit %{name}", name: catalogue.name)
+           ),
          action: action,
          catalogue: catalogue,
          changeset: changeset,
@@ -93,14 +99,23 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
       {:ok, _} ->
         {:noreply,
          socket
-         |> put_flash(:info, Gettext.gettext(PhoenixKitWeb.Gettext, "Catalogue and all its contents permanently deleted."))
+         |> put_flash(
+           :info,
+           Gettext.gettext(
+             PhoenixKitWeb.Gettext,
+             "Catalogue and all its contents permanently deleted."
+           )
+         )
          |> push_navigate(to: Paths.index())}
 
       {:error, _} ->
         {:noreply,
          socket
          |> assign(:confirm_delete, false)
-         |> put_flash(:error, Gettext.gettext(PhoenixKitWeb.Gettext, "Failed to delete catalogue."))}
+         |> put_flash(
+           :error,
+           Gettext.gettext(PhoenixKitWeb.Gettext, "Failed to delete catalogue.")
+         )}
     end
   end
 
@@ -219,7 +234,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
               <span class="label-text font-semibold mb-2">{Gettext.gettext(PhoenixKitWeb.Gettext, "Markup Percentage")}</span>
               <input type="number" name="catalogue[markup_percentage]" value={Ecto.Changeset.get_field(@changeset, :markup_percentage)} class="input input-bordered w-full transition-colors focus:input-primary" step="0.01" min="0" placeholder="e.g., 15.0" />
               <span class="label-text-alt text-base-content/50 mt-1">
-                Applied to all item base prices to calculate sale prices. Leave blank for no markup.
+                {Gettext.gettext(PhoenixKitWeb.Gettext, "Applied to all item base prices to calculate sale prices. Leave blank for no markup.")}
               </span>
             </div>
 

@@ -36,7 +36,9 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
           Logger.warning("Catalogue not found: #{uuid}")
 
           {:ok,
-           socket |> put_flash(:error, Gettext.gettext(PhoenixKitWeb.Gettext, "Catalogue not found.")) |> push_navigate(to: Paths.index())}
+           socket
+           |> put_flash(:error, Gettext.gettext(PhoenixKitWeb.Gettext, "Catalogue not found."))
+           |> push_navigate(to: Paths.index())}
       end
     else
       {:ok, socket}
@@ -74,30 +76,48 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   def handle_event("delete_item", %{"uuid" => uuid}, socket) do
     with %{} = item <- Catalogue.get_item(uuid),
          {:ok, _} <- Catalogue.trash_item(item) do
-      {:noreply, socket |> put_flash(:info, Gettext.gettext(PhoenixKitWeb.Gettext, "Item moved to deleted.")) |> load_catalogue_data()}
+      {:noreply,
+       socket
+       |> put_flash(:info, Gettext.gettext(PhoenixKitWeb.Gettext, "Item moved to deleted."))
+       |> load_catalogue_data()}
     else
       nil ->
-        {:noreply, socket |> put_flash(:error, Gettext.gettext(PhoenixKitWeb.Gettext, "Item not found.")) |> load_catalogue_data()}
+        {:noreply,
+         socket
+         |> put_flash(:error, Gettext.gettext(PhoenixKitWeb.Gettext, "Item not found."))
+         |> load_catalogue_data()}
 
       {:error, reason} ->
         Logger.error("Failed to trash item #{uuid}: #{inspect(reason)}")
-        {:noreply, socket |> put_flash(:error, Gettext.gettext(PhoenixKitWeb.Gettext, "Failed to delete item.")) |> load_catalogue_data()}
+
+        {:noreply,
+         socket
+         |> put_flash(:error, Gettext.gettext(PhoenixKitWeb.Gettext, "Failed to delete item."))
+         |> load_catalogue_data()}
     end
   end
 
   def handle_event("restore_item", %{"uuid" => uuid}, socket) do
     with %{} = item <- Catalogue.get_item(uuid),
          {:ok, _} <- Catalogue.restore_item(item) do
-      {:noreply, socket |> put_flash(:info, Gettext.gettext(PhoenixKitWeb.Gettext, "Item restored.")) |> load_catalogue_data()}
+      {:noreply,
+       socket
+       |> put_flash(:info, Gettext.gettext(PhoenixKitWeb.Gettext, "Item restored."))
+       |> load_catalogue_data()}
     else
       nil ->
-        {:noreply, socket |> put_flash(:error, Gettext.gettext(PhoenixKitWeb.Gettext, "Item not found.")) |> load_catalogue_data()}
+        {:noreply,
+         socket
+         |> put_flash(:error, Gettext.gettext(PhoenixKitWeb.Gettext, "Item not found."))
+         |> load_catalogue_data()}
 
       {:error, reason} ->
         Logger.error("Failed to restore item #{uuid}: #{inspect(reason)}")
 
         {:noreply,
-         socket |> put_flash(:error, Gettext.gettext(PhoenixKitWeb.Gettext, "Failed to restore item.")) |> load_catalogue_data()}
+         socket
+         |> put_flash(:error, Gettext.gettext(PhoenixKitWeb.Gettext, "Failed to restore item."))
+         |> load_catalogue_data()}
     end
   end
 
@@ -106,7 +126,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   end
 
   def handle_event("permanently_delete_item", _params, socket) do
-    {"item", uuid} = socket.assigns.confirm_delete
+    {"item", uuid} = confirm_delete!(socket)
 
     with %{} = item <- Catalogue.get_item(uuid),
          {:ok, _} <- Catalogue.permanently_delete_item(item) do
@@ -138,44 +158,68 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     with %{} = category <- Catalogue.get_category(uuid),
          {:ok, _} <- Catalogue.trash_category(category) do
       {:noreply,
-       socket |> put_flash(:info, Gettext.gettext(PhoenixKitWeb.Gettext, "Category moved to deleted.")) |> load_catalogue_data()}
+       socket
+       |> put_flash(:info, Gettext.gettext(PhoenixKitWeb.Gettext, "Category moved to deleted."))
+       |> load_catalogue_data()}
     else
       nil ->
-        {:noreply, socket |> put_flash(:error, Gettext.gettext(PhoenixKitWeb.Gettext, "Category not found.")) |> load_catalogue_data()}
+        {:noreply,
+         socket
+         |> put_flash(:error, Gettext.gettext(PhoenixKitWeb.Gettext, "Category not found."))
+         |> load_catalogue_data()}
 
       {:error, reason} ->
         Logger.error("Failed to trash category #{uuid}: #{inspect(reason)}")
 
         {:noreply,
-         socket |> put_flash(:error, Gettext.gettext(PhoenixKitWeb.Gettext, "Failed to delete category.")) |> load_catalogue_data()}
+         socket
+         |> put_flash(
+           :error,
+           Gettext.gettext(PhoenixKitWeb.Gettext, "Failed to delete category.")
+         )
+         |> load_catalogue_data()}
     end
   end
 
   def handle_event("restore_category", %{"uuid" => uuid}, socket) do
     with %{} = category <- Catalogue.get_category(uuid),
          {:ok, _} <- Catalogue.restore_category(category) do
-      {:noreply, socket |> put_flash(:info, Gettext.gettext(PhoenixKitWeb.Gettext, "Category restored.")) |> load_catalogue_data()}
+      {:noreply,
+       socket
+       |> put_flash(:info, Gettext.gettext(PhoenixKitWeb.Gettext, "Category restored."))
+       |> load_catalogue_data()}
     else
       nil ->
-        {:noreply, socket |> put_flash(:error, Gettext.gettext(PhoenixKitWeb.Gettext, "Category not found.")) |> load_catalogue_data()}
+        {:noreply,
+         socket
+         |> put_flash(:error, Gettext.gettext(PhoenixKitWeb.Gettext, "Category not found."))
+         |> load_catalogue_data()}
 
       {:error, reason} ->
         Logger.error("Failed to restore category #{uuid}: #{inspect(reason)}")
 
         {:noreply,
-         socket |> put_flash(:error, Gettext.gettext(PhoenixKitWeb.Gettext, "Failed to restore category.")) |> load_catalogue_data()}
+         socket
+         |> put_flash(
+           :error,
+           Gettext.gettext(PhoenixKitWeb.Gettext, "Failed to restore category.")
+         )
+         |> load_catalogue_data()}
     end
   end
 
   def handle_event("permanently_delete_category", _params, socket) do
-    {"category", uuid} = socket.assigns.confirm_delete
+    {"category", uuid} = confirm_delete!(socket)
 
     with %{} = category <- Catalogue.get_category(uuid),
          {:ok, _} <- Catalogue.permanently_delete_category(category) do
       {:noreply,
        socket
        |> assign(:confirm_delete, nil)
-       |> put_flash(:info, Gettext.gettext(PhoenixKitWeb.Gettext, "Category permanently deleted."))
+       |> put_flash(
+         :info,
+         Gettext.gettext(PhoenixKitWeb.Gettext, "Category permanently deleted.")
+       )
        |> load_catalogue_data()}
     else
       nil ->
@@ -191,7 +235,10 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         {:noreply,
          socket
          |> assign(:confirm_delete, nil)
-         |> put_flash(:error, Gettext.gettext(PhoenixKitWeb.Gettext, "Failed to delete category."))
+         |> put_flash(
+           :error,
+           Gettext.gettext(PhoenixKitWeb.Gettext, "Failed to delete category.")
+         )
          |> load_catalogue_data()}
     end
   end
@@ -209,6 +256,13 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   end
 
   # ── Helpers ─────────────────────────────────────────────────────
+
+  defp confirm_delete!(socket) do
+    case socket.assigns.confirm_delete do
+      {_type, _uuid} = value -> value
+      _ -> raise "confirm_delete not set"
+    end
+  end
 
   defp load_catalogue_data(socket) do
     uuid = socket.assigns.catalogue_uuid
@@ -251,8 +305,16 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       cat_b = Enum.at(categories, swap_index)
 
       case Catalogue.swap_category_positions(cat_a, cat_b) do
-        {:ok, _} -> {:noreply, load_catalogue_data(socket)}
-        {:error, _} -> {:noreply, put_flash(socket, :error, Gettext.gettext(PhoenixKitWeb.Gettext, "Failed to reorder categories."))}
+        {:ok, _} ->
+          {:noreply, load_catalogue_data(socket)}
+
+        {:error, _} ->
+          {:noreply,
+           put_flash(
+             socket,
+             :error,
+             Gettext.gettext(PhoenixKitWeb.Gettext, "Failed to reorder categories.")
+           )}
       end
     else
       {:noreply, socket}
@@ -291,7 +353,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
             {@catalogue.description}
           </p>
           <p :if={Decimal.gt?(@catalogue.markup_percentage, Decimal.new("0"))} class="text-sm text-base-content/50 mt-0.5">
-            Markup: {Decimal.to_string(@catalogue.markup_percentage, :normal)}%
+            {Gettext.gettext(PhoenixKitWeb.Gettext, "Markup: %{percentage}%", percentage: Decimal.to_string(@catalogue.markup_percentage, :normal))}
           </p>
         </div>
 

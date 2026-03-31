@@ -35,6 +35,9 @@ defmodule PhoenixKitCatalogue.Schemas.Catalogue do
     |> validate_required(@required_fields)
     |> validate_length(:name, min: 1, max: 255)
     |> validate_inclusion(:status, @statuses)
-    |> validate_number(:markup_percentage, greater_than_or_equal_to: 0)
+    |> validate_number(:markup_percentage,
+      greater_than_or_equal_to: 0,
+      less_than_or_equal_to: 1000
+    )
   end
 end
