@@ -5,6 +5,8 @@ defmodule PhoenixKitCatalogue.Web.ManufacturerFormLive do
 
   require Logger
 
+  import PhoenixKitWeb.Components.Core.AdminPageHeader, only: [admin_page_header: 1]
+
   alias PhoenixKitCatalogue.Catalogue
   alias PhoenixKitCatalogue.Paths
   alias PhoenixKitCatalogue.Schemas.Manufacturer
@@ -132,29 +134,13 @@ defmodule PhoenixKitCatalogue.Web.ManufacturerFormLive do
     ~H"""
     <div class="flex flex-col mx-auto max-w-2xl px-4 py-8 gap-6">
       <%!-- Header --%>
-      <div class="flex items-center gap-3">
-        <.link navigate={Paths.manufacturers()} class="btn btn-ghost btn-sm btn-square">
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            class="h-5 w-5"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
-          </svg>
-        </.link>
-        <div>
-          <h1 class="text-2xl font-bold">{@page_title}</h1>
-          <p class="text-sm text-base-content/60 mt-0.5">
-            {if @action == :new,
-              do: "Add a new manufacturer to your catalogue system.",
-              else: "Update manufacturer details and supplier links."}
-          </p>
-        </div>
-      </div>
+      <.admin_page_header
+        back={Paths.manufacturers()}
+        title={@page_title}
+        subtitle={if @action == :new, do: "Add a new manufacturer to your catalogue system.", else: "Update manufacturer details and supplier links."}
+      />
 
-      <.form for={to_form(@changeset)} phx-change="validate" phx-submit="save">
+      <.form for={to_form(@changeset)} action="#" phx-change="validate" phx-submit="save">
         <div class="card bg-base-100 shadow-lg">
           <div class="card-body flex flex-col gap-5">
             <div class="form-control">

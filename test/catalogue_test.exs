@@ -764,7 +764,12 @@ defmodule PhoenixKitCatalogue.CatalogueTest do
     test "finds items by description" do
       cat = create_catalogue()
       category = create_category(cat)
-      create_item(%{name: "Panel", description: "Premium hardwood panel", category_uuid: category.uuid})
+
+      create_item(%{
+        name: "Panel",
+        description: "Premium hardwood panel",
+        category_uuid: category.uuid
+      })
 
       results = Catalogue.search_items("hardwood")
       assert length(results) == 1

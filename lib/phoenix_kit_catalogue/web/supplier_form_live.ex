@@ -5,6 +5,8 @@ defmodule PhoenixKitCatalogue.Web.SupplierFormLive do
 
   require Logger
 
+  import PhoenixKitWeb.Components.Core.AdminPageHeader, only: [admin_page_header: 1]
+
   alias PhoenixKitCatalogue.Catalogue
   alias PhoenixKitCatalogue.Paths
   alias PhoenixKitCatalogue.Schemas.Supplier
@@ -83,7 +85,9 @@ defmodule PhoenixKitCatalogue.Web.SupplierFormLive do
              ) do
           {:ok, _} ->
             {:noreply,
-             socket |> put_flash(:info, "Supplier created.") |> push_navigate(to: Paths.suppliers())}
+             socket
+             |> put_flash(:info, "Supplier created.")
+             |> push_navigate(to: Paths.suppliers())}
 
           {:error, _} ->
             {:noreply,
@@ -106,7 +110,9 @@ defmodule PhoenixKitCatalogue.Web.SupplierFormLive do
              ) do
           {:ok, _} ->
             {:noreply,
-             socket |> put_flash(:info, "Supplier updated.") |> push_navigate(to: Paths.suppliers())}
+             socket
+             |> put_flash(:info, "Supplier updated.")
+             |> push_navigate(to: Paths.suppliers())}
 
           {:error, _} ->
             {:noreply,
@@ -125,29 +131,13 @@ defmodule PhoenixKitCatalogue.Web.SupplierFormLive do
     ~H"""
     <div class="flex flex-col mx-auto max-w-2xl px-4 py-8 gap-6">
       <%!-- Header --%>
-      <div class="flex items-center gap-3">
-        <.link navigate={Paths.suppliers()} class="btn btn-ghost btn-sm btn-square">
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            class="h-5 w-5"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
-          </svg>
-        </.link>
-        <div>
-          <h1 class="text-2xl font-bold">{@page_title}</h1>
-          <p class="text-sm text-base-content/60 mt-0.5">
-            {if @action == :new,
-              do: "Add a new supplier to your catalogue system.",
-              else: "Update supplier details and manufacturer links."}
-          </p>
-        </div>
-      </div>
+      <.admin_page_header
+        back={Paths.suppliers()}
+        title={@page_title}
+        subtitle={if @action == :new, do: "Add a new supplier to your catalogue system.", else: "Update supplier details and manufacturer links."}
+      />
 
-      <.form for={to_form(@changeset)} phx-change="validate" phx-submit="save">
+      <.form for={to_form(@changeset)} action="#" phx-change="validate" phx-submit="save">
         <div class="card bg-base-100 shadow-lg">
           <div class="card-body flex flex-col gap-5">
             <div class="form-control">
