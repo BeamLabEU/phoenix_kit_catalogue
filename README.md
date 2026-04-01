@@ -25,7 +25,7 @@ Designed for manufacturing companies (e.g. kitchen/furniture producers) that nee
 Add to your parent app's `mix.exs`:
 
 ```elixir
-{:phoenix_kit_catalogue, "~> 0.2.0"}
+{:phoenix_kit_catalogue, "~> 0.1"}
 ```
 
 Then:

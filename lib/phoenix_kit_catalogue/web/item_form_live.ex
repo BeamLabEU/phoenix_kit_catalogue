@@ -28,7 +28,10 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
 
     case load_item(action, params) do
       {nil, _, _} ->
-        {:ok, socket |> put_flash(:error, Gettext.gettext(PhoenixKitWeb.Gettext, "Item not found.")) |> push_navigate(to: Paths.index())}
+        {:ok,
+         socket
+         |> put_flash(:error, Gettext.gettext(PhoenixKitWeb.Gettext, "Item not found."))
+         |> push_navigate(to: Paths.index())}
 
       {item, changeset, catalogue_uuid} ->
         {:ok, mount_form(socket, action, item, changeset, catalogue_uuid)}
@@ -63,7 +66,11 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
 
     socket
     |> assign(
-      page_title: if(action == :new, do: Gettext.gettext(PhoenixKitWeb.Gettext, "New Item"), else: Gettext.gettext(PhoenixKitWeb.Gettext, "Edit %{name}", name: item.name)),
+      page_title:
+        if(action == :new,
+          do: Gettext.gettext(PhoenixKitWeb.Gettext, "New Item"),
+          else: Gettext.gettext(PhoenixKitWeb.Gettext, "Edit %{name}", name: item.name)
+        ),
       action: action,
       item: item,
       catalogue_uuid: catalogue_uuid,
@@ -123,7 +130,12 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
            |> push_navigate(to: redirect_target(socket, item))}
 
         {:error, _} ->
-          {:noreply, put_flash(socket, :error, Gettext.gettext(PhoenixKitWeb.Gettext, "Failed to move item."))}
+          {:noreply,
+           put_flash(
+             socket,
+             :error,
+             Gettext.gettext(PhoenixKitWeb.Gettext, "Failed to move item.")
+           )}
       end
     else
       {:noreply, socket}

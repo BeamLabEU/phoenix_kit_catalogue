@@ -40,7 +40,9 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
 
     if is_nil(category) and action == :edit do
       {:ok,
-       socket |> put_flash(:error, Gettext.gettext(PhoenixKitWeb.Gettext, "Category not found.")) |> push_navigate(to: Paths.index())}
+       socket
+       |> put_flash(:error, Gettext.gettext(PhoenixKitWeb.Gettext, "Category not found."))
+       |> push_navigate(to: Paths.index())}
     else
       mount_category_form(socket, action, category, changeset, catalogue_uuid)
     end
@@ -58,7 +60,11 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
     {:ok,
      socket
      |> assign(
-       page_title: if(action == :new, do: Gettext.gettext(PhoenixKitWeb.Gettext, "New Category"), else: Gettext.gettext(PhoenixKitWeb.Gettext, "Edit %{name}", name: category.name)),
+       page_title:
+         if(action == :new,
+           do: Gettext.gettext(PhoenixKitWeb.Gettext, "New Category"),
+           else: Gettext.gettext(PhoenixKitWeb.Gettext, "Edit %{name}", name: category.name)
+         ),
        action: action,
        category: category,
        catalogue_uuid: catalogue_uuid,
@@ -111,14 +117,23 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
       {:ok, _} ->
         {:noreply,
          socket
-         |> put_flash(:info, Gettext.gettext(PhoenixKitWeb.Gettext, "Category and all its items permanently deleted."))
+         |> put_flash(
+           :info,
+           Gettext.gettext(
+             PhoenixKitWeb.Gettext,
+             "Category and all its items permanently deleted."
+           )
+         )
          |> push_navigate(to: Paths.catalogue_detail(socket.assigns.catalogue_uuid))}
 
       {:error, _} ->
         {:noreply,
          socket
          |> assign(:confirm_delete_all, false)
-         |> put_flash(:error, Gettext.gettext(PhoenixKitWeb.Gettext, "Failed to delete category."))}
+         |> put_flash(
+           :error,
+           Gettext.gettext(PhoenixKitWeb.Gettext, "Failed to delete category.")
+         )}
     end
   end
 
@@ -135,11 +150,19 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
         {:ok, _} ->
           {:noreply,
            socket
-           |> put_flash(:info, Gettext.gettext(PhoenixKitWeb.Gettext, "Category moved to another catalogue."))
+           |> put_flash(
+             :info,
+             Gettext.gettext(PhoenixKitWeb.Gettext, "Category moved to another catalogue.")
+           )
            |> push_navigate(to: Paths.catalogue_detail(target))}
 
         {:error, _} ->
-          {:noreply, put_flash(socket, :error, Gettext.gettext(PhoenixKitWeb.Gettext, "Failed to move category."))}
+          {:noreply,
+           put_flash(
+             socket,
+             :error,
+             Gettext.gettext(PhoenixKitWeb.Gettext, "Failed to move category.")
+           )}
       end
     else
       {:noreply, socket}

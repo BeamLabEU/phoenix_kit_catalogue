@@ -44,7 +44,10 @@ defmodule PhoenixKitCatalogue.Web.ManufacturerFormLive do
       {:ok,
        assign(socket,
          page_title:
-           if(action == :new, do: Gettext.gettext(PhoenixKitWeb.Gettext, "New Manufacturer"), else: Gettext.gettext(PhoenixKitWeb.Gettext, "Edit %{name}", name: manufacturer.name)),
+           if(action == :new,
+             do: Gettext.gettext(PhoenixKitWeb.Gettext, "New Manufacturer"),
+             else: Gettext.gettext(PhoenixKitWeb.Gettext, "Edit %{name}", name: manufacturer.name)
+           ),
          action: action,
          manufacturer: manufacturer,
          changeset: changeset,
@@ -95,7 +98,13 @@ defmodule PhoenixKitCatalogue.Web.ManufacturerFormLive do
           {:error, _} ->
             {:noreply,
              socket
-             |> put_flash(:warning, Gettext.gettext(PhoenixKitWeb.Gettext, "Manufacturer created but failed to link some suppliers."))
+             |> put_flash(
+               :warning,
+               Gettext.gettext(
+                 PhoenixKitWeb.Gettext,
+                 "Manufacturer created but failed to link some suppliers."
+               )
+             )
              |> push_navigate(to: Paths.manufacturers())}
         end
 
@@ -120,7 +129,13 @@ defmodule PhoenixKitCatalogue.Web.ManufacturerFormLive do
           {:error, _} ->
             {:noreply,
              socket
-             |> put_flash(:warning, Gettext.gettext(PhoenixKitWeb.Gettext, "Manufacturer updated but failed to sync supplier links."))
+             |> put_flash(
+               :warning,
+               Gettext.gettext(
+                 PhoenixKitWeb.Gettext,
+                 "Manufacturer updated but failed to sync supplier links."
+               )
+             )
              |> push_navigate(to: Paths.manufacturers())}
         end
 

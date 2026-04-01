@@ -35,13 +35,19 @@ defmodule PhoenixKitCatalogue.Web.SupplierFormLive do
 
     if is_nil(supplier) and action == :edit do
       {:ok,
-       socket |> put_flash(:error, Gettext.gettext(PhoenixKitWeb.Gettext, "Supplier not found.")) |> push_navigate(to: Paths.suppliers())}
+       socket
+       |> put_flash(:error, Gettext.gettext(PhoenixKitWeb.Gettext, "Supplier not found."))
+       |> push_navigate(to: Paths.suppliers())}
     else
       all_manufacturers = Catalogue.list_manufacturers(status: "active")
 
       {:ok,
        assign(socket,
-         page_title: if(action == :new, do: Gettext.gettext(PhoenixKitWeb.Gettext, "New Supplier"), else: Gettext.gettext(PhoenixKitWeb.Gettext, "Edit %{name}", name: supplier.name)),
+         page_title:
+           if(action == :new,
+             do: Gettext.gettext(PhoenixKitWeb.Gettext, "New Supplier"),
+             else: Gettext.gettext(PhoenixKitWeb.Gettext, "Edit %{name}", name: supplier.name)
+           ),
          action: action,
          supplier: supplier,
          changeset: changeset,
@@ -92,7 +98,13 @@ defmodule PhoenixKitCatalogue.Web.SupplierFormLive do
           {:error, _} ->
             {:noreply,
              socket
-             |> put_flash(:warning, Gettext.gettext(PhoenixKitWeb.Gettext, "Supplier created but failed to link some manufacturers."))
+             |> put_flash(
+               :warning,
+               Gettext.gettext(
+                 PhoenixKitWeb.Gettext,
+                 "Supplier created but failed to link some manufacturers."
+               )
+             )
              |> push_navigate(to: Paths.suppliers())}
         end
 
@@ -117,7 +129,13 @@ defmodule PhoenixKitCatalogue.Web.SupplierFormLive do
           {:error, _} ->
             {:noreply,
              socket
-             |> put_flash(:warning, Gettext.gettext(PhoenixKitWeb.Gettext, "Supplier updated but failed to sync manufacturer links."))
+             |> put_flash(
+               :warning,
+               Gettext.gettext(
+                 PhoenixKitWeb.Gettext,
+                 "Supplier updated but failed to sync manufacturer links."
+               )
+             )
              |> push_navigate(to: Paths.suppliers())}
         end
 
