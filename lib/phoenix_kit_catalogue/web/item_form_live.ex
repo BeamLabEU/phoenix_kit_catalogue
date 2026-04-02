@@ -304,7 +304,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                 </div>
                 <div class="form-control">
                   <span class="label-text font-semibold mb-2">{Gettext.gettext(PhoenixKitWeb.Gettext, "Unit")}</span>
-                  <label class="select select-bordered w-full transition-colors focus-within:select-primary">
+                  <label class="select w-full transition-colors focus-within:select-primary">
                     <select name="item[unit]">
                       <option value="piece" selected={Ecto.Changeset.get_field(@changeset, :unit) == "piece"}>{Gettext.gettext(PhoenixKitWeb.Gettext, "Piece")}</option>
                       <option value="m2" selected={Ecto.Changeset.get_field(@changeset, :unit) == "m2"}>{Gettext.gettext(PhoenixKitWeb.Gettext, "m² (square meter)")}</option>
@@ -327,7 +327,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
               <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div class="form-control">
                   <span class="label-text font-semibold mb-2">{Gettext.gettext(PhoenixKitWeb.Gettext, "Category")}</span>
-                  <label class="select select-bordered w-full transition-colors focus-within:select-primary">
+                  <label class="select w-full transition-colors focus-within:select-primary">
                     <select name="item[category_uuid]">
                       <option value="">{Gettext.gettext(PhoenixKitWeb.Gettext, "-- No category --")}</option>
                       <option
@@ -342,7 +342,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                 </div>
                 <div class="form-control">
                   <span class="label-text font-semibold mb-2">{Gettext.gettext(PhoenixKitWeb.Gettext, "Manufacturer")}</span>
-                  <label class="select select-bordered w-full transition-colors focus-within:select-primary">
+                  <label class="select w-full transition-colors focus-within:select-primary">
                     <select name="item[manufacturer_uuid]">
                       <option value="">{Gettext.gettext(PhoenixKitWeb.Gettext, "-- No manufacturer --")}</option>
                       <option
@@ -359,7 +359,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
 
               <div class="form-control">
                 <span class="label-text font-semibold mb-2">{Gettext.gettext(PhoenixKitWeb.Gettext, "Status")}</span>
-                <label class="select select-bordered w-full transition-colors focus-within:select-primary">
+                <label class="select w-full transition-colors focus-within:select-primary">
                   <select name="item[status]">
                     <option value="active" selected={Ecto.Changeset.get_field(@changeset, :status) == "active"}>{Gettext.gettext(PhoenixKitWeb.Gettext, "Active")}</option>
                     <option value="inactive" selected={Ecto.Changeset.get_field(@changeset, :status) == "inactive"}>{Gettext.gettext(PhoenixKitWeb.Gettext, "Inactive")}</option>
@@ -388,7 +388,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
           <p class="text-xs text-base-content/50">{Gettext.gettext(PhoenixKitWeb.Gettext, "Move this item to a category in any catalogue.")}</p>
           <div class="flex items-end gap-3">
             <div class="form-control flex-1">
-              <label class="select select-bordered w-full select-sm transition-colors focus-within:select-primary">
+              <label class="select w-full select-sm transition-colors focus-within:select-primary">
                 <select phx-change="select_move_target" name="category_uuid">
                   <option value="">{Gettext.gettext(PhoenixKitWeb.Gettext, "-- Select category --")}</option>
                   <option :for={cat <- @all_categories} value={cat.uuid}>{cat.name}</option>

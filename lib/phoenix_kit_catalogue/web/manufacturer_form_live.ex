@@ -251,7 +251,7 @@ defmodule PhoenixKitCatalogue.Web.ManufacturerFormLive do
 
             <div class="form-control">
               <span class="label-text font-semibold mb-2">{Gettext.gettext(PhoenixKitWeb.Gettext, "Status")}</span>
-              <label class="select select-bordered w-full transition-colors focus-within:select-primary">
+              <label class="select w-full transition-colors focus-within:select-primary">
                 <select name="manufacturer[status]">
                   <option
                     value="active"
