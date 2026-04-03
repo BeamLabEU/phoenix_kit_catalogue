@@ -356,7 +356,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
               )
             ]}
           >
-            Active
+            {Gettext.gettext(PhoenixKitWeb.Gettext, "Active")}
           </button>
           <button
             type="button"
@@ -370,7 +370,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
               )
             ]}
           >
-            Deleted ({@deleted_catalogue_count})
+            {Gettext.gettext(PhoenixKitWeb.Gettext, "Deleted")} ({@deleted_catalogue_count})
           </button>
         </div>
 
@@ -463,18 +463,18 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
             <%!-- Active mode actions --%>
             <.table_default_cell :if={@view_mode == "active"} class="text-right whitespace-nowrap">
               <.table_row_menu mode="auto" id={"cat-menu-#{catalogue.uuid}"}>
-                <.table_row_menu_link navigate={Paths.catalogue_detail(catalogue.uuid)} icon="hero-eye" label="View" />
-                <.table_row_menu_link navigate={Paths.catalogue_edit(catalogue.uuid)} icon="hero-pencil" label="Edit" variant="secondary" />
+                <.table_row_menu_link navigate={Paths.catalogue_detail(catalogue.uuid)} icon="hero-eye" label={Gettext.gettext(PhoenixKitWeb.Gettext, "View")} />
+                <.table_row_menu_link navigate={Paths.catalogue_edit(catalogue.uuid)} icon="hero-pencil" label={Gettext.gettext(PhoenixKitWeb.Gettext, "Edit")} variant="secondary" />
                 <.table_row_menu_divider />
-                <.table_row_menu_button phx-click="trash_catalogue" phx-value-uuid={catalogue.uuid} icon="hero-trash" label="Delete" variant="error" />
+                <.table_row_menu_button phx-click="trash_catalogue" phx-value-uuid={catalogue.uuid} icon="hero-trash" label={Gettext.gettext(PhoenixKitWeb.Gettext, "Delete")} variant="error" />
               </.table_row_menu>
             </.table_default_cell>
             <%!-- Deleted mode actions --%>
             <.table_default_cell :if={@view_mode == "deleted"} class="text-right whitespace-nowrap">
               <.table_row_menu mode="auto" id={"cat-del-menu-#{catalogue.uuid}"}>
-                <.table_row_menu_button phx-click="restore_catalogue" phx-value-uuid={catalogue.uuid} icon="hero-arrow-path" label="Restore" variant="success" />
+                <.table_row_menu_button phx-click="restore_catalogue" phx-value-uuid={catalogue.uuid} icon="hero-arrow-path" label={Gettext.gettext(PhoenixKitWeb.Gettext, "Restore")} variant="success" />
                 <.table_row_menu_divider />
-                <.table_row_menu_button phx-click="show_delete_confirm" phx-value-uuid={catalogue.uuid} phx-value-type="catalogue" icon="hero-trash" label="Delete Forever" variant="error" />
+                <.table_row_menu_button phx-click="show_delete_confirm" phx-value-uuid={catalogue.uuid} phx-value-type="catalogue" icon="hero-trash" label={Gettext.gettext(PhoenixKitWeb.Gettext, "Delete Forever")} variant="error" />
               </.table_row_menu>
             </.table_default_cell>
           </.table_default_row>
@@ -529,9 +529,9 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
             <.table_default_cell><.status_badge status={m.status} size={:sm} /></.table_default_cell>
             <.table_default_cell class="text-right whitespace-nowrap">
               <.table_row_menu mode="auto" id={"mfg-menu-#{m.uuid}"}>
-                <.table_row_menu_link navigate={Paths.manufacturer_edit(m.uuid)} icon="hero-pencil" label="Edit" />
+                <.table_row_menu_link navigate={Paths.manufacturer_edit(m.uuid)} icon="hero-pencil" label={Gettext.gettext(PhoenixKitWeb.Gettext, "Edit")} />
                 <.table_row_menu_divider />
-                <.table_row_menu_button phx-click="show_delete_confirm" phx-value-uuid={m.uuid} phx-value-type="manufacturer" icon="hero-trash" label="Delete" variant="error" />
+                <.table_row_menu_button phx-click="show_delete_confirm" phx-value-uuid={m.uuid} phx-value-type="manufacturer" icon="hero-trash" label={Gettext.gettext(PhoenixKitWeb.Gettext, "Delete")} variant="error" />
               </.table_row_menu>
             </.table_default_cell>
           </.table_default_row>
@@ -580,9 +580,9 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
             <.table_default_cell><.status_badge status={s.status} size={:sm} /></.table_default_cell>
             <.table_default_cell class="text-right whitespace-nowrap">
               <.table_row_menu mode="auto" id={"supplier-menu-#{s.uuid}"}>
-                <.table_row_menu_link navigate={Paths.supplier_edit(s.uuid)} icon="hero-pencil" label="Edit" variant="secondary" />
+                <.table_row_menu_link navigate={Paths.supplier_edit(s.uuid)} icon="hero-pencil" label={Gettext.gettext(PhoenixKitWeb.Gettext, "Edit")} variant="secondary" />
                 <.table_row_menu_divider />
-                <.table_row_menu_button phx-click="show_delete_confirm" phx-value-uuid={s.uuid} phx-value-type="supplier" icon="hero-trash" label="Delete" variant="error" />
+                <.table_row_menu_button phx-click="show_delete_confirm" phx-value-uuid={s.uuid} phx-value-type="supplier" icon="hero-trash" label={Gettext.gettext(PhoenixKitWeb.Gettext, "Delete")} variant="error" />
               </.table_row_menu>
             </.table_default_cell>
           </.table_default_row>

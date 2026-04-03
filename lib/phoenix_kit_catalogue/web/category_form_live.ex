@@ -300,7 +300,7 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
               disabled={is_nil(@move_target)}
               class="btn btn-sm btn-outline"
             >
-              Move
+              {Gettext.gettext(PhoenixKitWeb.Gettext, "Move")}
             </button>
           </div>
         </div>
@@ -314,7 +314,7 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
             <p class="text-xs text-base-content/50">{Gettext.gettext(PhoenixKitWeb.Gettext, "This will permanently delete this category and all its items. This cannot be undone.")}</p>
           </div>
           <button phx-click="show_delete_confirm" class="btn btn-outline btn-error btn-sm shrink-0">
-            Delete Forever
+            {Gettext.gettext(PhoenixKitWeb.Gettext, "Delete Forever")}
           </button>
         </div>
       </div>

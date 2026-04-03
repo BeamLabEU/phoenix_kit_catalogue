@@ -28,7 +28,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
       />
 
       <%!-- Search bar --%>
-      <.search_input query={@search_query} placeholder="Search items..." />
+      <.search_input query={@search_query} placeholder={Gettext.gettext(PhoenixKitWeb.Gettext, "Search items...")} />
   """
 
   use Phoenix.Component
@@ -536,9 +536,9 @@ defmodule PhoenixKitCatalogue.Web.Components do
   end
 
   defp format_unit(nil), do: "—"
-  defp format_unit("piece"), do: "pc"
-  defp format_unit("m2"), do: "m²"
-  defp format_unit("running_meter"), do: "rm"
+  defp format_unit("piece"), do: Gettext.gettext(PhoenixKitWeb.Gettext, "pc")
+  defp format_unit("m2"), do: Gettext.gettext(PhoenixKitWeb.Gettext, "m²")
+  defp format_unit("running_meter"), do: Gettext.gettext(PhoenixKitWeb.Gettext, "rm")
   defp format_unit(other), do: to_string(other)
 
   # Safe sale price calculation — handles non-Decimal markup gracefully
