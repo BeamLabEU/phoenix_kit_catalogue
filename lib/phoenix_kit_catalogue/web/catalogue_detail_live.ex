@@ -343,7 +343,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               <.icon name="hero-plus" class="w-4 h-4" /> {Gettext.gettext(PhoenixKitWeb.Gettext, "Add Item")}
             </.link>
             <.link navigate={Paths.catalogue_edit(@catalogue.uuid)} class="btn btn-ghost btn-sm">
-              Edit
+              {Gettext.gettext(PhoenixKitWeb.Gettext, "Edit")}
             </.link>
           </:actions>
         </.admin_page_header>
@@ -396,7 +396,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               )
             ]}
           >
-            Active
+            {Gettext.gettext(PhoenixKitWeb.Gettext, "Active")}
           </button>
           <button
             type="button"
@@ -410,7 +410,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               )
             ]}
           >
-            Deleted ({@deleted_count})
+            {Gettext.gettext(PhoenixKitWeb.Gettext, "Deleted")} ({@deleted_count})
           </button>
         </div>
 
@@ -462,10 +462,10 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                 <%!-- Active mode: Edit + Delete --%>
                 <div :if={@view_mode == "active"} class="flex gap-1">
                   <.link navigate={Paths.category_edit(category.uuid)} class="btn btn-ghost btn-xs">
-                    Edit
+                    {Gettext.gettext(PhoenixKitWeb.Gettext, "Edit")}
                   </.link>
                   <button phx-click="trash_category" phx-value-uuid={category.uuid} class="btn btn-ghost btn-xs text-error">
-                    Delete
+                    {Gettext.gettext(PhoenixKitWeb.Gettext, "Delete")}
                   </button>
                 </div>
 
@@ -476,7 +476,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                     phx-value-uuid={category.uuid}
                     class="inline-flex items-center gap-1.5 px-2.5 h-[2.5em] rounded-lg border border-success/30 bg-success/10 hover:bg-success/20 text-success text-xs font-medium transition-colors cursor-pointer"
                   >
-                    Restore
+                    {Gettext.gettext(PhoenixKitWeb.Gettext, "Restore")}
                   </button>
                   <button
                     phx-click="show_delete_confirm"
@@ -484,7 +484,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                     phx-value-type="category"
                     class="btn btn-ghost btn-xs text-error"
                   >
-                    Delete Forever
+                    {Gettext.gettext(PhoenixKitWeb.Gettext, "Delete Forever")}
                   </button>
                 </div>
               </div>
@@ -526,7 +526,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               </div>
 
               <p :if={category.items == [] and @view_mode == "active"} class="text-sm text-base-content/40 text-center py-4">
-                No items in this category.
+                {Gettext.gettext(PhoenixKitWeb.Gettext, "No items in this category.")}
               </p>
             </div>
           </div>

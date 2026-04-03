@@ -287,7 +287,7 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
           <p class="text-xs text-base-content/50">{Gettext.gettext(PhoenixKitWeb.Gettext, "Move this category and all its items to a different catalogue.")}</p>
           <div class="flex items-end gap-3">
             <div class="form-control flex-1">
-              <label class="select select-bordered w-full select-sm transition-colors focus-within:select-primary">
+              <label class="select w-full select-sm transition-colors focus-within:select-primary">
                 <select phx-change="select_move_target" name="catalogue_uuid">
                   <option value="">{Gettext.gettext(PhoenixKitWeb.Gettext, "-- Select catalogue --")}</option>
                   <option :for={cat <- @other_catalogues} value={cat.uuid}>{cat.name}</option>
@@ -300,7 +300,7 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
               disabled={is_nil(@move_target)}
               class="btn btn-sm btn-outline"
             >
-              Move
+              {Gettext.gettext(PhoenixKitWeb.Gettext, "Move")}
             </button>
           </div>
         </div>
@@ -314,7 +314,7 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
             <p class="text-xs text-base-content/50">{Gettext.gettext(PhoenixKitWeb.Gettext, "This will permanently delete this category and all its items. This cannot be undone.")}</p>
           </div>
           <button phx-click="show_delete_confirm" class="btn btn-outline btn-error btn-sm shrink-0">
-            Delete Forever
+            {Gettext.gettext(PhoenixKitWeb.Gettext, "Delete Forever")}
           </button>
         </div>
       </div>
