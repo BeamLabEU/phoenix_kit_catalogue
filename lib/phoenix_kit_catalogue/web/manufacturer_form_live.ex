@@ -159,13 +159,13 @@ defmodule PhoenixKitCatalogue.Web.ManufacturerFormLive do
         <div class="card bg-base-100 shadow-lg">
           <div class="card-body flex flex-col gap-5">
             <div class="form-control">
-              <span class="label-text font-semibold mb-2">Name *</span>
+              <span class="label-text font-semibold mb-2">{Gettext.gettext(PhoenixKitWeb.Gettext, "Name")} *</span>
               <input
                 type="text"
                 name="manufacturer[name]"
                 value={Ecto.Changeset.get_field(@changeset, :name) || ""}
                 class="input input-bordered w-full transition-colors focus:input-primary"
-                placeholder="e.g., Blum, Hettich"
+                placeholder={Gettext.gettext(PhoenixKitWeb.Gettext, "e.g., Blum, Hettich")}
               />
               <p :for={msg <- changeset_errors(@changeset, :name)} class="text-error text-sm mt-1">
                 {msg}
@@ -200,7 +200,7 @@ defmodule PhoenixKitCatalogue.Web.ManufacturerFormLive do
                   d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
                 />
               </svg>
-              Contact & Web
+              {Gettext.gettext(PhoenixKitWeb.Gettext, "Contact & Web")}
             </h2>
 
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -211,7 +211,7 @@ defmodule PhoenixKitCatalogue.Web.ManufacturerFormLive do
                   name="manufacturer[website]"
                   value={Ecto.Changeset.get_field(@changeset, :website) || ""}
                   class="input input-bordered w-full transition-colors focus:input-primary"
-                  placeholder="https://..."
+                  placeholder={Gettext.gettext(PhoenixKitWeb.Gettext, "https://...")}
                 />
               </div>
               <div class="form-control">
@@ -233,7 +233,7 @@ defmodule PhoenixKitCatalogue.Web.ManufacturerFormLive do
                 name="manufacturer[logo_url]"
                 value={Ecto.Changeset.get_field(@changeset, :logo_url) || ""}
                 class="input input-bordered w-full transition-colors focus:input-primary"
-                placeholder="https://..."
+                placeholder={Gettext.gettext(PhoenixKitWeb.Gettext, "https://...")}
               />
             </div>
 
@@ -257,18 +257,18 @@ defmodule PhoenixKitCatalogue.Web.ManufacturerFormLive do
                     value="active"
                     selected={Ecto.Changeset.get_field(@changeset, :status) == "active"}
                   >
-                    Active
+                    {Gettext.gettext(PhoenixKitWeb.Gettext, "Active")}
                   </option>
                   <option
                     value="inactive"
                     selected={Ecto.Changeset.get_field(@changeset, :status) == "inactive"}
                   >
-                    Inactive
+                    {Gettext.gettext(PhoenixKitWeb.Gettext, "Inactive")}
                   </option>
                 </select>
               </label>
               <span class="label-text-alt text-base-content/50 mt-1">
-                Inactive manufacturers won't appear in item dropdowns.
+                {Gettext.gettext(PhoenixKitWeb.Gettext, "Inactive manufacturers won't appear in item dropdowns.")}
               </span>
             </div>
 

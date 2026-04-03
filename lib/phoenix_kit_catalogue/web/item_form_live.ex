@@ -289,17 +289,17 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
                 </svg>
-                Pricing & Identification
+                {Gettext.gettext(PhoenixKitWeb.Gettext, "Pricing & Identification")}
               </h2>
 
               <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div class="form-control">
                   <span class="label-text font-semibold mb-2">{Gettext.gettext(PhoenixKitWeb.Gettext, "SKU")}</span>
-                  <input type="text" name="item[sku]" value={Ecto.Changeset.get_field(@changeset, :sku) || ""} class="input input-bordered w-full font-mono transition-colors focus:input-primary" placeholder="e.g., KF-001" />
+                  <input type="text" name="item[sku]" value={Ecto.Changeset.get_field(@changeset, :sku) || ""} class="input input-bordered w-full font-mono transition-colors focus:input-primary" placeholder={Gettext.gettext(PhoenixKitWeb.Gettext, "e.g., KF-001")} />
                 </div>
                 <div class="form-control">
                   <span class="label-text font-semibold mb-2">{Gettext.gettext(PhoenixKitWeb.Gettext, "Base Price")}</span>
-                  <input type="number" name="item[base_price]" value={Ecto.Changeset.get_field(@changeset, :base_price)} class="input input-bordered w-full transition-colors focus:input-primary" step="0.01" min="0" placeholder="0.00" />
+                  <input type="number" name="item[base_price]" value={Ecto.Changeset.get_field(@changeset, :base_price)} class="input input-bordered w-full transition-colors focus:input-primary" step="0.01" min="0" placeholder={Gettext.gettext(PhoenixKitWeb.Gettext, "0.00")} />
                   <span class="label-text-alt text-base-content/50 mt-1">{Gettext.gettext(PhoenixKitWeb.Gettext, "Cost/purchase price before catalogue markup.")}</span>
                 </div>
                 <div class="form-control">
@@ -321,7 +321,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
                 </svg>
-                Classification
+                {Gettext.gettext(PhoenixKitWeb.Gettext, "Classification")}
               </h2>
 
               <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -401,7 +401,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
               disabled={is_nil(@move_target)}
               class="btn btn-sm btn-outline"
             >
-              Move
+              {Gettext.gettext(PhoenixKitWeb.Gettext, "Move")}
             </button>
           </div>
         </div>

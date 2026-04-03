@@ -232,7 +232,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
 
             <div class="form-control">
               <span class="label-text font-semibold mb-2">{Gettext.gettext(PhoenixKitWeb.Gettext, "Markup Percentage")}</span>
-              <input type="number" name="catalogue[markup_percentage]" value={Ecto.Changeset.get_field(@changeset, :markup_percentage)} class="input input-bordered w-full transition-colors focus:input-primary" step="0.01" min="0" placeholder="e.g., 15.0" />
+              <input type="number" name="catalogue[markup_percentage]" value={Ecto.Changeset.get_field(@changeset, :markup_percentage)} class="input input-bordered w-full transition-colors focus:input-primary" step="0.01" min="0" placeholder={Gettext.gettext(PhoenixKitWeb.Gettext, "e.g., 15.0")} />
               <span class="label-text-alt text-base-content/50 mt-1">
                 {Gettext.gettext(PhoenixKitWeb.Gettext, "Applied to all item base prices to calculate sale prices. Leave blank for no markup.")}
               </span>
@@ -246,18 +246,18 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
                     value="active"
                     selected={Ecto.Changeset.get_field(@changeset, :status) == "active"}
                   >
-                    Active
+                    {Gettext.gettext(PhoenixKitWeb.Gettext, "Active")}
                   </option>
                   <option
                     value="archived"
                     selected={Ecto.Changeset.get_field(@changeset, :status) == "archived"}
                   >
-                    Archived
+                    {Gettext.gettext(PhoenixKitWeb.Gettext, "Archived")}
                   </option>
                 </select>
               </label>
               <span class="label-text-alt text-base-content/50 mt-1">
-                Archived catalogues are hidden from active views.
+                {Gettext.gettext(PhoenixKitWeb.Gettext, "Archived catalogues are hidden from active views.")}
               </span>
             </div>
 
@@ -280,11 +280,11 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
           <div>
             <span class="text-sm font-semibold text-error">{Gettext.gettext(PhoenixKitWeb.Gettext, "Permanently Delete Catalogue")}</span>
             <p class="text-xs text-base-content/50">
-              This will permanently delete this catalogue, all its categories, and all items within them. This cannot be undone.
+              {Gettext.gettext(PhoenixKitWeb.Gettext, "This will permanently delete this catalogue, all its categories, and all items within them. This cannot be undone.")}
             </p>
           </div>
           <button phx-click="show_delete_confirm" class="btn btn-outline btn-error btn-sm shrink-0">
-            Delete Forever
+            {Gettext.gettext(PhoenixKitWeb.Gettext, "Delete Forever")}
           </button>
         </div>
       </div>
