@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(gh api:*)",
+      "Bash(find /www/pk/phoenix_kit_catalogue -maxdepth 2 -name Makefile -o -name .pre-commit* -o -name *.sh)",
+      "Bash(git -C /www/pk/phoenix_kit_catalogue config --list)",
+      "Bash(git:*)",
+      "Bash(mix precommit:*)",
+      "Bash(mix hex.info phoenix_kit)",
+      "Bash(gh release:*)"
+    ]
+  }
+}
