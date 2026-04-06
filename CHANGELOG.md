@@ -1,3 +1,8 @@
+## 0.1.4 - 2026-04-06
+
+### Changed
+- Wrap all user-visible strings in Gettext for i18n
+
 ## 0.1.3 - 2026-03-31
 
 ### Added
