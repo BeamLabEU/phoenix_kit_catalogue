@@ -10,7 +10,9 @@ defmodule PhoenixKitCatalogue.Schemas.Item do
   @foreign_key_type UUIDv7
 
   @statuses ~w(active inactive discontinued deleted)
-  @units ~w(piece m2 running_meter)
+  @units ~w(piece set pair sheet m2 running_meter)
+
+  def allowed_units, do: @units
 
   schema "phoenix_kit_cat_items" do
     field(:name, :string)
@@ -57,7 +59,6 @@ defmodule PhoenixKitCatalogue.Schemas.Item do
     |> validate_inclusion(:status, @statuses)
     |> validate_inclusion(:unit, @units)
     |> validate_number(:base_price, greater_than_or_equal_to: 0)
-    |> unique_constraint(:sku)
   end
 
   @doc """

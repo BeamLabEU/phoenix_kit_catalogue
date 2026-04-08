@@ -16,6 +16,10 @@ defmodule PhoenixKitCatalogue.Paths do
   def catalogue_detail(uuid), do: Routes.path("#{@base}/#{uuid}")
   def catalogue_edit(uuid), do: Routes.path("#{@base}/#{uuid}/edit")
 
+  # ── Import ───────────────────────────────────────────────────────
+
+  def import, do: Routes.path("#{@base}/import")
+
   # ── Manufacturers ────────────────────────────────────────────────
 
   def manufacturers, do: Routes.path("#{@base}/manufacturers")

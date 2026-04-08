@@ -1,3 +1,21 @@
+## 0.1.5 - 2026-04-08
+
+### Added
+- **Dynamic file import** — upload XLSX or CSV files, auto-detect column mappings, map columns to item fields via drag-down UI
+- **Import language support** — select which language the file data is in, stored in multilang JSONB
+- **Import category support** — import into existing category, create categories from column values, or import without category
+- **Unit mapping** — auto-detect and map file unit values (TK, KMPL, LEHT, PAAR) to system units (piece, set, pair, sheet, m2, running_meter)
+- **Duplicate detection** — detect identical rows within file and items already in catalogue, with skip/import choice
+- **New unit types** — added `set`, `pair`, `sheet` to allowed item units
+- **Multilang search** — search now matches translated content in JSONB `data` field across all languages
+
+### Changed
+- Removed unique constraint on item SKU field to allow duplicate article codes
+- Item edit form now detects imported items with non-primary language and shows rekey warning
+
+### Fixed
+- Search across translated content in `data` JSONB field
+
 ## 0.1.4 - 2026-04-06
 
 ### Changed

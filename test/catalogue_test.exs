@@ -879,6 +879,93 @@ defmodule PhoenixKitCatalogue.CatalogueTest do
   end
 
   # ═══════════════════════════════════════════════════════════════════
+  # Multilang search
+  # ═══════════════════════════════════════════════════════════════════
+
+  describe "search with translated data" do
+    test "search_items/1 finds items by translated name in data field" do
+      cat = create_catalogue()
+      category = create_category(cat)
+
+      item = create_item(%{name: "Oak Panel", category_uuid: category.uuid})
+
+      Catalogue.set_translation(item, "es-ES", %{"_name" => "Panel de Roble"}, fn record, attrs ->
+        Catalogue.update_item(record, attrs)
+      end)
+
+      results = Catalogue.search_items("Roble")
+      assert length(results) == 1
+      assert hd(results).name == "Oak Panel"
+    end
+
+    test "search_items/1 finds items by translated description in data field" do
+      cat = create_catalogue()
+      category = create_category(cat)
+
+      item =
+        create_item(%{
+          name: "Oak Panel",
+          description: "Premium hardwood",
+          category_uuid: category.uuid
+        })
+
+      Catalogue.set_translation(
+        item,
+        "ja",
+        %{"_description" => "高級広葉樹パネル"},
+        fn record, attrs -> Catalogue.update_item(record, attrs) end
+      )
+
+      results = Catalogue.search_items("高級広葉樹")
+      assert length(results) == 1
+    end
+
+    test "search_items_in_catalogue/2 finds items by translated name" do
+      cat = create_catalogue()
+      category = create_category(cat)
+
+      item = create_item(%{name: "Birch Veneer", category_uuid: category.uuid})
+
+      Catalogue.set_translation(item, "de-DE", %{"_name" => "Birkenfurnier"}, fn record, attrs ->
+        Catalogue.update_item(record, attrs)
+      end)
+
+      results = Catalogue.search_items_in_catalogue(cat.uuid, "Birken")
+      assert length(results) == 1
+      assert hd(results).name == "Birch Veneer"
+    end
+
+    test "search_items_in_category/2 finds items by translated name" do
+      cat = create_catalogue()
+      category = create_category(cat)
+
+      item = create_item(%{name: "Pine Board", category_uuid: category.uuid})
+
+      Catalogue.set_translation(item, "fr-FR", %{"_name" => "Planche de pin"}, fn record, attrs ->
+        Catalogue.update_item(record, attrs)
+      end)
+
+      results = Catalogue.search_items_in_category(category.uuid, "Planche")
+      assert length(results) == 1
+      assert hd(results).name == "Pine Board"
+    end
+
+    test "search_items/1 still finds items by primary name when translations exist" do
+      cat = create_catalogue()
+      category = create_category(cat)
+
+      item = create_item(%{name: "Oak Panel", category_uuid: category.uuid})
+
+      Catalogue.set_translation(item, "es-ES", %{"_name" => "Panel de Roble"}, fn record, attrs ->
+        Catalogue.update_item(record, attrs)
+      end)
+
+      results = Catalogue.search_items("Oak")
+      assert length(results) == 1
+    end
+  end
+
+  # ═══════════════════════════════════════════════════════════════════
   # Item listing
   # ═══════════════════════════════════════════════════════════════════
 
@@ -1072,10 +1159,9 @@ defmodule PhoenixKitCatalogue.CatalogueTest do
       assert errors_on(changeset).name
     end
 
-    test "item sku uniqueness" do
+    test "item allows duplicate sku" do
       create_item(%{name: "A", sku: "SKU-001"})
-      assert {:error, changeset} = Catalogue.create_item(%{name: "B", sku: "SKU-001"})
-      assert errors_on(changeset).sku
+      assert {:ok, _} = Catalogue.create_item(%{name: "B", sku: "SKU-001"})
     end
   end
 end

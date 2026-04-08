@@ -1067,7 +1067,8 @@ defmodule PhoenixKitCatalogue.Catalogue do
       where:
         ilike(i.name, ^pattern) or
           ilike(i.description, ^pattern) or
-          ilike(i.sku, ^pattern),
+          ilike(i.sku, ^pattern) or
+          fragment("?::text ILIKE ?", i.data, ^pattern),
       order_by: [asc: i.name],
       limit: ^limit,
       preload: [category: :catalogue, manufacturer: []]
@@ -1106,7 +1107,8 @@ defmodule PhoenixKitCatalogue.Catalogue do
       where:
         ilike(i.name, ^pattern) or
           ilike(i.description, ^pattern) or
-          ilike(i.sku, ^pattern),
+          ilike(i.sku, ^pattern) or
+          fragment("?::text ILIKE ?", i.data, ^pattern),
       order_by: [asc: c.position, asc: i.name],
       limit: ^limit,
       preload: [category: :catalogue, manufacturer: []]
@@ -1140,7 +1142,8 @@ defmodule PhoenixKitCatalogue.Catalogue do
       where:
         ilike(i.name, ^pattern) or
           ilike(i.description, ^pattern) or
-          ilike(i.sku, ^pattern),
+          ilike(i.sku, ^pattern) or
+          fragment("?::text ILIKE ?", i.data, ^pattern),
       order_by: [asc: i.name],
       limit: ^limit,
       preload: [category: :catalogue, manufacturer: []]
