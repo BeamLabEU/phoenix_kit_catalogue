@@ -125,13 +125,25 @@ defmodule PhoenixKitCatalogue do
       %Tab{
         id: :admin_catalogue_suppliers,
         label: "Suppliers",
-        icon: "hero-truck",
+        icon: "hero-cube",
         path: "catalogue/suppliers",
         priority: 663,
         level: :admin,
         permission: module_key(),
         parent: :admin_catalogue,
         live_view: {PhoenixKitCatalogue.Web.CataloguesLive, :suppliers}
+      },
+      # Import tab
+      %Tab{
+        id: :admin_catalogue_import,
+        label: "Import",
+        icon: "hero-arrow-up-tray",
+        path: "catalogue/import",
+        priority: 664,
+        level: :admin,
+        permission: module_key(),
+        parent: :admin_catalogue,
+        live_view: {PhoenixKitCatalogue.Web.ImportLive, :index}
       },
       # Static paths MUST come before wildcard :uuid paths
       # so Phoenix router matches them first.
@@ -142,7 +154,7 @@ defmodule PhoenixKitCatalogue do
         label: "New Catalogue",
         icon: "hero-plus",
         path: "catalogue/new",
-        priority: 664,
+        priority: 665,
         level: :admin,
         permission: module_key(),
         parent: :admin_catalogue,

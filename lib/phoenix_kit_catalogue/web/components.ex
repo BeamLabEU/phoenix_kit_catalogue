@@ -537,6 +537,9 @@ defmodule PhoenixKitCatalogue.Web.Components do
 
   defp format_unit(nil), do: "—"
   defp format_unit("piece"), do: Gettext.gettext(PhoenixKitWeb.Gettext, "pc")
+  defp format_unit("set"), do: Gettext.gettext(PhoenixKitWeb.Gettext, "set")
+  defp format_unit("pair"), do: Gettext.gettext(PhoenixKitWeb.Gettext, "pair")
+  defp format_unit("sheet"), do: Gettext.gettext(PhoenixKitWeb.Gettext, "sheet")
   defp format_unit("m2"), do: Gettext.gettext(PhoenixKitWeb.Gettext, "m²")
   defp format_unit("running_meter"), do: Gettext.gettext(PhoenixKitWeb.Gettext, "rm")
   defp format_unit(other), do: to_string(other)

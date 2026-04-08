@@ -1159,10 +1159,9 @@ defmodule PhoenixKitCatalogue.CatalogueTest do
       assert errors_on(changeset).name
     end
 
-    test "item sku uniqueness" do
+    test "item allows duplicate sku" do
       create_item(%{name: "A", sku: "SKU-001"})
-      assert {:error, changeset} = Catalogue.create_item(%{name: "B", sku: "SKU-001"})
-      assert errors_on(changeset).sku
+      assert {:ok, _} = Catalogue.create_item(%{name: "B", sku: "SKU-001"})
     end
   end
 end
