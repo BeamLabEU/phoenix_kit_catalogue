@@ -1,7 +1,7 @@
 defmodule PhoenixKitCatalogue.MixProject do
   use Mix.Project
 
-  @version "0.1.4"
+  @version "0.1.5"
   @source_url "https://github.com/BeamLabEU/phoenix_kit_catalogue"
 
   def project do
@@ -44,6 +44,7 @@ defmodule PhoenixKitCatalogue.MixProject do
     [
       {:phoenix_kit, "~> 1.7"},
       {:phoenix_live_view, "~> 1.1"},
+      {:xlsx_reader, "~> 0.8"},
       {:ex_doc, "~> 0.39", only: :dev, runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false}

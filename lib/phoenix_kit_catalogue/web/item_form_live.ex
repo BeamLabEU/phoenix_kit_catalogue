@@ -7,7 +7,9 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
 
   import PhoenixKitWeb.Components.MultilangForm
   import PhoenixKitWeb.Components.Core.AdminPageHeader, only: [admin_page_header: 1]
+  import PhoenixKitWeb.Components.Core.Icon, only: [icon: 1]
 
+  alias PhoenixKit.Utils.Multilang
   alias PhoenixKitCatalogue.Catalogue
   alias PhoenixKitCatalogue.Paths
   alias PhoenixKitCatalogue.Schemas.Item
@@ -81,6 +83,39 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
       move_target: nil
     )
     |> mount_multilang()
+    |> adjust_multilang_for_item(item)
+  end
+
+  # If the item's embedded primary language differs from the global primary,
+  # start on the item's language tab and flag that the global primary needs filling in.
+  defp adjust_multilang_for_item(socket, item) do
+    if socket.assigns.multilang_enabled do
+      check_item_primary_language(socket, item)
+    else
+      socket
+    end
+  end
+
+  defp check_item_primary_language(socket, item) do
+    item_data = item.data || %{}
+    item_primary = item_data["_primary_language"]
+    global_primary = socket.assigns.primary_language
+
+    if item_primary && item_primary != global_primary do
+      global_data = Multilang.get_language_data(item_data, global_primary)
+      global_has_data = global_data["_name"] != nil and global_data["_name"] != ""
+
+      assign(socket,
+        current_lang: item_primary,
+        needs_primary_translation: not global_has_data,
+        item_primary_language: item_primary
+      )
+    else
+      assign(socket,
+        needs_primary_translation: false,
+        item_primary_language: nil
+      )
+    end
   end
 
   @impl true
@@ -156,6 +191,16 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   end
 
   defp save_item(socket, :edit, params) do
+    # If item had a different primary language, rekey data to global primary on save
+    params =
+      if socket.assigns[:needs_primary_translation] && params["data"] do
+        global_primary = socket.assigns.primary_language
+        rekeyed = Multilang.rekey_primary(params["data"], global_primary)
+        Map.put(params, "data", rekeyed)
+      else
+        params
+      end
+
     case Catalogue.update_item(socket.assigns.item, params) do
       {:ok, item} ->
         {:noreply,
@@ -203,6 +248,16 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
         title={@page_title}
         subtitle={if @action == :new, do: Gettext.gettext(PhoenixKitWeb.Gettext, "Add a new product or material to the catalogue."), else: Gettext.gettext(PhoenixKitWeb.Gettext, "Update item details, pricing, and classification.")}
       />
+
+      <%!-- Primary language warning --%>
+      <div :if={@needs_primary_translation} class="alert alert-warning">
+        <.icon name="hero-exclamation-triangle" class="w-5 h-5 shrink-0" />
+        <div>
+          <p class="text-sm font-medium">
+            {Gettext.gettext(PhoenixKitWeb.Gettext, "This item was imported in %{lang}. Please fill in the %{primary} translation and save to set it as the primary language.", lang: lang_name(@language_tabs, @item_primary_language), primary: lang_name(@language_tabs, @primary_language))}
+          </p>
+        </div>
+      </div>
 
       <.form for={to_form(@changeset)} action="#" phx-change="validate" phx-submit="save">
         <div class="card bg-base-100 shadow-lg">
@@ -408,5 +463,12 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
       </div>
     </div>
     """
+  end
+
+  defp lang_name(language_tabs, code) do
+    case Enum.find(language_tabs, &(&1.code == code)) do
+      %{name: name} -> name
+      _ -> code
+    end
   end
 end
