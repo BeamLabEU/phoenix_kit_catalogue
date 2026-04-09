@@ -143,94 +143,6 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
     end
   end
 
-  defp continue_or_parse(socket) do
-    if socket.assigns.filename do
-      catalogue_categories =
-        Catalogue.list_categories_for_catalogue(socket.assigns.selected_catalogue.uuid)
-
-      {:noreply, assign(socket, step: :map, catalogue_categories: catalogue_categories)}
-    else
-      parse_uploaded_file(socket)
-    end
-  end
-
-  defp parse_uploaded_file(socket) do
-    uploaded_files =
-      consume_uploaded_entries(socket, :import_file, fn %{path: path}, entry ->
-        binary = File.read!(path)
-        {:ok, {binary, entry.client_name}}
-      end)
-
-    case uploaded_files do
-      [{binary, filename}] ->
-        handle_parsed_file(socket, binary, filename)
-
-      _ ->
-        {:noreply,
-         put_flash(
-           socket,
-           :error,
-           Gettext.gettext(PhoenixKitWeb.Gettext, "Please upload a file.")
-         )}
-    end
-  end
-
-  defp handle_parsed_file(socket, binary, filename) do
-    case Parser.parse(binary, filename) do
-      {:ok, data} ->
-        # Store in ETS
-        ets_table = :ets.new(:import_data, [:ordered_set, :private])
-
-        Enum.with_index(data.rows)
-        |> Enum.each(fn {row, idx} -> :ets.insert(ets_table, {idx, row}) end)
-
-        # Auto-detect mappings
-        mappings = Mapper.auto_detect_mappings(data.headers)
-
-        # Find unit column and extract unique values
-        {unit_values, unit_map} = detect_unit_values(mappings, data.rows)
-
-        # Load existing categories for the selected catalogue
-        catalogue_categories =
-          if socket.assigns.selected_catalogue do
-            Catalogue.list_categories_for_catalogue(socket.assigns.selected_catalogue.uuid)
-          else
-            []
-          end
-
-        {:noreply,
-         socket
-         |> assign(
-           step: :map,
-           headers: data.headers,
-           preview_rows: Enum.take(data.rows, @preview_rows),
-           row_count: data.row_count,
-           sheets: data.sheets,
-           selected_sheet: List.first(data.sheets),
-           filename: filename,
-           file_binary: binary,
-           column_mappings: mappings,
-           ets_table: ets_table,
-           unit_values: unit_values,
-           unit_map: unit_map,
-           catalogue_categories: catalogue_categories
-         )}
-
-      {:error, reason} ->
-        Logger.warning("Import file parse error: #{reason}")
-
-        {:noreply,
-         put_flash(
-           socket,
-           :error,
-           Gettext.gettext(
-             PhoenixKitWeb.Gettext,
-             "Could not read file. Please check the format and try again."
-           )
-         )}
-    end
-  end
-
   # ── Sheet Selection ─────────────────────────────────────────────
 
   def handle_event("select_sheet", %{"sheet" => sheet_name}, socket) do
@@ -278,78 +190,6 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
     socket = apply_unit_map_changes(socket, params["unit_map"] || %{})
 
     {:noreply, socket}
-  end
-
-  defp apply_mapping_changes(socket, mapping_params) when map_size(mapping_params) == 0,
-    do: socket
-
-  defp apply_mapping_changes(socket, mapping_params) do
-    old_mappings = socket.assigns.column_mappings
-
-    changed_col =
-      Enum.find(old_mappings, fn m ->
-        new_val = Map.get(mapping_params, to_string(m.column_index))
-        new_val != nil and parse_target(new_val) != m.target
-      end)
-
-    if changed_col == nil do
-      socket
-    else
-      new_target = parse_target(Map.get(mapping_params, to_string(changed_col.column_index)))
-      mappings = update_column_mappings(old_mappings, changed_col.column_index, new_target)
-      recalculate_unit_values(socket, mappings)
-    end
-  end
-
-  @unique_targets [:name, :description, :sku, :base_price, :unit, :category]
-
-  defp update_column_mappings(mappings, changed_idx, new_target) do
-    Enum.map(mappings, fn m ->
-      cond do
-        m.column_index == changed_idx -> %{m | target: new_target}
-        new_target in @unique_targets and m.target == new_target -> %{m | target: :skip}
-        true -> m
-      end
-    end)
-  end
-
-  defp maybe_deduplicate(plan, :import, _catalogue_uuid, _opts), do: plan
-
-  defp maybe_deduplicate(plan, :skip, catalogue_uuid, opts) do
-    unique_items = Enum.uniq(plan.items)
-
-    existing_items =
-      Catalogue.list_items_for_catalogue(catalogue_uuid) ++
-        Catalogue.list_uncategorized_items()
-
-    unique_items =
-      Enum.reject(unique_items, fn import_item ->
-        Enum.any?(existing_items, &Mapper.item_matches_existing?(import_item, &1, opts))
-      end)
-
-    %{plan | items: unique_items, stats: %{plan.stats | valid: length(unique_items)}}
-  end
-
-  defp recalculate_unit_values(socket, mappings) do
-    rows = ets_to_rows(socket.assigns.ets_table)
-    {unit_values, unit_map} = detect_unit_values(mappings, rows)
-
-    assign(socket,
-      column_mappings: mappings,
-      unit_values: unit_values,
-      unit_map:
-        if(unit_values == socket.assigns.unit_values,
-          do: socket.assigns.unit_map,
-          else: unit_map
-        )
-    )
-  end
-
-  defp apply_unit_map_changes(socket, unit_params) when map_size(unit_params) == 0, do: socket
-
-  defp apply_unit_map_changes(socket, unit_params) do
-    unit_map = Map.merge(socket.assigns.unit_map, unit_params)
-    assign(socket, :unit_map, unit_map)
   end
 
   # Keep old handlers as fallbacks for any standalone selects
@@ -454,36 +294,6 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
     {:noreply, socket}
   end
 
-  defp parse_category_mode("none"), do: {:none, nil}
-  defp parse_category_mode("column"), do: {:column, nil}
-  defp parse_category_mode("existing:" <> uuid), do: {:existing, uuid}
-  defp parse_category_mode(_), do: {:none, nil}
-
-  defp maybe_clear_category_column(socket, :column), do: socket
-
-  defp maybe_clear_category_column(socket, _category_mode) do
-    if socket.assigns.import_category_mode == :column do
-      mappings = clear_category_from_mappings(socket.assigns.column_mappings)
-      assign(socket, :column_mappings, mappings)
-    else
-      socket
-    end
-  end
-
-  defp clear_category_from_mappings(mappings) do
-    Enum.map(mappings, fn m ->
-      if m.target == :category, do: %{m | target: :skip}, else: m
-    end)
-  end
-
-  defp maybe_set_category_column(socket, col) when is_binary(col) and col != "" do
-    col_idx = String.to_integer(col)
-    mappings = update_column_mappings(socket.assigns.column_mappings, col_idx, :category)
-    assign(socket, :column_mappings, mappings)
-  end
-
-  defp maybe_set_category_column(socket, _), do: socket
-
   def handle_event("switch_language", %{"lang" => lang_code}, socket) do
     {:noreply, assign(socket, :current_lang, lang_code)}
   end
@@ -544,21 +354,6 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
      )}
   end
 
-  # ── Step 5: Importing ──────────────────────────────────────────
-
-  @impl true
-  def handle_info({:import_progress, current, total}, socket) do
-    {:noreply, assign(socket, import_progress: current, import_total: total)}
-  end
-
-  def handle_info({:import_result, result}, socket) do
-    {:noreply, assign(socket, step: :done, import_result: result)}
-  end
-
-  def handle_info(_msg, socket) do
-    {:noreply, socket}
-  end
-
   # ── Step 6: Done ────────────────────────────────────────────────
 
   def handle_event("import_another", _params, socket) do
@@ -604,6 +399,213 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
 
     {:noreply, assign(socket, :step, prev_step)}
   end
+
+  # ── Step 5: Importing ──────────────────────────────────────────
+
+  @impl true
+  def handle_info({:import_progress, current, total}, socket) do
+    {:noreply, assign(socket, import_progress: current, import_total: total)}
+  end
+
+  def handle_info({:import_result, result}, socket) do
+    {:noreply, assign(socket, step: :done, import_result: result)}
+  end
+
+  def handle_info(_msg, socket) do
+    {:noreply, socket}
+  end
+
+  # ── Private helpers ─────────────────────────────────────────────
+
+  defp continue_or_parse(socket) do
+    if socket.assigns.filename do
+      catalogue_categories =
+        Catalogue.list_categories_for_catalogue(socket.assigns.selected_catalogue.uuid)
+
+      {:noreply, assign(socket, step: :map, catalogue_categories: catalogue_categories)}
+    else
+      parse_uploaded_file(socket)
+    end
+  end
+
+  defp parse_uploaded_file(socket) do
+    uploaded_files =
+      consume_uploaded_entries(socket, :import_file, fn %{path: path}, entry ->
+        binary = File.read!(path)
+        {:ok, {binary, entry.client_name}}
+      end)
+
+    case uploaded_files do
+      [{binary, filename}] ->
+        handle_parsed_file(socket, binary, filename)
+
+      _ ->
+        {:noreply,
+         put_flash(
+           socket,
+           :error,
+           Gettext.gettext(PhoenixKitWeb.Gettext, "Please upload a file.")
+         )}
+    end
+  end
+
+  defp handle_parsed_file(socket, binary, filename) do
+    case Parser.parse(binary, filename) do
+      {:ok, data} ->
+        # Store in ETS
+        ets_table = :ets.new(:import_data, [:ordered_set, :private])
+
+        Enum.with_index(data.rows)
+        |> Enum.each(fn {row, idx} -> :ets.insert(ets_table, {idx, row}) end)
+
+        # Auto-detect mappings
+        mappings = Mapper.auto_detect_mappings(data.headers)
+
+        # Find unit column and extract unique values
+        {unit_values, unit_map} = detect_unit_values(mappings, data.rows)
+
+        # Load existing categories for the selected catalogue
+        catalogue_categories =
+          if socket.assigns.selected_catalogue do
+            Catalogue.list_categories_for_catalogue(socket.assigns.selected_catalogue.uuid)
+          else
+            []
+          end
+
+        {:noreply,
+         socket
+         |> assign(
+           step: :map,
+           headers: data.headers,
+           preview_rows: Enum.take(data.rows, @preview_rows),
+           row_count: data.row_count,
+           sheets: data.sheets,
+           selected_sheet: List.first(data.sheets),
+           filename: filename,
+           file_binary: binary,
+           column_mappings: mappings,
+           ets_table: ets_table,
+           unit_values: unit_values,
+           unit_map: unit_map,
+           catalogue_categories: catalogue_categories
+         )}
+
+      {:error, reason} ->
+        Logger.warning("Import file parse error: #{reason}")
+
+        {:noreply,
+         put_flash(
+           socket,
+           :error,
+           Gettext.gettext(
+             PhoenixKitWeb.Gettext,
+             "Could not read file. Please check the format and try again."
+           )
+         )}
+    end
+  end
+
+  defp apply_mapping_changes(socket, mapping_params) when map_size(mapping_params) == 0,
+    do: socket
+
+  defp apply_mapping_changes(socket, mapping_params) do
+    old_mappings = socket.assigns.column_mappings
+
+    changed_col =
+      Enum.find(old_mappings, fn m ->
+        new_val = Map.get(mapping_params, to_string(m.column_index))
+        new_val != nil and parse_target(new_val) != m.target
+      end)
+
+    if changed_col == nil do
+      socket
+    else
+      new_target = parse_target(Map.get(mapping_params, to_string(changed_col.column_index)))
+      mappings = update_column_mappings(old_mappings, changed_col.column_index, new_target)
+      recalculate_unit_values(socket, mappings)
+    end
+  end
+
+  @unique_targets [:name, :description, :sku, :base_price, :unit, :category]
+
+  defp update_column_mappings(mappings, changed_idx, new_target) do
+    Enum.map(mappings, fn m ->
+      cond do
+        m.column_index == changed_idx -> %{m | target: new_target}
+        new_target in @unique_targets and m.target == new_target -> %{m | target: :skip}
+        true -> m
+      end
+    end)
+  end
+
+  defp maybe_deduplicate(plan, :import, _catalogue_uuid, _opts), do: plan
+
+  defp maybe_deduplicate(plan, :skip, catalogue_uuid, opts) do
+    unique_items = Enum.uniq(plan.items)
+
+    existing_items =
+      Catalogue.list_items_for_catalogue(catalogue_uuid) ++
+        Catalogue.list_uncategorized_items()
+
+    unique_items =
+      Enum.reject(unique_items, fn import_item ->
+        Enum.any?(existing_items, &Mapper.item_matches_existing?(import_item, &1, opts))
+      end)
+
+    %{plan | items: unique_items, stats: %{plan.stats | valid: length(unique_items)}}
+  end
+
+  defp recalculate_unit_values(socket, mappings) do
+    rows = ets_to_rows(socket.assigns.ets_table)
+    {unit_values, unit_map} = detect_unit_values(mappings, rows)
+
+    assign(socket,
+      column_mappings: mappings,
+      unit_values: unit_values,
+      unit_map:
+        if(unit_values == socket.assigns.unit_values,
+          do: socket.assigns.unit_map,
+          else: unit_map
+        )
+    )
+  end
+
+  defp apply_unit_map_changes(socket, unit_params) when map_size(unit_params) == 0, do: socket
+
+  defp apply_unit_map_changes(socket, unit_params) do
+    unit_map = Map.merge(socket.assigns.unit_map, unit_params)
+    assign(socket, :unit_map, unit_map)
+  end
+
+  defp parse_category_mode("none"), do: {:none, nil}
+  defp parse_category_mode("column"), do: {:column, nil}
+  defp parse_category_mode("existing:" <> uuid), do: {:existing, uuid}
+  defp parse_category_mode(_), do: {:none, nil}
+
+  defp maybe_clear_category_column(socket, :column), do: socket
+
+  defp maybe_clear_category_column(socket, _category_mode) do
+    if socket.assigns.import_category_mode == :column do
+      mappings = clear_category_from_mappings(socket.assigns.column_mappings)
+      assign(socket, :column_mappings, mappings)
+    else
+      socket
+    end
+  end
+
+  defp clear_category_from_mappings(mappings) do
+    Enum.map(mappings, fn m ->
+      if m.target == :category, do: %{m | target: :skip}, else: m
+    end)
+  end
+
+  defp maybe_set_category_column(socket, col) when is_binary(col) and col != "" do
+    col_idx = String.to_integer(col)
+    mappings = update_column_mappings(socket.assigns.column_mappings, col_idx, :category)
+    assign(socket, :column_mappings, mappings)
+  end
+
+  defp maybe_set_category_column(socket, _), do: socket
 
   # ── Render ──────────────────────────────────────────────────────
 

@@ -1,7 +1,7 @@
 defmodule PhoenixKitCatalogue.MixProject do
   use Mix.Project
 
-  @version "0.1.5"
+  @version "0.1.6"
   @source_url "https://github.com/BeamLabEU/phoenix_kit_catalogue"
 
   def project do
@@ -62,7 +62,7 @@ defmodule PhoenixKitCatalogue.MixProject do
   defp docs do
     [
       main: "PhoenixKitCatalogue",
-      source_ref: "v#{@version}"
+      source_ref: @version
     ]
   end
 end

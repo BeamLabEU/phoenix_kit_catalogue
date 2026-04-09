@@ -1,3 +1,14 @@
+## 0.1.6 - 2026-04-09
+
+### Added
+- Dynamic file import system (CSV/Excel with multi-sheet support)
+- Auto-detect column→field mappings
+- Unit normalization and duplicate detection
+- Full import LiveView (upload → parse → map → confirm → execute)
+
+### Changed
+- Updated phoenix_kit dependency to 1.7.93
+
 ## 0.1.5 - 2026-04-08
 
 ### Added
