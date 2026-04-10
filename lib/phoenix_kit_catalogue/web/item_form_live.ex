@@ -157,7 +157,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
     target = socket.assigns.move_target
 
     if target do
-      case Catalogue.move_item_to_category(socket.assigns.item, target) do
+      case Catalogue.move_item_to_category(socket.assigns.item, target, actor_opts(socket)) do
         {:ok, item} ->
           {:noreply,
            socket
@@ -177,8 +177,15 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
     end
   end
 
+  defp actor_opts(socket) do
+    case socket.assigns[:phoenix_kit_current_user] do
+      %{uuid: uuid} -> [actor_uuid: uuid]
+      _ -> []
+    end
+  end
+
   defp save_item(socket, :new, params) do
-    case Catalogue.create_item(params) do
+    case Catalogue.create_item(params, actor_opts(socket)) do
       {:ok, item} ->
         {:noreply,
          socket
@@ -201,7 +208,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
         params
       end
 
-    case Catalogue.update_item(socket.assigns.item, params) do
+    case Catalogue.update_item(socket.assigns.item, params, actor_opts(socket)) do
       {:ok, item} ->
         {:noreply,
          socket

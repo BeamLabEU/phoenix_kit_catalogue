@@ -63,6 +63,13 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     end
   end
 
+  defp actor_opts(socket) do
+    case socket.assigns[:phoenix_kit_current_user] do
+      %{uuid: uuid} -> [actor_uuid: uuid]
+      _ -> []
+    end
+  end
+
   defp load_data(socket, :index) do
     if connected?(socket) do
       mode = socket.assigns.catalogue_view_mode
@@ -118,7 +125,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
 
   def handle_event("trash_catalogue", %{"uuid" => uuid}, socket) do
     with %{} = catalogue <- Catalogue.get_catalogue(uuid),
-         {:ok, _} <- Catalogue.trash_catalogue(catalogue) do
+         {:ok, _} <- Catalogue.trash_catalogue(catalogue, actor_opts(socket)) do
       {:noreply,
        socket
        |> put_flash(:info, Gettext.gettext(PhoenixKitWeb.Gettext, "Catalogue moved to deleted."))
@@ -146,7 +153,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
 
   def handle_event("restore_catalogue", %{"uuid" => uuid}, socket) do
     with %{} = catalogue <- Catalogue.get_catalogue(uuid),
-         {:ok, _} <- Catalogue.restore_catalogue(catalogue) do
+         {:ok, _} <- Catalogue.restore_catalogue(catalogue, actor_opts(socket)) do
       {:noreply,
        socket
        |> put_flash(:info, Gettext.gettext(PhoenixKitWeb.Gettext, "Catalogue restored."))
@@ -180,7 +187,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     {"catalogue", uuid} = confirm_delete!(socket)
 
     with %{} = catalogue <- Catalogue.get_catalogue(uuid),
-         {:ok, _} <- Catalogue.permanently_delete_catalogue(catalogue) do
+         {:ok, _} <- Catalogue.permanently_delete_catalogue(catalogue, actor_opts(socket)) do
       {:noreply,
        socket
        |> put_flash(
@@ -215,7 +222,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     {"manufacturer", uuid} = confirm_delete!(socket)
 
     with %{} = manufacturer <- Catalogue.get_manufacturer(uuid),
-         {:ok, _} <- Catalogue.delete_manufacturer(manufacturer) do
+         {:ok, _} <- Catalogue.delete_manufacturer(manufacturer, actor_opts(socket)) do
       {:noreply,
        assign(socket, manufacturers: Catalogue.list_manufacturers(), confirm_delete: nil)}
     else
@@ -239,7 +246,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     {"supplier", uuid} = confirm_delete!(socket)
 
     with %{} = supplier <- Catalogue.get_supplier(uuid),
-         {:ok, _} <- Catalogue.delete_supplier(supplier) do
+         {:ok, _} <- Catalogue.delete_supplier(supplier, actor_opts(socket)) do
       {:noreply, assign(socket, suppliers: Catalogue.list_suppliers(), confirm_delete: nil)}
     else
       nil ->

@@ -75,7 +75,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
   def handle_event("delete_item", %{"uuid" => uuid}, socket) do
     with %{} = item <- Catalogue.get_item(uuid),
-         {:ok, _} <- Catalogue.trash_item(item) do
+         {:ok, _} <- Catalogue.trash_item(item, actor_opts(socket)) do
       {:noreply,
        socket
        |> put_flash(:info, Gettext.gettext(PhoenixKitWeb.Gettext, "Item moved to deleted."))
@@ -99,7 +99,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
   def handle_event("restore_item", %{"uuid" => uuid}, socket) do
     with %{} = item <- Catalogue.get_item(uuid),
-         {:ok, _} <- Catalogue.restore_item(item) do
+         {:ok, _} <- Catalogue.restore_item(item, actor_opts(socket)) do
       {:noreply,
        socket
        |> put_flash(:info, Gettext.gettext(PhoenixKitWeb.Gettext, "Item restored."))
@@ -129,7 +129,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     {"item", uuid} = confirm_delete!(socket)
 
     with %{} = item <- Catalogue.get_item(uuid),
-         {:ok, _} <- Catalogue.permanently_delete_item(item) do
+         {:ok, _} <- Catalogue.permanently_delete_item(item, actor_opts(socket)) do
       {:noreply,
        socket
        |> assign(:confirm_delete, nil)
@@ -156,7 +156,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
   def handle_event("trash_category", %{"uuid" => uuid}, socket) do
     with %{} = category <- Catalogue.get_category(uuid),
-         {:ok, _} <- Catalogue.trash_category(category) do
+         {:ok, _} <- Catalogue.trash_category(category, actor_opts(socket)) do
       {:noreply,
        socket
        |> put_flash(:info, Gettext.gettext(PhoenixKitWeb.Gettext, "Category moved to deleted."))
@@ -183,7 +183,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
   def handle_event("restore_category", %{"uuid" => uuid}, socket) do
     with %{} = category <- Catalogue.get_category(uuid),
-         {:ok, _} <- Catalogue.restore_category(category) do
+         {:ok, _} <- Catalogue.restore_category(category, actor_opts(socket)) do
       {:noreply,
        socket
        |> put_flash(:info, Gettext.gettext(PhoenixKitWeb.Gettext, "Category restored."))
@@ -212,7 +212,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     {"category", uuid} = confirm_delete!(socket)
 
     with %{} = category <- Catalogue.get_category(uuid),
-         {:ok, _} <- Catalogue.permanently_delete_category(category) do
+         {:ok, _} <- Catalogue.permanently_delete_category(category, actor_opts(socket)) do
       {:noreply,
        socket
        |> assign(:confirm_delete, nil)
@@ -264,6 +264,13 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     end
   end
 
+  defp actor_opts(socket) do
+    case socket.assigns[:phoenix_kit_current_user] do
+      %{uuid: uuid} -> [actor_uuid: uuid]
+      _ -> []
+    end
+  end
+
   defp load_catalogue_data(socket) do
     uuid = socket.assigns.catalogue_uuid
     deleted_count = Catalogue.deleted_count_for_catalogue(uuid)
@@ -304,7 +311,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       cat_a = Enum.at(categories, index)
       cat_b = Enum.at(categories, swap_index)
 
-      case Catalogue.swap_category_positions(cat_a, cat_b) do
+      case Catalogue.swap_category_positions(cat_a, cat_b, actor_opts(socket)) do
         {:ok, _} ->
           {:noreply, load_catalogue_data(socket)}
 

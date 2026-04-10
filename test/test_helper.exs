@@ -31,6 +31,26 @@ repo_available =
     try do
       {:ok, _} = PhoenixKitCatalogue.Test.Repo.start_link()
 
+      # Create uuid-ossp extension and uuid_generate_v7() function
+      # (normally created by PhoenixKit V40 migration)
+      PhoenixKitCatalogue.Test.Repo.query!("CREATE EXTENSION IF NOT EXISTS \"uuid-ossp\"")
+
+      PhoenixKitCatalogue.Test.Repo.query!("""
+      CREATE OR REPLACE FUNCTION uuid_generate_v7()
+      RETURNS uuid AS $$
+      DECLARE
+        unix_ts_ms bytea;
+        uuid_bytes bytea;
+      BEGIN
+        unix_ts_ms := substring(int8send(floor(extract(epoch FROM clock_timestamp()) * 1000)::bigint) FROM 3);
+        uuid_bytes := unix_ts_ms || gen_random_bytes(10);
+        uuid_bytes := set_byte(uuid_bytes, 6, (get_byte(uuid_bytes, 6) & 15) | 112);
+        uuid_bytes := set_byte(uuid_bytes, 8, (get_byte(uuid_bytes, 8) & 63) | 128);
+        RETURN encode(uuid_bytes, 'hex')::uuid;
+      END;
+      $$ LANGUAGE plpgsql VOLATILE;
+      """)
+
       Ecto.Adapters.SQL.Sandbox.mode(PhoenixKitCatalogue.Test.Repo, :manual)
       true
     rescue

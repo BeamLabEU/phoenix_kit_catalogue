@@ -61,7 +61,7 @@ defmodule PhoenixKitCatalogue do
   # ===========================================================================
 
   @impl PhoenixKit.Module
-  def version, do: "0.1.4"
+  def version, do: "0.1.6"
 
   @impl PhoenixKit.Module
   def css_sources, do: [:phoenix_kit_catalogue]
@@ -145,6 +145,18 @@ defmodule PhoenixKitCatalogue do
         parent: :admin_catalogue,
         live_view: {PhoenixKitCatalogue.Web.ImportLive, :index}
       },
+      # Events tab
+      %Tab{
+        id: :admin_catalogue_events,
+        label: "Events",
+        icon: "hero-clock",
+        path: "catalogue/events",
+        priority: 665,
+        level: :admin,
+        permission: module_key(),
+        parent: :admin_catalogue,
+        live_view: {PhoenixKitCatalogue.Web.EventsLive, :index}
+      },
       # Static paths MUST come before wildcard :uuid paths
       # so Phoenix router matches them first.
 
@@ -154,7 +166,7 @@ defmodule PhoenixKitCatalogue do
         label: "New Catalogue",
         icon: "hero-plus",
         path: "catalogue/new",
-        priority: 665,
+        priority: 666,
         level: :admin,
         permission: module_key(),
         parent: :admin_catalogue,
@@ -166,7 +178,7 @@ defmodule PhoenixKitCatalogue do
         label: "New Manufacturer",
         icon: "hero-plus",
         path: "catalogue/manufacturers/new",
-        priority: 665,
+        priority: 667,
         level: :admin,
         permission: module_key(),
         parent: :admin_catalogue,
@@ -178,7 +190,7 @@ defmodule PhoenixKitCatalogue do
         label: "Edit Manufacturer",
         icon: "hero-pencil-square",
         path: "catalogue/manufacturers/:uuid/edit",
-        priority: 666,
+        priority: 668,
         level: :admin,
         permission: module_key(),
         parent: :admin_catalogue,
@@ -190,7 +202,7 @@ defmodule PhoenixKitCatalogue do
         label: "New Supplier",
         icon: "hero-plus",
         path: "catalogue/suppliers/new",
-        priority: 667,
+        priority: 669,
         level: :admin,
         permission: module_key(),
         parent: :admin_catalogue,
@@ -202,7 +214,7 @@ defmodule PhoenixKitCatalogue do
         label: "Edit Supplier",
         icon: "hero-pencil-square",
         path: "catalogue/suppliers/:uuid/edit",
-        priority: 668,
+        priority: 670,
         level: :admin,
         permission: module_key(),
         parent: :admin_catalogue,
@@ -215,7 +227,7 @@ defmodule PhoenixKitCatalogue do
         label: "Edit Category",
         icon: "hero-pencil-square",
         path: "catalogue/categories/:uuid/edit",
-        priority: 669,
+        priority: 671,
         level: :admin,
         permission: module_key(),
         parent: :admin_catalogue,
@@ -228,7 +240,7 @@ defmodule PhoenixKitCatalogue do
         label: "Edit Item",
         icon: "hero-pencil-square",
         path: "catalogue/items/:uuid/edit",
-        priority: 670,
+        priority: 672,
         level: :admin,
         permission: module_key(),
         parent: :admin_catalogue,
@@ -241,7 +253,7 @@ defmodule PhoenixKitCatalogue do
         label: "Catalogue",
         icon: "hero-rectangle-stack",
         path: "catalogue/:uuid",
-        priority: 671,
+        priority: 673,
         level: :admin,
         permission: module_key(),
         parent: :admin_catalogue,
@@ -253,7 +265,7 @@ defmodule PhoenixKitCatalogue do
         label: "Edit Catalogue",
         icon: "hero-pencil-square",
         path: "catalogue/:uuid/edit",
-        priority: 672,
+        priority: 674,
         level: :admin,
         permission: module_key(),
         parent: :admin_catalogue,
@@ -265,7 +277,7 @@ defmodule PhoenixKitCatalogue do
         label: "New Category",
         icon: "hero-plus",
         path: "catalogue/:catalogue_uuid/categories/new",
-        priority: 673,
+        priority: 675,
         level: :admin,
         permission: module_key(),
         parent: :admin_catalogue,
@@ -277,7 +289,7 @@ defmodule PhoenixKitCatalogue do
         label: "New Item",
         icon: "hero-plus",
         path: "catalogue/:catalogue_uuid/items/new",
-        priority: 674,
+        priority: 676,
         level: :admin,
         permission: module_key(),
         parent: :admin_catalogue,

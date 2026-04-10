@@ -51,7 +51,20 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
   alias PhoenixKit.Utils.Multilang
 
+  require Logger
+
+  @module_key "catalogue"
+
   defp repo, do: PhoenixKit.RepoHelper.repo()
+
+  defp log_activity(attrs) do
+    if Code.ensure_loaded?(PhoenixKit.Activity) do
+      PhoenixKit.Activity.log(Map.put(attrs, :module, @module_key))
+    end
+  rescue
+    e ->
+      Logger.warning("[Catalogue] Failed to log activity: #{Exception.message(e)}")
+  end
 
   # ═══════════════════════════════════════════════════════════════════
   # Manufacturers
@@ -105,22 +118,63 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
       Catalogue.create_manufacturer(%{name: "Blum", website: "https://blum.com"})
   """
-  def create_manufacturer(attrs) do
-    %Manufacturer{}
-    |> Manufacturer.changeset(attrs)
-    |> repo().insert()
+  def create_manufacturer(attrs, opts \\ []) do
+    case %Manufacturer{} |> Manufacturer.changeset(attrs) |> repo().insert() do
+      {:ok, manufacturer} = ok ->
+        log_activity(%{
+          action: "manufacturer.created",
+          mode: "manual",
+          actor_uuid: opts[:actor_uuid],
+          resource_type: "manufacturer",
+          resource_uuid: manufacturer.uuid,
+          metadata: %{"name" => manufacturer.name}
+        })
+
+        ok
+
+      error ->
+        error
+    end
   end
 
   @doc "Updates a manufacturer with the given attributes."
-  def update_manufacturer(%Manufacturer{} = manufacturer, attrs) do
-    manufacturer
-    |> Manufacturer.changeset(attrs)
-    |> repo().update()
+  def update_manufacturer(%Manufacturer{} = manufacturer, attrs, opts \\ []) do
+    case manufacturer |> Manufacturer.changeset(attrs) |> repo().update() do
+      {:ok, updated} = ok ->
+        log_activity(%{
+          action: "manufacturer.updated",
+          mode: "manual",
+          actor_uuid: opts[:actor_uuid],
+          resource_type: "manufacturer",
+          resource_uuid: updated.uuid,
+          metadata: %{"name" => updated.name}
+        })
+
+        ok
+
+      error ->
+        error
+    end
   end
 
   @doc "Hard-deletes a manufacturer from the database."
-  def delete_manufacturer(%Manufacturer{} = manufacturer) do
-    repo().delete(manufacturer)
+  def delete_manufacturer(%Manufacturer{} = manufacturer, opts \\ []) do
+    case repo().delete(manufacturer) do
+      {:ok, _} = ok ->
+        log_activity(%{
+          action: "manufacturer.deleted",
+          mode: "manual",
+          actor_uuid: opts[:actor_uuid],
+          resource_type: "manufacturer",
+          resource_uuid: manufacturer.uuid,
+          metadata: %{"name" => manufacturer.name}
+        })
+
+        ok
+
+      error ->
+        error
+    end
   end
 
   @doc "Returns a changeset for tracking manufacturer changes."
@@ -179,22 +233,63 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
       Catalogue.create_supplier(%{name: "Regional Distributors"})
   """
-  def create_supplier(attrs) do
-    %Supplier{}
-    |> Supplier.changeset(attrs)
-    |> repo().insert()
+  def create_supplier(attrs, opts \\ []) do
+    case %Supplier{} |> Supplier.changeset(attrs) |> repo().insert() do
+      {:ok, supplier} = ok ->
+        log_activity(%{
+          action: "supplier.created",
+          mode: "manual",
+          actor_uuid: opts[:actor_uuid],
+          resource_type: "supplier",
+          resource_uuid: supplier.uuid,
+          metadata: %{"name" => supplier.name}
+        })
+
+        ok
+
+      error ->
+        error
+    end
   end
 
   @doc "Updates a supplier with the given attributes."
-  def update_supplier(%Supplier{} = supplier, attrs) do
-    supplier
-    |> Supplier.changeset(attrs)
-    |> repo().update()
+  def update_supplier(%Supplier{} = supplier, attrs, opts \\ []) do
+    case supplier |> Supplier.changeset(attrs) |> repo().update() do
+      {:ok, updated} = ok ->
+        log_activity(%{
+          action: "supplier.updated",
+          mode: "manual",
+          actor_uuid: opts[:actor_uuid],
+          resource_type: "supplier",
+          resource_uuid: updated.uuid,
+          metadata: %{"name" => updated.name}
+        })
+
+        ok
+
+      error ->
+        error
+    end
   end
 
   @doc "Hard-deletes a supplier from the database."
-  def delete_supplier(%Supplier{} = supplier) do
-    repo().delete(supplier)
+  def delete_supplier(%Supplier{} = supplier, opts \\ []) do
+    case repo().delete(supplier) do
+      {:ok, _} = ok ->
+        log_activity(%{
+          action: "supplier.deleted",
+          mode: "manual",
+          actor_uuid: opts[:actor_uuid],
+          resource_type: "supplier",
+          resource_uuid: supplier.uuid,
+          metadata: %{"name" => supplier.name}
+        })
+
+        ok
+
+      error ->
+        error
+    end
   end
 
   @doc "Returns a changeset for tracking supplier changes."
@@ -283,20 +378,37 @@ defmodule PhoenixKitCatalogue.Catalogue do
   Adds missing links and removes extra ones via set difference.
   Returns `{:ok, :synced}` on success or `{:error, reason}` on the first failure.
   """
-  def sync_manufacturer_suppliers(manufacturer_uuid, supplier_uuids)
+  def sync_manufacturer_suppliers(manufacturer_uuid, supplier_uuids, opts \\ [])
       when is_list(supplier_uuids) do
-    repo().transaction(fn ->
-      current = linked_supplier_uuids(manufacturer_uuid) |> MapSet.new()
-      desired = MapSet.new(supplier_uuids)
+    current = linked_supplier_uuids(manufacturer_uuid) |> MapSet.new()
+    desired = MapSet.new(supplier_uuids)
+    added = MapSet.difference(desired, current)
+    removed = MapSet.difference(current, desired)
 
-      MapSet.difference(desired, current)
-      |> Enum.each(&ok_or_rollback(link_manufacturer_supplier(manufacturer_uuid, &1)))
+    result =
+      repo().transaction(fn ->
+        Enum.each(added, &ok_or_rollback(link_manufacturer_supplier(manufacturer_uuid, &1)))
+        Enum.each(removed, &ok_or_rollback(unlink_manufacturer_supplier(manufacturer_uuid, &1)))
+        :synced
+      end)
 
-      MapSet.difference(current, desired)
-      |> Enum.each(&ok_or_rollback(unlink_manufacturer_supplier(manufacturer_uuid, &1)))
+    with {:ok, :synced} <- result do
+      if MapSet.size(added) > 0 or MapSet.size(removed) > 0 do
+        log_activity(%{
+          action: "manufacturer.suppliers_synced",
+          mode: "manual",
+          actor_uuid: opts[:actor_uuid],
+          resource_type: "manufacturer",
+          resource_uuid: manufacturer_uuid,
+          metadata: %{
+            "added_count" => MapSet.size(added),
+            "removed_count" => MapSet.size(removed)
+          }
+        })
+      end
 
-      :synced
-    end)
+      result
+    end
   end
 
   @doc """
@@ -305,20 +417,37 @@ defmodule PhoenixKitCatalogue.Catalogue do
   Adds missing links and removes extra ones via set difference.
   Returns `{:ok, :synced}` on success or `{:error, reason}` on the first failure.
   """
-  def sync_supplier_manufacturers(supplier_uuid, manufacturer_uuids)
+  def sync_supplier_manufacturers(supplier_uuid, manufacturer_uuids, opts \\ [])
       when is_list(manufacturer_uuids) do
-    repo().transaction(fn ->
-      current = linked_manufacturer_uuids(supplier_uuid) |> MapSet.new()
-      desired = MapSet.new(manufacturer_uuids)
+    current = linked_manufacturer_uuids(supplier_uuid) |> MapSet.new()
+    desired = MapSet.new(manufacturer_uuids)
+    added = MapSet.difference(desired, current)
+    removed = MapSet.difference(current, desired)
 
-      MapSet.difference(desired, current)
-      |> Enum.each(&ok_or_rollback(link_manufacturer_supplier(&1, supplier_uuid)))
+    result =
+      repo().transaction(fn ->
+        Enum.each(added, &ok_or_rollback(link_manufacturer_supplier(&1, supplier_uuid)))
+        Enum.each(removed, &ok_or_rollback(unlink_manufacturer_supplier(&1, supplier_uuid)))
+        :synced
+      end)
 
-      MapSet.difference(current, desired)
-      |> Enum.each(&ok_or_rollback(unlink_manufacturer_supplier(&1, supplier_uuid)))
+    with {:ok, :synced} <- result do
+      if MapSet.size(added) > 0 or MapSet.size(removed) > 0 do
+        log_activity(%{
+          action: "supplier.manufacturers_synced",
+          mode: "manual",
+          actor_uuid: opts[:actor_uuid],
+          resource_type: "supplier",
+          resource_uuid: supplier_uuid,
+          metadata: %{
+            "added_count" => MapSet.size(added),
+            "removed_count" => MapSet.size(removed)
+          }
+        })
+      end
 
-      :synced
-    end)
+      result
+    end
   end
 
   defp ok_or_rollback({:ok, _}), do: :ok
@@ -416,22 +545,63 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
       Catalogue.create_catalogue(%{name: "Kitchen Furniture"})
   """
-  def create_catalogue(attrs) do
-    %Catalogue{}
-    |> Catalogue.changeset(attrs)
-    |> repo().insert()
+  def create_catalogue(attrs, opts \\ []) do
+    case %Catalogue{} |> Catalogue.changeset(attrs) |> repo().insert() do
+      {:ok, catalogue} = ok ->
+        log_activity(%{
+          action: "catalogue.created",
+          mode: "manual",
+          actor_uuid: opts[:actor_uuid],
+          resource_type: "catalogue",
+          resource_uuid: catalogue.uuid,
+          metadata: %{"name" => catalogue.name}
+        })
+
+        ok
+
+      error ->
+        error
+    end
   end
 
   @doc "Updates a catalogue with the given attributes."
-  def update_catalogue(%Catalogue{} = catalogue, attrs) do
-    catalogue
-    |> Catalogue.changeset(attrs)
-    |> repo().update()
+  def update_catalogue(%Catalogue{} = catalogue, attrs, opts \\ []) do
+    case catalogue |> Catalogue.changeset(attrs) |> repo().update() do
+      {:ok, updated} = ok ->
+        log_activity(%{
+          action: "catalogue.updated",
+          mode: "manual",
+          actor_uuid: opts[:actor_uuid],
+          resource_type: "catalogue",
+          resource_uuid: updated.uuid,
+          metadata: %{"name" => updated.name}
+        })
+
+        ok
+
+      error ->
+        error
+    end
   end
 
   @doc "Hard-deletes a catalogue. Prefer `trash_catalogue/1` for soft-delete."
-  def delete_catalogue(%Catalogue{} = catalogue) do
-    repo().delete(catalogue)
+  def delete_catalogue(%Catalogue{} = catalogue, opts \\ []) do
+    case repo().delete(catalogue) do
+      {:ok, _} = ok ->
+        log_activity(%{
+          action: "catalogue.deleted",
+          mode: "manual",
+          actor_uuid: opts[:actor_uuid],
+          resource_type: "catalogue",
+          resource_uuid: catalogue.uuid,
+          metadata: %{"name" => catalogue.name}
+        })
+
+        ok
+
+      error ->
+        error
+    end
   end
 
   @doc """
@@ -446,24 +616,38 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
       {:ok, catalogue} = Catalogue.trash_catalogue(catalogue)
   """
-  def trash_catalogue(%Catalogue{} = catalogue) do
-    repo().transaction(fn ->
-      now = DateTime.utc_now()
+  def trash_catalogue(%Catalogue{} = catalogue, opts \\ []) do
+    result =
+      repo().transaction(fn ->
+        now = DateTime.utc_now()
 
-      from(i in Item,
-        join: c in Category,
-        on: i.category_uuid == c.uuid,
-        where: c.catalogue_uuid == ^catalogue.uuid and i.status != "deleted"
-      )
-      |> repo().update_all(set: [status: "deleted", updated_at: now])
+        from(i in Item,
+          join: c in Category,
+          on: i.category_uuid == c.uuid,
+          where: c.catalogue_uuid == ^catalogue.uuid and i.status != "deleted"
+        )
+        |> repo().update_all(set: [status: "deleted", updated_at: now])
 
-      from(c in Category, where: c.catalogue_uuid == ^catalogue.uuid and c.status != "deleted")
-      |> repo().update_all(set: [status: "deleted", updated_at: now])
+        from(c in Category, where: c.catalogue_uuid == ^catalogue.uuid and c.status != "deleted")
+        |> repo().update_all(set: [status: "deleted", updated_at: now])
 
-      catalogue
-      |> Catalogue.changeset(%{status: "deleted"})
-      |> repo().update!()
-    end)
+        catalogue
+        |> Catalogue.changeset(%{status: "deleted"})
+        |> repo().update!()
+      end)
+
+    with {:ok, updated} <- result do
+      log_activity(%{
+        action: "catalogue.trashed",
+        mode: "manual",
+        actor_uuid: opts[:actor_uuid],
+        resource_type: "catalogue",
+        resource_uuid: catalogue.uuid,
+        metadata: %{"name" => catalogue.name}
+      })
+
+      {:ok, updated}
+    end
   end
 
   @doc """
@@ -478,24 +662,38 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
       {:ok, catalogue} = Catalogue.restore_catalogue(catalogue)
   """
-  def restore_catalogue(%Catalogue{} = catalogue) do
-    repo().transaction(fn ->
-      now = DateTime.utc_now()
+  def restore_catalogue(%Catalogue{} = catalogue, opts \\ []) do
+    result =
+      repo().transaction(fn ->
+        now = DateTime.utc_now()
 
-      from(c in Category, where: c.catalogue_uuid == ^catalogue.uuid and c.status == "deleted")
-      |> repo().update_all(set: [status: "active", updated_at: now])
+        from(c in Category, where: c.catalogue_uuid == ^catalogue.uuid and c.status == "deleted")
+        |> repo().update_all(set: [status: "active", updated_at: now])
 
-      from(i in Item,
-        join: c in Category,
-        on: i.category_uuid == c.uuid,
-        where: c.catalogue_uuid == ^catalogue.uuid and i.status == "deleted"
-      )
-      |> repo().update_all(set: [status: "active", updated_at: now])
+        from(i in Item,
+          join: c in Category,
+          on: i.category_uuid == c.uuid,
+          where: c.catalogue_uuid == ^catalogue.uuid and i.status == "deleted"
+        )
+        |> repo().update_all(set: [status: "active", updated_at: now])
 
-      catalogue
-      |> Catalogue.changeset(%{status: "active"})
-      |> repo().update!()
-    end)
+        catalogue
+        |> Catalogue.changeset(%{status: "active"})
+        |> repo().update!()
+      end)
+
+    with {:ok, updated} <- result do
+      log_activity(%{
+        action: "catalogue.restored",
+        mode: "manual",
+        actor_uuid: opts[:actor_uuid],
+        resource_type: "catalogue",
+        resource_uuid: catalogue.uuid,
+        metadata: %{"name" => catalogue.name}
+      })
+
+      {:ok, updated}
+    end
   end
 
   @doc """
@@ -512,20 +710,34 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
       {:ok, _} = Catalogue.permanently_delete_catalogue(catalogue)
   """
-  def permanently_delete_catalogue(%Catalogue{} = catalogue) do
-    repo().transaction(fn ->
-      from(i in Item,
-        join: c in Category,
-        on: i.category_uuid == c.uuid,
-        where: c.catalogue_uuid == ^catalogue.uuid
-      )
-      |> repo().delete_all()
+  def permanently_delete_catalogue(%Catalogue{} = catalogue, opts \\ []) do
+    result =
+      repo().transaction(fn ->
+        from(i in Item,
+          join: c in Category,
+          on: i.category_uuid == c.uuid,
+          where: c.catalogue_uuid == ^catalogue.uuid
+        )
+        |> repo().delete_all()
 
-      from(c in Category, where: c.catalogue_uuid == ^catalogue.uuid)
-      |> repo().delete_all()
+        from(c in Category, where: c.catalogue_uuid == ^catalogue.uuid)
+        |> repo().delete_all()
 
-      repo().delete!(catalogue)
-    end)
+        repo().delete!(catalogue)
+      end)
+
+    with {:ok, _} <- result do
+      log_activity(%{
+        action: "catalogue.permanently_deleted",
+        mode: "manual",
+        actor_uuid: opts[:actor_uuid],
+        resource_type: "catalogue",
+        resource_uuid: catalogue.uuid,
+        metadata: %{"name" => catalogue.name}
+      })
+
+      result
+    end
   end
 
   @doc "Returns a changeset for tracking catalogue changes."
@@ -591,22 +803,63 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
       Catalogue.create_category(%{name: "Frames", catalogue_uuid: catalogue.uuid})
   """
-  def create_category(attrs) do
-    %Category{}
-    |> Category.changeset(attrs)
-    |> repo().insert()
+  def create_category(attrs, opts \\ []) do
+    case %Category{} |> Category.changeset(attrs) |> repo().insert() do
+      {:ok, category} = ok ->
+        log_activity(%{
+          action: "category.created",
+          mode: "manual",
+          actor_uuid: opts[:actor_uuid],
+          resource_type: "category",
+          resource_uuid: category.uuid,
+          metadata: %{"name" => category.name, "catalogue_uuid" => category.catalogue_uuid}
+        })
+
+        ok
+
+      error ->
+        error
+    end
   end
 
   @doc "Updates a category with the given attributes."
-  def update_category(%Category{} = category, attrs) do
-    category
-    |> Category.changeset(attrs)
-    |> repo().update()
+  def update_category(%Category{} = category, attrs, opts \\ []) do
+    case category |> Category.changeset(attrs) |> repo().update() do
+      {:ok, updated} = ok ->
+        log_activity(%{
+          action: "category.updated",
+          mode: "manual",
+          actor_uuid: opts[:actor_uuid],
+          resource_type: "category",
+          resource_uuid: updated.uuid,
+          metadata: %{"name" => updated.name}
+        })
+
+        ok
+
+      error ->
+        error
+    end
   end
 
   @doc "Hard-deletes a category. Prefer `trash_category/1` for soft-delete."
-  def delete_category(%Category{} = category) do
-    repo().delete(category)
+  def delete_category(%Category{} = category, opts \\ []) do
+    case repo().delete(category) do
+      {:ok, _} = ok ->
+        log_activity(%{
+          action: "category.deleted",
+          mode: "manual",
+          actor_uuid: opts[:actor_uuid],
+          resource_type: "category",
+          resource_uuid: category.uuid,
+          metadata: %{"name" => category.name}
+        })
+
+        ok
+
+      error ->
+        error
+    end
   end
 
   @doc """
@@ -620,15 +873,29 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
       {:ok, _} = Catalogue.trash_category(category)
   """
-  def trash_category(%Category{} = category) do
-    repo().transaction(fn ->
-      from(i in Item, where: i.category_uuid == ^category.uuid and i.status != "deleted")
-      |> repo().update_all(set: [status: "deleted", updated_at: DateTime.utc_now()])
+  def trash_category(%Category{} = category, opts \\ []) do
+    result =
+      repo().transaction(fn ->
+        from(i in Item, where: i.category_uuid == ^category.uuid and i.status != "deleted")
+        |> repo().update_all(set: [status: "deleted", updated_at: DateTime.utc_now()])
 
-      category
-      |> Category.changeset(%{status: "deleted"})
-      |> repo().update!()
-    end)
+        category
+        |> Category.changeset(%{status: "deleted"})
+        |> repo().update!()
+      end)
+
+    with {:ok, updated} <- result do
+      log_activity(%{
+        action: "category.trashed",
+        mode: "manual",
+        actor_uuid: opts[:actor_uuid],
+        resource_type: "category",
+        resource_uuid: category.uuid,
+        metadata: %{"name" => category.name, "catalogue_uuid" => category.catalogue_uuid}
+      })
+
+      {:ok, updated}
+    end
   end
 
   @doc """
@@ -642,23 +909,37 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
       {:ok, _} = Catalogue.restore_category(category)
   """
-  def restore_category(%Category{} = category) do
-    repo().transaction(fn ->
-      case repo().get(Catalogue, category.catalogue_uuid) do
-        %Catalogue{status: "deleted"} = cat ->
-          cat |> Catalogue.changeset(%{status: "active"}) |> repo().update!()
+  def restore_category(%Category{} = category, opts \\ []) do
+    result =
+      repo().transaction(fn ->
+        case repo().get(Catalogue, category.catalogue_uuid) do
+          %Catalogue{status: "deleted"} = cat ->
+            cat |> Catalogue.changeset(%{status: "active"}) |> repo().update!()
 
-        _ ->
-          :ok
-      end
+          _ ->
+            :ok
+        end
 
-      from(i in Item, where: i.category_uuid == ^category.uuid and i.status == "deleted")
-      |> repo().update_all(set: [status: "active", updated_at: DateTime.utc_now()])
+        from(i in Item, where: i.category_uuid == ^category.uuid and i.status == "deleted")
+        |> repo().update_all(set: [status: "active", updated_at: DateTime.utc_now()])
 
-      category
-      |> Category.changeset(%{status: "active"})
-      |> repo().update!()
-    end)
+        category
+        |> Category.changeset(%{status: "active"})
+        |> repo().update!()
+      end)
+
+    with {:ok, updated} <- result do
+      log_activity(%{
+        action: "category.restored",
+        mode: "manual",
+        actor_uuid: opts[:actor_uuid],
+        resource_type: "category",
+        resource_uuid: category.uuid,
+        metadata: %{"name" => category.name, "catalogue_uuid" => category.catalogue_uuid}
+      })
+
+      {:ok, updated}
+    end
   end
 
   @doc """
@@ -667,13 +948,27 @@ defmodule PhoenixKitCatalogue.Catalogue do
   **Cascades downward** in a transaction: hard-deletes all items, then the category.
   This cannot be undone.
   """
-  def permanently_delete_category(%Category{} = category) do
-    repo().transaction(fn ->
-      from(i in Item, where: i.category_uuid == ^category.uuid)
-      |> repo().delete_all()
+  def permanently_delete_category(%Category{} = category, opts \\ []) do
+    result =
+      repo().transaction(fn ->
+        from(i in Item, where: i.category_uuid == ^category.uuid)
+        |> repo().delete_all()
 
-      repo().delete!(category)
-    end)
+        repo().delete!(category)
+      end)
+
+    with {:ok, _} <- result do
+      log_activity(%{
+        action: "category.permanently_deleted",
+        mode: "manual",
+        actor_uuid: opts[:actor_uuid],
+        resource_type: "category",
+        resource_uuid: category.uuid,
+        metadata: %{"name" => category.name, "catalogue_uuid" => category.catalogue_uuid}
+      })
+
+      result
+    end
   end
 
   @doc """
@@ -685,12 +980,32 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
       {:ok, moved} = Catalogue.move_category_to_catalogue(category, target_catalogue_uuid)
   """
-  def move_category_to_catalogue(%Category{} = category, target_catalogue_uuid) do
+  def move_category_to_catalogue(%Category{} = category, target_catalogue_uuid, opts \\ []) do
+    source_catalogue_uuid = category.catalogue_uuid
     next_pos = next_category_position(target_catalogue_uuid)
 
-    category
-    |> Category.changeset(%{catalogue_uuid: target_catalogue_uuid, position: next_pos})
-    |> repo().update()
+    case category
+         |> Category.changeset(%{catalogue_uuid: target_catalogue_uuid, position: next_pos})
+         |> repo().update() do
+      {:ok, moved} = ok ->
+        log_activity(%{
+          action: "category.moved",
+          mode: "manual",
+          actor_uuid: opts[:actor_uuid],
+          resource_type: "category",
+          resource_uuid: moved.uuid,
+          metadata: %{
+            "name" => moved.name,
+            "from_catalogue_uuid" => source_catalogue_uuid,
+            "to_catalogue_uuid" => target_catalogue_uuid
+          }
+        })
+
+        ok
+
+      error ->
+        error
+    end
   end
 
   @doc """
@@ -700,14 +1015,32 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
       {:ok, _} = Catalogue.swap_category_positions(cat_a, cat_b)
   """
-  def swap_category_positions(%Category{} = cat_a, %Category{} = cat_b) do
-    repo().transaction(fn ->
-      pos_a = cat_a.position
-      pos_b = cat_b.position
+  def swap_category_positions(%Category{} = cat_a, %Category{} = cat_b, opts \\ []) do
+    result =
+      repo().transaction(fn ->
+        pos_a = cat_a.position
+        pos_b = cat_b.position
 
-      cat_a |> Category.changeset(%{position: pos_b}) |> repo().update!()
-      cat_b |> Category.changeset(%{position: pos_a}) |> repo().update!()
-    end)
+        cat_a |> Category.changeset(%{position: pos_b}) |> repo().update!()
+        cat_b |> Category.changeset(%{position: pos_a}) |> repo().update!()
+      end)
+
+    with {:ok, _} <- result do
+      log_activity(%{
+        action: "category.positions_swapped",
+        mode: "manual",
+        actor_uuid: opts[:actor_uuid],
+        resource_type: "category",
+        metadata: %{
+          "category_a_uuid" => cat_a.uuid,
+          "category_a_name" => cat_a.name,
+          "category_b_uuid" => cat_b.uuid,
+          "category_b_name" => cat_b.name
+        }
+      })
+
+      result
+    end
   end
 
   @doc "Returns a changeset for tracking category changes."
@@ -878,22 +1211,63 @@ defmodule PhoenixKitCatalogue.Catalogue do
       Catalogue.create_item(%{name: "Oak Panel 18mm", base_price: 25.50, sku: "OAK-18"})
       Catalogue.create_item(%{name: "Hinge", category_uuid: cat.uuid, manufacturer_uuid: m.uuid})
   """
-  def create_item(attrs) do
-    %Item{}
-    |> Item.changeset(attrs)
-    |> repo().insert()
+  def create_item(attrs, opts \\ []) do
+    case %Item{} |> Item.changeset(attrs) |> repo().insert() do
+      {:ok, item} = ok ->
+        log_activity(%{
+          action: "item.created",
+          mode: opts[:mode] || "manual",
+          actor_uuid: opts[:actor_uuid],
+          resource_type: "item",
+          resource_uuid: item.uuid,
+          metadata: %{"name" => item.name, "sku" => item.sku || ""}
+        })
+
+        ok
+
+      error ->
+        error
+    end
   end
 
   @doc "Updates an item with the given attributes."
-  def update_item(%Item{} = item, attrs) do
-    item
-    |> Item.changeset(attrs)
-    |> repo().update()
+  def update_item(%Item{} = item, attrs, opts \\ []) do
+    case item |> Item.changeset(attrs) |> repo().update() do
+      {:ok, updated} = ok ->
+        log_activity(%{
+          action: "item.updated",
+          mode: "manual",
+          actor_uuid: opts[:actor_uuid],
+          resource_type: "item",
+          resource_uuid: updated.uuid,
+          metadata: %{"name" => updated.name, "sku" => updated.sku || ""}
+        })
+
+        ok
+
+      error ->
+        error
+    end
   end
 
   @doc "Hard-deletes an item. Prefer `trash_item/1` for soft-delete."
-  def delete_item(%Item{} = item) do
-    repo().delete(item)
+  def delete_item(%Item{} = item, opts \\ []) do
+    case repo().delete(item) do
+      {:ok, _} = ok ->
+        log_activity(%{
+          action: "item.deleted",
+          mode: "manual",
+          actor_uuid: opts[:actor_uuid],
+          resource_type: "item",
+          resource_uuid: item.uuid,
+          metadata: %{"name" => item.name}
+        })
+
+        ok
+
+      error ->
+        error
+    end
   end
 
   @doc """
@@ -903,10 +1277,23 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
       {:ok, item} = Catalogue.trash_item(item)
   """
-  def trash_item(%Item{} = item) do
-    item
-    |> Item.changeset(%{status: "deleted"})
-    |> repo().update()
+  def trash_item(%Item{} = item, opts \\ []) do
+    case item |> Item.changeset(%{status: "deleted"}) |> repo().update() do
+      {:ok, trashed} = ok ->
+        log_activity(%{
+          action: "item.trashed",
+          mode: "manual",
+          actor_uuid: opts[:actor_uuid],
+          resource_type: "item",
+          resource_uuid: trashed.uuid,
+          metadata: %{"name" => trashed.name}
+        })
+
+        ok
+
+      error ->
+        error
+    end
   end
 
   @doc """
@@ -919,14 +1306,28 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
       {:ok, item} = Catalogue.restore_item(item)
   """
-  def restore_item(%Item{} = item) do
-    repo().transaction(fn ->
-      maybe_restore_parent_hierarchy(item.category_uuid)
+  def restore_item(%Item{} = item, opts \\ []) do
+    result =
+      repo().transaction(fn ->
+        maybe_restore_parent_hierarchy(item.category_uuid)
 
-      item
-      |> Item.changeset(%{status: "active"})
-      |> repo().update!()
-    end)
+        item
+        |> Item.changeset(%{status: "active"})
+        |> repo().update!()
+      end)
+
+    with {:ok, restored} <- result do
+      log_activity(%{
+        action: "item.restored",
+        mode: "manual",
+        actor_uuid: opts[:actor_uuid],
+        resource_type: "item",
+        resource_uuid: restored.uuid,
+        metadata: %{"name" => restored.name}
+      })
+
+      {:ok, restored}
+    end
   end
 
   defp maybe_restore_parent_hierarchy(nil), do: :ok
@@ -959,8 +1360,23 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
       {:ok, _} = Catalogue.permanently_delete_item(item)
   """
-  def permanently_delete_item(%Item{} = item) do
-    repo().delete(item)
+  def permanently_delete_item(%Item{} = item, opts \\ []) do
+    case repo().delete(item) do
+      {:ok, _} = ok ->
+        log_activity(%{
+          action: "item.permanently_deleted",
+          mode: "manual",
+          actor_uuid: opts[:actor_uuid],
+          resource_type: "item",
+          resource_uuid: item.uuid,
+          metadata: %{"name" => item.name}
+        })
+
+        ok
+
+      error ->
+        error
+    end
   end
 
   @doc """
@@ -972,11 +1388,24 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
       {3, nil} = Catalogue.trash_items_in_category(category_uuid)
   """
-  def trash_items_in_category(category_uuid) do
-    from(i in Item,
-      where: i.category_uuid == ^category_uuid and i.status != "deleted"
-    )
-    |> repo().update_all(set: [status: "deleted", updated_at: DateTime.utc_now()])
+  def trash_items_in_category(category_uuid, opts \\ []) do
+    {count, _} =
+      from(i in Item,
+        where: i.category_uuid == ^category_uuid and i.status != "deleted"
+      )
+      |> repo().update_all(set: [status: "deleted", updated_at: DateTime.utc_now()])
+
+    if count > 0 do
+      log_activity(%{
+        action: "item.bulk_trashed",
+        mode: "manual",
+        actor_uuid: opts[:actor_uuid],
+        resource_type: "item",
+        metadata: %{"category_uuid" => category_uuid, "count" => count}
+      })
+    end
+
+    {count, nil}
   end
 
   @doc """
@@ -986,10 +1415,29 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
       {:ok, item} = Catalogue.move_item_to_category(item, new_category_uuid)
   """
-  def move_item_to_category(%Item{} = item, category_uuid) do
-    item
-    |> Item.changeset(%{category_uuid: category_uuid})
-    |> repo().update()
+  def move_item_to_category(%Item{} = item, category_uuid, opts \\ []) do
+    from_category_uuid = item.category_uuid
+
+    case item |> Item.changeset(%{category_uuid: category_uuid}) |> repo().update() do
+      {:ok, moved} = ok ->
+        log_activity(%{
+          action: "item.moved",
+          mode: "manual",
+          actor_uuid: opts[:actor_uuid],
+          resource_type: "item",
+          resource_uuid: moved.uuid,
+          metadata: %{
+            "name" => moved.name,
+            "from_category_uuid" => from_category_uuid,
+            "to_category_uuid" => category_uuid
+          }
+        })
+
+        ok
+
+      error ->
+        error
+    end
   end
 
   @doc "Returns a changeset for tracking item changes."
@@ -1234,14 +1682,21 @@ defmodule PhoenixKitCatalogue.Catalogue do
   For primary language: stores ALL fields.
   For secondary languages: stores only overrides (differences from primary).
 
-  The `update_fn` should be the entity's update function (e.g. `&Catalogue.update_catalogue/2`).
+  The `update_fn` should be the entity's update function. It receives `(record, attrs)` for
+  2-arity or `(record, attrs, opts)` for 3-arity when activity logging opts are provided.
 
   ## Examples
 
       Catalogue.set_translation(catalogue, "ja", %{"_name" => "キッチン"}, &Catalogue.update_catalogue/2)
+      Catalogue.set_translation(catalogue, "ja", %{"_name" => "キッチン"}, &Catalogue.update_catalogue/3, actor_uuid: user.uuid)
   """
-  def set_translation(record, lang_code, field_data, update_fn) do
+  def set_translation(record, lang_code, field_data, update_fn, opts \\ []) do
     new_data = Multilang.put_language_data(record.data || %{}, lang_code, field_data)
-    update_fn.(record, %{data: new_data})
+
+    if opts == [] do
+      update_fn.(record, %{data: new_data})
+    else
+      update_fn.(record, %{data: new_data}, opts)
+    end
   end
 end

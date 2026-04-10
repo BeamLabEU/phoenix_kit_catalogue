@@ -95,11 +95,23 @@ defmodule PhoenixKitCatalogueTest do
         assert tab.parent == main.id
       end
     end
+
+    test "includes events tab with correct properties" do
+      tabs = PhoenixKitCatalogue.admin_tabs()
+      events_tab = Enum.find(tabs, &(&1.id == :admin_catalogue_events))
+
+      assert events_tab != nil
+      assert events_tab.label == "Events"
+      assert events_tab.path == "catalogue/events"
+      assert events_tab.icon == "hero-clock"
+      assert events_tab.parent == :admin_catalogue
+      assert events_tab.live_view == {PhoenixKitCatalogue.Web.EventsLive, :index}
+    end
   end
 
   describe "version/0" do
     test "returns version string" do
-      assert PhoenixKitCatalogue.version() == "0.1.4"
+      assert PhoenixKitCatalogue.version() == "0.1.6"
     end
   end
 

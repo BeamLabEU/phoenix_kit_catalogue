@@ -60,9 +60,28 @@ This is a **PhoenixKit module** that implements the `PhoenixKit.Module` behaviou
 - **Permanent delete** follows same downward cascade but removes from DB
 - All cascading operations wrapped in `Repo.transaction/1`
 
+### Activity Logging
+
+Every mutating operation in `Catalogue` context is logged via `PhoenixKit.Activity.log/1`:
+
+- **Pattern**: Private `log_activity/1` helper guarded by `Code.ensure_loaded?(PhoenixKit.Activity)` with rescue to `Logger.warning`. Activity logging failures never crash the primary operation.
+- **Actor tracking**: All mutating functions accept `opts \\ []` keyword list. Pass `actor_uuid: user.uuid` to attribute the action.
+- **Actions logged**: `manufacturer.created/updated/deleted`, `supplier.created/updated/deleted`, `catalogue.created/updated/deleted/trashed/restored/permanently_deleted`, `category.created/updated/deleted/trashed/restored/permanently_deleted/moved/positions_swapped`, `item.created/updated/deleted/trashed/restored/permanently_deleted/moved/bulk_trashed`, `manufacturer.suppliers_synced`, `supplier.manufacturers_synced`, `import.started`, `import.completed`
+- **Mode**: `"manual"` for user actions, `"auto"` for import-created items/categories
+- **LiveViews**: Extract actor UUID via `actor_opts(socket)` private helper reading `socket.assigns[:phoenix_kit_current_user]`
+
+### Import System
+
+Multi-step file import wizard for bulk item creation from XLSX/CSV files.
+
+- **Parser** (`import/parser.ex`): Format detection, XLSX via `XlsxReader`, CSV with auto-separator detection, BOM stripping
+- **Mapper** (`import/mapper.ex`): Auto-detect column mappings, unit normalization, import plan builder with validation
+- **Executor** (`import/executor.ex`): Two-phase execution (categories then items), progress reporting, language support, actor_uuid threading for activity logs
+- **ImportLive** (`web/import_live.ex`): Upload → sheet select → column mapping → confirm → importing → results. ETS buffering for large files, duplicate detection, multilang support
+
 ### Web Layer
 
-- **Admin** (7 LiveViews): CataloguesLive (index for catalogues/manufacturers/suppliers), CatalogueDetailLive, CatalogueFormLive, CategoryFormLive, ItemFormLive, ManufacturerFormLive, SupplierFormLive
+- **Admin** (9 LiveViews): CataloguesLive (index for catalogues/manufacturers/suppliers), CatalogueDetailLive, CatalogueFormLive, CategoryFormLive, ItemFormLive, ManufacturerFormLive, SupplierFormLive, ImportLive (multi-step import wizard), EventsLive (activity log with infinite scroll)
 - **Components** (`PhoenixKitCatalogue.Web.Components`): Reusable components — `item_table`, `search_input`, `search_results_summary`, `empty_state`, `view_mode_toggle`. All features opt-in via attrs. All text localized via `Gettext.gettext(PhoenixKitWeb.Gettext, ...)`. Components never crash — unknown columns, unloaded associations, nil values, and bad function arguments produce "—" placeholders and Logger warnings.
 - **Routes**: Admin routes auto-generated from `admin_tabs/0`
 - **Paths**: Centralized path helpers in `Paths` module — always use these instead of hardcoding URLs
@@ -76,7 +95,7 @@ This is a **PhoenixKit module** that implements the `PhoenixKit.Module` behaviou
 ```
 lib/phoenix_kit_catalogue.ex                    # Main module (PhoenixKit.Module behaviour)
 lib/phoenix_kit_catalogue/
-├── catalogue.ex                               # Context module (all CRUD, soft-delete, move ops)
+├── catalogue.ex                               # Context module (all CRUD, soft-delete, move ops, activity logging)
 ├── paths.ex                                   # Centralized URL path helpers
 ├── schemas/
 │   ├── cat_catalogue.ex                       # Catalogue schema + changeset
@@ -85,6 +104,10 @@ lib/phoenix_kit_catalogue/
 │   ├── manufacturer.ex                        # Manufacturer schema + changeset
 │   ├── manufacturer_supplier.ex               # Join table schema
 │   └── supplier.ex                            # Supplier schema + changeset
+├── import/
+│   ├── parser.ex                              # XLSX/CSV file parsing
+│   ├── mapper.ex                              # Column mapping + auto-detection
+│   └── executor.ex                            # Import execution with progress reporting
 └── web/
     ├── components.ex                          # Reusable components (item_table, search_input, etc.)
     ├── catalogues_live.ex                     # Index page (catalogues/manufacturers/suppliers)
@@ -93,7 +116,9 @@ lib/phoenix_kit_catalogue/
     ├── category_form_live.ex                  # Create/edit/move category
     ├── item_form_live.ex                      # Create/edit/move item
     ├── manufacturer_form_live.ex              # Create/edit manufacturer + supplier links
-    └── supplier_form_live.ex                  # Create/edit supplier + manufacturer links
+    ├── supplier_form_live.ex                  # Create/edit supplier + manufacturer links
+    ├── import_live.ex                         # Multi-step import wizard
+    └── events_live.ex                         # Activity events feed (infinite scroll)
 ```
 
 ## Critical Conventions
@@ -142,7 +167,11 @@ test/
 │   ├── test_repo.ex                 # PhoenixKitCatalogue.Test.Repo
 │   └── data_case.ex                 # DataCase (sandbox + :integration tag)
 ├── phoenix_kit_catalogue_test.exs   # Module behaviour compliance tests
-└── catalogue_test.exs               # Context integration tests (CRUD, cascade, move)
+├── catalogue_test.exs               # Context integration tests (CRUD, cascade, move)
+└── import/
+    ├── parser_test.exs              # File format detection and parsing
+    ├── mapper_test.exs              # Column mapping and normalization
+    └── executor_test.exs            # Import execution and progress
 ```
 
 Integration tests are automatically excluded when the database is unavailable.
@@ -213,10 +242,19 @@ gh release create 0.1.1 \
 
 PR review files go in `dev_docs/pull_requests/{year}/{pr_number}-{slug}/` directory. Use `{AGENT}_REVIEW.md` naming (e.g., `CLAUDE_REVIEW.md`, `GEMINI_REVIEW.md`). See `dev_docs/pull_requests/README.md` for the detailed template and conventions.
 
+## Pre-commit Commands
+
+Always run before git commit:
+
+```bash
+mix precommit               # compile + format + credo --strict + dialyzer
+```
+
 ## External Dependencies
 
-- **PhoenixKit** (`~> 1.7`) — Module behaviour, Settings API, RepoHelper, Dashboard tabs, Multilang
-- **Phoenix LiveView** (`~> 1.0`) — Admin LiveViews
+- **PhoenixKit** (`~> 1.7`) — Module behaviour, Settings API, RepoHelper, Dashboard tabs, Multilang, Activity
+- **Phoenix LiveView** (`~> 1.1`) — Admin LiveViews
+- **xlsx_reader** (`~> 0.8`) — Excel file parsing for import system
 - **ex_doc** (`~> 0.39`, dev only) — Documentation generation
 - **credo** (`~> 1.7`, dev/test) — Static analysis / code quality
 - **dialyxir** (`~> 1.4`, dev/test) — Static type checking
