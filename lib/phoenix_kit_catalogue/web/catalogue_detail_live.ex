@@ -24,6 +24,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         confirm_delete: nil,
         view_mode: "active",
         deleted_count: 0,
+        active_item_count: 0,
         search_query: "",
         search_results: nil
       )
@@ -283,13 +284,14 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
     mode = view_mode_to_atom(view_mode)
     catalogue = Catalogue.get_catalogue!(uuid, mode: mode)
-    uncategorized = Catalogue.list_uncategorized_items(mode: mode)
+    uncategorized = Catalogue.list_uncategorized_items(uuid, mode: mode)
 
     assign(socket,
       page_title: catalogue.name,
       catalogue: catalogue,
       uncategorized_items: uncategorized,
       deleted_count: deleted_count,
+      active_item_count: Catalogue.item_count_for_catalogue(uuid),
       view_mode: view_mode
     )
   end
@@ -403,7 +405,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               )
             ]}
           >
-            {Gettext.gettext(PhoenixKitWeb.Gettext, "Active")}
+            {Gettext.gettext(PhoenixKitWeb.Gettext, "Active")} ({@active_item_count})
           </button>
           <button
             type="button"
