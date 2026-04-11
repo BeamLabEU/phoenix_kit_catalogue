@@ -568,7 +568,11 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         </.table_default_header>
         <.table_default_body>
           <.table_default_row :for={m <- @manufacturers}>
-            <.table_default_cell class="font-medium">{m.name}</.table_default_cell>
+            <.table_default_cell class="font-medium">
+              <.link navigate={Paths.manufacturer_edit(m.uuid)} class="link link-hover">
+                {m.name}
+              </.link>
+            </.table_default_cell>
             <.table_default_cell class="text-sm text-base-content/60">{m.website}</.table_default_cell>
             <.table_default_cell><.status_badge status={m.status} size={:sm} /></.table_default_cell>
             <.table_default_cell class="text-right whitespace-nowrap">
@@ -619,7 +623,11 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         </.table_default_header>
         <.table_default_body>
           <.table_default_row :for={s <- @suppliers}>
-            <.table_default_cell class="font-medium">{s.name}</.table_default_cell>
+            <.table_default_cell class="font-medium">
+              <.link navigate={Paths.supplier_edit(s.uuid)} class="link link-hover">
+                {s.name}
+              </.link>
+            </.table_default_cell>
             <.table_default_cell class="text-sm text-base-content/60">{s.website}</.table_default_cell>
             <.table_default_cell><.status_badge status={s.status} size={:sm} /></.table_default_cell>
             <.table_default_cell class="text-right whitespace-nowrap">
