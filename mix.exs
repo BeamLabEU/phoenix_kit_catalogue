@@ -47,7 +47,10 @@ defmodule PhoenixKitCatalogue.MixProject do
       {:xlsx_reader, "~> 0.8"},
       {:ex_doc, "~> 0.39", only: :dev, runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
-      {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false}
+      {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
+      # Test-only: LazyHtml parses rendered HTML so Phoenix.LiveViewTest
+      # can assert on LiveView output in `live/2` and friends.
+      {:lazy_html, ">= 0.1.0", only: :test}
     ]
   end
 

@@ -20,6 +20,10 @@ defmodule PhoenixKitCatalogue.Paths do
 
   def import, do: Routes.path("#{@base}/import")
 
+  # ── Events ──────────────────────────────────────────────────────
+
+  def events, do: Routes.path("#{@base}/events")
+
   # ── Manufacturers ────────────────────────────────────────────────
 
   def manufacturers, do: Routes.path("#{@base}/manufacturers")

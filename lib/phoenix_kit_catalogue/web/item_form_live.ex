@@ -41,8 +41,9 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   end
 
   defp load_item(:new, params) do
-    item = %Item{}
-    {item, Catalogue.change_item(item), params["catalogue_uuid"]}
+    catalogue_uuid = params["catalogue_uuid"]
+    item = %Item{catalogue_uuid: catalogue_uuid}
+    {item, Catalogue.change_item(item), catalogue_uuid}
   end
 
   defp load_item(:edit, params) do
@@ -53,8 +54,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
 
       item ->
         item = PhoenixKit.RepoHelper.repo().preload(item, [:category, :manufacturer])
-        catalogue_uuid = if item.category, do: item.category.catalogue_uuid, else: nil
-        {item, Catalogue.change_item(item), catalogue_uuid}
+        {item, Catalogue.change_item(item), item.catalogue_uuid}
     end
   end
 
@@ -88,11 +88,15 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
 
   # If the item's embedded primary language differs from the global primary,
   # start on the item's language tab and flag that the global primary needs filling in.
+  #
+  # Always assigns `needs_primary_translation` and `item_primary_language`
+  # — even when multilang is disabled — so the render path can reference
+  # them unconditionally without crashing on a missing key.
   defp adjust_multilang_for_item(socket, item) do
     if socket.assigns.multilang_enabled do
       check_item_primary_language(socket, item)
     else
-      socket
+      assign(socket, needs_primary_translation: false, item_primary_language: nil)
     end
   end
 
@@ -157,7 +161,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
     target = socket.assigns.move_target
 
     if target do
-      case Catalogue.move_item_to_category(socket.assigns.item, target) do
+      case Catalogue.move_item_to_category(socket.assigns.item, target, actor_opts(socket)) do
         {:ok, item} ->
           {:noreply,
            socket
@@ -177,8 +181,17 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
     end
   end
 
+  defp actor_opts(socket) do
+    case socket.assigns[:phoenix_kit_current_user] do
+      %{uuid: uuid} -> [actor_uuid: uuid]
+      _ -> []
+    end
+  end
+
   defp save_item(socket, :new, params) do
-    case Catalogue.create_item(params) do
+    params = Map.put_new(params, "catalogue_uuid", socket.assigns.catalogue_uuid)
+
+    case Catalogue.create_item(params, actor_opts(socket)) do
       {:ok, item} ->
         {:noreply,
          socket
@@ -201,7 +214,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
         params
       end
 
-    case Catalogue.update_item(socket.assigns.item, params) do
+    case Catalogue.update_item(socket.assigns.item, params, actor_opts(socket)) do
       {:ok, item} ->
         {:noreply,
          socket
@@ -215,14 +228,9 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
 
   defp redirect_target(socket, item) do
     cond do
-      # If the item has a category, resolve catalogue from it
-      item.category_uuid ->
-        case Catalogue.get_category(item.category_uuid) do
-          %{catalogue_uuid: cat_uuid} -> Paths.catalogue_detail(cat_uuid)
-          _ -> Paths.index()
-        end
+      item.catalogue_uuid ->
+        Paths.catalogue_detail(item.catalogue_uuid)
 
-      # Fall back to the catalogue we came from
       socket.assigns.catalogue_uuid ->
         Paths.catalogue_detail(socket.assigns.catalogue_uuid)
 

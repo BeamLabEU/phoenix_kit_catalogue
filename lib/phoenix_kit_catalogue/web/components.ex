@@ -314,7 +314,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
       </.table_default_header>
       <.table_default_body>
         <.table_default_row :for={item <- @items}>
-          <.item_cell :for={col <- @columns} column={col} item={item} markup_percentage={@markup_percentage} catalogue_path={@catalogue_path} />
+          <.item_cell :for={col <- @columns} column={col} item={item} markup_percentage={@markup_percentage} catalogue_path={@catalogue_path} edit_path={@edit_path} />
           <.item_actions
             :if={@has_actions}
             item={item}
@@ -359,7 +359,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
   defp card_field_value(item, :category, _, _), do: safe_assoc_field(item, :category, :name)
 
   defp card_field_value(item, :catalogue, _, _),
-    do: safe_nested_assoc(item, [:category, :catalogue, :name]) || "—"
+    do: safe_assoc_field(item, :catalogue, :name)
 
   defp card_field_value(item, :manufacturer, _, _),
     do: safe_assoc_field(item, :manufacturer, :name)
@@ -399,10 +399,20 @@ defmodule PhoenixKitCatalogue.Web.Components do
   attr(:item, :any, required: true)
   attr(:markup_percentage, :any, default: nil)
   attr(:catalogue_path, :any, default: nil)
+  attr(:edit_path, :any, default: nil)
 
   defp item_cell(%{column: :name} = assigns) do
     ~H"""
-    <.table_default_cell class="font-medium">{@item.name || "—"}</.table_default_cell>
+    <.table_default_cell class="font-medium">
+      <.link
+        :if={@edit_path && @item.uuid}
+        navigate={safe_call(@edit_path, @item.uuid)}
+        class="link link-hover"
+      >
+        {@item.name || "—"}
+      </.link>
+      <span :if={!@edit_path || !@item.uuid}>{@item.name || "—"}</span>
+    </.table_default_cell>
     """
   end
 
@@ -447,19 +457,19 @@ defmodule PhoenixKitCatalogue.Web.Components do
       assign(
         assigns,
         :catalogue_name,
-        safe_nested_assoc(assigns.item, [:category, :catalogue, :name])
+        safe_assoc_field(assigns.item, :catalogue, :name)
       )
 
     ~H"""
     <.table_default_cell class="text-sm">
       <.link
-        :if={@catalogue_name && @catalogue_path}
-        navigate={safe_call(@catalogue_path, safe_nested_assoc(@item, [:category, :catalogue, :uuid]))}
+        :if={@catalogue_name != "—" && @catalogue_path}
+        navigate={safe_call(@catalogue_path, safe_assoc_field(@item, :catalogue, :uuid))}
         class="link link-hover"
       >
         {@catalogue_name}
       </.link>
-      <span :if={!@catalogue_name || !@catalogue_path} class="text-base-content/60">—</span>
+      <span :if={@catalogue_name == "—" || !@catalogue_path} class="text-base-content/60">—</span>
     </.table_default_cell>
     """
   end
@@ -578,15 +588,4 @@ defmodule PhoenixKitCatalogue.Web.Components do
   end
 
   # Safe nested association access — follows a path of keys, returns nil on any miss
-  defp safe_nested_assoc(record, []), do: record
-
-  defp safe_nested_assoc(record, [key | rest]) do
-    case Map.get(record, key) do
-      %{__struct__: Ecto.Association.NotLoaded} -> nil
-      nil -> nil
-      next -> safe_nested_assoc(next, rest)
-    end
-  rescue
-    _ -> nil
-  end
 end

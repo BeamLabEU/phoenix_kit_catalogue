@@ -82,12 +82,22 @@ defmodule PhoenixKitCatalogue.Web.SupplierFormLive do
     save_supplier(socket, socket.assigns.action, params)
   end
 
+  defp actor_opts(socket) do
+    case socket.assigns[:phoenix_kit_current_user] do
+      %{uuid: uuid} -> [actor_uuid: uuid]
+      _ -> []
+    end
+  end
+
   defp save_supplier(socket, :new, params) do
-    case Catalogue.create_supplier(params) do
+    opts = actor_opts(socket)
+
+    case Catalogue.create_supplier(params, opts) do
       {:ok, supplier} ->
         case Catalogue.sync_supplier_manufacturers(
                supplier.uuid,
-               MapSet.to_list(socket.assigns.linked_manufacturer_uuids)
+               MapSet.to_list(socket.assigns.linked_manufacturer_uuids),
+               opts
              ) do
           {:ok, _} ->
             {:noreply,
@@ -114,11 +124,14 @@ defmodule PhoenixKitCatalogue.Web.SupplierFormLive do
   end
 
   defp save_supplier(socket, :edit, params) do
-    case Catalogue.update_supplier(socket.assigns.supplier, params) do
+    opts = actor_opts(socket)
+
+    case Catalogue.update_supplier(socket.assigns.supplier, params, opts) do
       {:ok, supplier} ->
         case Catalogue.sync_supplier_manufacturers(
                supplier.uuid,
-               MapSet.to_list(socket.assigns.linked_manufacturer_uuids)
+               MapSet.to_list(socket.assigns.linked_manufacturer_uuids),
+               opts
              ) do
           {:ok, _} ->
             {:noreply,

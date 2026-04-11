@@ -1,6 +1,14 @@
 defmodule PhoenixKitCatalogueTest do
   use ExUnit.Case
 
+  # Ensure the module is loaded before `function_exported?/3` checks
+  # below — test file order when running the full suite isn't stable,
+  # and `function_exported?/3` returns `false` for unloaded modules.
+  setup_all do
+    Code.ensure_loaded(PhoenixKitCatalogue)
+    :ok
+  end
+
   describe "behaviour implementation" do
     test "implements PhoenixKit.Module" do
       behaviours =
@@ -95,11 +103,120 @@ defmodule PhoenixKitCatalogueTest do
         assert tab.parent == main.id
       end
     end
+
+    test "includes events tab with correct properties" do
+      tabs = PhoenixKitCatalogue.admin_tabs()
+      events_tab = Enum.find(tabs, &(&1.id == :admin_catalogue_events))
+
+      assert events_tab != nil
+      assert events_tab.label == "Events"
+      assert events_tab.path == "catalogue/events"
+      assert events_tab.icon == "hero-clock"
+      assert events_tab.parent == :admin_catalogue
+      assert events_tab.live_view == {PhoenixKitCatalogue.Web.EventsLive, :index}
+    end
+  end
+
+  # Regression: parent "Catalogue" used to be the only tab that
+  # highlighted on catalogue detail/new/edit pages because the hidden
+  # subtabs with literal `:uuid` segments never matched real URLs and
+  # the visible "Catalogues" subtab was `match: :exact`. The visible
+  # subtab now uses a regex that matches every catalogue-owned URL
+  # except the sibling subtab paths.
+  describe "Catalogues subtab path matching" do
+    alias PhoenixKit.Dashboard.Tab
+
+    setup do
+      tabs = PhoenixKitCatalogue.admin_tabs()
+      list_tab = Enum.find(tabs, &(&1.id == :admin_catalogue_list))
+
+      # The registry calls `Tab.resolve_path/2` before storing tabs.
+      # Tests must do the same so `matches_path?/2` sees the
+      # `/admin/...` prefix production uses.
+      {:ok, tab: Tab.resolve_path(list_tab, :admin)}
+    end
+
+    test "matches the bare catalogues index", %{tab: tab} do
+      assert Tab.matches_path?(tab, "/admin/catalogue")
+    end
+
+    test "matches the new-catalogue form", %{tab: tab} do
+      assert Tab.matches_path?(tab, "/admin/catalogue/new")
+    end
+
+    test "matches a catalogue detail page with an actual UUID", %{tab: tab} do
+      assert Tab.matches_path?(
+               tab,
+               "/admin/catalogue/019d1330-c5e0-7caf-b84b-91a4418f67f2"
+             )
+    end
+
+    test "matches a catalogue edit page with an actual UUID", %{tab: tab} do
+      assert Tab.matches_path?(
+               tab,
+               "/admin/catalogue/019d1330-c5e0-7caf-b84b-91a4418f67f2/edit"
+             )
+    end
+
+    test "matches nested item-new and category-new pages", %{tab: tab} do
+      assert Tab.matches_path?(
+               tab,
+               "/admin/catalogue/019d1330-c5e0-7caf-b84b-91a4418f67f2/items/new"
+             )
+
+      assert Tab.matches_path?(
+               tab,
+               "/admin/catalogue/019d1330-c5e0-7caf-b84b-91a4418f67f2/categories/new"
+             )
+    end
+
+    test "matches item-edit and category-edit pages", %{tab: tab} do
+      assert Tab.matches_path?(
+               tab,
+               "/admin/catalogue/items/019d1330-c5e0-7caf-b84b-91a4418f67f2/edit"
+             )
+
+      assert Tab.matches_path?(
+               tab,
+               "/admin/catalogue/categories/019d1330-c5e0-7caf-b84b-91a4418f67f2/edit"
+             )
+    end
+
+    test "does NOT match manufacturer paths (belongs to Manufacturers subtab)", %{tab: tab} do
+      refute Tab.matches_path?(tab, "/admin/catalogue/manufacturers")
+      refute Tab.matches_path?(tab, "/admin/catalogue/manufacturers/new")
+
+      refute Tab.matches_path?(
+               tab,
+               "/admin/catalogue/manufacturers/019d1330-c5e0-7caf-b84b-91a4418f67f2/edit"
+             )
+    end
+
+    test "does NOT match supplier paths (belongs to Suppliers subtab)", %{tab: tab} do
+      refute Tab.matches_path?(tab, "/admin/catalogue/suppliers")
+      refute Tab.matches_path?(tab, "/admin/catalogue/suppliers/new")
+
+      refute Tab.matches_path?(
+               tab,
+               "/admin/catalogue/suppliers/019d1330-c5e0-7caf-b84b-91a4418f67f2/edit"
+             )
+    end
+
+    test "does NOT match import or events paths (belong to their own subtabs)", %{tab: tab} do
+      refute Tab.matches_path?(tab, "/admin/catalogue/import")
+      refute Tab.matches_path?(tab, "/admin/catalogue/events")
+    end
+
+    test "does NOT match completely unrelated paths", %{tab: tab} do
+      refute Tab.matches_path?(tab, "/admin/users")
+      refute Tab.matches_path?(tab, "/admin")
+      refute Tab.matches_path?(tab, "/some-other-route")
+    end
   end
 
   describe "version/0" do
     test "returns version string" do
-      assert PhoenixKitCatalogue.version() == "0.1.4"
+      assert PhoenixKitCatalogue.version() == "0.1.6"
     end
   end
 

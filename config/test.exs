@@ -14,4 +14,16 @@ config :phoenix_kit_catalogue, PhoenixKitCatalogue.Test.Repo,
 # Wire repo for library code that calls PhoenixKit.RepoHelper.repo()
 config :phoenix_kit, repo: PhoenixKitCatalogue.Test.Repo
 
+# Test Endpoint + LiveView for web tests. `phoenix_kit_catalogue` has
+# no endpoint of its own in production — the host app provides one —
+# so this tiny endpoint only exists for `Phoenix.LiveViewTest`.
+config :phoenix_kit_catalogue, PhoenixKitCatalogue.Test.Endpoint,
+  secret_key_base: String.duplicate("t", 64),
+  live_view: [signing_salt: "catalogue-test-salt"],
+  server: false,
+  url: [host: "localhost"],
+  render_errors: [formats: [html: PhoenixKitCatalogue.Test.Layouts]]
+
+config :phoenix, :json_library, Jason
+
 config :logger, level: :warning

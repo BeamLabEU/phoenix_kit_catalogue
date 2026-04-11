@@ -194,20 +194,10 @@ defmodule PhoenixKitCatalogue.Import.Mapper do
 
     import Ecto.Query
 
-    categorized =
+    existing_items =
       PhoenixKitCatalogue.Schemas.Item
-      |> join(:inner, [i], c in PhoenixKitCatalogue.Schemas.Category,
-        on: i.category_uuid == c.uuid
-      )
-      |> where([i, c], c.catalogue_uuid == ^catalogue_uuid and i.status != "deleted")
+      |> where([i], i.catalogue_uuid == ^catalogue_uuid and i.status != "deleted")
       |> PhoenixKit.RepoHelper.repo().all()
-
-    uncategorized =
-      PhoenixKitCatalogue.Schemas.Item
-      |> where([i], is_nil(i.category_uuid) and i.status != "deleted")
-      |> PhoenixKit.RepoHelper.repo().all()
-
-    existing_items = categorized ++ uncategorized
 
     Enum.count(plan.items, fn import_item ->
       Enum.any?(existing_items, fn existing ->

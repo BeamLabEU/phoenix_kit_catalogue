@@ -113,7 +113,7 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
   end
 
   def handle_event("delete_category", _params, socket) do
-    case Catalogue.permanently_delete_category(socket.assigns.category) do
+    case Catalogue.permanently_delete_category(socket.assigns.category, actor_opts(socket)) do
       {:ok, _} ->
         {:noreply,
          socket
@@ -146,7 +146,11 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
     target = socket.assigns.move_target
 
     if target do
-      case Catalogue.move_category_to_catalogue(socket.assigns.category, target) do
+      case Catalogue.move_category_to_catalogue(
+             socket.assigns.category,
+             target,
+             actor_opts(socket)
+           ) do
         {:ok, _} ->
           {:noreply,
            socket
@@ -173,8 +177,15 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
     {:noreply, assign(socket, :confirm_delete_all, false)}
   end
 
+  defp actor_opts(socket) do
+    case socket.assigns[:phoenix_kit_current_user] do
+      %{uuid: uuid} -> [actor_uuid: uuid]
+      _ -> []
+    end
+  end
+
   defp save_category(socket, :new, params) do
-    case Catalogue.create_category(params) do
+    case Catalogue.create_category(params, actor_opts(socket)) do
       {:ok, _} ->
         {:noreply,
          socket
@@ -187,7 +198,7 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
   end
 
   defp save_category(socket, :edit, params) do
-    case Catalogue.update_category(socket.assigns.category, params) do
+    case Catalogue.update_category(socket.assigns.category, params, actor_opts(socket)) do
       {:ok, _} ->
         {:noreply,
          socket

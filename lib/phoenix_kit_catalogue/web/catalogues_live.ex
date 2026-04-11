@@ -27,6 +27,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
      assign(socket,
        page_title: Gettext.gettext(PhoenixKitWeb.Gettext, "Catalogue"),
        catalogues: [],
+       item_counts: %{},
        manufacturers: [],
        suppliers: [],
        confirm_delete: nil,
@@ -63,6 +64,13 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     end
   end
 
+  defp actor_opts(socket) do
+    case socket.assigns[:phoenix_kit_current_user] do
+      %{uuid: uuid} -> [actor_uuid: uuid]
+      _ -> []
+    end
+  end
+
   defp load_data(socket, :index) do
     if connected?(socket) do
       mode = socket.assigns.catalogue_view_mode
@@ -84,6 +92,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
 
       assign(socket,
         catalogues: catalogues,
+        item_counts: Catalogue.item_counts_by_catalogue(),
         deleted_catalogue_count: deleted_count,
         catalogue_view_mode: mode
       )
@@ -118,7 +127,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
 
   def handle_event("trash_catalogue", %{"uuid" => uuid}, socket) do
     with %{} = catalogue <- Catalogue.get_catalogue(uuid),
-         {:ok, _} <- Catalogue.trash_catalogue(catalogue) do
+         {:ok, _} <- Catalogue.trash_catalogue(catalogue, actor_opts(socket)) do
       {:noreply,
        socket
        |> put_flash(:info, Gettext.gettext(PhoenixKitWeb.Gettext, "Catalogue moved to deleted."))
@@ -146,7 +155,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
 
   def handle_event("restore_catalogue", %{"uuid" => uuid}, socket) do
     with %{} = catalogue <- Catalogue.get_catalogue(uuid),
-         {:ok, _} <- Catalogue.restore_catalogue(catalogue) do
+         {:ok, _} <- Catalogue.restore_catalogue(catalogue, actor_opts(socket)) do
       {:noreply,
        socket
        |> put_flash(:info, Gettext.gettext(PhoenixKitWeb.Gettext, "Catalogue restored."))
@@ -180,7 +189,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     {"catalogue", uuid} = confirm_delete!(socket)
 
     with %{} = catalogue <- Catalogue.get_catalogue(uuid),
-         {:ok, _} <- Catalogue.permanently_delete_catalogue(catalogue) do
+         {:ok, _} <- Catalogue.permanently_delete_catalogue(catalogue, actor_opts(socket)) do
       {:noreply,
        socket
        |> put_flash(
@@ -215,7 +224,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     {"manufacturer", uuid} = confirm_delete!(socket)
 
     with %{} = manufacturer <- Catalogue.get_manufacturer(uuid),
-         {:ok, _} <- Catalogue.delete_manufacturer(manufacturer) do
+         {:ok, _} <- Catalogue.delete_manufacturer(manufacturer, actor_opts(socket)) do
       {:noreply,
        assign(socket, manufacturers: Catalogue.list_manufacturers(), confirm_delete: nil)}
     else
@@ -239,7 +248,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     {"supplier", uuid} = confirm_delete!(socket)
 
     with %{} = supplier <- Catalogue.get_supplier(uuid),
-         {:ok, _} <- Catalogue.delete_supplier(supplier) do
+         {:ok, _} <- Catalogue.delete_supplier(supplier, actor_opts(socket)) do
       {:noreply, assign(socket, suppliers: Catalogue.list_suppliers(), confirm_delete: nil)}
     else
       nil ->
@@ -374,7 +383,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
           </button>
         </div>
 
-        <.catalogues_table catalogues={@catalogues} view_mode={@catalogue_view_mode} />
+        <.catalogues_table catalogues={@catalogues} item_counts={@item_counts} view_mode={@catalogue_view_mode} />
       </div>
 
       <div :if={@active_tab == :manufacturers and is_nil(@search_results)}>
@@ -421,6 +430,40 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     """
   end
 
+  defp build_catalogue_card_fields("active", item_counts) do
+    fn c ->
+      [
+        %{
+          label: Gettext.gettext(PhoenixKitWeb.Gettext, "Items"),
+          value: Map.get(item_counts, c.uuid, 0)
+        },
+        %{
+          label: Gettext.gettext(PhoenixKitWeb.Gettext, "Status"),
+          value: String.capitalize(c.status)
+        },
+        %{
+          label: Gettext.gettext(PhoenixKitWeb.Gettext, "Updated"),
+          value: Calendar.strftime(c.updated_at, "%Y-%m-%d %H:%M")
+        }
+      ]
+    end
+  end
+
+  defp build_catalogue_card_fields("deleted", _item_counts) do
+    fn c ->
+      [
+        %{
+          label: Gettext.gettext(PhoenixKitWeb.Gettext, "Status"),
+          value: String.capitalize(c.status)
+        },
+        %{
+          label: Gettext.gettext(PhoenixKitWeb.Gettext, "Updated"),
+          value: Calendar.strftime(c.updated_at, "%Y-%m-%d %H:%M")
+        }
+      ]
+    end
+  end
+
   defp catalogues_table(assigns) do
     ~H"""
     <div :if={@catalogues == []} class="card bg-base-100 shadow">
@@ -435,14 +478,12 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       <.table_default
         variant="zebra" size="sm" toggleable={true}
         id={"catalogues-#{@view_mode}"} items={@catalogues}
-        card_fields={fn c -> [
-          %{label: Gettext.gettext(PhoenixKitWeb.Gettext, "Status"), value: String.capitalize(c.status)},
-          %{label: Gettext.gettext(PhoenixKitWeb.Gettext, "Updated"), value: Calendar.strftime(c.updated_at, "%Y-%m-%d %H:%M")}
-        ] end}
+        card_fields={build_catalogue_card_fields(@view_mode, @item_counts)}
       >
         <.table_default_header>
           <.table_default_row>
             <.table_default_header_cell>{Gettext.gettext(PhoenixKitWeb.Gettext, "Name")}</.table_default_header_cell>
+            <.table_default_header_cell :if={@view_mode == "active"} class="text-right">{Gettext.gettext(PhoenixKitWeb.Gettext, "Items")}</.table_default_header_cell>
             <.table_default_header_cell>{Gettext.gettext(PhoenixKitWeb.Gettext, "Status")}</.table_default_header_cell>
             <.table_default_header_cell>{Gettext.gettext(PhoenixKitWeb.Gettext, "Updated")}</.table_default_header_cell>
             <.table_default_header_cell class="text-right whitespace-nowrap">{Gettext.gettext(PhoenixKitWeb.Gettext, "Actions")}</.table_default_header_cell>
@@ -455,6 +496,9 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
                 {catalogue.name}
               </.link>
               <span :if={@view_mode == "deleted"} class="font-medium text-base-content/50">{catalogue.name}</span>
+            </.table_default_cell>
+            <.table_default_cell :if={@view_mode == "active"} class="text-right tabular-nums">
+              {Map.get(@item_counts, catalogue.uuid, 0)}
             </.table_default_cell>
             <.table_default_cell><.status_badge status={catalogue.status} size={:sm} /></.table_default_cell>
             <.table_default_cell class="text-sm text-base-content/60">
@@ -501,7 +545,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     ~H"""
     <div :if={@manufacturers == []} class="card bg-base-100 shadow">
       <div class="card-body items-center text-center py-12">
-        <p class="text-base-content/60">No manufacturers yet.</p>
+        <p class="text-base-content/60">{Gettext.gettext(PhoenixKitWeb.Gettext, "No manufacturers yet.")}</p>
       </div>
     </div>
 
@@ -524,7 +568,11 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         </.table_default_header>
         <.table_default_body>
           <.table_default_row :for={m <- @manufacturers}>
-            <.table_default_cell class="font-medium">{m.name}</.table_default_cell>
+            <.table_default_cell class="font-medium">
+              <.link navigate={Paths.manufacturer_edit(m.uuid)} class="link link-hover">
+                {m.name}
+              </.link>
+            </.table_default_cell>
             <.table_default_cell class="text-sm text-base-content/60">{m.website}</.table_default_cell>
             <.table_default_cell><.status_badge status={m.status} size={:sm} /></.table_default_cell>
             <.table_default_cell class="text-right whitespace-nowrap">
@@ -552,7 +600,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     ~H"""
     <div :if={@suppliers == []} class="card bg-base-100 shadow">
       <div class="card-body items-center text-center py-12">
-        <p class="text-base-content/60">No suppliers yet.</p>
+        <p class="text-base-content/60">{Gettext.gettext(PhoenixKitWeb.Gettext, "No suppliers yet.")}</p>
       </div>
     </div>
 
@@ -575,7 +623,11 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         </.table_default_header>
         <.table_default_body>
           <.table_default_row :for={s <- @suppliers}>
-            <.table_default_cell class="font-medium">{s.name}</.table_default_cell>
+            <.table_default_cell class="font-medium">
+              <.link navigate={Paths.supplier_edit(s.uuid)} class="link link-hover">
+                {s.name}
+              </.link>
+            </.table_default_cell>
             <.table_default_cell class="text-sm text-base-content/60">{s.website}</.table_default_cell>
             <.table_default_cell><.status_badge status={s.status} size={:sm} /></.table_default_cell>
             <.table_default_cell class="text-right whitespace-nowrap">

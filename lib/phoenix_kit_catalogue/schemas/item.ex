@@ -23,6 +23,12 @@ defmodule PhoenixKitCatalogue.Schemas.Item do
     field(:status, :string, default: "active")
     field(:data, :map, default: %{})
 
+    belongs_to(:catalogue, PhoenixKitCatalogue.Schemas.Catalogue,
+      foreign_key: :catalogue_uuid,
+      references: :uuid,
+      type: UUIDv7
+    )
+
     belongs_to(:category, PhoenixKitCatalogue.Schemas.Category,
       foreign_key: :category_uuid,
       references: :uuid,
@@ -38,7 +44,7 @@ defmodule PhoenixKitCatalogue.Schemas.Item do
     timestamps(type: :utc_datetime)
   end
 
-  @required_fields [:name]
+  @required_fields [:name, :catalogue_uuid]
   @optional_fields [
     :description,
     :sku,
@@ -59,6 +65,8 @@ defmodule PhoenixKitCatalogue.Schemas.Item do
     |> validate_inclusion(:status, @statuses)
     |> validate_inclusion(:unit, @units)
     |> validate_number(:base_price, greater_than_or_equal_to: 0)
+    |> foreign_key_constraint(:catalogue_uuid)
+    |> foreign_key_constraint(:category_uuid)
   end
 
   @doc """
