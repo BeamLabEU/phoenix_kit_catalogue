@@ -88,11 +88,15 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
 
   # If the item's embedded primary language differs from the global primary,
   # start on the item's language tab and flag that the global primary needs filling in.
+  #
+  # Always assigns `needs_primary_translation` and `item_primary_language`
+  # — even when multilang is disabled — so the render path can reference
+  # them unconditionally without crashing on a missing key.
   defp adjust_multilang_for_item(socket, item) do
     if socket.assigns.multilang_enabled do
       check_item_primary_language(socket, item)
     else
-      socket
+      assign(socket, needs_primary_translation: false, item_primary_language: nil)
     end
   end
 
