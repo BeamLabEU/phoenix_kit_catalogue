@@ -324,11 +324,14 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
         language: import_lang
       )
 
+    log_import_started(socket, import_plan)
+
     Task.start(fn ->
       try do
         Executor.execute(import_plan, catalogue_uuid, lv_pid,
           language: import_lang,
-          category_uuid: import_category
+          category_uuid: import_category,
+          actor_uuid: extract_actor_uuid(socket)
         )
       rescue
         e ->
@@ -408,6 +411,7 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
   end
 
   def handle_info({:import_result, result}, socket) do
+    log_import_activity(socket, result)
     {:noreply, assign(socket, step: :done, import_result: result)}
   end
 
@@ -543,9 +547,7 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
   defp maybe_deduplicate(plan, :skip, catalogue_uuid, opts) do
     unique_items = Enum.uniq(plan.items)
 
-    existing_items =
-      Catalogue.list_items_for_catalogue(catalogue_uuid) ++
-        Catalogue.list_uncategorized_items()
+    existing_items = Catalogue.list_items_for_catalogue(catalogue_uuid)
 
     unique_items =
       Enum.reject(unique_items, fn import_item ->
@@ -1252,4 +1254,64 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
     do: Gettext.gettext(PhoenixKitWeb.Gettext, "File type not supported. Use .xlsx or .csv")
 
   defp error_to_string(err), do: inspect(err)
+
+  defp log_import_started(socket, import_plan) do
+    if Code.ensure_loaded?(PhoenixKit.Activity) do
+      catalogue = socket.assigns[:selected_catalogue]
+
+      PhoenixKit.Activity.log(%{
+        action: "import.started",
+        module: "catalogue",
+        mode: "manual",
+        actor_uuid: extract_actor_uuid(socket),
+        resource_type: "catalogue",
+        resource_uuid: catalogue && catalogue.uuid,
+        metadata: %{
+          "catalogue_name" => (catalogue && catalogue.name) || "",
+          "items_planned" => length(import_plan.items || []),
+          "categories_planned" => length(import_plan.categories_to_create || []),
+          "filename" => socket.assigns[:filename] || ""
+        }
+      })
+    end
+  rescue
+    e ->
+      Logger.warning("[Catalogue.Import] Failed to log import.started: #{Exception.message(e)}")
+  end
+
+  defp log_import_activity(socket, result) do
+    if Code.ensure_loaded?(PhoenixKit.Activity) do
+      PhoenixKit.Activity.log(build_import_log(socket, result))
+    end
+  rescue
+    e ->
+      Logger.warning("[Catalogue.Import] Failed to log import.completed: #{Exception.message(e)}")
+  end
+
+  defp build_import_log(socket, result) do
+    catalogue = socket.assigns[:selected_catalogue]
+
+    %{
+      action: "import.completed",
+      module: "catalogue",
+      mode: "manual",
+      actor_uuid: extract_actor_uuid(socket),
+      resource_type: "catalogue",
+      resource_uuid: catalogue && catalogue.uuid,
+      metadata: %{
+        "catalogue_name" => (catalogue && catalogue.name) || "",
+        "items_created" => result[:created] || 0,
+        "categories_created" => result[:categories_created] || 0,
+        "errors" => length(result[:errors] || []),
+        "filename" => socket.assigns[:filename] || ""
+      }
+    }
+  end
+
+  defp extract_actor_uuid(socket) do
+    case socket.assigns[:phoenix_kit_current_user] do
+      %{uuid: uuid} -> uuid
+      _ -> nil
+    end
+  end
 end

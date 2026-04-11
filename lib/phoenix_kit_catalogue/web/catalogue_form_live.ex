@@ -95,7 +95,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
   end
 
   def handle_event("delete_catalogue", _params, socket) do
-    case Catalogue.permanently_delete_catalogue(socket.assigns.catalogue) do
+    case Catalogue.permanently_delete_catalogue(socket.assigns.catalogue, actor_opts(socket)) do
       {:ok, _} ->
         {:noreply,
          socket
@@ -123,8 +123,15 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
     {:noreply, assign(socket, :confirm_delete, false)}
   end
 
+  defp actor_opts(socket) do
+    case socket.assigns[:phoenix_kit_current_user] do
+      %{uuid: uuid} -> [actor_uuid: uuid]
+      _ -> []
+    end
+  end
+
   defp save_catalogue(socket, :new, params) do
-    case Catalogue.create_catalogue(params) do
+    case Catalogue.create_catalogue(params, actor_opts(socket)) do
       {:ok, catalogue} ->
         {:noreply,
          socket
@@ -137,7 +144,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
   end
 
   defp save_catalogue(socket, :edit, params) do
-    case Catalogue.update_catalogue(socket.assigns.catalogue, params) do
+    case Catalogue.update_catalogue(socket.assigns.catalogue, params, actor_opts(socket)) do
       {:ok, catalogue} ->
         {:noreply,
          socket

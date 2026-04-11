@@ -48,21 +48,51 @@ This is a **PhoenixKit module** that implements the `PhoenixKit.Module` behaviou
 
 - **Catalogue** (`phoenix_kit_cat_catalogues`) — top-level groupings with name, description, markup_percentage (default 0%), status (active/archived/deleted)
 - **Category** (`phoenix_kit_cat_categories`) — subdivisions within a catalogue with position ordering, status (active/deleted)
-- **Item** (`phoenix_kit_cat_items`) — individual products with SKU, base_price, unit of measure, manufacturer link, status (active/deleted). Sale price computed via catalogue's markup_percentage
+- **Item** (`phoenix_kit_cat_items`) — individual products with SKU, base_price, unit of measure, manufacturer link, status (active/deleted). **Belongs directly to a catalogue via `catalogue_uuid`** (required), with an optional `category_uuid` for grouping. Items without a category are "uncategorized within a catalogue" — still scoped to that catalogue. Sale price computed via catalogue's markup_percentage
 - **Manufacturer** (`phoenix_kit_cat_manufacturers`) — company directory with name, website, logo, status (active/inactive)
 - **Supplier** (`phoenix_kit_cat_suppliers`) — delivery companies with name, website, status (active/inactive)
 - **ManufacturerSupplier** (`phoenix_kit_cat_manufacturer_suppliers`) — many-to-many join table
 
+### Items and catalogue scoping
+
+- Every item has `catalogue_uuid` (required). The category is the single source of truth for an item's catalogue: whenever `create_item/2` or `update_item/3` receives a `category_uuid`, the private `derive_catalogue_uuid/2` helper sets `catalogue_uuid` from that category's `catalogue_uuid`, **overriding any stale value the caller passed**. This guarantees an item's category and catalogue can never drift out of sync via the context API
+- For `update_item/3`, derivation is evaluated against the *resulting* state: if attrs don't mention `category_uuid`, the item's existing category is used. An update that only changes the item's price/name/etc. leaves `catalogue_uuid` alone
+- An empty-string `category_uuid` from form params is normalized to `nil` (treated as "clear the category")
+- `move_item_to_category/3` updates `catalogue_uuid` when the target category is in a different catalogue. Passing `nil` detaches the item from its category but keeps it in the current catalogue (making it uncategorized *within* that catalogue). Returns `{:error, :category_not_found}` if the target category UUID doesn't exist
+- `move_category_to_catalogue/3` cascades the new `catalogue_uuid` to all items in the moved category (wrapped in a transaction) and logs the cascade count in the `category.moved` activity metadata (`items_cascaded`)
+- `list_uncategorized_items/2` takes a `catalogue_uuid` (no more global pool) and returns items where `category_uuid IS NULL AND catalogue_uuid = ?`
+- All per-catalogue queries (`list_items_for_catalogue`, `item_count_for_catalogue`, `item_counts_by_catalogue`, `deleted_item_count_for_catalogue`, `search_items_in_catalogue`) filter on `items.catalogue_uuid` and include both categorized and uncategorized items
+- Import executor passes `skip_derive: true` to `create_item/2` because it guarantees attrs consistency by construction (it owns the target catalogue and creates or constrains categories within it) — this avoids a per-item category lookup during bulk imports
+
 ### Soft-Delete Cascade System
 
-- **Downward on trash:** catalogue → categories → items
+- **Downward on trash:** catalogue → categories + all items (categorized and uncategorized) in that catalogue
 - **Upward on restore:** item → category → catalogue; category → catalogue + items
-- **Permanent delete** follows same downward cascade but removes from DB
+- **Permanent delete** follows same downward cascade but removes from DB; uncategorized items of the catalogue are removed too
 - All cascading operations wrapped in `Repo.transaction/1`
+
+### Activity Logging
+
+Every mutating operation in `Catalogue` context is logged via `PhoenixKit.Activity.log/1`:
+
+- **Pattern**: Private `log_activity/1` helper guarded by `Code.ensure_loaded?(PhoenixKit.Activity)` with rescue to `Logger.warning`. Activity logging failures never crash the primary operation.
+- **Actor tracking**: All mutating functions accept `opts \\ []` keyword list. Pass `actor_uuid: user.uuid` to attribute the action.
+- **Actions logged**: `manufacturer.created/updated/deleted`, `supplier.created/updated/deleted`, `catalogue.created/updated/deleted/trashed/restored/permanently_deleted`, `category.created/updated/deleted/trashed/restored/permanently_deleted/moved/positions_swapped`, `item.created/updated/deleted/trashed/restored/permanently_deleted/moved/bulk_trashed`, `manufacturer.suppliers_synced`, `supplier.manufacturers_synced`, `import.started`, `import.completed`
+- **Mode**: `"manual"` for user actions, `"auto"` for import-created items/categories
+- **LiveViews**: Extract actor UUID via `actor_opts(socket)` private helper reading `socket.assigns[:phoenix_kit_current_user]`
+
+### Import System
+
+Multi-step file import wizard for bulk item creation from XLSX/CSV files.
+
+- **Parser** (`import/parser.ex`): Format detection, XLSX via `XlsxReader`, CSV with auto-separator detection, BOM stripping
+- **Mapper** (`import/mapper.ex`): Auto-detect column mappings, unit normalization, import plan builder with validation
+- **Executor** (`import/executor.ex`): Two-phase execution (categories then items), progress reporting, language support, actor_uuid threading for activity logs
+- **ImportLive** (`web/import_live.ex`): Upload → sheet select → column mapping → confirm → importing → results. ETS buffering for large files, duplicate detection, multilang support
 
 ### Web Layer
 
-- **Admin** (7 LiveViews): CataloguesLive (index for catalogues/manufacturers/suppliers), CatalogueDetailLive, CatalogueFormLive, CategoryFormLive, ItemFormLive, ManufacturerFormLive, SupplierFormLive
+- **Admin** (9 LiveViews): CataloguesLive (index for catalogues/manufacturers/suppliers), CatalogueDetailLive, CatalogueFormLive, CategoryFormLive, ItemFormLive, ManufacturerFormLive, SupplierFormLive, ImportLive (multi-step import wizard), EventsLive (activity log with infinite scroll)
 - **Components** (`PhoenixKitCatalogue.Web.Components`): Reusable components — `item_table`, `search_input`, `search_results_summary`, `empty_state`, `view_mode_toggle`. All features opt-in via attrs. All text localized via `Gettext.gettext(PhoenixKitWeb.Gettext, ...)`. Components never crash — unknown columns, unloaded associations, nil values, and bad function arguments produce "—" placeholders and Logger warnings.
 - **Routes**: Admin routes auto-generated from `admin_tabs/0`
 - **Paths**: Centralized path helpers in `Paths` module — always use these instead of hardcoding URLs
@@ -76,7 +106,7 @@ This is a **PhoenixKit module** that implements the `PhoenixKit.Module` behaviou
 ```
 lib/phoenix_kit_catalogue.ex                    # Main module (PhoenixKit.Module behaviour)
 lib/phoenix_kit_catalogue/
-├── catalogue.ex                               # Context module (all CRUD, soft-delete, move ops)
+├── catalogue.ex                               # Context module (all CRUD, soft-delete, move ops, activity logging)
 ├── paths.ex                                   # Centralized URL path helpers
 ├── schemas/
 │   ├── cat_catalogue.ex                       # Catalogue schema + changeset
@@ -85,6 +115,10 @@ lib/phoenix_kit_catalogue/
 │   ├── manufacturer.ex                        # Manufacturer schema + changeset
 │   ├── manufacturer_supplier.ex               # Join table schema
 │   └── supplier.ex                            # Supplier schema + changeset
+├── import/
+│   ├── parser.ex                              # XLSX/CSV file parsing
+│   ├── mapper.ex                              # Column mapping + auto-detection
+│   └── executor.ex                            # Import execution with progress reporting
 └── web/
     ├── components.ex                          # Reusable components (item_table, search_input, etc.)
     ├── catalogues_live.ex                     # Index page (catalogues/manufacturers/suppliers)
@@ -93,7 +127,9 @@ lib/phoenix_kit_catalogue/
     ├── category_form_live.ex                  # Create/edit/move category
     ├── item_form_live.ex                      # Create/edit/move item
     ├── manufacturer_form_live.ex              # Create/edit manufacturer + supplier links
-    └── supplier_form_live.ex                  # Create/edit supplier + manufacturer links
+    ├── supplier_form_live.ex                  # Create/edit supplier + manufacturer links
+    ├── import_live.ex                         # Multi-step import wizard
+    └── events_live.ex                         # Activity events feed (infinite scroll)
 ```
 
 ## Critical Conventions
@@ -142,7 +178,11 @@ test/
 │   ├── test_repo.ex                 # PhoenixKitCatalogue.Test.Repo
 │   └── data_case.ex                 # DataCase (sandbox + :integration tag)
 ├── phoenix_kit_catalogue_test.exs   # Module behaviour compliance tests
-└── catalogue_test.exs               # Context integration tests (CRUD, cascade, move)
+├── catalogue_test.exs               # Context integration tests (CRUD, cascade, move)
+└── import/
+    ├── parser_test.exs              # File format detection and parsing
+    ├── mapper_test.exs              # Column mapping and normalization
+    └── executor_test.exs            # Import execution and progress
 ```
 
 Integration tests are automatically excluded when the database is unavailable.
@@ -213,10 +253,19 @@ gh release create 0.1.1 \
 
 PR review files go in `dev_docs/pull_requests/{year}/{pr_number}-{slug}/` directory. Use `{AGENT}_REVIEW.md` naming (e.g., `CLAUDE_REVIEW.md`, `GEMINI_REVIEW.md`). See `dev_docs/pull_requests/README.md` for the detailed template and conventions.
 
+## Pre-commit Commands
+
+Always run before git commit:
+
+```bash
+mix precommit               # compile + format + credo --strict + dialyzer
+```
+
 ## External Dependencies
 
-- **PhoenixKit** (`~> 1.7`) — Module behaviour, Settings API, RepoHelper, Dashboard tabs, Multilang
-- **Phoenix LiveView** (`~> 1.0`) — Admin LiveViews
+- **PhoenixKit** (`~> 1.7`) — Module behaviour, Settings API, RepoHelper, Dashboard tabs, Multilang, Activity
+- **Phoenix LiveView** (`~> 1.1`) — Admin LiveViews
+- **xlsx_reader** (`~> 0.8`) — Excel file parsing for import system
 - **ex_doc** (`~> 0.39`, dev only) — Documentation generation
 - **credo** (`~> 1.7`, dev/test) — Static analysis / code quality
 - **dialyxir** (`~> 1.4`, dev/test) — Static type checking

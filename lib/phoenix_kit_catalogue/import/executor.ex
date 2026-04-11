@@ -29,13 +29,14 @@ defmodule PhoenixKitCatalogue.Import.Executor do
   def execute(import_plan, catalogue_uuid, notify_pid, opts \\ []) do
     language = Keyword.get(opts, :language)
     fixed_category_uuid = Keyword.get(opts, :category_uuid)
+    activity_opts = build_activity_opts(opts)
 
     # Phase 1: Create categories (only if no fixed category)
     {category_lookup, categories_created} =
       if fixed_category_uuid do
         {%{}, 0}
       else
-        create_categories(import_plan.categories_to_create, catalogue_uuid)
+        create_categories(import_plan.categories_to_create, catalogue_uuid, activity_opts)
       end
 
     # Phase 2: Create items
@@ -47,10 +48,11 @@ defmodule PhoenixKitCatalogue.Import.Executor do
       |> Enum.reduce({0, []}, fn {item_attrs, idx}, {cr, errs} ->
         attrs =
           item_attrs
+          |> Map.put(:catalogue_uuid, catalogue_uuid)
           |> resolve_category(category_lookup, fixed_category_uuid)
           |> apply_language(language)
 
-        result = insert_item(attrs)
+        result = insert_item(attrs, activity_opts)
 
         send(notify_pid, {:import_progress, idx, total})
 
@@ -73,7 +75,7 @@ defmodule PhoenixKitCatalogue.Import.Executor do
 
   # ── Category Creation ─────────────────────────────────────────
 
-  defp create_categories(category_names, catalogue_uuid) do
+  defp create_categories(category_names, catalogue_uuid, activity_opts) do
     # Load existing categories for this catalogue
     existing =
       Catalogue.list_categories_for_catalogue(catalogue_uuid)
@@ -83,19 +85,18 @@ defmodule PhoenixKitCatalogue.Import.Executor do
       if Map.has_key?(lookup, name) do
         {lookup, count}
       else
-        get_or_create_category(name, catalogue_uuid, lookup, count)
+        get_or_create_category(name, catalogue_uuid, lookup, count, activity_opts)
       end
     end)
   end
 
-  defp get_or_create_category(name, catalogue_uuid, lookup, count) do
+  defp get_or_create_category(name, catalogue_uuid, lookup, count, activity_opts) do
     position = Catalogue.next_category_position(catalogue_uuid)
 
-    case Catalogue.create_category(%{
-           name: name,
-           catalogue_uuid: catalogue_uuid,
-           position: position
-         }) do
+    case Catalogue.create_category(
+           %{name: name, catalogue_uuid: catalogue_uuid, position: position},
+           activity_opts
+         ) do
       {:ok, category} ->
         {Map.put(lookup, name, category.uuid), count + 1}
 
@@ -139,8 +140,13 @@ defmodule PhoenixKitCatalogue.Import.Executor do
 
   # ── Item Insertion ────────────────────────────────────────────
 
-  defp insert_item(attrs) do
-    case Catalogue.create_item(attrs) do
+  # We pass `:skip_derive` because the executor already guarantees attrs
+  # consistency: `catalogue_uuid` is the import target, and `category_uuid`
+  # (if set) was either just created inside that catalogue or was picked
+  # from a UI dropdown restricted to it. Skipping derivation avoids one DB
+  # lookup per imported item.
+  defp insert_item(attrs, activity_opts) do
+    case Catalogue.create_item(attrs, [skip_derive: true] ++ activity_opts) do
       {:ok, _item} ->
         {:ok, :created}
 
@@ -161,6 +167,13 @@ defmodule PhoenixKitCatalogue.Import.Executor do
   end
 
   # ── Helpers ───────────────────────────────────────────────────
+
+  defp build_activity_opts(opts) do
+    case Keyword.get(opts, :actor_uuid) do
+      nil -> [mode: "auto"]
+      uuid -> [actor_uuid: uuid, mode: "auto"]
+    end
+  end
 
   defp resolve_category(attrs, _category_lookup, fixed_uuid) when is_binary(fixed_uuid) do
     attrs
