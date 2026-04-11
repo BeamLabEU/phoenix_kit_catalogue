@@ -1,3 +1,17 @@
+## 0.1.7 - 2026-04-11
+
+### Added
+- Items belong directly to catalogues via catalogue_uuid FK (requires phoenix_kit 1.7.95+)
+- Infinite scroll on catalogue detail page with cursor-based pagination
+- Activity logging with Events tab (actor tracking on all mutations)
+- Item counts on catalogue list view
+- Clickable entity names (manufacturers, suppliers)
+- Comprehensive test suite: LiveCase, LiveView tests, schema tests
+
+### Changed
+- Removed safe_nested_assoc/2 in favour of direct catalogue association on items
+- Category and item mutations now accept actor_uuid for activity logging
+
 ## 0.1.6 - 2026-04-09
 
 ### Added
