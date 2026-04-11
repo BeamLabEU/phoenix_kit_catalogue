@@ -1,6 +1,14 @@
 defmodule PhoenixKitCatalogueTest do
   use ExUnit.Case
 
+  # Ensure the module is loaded before `function_exported?/3` checks
+  # below — test file order when running the full suite isn't stable,
+  # and `function_exported?/3` returns `false` for unloaded modules.
+  setup_all do
+    Code.ensure_loaded(PhoenixKitCatalogue)
+    :ok
+  end
+
   describe "behaviour implementation" do
     test "implements PhoenixKit.Module" do
       behaviours =

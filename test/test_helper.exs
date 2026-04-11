@@ -79,4 +79,15 @@ Application.put_env(:phoenix_kit_catalogue, :test_repo_available, repo_available
 # Exclude integration tests when DB is not available
 exclude = if repo_available, do: [], else: [:integration]
 
+# Force PhoenixKit's URL prefix cache to an empty string for tests so
+# `Paths.index()` etc. produce paths the test router can match. Admin
+# paths always get the default locale ("en") prefix, so our router
+# scope is `/en/admin/catalogue`.
+:persistent_term.put({PhoenixKit.Config, :url_prefix}, "/")
+
+# Start the test Endpoint so Phoenix.LiveViewTest can drive our
+# LiveViews via `live/2` with real URLs. Runs with `server: false`, so
+# no port is opened.
+{:ok, _} = PhoenixKitCatalogue.Test.Endpoint.start_link()
+
 ExUnit.start(exclude: exclude)
