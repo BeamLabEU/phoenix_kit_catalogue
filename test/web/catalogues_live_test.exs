@@ -152,6 +152,35 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
   # Catalogue mutations
   # ─────────────────────────────────────────────────────────────────
 
+  describe "clickable names" do
+    test "catalogue name in the table view is a link to its detail page", %{conn: conn} do
+      catalogue = fixture_catalogue(%{name: "Clickable"})
+
+      {:ok, _view, html} = live(conn, @base)
+
+      expected_href = "/en/admin/catalogue/#{catalogue.uuid}"
+      assert html =~ ~s(href="#{expected_href}")
+    end
+
+    test "manufacturer name in the table view is a link to its edit page", %{conn: conn} do
+      m = fixture_manufacturer(%{name: "Clickable mfg"})
+
+      {:ok, _view, html} = live(conn, "#{@base}/manufacturers")
+
+      expected_href = "/en/admin/catalogue/manufacturers/#{m.uuid}/edit"
+      assert html =~ ~s(href="#{expected_href}")
+    end
+
+    test "supplier name in the table view is a link to its edit page", %{conn: conn} do
+      s = fixture_supplier(%{name: "Clickable sup"})
+
+      {:ok, _view, html} = live(conn, "#{@base}/suppliers")
+
+      expected_href = "/en/admin/catalogue/suppliers/#{s.uuid}/edit"
+      assert html =~ ~s(href="#{expected_href}")
+    end
+  end
+
   describe "catalogue mutations" do
     test "trash_catalogue removes the catalogue from the active view", %{conn: conn} do
       catalogue = fixture_catalogue(%{name: "Goner"})
