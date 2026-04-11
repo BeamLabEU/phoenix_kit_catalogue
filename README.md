@@ -115,7 +115,7 @@ Catalogue.list_items()                             # all non-deleted, preloads a
 Catalogue.list_items(status: "active", limit: 100) # with filters
 Catalogue.list_items_for_category(cat_uuid)        # excludes deleted
 Catalogue.list_items_for_catalogue(cat_uuid)       # excludes deleted
-Catalogue.create_item(%{name: "Oak Panel", base_price: 25.50, sku: "OAK-18"})
+Catalogue.create_item(%{name: "Oak Panel", base_price: 25.50, sku: "OAK-18", catalogue_uuid: cat.uuid})
 Catalogue.trash_item(item)                         # soft-delete
 Catalogue.restore_item(item)                       # cascades up to category + catalogue
 Catalogue.permanently_delete_item(item)            # hard-delete

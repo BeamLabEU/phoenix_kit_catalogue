@@ -41,8 +41,9 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   end
 
   defp load_item(:new, params) do
-    item = %Item{}
-    {item, Catalogue.change_item(item), params["catalogue_uuid"]}
+    catalogue_uuid = params["catalogue_uuid"]
+    item = %Item{catalogue_uuid: catalogue_uuid}
+    {item, Catalogue.change_item(item), catalogue_uuid}
   end
 
   defp load_item(:edit, params) do
@@ -53,8 +54,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
 
       item ->
         item = PhoenixKit.RepoHelper.repo().preload(item, [:category, :manufacturer])
-        catalogue_uuid = if item.category, do: item.category.catalogue_uuid, else: nil
-        {item, Catalogue.change_item(item), catalogue_uuid}
+        {item, Catalogue.change_item(item), item.catalogue_uuid}
     end
   end
 
@@ -185,6 +185,8 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   end
 
   defp save_item(socket, :new, params) do
+    params = Map.put_new(params, "catalogue_uuid", socket.assigns.catalogue_uuid)
+
     case Catalogue.create_item(params, actor_opts(socket)) do
       {:ok, item} ->
         {:noreply,
@@ -222,14 +224,9 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
 
   defp redirect_target(socket, item) do
     cond do
-      # If the item has a category, resolve catalogue from it
-      item.category_uuid ->
-        case Catalogue.get_category(item.category_uuid) do
-          %{catalogue_uuid: cat_uuid} -> Paths.catalogue_detail(cat_uuid)
-          _ -> Paths.index()
-        end
+      item.catalogue_uuid ->
+        Paths.catalogue_detail(item.catalogue_uuid)
 
-      # Fall back to the catalogue we came from
       socket.assigns.catalogue_uuid ->
         Paths.catalogue_detail(socket.assigns.catalogue_uuid)
 

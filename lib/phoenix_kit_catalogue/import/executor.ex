@@ -48,6 +48,7 @@ defmodule PhoenixKitCatalogue.Import.Executor do
       |> Enum.reduce({0, []}, fn {item_attrs, idx}, {cr, errs} ->
         attrs =
           item_attrs
+          |> Map.put(:catalogue_uuid, catalogue_uuid)
           |> resolve_category(category_lookup, fixed_category_uuid)
           |> apply_language(language)
 
@@ -139,8 +140,13 @@ defmodule PhoenixKitCatalogue.Import.Executor do
 
   # ── Item Insertion ────────────────────────────────────────────
 
+  # We pass `:skip_derive` because the executor already guarantees attrs
+  # consistency: `catalogue_uuid` is the import target, and `category_uuid`
+  # (if set) was either just created inside that catalogue or was picked
+  # from a UI dropdown restricted to it. Skipping derivation avoids one DB
+  # lookup per imported item.
   defp insert_item(attrs, activity_opts) do
-    case Catalogue.create_item(attrs, activity_opts) do
+    case Catalogue.create_item(attrs, [skip_derive: true] ++ activity_opts) do
       {:ok, _item} ->
         {:ok, :created}
 

@@ -110,6 +110,15 @@ defmodule PhoenixKitCatalogue.Test.Repo.Migrations.CatalogueSetup do
       add(:status, :string, null: false, default: "active")
 
       add(
+        :catalogue_uuid,
+        references(:phoenix_kit_cat_catalogues,
+          column: :uuid,
+          type: :binary_id,
+          on_delete: :nilify_all
+        )
+      )
+
+      add(
         :category_uuid,
         references(:phoenix_kit_cat_categories,
           column: :uuid,
@@ -132,6 +141,8 @@ defmodule PhoenixKitCatalogue.Test.Repo.Migrations.CatalogueSetup do
     end
 
     create_if_not_exists(index(:phoenix_kit_cat_items, [:sku]))
+    create_if_not_exists(index(:phoenix_kit_cat_items, [:catalogue_uuid]))
+    create_if_not_exists(index(:phoenix_kit_cat_items, [:catalogue_uuid, :status]))
     create_if_not_exists(index(:phoenix_kit_cat_items, [:category_uuid]))
     create_if_not_exists(index(:phoenix_kit_cat_items, [:manufacturer_uuid]))
     create_if_not_exists(index(:phoenix_kit_cat_items, [:status]))

@@ -27,6 +27,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
      assign(socket,
        page_title: Gettext.gettext(PhoenixKitWeb.Gettext, "Catalogue"),
        catalogues: [],
+       item_counts: %{},
        manufacturers: [],
        suppliers: [],
        confirm_delete: nil,
@@ -91,6 +92,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
 
       assign(socket,
         catalogues: catalogues,
+        item_counts: Catalogue.item_counts_by_catalogue(),
         deleted_catalogue_count: deleted_count,
         catalogue_view_mode: mode
       )
@@ -381,7 +383,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
           </button>
         </div>
 
-        <.catalogues_table catalogues={@catalogues} view_mode={@catalogue_view_mode} />
+        <.catalogues_table catalogues={@catalogues} item_counts={@item_counts} view_mode={@catalogue_view_mode} />
       </div>
 
       <div :if={@active_tab == :manufacturers and is_nil(@search_results)}>
@@ -428,6 +430,40 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     """
   end
 
+  defp build_catalogue_card_fields("active", item_counts) do
+    fn c ->
+      [
+        %{
+          label: Gettext.gettext(PhoenixKitWeb.Gettext, "Items"),
+          value: Map.get(item_counts, c.uuid, 0)
+        },
+        %{
+          label: Gettext.gettext(PhoenixKitWeb.Gettext, "Status"),
+          value: String.capitalize(c.status)
+        },
+        %{
+          label: Gettext.gettext(PhoenixKitWeb.Gettext, "Updated"),
+          value: Calendar.strftime(c.updated_at, "%Y-%m-%d %H:%M")
+        }
+      ]
+    end
+  end
+
+  defp build_catalogue_card_fields("deleted", _item_counts) do
+    fn c ->
+      [
+        %{
+          label: Gettext.gettext(PhoenixKitWeb.Gettext, "Status"),
+          value: String.capitalize(c.status)
+        },
+        %{
+          label: Gettext.gettext(PhoenixKitWeb.Gettext, "Updated"),
+          value: Calendar.strftime(c.updated_at, "%Y-%m-%d %H:%M")
+        }
+      ]
+    end
+  end
+
   defp catalogues_table(assigns) do
     ~H"""
     <div :if={@catalogues == []} class="card bg-base-100 shadow">
@@ -442,14 +478,12 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       <.table_default
         variant="zebra" size="sm" toggleable={true}
         id={"catalogues-#{@view_mode}"} items={@catalogues}
-        card_fields={fn c -> [
-          %{label: Gettext.gettext(PhoenixKitWeb.Gettext, "Status"), value: String.capitalize(c.status)},
-          %{label: Gettext.gettext(PhoenixKitWeb.Gettext, "Updated"), value: Calendar.strftime(c.updated_at, "%Y-%m-%d %H:%M")}
-        ] end}
+        card_fields={build_catalogue_card_fields(@view_mode, @item_counts)}
       >
         <.table_default_header>
           <.table_default_row>
             <.table_default_header_cell>{Gettext.gettext(PhoenixKitWeb.Gettext, "Name")}</.table_default_header_cell>
+            <.table_default_header_cell :if={@view_mode == "active"} class="text-right">{Gettext.gettext(PhoenixKitWeb.Gettext, "Items")}</.table_default_header_cell>
             <.table_default_header_cell>{Gettext.gettext(PhoenixKitWeb.Gettext, "Status")}</.table_default_header_cell>
             <.table_default_header_cell>{Gettext.gettext(PhoenixKitWeb.Gettext, "Updated")}</.table_default_header_cell>
             <.table_default_header_cell class="text-right whitespace-nowrap">{Gettext.gettext(PhoenixKitWeb.Gettext, "Actions")}</.table_default_header_cell>
@@ -462,6 +496,9 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
                 {catalogue.name}
               </.link>
               <span :if={@view_mode == "deleted"} class="font-medium text-base-content/50">{catalogue.name}</span>
+            </.table_default_cell>
+            <.table_default_cell :if={@view_mode == "active"} class="text-right tabular-nums">
+              {Map.get(@item_counts, catalogue.uuid, 0)}
             </.table_default_cell>
             <.table_default_cell><.status_badge status={catalogue.status} size={:sm} /></.table_default_cell>
             <.table_default_cell class="text-sm text-base-content/60">
@@ -508,7 +545,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     ~H"""
     <div :if={@manufacturers == []} class="card bg-base-100 shadow">
       <div class="card-body items-center text-center py-12">
-        <p class="text-base-content/60">No manufacturers yet.</p>
+        <p class="text-base-content/60">{Gettext.gettext(PhoenixKitWeb.Gettext, "No manufacturers yet.")}</p>
       </div>
     </div>
 
@@ -559,7 +596,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     ~H"""
     <div :if={@suppliers == []} class="card bg-base-100 shadow">
       <div class="card-body items-center text-center py-12">
-        <p class="text-base-content/60">No suppliers yet.</p>
+        <p class="text-base-content/60">{Gettext.gettext(PhoenixKitWeb.Gettext, "No suppliers yet.")}</p>
       </div>
     </div>
 

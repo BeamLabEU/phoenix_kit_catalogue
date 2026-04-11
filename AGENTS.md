@@ -48,16 +48,27 @@ This is a **PhoenixKit module** that implements the `PhoenixKit.Module` behaviou
 
 - **Catalogue** (`phoenix_kit_cat_catalogues`) — top-level groupings with name, description, markup_percentage (default 0%), status (active/archived/deleted)
 - **Category** (`phoenix_kit_cat_categories`) — subdivisions within a catalogue with position ordering, status (active/deleted)
-- **Item** (`phoenix_kit_cat_items`) — individual products with SKU, base_price, unit of measure, manufacturer link, status (active/deleted). Sale price computed via catalogue's markup_percentage
+- **Item** (`phoenix_kit_cat_items`) — individual products with SKU, base_price, unit of measure, manufacturer link, status (active/deleted). **Belongs directly to a catalogue via `catalogue_uuid`** (required), with an optional `category_uuid` for grouping. Items without a category are "uncategorized within a catalogue" — still scoped to that catalogue. Sale price computed via catalogue's markup_percentage
 - **Manufacturer** (`phoenix_kit_cat_manufacturers`) — company directory with name, website, logo, status (active/inactive)
 - **Supplier** (`phoenix_kit_cat_suppliers`) — delivery companies with name, website, status (active/inactive)
 - **ManufacturerSupplier** (`phoenix_kit_cat_manufacturer_suppliers`) — many-to-many join table
 
+### Items and catalogue scoping
+
+- Every item has `catalogue_uuid` (required). The category is the single source of truth for an item's catalogue: whenever `create_item/2` or `update_item/3` receives a `category_uuid`, the private `derive_catalogue_uuid/2` helper sets `catalogue_uuid` from that category's `catalogue_uuid`, **overriding any stale value the caller passed**. This guarantees an item's category and catalogue can never drift out of sync via the context API
+- For `update_item/3`, derivation is evaluated against the *resulting* state: if attrs don't mention `category_uuid`, the item's existing category is used. An update that only changes the item's price/name/etc. leaves `catalogue_uuid` alone
+- An empty-string `category_uuid` from form params is normalized to `nil` (treated as "clear the category")
+- `move_item_to_category/3` updates `catalogue_uuid` when the target category is in a different catalogue. Passing `nil` detaches the item from its category but keeps it in the current catalogue (making it uncategorized *within* that catalogue). Returns `{:error, :category_not_found}` if the target category UUID doesn't exist
+- `move_category_to_catalogue/3` cascades the new `catalogue_uuid` to all items in the moved category (wrapped in a transaction) and logs the cascade count in the `category.moved` activity metadata (`items_cascaded`)
+- `list_uncategorized_items/2` takes a `catalogue_uuid` (no more global pool) and returns items where `category_uuid IS NULL AND catalogue_uuid = ?`
+- All per-catalogue queries (`list_items_for_catalogue`, `item_count_for_catalogue`, `item_counts_by_catalogue`, `deleted_item_count_for_catalogue`, `search_items_in_catalogue`) filter on `items.catalogue_uuid` and include both categorized and uncategorized items
+- Import executor passes `skip_derive: true` to `create_item/2` because it guarantees attrs consistency by construction (it owns the target catalogue and creates or constrains categories within it) — this avoids a per-item category lookup during bulk imports
+
 ### Soft-Delete Cascade System
 
-- **Downward on trash:** catalogue → categories → items
+- **Downward on trash:** catalogue → categories + all items (categorized and uncategorized) in that catalogue
 - **Upward on restore:** item → category → catalogue; category → catalogue + items
-- **Permanent delete** follows same downward cascade but removes from DB
+- **Permanent delete** follows same downward cascade but removes from DB; uncategorized items of the catalogue are removed too
 - All cascading operations wrapped in `Repo.transaction/1`
 
 ### Activity Logging

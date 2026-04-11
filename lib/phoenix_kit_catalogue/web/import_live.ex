@@ -547,9 +547,7 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
   defp maybe_deduplicate(plan, :skip, catalogue_uuid, opts) do
     unique_items = Enum.uniq(plan.items)
 
-    existing_items =
-      Catalogue.list_items_for_catalogue(catalogue_uuid) ++
-        Catalogue.list_uncategorized_items()
+    existing_items = Catalogue.list_items_for_catalogue(catalogue_uuid)
 
     unique_items =
       Enum.reject(unique_items, fn import_item ->
