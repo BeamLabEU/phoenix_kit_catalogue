@@ -494,6 +494,15 @@ defmodule PhoenixKitCatalogue.Catalogue do
   def get_catalogue(uuid), do: repo().get(Catalogue, uuid)
 
   @doc """
+  Fetches a catalogue by UUID without preloading categories or items.
+  Raises `Ecto.NoResultsError` if not found. Prefer this over
+  `get_catalogue!/2` in read paths that don't need the nested preloads
+  (e.g. the infinite-scroll detail view, which pages categories and
+  items separately).
+  """
+  def fetch_catalogue!(uuid), do: repo().get!(Catalogue, uuid)
+
+  @doc """
   Fetches a catalogue by UUID with preloaded categories and items.
   Raises `Ecto.NoResultsError` if not found.
 
@@ -753,6 +762,190 @@ defmodule PhoenixKitCatalogue.Catalogue do
       preload: [:items]
     )
     |> repo().all()
+  end
+
+  @doc """
+  Lists categories for a catalogue **without** preloading items, ordered by
+  position then name. Used by the infinite-scroll detail view to walk
+  categories in display order without fetching potentially thousands of
+  items up front.
+
+  ## Options
+
+    * `:mode` — `:active` (default, excludes deleted categories) or
+      `:deleted` (all categories — deleted categories can still contain
+      trashed items we want to show).
+  """
+  def list_categories_metadata_for_catalogue(catalogue_uuid, opts \\ []) do
+    mode = Keyword.get(opts, :mode, :active)
+
+    query =
+      from(c in Category,
+        where: c.catalogue_uuid == ^catalogue_uuid,
+        order_by: [asc: :position, asc: :name]
+      )
+
+    query =
+      case mode do
+        :active -> where(query, [c], c.status != "deleted")
+        :deleted -> query
+      end
+
+    repo().all(query)
+  end
+
+  @doc """
+  Lists a page of items for a single category, ordered by name.
+
+  Used by the infinite-scroll detail view; returns at most `:limit`
+  items starting at `:offset`. Preloads `:catalogue` and `:manufacturer`
+  so the table cell renderers can access them without extra queries.
+
+  ## Options
+
+    * `:mode` — `:active` (default, excludes deleted items) or `:deleted`
+      (only deleted items)
+    * `:offset` — default `0`
+    * `:limit` — default `50`
+  """
+  def list_items_for_category_paged(category_uuid, opts \\ []) do
+    mode = Keyword.get(opts, :mode, :active)
+    offset = Keyword.get(opts, :offset, 0)
+    limit = Keyword.get(opts, :limit, 50)
+
+    query =
+      from(i in Item,
+        where: i.category_uuid == ^category_uuid,
+        order_by: [asc: :name],
+        offset: ^offset,
+        limit: ^limit,
+        preload: [:catalogue, :manufacturer]
+      )
+
+    query =
+      case mode do
+        :active -> where(query, [i], i.status != "deleted")
+        :deleted -> where(query, [i], i.status == "deleted")
+      end
+
+    repo().all(query)
+  end
+
+  @doc """
+  Lists a page of uncategorized items for a catalogue, ordered by name.
+
+  Same shape as `list_items_for_category_paged/2`, but for items where
+  `category_uuid IS NULL AND catalogue_uuid = ?`. Used as the final
+  section of the infinite-scroll detail view.
+
+  ## Options
+
+    * `:mode` — `:active` (default) or `:deleted`
+    * `:offset` — default `0`
+    * `:limit` — default `50`
+  """
+  def list_uncategorized_items_paged(catalogue_uuid, opts \\ []) do
+    mode = Keyword.get(opts, :mode, :active)
+    offset = Keyword.get(opts, :offset, 0)
+    limit = Keyword.get(opts, :limit, 50)
+
+    query =
+      from(i in Item,
+        where: i.catalogue_uuid == ^catalogue_uuid and is_nil(i.category_uuid),
+        order_by: [asc: :name],
+        offset: ^offset,
+        limit: ^limit,
+        preload: [:catalogue, :manufacturer]
+      )
+
+    query =
+      case mode do
+        :active -> where(query, [i], i.status != "deleted")
+        :deleted -> where(query, [i], i.status == "deleted")
+      end
+
+    repo().all(query)
+  end
+
+  @doc """
+  Counts non-deleted uncategorized items for a catalogue (items with
+  `category_uuid IS NULL`). Used to decide whether the infinite-scroll
+  detail view needs to show an "Uncategorized" card at all.
+  """
+  def uncategorized_count_for_catalogue(catalogue_uuid, opts \\ []) do
+    mode = Keyword.get(opts, :mode, :active)
+
+    query =
+      from(i in Item,
+        where: i.catalogue_uuid == ^catalogue_uuid and is_nil(i.category_uuid)
+      )
+
+    query =
+      case mode do
+        :active -> where(query, [i], i.status != "deleted")
+        :deleted -> where(query, [i], i.status == "deleted")
+      end
+
+    repo().aggregate(query, :count)
+  end
+
+  @doc """
+  Counts items in a single category (ignoring its catalogue scope).
+
+  Used by the infinite-scroll detail view to show the total under each
+  category header (the number in `"Category Name (N items)"`) without
+  loading the items themselves.
+
+  ## Options
+
+    * `:mode` — `:active` (default) or `:deleted`
+  """
+  def item_count_for_category(category_uuid, opts \\ []) do
+    mode = Keyword.get(opts, :mode, :active)
+
+    query = from(i in Item, where: i.category_uuid == ^category_uuid)
+
+    query =
+      case mode do
+        :active -> where(query, [i], i.status != "deleted")
+        :deleted -> where(query, [i], i.status == "deleted")
+      end
+
+    repo().aggregate(query, :count)
+  end
+
+  @doc """
+  Returns a map of `%{category_uuid => item_count}` for every category
+  in a catalogue in a single grouped query. Used by the infinite-scroll
+  detail view so each category card can show its total count without a
+  separate per-card round trip.
+
+  Items without a category (uncategorized) are excluded here — use
+  `uncategorized_count_for_catalogue/2` for those.
+
+  ## Options
+
+    * `:mode` — `:active` (default) or `:deleted`
+  """
+  def item_counts_by_category_for_catalogue(catalogue_uuid, opts \\ []) do
+    mode = Keyword.get(opts, :mode, :active)
+
+    query =
+      from(i in Item,
+        where: i.catalogue_uuid == ^catalogue_uuid and not is_nil(i.category_uuid),
+        group_by: i.category_uuid,
+        select: {i.category_uuid, count(i.uuid)}
+      )
+
+    query =
+      case mode do
+        :active -> where(query, [i], i.status != "deleted")
+        :deleted -> where(query, [i], i.status == "deleted")
+      end
+
+    query
+    |> repo().all()
+    |> Map.new()
   end
 
   @doc """
@@ -1350,10 +1543,28 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
   defp put_attr(attrs, key, value) do
     cond do
-      Map.has_key?(attrs, key) -> Map.put(attrs, key, value)
-      Map.has_key?(attrs, to_string(key)) -> Map.put(attrs, to_string(key), value)
-      true -> Map.put(attrs, key, value)
+      Map.has_key?(attrs, key) ->
+        Map.put(attrs, key, value)
+
+      Map.has_key?(attrs, to_string(key)) ->
+        Map.put(attrs, to_string(key), value)
+
+      # Neither form exists — insert using the same key style as the rest
+      # of the map. Mixing atom and string keys yields an
+      # `Ecto.CastError` inside `Ecto.Changeset.cast/4`, which is what
+      # form-submitted (string-keyed) params will hit otherwise.
+      string_keyed?(attrs) ->
+        Map.put(attrs, to_string(key), value)
+
+      true ->
+        Map.put(attrs, key, value)
     end
+  end
+
+  defp string_keyed?(attrs) when map_size(attrs) == 0, do: false
+
+  defp string_keyed?(attrs) do
+    attrs |> Map.keys() |> hd() |> is_binary()
   end
 
   @doc "Updates an item with the given attributes."
