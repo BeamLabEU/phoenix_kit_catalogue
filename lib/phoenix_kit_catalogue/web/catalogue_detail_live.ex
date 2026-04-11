@@ -780,7 +780,19 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                 <.icon name="hero-chevron-down" class="w-3 h-3" />
               </button>
             </div>
-            <h3 class={["card-title text-lg", @card.category.status == "deleted" && "text-error/70"]}>{@card.category.name}</h3>
+            <.link
+              :if={@view_mode == "active"}
+              navigate={Paths.category_edit(@card.category.uuid)}
+              class="card-title text-lg link link-hover"
+            >
+              {@card.category.name}
+            </.link>
+            <h3
+              :if={@view_mode != "active"}
+              class={["card-title text-lg", @card.category.status == "deleted" && "text-error/70"]}
+            >
+              {@card.category.name}
+            </h3>
             <span :if={@card.category.status == "deleted"} class="badge badge-error badge-xs">deleted</span>
             <span class="badge badge-ghost badge-sm">{@total} {Gettext.gettext(PhoenixKitWeb.Gettext, "items")}</span>
           </div>

@@ -314,7 +314,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
       </.table_default_header>
       <.table_default_body>
         <.table_default_row :for={item <- @items}>
-          <.item_cell :for={col <- @columns} column={col} item={item} markup_percentage={@markup_percentage} catalogue_path={@catalogue_path} />
+          <.item_cell :for={col <- @columns} column={col} item={item} markup_percentage={@markup_percentage} catalogue_path={@catalogue_path} edit_path={@edit_path} />
           <.item_actions
             :if={@has_actions}
             item={item}
@@ -399,10 +399,20 @@ defmodule PhoenixKitCatalogue.Web.Components do
   attr(:item, :any, required: true)
   attr(:markup_percentage, :any, default: nil)
   attr(:catalogue_path, :any, default: nil)
+  attr(:edit_path, :any, default: nil)
 
   defp item_cell(%{column: :name} = assigns) do
     ~H"""
-    <.table_default_cell class="font-medium">{@item.name || "—"}</.table_default_cell>
+    <.table_default_cell class="font-medium">
+      <.link
+        :if={@edit_path && @item.uuid}
+        navigate={safe_call(@edit_path, @item.uuid)}
+        class="link link-hover"
+      >
+        {@item.name || "—"}
+      </.link>
+      <span :if={!@edit_path || !@item.uuid}>{@item.name || "—"}</span>
+    </.table_default_cell>
     """
   end
 

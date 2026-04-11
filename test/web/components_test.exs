@@ -134,6 +134,47 @@ defmodule PhoenixKitCatalogue.Web.ComponentsTest do
       assert html =~ "Blum"
     end
 
+    test "item name in the table view is wrapped in a link when edit_path is provided" do
+      item = %Item{
+        uuid: "019d1337-0000-7fa9-bea8-6e54bda31aaa",
+        name: "Clickable",
+        status: "active"
+      }
+
+      html =
+        render_component(&item_table/1,
+          items: [item],
+          columns: [:name],
+          edit_path: fn uuid -> "/edit/#{uuid}" end,
+          id: "link-name-table"
+        )
+
+      # The card view already wrapped the name in a link — the table
+      # cell now matches, so the user can click the name from either
+      # view mode.
+      assert html =~ ~s(href="/edit/019d1337-0000-7fa9-bea8-6e54bda31aaa")
+      assert html =~ "Clickable"
+    end
+
+    test "item name in the table view is plain text when edit_path is nil" do
+      item = %Item{
+        uuid: "019d1337-0000-7fa9-bea8-6e54bda31bbb",
+        name: "Read-only",
+        status: "active"
+      }
+
+      html =
+        render_component(&item_table/1,
+          items: [item],
+          columns: [:name],
+          id: "plain-name-table"
+        )
+
+      assert html =~ "Read-only"
+      # No edit_path → no link wrapping the name
+      refute html =~ "href=\"/edit"
+    end
+
     test "doesn't crash on NotLoaded associations" do
       item = %Item{
         uuid: "019d1337-0000-7fa9-bea8-6e54bda31ede",

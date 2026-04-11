@@ -243,6 +243,44 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
   # Category mutations
   # ─────────────────────────────────────────────────────────────────
 
+  describe "clickable names" do
+    test "category name is a link to the category edit page in active mode", %{conn: conn} do
+      catalogue = fixture_catalogue()
+      category = fixture_category(catalogue, %{name: "Clickable category"})
+
+      {:ok, _view, html} = live(conn, url(catalogue.uuid))
+
+      expected_href = "/en/admin/catalogue/categories/#{category.uuid}/edit"
+      assert html =~ ~s(href="#{expected_href}")
+      assert html =~ "Clickable category"
+    end
+
+    test "category name is plain text in deleted mode", %{conn: conn} do
+      catalogue = fixture_catalogue()
+      category = fixture_category(catalogue, %{name: "Deleted category"})
+      Catalogue.trash_category(category)
+
+      {:ok, view, _html} = live(conn, url(catalogue.uuid))
+      html = render_click(view, "switch_view", %{"mode" => "deleted"})
+
+      # In deleted mode the h3 renders, not the edit link
+      refute html =~ "/en/admin/catalogue/categories/#{category.uuid}/edit"
+      assert html =~ "Deleted category"
+    end
+
+    test "item name in the card body is a link to the item edit page", %{conn: conn} do
+      catalogue = fixture_catalogue()
+      category = fixture_category(catalogue)
+      item = fixture_item(%{name: "Clickable item", category_uuid: category.uuid})
+
+      {:ok, _view, html} = live(conn, url(catalogue.uuid))
+
+      expected_href = "/en/admin/catalogue/items/#{item.uuid}/edit"
+      assert html =~ ~s(href="#{expected_href}")
+      assert html =~ "Clickable item"
+    end
+  end
+
   describe "category mutations" do
     test "trash_category removes the category card", %{conn: conn} do
       catalogue = fixture_catalogue()
