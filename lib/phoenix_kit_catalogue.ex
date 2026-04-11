@@ -107,7 +107,17 @@ defmodule PhoenixKitCatalogue do
         priority: 661,
         level: :admin,
         permission: module_key(),
-        match: :exact,
+        # Regex match so this subtab stays highlighted on every page
+        # that conceptually belongs to it — the catalogues list, the
+        # catalogue detail/new/edit pages, the nested item/category
+        # new/edit pages — while explicitly excluding the sibling
+        # subtab paths (manufacturers, suppliers, import, events).
+        #
+        # Without this, hidden subtabs with literal `:uuid` segments
+        # (e.g. "catalogue/:uuid/edit") never match a real URL, so the
+        # parent "Catalogue" tab is the only thing that lights up on
+        # detail/form pages — which looks wrong in the sidebar.
+        match: {:regex, ~r"^/admin/catalogue(/(?!manufacturers|suppliers|import|events).*)?$"},
         parent: :admin_catalogue,
         live_view: {PhoenixKitCatalogue.Web.CataloguesLive, :index}
       },
