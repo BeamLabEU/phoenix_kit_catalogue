@@ -48,7 +48,7 @@ This is a **PhoenixKit module** that implements the `PhoenixKit.Module` behaviou
 
 - **Catalogue** (`phoenix_kit_cat_catalogues`) — top-level groupings with name, description, markup_percentage (default 0%), status (active/archived/deleted)
 - **Category** (`phoenix_kit_cat_categories`) — subdivisions within a catalogue with position ordering, status (active/deleted)
-- **Item** (`phoenix_kit_cat_items`) — individual products with SKU, base_price, unit of measure, manufacturer link, status (active/deleted). **Belongs directly to a catalogue via `catalogue_uuid`** (required), with an optional `category_uuid` for grouping. Items without a category are "uncategorized within a catalogue" — still scoped to that catalogue. Sale price computed via catalogue's markup_percentage
+- **Item** (`phoenix_kit_cat_items`) — individual products with SKU, base_price, unit of measure, manufacturer link, status (active/deleted). **Belongs directly to a catalogue via `catalogue_uuid`** (required), with an optional `category_uuid` for grouping. Items without a category are "uncategorized within a catalogue" — still scoped to that catalogue. Sale price computed via catalogue's `markup_percentage` unless the item has its own `markup_percentage` override (nullable column, V97): `NULL` inherits from the catalogue, any Decimal (including `0`) overrides it. `Item.sale_price(item, catalogue_markup)` and `Item.effective_markup(item, catalogue_markup)` both honor the override transparently
 - **Manufacturer** (`phoenix_kit_cat_manufacturers`) — company directory with name, website, logo, status (active/inactive)
 - **Supplier** (`phoenix_kit_cat_suppliers`) — delivery companies with name, website, status (active/inactive)
 - **ManufacturerSupplier** (`phoenix_kit_cat_manufacturer_suppliers`) — many-to-many join table
@@ -87,8 +87,24 @@ Multi-step file import wizard for bulk item creation from XLSX/CSV files.
 
 - **Parser** (`import/parser.ex`): Format detection, XLSX via `XlsxReader`, CSV with auto-separator detection, BOM stripping
 - **Mapper** (`import/mapper.ex`): Auto-detect column mappings, unit normalization, import plan builder with validation
-- **Executor** (`import/executor.ex`): Two-phase execution (categories then items), progress reporting, language support, actor_uuid threading for activity logs
-- **ImportLive** (`web/import_live.ex`): Upload → sheet select → column mapping → confirm → importing → results. ETS buffering for large files, duplicate detection, multilang support
+- **Executor** (`import/executor.ex`): Three-phase execution (1: get-or-create categories + manufacturers + suppliers in column mode; 2: insert items resolving category/manufacturer per row; 3: create manufacturer↔supplier M:N links from per-row pairs and/or fixed supplier→all-touched-manufacturers), progress reporting, language support, actor_uuid threading for activity logs. Items get `manufacturer_uuid` directly; suppliers attach via the M:N join because items don't have a supplier FK
+- **ImportLive** (`web/import_live.ex`): Upload → sheet select → column mapping → confirm → importing → results. ETS buffering for large files, duplicate detection, multilang support. Three pickers (category / manufacturer / supplier) share a four-mode vocabulary — `:none` / `:column` (per-row from a CSV column) / `:create` (inline form, persisted at execute time so cancelling the confirm step doesn't leave orphans) / `:existing` (pick from active records). The `available_picker_columns/2` filter prevents a picker from silently clobbering a sibling's column mapping; switching sheets / replacing the file calls `reset_picker_state/1` so picker assigns can never reference stale column indices
+
+### Search API
+
+Three search functions, each paired with an unbounded count function. Results page through the same `InfiniteScroll` sentinel that drives the category walk in `CatalogueDetailLive`.
+
+| List function | Count function | Scope |
+|---------------|---------------|-------|
+| `search_items/2` | `count_search_items/1` | All non-deleted catalogues |
+| `search_items_in_catalogue/3` | `count_search_items_in_catalogue/2` | One catalogue |
+| `search_items_in_category/3` | `count_search_items_in_category/2` | One category |
+
+All list functions take `:limit` (default 50) and `:offset` (default 0) in `opts`. Sort order is deterministic for paging — each query appends `asc: i.uuid` as the final tie-breaker. Count functions run the same `where` clauses but with `select: count(i.uuid)` and no `:limit`/`:offset`/`:order_by`/`:preload`, so they return the full matching total regardless of the current page.
+
+**LiveView usage pattern** (see `CatalogueDetailLive.run_search/2` and `load_next_search_batch/1`): fetch first page + total on search, render a sentinel while `search_has_more = loaded < total`, append pages via the shared `InfiniteScroll` hook. `search_results_summary` accepts an optional `loaded` attr to render "Showing X of Y" while paging.
+
+**Async + loading state** (same LiveView): searches run inside `start_async(:search, …)` so a newer query cancels a pending one and stale responses are dropped by a query-equality guard in `handle_async(:search, {:ok, …})`. While a search is in flight, the template shows a "Searching for …" status line (first search) or dims the prior results with `opacity-50` and shows a small spinner next to the summary (subsequent searches). Unexpected task exits log a warning and surface a user-visible flash; expected cancellation reasons (`:shutdown` / `:killed`) are no-ops.
 
 ### Web Layer
 

@@ -114,6 +114,150 @@ defmodule PhoenixKitCatalogue.Import.ExecutorTest do
       assert item.data["et"]["_name"] == "Estonian Item"
     end
 
+    test "applies language to created categories the same way as items" do
+      cat = create_catalogue()
+
+      plan = %{
+        items: [%{name: "Konks", _category_name: "Konksud"}],
+        categories_to_create: ["Konksud"],
+        custom_fields: [],
+        errors: [],
+        stats: %{total: 1, valid: 1, invalid: 0}
+      }
+
+      result = Executor.execute(plan, cat.uuid, self(), language: "et")
+      assert result.created == 1
+      assert result.categories_created == 1
+
+      [category] = Catalogue.list_categories_for_catalogue(cat.uuid)
+      # Bare `name` field still holds the imported string for fallback.
+      assert category.name == "Konksud"
+      # ...AND multilang data is set so the category renders correctly
+      # in mixed-language UIs.
+      assert category.data["_primary_language"] == "et"
+      assert category.data["et"]["_name"] == "Konksud"
+    end
+
+    test "matches existing category by translated name when importing in same language" do
+      cat = create_catalogue()
+
+      # Pre-existing category with English primary AND an Estonian translation.
+      {:ok, _existing} =
+        Catalogue.create_category(%{
+          name: "Hooks",
+          catalogue_uuid: cat.uuid,
+          data: %{
+            "_primary_language" => "en",
+            "en" => %{"_name" => "Hooks"},
+            "et" => %{"_name" => "Konksud"}
+          }
+        })
+
+      plan = %{
+        items: [%{name: "Konks", _category_name: "Konksud"}],
+        categories_to_create: ["Konksud"],
+        custom_fields: [],
+        errors: [],
+        stats: %{total: 1, valid: 1, invalid: 0}
+      }
+
+      result = Executor.execute(plan, cat.uuid, self(), language: "et")
+
+      # Reused the existing category, didn't create a new one.
+      assert result.created == 1
+      assert result.categories_created == 0
+
+      categories = Catalogue.list_categories_for_catalogue(cat.uuid)
+      assert length(categories) == 1
+      [category] = categories
+      assert category.name == "Hooks"
+    end
+
+    test "without :match_categories_across_languages, only the current language is matched" do
+      cat = create_catalogue()
+
+      # Category whose ONLY translation is in `de` — bare name is also "Hooks".
+      {:ok, _existing} =
+        Catalogue.create_category(%{
+          name: "Hooks",
+          catalogue_uuid: cat.uuid,
+          data: %{"_primary_language" => "en", "de" => %{"_name" => "Haken"}}
+        })
+
+      plan = %{
+        items: [%{name: "Konks", _category_name: "Haken"}],
+        categories_to_create: ["Haken"],
+        custom_fields: [],
+        errors: [],
+        stats: %{total: 1, valid: 1, invalid: 0}
+      }
+
+      # Importing in et — neither the et translation (none) nor bare name
+      # ("Hooks") matches "Haken", and we're not allowed to peek into
+      # `de`, so a NEW category gets created.
+      result = Executor.execute(plan, cat.uuid, self(), language: "et")
+
+      assert result.categories_created == 1
+      assert length(Catalogue.list_categories_for_catalogue(cat.uuid)) == 2
+    end
+
+    test "with :match_categories_across_languages, matches against any language's translation" do
+      cat = create_catalogue()
+
+      {:ok, _existing} =
+        Catalogue.create_category(%{
+          name: "Hooks",
+          catalogue_uuid: cat.uuid,
+          data: %{"_primary_language" => "en", "de" => %{"_name" => "Haken"}}
+        })
+
+      plan = %{
+        items: [%{name: "Konks", _category_name: "Haken"}],
+        categories_to_create: ["Haken"],
+        custom_fields: [],
+        errors: [],
+        stats: %{total: 1, valid: 1, invalid: 0}
+      }
+
+      # Same setup as above, but with the cross-language flag on we
+      # match the German translation and reuse the existing category.
+      result =
+        Executor.execute(plan, cat.uuid, self(),
+          language: "et",
+          match_categories_across_languages: true
+        )
+
+      assert result.categories_created == 0
+      assert length(Catalogue.list_categories_for_catalogue(cat.uuid)) == 1
+    end
+
+    test "matches existing category by bare name as fallback when no translation set" do
+      cat = create_catalogue()
+
+      # Pre-existing English-primary category with NO Estonian translation yet.
+      {:ok, _existing} =
+        Catalogue.create_category(%{
+          name: "Hooks",
+          catalogue_uuid: cat.uuid,
+          data: %{"_primary_language" => "en", "en" => %{"_name" => "Hooks"}}
+        })
+
+      plan = %{
+        items: [%{name: "Hook A", _category_name: "Hooks"}],
+        categories_to_create: ["Hooks"],
+        custom_fields: [],
+        errors: [],
+        stats: %{total: 1, valid: 1, invalid: 0}
+      }
+
+      result = Executor.execute(plan, cat.uuid, self(), language: "et")
+
+      # Matched by bare `name` since there's no et translation to match against.
+      assert result.created == 1
+      assert result.categories_created == 0
+      assert length(Catalogue.list_categories_for_catalogue(cat.uuid)) == 1
+    end
+
     test "reuses existing categories instead of creating duplicates" do
       cat = create_catalogue()
       {:ok, _existing_cat} = Catalogue.create_category(%{name: "Hooks", catalogue_uuid: cat.uuid})
@@ -155,6 +299,154 @@ defmodule PhoenixKitCatalogue.Import.ExecutorTest do
       [item] = Catalogue.list_items()
       assert item.data["color"] == "Natural Oak"
       assert item.data["original_unit"] == "TK"
+    end
+
+    # ── Manufacturer / Supplier ─────────────────────────────────
+
+    test "column mode: gets-or-creates manufacturers and assigns per item" do
+      cat = create_catalogue()
+      {:ok, _existing} = Catalogue.create_manufacturer(%{name: "Blum"})
+
+      plan = %{
+        items: [
+          %{name: "Hinge", _manufacturer_name: "Blum"},
+          %{name: "Drawer Slide", _manufacturer_name: "Hettich"},
+          %{name: "Door Handle", _manufacturer_name: "Blum"}
+        ],
+        categories_to_create: [],
+        manufacturers_to_create: ["Blum", "Hettich"],
+        suppliers_to_create: [],
+        custom_fields: [],
+        errors: [],
+        stats: %{total: 3, valid: 3, invalid: 0}
+      }
+
+      result = Executor.execute(plan, cat.uuid, self())
+
+      # Only Hettich is new — Blum already existed.
+      assert result.created == 3
+      assert result.manufacturers_created == 1
+
+      items = Catalogue.list_items() |> PhoenixKit.RepoHelper.repo().preload(:manufacturer)
+      blum = Enum.find(Catalogue.list_manufacturers(), &(&1.name == "Blum"))
+      hettich = Enum.find(Catalogue.list_manufacturers(), &(&1.name == "Hettich"))
+
+      assert Enum.find(items, &(&1.name == "Hinge")).manufacturer_uuid == blum.uuid
+      assert Enum.find(items, &(&1.name == "Drawer Slide")).manufacturer_uuid == hettich.uuid
+      assert Enum.find(items, &(&1.name == "Door Handle")).manufacturer_uuid == blum.uuid
+    end
+
+    test "fixed manufacturer_uuid: pins all items, skips column lookup" do
+      cat = create_catalogue()
+      {:ok, mfr} = Catalogue.create_manufacturer(%{name: "Pinned"})
+
+      plan = %{
+        items: [
+          # Even with placeholder set, fixed uuid wins.
+          %{name: "A", _manufacturer_name: "ignored"},
+          %{name: "B"}
+        ],
+        categories_to_create: [],
+        manufacturers_to_create: [],
+        suppliers_to_create: [],
+        custom_fields: [],
+        errors: [],
+        stats: %{total: 2, valid: 2, invalid: 0}
+      }
+
+      result = Executor.execute(plan, cat.uuid, self(), manufacturer_uuid: mfr.uuid)
+
+      assert result.created == 2
+      assert result.manufacturers_created == 0
+      items = Catalogue.list_items()
+      assert Enum.all?(items, &(&1.manufacturer_uuid == mfr.uuid))
+    end
+
+    test "column mode: per-row supplier links to per-row manufacturer (M:N)" do
+      cat = create_catalogue()
+
+      plan = %{
+        items: [
+          %{name: "A", _manufacturer_name: "Blum", _supplier_name: "Acme"},
+          %{name: "B", _manufacturer_name: "Hettich", _supplier_name: "Globex"},
+          # Same pair as row 1 → no duplicate link (idempotent).
+          %{name: "C", _manufacturer_name: "Blum", _supplier_name: "Acme"}
+        ],
+        categories_to_create: [],
+        manufacturers_to_create: ["Blum", "Hettich"],
+        suppliers_to_create: ["Acme", "Globex"],
+        custom_fields: [],
+        errors: [],
+        stats: %{total: 3, valid: 3, invalid: 0}
+      }
+
+      result = Executor.execute(plan, cat.uuid, self())
+
+      assert result.created == 3
+      assert result.manufacturers_created == 2
+      assert result.suppliers_created == 2
+      # 2 unique (mfr, sup) pairs.
+      assert result.manufacturer_supplier_links_created == 2
+
+      blum = Enum.find(Catalogue.list_manufacturers(), &(&1.name == "Blum"))
+      acme = Enum.find(Catalogue.list_suppliers(), &(&1.name == "Acme"))
+
+      assert acme.uuid in (Catalogue.list_suppliers_for_manufacturer(blum.uuid)
+                           |> Enum.map(& &1.uuid))
+    end
+
+    test "fixed supplier_uuid: links the supplier to every manufacturer the import touched" do
+      cat = create_catalogue()
+      {:ok, sup} = Catalogue.create_supplier(%{name: "Single Source"})
+
+      plan = %{
+        items: [
+          %{name: "A", _manufacturer_name: "Blum"},
+          %{name: "B", _manufacturer_name: "Hettich"},
+          %{name: "C", _manufacturer_name: "Blum"}
+        ],
+        categories_to_create: [],
+        manufacturers_to_create: ["Blum", "Hettich"],
+        suppliers_to_create: [],
+        custom_fields: [],
+        errors: [],
+        stats: %{total: 3, valid: 3, invalid: 0}
+      }
+
+      result = Executor.execute(plan, cat.uuid, self(), supplier_uuid: sup.uuid)
+
+      # 2 distinct manufacturers touched → 2 links to the fixed supplier.
+      assert result.manufacturer_supplier_links_created == 2
+
+      mfrs = Catalogue.list_manufacturers_for_supplier(sup.uuid)
+      assert length(mfrs) == 2
+    end
+
+    test "rows with no manufacturer don't trigger a M:N link even if supplier is set" do
+      cat = create_catalogue()
+      {:ok, sup} = Catalogue.create_supplier(%{name: "Single Source"})
+
+      plan = %{
+        items: [
+          # No manufacturer for this row, but a supplier is named.
+          %{name: "Orphan", _supplier_name: "Single Source"}
+        ],
+        categories_to_create: [],
+        manufacturers_to_create: [],
+        suppliers_to_create: ["Single Source"],
+        custom_fields: [],
+        errors: [],
+        stats: %{total: 1, valid: 1, invalid: 0}
+      }
+
+      result = Executor.execute(plan, cat.uuid, self())
+
+      assert result.created == 1
+      # No manufacturer ⇒ no link to make.
+      assert result.manufacturer_supplier_links_created == 0
+      # ...and the existing supplier was matched by name (not duplicated).
+      assert result.suppliers_created == 0
+      assert Catalogue.list_manufacturers_for_supplier(sup.uuid) == []
     end
   end
 

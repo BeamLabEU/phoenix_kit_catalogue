@@ -36,6 +36,32 @@ defmodule PhoenixKitCatalogue.Import.MapperTest do
       assert :base_price in targets
     end
 
+    test "detects markup columns by common synonyms" do
+      headers = ["Name", "SKU", "Markup", "Price"]
+      mappings = Mapper.auto_detect_mappings(headers)
+
+      markup = Enum.find(mappings, &(&1.header == "Markup"))
+      assert markup.target == :markup_percentage
+    end
+
+    test "detects manufacturer columns by common synonyms" do
+      headers = ["Name", "Manufacturer", "Tootja", "Hersteller"]
+      mappings = Mapper.auto_detect_mappings(headers)
+
+      # First match wins (auto_detect_mappings doesn't double-assign)
+      manufacturer_targets = Enum.filter(mappings, &(&1.target == :manufacturer))
+      assert length(manufacturer_targets) == 1
+      assert hd(manufacturer_targets).header == "Manufacturer"
+    end
+
+    test "detects supplier columns by common synonyms" do
+      headers = ["Name", "Supplier"]
+      mappings = Mapper.auto_detect_mappings(headers)
+
+      supplier = Enum.find(mappings, &(&1.header == "Supplier"))
+      assert supplier.target == :supplier
+    end
+
     test "skips unknown headers" do
       headers = ["Random Column", "Another One"]
       mappings = Mapper.auto_detect_mappings(headers)
@@ -214,6 +240,92 @@ defmodule PhoenixKitCatalogue.Import.MapperTest do
       item = List.first(plan.items)
       refute Map.has_key?(item, :internal)
     end
+
+    test "parses markup_percentage when mapped" do
+      mappings = [
+        %{column_index: 0, header: "Name", target: :name},
+        %{column_index: 1, header: "Markup", target: :markup_percentage}
+      ]
+
+      rows = [
+        ["Override Item", "50"],
+        ["Zero Override", "0"],
+        ["Inherit", ""]
+      ]
+
+      plan = Mapper.build_import_plan(mappings, rows)
+      assert plan.stats.valid == 3
+
+      [override, zero, inherit] = plan.items
+      assert Decimal.equal?(override.markup_percentage, Decimal.new("50"))
+      assert Decimal.equal?(zero.markup_percentage, Decimal.new("0"))
+      # Blank cell → no override key set, so the changeset will leave NULL
+      refute Map.has_key?(inherit, :markup_percentage)
+    end
+
+    test "parses markup with comma-decimal notation" do
+      mappings = [
+        %{column_index: 0, header: "Name", target: :name},
+        %{column_index: 1, header: "Markup", target: :markup_percentage}
+      ]
+
+      plan = Mapper.build_import_plan(mappings, [["Item", "12,5"]])
+      assert plan.stats.valid == 1
+      assert Decimal.equal?(hd(plan.items).markup_percentage, Decimal.new("12.5"))
+    end
+
+    test "rejects unparseable markup values" do
+      mappings = [
+        %{column_index: 0, header: "Name", target: :name},
+        %{column_index: 1, header: "Markup", target: :markup_percentage}
+      ]
+
+      plan = Mapper.build_import_plan(mappings, [["Item", "abc"]])
+      assert plan.stats.invalid == 1
+      assert [{1, "Invalid markup: abc"}] = plan.errors
+    end
+
+    test "extracts unique manufacturer names" do
+      mappings = [
+        %{column_index: 0, header: "Name", target: :name},
+        %{column_index: 1, header: "Maker", target: :manufacturer}
+      ]
+
+      rows = [
+        ["A", "Blum"],
+        ["B", "Hettich"],
+        ["C", "Blum"],
+        # Trimmed and de-duplicated
+        ["D", "  Blum  "]
+      ]
+
+      plan = Mapper.build_import_plan(mappings, rows)
+      assert plan.manufacturers_to_create == ["Blum", "Hettich"]
+      # The per-item placeholder is set so the executor can resolve later
+      [item | _] = plan.items
+      assert item[:_manufacturer_name] == "Blum"
+    end
+
+    test "extracts unique supplier names" do
+      mappings = [
+        %{column_index: 0, header: "Name", target: :name},
+        %{column_index: 1, header: "Source", target: :supplier}
+      ]
+
+      plan =
+        Mapper.build_import_plan(mappings, [
+          ["A", "Acme"],
+          ["B", "Globex"],
+          ["C", ""]
+        ])
+
+      assert plan.suppliers_to_create == ["Acme", "Globex"]
+
+      [a, _b, c] = plan.items
+      assert a[:_supplier_name] == "Acme"
+      # Blank cells leave no placeholder so the row gets no supplier link.
+      refute Map.has_key?(c, :_supplier_name)
+    end
   end
 
   describe "unique_column_values/2" do
@@ -237,8 +349,67 @@ defmodule PhoenixKitCatalogue.Import.MapperTest do
       assert :name in target_atoms
       assert :sku in target_atoms
       assert :base_price in target_atoms
+      assert :markup_percentage in target_atoms
       assert :unit in target_atoms
       assert :category in target_atoms
+    end
+  end
+
+  describe "item_matches_existing?/3 (markup)" do
+    test "items differ when one has an override and the other inherits" do
+      import_item = %{
+        name: "X",
+        base_price: Decimal.new("100"),
+        markup_percentage: Decimal.new("50")
+      }
+
+      existing = %{
+        name: "X",
+        sku: nil,
+        base_price: Decimal.new("100"),
+        markup_percentage: nil,
+        unit: "piece",
+        category_uuid: nil,
+        data: %{}
+      }
+
+      refute Mapper.item_matches_existing?(import_item, existing)
+    end
+
+    test "items match when both inherit" do
+      import_item = %{name: "X", base_price: Decimal.new("100")}
+
+      existing = %{
+        name: "X",
+        sku: nil,
+        base_price: Decimal.new("100"),
+        markup_percentage: nil,
+        unit: "piece",
+        category_uuid: nil,
+        data: %{}
+      }
+
+      assert Mapper.item_matches_existing?(import_item, existing)
+    end
+
+    test "items match when both override to the same value" do
+      import_item = %{
+        name: "X",
+        base_price: Decimal.new("100"),
+        markup_percentage: Decimal.new("25")
+      }
+
+      existing = %{
+        name: "X",
+        sku: nil,
+        base_price: Decimal.new("100"),
+        markup_percentage: Decimal.new("25"),
+        unit: "piece",
+        category_uuid: nil,
+        data: %{}
+      }
+
+      assert Mapper.item_matches_existing?(import_item, existing)
     end
   end
 end

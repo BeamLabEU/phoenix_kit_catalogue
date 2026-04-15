@@ -128,16 +128,24 @@ defmodule PhoenixKitCatalogue.Web.Components do
 
   ## Attributes
 
-    * `count` — number of results (required)
+    * `count` — total number of matching results (required)
     * `query` — the search query string (required)
+    * `loaded` — optional count of results currently rendered. When given
+      and less than `count`, the summary shows "X of Y" so users know the
+      list is paging. Omit or pass `nil` for a plain "N results" line.
   """
   attr(:count, :integer, required: true)
   attr(:query, :string, required: true)
+  attr(:loaded, :integer, default: nil)
 
   def search_results_summary(assigns) do
     ~H"""
     <span class="text-sm text-base-content/60">
-      {Gettext.ngettext(PhoenixKitWeb.Gettext, "%{count} result for \"%{query}\"", "%{count} results for \"%{query}\"", @count, count: @count, query: @query)}
+      <%= if is_integer(@loaded) and @loaded < @count do %>
+        {Gettext.gettext(PhoenixKitWeb.Gettext, "Showing %{loaded} of %{count} results for \"%{query}\"", loaded: @loaded, count: @count, query: @query)}
+      <% else %>
+        {Gettext.ngettext(PhoenixKitWeb.Gettext, "%{count} result for \"%{query}\"", "%{count} results for \"%{query}\"", @count, count: @count, query: @query)}
+      <% end %>
     </span>
     """
   end

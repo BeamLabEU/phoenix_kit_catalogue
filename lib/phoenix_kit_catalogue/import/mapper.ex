@@ -11,8 +11,11 @@ defmodule PhoenixKitCatalogue.Import.Mapper do
           | :description
           | :sku
           | :base_price
+          | :markup_percentage
           | :unit
           | :category
+          | :manufacturer
+          | :supplier
           | :skip
           | {:data, String.t()}
 
@@ -25,6 +28,8 @@ defmodule PhoenixKitCatalogue.Import.Mapper do
   @type import_plan :: %{
           items: [map()],
           categories_to_create: [String.t()],
+          manufacturers_to_create: [String.t()],
+          suppliers_to_create: [String.t()],
           custom_fields: [String.t()],
           errors: [{non_neg_integer(), String.t()}],
           stats: %{total: non_neg_integer(), valid: non_neg_integer(), invalid: non_neg_integer()}
@@ -57,7 +62,12 @@ defmodule PhoenixKitCatalogue.Import.Mapper do
     sku: ~w(sku artikkel article code kood nr number art artikelnr item_code product_code),
     name: ~w(name nimi nimetus kirjeldus description bezeichnung toode product),
     base_price: ~w(price hind preis cost maksumus kulu base_price baseprice),
-    unit: ~w(unit uhik einheit masseinheit measure uom)
+    markup_percentage:
+      ~w(markup margin naceenka juurdehindlus aufschlag markup_percentage markup_percent markup%),
+    unit: ~w(unit uhik einheit masseinheit measure uom),
+    manufacturer:
+      ~w(manufacturer hersteller tootja brand bra_nd vendor maker producer firma manufacturer_name),
+    supplier: ~w(supplier tarnija lieferant distributor reseller wholesaler supplier_name)
   }
 
   # ── Public API ────────────────────────────────────────────────
@@ -73,8 +83,11 @@ defmodule PhoenixKitCatalogue.Import.Mapper do
       {:description, "Description"},
       {:sku, "Article Code"},
       {:base_price, "Base Price"},
+      {:markup_percentage, "Markup Override (%)"},
       {:unit, "Unit of Measure"},
-      {:category, "Create Categories"}
+      {:category, "Create Categories"},
+      {:manufacturer, "Manufacturer"},
+      {:supplier, "Supplier"}
     ]
   end
 
@@ -126,24 +139,11 @@ defmodule PhoenixKitCatalogue.Import.Mapper do
     items = Enum.reverse(items)
     errors = Enum.reverse(errors)
 
-    categories_to_create =
-      mappings
-      |> Enum.find(fn m -> m.target == :category end)
-      |> case do
-        nil ->
-          []
-
-        %{column_index: idx} ->
-          rows
-          |> Enum.map(fn row -> Enum.at(row, idx, "") end)
-          |> Enum.reject(&(&1 == ""))
-          |> Enum.uniq()
-          |> Enum.sort()
-      end
-
     %{
       items: items,
-      categories_to_create: categories_to_create,
+      categories_to_create: unique_column_names(mappings, rows, :category),
+      manufacturers_to_create: unique_column_names(mappings, rows, :manufacturer),
+      suppliers_to_create: unique_column_names(mappings, rows, :supplier),
       custom_fields: custom_fields,
       errors: errors,
       stats: %{
@@ -152,6 +152,24 @@ defmodule PhoenixKitCatalogue.Import.Mapper do
         invalid: length(errors)
       }
     }
+  end
+
+  # Pulls every distinct, non-blank value from the column mapped to
+  # `target`. Used to compute `categories_to_create`,
+  # `manufacturers_to_create`, and `suppliers_to_create` for the
+  # executor's get-or-create phases.
+  defp unique_column_names(mappings, rows, target) do
+    case Enum.find(mappings, fn m -> m.target == target end) do
+      nil ->
+        []
+
+      %{column_index: idx} ->
+        rows
+        |> Enum.map(fn row -> row |> Enum.at(idx, "") |> String.trim() end)
+        |> Enum.reject(&(&1 == ""))
+        |> Enum.uniq()
+        |> Enum.sort()
+    end
   end
 
   @doc """
@@ -226,6 +244,7 @@ defmodule PhoenixKitCatalogue.Import.Mapper do
     name_matches?(import_item, existing) and
       sku_matches?(import_item, existing) and
       price_matches?(import_item, existing) and
+      markup_matches?(import_item, existing) and
       unit_matches?(import_item, existing) and
       category_matches?(existing, category_uuid) and
       language_matches?(import_item, existing, language)
@@ -241,6 +260,20 @@ defmodule PhoenixKitCatalogue.Import.Mapper do
 
   defp price_matches?(import_item, existing) do
     case {import_item[:base_price], existing.base_price} do
+      {nil, nil} -> true
+      {nil, _} -> false
+      {_, nil} -> false
+      {a, b} -> Decimal.equal?(a, b)
+    end
+  end
+
+  # Two items match only when they share the same markup posture: both
+  # inheriting from the catalogue (`nil`/`nil`), both overriding to the
+  # same value, or one overriding while the other doesn't (different).
+  # Without this, importing a price-list of overrides would silently
+  # collapse onto inheritance-only existing rows.
+  defp markup_matches?(import_item, existing) do
+    case {import_item[:markup_percentage], existing.markup_percentage} do
       {nil, nil} -> true
       {nil, _} -> false
       {_, nil} -> false
@@ -386,6 +419,24 @@ defmodule PhoenixKitCatalogue.Import.Mapper do
     end
   end
 
+  # A blank cell in the markup column means "no override" — the item
+  # inherits the catalogue's markup. Any non-blank value must be a valid
+  # non-negative number; otherwise the row is rejected so a typo in one
+  # cell doesn't silently fall back to the catalogue default and confuse
+  # the user about why their override didn't take effect.
+  defp apply_mapping(acc, :markup_percentage, value, _unit_map) do
+    case String.trim(value) do
+      "" ->
+        acc
+
+      trimmed ->
+        case normalize_price(trimmed) do
+          {:ok, decimal} -> Map.put(acc, :markup_percentage, decimal)
+          :error -> Map.put(acc, :_markup_error, trimmed)
+        end
+    end
+  end
+
   defp apply_mapping(acc, :unit, value, unit_map) do
     normalized = normalize_unit(value, unit_map)
     data = Map.get(acc, :data, %{})
@@ -397,6 +448,25 @@ defmodule PhoenixKitCatalogue.Import.Mapper do
 
   defp apply_mapping(acc, :category, value, _unit_map),
     do: Map.put(acc, :_category_name, String.trim(value))
+
+  # Manufacturer / supplier names get the same `_<x>_name` placeholder
+  # treatment as `:category` — the executor resolves them to UUIDs (or
+  # creates the records) at import time. Blank cells skip the
+  # placeholder entirely so the executor knows the row has no
+  # manufacturer/supplier and won't try to look one up or link.
+  defp apply_mapping(acc, :manufacturer, value, _unit_map) do
+    case String.trim(value) do
+      "" -> acc
+      name -> Map.put(acc, :_manufacturer_name, name)
+    end
+  end
+
+  defp apply_mapping(acc, :supplier, value, _unit_map) do
+    case String.trim(value) do
+      "" -> acc
+      name -> Map.put(acc, :_supplier_name, name)
+    end
+  end
 
   defp apply_mapping(acc, {:data, field_name}, value, _unit_map) do
     data = Map.get(acc, :data, %{})
@@ -411,8 +481,11 @@ defmodule PhoenixKitCatalogue.Import.Mapper do
       Map.has_key?(attrs, :_price_error) ->
         {:error, "Invalid price: #{attrs[:_price_error]}"}
 
+      Map.has_key?(attrs, :_markup_error) ->
+        {:error, "Invalid markup: #{attrs[:_markup_error]}"}
+
       true ->
-        {:ok, Map.drop(attrs, [:_price_error])}
+        {:ok, Map.drop(attrs, [:_price_error, :_markup_error])}
     end
   end
 

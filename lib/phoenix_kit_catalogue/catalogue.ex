@@ -1818,24 +1818,51 @@ defmodule PhoenixKitCatalogue.Catalogue do
   and logs a warning so the caller still gets a renderable result
   instead of crashing a template.
 
-  Returns a map with `:base_price`, `:markup_percentage`, and `:price`
-  (sale price). Returns `nil` values if the item has no base price.
+  Returns a map with:
+
+    * `:base_price` — the item's stored base price (or `nil` if unset)
+    * `:catalogue_markup` — the parent catalogue's `markup_percentage`
+      (the inherited default for items without an override)
+    * `:item_markup` — the item's `markup_percentage` override, or
+      `nil` when the item inherits from the catalogue
+    * `:markup_percentage` — the markup actually applied to compute
+      `:price` — the item's override if set, otherwise the catalogue's
+    * `:price` — the computed sale price (or `nil` if no base price)
+
+  Returns `nil` for `:price` if the item has no base price.
 
   ## Examples
 
+      # Item inherits the catalogue's markup
       Catalogue.item_pricing(item)
-      #=> %{base_price: Decimal.new("100.00"), markup_percentage: Decimal.new("15.0"), price: Decimal.new("115.00")}
+      #=> %{
+      #=>   base_price: Decimal.new("100.00"),
+      #=>   catalogue_markup: Decimal.new("15.0"),
+      #=>   item_markup: nil,
+      #=>   markup_percentage: Decimal.new("15.0"),
+      #=>   price: Decimal.new("115.00")
+      #=> }
 
-      Catalogue.item_pricing(item_without_category)
-      #=> %{base_price: Decimal.new("100.00"), markup_percentage: Decimal.new("0"), price: Decimal.new("100.00")}
+      # Item overrides to 50%
+      Catalogue.item_pricing(item_with_override)
+      #=> %{
+      #=>   base_price: Decimal.new("100.00"),
+      #=>   catalogue_markup: Decimal.new("15.0"),
+      #=>   item_markup: Decimal.new("50.0"),
+      #=>   markup_percentage: Decimal.new("50.0"),
+      #=>   price: Decimal.new("150.00")
+      #=> }
   """
   def item_pricing(%Item{} = item) do
-    markup = safe_markup_for_item(item)
+    catalogue_markup = safe_markup_for_item(item)
+    effective = Item.effective_markup(item, catalogue_markup)
 
     %{
       base_price: item.base_price,
-      markup_percentage: markup,
-      price: Item.sale_price(item, markup)
+      catalogue_markup: catalogue_markup,
+      item_markup: item.markup_percentage,
+      markup_percentage: effective,
+      price: Item.sale_price(item, catalogue_markup)
     }
   end
 
@@ -1885,14 +1912,17 @@ defmodule PhoenixKitCatalogue.Catalogue do
   ## Options
 
     * `:limit` — max results to return (default 50)
+    * `:offset` — number of results to skip, for paging (default 0)
 
   ## Examples
 
       Catalogue.search_items("oak")
       Catalogue.search_items("OAK-18", limit: 10)
+      Catalogue.search_items("oak", limit: 100, offset: 100)
   """
   def search_items(query, opts \\ []) do
     limit = Keyword.get(opts, :limit, 50)
+    offset = Keyword.get(opts, :offset, 0)
     pattern = "%#{sanitize_like(query)}%"
 
     from(i in Item,
@@ -1907,11 +1937,42 @@ defmodule PhoenixKitCatalogue.Catalogue do
           ilike(i.description, ^pattern) or
           ilike(i.sku, ^pattern) or
           fragment("?::text ILIKE ?", i.data, ^pattern),
-      order_by: [asc: i.name],
+      order_by: [asc: i.name, asc: i.uuid],
       limit: ^limit,
+      offset: ^offset,
       preload: [:catalogue, category: :catalogue, manufacturer: []]
     )
     |> repo().all()
+  end
+
+  @doc """
+  Returns the total number of items across all non-deleted catalogues
+  that match a search query, using the same matching rules as
+  `search_items/2`. Runs independently of `:limit`/`:offset`.
+
+  ## Examples
+
+      Catalogue.count_search_items("oak")
+      #=> 1204
+  """
+  def count_search_items(query) do
+    pattern = "%#{sanitize_like(query)}%"
+
+    from(i in Item,
+      join: cat in Catalogue,
+      on: i.catalogue_uuid == cat.uuid,
+      left_join: c in Category,
+      on: i.category_uuid == c.uuid,
+      where: i.status != "deleted" and cat.status != "deleted",
+      where: is_nil(c.uuid) or c.status != "deleted",
+      where:
+        ilike(i.name, ^pattern) or
+          ilike(i.description, ^pattern) or
+          ilike(i.sku, ^pattern) or
+          fragment("?::text ILIKE ?", i.data, ^pattern),
+      select: count(i.uuid)
+    )
+    |> repo().one()
   end
 
   @doc """
@@ -1927,14 +1988,17 @@ defmodule PhoenixKitCatalogue.Catalogue do
   ## Options
 
     * `:limit` — max results to return (default 50)
+    * `:offset` — number of results to skip, for paging (default 0)
 
   ## Examples
 
       Catalogue.search_items_in_catalogue(catalogue_uuid, "panel")
       Catalogue.search_items_in_catalogue(catalogue_uuid, "SKU", limit: 25)
+      Catalogue.search_items_in_catalogue(catalogue_uuid, "panel", limit: 100, offset: 100)
   """
   def search_items_in_catalogue(catalogue_uuid, query, opts \\ []) do
     limit = Keyword.get(opts, :limit, 50)
+    offset = Keyword.get(opts, :offset, 0)
     pattern = "%#{sanitize_like(query)}%"
 
     from(i in Item,
@@ -1948,11 +2012,44 @@ defmodule PhoenixKitCatalogue.Catalogue do
           ilike(i.description, ^pattern) or
           ilike(i.sku, ^pattern) or
           fragment("?::text ILIKE ?", i.data, ^pattern),
-      order_by: [asc_nulls_last: c.position, asc: i.name],
+      order_by: [asc_nulls_last: c.position, asc: i.name, asc: i.uuid],
       limit: ^limit,
+      offset: ^offset,
       preload: [:catalogue, category: :catalogue, manufacturer: []]
     )
     |> repo().all()
+  end
+
+  @doc """
+  Returns the total number of items in a catalogue that match a search
+  query, using the same matching rules as `search_items_in_catalogue/3`.
+
+  Useful for paginating or driving "N of M" summaries alongside paged
+  search results. Runs independently of `:limit`/`:offset` — this is the
+  unbounded total.
+
+  ## Examples
+
+      Catalogue.count_search_items_in_catalogue(catalogue_uuid, "panel")
+      #=> 237
+  """
+  def count_search_items_in_catalogue(catalogue_uuid, query) do
+    pattern = "%#{sanitize_like(query)}%"
+
+    from(i in Item,
+      left_join: c in Category,
+      on: i.category_uuid == c.uuid,
+      where: i.catalogue_uuid == ^catalogue_uuid,
+      where: i.status != "deleted",
+      where: is_nil(c.uuid) or c.status != "deleted",
+      where:
+        ilike(i.name, ^pattern) or
+          ilike(i.description, ^pattern) or
+          ilike(i.sku, ^pattern) or
+          fragment("?::text ILIKE ?", i.data, ^pattern),
+      select: count(i.uuid)
+    )
+    |> repo().one()
   end
 
   @doc """
@@ -1966,13 +2063,16 @@ defmodule PhoenixKitCatalogue.Catalogue do
   ## Options
 
     * `:limit` — max results to return (default 50)
+    * `:offset` — number of results to skip, for paging (default 0)
 
   ## Examples
 
       Catalogue.search_items_in_category(category_uuid, "panel")
+      Catalogue.search_items_in_category(category_uuid, "panel", limit: 100, offset: 100)
   """
   def search_items_in_category(category_uuid, query, opts \\ []) do
     limit = Keyword.get(opts, :limit, 50)
+    offset = Keyword.get(opts, :offset, 0)
     pattern = "%#{sanitize_like(query)}%"
 
     from(i in Item,
@@ -1983,11 +2083,38 @@ defmodule PhoenixKitCatalogue.Catalogue do
           ilike(i.description, ^pattern) or
           ilike(i.sku, ^pattern) or
           fragment("?::text ILIKE ?", i.data, ^pattern),
-      order_by: [asc: i.name],
+      order_by: [asc: i.name, asc: i.uuid],
       limit: ^limit,
+      offset: ^offset,
       preload: [:catalogue, category: :catalogue, manufacturer: []]
     )
     |> repo().all()
+  end
+
+  @doc """
+  Returns the total number of non-deleted items in a category that
+  match a search query, using the same matching rules as
+  `search_items_in_category/3`. Runs independently of `:limit`/`:offset`.
+
+  ## Examples
+
+      Catalogue.count_search_items_in_category(category_uuid, "panel")
+      #=> 42
+  """
+  def count_search_items_in_category(category_uuid, query) do
+    pattern = "%#{sanitize_like(query)}%"
+
+    from(i in Item,
+      where: i.category_uuid == ^category_uuid,
+      where: i.status != "deleted",
+      where:
+        ilike(i.name, ^pattern) or
+          ilike(i.description, ^pattern) or
+          ilike(i.sku, ^pattern) or
+          fragment("?::text ILIKE ?", i.data, ^pattern),
+      select: count(i.uuid)
+    )
+    |> repo().one()
   end
 
   defp sanitize_like(query) do
@@ -2034,6 +2161,22 @@ defmodule PhoenixKitCatalogue.Catalogue do
       where: c.catalogue_uuid == ^catalogue_uuid and c.status != "deleted"
     )
     |> repo().aggregate(:count)
+  end
+
+  @doc """
+  Returns a map of `catalogue_uuid => non_deleted_category_count`, in a
+  single query. Useful for displaying category counts alongside a
+  catalogue list (e.g. in the import wizard's catalogue picker) without
+  N+1 lookups.
+  """
+  def category_counts_by_catalogue do
+    from(c in Category,
+      where: c.status != "deleted",
+      group_by: c.catalogue_uuid,
+      select: {c.catalogue_uuid, count(c.uuid)}
+    )
+    |> repo().all()
+    |> Map.new()
   end
 
   @doc """

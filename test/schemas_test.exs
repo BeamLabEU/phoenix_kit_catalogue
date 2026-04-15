@@ -296,6 +296,53 @@ defmodule PhoenixKitCatalogue.SchemasTest do
 
       assert cs.valid?
     end
+
+    test "accepts nil markup_percentage (means inherit from catalogue)" do
+      cs =
+        Item.changeset(%Item{}, %{
+          name: "x",
+          catalogue_uuid: @valid_catalogue_uuid,
+          markup_percentage: nil
+        })
+
+      assert cs.valid?
+      assert Ecto.Changeset.get_field(cs, :markup_percentage) == nil
+    end
+
+    test "accepts empty-string markup_percentage from form params (normalized to nil)" do
+      cs =
+        Item.changeset(%Item{}, %{
+          "name" => "x",
+          "catalogue_uuid" => @valid_catalogue_uuid,
+          "markup_percentage" => ""
+        })
+
+      assert cs.valid?
+      assert Ecto.Changeset.get_field(cs, :markup_percentage) == nil
+    end
+
+    test "accepts zero markup_percentage (explicit override to sell at base)" do
+      cs =
+        Item.changeset(%Item{}, %{
+          name: "x",
+          catalogue_uuid: @valid_catalogue_uuid,
+          markup_percentage: 0
+        })
+
+      assert cs.valid?
+    end
+
+    test "rejects negative markup_percentage" do
+      cs =
+        Item.changeset(%Item{}, %{
+          name: "x",
+          catalogue_uuid: @valid_catalogue_uuid,
+          markup_percentage: -5
+        })
+
+      refute cs.valid?
+      assert errors_on(cs)[:markup_percentage]
+    end
   end
 
   describe "Item.sale_price/2" do
@@ -321,9 +368,53 @@ defmodule PhoenixKitCatalogue.SchemasTest do
       assert Decimal.equal?(result, Decimal.new("38.33"))
     end
 
-    test "handles zero markup" do
+    test "handles zero catalogue markup" do
       item = %Item{base_price: Decimal.new("50")}
       assert Decimal.equal?(Item.sale_price(item, Decimal.new("0")), Decimal.new("50"))
+    end
+
+    test "item markup_percentage overrides catalogue markup" do
+      item = %Item{base_price: Decimal.new("100"), markup_percentage: Decimal.new("50")}
+      # Catalogue says 20, but item overrides to 50 → 100 * 1.50
+      assert Decimal.equal?(Item.sale_price(item, Decimal.new("20")), Decimal.new("150.00"))
+    end
+
+    test "item markup of 0 overrides a non-zero catalogue markup" do
+      # "0 means sell at base price, even if the catalogue has a markup"
+      item = %Item{base_price: Decimal.new("100"), markup_percentage: Decimal.new("0")}
+      assert Decimal.equal?(Item.sale_price(item, Decimal.new("20")), Decimal.new("100"))
+    end
+
+    test "item falls back to catalogue markup when override is nil" do
+      item = %Item{base_price: Decimal.new("100"), markup_percentage: nil}
+      assert Decimal.equal?(Item.sale_price(item, Decimal.new("25")), Decimal.new("125.00"))
+    end
+
+    test "both nil → base price unchanged" do
+      item = %Item{base_price: Decimal.new("77"), markup_percentage: nil}
+      assert Decimal.equal?(Item.sale_price(item, nil), Decimal.new("77"))
+    end
+  end
+
+  describe "Item.effective_markup/2" do
+    test "returns the item's override when set" do
+      item = %Item{markup_percentage: Decimal.new("50")}
+      assert Decimal.equal?(Item.effective_markup(item, Decimal.new("20")), Decimal.new("50"))
+    end
+
+    test "returns the item's override even when it's zero" do
+      item = %Item{markup_percentage: Decimal.new("0")}
+      assert Decimal.equal?(Item.effective_markup(item, Decimal.new("20")), Decimal.new("0"))
+    end
+
+    test "falls back to catalogue when item override is nil" do
+      item = %Item{markup_percentage: nil}
+      assert Decimal.equal?(Item.effective_markup(item, Decimal.new("20")), Decimal.new("20"))
+    end
+
+    test "returns nil when both are nil" do
+      item = %Item{markup_percentage: nil}
+      assert Item.effective_markup(item, nil) == nil
     end
   end
 

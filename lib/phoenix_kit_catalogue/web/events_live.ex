@@ -363,17 +363,25 @@ defmodule PhoenixKitCatalogue.Web.EventsLive do
       window.PhoenixKitHooks = window.PhoenixKitHooks || {};
       window.PhoenixKitHooks.InfiniteScroll = window.PhoenixKitHooks.InfiniteScroll || {
         mounted() {
+          this.intersecting = false;
           this.observer = new IntersectionObserver((entries) => {
-            const entry = entries[0];
-            if (entry.isIntersecting) {
+            this.intersecting = entries[0].isIntersecting;
+            if (this.intersecting) {
               this.pushEvent("load_more", {});
             }
           }, { rootMargin: "200px" });
           this.observer.observe(this.el);
         },
         updated() {
-          this.observer.disconnect();
-          this.observer.observe(this.el);
+          // IntersectionObserver only fires on state transitions. When the
+          // viewport is tall or the user jumped via Page Down / resize, the
+          // sentinel stays continuously in view across batches — so the
+          // observer goes silent after the first fire. Re-trigger explicitly
+          // whenever the server patches us while we're still on-screen.
+          // The server's `loading` guard dedupes duplicate events.
+          if (this.intersecting) {
+            this.pushEvent("load_more", {});
+          }
         },
         destroyed() {
           this.observer.disconnect();
