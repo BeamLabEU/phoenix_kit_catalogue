@@ -6,6 +6,7 @@ defmodule PhoenixKitCatalogue.Import.Executor do
   are inserted with progress reporting back to the calling process.
   """
 
+  alias PhoenixKit.Utils.Multilang
   alias PhoenixKitCatalogue.Catalogue
 
   @type import_result :: %{
@@ -24,11 +25,16 @@ defmodule PhoenixKitCatalogue.Import.Executor do
 
     * `:language` — language code for multilang import (e.g. `"et"`)
     * `:category_uuid` — fixed category UUID to assign all items to
+    * `:match_categories_across_languages` — when `true`, the
+      get-or-create lookup for column-mode category creation matches
+      column values against every translation any existing category
+      has, not just the current import language. Default `false`.
   """
   @spec execute(map(), String.t(), pid(), keyword()) :: import_result()
   def execute(import_plan, catalogue_uuid, notify_pid, opts \\ []) do
     language = Keyword.get(opts, :language)
     fixed_category_uuid = Keyword.get(opts, :category_uuid)
+    match_across = Keyword.get(opts, :match_categories_across_languages, false)
     activity_opts = build_activity_opts(opts)
 
     # Phase 1: Create categories (only if no fixed category)
@@ -36,7 +42,13 @@ defmodule PhoenixKitCatalogue.Import.Executor do
       if fixed_category_uuid do
         {%{}, 0}
       else
-        create_categories(import_plan.categories_to_create, catalogue_uuid, activity_opts)
+        create_categories(
+          import_plan.categories_to_create,
+          catalogue_uuid,
+          language,
+          match_across,
+          activity_opts
+        )
       end
 
     # Phase 2: Create items
@@ -75,28 +87,97 @@ defmodule PhoenixKitCatalogue.Import.Executor do
 
   # ── Category Creation ─────────────────────────────────────────
 
-  defp create_categories(category_names, catalogue_uuid, activity_opts) do
-    # Load existing categories for this catalogue
-    existing =
-      Catalogue.list_categories_for_catalogue(catalogue_uuid)
-      |> Map.new(fn cat -> {cat.name, cat.uuid} end)
+  defp create_categories(category_names, catalogue_uuid, language, match_across, activity_opts) do
+    existing_categories = Catalogue.list_categories_for_catalogue(catalogue_uuid)
+    existing = build_category_lookup(existing_categories, language, match_across)
 
     Enum.reduce(category_names, {existing, 0}, fn name, {lookup, count} ->
       if Map.has_key?(lookup, name) do
         {lookup, count}
       else
-        get_or_create_category(name, catalogue_uuid, lookup, count, activity_opts)
+        get_or_create_category(name, catalogue_uuid, language, lookup, count, activity_opts)
       end
     end)
   end
 
-  defp get_or_create_category(name, catalogue_uuid, lookup, count, activity_opts) do
+  # Builds the `name => uuid` lookup the importer uses to match column
+  # values to existing categories.
+  #
+  # Without a language we fall back to the bare `name` field — same as
+  # the pre-multilang behavior, and the right thing for catalogues that
+  # never enabled translations.
+  #
+  # With a language, we ALSO index each category by its translated
+  # `_name` in that language, so importing a CSV with category column
+  # values like "Konksud" matches a category whose `data.et._name` is
+  # "Konksud" — even if its bare/primary name is "Hooks". The bare
+  # `name` is also indexed as a fallback so categories without a
+  # translation set in this language are still findable by their
+  # primary name. On collisions the language-specific entry wins
+  # because it's `Map.put`-ed last.
+  #
+  # When `match_across_languages` is true, we additionally index every
+  # `_name` translation present on each category — so a column value
+  # can match against a sibling-language translation even when
+  # importing under a different language. Useful for consolidating
+  # multilingual catalogues without forcing the user to re-import once
+  # per language tab.
+  defp build_category_lookup(categories, nil, _match_across) do
+    Map.new(categories, fn cat -> {cat.name, cat.uuid} end)
+  end
+
+  defp build_category_lookup(categories, language, match_across) do
+    Enum.reduce(categories, %{}, fn cat, acc ->
+      acc
+      |> Map.put(cat.name, cat.uuid)
+      |> maybe_index_all_translations(cat, match_across)
+      |> maybe_index_translation(cat, language)
+    end)
+  end
+
+  defp maybe_index_all_translations(acc, _cat, false), do: acc
+
+  defp maybe_index_all_translations(acc, %{data: data} = cat, true) when is_map(data) do
+    Enum.reduce(data, acc, fn
+      {key, %{"_name" => name}}, inner_acc
+      when is_binary(name) and name != "" and key != "_primary_language" ->
+        Map.put(inner_acc, name, cat.uuid)
+
+      _, inner_acc ->
+        inner_acc
+    end)
+  end
+
+  defp maybe_index_all_translations(acc, _cat, true), do: acc
+
+  defp maybe_index_translation(acc, cat, language) do
+    case translated_name(cat, language) do
+      nil -> acc
+      translated -> Map.put(acc, translated, cat.uuid)
+    end
+  end
+
+  defp translated_name(%{data: data}, language) when is_map(data) do
+    case Multilang.get_language_data(data, language) do
+      %{"_name" => name} when is_binary(name) and name != "" -> name
+      _ -> nil
+    end
+  end
+
+  defp translated_name(_cat, _language), do: nil
+
+  defp get_or_create_category(name, catalogue_uuid, language, lookup, count, activity_opts) do
     position = Catalogue.next_category_position(catalogue_uuid)
 
-    case Catalogue.create_category(
-           %{name: name, catalogue_uuid: catalogue_uuid, position: position},
-           activity_opts
-         ) do
+    # Apply the import language to the category the same way we do for
+    # items — so the imported name lands in `data` under the chosen
+    # language tab and `_primary_language` is set, instead of being a
+    # bare string with no translation context.
+    attrs =
+      %{name: name, catalogue_uuid: catalogue_uuid, position: position}
+      |> apply_language(language)
+
+    case Catalogue.create_category(attrs, activity_opts) do
       {:ok, category} ->
         {Map.put(lookup, name, category.uuid), count + 1}
 
