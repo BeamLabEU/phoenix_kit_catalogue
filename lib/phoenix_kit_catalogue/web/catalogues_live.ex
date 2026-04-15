@@ -293,7 +293,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   def handle_event("load_more", _params, socket) do
     if socket.assigns.search_results != nil and socket.assigns.search_has_more and
          not socket.assigns.search_loading do
-      {:noreply, socket |> assign(:search_loading, true) |> load_next_search_batch()}
+      {:noreply, start_search_page(socket)}
     else
       {:noreply, socket}
     end
@@ -361,26 +361,58 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     end
   end
 
-  defp load_next_search_batch(socket) do
-    %{
-      search_query: query,
-      search_results: results,
-      search_offset: offset,
-      search_total: total
-    } = socket.assigns
+  def handle_async(:search_page, {:ok, {query, offset, page}}, socket) do
+    if socket.assigns.search_query == query and socket.assigns.search_offset == offset do
+      new_offset = offset + length(page)
+      has_more = page != [] and new_offset < socket.assigns.search_total
 
-    page = Catalogue.search_items(query, limit: @per_page, offset: offset)
-    new_offset = offset + length(page)
-    # `page == []` protects against stale `total` (items concurrently
-    # deleted) keeping `search_has_more` true forever.
-    has_more = page != [] and new_offset < total
+      {:noreply,
+       assign(socket,
+         search_results: (socket.assigns.search_results || []) ++ page,
+         search_offset: new_offset,
+         search_has_more: has_more,
+         search_loading: false
+       )}
+    else
+      {:noreply, socket}
+    end
+  end
 
-    assign(socket,
-      search_results: results ++ page,
-      search_offset: new_offset,
-      search_has_more: has_more,
-      search_loading: false
-    )
+  def handle_async(:search_page, {:exit, reason}, socket) do
+    case reason do
+      r when r in [:shutdown, :killed] ->
+        {:noreply, socket}
+
+      {:shutdown, _} ->
+        {:noreply, socket}
+
+      other ->
+        Logger.warning("search page task exited unexpectedly: #{inspect(other)}")
+
+        {:noreply,
+         socket
+         |> assign(:search_loading, false)
+         |> put_flash(
+           :error,
+           Gettext.gettext(PhoenixKitWeb.Gettext, "Search failed. Please try again.")
+         )}
+    end
+  end
+
+  # Global-search paging runs off-process for the same reason the
+  # per-catalogue detail view does: the ILIKE-against-jsonb-as-text
+  # query doesn't hit an index and can take hundreds of ms on large
+  # datasets. `handle_async(:search_page, …)` guards on `{query, offset}`
+  # so a superseding new search or a stale page can't double-append.
+  defp start_search_page(socket) do
+    %{search_query: query, search_offset: offset} = socket.assigns
+
+    socket
+    |> assign(:search_loading, true)
+    |> start_async(:search_page, fn ->
+      page = Catalogue.search_items(query, limit: @per_page, offset: offset)
+      {query, offset, page}
+    end)
   end
 
   defp clear_search(socket) do
