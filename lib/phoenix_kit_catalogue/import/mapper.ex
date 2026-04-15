@@ -11,6 +11,7 @@ defmodule PhoenixKitCatalogue.Import.Mapper do
           | :description
           | :sku
           | :base_price
+          | :markup_percentage
           | :unit
           | :category
           | :skip
@@ -57,6 +58,8 @@ defmodule PhoenixKitCatalogue.Import.Mapper do
     sku: ~w(sku artikkel article code kood nr number art artikelnr item_code product_code),
     name: ~w(name nimi nimetus kirjeldus description bezeichnung toode product),
     base_price: ~w(price hind preis cost maksumus kulu base_price baseprice),
+    markup_percentage:
+      ~w(markup margin naceenka juurdehindlus aufschlag markup_percentage markup_percent markup%),
     unit: ~w(unit uhik einheit masseinheit measure uom)
   }
 
@@ -73,6 +76,7 @@ defmodule PhoenixKitCatalogue.Import.Mapper do
       {:description, "Description"},
       {:sku, "Article Code"},
       {:base_price, "Base Price"},
+      {:markup_percentage, "Markup Override (%)"},
       {:unit, "Unit of Measure"},
       {:category, "Create Categories"}
     ]
@@ -226,6 +230,7 @@ defmodule PhoenixKitCatalogue.Import.Mapper do
     name_matches?(import_item, existing) and
       sku_matches?(import_item, existing) and
       price_matches?(import_item, existing) and
+      markup_matches?(import_item, existing) and
       unit_matches?(import_item, existing) and
       category_matches?(existing, category_uuid) and
       language_matches?(import_item, existing, language)
@@ -241,6 +246,20 @@ defmodule PhoenixKitCatalogue.Import.Mapper do
 
   defp price_matches?(import_item, existing) do
     case {import_item[:base_price], existing.base_price} do
+      {nil, nil} -> true
+      {nil, _} -> false
+      {_, nil} -> false
+      {a, b} -> Decimal.equal?(a, b)
+    end
+  end
+
+  # Two items match only when they share the same markup posture: both
+  # inheriting from the catalogue (`nil`/`nil`), both overriding to the
+  # same value, or one overriding while the other doesn't (different).
+  # Without this, importing a price-list of overrides would silently
+  # collapse onto inheritance-only existing rows.
+  defp markup_matches?(import_item, existing) do
+    case {import_item[:markup_percentage], existing.markup_percentage} do
       {nil, nil} -> true
       {nil, _} -> false
       {_, nil} -> false
@@ -386,6 +405,24 @@ defmodule PhoenixKitCatalogue.Import.Mapper do
     end
   end
 
+  # A blank cell in the markup column means "no override" — the item
+  # inherits the catalogue's markup. Any non-blank value must be a valid
+  # non-negative number; otherwise the row is rejected so a typo in one
+  # cell doesn't silently fall back to the catalogue default and confuse
+  # the user about why their override didn't take effect.
+  defp apply_mapping(acc, :markup_percentage, value, _unit_map) do
+    case String.trim(value) do
+      "" ->
+        acc
+
+      trimmed ->
+        case normalize_price(trimmed) do
+          {:ok, decimal} -> Map.put(acc, :markup_percentage, decimal)
+          :error -> Map.put(acc, :_markup_error, trimmed)
+        end
+    end
+  end
+
   defp apply_mapping(acc, :unit, value, unit_map) do
     normalized = normalize_unit(value, unit_map)
     data = Map.get(acc, :data, %{})
@@ -411,8 +448,11 @@ defmodule PhoenixKitCatalogue.Import.Mapper do
       Map.has_key?(attrs, :_price_error) ->
         {:error, "Invalid price: #{attrs[:_price_error]}"}
 
+      Map.has_key?(attrs, :_markup_error) ->
+        {:error, "Invalid markup: #{attrs[:_markup_error]}"}
+
       true ->
-        {:ok, Map.drop(attrs, [:_price_error])}
+        {:ok, Map.drop(attrs, [:_price_error, :_markup_error])}
     end
   end
 

@@ -1003,6 +1003,59 @@ defmodule PhoenixKitCatalogue.CatalogueTest do
       assert Decimal.equal?(pricing.markup_percentage, Decimal.new("10"))
     end
 
+    test "reports both catalogue_markup and item_markup, with item override winning" do
+      cat = create_catalogue(%{name: "Cat 20%", markup_percentage: 20})
+      category = create_category(cat)
+
+      item =
+        create_item(%{
+          name: "Override Panel",
+          base_price: "100.00",
+          markup_percentage: "50",
+          category_uuid: category.uuid
+        })
+
+      pricing = Catalogue.item_pricing(item)
+
+      assert Decimal.equal?(pricing.catalogue_markup, Decimal.new("20"))
+      assert Decimal.equal?(pricing.item_markup, Decimal.new("50"))
+      # Effective markup is the item's override
+      assert Decimal.equal?(pricing.markup_percentage, Decimal.new("50"))
+      assert Decimal.equal?(pricing.price, Decimal.new("150.00"))
+    end
+
+    test "item_markup is nil when there is no override" do
+      cat = create_catalogue(%{name: "Cat 10%", markup_percentage: 10})
+      category = create_category(cat)
+      item = create_item(%{name: "Inheritor", base_price: "100.00", category_uuid: category.uuid})
+
+      pricing = Catalogue.item_pricing(item)
+
+      assert is_nil(pricing.item_markup)
+      assert Decimal.equal?(pricing.catalogue_markup, Decimal.new("10"))
+      assert Decimal.equal?(pricing.markup_percentage, Decimal.new("10"))
+    end
+
+    test "item_markup of 0 overrides a non-zero catalogue markup" do
+      cat = create_catalogue(%{name: "Cat 25%", markup_percentage: 25})
+      category = create_category(cat)
+
+      item =
+        create_item(%{
+          name: "No Markup For Me",
+          base_price: "100.00",
+          markup_percentage: "0",
+          category_uuid: category.uuid
+        })
+
+      pricing = Catalogue.item_pricing(item)
+
+      assert Decimal.equal?(pricing.catalogue_markup, Decimal.new("25"))
+      assert Decimal.equal?(pricing.item_markup, Decimal.new("0"))
+      assert Decimal.equal?(pricing.markup_percentage, Decimal.new("0"))
+      assert Decimal.equal?(pricing.price, Decimal.new("100.00"))
+    end
+
     test "falls back to 0% markup when the catalogue association is unloaded and preload fails" do
       # Simulate "catalogue couldn't be loaded" by constructing a detached
       # struct: no catalogue preload, no uuid that the DB knows about.
@@ -1142,6 +1195,103 @@ defmodule PhoenixKitCatalogue.CatalogueTest do
       create_item(%{name: "Birch Veneer", category_uuid: category.uuid})
 
       assert Catalogue.search_items_in_catalogue(cat.uuid, "oak") == []
+    end
+
+    test "respects :limit and :offset for paging" do
+      cat = create_catalogue()
+      category = create_category(cat)
+
+      for i <- 1..5 do
+        create_item(%{name: "Oak Panel #{i}", category_uuid: category.uuid})
+      end
+
+      page_1 = Catalogue.search_items_in_catalogue(cat.uuid, "oak", limit: 2, offset: 0)
+      page_2 = Catalogue.search_items_in_catalogue(cat.uuid, "oak", limit: 2, offset: 2)
+      page_3 = Catalogue.search_items_in_catalogue(cat.uuid, "oak", limit: 2, offset: 4)
+
+      assert length(page_1) == 2
+      assert length(page_2) == 2
+      assert length(page_3) == 1
+
+      # Pages must be disjoint — stable uuid tie-breaker guarantees this
+      all_uuids =
+        (page_1 ++ page_2 ++ page_3) |> Enum.map(& &1.uuid)
+
+      assert length(Enum.uniq(all_uuids)) == 5
+    end
+
+    test "ordering is stable across pages when names collide" do
+      cat = create_catalogue()
+      category = create_category(cat)
+
+      for _ <- 1..6, do: create_item(%{name: "Twin", category_uuid: category.uuid})
+
+      # Fetch in two different page shapes, compare uuid order
+      one_shot = Catalogue.search_items_in_catalogue(cat.uuid, "twin", limit: 10)
+
+      paged =
+        Catalogue.search_items_in_catalogue(cat.uuid, "twin", limit: 3, offset: 0) ++
+          Catalogue.search_items_in_catalogue(cat.uuid, "twin", limit: 3, offset: 3)
+
+      assert Enum.map(one_shot, & &1.uuid) == Enum.map(paged, & &1.uuid)
+    end
+  end
+
+  describe "count_search_items_in_catalogue/2" do
+    test "returns the total matching count regardless of limit" do
+      cat = create_catalogue()
+      category = create_category(cat)
+      for i <- 1..7, do: create_item(%{name: "Oak #{i}", category_uuid: category.uuid})
+
+      assert Catalogue.count_search_items_in_catalogue(cat.uuid, "oak") == 7
+    end
+
+    test "excludes deleted items and items in deleted categories" do
+      cat = create_catalogue()
+      active_cat = create_category(cat, %{name: "Active"})
+      trashed_cat = create_category(cat, %{name: "Trashed"})
+
+      create_item(%{name: "Oak visible", category_uuid: active_cat.uuid})
+      trashed_item = create_item(%{name: "Oak trashed", category_uuid: active_cat.uuid})
+
+      _hidden_cat_item =
+        create_item(%{name: "Oak in deleted cat", category_uuid: trashed_cat.uuid})
+
+      Catalogue.trash_item(trashed_item)
+      Catalogue.trash_category(trashed_cat)
+
+      assert Catalogue.count_search_items_in_catalogue(cat.uuid, "oak") == 1
+    end
+
+    test "returns 0 when no matches" do
+      cat = create_catalogue()
+      assert Catalogue.count_search_items_in_catalogue(cat.uuid, "nothing") == 0
+    end
+  end
+
+  describe "count_search_items/1" do
+    test "counts across all non-deleted catalogues" do
+      cat1 = create_catalogue(%{name: "K"})
+      cat2 = create_catalogue(%{name: "B"})
+      c1 = create_category(cat1)
+      c2 = create_category(cat2)
+      create_item(%{name: "Oak A", category_uuid: c1.uuid})
+      create_item(%{name: "Oak B", category_uuid: c2.uuid})
+
+      assert Catalogue.count_search_items("oak") == 2
+    end
+  end
+
+  describe "count_search_items_in_category/2" do
+    test "counts only items in the given category" do
+      cat = create_catalogue()
+      c1 = create_category(cat, %{name: "A"})
+      c2 = create_category(cat, %{name: "B"})
+      create_item(%{name: "Oak A", category_uuid: c1.uuid})
+      create_item(%{name: "Oak B", category_uuid: c1.uuid})
+      create_item(%{name: "Oak C", category_uuid: c2.uuid})
+
+      assert Catalogue.count_search_items_in_category(c1.uuid, "oak") == 2
     end
   end
 

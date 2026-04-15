@@ -199,7 +199,15 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
 
     # Unique targets: if another column already has this target (except :skip and :data),
     # reset the old column to :skip
-    unique_targets = [:name, :description, :sku, :base_price, :unit, :category]
+    unique_targets = [
+      :name,
+      :description,
+      :sku,
+      :base_price,
+      :markup_percentage,
+      :unit,
+      :category
+    ]
 
     mappings =
       Enum.map(socket.assigns.column_mappings, fn m ->
@@ -530,7 +538,7 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
     end
   end
 
-  @unique_targets [:name, :description, :sku, :base_price, :unit, :category]
+  @unique_targets [:name, :description, :sku, :base_price, :markup_percentage, :unit, :category]
 
   defp update_column_mappings(mappings, changed_idx, new_target) do
     Enum.map(mappings, fn m ->
@@ -1019,6 +1027,7 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
                 <th :if={has_mapping?(@column_mappings, :name)} class="bg-base-200">{Gettext.gettext(PhoenixKitWeb.Gettext, "Name")}</th>
                 <th :if={has_mapping?(@column_mappings, :sku)} class="bg-base-200">{Gettext.gettext(PhoenixKitWeb.Gettext, "Article Code")}</th>
                 <th :if={has_mapping?(@column_mappings, :base_price)} class="bg-base-200">{Gettext.gettext(PhoenixKitWeb.Gettext, "Price")}</th>
+                <th :if={has_mapping?(@column_mappings, :markup_percentage)} class="bg-base-200">{Gettext.gettext(PhoenixKitWeb.Gettext, "Markup %")}</th>
                 <th :if={has_mapping?(@column_mappings, :unit)} class="bg-base-200">{Gettext.gettext(PhoenixKitWeb.Gettext, "Unit")}</th>
                 <th :if={has_mapping?(@column_mappings, :category)} class="bg-base-200">{Gettext.gettext(PhoenixKitWeb.Gettext, "Category")}</th>
               </tr>
@@ -1029,6 +1038,7 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
                 <td :if={has_mapping?(@column_mappings, :name)}>{item[:name]}</td>
                 <td :if={has_mapping?(@column_mappings, :sku)}>{item[:sku]}</td>
                 <td :if={has_mapping?(@column_mappings, :base_price)}>{item[:base_price]}</td>
+                <td :if={has_mapping?(@column_mappings, :markup_percentage)}>{item[:markup_percentage]}</td>
                 <td :if={has_mapping?(@column_mappings, :unit)}>{item[:unit]}</td>
                 <td :if={has_mapping?(@column_mappings, :category)}>{item[:_category_name]}</td>
               </tr>
@@ -1226,6 +1236,7 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
   defp target_to_string(:description), do: "description"
   defp target_to_string(:sku), do: "sku"
   defp target_to_string(:base_price), do: "base_price"
+  defp target_to_string(:markup_percentage), do: "markup_percentage"
   defp target_to_string(:unit), do: "unit"
   defp target_to_string(:category), do: "category"
   defp target_to_string({:data, name}), do: "data:#{name}"
@@ -1235,6 +1246,7 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
   defp parse_target("description"), do: :description
   defp parse_target("sku"), do: :sku
   defp parse_target("base_price"), do: :base_price
+  defp parse_target("markup_percentage"), do: :markup_percentage
   defp parse_target("unit"), do: :unit
   defp parse_target("category"), do: :category
   defp parse_target("data:" <> name), do: {:data, name}

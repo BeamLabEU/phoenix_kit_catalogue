@@ -45,7 +45,11 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         deleted_count: 0,
         active_item_count: 0,
         search_query: "",
-        search_results: nil
+        search_results: nil,
+        search_offset: 0,
+        search_total: 0,
+        search_has_more: false,
+        search_loading: false
       )
 
     if connected?(socket) do
@@ -77,10 +81,17 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   end
 
   def handle_event("load_more", _params, socket) do
-    if socket.assigns.has_more and not socket.assigns.loading do
-      {:noreply, socket |> assign(:loading, true) |> load_next_batch()}
-    else
-      {:noreply, socket}
+    cond do
+      socket.assigns.search_results != nil and socket.assigns.search_has_more and
+          not socket.assigns.search_loading ->
+        {:noreply, socket |> assign(:search_loading, true) |> load_next_search_batch()}
+
+      is_nil(socket.assigns.search_results) and socket.assigns.has_more and
+          not socket.assigns.loading ->
+        {:noreply, socket |> assign(:loading, true) |> load_next_batch()}
+
+      true ->
+        {:noreply, socket}
     end
   end
 
@@ -88,17 +99,14 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     query = String.trim(query)
 
     if query == "" do
-      {:noreply, assign(socket, search_query: "", search_results: nil)}
+      {:noreply, clear_search(socket)}
     else
-      results =
-        Catalogue.search_items_in_catalogue(socket.assigns.catalogue_uuid, query)
-
-      {:noreply, assign(socket, search_query: query, search_results: results)}
+      {:noreply, run_search(socket, query)}
     end
   end
 
   def handle_event("clear_search", _params, socket) do
-    {:noreply, assign(socket, search_query: "", search_results: nil)}
+    {:noreply, clear_search(socket)}
   end
 
   def handle_event("delete_item", %{"uuid" => uuid}, socket) do
@@ -424,6 +432,111 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     end
   end
 
+  # Runs a fresh search query asynchronously. If a prior search is still
+  # in flight, `start_async/3` cancels it — so fast typing (type-pause-
+  # type-pause) doesn't flash stale intermediate results as each old
+  # request lands out of order. The actual assign happens in
+  # `handle_async(:search, ...)`, guarded by a query equality check.
+  defp run_search(socket, query) do
+    uuid = socket.assigns.catalogue_uuid
+
+    socket
+    |> assign(search_query: query, search_loading: true)
+    |> start_async(:search, fn ->
+      results =
+        Catalogue.search_items_in_catalogue(uuid, query, limit: @per_page, offset: 0)
+
+      total = Catalogue.count_search_items_in_catalogue(uuid, query)
+      {query, results, total}
+    end)
+  end
+
+  @impl true
+  def handle_async(:search, {:ok, {query, results, total}}, socket) do
+    # Only apply if the user is still asking for this query. A late
+    # response for a query the user has already superseded gets dropped.
+    if socket.assigns.search_query == query do
+      {:noreply,
+       assign(socket,
+         search_results: results,
+         search_offset: length(results),
+         search_total: total,
+         search_has_more: length(results) < total,
+         search_loading: false
+       )}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_async(:search, {:exit, reason}, socket) do
+    # Cancellations (reason `:shutdown` / `:killed` / `{:shutdown, _}`) are
+    # expected when a newer query supersedes a pending one — the newer
+    # handler owns `search_loading`, so leave the socket alone. For any
+    # other exit (crashed DB query, timeout, raise in the task fn) clear
+    # loading and flash the user so they don't stare at a perpetual
+    # spinner, and log so we can debug without reproducing.
+    case reason do
+      r when r in [:shutdown, :killed] ->
+        {:noreply, socket}
+
+      {:shutdown, _} ->
+        {:noreply, socket}
+
+      other ->
+        Logger.warning("search task exited unexpectedly: #{inspect(other)}")
+
+        {:noreply,
+         socket
+         |> assign(:search_loading, false)
+         |> put_flash(
+           :error,
+           Gettext.gettext(PhoenixKitWeb.Gettext, "Search failed. Please try again.")
+         )}
+    end
+  end
+
+  # Fetches the next page for the current search query and appends it
+  # onto `search_results`.
+  defp load_next_search_batch(socket) do
+    %{
+      catalogue_uuid: uuid,
+      search_query: query,
+      search_results: results,
+      search_offset: offset,
+      search_total: total
+    } = socket.assigns
+
+    page =
+      Catalogue.search_items_in_catalogue(uuid, query,
+        limit: @per_page,
+        offset: offset
+      )
+
+    new_offset = offset + length(page)
+    # `page == []` protects against stale `total` (items concurrently
+    # deleted) keeping `search_has_more` true forever.
+    has_more = page != [] and new_offset < total
+
+    assign(socket,
+      search_results: results ++ page,
+      search_offset: new_offset,
+      search_has_more: has_more,
+      search_loading: false
+    )
+  end
+
+  defp clear_search(socket) do
+    assign(socket,
+      search_query: "",
+      search_results: nil,
+      search_offset: 0,
+      search_total: 0,
+      search_has_more: false,
+      search_loading: false
+    )
+  end
+
   # Drives the cursor walk. Returns the next batch to render, or
   # `:done` when the cursor has nothing left in either phase. Walks:
   # categories (in display order) → uncategorized → done.
@@ -600,27 +713,53 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         <%!-- View toggle --%>
         <.view_mode_toggle storage_key="catalogue-detail-items" />
 
-        <%!-- Search results --%>
-        <div :if={@search_results != nil} class="flex flex-col gap-4">
-          <.search_results_summary count={length(@search_results)} query={@search_query} />
+        <%!-- Search results (visible when the user has typed a query) --%>
+        <div :if={@search_results != nil or @search_loading} class="flex flex-col gap-4">
+          <%!-- Status line: spinner while loading, "X of Y results" when settled --%>
+          <div class="flex items-center gap-2">
+            <%= if @search_loading and is_nil(@search_results) do %>
+              <span class="text-sm text-base-content/60">
+                {Gettext.gettext(PhoenixKitWeb.Gettext, "Searching for \"%{query}\"...", query: @search_query)}
+              </span>
+            <% else %>
+              <.search_results_summary :if={@search_results != nil} count={@search_total} query={@search_query} loaded={length(@search_results)} />
+            <% end %>
+            <span :if={@search_loading} class="loading loading-spinner loading-xs text-base-content/40"></span>
+          </div>
 
-          <.empty_state :if={@search_results == []} message={Gettext.gettext(PhoenixKitWeb.Gettext, "No items match your search.")} />
+          <.empty_state :if={@search_results == [] and not @search_loading} message={Gettext.gettext(PhoenixKitWeb.Gettext, "No items match your search.")} />
 
-          <.item_table
-            :if={@search_results != []}
-            items={@search_results}
-            columns={[:name, :sku, :base_price, :price, :unit, :status]}
-            markup_percentage={@catalogue.markup_percentage}
-            edit_path={&Paths.item_edit/1}
-            cards={true}
-            show_toggle={false}
-            storage_key="catalogue-detail-items"
-            id="catalogue-search-items"
-          />
+          <%!-- Stale results are dimmed while a newer query is in flight to
+               signal that the list is about to update. --%>
+          <div :if={@search_results not in [nil, []]} class={["transition-opacity", @search_loading && "opacity-50"]}>
+            <.item_table
+              items={@search_results}
+              columns={[:name, :sku, :base_price, :price, :unit, :status]}
+              markup_percentage={@catalogue.markup_percentage}
+              edit_path={&Paths.item_edit/1}
+              cards={true}
+              show_toggle={false}
+              storage_key="catalogue-detail-items"
+              id="catalogue-search-items"
+            />
+          </div>
+
+          <%!-- Infinite-scroll sentinel for search results --%>
+          <div
+            :if={@search_has_more and not @search_loading}
+            id="search-load-more-sentinel"
+            phx-hook="InfiniteScroll"
+            data-cursor={"search-#{@search_offset}"}
+            class="py-4"
+          >
+            <div class="flex justify-center">
+              <span class="loading loading-spinner loading-sm text-base-content/30"></span>
+            </div>
+          </div>
         </div>
 
         <%!-- Status tabs --%>
-        <div :if={@deleted_count > 0 and is_nil(@search_results)} class="flex items-center gap-0.5 border-b border-base-200">
+        <div :if={@deleted_count > 0 and is_nil(@search_results) and not @search_loading} class="flex items-center gap-0.5 border-b border-base-200">
           <button
             type="button"
             phx-click="switch_view"
@@ -653,20 +792,20 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
         <%!-- Normal (non-search) view: infinite-scroll cards --%>
         <%!-- Empty states only shown when nothing is loading AND nothing was ever loaded --%>
-        <div :if={is_nil(@search_results) and @loaded_cards == [] and not @has_more and not @loading and @view_mode == "active"} class="card bg-base-100 shadow">
+        <div :if={is_nil(@search_results) and not @search_loading and @loaded_cards == [] and not @has_more and not @loading and @view_mode == "active"} class="card bg-base-100 shadow">
           <div class="card-body items-center text-center py-12">
             <p class="text-base-content/60">{Gettext.gettext(PhoenixKitWeb.Gettext, "No categories or items yet. Add a category or item to get started.")}</p>
           </div>
         </div>
 
-        <div :if={is_nil(@search_results) and @loaded_cards == [] and not @has_more and not @loading and @view_mode == "deleted"} class="card bg-base-100 shadow">
+        <div :if={is_nil(@search_results) and not @search_loading and @loaded_cards == [] and not @has_more and not @loading and @view_mode == "deleted"} class="card bg-base-100 shadow">
           <div class="card-body items-center text-center py-12">
             <p class="text-base-content/60">{Gettext.gettext(PhoenixKitWeb.Gettext, "No deleted items.")}</p>
           </div>
         </div>
 
         <%!-- Streamed cards (one per category, one for uncategorized). --%>
-        <%= for {card, card_idx} <- Enum.with_index(@loaded_cards), is_nil(@search_results) do %>
+        <%= for {card, card_idx} <- Enum.with_index(@loaded_cards), is_nil(@search_results) and not @search_loading do %>
           <.detail_card
             card={card}
             card_idx={card_idx}
@@ -680,7 +819,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
         <%!-- Infinite-scroll sentinel --%>
         <div
-          :if={is_nil(@search_results) and @has_more}
+          :if={is_nil(@search_results) and not @search_loading and @has_more}
           id="detail-load-more-sentinel"
           phx-hook="InfiniteScroll"
           data-cursor={"#{@cursor.phase}-#{@cursor.category_index}-#{@cursor.item_offset}"}
@@ -691,7 +830,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
           </div>
         </div>
 
-        <div :if={is_nil(@search_results) and not @has_more and @loaded_cards != []} class="text-center text-xs text-base-content/40 py-2">
+        <div :if={is_nil(@search_results) and not @search_loading and not @has_more and @loaded_cards != []} class="text-center text-xs text-base-content/40 py-2">
           {Gettext.gettext(PhoenixKitWeb.Gettext, "All items loaded")}
         </div>
       </div>
@@ -723,17 +862,25 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       window.PhoenixKitHooks = window.PhoenixKitHooks || {};
       window.PhoenixKitHooks.InfiniteScroll = window.PhoenixKitHooks.InfiniteScroll || {
         mounted() {
+          this.intersecting = false;
           this.observer = new IntersectionObserver((entries) => {
-            const entry = entries[0];
-            if (entry.isIntersecting) {
+            this.intersecting = entries[0].isIntersecting;
+            if (this.intersecting) {
               this.pushEvent("load_more", {});
             }
           }, { rootMargin: "200px" });
           this.observer.observe(this.el);
         },
         updated() {
-          this.observer.disconnect();
-          this.observer.observe(this.el);
+          // IntersectionObserver only fires on state transitions. When the
+          // viewport is tall or the user jumped via Page Down / resize, the
+          // sentinel stays continuously in view across batches — so the
+          // observer goes silent after the first fire. Re-trigger explicitly
+          // whenever the server patches us while we're still on-screen.
+          // The server's `loading` guard dedupes duplicate events.
+          if (this.intersecting) {
+            this.pushEvent("load_more", {});
+          }
         },
         destroyed() {
           this.observer.disconnect();

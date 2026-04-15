@@ -85,6 +85,31 @@ defmodule PhoenixKitCatalogue.Web.ComponentsTest do
       html = render_component(&search_results_summary/1, count: 0, query: "nothing")
       assert html =~ "0" or html =~ "nothing"
     end
+
+    test "shows \"X of Y\" when loaded is less than count" do
+      html =
+        render_component(&search_results_summary/1, count: 237, query: "oak", loaded: 100)
+
+      assert html =~ "100"
+      assert html =~ "237"
+      assert html =~ "oak"
+    end
+
+    test "falls back to plain count when loaded equals count" do
+      html =
+        render_component(&search_results_summary/1, count: 5, query: "oak", loaded: 5)
+
+      assert html =~ "5"
+      refute html =~ "of"
+    end
+
+    test "falls back to plain count when loaded is nil" do
+      html =
+        render_component(&search_results_summary/1, count: 5, query: "oak", loaded: nil)
+
+      assert html =~ "5"
+      refute html =~ "of"
+    end
   end
 
   # ─────────────────────────────────────────────────────────────────

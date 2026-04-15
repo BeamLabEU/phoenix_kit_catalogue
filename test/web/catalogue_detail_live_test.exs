@@ -348,7 +348,9 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
 
       {:ok, view, _html} = live(conn, url(catalogue.uuid))
 
-      html_after = render_change(view, "search", %{"query" => "oak"})
+      render_change(view, "search", %{"query" => "oak"})
+      # Search runs via start_async — wait for handle_async to land before asserting.
+      html_after = render_async(view)
 
       # Search results visible
       assert html_after =~ "Oak panel"
@@ -363,7 +365,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
 
       {:ok, view, _html} = live(conn, url(catalogue.uuid))
 
-      _after_search = render_change(view, "search", %{"query" => "anything"})
+      render_change(view, "search", %{"query" => "anything"})
+      _after_search = render_async(view)
       html_after = render_change(view, "search", %{"query" => ""})
 
       # Back to the normal view
@@ -376,10 +379,51 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
       fixture_item(%{name: "Item", category_uuid: category.uuid})
 
       {:ok, view, _html} = live(conn, url(catalogue.uuid))
-      _ = render_change(view, "search", %{"query" => "nothing matches"})
+      render_change(view, "search", %{"query" => "nothing matches"})
+      _ = render_async(view)
       html_after = render_click(view, "clear_search", %{})
 
       assert html_after =~ "Item"
+    end
+
+    test "shows a loading indicator for the first search before results land", %{conn: conn} do
+      catalogue = fixture_catalogue()
+      category = fixture_category(catalogue)
+      fixture_item(%{name: "Oak panel", category_uuid: category.uuid})
+
+      {:ok, view, _html} = live(conn, url(catalogue.uuid))
+      html_pending = render_change(view, "search", %{"query" => "oak"})
+
+      # While the async task is still running, the user sees a "Searching"
+      # indicator — not stale data or silence.
+      assert html_pending =~ "Searching for"
+      assert html_pending =~ "loading-spinner"
+
+      html_after = render_async(view)
+
+      # Once the async lands, the spinner is gone and results are visible.
+      refute html_after =~ "Searching for"
+      assert html_after =~ "Oak panel"
+    end
+
+    test "dims previous results while a newer query is loading", %{conn: conn} do
+      catalogue = fixture_catalogue()
+      category = fixture_category(catalogue)
+      fixture_item(%{name: "Oak panel", category_uuid: category.uuid})
+      fixture_item(%{name: "Pine board", category_uuid: category.uuid})
+
+      {:ok, view, _html} = live(conn, url(catalogue.uuid))
+
+      # First search settles.
+      render_change(view, "search", %{"query" => "oak"})
+      _ = render_async(view)
+
+      # Second search fires — while pending, prior "oak" results are dimmed.
+      html_pending = render_change(view, "search", %{"query" => "pine"})
+
+      assert html_pending =~ "opacity-50"
+      # Spinner visible next to the summary
+      assert html_pending =~ "loading-spinner"
     end
   end
 end

@@ -18,6 +18,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   @preserve_fields %{
     "sku" => :sku,
     "base_price" => :base_price,
+    "markup_percentage" => :markup_percentage,
     "unit" => :unit,
     "status" => :status,
     "category_uuid" => :category_uuid,
@@ -76,6 +77,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
       action: action,
       item: item,
       catalogue_uuid: catalogue_uuid,
+      catalogue_markup: catalogue_markup_for(catalogue_uuid),
       changeset: changeset,
       categories: categories,
       manufacturers: Catalogue.list_manufacturers(status: "active"),
@@ -92,6 +94,20 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   # Always assigns `needs_primary_translation` and `item_primary_language`
   # — even when multilang is disabled — so the render path can reference
   # them unconditionally without crashing on a missing key.
+  # Loads just the catalogue's markup so the form can show it as a hint
+  # next to the per-item override field. Returns nil if the item isn't
+  # scoped to a catalogue yet (shouldn't happen in practice, since
+  # create/edit always run inside a catalogue), in which case the hint
+  # is simply omitted.
+  defp catalogue_markup_for(nil), do: nil
+
+  defp catalogue_markup_for(catalogue_uuid) do
+    case Catalogue.get_catalogue(catalogue_uuid) do
+      %{markup_percentage: markup} -> markup
+      _ -> nil
+    end
+  end
+
   defp adjust_multilang_for_item(socket, item) do
     if socket.assigns.multilang_enabled do
       check_item_primary_language(socket, item)
@@ -374,6 +390,28 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                       <option value="running_meter" selected={Ecto.Changeset.get_field(@changeset, :unit) == "running_meter"}>{Gettext.gettext(PhoenixKitWeb.Gettext, "Running meter")}</option>
                     </select>
                   </label>
+                </div>
+                <div class="form-control">
+                  <span class="label-text font-semibold mb-2">{Gettext.gettext(PhoenixKitWeb.Gettext, "Markup Override")}</span>
+                  <div class="relative">
+                    <input
+                      type="number"
+                      name="item[markup_percentage]"
+                      value={Ecto.Changeset.get_field(@changeset, :markup_percentage)}
+                      class="input input-bordered w-full transition-colors focus:input-primary pr-8"
+                      step="0.01"
+                      min="0"
+                      placeholder={
+                        if @catalogue_markup,
+                          do: Gettext.gettext(PhoenixKitWeb.Gettext, "Inherit: %{markup}%", markup: Decimal.to_string(@catalogue_markup, :normal)),
+                          else: Gettext.gettext(PhoenixKitWeb.Gettext, "Inherit catalogue markup")
+                      }
+                    />
+                    <span class="absolute right-3 top-1/2 -translate-y-1/2 text-base-content/40 text-sm">%</span>
+                  </div>
+                  <span class="label-text-alt text-base-content/50 mt-1">
+                    {Gettext.gettext(PhoenixKitWeb.Gettext, "Leave blank to inherit the catalogue's markup. Set (including 0) to override just this item.")}
+                  </span>
                 </div>
               </div>
 

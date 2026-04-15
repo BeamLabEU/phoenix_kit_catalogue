@@ -11,7 +11,7 @@ Designed for manufacturing companies (e.g. kitchen/furniture producers) that nee
 - **Items** — individual products with SKU, base price, computed sale price, unit of measure
 - **Manufacturers** — company directory with many-to-many supplier linking
 - **Suppliers** — delivery companies linked to manufacturers
-- **Pricing** — base price per item + markup percentage per catalogue = computed sale price
+- **Pricing** — base price per item + markup percentage per catalogue = computed sale price, with an optional per-item markup override
 - **Search** — case-insensitive search by name, description, or SKU (per-category, per-catalogue, and global)
 - **Soft-delete** — catalogues, categories, and items support trash/restore with cascading
 - **Multilingual** — all translatable fields use PhoenixKit's multilang system
@@ -121,7 +121,12 @@ Catalogue.restore_item(item)                       # cascades up to category + c
 Catalogue.permanently_delete_item(item)            # hard-delete
 Catalogue.trash_items_in_category(cat_uuid)        # bulk soft-delete
 Catalogue.move_item_to_category(item, new_cat_uuid)
-Catalogue.item_pricing(item)                       # %{base_price, markup_percentage, price}
+Catalogue.item_pricing(item)                       # %{base_price, catalogue_markup, item_markup, markup_percentage, price}
+
+# Per-item markup override (nullable — defaults to inherit from catalogue)
+Catalogue.create_item(%{name: "Special Oak", base_price: 100, markup_percentage: 50, catalogue_uuid: cat.uuid})
+Item.sale_price(item, catalogue.markup_percentage)  # honors item override if set
+Item.effective_markup(item, catalogue.markup_percentage) # returns the override or the fallback
 Catalogue.swap_category_positions(cat_a, cat_b)    # atomic position swap
 
 # ── Manufacturers ─────────────────────────────────────
@@ -144,8 +149,14 @@ Catalogue.list_manufacturers_for_supplier(s_uuid)
 # ── Search ────────────────────────────────────────────
 Catalogue.search_items("oak")                      # global across all catalogues
 Catalogue.search_items("oak", limit: 10)
+Catalogue.search_items("oak", limit: 100, offset: 100)   # paging
 Catalogue.search_items_in_catalogue(cat_uuid, "panel")
 Catalogue.search_items_in_category(cat_uuid, "oak") # within one category
+
+# Unbounded total for paging / summaries
+Catalogue.count_search_items("oak")
+Catalogue.count_search_items_in_catalogue(cat_uuid, "panel")
+Catalogue.count_search_items_in_category(cat_uuid, "oak")
 
 # ── Counts ────────────────────────────────────────────
 Catalogue.item_count_for_catalogue(cat_uuid)       # active items
@@ -211,7 +222,12 @@ Global table/card toggle that syncs all tables sharing the same `storage_key`:
 ### `search_results_summary/1` and `empty_state/1`
 
 ```heex
-<.search_results_summary count={length(@results)} query={@query} />
+<%!-- Full result set loaded --%>
+<.search_results_summary count={@total} query={@query} />
+
+<%!-- Paged results — renders "Showing 100 of 237 results for …" --%>
+<.search_results_summary count={@total} query={@query} loaded={length(@results)} />
+
 <.empty_state message="No items yet." />
 ```
 
