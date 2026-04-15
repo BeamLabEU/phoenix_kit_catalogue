@@ -93,7 +93,11 @@ defmodule PhoenixKitCatalogue.Import.Parser do
         headers = Enum.map(header_row, &to_string/1)
 
         rows =
-          data_rows |> Enum.map(fn row -> Enum.map(row, &to_string/1) end) |> reject_empty_rows()
+          data_rows
+          |> Enum.map(fn row -> Enum.map(row, &to_string/1) end)
+          |> reject_empty_rows()
+
+        {headers, rows} = reject_empty_columns(headers, rows)
 
         {:ok, %{sheets: sheets, headers: headers, rows: rows, row_count: length(rows)}}
 
@@ -131,6 +135,7 @@ defmodule PhoenixKitCatalogue.Import.Parser do
           headers = Enum.map(header_row, &String.trim/1)
           rows = Enum.map(data_rows, fn row -> Enum.map(row, &String.trim/1) end)
           rows = reject_empty_rows(rows)
+          {headers, rows} = reject_empty_columns(headers, rows)
 
           {:ok,
            %{
@@ -172,4 +177,47 @@ defmodule PhoenixKitCatalogue.Import.Parser do
       Enum.all?(row, fn cell -> cell == "" or is_nil(cell) end)
     end)
   end
+
+  # Strips columns that are completely empty — header is blank AND every
+  # data cell at that column index is blank. Spreadsheet exports often
+  # include leading or trailing empty columns that survive XLSX parsing
+  # as `""` cells; without removing them we'd render a column of
+  # truncated empty `<td>`s in the preview, generate a phantom mapping
+  # card with an empty header, and let the user "skip" a non-column.
+  #
+  # Columns with a real header but all-blank data are kept — that's a
+  # valid (if optional) column that may carry no data in this file.
+  defp reject_empty_columns(headers, rows) do
+    total_cols = max(length(headers), max_row_length(rows))
+
+    if total_cols == 0 do
+      {headers, rows}
+    else
+      kept =
+        for idx <- 0..(total_cols - 1),
+            not (blank_cell?(Enum.at(headers, idx)) and column_blank?(rows, idx)),
+            do: idx
+
+      new_headers = Enum.map(kept, fn idx -> Enum.at(headers, idx, "") end)
+      new_rows = Enum.map(rows, &project_columns(&1, kept))
+
+      {new_headers, new_rows}
+    end
+  end
+
+  defp project_columns(row, kept_indices) do
+    Enum.map(kept_indices, fn idx -> Enum.at(row, idx, "") end)
+  end
+
+  defp blank_cell?(nil), do: true
+  defp blank_cell?(""), do: true
+  defp blank_cell?(s) when is_binary(s), do: String.trim(s) == ""
+  defp blank_cell?(_), do: false
+
+  defp column_blank?(rows, idx) do
+    Enum.all?(rows, fn row -> blank_cell?(Enum.at(row, idx)) end)
+  end
+
+  defp max_row_length([]), do: 0
+  defp max_row_length(rows), do: rows |> Enum.map(&length/1) |> Enum.max()
 end

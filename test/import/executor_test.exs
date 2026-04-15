@@ -114,6 +114,150 @@ defmodule PhoenixKitCatalogue.Import.ExecutorTest do
       assert item.data["et"]["_name"] == "Estonian Item"
     end
 
+    test "applies language to created categories the same way as items" do
+      cat = create_catalogue()
+
+      plan = %{
+        items: [%{name: "Konks", _category_name: "Konksud"}],
+        categories_to_create: ["Konksud"],
+        custom_fields: [],
+        errors: [],
+        stats: %{total: 1, valid: 1, invalid: 0}
+      }
+
+      result = Executor.execute(plan, cat.uuid, self(), language: "et")
+      assert result.created == 1
+      assert result.categories_created == 1
+
+      [category] = Catalogue.list_categories_for_catalogue(cat.uuid)
+      # Bare `name` field still holds the imported string for fallback.
+      assert category.name == "Konksud"
+      # ...AND multilang data is set so the category renders correctly
+      # in mixed-language UIs.
+      assert category.data["_primary_language"] == "et"
+      assert category.data["et"]["_name"] == "Konksud"
+    end
+
+    test "matches existing category by translated name when importing in same language" do
+      cat = create_catalogue()
+
+      # Pre-existing category with English primary AND an Estonian translation.
+      {:ok, _existing} =
+        Catalogue.create_category(%{
+          name: "Hooks",
+          catalogue_uuid: cat.uuid,
+          data: %{
+            "_primary_language" => "en",
+            "en" => %{"_name" => "Hooks"},
+            "et" => %{"_name" => "Konksud"}
+          }
+        })
+
+      plan = %{
+        items: [%{name: "Konks", _category_name: "Konksud"}],
+        categories_to_create: ["Konksud"],
+        custom_fields: [],
+        errors: [],
+        stats: %{total: 1, valid: 1, invalid: 0}
+      }
+
+      result = Executor.execute(plan, cat.uuid, self(), language: "et")
+
+      # Reused the existing category, didn't create a new one.
+      assert result.created == 1
+      assert result.categories_created == 0
+
+      categories = Catalogue.list_categories_for_catalogue(cat.uuid)
+      assert length(categories) == 1
+      [category] = categories
+      assert category.name == "Hooks"
+    end
+
+    test "without :match_categories_across_languages, only the current language is matched" do
+      cat = create_catalogue()
+
+      # Category whose ONLY translation is in `de` — bare name is also "Hooks".
+      {:ok, _existing} =
+        Catalogue.create_category(%{
+          name: "Hooks",
+          catalogue_uuid: cat.uuid,
+          data: %{"_primary_language" => "en", "de" => %{"_name" => "Haken"}}
+        })
+
+      plan = %{
+        items: [%{name: "Konks", _category_name: "Haken"}],
+        categories_to_create: ["Haken"],
+        custom_fields: [],
+        errors: [],
+        stats: %{total: 1, valid: 1, invalid: 0}
+      }
+
+      # Importing in et — neither the et translation (none) nor bare name
+      # ("Hooks") matches "Haken", and we're not allowed to peek into
+      # `de`, so a NEW category gets created.
+      result = Executor.execute(plan, cat.uuid, self(), language: "et")
+
+      assert result.categories_created == 1
+      assert length(Catalogue.list_categories_for_catalogue(cat.uuid)) == 2
+    end
+
+    test "with :match_categories_across_languages, matches against any language's translation" do
+      cat = create_catalogue()
+
+      {:ok, _existing} =
+        Catalogue.create_category(%{
+          name: "Hooks",
+          catalogue_uuid: cat.uuid,
+          data: %{"_primary_language" => "en", "de" => %{"_name" => "Haken"}}
+        })
+
+      plan = %{
+        items: [%{name: "Konks", _category_name: "Haken"}],
+        categories_to_create: ["Haken"],
+        custom_fields: [],
+        errors: [],
+        stats: %{total: 1, valid: 1, invalid: 0}
+      }
+
+      # Same setup as above, but with the cross-language flag on we
+      # match the German translation and reuse the existing category.
+      result =
+        Executor.execute(plan, cat.uuid, self(),
+          language: "et",
+          match_categories_across_languages: true
+        )
+
+      assert result.categories_created == 0
+      assert length(Catalogue.list_categories_for_catalogue(cat.uuid)) == 1
+    end
+
+    test "matches existing category by bare name as fallback when no translation set" do
+      cat = create_catalogue()
+
+      # Pre-existing English-primary category with NO Estonian translation yet.
+      {:ok, _existing} =
+        Catalogue.create_category(%{
+          name: "Hooks",
+          catalogue_uuid: cat.uuid,
+          data: %{"_primary_language" => "en", "en" => %{"_name" => "Hooks"}}
+        })
+
+      plan = %{
+        items: [%{name: "Hook A", _category_name: "Hooks"}],
+        categories_to_create: ["Hooks"],
+        custom_fields: [],
+        errors: [],
+        stats: %{total: 1, valid: 1, invalid: 0}
+      }
+
+      result = Executor.execute(plan, cat.uuid, self(), language: "et")
+
+      # Matched by bare `name` since there's no et translation to match against.
+      assert result.created == 1
+      assert result.categories_created == 0
+      assert length(Catalogue.list_categories_for_catalogue(cat.uuid)) == 1
+    end
+
     test "reuses existing categories instead of creating duplicates" do
       cat = create_catalogue()
       {:ok, _existing_cat} = Catalogue.create_category(%{name: "Hooks", catalogue_uuid: cat.uuid})

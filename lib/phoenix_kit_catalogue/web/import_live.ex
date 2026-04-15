@@ -10,7 +10,16 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
   require Logger
 
   import PhoenixKitWeb.Components.Core.Icon, only: [icon: 1]
-  import PhoenixKitWeb.Components.MultilangForm, only: [mount_multilang: 1, multilang_tabs: 1]
+
+  import PhoenixKitWeb.Components.MultilangForm,
+    only: [
+      mount_multilang: 1,
+      multilang_tabs: 1,
+      merge_translatable_params: 4,
+      translatable_field: 1,
+      multilang_fields_wrapper: 1,
+      get_lang_data: 3
+    ]
 
   @impl true
   def terminate(_reason, socket) do
@@ -26,14 +35,25 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
   alias PhoenixKitCatalogue.Catalogue
   alias PhoenixKitCatalogue.Import.{Executor, Mapper, Parser}
   alias PhoenixKitCatalogue.Paths
-  alias PhoenixKitCatalogue.Schemas.Item
+  alias PhoenixKitCatalogue.Schemas.{Category, Item}
 
   @max_file_size 10_000_000
   @preview_rows 5
+  @category_translatable_fields ["name", "description"]
 
   @impl true
   def mount(_params, _session, socket) do
-    catalogues = if connected?(socket), do: Catalogue.list_catalogues(), else: []
+    # Load on both the HTTP and WebSocket mounts so the picker is
+    # populated on first paint. The three queries (catalogues + two
+    # `GROUP BY catalogue_uuid` count aggregates) are cheap — both
+    # aggregates are single-table scans on indexed columns. If picker
+    # data ever grows expensive, swap to `assign_async` here without
+    # changing the template (it already consumes `catalogues`,
+    # `catalogue_item_counts`, and `catalogue_category_counts`
+    # separately).
+    catalogues = Catalogue.list_catalogues()
+    catalogue_item_counts = Catalogue.item_counts_by_catalogue()
+    catalogue_category_counts = Catalogue.category_counts_by_catalogue()
 
     {:ok,
      socket
@@ -41,6 +61,8 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
        page_title: Gettext.gettext(PhoenixKitWeb.Gettext, "Import"),
        step: :upload,
        catalogues: catalogues,
+       catalogue_item_counts: catalogue_item_counts,
+       catalogue_category_counts: catalogue_category_counts,
        selected_catalogue: nil,
        # File data
 
@@ -57,6 +79,9 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
        unit_map: %{},
        import_category_mode: :none,
        import_category_uuid: nil,
+       category_match_across_languages: false,
+       new_category: nil,
+       new_category_changeset: nil,
        catalogue_categories: [],
        # Import
        import_plan: nil,
@@ -240,51 +265,37 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
   end
 
   def handle_event("continue_to_confirm", _params, socket) do
-    # Validate that name is mapped
-    has_name = Enum.any?(socket.assigns.column_mappings, &(&1.target == :name))
+    cond do
+      not Enum.any?(socket.assigns.column_mappings, &(&1.target == :name)) ->
+        {:noreply,
+         put_flash(
+           socket,
+           :error,
+           Gettext.gettext(
+             PhoenixKitWeb.Gettext,
+             "You must map at least one column to 'Item Name'."
+           )
+         )}
 
-    if has_name do
-      rows = ets_to_rows(socket.assigns.ets_table)
+      socket.assigns.import_category_mode == :create and
+          not new_category_valid?(socket.assigns.new_category_changeset) ->
+        # Force the changeset's :action so errors render under the inline
+        # form fields when the user advances without filling it in.
+        cs = Map.put(socket.assigns.new_category_changeset, :action, :validate)
 
-      import_plan =
-        Mapper.build_import_plan(socket.assigns.column_mappings, rows,
-          unit_map: socket.assigns.unit_map
-        )
+        {:noreply,
+         socket
+         |> assign(:new_category_changeset, cs)
+         |> put_flash(
+           :error,
+           Gettext.gettext(
+             PhoenixKitWeb.Gettext,
+             "Please give the new category a name before continuing."
+           )
+         )}
 
-      file_duplicates = Mapper.detect_file_duplicates(rows)
-
-      import_category =
-        if socket.assigns.import_category_mode == :existing,
-          do: socket.assigns.import_category_uuid,
-          else: nil
-
-      import_lang =
-        if socket.assigns.multilang_enabled, do: socket.assigns.current_lang, else: nil
-
-      existing_duplicates =
-        Mapper.detect_existing_duplicates(import_plan, socket.assigns.selected_catalogue.uuid,
-          category_uuid: import_category,
-          language: import_lang
-        )
-
-      {:noreply,
-       assign(socket,
-         step: :confirm,
-         import_plan: import_plan,
-         duplicate_row_count: file_duplicates,
-         existing_duplicate_count: existing_duplicates,
-         duplicate_mode: :import
-       )}
-    else
-      {:noreply,
-       put_flash(
-         socket,
-         :error,
-         Gettext.gettext(
-           PhoenixKitWeb.Gettext,
-           "You must map at least one column to 'Item Name'."
-         )
-       )}
+      true ->
+        build_confirm_step(socket)
     end
   end
 
@@ -297,9 +308,19 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
       socket
       |> maybe_clear_category_column(category_mode)
       |> maybe_set_category_column(params["category_column"])
-      |> assign(import_category_mode: category_mode, import_category_uuid: category_uuid)
+      |> assign(
+        import_category_mode: category_mode,
+        import_category_uuid: category_uuid,
+        category_match_across_languages:
+          params["category_match_across_languages"] in ["true", "on", true]
+      )
+      |> sync_new_category_for_mode(category_mode)
 
     {:noreply, socket}
+  end
+
+  def handle_event("validate_new_category", %{"category" => params}, socket) do
+    {:noreply, apply_new_category_params(socket, params)}
   end
 
   def handle_event("switch_language", %{"lang" => lang_code}, socket) do
@@ -317,54 +338,18 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
 
   def handle_event("execute_import", _params, socket) do
     catalogue_uuid = socket.assigns.selected_catalogue.uuid
-    import_plan = socket.assigns.import_plan
-    lv_pid = self()
     import_lang = if socket.assigns.multilang_enabled, do: socket.assigns.current_lang, else: nil
 
-    import_category =
-      if socket.assigns.import_category_mode == :existing,
-        do: socket.assigns.import_category_uuid,
-        else: nil
+    case resolve_import_category(socket, catalogue_uuid, import_lang) do
+      {:ok, import_category, socket} ->
+        start_import(socket, catalogue_uuid, import_category, import_lang)
 
-    import_plan =
-      maybe_deduplicate(import_plan, socket.assigns.duplicate_mode, catalogue_uuid,
-        category_uuid: import_category,
-        language: import_lang
-      )
-
-    log_import_started(socket, import_plan)
-
-    Task.start(fn ->
-      try do
-        Executor.execute(import_plan, catalogue_uuid, lv_pid,
-          language: import_lang,
-          category_uuid: import_category,
-          actor_uuid: extract_actor_uuid(socket)
-        )
-      rescue
-        e ->
-          Logger.error("Import failed: #{Exception.message(e)}")
-
-          send(
-            lv_pid,
-            {:import_result,
-             %{
-               created: 0,
-               errors: [{0, Exception.message(e)}],
-               categories_created: 0
-             }}
-          )
-      end
-    end)
-
-    {:noreply,
-     assign(socket,
-       step: :importing,
-       import_progress: 0,
-       import_total: length(import_plan.items)
-     )}
+      {:error, message, socket} ->
+        {:noreply, put_flash(socket, :error, message)}
+    end
   end
 
+  # Resolves the category to pin imported items to, based on the
   # ── Step 6: Done ────────────────────────────────────────────────
 
   def handle_event("import_another", _params, socket) do
@@ -441,6 +426,34 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
   end
 
   defp parse_uploaded_file(socket) do
+    cond do
+      # User picked a file but it hasn't finished uploading yet. Don't
+      # call `consume_uploaded_entries` — non-done entries are skipped
+      # but the form submit can disrupt the in-flight XHR, making the
+      # file appear to vanish. Tell the user to wait and leave the
+      # upload alone.
+      Enum.any?(socket.assigns.uploads.import_file.entries, &(not &1.done?)) ->
+        {:noreply,
+         put_flash(
+           socket,
+           :info,
+           Gettext.gettext(PhoenixKitWeb.Gettext, "Still uploading — please wait a moment.")
+         )}
+
+      socket.assigns.uploads.import_file.entries == [] ->
+        {:noreply,
+         put_flash(
+           socket,
+           :error,
+           Gettext.gettext(PhoenixKitWeb.Gettext, "Please upload a file.")
+         )}
+
+      true ->
+        consume_and_parse(socket)
+    end
+  end
+
+  defp consume_and_parse(socket) do
     uploaded_files =
       consume_uploaded_entries(socket, :import_file, fn %{path: path}, entry ->
         binary = File.read!(path)
@@ -589,8 +602,227 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
 
   defp parse_category_mode("none"), do: {:none, nil}
   defp parse_category_mode("column"), do: {:column, nil}
+  defp parse_category_mode("create"), do: {:create, nil}
   defp parse_category_mode("existing:" <> uuid), do: {:existing, uuid}
   defp parse_category_mode(_), do: {:none, nil}
+
+  # Seeds a fresh new-category struct + changeset when the user switches
+  # *into* `:create` mode, so the inline form has something to bind to.
+  # Clears them when switching *away* so we don't leak draft input across
+  # mode changes (and so a half-typed category can't accidentally get
+  # created if the user later runs the import in a different mode).
+  defp sync_new_category_for_mode(socket, :create) do
+    if socket.assigns.new_category do
+      socket
+    else
+      catalogue_uuid = socket.assigns.selected_catalogue && socket.assigns.selected_catalogue.uuid
+
+      next_pos =
+        if catalogue_uuid, do: Catalogue.next_category_position(catalogue_uuid), else: 0
+
+      category = %Category{catalogue_uuid: catalogue_uuid, position: next_pos}
+
+      assign(socket,
+        new_category: category,
+        new_category_changeset: Catalogue.change_category(category)
+      )
+    end
+  end
+
+  defp sync_new_category_for_mode(socket, _other) do
+    if socket.assigns.new_category,
+      do: assign(socket, new_category: nil, new_category_changeset: nil),
+      else: socket
+  end
+
+  defp apply_new_category_params(socket, params) do
+    catalogue_uuid = socket.assigns.selected_catalogue && socket.assigns.selected_catalogue.uuid
+
+    params =
+      params
+      |> Map.put_new("catalogue_uuid", catalogue_uuid)
+      |> merge_translatable_params(socket, @category_translatable_fields,
+        changeset: socket.assigns.new_category_changeset
+      )
+
+    changeset =
+      socket.assigns.new_category
+      |> Catalogue.change_category(params)
+      |> Map.put(:action, :validate)
+
+    assign(socket, :new_category_changeset, changeset)
+  end
+
+  defp new_category_valid?(nil), do: false
+
+  defp new_category_valid?(changeset) do
+    # `change_category` doesn't run validations until we apply an action,
+    # so we apply :validate explicitly to get a valid?-ready changeset.
+    changeset |> Map.put(:action, :validate) |> Map.get(:valid?)
+  end
+
+  defp build_confirm_step(socket) do
+    rows = ets_to_rows(socket.assigns.ets_table)
+
+    import_plan =
+      Mapper.build_import_plan(socket.assigns.column_mappings, rows,
+        unit_map: socket.assigns.unit_map
+      )
+
+    file_duplicates = Mapper.detect_file_duplicates(rows)
+
+    # `:create` mode produces a category at execute time, so its uuid
+    # isn't known yet — duplicate detection happens against "no category"
+    # since the new one will be empty by definition.
+    import_category =
+      if socket.assigns.import_category_mode == :existing,
+        do: socket.assigns.import_category_uuid,
+        else: nil
+
+    import_lang =
+      if socket.assigns.multilang_enabled, do: socket.assigns.current_lang, else: nil
+
+    existing_duplicates =
+      Mapper.detect_existing_duplicates(import_plan, socket.assigns.selected_catalogue.uuid,
+        category_uuid: import_category,
+        language: import_lang
+      )
+
+    {:noreply,
+     assign(socket,
+       step: :confirm,
+       import_plan: import_plan,
+       duplicate_row_count: file_duplicates,
+       existing_duplicate_count: existing_duplicates,
+       duplicate_mode: :import
+     )}
+  end
+
+  # Resolves the category to pin imported items to, based on the
+  # current `import_category_mode`. For `:create` mode this is where
+  # the actual category record gets persisted — deferring creation to
+  # execute time means cancelling out of the confirm step doesn't
+  # leave an orphan category behind.
+  defp resolve_import_category(socket, catalogue_uuid, import_lang) do
+    case socket.assigns.import_category_mode do
+      :existing ->
+        {:ok, socket.assigns.import_category_uuid, socket}
+
+      :create ->
+        attrs =
+          socket.assigns.new_category_changeset
+          |> Ecto.Changeset.apply_changes()
+          |> Map.from_struct()
+          |> Map.take([:name, :description, :position, :data])
+          |> Map.put(:catalogue_uuid, catalogue_uuid)
+          |> apply_category_language(import_lang)
+
+        case Catalogue.create_category(attrs, actor_opts(socket)) do
+          {:ok, category} ->
+            {:ok, category.uuid, socket}
+
+          {:error, changeset} ->
+            socket =
+              socket
+              |> assign(:new_category_changeset, Map.put(changeset, :action, :validate))
+              |> assign(:step, :map)
+
+            {:error,
+             Gettext.gettext(
+               PhoenixKitWeb.Gettext,
+               "Could not create the new category. Please check the form and try again."
+             ), socket}
+        end
+
+      _ ->
+        {:ok, nil, socket}
+    end
+  end
+
+  # Wraps the import language onto category attrs the same way
+  # `Executor.apply_language/2` does for items / column-created
+  # categories, so the explicitly-created category lands in the right
+  # `_primary_language` bucket.
+  defp apply_category_language(attrs, nil), do: attrs
+
+  defp apply_category_language(attrs, language) do
+    translatable = %{}
+
+    translatable =
+      if attrs[:name], do: Map.put(translatable, "_name", attrs[:name]), else: translatable
+
+    translatable =
+      if attrs[:description],
+        do: Map.put(translatable, "_description", attrs[:description]),
+        else: translatable
+
+    if map_size(translatable) > 0 do
+      existing_data = attrs[:data] || %{}
+
+      new_data = %{
+        "_primary_language" => language,
+        language => translatable
+      }
+
+      new_data = Map.merge(new_data, Map.drop(existing_data, ["_primary_language"]))
+      Map.put(attrs, :data, new_data)
+    else
+      attrs
+    end
+  end
+
+  defp actor_opts(socket) do
+    case socket.assigns[:phoenix_kit_current_user] do
+      %{uuid: uuid} -> [actor_uuid: uuid, mode: "auto"]
+      _ -> [mode: "auto"]
+    end
+  end
+
+  defp start_import(socket, catalogue_uuid, import_category, import_lang) do
+    import_plan = socket.assigns.import_plan
+    lv_pid = self()
+
+    import_plan =
+      maybe_deduplicate(import_plan, socket.assigns.duplicate_mode, catalogue_uuid,
+        category_uuid: import_category,
+        language: import_lang
+      )
+
+    log_import_started(socket, import_plan)
+
+    match_across_languages = socket.assigns.category_match_across_languages
+
+    Task.start(fn ->
+      try do
+        Executor.execute(import_plan, catalogue_uuid, lv_pid,
+          language: import_lang,
+          category_uuid: import_category,
+          match_categories_across_languages: match_across_languages,
+          actor_uuid: extract_actor_uuid(socket)
+        )
+      rescue
+        e ->
+          Logger.error("Import failed: #{Exception.message(e)}")
+
+          send(
+            lv_pid,
+            {:import_result,
+             %{
+               created: 0,
+               errors: [{0, Exception.message(e)}],
+               categories_created: 0
+             }}
+          )
+      end
+    end)
+
+    {:noreply,
+     assign(socket,
+       step: :importing,
+       import_progress: 0,
+       import_total: length(import_plan.items)
+     )}
+  end
 
   defp maybe_clear_category_column(socket, :column), do: socket
 
@@ -645,6 +877,106 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
   end
 
   # ── Step Components ─────────────────────────────────────────────
+
+  # Inline category-creation form, shown when the user picks
+  # "Create a new category" in the Import Into Category dropdown.
+  # Mirrors the standalone CategoryFormLive view but omits its language
+  # tabs (the import wizard already has a top-level switcher) and its
+  # action buttons (the wizard's Continue/Run buttons drive the flow).
+  attr(:changeset, :map, required: true)
+  attr(:multilang_enabled, :boolean, required: true)
+  attr(:current_lang, :string, required: true)
+  attr(:primary_language, :string, required: true)
+
+  defp new_category_form(assigns) do
+    assigns =
+      assign(
+        assigns,
+        :lang_data,
+        get_lang_data(assigns.changeset, assigns.current_lang, assigns.multilang_enabled)
+      )
+
+    ~H"""
+    <form
+      id="new-category-form"
+      phx-change="validate_new_category"
+      phx-submit="continue_to_confirm"
+      class="mt-4 pl-4 border-l-2 border-secondary/20"
+    >
+      <.multilang_fields_wrapper
+        multilang_enabled={@multilang_enabled}
+        current_lang={@current_lang}
+        skeleton_class="flex flex-col gap-6"
+        fields_class="flex flex-col gap-6"
+      >
+        <:skeleton>
+          <div class="space-y-2">
+            <div class="skeleton h-4 w-20"></div>
+            <div class="skeleton h-12 w-full"></div>
+          </div>
+          <div class="space-y-2">
+            <div class="skeleton h-4 w-28"></div>
+            <div class="skeleton h-24 w-full"></div>
+          </div>
+        </:skeleton>
+
+        <.translatable_field
+          field_name="name"
+          form_prefix="category"
+          changeset={@changeset}
+          schema_field={:name}
+          multilang_enabled={@multilang_enabled}
+          current_lang={@current_lang}
+          primary_language={@primary_language}
+          lang_data={@lang_data}
+          label={Gettext.gettext(PhoenixKitWeb.Gettext, "Name")}
+          placeholder={Gettext.gettext(PhoenixKitWeb.Gettext, "e.g., Cabinet Frames")}
+          required
+          class="w-full"
+        />
+
+        <.translatable_field
+          field_name="description"
+          form_prefix="category"
+          changeset={@changeset}
+          schema_field={:description}
+          multilang_enabled={@multilang_enabled}
+          current_lang={@current_lang}
+          primary_language={@primary_language}
+          lang_data={@lang_data}
+          label={Gettext.gettext(PhoenixKitWeb.Gettext, "Description")}
+          placeholder={
+            Gettext.gettext(
+              PhoenixKitWeb.Gettext,
+              "What kinds of items belong in this category..."
+            )
+          }
+          type="textarea"
+          class="w-full"
+        />
+
+        <div class="form-control">
+          <span class="label-text font-semibold mb-2">
+            {Gettext.gettext(PhoenixKitWeb.Gettext, "Position")}
+          </span>
+          <input
+            type="number"
+            name="category[position]"
+            value={Ecto.Changeset.get_field(@changeset, :position)}
+            class="input input-bordered w-28 transition-colors focus:input-primary"
+            min="0"
+          />
+          <span class="label-text-alt text-base-content/50 mt-1">
+            {Gettext.gettext(
+              PhoenixKitWeb.Gettext,
+              "Lower numbers appear first."
+            )}
+          </span>
+        </div>
+      </.multilang_fields_wrapper>
+    </form>
+    """
+  end
 
   defp step_badge(assigns) do
     steps = [:upload, :map, :confirm, :importing]
@@ -701,7 +1033,7 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
                   value={cat.uuid}
                   selected={@selected_catalogue && @selected_catalogue.uuid == cat.uuid}
                 >
-                  {cat.name}
+                  {catalogue_picker_label(cat, @catalogue_item_counts, @catalogue_category_counts)}
                 </option>
               </select>
             </label>
@@ -775,18 +1107,35 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
             <% end %>
           </div>
 
-          <%!-- Action button --%>
+          <%!-- Action button. Stays disabled while the upload XHR is in
+               flight — clicking submit before the entry is `done?` makes
+               `consume_uploaded_entries` return [] and disrupts the
+               in-flight upload, which looks to the user like the file
+               vanished. --%>
+          <% upload_in_progress? = Enum.any?(@uploads.import_file.entries, &(not &1.done?)) %>
           <button
             type="submit"
             class="btn btn-primary"
-            disabled={if @filename, do: @selected_catalogue == nil, else: @uploads.import_file.entries == [] or @selected_catalogue == nil}
+            disabled={
+              cond do
+                @selected_catalogue == nil -> true
+                @filename -> false
+                @uploads.import_file.entries == [] -> true
+                upload_in_progress? -> true
+                true -> false
+              end
+            }
           >
-            <%= if @filename do %>
-              {Gettext.gettext(PhoenixKitWeb.Gettext, "Continue")}
-              <.icon name="hero-arrow-right" class="w-4 h-4" />
-            <% else %>
-              <.icon name="hero-arrow-up-tray" class="w-4 h-4" />
-              {Gettext.gettext(PhoenixKitWeb.Gettext, "Upload & Parse")}
+            <%= cond do %>
+              <% @filename -> %>
+                {Gettext.gettext(PhoenixKitWeb.Gettext, "Continue")}
+                <.icon name="hero-arrow-right" class="w-4 h-4" />
+              <% upload_in_progress? -> %>
+                <span class="loading loading-spinner loading-xs"></span>
+                {Gettext.gettext(PhoenixKitWeb.Gettext, "Uploading...")}
+              <% true -> %>
+                <.icon name="hero-arrow-up-tray" class="w-4 h-4" />
+                {Gettext.gettext(PhoenixKitWeb.Gettext, "Upload & Parse")}
             <% end %>
           </button>
         </form>
@@ -858,6 +1207,9 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
                 <option value="column" selected={@import_category_mode == :column}>
                   {Gettext.gettext(PhoenixKitWeb.Gettext, "Use a column — create categories from column values")}
                 </option>
+                <option value="create" selected={@import_category_mode == :create}>
+                  {Gettext.gettext(PhoenixKitWeb.Gettext, "Create a new category — fill in the details below")}
+                </option>
                 <option :for={cat <- @catalogue_categories} value={"existing:#{cat.uuid}"} selected={@import_category_mode == :existing and @import_category_uuid == cat.uuid}>
                   {cat.name}
                 </option>
@@ -866,6 +1218,34 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
 
             <%!-- Column picker for category --%>
             <div :if={@import_category_mode == :column} class="pl-4 border-l-2 border-secondary/20">
+              <%!-- Cross-language match toggle. Only meaningful when
+                   multilang is on — without it there's only ever one
+                   language so "across languages" is a no-op. --%>
+              <label
+                :if={@multilang_enabled}
+                class="flex items-center gap-2 mb-3 cursor-pointer text-xs text-base-content/70"
+              >
+                <input
+                  type="checkbox"
+                  name="category_match_across_languages"
+                  value="true"
+                  checked={@category_match_across_languages}
+                  class="checkbox checkbox-xs checkbox-primary"
+                />
+                {Gettext.gettext(PhoenixKitWeb.Gettext, "Match across all languages")}
+                <span
+                  class="tooltip tooltip-right tooltip-info"
+                  data-tip={
+                    Gettext.gettext(
+                      PhoenixKitWeb.Gettext,
+                      "By default the importer only matches existing categories by their name in the current import language. Turn this on to also match translations in any other language — useful for multilingual catalogues where the same category is named differently in each language."
+                    )
+                  }
+                >
+                  <.icon name="hero-information-circle" class="w-3.5 h-3.5 text-base-content/40 hover:text-base-content/70" />
+                </span>
+              </label>
+
               <span class="block mb-1 text-xs text-base-content/60">{Gettext.gettext(PhoenixKitWeb.Gettext, "Which column contains the category names?")}</span>
               <label class="select select-sm w-full">
                 <select name="category_column">
@@ -891,6 +1271,19 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
               </div>
             </div>
           </form>
+
+          <%!-- Inline new-category form (mirrors the standalone Category
+               creation screen, minus its own buttons + language switcher
+               since the import wizard already provides both at the top).
+               Sits OUTSIDE the mode-picker form so its phx-change doesn't
+               re-fire mode selection on every keystroke. --%>
+          <.new_category_form
+            :if={@import_category_mode == :create and @new_category_changeset}
+            changeset={@new_category_changeset}
+            multilang_enabled={@multilang_enabled}
+            current_lang={@current_lang}
+            primary_language={@primary_language}
+          />
         </div>
 
         <p class="text-sm text-base-content/60">
@@ -945,23 +1338,27 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
 
         </form>
 
-        <%!-- Data preview --%>
+        <%!-- Data preview. The collapse `<input>` carries an `id` so
+             morphdom preserves the open/closed state across LiveView
+             patches; without it the panel snaps shut on every diff. --%>
         <div class="collapse collapse-arrow bg-base-200/30 border border-base-300">
-          <input type="checkbox" />
+          <input type="checkbox" id="sample-data-collapse" />
           <div class="collapse-title text-sm font-medium">
             <.icon name="hero-table-cells" class="w-4 h-4 inline" />
             {Gettext.gettext(PhoenixKitWeb.Gettext, "Sample Data (first 5 rows)")}
           </div>
           <div class="collapse-content overflow-x-auto">
-            <table class="table table-sm table-zebra">
+            <table class="table table-sm table-zebra [&_th]:border-r [&_th]:border-base-300 [&_td]:border-r [&_td]:border-base-300 [&_th:last-child]:border-r-0 [&_td:last-child]:border-r-0">
               <thead>
                 <tr>
+                  <th class="bg-base-200 font-semibold text-xs w-8 text-base-content/40">#</th>
                   <th :for={header <- @headers} class="bg-base-200 font-semibold text-xs">{header}</th>
                 </tr>
               </thead>
               <tbody>
-                <tr :for={row <- @preview_rows}>
-                  <td :for={cell <- row} class="max-w-[200px] truncate text-xs">{cell}</td>
+                <tr :for={{row, idx} <- Enum.with_index(@preview_rows, 1)}>
+                  <td class="text-xs text-base-content/40 tabular-nums">{idx}</td>
+                  <td :for={cell <- row} title={cell} class="max-w-[200px] truncate text-xs">{cell}</td>
                 </tr>
               </tbody>
             </table>
@@ -1176,6 +1573,31 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
   end
 
   # ── Private helpers ─────────────────────────────────────────────
+
+  # Builds the label shown for one catalogue in the Target Catalogue
+  # picker. Counts are passed in as separate `%{uuid => count}` maps so
+  # the picker stays a thin renderer over data the LiveView already
+  # has — no per-option DB lookups, no N+1.
+  defp catalogue_picker_label(cat, item_counts, category_counts) do
+    items = Map.get(item_counts, cat.uuid, 0)
+    categories = Map.get(category_counts, cat.uuid, 0)
+
+    items_label =
+      Gettext.ngettext(PhoenixKitWeb.Gettext, "%{count} item", "%{count} items", items,
+        count: items
+      )
+
+    categories_label =
+      Gettext.ngettext(
+        PhoenixKitWeb.Gettext,
+        "%{count} category",
+        "%{count} categories",
+        categories,
+        count: categories
+      )
+
+    "#{cat.name} · #{categories_label} · #{items_label}"
+  end
 
   defp translate_target("— Skip —"), do: Gettext.gettext(PhoenixKitWeb.Gettext, "— Skip —")
   defp translate_target("Item Name"), do: Gettext.gettext(PhoenixKitWeb.Gettext, "Item Name")

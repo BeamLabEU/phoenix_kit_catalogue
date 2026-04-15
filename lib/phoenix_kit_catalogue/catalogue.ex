@@ -2164,6 +2164,22 @@ defmodule PhoenixKitCatalogue.Catalogue do
   end
 
   @doc """
+  Returns a map of `catalogue_uuid => non_deleted_category_count`, in a
+  single query. Useful for displaying category counts alongside a
+  catalogue list (e.g. in the import wizard's catalogue picker) without
+  N+1 lookups.
+  """
+  def category_counts_by_catalogue do
+    from(c in Category,
+      where: c.status != "deleted",
+      group_by: c.catalogue_uuid,
+      select: {c.catalogue_uuid, count(c.uuid)}
+    )
+    |> repo().all()
+    |> Map.new()
+  end
+
+  @doc """
   Counts deleted items in a catalogue, including items without a category.
   """
   def deleted_item_count_for_catalogue(catalogue_uuid) do

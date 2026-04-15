@@ -66,6 +66,48 @@ defmodule PhoenixKitCatalogue.Import.ParserTest do
     test "rejects unsupported format" do
       assert {:error, _msg} = Parser.parse("data", "test.pdf")
     end
+
+    test "strips a fully empty leading column" do
+      # Common spreadsheet quirk: a leading blank column survives export
+      # as empty cells in every row. Without stripping, the importer
+      # would render a phantom unnamed column in the preview and a
+      # phantom mapping card.
+      csv = ",Name,SKU\n,Oak,OAK-1\n,Birch,BV-1\n"
+      assert {:ok, result} = Parser.parse(csv, "test.csv")
+      assert result.headers == ["Name", "SKU"]
+      assert List.first(result.rows) == ["Oak", "OAK-1"]
+    end
+
+    test "strips a fully empty middle column" do
+      csv = "Name,,SKU\nOak,,OAK-1\nBirch,,BV-1\n"
+      assert {:ok, result} = Parser.parse(csv, "test.csv")
+      assert result.headers == ["Name", "SKU"]
+      assert List.first(result.rows) == ["Oak", "OAK-1"]
+    end
+
+    test "strips a fully empty trailing column" do
+      csv = "Name,SKU,\nOak,OAK-1,\nBirch,BV-1,\n"
+      assert {:ok, result} = Parser.parse(csv, "test.csv")
+      assert result.headers == ["Name", "SKU"]
+    end
+
+    test "keeps a column with a header but all-empty data" do
+      # A real header (e.g., "Notes") with no content yet is still a
+      # legitimate column the user might map.
+      csv = "Name,Notes\nOak,\nBirch,\n"
+      assert {:ok, result} = Parser.parse(csv, "test.csv")
+      assert result.headers == ["Name", "Notes"]
+      assert List.first(result.rows) == ["Oak", ""]
+    end
+
+    test "keeps a column with empty header but data present" do
+      # Empty-header but data-bearing columns are malformed but not
+      # noise; we keep them so the user can rename or skip in the UI.
+      csv = "Name,\nOak,extra\nBirch,more\n"
+      assert {:ok, result} = Parser.parse(csv, "test.csv")
+      assert result.headers == ["Name", ""]
+      assert List.first(result.rows) == ["Oak", "extra"]
+    end
   end
 
   describe "parse/3 with XLSX" do
