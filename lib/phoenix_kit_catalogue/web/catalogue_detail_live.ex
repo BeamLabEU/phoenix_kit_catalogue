@@ -84,7 +84,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     cond do
       socket.assigns.search_results != nil and socket.assigns.search_has_more and
           not socket.assigns.search_loading ->
-        {:noreply, socket |> assign(:search_loading, true) |> load_next_search_batch()}
+        {:noreply, start_search_page(socket)}
 
       is_nil(socket.assigns.search_results) and socket.assigns.has_more and
           not socket.assigns.loading ->
@@ -496,34 +496,65 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     end
   end
 
-  # Fetches the next page for the current search query and appends it
-  # onto `search_results`.
-  defp load_next_search_batch(socket) do
-    %{
-      catalogue_uuid: uuid,
-      search_query: query,
-      search_results: results,
-      search_offset: offset,
-      search_total: total
-    } = socket.assigns
+  def handle_async(:search_page, {:ok, {query, offset, page}}, socket) do
+    # Same-shape guard as `:search`: only apply if the socket is still on
+    # the query we paged for AND still expecting this offset. If the user
+    # typed a new search mid-flight, `search_query` moved on; if they
+    # somehow triggered a parallel page (shouldn't happen — `load_more`
+    # checks `search_loading`), `search_offset` moved on.
+    if socket.assigns.search_query == query and socket.assigns.search_offset == offset do
+      new_offset = offset + length(page)
+      # `page == []` protects against stale `search_total` (items
+      # concurrently deleted) keeping `search_has_more` true forever.
+      has_more = page != [] and new_offset < socket.assigns.search_total
 
-    page =
-      Catalogue.search_items_in_catalogue(uuid, query,
-        limit: @per_page,
-        offset: offset
-      )
+      {:noreply,
+       assign(socket,
+         search_results: (socket.assigns.search_results || []) ++ page,
+         search_offset: new_offset,
+         search_has_more: has_more,
+         search_loading: false
+       )}
+    else
+      {:noreply, socket}
+    end
+  end
 
-    new_offset = offset + length(page)
-    # `page == []` protects against stale `total` (items concurrently
-    # deleted) keeping `search_has_more` true forever.
-    has_more = page != [] and new_offset < total
+  def handle_async(:search_page, {:exit, reason}, socket) do
+    case reason do
+      r when r in [:shutdown, :killed] ->
+        {:noreply, socket}
 
-    assign(socket,
-      search_results: results ++ page,
-      search_offset: new_offset,
-      search_has_more: has_more,
-      search_loading: false
-    )
+      {:shutdown, _} ->
+        {:noreply, socket}
+
+      other ->
+        Logger.warning("search page task exited unexpectedly: #{inspect(other)}")
+
+        {:noreply,
+         socket
+         |> assign(:search_loading, false)
+         |> put_flash(
+           :error,
+           Gettext.gettext(PhoenixKitWeb.Gettext, "Search failed. Please try again.")
+         )}
+    end
+  end
+
+  # Fires the next-page query off the LV process so scrolling a 50k-item
+  # catalogue doesn't freeze the socket on every batch (ILIKE-against-
+  # jsonb-as-text is not a fast query). Appending happens in
+  # `handle_async(:search_page, …)` guarded by `{query, offset}` so a
+  # superseding new search or a double-scroll can't double-append.
+  defp start_search_page(socket) do
+    %{catalogue_uuid: uuid, search_query: query, search_offset: offset} = socket.assigns
+
+    socket
+    |> assign(:search_loading, true)
+    |> start_async(:search_page, fn ->
+      page = Catalogue.search_items_in_catalogue(uuid, query, limit: @per_page, offset: offset)
+      {query, offset, page}
+    end)
   end
 
   defp clear_search(socket) do
