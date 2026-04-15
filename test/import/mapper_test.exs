@@ -44,6 +44,24 @@ defmodule PhoenixKitCatalogue.Import.MapperTest do
       assert markup.target == :markup_percentage
     end
 
+    test "detects manufacturer columns by common synonyms" do
+      headers = ["Name", "Manufacturer", "Tootja", "Hersteller"]
+      mappings = Mapper.auto_detect_mappings(headers)
+
+      # First match wins (auto_detect_mappings doesn't double-assign)
+      manufacturer_targets = Enum.filter(mappings, &(&1.target == :manufacturer))
+      assert length(manufacturer_targets) == 1
+      assert hd(manufacturer_targets).header == "Manufacturer"
+    end
+
+    test "detects supplier columns by common synonyms" do
+      headers = ["Name", "Supplier"]
+      mappings = Mapper.auto_detect_mappings(headers)
+
+      supplier = Enum.find(mappings, &(&1.header == "Supplier"))
+      assert supplier.target == :supplier
+    end
+
     test "skips unknown headers" do
       headers = ["Random Column", "Another One"]
       mappings = Mapper.auto_detect_mappings(headers)
@@ -265,6 +283,48 @@ defmodule PhoenixKitCatalogue.Import.MapperTest do
       plan = Mapper.build_import_plan(mappings, [["Item", "abc"]])
       assert plan.stats.invalid == 1
       assert [{1, "Invalid markup: abc"}] = plan.errors
+    end
+
+    test "extracts unique manufacturer names" do
+      mappings = [
+        %{column_index: 0, header: "Name", target: :name},
+        %{column_index: 1, header: "Maker", target: :manufacturer}
+      ]
+
+      rows = [
+        ["A", "Blum"],
+        ["B", "Hettich"],
+        ["C", "Blum"],
+        # Trimmed and de-duplicated
+        ["D", "  Blum  "]
+      ]
+
+      plan = Mapper.build_import_plan(mappings, rows)
+      assert plan.manufacturers_to_create == ["Blum", "Hettich"]
+      # The per-item placeholder is set so the executor can resolve later
+      [item | _] = plan.items
+      assert item[:_manufacturer_name] == "Blum"
+    end
+
+    test "extracts unique supplier names" do
+      mappings = [
+        %{column_index: 0, header: "Name", target: :name},
+        %{column_index: 1, header: "Source", target: :supplier}
+      ]
+
+      plan =
+        Mapper.build_import_plan(mappings, [
+          ["A", "Acme"],
+          ["B", "Globex"],
+          ["C", ""]
+        ])
+
+      assert plan.suppliers_to_create == ["Acme", "Globex"]
+
+      [a, _b, c] = plan.items
+      assert a[:_supplier_name] == "Acme"
+      # Blank cells leave no placeholder so the row gets no supplier link.
+      refute Map.has_key?(c, :_supplier_name)
     end
   end
 

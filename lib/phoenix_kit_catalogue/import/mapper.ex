@@ -14,6 +14,8 @@ defmodule PhoenixKitCatalogue.Import.Mapper do
           | :markup_percentage
           | :unit
           | :category
+          | :manufacturer
+          | :supplier
           | :skip
           | {:data, String.t()}
 
@@ -26,6 +28,8 @@ defmodule PhoenixKitCatalogue.Import.Mapper do
   @type import_plan :: %{
           items: [map()],
           categories_to_create: [String.t()],
+          manufacturers_to_create: [String.t()],
+          suppliers_to_create: [String.t()],
           custom_fields: [String.t()],
           errors: [{non_neg_integer(), String.t()}],
           stats: %{total: non_neg_integer(), valid: non_neg_integer(), invalid: non_neg_integer()}
@@ -60,7 +64,10 @@ defmodule PhoenixKitCatalogue.Import.Mapper do
     base_price: ~w(price hind preis cost maksumus kulu base_price baseprice),
     markup_percentage:
       ~w(markup margin naceenka juurdehindlus aufschlag markup_percentage markup_percent markup%),
-    unit: ~w(unit uhik einheit masseinheit measure uom)
+    unit: ~w(unit uhik einheit masseinheit measure uom),
+    manufacturer:
+      ~w(manufacturer hersteller tootja brand bra_nd vendor maker producer firma manufacturer_name),
+    supplier: ~w(supplier tarnija lieferant distributor reseller wholesaler supplier_name)
   }
 
   # ── Public API ────────────────────────────────────────────────
@@ -78,7 +85,9 @@ defmodule PhoenixKitCatalogue.Import.Mapper do
       {:base_price, "Base Price"},
       {:markup_percentage, "Markup Override (%)"},
       {:unit, "Unit of Measure"},
-      {:category, "Create Categories"}
+      {:category, "Create Categories"},
+      {:manufacturer, "Manufacturer"},
+      {:supplier, "Supplier"}
     ]
   end
 
@@ -130,24 +139,11 @@ defmodule PhoenixKitCatalogue.Import.Mapper do
     items = Enum.reverse(items)
     errors = Enum.reverse(errors)
 
-    categories_to_create =
-      mappings
-      |> Enum.find(fn m -> m.target == :category end)
-      |> case do
-        nil ->
-          []
-
-        %{column_index: idx} ->
-          rows
-          |> Enum.map(fn row -> Enum.at(row, idx, "") end)
-          |> Enum.reject(&(&1 == ""))
-          |> Enum.uniq()
-          |> Enum.sort()
-      end
-
     %{
       items: items,
-      categories_to_create: categories_to_create,
+      categories_to_create: unique_column_names(mappings, rows, :category),
+      manufacturers_to_create: unique_column_names(mappings, rows, :manufacturer),
+      suppliers_to_create: unique_column_names(mappings, rows, :supplier),
       custom_fields: custom_fields,
       errors: errors,
       stats: %{
@@ -156,6 +152,24 @@ defmodule PhoenixKitCatalogue.Import.Mapper do
         invalid: length(errors)
       }
     }
+  end
+
+  # Pulls every distinct, non-blank value from the column mapped to
+  # `target`. Used to compute `categories_to_create`,
+  # `manufacturers_to_create`, and `suppliers_to_create` for the
+  # executor's get-or-create phases.
+  defp unique_column_names(mappings, rows, target) do
+    case Enum.find(mappings, fn m -> m.target == target end) do
+      nil ->
+        []
+
+      %{column_index: idx} ->
+        rows
+        |> Enum.map(fn row -> row |> Enum.at(idx, "") |> String.trim() end)
+        |> Enum.reject(&(&1 == ""))
+        |> Enum.uniq()
+        |> Enum.sort()
+    end
   end
 
   @doc """
@@ -434,6 +448,25 @@ defmodule PhoenixKitCatalogue.Import.Mapper do
 
   defp apply_mapping(acc, :category, value, _unit_map),
     do: Map.put(acc, :_category_name, String.trim(value))
+
+  # Manufacturer / supplier names get the same `_<x>_name` placeholder
+  # treatment as `:category` — the executor resolves them to UUIDs (or
+  # creates the records) at import time. Blank cells skip the
+  # placeholder entirely so the executor knows the row has no
+  # manufacturer/supplier and won't try to look one up or link.
+  defp apply_mapping(acc, :manufacturer, value, _unit_map) do
+    case String.trim(value) do
+      "" -> acc
+      name -> Map.put(acc, :_manufacturer_name, name)
+    end
+  end
+
+  defp apply_mapping(acc, :supplier, value, _unit_map) do
+    case String.trim(value) do
+      "" -> acc
+      name -> Map.put(acc, :_supplier_name, name)
+    end
+  end
 
   defp apply_mapping(acc, {:data, field_name}, value, _unit_map) do
     data = Map.get(acc, :data, %{})
