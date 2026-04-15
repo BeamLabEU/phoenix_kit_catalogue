@@ -6,20 +6,30 @@ defmodule PhoenixKitCatalogue.Import.Executor do
   are inserted with progress reporting back to the calling process.
   """
 
+  require Logger
+
   alias PhoenixKit.Utils.Multilang
   alias PhoenixKitCatalogue.Catalogue
 
   @type import_result :: %{
           created: non_neg_integer(),
           errors: [{non_neg_integer(), String.t()}],
-          categories_created: non_neg_integer()
+          categories_created: non_neg_integer(),
+          manufacturers_created: non_neg_integer(),
+          suppliers_created: non_neg_integer(),
+          manufacturer_supplier_links_created: non_neg_integer()
         }
 
   @doc """
   Executes an import plan.
 
-  Creates categories first, then items. Sends `{:import_progress, current, total}`
-  messages to `notify_pid` after each item.
+  Phase 1: get-or-create categories / manufacturers / suppliers
+  (column mode only — fixed-uuid modes skip phase 1 for the
+  corresponding entity). Phase 2: insert items, resolving
+  `category_uuid` / `manufacturer_uuid` per row from the lookups
+  built in phase 1 (or the fixed UUIDs). Phase 3: link
+  manufacturers↔suppliers (M:N). Sends `{:import_progress, current,
+  total}` messages to `notify_pid` after each item.
 
   ## Options
 
@@ -29,15 +39,23 @@ defmodule PhoenixKitCatalogue.Import.Executor do
       get-or-create lookup for column-mode category creation matches
       column values against every translation any existing category
       has, not just the current import language. Default `false`.
+    * `:manufacturer_uuid` — fixed manufacturer UUID to assign all
+      items to (skips phase 1 manufacturer creation)
+    * `:supplier_uuid` — fixed supplier UUID; in phase 3 this supplier
+      is linked (M:N) to every distinct manufacturer the items in
+      this import ended up assigned to
   """
   @spec execute(map(), String.t(), pid(), keyword()) :: import_result()
   def execute(import_plan, catalogue_uuid, notify_pid, opts \\ []) do
     language = Keyword.get(opts, :language)
     fixed_category_uuid = Keyword.get(opts, :category_uuid)
+    fixed_manufacturer_uuid = Keyword.get(opts, :manufacturer_uuid)
+    fixed_supplier_uuid = Keyword.get(opts, :supplier_uuid)
     match_across = Keyword.get(opts, :match_categories_across_languages, false)
     activity_opts = build_activity_opts(opts)
 
-    # Phase 1: Create categories (only if no fixed category)
+    # Phase 1: get-or-create supporting records (skipped per-entity
+    # when a fixed UUID is provided for it)
     {category_lookup, categories_created} =
       if fixed_category_uuid do
         {%{}, 0}
@@ -51,16 +69,41 @@ defmodule PhoenixKitCatalogue.Import.Executor do
         )
       end
 
-    # Phase 2: Create items
-    total = length(import_plan.items)
+    # `Map.get` defaults guard against older callers / hand-built plans
+    # that don't include the new keys (mirrors the same forgiving
+    # contract `categories_to_create` already had via the Mapper).
+    {manufacturer_lookup, manufacturers_created} =
+      if fixed_manufacturer_uuid do
+        {%{}, 0}
+      else
+        create_manufacturers(Map.get(import_plan, :manufacturers_to_create, []), activity_opts)
+      end
 
-    {created, errors} =
+    {supplier_lookup, suppliers_created} =
+      if fixed_supplier_uuid do
+        {%{}, 0}
+      else
+        create_suppliers(Map.get(import_plan, :suppliers_to_create, []), activity_opts)
+      end
+
+    # Phase 2: Create items, accumulating M:N link pairs along the way
+    total = length(import_plan.items)
+    initial_acc = {0, [], MapSet.new(), MapSet.new()}
+
+    {created, errors, link_pairs, manufacturers_touched} =
       import_plan.items
       |> Enum.with_index(1)
-      |> Enum.reduce({0, []}, fn {item_attrs, idx}, {cr, errs} ->
-        attrs =
+      |> Enum.reduce(initial_acc, fn {item_attrs, idx}, {cr, errs, pairs, mfrs} ->
+        {mfr_uuid, attrs} =
           item_attrs
+          |> resolve_manufacturer(manufacturer_lookup, fixed_manufacturer_uuid)
+
+        {sup_uuid, attrs} = resolve_supplier(attrs, supplier_lookup, fixed_supplier_uuid)
+
+        attrs =
+          attrs
           |> Map.put(:catalogue_uuid, catalogue_uuid)
+          |> maybe_put(:manufacturer_uuid, mfr_uuid)
           |> resolve_category(category_lookup, fixed_category_uuid)
           |> apply_language(language)
 
@@ -68,16 +111,22 @@ defmodule PhoenixKitCatalogue.Import.Executor do
 
         send(notify_pid, {:import_progress, idx, total})
 
-        case result do
-          {:ok, :created} -> {cr + 1, errs}
-          {:error, reason} -> {cr, [{idx, reason} | errs]}
-        end
+        accumulate_item_result(result, {cr, errs, pairs, mfrs}, idx, mfr_uuid, sup_uuid)
       end)
+
+    # Phase 3: M:N links. A fixed supplier (existing/create mode) gets
+    # linked to every manufacturer the import ended up touching;
+    # otherwise we use the per-row pairs collected during phase 2.
+    pairs_to_link = expand_supplier_links(link_pairs, manufacturers_touched, fixed_supplier_uuid)
+    links_created = create_manufacturer_supplier_links(pairs_to_link)
 
     result = %{
       created: created,
       errors: Enum.reverse(errors),
-      categories_created: categories_created
+      categories_created: categories_created,
+      manufacturers_created: manufacturers_created,
+      suppliers_created: suppliers_created,
+      manufacturer_supplier_links_created: links_created
     }
 
     send(notify_pid, {:import_result, result})
@@ -276,5 +325,186 @@ defmodule PhoenixKitCatalogue.Import.Executor do
           uuid -> Map.put(attrs, :category_uuid, uuid)
         end
     end
+  end
+
+  # ── Manufacturer creation + per-item resolution ───────────────
+
+  defp create_manufacturers([], _activity_opts), do: {%{}, 0}
+
+  defp create_manufacturers(names, activity_opts) do
+    existing =
+      Catalogue.list_manufacturers()
+      |> Map.new(fn m -> {m.name, m.uuid} end)
+
+    Enum.reduce(names, {existing, 0}, fn name, acc ->
+      get_or_create_manufacturer(acc, name, activity_opts)
+    end)
+  end
+
+  defp get_or_create_manufacturer({lookup, count}, name, _activity_opts)
+       when is_map_key(lookup, name),
+       do: {lookup, count}
+
+  defp get_or_create_manufacturer({lookup, count}, name, activity_opts) do
+    case Catalogue.create_manufacturer(%{name: name}, activity_opts) do
+      {:ok, mfr} ->
+        {Map.put(lookup, name, mfr.uuid), count + 1}
+
+      {:error, changeset} ->
+        # Items referencing this name will fall through with
+        # `manufacturer_uuid: nil`; surface why so it's debuggable.
+        Logger.warning(
+          "Import: failed to create manufacturer #{inspect(name)}: " <>
+            inspect(changeset.errors)
+        )
+
+        {lookup, count}
+    end
+  end
+
+  # Returns `{manufacturer_uuid_or_nil, attrs_without_placeholder}`.
+  # When a fixed UUID is supplied (existing/create UI mode) every item
+  # gets it; otherwise we resolve from the column-mode lookup. A blank
+  # or unmatched name leaves `manufacturer_uuid` unset on the item.
+  defp resolve_manufacturer(attrs, _lookup, fixed_uuid) when is_binary(fixed_uuid) do
+    {fixed_uuid, Map.delete(attrs, :_manufacturer_name)}
+  end
+
+  defp resolve_manufacturer(attrs, lookup, _fixed_uuid) do
+    case Map.pop(attrs, :_manufacturer_name) do
+      {nil, attrs} -> {nil, attrs}
+      {"", attrs} -> {nil, attrs}
+      {name, attrs} -> {Map.get(lookup, name), attrs}
+    end
+  end
+
+  # ── Supplier creation + per-row resolution ────────────────────
+
+  defp create_suppliers([], _activity_opts), do: {%{}, 0}
+
+  defp create_suppliers(names, activity_opts) do
+    existing =
+      Catalogue.list_suppliers()
+      |> Map.new(fn s -> {s.name, s.uuid} end)
+
+    Enum.reduce(names, {existing, 0}, fn name, acc ->
+      get_or_create_supplier(acc, name, activity_opts)
+    end)
+  end
+
+  defp get_or_create_supplier({lookup, count}, name, _activity_opts)
+       when is_map_key(lookup, name),
+       do: {lookup, count}
+
+  defp get_or_create_supplier({lookup, count}, name, activity_opts) do
+    case Catalogue.create_supplier(%{name: name}, activity_opts) do
+      {:ok, sup} ->
+        {Map.put(lookup, name, sup.uuid), count + 1}
+
+      {:error, changeset} ->
+        Logger.warning(
+          "Import: failed to create supplier #{inspect(name)}: " <>
+            inspect(changeset.errors)
+        )
+
+        {lookup, count}
+    end
+  end
+
+  # Returns `{supplier_uuid_or_nil, attrs_without_placeholder}`. Items
+  # don't have a `supplier_uuid` column — the uuid travels alongside
+  # the item attrs (not into them) and is used only for building the
+  # M:N link in phase 3. We still strip the placeholder so it doesn't
+  # leak into changeset cast.
+  defp resolve_supplier(attrs, _lookup, fixed_uuid) when is_binary(fixed_uuid) do
+    {fixed_uuid, Map.delete(attrs, :_supplier_name)}
+  end
+
+  defp resolve_supplier(attrs, lookup, _fixed_uuid) do
+    case Map.pop(attrs, :_supplier_name) do
+      {nil, attrs} -> {nil, attrs}
+      {"", attrs} -> {nil, attrs}
+      {name, attrs} -> {Map.get(lookup, name), attrs}
+    end
+  end
+
+  # ── M:N link creation (phase 3) ───────────────────────────────
+
+  # When the user picked a single supplier (existing / create mode),
+  # link it to every manufacturer the import touched. Otherwise the
+  # set of links comes purely from per-row pairs accumulated during
+  # phase 2.
+  defp expand_supplier_links(link_pairs, _manufacturers_touched, nil), do: link_pairs
+
+  defp expand_supplier_links(link_pairs, manufacturers_touched, fixed_supplier_uuid) do
+    Enum.reduce(manufacturers_touched, link_pairs, fn mfr_uuid, acc ->
+      MapSet.put(acc, {mfr_uuid, fixed_supplier_uuid})
+    end)
+  end
+
+  # Threads one item-insert outcome into the phase-2 accumulator: bumps
+  # the success counter and records the (mfr, sup) pair / manufacturer
+  # for phase-3 linking on `:ok`; appends to the error list on `:error`.
+  defp accumulate_item_result({:ok, :created}, {cr, errs, pairs, mfrs}, _idx, mfr_uuid, sup_uuid) do
+    new_pairs = maybe_record_pair(pairs, mfr_uuid, sup_uuid)
+    new_mfrs = maybe_record_manufacturer(mfrs, mfr_uuid)
+    {cr + 1, errs, new_pairs, new_mfrs}
+  end
+
+  defp accumulate_item_result({:error, reason}, {cr, errs, pairs, mfrs}, idx, _mfr, _sup) do
+    {cr, [{idx, reason} | errs], pairs, mfrs}
+  end
+
+  defp maybe_record_pair(pairs, mfr_uuid, sup_uuid)
+       when is_binary(mfr_uuid) and is_binary(sup_uuid),
+       do: MapSet.put(pairs, {mfr_uuid, sup_uuid})
+
+  defp maybe_record_pair(pairs, _, _), do: pairs
+
+  defp maybe_record_manufacturer(mfrs, mfr_uuid) when is_binary(mfr_uuid),
+    do: MapSet.put(mfrs, mfr_uuid)
+
+  defp maybe_record_manufacturer(mfrs, _), do: mfrs
+
+  # Skip the put when value is nil so we don't accidentally clobber
+  # `manufacturer_uuid` to nil (e.g. via the Item changeset's cast
+  # treating it as an explicit nil) when the row had no manufacturer.
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, key, value), do: Map.put(map, key, value)
+
+  defp create_manufacturer_supplier_links(pairs) do
+    # `link_manufacturer_supplier/2` returns `{:error, changeset}` on
+    # the unique-constraint violation when the link already exists —
+    # that's the idempotency guarantee, so we treat it as a no-op.
+    # Other errors (e.g., transient DB error) get logged so they're
+    # debuggable; we still don't fail the whole import on a bad link
+    # since items themselves are independent of the M:N graph.
+    Enum.reduce(pairs, 0, fn pair, count -> attempt_link(pair, count) end)
+  end
+
+  defp attempt_link({mfr_uuid, sup_uuid}, count) do
+    case Catalogue.link_manufacturer_supplier(mfr_uuid, sup_uuid) do
+      {:ok, _} ->
+        count + 1
+
+      {:error, %Ecto.Changeset{errors: errors}} ->
+        log_link_error(mfr_uuid, sup_uuid, errors)
+        count
+    end
+  end
+
+  defp log_link_error(mfr_uuid, sup_uuid, errors) do
+    if unique_constraint_error?(errors) do
+      :ok
+    else
+      Logger.warning(
+        "Import: failed to link manufacturer #{mfr_uuid} ↔ supplier #{sup_uuid}: " <>
+          inspect(errors)
+      )
+    end
+  end
+
+  defp unique_constraint_error?(errors) do
+    Enum.any?(errors, fn {_, {_, opts}} -> opts[:constraint] == :unique end)
   end
 end

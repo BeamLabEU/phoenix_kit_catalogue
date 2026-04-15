@@ -87,8 +87,8 @@ Multi-step file import wizard for bulk item creation from XLSX/CSV files.
 
 - **Parser** (`import/parser.ex`): Format detection, XLSX via `XlsxReader`, CSV with auto-separator detection, BOM stripping
 - **Mapper** (`import/mapper.ex`): Auto-detect column mappings, unit normalization, import plan builder with validation
-- **Executor** (`import/executor.ex`): Two-phase execution (categories then items), progress reporting, language support, actor_uuid threading for activity logs
-- **ImportLive** (`web/import_live.ex`): Upload → sheet select → column mapping → confirm → importing → results. ETS buffering for large files, duplicate detection, multilang support
+- **Executor** (`import/executor.ex`): Three-phase execution (1: get-or-create categories + manufacturers + suppliers in column mode; 2: insert items resolving category/manufacturer per row; 3: create manufacturer↔supplier M:N links from per-row pairs and/or fixed supplier→all-touched-manufacturers), progress reporting, language support, actor_uuid threading for activity logs. Items get `manufacturer_uuid` directly; suppliers attach via the M:N join because items don't have a supplier FK
+- **ImportLive** (`web/import_live.ex`): Upload → sheet select → column mapping → confirm → importing → results. ETS buffering for large files, duplicate detection, multilang support. Three pickers (category / manufacturer / supplier) share a four-mode vocabulary — `:none` / `:column` (per-row from a CSV column) / `:create` (inline form, persisted at execute time so cancelling the confirm step doesn't leave orphans) / `:existing` (pick from active records). The `available_picker_columns/2` filter prevents a picker from silently clobbering a sibling's column mapping; switching sheets / replacing the file calls `reset_picker_state/1` so picker assigns can never reference stale column indices
 
 ### Search API
 
