@@ -54,37 +54,56 @@ defmodule PhoenixKitCatalogue.Import.Executor do
     match_across = Keyword.get(opts, :match_categories_across_languages, false)
     activity_opts = build_activity_opts(opts)
 
-    # Phase 1: get-or-create supporting records (skipped per-entity
-    # when a fixed UUID is provided for it)
-    {category_lookup, categories_created} =
-      if fixed_category_uuid do
-        {%{}, 0}
-      else
-        create_categories(
-          import_plan.categories_to_create,
-          catalogue_uuid,
-          language,
-          match_across,
-          activity_opts
-        )
-      end
+    # Phase 1: get-or-create supporting records (skipped per-entity when
+    # a fixed UUID is provided for it). Wrapped in a single transaction
+    # so a raise in the second/third loop (DB drop, unexpected error in
+    # Catalogue.create_*) rolls back any entities the earlier loops
+    # already persisted — otherwise we'd leak orphan categories when
+    # manufacturer creation crashed. Per-name changeset errors still get
+    # logged + skipped (they return `{:error, _}`, not raises) which is
+    # the existing contract; this wrapper only catches the abnormal
+    # path. Cost on fixed-uuid-only imports: one empty txn roundtrip.
+    #
+    # `Map.get` defaults on the new keys guard against older callers /
+    # hand-built plans that predate manufacturer + supplier support
+    # (mirrors the forgiving contract `categories_to_create` already had
+    # via the Mapper).
+    {:ok,
+     {{category_lookup, categories_created}, {manufacturer_lookup, manufacturers_created},
+      {supplier_lookup, suppliers_created}}} =
+      PhoenixKit.RepoHelper.repo().transaction(fn ->
+        cats =
+          if fixed_category_uuid do
+            {%{}, 0}
+          else
+            create_categories(
+              import_plan.categories_to_create,
+              catalogue_uuid,
+              language,
+              match_across,
+              activity_opts
+            )
+          end
 
-    # `Map.get` defaults guard against older callers / hand-built plans
-    # that don't include the new keys (mirrors the same forgiving
-    # contract `categories_to_create` already had via the Mapper).
-    {manufacturer_lookup, manufacturers_created} =
-      if fixed_manufacturer_uuid do
-        {%{}, 0}
-      else
-        create_manufacturers(Map.get(import_plan, :manufacturers_to_create, []), activity_opts)
-      end
+        mfrs =
+          if fixed_manufacturer_uuid do
+            {%{}, 0}
+          else
+            create_manufacturers(
+              Map.get(import_plan, :manufacturers_to_create, []),
+              activity_opts
+            )
+          end
 
-    {supplier_lookup, suppliers_created} =
-      if fixed_supplier_uuid do
-        {%{}, 0}
-      else
-        create_suppliers(Map.get(import_plan, :suppliers_to_create, []), activity_opts)
-      end
+        sups =
+          if fixed_supplier_uuid do
+            {%{}, 0}
+          else
+            create_suppliers(Map.get(import_plan, :suppliers_to_create, []), activity_opts)
+          end
+
+        {cats, mfrs, sups}
+      end)
 
     # Phase 2: Create items, accumulating M:N link pairs along the way
     total = length(import_plan.items)
