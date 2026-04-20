@@ -40,418 +40,102 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
   import Ecto.Query, warn: false
 
-  alias PhoenixKitCatalogue.Schemas.{
-    Catalogue,
-    Category,
-    Item,
-    Manufacturer,
-    ManufacturerSupplier,
-    Supplier
+  alias PhoenixKitCatalogue.Catalogue.{
+    ActivityLog,
+    Counts,
+    Helpers,
+    Links,
+    Manufacturers,
+    PubSub,
+    Rules,
+    Search,
+    Suppliers,
+    Translations
   }
 
-  alias PhoenixKit.Utils.Multilang
+  alias PhoenixKitCatalogue.Schemas.{Catalogue, Category, Item}
 
   require Logger
 
-  @module_key "catalogue"
-
   defp repo, do: PhoenixKit.RepoHelper.repo()
 
+  # `log_activity/1` was extracted to `PhoenixKitCatalogue.Catalogue.ActivityLog`
+  # so the per-section submodules can share it without circular imports.
+  # Internal callers in the remaining sections still use this thin
+  # alias for diff churn minimization.
+  # `log_activity/1` writes an audit-log entry **and** fans out a
+  # `{:catalogue_data_changed, kind, uuid}` event so list LVs subscribed
+  # via `PubSub.subscribe/0` re-fetch. The two are coupled here because
+  # every write in this module that's worth auditing is also worth
+  # signalling — keeping them paired prevents accidental "I logged but
+  # forgot to broadcast" drift. Submodules under
+  # `PhoenixKitCatalogue.Catalogue.*` call `ActivityLog.log/1` and
+  # `PubSub.broadcast/2` directly to keep their dependencies explicit.
   defp log_activity(attrs) do
-    if Code.ensure_loaded?(PhoenixKit.Activity) do
-      PhoenixKit.Activity.log(Map.put(attrs, :module, @module_key))
-    end
-  rescue
-    e ->
-      Logger.warning("[Catalogue] Failed to log activity: #{Exception.message(e)}")
+    ActivityLog.log(attrs)
+    broadcast_for(attrs)
   end
+
+  defp broadcast_for(%{resource_type: "catalogue", resource_uuid: uuid}),
+    do: PubSub.broadcast(:catalogue, uuid)
+
+  defp broadcast_for(%{resource_type: "category", resource_uuid: uuid}),
+    do: PubSub.broadcast(:category, uuid)
+
+  defp broadcast_for(%{resource_type: "item", resource_uuid: uuid}),
+    do: PubSub.broadcast(:item, uuid)
+
+  defp broadcast_for(%{resource_type: "manufacturer", resource_uuid: uuid}),
+    do: PubSub.broadcast(:manufacturer, uuid)
+
+  defp broadcast_for(%{resource_type: "supplier", resource_uuid: uuid}),
+    do: PubSub.broadcast(:supplier, uuid)
+
+  defp broadcast_for(%{resource_type: "smart_rule", resource_uuid: uuid}),
+    do: PubSub.broadcast(:smart_rule, uuid)
+
+  defp broadcast_for(_attrs), do: :ok
 
   # ═══════════════════════════════════════════════════════════════════
-  # Manufacturers
+  # Manufacturers — see PhoenixKitCatalogue.Catalogue.Manufacturers
   # ═══════════════════════════════════════════════════════════════════
 
-  @doc """
-  Lists all manufacturers, ordered by name.
-
-  ## Options
-
-    * `:status` — filter by status (e.g. `"active"`, `"inactive"`).
-      When nil (default), returns all manufacturers.
-
-  ## Examples
-
-      Catalogue.list_manufacturers()
-      Catalogue.list_manufacturers(status: "active")
-  """
-  def list_manufacturers(opts \\ []) do
-    query = from(m in Manufacturer, order_by: [asc: :name])
-
-    query =
-      case Keyword.get(opts, :status) do
-        nil -> query
-        status -> where(query, [m], m.status == ^status)
-      end
-
-    repo().all(query)
-  end
-
-  @doc "Fetches a manufacturer by UUID. Returns `nil` if not found."
-  def get_manufacturer(uuid), do: repo().get(Manufacturer, uuid)
-
-  @doc "Fetches a manufacturer by UUID. Raises `Ecto.NoResultsError` if not found."
-  def get_manufacturer!(uuid), do: repo().get!(Manufacturer, uuid)
-
-  @doc """
-  Creates a manufacturer.
-
-  ## Required attributes
-
-    * `:name` — manufacturer name (1-255 chars)
-
-  ## Optional attributes
-
-    * `:description`, `:website`, `:contact_info`, `:logo_url`, `:notes`
-    * `:status` — `"active"` (default) or `"inactive"`
-    * `:data` — flexible JSON map
-
-  ## Examples
-
-      Catalogue.create_manufacturer(%{name: "Blum", website: "https://blum.com"})
-  """
-  def create_manufacturer(attrs, opts \\ []) do
-    case %Manufacturer{} |> Manufacturer.changeset(attrs) |> repo().insert() do
-      {:ok, manufacturer} = ok ->
-        log_activity(%{
-          action: "manufacturer.created",
-          mode: "manual",
-          actor_uuid: opts[:actor_uuid],
-          resource_type: "manufacturer",
-          resource_uuid: manufacturer.uuid,
-          metadata: %{"name" => manufacturer.name}
-        })
-
-        ok
-
-      error ->
-        error
-    end
-  end
-
-  @doc "Updates a manufacturer with the given attributes."
-  def update_manufacturer(%Manufacturer{} = manufacturer, attrs, opts \\ []) do
-    case manufacturer |> Manufacturer.changeset(attrs) |> repo().update() do
-      {:ok, updated} = ok ->
-        log_activity(%{
-          action: "manufacturer.updated",
-          mode: "manual",
-          actor_uuid: opts[:actor_uuid],
-          resource_type: "manufacturer",
-          resource_uuid: updated.uuid,
-          metadata: %{"name" => updated.name}
-        })
-
-        ok
-
-      error ->
-        error
-    end
-  end
-
-  @doc "Hard-deletes a manufacturer from the database."
-  def delete_manufacturer(%Manufacturer{} = manufacturer, opts \\ []) do
-    case repo().delete(manufacturer) do
-      {:ok, _} = ok ->
-        log_activity(%{
-          action: "manufacturer.deleted",
-          mode: "manual",
-          actor_uuid: opts[:actor_uuid],
-          resource_type: "manufacturer",
-          resource_uuid: manufacturer.uuid,
-          metadata: %{"name" => manufacturer.name}
-        })
-
-        ok
-
-      error ->
-        error
-    end
-  end
-
-  @doc "Returns a changeset for tracking manufacturer changes."
-  def change_manufacturer(%Manufacturer{} = manufacturer, attrs \\ %{}) do
-    Manufacturer.changeset(manufacturer, attrs)
-  end
+  defdelegate list_manufacturers(opts \\ []), to: Manufacturers
+  defdelegate get_manufacturer(uuid), to: Manufacturers
+  defdelegate get_manufacturer!(uuid), to: Manufacturers
+  defdelegate create_manufacturer(attrs, opts \\ []), to: Manufacturers
+  defdelegate update_manufacturer(manufacturer, attrs, opts \\ []), to: Manufacturers
+  defdelegate delete_manufacturer(manufacturer, opts \\ []), to: Manufacturers
+  defdelegate change_manufacturer(manufacturer, attrs \\ %{}), to: Manufacturers
 
   # ═══════════════════════════════════════════════════════════════════
-  # Suppliers
+  # Suppliers — see PhoenixKitCatalogue.Catalogue.Suppliers
   # ═══════════════════════════════════════════════════════════════════
 
-  @doc """
-  Lists all suppliers, ordered by name.
-
-  ## Options
-
-    * `:status` — filter by status (e.g. `"active"`, `"inactive"`).
-
-  ## Examples
-
-      Catalogue.list_suppliers()
-      Catalogue.list_suppliers(status: "active")
-  """
-  def list_suppliers(opts \\ []) do
-    query = from(s in Supplier, order_by: [asc: :name])
-
-    query =
-      case Keyword.get(opts, :status) do
-        nil -> query
-        status -> where(query, [s], s.status == ^status)
-      end
-
-    repo().all(query)
-  end
-
-  @doc "Fetches a supplier by UUID. Returns `nil` if not found."
-  def get_supplier(uuid), do: repo().get(Supplier, uuid)
-
-  @doc "Fetches a supplier by UUID. Raises `Ecto.NoResultsError` if not found."
-  def get_supplier!(uuid), do: repo().get!(Supplier, uuid)
-
-  @doc """
-  Creates a supplier.
-
-  ## Required attributes
-
-    * `:name` — supplier name (1-255 chars)
-
-  ## Optional attributes
-
-    * `:description`, `:website`, `:contact_info`, `:notes`
-    * `:status` — `"active"` (default) or `"inactive"`
-    * `:data` — flexible JSON map
-
-  ## Examples
-
-      Catalogue.create_supplier(%{name: "Regional Distributors"})
-  """
-  def create_supplier(attrs, opts \\ []) do
-    case %Supplier{} |> Supplier.changeset(attrs) |> repo().insert() do
-      {:ok, supplier} = ok ->
-        log_activity(%{
-          action: "supplier.created",
-          mode: "manual",
-          actor_uuid: opts[:actor_uuid],
-          resource_type: "supplier",
-          resource_uuid: supplier.uuid,
-          metadata: %{"name" => supplier.name}
-        })
-
-        ok
-
-      error ->
-        error
-    end
-  end
-
-  @doc "Updates a supplier with the given attributes."
-  def update_supplier(%Supplier{} = supplier, attrs, opts \\ []) do
-    case supplier |> Supplier.changeset(attrs) |> repo().update() do
-      {:ok, updated} = ok ->
-        log_activity(%{
-          action: "supplier.updated",
-          mode: "manual",
-          actor_uuid: opts[:actor_uuid],
-          resource_type: "supplier",
-          resource_uuid: updated.uuid,
-          metadata: %{"name" => updated.name}
-        })
-
-        ok
-
-      error ->
-        error
-    end
-  end
-
-  @doc "Hard-deletes a supplier from the database."
-  def delete_supplier(%Supplier{} = supplier, opts \\ []) do
-    case repo().delete(supplier) do
-      {:ok, _} = ok ->
-        log_activity(%{
-          action: "supplier.deleted",
-          mode: "manual",
-          actor_uuid: opts[:actor_uuid],
-          resource_type: "supplier",
-          resource_uuid: supplier.uuid,
-          metadata: %{"name" => supplier.name}
-        })
-
-        ok
-
-      error ->
-        error
-    end
-  end
-
-  @doc "Returns a changeset for tracking supplier changes."
-  def change_supplier(%Supplier{} = supplier, attrs \\ %{}) do
-    Supplier.changeset(supplier, attrs)
-  end
+  defdelegate list_suppliers(opts \\ []), to: Suppliers
+  defdelegate get_supplier(uuid), to: Suppliers
+  defdelegate get_supplier!(uuid), to: Suppliers
+  defdelegate create_supplier(attrs, opts \\ []), to: Suppliers
+  defdelegate update_supplier(supplier, attrs, opts \\ []), to: Suppliers
+  defdelegate delete_supplier(supplier, opts \\ []), to: Suppliers
+  defdelegate change_supplier(supplier, attrs \\ %{}), to: Suppliers
 
   # ═══════════════════════════════════════════════════════════════════
-  # Manufacturer ↔ Supplier links
+  # Manufacturer ↔ Supplier links — see PhoenixKitCatalogue.Catalogue.Links
   # ═══════════════════════════════════════════════════════════════════
 
-  @doc """
-  Creates a many-to-many link between a manufacturer and a supplier.
+  defdelegate link_manufacturer_supplier(manufacturer_uuid, supplier_uuid), to: Links
+  defdelegate unlink_manufacturer_supplier(manufacturer_uuid, supplier_uuid), to: Links
+  defdelegate list_suppliers_for_manufacturer(manufacturer_uuid), to: Links
+  defdelegate list_manufacturers_for_supplier(supplier_uuid), to: Links
+  defdelegate linked_supplier_uuids(manufacturer_uuid), to: Links
+  defdelegate linked_manufacturer_uuids(supplier_uuid), to: Links
 
-  Returns `{:error, changeset}` if the link already exists (unique constraint).
-  """
-  def link_manufacturer_supplier(manufacturer_uuid, supplier_uuid) do
-    %ManufacturerSupplier{}
-    |> ManufacturerSupplier.changeset(%{
-      manufacturer_uuid: manufacturer_uuid,
-      supplier_uuid: supplier_uuid
-    })
-    |> repo().insert()
-  end
+  defdelegate sync_manufacturer_suppliers(manufacturer_uuid, supplier_uuids, opts \\ []),
+    to: Links
 
-  @doc """
-  Removes the link between a manufacturer and a supplier.
-
-  Returns `{:error, :not_found}` if the link doesn't exist.
-  """
-  def unlink_manufacturer_supplier(manufacturer_uuid, supplier_uuid) do
-    query =
-      from(ms in ManufacturerSupplier,
-        where: ms.manufacturer_uuid == ^manufacturer_uuid and ms.supplier_uuid == ^supplier_uuid
-      )
-
-    case repo().one(query) do
-      nil -> {:error, :not_found}
-      record -> repo().delete(record)
-    end
-  end
-
-  @doc "Lists all suppliers linked to a manufacturer, ordered by name."
-  def list_suppliers_for_manufacturer(manufacturer_uuid) do
-    from(s in Supplier,
-      join: ms in ManufacturerSupplier,
-      on: ms.supplier_uuid == s.uuid,
-      where: ms.manufacturer_uuid == ^manufacturer_uuid,
-      order_by: [asc: s.name]
-    )
-    |> repo().all()
-  end
-
-  @doc "Lists all manufacturers linked to a supplier, ordered by name."
-  def list_manufacturers_for_supplier(supplier_uuid) do
-    from(m in Manufacturer,
-      join: ms in ManufacturerSupplier,
-      on: ms.manufacturer_uuid == m.uuid,
-      where: ms.supplier_uuid == ^supplier_uuid,
-      order_by: [asc: m.name]
-    )
-    |> repo().all()
-  end
-
-  @doc "Returns a list of supplier UUIDs linked to a manufacturer."
-  def linked_supplier_uuids(manufacturer_uuid) do
-    from(ms in ManufacturerSupplier,
-      where: ms.manufacturer_uuid == ^manufacturer_uuid,
-      select: ms.supplier_uuid
-    )
-    |> repo().all()
-  end
-
-  @doc "Returns a list of manufacturer UUIDs linked to a supplier."
-  def linked_manufacturer_uuids(supplier_uuid) do
-    from(ms in ManufacturerSupplier,
-      where: ms.supplier_uuid == ^supplier_uuid,
-      select: ms.manufacturer_uuid
-    )
-    |> repo().all()
-  end
-
-  @doc """
-  Syncs the supplier links for a manufacturer to match the given list of supplier UUIDs.
-
-  Adds missing links and removes extra ones via set difference.
-  Returns `{:ok, :synced}` on success or `{:error, reason}` on the first failure.
-  """
-  def sync_manufacturer_suppliers(manufacturer_uuid, supplier_uuids, opts \\ [])
-      when is_list(supplier_uuids) do
-    current = linked_supplier_uuids(manufacturer_uuid) |> MapSet.new()
-    desired = MapSet.new(supplier_uuids)
-    added = MapSet.difference(desired, current)
-    removed = MapSet.difference(current, desired)
-
-    result =
-      repo().transaction(fn ->
-        Enum.each(added, &ok_or_rollback(link_manufacturer_supplier(manufacturer_uuid, &1)))
-        Enum.each(removed, &ok_or_rollback(unlink_manufacturer_supplier(manufacturer_uuid, &1)))
-        :synced
-      end)
-
-    with {:ok, :synced} <- result do
-      if MapSet.size(added) > 0 or MapSet.size(removed) > 0 do
-        log_activity(%{
-          action: "manufacturer.suppliers_synced",
-          mode: "manual",
-          actor_uuid: opts[:actor_uuid],
-          resource_type: "manufacturer",
-          resource_uuid: manufacturer_uuid,
-          metadata: %{
-            "added_count" => MapSet.size(added),
-            "removed_count" => MapSet.size(removed)
-          }
-        })
-      end
-
-      result
-    end
-  end
-
-  @doc """
-  Syncs the manufacturer links for a supplier to match the given list of manufacturer UUIDs.
-
-  Adds missing links and removes extra ones via set difference.
-  Returns `{:ok, :synced}` on success or `{:error, reason}` on the first failure.
-  """
-  def sync_supplier_manufacturers(supplier_uuid, manufacturer_uuids, opts \\ [])
-      when is_list(manufacturer_uuids) do
-    current = linked_manufacturer_uuids(supplier_uuid) |> MapSet.new()
-    desired = MapSet.new(manufacturer_uuids)
-    added = MapSet.difference(desired, current)
-    removed = MapSet.difference(current, desired)
-
-    result =
-      repo().transaction(fn ->
-        Enum.each(added, &ok_or_rollback(link_manufacturer_supplier(&1, supplier_uuid)))
-        Enum.each(removed, &ok_or_rollback(unlink_manufacturer_supplier(&1, supplier_uuid)))
-        :synced
-      end)
-
-    with {:ok, :synced} <- result do
-      if MapSet.size(added) > 0 or MapSet.size(removed) > 0 do
-        log_activity(%{
-          action: "supplier.manufacturers_synced",
-          mode: "manual",
-          actor_uuid: opts[:actor_uuid],
-          resource_type: "supplier",
-          resource_uuid: supplier_uuid,
-          metadata: %{
-            "added_count" => MapSet.size(added),
-            "removed_count" => MapSet.size(removed)
-          }
-        })
-      end
-
-      result
-    end
-  end
-
-  defp ok_or_rollback({:ok, _}), do: :ok
-  defp ok_or_rollback({:error, reason}), do: repo().rollback(reason)
+  defdelegate sync_supplier_manufacturers(supplier_uuid, manufacturer_uuids, opts \\ []),
+    to: Links
 
   # ═══════════════════════════════════════════════════════════════════
   # Catalogues
@@ -465,12 +149,16 @@ defmodule PhoenixKitCatalogue.Catalogue do
     * `:status` — when provided, returns only catalogues with this exact status
       (e.g. `"active"`, `"archived"`, `"deleted"`).
       When nil (default), returns all non-deleted catalogues.
+    * `:kind` — when provided, filters to a specific kind (`:standard`, `:smart`,
+      or their string equivalents). When nil (default), returns all kinds.
 
   ## Examples
 
       Catalogue.list_catalogues()                     # active + archived
       Catalogue.list_catalogues(status: "deleted")    # only deleted
       Catalogue.list_catalogues(status: "active")     # only active
+      Catalogue.list_catalogues(kind: :smart)         # only smart catalogues
+      Catalogue.list_catalogues(kind: :standard)      # only standard catalogues
   """
   def list_catalogues(opts \\ []) do
     query = from(c in Catalogue, order_by: [asc: :name])
@@ -479,6 +167,69 @@ defmodule PhoenixKitCatalogue.Catalogue do
       case Keyword.get(opts, :status) do
         nil -> where(query, [c], c.status != "deleted")
         status -> where(query, [c], c.status == ^status)
+      end
+
+    query =
+      case Keyword.get(opts, :kind) do
+        nil -> query
+        kind -> where(query, [c], c.kind == ^to_string(kind))
+      end
+
+    repo().all(query)
+  end
+
+  @doc """
+  Lists catalogues whose name starts with `prefix`, case-insensitive.
+
+  Anchored at the start of the name — this is a *prefix* match
+  (`name ILIKE 'prefix%'`), not a contains match. LIKE metacharacters
+  (`%`, `_`) in the prefix are escaped.
+
+  Excludes deleted catalogues by default. Useful for narrowing a search
+  scope: pair with `search_items/2`'s `:catalogue_uuids` to search only
+  the matched catalogues.
+
+  ## Options
+
+    * `:status` — when provided, returns only catalogues with this exact status.
+      Defaults to non-deleted (active + archived).
+    * `:limit` — max results (no limit by default).
+
+  ## Examples
+
+      Catalogue.list_catalogues_by_name_prefix("Kit")
+      #=> [%Catalogue{name: "Kitchen Furniture"}, %Catalogue{name: "Kits"}]
+
+      Catalogue.list_catalogues_by_name_prefix("Kit", limit: 5)
+      Catalogue.list_catalogues_by_name_prefix("", limit: 10)  # returns first 10
+
+      # Compose with search
+      uuids =
+        "Kit"
+        |> Catalogue.list_catalogues_by_name_prefix()
+        |> Enum.map(& &1.uuid)
+
+      Catalogue.search_items("oak", catalogue_uuids: uuids)
+  """
+  def list_catalogues_by_name_prefix(prefix, opts \\ []) when is_binary(prefix) do
+    pattern = "#{Helpers.sanitize_like(prefix)}%"
+
+    query =
+      from(c in Catalogue,
+        where: ilike(c.name, ^pattern),
+        order_by: [asc: :name]
+      )
+
+    query =
+      case Keyword.get(opts, :status) do
+        nil -> where(query, [c], c.status != "deleted")
+        status -> where(query, [c], c.status == ^status)
+      end
+
+    query =
+      case Keyword.get(opts, :limit) do
+        nil -> query
+        lim -> limit(query, ^lim)
       end
 
     repo().all(query)
@@ -709,13 +460,41 @@ defmodule PhoenixKitCatalogue.Catalogue do
   2. Hard-deletes all categories
   3. Hard-deletes the catalogue
 
+  Refuses with `{:error, {:referenced_by_smart_items, count}}` when one or
+  more smart-catalogue items still have rules pointing at this catalogue.
+  V102's `ON DELETE CASCADE` would silently wipe those rule rows;
+  callers should resolve the references explicitly (or remove the rules)
+  before retrying. Use `:force` to bypass this guard at your own risk.
+
   This cannot be undone.
+
+  ## Options
+
+    * `:actor_uuid` — UUID to attribute on the activity log
+    * `:force` — when `true`, deletes even if smart-rule references exist
 
   ## Examples
 
       {:ok, _} = Catalogue.permanently_delete_catalogue(catalogue)
+      {:error, {:referenced_by_smart_items, 3}} =
+        Catalogue.permanently_delete_catalogue(catalogue_with_refs)
   """
+  @spec permanently_delete_catalogue(Catalogue.t(), keyword()) ::
+          {:ok, Catalogue.t()}
+          | {:error, {:referenced_by_smart_items, non_neg_integer()}}
+          | {:error, term()}
   def permanently_delete_catalogue(%Catalogue{} = catalogue, opts \\ []) do
+    force? = Keyword.get(opts, :force, false)
+    ref_count = catalogue_reference_count(catalogue.uuid)
+
+    if ref_count > 0 and not force? do
+      {:error, {:referenced_by_smart_items, ref_count}}
+    else
+      do_permanently_delete_catalogue(catalogue, ref_count, opts)
+    end
+  end
+
+  defp do_permanently_delete_catalogue(catalogue, ref_count, opts) do
     result =
       repo().transaction(fn ->
         from(i in Item, where: i.catalogue_uuid == ^catalogue.uuid)
@@ -734,7 +513,10 @@ defmodule PhoenixKitCatalogue.Catalogue do
         actor_uuid: opts[:actor_uuid],
         resource_type: "catalogue",
         resource_uuid: catalogue.uuid,
-        metadata: %{"name" => catalogue.name}
+        metadata: %{
+          "name" => catalogue.name,
+          "smart_rules_cascaded" => ref_count
+        }
       })
 
       result
@@ -1224,6 +1006,8 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
       {:ok, _} = Catalogue.swap_category_positions(cat_a, cat_b)
   """
+  @spec swap_category_positions(Category.t(), Category.t(), keyword()) ::
+          {:ok, term()} | {:error, term()}
   def swap_category_positions(%Category{} = cat_a, %Category{} = cat_b, opts \\ []) do
     result =
       repo().transaction(fn ->
@@ -1240,6 +1024,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
         mode: "manual",
         actor_uuid: opts[:actor_uuid],
         resource_type: "category",
+        resource_uuid: cat_a.uuid,
         metadata: %{
           "category_a_uuid" => cat_a.uuid,
           "category_a_name" => cat_a.name,
@@ -1483,8 +1268,8 @@ defmodule PhoenixKitCatalogue.Catalogue do
   # create/update: the incoming one from attrs if provided (nil if it's
   # an empty string), otherwise the item's current value (nil on create).
   defp effective_category_uuid(item, attrs) do
-    if has_attr?(attrs, :category_uuid) do
-      attrs |> fetch_attr(:category_uuid) |> blank_to_nil()
+    if Helpers.has_attr?(attrs, :category_uuid) do
+      attrs |> Helpers.fetch_attr(:category_uuid) |> blank_to_nil()
     else
       item && Map.get(item, :category_uuid)
     end
@@ -1494,8 +1279,9 @@ defmodule PhoenixKitCatalogue.Catalogue do
   # to `nil` so the changeset treats it as "clear category" instead of
   # tripping a malformed FK lookup.
   defp normalize_blank_category(attrs) do
-    if has_attr?(attrs, :category_uuid) and fetch_attr(attrs, :category_uuid) == "" do
-      put_attr(attrs, :category_uuid, nil)
+    if Helpers.has_attr?(attrs, :category_uuid) and
+         Helpers.fetch_attr(attrs, :category_uuid) == "" do
+      Helpers.put_attr(attrs, :category_uuid, nil)
     else
       attrs
     end
@@ -1518,7 +1304,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
     case repo().one(query) do
       %Category{catalogue_uuid: cat_uuid} ->
-        put_attr(attrs, :catalogue_uuid, cat_uuid)
+        Helpers.put_attr(attrs, :catalogue_uuid, cat_uuid)
 
       nil ->
         # Target category doesn't exist — leave attrs as-is so the
@@ -1529,43 +1315,6 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
   defp blank_to_nil(value) when value in [nil, ""], do: nil
   defp blank_to_nil(value), do: value
-
-  defp has_attr?(attrs, key) do
-    Map.has_key?(attrs, key) or Map.has_key?(attrs, to_string(key))
-  end
-
-  defp fetch_attr(attrs, key) do
-    case Map.fetch(attrs, key) do
-      {:ok, value} -> value
-      :error -> Map.get(attrs, to_string(key))
-    end
-  end
-
-  defp put_attr(attrs, key, value) do
-    cond do
-      Map.has_key?(attrs, key) ->
-        Map.put(attrs, key, value)
-
-      Map.has_key?(attrs, to_string(key)) ->
-        Map.put(attrs, to_string(key), value)
-
-      # Neither form exists — insert using the same key style as the rest
-      # of the map. Mixing atom and string keys yields an
-      # `Ecto.CastError` inside `Ecto.Changeset.cast/4`, which is what
-      # form-submitted (string-keyed) params will hit otherwise.
-      string_keyed?(attrs) ->
-        Map.put(attrs, to_string(key), value)
-
-      true ->
-        Map.put(attrs, key, value)
-    end
-  end
-
-  defp string_keyed?(attrs) when map_size(attrs) == 0, do: false
-
-  defp string_keyed?(attrs) do
-    attrs |> Map.keys() |> hd() |> is_binary()
-  end
 
   @doc "Updates an item with the given attributes."
   def update_item(%Item{} = item, attrs, opts \\ []) do
@@ -1804,85 +1553,179 @@ defmodule PhoenixKitCatalogue.Catalogue do
     end
   end
 
+  @doc """
+  Moves an item to a different catalogue, clearing its category.
+
+  Primarily used for **smart** items, where categories don't apply —
+  the "where does this item live?" question reduces to "which catalogue?".
+  Sets both `catalogue_uuid` and `category_uuid` in one update so the
+  item becomes uncategorized within its new catalogue.
+
+  Returns `{:error, :catalogue_not_found}` if the target catalogue UUID
+  doesn't resolve, `{:error, :same_catalogue}` if it's already there, or
+  `{:error, changeset}` on validation failure. Logs an `item.moved`
+  activity with from/to catalogue metadata.
+
+  ## Examples
+
+      {:ok, item} = Catalogue.move_item_to_catalogue(item, other_smart.uuid)
+  """
+  @spec move_item_to_catalogue(Item.t(), Ecto.UUID.t(), keyword()) ::
+          {:ok, Item.t()}
+          | {:error, :catalogue_not_found | :same_catalogue | Ecto.Changeset.t(Item.t())}
+  def move_item_to_catalogue(%Item{} = item, catalogue_uuid, opts \\ [])
+      when is_binary(catalogue_uuid) do
+    from_catalogue_uuid = item.catalogue_uuid
+
+    cond do
+      catalogue_uuid == from_catalogue_uuid ->
+        {:error, :same_catalogue}
+
+      is_nil(repo().get(Catalogue, catalogue_uuid)) ->
+        {:error, :catalogue_not_found}
+
+      true ->
+        attrs = %{catalogue_uuid: catalogue_uuid, category_uuid: nil}
+
+        with {:ok, moved} <- item |> Item.changeset(attrs) |> repo().update() do
+          log_activity(%{
+            action: "item.moved",
+            mode: "manual",
+            actor_uuid: opts[:actor_uuid],
+            resource_type: "item",
+            resource_uuid: moved.uuid,
+            metadata: %{
+              "name" => moved.name,
+              "from_catalogue_uuid" => from_catalogue_uuid,
+              "to_catalogue_uuid" => catalogue_uuid,
+              "from_category_uuid" => item.category_uuid,
+              "to_category_uuid" => nil
+            }
+          })
+
+          {:ok, moved}
+        end
+    end
+  end
+
   @doc "Returns a changeset for tracking item changes."
   def change_item(%Item{} = item, attrs \\ %{}) do
     Item.changeset(item, attrs)
   end
 
   @doc """
-  Returns pricing info for an item within a catalogue.
+  Returns the full pricing breakdown for an item within its catalogue.
 
-  Looks up the catalogue's markup percentage directly on the item, then
-  computes the sale price. Never raises — if the catalogue can't be
-  loaded (e.g. DB hiccup, connection timeout), falls back to 0% markup
-  and logs a warning so the caller still gets a renderable result
-  instead of crashing a template.
+  Resolves both the catalogue's markup and discount (loading the
+  catalogue association once if needed), then computes the sale price
+  (after markup) and final price (after discount). The chain is
+  `base → markup → discount`:
 
-  Returns a map with:
+      sale_price  = base_price * (1 + effective_markup   / 100)
+      final_price = sale_price  * (1 -  effective_discount / 100)
+
+  Never raises — if the catalogue can't be loaded (e.g. DB hiccup), falls
+  back to 0% markup and 0% discount and logs a warning so the caller
+  still gets a renderable result instead of crashing a template.
+
+  Returns a map with every field a pricing UI needs in one hop:
 
     * `:base_price` — the item's stored base price (or `nil` if unset)
-    * `:catalogue_markup` — the parent catalogue's `markup_percentage`
-      (the inherited default for items without an override)
-    * `:item_markup` — the item's `markup_percentage` override, or
-      `nil` when the item inherits from the catalogue
-    * `:markup_percentage` — the markup actually applied to compute
-      `:price` — the item's override if set, otherwise the catalogue's
-    * `:price` — the computed sale price (or `nil` if no base price)
-
-  Returns `nil` for `:price` if the item has no base price.
+    * `:catalogue_markup` — the catalogue's `markup_percentage` (the
+      inherited default when the item has no override)
+    * `:item_markup` — the item's markup override, or `nil` when
+      inheriting from the catalogue
+    * `:markup_percentage` — the markup actually applied (item override
+      if set, otherwise catalogue's)
+    * `:sale_price` — the price after markup, before any discount
+      (or `nil` if no base price)
+    * `:catalogue_discount` — the catalogue's `discount_percentage`
+    * `:item_discount` — the item's discount override, or `nil` when
+      inheriting from the catalogue
+    * `:discount_percentage` — the discount actually applied (item
+      override if set, otherwise catalogue's)
+    * `:discount_amount` — the Decimal amount subtracted by the discount
+      (`sale_price - final_price`), or `nil` if no discount applies or
+      no base price
+    * `:final_price` — the price after both markup and discount (or
+      `nil` if no base price)
 
   ## Examples
 
-      # Item inherits the catalogue's markup
+      # Item inherits both markup (15%) and discount (10%)
       Catalogue.item_pricing(item)
       #=> %{
       #=>   base_price: Decimal.new("100.00"),
       #=>   catalogue_markup: Decimal.new("15.0"),
       #=>   item_markup: nil,
       #=>   markup_percentage: Decimal.new("15.0"),
-      #=>   price: Decimal.new("115.00")
+      #=>   sale_price: Decimal.new("115.00"),
+      #=>   catalogue_discount: Decimal.new("10.0"),
+      #=>   item_discount: nil,
+      #=>   discount_percentage: Decimal.new("10.0"),
+      #=>   discount_amount: Decimal.new("11.50"),
+      #=>   final_price: Decimal.new("103.50")
       #=> }
 
-      # Item overrides to 50%
-      Catalogue.item_pricing(item_with_override)
-      #=> %{
-      #=>   base_price: Decimal.new("100.00"),
-      #=>   catalogue_markup: Decimal.new("15.0"),
-      #=>   item_markup: Decimal.new("50.0"),
-      #=>   markup_percentage: Decimal.new("50.0"),
-      #=>   price: Decimal.new("150.00")
-      #=> }
+      # Item overrides discount to 0 — sale price is charged at full
+      Catalogue.item_pricing(item_with_zero_discount)
+      #=> %{..., final_price: Decimal.new("115.00"), discount_amount: Decimal.new("0.00"), ...}
   """
+  @spec item_pricing(Item.t()) :: %{
+          base_price: Decimal.t() | nil,
+          catalogue_markup: Decimal.t() | nil,
+          item_markup: Decimal.t() | nil,
+          markup_percentage: Decimal.t() | nil,
+          sale_price: Decimal.t() | nil,
+          catalogue_discount: Decimal.t() | nil,
+          item_discount: Decimal.t() | nil,
+          discount_percentage: Decimal.t() | nil,
+          discount_amount: Decimal.t() | nil,
+          final_price: Decimal.t() | nil
+        }
   def item_pricing(%Item{} = item) do
-    catalogue_markup = safe_markup_for_item(item)
-    effective = Item.effective_markup(item, catalogue_markup)
+    {catalogue_markup, catalogue_discount} = safe_pricing_for_item(item)
+    effective_markup = Item.effective_markup(item, catalogue_markup)
+    effective_discount = Item.effective_discount(item, catalogue_discount)
 
     %{
       base_price: item.base_price,
       catalogue_markup: catalogue_markup,
       item_markup: item.markup_percentage,
-      markup_percentage: effective,
-      price: Item.sale_price(item, catalogue_markup)
+      markup_percentage: effective_markup,
+      sale_price: Item.sale_price(item, catalogue_markup),
+      catalogue_discount: catalogue_discount,
+      item_discount: item.discount_percentage,
+      discount_percentage: effective_discount,
+      discount_amount: Item.discount_amount(item, catalogue_markup, catalogue_discount),
+      final_price: Item.final_price(item, catalogue_markup, catalogue_discount)
     }
   end
 
-  defp safe_markup_for_item(item) do
+  # Returns {markup, discount} from the item's catalogue. Preloads
+  # the catalogue association if needed; falls back to {0, 0} on any
+  # failure so pricing rendering never crashes a template. One preload
+  # handles both values.
+  defp safe_pricing_for_item(item) do
     case item.catalogue do
-      %Catalogue{markup_percentage: mp} when not is_nil(mp) ->
-        mp
+      %Catalogue{} = catalogue ->
+        {markup_from(catalogue), discount_from(catalogue)}
 
       %Ecto.Association.NotLoaded{} ->
-        load_catalogue_markup(item)
+        load_pricing(item)
 
       _ ->
-        Decimal.new("0")
+        {Decimal.new("0"), Decimal.new("0")}
     end
   end
 
-  defp load_catalogue_markup(item) do
+  defp load_pricing(item) do
     case repo().preload(item, [:catalogue]) do
-      %Item{catalogue: %Catalogue{markup_percentage: mp}} when not is_nil(mp) -> mp
-      _ -> Decimal.new("0")
+      %Item{catalogue: %Catalogue{} = catalogue} ->
+        {markup_from(catalogue), discount_from(catalogue)}
+
+      _ ->
+        {Decimal.new("0"), Decimal.new("0")}
     end
   rescue
     e ->
@@ -1891,361 +1734,59 @@ defmodule PhoenixKitCatalogue.Catalogue do
           Exception.message(e)
       )
 
-      Decimal.new("0")
+      {Decimal.new("0"), Decimal.new("0")}
   end
+
+  defp markup_from(%Catalogue{markup_percentage: nil}), do: Decimal.new("0")
+  defp markup_from(%Catalogue{markup_percentage: mp}), do: mp
+
+  defp discount_from(%Catalogue{discount_percentage: nil}), do: Decimal.new("0")
+  defp discount_from(%Catalogue{discount_percentage: d}), do: d
 
   # ═══════════════════════════════════════════════════════════════════
-  # Search
+  # Smart-catalogue rules — see PhoenixKitCatalogue.Catalogue.Rules
   # ═══════════════════════════════════════════════════════════════════
 
-  @doc """
-  Searches items across all non-deleted catalogues.
-
-  Matches against item name, description, and SKU using case-insensitive
-  partial matching. Only returns non-deleted items in non-deleted categories
-  of non-deleted catalogues.
-
-  Preloads category (with catalogue) and manufacturer.
-
-  Returns a list of items ordered by name.
-
-  ## Options
-
-    * `:limit` — max results to return (default 50)
-    * `:offset` — number of results to skip, for paging (default 0)
-
-  ## Examples
-
-      Catalogue.search_items("oak")
-      Catalogue.search_items("OAK-18", limit: 10)
-      Catalogue.search_items("oak", limit: 100, offset: 100)
-  """
-  def search_items(query, opts \\ []) do
-    limit = Keyword.get(opts, :limit, 50)
-    offset = Keyword.get(opts, :offset, 0)
-    pattern = "%#{sanitize_like(query)}%"
-
-    from(i in Item,
-      join: cat in Catalogue,
-      on: i.catalogue_uuid == cat.uuid,
-      left_join: c in Category,
-      on: i.category_uuid == c.uuid,
-      where: i.status != "deleted" and cat.status != "deleted",
-      where: is_nil(c.uuid) or c.status != "deleted",
-      where:
-        ilike(i.name, ^pattern) or
-          ilike(i.description, ^pattern) or
-          ilike(i.sku, ^pattern) or
-          fragment("?::text ILIKE ?", i.data, ^pattern),
-      order_by: [asc: i.name, asc: i.uuid],
-      limit: ^limit,
-      offset: ^offset,
-      preload: [:catalogue, category: :catalogue, manufacturer: []]
-    )
-    |> repo().all()
-  end
-
-  @doc """
-  Returns the total number of items across all non-deleted catalogues
-  that match a search query, using the same matching rules as
-  `search_items/2`. Runs independently of `:limit`/`:offset`.
-
-  ## Examples
-
-      Catalogue.count_search_items("oak")
-      #=> 1204
-  """
-  def count_search_items(query) do
-    pattern = "%#{sanitize_like(query)}%"
-
-    from(i in Item,
-      join: cat in Catalogue,
-      on: i.catalogue_uuid == cat.uuid,
-      left_join: c in Category,
-      on: i.category_uuid == c.uuid,
-      where: i.status != "deleted" and cat.status != "deleted",
-      where: is_nil(c.uuid) or c.status != "deleted",
-      where:
-        ilike(i.name, ^pattern) or
-          ilike(i.description, ^pattern) or
-          ilike(i.sku, ^pattern) or
-          fragment("?::text ILIKE ?", i.data, ^pattern),
-      select: count(i.uuid)
-    )
-    |> repo().one()
-  end
-
-  @doc """
-  Searches items within a specific catalogue.
-
-  Matches against item name, description, and SKU using case-insensitive
-  partial matching. Only returns non-deleted items in non-deleted categories.
-
-  Preloads category and manufacturer.
-
-  Returns a list of items ordered by category position then item name.
-
-  ## Options
-
-    * `:limit` — max results to return (default 50)
-    * `:offset` — number of results to skip, for paging (default 0)
-
-  ## Examples
-
-      Catalogue.search_items_in_catalogue(catalogue_uuid, "panel")
-      Catalogue.search_items_in_catalogue(catalogue_uuid, "SKU", limit: 25)
-      Catalogue.search_items_in_catalogue(catalogue_uuid, "panel", limit: 100, offset: 100)
-  """
-  def search_items_in_catalogue(catalogue_uuid, query, opts \\ []) do
-    limit = Keyword.get(opts, :limit, 50)
-    offset = Keyword.get(opts, :offset, 0)
-    pattern = "%#{sanitize_like(query)}%"
-
-    from(i in Item,
-      left_join: c in Category,
-      on: i.category_uuid == c.uuid,
-      where: i.catalogue_uuid == ^catalogue_uuid,
-      where: i.status != "deleted",
-      where: is_nil(c.uuid) or c.status != "deleted",
-      where:
-        ilike(i.name, ^pattern) or
-          ilike(i.description, ^pattern) or
-          ilike(i.sku, ^pattern) or
-          fragment("?::text ILIKE ?", i.data, ^pattern),
-      order_by: [asc_nulls_last: c.position, asc: i.name, asc: i.uuid],
-      limit: ^limit,
-      offset: ^offset,
-      preload: [:catalogue, category: :catalogue, manufacturer: []]
-    )
-    |> repo().all()
-  end
-
-  @doc """
-  Returns the total number of items in a catalogue that match a search
-  query, using the same matching rules as `search_items_in_catalogue/3`.
-
-  Useful for paginating or driving "N of M" summaries alongside paged
-  search results. Runs independently of `:limit`/`:offset` — this is the
-  unbounded total.
-
-  ## Examples
-
-      Catalogue.count_search_items_in_catalogue(catalogue_uuid, "panel")
-      #=> 237
-  """
-  def count_search_items_in_catalogue(catalogue_uuid, query) do
-    pattern = "%#{sanitize_like(query)}%"
-
-    from(i in Item,
-      left_join: c in Category,
-      on: i.category_uuid == c.uuid,
-      where: i.catalogue_uuid == ^catalogue_uuid,
-      where: i.status != "deleted",
-      where: is_nil(c.uuid) or c.status != "deleted",
-      where:
-        ilike(i.name, ^pattern) or
-          ilike(i.description, ^pattern) or
-          ilike(i.sku, ^pattern) or
-          fragment("?::text ILIKE ?", i.data, ^pattern),
-      select: count(i.uuid)
-    )
-    |> repo().one()
-  end
-
-  @doc """
-  Searches items within a specific category.
-
-  Matches against item name, description, and SKU using case-insensitive
-  partial matching. Only returns non-deleted items.
-
-  Preloads category (with catalogue) and manufacturer.
-
-  ## Options
-
-    * `:limit` — max results to return (default 50)
-    * `:offset` — number of results to skip, for paging (default 0)
-
-  ## Examples
-
-      Catalogue.search_items_in_category(category_uuid, "panel")
-      Catalogue.search_items_in_category(category_uuid, "panel", limit: 100, offset: 100)
-  """
-  def search_items_in_category(category_uuid, query, opts \\ []) do
-    limit = Keyword.get(opts, :limit, 50)
-    offset = Keyword.get(opts, :offset, 0)
-    pattern = "%#{sanitize_like(query)}%"
-
-    from(i in Item,
-      where: i.category_uuid == ^category_uuid,
-      where: i.status != "deleted",
-      where:
-        ilike(i.name, ^pattern) or
-          ilike(i.description, ^pattern) or
-          ilike(i.sku, ^pattern) or
-          fragment("?::text ILIKE ?", i.data, ^pattern),
-      order_by: [asc: i.name, asc: i.uuid],
-      limit: ^limit,
-      offset: ^offset,
-      preload: [:catalogue, category: :catalogue, manufacturer: []]
-    )
-    |> repo().all()
-  end
-
-  @doc """
-  Returns the total number of non-deleted items in a category that
-  match a search query, using the same matching rules as
-  `search_items_in_category/3`. Runs independently of `:limit`/`:offset`.
-
-  ## Examples
-
-      Catalogue.count_search_items_in_category(category_uuid, "panel")
-      #=> 42
-  """
-  def count_search_items_in_category(category_uuid, query) do
-    pattern = "%#{sanitize_like(query)}%"
-
-    from(i in Item,
-      where: i.category_uuid == ^category_uuid,
-      where: i.status != "deleted",
-      where:
-        ilike(i.name, ^pattern) or
-          ilike(i.description, ^pattern) or
-          ilike(i.sku, ^pattern) or
-          fragment("?::text ILIKE ?", i.data, ^pattern),
-      select: count(i.uuid)
-    )
-    |> repo().one()
-  end
-
-  defp sanitize_like(query) do
-    query
-    |> String.replace("\\", "\\\\")
-    |> String.replace("%", "\\%")
-    |> String.replace("_", "\\_")
-  end
+  defdelegate list_catalogue_rules(item_or_uuid), to: Rules
+  defdelegate catalogue_rule_map(item_or_uuid), to: Rules
+  defdelegate get_catalogue_rule(item_uuid, referenced_catalogue_uuid), to: Rules
+  defdelegate put_catalogue_rules(item, rules, opts \\ []), to: Rules
+  defdelegate list_items_referencing_catalogue(catalogue_uuid), to: Rules
+  defdelegate catalogue_reference_count(catalogue_uuid), to: Rules
+  defdelegate change_catalogue_rule(rule, attrs \\ %{}), to: Rules
+  defdelegate create_catalogue_rule(attrs, opts \\ []), to: Rules
+  defdelegate update_catalogue_rule(rule, attrs, opts \\ []), to: Rules
+  defdelegate delete_catalogue_rule(rule, opts \\ []), to: Rules
 
   # ═══════════════════════════════════════════════════════════════════
-  # Counts
+  # Search — see PhoenixKitCatalogue.Catalogue.Search
   # ═══════════════════════════════════════════════════════════════════
 
-  @doc """
-  Counts non-deleted items in a catalogue, including items without a category.
-  """
-  def item_count_for_catalogue(catalogue_uuid) do
-    from(i in Item,
-      where: i.catalogue_uuid == ^catalogue_uuid and i.status != "deleted"
-    )
-    |> repo().aggregate(:count)
-  end
-
-  @doc """
-  Returns a map of `%{catalogue_uuid => non_deleted_item_count}` for all catalogues.
-
-  Single-query batch version of `item_count_for_catalogue/1` — avoids N+1 when
-  displaying item counts alongside a catalogue list. Includes items both in
-  categories and directly attached to a catalogue (uncategorized).
-  """
-  def item_counts_by_catalogue do
-    from(i in Item,
-      where: i.status != "deleted" and not is_nil(i.catalogue_uuid),
-      group_by: i.catalogue_uuid,
-      select: {i.catalogue_uuid, count(i.uuid)}
-    )
-    |> repo().all()
-    |> Map.new()
-  end
-
-  @doc "Counts non-deleted categories for a catalogue."
-  def category_count_for_catalogue(catalogue_uuid) do
-    from(c in Category,
-      where: c.catalogue_uuid == ^catalogue_uuid and c.status != "deleted"
-    )
-    |> repo().aggregate(:count)
-  end
-
-  @doc """
-  Returns a map of `catalogue_uuid => non_deleted_category_count`, in a
-  single query. Useful for displaying category counts alongside a
-  catalogue list (e.g. in the import wizard's catalogue picker) without
-  N+1 lookups.
-  """
-  def category_counts_by_catalogue do
-    from(c in Category,
-      where: c.status != "deleted",
-      group_by: c.catalogue_uuid,
-      select: {c.catalogue_uuid, count(c.uuid)}
-    )
-    |> repo().all()
-    |> Map.new()
-  end
-
-  @doc """
-  Counts deleted items in a catalogue, including items without a category.
-  """
-  def deleted_item_count_for_catalogue(catalogue_uuid) do
-    from(i in Item,
-      where: i.catalogue_uuid == ^catalogue_uuid and i.status == "deleted"
-    )
-    |> repo().aggregate(:count)
-  end
-
-  @doc "Counts deleted categories for a catalogue."
-  def deleted_category_count_for_catalogue(catalogue_uuid) do
-    from(c in Category,
-      where: c.catalogue_uuid == ^catalogue_uuid and c.status == "deleted"
-    )
-    |> repo().aggregate(:count)
-  end
-
-  @doc """
-  Total count of deleted entities (items + categories) for a catalogue.
-
-  Used to determine whether to show the "Deleted" tab.
-  """
-  def deleted_count_for_catalogue(catalogue_uuid) do
-    deleted_item_count_for_catalogue(catalogue_uuid) +
-      deleted_category_count_for_catalogue(catalogue_uuid)
-  end
+  defdelegate search_items(query, opts \\ []), to: Search
+  defdelegate count_search_items(query, opts \\ []), to: Search
+  defdelegate search_items_in_catalogue(catalogue_uuid, query, opts \\ []), to: Search
+  defdelegate count_search_items_in_catalogue(catalogue_uuid, query), to: Search
+  defdelegate search_items_in_category(category_uuid, query, opts \\ []), to: Search
+  defdelegate count_search_items_in_category(category_uuid, query), to: Search
 
   # ═══════════════════════════════════════════════════════════════════
-  # Multilang helpers
+  # Counts — see PhoenixKitCatalogue.Catalogue.Counts
   # ═══════════════════════════════════════════════════════════════════
 
-  @doc """
-  Gets translated field data for a record in a specific language.
+  defdelegate item_count_for_catalogue(catalogue_uuid), to: Counts
+  defdelegate item_counts_by_catalogue(), to: Counts
+  defdelegate category_count_for_catalogue(catalogue_uuid), to: Counts
+  defdelegate category_counts_by_catalogue(), to: Counts
+  defdelegate deleted_item_count_for_catalogue(catalogue_uuid), to: Counts
+  defdelegate deleted_category_count_for_catalogue(catalogue_uuid), to: Counts
+  defdelegate deleted_count_for_catalogue(catalogue_uuid), to: Counts
 
-  Returns merged data (primary language as base + overrides for the requested language).
+  # ═══════════════════════════════════════════════════════════════════
+  # Multilang helpers — see PhoenixKitCatalogue.Catalogue.Translations
+  # ═══════════════════════════════════════════════════════════════════
 
-  ## Examples
+  defdelegate get_translation(record, lang_code), to: Translations
 
-      data = Catalogue.get_translation(catalogue, "ja")
-      # => %{"_name" => "キッチン", "_description" => "..."}
-  """
-  def get_translation(record, lang_code) do
-    Multilang.get_language_data(record.data || %{}, lang_code)
-  end
-
-  @doc """
-  Updates the multilang `data` field for a record with language-specific field data.
-
-  For primary language: stores ALL fields.
-  For secondary languages: stores only overrides (differences from primary).
-
-  The `update_fn` should be the entity's update function. It receives `(record, attrs)` for
-  2-arity or `(record, attrs, opts)` for 3-arity when activity logging opts are provided.
-
-  ## Examples
-
-      Catalogue.set_translation(catalogue, "ja", %{"_name" => "キッチン"}, &Catalogue.update_catalogue/2)
-      Catalogue.set_translation(catalogue, "ja", %{"_name" => "キッチン"}, &Catalogue.update_catalogue/3, actor_uuid: user.uuid)
-  """
-  def set_translation(record, lang_code, field_data, update_fn, opts \\ []) do
-    new_data = Multilang.put_language_data(record.data || %{}, lang_code, field_data)
-
-    if opts == [] do
-      update_fn.(record, %{data: new_data})
-    else
-      update_fn.(record, %{data: new_data}, opts)
-    end
-  end
+  defdelegate set_translation(record, lang_code, field_data, update_fn, opts \\ []),
+    to: Translations
 end

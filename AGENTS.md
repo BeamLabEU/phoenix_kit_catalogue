@@ -46,12 +46,13 @@ This is a **PhoenixKit module** that implements the `PhoenixKit.Module` behaviou
 
 ### Core Schemas (all use UUIDv7 primary keys)
 
-- **Catalogue** (`phoenix_kit_cat_catalogues`) — top-level groupings with name, description, markup_percentage (default 0%), status (active/archived/deleted)
+- **Catalogue** (`phoenix_kit_cat_catalogues`) — top-level groupings with name, description, `markup_percentage` (default 0, NOT NULL), `discount_percentage` (default 0, NOT NULL, V102), `kind` (`"standard"` | `"smart"`, default `"standard"`, NOT NULL, V102), status (active/archived/deleted). A **smart catalogue** holds items whose cost is a rule-driven function of other catalogues (see "Smart catalogues" section below).
 - **Category** (`phoenix_kit_cat_categories`) — subdivisions within a catalogue with position ordering, status (active/deleted)
-- **Item** (`phoenix_kit_cat_items`) — individual products with SKU, base_price, unit of measure, manufacturer link, status (active/deleted). **Belongs directly to a catalogue via `catalogue_uuid`** (required), with an optional `category_uuid` for grouping. Items without a category are "uncategorized within a catalogue" — still scoped to that catalogue. Sale price computed via catalogue's `markup_percentage` unless the item has its own `markup_percentage` override (nullable column, V97): `NULL` inherits from the catalogue, any Decimal (including `0`) overrides it. `Item.sale_price(item, catalogue_markup)` and `Item.effective_markup(item, catalogue_markup)` both honor the override transparently
+- **Item** (`phoenix_kit_cat_items`) — individual products with SKU, base_price, unit of measure, manufacturer link, status (active/deleted). **Belongs directly to a catalogue via `catalogue_uuid`** (required), with an optional `category_uuid` for grouping. Items without a category are "uncategorized within a catalogue" — still scoped to that catalogue. Has two nullable percentage overrides (`markup_percentage` added V97, `discount_percentage` added V102) with identical inherit-or-override semantics: `NULL` inherits from the catalogue, any Decimal (including `0`) overrides it. `Item.effective_markup/2` and `Item.effective_discount/2` resolve which value applies
 - **Manufacturer** (`phoenix_kit_cat_manufacturers`) — company directory with name, website, logo, status (active/inactive)
 - **Supplier** (`phoenix_kit_cat_suppliers`) — delivery companies with name, website, status (active/inactive)
 - **ManufacturerSupplier** (`phoenix_kit_cat_manufacturer_suppliers`) — many-to-many join table
+- **CatalogueRule** (`phoenix_kit_cat_item_catalogue_rules`, V102) — one row per `(item, referenced_catalogue)` for smart-catalogue items. Nullable `value` + `unit` plus `position` for UI ordering. At the **data layer**, `CatalogueRule.effective/2` still falls back to `item.default_value` / `item.default_unit` when a leg is NULL (kept for backward compat with pre-existing rows). At the **UI layer**, only `value` surfaces inheritance — the rules picker displays an `Inherit: N` placeholder for a blank value; `unit` is always explicit per row and does **not** read from `item.default_unit`. `UNIQUE(item_uuid, referenced_catalogue_uuid)` and `ON DELETE CASCADE` on both FKs — deleting a catalogue wipes every rule that references it, so warn the user first via `list_items_referencing_catalogue/1`.
 
 ### Items and catalogue scoping
 
@@ -71,13 +72,44 @@ This is a **PhoenixKit module** that implements the `PhoenixKit.Module` behaviou
 - **Permanent delete** follows same downward cascade but removes from DB; uncategorized items of the catalogue are removed too
 - All cascading operations wrapped in `Repo.transaction/1`
 
+### Pricing
+
+Two independent percentage legs apply on top of `base_price`, each with a catalogue-wide default plus an optional per-item override. The chain is `base → markup → discount` (multiplicative, in order):
+
+```
+sale_price  = base_price * (1 + effective_markup   / 100)   # "retail / crossed-out price"
+final_price = sale_price  * (1 -  effective_discount / 100)   # "what the customer pays"
+```
+
+- **Catalogue-wide columns** — `Catalogue.markup_percentage` (V89) and `Catalogue.discount_percentage` (V102): `DECIMAL(7, 2) NOT NULL DEFAULT 0`. Changeset validates `0..1000` for markup and `0..100` for discount.
+- **Per-item overrides** — `Item.markup_percentage` (V97) and `Item.discount_percentage` (V102): nullable `DECIMAL(7, 2)`. `NULL` inherits the catalogue's value; any set Decimal (including `0`) overrides. `0` is load-bearing — it means "sell at base / no discount" even when the catalogue has a non-zero value.
+- **Pure helpers on `Item`** — `sale_price/2`, `final_price/3`, `effective_markup/2`, `effective_discount/2`, `discount_amount/3`. All return `nil` when `base_price` is `nil`; results rounded to 2 decimals.
+- **`Catalogue.item_pricing/1`** is the one-stop API for pricing UIs. Returns a map with every field: `base_price`, `catalogue_markup`, `item_markup`, `markup_percentage` (effective), `sale_price` (post-markup), `catalogue_discount`, `item_discount`, `discount_percentage` (effective), `discount_amount`, `final_price` (post-discount). Resolves both catalogue columns in a single preload; on preload failure, logs a warning and falls back to `{0, 0}` so templates never crash.
+- **`:discount` and `:final_price` columns on `item_table`** — opt-in display columns; the component needs both `markup_percentage` and `discount_percentage` attrs when either is listed. `:discount` shows the effective percentage (honoring overrides); `:final_price` is the post-discount price. Existing `:price` column stays as the post-markup sale price.
+- **Naming:** `Catalogue.item_pricing/1` renamed `:price` to `:sale_price` in 0.1.11 to pair with the new `:final_price`. `Item.sale_price/2` (the pure helper) kept its name — it's still the pre-discount computation.
+
+### Smart catalogues
+
+A smart catalogue (`Catalogue.kind == "smart"`) holds items whose cost is a function of *other* catalogues. Classic example: a "Services" smart catalogue with a "Delivery" item that says "5% of Kitchen, 3% of Plumbing, plus $20 flat of Hardware". **This module stores the user's intent; downstream consumers do the math.**
+
+- **Data model**: `Catalogue.kind` (`"standard"` default / `"smart"`) + `Item.default_value`, `Item.default_unit` (both nullable; only `default_value` participates in UI inheritance — see below) + the `CatalogueRule` table. The parent catalogue of a rule row is *always* the one containing the item; the rule points to the *referenced* catalogue via `referenced_catalogue_uuid`.
+- **Inherit semantics differ by leg**. `value` inherits: a rule's NULL `value` falls back to `item.default_value` at math time, and the picker surfaces this via an `Inherit: N` placeholder. `unit` does **not** inherit in the UI — each rule row's unit is self-contained, toggling a row on seeds `unit: "percent"` explicitly. `CatalogueRule.effective(rule, item)` still inherits both legs at the data layer (backward compat for rows stored with NULL `unit`); new UI writes always populate `unit` directly.
+- **Unit vocabulary is open**. V1 recognizes `"percent"` and `"flat"`; the column is `VARCHAR(20)` so new units don't need a migration. `CatalogueRule.changeset` permits `percent`/`flat`/`nil`; `Item.changeset` validates `default_unit` against the same list — extend both if you add a unit. Consumers validate whatever they accept.
+- **Replace-all API**: `Catalogue.put_catalogue_rules(item, specs, opts)` takes a list of rule specs (`%{referenced_catalogue_uuid:, value:, unit:, position:}`), runs a single `Ecto.Multi` transaction that deletes missing rows, inserts new ones, and updates overlapping ones, and logs one `smart_rules.synced` activity with `added`/`updated`/`removed` counts. Duplicate `referenced_catalogue_uuid` in the input → `{:error, {:duplicate_referenced_catalogue, uuid}}` before any write.
+- **Read API**: `list_catalogue_rules/1` (preloads `referenced_catalogue`), `catalogue_rule_map/1` (same, keyed for O(1) lookup), `get_catalogue_rule/2` (single row). For the reverse direction, `list_items_referencing_catalogue/1` and `catalogue_reference_count/1` surface "which smart items use this catalogue?" — useful for warning before a catalogue delete.
+- **Self- and smart-to-smart references are intentionally allowed.** Consumers handle cycles at math time. Referencing a deleted catalogue: the rule row stays (FK still valid — soft-delete sets status, not FK); `list_catalogue_rules/1`'s preloaded `referenced_catalogue` carries the `status` so the UI can dim or warn on deleted references.
+- **Form flow**: `ItemFormLive` branches on `catalogue.kind`. Smart items show the `catalogue_rules_picker` + Default Value/Unit inputs; the LV owns `working_rules` as `%{uuid => %{value, unit}}` and calls `put_catalogue_rules/3` after the item saves. `CatalogueFormLive` exposes the Kind selector at create time.
+- **Component**: `catalogue_rules_picker/1` renders a checkbox + numeric input + unit dropdown per candidate catalogue; unchecked rows keep their inputs disabled but visible. Event names are customizable via attrs (`on_toggle`/`on_set_value`/`on_set_unit`/`on_clear`). The value input's placeholder shows `Inherit: N` when `item_default_value` is set. **There is no `item_default_unit` attr** — the unit dropdown reads only from the rule itself, falling back to the first entry of the `units` attr (default `"percent"`) when the rule has no unit. Changing the item's `default_unit` therefore never alters any rule row's visible unit.
+- **Smart items don't use `base_price` / `markup_percentage` / `discount_percentage`.** Those columns still exist on the row (shared Item schema) but the smart item form doesn't surface them and the convention is to leave them `nil`. A smart item's intrinsic standalone fee lives in `default_value` + `default_unit`. For ruleless smart items, `default_value: 50, default_unit: "flat"` means "this item costs $50 flat". When rules exist, `default_value` still acts as a fallback for any rule row whose `value` is blank (the data-layer inheritance surfaced via the `Inherit: N` placeholder); `default_unit` is *not* a UI fallback for rule rows — each row's unit is explicit.
+- **No math on our side.** `Catalogue.item_pricing/1` and `Item.final_price/3` work purely off `base_price` + markup + discount and do not consult rules or defaults — they're the standard-item pricing helpers. Smart-item consumers read `list_catalogue_rules/1` + the item's `default_value`/`default_unit` and do their own math.
+
 ### Activity Logging
 
 Every mutating operation in `Catalogue` context is logged via `PhoenixKit.Activity.log/1`:
 
 - **Pattern**: Private `log_activity/1` helper guarded by `Code.ensure_loaded?(PhoenixKit.Activity)` with rescue to `Logger.warning`. Activity logging failures never crash the primary operation.
 - **Actor tracking**: All mutating functions accept `opts \\ []` keyword list. Pass `actor_uuid: user.uuid` to attribute the action.
-- **Actions logged**: `manufacturer.created/updated/deleted`, `supplier.created/updated/deleted`, `catalogue.created/updated/deleted/trashed/restored/permanently_deleted`, `category.created/updated/deleted/trashed/restored/permanently_deleted/moved/positions_swapped`, `item.created/updated/deleted/trashed/restored/permanently_deleted/moved/bulk_trashed`, `manufacturer.suppliers_synced`, `supplier.manufacturers_synced`, `import.started`, `import.completed`
+- **Actions logged**: `manufacturer.created/updated/deleted`, `supplier.created/updated/deleted`, `catalogue.created/updated/deleted/trashed/restored/permanently_deleted`, `category.created/updated/deleted/trashed/restored/permanently_deleted/moved/positions_swapped`, `item.created/updated/deleted/trashed/restored/permanently_deleted/moved/bulk_trashed`, `manufacturer.suppliers_synced`, `supplier.manufacturers_synced`, `smart_rules.synced` (with `added`/`updated`/`removed`/`total` counts), `import.started`, `import.completed`
 - **Mode**: `"manual"` for user actions, `"auto"` for import-created items/categories
 - **LiveViews**: Extract actor UUID via `actor_opts(socket)` private helper reading `socket.assigns[:phoenix_kit_current_user]`
 
@@ -92,15 +124,29 @@ Multi-step file import wizard for bulk item creation from XLSX/CSV files.
 
 ### Search API
 
-Three search functions, each paired with an unbounded count function. Results page through the same `InfiniteScroll` sentinel that drives the category walk in `CatalogueDetailLive`.
+One unified search function plus two scoped convenience wrappers, each paired with an unbounded count function. All share a private `search_items_base/2` query builder, so behavior is consistent: items in deleted catalogues/categories are always excluded; deterministic paging via trailing `asc: i.uuid`.
 
-| List function | Count function | Scope |
-|---------------|---------------|-------|
-| `search_items/2` | `count_search_items/1` | All non-deleted catalogues |
-| `search_items_in_catalogue/3` | `count_search_items_in_catalogue/2` | One catalogue |
-| `search_items_in_category/3` | `count_search_items_in_category/2` | One category |
+| List function | Count function | Scope behavior |
+|---------------|---------------|---------------|
+| `search_items/2` | `count_search_items/2` | Accepts `:catalogue_uuids` and `:category_uuids` scope filters. Neither given → global. Either/both → AND-composed. A narrowed `:category_uuids` implicitly excludes uncategorized items. |
+| `search_items_in_catalogue/3` | `count_search_items_in_catalogue/2` | Thin wrapper around `search_items/2` with `catalogue_uuids: [catalogue_uuid]`. Orders by `asc_nulls_last: c.position, asc: i.name, asc: i.uuid` to walk categories in display order (important for the detail view UX). |
+| `search_items_in_category/3` | `count_search_items_in_category/2` | Thin wrapper around `search_items/2` with `category_uuids: [category_uuid]`. |
 
-All list functions take `:limit` (default 50) and `:offset` (default 0) in `opts`. Sort order is deterministic for paging — each query appends `asc: i.uuid` as the final tie-breaker. Count functions run the same `where` clauses but with `select: count(i.uuid)` and no `:limit`/`:offset`/`:order_by`/`:preload`, so they return the full matching total regardless of the current page.
+All list functions take `:limit` (default 50) and `:offset` (default 0) in `opts`. Count functions accept the same scope filters but ignore `:limit`/`:offset` — they return the unbounded total.
+
+**Composing scope with `list_catalogues_by_name_prefix/2`** — the natural pattern for "search only a subset of catalogues":
+
+```elixir
+uuids =
+  "Kit"
+  |> Catalogue.list_catalogues_by_name_prefix()
+  |> Enum.map(& &1.uuid)
+
+Catalogue.search_items("oak", catalogue_uuids: uuids)
+Catalogue.count_search_items("oak", catalogue_uuids: uuids)
+```
+
+The `scope_selector/1` component in `web/components.ex` renders a disclosure with catalogue/category checkbox lists and emits toggle events (customizable names) — the LV owns the selected-UUIDs state and feeds them straight into the search options.
 
 **LiveView usage pattern** (see `CatalogueDetailLive.run_search/2` and `load_next_search_batch/1`): fetch first page + total on search, render a sentinel while `search_has_more = loaded < total`, append pages via the shared `InfiniteScroll` hook. `search_results_summary` accepts an optional `loaded` attr to render "Showing X of Y" while paging.
 
@@ -109,9 +155,26 @@ All list functions take `:limit` (default 50) and `:offset` (default 0) in `opts
 ### Web Layer
 
 - **Admin** (9 LiveViews): CataloguesLive (index for catalogues/manufacturers/suppliers), CatalogueDetailLive, CatalogueFormLive, CategoryFormLive, ItemFormLive, ManufacturerFormLive, SupplierFormLive, ImportLive (multi-step import wizard), EventsLive (activity log with infinite scroll)
-- **Components** (`PhoenixKitCatalogue.Web.Components`): Reusable components — `item_table`, `search_input`, `search_results_summary`, `empty_state`, `view_mode_toggle`. All features opt-in via attrs. All text localized via `Gettext.gettext(PhoenixKitWeb.Gettext, ...)`. Components never crash — unknown columns, unloaded associations, nil values, and bad function arguments produce "—" placeholders and Logger warnings.
+- **Components** (`PhoenixKitCatalogue.Web.Components`): Reusable components — `item_table`, `search_input`, `search_results_summary`, `scope_selector`, `catalogue_rules_picker` (smart catalogue rule editor), `empty_state`, `view_mode_toggle`. All features opt-in via attrs. All text localized via `Gettext.gettext(PhoenixKitWeb.Gettext, ...)`. Components never crash — unknown columns, unloaded associations, nil values, and bad function arguments produce "—" placeholders and Logger warnings. `scope_selector` is the partner of the scoped search API: it renders a disclosure with catalogue/category checkbox lists and emits customizable toggle/clear events — the LV owns the selected-UUIDs state and feeds them into `Catalogue.search_items/2`'s `:catalogue_uuids` / `:category_uuids` opts.
 - **Routes**: Admin routes auto-generated from `admin_tabs/0`
 - **Paths**: Centralized path helpers in `Paths` module — always use these instead of hardcoding URLs
+
+### Form conventions (0.1.12+)
+
+All form LiveViews (`catalogue_form_live`, `item_form_live`, `manufacturer_form_live`, `supplier_form_live`, `category_form_live`) use **PhoenixKit's component-style field bindings**, not raw `<input name="x">` markup. The pattern:
+
+- `<.form for={@form} action="#" phx-change="validate" phx-submit="save">` — `@form` comes from `to_form(changeset)`
+- Fields: `<.input field={@form[:sku]} type="text" label="SKU" />`, `<.select field={@form[:status]} options={[{label, value}, ...]} />`, `<.textarea field={@form[:description]} />`
+- Each LV has a private `assign_changeset/2` helper that assigns **both** `:changeset` (for `<.translatable_field>`, which needs the raw changeset) and `:form = to_form(changeset)` (for the component-style inputs). Every mount / validate / save-error path goes through that helper so the two assigns can never drift apart.
+- Inline daisyUI modifiers ride on the `class` attr: `<.select field={@form[:x]} class="transition-colors focus-within:select-primary" />`, `<.input ... class="font-mono" />`. The attr is threaded onto the styled element itself (input/select/textarea/checkbox), not the outer wrapper — matches the Phoenix 1.7 generator convention. `<.input>` also has `wrapper_class` for the outer `<div phx-feedback-for>` when needed.
+
+**Multilang wrapper boundary**: only translatable fields (name, description) live inside `<.multilang_fields_wrapper>`. Pricing, classification, status, actions, and smart-catalogue rules all render as **siblings outside** the wrapper. See phoenix_kit's `AGENTS.md > Multilang Form Components > Wrapper scope rule` — the wrapper's id includes `current_lang` so everything inside re-mounts on a language switch; keeping it tiny means only name+description pay that cost. Skeleton/fields visibility is flipped client-side by `switch_lang_js/2` — do **not** pass `switching_lang={@switching_lang}` to the wrapper; the attr is no longer read and doing so trips an "undefined attribute" warning against the vendored `deps/phoenix_kit` cache.
+
+**Smart item form branches on `catalogue.kind`**: the whole "Pricing & Identification" section (SKU, Base Price, Unit, Markup Override, Discount Override) and the whole "Classification" section (Category, Manufacturer) are hidden when kind == `"smart"`. Smart items show only name/description + a Catalogue Rules section with the `<.catalogue_rules_picker>` component + a Default Value / Default Unit pair. Smart items never use `base_price` / `markup_percentage` / `discount_percentage` — the intrinsic fee lives in `default_value` + `default_unit`.
+
+**Move card also branches**: standard items get "Move to Another Category" (dropdown of `list_all_categories()` results, calls `move_item_to_category/3`); smart items get "Move to Another Smart Catalogue" (dropdown filtered to other smart catalogues via `list_catalogues(kind: :smart)`, calls `move_item_to_catalogue/3` which clears the category and sets the new catalogue). Each card only renders when its target list is non-empty.
+
+**`import_live.ex` is a principled exception** — it uses raw `<select name={"mapping[#{i}]"}>` because its column-mapping UI has runtime-constructed field names that `%Phoenix.HTML.FormField{}` can't model, and it assigns `:current_lang` directly in its own `handle_event("switch_language", ...)` instead of going through `handle_switch_language/2` (so the debounced skeleton UX doesn't apply to the import wizard's language picker, which is semantically different — it's picking "which language is this spreadsheet in?", not "which translation am I editing?"). Don't try to refactor the import wizard into the component-style pattern without rethinking its shape.
 
 ### Settings Keys
 
@@ -122,12 +185,24 @@ All list functions take `:limit` (default 50) and `:offset` (default 0) in `opts
 ```
 lib/phoenix_kit_catalogue.ex                    # Main module (PhoenixKit.Module behaviour)
 lib/phoenix_kit_catalogue/
-├── catalogue.ex                               # Context module (all CRUD, soft-delete, move ops, activity logging)
+├── catalogue.ex                               # Public context — thin API; delegates to catalogue/*.ex submodules
+├── catalogue/                                 # Extracted submodules (internal API; callers stay on `Catalogue.*`)
+│   ├── activity_log.ex                        # Guarded + rescued `PhoenixKit.Activity.log` wrapper
+│   ├── counts.ex                              # item_count_*, category_counts_*, uncategorized_count_*
+│   ├── helpers.ex                             # fetch_attr, sanitize_like, shared polymorphic accessors
+│   ├── links.ex                               # Manufacturer↔Supplier M2M CRUD + sync
+│   ├── manufacturers.ex                       # Manufacturer CRUD with activity logging
+│   ├── pub_sub.ex                             # Single topic + broadcast helpers ({:catalogue_data_changed, kind, uuid})
+│   ├── rules.ex                               # Smart-catalogue rule CRUD + put_catalogue_rules/3 replace-all
+│   ├── search.ex                              # search_items/2 + scoped wrappers, count_*
+│   ├── suppliers.ex                           # Supplier CRUD with activity logging
+│   └── translations.ex                        # Multilang read/write against schema.data JSONB
 ├── paths.ex                                   # Centralized URL path helpers
 ├── schemas/
-│   ├── cat_catalogue.ex                       # Catalogue schema + changeset
+│   ├── cat_catalogue.ex                       # Catalogue schema + changeset (kind: standard|smart)
+│   ├── catalogue_rule.ex                      # Smart-catalogue rule row (item → referenced catalogue)
 │   ├── category.ex                            # Category schema + changeset
-│   ├── item.ex                                # Item schema + changeset
+│   ├── item.ex                                # Item schema + changeset (default_value/default_unit)
 │   ├── manufacturer.ex                        # Manufacturer schema + changeset
 │   ├── manufacturer_supplier.ex               # Join table schema
 │   └── supplier.ex                            # Supplier schema + changeset
@@ -159,13 +234,21 @@ lib/phoenix_kit_catalogue/
 - **Navigation paths** — always use `PhoenixKit.Utils.Routes.path/1` for navigation within the PhoenixKit ecosystem
 - **LiveViews use `Phoenix.LiveView` directly** — do not use `PhoenixKitWeb` macros (`use PhoenixKitWeb, :live_view`) in this standalone package; import helpers explicitly
 - **`enabled?/0` MUST rescue** — the function must rescue all errors and return `false` as fallback (DB may not be available at boot)
-- **Single context module** — all business logic lives in `PhoenixKitCatalogue.Catalogue`; schemas are data-only with changesets
+- **Single public context** — callers go through `PhoenixKitCatalogue.Catalogue` for all business logic. Internally the context is broken into `PhoenixKitCatalogue.Catalogue.{Rules, Search, Manufacturers, Suppliers, Links, Counts, Translations, PubSub, ActivityLog, Helpers}` submodules for organization — they are an implementation detail, and `Catalogue` re-exports the public surface via `defdelegate`. **Do not** call submodules directly from LiveViews or external consumers; add new APIs to `Catalogue` and delegate inward. Schemas stay data-only with changesets.
 - **Multilang fields** — name and description fields use PhoenixKit's `Multilang` module for i18n support
 - **Soft-delete via status field** — catalogues, categories, and items use `status: "deleted"` for soft-delete; manufacturers and suppliers use hard-delete only
 
 ### Commit Message Rules
 
 Start with action verbs: `Add`, `Update`, `Fix`, `Remove`, `Merge`.
+
+## Tailwind CSS Scanning
+
+This module implements `css_sources/0` returning `[:phoenix_kit_catalogue]` so PhoenixKit's installer adds the correct `@source` directive to the parent's `app.css`. Without this, Tailwind purges classes unique to this module's templates. CSS-source discovery is automatic at compile time via the `:phoenix_kit_css_sources` compiler — see `phoenix_kit/AGENTS.md > Tailwind CSS Scanning for External Modules`.
+
+## JavaScript Hooks
+
+All shared DOM hooks (RowMenu, TableCardView, SortableGrid, InfiniteScroll) come from `phoenix_kit`'s bundled `priv/static/assets/phoenix_kit.js`, which exports `window.PhoenixKitHooks` and is already spread into the parent LiveSocket by `mix phoenix_kit.install`. This module does not ship its own external hooks. Any colocated hooks declared with `:type={Phoenix.LiveView.ColocatedHook}` inside our HEEx are bundled automatically.
 
 ## Database & Migrations
 
@@ -224,6 +307,8 @@ The version must be updated in **three places** when bumping:
 3. `test/phoenix_kit_catalogue_test.exs` — `assert PhoenixKitCatalogue.version() == "x.y.z"` (version compliance test)
 
 ### Changelog
+
+> **Maintainer-owned:** `CHANGELOG.md` entries are written by the project maintainer, not by agents. If you bump `mix.exs` `@version` and the CHANGELOG hasn't caught up yet, that's intentional — flag the gap to the user and stop. Do not auto-write entries.
 
 Update `CHANGELOG.md` before releasing. Each version gets a section:
 

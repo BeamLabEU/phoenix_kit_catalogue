@@ -8,13 +8,20 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
   import PhoenixKitWeb.Components.MultilangForm
   import PhoenixKitWeb.Components.Core.AdminPageHeader, only: [admin_page_header: 1]
   import PhoenixKitWeb.Components.Core.Modal, only: [confirm_modal: 1]
+  import PhoenixKitWeb.Components.Core.Input, only: [input: 1]
+  import PhoenixKitWeb.Components.Core.Select, only: [select: 1]
 
   alias PhoenixKitCatalogue.Catalogue
   alias PhoenixKitCatalogue.Paths
   alias PhoenixKitCatalogue.Schemas.Catalogue, as: CatalogueSchema
 
   @translatable_fields ["name", "description"]
-  @preserve_fields %{"status" => :status, "markup_percentage" => :markup_percentage}
+  @preserve_fields %{
+    "status" => :status,
+    "kind" => :kind,
+    "markup_percentage" => :markup_percentage,
+    "discount_percentage" => :discount_percentage
+  }
 
   @impl true
   def mount(params, _session, socket) do
@@ -53,11 +60,21 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
            ),
          action: action,
          catalogue: catalogue,
-         changeset: changeset,
          confirm_delete: false
        )
+       |> assign_changeset(changeset)
        |> mount_multilang()}
     end
+  end
+
+  # Single source of truth for form state: we keep both `:changeset` (for
+  # `<.translatable_field>`, which still reads the raw changeset) and
+  # `:form` (for `<.input>` / `<.select>` field bindings). Assigning both
+  # here means validate/save-error paths can't accidentally desync them.
+  defp assign_changeset(socket, changeset) do
+    socket
+    |> assign(:changeset, changeset)
+    |> assign(:form, to_form(changeset))
   end
 
   @impl true
@@ -77,7 +94,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
       |> Catalogue.change_catalogue(params)
       |> Map.put(:action, socket.assigns.changeset.action)
 
-    {:noreply, assign(socket, :changeset, changeset)}
+    {:noreply, assign_changeset(socket, changeset)}
   end
 
   def handle_event("save", %{"catalogue" => params}, socket) do
@@ -139,7 +156,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
          |> push_navigate(to: Paths.catalogue_detail(catalogue.uuid))}
 
       {:error, changeset} ->
-        {:noreply, assign(socket, :changeset, changeset)}
+        {:noreply, assign_changeset(socket, changeset)}
     end
   end
 
@@ -152,7 +169,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
          |> push_navigate(to: Paths.catalogue_detail(catalogue.uuid))}
 
       {:error, changeset} ->
-        {:noreply, assign(socket, :changeset, changeset)}
+        {:noreply, assign_changeset(socket, changeset)}
     end
   end
 
@@ -170,7 +187,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
       <%!-- Header --%>
       <.admin_page_header back={Paths.index()} title={@page_title} subtitle={if @action == :new, do: Gettext.gettext(PhoenixKitWeb.Gettext, "Create a new product catalogue to organize categories and items."), else: Gettext.gettext(PhoenixKitWeb.Gettext, "Update catalogue details and settings.")} />
 
-      <.form for={to_form(@changeset)} action="#" phx-change="validate" phx-submit="save">
+      <.form for={@form} action="#" phx-change="validate" phx-submit="save">
         <%!-- Main content card --%>
         <div class="card bg-base-100 shadow-lg">
           <.multilang_tabs
@@ -238,31 +255,63 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
             <div class="divider my-0"></div>
 
             <div class="form-control">
-              <span class="label-text font-semibold mb-2">{Gettext.gettext(PhoenixKitWeb.Gettext, "Markup Percentage")}</span>
-              <input type="number" name="catalogue[markup_percentage]" value={Ecto.Changeset.get_field(@changeset, :markup_percentage)} class="input input-bordered w-full transition-colors focus:input-primary" step="0.01" min="0" placeholder={Gettext.gettext(PhoenixKitWeb.Gettext, "e.g., 15.0")} />
+              <.select
+                field={@form[:kind]}
+                label={Gettext.gettext(PhoenixKitWeb.Gettext, "Kind")}
+                class="transition-colors focus-within:select-primary"
+                options={[
+                  {Gettext.gettext(PhoenixKitWeb.Gettext, "Standard — items priced directly"), "standard"},
+                  {Gettext.gettext(PhoenixKitWeb.Gettext, "Smart — items reference other catalogues"), "smart"}
+                ]}
+              />
+              <span class="label-text-alt text-base-content/50 mt-1">
+                <%= if Ecto.Changeset.get_field(@changeset, :kind) == "smart" do %>
+                  {Gettext.gettext(PhoenixKitWeb.Gettext, "Smart catalogues hold items like \"Delivery\" whose cost is a per-catalogue %/flat rule picked from other catalogues. Items here reference other catalogues instead of carrying a base price of their own.")}
+                <% else %>
+                  {Gettext.gettext(PhoenixKitWeb.Gettext, "Standard catalogues hold items priced directly — each item has its own base price, markup, and discount. This is the normal flow for materials, products, or anything with a fixed price tag.")}
+                <% end %>
+              </span>
+            </div>
+
+            <div class="form-control">
+              <.input
+                field={@form[:markup_percentage]}
+                type="number"
+                label={Gettext.gettext(PhoenixKitWeb.Gettext, "Markup Percentage")}
+                step="0.01"
+                min="0"
+                placeholder={Gettext.gettext(PhoenixKitWeb.Gettext, "e.g., 15.0")}
+              />
               <span class="label-text-alt text-base-content/50 mt-1">
                 {Gettext.gettext(PhoenixKitWeb.Gettext, "Applied to all item base prices to calculate sale prices. Leave blank for no markup.")}
               </span>
             </div>
 
             <div class="form-control">
-              <span class="label-text font-semibold mb-2">{Gettext.gettext(PhoenixKitWeb.Gettext, "Status")}</span>
-              <label class="select w-full transition-colors focus-within:select-primary">
-                <select name="catalogue[status]">
-                  <option
-                    value="active"
-                    selected={Ecto.Changeset.get_field(@changeset, :status) == "active"}
-                  >
-                    {Gettext.gettext(PhoenixKitWeb.Gettext, "Active")}
-                  </option>
-                  <option
-                    value="archived"
-                    selected={Ecto.Changeset.get_field(@changeset, :status) == "archived"}
-                  >
-                    {Gettext.gettext(PhoenixKitWeb.Gettext, "Archived")}
-                  </option>
-                </select>
-              </label>
+              <.input
+                field={@form[:discount_percentage]}
+                type="number"
+                label={Gettext.gettext(PhoenixKitWeb.Gettext, "Discount Percentage")}
+                step="0.01"
+                min="0"
+                max="100"
+                placeholder={Gettext.gettext(PhoenixKitWeb.Gettext, "e.g., 10.0")}
+              />
+              <span class="label-text-alt text-base-content/50 mt-1">
+                {Gettext.gettext(PhoenixKitWeb.Gettext, "Applied on top of the sale price to compute the final price. 0..100. Individual items can override this.")}
+              </span>
+            </div>
+
+            <div class="form-control">
+              <.select
+                field={@form[:status]}
+                label={Gettext.gettext(PhoenixKitWeb.Gettext, "Status")}
+                class="transition-colors focus-within:select-primary"
+                options={[
+                  {Gettext.gettext(PhoenixKitWeb.Gettext, "Active"), "active"},
+                  {Gettext.gettext(PhoenixKitWeb.Gettext, "Archived"), "archived"}
+                ]}
+              />
               <span class="label-text-alt text-base-content/50 mt-1">
                 {Gettext.gettext(PhoenixKitWeb.Gettext, "Archived catalogues are hidden from active views.")}
               </span>
@@ -273,7 +322,11 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
 
             <div class="flex justify-end gap-3">
               <.link navigate={Paths.index()} class="btn btn-ghost">{Gettext.gettext(PhoenixKitWeb.Gettext, "Cancel")}</.link>
-              <button type="submit" class="btn btn-primary phx-submit-loading:opacity-75">
+              <button
+                type="submit"
+                class="btn btn-primary phx-submit-loading:opacity-75"
+                phx-disable-with={Gettext.gettext(PhoenixKitWeb.Gettext, "Saving...")}
+              >
                 {if @action == :new, do: Gettext.gettext(PhoenixKitWeb.Gettext, "Create Catalogue"), else: Gettext.gettext(PhoenixKitWeb.Gettext, "Save Changes")}
               </button>
             </div>

@@ -9,6 +9,7 @@ defmodule PhoenixKitCatalogue.Web.EventsLive do
   use Phoenix.LiveView
 
   import PhoenixKitWeb.Components.Core.Icon, only: [icon: 1]
+  import PhoenixKitWeb.Components.Core.Select, only: [select: 1]
 
   alias PhoenixKit.Utils.Routes
   alias PhoenixKitCatalogue.Paths
@@ -149,6 +150,28 @@ defmodule PhoenixKitCatalogue.Web.EventsLive do
   defp blank_to_nil(""), do: nil
   defp blank_to_nil(val), do: val
 
+  # Translates the raw resource_type string for the filter dropdown.
+  # `resource_types` is built from DB content and may surface unknown
+  # types in the future — fall through to capitalize so they still
+  # render readably.
+  defp humanize_resource_type("item"), do: Gettext.gettext(PhoenixKitWeb.Gettext, "Item")
+  defp humanize_resource_type("category"), do: Gettext.gettext(PhoenixKitWeb.Gettext, "Category")
+
+  defp humanize_resource_type("catalogue"),
+    do: Gettext.gettext(PhoenixKitWeb.Gettext, "Catalogue")
+
+  defp humanize_resource_type("manufacturer"),
+    do: Gettext.gettext(PhoenixKitWeb.Gettext, "Manufacturer")
+
+  defp humanize_resource_type("supplier"),
+    do: Gettext.gettext(PhoenixKitWeb.Gettext, "Supplier")
+
+  defp humanize_resource_type("smart_rule"),
+    do: Gettext.gettext(PhoenixKitWeb.Gettext, "Smart rule")
+
+  defp humanize_resource_type(other) when is_binary(other), do: String.capitalize(other)
+  defp humanize_resource_type(_), do: ""
+
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, _key, ""), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
@@ -229,35 +252,27 @@ defmodule PhoenixKitCatalogue.Web.EventsLive do
       <div class="bg-base-200 rounded-lg p-3">
         <.form for={%{}} phx-change="filter" class="flex flex-wrap gap-3 items-end">
           <div class="form-control">
-            <label class="label"><span class="label-text text-xs">Action</span></label>
-            <label class="select select-bordered select-sm">
-              <select name="filter[action]">
-                <option value="">
-                  {Gettext.gettext(PhoenixKitWeb.Gettext, "All Actions")}
-                </option>
-                <%= for action <- @action_types do %>
-                  <option value={action} selected={@filter_action == action}>
-                    {action}
-                  </option>
-                <% end %>
-              </select>
-            </label>
+            <.select
+              name="filter[action]"
+              id="events-filter-action"
+              label={Gettext.gettext(PhoenixKitWeb.Gettext, "Action")}
+              value={@filter_action}
+              prompt={Gettext.gettext(PhoenixKitWeb.Gettext, "All Actions")}
+              options={Enum.map(@action_types, &{&1, &1})}
+              class="select-sm"
+            />
           </div>
 
           <div class="form-control">
-            <label class="label"><span class="label-text text-xs">Resource</span></label>
-            <label class="select select-bordered select-sm">
-              <select name="filter[resource_type]">
-                <option value="">
-                  {Gettext.gettext(PhoenixKitWeb.Gettext, "All Types")}
-                </option>
-                <%= for rt <- @resource_types do %>
-                  <option value={rt} selected={@filter_resource_type == rt}>
-                    {String.capitalize(rt)}
-                  </option>
-                <% end %>
-              </select>
-            </label>
+            <.select
+              name="filter[resource_type]"
+              id="events-filter-resource"
+              label={Gettext.gettext(PhoenixKitWeb.Gettext, "Resource")}
+              value={@filter_resource_type}
+              prompt={Gettext.gettext(PhoenixKitWeb.Gettext, "All Types")}
+              options={Enum.map(@resource_types, &{humanize_resource_type(&1), &1})}
+              class="select-sm"
+            />
           </div>
 
           <button type="button" phx-click="clear_filters" class="btn btn-ghost btn-sm">

@@ -1,5 +1,14 @@
 defmodule PhoenixKitCatalogue.Schemas.Item do
-  @moduledoc "Schema for catalogue items — individual products/materials with SKU and pricing."
+  @moduledoc """
+  Schema for catalogue items — individual products/materials with SKU and pricing.
+
+  V102 added discount + smart-catalogue fields: `discount_percentage` (per-item
+  override of the catalogue discount, NULL = inherit), and `default_value` /
+  `default_unit` (smart-only fallbacks consumed by `CatalogueRule.effective/2`
+  when a rule row leaves either leg NULL). The optional `:catalogue_rules`
+  association mirrors the V102 rules table — only populated for items in a
+  smart catalogue.
+  """
 
   use Ecto.Schema
   import Ecto.Changeset
@@ -11,8 +20,13 @@ defmodule PhoenixKitCatalogue.Schemas.Item do
 
   @statuses ~w(active inactive discontinued deleted)
   @units ~w(piece set pair sheet m2 running_meter)
+  @default_units ~w(percent flat)
 
+  @spec allowed_units() :: [String.t()]
   def allowed_units, do: @units
+
+  @spec allowed_default_units() :: [String.t()]
+  def allowed_default_units, do: @default_units
 
   schema "phoenix_kit_cat_items" do
     field(:name, :string)
@@ -23,6 +37,16 @@ defmodule PhoenixKitCatalogue.Schemas.Item do
     # catalogue's markup_percentage" (the pre-V97 default behavior); any
     # Decimal (including 0) overrides the catalogue's value for this item.
     field(:markup_percentage, :decimal)
+    # Per-item discount override. Same inherit-or-override semantics as
+    # markup_percentage: `nil` = inherit the catalogue's discount, any
+    # Decimal (including 0) overrides. Added in V102.
+    field(:discount_percentage, :decimal)
+    # Smart-catalogue defaults (V102): the fallback value + unit applied
+    # when a CatalogueRule row has nil `value`/`unit`. Lets a user set
+    # "5% across everything" once and only override specific catalogues.
+    # Only meaningful when the parent catalogue is kind: "smart".
+    field(:default_value, :decimal)
+    field(:default_unit, :string)
     field(:unit, :string, default: "piece")
     field(:status, :string, default: "active")
     field(:data, :map, default: %{})
@@ -45,6 +69,11 @@ defmodule PhoenixKitCatalogue.Schemas.Item do
       type: UUIDv7
     )
 
+    has_many(:catalogue_rules, PhoenixKitCatalogue.Schemas.CatalogueRule,
+      foreign_key: :item_uuid,
+      references: :uuid
+    )
+
     timestamps(type: :utc_datetime)
   end
 
@@ -54,6 +83,9 @@ defmodule PhoenixKitCatalogue.Schemas.Item do
     :sku,
     :base_price,
     :markup_percentage,
+    :discount_percentage,
+    :default_value,
+    :default_unit,
     :unit,
     :status,
     :category_uuid,
@@ -61,6 +93,7 @@ defmodule PhoenixKitCatalogue.Schemas.Item do
     :data
   ]
 
+  @spec changeset(t() | Ecto.Changeset.t(t()), map()) :: Ecto.Changeset.t(t())
   def changeset(item, attrs) do
     item
     |> cast(attrs, @required_fields ++ @optional_fields)
@@ -71,6 +104,12 @@ defmodule PhoenixKitCatalogue.Schemas.Item do
     |> validate_inclusion(:unit, @units)
     |> validate_number(:base_price, greater_than_or_equal_to: 0)
     |> validate_number(:markup_percentage, greater_than_or_equal_to: 0)
+    |> validate_number(:discount_percentage,
+      greater_than_or_equal_to: 0,
+      less_than_or_equal_to: 100
+    )
+    |> validate_number(:default_value, greater_than_or_equal_to: 0)
+    |> validate_inclusion(:default_unit, @default_units ++ [nil])
     |> foreign_key_constraint(:catalogue_uuid)
     |> foreign_key_constraint(:category_uuid)
   end
@@ -101,6 +140,7 @@ defmodule PhoenixKitCatalogue.Schemas.Item do
       Item.sale_price(%Item{base_price: Decimal.new("100"), markup_percentage: Decimal.new("0")}, Decimal.new("20"))
       #=> Decimal.new("100.00")
   """
+  @spec sale_price(t(), Decimal.t() | nil) :: Decimal.t() | nil
   def sale_price(%__MODULE__{base_price: nil}, _catalogue_markup), do: nil
 
   def sale_price(%__MODULE__{base_price: base_price} = item, catalogue_markup) do
@@ -122,9 +162,105 @@ defmodule PhoenixKitCatalogue.Schemas.Item do
   sold at its base price. Callers that only need to *display* which
   markup is active (without computing a price) can use this directly.
   """
+  @spec effective_markup(t(), Decimal.t() | nil) :: Decimal.t() | nil
   def effective_markup(%__MODULE__{markup_percentage: nil}, catalogue_markup),
     do: catalogue_markup
 
   def effective_markup(%__MODULE__{markup_percentage: override}, _catalogue_markup),
     do: override
+
+  @doc """
+  Returns the discount percentage that actually applies to an item — the
+  item's own `discount_percentage` if set, otherwise `catalogue_discount`.
+
+  Mirrors `effective_markup/2`: `nil` on the item means "inherit the
+  catalogue's discount", any Decimal (including `0`) overrides. `nil` on
+  both sides means "no discount at all".
+
+  Use this when you need to display which discount is active without
+  computing the final price.
+  """
+  @spec effective_discount(t(), Decimal.t() | nil) :: Decimal.t() | nil
+  def effective_discount(%__MODULE__{discount_percentage: nil}, catalogue_discount),
+    do: catalogue_discount
+
+  def effective_discount(%__MODULE__{discount_percentage: override}, _catalogue_discount),
+    do: override
+
+  @doc """
+  Returns the final price for an item — `base_price` with the effective
+  markup applied, then the effective discount subtracted.
+
+  The chain is `base → markup → discount`:
+
+      sale_price  = base_price * (1 + effective_markup   / 100)
+      final_price = sale_price  * (1 -  effective_discount / 100)
+
+  `catalogue_markup` and `catalogue_discount` are the fallbacks used when
+  the item has no matching override of its own. `nil` on either side
+  means "no markup / no discount on that leg"; the other leg still applies.
+
+  Returns `nil` when `base_price` is `nil`. Result is rounded to 2
+  decimal places. Percentage values should be `Decimal`s (e.g.
+  `Decimal.new("15.0")`).
+
+  ## Examples
+
+      # 100 * 1.20 * 0.90 = 108.00
+      Item.final_price(
+        %Item{base_price: Decimal.new("100"), markup_percentage: nil, discount_percentage: nil},
+        Decimal.new("20"),
+        Decimal.new("10")
+      )
+      #=> Decimal.new("108.00")
+
+      # Per-item discount 0 overrides a catalogue discount of 10 →
+      # final equals sale_price
+      Item.final_price(
+        %Item{base_price: Decimal.new("100"), discount_percentage: Decimal.new("0")},
+        Decimal.new("20"),
+        Decimal.new("10")
+      )
+      #=> Decimal.new("120.00")
+  """
+  @spec final_price(t(), Decimal.t() | nil, Decimal.t() | nil) :: Decimal.t() | nil
+  def final_price(%__MODULE__{base_price: nil}, _catalogue_markup, _catalogue_discount), do: nil
+
+  def final_price(%__MODULE__{} = item, catalogue_markup, catalogue_discount) do
+    with %Decimal{} = sale <- sale_price(item, catalogue_markup) do
+      case effective_discount(item, catalogue_discount) do
+        nil -> sale
+        discount -> apply_discount(sale, discount)
+      end
+    end
+  end
+
+  @doc """
+  Returns the Decimal amount subtracted by the discount for an item —
+  i.e. `sale_price - final_price`. Useful for "You save $X" UI.
+
+  Returns `nil` when `base_price` is `nil` or when no discount applies
+  (both catalogue and item discount are `nil`).
+  """
+  @spec discount_amount(t(), Decimal.t() | nil, Decimal.t() | nil) :: Decimal.t() | nil
+  def discount_amount(%__MODULE__{base_price: nil}, _catalogue_markup, _catalogue_discount),
+    do: nil
+
+  def discount_amount(%__MODULE__{} = item, catalogue_markup, catalogue_discount) do
+    case effective_discount(item, catalogue_discount) do
+      nil ->
+        nil
+
+      _discount ->
+        with %Decimal{} = sale <- sale_price(item, catalogue_markup),
+             %Decimal{} = final <- final_price(item, catalogue_markup, catalogue_discount) do
+          Decimal.sub(sale, final) |> Decimal.round(2)
+        end
+    end
+  end
+
+  defp apply_discount(sale_price, discount) do
+    multiplier = Decimal.sub(Decimal.new("1"), Decimal.div(discount, Decimal.new("100")))
+    sale_price |> Decimal.mult(multiplier) |> Decimal.round(2)
+  end
 end

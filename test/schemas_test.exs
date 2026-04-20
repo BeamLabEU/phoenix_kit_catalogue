@@ -9,6 +9,7 @@ defmodule PhoenixKitCatalogue.SchemasTest do
 
   alias PhoenixKitCatalogue.Schemas.{
     Catalogue,
+    CatalogueRule,
     Category,
     Item,
     Manufacturer,
@@ -418,6 +419,107 @@ defmodule PhoenixKitCatalogue.SchemasTest do
     end
   end
 
+  describe "Item.effective_discount/2" do
+    test "returns the item's override when set" do
+      item = %Item{discount_percentage: Decimal.new("25")}
+      assert Decimal.equal?(Item.effective_discount(item, Decimal.new("10")), Decimal.new("25"))
+    end
+
+    test "returns the item's override even when it's zero" do
+      item = %Item{discount_percentage: Decimal.new("0")}
+      assert Decimal.equal?(Item.effective_discount(item, Decimal.new("10")), Decimal.new("0"))
+    end
+
+    test "falls back to catalogue when item override is nil" do
+      item = %Item{discount_percentage: nil}
+      assert Decimal.equal?(Item.effective_discount(item, Decimal.new("15")), Decimal.new("15"))
+    end
+
+    test "returns nil when both are nil" do
+      item = %Item{discount_percentage: nil}
+      assert Item.effective_discount(item, nil) == nil
+    end
+  end
+
+  describe "Item.final_price/3" do
+    test "returns nil when base_price is nil" do
+      item = %Item{base_price: nil}
+      assert Item.final_price(item, Decimal.new("20"), Decimal.new("10")) == nil
+    end
+
+    test "applies markup then discount in that order" do
+      item = %Item{base_price: Decimal.new("100")}
+      # 100 * 1.20 * 0.90 = 108.00
+      result = Item.final_price(item, Decimal.new("20"), Decimal.new("10"))
+      assert Decimal.equal?(result, Decimal.new("108.00"))
+    end
+
+    test "rounds to 2 decimal places" do
+      item = %Item{base_price: Decimal.new("33.33")}
+      # 33.33 * 1.15 * 0.95 = 36.41... → rounds
+      result = Item.final_price(item, Decimal.new("15"), Decimal.new("5"))
+      assert Decimal.equal?(result, Decimal.new("36.41"))
+    end
+
+    test "nil discount leaves sale_price unchanged (no discount leg)" do
+      item = %Item{base_price: Decimal.new("100")}
+      result = Item.final_price(item, Decimal.new("20"), nil)
+      assert Decimal.equal?(result, Decimal.new("120.00"))
+    end
+
+    test "nil markup leaves base untouched by markup (discount still applies)" do
+      item = %Item{base_price: Decimal.new("100")}
+      result = Item.final_price(item, nil, Decimal.new("10"))
+      assert Decimal.equal?(result, Decimal.new("90.00"))
+    end
+
+    test "item discount 0 overrides a non-zero catalogue discount" do
+      item = %Item{base_price: Decimal.new("100"), discount_percentage: Decimal.new("0")}
+      # Catalogue says 25% discount, but item overrides to 0 → no discount
+      result = Item.final_price(item, Decimal.new("20"), Decimal.new("25"))
+      assert Decimal.equal?(result, Decimal.new("120.00"))
+    end
+
+    test "item discount overrides catalogue discount" do
+      item = %Item{base_price: Decimal.new("100"), discount_percentage: Decimal.new("50")}
+      # Catalogue says 10%, item says 50% → 50% applies
+      result = Item.final_price(item, Decimal.new("0"), Decimal.new("10"))
+      assert Decimal.equal?(result, Decimal.new("50.00"))
+    end
+
+    test "100% discount yields 0" do
+      item = %Item{base_price: Decimal.new("100")}
+      result = Item.final_price(item, Decimal.new("0"), Decimal.new("100"))
+      assert Decimal.equal?(result, Decimal.new("0.00"))
+    end
+  end
+
+  describe "Item.discount_amount/3" do
+    test "returns nil when base_price is nil" do
+      item = %Item{base_price: nil}
+      assert Item.discount_amount(item, Decimal.new("20"), Decimal.new("10")) == nil
+    end
+
+    test "returns nil when both discount sources are nil" do
+      item = %Item{base_price: Decimal.new("100"), discount_percentage: nil}
+      assert Item.discount_amount(item, Decimal.new("20"), nil) == nil
+    end
+
+    test "returns the difference between sale_price and final_price" do
+      item = %Item{base_price: Decimal.new("100")}
+      # sale = 100 * 1.20 = 120; final = 120 * 0.90 = 108; amount = 12
+      result = Item.discount_amount(item, Decimal.new("20"), Decimal.new("10"))
+      assert Decimal.equal?(result, Decimal.new("12.00"))
+    end
+
+    test "zero when effective discount is 0 (not nil)" do
+      item = %Item{base_price: Decimal.new("100"), discount_percentage: Decimal.new("0")}
+      result = Item.discount_amount(item, Decimal.new("20"), Decimal.new("25"))
+      # item override of 0 means no discount → amount is 0, not nil
+      assert Decimal.equal?(result, Decimal.new("0.00"))
+    end
+  end
+
   # ═══════════════════════════════════════════════════════════════════
   # Manufacturer
   # ═══════════════════════════════════════════════════════════════════
@@ -485,6 +587,184 @@ defmodule PhoenixKitCatalogue.SchemasTest do
     test "rejects bogus status" do
       cs = Supplier.changeset(%Supplier{}, %{name: "x", status: "bogus"})
       refute cs.valid?
+    end
+  end
+
+  # ═══════════════════════════════════════════════════════════════════
+  # Smart catalogues (0.1.12)
+  # ═══════════════════════════════════════════════════════════════════
+
+  describe "Catalogue.changeset/2 — kind" do
+    test "defaults to 'standard' when omitted" do
+      cs = Catalogue.changeset(%Catalogue{}, %{name: "X"})
+      assert cs.valid?
+      # The default lives on the struct's `:kind` field, not in the
+      # changeset changes — so get_field reads the default.
+      assert Ecto.Changeset.get_field(cs, :kind) == "standard"
+    end
+
+    test "accepts 'smart'" do
+      cs = Catalogue.changeset(%Catalogue{}, %{name: "Services", kind: "smart"})
+      assert cs.valid?
+      assert Ecto.Changeset.get_field(cs, :kind) == "smart"
+    end
+
+    test "rejects unknown kind" do
+      cs = Catalogue.changeset(%Catalogue{}, %{name: "X", kind: "weird"})
+      refute cs.valid?
+      assert errors_on(cs)[:kind]
+    end
+  end
+
+  describe "Item.changeset/2 — default_value / default_unit" do
+    test "defaults to nil/nil" do
+      cs = Item.changeset(%Item{}, %{name: "Delivery", catalogue_uuid: UUIDv7.generate()})
+      assert cs.valid?
+      assert is_nil(Ecto.Changeset.get_field(cs, :default_value))
+      assert is_nil(Ecto.Changeset.get_field(cs, :default_unit))
+    end
+
+    test "accepts valid default_value + default_unit" do
+      cs =
+        Item.changeset(%Item{}, %{
+          name: "Delivery",
+          catalogue_uuid: UUIDv7.generate(),
+          default_value: "5",
+          default_unit: "percent"
+        })
+
+      assert cs.valid?
+      assert Decimal.equal?(Ecto.Changeset.get_field(cs, :default_value), Decimal.new("5"))
+    end
+
+    test "rejects negative default_value" do
+      cs =
+        Item.changeset(%Item{}, %{
+          name: "Delivery",
+          catalogue_uuid: UUIDv7.generate(),
+          default_value: "-1"
+        })
+
+      refute cs.valid?
+      assert errors_on(cs)[:default_value]
+    end
+
+    test "rejects unknown default_unit" do
+      cs =
+        Item.changeset(%Item{}, %{
+          name: "Delivery",
+          catalogue_uuid: UUIDv7.generate(),
+          default_unit: "banana"
+        })
+
+      refute cs.valid?
+      assert errors_on(cs)[:default_unit]
+    end
+
+    test "accepts flat default_unit" do
+      cs =
+        Item.changeset(%Item{}, %{
+          name: "Delivery",
+          catalogue_uuid: UUIDv7.generate(),
+          default_unit: "flat"
+        })
+
+      assert cs.valid?
+    end
+
+    test "allowed_default_units/0 exposes the accepted values" do
+      assert Item.allowed_default_units() == ~w(percent flat)
+    end
+  end
+
+  describe "CatalogueRule.changeset/2" do
+    test "accepts minimal valid attrs (all-nil value/unit)" do
+      cs =
+        CatalogueRule.changeset(%CatalogueRule{}, %{
+          item_uuid: UUIDv7.generate(),
+          referenced_catalogue_uuid: UUIDv7.generate()
+        })
+
+      assert cs.valid?
+    end
+
+    test "accepts value + unit" do
+      cs =
+        CatalogueRule.changeset(%CatalogueRule{}, %{
+          item_uuid: UUIDv7.generate(),
+          referenced_catalogue_uuid: UUIDv7.generate(),
+          value: "5",
+          unit: "percent"
+        })
+
+      assert cs.valid?
+    end
+
+    test "requires item_uuid and referenced_catalogue_uuid" do
+      cs = CatalogueRule.changeset(%CatalogueRule{}, %{})
+      refute cs.valid?
+      assert errors_on(cs)[:item_uuid]
+      assert errors_on(cs)[:referenced_catalogue_uuid]
+    end
+
+    test "rejects negative value" do
+      cs =
+        CatalogueRule.changeset(%CatalogueRule{}, %{
+          item_uuid: UUIDv7.generate(),
+          referenced_catalogue_uuid: UUIDv7.generate(),
+          value: "-5"
+        })
+
+      refute cs.valid?
+      assert errors_on(cs)[:value]
+    end
+
+    test "rejects unknown unit" do
+      cs =
+        CatalogueRule.changeset(%CatalogueRule{}, %{
+          item_uuid: UUIDv7.generate(),
+          referenced_catalogue_uuid: UUIDv7.generate(),
+          unit: "bogus"
+        })
+
+      refute cs.valid?
+      assert errors_on(cs)[:unit]
+    end
+  end
+
+  describe "CatalogueRule.effective/2" do
+    test "rule value/unit take precedence over item defaults" do
+      rule = %CatalogueRule{value: Decimal.new("10"), unit: "flat"}
+      item = %Item{default_value: Decimal.new("5"), default_unit: "percent"}
+      assert CatalogueRule.effective(rule, item) == {Decimal.new("10"), "flat"}
+    end
+
+    test "each leg inherits independently" do
+      # Rule has value, no unit → inherits unit only
+      rule = %CatalogueRule{value: Decimal.new("10"), unit: nil}
+      item = %Item{default_value: Decimal.new("5"), default_unit: "percent"}
+      assert CatalogueRule.effective(rule, item) == {Decimal.new("10"), "percent"}
+
+      # Rule has unit, no value → inherits value only
+      rule = %CatalogueRule{value: nil, unit: "flat"}
+      assert CatalogueRule.effective(rule, item) == {Decimal.new("5"), "flat"}
+    end
+
+    test "both nil on rule → inherits both from item" do
+      rule = %CatalogueRule{value: nil, unit: nil}
+      item = %Item{default_value: Decimal.new("5"), default_unit: "percent"}
+      assert CatalogueRule.effective(rule, item) == {Decimal.new("5"), "percent"}
+    end
+
+    test "both nil everywhere → {nil, nil}" do
+      rule = %CatalogueRule{value: nil, unit: nil}
+      item = %Item{default_value: nil, default_unit: nil}
+      assert CatalogueRule.effective(rule, item) == {nil, nil}
+    end
+
+    test "tolerates nil item (handy for detached rules)" do
+      rule = %CatalogueRule{value: Decimal.new("5"), unit: "percent"}
+      assert CatalogueRule.effective(rule, nil) == {Decimal.new("5"), "percent"}
     end
   end
 end
