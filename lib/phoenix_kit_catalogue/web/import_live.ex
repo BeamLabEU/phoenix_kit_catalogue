@@ -10,6 +10,7 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
   require Logger
 
   import PhoenixKitWeb.Components.Core.Icon, only: [icon: 1]
+  import PhoenixKitWeb.Components.Core.Select, only: [select: 1]
 
   import PhoenixKitWeb.Components.MultilangForm,
     only: [
@@ -1206,20 +1207,23 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
     <div class="form-control w-full max-w-md">
       <span class="block mb-2 text-sm font-medium">{@label}</span>
       <form id={@form_id} phx-change={@on_change} class="space-y-3">
-        <label class="select w-full">
-          <select name={@mode_field}>
-            <option value="none" selected={@mode == :none}>{@none_label}</option>
-            <option value="column" selected={@mode == :column}>{@column_label}</option>
-            <option value="create" selected={@mode == :create}>{@create_label}</option>
-            <option
-              :for={opt <- @options}
-              value={"existing:#{opt.uuid}"}
-              selected={@mode == :existing and @uuid == opt.uuid}
-            >
-              {opt.name}
-            </option>
-          </select>
-        </label>
+        <.select
+          name={@mode_field}
+          id={"#{@form_id}-mode"}
+          value={
+            case @mode do
+              :existing -> "existing:#{@uuid}"
+              mode -> to_string(mode)
+            end
+          }
+          options={
+            [
+              {@none_label, "none"},
+              {@column_label, "column"},
+              {@create_label, "create"}
+            ] ++ Enum.map(@options, &{&1.name, "existing:#{&1.uuid}"})
+          }
+        />
 
         <div :if={@mode == :column} class="pl-4 border-l-2 border-secondary/20">
           <% available = available_picker_columns(@column_mappings, @target) %>
@@ -1232,26 +1236,24 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
               )}
             </p>
           <% else %>
-            <label class="select select-sm w-full">
-              <select name={@column_field}>
-                <option value="" disabled selected={not has_mapping?(@column_mappings, @target)}>
-                  {Gettext.gettext(PhoenixKitWeb.Gettext, "Select a column...")}
-                </option>
-                <%!-- Only offer columns that are unmapped (`:skip`),
-                     already this picker's target, or used as a custom
-                     `{:data, _}` field. Hiding columns already mapped
-                     to another unique target (`:name`, `:sku`, etc.)
-                     prevents the picker from silently clobbering an
-                     auto-detected mapping the user still relies on. --%>
-                <option
-                  :for={mapping <- available}
-                  value={mapping.column_index}
-                  selected={mapping.target == @target}
-                >
-                  {mapping.header}
-                </option>
-              </select>
-            </label>
+            <% selected_col =
+              Enum.find_value(available, fn m ->
+                if m.target == @target, do: m.column_index
+              end) %>
+            <%!-- Only offer columns that are unmapped (`:skip`),
+                 already this picker's target, or used as a custom
+                 `{:data, _}` field. Hiding columns already mapped
+                 to another unique target (`:name`, `:sku`, etc.)
+                 prevents the picker from silently clobbering an
+                 auto-detected mapping the user still relies on. --%>
+            <.select
+              name={@column_field}
+              id={"#{@form_id}-column"}
+              value={selected_col}
+              prompt={Gettext.gettext(PhoenixKitWeb.Gettext, "Select a column...")}
+              options={Enum.map(available, &{&1.header, &1.column_index})}
+              class="select-sm"
+            />
           <% end %>
           <div :if={has_mapping?(@column_mappings, @target)} class="mt-2">
             <span class="text-xs text-base-content/60">{@preview_label}</span>
@@ -1371,6 +1373,8 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
       phx-submit="continue_to_confirm"
       class="mt-4 pl-4 border-l-2 border-secondary/20"
     >
+      <%!-- Only translatable fields live inside the wrapper. Position
+           stays outside so a language switch doesn't remount it. --%>
       <.multilang_fields_wrapper
         multilang_enabled={@multilang_enabled}
         current_lang={@current_lang}
@@ -1422,26 +1426,26 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
           type="textarea"
           class="w-full"
         />
-
-        <div class="form-control">
-          <span class="label-text font-semibold mb-2">
-            {Gettext.gettext(PhoenixKitWeb.Gettext, "Position")}
-          </span>
-          <input
-            type="number"
-            name="category[position]"
-            value={Ecto.Changeset.get_field(@changeset, :position)}
-            class="input input-bordered w-28 transition-colors focus:input-primary"
-            min="0"
-          />
-          <span class="label-text-alt text-base-content/50 mt-1">
-            {Gettext.gettext(
-              PhoenixKitWeb.Gettext,
-              "Lower numbers appear first."
-            )}
-          </span>
-        </div>
       </.multilang_fields_wrapper>
+
+      <div class="form-control mt-6">
+        <span class="label-text font-semibold mb-2">
+          {Gettext.gettext(PhoenixKitWeb.Gettext, "Position")}
+        </span>
+        <input
+          type="number"
+          name="category[position]"
+          value={Ecto.Changeset.get_field(@changeset, :position)}
+          class="input input-bordered w-28 transition-colors focus:input-primary"
+          min="0"
+        />
+        <span class="label-text-alt text-base-content/50 mt-1">
+          {Gettext.gettext(
+            PhoenixKitWeb.Gettext,
+            "Lower numbers appear first."
+          )}
+        </span>
+      </div>
     </form>
     """
   end
@@ -1491,20 +1495,18 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
             <span class="block mb-2 text-sm font-medium">
               {Gettext.gettext(PhoenixKitWeb.Gettext, "Target Catalogue")}
             </span>
-            <label class="select w-full">
-              <select name="catalogue">
-                <option value="" disabled selected={@selected_catalogue == nil}>
-                  {Gettext.gettext(PhoenixKitWeb.Gettext, "Select a catalogue...")}
-                </option>
-                <option
-                  :for={cat <- @catalogues}
-                  value={cat.uuid}
-                  selected={@selected_catalogue && @selected_catalogue.uuid == cat.uuid}
-                >
-                  {catalogue_picker_label(cat, @catalogue_item_counts, @catalogue_category_counts)}
-                </option>
-              </select>
-            </label>
+            <.select
+              name="catalogue"
+              id="upload-catalogue"
+              value={@selected_catalogue && @selected_catalogue.uuid}
+              prompt={Gettext.gettext(PhoenixKitWeb.Gettext, "Select a catalogue...")}
+              options={
+                Enum.map(
+                  @catalogues,
+                  &{catalogue_picker_label(&1, @catalogue_item_counts, @catalogue_category_counts), &1.uuid}
+                )
+              }
+            />
             <p :if={@catalogues == []} class="text-sm text-base-content/50 mt-1">
               {Gettext.gettext(PhoenixKitWeb.Gettext, "No catalogues yet.")}
               <.link navigate={Paths.catalogue_new()} class="link link-primary">
@@ -1647,11 +1649,13 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
         <%!-- Sheet selector --%>
         <form :if={length(@sheets) > 1} id="sheet-form" phx-change="select_sheet" class="flex items-center gap-2">
           <span class="text-sm font-medium">{Gettext.gettext(PhoenixKitWeb.Gettext, "Sheet:")}</span>
-          <label class="select select-sm">
-            <select name="sheet">
-              <option :for={sheet <- @sheets} value={sheet} selected={sheet == @selected_sheet}>{sheet}</option>
-            </select>
-          </label>
+          <.select
+            name="sheet"
+            id="import-sheet"
+            value={@selected_sheet}
+            options={Enum.map(@sheets, &{&1, &1})}
+            class="select-sm"
+          />
         </form>
 
         <%!-- Language selector --%>
@@ -1667,22 +1671,24 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
         <div class="form-control w-full max-w-md">
           <span class="block mb-2 text-sm font-medium">{Gettext.gettext(PhoenixKitWeb.Gettext, "Import Into Category")}</span>
           <form id="category-form" phx-change="select_import_category" class="space-y-3">
-            <label class="select w-full">
-              <select name="category_mode">
-                <option value="none" selected={@import_category_mode == :none}>
-                  {Gettext.gettext(PhoenixKitWeb.Gettext, "No category — import items without a category")}
-                </option>
-                <option value="column" selected={@import_category_mode == :column}>
-                  {Gettext.gettext(PhoenixKitWeb.Gettext, "Use a column — create categories from column values")}
-                </option>
-                <option value="create" selected={@import_category_mode == :create}>
-                  {Gettext.gettext(PhoenixKitWeb.Gettext, "Create a new category — fill in the details below")}
-                </option>
-                <option :for={cat <- @catalogue_categories} value={"existing:#{cat.uuid}"} selected={@import_category_mode == :existing and @import_category_uuid == cat.uuid}>
-                  {cat.name}
-                </option>
-              </select>
-            </label>
+            <.select
+              name="category_mode"
+              id="import-category-mode"
+              value={
+                case @import_category_mode do
+                  :existing -> "existing:#{@import_category_uuid}"
+                  mode -> to_string(mode)
+                end
+              }
+              options={
+                [
+                  {Gettext.gettext(PhoenixKitWeb.Gettext, "No category — import items without a category"), "none"},
+                  {Gettext.gettext(PhoenixKitWeb.Gettext, "Use a column — create categories from column values"), "column"},
+                  {Gettext.gettext(PhoenixKitWeb.Gettext, "Create a new category — fill in the details below"), "create"}
+                ] ++
+                  Enum.map(@catalogue_categories, &{&1.name, "existing:#{&1.uuid}"})
+              }
+            />
 
             <%!-- Column picker for category --%>
             <div :if={@import_category_mode == :column} class="pl-4 border-l-2 border-secondary/20">
@@ -1724,20 +1730,18 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
                   )}
                 </p>
               <% else %>
-                <label class="select select-sm w-full">
-                  <select name="category_column">
-                    <option value="" disabled selected={not has_mapping?(@column_mappings, :category)}>
-                      {Gettext.gettext(PhoenixKitWeb.Gettext, "Select a column...")}
-                    </option>
-                    <option
-                      :for={mapping <- available_category_cols}
-                      value={mapping.column_index}
-                      selected={mapping.target == :category}
-                    >
-                      {mapping.header}
-                    </option>
-                  </select>
-                </label>
+                <% selected_category_col =
+                  Enum.find_value(available_category_cols, fn m ->
+                    if m.target == :category, do: m.column_index
+                  end) %>
+                <.select
+                  name="category_column"
+                  id="import-category-column"
+                  value={selected_category_col}
+                  prompt={Gettext.gettext(PhoenixKitWeb.Gettext, "Select a column...")}
+                  options={Enum.map(available_category_cols, &{&1.header, &1.column_index})}
+                  class="select-sm"
+                />
               <% end %>
               <%!-- Show preview of categories that will be created --%>
               <div :if={has_mapping?(@column_mappings, :category)} class="mt-2">
@@ -1837,17 +1841,13 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
                   {mapping.header}
                 </div>
                 <.icon name="hero-arrow-right" class="w-4 h-4 text-base-content/30 hidden sm:block" />
-                <label class="select select-sm flex-1">
-                  <select name={"mapping[#{mapping.column_index}]"}>
-                    <option
-                      :for={{target, label} <- @all_targets}
-                      value={target_to_string(target)}
-                      selected={mapping.target == target}
-                    >
-                      {label}
-                    </option>
-                  </select>
-                </label>
+                <.select
+                  name={"mapping[#{mapping.column_index}]"}
+                  id={"mapping-#{mapping.column_index}"}
+                  value={target_to_string(mapping.target)}
+                  options={Enum.map(@all_targets, fn {target, label} -> {label, target_to_string(target)} end)}
+                  class="select-sm flex-1"
+                />
               </div>
 
               <%!-- Inline unit value mapping (shows when this column is mapped to Unit) --%>
@@ -1859,11 +1859,13 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
                   <div :for={value <- @unit_values} class="flex items-center gap-2">
                     <span class="badge badge-outline badge-sm min-w-[60px] justify-center">{value}</span>
                     <.icon name="hero-arrow-right" class="w-3 h-3 text-base-content/30" />
-                    <label class="select select-xs">
-                      <select name={"unit_map[#{value}]"}>
-                        <option :for={unit <- @allowed_units} value={unit} selected={Map.get(@unit_map, value, "piece") == unit}>{unit}</option>
-                      </select>
-                    </label>
+                    <.select
+                      name={"unit_map[#{value}]"}
+                      id={"unit-map-#{value}"}
+                      value={Map.get(@unit_map, value, "piece")}
+                      options={Enum.map(@allowed_units, &{&1, &1})}
+                      class="select-xs"
+                    />
                   </div>
                 </div>
               </div>

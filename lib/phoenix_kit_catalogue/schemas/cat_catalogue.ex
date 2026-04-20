@@ -10,11 +10,16 @@ defmodule PhoenixKitCatalogue.Schemas.Catalogue do
   @foreign_key_type UUIDv7
 
   @statuses ~w(active archived deleted)
+  @kinds ~w(standard smart)
+
+  def allowed_kinds, do: @kinds
 
   schema "phoenix_kit_cat_catalogues" do
     field(:name, :string)
     field(:description, :string)
+    field(:kind, :string, default: "standard")
     field(:markup_percentage, :decimal, default: Decimal.new("0"))
+    field(:discount_percentage, :decimal, default: Decimal.new("0"))
     field(:status, :string, default: "active")
     field(:data, :map, default: %{})
 
@@ -27,7 +32,14 @@ defmodule PhoenixKitCatalogue.Schemas.Catalogue do
   end
 
   @required_fields [:name]
-  @optional_fields [:description, :markup_percentage, :status, :data]
+  @optional_fields [
+    :description,
+    :kind,
+    :markup_percentage,
+    :discount_percentage,
+    :status,
+    :data
+  ]
 
   def changeset(catalogue, attrs) do
     catalogue
@@ -35,9 +47,14 @@ defmodule PhoenixKitCatalogue.Schemas.Catalogue do
     |> validate_required(@required_fields)
     |> validate_length(:name, min: 1, max: 255)
     |> validate_inclusion(:status, @statuses)
+    |> validate_inclusion(:kind, @kinds)
     |> validate_number(:markup_percentage,
       greater_than_or_equal_to: 0,
       less_than_or_equal_to: 1000
+    )
+    |> validate_number(:discount_percentage,
+      greater_than_or_equal_to: 0,
+      less_than_or_equal_to: 100
     )
   end
 end

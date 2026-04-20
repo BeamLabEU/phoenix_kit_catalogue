@@ -19,12 +19,15 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   import PhoenixKitCatalogue.Web.Components
 
   alias PhoenixKitCatalogue.Catalogue
+  alias PhoenixKitCatalogue.Catalogue.PubSub
   alias PhoenixKitCatalogue.Paths
 
   @per_page 100
 
   @impl true
   def mount(_params, _session, socket) do
+    if connected?(socket), do: PubSub.subscribe()
+
     {:ok,
      assign(socket,
        page_title: Gettext.gettext(PhoenixKitWeb.Gettext, "Catalogue"),
@@ -44,6 +47,29 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
      )}
   end
 
+  # PubSub: re-load whichever tab is active when relevant data changes
+  # in another LV process. Catch-all is required since the topic is
+  # shared across all catalogue resources — we ignore events we don't
+  # care about for the current tab.
+  @impl true
+  def handle_info({:catalogue_data_changed, kind, _uuid}, socket) do
+    cond do
+      socket.assigns.active_tab == :index and kind in [:catalogue, :item, :category] ->
+        {:noreply, load_data(socket, :index)}
+
+      socket.assigns.active_tab == :manufacturers and kind in [:manufacturer, :links] ->
+        {:noreply, load_data(socket, :manufacturers)}
+
+      socket.assigns.active_tab == :suppliers and kind in [:supplier, :links] ->
+        {:noreply, load_data(socket, :suppliers)}
+
+      true ->
+        {:noreply, socket}
+    end
+  end
+
+  def handle_info(_msg, socket), do: {:noreply, socket}
+
   @impl true
   def handle_params(_params, _uri, socket) do
     action = socket.assigns.live_action || :index
@@ -62,17 +88,75 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   defp tab_title(:manufacturers), do: Gettext.gettext(PhoenixKitWeb.Gettext, "Manufacturers")
   defp tab_title(:suppliers), do: Gettext.gettext(PhoenixKitWeb.Gettext, "Suppliers")
 
-  defp confirm_delete!(socket) do
-    case socket.assigns.confirm_delete do
-      {_type, _uuid} = value -> value
-      _ -> raise "confirm_delete not set"
+  # Graceful handler for a delete event that fires while `confirm_delete`
+  # is nil (e.g. someone pushed the event without first opening the
+  # modal). Clears the state, flashes a warning, and logs a warning
+  # instead of crashing the LV.
+  defp unexpected_confirm_event(socket, event_name) do
+    Logger.warning(
+      "CataloguesLive: #{event_name} fired without confirm_delete — assigns=#{inspect(socket.assigns.confirm_delete)} actor_uuid=#{inspect(actor_uuid(socket))}"
+    )
+
+    {:noreply,
+     socket
+     |> assign(:confirm_delete, nil)
+     |> put_flash(
+       :error,
+       Gettext.gettext(PhoenixKitWeb.Gettext, "Unexpected request. Please try again.")
+     )}
+  end
+
+  # Structured error log for failed mutations — includes actor, entity,
+  # and changeset errors where available so a production incident can be
+  # diagnosed from the log alone.
+  defp log_operation_error(socket, operation, context) do
+    ctx = Map.put_new(context, :actor_uuid, actor_uuid(socket))
+
+    Logger.error(fn ->
+      [
+        "CataloguesLive ",
+        operation,
+        " failed: ",
+        format_error_context(ctx)
+      ]
+    end)
+  end
+
+  defp format_error_context(%{reason: reason} = ctx) do
+    rest = Map.delete(ctx, :reason)
+
+    [
+      inspect(rest, limit: :infinity),
+      " reason=",
+      format_reason(reason)
+    ]
+  end
+
+  defp format_reason(%Ecto.Changeset{} = cs) do
+    errors =
+      cs
+      |> Ecto.Changeset.traverse_errors(fn {msg, opts} ->
+        Enum.reduce(opts, msg, fn {k, v}, acc ->
+          String.replace(acc, "%{#{k}}", to_string(v))
+        end)
+      end)
+
+    "changeset_errors=#{inspect(errors)}"
+  end
+
+  defp format_reason(other), do: inspect(other)
+
+  defp actor_uuid(socket) do
+    case socket.assigns[:phoenix_kit_current_user] do
+      %{uuid: uuid} -> uuid
+      _ -> nil
     end
   end
 
   defp actor_opts(socket) do
-    case socket.assigns[:phoenix_kit_current_user] do
-      %{uuid: uuid} -> [actor_uuid: uuid]
-      _ -> []
+    case actor_uuid(socket) do
+      nil -> []
+      uuid -> [actor_uuid: uuid]
     end
   end
 
@@ -146,7 +230,11 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
          |> load_data(:index)}
 
       {:error, reason} ->
-        Logger.error("Failed to trash catalogue #{uuid}: #{inspect(reason)}")
+        log_operation_error(socket, "trash_catalogue", %{
+          entity_type: "catalogue",
+          entity_uuid: uuid,
+          reason: reason
+        })
 
         {:noreply,
          socket
@@ -174,7 +262,11 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
          |> load_data(:index)}
 
       {:error, reason} ->
-        Logger.error("Failed to restore catalogue #{uuid}: #{inspect(reason)}")
+        log_operation_error(socket, "restore_catalogue", %{
+          entity_type: "catalogue",
+          entity_uuid: uuid,
+          reason: reason
+        })
 
         {:noreply,
          socket
@@ -191,84 +283,112 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   end
 
   def handle_event("permanently_delete_catalogue", _params, socket) do
-    {"catalogue", uuid} = confirm_delete!(socket)
+    case socket.assigns.confirm_delete do
+      {"catalogue", uuid} ->
+        with %{} = catalogue <- Catalogue.get_catalogue(uuid),
+             {:ok, _} <-
+               Catalogue.permanently_delete_catalogue(catalogue, actor_opts(socket)) do
+          {:noreply,
+           socket
+           |> put_flash(
+             :info,
+             Gettext.gettext(PhoenixKitWeb.Gettext, "Catalogue permanently deleted.")
+           )
+           |> assign(:confirm_delete, nil)
+           |> load_data(:index)}
+        else
+          nil ->
+            {:noreply,
+             socket
+             |> assign(:confirm_delete, nil)
+             |> put_flash(
+               :error,
+               Gettext.gettext(PhoenixKitWeb.Gettext, "Catalogue not found.")
+             )
+             |> load_data(:index)}
 
-    with %{} = catalogue <- Catalogue.get_catalogue(uuid),
-         {:ok, _} <- Catalogue.permanently_delete_catalogue(catalogue, actor_opts(socket)) do
-      {:noreply,
-       socket
-       |> put_flash(
-         :info,
-         Gettext.gettext(PhoenixKitWeb.Gettext, "Catalogue permanently deleted.")
-       )
-       |> assign(:confirm_delete, nil)
-       |> load_data(:index)}
-    else
-      nil ->
-        {:noreply,
-         socket
-         |> assign(:confirm_delete, nil)
-         |> put_flash(:error, Gettext.gettext(PhoenixKitWeb.Gettext, "Catalogue not found."))
-         |> load_data(:index)}
+          {:error, reason} ->
+            log_operation_error(socket, "permanently_delete_catalogue", %{
+              entity_type: "catalogue",
+              entity_uuid: uuid,
+              reason: reason
+            })
 
-      {:error, reason} ->
-        Logger.error("Failed to permanently delete catalogue #{uuid}: #{inspect(reason)}")
+            {:noreply,
+             socket
+             |> assign(:confirm_delete, nil)
+             |> put_flash(
+               :error,
+               Gettext.gettext(PhoenixKitWeb.Gettext, "Failed to delete catalogue.")
+             )
+             |> load_data(:index)}
+        end
 
-        {:noreply,
-         socket
-         |> assign(:confirm_delete, nil)
-         |> put_flash(
-           :error,
-           Gettext.gettext(PhoenixKitWeb.Gettext, "Failed to delete catalogue.")
-         )
-         |> load_data(:index)}
+      _ ->
+        unexpected_confirm_event(socket, "permanently_delete_catalogue")
     end
   end
 
   def handle_event("delete_manufacturer", _params, socket) do
-    {"manufacturer", uuid} = confirm_delete!(socket)
+    case socket.assigns.confirm_delete do
+      {"manufacturer", uuid} ->
+        with %{} = manufacturer <- Catalogue.get_manufacturer(uuid),
+             {:ok, _} <- Catalogue.delete_manufacturer(manufacturer, actor_opts(socket)) do
+          {:noreply,
+           assign(socket, manufacturers: Catalogue.list_manufacturers(), confirm_delete: nil)}
+        else
+          nil ->
+            {:noreply, assign(socket, :confirm_delete, nil)}
 
-    with %{} = manufacturer <- Catalogue.get_manufacturer(uuid),
-         {:ok, _} <- Catalogue.delete_manufacturer(manufacturer, actor_opts(socket)) do
-      {:noreply,
-       assign(socket, manufacturers: Catalogue.list_manufacturers(), confirm_delete: nil)}
-    else
-      nil ->
-        {:noreply, assign(socket, :confirm_delete, nil)}
+          {:error, reason} ->
+            log_operation_error(socket, "delete_manufacturer", %{
+              entity_type: "manufacturer",
+              entity_uuid: uuid,
+              reason: reason
+            })
 
-      {:error, reason} ->
-        Logger.error("Failed to delete manufacturer #{uuid}: #{inspect(reason)}")
+            {:noreply,
+             socket
+             |> put_flash(
+               :error,
+               Gettext.gettext(PhoenixKitWeb.Gettext, "Failed to delete manufacturer.")
+             )
+             |> assign(:confirm_delete, nil)}
+        end
 
-        {:noreply,
-         socket
-         |> put_flash(
-           :error,
-           Gettext.gettext(PhoenixKitWeb.Gettext, "Failed to delete manufacturer.")
-         )
-         |> assign(:confirm_delete, nil)}
+      _ ->
+        unexpected_confirm_event(socket, "delete_manufacturer")
     end
   end
 
   def handle_event("delete_supplier", _params, socket) do
-    {"supplier", uuid} = confirm_delete!(socket)
+    case socket.assigns.confirm_delete do
+      {"supplier", uuid} ->
+        with %{} = supplier <- Catalogue.get_supplier(uuid),
+             {:ok, _} <- Catalogue.delete_supplier(supplier, actor_opts(socket)) do
+          {:noreply, assign(socket, suppliers: Catalogue.list_suppliers(), confirm_delete: nil)}
+        else
+          nil ->
+            {:noreply, assign(socket, :confirm_delete, nil)}
 
-    with %{} = supplier <- Catalogue.get_supplier(uuid),
-         {:ok, _} <- Catalogue.delete_supplier(supplier, actor_opts(socket)) do
-      {:noreply, assign(socket, suppliers: Catalogue.list_suppliers(), confirm_delete: nil)}
-    else
-      nil ->
-        {:noreply, assign(socket, :confirm_delete, nil)}
+          {:error, reason} ->
+            log_operation_error(socket, "delete_supplier", %{
+              entity_type: "supplier",
+              entity_uuid: uuid,
+              reason: reason
+            })
 
-      {:error, reason} ->
-        Logger.error("Failed to delete supplier #{uuid}: #{inspect(reason)}")
+            {:noreply,
+             socket
+             |> put_flash(
+               :error,
+               Gettext.gettext(PhoenixKitWeb.Gettext, "Failed to delete supplier.")
+             )
+             |> assign(:confirm_delete, nil)}
+        end
 
-        {:noreply,
-         socket
-         |> put_flash(
-           :error,
-           Gettext.gettext(PhoenixKitWeb.Gettext, "Failed to delete supplier.")
-         )
-         |> assign(:confirm_delete, nil)}
+      _ ->
+        unexpected_confirm_event(socket, "delete_supplier")
     end
   end
 
@@ -349,7 +469,9 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         {:noreply, socket}
 
       other ->
-        Logger.warning("search task exited unexpectedly: #{inspect(other)}")
+        Logger.warning(
+          "CataloguesLive search task exited unexpectedly: reason=#{inspect(other)} query=#{inspect(socket.assigns.search_query)} actor_uuid=#{inspect(actor_uuid(socket))}"
+        )
 
         {:noreply,
          socket
@@ -387,7 +509,9 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         {:noreply, socket}
 
       other ->
-        Logger.warning("search page task exited unexpectedly: #{inspect(other)}")
+        Logger.warning(
+          "CataloguesLive search_page task exited unexpectedly: reason=#{inspect(other)} query=#{inspect(socket.assigns.search_query)} offset=#{socket.assigns.search_offset} actor_uuid=#{inspect(actor_uuid(socket))}"
+        )
 
         {:noreply,
          socket
@@ -706,13 +830,13 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
                 <.table_row_menu_link navigate={Paths.catalogue_detail(catalogue.uuid)} icon="hero-eye" label={Gettext.gettext(PhoenixKitWeb.Gettext, "View")} />
                 <.table_row_menu_link navigate={Paths.catalogue_edit(catalogue.uuid)} icon="hero-pencil" label={Gettext.gettext(PhoenixKitWeb.Gettext, "Edit")} variant="secondary" />
                 <.table_row_menu_divider />
-                <.table_row_menu_button phx-click="trash_catalogue" phx-value-uuid={catalogue.uuid} icon="hero-trash" label={Gettext.gettext(PhoenixKitWeb.Gettext, "Delete")} variant="error" />
+                <.table_row_menu_button phx-click="trash_catalogue" phx-value-uuid={catalogue.uuid} phx-disable-with={Gettext.gettext(PhoenixKitWeb.Gettext, "Deleting...")} icon="hero-trash" label={Gettext.gettext(PhoenixKitWeb.Gettext, "Delete")} variant="error" />
               </.table_row_menu>
             </.table_default_cell>
             <%!-- Deleted mode actions --%>
             <.table_default_cell :if={@view_mode == "deleted"} class="text-right whitespace-nowrap">
               <.table_row_menu mode="auto" id={"cat-del-menu-#{catalogue.uuid}"}>
-                <.table_row_menu_button phx-click="restore_catalogue" phx-value-uuid={catalogue.uuid} icon="hero-arrow-path" label={Gettext.gettext(PhoenixKitWeb.Gettext, "Restore")} variant="success" />
+                <.table_row_menu_button phx-click="restore_catalogue" phx-value-uuid={catalogue.uuid} phx-disable-with={Gettext.gettext(PhoenixKitWeb.Gettext, "Restoring...")} icon="hero-arrow-path" label={Gettext.gettext(PhoenixKitWeb.Gettext, "Restore")} variant="success" />
                 <.table_row_menu_divider />
                 <.table_row_menu_button phx-click="show_delete_confirm" phx-value-uuid={catalogue.uuid} phx-value-type="catalogue" icon="hero-trash" label={Gettext.gettext(PhoenixKitWeb.Gettext, "Delete Forever")} variant="error" />
               </.table_row_menu>
@@ -726,10 +850,10 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         <:card_actions :let={catalogue} :if={@view_mode == "active"}>
           <.link navigate={Paths.catalogue_detail(catalogue.uuid)} class="btn btn-ghost btn-xs">{Gettext.gettext(PhoenixKitWeb.Gettext, "View")}</.link>
           <.link navigate={Paths.catalogue_edit(catalogue.uuid)} class="btn btn-ghost btn-xs">{Gettext.gettext(PhoenixKitWeb.Gettext, "Edit")}</.link>
-          <button phx-click="trash_catalogue" phx-value-uuid={catalogue.uuid} class="btn btn-ghost btn-xs text-error">{Gettext.gettext(PhoenixKitWeb.Gettext, "Delete")}</button>
+          <button phx-click="trash_catalogue" phx-value-uuid={catalogue.uuid} phx-disable-with={Gettext.gettext(PhoenixKitWeb.Gettext, "Deleting...")} class="btn btn-ghost btn-xs text-error">{Gettext.gettext(PhoenixKitWeb.Gettext, "Delete")}</button>
         </:card_actions>
         <:card_actions :let={catalogue} :if={@view_mode == "deleted"}>
-          <button phx-click="restore_catalogue" phx-value-uuid={catalogue.uuid} class="btn btn-ghost btn-xs text-success">{Gettext.gettext(PhoenixKitWeb.Gettext, "Restore")}</button>
+          <button phx-click="restore_catalogue" phx-value-uuid={catalogue.uuid} phx-disable-with={Gettext.gettext(PhoenixKitWeb.Gettext, "Restoring...")} class="btn btn-ghost btn-xs text-success">{Gettext.gettext(PhoenixKitWeb.Gettext, "Restore")}</button>
           <button phx-click="show_delete_confirm" phx-value-uuid={catalogue.uuid} phx-value-type="catalogue" class="btn btn-ghost btn-xs text-error">{Gettext.gettext(PhoenixKitWeb.Gettext, "Delete Forever")}</button>
         </:card_actions>
       </.table_default>
