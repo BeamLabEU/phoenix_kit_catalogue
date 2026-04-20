@@ -6,6 +6,10 @@ defmodule PhoenixKitCatalogue.Web.SupplierFormLive do
   require Logger
 
   import PhoenixKitWeb.Components.Core.AdminPageHeader, only: [admin_page_header: 1]
+  import PhoenixKitWeb.Components.Core.Icon, only: [icon: 1]
+  import PhoenixKitWeb.Components.Core.Input, only: [input: 1]
+  import PhoenixKitWeb.Components.Core.Select, only: [select: 1]
+  import PhoenixKitWeb.Components.Core.Textarea, only: [textarea: 1]
 
   alias PhoenixKitCatalogue.Catalogue
   alias PhoenixKitCatalogue.Paths
@@ -42,7 +46,8 @@ defmodule PhoenixKitCatalogue.Web.SupplierFormLive do
       all_manufacturers = Catalogue.list_manufacturers(status: "active")
 
       {:ok,
-       assign(socket,
+       socket
+       |> assign(
          page_title:
            if(action == :new,
              do: Gettext.gettext(PhoenixKitWeb.Gettext, "New Supplier"),
@@ -50,11 +55,17 @@ defmodule PhoenixKitCatalogue.Web.SupplierFormLive do
            ),
          action: action,
          supplier: supplier,
-         changeset: changeset,
          all_manufacturers: all_manufacturers,
          linked_manufacturer_uuids: MapSet.new(linked_manufacturer_uuids)
-       )}
+       )
+       |> assign_changeset(changeset)}
     end
+  end
+
+  defp assign_changeset(socket, changeset) do
+    socket
+    |> assign(:changeset, changeset)
+    |> assign(:form, to_form(changeset))
   end
 
   @impl true
@@ -64,7 +75,7 @@ defmodule PhoenixKitCatalogue.Web.SupplierFormLive do
       |> Catalogue.change_supplier(params)
       |> Map.put(:action, socket.assigns.changeset.action)
 
-    {:noreply, assign(socket, :changeset, changeset)}
+    {:noreply, assign_changeset(socket, changeset)}
   end
 
   def handle_event("toggle_manufacturer", %{"uuid" => uuid}, socket) do
@@ -119,7 +130,7 @@ defmodule PhoenixKitCatalogue.Web.SupplierFormLive do
         end
 
       {:error, changeset} ->
-        {:noreply, assign(socket, :changeset, changeset)}
+        {:noreply, assign_changeset(socket, changeset)}
     end
   end
 
@@ -153,7 +164,7 @@ defmodule PhoenixKitCatalogue.Web.SupplierFormLive do
         end
 
       {:error, changeset} ->
-        {:noreply, assign(socket, :changeset, changeset)}
+        {:noreply, assign_changeset(socket, changeset)}
     end
   end
 
@@ -168,107 +179,67 @@ defmodule PhoenixKitCatalogue.Web.SupplierFormLive do
         subtitle={if @action == :new, do: Gettext.gettext(PhoenixKitWeb.Gettext, "Add a new supplier to your catalogue system."), else: Gettext.gettext(PhoenixKitWeb.Gettext, "Update supplier details and manufacturer links.")}
       />
 
-      <.form for={to_form(@changeset)} action="#" phx-change="validate" phx-submit="save">
+      <.form for={@form} action="#" phx-change="validate" phx-submit="save">
         <div class="card bg-base-100 shadow-lg">
           <div class="card-body flex flex-col gap-5">
-            <div class="form-control">
-              <span class="label-text font-semibold mb-2">{Gettext.gettext(PhoenixKitWeb.Gettext, "Name")} *</span>
-              <input
-                type="text"
-                name="supplier[name]"
-                value={Ecto.Changeset.get_field(@changeset, :name) || ""}
-                class="input input-bordered w-full transition-colors focus:input-primary"
-                placeholder={Gettext.gettext(PhoenixKitWeb.Gettext, "e.g., Regional Distributors Inc.")}
-              />
-              <p :for={msg <- changeset_errors(@changeset, :name)} class="text-error text-sm mt-1">
-                {msg}
-              </p>
-            </div>
+            <.input
+              field={@form[:name]}
+              type="text"
+              label={Gettext.gettext(PhoenixKitWeb.Gettext, "Name *")}
+              placeholder={Gettext.gettext(PhoenixKitWeb.Gettext, "e.g., Regional Distributors Inc.")}
+              required
+            />
 
-            <div class="form-control">
-              <span class="label-text font-semibold mb-2">Description</span>
-              <textarea
-                name="supplier[description]"
-                class="textarea textarea-bordered w-full transition-colors focus:textarea-primary"
-                rows="3"
-                placeholder={Gettext.gettext(PhoenixKitWeb.Gettext, "Brief description of this supplier...")}
-              >{Ecto.Changeset.get_field(@changeset, :description) || ""}</textarea>
-            </div>
+            <.textarea
+              field={@form[:description]}
+              label={Gettext.gettext(PhoenixKitWeb.Gettext, "Description")}
+              rows="3"
+              placeholder={Gettext.gettext(PhoenixKitWeb.Gettext, "Brief description of this supplier...")}
+            />
 
             <div class="divider my-0"></div>
 
             <%!-- Contact & web --%>
             <h2 class="text-base font-semibold text-base-content/80 flex items-center gap-2">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                class="h-4 w-4"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
-                />
-              </svg>
+              <.icon name="hero-envelope" class="h-4 w-4" />
               {Gettext.gettext(PhoenixKitWeb.Gettext, "Contact & Web")}
             </h2>
 
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div class="form-control">
-                <span class="label-text font-semibold mb-2">{Gettext.gettext(PhoenixKitWeb.Gettext, "Website")}</span>
-                <input
-                  type="url"
-                  name="supplier[website]"
-                  value={Ecto.Changeset.get_field(@changeset, :website) || ""}
-                  class="input input-bordered w-full transition-colors focus:input-primary"
-                  placeholder={Gettext.gettext(PhoenixKitWeb.Gettext, "https://...")}
-                />
-              </div>
-              <div class="form-control">
-                <span class="label-text font-semibold mb-2">{Gettext.gettext(PhoenixKitWeb.Gettext, "Contact Info")}</span>
-                <input
-                  type="text"
-                  name="supplier[contact_info]"
-                  value={Ecto.Changeset.get_field(@changeset, :contact_info) || ""}
-                  class="input input-bordered w-full transition-colors focus:input-primary"
-                  placeholder={Gettext.gettext(PhoenixKitWeb.Gettext, "Email or phone")}
-                />
-              </div>
+              <.input
+                field={@form[:website]}
+                type="url"
+                label={Gettext.gettext(PhoenixKitWeb.Gettext, "Website")}
+                placeholder={Gettext.gettext(PhoenixKitWeb.Gettext, "https://...")}
+              />
+              <.input
+                field={@form[:contact_info]}
+                type="text"
+                label={Gettext.gettext(PhoenixKitWeb.Gettext, "Contact Info")}
+                placeholder={Gettext.gettext(PhoenixKitWeb.Gettext, "Email or phone")}
+              />
             </div>
 
-            <div class="form-control">
-              <span class="label-text font-semibold mb-2">{Gettext.gettext(PhoenixKitWeb.Gettext, "Notes")}</span>
-              <textarea
-                name="supplier[notes]"
-                class="textarea textarea-bordered w-full min-h-[5rem] transition-colors focus:textarea-primary"
-                rows="2"
-                placeholder={Gettext.gettext(PhoenixKitWeb.Gettext, "Internal notes about this supplier...")}
-              >{Ecto.Changeset.get_field(@changeset, :notes) || ""}</textarea>
-            </div>
+            <.textarea
+              field={@form[:notes]}
+              label={Gettext.gettext(PhoenixKitWeb.Gettext, "Notes")}
+              rows="2"
+              class="min-h-[5rem]"
+              placeholder={Gettext.gettext(PhoenixKitWeb.Gettext, "Internal notes about this supplier...")}
+            />
 
             <div class="divider my-0"></div>
 
             <div class="form-control">
-              <span class="label-text font-semibold mb-2">{Gettext.gettext(PhoenixKitWeb.Gettext, "Status")}</span>
-              <label class="select w-full transition-colors focus-within:select-primary">
-                <select name="supplier[status]">
-                  <option
-                    value="active"
-                    selected={Ecto.Changeset.get_field(@changeset, :status) == "active"}
-                  >
-                    {Gettext.gettext(PhoenixKitWeb.Gettext, "Active")}
-                  </option>
-                  <option
-                    value="inactive"
-                    selected={Ecto.Changeset.get_field(@changeset, :status) == "inactive"}
-                  >
-                    {Gettext.gettext(PhoenixKitWeb.Gettext, "Inactive")}
-                  </option>
-                </select>
-              </label>
+              <.select
+                field={@form[:status]}
+                label={Gettext.gettext(PhoenixKitWeb.Gettext, "Status")}
+                class="transition-colors focus-within:select-primary"
+                options={[
+                  {Gettext.gettext(PhoenixKitWeb.Gettext, "Active"), "active"},
+                  {Gettext.gettext(PhoenixKitWeb.Gettext, "Inactive"), "inactive"}
+                ]}
+              />
               <span class="label-text-alt text-base-content/50 mt-1">
                 {Gettext.gettext(PhoenixKitWeb.Gettext, "Inactive suppliers won't appear in manufacturer linking.")}
               </span>
@@ -279,24 +250,11 @@ defmodule PhoenixKitCatalogue.Web.SupplierFormLive do
               <div class="divider my-0"></div>
 
               <h2 class="text-base font-semibold text-base-content/80 flex items-center gap-2">
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  class="h-4 w-4"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"
-                  />
-                </svg>
-                Linked Manufacturers
+                <.icon name="hero-link" class="h-4 w-4" />
+                {Gettext.gettext(PhoenixKitWeb.Gettext, "Linked Manufacturers")}
               </h2>
               <p class="text-sm text-base-content/50 -mt-2">
-                Click to toggle manufacturer associations.
+                {Gettext.gettext(PhoenixKitWeb.Gettext, "Click to toggle manufacturer associations.")}
               </p>
 
               <div class="flex flex-wrap gap-2">
@@ -312,21 +270,11 @@ defmodule PhoenixKitCatalogue.Web.SupplierFormLive do
                   phx-click="toggle_manufacturer"
                   phx-value-uuid={m.uuid}
                 >
-                  <svg
+                  <.icon
                     :if={MapSet.member?(@linked_manufacturer_uuids, m.uuid)}
-                    xmlns="http://www.w3.org/2000/svg"
+                    name="hero-check"
                     class="h-3.5 w-3.5"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                  >
-                    <path
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      stroke-width="2"
-                      d="M5 13l4 4L19 7"
-                    />
-                  </svg>
+                  />
                   {m.name}
                 </label>
               </div>
@@ -337,7 +285,11 @@ defmodule PhoenixKitCatalogue.Web.SupplierFormLive do
 
             <div class="flex justify-end gap-3">
               <.link navigate={Paths.suppliers()} class="btn btn-ghost">{Gettext.gettext(PhoenixKitWeb.Gettext, "Cancel")}</.link>
-              <button type="submit" class="btn btn-primary phx-submit-loading:opacity-75">
+              <button
+                type="submit"
+                class="btn btn-primary phx-submit-loading:opacity-75"
+                phx-disable-with={Gettext.gettext(PhoenixKitWeb.Gettext, "Saving...")}
+              >
                 {if @action == :new, do: Gettext.gettext(PhoenixKitWeb.Gettext, "Create Supplier"), else: Gettext.gettext(PhoenixKitWeb.Gettext, "Save Changes")}
               </button>
             </div>
@@ -346,20 +298,5 @@ defmodule PhoenixKitCatalogue.Web.SupplierFormLive do
       </.form>
     </div>
     """
-  end
-
-  defp changeset_errors(%Ecto.Changeset{action: action, errors: errors}, field)
-       when not is_nil(action) do
-    errors
-    |> Keyword.get_values(field)
-    |> Enum.map(&translate_error/1)
-  end
-
-  defp changeset_errors(_changeset, _field), do: []
-
-  defp translate_error({msg, opts}) do
-    Enum.reduce(opts, msg, fn {key, value}, acc ->
-      String.replace(acc, "%{#{key}}", fn _ -> to_string(value) end)
-    end)
   end
 end

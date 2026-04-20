@@ -1,7 +1,7 @@
 defmodule PhoenixKitCatalogue.MixProject do
   use Mix.Project
 
-  @version "0.1.9"
+  @version "0.1.12"
   @source_url "https://github.com/BeamLabEU/phoenix_kit_catalogue"
 
   def project do
@@ -10,6 +10,13 @@ defmodule PhoenixKitCatalogue.MixProject do
       version: @version,
       elixir: "~> 1.18",
       elixirc_paths: elixirc_paths(Mix.env()),
+      # Elixir 1.19 mix test requires explicit filters to know which test
+      # files to load and which to ignore. Without this it warns about
+      # `test/support/*.ex` not matching either filter and skips running
+      # the support modules through its loader, which means
+      # `test_helper.exs` runs before they're available.
+      test_load_filters: [~r/_test\.exs$/],
+      test_ignore_filters: [~r{^test/support/}],
       start_permanent: Mix.env() == :prod,
       deps: deps(),
       description:

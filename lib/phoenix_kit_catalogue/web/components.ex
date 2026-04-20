@@ -10,8 +10,21 @@ defmodule PhoenixKitCatalogue.Web.Components do
   ## Components
 
     * `search_input/1` — search bar with debounce and clear button
+    * `search_results_summary/1` — "N results for …" / "X of Y" summary line
+    * `scope_selector/1` — disclosure with catalogue/category checkbox lists
+      for narrowing a search (pairs with `Catalogue.search_items/2` filters)
+    * `catalogue_rules_picker/1` — smart-catalogue rule editor (checkbox +
+      value + unit per catalogue; pairs with `Catalogue.put_catalogue_rules/3`)
+    * `view_mode_toggle/1` — table/card view toggle synced via localStorage
     * `item_table/1` — configurable item table with selectable columns
     * `empty_state/1` — centered empty state card with message and optional action
+
+  Several of these (`search_input`, `search_results_summary`,
+  `view_mode_toggle`, `empty_state`) are deliberately generic — no
+  catalogue-specific schema knowledge — and are candidates for
+  promotion to `phoenix_kit` core once a coordinated release lands.
+  Keeping them here for now avoids coupling catalogue's hex dep to
+  unpublished core features.
 
   ## Examples
 
@@ -36,6 +49,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
   require Logger
 
   import PhoenixKitWeb.Components.Core.Icon, only: [icon: 1]
+  import PhoenixKitWeb.Components.Core.Select, only: [select: 1]
   import PhoenixKitWeb.Components.Core.TableDefault
   import PhoenixKitWeb.Components.Core.TableRowMenu
 
@@ -50,7 +64,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
   def status_badge(assigns) do
     ~H"""
     <div class={["badge", status_class(@status), size_class(@size)]}>
-      {String.capitalize(@status)}
+      {status_label(@status)}
     </div>
     """
   end
@@ -60,6 +74,17 @@ defmodule PhoenixKitCatalogue.Web.Components do
   defp status_class("deleted"), do: "badge-error"
   defp status_class("inactive"), do: "badge-warning"
   defp status_class(_), do: "badge-neutral"
+
+  # Status labels are translated via gettext so admin UIs render in the
+  # active locale instead of the raw English DB value. Unknown statuses
+  # fall through to a capitalized version of the raw string.
+  defp status_label("active"), do: Gettext.gettext(PhoenixKitWeb.Gettext, "Active")
+  defp status_label("inactive"), do: Gettext.gettext(PhoenixKitWeb.Gettext, "Inactive")
+  defp status_label("archived"), do: Gettext.gettext(PhoenixKitWeb.Gettext, "Archived")
+  defp status_label("deleted"), do: Gettext.gettext(PhoenixKitWeb.Gettext, "Deleted")
+  defp status_label("discontinued"), do: Gettext.gettext(PhoenixKitWeb.Gettext, "Discontinued")
+  defp status_label(other) when is_binary(other), do: String.capitalize(other)
+  defp status_label(_), do: Gettext.gettext(PhoenixKitWeb.Gettext, "Unknown")
 
   defp size_class(:xs), do: "badge-xs"
   defp size_class(:sm), do: "badge-sm"
@@ -228,10 +253,446 @@ defmodule PhoenixKitCatalogue.Web.Components do
   end
 
   # ═══════════════════════════════════════════════════════════════════
+  # Scope selector
+  # ═══════════════════════════════════════════════════════════════════
+
+  @doc """
+  Renders a compact scope selector for narrowing a search to a subset of
+  catalogues and/or categories.
+
+  Designed to pair with `Catalogue.search_items/2`'s `:catalogue_uuids`
+  and `:category_uuids` options. The component is thin — the parent
+  LiveView owns the selection state and decides which catalogues and
+  categories are pickable. Typical flow:
+
+      # LV loads the pickable set (e.g. via list_catalogues_by_name_prefix/2)
+      socket
+      |> assign(:scope_catalogues, Catalogue.list_catalogues_by_name_prefix("Kit"))
+      |> assign(:scope_categories, [])
+      |> assign(:selected_catalogue_uuids, [])
+      |> assign(:selected_category_uuids, [])
+
+  Renders as a disclosure with a summary ("2 catalogues · all categories")
+  and two checkbox lists inside. Each section is only rendered when its
+  list is non-empty, so callers can use it for catalogue-only or
+  category-only scoping.
+
+  ## Events
+
+  Emits four events (all names customizable via attrs):
+
+    * `on_toggle_catalogue` — `%{"uuid" => uuid}` when a catalogue is clicked
+    * `on_toggle_category` — `%{"uuid" => uuid}` when a category is clicked
+    * `on_clear_catalogues` — no params; clear all catalogue selections
+    * `on_clear_categories` — no params; clear all category selections
+
+  The LV toggles membership in its own selection lists, then re-runs
+  the search with the updated scope.
+
+  ## Attributes
+
+    * `catalogues` — list of `%Catalogue{}` the user can pick from (default `[]`)
+    * `categories` — list of `%Category{}` the user can pick from (default `[]`)
+    * `selected_catalogue_uuids` — currently selected catalogue UUIDs (default `[]`)
+    * `selected_category_uuids` — currently selected category UUIDs (default `[]`)
+    * `on_toggle_catalogue` — event name (default `"toggle_catalogue_scope"`)
+    * `on_toggle_category` — event name (default `"toggle_category_scope"`)
+    * `on_clear_catalogues` — event name (default `"clear_catalogue_scope"`)
+    * `on_clear_categories` — event name (default `"clear_category_scope"`)
+    * `id` — DOM id (default `"scope-selector"`)
+    * `open` — force the disclosure open (default `false` — collapsed until clicked)
+    * `class` — extra CSS classes on the wrapper
+
+  ## Example
+
+      <.scope_selector
+        catalogues={@scope_catalogues}
+        categories={@scope_categories}
+        selected_catalogue_uuids={@selected_catalogue_uuids}
+        selected_category_uuids={@selected_category_uuids}
+      />
+  """
+  attr(:catalogues, :list, default: [])
+  attr(:categories, :list, default: [])
+  attr(:selected_catalogue_uuids, :list, default: [])
+  attr(:selected_category_uuids, :list, default: [])
+  attr(:on_toggle_catalogue, :string, default: "toggle_catalogue_scope")
+  attr(:on_toggle_category, :string, default: "toggle_category_scope")
+  attr(:on_clear_catalogues, :string, default: "clear_catalogue_scope")
+  attr(:on_clear_categories, :string, default: "clear_category_scope")
+  attr(:id, :string, default: "scope-selector")
+  attr(:open, :boolean, default: false)
+  attr(:class, :string, default: "")
+
+  def scope_selector(assigns) do
+    assigns =
+      assigns
+      |> assign(:has_catalogues, assigns.catalogues != [])
+      |> assign(:has_categories, assigns.categories != [])
+      |> assign(:cat_count, length(assigns.selected_catalogue_uuids))
+      |> assign(:cat_categories_count, length(assigns.selected_category_uuids))
+
+    ~H"""
+    <details
+      :if={@has_catalogues or @has_categories}
+      id={@id}
+      open={@open}
+      class={["collapse collapse-arrow bg-base-200 border border-base-300", @class]}
+    >
+      <summary class="collapse-title min-h-0 py-3 pr-10 text-sm font-medium cursor-pointer">
+        <span class="inline-flex items-center gap-2">
+          <.icon name="hero-funnel" class="w-4 h-4" />
+          <span>{Gettext.gettext(PhoenixKitWeb.Gettext, "Scope")}</span>
+          <span class="text-base-content/60 font-normal">
+            {scope_summary_text(@has_catalogues, @has_categories, @cat_count, @cat_categories_count)}
+          </span>
+        </span>
+      </summary>
+      <div class="collapse-content">
+        <div class="grid gap-4 md:grid-cols-2">
+          <section :if={@has_catalogues}>
+            <div class="flex items-center justify-between mb-2">
+              <span class="label-text font-medium">
+                {Gettext.gettext(PhoenixKitWeb.Gettext, "Catalogues")}
+              </span>
+              <button
+                :if={@cat_count > 0}
+                type="button"
+                phx-click={@on_clear_catalogues}
+                class="btn btn-ghost btn-xs"
+              >
+                {Gettext.gettext(PhoenixKitWeb.Gettext, "Clear")}
+              </button>
+            </div>
+            <ul class="max-h-60 overflow-y-auto pr-1 space-y-1">
+              <li :for={cat <- @catalogues}>
+                <label class="label cursor-pointer justify-start gap-2 py-1">
+                  <input
+                    type="checkbox"
+                    class="checkbox checkbox-sm"
+                    checked={cat.uuid in @selected_catalogue_uuids}
+                    phx-click={@on_toggle_catalogue}
+                    phx-value-uuid={cat.uuid}
+                  />
+                  <span class="label-text truncate" title={cat.name}>{cat.name}</span>
+                </label>
+              </li>
+            </ul>
+          </section>
+          <section :if={@has_categories}>
+            <div class="flex items-center justify-between mb-2">
+              <span class="label-text font-medium">
+                {Gettext.gettext(PhoenixKitWeb.Gettext, "Categories")}
+              </span>
+              <button
+                :if={@cat_categories_count > 0}
+                type="button"
+                phx-click={@on_clear_categories}
+                class="btn btn-ghost btn-xs"
+              >
+                {Gettext.gettext(PhoenixKitWeb.Gettext, "Clear")}
+              </button>
+            </div>
+            <ul class="max-h-60 overflow-y-auto pr-1 space-y-1">
+              <li :for={cat <- @categories}>
+                <label class="label cursor-pointer justify-start gap-2 py-1">
+                  <input
+                    type="checkbox"
+                    class="checkbox checkbox-sm"
+                    checked={cat.uuid in @selected_category_uuids}
+                    phx-click={@on_toggle_category}
+                    phx-value-uuid={cat.uuid}
+                  />
+                  <span class="label-text truncate" title={cat.name}>{cat.name}</span>
+                </label>
+              </li>
+            </ul>
+          </section>
+        </div>
+      </div>
+    </details>
+    """
+  end
+
+  defp scope_summary_text(has_catalogues, has_categories, cat_count, cat_categories_count) do
+    parts =
+      [
+        has_catalogues && catalogue_summary(cat_count),
+        has_categories && category_summary(cat_categories_count)
+      ]
+      |> Enum.filter(& &1)
+
+    case parts do
+      [] -> ""
+      list -> "· " <> Enum.join(list, " · ")
+    end
+  end
+
+  defp catalogue_summary(0), do: Gettext.gettext(PhoenixKitWeb.Gettext, "all catalogues")
+
+  defp catalogue_summary(n) do
+    Gettext.ngettext(
+      PhoenixKitWeb.Gettext,
+      "%{count} catalogue",
+      "%{count} catalogues",
+      n,
+      count: n
+    )
+  end
+
+  defp category_summary(0), do: Gettext.gettext(PhoenixKitWeb.Gettext, "all categories")
+
+  defp category_summary(n) do
+    Gettext.ngettext(
+      PhoenixKitWeb.Gettext,
+      "%{count} category",
+      "%{count} categories",
+      n,
+      count: n
+    )
+  end
+
+  # ═══════════════════════════════════════════════════════════════════
+  # Catalogue rules picker (smart catalogue)
+  # ═══════════════════════════════════════════════════════════════════
+
+  @doc """
+  Renders the smart-catalogue rule editor: one row per candidate
+  catalogue with a checkbox, a numeric value input, and a unit dropdown.
+
+  Pairs with `PhoenixKitCatalogue.Catalogue.put_catalogue_rules/3`. The
+  component is thin — the caller (usually `ItemFormLive`) owns the
+  working-rules state in a map `%{referenced_catalogue_uuid => %{value, unit}}`
+  and calls `put_catalogue_rules/3` on save.
+
+  **Event flow:**
+
+    * `on_toggle` — `%{"uuid" => uuid}` when the checkbox is clicked.
+      Caller toggles membership in its rules map.
+    * `on_set_value` — `%{"uuid" => uuid, "value" => string}` when the
+      user edits the amount input.
+    * `on_set_unit` — `%{"uuid" => uuid, "unit" => string}` when the
+      user picks a different unit.
+    * `on_clear` — no params; clear every checked row. Shown only when
+      at least one rule is active.
+
+  Rows for an unchecked catalogue render disabled inputs but stay
+  visible so the user always sees the full picker. When `value` is blank
+  and `item_default_value` is given, the input's placeholder previews
+  the inherited default (e.g. `"Inherit: 5"`). The unit dropdown is
+  self-contained per row — it does not inherit from any item-level
+  default, so changing the item's `default_unit` never flips a rule
+  row's visible unit.
+
+  ## Attributes
+
+    * `catalogues` — list of `%Catalogue{}` the user can pick (required).
+      Typically `Catalogue.list_catalogues()` filtered to active/archived
+      and excluding the parent smart catalogue itself.
+    * `rules` — map `%{referenced_catalogue_uuid => %{value, unit}}`
+      (or `%CatalogueRule{}` values; only `:value` / `:unit` are read).
+      Unchecked catalogues simply don't appear in the map (default `%{}`).
+    * `item_default_value` — item's `default_value`, used as the value
+      input's placeholder (default `nil`)
+    * `units` — list of unit options for the dropdown
+      (default `["percent", "flat"]`). The first entry is the fallback
+      shown when a rule has no unit set yet.
+    * `on_toggle` — event name (default `"toggle_catalogue_rule"`)
+    * `on_set_value` — event name (default `"set_catalogue_rule_value"`)
+    * `on_set_unit` — event name (default `"set_catalogue_rule_unit"`)
+    * `on_clear` — event name (default `"clear_catalogue_rules"`)
+    * `id` — DOM id (default `"catalogue-rules-picker"`)
+    * `class` — extra wrapper classes
+
+  ## Example
+
+      <.catalogue_rules_picker
+        catalogues={@candidate_catalogues}
+        rules={@working_rules}
+        item_default_value={@item_default_value}
+      />
+  """
+  attr(:catalogues, :list, required: true)
+  attr(:rules, :map, default: %{})
+  attr(:item_default_value, :any, default: nil)
+  attr(:units, :list, default: ["percent", "flat"])
+  attr(:on_toggle, :string, default: "toggle_catalogue_rule")
+  attr(:on_set_value, :string, default: "set_catalogue_rule_value")
+  attr(:on_set_unit, :string, default: "set_catalogue_rule_unit")
+  attr(:on_clear, :string, default: "clear_catalogue_rules")
+  attr(:id, :string, default: "catalogue-rules-picker")
+  attr(:class, :string, default: "")
+
+  def catalogue_rules_picker(assigns) do
+    assigns =
+      assigns
+      |> assign(:active_count, map_size(assigns.rules))
+      |> assign(:default_placeholder, default_placeholder(assigns))
+
+    ~H"""
+    <div id={@id} class={["space-y-3", @class]}>
+      <div :if={@catalogues == []} class="text-sm text-base-content/60 italic">
+        {Gettext.gettext(PhoenixKitWeb.Gettext, "No other catalogues available to reference yet.")}
+      </div>
+      <div :if={@catalogues != []}>
+        <div class="flex items-center justify-between mb-2">
+          <span class="text-sm text-base-content/70">
+            {rules_summary_text(@active_count, length(@catalogues))}
+          </span>
+          <button
+            :if={@active_count > 0}
+            type="button"
+            phx-click={@on_clear}
+            class="btn btn-ghost btn-xs"
+          >
+            {Gettext.gettext(PhoenixKitWeb.Gettext, "Clear all")}
+          </button>
+        </div>
+        <div class="rounded-box border border-base-300 bg-base-100 divide-y divide-base-300">
+          <.catalogue_rule_row
+            :for={cat <- @catalogues}
+            catalogue={cat}
+            rule={Map.get(@rules, cat.uuid)}
+            default_placeholder={@default_placeholder}
+            units={@units}
+            on_toggle={@on_toggle}
+            on_set_value={@on_set_value}
+            on_set_unit={@on_set_unit}
+          />
+        </div>
+      </div>
+    </div>
+    """
+  end
+
+  attr(:catalogue, :any, required: true)
+  attr(:rule, :any, default: nil)
+  attr(:default_placeholder, :string, default: "")
+  attr(:units, :list, required: true)
+  attr(:on_toggle, :string, required: true)
+  attr(:on_set_value, :string, required: true)
+  attr(:on_set_unit, :string, required: true)
+
+  defp catalogue_rule_row(assigns) do
+    fallback_unit = List.first(assigns.units) || "percent"
+
+    assigns =
+      assigns
+      |> assign(:checked?, not is_nil(assigns.rule))
+      |> assign(:rule_value, rule_value(assigns.rule))
+      |> assign(:rule_unit, rule_unit(assigns.rule, fallback_unit))
+      |> assign(:kind_label, kind_label(assigns.catalogue))
+
+    ~H"""
+    <div class="flex items-center gap-3 px-3 py-2">
+      <label class="flex items-center gap-2 flex-1 min-w-0 cursor-pointer">
+        <input
+          type="checkbox"
+          class="checkbox checkbox-sm"
+          checked={@checked?}
+          phx-click={@on_toggle}
+          phx-value-uuid={@catalogue.uuid}
+        />
+        <span class="truncate" title={@catalogue.name}>{@catalogue.name}</span>
+        <span :if={@kind_label} class="badge badge-outline badge-xs">{@kind_label}</span>
+      </label>
+      <div class="flex items-center gap-2 shrink-0">
+        <input
+          type="number"
+          class="input input-bordered input-sm w-24"
+          value={@rule_value}
+          step="0.0001"
+          min="0"
+          disabled={not @checked?}
+          placeholder={@default_placeholder}
+          phx-blur={@on_set_value}
+          phx-value-uuid={@catalogue.uuid}
+          name="value"
+        />
+        <.select
+          name="unit"
+          id={"rule-unit-#{@catalogue.uuid}"}
+          value={@rule_unit}
+          options={Enum.map(@units, &{unit_label(&1), &1})}
+          class="select-sm w-28"
+          disabled={not @checked?}
+          phx-change={@on_set_unit}
+          phx-value-uuid={@catalogue.uuid}
+        />
+      </div>
+    </div>
+    """
+  end
+
+  defp rules_summary_text(0, total),
+    do:
+      Gettext.gettext(
+        PhoenixKitWeb.Gettext,
+        "%{total} catalogues available — none selected",
+        total: total
+      )
+
+  defp rules_summary_text(active, total) do
+    Gettext.ngettext(
+      PhoenixKitWeb.Gettext,
+      "%{active} of %{total} catalogue selected",
+      "%{active} of %{total} catalogues selected",
+      total,
+      active: active,
+      total: total
+    )
+  end
+
+  defp default_placeholder(%{item_default_value: nil}), do: ""
+
+  defp default_placeholder(%{item_default_value: value}) do
+    Gettext.gettext(PhoenixKitWeb.Gettext, "Inherit: %{value}",
+      value: format_decimal_display(value)
+    )
+  rescue
+    _ -> ""
+  end
+
+  # Strip insignificant trailing zeros so DB values like `5.0000` render
+  # as `5` while `5.1000` still renders as `5.1`. Non-Decimal values
+  # (strings mid-edit, numbers) pass through unchanged.
+  defp format_decimal_display(%Decimal{} = d),
+    do: d |> Decimal.normalize() |> Decimal.to_string(:normal)
+
+  defp format_decimal_display(v) when is_number(v), do: to_string(v)
+  defp format_decimal_display(v) when is_binary(v), do: v
+  defp format_decimal_display(_), do: ""
+
+  defp rule_value(nil), do: ""
+  defp rule_value(%{value: nil}), do: ""
+  defp rule_value(%{value: %Decimal{} = d}), do: format_decimal_display(d)
+  defp rule_value(%{value: v}) when is_number(v) or is_binary(v), do: v
+  defp rule_value(_), do: ""
+
+  # Second arg is the component-level fallback (first entry of `units`,
+  # typically `"percent"`) used only when the rule has no unit of its
+  # own — it does NOT reach for the item's `default_unit`. A rule's unit
+  # is self-contained per row.
+  defp rule_unit(nil, fallback), do: fallback
+  defp rule_unit(%{unit: nil}, fallback), do: fallback
+  defp rule_unit(%{unit: u}, _fallback) when is_binary(u), do: u
+  defp rule_unit(_, fallback), do: fallback
+
+  # "%" is a literal symbol — sending it through gettext just creates
+  # a no-op translation entry that every locale would translate to "%".
+  # "Flat" is a real word and stays translatable.
+  defp unit_label("percent"), do: "%"
+  defp unit_label("flat"), do: Gettext.gettext(PhoenixKitWeb.Gettext, "Flat")
+  defp unit_label(u), do: to_string(u)
+
+  defp kind_label(%{kind: "smart"}), do: Gettext.gettext(PhoenixKitWeb.Gettext, "Smart")
+  defp kind_label(_), do: nil
+
+  # ═══════════════════════════════════════════════════════════════════
   # Item table
   # ═══════════════════════════════════════════════════════════════════
 
-  @all_columns ~w(name sku base_price price unit status category catalogue manufacturer)a
+  @all_columns ~w(name sku base_price price discount final_price unit status category catalogue manufacturer)a
 
   @doc """
   Renders a configurable item table with optional card view toggle.
@@ -250,7 +711,11 @@ defmodule PhoenixKitCatalogue.Web.Components do
       and action buttons in the card footer.
     * `id` — unique ID for the component (required when `cards` is true, used by
       the JS hook to persist view preference)
-    * `markup_percentage` — catalogue markup for `:price` column (required if `:price` in columns)
+    * `markup_percentage` — catalogue markup for `:price` and `:final_price` columns
+      (required when either is listed; ignored otherwise)
+    * `discount_percentage` — catalogue discount for `:discount` and `:final_price`
+      columns (required when either is listed; ignored otherwise). The `:discount`
+      column honors per-item overrides via `Item.effective_discount/2`.
     * `edit_path` — 1-arity function `(uuid -> path)` to enable edit links
     * `on_delete` — event name for soft-delete button (e.g. `"delete_item"`)
     * `on_restore` — event name for restore button (e.g. `"restore_item"`)
@@ -284,6 +749,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
   attr(:id, :string, default: nil)
   attr(:storage_key, :string, default: nil)
   attr(:markup_percentage, :any, default: nil)
+  attr(:discount_percentage, :any, default: nil)
   attr(:edit_path, :any, default: nil)
   attr(:on_delete, :string, default: nil)
   attr(:on_restore, :string, default: nil)
@@ -308,7 +774,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
       id={@id}
       storage_key={@storage_key}
       items={@items}
-      card_fields={&card_fields(&1, @card_columns, @markup_percentage, @catalogue_path)}
+      card_fields={&card_fields(&1, @card_columns, @markup_percentage, @discount_percentage, @catalogue_path)}
     >
       <:card_header :let={item}>
         <.link :if={@edit_path && item.uuid} navigate={safe_call(@edit_path, item.uuid)} class="font-medium text-sm link link-hover">{item.name || "—"}</.link>
@@ -322,7 +788,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
       </.table_default_header>
       <.table_default_body>
         <.table_default_row :for={item <- @items}>
-          <.item_cell :for={col <- @columns} column={col} item={item} markup_percentage={@markup_percentage} catalogue_path={@catalogue_path} edit_path={@edit_path} />
+          <.item_cell :for={col <- @columns} column={col} item={item} markup_percentage={@markup_percentage} discount_percentage={@discount_percentage} catalogue_path={@catalogue_path} edit_path={@edit_path} />
           <.item_actions
             :if={@has_actions}
             item={item}
@@ -350,29 +816,41 @@ defmodule PhoenixKitCatalogue.Web.Components do
 
   # ── Card view helpers ───────────────────────────────────────────
 
-  defp card_fields(item, columns, markup_percentage, catalogue_path) do
+  defp card_fields(item, columns, markup_percentage, discount_percentage, catalogue_path) do
     Enum.flat_map(columns, fn col ->
-      case card_field_value(item, col, markup_percentage, catalogue_path) do
+      case card_field_value(item, col, markup_percentage, discount_percentage, catalogue_path) do
         nil -> []
         value -> [%{label: column_label(col), value: value}]
       end
     end)
   end
 
-  defp card_field_value(item, :sku, _, _), do: item.sku || "—"
-  defp card_field_value(item, :base_price, _, _), do: format_price(item.base_price)
-  defp card_field_value(item, :price, markup, _), do: format_price(safe_sale_price(item, markup))
-  defp card_field_value(item, :unit, _, _), do: format_unit(item.unit)
-  defp card_field_value(item, :status, _, _), do: String.capitalize(item.status || "unknown")
-  defp card_field_value(item, :category, _, _), do: safe_assoc_field(item, :category, :name)
+  defp card_field_value(item, :sku, _, _, _), do: item.sku || "—"
+  defp card_field_value(item, :base_price, _, _, _), do: format_price(item.base_price)
 
-  defp card_field_value(item, :catalogue, _, _),
+  defp card_field_value(item, :price, markup, _, _),
+    do: format_price(safe_sale_price(item, markup))
+
+  defp card_field_value(item, :discount, _, discount, _),
+    do: format_percentage(safe_effective_discount(item, discount))
+
+  defp card_field_value(item, :final_price, markup, discount, _),
+    do: format_price(safe_final_price(item, markup, discount))
+
+  defp card_field_value(item, :unit, _, _, _), do: format_unit(item.unit)
+
+  defp card_field_value(item, :status, _, _, _),
+    do: String.capitalize(item.status || "unknown")
+
+  defp card_field_value(item, :category, _, _, _), do: safe_assoc_field(item, :category, :name)
+
+  defp card_field_value(item, :catalogue, _, _, _),
     do: safe_assoc_field(item, :catalogue, :name)
 
-  defp card_field_value(item, :manufacturer, _, _),
+  defp card_field_value(item, :manufacturer, _, _, _),
     do: safe_assoc_field(item, :manufacturer, :name)
 
-  defp card_field_value(_, col, _, _) do
+  defp card_field_value(_, col, _, _, _) do
     Logger.warning("item_table card: unknown column #{inspect(col)}, skipping")
     nil
   end
@@ -389,10 +867,10 @@ defmodule PhoenixKitCatalogue.Web.Components do
     <.link :if={@edit_path && @item.uuid} navigate={safe_call(@edit_path, @item.uuid)} class="btn btn-ghost btn-xs">
       <.icon name="hero-pencil" class="w-3.5 h-3.5" /> {Gettext.gettext(PhoenixKitWeb.Gettext, "Edit")}
     </.link>
-    <button :if={@on_delete} phx-click={@on_delete} phx-value-uuid={@item.uuid} class="btn btn-ghost btn-xs text-error">
+    <button :if={@on_delete} phx-click={@on_delete} phx-value-uuid={@item.uuid} phx-disable-with={Gettext.gettext(PhoenixKitWeb.Gettext, "Deleting...")} class="btn btn-ghost btn-xs text-error">
       <.icon name="hero-trash" class="w-3.5 h-3.5" /> {Gettext.gettext(PhoenixKitWeb.Gettext, "Delete")}
     </button>
-    <button :if={@on_restore} phx-click={@on_restore} phx-value-uuid={@item.uuid} class="btn btn-ghost btn-xs text-success">
+    <button :if={@on_restore} phx-click={@on_restore} phx-value-uuid={@item.uuid} phx-disable-with={Gettext.gettext(PhoenixKitWeb.Gettext, "Restoring...")} class="btn btn-ghost btn-xs text-success">
       <.icon name="hero-arrow-path" class="w-3.5 h-3.5" /> {Gettext.gettext(PhoenixKitWeb.Gettext, "Restore")}
     </button>
     <button :if={@on_permanent_delete} phx-click={@on_permanent_delete} phx-value-uuid={@item.uuid} phx-value-type={@permanent_delete_type} class="btn btn-ghost btn-xs text-error">
@@ -406,6 +884,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
   attr(:column, :atom, required: true)
   attr(:item, :any, required: true)
   attr(:markup_percentage, :any, default: nil)
+  attr(:discount_percentage, :any, default: nil)
   attr(:catalogue_path, :any, default: nil)
   attr(:edit_path, :any, default: nil)
 
@@ -439,6 +918,18 @@ defmodule PhoenixKitCatalogue.Web.Components do
   defp item_cell(%{column: :price} = assigns) do
     ~H"""
     <.table_default_cell class="text-sm font-semibold">{format_price(safe_sale_price(@item, @markup_percentage))}</.table_default_cell>
+    """
+  end
+
+  defp item_cell(%{column: :discount} = assigns) do
+    ~H"""
+    <.table_default_cell class="text-sm">{format_percentage(safe_effective_discount(@item, @discount_percentage))}</.table_default_cell>
+    """
+  end
+
+  defp item_cell(%{column: :final_price} = assigns) do
+    ~H"""
+    <.table_default_cell class="text-sm font-semibold">{format_price(safe_final_price(@item, @markup_percentage, @discount_percentage))}</.table_default_cell>
     """
   end
 
@@ -518,8 +1009,8 @@ defmodule PhoenixKitCatalogue.Web.Components do
       <.table_row_menu mode="auto" id={"item-action-#{@item.uuid}"}>
         <.table_row_menu_link :if={@edit_path} navigate={safe_call(@edit_path, @item.uuid)} icon="hero-pencil" label={Gettext.gettext(PhoenixKitWeb.Gettext, "Edit")} />
         <.table_row_menu_divider :if={@edit_path && (@on_delete || @on_restore)} />
-        <.table_row_menu_button :if={@on_delete} phx-click={@on_delete} phx-value-uuid={@item.uuid} icon="hero-trash" label={Gettext.gettext(PhoenixKitWeb.Gettext, "Delete")} variant="error" />
-        <.table_row_menu_button :if={@on_restore} phx-click={@on_restore} phx-value-uuid={@item.uuid} icon="hero-arrow-path" label={Gettext.gettext(PhoenixKitWeb.Gettext, "Restore")} variant="success" />
+        <.table_row_menu_button :if={@on_delete} phx-click={@on_delete} phx-value-uuid={@item.uuid} phx-disable-with={Gettext.gettext(PhoenixKitWeb.Gettext, "Deleting...")} icon="hero-trash" label={Gettext.gettext(PhoenixKitWeb.Gettext, "Delete")} variant="error" />
+        <.table_row_menu_button :if={@on_restore} phx-click={@on_restore} phx-value-uuid={@item.uuid} phx-disable-with={Gettext.gettext(PhoenixKitWeb.Gettext, "Restoring...")} icon="hero-arrow-path" label={Gettext.gettext(PhoenixKitWeb.Gettext, "Restore")} variant="success" />
         <.table_row_menu_divider :if={@on_restore && @on_permanent_delete} />
         <.table_row_menu_button :if={@on_permanent_delete} phx-click={@on_permanent_delete} phx-value-uuid={@item.uuid} phx-value-type={@permanent_delete_type} icon="hero-trash" label={Gettext.gettext(PhoenixKitWeb.Gettext, "Delete Forever")} variant="error" />
       </.table_row_menu>
@@ -538,6 +1029,8 @@ defmodule PhoenixKitCatalogue.Web.Components do
   defp column_label(:sku), do: Gettext.gettext(PhoenixKitWeb.Gettext, "SKU")
   defp column_label(:base_price), do: Gettext.gettext(PhoenixKitWeb.Gettext, "Base Price")
   defp column_label(:price), do: Gettext.gettext(PhoenixKitWeb.Gettext, "Price")
+  defp column_label(:discount), do: Gettext.gettext(PhoenixKitWeb.Gettext, "Discount")
+  defp column_label(:final_price), do: Gettext.gettext(PhoenixKitWeb.Gettext, "Final Price")
   defp column_label(:unit), do: Gettext.gettext(PhoenixKitWeb.Gettext, "Unit")
   defp column_label(:status), do: Gettext.gettext(PhoenixKitWeb.Gettext, "Status")
   defp column_label(:category), do: Gettext.gettext(PhoenixKitWeb.Gettext, "Category")
@@ -562,13 +1055,19 @@ defmodule PhoenixKitCatalogue.Web.Components do
   defp format_unit("running_meter"), do: Gettext.gettext(PhoenixKitWeb.Gettext, "rm")
   defp format_unit(other), do: to_string(other)
 
-  # Safe sale price calculation — handles non-Decimal markup gracefully
+  # Sale-price wrapper: coerces non-Decimal markup at the boundary so
+  # callers can pass Decimal | number | string | nil without thinking.
+  # `Item.sale_price/2` itself is total over `(item, Decimal | nil)`.
   defp safe_sale_price(item, markup) do
     Item.sale_price(item, ensure_decimal(markup))
-  rescue
-    e ->
-      Logger.warning("item_table: sale_price error: #{Exception.message(e)}")
-      nil
+  end
+
+  defp safe_final_price(item, markup, discount) do
+    Item.final_price(item, ensure_decimal(markup), ensure_decimal(discount))
+  end
+
+  defp safe_effective_discount(item, discount) do
+    Item.effective_discount(item, ensure_decimal(discount))
   end
 
   defp ensure_decimal(nil), do: nil
@@ -577,7 +1076,18 @@ defmodule PhoenixKitCatalogue.Web.Components do
   defp ensure_decimal(s) when is_binary(s), do: Decimal.new(s)
   defp ensure_decimal(_), do: nil
 
-  # Safe association access — returns "—" if association is nil or not loaded
+  defp format_percentage(nil), do: "—"
+
+  defp format_percentage(%Decimal{} = pct) do
+    case Decimal.compare(pct, Decimal.new("0")) do
+      :eq -> "—"
+      _ -> Decimal.to_string(pct, :normal) <> "%"
+    end
+  end
+
+  # Returns "—" if the association is nil or not loaded; otherwise the
+  # named field. Used at template render time, where a bare `nil` would
+  # be ugly. This is presentation, not error handling.
   defp safe_assoc_field(record, assoc, field) do
     case Map.get(record, assoc) do
       %{__struct__: Ecto.Association.NotLoaded} -> "—"
@@ -586,14 +1096,13 @@ defmodule PhoenixKitCatalogue.Web.Components do
     end
   end
 
-  # Safe function call — catches errors from path functions
-  defp safe_call(func, arg) do
-    func.(arg)
-  rescue
-    e ->
-      Logger.warning("item_table: path function error: #{Exception.message(e)}")
-      "#"
-  end
+  # Calls a caller-supplied path function. Both `nil` paths and `nil`
+  # UUIDs collapse to `"#"` so unguarded `navigate={...}` attrs always
+  # produce a defined href. Path functions themselves are trusted to
+  # be total over a binary UUID.
+  defp safe_call(nil, _arg), do: "#"
+  defp safe_call(_func, nil), do: "#"
+  defp safe_call(func, arg) when is_function(func, 1), do: func.(arg)
 
   # Safe nested association access — follows a path of keys, returns nil on any miss
 end

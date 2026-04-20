@@ -1,6 +1,7 @@
 defmodule PhoenixKitCatalogue.CatalogueTest do
   use PhoenixKitCatalogue.DataCase, async: true
 
+  alias Ecto.Adapters.SQL
   alias PhoenixKitCatalogue.Catalogue
 
   # ── Helpers ──────────────────────────────────────────────────────
@@ -968,7 +969,7 @@ defmodule PhoenixKitCatalogue.CatalogueTest do
 
       assert Decimal.equal?(pricing.base_price, Decimal.new("100.00"))
       assert Decimal.equal?(pricing.markup_percentage, Decimal.new("20"))
-      assert Decimal.equal?(pricing.price, Decimal.new("120.00"))
+      assert Decimal.equal?(pricing.sale_price, Decimal.new("120.00"))
     end
 
     test "uses 0% markup when catalogue has default" do
@@ -979,7 +980,7 @@ defmodule PhoenixKitCatalogue.CatalogueTest do
       pricing = Catalogue.item_pricing(item)
 
       assert Decimal.equal?(pricing.markup_percentage, Decimal.new("0"))
-      assert Decimal.equal?(pricing.price, Decimal.new("50.00"))
+      assert Decimal.equal?(pricing.sale_price, Decimal.new("50.00"))
     end
 
     test "uses 0% markup for uncategorized items" do
@@ -988,7 +989,7 @@ defmodule PhoenixKitCatalogue.CatalogueTest do
       pricing = Catalogue.item_pricing(item)
 
       assert Decimal.equal?(pricing.markup_percentage, Decimal.new("0"))
-      assert Decimal.equal?(pricing.price, Decimal.new("75.00"))
+      assert Decimal.equal?(pricing.sale_price, Decimal.new("75.00"))
     end
 
     test "returns nil price when base_price is nil" do
@@ -999,7 +1000,7 @@ defmodule PhoenixKitCatalogue.CatalogueTest do
       pricing = Catalogue.item_pricing(item)
 
       assert is_nil(pricing.base_price)
-      assert is_nil(pricing.price)
+      assert is_nil(pricing.sale_price)
       assert Decimal.equal?(pricing.markup_percentage, Decimal.new("10"))
     end
 
@@ -1021,7 +1022,7 @@ defmodule PhoenixKitCatalogue.CatalogueTest do
       assert Decimal.equal?(pricing.item_markup, Decimal.new("50"))
       # Effective markup is the item's override
       assert Decimal.equal?(pricing.markup_percentage, Decimal.new("50"))
-      assert Decimal.equal?(pricing.price, Decimal.new("150.00"))
+      assert Decimal.equal?(pricing.sale_price, Decimal.new("150.00"))
     end
 
     test "item_markup is nil when there is no override" do
@@ -1053,7 +1054,7 @@ defmodule PhoenixKitCatalogue.CatalogueTest do
       assert Decimal.equal?(pricing.catalogue_markup, Decimal.new("25"))
       assert Decimal.equal?(pricing.item_markup, Decimal.new("0"))
       assert Decimal.equal?(pricing.markup_percentage, Decimal.new("0"))
-      assert Decimal.equal?(pricing.price, Decimal.new("100.00"))
+      assert Decimal.equal?(pricing.sale_price, Decimal.new("100.00"))
     end
 
     test "falls back to 0% markup when the catalogue association is unloaded and preload fails" do
@@ -1075,7 +1076,7 @@ defmodule PhoenixKitCatalogue.CatalogueTest do
 
       assert Decimal.equal?(pricing.base_price, Decimal.new("42.00"))
       assert Decimal.equal?(pricing.markup_percentage, Decimal.new("0"))
-      assert Decimal.equal?(pricing.price, Decimal.new("42.00"))
+      assert Decimal.equal?(pricing.sale_price, Decimal.new("42.00"))
     end
   end
 
@@ -1956,7 +1957,7 @@ defmodule PhoenixKitCatalogue.CatalogueTest do
 
       pricing = Catalogue.item_pricing(item)
       # 99.99 * 1.3333 = 133.316667 → rounds to 133.32
-      assert Decimal.equal?(pricing.price, Decimal.new("133.32"))
+      assert Decimal.equal?(pricing.sale_price, Decimal.new("133.32"))
     end
 
     test "list_items_for_catalogue on a catalogue with no items returns []" do
@@ -2018,6 +2019,856 @@ defmodule PhoenixKitCatalogue.CatalogueTest do
       assert Catalogue.get_catalogue(cat.uuid).status == "active"
       assert Catalogue.get_category(category.uuid).status == "active"
       assert Catalogue.get_item(item.uuid).status == "active"
+    end
+  end
+
+  # ═══════════════════════════════════════════════════════════════════
+  # Prefix lookup + scoped search (0.1.10)
+  # ═══════════════════════════════════════════════════════════════════
+
+  describe "list_catalogues_by_name_prefix/2" do
+    test "matches case-insensitively at the start of the name" do
+      create_catalogue(%{name: "Kitchen Furniture"})
+      create_catalogue(%{name: "Kits and Tools"})
+      create_catalogue(%{name: "Bathroom"})
+
+      names =
+        "kit"
+        |> Catalogue.list_catalogues_by_name_prefix()
+        |> Enum.map(& &1.name)
+
+      assert "Kitchen Furniture" in names
+      assert "Kits and Tools" in names
+      refute "Bathroom" in names
+    end
+
+    test "is anchored — does not match mid-name" do
+      create_catalogue(%{name: "Bathroom Kits"})
+      create_catalogue(%{name: "Kitchen"})
+
+      names =
+        "kit"
+        |> Catalogue.list_catalogues_by_name_prefix()
+        |> Enum.map(& &1.name)
+
+      assert "Kitchen" in names
+      refute "Bathroom Kits" in names
+    end
+
+    test "excludes deleted by default" do
+      cat = create_catalogue(%{name: "Kitchen"})
+      Catalogue.trash_catalogue(cat)
+
+      assert Catalogue.list_catalogues_by_name_prefix("Kit") == []
+    end
+
+    test ":status opt narrows to a specific status" do
+      cat = create_catalogue(%{name: "Kitchen"})
+      Catalogue.trash_catalogue(cat)
+
+      [result] = Catalogue.list_catalogues_by_name_prefix("Kit", status: "deleted")
+      assert result.name == "Kitchen"
+    end
+
+    test ":limit opt caps results" do
+      for n <- 1..5, do: create_catalogue(%{name: "Kit #{n}"})
+
+      assert length(Catalogue.list_catalogues_by_name_prefix("Kit", limit: 3)) == 3
+    end
+
+    test "empty prefix returns all non-deleted" do
+      create_catalogue(%{name: "Alpha"})
+      create_catalogue(%{name: "Beta"})
+
+      names =
+        ""
+        |> Catalogue.list_catalogues_by_name_prefix()
+        |> Enum.map(& &1.name)
+
+      assert "Alpha" in names
+      assert "Beta" in names
+    end
+
+    test "escapes LIKE metacharacters in the prefix" do
+      create_catalogue(%{name: "100% Pure"})
+      create_catalogue(%{name: "Anything"})
+
+      # Without escaping, `%` would match any prefix.
+      names =
+        "100%"
+        |> Catalogue.list_catalogues_by_name_prefix()
+        |> Enum.map(& &1.name)
+
+      assert names == ["100% Pure"]
+    end
+  end
+
+  describe "search_items/2 with scope filters" do
+    test ":catalogue_uuids narrows to the listed catalogues" do
+      cat_a = create_catalogue(%{name: "A"})
+      cat_b = create_catalogue(%{name: "B"})
+      cat_c = create_catalogue(%{name: "C"})
+      cat_a_cat = create_category(cat_a)
+      cat_b_cat = create_category(cat_b)
+      cat_c_cat = create_category(cat_c)
+      create_item(%{name: "Oak A", category_uuid: cat_a_cat.uuid})
+      create_item(%{name: "Oak B", category_uuid: cat_b_cat.uuid})
+      create_item(%{name: "Oak C", category_uuid: cat_c_cat.uuid})
+
+      names =
+        "oak"
+        |> Catalogue.search_items(catalogue_uuids: [cat_a.uuid, cat_b.uuid])
+        |> Enum.map(& &1.name)
+
+      assert Enum.sort(names) == ["Oak A", "Oak B"]
+    end
+
+    test ":category_uuids narrows to the listed categories and excludes uncategorized" do
+      cat = create_catalogue()
+      c1 = create_category(cat, %{name: "One"})
+      c2 = create_category(cat, %{name: "Two"})
+      create_item(%{name: "Oak Cat1", category_uuid: c1.uuid})
+      create_item(%{name: "Oak Cat2", category_uuid: c2.uuid})
+      create_item(%{name: "Oak Uncat", catalogue_uuid: cat.uuid, category_uuid: nil})
+
+      names =
+        "oak"
+        |> Catalogue.search_items(category_uuids: [c1.uuid])
+        |> Enum.map(& &1.name)
+
+      assert names == ["Oak Cat1"]
+    end
+
+    test ":catalogue_uuids and :category_uuids compose with AND" do
+      cat_a = create_catalogue(%{name: "A"})
+      cat_b = create_catalogue(%{name: "B"})
+      c_a1 = create_category(cat_a)
+      c_b1 = create_category(cat_b)
+      create_item(%{name: "Oak A1", category_uuid: c_a1.uuid})
+      create_item(%{name: "Oak B1", category_uuid: c_b1.uuid})
+
+      # Category is in cat_b, but we scope to cat_a → no results
+      assert Catalogue.search_items("oak",
+               catalogue_uuids: [cat_a.uuid],
+               category_uuids: [c_b1.uuid]
+             ) == []
+
+      # Category matches its catalogue → gets the item
+      [item] =
+        Catalogue.search_items("oak",
+          catalogue_uuids: [cat_a.uuid],
+          category_uuids: [c_a1.uuid]
+        )
+
+      assert item.name == "Oak A1"
+    end
+
+    test "nil and empty lists are treated as 'no filter'" do
+      cat = create_catalogue()
+      category = create_category(cat)
+      create_item(%{name: "Oak", category_uuid: category.uuid})
+
+      assert length(Catalogue.search_items("oak", catalogue_uuids: nil)) == 1
+      assert length(Catalogue.search_items("oak", catalogue_uuids: [])) == 1
+      assert length(Catalogue.search_items("oak", category_uuids: nil)) == 1
+      assert length(Catalogue.search_items("oak", category_uuids: [])) == 1
+    end
+
+    test "count_search_items/2 accepts the same scope filters" do
+      cat_a = create_catalogue(%{name: "A"})
+      cat_b = create_catalogue(%{name: "B"})
+      c_a = create_category(cat_a)
+      c_b = create_category(cat_b)
+      for n <- 1..3, do: create_item(%{name: "Oak A#{n}", category_uuid: c_a.uuid})
+      for n <- 1..2, do: create_item(%{name: "Oak B#{n}", category_uuid: c_b.uuid})
+
+      assert Catalogue.count_search_items("oak") == 5
+      assert Catalogue.count_search_items("oak", catalogue_uuids: [cat_a.uuid]) == 3
+      assert Catalogue.count_search_items("oak", catalogue_uuids: [cat_b.uuid]) == 2
+
+      assert Catalogue.count_search_items("oak",
+               catalogue_uuids: [cat_a.uuid, cat_b.uuid]
+             ) == 5
+    end
+
+    test "count_search_items/1 (no opts) still works for backwards compatibility" do
+      cat = create_catalogue()
+      category = create_category(cat)
+      for n <- 1..3, do: create_item(%{name: "Oak #{n}", category_uuid: category.uuid})
+
+      assert Catalogue.count_search_items("oak") == 3
+    end
+
+    test "list_catalogues_by_name_prefix/2 + search_items/2 composition" do
+      kitchen = create_catalogue(%{name: "Kitchen"})
+      kits = create_catalogue(%{name: "Kits and Tools"})
+      bathroom = create_catalogue(%{name: "Bathroom"})
+      kitchen_cat = create_category(kitchen)
+      kits_cat = create_category(kits)
+      bathroom_cat = create_category(bathroom)
+      create_item(%{name: "Oak Kitchen", category_uuid: kitchen_cat.uuid})
+      create_item(%{name: "Oak Kits", category_uuid: kits_cat.uuid})
+      create_item(%{name: "Oak Bath", category_uuid: bathroom_cat.uuid})
+
+      uuids =
+        "Kit"
+        |> Catalogue.list_catalogues_by_name_prefix()
+        |> Enum.map(& &1.uuid)
+
+      names =
+        "oak"
+        |> Catalogue.search_items(catalogue_uuids: uuids)
+        |> Enum.map(& &1.name)
+        |> Enum.sort()
+
+      assert names == ["Oak Kitchen", "Oak Kits"]
+    end
+  end
+
+  # ═══════════════════════════════════════════════════════════════════
+  # Discount (V102 / 0.1.11)
+  # ═══════════════════════════════════════════════════════════════════
+
+  describe "catalogue discount_percentage" do
+    test "defaults to 0 when not provided" do
+      cat = create_catalogue()
+      assert Decimal.equal?(cat.discount_percentage, Decimal.new("0"))
+    end
+
+    test "can be set on create" do
+      cat = create_catalogue(%{discount_percentage: "15.5"})
+      assert Decimal.equal?(cat.discount_percentage, Decimal.new("15.5"))
+    end
+
+    test "can be updated" do
+      cat = create_catalogue()
+      {:ok, updated} = Catalogue.update_catalogue(cat, %{discount_percentage: "25"})
+      assert Decimal.equal?(updated.discount_percentage, Decimal.new("25"))
+    end
+
+    test "rejects discount above 100" do
+      {:error, changeset} =
+        Catalogue.create_catalogue(%{name: "Bad", discount_percentage: "150"})
+
+      assert %{discount_percentage: [_ | _]} = errors_on(changeset)
+    end
+
+    test "rejects negative discount" do
+      {:error, changeset} =
+        Catalogue.create_catalogue(%{name: "Bad", discount_percentage: "-1"})
+
+      assert %{discount_percentage: [_ | _]} = errors_on(changeset)
+    end
+  end
+
+  describe "item discount_percentage override" do
+    test "defaults to nil (inherits from catalogue)" do
+      cat = create_catalogue(%{discount_percentage: "10"})
+      category = create_category(cat)
+      item = create_item(%{name: "Inheritor", category_uuid: category.uuid})
+      assert is_nil(item.discount_percentage)
+    end
+
+    test "can be set to 0 (explicit 'no discount' override)" do
+      cat = create_catalogue(%{discount_percentage: "25"})
+      category = create_category(cat)
+
+      item =
+        create_item(%{
+          name: "Full Price",
+          base_price: "100.00",
+          discount_percentage: "0",
+          category_uuid: category.uuid
+        })
+
+      assert Decimal.equal?(item.discount_percentage, Decimal.new("0"))
+    end
+
+    test "rejects discount above 100" do
+      cat = create_catalogue()
+      category = create_category(cat)
+
+      {:error, changeset} =
+        Catalogue.create_item(%{
+          name: "Bad",
+          base_price: "10",
+          discount_percentage: "150",
+          category_uuid: category.uuid
+        })
+
+      assert %{discount_percentage: [_ | _]} = errors_on(changeset)
+    end
+  end
+
+  describe "item_pricing/1 with discount" do
+    test "surfaces catalogue and item discount fields" do
+      cat = create_catalogue(%{markup_percentage: "20", discount_percentage: "10"})
+      category = create_category(cat)
+      item = create_item(%{name: "Panel", base_price: "100.00", category_uuid: category.uuid})
+
+      pricing = Catalogue.item_pricing(item)
+
+      # Markups
+      assert Decimal.equal?(pricing.catalogue_markup, Decimal.new("20"))
+      assert is_nil(pricing.item_markup)
+      assert Decimal.equal?(pricing.markup_percentage, Decimal.new("20"))
+      assert Decimal.equal?(pricing.sale_price, Decimal.new("120.00"))
+
+      # Discounts
+      assert Decimal.equal?(pricing.catalogue_discount, Decimal.new("10"))
+      assert is_nil(pricing.item_discount)
+      assert Decimal.equal?(pricing.discount_percentage, Decimal.new("10"))
+
+      # Final: 100 * 1.20 * 0.90 = 108.00
+      assert Decimal.equal?(pricing.final_price, Decimal.new("108.00"))
+      # Savings: 120 - 108 = 12
+      assert Decimal.equal?(pricing.discount_amount, Decimal.new("12.00"))
+    end
+
+    test "item discount override wins over catalogue discount" do
+      cat = create_catalogue(%{markup_percentage: "0", discount_percentage: "10"})
+      category = create_category(cat)
+
+      item =
+        create_item(%{
+          name: "Big Sale",
+          base_price: "100.00",
+          discount_percentage: "50",
+          category_uuid: category.uuid
+        })
+
+      pricing = Catalogue.item_pricing(item)
+
+      assert Decimal.equal?(pricing.catalogue_discount, Decimal.new("10"))
+      assert Decimal.equal?(pricing.item_discount, Decimal.new("50"))
+      assert Decimal.equal?(pricing.discount_percentage, Decimal.new("50"))
+      assert Decimal.equal?(pricing.final_price, Decimal.new("50.00"))
+      assert Decimal.equal?(pricing.discount_amount, Decimal.new("50.00"))
+    end
+
+    test "item discount of 0 overrides a catalogue discount" do
+      cat = create_catalogue(%{markup_percentage: "0", discount_percentage: "25"})
+      category = create_category(cat)
+
+      item =
+        create_item(%{
+          name: "No Discount For Me",
+          base_price: "100.00",
+          discount_percentage: "0",
+          category_uuid: category.uuid
+        })
+
+      pricing = Catalogue.item_pricing(item)
+
+      assert Decimal.equal?(pricing.discount_percentage, Decimal.new("0"))
+      # sale_price = final_price when discount is 0
+      assert Decimal.equal?(pricing.final_price, Decimal.new("100.00"))
+      assert Decimal.equal?(pricing.discount_amount, Decimal.new("0.00"))
+    end
+
+    test "no discount anywhere → final_price equals sale_price, discount_amount is nil" do
+      cat = create_catalogue(%{markup_percentage: "15"})
+      category = create_category(cat)
+      item = create_item(%{name: "Plain", base_price: "100.00", category_uuid: category.uuid})
+
+      pricing = Catalogue.item_pricing(item)
+
+      assert Decimal.equal?(pricing.catalogue_discount, Decimal.new("0"))
+      assert is_nil(pricing.item_discount)
+      assert Decimal.equal?(pricing.discount_percentage, Decimal.new("0"))
+      # With 0% discount, final equals sale
+      assert Decimal.equal?(pricing.final_price, pricing.sale_price)
+      # discount_amount is nil when no discount applies (catalogue=0, item=nil
+      # ⇒ effective is 0, which is truthy — amount is Decimal 0.00 here)
+      assert Decimal.equal?(pricing.discount_amount, Decimal.new("0.00"))
+    end
+
+    test "all-nil discount (no catalogue association) → nil discount fields" do
+      # Detached item with no catalogue loaded → safe_pricing_for_item logs
+      # a warning and returns {0, 0}.
+      item = %PhoenixKitCatalogue.Schemas.Item{
+        uuid: "00000000-0000-0000-0000-000000000000",
+        base_price: Decimal.new("100.00"),
+        catalogue: %Ecto.Association.NotLoaded{
+          __field__: :catalogue,
+          __owner__: PhoenixKitCatalogue.Schemas.Item,
+          __cardinality__: :one
+        }
+      }
+
+      pricing = Catalogue.item_pricing(item)
+
+      assert Decimal.equal?(pricing.catalogue_discount, Decimal.new("0"))
+      assert Decimal.equal?(pricing.final_price, Decimal.new("100.00"))
+    end
+
+    test "final_price is nil when base_price is nil" do
+      cat = create_catalogue(%{markup_percentage: "20", discount_percentage: "10"})
+      category = create_category(cat)
+      item = create_item(%{name: "Priceless", category_uuid: category.uuid})
+
+      pricing = Catalogue.item_pricing(item)
+
+      assert is_nil(pricing.base_price)
+      assert is_nil(pricing.sale_price)
+      assert is_nil(pricing.final_price)
+      assert is_nil(pricing.discount_amount)
+    end
+  end
+
+  # ═══════════════════════════════════════════════════════════════════
+  # Smart catalogues (V102 / 0.1.12)
+  # ═══════════════════════════════════════════════════════════════════
+
+  describe "list_catalogues/1 with :kind filter" do
+    test "returns only the requested kind" do
+      standard = create_catalogue(%{name: "Kitchen"})
+      smart = create_catalogue(%{name: "Services", kind: "smart"})
+
+      smart_names = Catalogue.list_catalogues(kind: :smart) |> Enum.map(& &1.name)
+      standard_names = Catalogue.list_catalogues(kind: :standard) |> Enum.map(& &1.name)
+
+      assert smart.name in smart_names
+      refute standard.name in smart_names
+
+      assert standard.name in standard_names
+      refute smart.name in standard_names
+    end
+
+    test "accepts string kind too" do
+      create_catalogue(%{name: "Svc", kind: "smart"})
+      assert [%{kind: "smart"}] = Catalogue.list_catalogues(kind: "smart")
+    end
+  end
+
+  describe "put_catalogue_rules/3 and list_catalogue_rules/1" do
+    test "atomically replaces rules — add, update, remove in one shot" do
+      services = create_catalogue(%{name: "Services", kind: "smart"})
+      kitchen = create_catalogue(%{name: "Kitchen"})
+      plumbing = create_catalogue(%{name: "Plumbing"})
+      hardware = create_catalogue(%{name: "Hardware"})
+      delivery = create_item(%{name: "Delivery", catalogue_uuid: services.uuid})
+
+      # Initial state: two rules
+      {:ok, _} =
+        Catalogue.put_catalogue_rules(delivery, [
+          %{referenced_catalogue_uuid: kitchen.uuid, value: 5, unit: "percent"},
+          %{referenced_catalogue_uuid: plumbing.uuid, value: 3, unit: "percent"}
+        ])
+
+      rules = Catalogue.list_catalogue_rules(delivery)
+      assert length(rules) == 2
+
+      # Replace-all: kitchen updated, plumbing removed, hardware added
+      {:ok, _} =
+        Catalogue.put_catalogue_rules(delivery, [
+          %{referenced_catalogue_uuid: kitchen.uuid, value: 10, unit: "percent"},
+          %{referenced_catalogue_uuid: hardware.uuid, value: 20, unit: "flat"}
+        ])
+
+      rules = Catalogue.list_catalogue_rules(delivery)
+      by_uuid = Map.new(rules, &{&1.referenced_catalogue_uuid, &1})
+
+      assert Map.has_key?(by_uuid, kitchen.uuid)
+      assert Map.has_key?(by_uuid, hardware.uuid)
+      refute Map.has_key?(by_uuid, plumbing.uuid)
+
+      assert Decimal.equal?(by_uuid[kitchen.uuid].value, Decimal.new("10"))
+      assert by_uuid[kitchen.uuid].unit == "percent"
+      assert Decimal.equal?(by_uuid[hardware.uuid].value, Decimal.new("20"))
+      assert by_uuid[hardware.uuid].unit == "flat"
+    end
+
+    test "empty rules list clears all existing rules" do
+      services = create_catalogue(%{name: "Services", kind: "smart"})
+      kitchen = create_catalogue(%{name: "Kitchen"})
+      delivery = create_item(%{name: "Delivery", catalogue_uuid: services.uuid})
+
+      {:ok, _} =
+        Catalogue.put_catalogue_rules(delivery, [
+          %{referenced_catalogue_uuid: kitchen.uuid, value: 5, unit: "percent"}
+        ])
+
+      {:ok, _} = Catalogue.put_catalogue_rules(delivery, [])
+      assert Catalogue.list_catalogue_rules(delivery) == []
+    end
+
+    test "nil value/unit is stored as-is (inherits from item defaults at read time)" do
+      services = create_catalogue(%{name: "Services", kind: "smart"})
+      kitchen = create_catalogue(%{name: "Kitchen"})
+
+      delivery =
+        create_item(%{
+          name: "Delivery",
+          catalogue_uuid: services.uuid,
+          default_value: "5",
+          default_unit: "percent"
+        })
+
+      {:ok, _} =
+        Catalogue.put_catalogue_rules(delivery, [
+          %{referenced_catalogue_uuid: kitchen.uuid}
+        ])
+
+      [rule] = Catalogue.list_catalogue_rules(delivery)
+      assert is_nil(rule.value)
+      assert is_nil(rule.unit)
+
+      # Effective values fall back to the item's defaults
+      alias PhoenixKitCatalogue.Schemas.CatalogueRule
+      {value, unit} = CatalogueRule.effective(rule, delivery)
+      assert Decimal.equal?(value, Decimal.new("5"))
+      assert unit == "percent"
+    end
+
+    test "rejects duplicate referenced_catalogue_uuid in one call" do
+      services = create_catalogue(%{name: "Services", kind: "smart"})
+      kitchen = create_catalogue(%{name: "Kitchen"})
+      delivery = create_item(%{name: "Delivery", catalogue_uuid: services.uuid})
+
+      assert {:error, {:duplicate_referenced_catalogue, _}} =
+               Catalogue.put_catalogue_rules(delivery, [
+                 %{referenced_catalogue_uuid: kitchen.uuid, value: 5, unit: "percent"},
+                 %{referenced_catalogue_uuid: kitchen.uuid, value: 10, unit: "flat"}
+               ])
+
+      assert Catalogue.list_catalogue_rules(delivery) == []
+    end
+
+    test "rolls back the whole replace if any rule is invalid" do
+      services = create_catalogue(%{name: "Services", kind: "smart"})
+      kitchen = create_catalogue(%{name: "Kitchen"})
+      delivery = create_item(%{name: "Delivery", catalogue_uuid: services.uuid})
+
+      # Seed a good rule first
+      {:ok, _} =
+        Catalogue.put_catalogue_rules(delivery, [
+          %{referenced_catalogue_uuid: kitchen.uuid, value: 5, unit: "percent"}
+        ])
+
+      plumbing = create_catalogue(%{name: "Plumbing"})
+
+      # Second put contains a bad unit → entire replace rolls back
+      # (kitchen stays untouched at value=5, plumbing is NOT added)
+      assert {:error, %Ecto.Changeset{}} =
+               Catalogue.put_catalogue_rules(delivery, [
+                 %{referenced_catalogue_uuid: kitchen.uuid, value: 99, unit: "percent"},
+                 %{referenced_catalogue_uuid: plumbing.uuid, value: 3, unit: "bogus"}
+               ])
+
+      [rule] = Catalogue.list_catalogue_rules(delivery)
+      assert rule.referenced_catalogue_uuid == kitchen.uuid
+      assert Decimal.equal?(rule.value, Decimal.new("5"))
+    end
+
+    test "preloads the referenced catalogue and orders by position then name" do
+      services = create_catalogue(%{name: "Services", kind: "smart"})
+      beta = create_catalogue(%{name: "Beta"})
+      alpha = create_catalogue(%{name: "Alpha"})
+      delivery = create_item(%{name: "Delivery", catalogue_uuid: services.uuid})
+
+      # Explicit positions: Beta at 0, Alpha at 1 → Beta first despite alphabetical
+      {:ok, _} =
+        Catalogue.put_catalogue_rules(delivery, [
+          %{referenced_catalogue_uuid: beta.uuid, position: 0},
+          %{referenced_catalogue_uuid: alpha.uuid, position: 1}
+        ])
+
+      rules = Catalogue.list_catalogue_rules(delivery)
+      assert Enum.map(rules, & &1.referenced_catalogue.name) == ["Beta", "Alpha"]
+    end
+  end
+
+  describe "catalogue_rule_map/1" do
+    test "returns the rules keyed by referenced_catalogue_uuid" do
+      services = create_catalogue(%{name: "Services", kind: "smart"})
+      kitchen = create_catalogue(%{name: "Kitchen"})
+      delivery = create_item(%{name: "Delivery", catalogue_uuid: services.uuid})
+
+      {:ok, _} =
+        Catalogue.put_catalogue_rules(delivery, [
+          %{referenced_catalogue_uuid: kitchen.uuid, value: 5, unit: "percent"}
+        ])
+
+      map = Catalogue.catalogue_rule_map(delivery)
+      assert Map.has_key?(map, kitchen.uuid)
+      assert Decimal.equal?(map[kitchen.uuid].value, Decimal.new("5"))
+    end
+  end
+
+  describe "list_items_referencing_catalogue/1 and catalogue_reference_count/1" do
+    test "returns smart items that reference a given catalogue" do
+      services = create_catalogue(%{name: "Services", kind: "smart"})
+      kitchen = create_catalogue(%{name: "Kitchen"})
+      plumbing = create_catalogue(%{name: "Plumbing"})
+
+      delivery = create_item(%{name: "Delivery", catalogue_uuid: services.uuid})
+      install = create_item(%{name: "Install", catalogue_uuid: services.uuid})
+      irrelevant = create_item(%{name: "Irrelevant", catalogue_uuid: services.uuid})
+
+      {:ok, _} =
+        Catalogue.put_catalogue_rules(delivery, [
+          %{referenced_catalogue_uuid: kitchen.uuid, value: 5, unit: "percent"}
+        ])
+
+      {:ok, _} =
+        Catalogue.put_catalogue_rules(install, [
+          %{referenced_catalogue_uuid: kitchen.uuid, value: 10, unit: "flat"},
+          %{referenced_catalogue_uuid: plumbing.uuid, value: 3, unit: "percent"}
+        ])
+
+      # No rules on irrelevant
+
+      kitchen_referencers = Catalogue.list_items_referencing_catalogue(kitchen.uuid)
+      names = Enum.map(kitchen_referencers, & &1.name) |> Enum.sort()
+
+      assert names == ["Delivery", "Install"]
+      refute irrelevant.name in names
+
+      assert Catalogue.catalogue_reference_count(kitchen.uuid) == 2
+      assert Catalogue.catalogue_reference_count(plumbing.uuid) == 1
+    end
+
+    test "excludes deleted items" do
+      services = create_catalogue(%{name: "Services", kind: "smart"})
+      kitchen = create_catalogue(%{name: "Kitchen"})
+      delivery = create_item(%{name: "Delivery", catalogue_uuid: services.uuid})
+
+      {:ok, _} =
+        Catalogue.put_catalogue_rules(delivery, [
+          %{referenced_catalogue_uuid: kitchen.uuid, value: 5, unit: "percent"}
+        ])
+
+      assert length(Catalogue.list_items_referencing_catalogue(kitchen.uuid)) == 1
+
+      Catalogue.trash_item(delivery)
+
+      assert Catalogue.list_items_referencing_catalogue(kitchen.uuid) == []
+      assert Catalogue.catalogue_reference_count(kitchen.uuid) == 0
+    end
+
+    test "cascades: force-deleting a referenced catalogue wipes the rule" do
+      services = create_catalogue(%{name: "Services", kind: "smart"})
+      kitchen = create_catalogue(%{name: "Kitchen"})
+      delivery = create_item(%{name: "Delivery", catalogue_uuid: services.uuid})
+
+      {:ok, _} =
+        Catalogue.put_catalogue_rules(delivery, [
+          %{referenced_catalogue_uuid: kitchen.uuid, value: 5, unit: "percent"}
+        ])
+
+      # `permanently_delete_catalogue/2` now refuses to nuke a catalogue
+      # that smart items still reference unless `force: true` is passed.
+      assert {:error, {:referenced_by_smart_items, 1}} =
+               Catalogue.permanently_delete_catalogue(kitchen)
+
+      # With force, the FK cascade removes the rule row.
+      assert {:ok, _} = Catalogue.permanently_delete_catalogue(kitchen, force: true)
+      assert Catalogue.list_catalogue_rules(delivery) == []
+    end
+
+    test "permanently_delete_catalogue refuses without :force when smart-rule references exist" do
+      services = create_catalogue(%{name: "Services", kind: "smart"})
+      kitchen = create_catalogue(%{name: "Kitchen"})
+      hardware = create_catalogue(%{name: "Hardware"})
+
+      delivery = create_item(%{name: "Delivery", catalogue_uuid: services.uuid})
+      install = create_item(%{name: "Install", catalogue_uuid: services.uuid})
+
+      {:ok, _} =
+        Catalogue.put_catalogue_rules(delivery, [
+          %{referenced_catalogue_uuid: kitchen.uuid, value: 5, unit: "percent"}
+        ])
+
+      {:ok, _} =
+        Catalogue.put_catalogue_rules(install, [
+          %{referenced_catalogue_uuid: kitchen.uuid, value: 10, unit: "percent"}
+        ])
+
+      assert {:error, {:referenced_by_smart_items, 2}} =
+               Catalogue.permanently_delete_catalogue(kitchen)
+
+      # Hardware has no references — guard doesn't fire.
+      assert {:ok, _} = Catalogue.permanently_delete_catalogue(hardware)
+    end
+
+    test "self-reference: a smart item can reference its own catalogue" do
+      services = create_catalogue(%{name: "Services", kind: "smart"})
+      delivery = create_item(%{name: "Delivery", catalogue_uuid: services.uuid})
+
+      assert {:ok, [_rule]} =
+               Catalogue.put_catalogue_rules(delivery, [
+                 %{referenced_catalogue_uuid: services.uuid, value: 5, unit: "percent"}
+               ])
+
+      assert [rule] = Catalogue.list_catalogue_rules(delivery)
+      assert rule.referenced_catalogue_uuid == services.uuid
+    end
+
+    test "smart-to-smart: a smart item can reference another smart catalogue" do
+      services_a = create_catalogue(%{name: "Services A", kind: "smart"})
+      services_b = create_catalogue(%{name: "Services B", kind: "smart"})
+      item = create_item(%{name: "X", catalogue_uuid: services_a.uuid})
+
+      assert {:ok, [rule]} =
+               Catalogue.put_catalogue_rules(item, [
+                 %{referenced_catalogue_uuid: services_b.uuid, value: 7, unit: "percent"}
+               ])
+
+      assert rule.referenced_catalogue_uuid == services_b.uuid
+    end
+
+    test "duplicate detection: nil referenced_catalogue_uuid returns {:duplicate, nil}" do
+      services = create_catalogue(%{name: "Services", kind: "smart"})
+      delivery = create_item(%{name: "Delivery", catalogue_uuid: services.uuid})
+
+      assert {:error, {:duplicate_referenced_catalogue, nil}} =
+               Catalogue.put_catalogue_rules(delivery, [
+                 %{referenced_catalogue_uuid: nil, value: 5, unit: "percent"}
+               ])
+    end
+  end
+
+  describe "single-rule CRUD (V102)" do
+    test "create_catalogue_rule/2 logs and returns the inserted rule" do
+      services = create_catalogue(%{name: "Services", kind: "smart"})
+      kitchen = create_catalogue(%{name: "Kitchen"})
+      delivery = create_item(%{name: "Delivery", catalogue_uuid: services.uuid})
+
+      assert {:ok, rule} =
+               Catalogue.create_catalogue_rule(%{
+                 item_uuid: delivery.uuid,
+                 referenced_catalogue_uuid: kitchen.uuid,
+                 value: Decimal.new("12"),
+                 unit: "percent"
+               })
+
+      assert rule.item_uuid == delivery.uuid
+      assert rule.referenced_catalogue_uuid == kitchen.uuid
+    end
+
+    test "update_catalogue_rule/3 mutates value and unit" do
+      services = create_catalogue(%{name: "Services", kind: "smart"})
+      kitchen = create_catalogue(%{name: "Kitchen"})
+      delivery = create_item(%{name: "Delivery", catalogue_uuid: services.uuid})
+
+      {:ok, rule} =
+        Catalogue.create_catalogue_rule(%{
+          item_uuid: delivery.uuid,
+          referenced_catalogue_uuid: kitchen.uuid,
+          value: Decimal.new("5"),
+          unit: "percent"
+        })
+
+      assert {:ok, updated} =
+               Catalogue.update_catalogue_rule(rule, %{value: Decimal.new("9"), unit: "flat"})
+
+      assert Decimal.equal?(updated.value, Decimal.new("9"))
+      assert updated.unit == "flat"
+    end
+
+    test "delete_catalogue_rule/2 removes one rule without affecting siblings" do
+      services = create_catalogue(%{name: "Services", kind: "smart"})
+      kitchen = create_catalogue(%{name: "Kitchen"})
+      hardware = create_catalogue(%{name: "Hardware"})
+      delivery = create_item(%{name: "Delivery", catalogue_uuid: services.uuid})
+
+      {:ok, _} =
+        Catalogue.put_catalogue_rules(delivery, [
+          %{referenced_catalogue_uuid: kitchen.uuid, value: 5, unit: "percent"},
+          %{referenced_catalogue_uuid: hardware.uuid, value: 20, unit: "flat"}
+        ])
+
+      kitchen_rule = Catalogue.get_catalogue_rule(delivery.uuid, kitchen.uuid)
+      assert {:ok, _} = Catalogue.delete_catalogue_rule(kitchen_rule)
+
+      remaining = Catalogue.list_catalogue_rules(delivery)
+      assert length(remaining) == 1
+      assert hd(remaining).referenced_catalogue_uuid == hardware.uuid
+    end
+
+    test "change_catalogue_rule/2 returns a changeset for forms" do
+      cs = Catalogue.change_catalogue_rule(%PhoenixKitCatalogue.Schemas.CatalogueRule{})
+      assert %Ecto.Changeset{valid?: false} = cs
+      assert {_, _} = cs.errors[:referenced_catalogue_uuid]
+    end
+
+    test "V102 CHECK constraint on kind refuses an invalid enum via raw SQL" do
+      # Ecto's changeset validates `kind` before it hits the DB, so the
+      # CHECK constraint is only visible on direct inserts. This guards
+      # against a future changeset regression silently dropping the check
+      # AND verifies the test migration mirrors the prod constraint.
+      repo = PhoenixKitCatalogue.Test.Repo
+      now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+      assert_raise Postgrex.Error, ~r/kind_check/i, fn ->
+        SQL.query!(
+          repo,
+          """
+          INSERT INTO phoenix_kit_cat_catalogues
+            (uuid, name, status, kind, markup_percentage, discount_percentage, data, inserted_at, updated_at)
+          VALUES
+            (uuid_generate_v7(), 'Invalid Kind', 'active', 'not-a-real-kind', 0, 0, '{}'::jsonb, $1, $1)
+          """,
+          [now]
+        )
+      end
+    end
+
+    test "create_catalogue_rule/2 with a duplicate (item_uuid, referenced_catalogue_uuid) pair is rejected by the UNIQUE constraint" do
+      services = create_catalogue(%{name: "Services", kind: "smart"})
+      kitchen = create_catalogue(%{name: "Kitchen"})
+      delivery = create_item(%{name: "Delivery", catalogue_uuid: services.uuid})
+
+      assert {:ok, _} =
+               Catalogue.create_catalogue_rule(%{
+                 item_uuid: delivery.uuid,
+                 referenced_catalogue_uuid: kitchen.uuid,
+                 value: Decimal.new("5"),
+                 unit: "percent"
+               })
+
+      # Second insert with the same pair must surface the unique_constraint
+      # error on the pair — proves the V102 UNIQUE index is in force and
+      # the schema's `unique_constraint/2` call converts it to a useful
+      # changeset error rather than raising a Postgrex error.
+      assert {:error, %Ecto.Changeset{} = cs} =
+               Catalogue.create_catalogue_rule(%{
+                 item_uuid: delivery.uuid,
+                 referenced_catalogue_uuid: kitchen.uuid,
+                 value: Decimal.new("9"),
+                 unit: "flat"
+               })
+
+      refute cs.valid?
+
+      assert Enum.any?(cs.errors, fn {field, _} ->
+               field in [:item_uuid, :referenced_catalogue_uuid]
+             end)
+    end
+  end
+
+  describe "category_counts_by_catalogue/0" do
+    test "returns a map of non-deleted category counts per catalogue" do
+      kitchen = create_catalogue(%{name: "Kitchen"})
+      bathroom = create_catalogue(%{name: "Bathroom"})
+      _empty = create_catalogue(%{name: "Empty"})
+
+      _ = create_category(kitchen, %{name: "Frames"})
+      _ = create_category(kitchen, %{name: "Doors"})
+      _ = create_category(bathroom, %{name: "Tiles"})
+      trashed_cat = create_category(kitchen, %{name: "To Trash"})
+      Catalogue.trash_category(trashed_cat)
+
+      counts = Catalogue.category_counts_by_catalogue()
+
+      assert counts[kitchen.uuid] == 2
+      assert counts[bathroom.uuid] == 1
+      refute Map.has_key?(counts, "missing-catalogue-uuid")
+    end
+
+    test "returns empty map when there are no categories" do
+      assert Catalogue.category_counts_by_catalogue() == %{}
     end
   end
 end
