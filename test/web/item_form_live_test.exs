@@ -273,4 +273,119 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLiveTest do
       assert reloaded.category_uuid == category.uuid
     end
   end
+
+  # ─────────────────────────────────────────────────────────────────
+  # Smart-catalogue rules — toggle/set_value/set_unit/clear_all
+  # ─────────────────────────────────────────────────────────────────
+
+  describe "smart-catalogue rules" do
+    setup do
+      smart = fixture_catalogue(%{name: "Services", kind: "smart"})
+      kitchen = fixture_catalogue(%{name: "Kitchen"})
+      hardware = fixture_catalogue(%{name: "Hardware"})
+
+      smart_item =
+        fixture_item(%{
+          name: "Delivery",
+          catalogue_uuid: smart.uuid,
+          default_value: Decimal.new("5"),
+          default_unit: "percent"
+        })
+
+      %{smart: smart, kitchen: kitchen, hardware: hardware, item: smart_item}
+    end
+
+    test "toggle_catalogue_rule adds and removes a rule client-side", %{
+      conn: conn,
+      item: item,
+      kitchen: kitchen
+    } do
+      {:ok, view, _html} = live(conn, edit_item_url(item.uuid))
+
+      # Initial: no working rules
+      render_click(view, "toggle_catalogue_rule", %{"uuid" => kitchen.uuid})
+      # Toggle off again
+      render_click(view, "toggle_catalogue_rule", %{"uuid" => kitchen.uuid})
+
+      # No persistence yet — saving the form persists the working set.
+      assert Catalogue.list_catalogue_rules(item) == []
+    end
+
+    test "set_catalogue_rule_value + save persists the value", %{
+      conn: conn,
+      item: item,
+      kitchen: kitchen
+    } do
+      {:ok, view, _html} = live(conn, edit_item_url(item.uuid))
+
+      render_click(view, "toggle_catalogue_rule", %{"uuid" => kitchen.uuid})
+      render_change(view, "set_catalogue_rule_value", %{"uuid" => kitchen.uuid, "value" => "10"})
+
+      view
+      |> form("form[phx-submit=save]",
+        item: %{
+          "name" => item.name,
+          "base_price" => "0",
+          "unit" => "piece",
+          "status" => "active"
+        }
+      )
+      |> render_submit()
+
+      [rule] = Catalogue.list_catalogue_rules(item)
+      assert rule.referenced_catalogue_uuid == kitchen.uuid
+      assert Decimal.equal?(rule.value, Decimal.new("10"))
+    end
+
+    test "set_catalogue_rule_unit accepts only known units", %{
+      conn: conn,
+      item: item,
+      kitchen: kitchen
+    } do
+      {:ok, view, _html} = live(conn, edit_item_url(item.uuid))
+
+      render_click(view, "toggle_catalogue_rule", %{"uuid" => kitchen.uuid})
+      render_change(view, "set_catalogue_rule_unit", %{"uuid" => kitchen.uuid, "unit" => "flat"})
+
+      view
+      |> form("form[phx-submit=save]",
+        item: %{
+          "name" => item.name,
+          "base_price" => "0",
+          "unit" => "piece",
+          "status" => "active"
+        }
+      )
+      |> render_submit()
+
+      [rule] = Catalogue.list_catalogue_rules(item)
+      assert rule.unit == "flat"
+    end
+
+    test "clear_catalogue_rules wipes the working set client-side", %{
+      conn: conn,
+      item: item,
+      kitchen: kitchen,
+      hardware: hardware
+    } do
+      {:ok, view, _html} = live(conn, edit_item_url(item.uuid))
+
+      render_click(view, "toggle_catalogue_rule", %{"uuid" => kitchen.uuid})
+      render_click(view, "toggle_catalogue_rule", %{"uuid" => hardware.uuid})
+      render_click(view, "clear_catalogue_rules", %{})
+
+      view
+      |> form("form[phx-submit=save]",
+        item: %{
+          "name" => item.name,
+          "base_price" => "0",
+          "unit" => "piece",
+          "status" => "active"
+        }
+      )
+      |> render_submit()
+
+      assert Catalogue.list_catalogue_rules(item) == []
+    end
+  end
 end

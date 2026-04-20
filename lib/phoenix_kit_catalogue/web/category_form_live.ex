@@ -8,6 +8,8 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
   import PhoenixKitWeb.Components.MultilangForm
   import PhoenixKitWeb.Components.Core.AdminPageHeader, only: [admin_page_header: 1]
   import PhoenixKitWeb.Components.Core.Modal, only: [confirm_modal: 1]
+  import PhoenixKitWeb.Components.Core.Input, only: [input: 1]
+  import PhoenixKitWeb.Components.Core.Select, only: [select: 1]
 
   alias PhoenixKitCatalogue.Catalogue
   alias PhoenixKitCatalogue.Paths
@@ -68,12 +70,18 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
        action: action,
        category: category,
        catalogue_uuid: catalogue_uuid,
-       changeset: changeset,
        confirm_delete_all: false,
        other_catalogues: other_catalogues,
        move_target: nil
      )
+     |> assign_changeset(changeset)
      |> mount_multilang()}
+  end
+
+  defp assign_changeset(socket, changeset) do
+    socket
+    |> assign(:changeset, changeset)
+    |> assign(:form, to_form(changeset))
   end
 
   @impl true
@@ -94,7 +102,7 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
       |> Catalogue.change_category(params)
       |> Map.put(:action, :validate)
 
-    {:noreply, assign(socket, :changeset, changeset)}
+    {:noreply, assign_changeset(socket, changeset)}
   end
 
   def handle_event("save", %{"category" => params}, socket) do
@@ -193,7 +201,7 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
          |> push_navigate(to: Paths.catalogue_detail(socket.assigns.catalogue_uuid))}
 
       {:error, changeset} ->
-        {:noreply, assign(socket, :changeset, changeset)}
+        {:noreply, assign_changeset(socket, changeset)}
     end
   end
 
@@ -206,7 +214,7 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
          |> push_navigate(to: Paths.catalogue_detail(socket.assigns.catalogue_uuid))}
 
       {:error, changeset} ->
-        {:noreply, assign(socket, :changeset, changeset)}
+        {:noreply, assign_changeset(socket, changeset)}
     end
   end
 
@@ -224,11 +232,14 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
       <%!-- Header --%>
       <.admin_page_header back={Paths.catalogue_detail(@catalogue_uuid)} title={@page_title} subtitle={if @action == :new, do: Gettext.gettext(PhoenixKitWeb.Gettext, "Add a new category to organize items within this catalogue."), else: Gettext.gettext(PhoenixKitWeb.Gettext, "Update category details and ordering.")} />
 
-      <.form for={to_form(@changeset)} action="#" phx-change="validate" phx-submit="save">
+      <.form for={@form} action="#" phx-change="validate" phx-submit="save">
         <div class="card bg-base-100 shadow-lg">
           <.multilang_tabs multilang_enabled={@multilang_enabled} language_tabs={@language_tabs} current_lang={@current_lang} />
 
-          <.multilang_fields_wrapper multilang_enabled={@multilang_enabled} current_lang={@current_lang} skeleton_class="card-body flex flex-col gap-5">
+          <%!-- Only translatable fields live inside the wrapper so a
+               language switch only re-mounts name + description, not
+               the whole form. Everything else renders as a sibling. --%>
+          <.multilang_fields_wrapper multilang_enabled={@multilang_enabled} current_lang={@current_lang} skeleton_class="card-body flex flex-col gap-5 pb-0">
             <:skeleton>
               <%!-- Name --%>
               <div class="space-y-2">
@@ -240,20 +251,8 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
                 <div class="skeleton h-4 w-28"></div>
                 <div class="skeleton h-24 w-full"></div>
               </div>
-              <div class="divider my-0"></div>
-              <%!-- Position --%>
-              <div class="space-y-2">
-                <div class="skeleton h-4 w-20"></div>
-                <div class="skeleton h-12 w-28"></div>
-              </div>
-              <div class="divider my-0"></div>
-              <%!-- Buttons --%>
-              <div class="flex justify-end gap-3">
-                <div class="skeleton h-12 w-20"></div>
-                <div class="skeleton h-12 w-36"></div>
-              </div>
             </:skeleton>
-            <div class="card-body flex flex-col gap-5">
+            <div class="card-body flex flex-col gap-5 pb-0">
               <.translatable_field
                 field_name="name" form_prefix="category" changeset={@changeset}
                 schema_field={:name} multilang_enabled={@multilang_enabled}
@@ -270,24 +269,35 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
                 placeholder={Gettext.gettext(PhoenixKitWeb.Gettext, "What kinds of items belong in this category...")}
                 class="w-full"
               />
-
-              <div class="divider my-0"></div>
-
-              <div class="form-control">
-                <span class="label-text font-semibold mb-2">{Gettext.gettext(PhoenixKitWeb.Gettext, "Position")}</span>
-                <input type="number" name="category[position]" value={Ecto.Changeset.get_field(@changeset, :position)} class="input input-bordered w-28 transition-colors focus:input-primary" min="0" />
-                <span class="label-text-alt text-base-content/50 mt-1">{Gettext.gettext(PhoenixKitWeb.Gettext, "Lower numbers appear first. You can also reorder from the catalogue detail page.")}</span>
-              </div>
-
-              <%!-- Actions --%>
-              <div class="divider my-0"></div>
-
-              <div class="flex justify-end gap-3">
-                <.link navigate={Paths.catalogue_detail(@catalogue_uuid)} class="btn btn-ghost">{Gettext.gettext(PhoenixKitWeb.Gettext, "Cancel")}</.link>
-                <button type="submit" class="btn btn-primary phx-submit-loading:opacity-75">{if @action == :new, do: Gettext.gettext(PhoenixKitWeb.Gettext, "Create Category"), else: Gettext.gettext(PhoenixKitWeb.Gettext, "Save Changes")}</button>
-              </div>
             </div>
           </.multilang_fields_wrapper>
+
+          <div class="card-body flex flex-col gap-5 pt-0">
+            <div class="divider my-0"></div>
+
+            <div class="form-control">
+              <.input
+                field={@form[:position]}
+                type="number"
+                label={Gettext.gettext(PhoenixKitWeb.Gettext, "Position")}
+                class="w-28"
+                min="0"
+              />
+              <span class="label-text-alt text-base-content/50 mt-1">{Gettext.gettext(PhoenixKitWeb.Gettext, "Lower numbers appear first. You can also reorder from the catalogue detail page.")}</span>
+            </div>
+
+            <%!-- Actions --%>
+            <div class="divider my-0"></div>
+
+            <div class="flex justify-end gap-3">
+              <.link navigate={Paths.catalogue_detail(@catalogue_uuid)} class="btn btn-ghost">{Gettext.gettext(PhoenixKitWeb.Gettext, "Cancel")}</.link>
+              <button
+                type="submit"
+                class="btn btn-primary phx-submit-loading:opacity-75"
+                phx-disable-with={Gettext.gettext(PhoenixKitWeb.Gettext, "Saving...")}
+              >{if @action == :new, do: Gettext.gettext(PhoenixKitWeb.Gettext, "Create Category"), else: Gettext.gettext(PhoenixKitWeb.Gettext, "Save Changes")}</button>
+            </div>
+          </div>
         </div>
       </.form>
 
@@ -298,12 +308,15 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
           <p class="text-xs text-base-content/50">{Gettext.gettext(PhoenixKitWeb.Gettext, "Move this category and all its items to a different catalogue.")}</p>
           <div class="flex items-end gap-3">
             <div class="form-control flex-1">
-              <label class="select w-full select-sm transition-colors focus-within:select-primary">
-                <select phx-change="select_move_target" name="catalogue_uuid">
-                  <option value="">{Gettext.gettext(PhoenixKitWeb.Gettext, "-- Select catalogue --")}</option>
-                  <option :for={cat <- @other_catalogues} value={cat.uuid}>{cat.name}</option>
-                </select>
-              </label>
+              <.select
+                name="catalogue_uuid"
+                id="category-move-target"
+                value={@move_target}
+                prompt={Gettext.gettext(PhoenixKitWeb.Gettext, "-- Select catalogue --")}
+                options={Enum.map(@other_catalogues, &{&1.name, &1.uuid})}
+                class="select-sm transition-colors focus-within:select-primary"
+                phx-change="select_move_target"
+              />
             </div>
             <button
               type="button"

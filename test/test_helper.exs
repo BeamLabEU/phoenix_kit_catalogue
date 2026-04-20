@@ -1,3 +1,21 @@
+# Elixir 1.19's `mix test` no longer auto-loads modules from the
+# `:elixirc_paths` test directories at test-helper time — only files
+# matching `:test_load_filters` get loaded by the test runner. Our
+# support modules (`PhoenixKitCatalogue.Test.Repo`, `Test.Endpoint`,
+# etc.) are compiled but not loaded, so explicit `Code.require_file/2`
+# calls are needed before `test_helper.exs` references them.
+support_dir = Path.expand("support", __DIR__)
+
+[
+  "test_repo.ex",
+  "test_layouts.ex",
+  "test_router.ex",
+  "test_endpoint.ex",
+  "data_case.ex",
+  "live_case.ex"
+]
+|> Enum.each(&Code.require_file(&1, support_dir))
+
 # Check if the test database exists
 db_name =
   Application.get_env(:phoenix_kit_catalogue, PhoenixKitCatalogue.Test.Repo)[:database] ||

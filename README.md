@@ -6,18 +6,19 @@ Designed for manufacturing companies (e.g. kitchen/furniture producers) that nee
 
 ## Features
 
-- **Catalogues** — top-level groupings with configurable markup percentage for pricing
+- **Catalogues** — top-level groupings with configurable markup and discount percentage for pricing
 - **Categories** — subdivisions within a catalogue with manual position ordering
-- **Items** — individual products with SKU, base price, computed sale price, unit of measure
+- **Items** — individual products with SKU, base price, unit of measure, and computed `sale_price` (post-markup) + `final_price` (post-discount)
 - **Manufacturers** — company directory with many-to-many supplier linking
 - **Suppliers** — delivery companies linked to manufacturers
-- **Pricing** — base price per item + markup percentage per catalogue = computed sale price, with an optional per-item markup override
+- **Pricing chain** — `base → markup → discount`: per-catalogue defaults plus optional per-item override on each leg (`nil` inherits, any value including `0` overrides)
+- **Smart catalogues** — a `kind: "smart"` catalogue holds items that reference *other* catalogues with a value + unit (e.g. "5% of Kitchen, $20 flat of Hardware"); rules live in `phoenix_kit_cat_item_catalogue_rules` and inherit from per-item defaults when null
 - **Search** — case-insensitive search by name, description, or SKU (per-category, per-catalogue, and global)
 - **Soft-delete** — catalogues, categories, and items support trash/restore with cascading
 - **Multilingual** — all translatable fields use PhoenixKit's multilang system
 - **Move operations** — move categories between catalogues, items between categories
 - **Card/table views** — all tables support card view toggle, persisted per user in localStorage
-- **Reusable components** — `item_table`, `search_input`, `view_mode_toggle`, `empty_state` with gettext localization and graceful error handling
+- **Reusable components** — `item_table`, `search_input`, `view_mode_toggle`, `empty_state`, `scope_selector`, `catalogue_rules_picker` with gettext localization
 - **Zero-config discovery** — auto-discovered by PhoenixKit via beam scanning
 
 ## Installation
@@ -48,22 +49,29 @@ Manufacturer (1) ──< ManufacturerSupplier >── (1) Supplier
      └──────────────────────────────┐
                                     │
 Catalogue (1) ──> Category (many) ──> Item (many)
-                   │                   ├── belongs_to Category (optional)
-                   │                   └── belongs_to Manufacturer (optional)
-                   └── position-ordered, soft-deletable
+  (kind=          │                   ├── belongs_to Category (optional)
+   standard|      │                   ├── belongs_to Manufacturer (optional)
+   smart)         │                   └── has_many CatalogueRule (smart only)
+                  │                                  │
+                  │                                  └── references another Catalogue
+                  │                                       with (value, unit, position)
+                  └── position-ordered, soft-deletable
 ```
 
 All tables use UUIDv7 primary keys and are prefixed with `phoenix_kit_cat_*`.
 
-### Status Values
+### Status & kind values
 
-| Entity       | Statuses                                  |
-|-------------|-------------------------------------------|
-| Catalogue   | `active`, `archived`, `deleted`           |
-| Category    | `active`, `deleted`                       |
-| Item        | `active`, `inactive`, `discontinued`, `deleted` |
-| Manufacturer| `active`, `inactive`                      |
-| Supplier    | `active`, `inactive`                      |
+| Entity       | Statuses                                                  |
+|-------------|-----------------------------------------------------------|
+| Catalogue   | `active`, `archived`, `deleted` (plus `kind`: `standard` \| `smart`) |
+| Category    | `active`, `deleted`                                       |
+| Item        | `active`, `inactive`, `discontinued`, `deleted`           |
+| Manufacturer| `active`, `inactive`                                      |
+| Supplier    | `active`, `inactive`                                      |
+| CatalogueRule | (no status — rows are deleted directly when removed)    |
+
+`kind` is an enum at the DB layer (`CHECK (kind IN ('standard', 'smart'))`). `unit` on rules is open-ended VARCHAR; v1 ships with `"percent"` and `"flat"` but consumers can introduce new units without a migration.
 
 ## Soft-Delete System
 
@@ -94,6 +102,8 @@ alias PhoenixKitCatalogue.Catalogue
 # ── Catalogues ────────────────────────────────────────
 Catalogue.list_catalogues()                        # excludes deleted
 Catalogue.list_catalogues(status: "deleted")       # only deleted
+Catalogue.list_catalogues_by_name_prefix("Kit")    # case-insensitive prefix match
+Catalogue.list_catalogues_by_name_prefix("Kit", limit: 5, status: "archived")
 Catalogue.create_catalogue(%{name: "Kitchen"})
 Catalogue.update_catalogue(cat, %{name: "New Name"})
 Catalogue.trash_catalogue(cat)                     # soft-delete (cascades down)
@@ -121,12 +131,53 @@ Catalogue.restore_item(item)                       # cascades up to category + c
 Catalogue.permanently_delete_item(item)            # hard-delete
 Catalogue.trash_items_in_category(cat_uuid)        # bulk soft-delete
 Catalogue.move_item_to_category(item, new_cat_uuid)
-Catalogue.item_pricing(item)                       # %{base_price, catalogue_markup, item_markup, markup_percentage, price}
+Catalogue.item_pricing(item)
+# => %{
+#   base_price:, catalogue_markup:, item_markup:, markup_percentage:, sale_price:,
+#   catalogue_discount:, item_discount:, discount_percentage:, discount_amount:, final_price:
+# }
 
-# Per-item markup override (nullable — defaults to inherit from catalogue)
-Catalogue.create_item(%{name: "Special Oak", base_price: 100, markup_percentage: 50, catalogue_uuid: cat.uuid})
-Item.sale_price(item, catalogue.markup_percentage)  # honors item override if set
-Item.effective_markup(item, catalogue.markup_percentage) # returns the override or the fallback
+# ── Smart catalogues ─────────────────────────────────
+{:ok, services} = Catalogue.create_catalogue(%{name: "Services", kind: "smart"})
+Catalogue.list_catalogues(kind: :smart)
+
+{:ok, delivery} = Catalogue.create_item(%{
+  name: "Delivery",
+  catalogue_uuid: services.uuid,
+  default_value: 5,        # fallback if a rule row has no value
+  default_unit: "percent"  # fallback if a rule row has no unit
+})
+
+# Replace-all rules — one row per referenced catalogue
+{:ok, rules} = Catalogue.put_catalogue_rules(delivery, [
+  %{referenced_catalogue_uuid: kitchen.uuid, value: 10, unit: "percent"},
+  %{referenced_catalogue_uuid: hardware.uuid, value: 20, unit: "flat"},
+  %{referenced_catalogue_uuid: plumbing.uuid}  # inherits defaults: 5 percent
+])
+
+Catalogue.list_catalogue_rules(delivery)
+Catalogue.catalogue_rule_map(delivery)          # %{uuid => %CatalogueRule{}}
+Catalogue.list_items_referencing_catalogue(kitchen.uuid)
+Catalogue.catalogue_reference_count(kitchen.uuid)
+
+# Resolve a single rule's effective {value, unit} (with item-default fallback)
+CatalogueRule.effective(rule, delivery)
+
+# Per-item overrides (nullable — `nil` inherits from catalogue, any value including 0 overrides)
+Catalogue.create_item(%{
+  name: "Special Oak",
+  base_price: 100,
+  markup_percentage: 50,     # override catalogue's markup
+  discount_percentage: 0,    # explicit "no discount" even if catalogue has one
+  catalogue_uuid: cat.uuid
+})
+
+# Pure helpers on Item (no Repo hits — caller supplies the catalogue leg values)
+Item.sale_price(item, catalogue.markup_percentage)                              # post-markup
+Item.final_price(item, catalogue.markup_percentage, catalogue.discount_percentage)  # post-discount
+Item.discount_amount(item, catalogue.markup_percentage, catalogue.discount_percentage)
+Item.effective_markup(item, catalogue.markup_percentage)
+Item.effective_discount(item, catalogue.discount_percentage)
 Catalogue.swap_category_positions(cat_a, cat_b)    # atomic position swap
 
 # ── Manufacturers ─────────────────────────────────────
@@ -147,16 +198,28 @@ Catalogue.list_suppliers_for_manufacturer(m_uuid)
 Catalogue.list_manufacturers_for_supplier(s_uuid)
 
 # ── Search ────────────────────────────────────────────
-Catalogue.search_items("oak")                      # global across all catalogues
+Catalogue.search_items("oak")                                    # global across all catalogues
 Catalogue.search_items("oak", limit: 10)
-Catalogue.search_items("oak", limit: 100, offset: 100)   # paging
-Catalogue.search_items_in_catalogue(cat_uuid, "panel")
-Catalogue.search_items_in_category(cat_uuid, "oak") # within one category
+Catalogue.search_items("oak", limit: 100, offset: 100)           # paging
+Catalogue.search_items("oak", catalogue_uuids: [a, b])           # only these catalogues
+Catalogue.search_items("oak", category_uuids: [c1, c2])          # only these categories
+Catalogue.search_items("oak", catalogue_uuids: [a], category_uuids: [c1])  # AND
+Catalogue.search_items_in_catalogue(cat_uuid, "panel")           # convenience wrapper
+Catalogue.search_items_in_category(cat_uuid, "oak")              # convenience wrapper
 
-# Unbounded total for paging / summaries
+# Unbounded total for paging / summaries (accepts the same scope filters)
 Catalogue.count_search_items("oak")
+Catalogue.count_search_items("oak", catalogue_uuids: [a, b])
 Catalogue.count_search_items_in_catalogue(cat_uuid, "panel")
 Catalogue.count_search_items_in_category(cat_uuid, "oak")
+
+# Compose with the prefix lookup
+uuids =
+  "Kit"
+  |> Catalogue.list_catalogues_by_name_prefix()
+  |> Enum.map(& &1.uuid)
+
+Catalogue.search_items("oak", catalogue_uuids: uuids)
 
 # ── Counts ────────────────────────────────────────────
 Catalogue.item_count_for_catalogue(cat_uuid)       # active items
@@ -197,7 +260,7 @@ Data-driven item table with opt-in columns, actions, and card view:
 />
 ```
 
-Available columns: `:name`, `:sku`, `:base_price`, `:price`, `:unit`, `:status`, `:category`, `:catalogue`, `:manufacturer`
+Available columns: `:name`, `:sku`, `:base_price`, `:price` (post-markup), `:discount`, `:final_price` (post-discount), `:unit`, `:status`, `:category`, `:catalogue`, `:manufacturer`. Pass `markup_percentage={@cat.markup_percentage}` when using `:price` or `:final_price`; pass `discount_percentage={@cat.discount_percentage}` when using `:discount` or `:final_price`.
 
 Unknown columns render as "—" with a logger warning. Unloaded associations, nil values, and invalid markup types are handled gracefully — the component never crashes the page.
 
@@ -218,6 +281,35 @@ Global table/card toggle that syncs all tables sharing the same `storage_key`:
 <.item_table cards={true} show_toggle={false} storage_key="my-items" id="table-1" ... />
 <.item_table cards={true} show_toggle={false} storage_key="my-items" id="table-2" ... />
 ```
+
+### `scope_selector/1`
+
+Disclosure with catalogue/category checkbox lists for narrowing a search. Pairs with `Catalogue.search_items/2`'s `:catalogue_uuids` / `:category_uuids`:
+
+```heex
+<.scope_selector
+  catalogues={@scope_catalogues}
+  categories={@scope_categories}
+  selected_catalogue_uuids={@selected_catalogue_uuids}
+  selected_category_uuids={@selected_category_uuids}
+/>
+```
+
+Emits four events (names customizable via attrs): `toggle_catalogue_scope`, `toggle_category_scope`, `clear_catalogue_scope`, `clear_category_scope`. The LV owns the selected-UUIDs lists and feeds them into the search opts. Either `catalogues` or `categories` can be empty — the corresponding section is omitted.
+
+### `catalogue_rules_picker/1`
+
+Smart-catalogue rule editor — one row per candidate catalogue with a checkbox, a numeric value input, and a unit dropdown. Pairs with `Catalogue.put_catalogue_rules/3`:
+
+```heex
+<.catalogue_rules_picker
+  catalogues={@candidate_catalogues}
+  rules={@working_rules}
+  item_default_value={@item_default_value}
+/>
+```
+
+Emits four customizable events: `toggle_catalogue_rule`, `set_catalogue_rule_value`, `set_catalogue_rule_unit`, `clear_catalogue_rules`. The LV owns `working_rules` as a `%{referenced_catalogue_uuid => %{value, unit}}` map and calls `put_catalogue_rules/3` on save. Rows with blank values show `Inherit: N` as placeholder when an item default is set. The per-row unit dropdown is self-contained — toggling a row on defaults its unit to `"percent"` and the item's `default_unit` does not cascade into rule rows.
 
 ### `search_results_summary/1` and `empty_state/1`
 

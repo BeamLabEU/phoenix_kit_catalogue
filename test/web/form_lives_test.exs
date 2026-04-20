@@ -57,6 +57,28 @@ defmodule PhoenixKitCatalogue.Web.FormLivesTest do
       assert html =~ "New Catalogue"
       assert Catalogue.list_catalogues() == []
     end
+
+    test "creates a smart catalogue with discount + markup percentages", %{conn: conn} do
+      {:ok, view, _html} = live(conn, "#{@base}/new")
+
+      view
+      |> form(form_selector(), %{
+        "catalogue" => %{
+          "name" => "Services",
+          "description" => "Smart catalogue",
+          "markup_percentage" => "5",
+          "discount_percentage" => "10",
+          "kind" => "smart",
+          "status" => "active"
+        }
+      })
+      |> render_submit()
+
+      assert [%{name: "Services"} = c] = Catalogue.list_catalogues(kind: :smart)
+      assert c.kind == "smart"
+      assert Decimal.equal?(c.discount_percentage, Decimal.new("10"))
+      assert Decimal.equal?(c.markup_percentage, Decimal.new("5"))
+    end
   end
 
   describe "CatalogueFormLive :edit" do
