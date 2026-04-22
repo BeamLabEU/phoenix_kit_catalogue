@@ -13,7 +13,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Search do
 
   import Ecto.Query, warn: false
 
-  alias PhoenixKitCatalogue.Catalogue.Helpers
+  alias PhoenixKitCatalogue.Catalogue.{Helpers, Tree}
   alias PhoenixKitCatalogue.Schemas.{Catalogue, Category, Item}
 
   defp repo, do: PhoenixKit.RepoHelper.repo()
@@ -25,6 +25,10 @@ defmodule PhoenixKitCatalogue.Catalogue.Search do
 
     * `:catalogue_uuids` — list of catalogue UUIDs to scope to. `nil` or `[]` = all.
     * `:category_uuids` — list of category UUIDs to scope to. `nil` or `[]` = all + uncategorized.
+    * `:include_descendants` — when `true` (default since V103), each
+      entry in `:category_uuids` is expanded to include every descendant
+      category in the nested-category tree. Pass `false` to scope
+      strictly to the given UUIDs.
     * `:limit` — max results (default 50).
     * `:offset` — paging offset (default 0).
   """
@@ -101,7 +105,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Search do
   defp search_items_base(query_str, opts) do
     pattern = "%#{Helpers.sanitize_like(query_str)}%"
     catalogue_uuids = opts[:catalogue_uuids]
-    category_uuids = opts[:category_uuids]
+    category_uuids = expand_category_scope(opts)
 
     from(i in Item,
       join: cat in Catalogue,
@@ -118,6 +122,27 @@ defmodule PhoenixKitCatalogue.Catalogue.Search do
     )
     |> maybe_scope_catalogues(catalogue_uuids)
     |> maybe_scope_categories(category_uuids)
+  end
+
+  # Expands `:category_uuids` through the V103 nested-category tree so
+  # filtering by "Kitchen" also matches items in "Kitchen / Frames".
+  # `:include_descendants` defaults to `true`; callers can opt out for
+  # the literal-set semantics by passing `false`.
+  defp expand_category_scope(opts) do
+    case opts[:category_uuids] do
+      nil ->
+        nil
+
+      [] ->
+        []
+
+      uuids when is_list(uuids) ->
+        if Keyword.get(opts, :include_descendants, true) do
+          Tree.subtree_uuids_for(uuids)
+        else
+          uuids
+        end
+    end
   end
 
   defp maybe_scope_catalogues(query, uuids) when uuids in [nil, []], do: query

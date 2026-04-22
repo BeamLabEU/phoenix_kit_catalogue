@@ -46,8 +46,8 @@ This is a **PhoenixKit module** that implements the `PhoenixKit.Module` behaviou
 
 ### Core Schemas (all use UUIDv7 primary keys)
 
-- **Catalogue** (`phoenix_kit_cat_catalogues`) — top-level groupings with name, description, `markup_percentage` (default 0, NOT NULL), `discount_percentage` (default 0, NOT NULL, V102), `kind` (`"standard"` | `"smart"`, default `"standard"`, NOT NULL, V102), status (active/archived/deleted). A **smart catalogue** holds items whose cost is a rule-driven function of other catalogues (see "Smart catalogues" section below).
-- **Category** (`phoenix_kit_cat_categories`) — subdivisions within a catalogue with position ordering, status (active/deleted)
+- **Catalogue** (`phoenix_kit_cat_catalogues`) — top-level groupings with name, description, `markup_percentage` (default 0, NOT NULL), `discount_percentage` (default 0, NOT NULL, V102), `kind` (`"standard"` | `"smart"`, default `"standard"`, NOT NULL, V102), status (active/archived/deleted). A **smart catalogue** holds items whose cost is a rule-driven function of other catalogues (see "Smart catalogues" section below). Optional `data["featured_image_uuid"]` + `data["files_folder_uuid"]` wire the `Attachments` module in (see "Attachments" section).
+- **Category** (`phoenix_kit_cat_categories`) — subdivisions within a catalogue with position ordering, status (active/deleted), and a nullable self-FK `parent_uuid` (V103) that turns the flat taxonomy into an arbitrary-depth tree. `NULL` means root. Position is scoped to `(catalogue_uuid, parent_uuid)` — siblings only.
 - **Item** (`phoenix_kit_cat_items`) — individual products with SKU, base_price, unit of measure, manufacturer link, status (active/deleted). **Belongs directly to a catalogue via `catalogue_uuid`** (required), with an optional `category_uuid` for grouping. Items without a category are "uncategorized within a catalogue" — still scoped to that catalogue. Has two nullable percentage overrides (`markup_percentage` added V97, `discount_percentage` added V102) with identical inherit-or-override semantics: `NULL` inherits from the catalogue, any Decimal (including `0`) overrides it. `Item.effective_markup/2` and `Item.effective_discount/2` resolve which value applies
 - **Manufacturer** (`phoenix_kit_cat_manufacturers`) — company directory with name, website, logo, status (active/inactive)
 - **Supplier** (`phoenix_kit_cat_suppliers`) — delivery companies with name, website, status (active/inactive)
@@ -67,10 +67,22 @@ This is a **PhoenixKit module** that implements the `PhoenixKit.Module` behaviou
 
 ### Soft-Delete Cascade System
 
-- **Downward on trash:** catalogue → categories + all items (categorized and uncategorized) in that catalogue
-- **Upward on restore:** item → category → catalogue; category → catalogue + items
-- **Permanent delete** follows same downward cascade but removes from DB; uncategorized items of the catalogue are removed too
-- All cascading operations wrapped in `Repo.transaction/1`
+- **Downward on trash:** catalogue → categories + all items (categorized and uncategorized) in that catalogue. Category → **entire subtree** (V103) including descendant categories + their items.
+- **Upward on restore:** item → category → catalogue; category → **every deleted ancestor category** + catalogue + full deleted subtree + items. Restoring a deep child brings back ancestors so the restored node is reachable in the active tree.
+- **Permanent delete** follows same downward cascade but removes from DB; uncategorized items of the catalogue are removed too. For categories: subtree is walked, items hard-deleted, `parent_uuid` NULL'd across the subtree (V103's FK has no `ON DELETE CASCADE`), then rows deleted.
+- All cascading operations wrapped in `Repo.transaction/1`. Activity metadata on `category.trashed` / `category.restored` / `category.permanently_deleted` / `category.moved` carries `subtree_size` (categories touched, including root) and `items_cascaded` so the audit log tells the full story.
+
+### Nested Categories (V103)
+
+The V103 migration adds `parent_uuid` to `phoenix_kit_cat_categories`. All tree walks run through `PhoenixKitCatalogue.Catalogue.Tree` (internal module, `@moduledoc false`), which exposes `subtree_uuids/1`, `descendant_uuids/1`, `ancestor_uuids/1`, `ancestors_in_order/1`, `build_children_index/1`, `walk_subtree/3`. Recursive CTEs use `UNION` (not `UNION ALL`) so even if DB corruption produced a cycle, the working-set dedupe would break termination — no infinite-loop risk.
+
+- **Public tree API on `Catalogue`:** `list_category_tree/2` returns `[{category, depth}]` in depth-first display order. Options: `:mode` (`:active` default, excludes deleted; `:deleted` includes everything), `:exclude_subtree_of` (pass the category being edited to keep it out of its own parent picker). Orphans (categories whose parent was filtered out) are promoted to roots so they don't vanish. `list_category_ancestors/1` returns the breadcrumb chain (root → direct parent).
+- **Reparent within a catalogue:** `move_category_under(category, new_parent_uuid, opts)`. Returns `{:error, :would_create_cycle}` (self or descendant), `{:error, :cross_catalogue}` (target lives elsewhere — caller should `move_category_to_catalogue/3` first), `{:error, :parent_not_found}`. `nil` promotes to root. Same-parent is a no-op.
+- **Cross-catalogue move:** `move_category_to_catalogue/3` still takes the whole subtree along — internal `parent_uuid` links inside the subtree stay valid because every row moves. The root's `parent_uuid` is cleared (detaches from the former parent, which stays in the source catalogue).
+- **Position:** `next_category_position(catalogue_uuid, parent_uuid \\ nil)` is scoped to sibling groups. `swap_category_positions/3` refuses `:not_siblings` when the two categories don't share a parent or catalogue — the detail view's up/down arrows filter to siblings before calling swap.
+- **Parent-uuid guards:** `create_category/2` and `update_category/3` both run `validate_parent_in_same_catalogue/1` after the changeset. It catches three cases: (a) parent doesn't exist (`{:error, cs}` with `"does not exist"`), (b) parent belongs to another catalogue (`"must belong to the same catalogue"`), (c) on update, the new parent is the category itself or one of its descendants (`"would create a cycle"`). The form LV's parent dropdown only lists same-catalogue, non-descendant candidates, but this context guard covers programmatic / API callers too. `Category.changeset` rejects the self-parent case; the cross-catalogue + cycle cases live in the context because they need DB lookups. `move_category_under/3` runs the same cycle/cross-catalogue checks with richer error atoms (`:would_create_cycle`, `:cross_catalogue`, `:parent_not_found`) for callers that want to react specifically.
+- **Breadcrumbs in `list_all_categories/0`:** now returns `"Catalogue / Ancestor / Child"` format (not just `"Catalogue / Child"`) so move-dropdowns disambiguate same-named leaves under different parents. Runs one catalogues query + one categories query, builds the tree in memory — not N+1 per catalogue.
+- **Search: `:include_descendants`** in `search_items/2` (default `true`): passes each entry in `:category_uuids` through `Tree.subtree_uuids_for/1`, so filtering by a parent category also matches items in descendants. Pass `false` for strict literal-set semantics.
 
 ### Pricing
 
@@ -103,13 +115,39 @@ A smart catalogue (`Catalogue.kind == "smart"`) holds items whose cost is a func
 - **Smart items don't use `base_price` / `markup_percentage` / `discount_percentage`.** Those columns still exist on the row (shared Item schema) but the smart item form doesn't surface them and the convention is to leave them `nil`. A smart item's intrinsic standalone fee lives in `default_value` + `default_unit`. For ruleless smart items, `default_value: 50, default_unit: "flat"` means "this item costs $50 flat". When rules exist, `default_value` still acts as a fallback for any rule row whose `value` is blank (the data-layer inheritance surfaced via the `Inherit: N` placeholder); `default_unit` is *not* a UI fallback for rule rows — each row's unit is explicit.
 - **No math on our side.** `Catalogue.item_pricing/1` and `Item.final_price/3` work purely off `base_price` + markup + discount and do not consult rules or defaults — they're the standard-item pricing helpers. Smart-item consumers read `list_catalogue_rules/1` + the item's `default_value`/`default_unit` and do their own math.
 
+### Attachments (featured image + file grid)
+
+Both catalogue and item forms support a featured image + a folder-scoped file grid via the shared `PhoenixKitCatalogue.Attachments` module. All the form plumbing (mount, upload progress, media-selector integration, file detach with `FolderLink` awareness, folder-rename on create) lives there; the form LVs just delegate.
+
+- **Folder-per-resource:** each item/catalogue owns one folder in `phoenix_kit_media_folders`, named deterministically (`catalogue-item-<uuid>` / `catalogue-<uuid>`). `data["files_folder_uuid"]` on the resource points at it. For `:new` forms the folder is created with a pending random name and `maybe_rename_pending_folder/2` renames it after save — non-fatal if rename fails (logs, returns `:ok`).
+- **Featured image:** `data["featured_image_uuid"]` on the resource points at any `phoenix_kit_files` row (not necessarily in this resource's folder — cross-resource duplicate moves can leave the featured pointer in another folder, and `compute_files_list/1` surfaces it in the grid anyway).
+- **Media picker scope:** catalogue + item forms render `<.live_component module={MediaSelectorModal} scope_folder_id={@files_folder_uuid} ...>`. The modal's `scope_folder_id` attr (added in phoenix_kit core) filters the browse query to files whose `folder_uuid` matches OR who have a `FolderLink` to that folder, and sets the same folder as home/link on post-upload files. This means uploading the same image to two items creates a `FolderLink` on the second — the file keeps its home with the first but appears in both grids.
+- **File detach semantics** (`Attachments.trash_file/2`): if the file's home folder is this resource AND it's only here → `Storage.trash_file`; home here + linked elsewhere → promote a link to home and delete the promoted link (the file stays alive under its new owner); linked here (home elsewhere) → delete the link only. Also clears the featured pointer if the removed file was featured.
+- **Save-path contract:** LVs call `Attachments.inject_attachment_data(params, socket)` before `update_item` / `update_catalogue` so `params["data"]` ends up with `files_folder_uuid` + `featured_image_uuid`. Save button is `disabled` while `@uploads.attachment_files.entries != []` to avoid racing a mid-upload `handle_progress` write against the save.
+- **Query cap:** `list_files_in_folder/1` uses `limit: 200` to keep a mistakenly-huge folder from freezing the form on mount (the dropzone itself caps a single submission at 20 files).
+- **`file_type` allowlist widened** (in phoenix_kit core): `File.changeset` now permits `["image", "video", "audio", "document", "archive", "other"]` so `file_type_from_mime/1` can safely return `"other"` for unknowns.
+
+### Item Metadata (opt-in fields)
+
+`PhoenixKitCatalogue.ItemMetadata` holds a code-defined list of fields an item can opt into. Values live on `item.data["meta"]` as a flat `%{key => string}` map — not on their own columns. Adding a field is a code edit; removing one does **not** wipe stored values (they surface in the form as "Legacy" rows with a remove-only action, so the user cleans them up explicitly).
+
+- `definitions/0` returns `[%{key: "color", label: Gettext.gettext(PhoenixKitWeb.Gettext, "Color")}, ...]`. The `:key` is stable (JSONB key, never translated). The `:label` is gettext-wrapped at call time — callers cannot cache it across locale changes.
+- The item form's metadata tab shows a pick-a-field dropdown (only definitions not yet attached), renders one text input per attached key, and folds them into `item.data["meta"]` on save via `inject_meta_into_data/2`. Blank values drop (don't store empty strings). Legacy keys pass through untouched.
+- There is **no** `Catalogue.set_item_metadata/3` context helper — use `update_item(item, %{data: %{"meta" => new_meta}})`. Merge the new meta with whatever else lives on `data`.
+
+### Item Picker component
+
+`PhoenixKitCatalogue.Web.Components.ItemPicker` is a combobox LiveComponent for picking a single item via server-side search. Exposed through the `<.item_picker id=... category_uuids=... locale=... />` wrapper in `Components`. Emits `{:item_picker_select, id, %Item{}}` / `{:item_picker_clear, id}` up to the parent LV (parent needs matching `handle_info/2` clauses). Keyboard/a11y is driven by a colocated `ItemPicker` hook (no external JS). Scope composes via `:category_uuids`, `:catalogue_uuids`, `:include_descendants` — the latter passes straight through to the `search_items/2` tree expansion.
+
+The dropdown is absolutely positioned with `z-50` — the container's ancestors must not clip overflow.
+
 ### Activity Logging
 
 Every mutating operation in `Catalogue` context is logged via `PhoenixKit.Activity.log/1`:
 
 - **Pattern**: Private `log_activity/1` helper guarded by `Code.ensure_loaded?(PhoenixKit.Activity)` with rescue to `Logger.warning`. Activity logging failures never crash the primary operation.
 - **Actor tracking**: All mutating functions accept `opts \\ []` keyword list. Pass `actor_uuid: user.uuid` to attribute the action.
-- **Actions logged**: `manufacturer.created/updated/deleted`, `supplier.created/updated/deleted`, `catalogue.created/updated/deleted/trashed/restored/permanently_deleted`, `category.created/updated/deleted/trashed/restored/permanently_deleted/moved/positions_swapped`, `item.created/updated/deleted/trashed/restored/permanently_deleted/moved/bulk_trashed`, `manufacturer.suppliers_synced`, `supplier.manufacturers_synced`, `smart_rules.synced` (with `added`/`updated`/`removed`/`total` counts), `import.started`, `import.completed`
+- **Actions logged**: `manufacturer.created/updated/deleted`, `supplier.created/updated/deleted`, `catalogue.created/updated/deleted/trashed/restored/permanently_deleted`, `category.created/updated/deleted/trashed/restored/permanently_deleted/moved/positions_swapped`, `item.created/updated/deleted/trashed/restored/permanently_deleted/moved/bulk_trashed`, `manufacturer.suppliers_synced`, `supplier.manufacturers_synced`, `smart_rules.synced` (with `added`/`updated`/`removed`/`total` counts), `import.started`, `import.completed`. Since V103, `category.trashed` / `category.restored` / `category.permanently_deleted` carry `subtree_size` + `items_cascaded`; `category.moved` includes `from_parent_uuid` / `to_parent_uuid` (in-catalogue reparents via `move_category_under/3`) or `from_catalogue_uuid` / `to_catalogue_uuid` + `subtree_size` + `items_cascaded` (cross-catalogue moves). Attachments (file uploads, featured-image changes) are not individually logged — they're captured as part of the `item.updated` / `catalogue.updated` entry on the containing save.
 - **Mode**: `"manual"` for user actions, `"auto"` for import-created items/categories
 - **LiveViews**: Extract actor UUID via `actor_opts(socket)` private helper reading `socket.assigns[:phoenix_kit_current_user]`
 
@@ -196,7 +234,10 @@ lib/phoenix_kit_catalogue/
 │   ├── rules.ex                               # Smart-catalogue rule CRUD + put_catalogue_rules/3 replace-all
 │   ├── search.ex                              # search_items/2 + scoped wrappers, count_*
 │   ├── suppliers.ex                           # Supplier CRUD with activity logging
-│   └── translations.ex                        # Multilang read/write against schema.data JSONB
+│   ├── translations.ex                        # Multilang read/write against schema.data JSONB
+│   └── tree.ex                                # V103 recursive-CTE helpers (subtree/ancestor/children-index)
+├── attachments.ex                             # Form-level featured-image + inline files dropzone wiring (shared by catalogue_form_live + item_form_live)
+├── item_metadata.ex                           # Global opt-in metadata field definitions (labels are gettext-wrapped)
 ├── paths.ex                                   # Centralized URL path helpers
 ├── schemas/
 │   ├── cat_catalogue.ex                       # Catalogue schema + changeset (kind: standard|smart)
@@ -211,12 +252,14 @@ lib/phoenix_kit_catalogue/
 │   ├── mapper.ex                              # Column mapping + auto-detection
 │   └── executor.ex                            # Import execution with progress reporting
 └── web/
-    ├── components.ex                          # Reusable components (item_table, search_input, etc.)
+    ├── components.ex                          # Reusable components (item_table, search_input, item_picker wrapper, etc.)
+    ├── components/
+    │   └── item_picker.ex                     # Combobox LiveComponent (server-side search + colocated JS hook)
     ├── catalogues_live.ex                     # Index page (catalogues/manufacturers/suppliers)
-    ├── catalogue_detail_live.ex               # Catalogue detail with categories + items
-    ├── catalogue_form_live.ex                 # Create/edit catalogue
-    ├── category_form_live.ex                  # Create/edit/move category
-    ├── item_form_live.ex                      # Create/edit/move item
+    ├── catalogue_detail_live.ex               # Catalogue detail with categories + items (tree depths render indented)
+    ├── catalogue_form_live.ex                 # Create/edit catalogue + featured image + files dropzone
+    ├── category_form_live.ex                  # Create/edit/move category (with parent picker + Move-to-parent)
+    ├── item_form_live.ex                      # Create/edit/move item (with tabs: Details / Metadata / Files)
     ├── manufacturer_form_live.ex              # Create/edit manufacturer + supplier links
     ├── supplier_form_live.ex                  # Create/edit supplier + manufacturer links
     ├── import_live.ex                         # Multi-step import wizard

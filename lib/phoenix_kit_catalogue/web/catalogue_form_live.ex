@@ -7,10 +7,13 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
 
   import PhoenixKitWeb.Components.MultilangForm
   import PhoenixKitWeb.Components.Core.AdminPageHeader, only: [admin_page_header: 1]
+  import PhoenixKitWeb.Components.Core.Icon, only: [icon: 1]
   import PhoenixKitWeb.Components.Core.Modal, only: [confirm_modal: 1]
   import PhoenixKitWeb.Components.Core.Input, only: [input: 1]
   import PhoenixKitWeb.Components.Core.Select, only: [select: 1]
 
+  alias PhoenixKit.Modules.Storage.URLSigner
+  alias PhoenixKitCatalogue.Attachments
   alias PhoenixKitCatalogue.Catalogue
   alias PhoenixKitCatalogue.Paths
   alias PhoenixKitCatalogue.Schemas.Catalogue, as: CatalogueSchema
@@ -62,6 +65,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
          catalogue: catalogue,
          confirm_delete: false
        )
+       |> Attachments.mount_attachments(catalogue)
+       |> Attachments.allow_attachment_upload()
        |> assign_changeset(changeset)
        |> mount_multilang()}
     end
@@ -99,13 +104,32 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
 
   def handle_event("save", %{"catalogue" => params}, socket) do
     params =
-      merge_translatable_params(params, socket, @translatable_fields,
+      params
+      |> merge_translatable_params(socket, @translatable_fields,
         changeset: socket.assigns.changeset,
         preserve_fields: @preserve_fields
       )
+      |> Attachments.inject_attachment_data(socket)
 
     save_catalogue(socket, socket.assigns.action, params)
   end
+
+  # ── Attachments (featured image modal + inline files dropzone) ──
+
+  def handle_event("open_featured_image_picker", _params, socket),
+    do: Attachments.open_featured_image_picker(socket)
+
+  def handle_event("close_media_selector", _params, socket),
+    do: {:noreply, Attachments.close_media_selector(socket)}
+
+  def handle_event("cancel_upload", %{"ref" => ref}, socket),
+    do: Attachments.cancel_attachment_upload(socket, ref)
+
+  def handle_event("remove_file", %{"uuid" => uuid}, socket),
+    do: Attachments.trash_file(socket, uuid)
+
+  def handle_event("clear_featured_image", _params, socket),
+    do: Attachments.clear_featured_image(socket)
 
   def handle_event("show_delete_confirm", _params, socket) do
     {:noreply, assign(socket, :confirm_delete, true)}
@@ -140,6 +164,17 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
     {:noreply, assign(socket, :confirm_delete, false)}
   end
 
+  @impl true
+  def handle_info({:media_selected, file_uuids}, socket),
+    do: Attachments.handle_media_selected(socket, file_uuids)
+
+  def handle_info({:media_selector_closed}, socket),
+    do: {:noreply, Attachments.close_media_selector(socket)}
+
+  # Catch-all so stray monitor signals or unrelated PubSub traffic
+  # can't crash the form mid-edit.
+  def handle_info(_msg, socket), do: {:noreply, socket}
+
   defp actor_opts(socket) do
     case socket.assigns[:phoenix_kit_current_user] do
       %{uuid: uuid} -> [actor_uuid: uuid]
@@ -150,6 +185,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
   defp save_catalogue(socket, :new, params) do
     case Catalogue.create_catalogue(params, actor_opts(socket)) do
       {:ok, catalogue} ->
+        _ = Attachments.maybe_rename_pending_folder(socket, catalogue)
+
         {:noreply,
          socket
          |> put_flash(:info, Gettext.gettext(PhoenixKitWeb.Gettext, "Catalogue created."))
@@ -184,8 +221,98 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
 
     ~H"""
     <div class="flex flex-col mx-auto max-w-2xl px-4 py-8 gap-6">
+      <%!-- Media selector — folder-scoped featured-image picker.
+           Reconfigured per open; the Files card below is inline so
+           no files-mode routing is needed. --%>
+      <.live_component
+        module={PhoenixKitWeb.Live.Components.MediaSelectorModal}
+        id="catalogue-form-media-selector"
+        show={@show_media_selector}
+        mode={@media_selection_mode}
+        file_type_filter={@media_filter}
+        selected_uuids={@media_selected_uuids}
+        scope_folder_id={@files_folder_uuid}
+        phoenix_kit_current_user={assigns[:phoenix_kit_current_user]}
+      />
+
       <%!-- Header --%>
       <.admin_page_header back={Paths.index()} title={@page_title} subtitle={if @action == :new, do: Gettext.gettext(PhoenixKitWeb.Gettext, "Create a new product catalogue to organize categories and items."), else: Gettext.gettext(PhoenixKitWeb.Gettext, "Update catalogue details and settings.")} />
+
+      <%!-- Featured image card. Opens the scoped picker (images only,
+           single). Upload a new image or pick an attached one; the
+           uuid is stored on `catalogue.data["featured_image_uuid"]`. --%>
+      <div class="card bg-base-100 shadow-lg">
+        <div class="card-body flex flex-col gap-3">
+          <div class="flex items-center justify-between">
+            <h2 class="text-base font-semibold text-base-content/80 flex items-center gap-2">
+              <.icon name="hero-photo" class="w-4 h-4" />
+              {Gettext.gettext(PhoenixKitWeb.Gettext, "Featured Image")}
+            </h2>
+            <span class="text-xs text-base-content/50">
+              {Gettext.gettext(PhoenixKitWeb.Gettext, "Shown on catalogue listings and detail views.")}
+            </span>
+          </div>
+
+          <%= if @featured_image_file do %>
+            <div class="flex items-center gap-4">
+              <a
+                href={URLSigner.signed_url(@featured_image_uuid, "original")}
+                target="_blank"
+                rel="noopener"
+                class="shrink-0"
+                title={Gettext.gettext(PhoenixKitWeb.Gettext, "Open original")}
+              >
+                <img
+                  src={URLSigner.signed_url(@featured_image_uuid, "thumbnail")}
+                  alt={@featured_image_file.original_file_name}
+                  class="w-24 h-24 rounded-md object-cover bg-base-200 border border-base-300"
+                />
+              </a>
+              <div class="flex-1 min-w-0">
+                <p class="text-sm font-medium truncate">
+                  {@featured_image_file.original_file_name}
+                </p>
+                <p class="text-xs text-base-content/50">
+                  {Attachments.format_file_size(@featured_image_file.size)}
+                </p>
+              </div>
+              <div class="flex flex-col gap-2">
+                <button
+                  type="button"
+                  phx-click="open_featured_image_picker"
+                  class="btn btn-sm btn-outline"
+                >
+                  {Gettext.gettext(PhoenixKitWeb.Gettext, "Change")}
+                </button>
+                <button
+                  type="button"
+                  phx-click="clear_featured_image"
+                  class="btn btn-sm btn-ghost"
+                >
+                  {Gettext.gettext(PhoenixKitWeb.Gettext, "Remove")}
+                </button>
+              </div>
+            </div>
+          <% else %>
+            <div class="flex items-center justify-between py-4 border border-dashed border-base-300 rounded-md px-4">
+              <div class="flex items-center gap-3 text-base-content/60">
+                <.icon name="hero-photo" class="w-6 h-6" />
+                <span class="text-sm">
+                  {Gettext.gettext(PhoenixKitWeb.Gettext, "No featured image set.")}
+                </span>
+              </div>
+              <button
+                type="button"
+                phx-click="open_featured_image_picker"
+                class="btn btn-sm btn-primary"
+              >
+                <.icon name="hero-plus" class="w-4 h-4 mr-1" />
+                {Gettext.gettext(PhoenixKitWeb.Gettext, "Set featured image")}
+              </button>
+            </div>
+          <% end %>
+        </div>
+      </div>
 
       <.form for={@form} action="#" phx-change="validate" phx-submit="save">
         <%!-- Main content card --%>
@@ -316,22 +443,164 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
                 {Gettext.gettext(PhoenixKitWeb.Gettext, "Archived catalogues are hidden from active views.")}
               </span>
             </div>
+          </div>
+        </div>
 
-            <%!-- Actions --%>
-            <div class="divider my-0"></div>
+        <%!-- Files card lives inside the form so the file input's
+             phx-change hooks into the form's `validate` event (which
+             is what kicks off auto_upload). Rendering it outside the
+             form kept the server from ever seeing new entries. --%>
+        <div class="card bg-base-100 shadow-lg mt-6">
+        <div class="card-body flex flex-col gap-4">
+          <div class="flex flex-col gap-0.5">
+            <h2 class="text-base font-semibold text-base-content/80 flex items-center gap-2">
+              <.icon name="hero-paper-clip" class="w-4 h-4" />
+              {Gettext.gettext(PhoenixKitWeb.Gettext, "Attached Files")}
+              <span :if={@files_state.files != []} class="badge badge-sm badge-ghost ml-1">
+                {length(@files_state.files)}
+              </span>
+            </h2>
+            <p class="text-xs text-base-content/50">
+              {Gettext.gettext(PhoenixKitWeb.Gettext, "Brochures, spec sheets, datasheets. Any file type is accepted.")}
+            </p>
+          </div>
 
-            <div class="flex justify-end gap-3">
-              <.link navigate={Paths.index()} class="btn btn-ghost">{Gettext.gettext(PhoenixKitWeb.Gettext, "Cancel")}</.link>
+          <label
+            for={@uploads.attachment_files.ref}
+            class="flex flex-col items-center justify-center gap-2 py-6 border-2 border-dashed border-base-300 rounded-md bg-base-200/20 hover:bg-base-200/40 transition-colors cursor-pointer"
+            phx-drop-target={@uploads.attachment_files.ref}
+          >
+            <.icon name="hero-cloud-arrow-up" class="w-8 h-8 text-base-content/40" />
+            <div class="text-sm text-base-content/60">
+              <span class="font-medium text-primary">{Gettext.gettext(PhoenixKitWeb.Gettext, "Click to upload")}</span>
+              <span>{Gettext.gettext(PhoenixKitWeb.Gettext, " or drag & drop")}</span>
+            </div>
+            <.live_file_input upload={@uploads.attachment_files} class="hidden" />
+          </label>
+
+          <div :if={@uploads.attachment_files.entries != []} class="flex flex-col gap-2">
+            <div
+              :for={entry <- @uploads.attachment_files.entries}
+              class="flex items-center gap-3 rounded-md border border-base-300 bg-base-100 p-2"
+            >
+              <.icon name="hero-cloud-arrow-up" class="w-4 h-4 text-base-content/60 shrink-0" />
+              <div class="flex-1 min-w-0">
+                <p class="text-sm truncate">{entry.client_name}</p>
+                <progress
+                  class="progress progress-primary w-full h-1 mt-1"
+                  value={entry.progress}
+                  max="100"
+                >
+                </progress>
+              </div>
+              <span class="text-xs text-base-content/50 tabular-nums">{entry.progress}%</span>
               <button
-                type="submit"
-                class="btn btn-primary phx-submit-loading:opacity-75"
-                phx-disable-with={Gettext.gettext(PhoenixKitWeb.Gettext, "Saving...")}
+                type="button"
+                phx-click="cancel_upload"
+                phx-value-ref={entry.ref}
+                class="btn btn-ghost btn-xs btn-square"
+                title={Gettext.gettext(PhoenixKitWeb.Gettext, "Cancel")}
               >
-                {if @action == :new, do: Gettext.gettext(PhoenixKitWeb.Gettext, "Create Catalogue"), else: Gettext.gettext(PhoenixKitWeb.Gettext, "Save Changes")}
+                <.icon name="hero-x-mark" class="w-4 h-4" />
               </button>
             </div>
           </div>
+
+          <p
+            :for={err <- upload_errors(@uploads.attachment_files)}
+            class="text-xs text-error"
+          >
+            {Attachments.upload_error_message(err)}
+          </p>
+
+          <%= if @files_state.files == [] do %>
+            <div class="flex flex-col items-center gap-2 py-10 text-center border border-dashed border-base-300 rounded-md">
+              <.icon name="hero-paper-clip" class="w-8 h-8 text-base-content/30" />
+              <p class="text-sm text-base-content/50">
+                {Gettext.gettext(PhoenixKitWeb.Gettext, "No files attached yet.")}
+              </p>
+            </div>
+          <% else %>
+            <ul class="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <li
+                :for={file <- @files_state.files}
+                class="flex items-center gap-3 rounded-md border border-base-300 bg-base-200/30 p-3"
+              >
+                <%= if file.file_type == "image" do %>
+                  <a
+                    href={URLSigner.signed_url(file.uuid, "original")}
+                    target="_blank"
+                    rel="noopener"
+                    class="shrink-0"
+                  >
+                    <img
+                      src={URLSigner.signed_url(file.uuid, "thumbnail")}
+                      alt={file.original_file_name}
+                      class="w-14 h-14 rounded object-cover bg-base-200 border border-base-300"
+                    />
+                  </a>
+                <% else %>
+                  <a
+                    href={URLSigner.signed_url(file.uuid, "original")}
+                    target="_blank"
+                    rel="noopener"
+                    class="shrink-0 flex items-center justify-center w-14 h-14 rounded bg-base-200 border border-base-300 text-base-content/60"
+                    title={Gettext.gettext(PhoenixKitWeb.Gettext, "Download")}
+                  >
+                    <.icon name={Attachments.file_icon(file)} class="w-6 h-6" />
+                  </a>
+                <% end %>
+                <div class="flex-1 min-w-0">
+                  <p class="text-sm font-medium truncate" title={file.original_file_name}>
+                    {file.original_file_name}
+                  </p>
+                  <p class="text-xs text-base-content/50">
+                    {Attachments.format_file_size(file.size)} · {file.file_type}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  phx-click="remove_file"
+                  phx-value-uuid={file.uuid}
+                  data-confirm={Gettext.gettext(PhoenixKitWeb.Gettext, "Remove this file from the catalogue? If it's not attached to any other resource, it will be moved to trash (admins can restore).")}
+                  class="btn btn-ghost btn-xs btn-square"
+                  title={Gettext.gettext(PhoenixKitWeb.Gettext, "Remove from catalogue")}
+                >
+                  <.icon name="hero-x-mark" class="w-4 h-4" />
+                </button>
+              </li>
+            </ul>
+          <% end %>
         </div>
+      </div>
+
+      <%!-- Save/Cancel — at the bottom of the form so it covers
+           every card inside (main details + files).
+           Save is disabled while uploads are mid-flight so we don't
+           race the post-upload `handle_progress` write against the
+           save path. --%>
+      <div class="flex justify-end gap-3 pt-2">
+        <.link navigate={Paths.index()} class="btn btn-ghost">
+          {Gettext.gettext(PhoenixKitWeb.Gettext, "Cancel")}
+        </.link>
+        <button
+          type="submit"
+          class="btn btn-primary phx-submit-loading:opacity-75"
+          disabled={@uploads.attachment_files.entries != []}
+          phx-disable-with={Gettext.gettext(PhoenixKitWeb.Gettext, "Saving...")}
+        >
+          {cond do
+            @uploads.attachment_files.entries != [] ->
+              Gettext.gettext(PhoenixKitWeb.Gettext, "Waiting for uploads...")
+
+            @action == :new ->
+              Gettext.gettext(PhoenixKitWeb.Gettext, "Create Catalogue")
+
+            true ->
+              Gettext.gettext(PhoenixKitWeb.Gettext, "Save Changes")
+          end}
+        </button>
+      </div>
       </.form>
 
       <%!-- Danger zone — only in edit mode --%>

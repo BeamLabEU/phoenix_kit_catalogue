@@ -50,7 +50,8 @@ defmodule PhoenixKitCatalogue.Catalogue do
     Rules,
     Search,
     Suppliers,
-    Translations
+    Translations,
+    Tree
   }
 
   alias PhoenixKitCatalogue.Schemas.{Catalogue, Category, Item}
@@ -500,6 +501,13 @@ defmodule PhoenixKitCatalogue.Catalogue do
         from(i in Item, where: i.catalogue_uuid == ^catalogue.uuid)
         |> repo().delete_all()
 
+        # Break V103 self-FKs inside the catalogue before deleting —
+        # every category in the catalogue is being removed anyway, so
+        # NULLing parent_uuid first is the simplest way to avoid a
+        # leaf-first traversal.
+        from(c in Category, where: c.catalogue_uuid == ^catalogue.uuid)
+        |> repo().update_all(set: [parent_uuid: nil])
+
         from(c in Category, where: c.catalogue_uuid == ^catalogue.uuid)
         |> repo().delete_all()
 
@@ -731,20 +739,94 @@ defmodule PhoenixKitCatalogue.Catalogue do
   end
 
   @doc """
-  Lists all non-deleted categories across all non-deleted catalogues.
+  Lists all non-deleted categories across all non-deleted catalogues,
+  with breadcrumb-style names prefixed by their catalogue and every
+  ancestor category (e.g. `"Kitchen / Cabinets / Frames"`). Useful for
+  item move dropdowns where the user needs to distinguish
+  same-named leaves under different parents.
 
-  Category names are prefixed with their catalogue name (e.g. `"Kitchen / Frames"`).
-  Useful for item move dropdowns.
+  Entries are grouped by catalogue (catalogues ordered by name) and
+  within each catalogue returned in depth-first display order.
+
+  One query for catalogues + one query for all their categories — the
+  tree walk and breadcrumb rewrite happen in memory. Safe to call on
+  demand from move-dropdowns.
   """
   def list_all_categories do
-    from(c in Category,
-      join: cat in Catalogue,
-      on: c.catalogue_uuid == cat.uuid,
-      where: c.status != "deleted" and cat.status != "deleted",
-      order_by: [asc: cat.name, asc: c.position, asc: c.name],
-      select: %{c | name: fragment("? || ' / ' || ?", cat.name, c.name)}
-    )
-    |> repo().all()
+    catalogues =
+      from(cat in Catalogue,
+        where: cat.status != "deleted",
+        order_by: [asc: cat.name]
+      )
+      |> repo().all()
+
+    case catalogues do
+      [] ->
+        []
+
+      catalogues ->
+        catalogue_uuids = Enum.map(catalogues, & &1.uuid)
+
+        categories_by_catalogue =
+          from(c in Category,
+            where: c.catalogue_uuid in ^catalogue_uuids and c.status != "deleted",
+            order_by: [asc: :position, asc: :name]
+          )
+          |> repo().all()
+          |> Enum.group_by(& &1.catalogue_uuid)
+
+        Enum.flat_map(catalogues, fn %Catalogue{uuid: uuid, name: cat_name} ->
+          categories = Map.get(categories_by_catalogue, uuid, [])
+          breadcrumb_categories_for_catalogue(cat_name, categories)
+        end)
+    end
+  end
+
+  # Builds the depth-first list of `%Category{name: "A / B / C"}` for
+  # one catalogue from a flat, pre-sorted list of its categories.
+  defp breadcrumb_categories_for_catalogue(cat_name, categories) when is_list(categories) do
+    uuid_set = MapSet.new(categories, & &1.uuid)
+
+    # Promote orphans (children whose parent isn't in this list because
+    # it's been deleted or excluded) to roots so they still appear.
+    normalized =
+      Enum.map(categories, fn c ->
+        if c.parent_uuid == nil or MapSet.member?(uuid_set, c.parent_uuid) do
+          c
+        else
+          %{c | parent_uuid: nil}
+        end
+      end)
+
+    index = Tree.build_children_index(normalized)
+
+    {reversed, _} =
+      normalized
+      |> Enum.filter(&is_nil(&1.parent_uuid))
+      |> Enum.reduce({[], %{}}, fn root, {acc, path_by_uuid} ->
+        collect_breadcrumb(root, index, cat_name, path_by_uuid, acc)
+      end)
+
+    Enum.reverse(reversed)
+  end
+
+  defp collect_breadcrumb(%Category{} = cat, index, catalogue_name, path_by_uuid, acc) do
+    parent_label =
+      case cat.parent_uuid do
+        nil -> catalogue_name
+        parent_uuid -> Map.get(path_by_uuid, parent_uuid, catalogue_name)
+      end
+
+    full_label = "#{parent_label} / #{cat.name}"
+    labeled = %{cat | name: full_label}
+    path_by_uuid = Map.put(path_by_uuid, cat.uuid, full_label)
+    acc = [labeled | acc]
+
+    index
+    |> Map.get(cat.uuid, [])
+    |> Enum.reduce({acc, path_by_uuid}, fn child, {acc, path_by_uuid} ->
+      collect_breadcrumb(child, index, catalogue_name, path_by_uuid, acc)
+    end)
   end
 
   @doc "Fetches a category by UUID. Returns `nil` if not found."
@@ -771,7 +853,12 @@ defmodule PhoenixKitCatalogue.Catalogue do
       Catalogue.create_category(%{name: "Frames", catalogue_uuid: catalogue.uuid})
   """
   def create_category(attrs, opts \\ []) do
-    case %Category{} |> Category.changeset(attrs) |> repo().insert() do
+    changeset =
+      %Category{}
+      |> Category.changeset(attrs)
+      |> validate_parent_in_same_catalogue()
+
+    case repo().insert(changeset) do
       {:ok, category} = ok ->
         log_activity(%{
           action: "category.created",
@@ -791,7 +878,12 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
   @doc "Updates a category with the given attributes."
   def update_category(%Category{} = category, attrs, opts \\ []) do
-    case category |> Category.changeset(attrs) |> repo().update() do
+    changeset =
+      category
+      |> Category.changeset(attrs)
+      |> validate_parent_in_same_catalogue()
+
+    case repo().update(changeset) do
       {:ok, updated} = ok ->
         log_activity(%{
           action: "category.updated",
@@ -806,6 +898,59 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
       error ->
         error
+    end
+  end
+
+  # Guards both create_category/2 and update_category/3 against a
+  # `parent_uuid` that names a category in a different catalogue, AND
+  # against cycles on update (a raw
+  # `update_category(cat, %{parent_uuid: descendant.uuid})` would
+  # otherwise sail past the `move_category_under/3` checks). The
+  # self-parent rejection lives on `Category.changeset`; the
+  # cross-catalogue and full-subtree cycle checks need DB lookups, so
+  # they live here.
+  defp validate_parent_in_same_catalogue(%Ecto.Changeset{} = changeset) do
+    catalogue_uuid = Ecto.Changeset.get_field(changeset, :catalogue_uuid)
+    parent_uuid = Ecto.Changeset.get_field(changeset, :parent_uuid)
+    own_uuid = Ecto.Changeset.get_field(changeset, :uuid)
+
+    cond do
+      parent_uuid in [nil, ""] ->
+        changeset
+
+      is_nil(catalogue_uuid) ->
+        Ecto.Changeset.add_error(
+          changeset,
+          :parent_uuid,
+          "cannot be set without a catalogue"
+        )
+
+      own_uuid && parent_uuid in Tree.subtree_uuids(own_uuid) ->
+        Ecto.Changeset.add_error(
+          changeset,
+          :parent_uuid,
+          "would create a cycle"
+        )
+
+      true ->
+        check_parent_catalogue(changeset, parent_uuid, catalogue_uuid)
+    end
+  end
+
+  defp check_parent_catalogue(changeset, parent_uuid, catalogue_uuid) do
+    case repo().get(Category, parent_uuid) do
+      nil ->
+        Ecto.Changeset.add_error(changeset, :parent_uuid, "does not exist")
+
+      %Category{catalogue_uuid: ^catalogue_uuid} ->
+        changeset
+
+      %Category{} ->
+        Ecto.Changeset.add_error(
+          changeset,
+          :parent_uuid,
+          "must belong to the same catalogue"
+        )
     end
   end
 
@@ -830,11 +975,17 @@ defmodule PhoenixKitCatalogue.Catalogue do
   end
 
   @doc """
-  Soft-deletes a category by setting its status to `"deleted"`.
+  Soft-deletes a category and its entire subtree by setting their
+  status to `"deleted"`.
 
-  **Cascades downward** in a transaction:
-  1. All non-deleted items in this category → status `"deleted"`
-  2. The category itself → status `"deleted"`
+  **Cascades downward** in a transaction, following the nested-category
+  tree introduced in V103:
+  1. All non-deleted items in this category and any descendant → status `"deleted"`
+  2. This category and every descendant category → status `"deleted"`
+
+  Logs a single `category.trashed` activity on the root with
+  `subtree_size` (categories touched, including root) and
+  `items_cascaded` (items touched) in the metadata.
 
   ## Examples
 
@@ -843,34 +994,58 @@ defmodule PhoenixKitCatalogue.Catalogue do
   def trash_category(%Category{} = category, opts \\ []) do
     result =
       repo().transaction(fn ->
-        from(i in Item, where: i.category_uuid == ^category.uuid and i.status != "deleted")
-        |> repo().update_all(set: [status: "deleted", updated_at: DateTime.utc_now()])
+        now = DateTime.utc_now()
+        subtree = Tree.subtree_uuids(category.uuid)
 
-        category
-        |> Category.changeset(%{status: "deleted"})
-        |> repo().update!()
+        {items_cascaded, _} =
+          from(i in Item,
+            where: i.category_uuid in ^subtree and i.status != "deleted"
+          )
+          |> repo().update_all(set: [status: "deleted", updated_at: now])
+
+        from(c in Category,
+          where: c.uuid in ^subtree and c.status != "deleted"
+        )
+        |> repo().update_all(set: [status: "deleted", updated_at: now])
+
+        updated = repo().get!(Category, category.uuid)
+        {updated, length(subtree), items_cascaded}
       end)
 
-    with {:ok, updated} <- result do
-      log_activity(%{
-        action: "category.trashed",
-        mode: "manual",
-        actor_uuid: opts[:actor_uuid],
-        resource_type: "category",
-        resource_uuid: category.uuid,
-        metadata: %{"name" => category.name, "catalogue_uuid" => category.catalogue_uuid}
-      })
+    case result do
+      {:ok, {updated, subtree_size, items_cascaded}} ->
+        log_activity(%{
+          action: "category.trashed",
+          mode: "manual",
+          actor_uuid: opts[:actor_uuid],
+          resource_type: "category",
+          resource_uuid: category.uuid,
+          metadata: %{
+            "name" => category.name,
+            "catalogue_uuid" => category.catalogue_uuid,
+            "subtree_size" => subtree_size,
+            "items_cascaded" => items_cascaded
+          }
+        })
 
-      {:ok, updated}
+        {:ok, updated}
+
+      error ->
+        error
     end
   end
 
   @doc """
-  Restores a soft-deleted category by setting its status to `"active"`.
+  Restores a soft-deleted category (and its deleted subtree) by
+  setting status back to `"active"`.
 
   **Cascades both directions** in a transaction:
-  - **Upward**: if the parent catalogue is deleted, restores it too
-  - **Downward**: restores all deleted items in this category
+  - **Upward**: restores every deleted ancestor category so the restored
+    node is reachable in the active tree, then the parent catalogue if
+    it's deleted too.
+  - **Downward**: restores all deleted categories in this subtree and
+    all deleted items inside them. Restoring a node after a prior
+    trash cascade brings the whole sub-branch back as one action.
 
   ## Examples
 
@@ -879,6 +1054,12 @@ defmodule PhoenixKitCatalogue.Catalogue do
   def restore_category(%Category{} = category, opts \\ []) do
     result =
       repo().transaction(fn ->
+        now = DateTime.utc_now()
+        subtree = Tree.subtree_uuids(category.uuid)
+        ancestors = Tree.ancestor_uuids(category.uuid)
+
+        # Upward: catalogue first, then ancestor categories — both
+        # before the subtree so parents are active before children.
         case repo().get(Catalogue, category.catalogue_uuid) do
           %Catalogue{status: "deleted"} = cat ->
             cat |> Catalogue.changeset(%{status: "active"}) |> repo().update!()
@@ -887,61 +1068,117 @@ defmodule PhoenixKitCatalogue.Catalogue do
             :ok
         end
 
-        from(i in Item, where: i.category_uuid == ^category.uuid and i.status == "deleted")
-        |> repo().update_all(set: [status: "active", updated_at: DateTime.utc_now()])
+        if ancestors != [] do
+          from(c in Category,
+            where: c.uuid in ^ancestors and c.status == "deleted"
+          )
+          |> repo().update_all(set: [status: "active", updated_at: now])
+        end
 
-        category
-        |> Category.changeset(%{status: "active"})
-        |> repo().update!()
+        from(c in Category,
+          where: c.uuid in ^subtree and c.status == "deleted"
+        )
+        |> repo().update_all(set: [status: "active", updated_at: now])
+
+        {items_cascaded, _} =
+          from(i in Item,
+            where: i.category_uuid in ^subtree and i.status == "deleted"
+          )
+          |> repo().update_all(set: [status: "active", updated_at: now])
+
+        updated = repo().get!(Category, category.uuid)
+        {updated, length(subtree), items_cascaded}
       end)
 
-    with {:ok, updated} <- result do
-      log_activity(%{
-        action: "category.restored",
-        mode: "manual",
-        actor_uuid: opts[:actor_uuid],
-        resource_type: "category",
-        resource_uuid: category.uuid,
-        metadata: %{"name" => category.name, "catalogue_uuid" => category.catalogue_uuid}
-      })
+    case result do
+      {:ok, {updated, subtree_size, items_cascaded}} ->
+        log_activity(%{
+          action: "category.restored",
+          mode: "manual",
+          actor_uuid: opts[:actor_uuid],
+          resource_type: "category",
+          resource_uuid: category.uuid,
+          metadata: %{
+            "name" => category.name,
+            "catalogue_uuid" => category.catalogue_uuid,
+            "subtree_size" => subtree_size,
+            "items_cascaded" => items_cascaded
+          }
+        })
 
-      {:ok, updated}
+        {:ok, updated}
+
+      error ->
+        error
     end
   end
 
   @doc """
-  Permanently deletes a category and all its items from the database.
+  Permanently deletes a category and its entire subtree (all descendant
+  categories + every item in any of them) from the database.
 
-  **Cascades downward** in a transaction: hard-deletes all items, then the category.
-  This cannot be undone.
+  **Cascades downward** in a transaction, following the nested-category
+  tree introduced in V103. Items are hard-deleted first, then the
+  subtree categories from leaves up (ordered so child FKs resolve
+  before their parent is removed). This cannot be undone.
   """
   def permanently_delete_category(%Category{} = category, opts \\ []) do
     result =
       repo().transaction(fn ->
-        from(i in Item, where: i.category_uuid == ^category.uuid)
+        subtree = Tree.subtree_uuids(category.uuid)
+
+        {items_cascaded, _} =
+          from(i in Item, where: i.category_uuid in ^subtree)
+          |> repo().delete_all()
+
+        # V103's self-FK on parent_uuid has no ON DELETE CASCADE — a
+        # straight `delete_all` on the subtree would reject any parent
+        # row while its children still reference it. Since every row in
+        # the subtree is being deleted anyway, NULL out parent_uuid
+        # first to break the intra-subtree FKs, then delete in one shot.
+        from(c in Category, where: c.uuid in ^subtree)
+        |> repo().update_all(set: [parent_uuid: nil])
+
+        from(c in Category, where: c.uuid in ^subtree)
         |> repo().delete_all()
 
-        repo().delete!(category)
+        {length(subtree), items_cascaded}
       end)
 
-    with {:ok, _} <- result do
-      log_activity(%{
-        action: "category.permanently_deleted",
-        mode: "manual",
-        actor_uuid: opts[:actor_uuid],
-        resource_type: "category",
-        resource_uuid: category.uuid,
-        metadata: %{"name" => category.name, "catalogue_uuid" => category.catalogue_uuid}
-      })
+    case result do
+      {:ok, {subtree_size, items_cascaded}} ->
+        log_activity(%{
+          action: "category.permanently_deleted",
+          mode: "manual",
+          actor_uuid: opts[:actor_uuid],
+          resource_type: "category",
+          resource_uuid: category.uuid,
+          metadata: %{
+            "name" => category.name,
+            "catalogue_uuid" => category.catalogue_uuid,
+            "subtree_size" => subtree_size,
+            "items_cascaded" => items_cascaded
+          }
+        })
 
-      result
+        {:ok, category}
+
+      error ->
+        error
     end
   end
 
   @doc """
-  Moves a category (and all its items) to a different catalogue.
+  Moves a category — along with its entire subtree and every item
+  inside — to a different catalogue.
 
-  Automatically assigns the next available position in the target catalogue.
+  The moved category's `parent_uuid` is cleared (it detaches from its
+  former parent, which stays in the source catalogue) and it takes the
+  next available root-level position in the target. Internal parent
+  links inside the moved subtree are preserved.
+
+  Automatically assigns the next available root position in the target
+  catalogue.
 
   ## Examples
 
@@ -949,7 +1186,6 @@ defmodule PhoenixKitCatalogue.Catalogue do
   """
   def move_category_to_catalogue(%Category{} = category, target_catalogue_uuid, opts \\ []) do
     source_catalogue_uuid = category.catalogue_uuid
-    next_pos = next_category_position(target_catalogue_uuid)
 
     result =
       repo().transaction(fn ->
@@ -962,22 +1198,39 @@ defmodule PhoenixKitCatalogue.Catalogue do
         # `catalogue_uuid` between our items-update and our commit.
         repo().one!(from(c in Category, where: c.uuid == ^category.uuid, lock: "FOR UPDATE"))
 
+        subtree = Tree.subtree_uuids(category.uuid)
+        now = DateTime.utc_now()
+
         {items_updated, _} =
-          from(i in Item, where: i.category_uuid == ^category.uuid)
-          |> repo().update_all(
-            set: [catalogue_uuid: target_catalogue_uuid, updated_at: DateTime.utc_now()]
-          )
+          from(i in Item, where: i.category_uuid in ^subtree)
+          |> repo().update_all(set: [catalogue_uuid: target_catalogue_uuid, updated_at: now])
+
+        # Reparent the whole subtree to the target catalogue in a
+        # single query — internal parent_uuids stay intact because
+        # they still reference rows in the subtree.
+        {categories_updated, _} =
+          from(c in Category, where: c.uuid in ^subtree)
+          |> repo().update_all(set: [catalogue_uuid: target_catalogue_uuid, updated_at: now])
+
+        # Position is computed inside the transaction (after the
+        # subtree has moved) to avoid the same-`max_position` race
+        # called out in prior PR reviews.
+        next_pos = next_category_position(target_catalogue_uuid, nil)
 
         moved =
           category
-          |> Category.changeset(%{catalogue_uuid: target_catalogue_uuid, position: next_pos})
+          |> Category.changeset(%{
+            catalogue_uuid: target_catalogue_uuid,
+            parent_uuid: nil,
+            position: next_pos
+          })
           |> repo().update!()
 
-        {moved, items_updated}
+        {moved, categories_updated, items_updated}
       end)
 
     case result do
-      {:ok, {moved, items_updated}} ->
+      {:ok, {moved, categories_updated, items_updated}} ->
         log_activity(%{
           action: "category.moved",
           mode: "manual",
@@ -988,6 +1241,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
             "name" => moved.name,
             "from_catalogue_uuid" => source_catalogue_uuid,
             "to_catalogue_uuid" => target_catalogue_uuid,
+            "subtree_size" => categories_updated,
             "items_cascaded" => items_updated
           }
         })
@@ -1000,15 +1254,145 @@ defmodule PhoenixKitCatalogue.Catalogue do
   end
 
   @doc """
+  Reparents a category within the same catalogue, placing it under
+  `new_parent_uuid` (or promoting it to a root with `nil`).
+
+  Rejects moves that would:
+    * produce a cycle (`new_parent_uuid` is the category itself or one
+      of its descendants) — returns `{:error, :would_create_cycle}`
+    * cross a catalogue boundary — returns `{:error, :cross_catalogue}`.
+      Callers who want that should run `move_category_to_catalogue/3`
+      first, then reparent.
+    * target a missing parent — returns `{:error, :parent_not_found}`
+
+  The moved category takes the next-available position among its new
+  siblings. Its subtree comes along untouched (parent links inside the
+  subtree stay valid).
+
+  Passing `new_parent_uuid = nil` promotes the category to a root within
+  its current catalogue.
+
+  ## Examples
+
+      {:ok, moved} = Catalogue.move_category_under(child, parent.uuid)
+      {:ok, moved} = Catalogue.move_category_under(child, nil)  # promote to root
+  """
+  @spec move_category_under(Category.t(), Ecto.UUID.t() | nil, keyword()) ::
+          {:ok, Category.t()}
+          | {:error,
+             :would_create_cycle
+             | :cross_catalogue
+             | :parent_not_found
+             | Ecto.Changeset.t(Category.t())}
+  def move_category_under(category, new_parent_uuid, opts \\ [])
+
+  def move_category_under(%Category{parent_uuid: same} = category, same, _opts)
+      when is_binary(same) or is_nil(same),
+      do: {:ok, category}
+
+  def move_category_under(%Category{} = category, nil, opts) do
+    from_parent_uuid = category.parent_uuid
+    next_pos = next_category_position(category.catalogue_uuid, nil)
+
+    with {:ok, moved} <-
+           category
+           |> Category.changeset(%{parent_uuid: nil, position: next_pos})
+           |> repo().update() do
+      log_activity(%{
+        action: "category.moved",
+        mode: "manual",
+        actor_uuid: opts[:actor_uuid],
+        resource_type: "category",
+        resource_uuid: moved.uuid,
+        metadata: %{
+          "name" => moved.name,
+          "from_parent_uuid" => from_parent_uuid,
+          "to_parent_uuid" => nil,
+          "catalogue_uuid" => moved.catalogue_uuid
+        }
+      })
+
+      {:ok, moved}
+    end
+  end
+
+  def move_category_under(%Category{} = category, new_parent_uuid, opts)
+      when is_binary(new_parent_uuid) do
+    cond do
+      new_parent_uuid == category.uuid ->
+        {:error, :would_create_cycle}
+
+      new_parent_uuid in Tree.subtree_uuids(category.uuid) ->
+        {:error, :would_create_cycle}
+
+      true ->
+        do_move_category_under(category, new_parent_uuid, opts)
+    end
+  end
+
+  defp do_move_category_under(category, new_parent_uuid, opts) do
+    case repo().get(Category, new_parent_uuid) do
+      nil ->
+        {:error, :parent_not_found}
+
+      %Category{catalogue_uuid: other} when other != category.catalogue_uuid ->
+        {:error, :cross_catalogue}
+
+      %Category{} ->
+        from_parent_uuid = category.parent_uuid
+        next_pos = next_category_position(category.catalogue_uuid, new_parent_uuid)
+
+        with {:ok, moved} <-
+               category
+               |> Category.changeset(%{parent_uuid: new_parent_uuid, position: next_pos})
+               |> repo().update() do
+          log_activity(%{
+            action: "category.moved",
+            mode: "manual",
+            actor_uuid: opts[:actor_uuid],
+            resource_type: "category",
+            resource_uuid: moved.uuid,
+            metadata: %{
+              "name" => moved.name,
+              "from_parent_uuid" => from_parent_uuid,
+              "to_parent_uuid" => new_parent_uuid,
+              "catalogue_uuid" => moved.catalogue_uuid
+            }
+          })
+
+          {:ok, moved}
+        end
+    end
+  end
+
+  @doc """
   Atomically swaps the positions of two categories within a transaction.
+
+  Positions are scoped to `(catalogue_uuid, parent_uuid)` sibling
+  groups (V103). Swapping positions of categories that are not
+  siblings would mix two independent ordering axes, so this function
+  refuses with `{:error, :not_siblings}` when the categories live
+  under different parents or in different catalogues. The detail-view
+  reorder buttons enforce the same constraint at the LV level; this
+  is the context-level guard for any programmatic caller.
 
   ## Examples
 
       {:ok, _} = Catalogue.swap_category_positions(cat_a, cat_b)
+      {:error, :not_siblings} = Catalogue.swap_category_positions(root, child)
   """
   @spec swap_category_positions(Category.t(), Category.t(), keyword()) ::
-          {:ok, term()} | {:error, term()}
+          {:ok, term()} | {:error, :not_siblings | term()}
   def swap_category_positions(%Category{} = cat_a, %Category{} = cat_b, opts \\ []) do
+    if cat_a.catalogue_uuid != cat_b.catalogue_uuid or
+         cat_a.parent_uuid != cat_b.parent_uuid do
+      {:error, :not_siblings}
+    else
+      do_swap_category_positions(cat_a, cat_b, opts)
+    end
+  end
+
+  defp do_swap_category_positions(cat_a, cat_b, opts) do
     result =
       repo().transaction(fn ->
         pos_a = cat_a.position
@@ -1043,16 +1427,114 @@ defmodule PhoenixKitCatalogue.Catalogue do
   end
 
   @doc """
-  Returns the next available position for a new category in a catalogue.
-
-  Returns 0 if no categories exist, otherwise `max_position + 1`.
+  Returns the list of ancestor categories from root down to (but not
+  including) `category_uuid`. Empty when the category is a root.
+  Useful for breadcrumbs.
   """
-  def next_category_position(catalogue_uuid) do
+  @spec list_category_ancestors(Ecto.UUID.t()) :: [Category.t()]
+  defdelegate list_category_ancestors(category_uuid), to: Tree, as: :ancestors_in_order
+
+  @doc """
+  Returns the categories in a catalogue paired with their tree depth,
+  in depth-first display order (position, then name, recursing into
+  children). Each entry is `{category, depth}` where depth `0` means a
+  root. Used to render flat parent-pickers and indented listings.
+
+  ## Options
+
+    * `:mode` — `:active` (default, excludes deleted categories) or
+      `:deleted` (all statuses — the detail view in deleted mode still
+      wants deleted categories that contain trashed items).
+    * `:exclude_subtree_of` — skip a category and all its descendants
+      (e.g. the category being edited — you can't parent it under
+      itself or its descendants).
+  """
+  @spec list_category_tree(Ecto.UUID.t(), keyword()) :: [{Category.t(), non_neg_integer()}]
+  def list_category_tree(catalogue_uuid, opts \\ []) do
+    mode = Keyword.get(opts, :mode, :active)
+
+    # Plain list (not MapSet) because the exclude subtree is typically
+    # a single branch (order of 1–20 uuids) and keeping a list here
+    # lets dialyzer type-check the `in` check without tripping on
+    # MapSet's opaque struct.
+    exclude_uuids =
+      case Keyword.get(opts, :exclude_subtree_of) do
+        nil -> []
+        uuid -> Tree.subtree_uuids(uuid)
+      end
+
+    query =
+      from(c in Category,
+        where: c.catalogue_uuid == ^catalogue_uuid,
+        order_by: [asc: :position, asc: :name]
+      )
+
+    query =
+      case mode do
+        :active -> where(query, [c], c.status != "deleted")
+        :deleted -> query
+      end
+
+    categories =
+      query
+      |> repo().all()
+      |> Enum.reject(&(&1.uuid in exclude_uuids))
+
+    # Some parents may be missing from the filtered list (deleted
+    # ancestors in :active mode, or excluded subtree). Orphans — rows
+    # whose `parent_uuid` no longer has a matching row in this set —
+    # get surfaced as roots so they don't vanish from the UI.
+    uuid_set = MapSet.new(categories, & &1.uuid)
+
+    normalized =
+      Enum.map(categories, fn c ->
+        if c.parent_uuid == nil or MapSet.member?(uuid_set, c.parent_uuid) do
+          c
+        else
+          %{c | parent_uuid: nil}
+        end
+      end)
+
+    index = Tree.build_children_index(normalized)
+
+    {acc, _} =
+      Enum.reduce(Map.get(index, nil, []), {[], index}, fn root, {acc, idx} ->
+        {collect_tree(root, idx, 0, acc), idx}
+      end)
+
+    Enum.reverse(acc)
+  end
+
+  defp collect_tree(%Category{} = cat, index, depth, acc) do
+    acc = [{cat, depth} | acc]
+
+    index
+    |> Map.get(cat.uuid, [])
+    |> Enum.reduce(acc, fn child, acc -> collect_tree(child, index, depth + 1, acc) end)
+  end
+
+  @doc """
+  Returns the next available position for a new category among its
+  siblings. Position is scoped to `(catalogue_uuid, parent_uuid)` — the
+  set of categories sharing the same parent within a catalogue — since
+  V103's nested-category tree makes a single catalogue-wide ordering
+  ambiguous.
+
+  `parent_uuid` defaults to `nil`, i.e. root-level siblings. Returns 0
+  if no siblings exist at that level, otherwise `max_position + 1`.
+  """
+  def next_category_position(catalogue_uuid, parent_uuid \\ nil) do
     query =
       from(c in Category,
         where: c.catalogue_uuid == ^catalogue_uuid,
         select: max(c.position)
       )
+
+    query =
+      case parent_uuid do
+        nil -> where(query, [c], is_nil(c.parent_uuid))
+        uuid -> where(query, [c], c.parent_uuid == ^uuid)
+      end
 
     case repo().one(query) do
       nil -> 0
