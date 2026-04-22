@@ -391,6 +391,315 @@ defmodule PhoenixKitCatalogue.CatalogueTest do
       assert Catalogue.get_category(c1.uuid).position == 1
       assert Catalogue.get_category(c2.uuid).position == 0
     end
+
+    test "swap_category_positions/2 refuses non-siblings" do
+      cat = create_catalogue()
+      root = create_category(cat, %{name: "Root", position: 0})
+      child = create_category(cat, %{name: "Child", position: 0, parent_uuid: root.uuid})
+
+      assert {:error, :not_siblings} = Catalogue.swap_category_positions(root, child)
+    end
+
+    test "swap_category_positions/2 refuses cross-catalogue" do
+      cat_a = create_catalogue(%{name: "A"})
+      cat_b = create_catalogue(%{name: "B"})
+      c1 = create_category(cat_a, %{name: "One", position: 0})
+      c2 = create_category(cat_b, %{name: "Two", position: 0})
+
+      assert {:error, :not_siblings} = Catalogue.swap_category_positions(c1, c2)
+    end
+  end
+
+  # ═══════════════════════════════════════════════════════════════════
+  # V103: Nested categories
+  # ═══════════════════════════════════════════════════════════════════
+
+  describe "nested categories" do
+    test "create_category/2 accepts parent_uuid within same catalogue" do
+      cat = create_catalogue()
+      parent = create_category(cat, %{name: "Parent"})
+
+      assert {:ok, child} =
+               Catalogue.create_category(%{
+                 name: "Child",
+                 catalogue_uuid: cat.uuid,
+                 parent_uuid: parent.uuid
+               })
+
+      assert child.parent_uuid == parent.uuid
+    end
+
+    test "create_category/2 rejects parent from a different catalogue" do
+      cat_a = create_catalogue(%{name: "A"})
+      cat_b = create_catalogue(%{name: "B"})
+      parent_a = create_category(cat_a, %{name: "In A"})
+
+      assert {:error, changeset} =
+               Catalogue.create_category(%{
+                 name: "Orphan",
+                 catalogue_uuid: cat_b.uuid,
+                 parent_uuid: parent_a.uuid
+               })
+
+      assert "must belong to the same catalogue" in errors_on(changeset).parent_uuid
+    end
+
+    test "update_category/2 rejects reparent to a different catalogue's category" do
+      cat_a = create_catalogue(%{name: "A"})
+      cat_b = create_catalogue(%{name: "B"})
+      child = create_category(cat_a, %{name: "Child"})
+      foreign_parent = create_category(cat_b, %{name: "Foreign"})
+
+      assert {:error, changeset} =
+               Catalogue.update_category(child, %{parent_uuid: foreign_parent.uuid})
+
+      assert "must belong to the same catalogue" in errors_on(changeset).parent_uuid
+    end
+
+    test "Category.changeset/2 rejects self-parent on update" do
+      cat = create_catalogue()
+      c = create_category(cat)
+
+      assert {:error, changeset} = Catalogue.update_category(c, %{parent_uuid: c.uuid})
+      assert "category cannot be its own parent" in errors_on(changeset).parent_uuid
+    end
+
+    test "update_category/3 rejects a parent that is a descendant (cycle)" do
+      cat = create_catalogue()
+      root = create_category(cat, %{name: "Root"})
+      child = create_category(cat, %{name: "Child", parent_uuid: root.uuid})
+
+      # Try to parent the root under its own descendant via the raw
+      # update path — must be rejected even though `move_category_under`
+      # wasn't used.
+      assert {:error, changeset} = Catalogue.update_category(root, %{parent_uuid: child.uuid})
+      assert "would create a cycle" in errors_on(changeset).parent_uuid
+    end
+
+    test "next_category_position/2 scopes by (catalogue, parent)" do
+      cat = create_catalogue()
+      parent = create_category(cat, %{name: "Parent", position: 0})
+      _other = create_category(cat, %{name: "Other", position: 1})
+
+      # Root-level has two siblings now
+      assert Catalogue.next_category_position(cat.uuid, nil) == 2
+
+      # Under `parent` there are no siblings yet
+      assert Catalogue.next_category_position(cat.uuid, parent.uuid) == 0
+
+      create_category(cat, %{name: "Child1", parent_uuid: parent.uuid, position: 0})
+      create_category(cat, %{name: "Child2", parent_uuid: parent.uuid, position: 5})
+
+      assert Catalogue.next_category_position(cat.uuid, parent.uuid) == 6
+      # Root level is unaffected
+      assert Catalogue.next_category_position(cat.uuid, nil) == 2
+    end
+
+    test "list_category_tree/2 returns depth-first with depths" do
+      cat = create_catalogue()
+      root_a = create_category(cat, %{name: "A", position: 0})
+      root_b = create_category(cat, %{name: "B", position: 1})
+      a1 = create_category(cat, %{name: "A1", parent_uuid: root_a.uuid, position: 0})
+      _a1a = create_category(cat, %{name: "A1a", parent_uuid: a1.uuid, position: 0})
+
+      tree = Catalogue.list_category_tree(cat.uuid)
+      names_and_depths = Enum.map(tree, fn {c, d} -> {c.name, d} end)
+
+      assert names_and_depths == [
+               {"A", 0},
+               {"A1", 1},
+               {"A1a", 2},
+               {"B", 0}
+             ]
+    end
+
+    test "list_category_tree/2 with exclude_subtree_of skips the subtree" do
+      cat = create_catalogue()
+      root = create_category(cat, %{name: "Root", position: 0})
+      _mid = create_category(cat, %{name: "Mid", parent_uuid: root.uuid, position: 0})
+      other = create_category(cat, %{name: "Other", position: 1})
+
+      tree = Catalogue.list_category_tree(cat.uuid, exclude_subtree_of: root.uuid)
+
+      assert Enum.map(tree, fn {c, _d} -> c.name end) == [other.name]
+    end
+
+    test "list_category_tree/2 in :active mode promotes orphans to roots when parent is deleted" do
+      cat = create_catalogue()
+      parent = create_category(cat, %{name: "Parent", position: 0})
+      child = create_category(cat, %{name: "Child", parent_uuid: parent.uuid, position: 0})
+
+      # Manually soft-delete the parent without cascading to simulate
+      # a stale state (trash_category cascades; we test the orphan path).
+      SQL.query!(
+        PhoenixKitCatalogue.Test.Repo,
+        "UPDATE phoenix_kit_cat_categories SET status = 'deleted' WHERE uuid = $1",
+        [Ecto.UUID.dump!(parent.uuid)]
+      )
+
+      tree = Catalogue.list_category_tree(cat.uuid)
+
+      assert Enum.any?(tree, fn {c, depth} -> c.uuid == child.uuid and depth == 0 end)
+    end
+  end
+
+  describe "move_category_under/3" do
+    test "reparents within the same catalogue" do
+      cat = create_catalogue()
+      a = create_category(cat, %{name: "A", position: 0})
+      b = create_category(cat, %{name: "B", position: 1})
+
+      assert {:ok, moved} = Catalogue.move_category_under(b, a.uuid)
+      assert moved.parent_uuid == a.uuid
+      # Position updated to next-available under A
+      assert moved.position == 0
+    end
+
+    test "promotes to root when new_parent_uuid is nil" do
+      cat = create_catalogue()
+      parent = create_category(cat, %{name: "Parent", position: 0})
+      child = create_category(cat, %{name: "Child", parent_uuid: parent.uuid, position: 0})
+
+      assert {:ok, moved} = Catalogue.move_category_under(child, nil)
+      assert is_nil(moved.parent_uuid)
+    end
+
+    test "no-op when parent_uuid matches current" do
+      cat = create_catalogue()
+      c = create_category(cat, %{name: "C"})
+
+      assert {:ok, returned} = Catalogue.move_category_under(c, nil)
+      assert returned.uuid == c.uuid
+    end
+
+    test "refuses to set self as parent" do
+      cat = create_catalogue()
+      c = create_category(cat)
+
+      assert {:error, :would_create_cycle} = Catalogue.move_category_under(c, c.uuid)
+    end
+
+    test "refuses to set a descendant as parent" do
+      cat = create_catalogue()
+      root = create_category(cat, %{name: "Root"})
+      child = create_category(cat, %{name: "Child", parent_uuid: root.uuid})
+
+      assert {:error, :would_create_cycle} = Catalogue.move_category_under(root, child.uuid)
+    end
+
+    test "refuses cross-catalogue parent" do
+      cat_a = create_catalogue(%{name: "A"})
+      cat_b = create_catalogue(%{name: "B"})
+      in_a = create_category(cat_a, %{name: "In A"})
+      in_b = create_category(cat_b, %{name: "In B"})
+
+      assert {:error, :cross_catalogue} = Catalogue.move_category_under(in_a, in_b.uuid)
+    end
+
+    test "returns :parent_not_found for a missing parent UUID" do
+      cat = create_catalogue()
+      c = create_category(cat)
+      bogus = Ecto.UUID.generate()
+
+      assert {:error, :parent_not_found} = Catalogue.move_category_under(c, bogus)
+    end
+  end
+
+  describe "nested-category cascades" do
+    test "trash_category walks the whole subtree" do
+      cat = create_catalogue()
+      root = create_category(cat, %{name: "Root"})
+      mid = create_category(cat, %{name: "Mid", parent_uuid: root.uuid})
+      leaf = create_category(cat, %{name: "Leaf", parent_uuid: mid.uuid})
+      item = create_item(%{name: "Thing", category_uuid: leaf.uuid})
+
+      assert {:ok, _} = Catalogue.trash_category(root)
+
+      assert Catalogue.get_category(mid.uuid).status == "deleted"
+      assert Catalogue.get_category(leaf.uuid).status == "deleted"
+      assert Catalogue.get_item(item.uuid).status == "deleted"
+    end
+
+    test "restore_category restores ancestors upward and subtree downward" do
+      cat = create_catalogue()
+      root = create_category(cat, %{name: "Root"})
+      mid = create_category(cat, %{name: "Mid", parent_uuid: root.uuid})
+      leaf = create_category(cat, %{name: "Leaf", parent_uuid: mid.uuid})
+      item = create_item(%{name: "Thing", category_uuid: leaf.uuid})
+
+      {:ok, _} = Catalogue.trash_category(root)
+
+      # Restore from the deepest node; ancestors + subtree should come back.
+      assert {:ok, _} = Catalogue.restore_category(Catalogue.get_category(leaf.uuid))
+
+      assert Catalogue.get_category(root.uuid).status == "active"
+      assert Catalogue.get_category(mid.uuid).status == "active"
+      assert Catalogue.get_category(leaf.uuid).status == "active"
+      assert Catalogue.get_item(item.uuid).status == "active"
+    end
+
+    test "permanently_delete_category hard-deletes the subtree" do
+      cat = create_catalogue()
+      root = create_category(cat, %{name: "Root"})
+      mid = create_category(cat, %{name: "Mid", parent_uuid: root.uuid})
+      item = create_item(%{name: "Thing", category_uuid: mid.uuid})
+
+      assert {:ok, _} = Catalogue.permanently_delete_category(root)
+
+      assert is_nil(Catalogue.get_category(root.uuid))
+      assert is_nil(Catalogue.get_category(mid.uuid))
+      assert is_nil(Catalogue.get_item(item.uuid))
+    end
+
+    test "move_category_to_catalogue moves the whole subtree" do
+      cat_src = create_catalogue(%{name: "Source"})
+      cat_dst = create_catalogue(%{name: "Target"})
+      root = create_category(cat_src, %{name: "Root"})
+      child = create_category(cat_src, %{name: "Child", parent_uuid: root.uuid})
+      item = create_item(%{name: "Thing", category_uuid: child.uuid})
+
+      assert {:ok, moved} = Catalogue.move_category_to_catalogue(root, cat_dst.uuid)
+      assert moved.catalogue_uuid == cat_dst.uuid
+      # Root detaches from its (nonexistent) former parent
+      assert is_nil(moved.parent_uuid)
+      # Internal link preserved
+      assert Catalogue.get_category(child.uuid).parent_uuid == root.uuid
+      assert Catalogue.get_category(child.uuid).catalogue_uuid == cat_dst.uuid
+      assert Catalogue.get_item(item.uuid).catalogue_uuid == cat_dst.uuid
+    end
+  end
+
+  describe "search_items/2 with include_descendants" do
+    test "expands a category scope through its subtree by default" do
+      cat = create_catalogue()
+      root = create_category(cat, %{name: "Outdoor"})
+      child = create_category(cat, %{name: "Chairs", parent_uuid: root.uuid})
+      item = create_item(%{name: "Teak Chair", category_uuid: child.uuid})
+
+      # Scoping to the ROOT should still match an item whose category
+      # is a descendant.
+      results = Catalogue.search_items("Teak", category_uuids: [root.uuid])
+      assert Enum.any?(results, &(&1.uuid == item.uuid))
+    end
+
+    test "include_descendants: false restricts to the literal set" do
+      cat = create_catalogue()
+      root = create_category(cat, %{name: "Outdoor"})
+      child = create_category(cat, %{name: "Chairs", parent_uuid: root.uuid})
+      item = create_item(%{name: "Teak Chair", category_uuid: child.uuid})
+
+      results =
+        Catalogue.search_items("Teak",
+          category_uuids: [root.uuid],
+          include_descendants: false
+        )
+
+      refute Enum.any?(results, &(&1.uuid == item.uuid))
+
+      # Direct scope to child still matches
+      direct = Catalogue.search_items("Teak", category_uuids: [child.uuid])
+      assert Enum.any?(direct, &(&1.uuid == item.uuid))
+    end
   end
 
   # ═══════════════════════════════════════════════════════════════════

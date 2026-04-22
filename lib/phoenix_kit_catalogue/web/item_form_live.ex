@@ -12,8 +12,11 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   import PhoenixKitWeb.Components.Core.Select, only: [select: 1]
   import PhoenixKitCatalogue.Web.Components, only: [catalogue_rules_picker: 1]
 
+  alias PhoenixKit.Modules.Storage.URLSigner
   alias PhoenixKit.Utils.Multilang
+  alias PhoenixKitCatalogue.Attachments
   alias PhoenixKitCatalogue.Catalogue
+  alias PhoenixKitCatalogue.ItemMetadata
   alias PhoenixKitCatalogue.Paths
   alias PhoenixKitCatalogue.Schemas.Item
 
@@ -117,12 +120,43 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
       manufacturers: Catalogue.list_manufacturers(status: "active"),
       all_categories: all_categories,
       smart_move_targets: smart_move_targets,
-      move_target: nil
+      move_target: nil,
+      current_tab: :details,
+      meta_state: build_meta_state(item)
     )
+    |> Attachments.mount_attachments(item)
+    |> Attachments.allow_attachment_upload()
     |> assign_changeset(changeset)
     |> assign_rule_state(item, kind, catalogue_uuid)
     |> mount_multilang()
     |> adjust_multilang_for_item(item)
+  end
+
+  # Metadata values live at `item.data["meta"]` (a flat %{key => string}
+  # map). Known keys are ordered by their position in
+  # `ItemMetadata.definitions/0`; legacy keys (stored but no longer
+  # defined in code) come after, alphabetized, so the UI can tag them
+  # and offer a remove-only action without losing data.
+  defp build_meta_state(%Item{data: data}) do
+    raw =
+      case data do
+        %{"meta" => %{} = m} -> m
+        _ -> %{}
+      end
+
+    defined_keys = Enum.map(ItemMetadata.definitions(), & &1.key)
+    present_defined = Enum.filter(defined_keys, &Map.has_key?(raw, &1))
+    legacy = raw |> Map.keys() |> Enum.reject(&(&1 in defined_keys)) |> Enum.sort()
+
+    %{attached: present_defined ++ legacy, values: stringify_values(raw)}
+  end
+
+  defp stringify_values(values) when is_map(values) do
+    Map.new(values, fn
+      {k, nil} -> {k, ""}
+      {k, v} when is_binary(v) -> {k, v}
+      {k, v} -> {k, to_string(v)}
+    end)
   end
 
   # Keeps both :changeset (for <.translatable_field>) and :form (for
@@ -221,29 +255,96 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
     {:noreply, handle_switch_language(socket, lang_code)}
   end
 
-  def handle_event("validate", %{"item" => params}, socket) do
-    params =
-      merge_translatable_params(params, socket, @translatable_fields,
+  def handle_event("switch_tab", %{"tab" => tab}, socket) do
+    {:noreply, assign(socket, :current_tab, parse_tab(tab))}
+  end
+
+  def handle_event("add_meta_field", %{"key" => key}, socket) do
+    case ItemMetadata.definition(key) do
+      nil ->
+        # Unknown key arriving from a stale client — ignore rather than
+        # inserting data the save path can't round-trip.
+        {:noreply, socket}
+
+      _def ->
+        state = socket.assigns.meta_state
+
+        new_state =
+          if key in state.attached do
+            state
+          else
+            %{
+              attached: state.attached ++ [key],
+              values: Map.put_new(state.values, key, "")
+            }
+          end
+
+        {:noreply, assign(socket, :meta_state, new_state)}
+    end
+  end
+
+  def handle_event("remove_meta_field", %{"key" => key}, socket) do
+    state = socket.assigns.meta_state
+
+    new_state = %{
+      attached: Enum.reject(state.attached, &(&1 == key)),
+      values: Map.delete(state.values, key)
+    }
+
+    {:noreply, assign(socket, :meta_state, new_state)}
+  end
+
+  # ── Attachments (featured image modal + inline files dropzone) ──
+  # Delegated to `PhoenixKitCatalogue.Attachments`; shared with
+  # `CatalogueFormLive` so both forms behave identically.
+
+  def handle_event("open_featured_image_picker", _params, socket),
+    do: Attachments.open_featured_image_picker(socket)
+
+  def handle_event("close_media_selector", _params, socket),
+    do: {:noreply, Attachments.close_media_selector(socket)}
+
+  def handle_event("cancel_upload", %{"ref" => ref}, socket),
+    do: Attachments.cancel_attachment_upload(socket, ref)
+
+  def handle_event("remove_file", %{"uuid" => uuid}, socket),
+    do: Attachments.trash_file(socket, uuid)
+
+  def handle_event("clear_featured_image", _params, socket),
+    do: Attachments.clear_featured_image(socket)
+
+  def handle_event("validate", params, socket) do
+    socket = absorb_meta_params(socket, params)
+    item_params = Map.get(params, "item", %{})
+
+    item_params =
+      merge_translatable_params(item_params, socket, @translatable_fields,
         changeset: socket.assigns.changeset,
         preserve_fields: @preserve_fields
       )
 
     changeset =
       socket.assigns.item
-      |> Catalogue.change_item(params)
+      |> Catalogue.change_item(item_params)
       |> Map.put(:action, :validate)
 
     {:noreply, assign_changeset(socket, changeset)}
   end
 
-  def handle_event("save", %{"item" => params}, socket) do
-    params =
-      merge_translatable_params(params, socket, @translatable_fields,
+  def handle_event("save", params, socket) do
+    socket = absorb_meta_params(socket, params)
+    item_params = Map.get(params, "item", %{})
+
+    item_params =
+      item_params
+      |> merge_translatable_params(socket, @translatable_fields,
         changeset: socket.assigns.changeset,
         preserve_fields: @preserve_fields
       )
+      |> inject_meta_into_data(socket.assigns.meta_state)
+      |> Attachments.inject_attachment_data(socket)
 
-    save_item(socket, socket.assigns.action, params)
+    save_item(socket, socket.assigns.action, item_params)
   end
 
   # ── Smart-catalogue rule picker events ──────────────────────────
@@ -316,6 +417,84 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
     end
   end
 
+  defp parse_tab("metadata"), do: :metadata
+  defp parse_tab("files"), do: :files
+  defp parse_tab(_), do: :details
+
+  # ── Attachments handle_info (delegated to Attachments module) ────
+
+  @impl true
+  def handle_info({:media_selected, file_uuids}, socket),
+    do: Attachments.handle_media_selected(socket, file_uuids)
+
+  def handle_info({:media_selector_closed}, socket),
+    do: {:noreply, Attachments.close_media_selector(socket)}
+
+  # Catch-all so stray monitor signals or unrelated PubSub traffic
+  # can't crash the form mid-edit.
+  def handle_info(_msg, socket), do: {:noreply, socket}
+
+  # Inbound form params carry whatever is currently typed into the
+  # metadata inputs under `"meta"` (name="meta[color]"). We fold them
+  # into `meta_state.values` on every validate/save so the assign stays
+  # in sync with what the user sees — unattached keys are ignored to
+  # avoid resurrecting a row they just removed.
+  defp absorb_meta_params(socket, params) do
+    meta_params = Map.get(params, "meta", %{})
+    state = socket.assigns.meta_state
+
+    if is_map(meta_params) and meta_params != %{} do
+      values = Enum.reduce(state.attached, state.values, &absorb_one(meta_params, &1, &2))
+      assign(socket, :meta_state, %{state | values: values})
+    else
+      socket
+    end
+  end
+
+  defp absorb_one(meta_params, key, acc) do
+    case Map.get(meta_params, key) do
+      nil -> acc
+      value -> Map.put(acc, key, value)
+    end
+  end
+
+  # Casts the meta_state into its storage shape and wedges it into
+  # `params["data"]["meta"]`. Known-key values go through
+  # `ItemMetadata.cast_value/2` (blanks become nil → key dropped). Legacy
+  # keys (no current definition) pass through untouched so their data
+  # isn't silently nuked by a save — the user clears them explicitly
+  # via the × button.
+  defp inject_meta_into_data(params, %{attached: attached, values: values}) do
+    meta = Enum.reduce(attached, %{}, &cast_meta_entry(&1, values, &2))
+
+    data =
+      case Map.get(params, "data") do
+        %{} = d -> d
+        _ -> %{}
+      end
+
+    Map.put(params, "data", Map.put(data, "meta", meta))
+  end
+
+  defp cast_meta_entry(key, values, acc) do
+    raw = Map.get(values, key, "")
+
+    case ItemMetadata.definition(key) do
+      nil -> put_legacy_meta(acc, key, raw)
+      def_ -> put_defined_meta(acc, key, def_, raw)
+    end
+  end
+
+  defp put_legacy_meta(acc, _key, raw) when raw in [nil, ""], do: acc
+  defp put_legacy_meta(acc, key, raw), do: Map.put(acc, key, raw)
+
+  defp put_defined_meta(acc, key, def_, raw) do
+    case ItemMetadata.cast_value(def_, raw) do
+      nil -> acc
+      cast -> Map.put(acc, key, cast)
+    end
+  end
+
   # Routes on the parent catalogue's kind: smart items move across
   # catalogues (categories don't apply), standard items move between
   # categories (the catalogue is derived from the target category).
@@ -357,7 +536,8 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
     params = Map.put_new(params, "catalogue_uuid", socket.assigns.catalogue_uuid)
 
     with {:ok, item} <- Catalogue.create_item(params, actor_opts(socket)),
-         {:ok, _rules} <- maybe_put_rules(socket, item) do
+         {:ok, _rules} <- maybe_put_rules(socket, item),
+         :ok <- Attachments.maybe_rename_pending_folder(socket, item) do
       {:noreply,
        socket
        |> put_flash(:info, Gettext.gettext(PhoenixKitWeb.Gettext, "Item created."))
@@ -477,7 +657,19 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
       <.admin_page_header
         back={if @catalogue_uuid, do: Paths.catalogue_detail(@catalogue_uuid), else: Paths.index()}
         title={@page_title}
-        subtitle={if @action == :new, do: Gettext.gettext(PhoenixKitWeb.Gettext, "Add a new product or material to the catalogue."), else: Gettext.gettext(PhoenixKitWeb.Gettext, "Update item details, pricing, and classification.")}
+        subtitle={
+          if @action == :new,
+            do:
+              Gettext.gettext(
+                PhoenixKitWeb.Gettext,
+                "Add a new product or material to the catalogue."
+              ),
+            else:
+              Gettext.gettext(
+                PhoenixKitWeb.Gettext,
+                "Update item details, pricing, and classification."
+              )
+        }
       />
 
       <%!-- Primary language warning --%>
@@ -485,21 +677,161 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
         <.icon name="hero-exclamation-triangle" class="w-5 h-5 shrink-0" />
         <div>
           <p class="text-sm font-medium">
-            {Gettext.gettext(PhoenixKitWeb.Gettext, "This item was imported in %{lang}. Please fill in the %{primary} translation and save to set it as the primary language.", lang: lang_name(@language_tabs, @item_primary_language), primary: lang_name(@language_tabs, @primary_language))}
+            {Gettext.gettext(
+              PhoenixKitWeb.Gettext,
+              "This item was imported in %{lang}. Please fill in the %{primary} translation and save to set it as the primary language.",
+              lang: lang_name(@language_tabs, @item_primary_language),
+              primary: lang_name(@language_tabs, @primary_language)
+            )}
           </p>
         </div>
       </div>
 
+      <%!-- Tab strip — persists across tab switches; each panel stays in
+           the DOM (toggled by `hidden`) so the multilang wrapper and
+           any user input don't lose state when flipping tabs. --%>
+      <div role="tablist" class="tabs tabs-bordered">
+        <button
+          type="button"
+          phx-click="switch_tab"
+          phx-value-tab="details"
+          class={"tab #{if @current_tab == :details, do: "tab-active"}"}
+        >
+          <.icon name="hero-document-text" class="w-4 h-4 mr-1" />
+          {Gettext.gettext(PhoenixKitWeb.Gettext, "Details")}
+        </button>
+        <button
+          type="button"
+          phx-click="switch_tab"
+          phx-value-tab="metadata"
+          class={"tab #{if @current_tab == :metadata, do: "tab-active"}"}
+        >
+          <.icon name="hero-tag" class="w-4 h-4 mr-1" />
+          {Gettext.gettext(PhoenixKitWeb.Gettext, "Metadata")}
+          <span :if={@meta_state.attached != []} class="badge badge-sm badge-ghost ml-2">
+            {length(@meta_state.attached)}
+          </span>
+        </button>
+        <button
+          type="button"
+          phx-click="switch_tab"
+          phx-value-tab="files"
+          class={"tab #{if @current_tab == :files, do: "tab-active"}"}
+        >
+          <.icon name="hero-paper-clip" class="w-4 h-4 mr-1" />
+          {Gettext.gettext(PhoenixKitWeb.Gettext, "Files")}
+        </button>
+      </div>
+
+      <%!-- Media selector — single instance, reconfigured per click
+           via @media_selector_target. Scoped to this item's folder
+           so browse and new uploads never spill into other items. --%>
+      <.live_component
+        module={PhoenixKitWeb.Live.Components.MediaSelectorModal}
+        id="item-form-media-selector"
+        show={@show_media_selector}
+        mode={@media_selection_mode}
+        file_type_filter={@media_filter}
+        selected_uuids={@media_selected_uuids}
+        scope_folder_id={@files_folder_uuid}
+        phoenix_kit_current_user={assigns[:phoenix_kit_current_user]}
+      />
+
       <.form for={@form} action="#" phx-change="validate" phx-submit="save">
-        <div class="card bg-base-100 shadow-lg">
-          <.multilang_tabs multilang_enabled={@multilang_enabled} language_tabs={@language_tabs} current_lang={@current_lang} />
+        <%!-- Featured image: opens the scoped picker in single+image
+             mode. The picker both browses this item's images and
+             accepts new uploads (which get dropped into the item's
+             folder automatically). --%>
+        <div class={"card bg-base-100 shadow-lg mb-4 #{if @current_tab != :details, do: "hidden"}"}>
+          <div class="card-body flex flex-col gap-3">
+            <div class="flex items-center justify-between">
+              <h2 class="text-base font-semibold text-base-content/80 flex items-center gap-2">
+                <.icon name="hero-photo" class="w-4 h-4" />
+                {Gettext.gettext(PhoenixKitWeb.Gettext, "Featured Image")}
+              </h2>
+              <span class="text-xs text-base-content/50">
+                {Gettext.gettext(PhoenixKitWeb.Gettext, "Shown in lists and detail views.")}
+              </span>
+            </div>
+
+            <%= if @featured_image_file do %>
+              <div class="flex items-center gap-4">
+                <a
+                  href={URLSigner.signed_url(@featured_image_uuid, "original")}
+                  target="_blank"
+                  rel="noopener"
+                  class="shrink-0"
+                  title={Gettext.gettext(PhoenixKitWeb.Gettext, "Open original")}
+                >
+                  <img
+                    src={URLSigner.signed_url(@featured_image_uuid, "thumbnail")}
+                    alt={@featured_image_file.original_file_name}
+                    class="w-24 h-24 rounded-md object-cover bg-base-200 border border-base-300"
+                  />
+                </a>
+                <div class="flex-1 min-w-0">
+                  <p class="text-sm font-medium truncate">
+                    {@featured_image_file.original_file_name}
+                  </p>
+                  <p class="text-xs text-base-content/50">
+                    {Attachments.format_file_size(@featured_image_file.size)}
+                  </p>
+                </div>
+                <div class="flex flex-col gap-2">
+                  <button
+                    type="button"
+                    phx-click="open_featured_image_picker"
+                    class="btn btn-sm btn-outline"
+                  >
+                    {Gettext.gettext(PhoenixKitWeb.Gettext, "Change")}
+                  </button>
+                  <button
+                    type="button"
+                    phx-click="clear_featured_image"
+                    class="btn btn-sm btn-ghost"
+                  >
+                    {Gettext.gettext(PhoenixKitWeb.Gettext, "Remove")}
+                  </button>
+                </div>
+              </div>
+            <% else %>
+              <div class="flex items-center justify-between py-4 border border-dashed border-base-300 rounded-md px-4">
+                <div class="flex items-center gap-3 text-base-content/60">
+                  <.icon name="hero-photo" class="w-6 h-6" />
+                  <span class="text-sm">
+                    {Gettext.gettext(PhoenixKitWeb.Gettext, "No featured image set.")}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  phx-click="open_featured_image_picker"
+                  class="btn btn-sm btn-primary"
+                >
+                  <.icon name="hero-plus" class="w-4 h-4 mr-1" />
+                  {Gettext.gettext(PhoenixKitWeb.Gettext, "Set featured image")}
+                </button>
+              </div>
+            <% end %>
+          </div>
+        </div>
+
+        <div class={"card bg-base-100 shadow-lg #{if @current_tab != :details, do: "hidden"}"}>
+          <.multilang_tabs
+            multilang_enabled={@multilang_enabled}
+            language_tabs={@language_tabs}
+            current_lang={@current_lang}
+          />
 
           <%!-- Only translatable fields live inside the wrapper. When the
                user switches languages, the wrapper's ID changes and
                morphdom remounts its children — so we keep the scope as
                small as possible (name + description), not the whole
                form. Everything else renders as a sibling below. --%>
-          <.multilang_fields_wrapper multilang_enabled={@multilang_enabled} current_lang={@current_lang} skeleton_class="card-body flex flex-col gap-5 pb-0">
+          <.multilang_fields_wrapper
+            multilang_enabled={@multilang_enabled}
+            current_lang={@current_lang}
+            skeleton_class="card-body flex flex-col gap-5 pb-0"
+          >
             <:skeleton>
               <%!-- Name --%>
               <div class="space-y-2">
@@ -514,208 +846,495 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
             </:skeleton>
             <div class="card-body flex flex-col gap-5 pb-0">
               <.translatable_field
-                field_name="name" form_prefix="item" changeset={@changeset}
-                schema_field={:name} multilang_enabled={@multilang_enabled}
-                current_lang={@current_lang} primary_language={@primary_language}
-                lang_data={@lang_data} label={Gettext.gettext(PhoenixKitWeb.Gettext, "Name")} placeholder={Gettext.gettext(PhoenixKitWeb.Gettext, "e.g., Oak Panel 18mm")} required
+                field_name="name"
+                form_prefix="item"
+                changeset={@changeset}
+                schema_field={:name}
+                multilang_enabled={@multilang_enabled}
+                current_lang={@current_lang}
+                primary_language={@primary_language}
+                lang_data={@lang_data}
+                label={Gettext.gettext(PhoenixKitWeb.Gettext, "Name")}
+                placeholder={Gettext.gettext(PhoenixKitWeb.Gettext, "e.g., Oak Panel 18mm")}
+                required
                 class="w-full"
               />
 
               <.translatable_field
-                field_name="description" form_prefix="item" changeset={@changeset}
-                schema_field={:description} multilang_enabled={@multilang_enabled}
-                current_lang={@current_lang} primary_language={@primary_language}
-                lang_data={@lang_data} label={Gettext.gettext(PhoenixKitWeb.Gettext, "Description")} type="textarea"
-                placeholder={Gettext.gettext(PhoenixKitWeb.Gettext, "Product specifications, dimensions, materials...")}
+                field_name="description"
+                form_prefix="item"
+                changeset={@changeset}
+                schema_field={:description}
+                multilang_enabled={@multilang_enabled}
+                current_lang={@current_lang}
+                primary_language={@primary_language}
+                lang_data={@lang_data}
+                label={Gettext.gettext(PhoenixKitWeb.Gettext, "Description")}
+                type="textarea"
+                placeholder={
+                  Gettext.gettext(
+                    PhoenixKitWeb.Gettext,
+                    "Product specifications, dimensions, materials..."
+                  )
+                }
                 class="w-full"
               />
             </div>
           </.multilang_fields_wrapper>
 
           <div class="card-body flex flex-col gap-5 pt-0">
-              <%!-- Pricing & identification — hidden for smart catalogues,
+            <%!-- Pricing & identification — hidden for smart catalogues,
                    whose items are priced entirely by the rules picker below. --%>
-              <div :if={@catalogue_kind != "smart"} class="flex flex-col gap-5">
-                <div class="divider my-0"></div>
-
-                <h2 class="text-base font-semibold text-base-content/80 flex items-center gap-2">
-                  <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
-                  </svg>
-                  {Gettext.gettext(PhoenixKitWeb.Gettext, "Pricing & Identification")}
-                </h2>
-
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <.input
-                    field={@form[:sku]}
-                    type="text"
-                    label={Gettext.gettext(PhoenixKitWeb.Gettext, "SKU")}
-                    class="font-mono"
-                    placeholder={Gettext.gettext(PhoenixKitWeb.Gettext, "e.g., KF-001")}
-                  />
-                  <div class="form-control">
-                    <.input
-                      field={@form[:base_price]}
-                      type="number"
-                      label={Gettext.gettext(PhoenixKitWeb.Gettext, "Base Price")}
-                      step="0.01"
-                      min="0"
-                      placeholder={Gettext.gettext(PhoenixKitWeb.Gettext, "0.00")}
-                    />
-                    <span class="label-text-alt text-base-content/50 mt-1">{Gettext.gettext(PhoenixKitWeb.Gettext, "Cost/purchase price before catalogue markup.")}</span>
-                  </div>
-                  <.select
-                    field={@form[:unit]}
-                    label={Gettext.gettext(PhoenixKitWeb.Gettext, "Unit")}
-                    class="transition-colors focus-within:select-primary"
-                    options={[
-                      {Gettext.gettext(PhoenixKitWeb.Gettext, "Piece"), "piece"},
-                      {Gettext.gettext(PhoenixKitWeb.Gettext, "m² (square meter)"), "m2"},
-                      {Gettext.gettext(PhoenixKitWeb.Gettext, "Running meter"), "running_meter"}
-                    ]}
-                  />
-                  <div class="form-control">
-                    <.input
-                      field={@form[:markup_percentage]}
-                      type="number"
-                      label={Gettext.gettext(PhoenixKitWeb.Gettext, "Markup Override (%)")}
-                      step="0.01"
-                      min="0"
-                      placeholder={
-                        if @catalogue_markup,
-                          do: Gettext.gettext(PhoenixKitWeb.Gettext, "Inherit: %{markup}%", markup: Decimal.to_string(@catalogue_markup, :normal)),
-                          else: Gettext.gettext(PhoenixKitWeb.Gettext, "Inherit catalogue markup")
-                      }
-                    />
-                    <span class="label-text-alt text-base-content/50 mt-1">
-                      {Gettext.gettext(PhoenixKitWeb.Gettext, "Leave blank to inherit the catalogue's markup. Set (including 0) to override just this item.")}
-                    </span>
-                  </div>
-                  <div class="form-control">
-                    <.input
-                      field={@form[:discount_percentage]}
-                      type="number"
-                      label={Gettext.gettext(PhoenixKitWeb.Gettext, "Discount Override (%)")}
-                      step="0.01"
-                      min="0"
-                      max="100"
-                      placeholder={
-                        if @catalogue_discount,
-                          do: Gettext.gettext(PhoenixKitWeb.Gettext, "Inherit: %{discount}%", discount: Decimal.to_string(@catalogue_discount, :normal)),
-                          else: Gettext.gettext(PhoenixKitWeb.Gettext, "Inherit catalogue discount")
-                      }
-                    />
-                    <span class="label-text-alt text-base-content/50 mt-1">
-                      {Gettext.gettext(PhoenixKitWeb.Gettext, "Leave blank to inherit the catalogue's discount. Set (including 0) to override just this item.")}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              <%!-- Smart-catalogue rules (only for kind: "smart") --%>
-              <div :if={@catalogue_kind == "smart"} class="flex flex-col gap-4">
-                <div class="divider my-0"></div>
-                <h2 class="text-base font-semibold text-base-content/80 flex items-center gap-2">
-                  <.icon name="hero-link" class="w-4 h-4" />
-                  {Gettext.gettext(PhoenixKitWeb.Gettext, "Catalogue Rules")}
-                </h2>
-                <p class="text-sm text-base-content/60 -mt-2">
-                  {Gettext.gettext(PhoenixKitWeb.Gettext, "Pick which catalogues this item applies to and set a value + unit per catalogue. Rows left blank inherit the defaults below.")}
-                </p>
-
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div class="form-control">
-                    <.input
-                      field={@form[:default_value]}
-                      type="number"
-                      label={Gettext.gettext(PhoenixKitWeb.Gettext, "Default Value")}
-                      step="0.0001"
-                      min="0"
-                      placeholder={Gettext.gettext(PhoenixKitWeb.Gettext, "e.g., 5")}
-                    />
-                    <span class="label-text-alt text-base-content/50 mt-1">
-                      {Gettext.gettext(PhoenixKitWeb.Gettext, "Used for any selected catalogue that doesn't have its own value. If no catalogues are selected, this is the item's standalone fee (e.g. $50 flat).")}
-                    </span>
-                  </div>
-                  <div class="form-control">
-                    <.select
-                      field={@form[:default_unit]}
-                      label={Gettext.gettext(PhoenixKitWeb.Gettext, "Default Unit")}
-                      class="transition-colors focus-within:select-primary"
-                      options={[
-                        {Gettext.gettext(PhoenixKitWeb.Gettext, "Percent (%)"), "percent"},
-                        {Gettext.gettext(PhoenixKitWeb.Gettext, "Flat amount"), "flat"}
-                      ]}
-                    />
-                    <span class="label-text-alt text-base-content/50 mt-1">
-                      {Gettext.gettext(PhoenixKitWeb.Gettext, "Used for any selected catalogue that doesn't have its own unit.")}
-                    </span>
-                  </div>
-                </div>
-
-                <.catalogue_rules_picker
-                  catalogues={@rule_candidates}
-                  rules={@working_rules}
-                  item_default_value={Ecto.Changeset.get_field(@changeset, :default_value)}
-                />
-              </div>
-
-              <%!-- Classification — hidden for smart catalogues, whose items
-                   don't belong to a category/manufacturer in the usual sense. --%>
-              <div :if={@catalogue_kind != "smart"} class="flex flex-col gap-5">
-                <div class="divider my-0"></div>
-
-                <h2 class="text-base font-semibold text-base-content/80 flex items-center gap-2">
-                  <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-                  </svg>
-                  {Gettext.gettext(PhoenixKitWeb.Gettext, "Classification")}
-                </h2>
-
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <.select
-                    field={@form[:category_uuid]}
-                    label={Gettext.gettext(PhoenixKitWeb.Gettext, "Category")}
-                    class="transition-colors focus-within:select-primary"
-                    prompt={Gettext.gettext(PhoenixKitWeb.Gettext, "-- No category --")}
-                    options={Enum.map(@categories, &{&1.name, &1.uuid})}
-                  />
-                  <.select
-                    field={@form[:manufacturer_uuid]}
-                    label={Gettext.gettext(PhoenixKitWeb.Gettext, "Manufacturer")}
-                    class="transition-colors focus-within:select-primary"
-                    prompt={Gettext.gettext(PhoenixKitWeb.Gettext, "-- No manufacturer --")}
-                    options={Enum.map(@manufacturers, &{&1.name, &1.uuid})}
-                  />
-                </div>
-              </div>
-
-              <div class="form-control">
-                <.select
-                  field={@form[:status]}
-                  label={Gettext.gettext(PhoenixKitWeb.Gettext, "Status")}
-                  class="transition-colors focus-within:select-primary"
-                  options={[
-                    {Gettext.gettext(PhoenixKitWeb.Gettext, "Active"), "active"},
-                    {Gettext.gettext(PhoenixKitWeb.Gettext, "Inactive"), "inactive"},
-                    {Gettext.gettext(PhoenixKitWeb.Gettext, "Discontinued"), "discontinued"}
-                  ]}
-                />
-                <span class="label-text-alt text-base-content/50 mt-1">{Gettext.gettext(PhoenixKitWeb.Gettext, "Discontinued items are kept for reference but hidden from active listings.")}</span>
-              </div>
-
-              <%!-- Actions --%>
+            <div :if={@catalogue_kind != "smart"} class="flex flex-col gap-5">
               <div class="divider my-0"></div>
 
-              <div class="flex justify-end gap-3">
-                <.link navigate={if @catalogue_uuid, do: Paths.catalogue_detail(@catalogue_uuid), else: Paths.index()} class="btn btn-ghost">{Gettext.gettext(PhoenixKitWeb.Gettext, "Cancel")}</.link>
-                <button
-                  type="submit"
-                  class="btn btn-primary phx-submit-loading:opacity-75"
-                  phx-disable-with={Gettext.gettext(PhoenixKitWeb.Gettext, "Saving...")}
-                >{if @action == :new, do: Gettext.gettext(PhoenixKitWeb.Gettext, "Create Item"), else: Gettext.gettext(PhoenixKitWeb.Gettext, "Save Changes")}</button>
+              <h2 class="text-base font-semibold text-base-content/80 flex items-center gap-2">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  class="h-4 w-4"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"
+                  />
+                </svg>
+                {Gettext.gettext(PhoenixKitWeb.Gettext, "Pricing & Identification")}
+              </h2>
+
+              <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <.input
+                  field={@form[:sku]}
+                  type="text"
+                  label={Gettext.gettext(PhoenixKitWeb.Gettext, "SKU")}
+                  class="font-mono"
+                  placeholder={Gettext.gettext(PhoenixKitWeb.Gettext, "e.g., KF-001")}
+                />
+                <div class="form-control">
+                  <.input
+                    field={@form[:base_price]}
+                    type="number"
+                    label={Gettext.gettext(PhoenixKitWeb.Gettext, "Base Price")}
+                    step="0.01"
+                    min="0"
+                    placeholder={Gettext.gettext(PhoenixKitWeb.Gettext, "0.00")}
+                  />
+                  <span class="label-text-alt text-base-content/50 mt-1">
+                    {Gettext.gettext(
+                      PhoenixKitWeb.Gettext,
+                      "Cost/purchase price before catalogue markup."
+                    )}
+                  </span>
+                </div>
+                <.select
+                  field={@form[:unit]}
+                  label={Gettext.gettext(PhoenixKitWeb.Gettext, "Unit")}
+                  class="transition-colors focus-within:select-primary"
+                  options={[
+                    {Gettext.gettext(PhoenixKitWeb.Gettext, "Piece"), "piece"},
+                    {Gettext.gettext(PhoenixKitWeb.Gettext, "m² (square meter)"), "m2"},
+                    {Gettext.gettext(PhoenixKitWeb.Gettext, "Running meter"), "running_meter"}
+                  ]}
+                />
+                <div class="form-control">
+                  <.input
+                    field={@form[:markup_percentage]}
+                    type="number"
+                    label={Gettext.gettext(PhoenixKitWeb.Gettext, "Markup Override (%)")}
+                    step="0.01"
+                    min="0"
+                    placeholder={
+                      if @catalogue_markup,
+                        do:
+                          Gettext.gettext(PhoenixKitWeb.Gettext, "Inherit: %{markup}%",
+                            markup: Decimal.to_string(@catalogue_markup, :normal)
+                          ),
+                        else: Gettext.gettext(PhoenixKitWeb.Gettext, "Inherit catalogue markup")
+                    }
+                  />
+                  <span class="label-text-alt text-base-content/50 mt-1">
+                    {Gettext.gettext(
+                      PhoenixKitWeb.Gettext,
+                      "Leave blank to inherit the catalogue's markup. Set (including 0) to override just this item."
+                    )}
+                  </span>
+                </div>
+                <div class="form-control">
+                  <.input
+                    field={@form[:discount_percentage]}
+                    type="number"
+                    label={Gettext.gettext(PhoenixKitWeb.Gettext, "Discount Override (%)")}
+                    step="0.01"
+                    min="0"
+                    max="100"
+                    placeholder={
+                      if @catalogue_discount,
+                        do:
+                          Gettext.gettext(PhoenixKitWeb.Gettext, "Inherit: %{discount}%",
+                            discount: Decimal.to_string(@catalogue_discount, :normal)
+                          ),
+                        else: Gettext.gettext(PhoenixKitWeb.Gettext, "Inherit catalogue discount")
+                    }
+                  />
+                  <span class="label-text-alt text-base-content/50 mt-1">
+                    {Gettext.gettext(
+                      PhoenixKitWeb.Gettext,
+                      "Leave blank to inherit the catalogue's discount. Set (including 0) to override just this item."
+                    )}
+                  </span>
+                </div>
               </div>
+            </div>
+
+            <%!-- Smart-catalogue rules (only for kind: "smart") --%>
+            <div :if={@catalogue_kind == "smart"} class="flex flex-col gap-4">
+              <div class="divider my-0"></div>
+              <h2 class="text-base font-semibold text-base-content/80 flex items-center gap-2">
+                <.icon name="hero-link" class="w-4 h-4" />
+                {Gettext.gettext(PhoenixKitWeb.Gettext, "Catalogue Rules")}
+              </h2>
+              <p class="text-sm text-base-content/60 -mt-2">
+                {Gettext.gettext(
+                  PhoenixKitWeb.Gettext,
+                  "Pick which catalogues this item applies to and set a value + unit per catalogue. Rows left blank inherit the defaults below."
+                )}
+              </p>
+
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div class="form-control">
+                  <.input
+                    field={@form[:default_value]}
+                    type="number"
+                    label={Gettext.gettext(PhoenixKitWeb.Gettext, "Default Value")}
+                    step="0.0001"
+                    min="0"
+                    placeholder={Gettext.gettext(PhoenixKitWeb.Gettext, "e.g., 5")}
+                  />
+                  <span class="label-text-alt text-base-content/50 mt-1">
+                    {Gettext.gettext(
+                      PhoenixKitWeb.Gettext,
+                      "Used for any selected catalogue that doesn't have its own value. If no catalogues are selected, this is the item's standalone fee (e.g. $50 flat)."
+                    )}
+                  </span>
+                </div>
+                <div class="form-control">
+                  <.select
+                    field={@form[:default_unit]}
+                    label={Gettext.gettext(PhoenixKitWeb.Gettext, "Default Unit")}
+                    class="transition-colors focus-within:select-primary"
+                    options={[
+                      {Gettext.gettext(PhoenixKitWeb.Gettext, "Percent (%)"), "percent"},
+                      {Gettext.gettext(PhoenixKitWeb.Gettext, "Flat amount"), "flat"}
+                    ]}
+                  />
+                  <span class="label-text-alt text-base-content/50 mt-1">
+                    {Gettext.gettext(
+                      PhoenixKitWeb.Gettext,
+                      "Used for any selected catalogue that doesn't have its own unit."
+                    )}
+                  </span>
+                </div>
+              </div>
+
+              <.catalogue_rules_picker
+                catalogues={@rule_candidates}
+                rules={@working_rules}
+                item_default_value={Ecto.Changeset.get_field(@changeset, :default_value)}
+              />
+            </div>
+
+            <%!-- Classification — hidden for smart catalogues, whose items
+                   don't belong to a category/manufacturer in the usual sense. --%>
+            <div :if={@catalogue_kind != "smart"} class="flex flex-col gap-5">
+              <div class="divider my-0"></div>
+
+              <h2 class="text-base font-semibold text-base-content/80 flex items-center gap-2">
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  class="h-4 w-4"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"
+                  />
+                </svg>
+                {Gettext.gettext(PhoenixKitWeb.Gettext, "Classification")}
+              </h2>
+
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <.select
+                  field={@form[:category_uuid]}
+                  label={Gettext.gettext(PhoenixKitWeb.Gettext, "Category")}
+                  class="transition-colors focus-within:select-primary"
+                  prompt={Gettext.gettext(PhoenixKitWeb.Gettext, "-- No category --")}
+                  options={Enum.map(@categories, &{&1.name, &1.uuid})}
+                />
+                <.select
+                  field={@form[:manufacturer_uuid]}
+                  label={Gettext.gettext(PhoenixKitWeb.Gettext, "Manufacturer")}
+                  class="transition-colors focus-within:select-primary"
+                  prompt={Gettext.gettext(PhoenixKitWeb.Gettext, "-- No manufacturer --")}
+                  options={Enum.map(@manufacturers, &{&1.name, &1.uuid})}
+                />
+              </div>
+            </div>
+
+            <div class="form-control">
+              <.select
+                field={@form[:status]}
+                label={Gettext.gettext(PhoenixKitWeb.Gettext, "Status")}
+                class="transition-colors focus-within:select-primary"
+                options={[
+                  {Gettext.gettext(PhoenixKitWeb.Gettext, "Active"), "active"},
+                  {Gettext.gettext(PhoenixKitWeb.Gettext, "Inactive"), "inactive"},
+                  {Gettext.gettext(PhoenixKitWeb.Gettext, "Discontinued"), "discontinued"}
+                ]}
+              />
+              <span class="label-text-alt text-base-content/50 mt-1">
+                {Gettext.gettext(
+                  PhoenixKitWeb.Gettext,
+                  "Discontinued items are kept for reference but hidden from active listings."
+                )}
+              </span>
+            </div>
           </div>
+        </div>
+
+        <%!-- Metadata tab — global field list, user opts in per item.
+             Values live in `item.data["meta"]`; legacy keys (stored
+             but no longer in ItemMetadata.definitions/0) render with a
+             "Legacy" pill and a remove-only action so data isn't lost
+             silently. --%>
+        <div class={"card bg-base-100 shadow-lg #{if @current_tab != :metadata, do: "hidden"}"}>
+          <div class="card-body flex flex-col gap-5">
+            <div>
+              <h2 class="text-base font-semibold text-base-content/80 flex items-center gap-2">
+                <.icon name="hero-tag" class="w-4 h-4" />
+                {Gettext.gettext(PhoenixKitWeb.Gettext, "Metadata")}
+              </h2>
+              <p class="text-sm text-base-content/60 mt-1">
+                {Gettext.gettext(
+                  PhoenixKitWeb.Gettext,
+                  "Attach any metadata fields that apply to this item. Blank values are dropped on save."
+                )}
+              </p>
+            </div>
+
+            <div :if={@meta_state.attached == []} class="alert">
+              <.icon name="hero-information-circle" class="w-5 h-5 shrink-0" />
+              <span class="text-sm">
+                {Gettext.gettext(
+                  PhoenixKitWeb.Gettext,
+                  "No metadata attached yet. Pick a field below to add one."
+                )}
+              </span>
+            </div>
+
+            <div :if={@meta_state.attached != []} class="flex flex-col gap-3">
+              <div :for={key <- @meta_state.attached} class="flex items-end gap-3">
+                {render_meta_row(assigns, key)}
+              </div>
+            </div>
+
+            <%!-- Add-metadata picker: only surfaces definitions not yet
+                 attached. Uses phx-change on the <.select>; the ID
+                 cycles with the attached-count so morphdom replaces the
+                 element on each add — this collapses the "stuck
+                 selection" quirk that otherwise leaves the picker
+                 showing the just-added label. --%>
+            <div class="divider my-0"></div>
+            <div class="flex items-end gap-3">
+              <div class="flex-1">
+                <.select
+                  id={"item-metadata-add-#{length(@meta_state.attached)}"}
+                  name="key"
+                  value={nil}
+                  label={Gettext.gettext(PhoenixKitWeb.Gettext, "Add metadata")}
+                  prompt={Gettext.gettext(PhoenixKitWeb.Gettext, "— Pick a field —")}
+                  options={add_meta_options(@meta_state)}
+                  class="select-sm transition-colors focus-within:select-primary"
+                  phx-change="add_meta_field"
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <%!-- Files tab — direct upload, per-item scope. Files are
+             discoverable via the item's folder
+             (`item.data["files_folder_uuid"]`); the grid is refreshed
+             from that folder after each upload. No list to track
+             on the item — the folder is the single source of truth. --%>
+        <div class={"card bg-base-100 shadow-lg #{if @current_tab != :files, do: "hidden"}"}>
+          <div class="card-body flex flex-col gap-4">
+            <div class="flex items-center justify-between gap-4">
+              <div class="flex flex-col gap-0.5 min-w-0">
+                <h2 class="text-base font-semibold text-base-content/80 flex items-center gap-2">
+                  <.icon name="hero-paper-clip" class="w-4 h-4" />
+                  {Gettext.gettext(PhoenixKitWeb.Gettext, "Attached Files")}
+                  <span
+                    :if={@files_state.files != []}
+                    class="badge badge-sm badge-ghost ml-1"
+                  >
+                    {length(@files_state.files)}
+                  </span>
+                </h2>
+                <p class="text-xs text-base-content/50">
+                  {Gettext.gettext(
+                    PhoenixKitWeb.Gettext,
+                    "Spec sheets, drawings, photos. Any file type is accepted."
+                  )}
+                </p>
+              </div>
+            </div>
+
+            <%!-- Inline dropzone — uploads land in this item's folder
+                 and appear in the grid below. No popup, no selection
+                 ceremony. --%>
+            <label
+              for={@uploads.attachment_files.ref}
+              class="flex flex-col items-center justify-center gap-2 py-6 border-2 border-dashed border-base-300 rounded-md bg-base-200/20 hover:bg-base-200/40 transition-colors cursor-pointer"
+              phx-drop-target={@uploads.attachment_files.ref}
+            >
+              <.icon name="hero-cloud-arrow-up" class="w-8 h-8 text-base-content/40" />
+              <div class="text-sm text-base-content/60">
+                <span class="font-medium text-primary">{Gettext.gettext(PhoenixKitWeb.Gettext, "Click to upload")}</span>
+                <span>{Gettext.gettext(PhoenixKitWeb.Gettext, " or drag & drop")}</span>
+              </div>
+              <.live_file_input upload={@uploads.attachment_files} class="hidden" />
+            </label>
+
+            <%!-- In-flight uploads: one row per active entry. --%>
+            <div :if={@uploads.attachment_files.entries != []} class="flex flex-col gap-2">
+              <div
+                :for={entry <- @uploads.attachment_files.entries}
+                class="flex items-center gap-3 rounded-md border border-base-300 bg-base-100 p-2"
+              >
+                <.icon name="hero-cloud-arrow-up" class="w-4 h-4 text-base-content/60 shrink-0" />
+                <div class="flex-1 min-w-0">
+                  <p class="text-sm truncate">{entry.client_name}</p>
+                  <progress class="progress progress-primary w-full h-1 mt-1" value={entry.progress} max="100"></progress>
+                </div>
+                <span class="text-xs text-base-content/50 tabular-nums">{entry.progress}%</span>
+                <button
+                  type="button"
+                  phx-click="cancel_upload"
+                  phx-value-ref={entry.ref}
+                  class="btn btn-ghost btn-xs btn-square"
+                  title={Gettext.gettext(PhoenixKitWeb.Gettext, "Cancel")}
+                >
+                  <.icon name="hero-x-mark" class="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            <%!-- Phoenix.LiveView upload errors (too_large, not_accepted, too_many_files). --%>
+            <p :for={err <- upload_errors(@uploads.attachment_files)} class="text-xs text-error">
+              {Attachments.upload_error_message(err)}
+            </p>
+
+            <%= if @files_state.files == [] do %>
+              <div class="flex flex-col items-center gap-2 py-10 text-center border border-dashed border-base-300 rounded-md">
+                <.icon name="hero-paper-clip" class="w-8 h-8 text-base-content/30" />
+                <p class="text-sm text-base-content/50">
+                  {Gettext.gettext(PhoenixKitWeb.Gettext, "No files attached yet.")}
+                </p>
+              </div>
+            <% else %>
+              <ul class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <li
+                  :for={file <- @files_state.files}
+                  class="flex items-center gap-3 rounded-md border border-base-300 bg-base-200/30 p-3"
+                >
+                  <%= if file.file_type == "image" do %>
+                    <a
+                      href={URLSigner.signed_url(file.uuid, "original")}
+                      target="_blank"
+                      rel="noopener"
+                      class="shrink-0"
+                    >
+                      <img
+                        src={URLSigner.signed_url(file.uuid, "thumbnail")}
+                        alt={file.original_file_name}
+                        class="w-14 h-14 rounded object-cover bg-base-200 border border-base-300"
+                      />
+                    </a>
+                  <% else %>
+                    <a
+                      href={URLSigner.signed_url(file.uuid, "original")}
+                      target="_blank"
+                      rel="noopener"
+                      class="shrink-0 flex items-center justify-center w-14 h-14 rounded bg-base-200 border border-base-300 text-base-content/60"
+                      title={Gettext.gettext(PhoenixKitWeb.Gettext, "Download")}
+                    >
+                      <.icon name={Attachments.file_icon(file)} class="w-6 h-6" />
+                    </a>
+                  <% end %>
+                  <div class="flex-1 min-w-0">
+                    <p class="text-sm font-medium truncate" title={file.original_file_name}>
+                      {file.original_file_name}
+                    </p>
+                    <p class="text-xs text-base-content/50">
+                      {Attachments.format_file_size(file.size)} · {file.file_type}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    phx-click="remove_file"
+                    phx-value-uuid={file.uuid}
+                    data-confirm={Gettext.gettext(PhoenixKitWeb.Gettext, "Remove this file from the item? If it's not attached to any other item, it will be moved to trash (admins can restore).")}
+                    class="btn btn-ghost btn-xs btn-square"
+                    title={Gettext.gettext(PhoenixKitWeb.Gettext, "Remove from item")}
+                  >
+                    <.icon name="hero-x-mark" class="w-4 h-4" />
+                  </button>
+                </li>
+              </ul>
+            <% end %>
+          </div>
+        </div>
+
+        <%!-- Actions — sit outside the tab panels so Save works from
+             any tab; the form element wraps them all. Save is
+             disabled while uploads are mid-flight so we don't race
+             the post-upload `handle_progress` write against the save
+             path (would drop the just-uploaded file from the
+             resource). --%>
+        <div class="flex justify-end gap-3 pt-2">
+          <.link
+            navigate={
+              if @catalogue_uuid, do: Paths.catalogue_detail(@catalogue_uuid), else: Paths.index()
+            }
+            class="btn btn-ghost"
+          >
+            {Gettext.gettext(PhoenixKitWeb.Gettext, "Cancel")}
+          </.link>
+          <button
+            type="submit"
+            class="btn btn-primary phx-submit-loading:opacity-75"
+            disabled={@uploads.attachment_files.entries != []}
+            phx-disable-with={Gettext.gettext(PhoenixKitWeb.Gettext, "Saving...")}
+          >
+            {cond do
+              @uploads.attachment_files.entries != [] ->
+                Gettext.gettext(PhoenixKitWeb.Gettext, "Waiting for uploads...")
+
+              @action == :new ->
+                Gettext.gettext(PhoenixKitWeb.Gettext, "Create Item")
+
+              true ->
+                Gettext.gettext(PhoenixKitWeb.Gettext, "Save Changes")
+            end}
+          </button>
         </div>
       </.form>
 
@@ -723,10 +1342,17 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
            items move across smart catalogues (no category). Each card
            only renders when its own target list is non-empty so we
            never show an empty-dropdown dead end. --%>
-      <div :if={@action == :edit && @catalogue_kind != "smart" && @all_categories != []} class="card bg-base-100 shadow-lg">
+      <div
+        :if={@action == :edit && @catalogue_kind != "smart" && @all_categories != []}
+        class="card bg-base-100 shadow-lg"
+      >
         <div class="card-body flex flex-col gap-3">
-          <h3 class="text-sm font-semibold text-base-content/80">{Gettext.gettext(PhoenixKitWeb.Gettext, "Move to Another Category")}</h3>
-          <p class="text-xs text-base-content/50">{Gettext.gettext(PhoenixKitWeb.Gettext, "Move this item to a category in any catalogue.")}</p>
+          <h3 class="text-sm font-semibold text-base-content/80">
+            {Gettext.gettext(PhoenixKitWeb.Gettext, "Move to Another Category")}
+          </h3>
+          <p class="text-xs text-base-content/50">
+            {Gettext.gettext(PhoenixKitWeb.Gettext, "Move this item to a category in any catalogue.")}
+          </p>
           <div class="flex items-end gap-3">
             <div class="form-control flex-1">
               <.select
@@ -742,6 +1368,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
             <button
               type="button"
               phx-click="move_item"
+              phx-disable-with={Gettext.gettext(PhoenixKitWeb.Gettext, "Moving...")}
               disabled={is_nil(@move_target)}
               class="btn btn-sm btn-outline"
             >
@@ -751,10 +1378,20 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
         </div>
       </div>
 
-      <div :if={@action == :edit && @catalogue_kind == "smart" && @smart_move_targets != []} class="card bg-base-100 shadow-lg">
+      <div
+        :if={@action == :edit && @catalogue_kind == "smart" && @smart_move_targets != []}
+        class="card bg-base-100 shadow-lg"
+      >
         <div class="card-body flex flex-col gap-3">
-          <h3 class="text-sm font-semibold text-base-content/80">{Gettext.gettext(PhoenixKitWeb.Gettext, "Move to Another Smart Catalogue")}</h3>
-          <p class="text-xs text-base-content/50">{Gettext.gettext(PhoenixKitWeb.Gettext, "Move this item into a different smart catalogue. Its catalogue rules stay attached.")}</p>
+          <h3 class="text-sm font-semibold text-base-content/80">
+            {Gettext.gettext(PhoenixKitWeb.Gettext, "Move to Another Smart Catalogue")}
+          </h3>
+          <p class="text-xs text-base-content/50">
+            {Gettext.gettext(
+              PhoenixKitWeb.Gettext,
+              "Move this item into a different smart catalogue. Its catalogue rules stay attached."
+            )}
+          </p>
           <div class="flex items-end gap-3">
             <div class="form-control flex-1">
               <.select
@@ -770,6 +1407,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
             <button
               type="button"
               phx-click="move_item"
+              phx-disable-with={Gettext.gettext(PhoenixKitWeb.Gettext, "Moving...")}
               disabled={is_nil(@move_target)}
               class="btn btn-sm btn-outline"
             >
@@ -787,5 +1425,87 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
       %{name: name} -> name
       _ -> code
     end
+  end
+
+  # `[{label, key}, ...]` options list for the core `<.select>` — only
+  # definitions the user hasn't already attached.
+  defp add_meta_options(%{attached: attached}) do
+    ItemMetadata.definitions()
+    |> Enum.reject(fn def_ -> def_.key in attached end)
+    |> Enum.map(fn def_ -> {def_.label, def_.key} end)
+  end
+
+  # Renders one attached-metadata row. All fields are currently text;
+  # legacy keys (stored but no longer in code) fall into a separate
+  # read-only renderer that surfaces a "Legacy" pill so data isn't
+  # lost silently when a definition is dropped.
+  defp render_meta_row(assigns, key) do
+    value = Map.get(assigns.meta_state.values, key, "")
+
+    case ItemMetadata.definition(key) do
+      nil -> render_legacy_meta_row(assigns, key, value)
+      def_ -> render_text_meta_row(assigns, def_, value)
+    end
+  end
+
+  defp render_text_meta_row(assigns, def_, value) do
+    assigns = assign(assigns, def_: def_, value: value)
+
+    ~H"""
+    <div class="flex-1">
+      <.input
+        type="text"
+        name={"meta[#{@def_.key}]"}
+        id={"meta-#{@def_.key}"}
+        value={@value}
+        label={@def_.label}
+        class="input-sm transition-colors focus:input-primary"
+      />
+    </div>
+    <button
+      type="button"
+      phx-click="remove_meta_field"
+      phx-value-key={@def_.key}
+      class="btn btn-ghost btn-sm btn-square text-error"
+      title={Gettext.gettext(PhoenixKitWeb.Gettext, "Remove")}
+    >
+      <.icon name="hero-x-mark" class="w-4 h-4" />
+    </button>
+    """
+  end
+
+  # Legacy rows render the "Legacy" pill outside the Input component's
+  # own label slot because that slot only takes a plain string. The
+  # `<.input>` itself stays the single source of input styling.
+  defp render_legacy_meta_row(assigns, key, value) do
+    assigns = assign(assigns, key: key, value: value)
+
+    ~H"""
+    <div class="flex-1">
+      <div class="mb-2 flex items-center gap-2 text-sm">
+        <span class="font-mono">{@key}</span>
+        <span class="badge badge-warning badge-sm">
+          {Gettext.gettext(PhoenixKitWeb.Gettext, "Legacy")}
+        </span>
+      </div>
+      <.input
+        type="text"
+        name={"meta_legacy[#{@key}]"}
+        id={"meta-legacy-#{@key}"}
+        value={@value}
+        disabled
+        class="input-sm"
+      />
+    </div>
+    <button
+      type="button"
+      phx-click="remove_meta_field"
+      phx-value-key={@key}
+      class="btn btn-ghost btn-sm btn-square text-error"
+      title={Gettext.gettext(PhoenixKitWeb.Gettext, "Remove")}
+    >
+      <.icon name="hero-x-mark" class="w-4 h-4" />
+    </button>
+    """
   end
 end

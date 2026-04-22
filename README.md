@@ -6,9 +6,9 @@ Designed for manufacturing companies (e.g. kitchen/furniture producers) that nee
 
 ## Features
 
-- **Catalogues** — top-level groupings with configurable markup and discount percentage for pricing
-- **Categories** — subdivisions within a catalogue with manual position ordering
-- **Items** — individual products with SKU, base price, unit of measure, and computed `sale_price` (post-markup) + `final_price` (post-discount)
+- **Catalogues** — top-level groupings with configurable markup and discount percentage for pricing; featured image + file attachments
+- **Categories** — nested subdivisions within a catalogue (arbitrary-depth tree via V103 `parent_uuid`); sibling-scoped position ordering; trash/restore/delete cascades through the whole subtree
+- **Items** — individual products with SKU, base price, unit of measure, and computed `sale_price` (post-markup) + `final_price` (post-discount). Optional per-item metadata fields (color, weight, dimensions, …) stored on `item.data["meta"]`; featured image + file attachments
 - **Manufacturers** — company directory with many-to-many supplier linking
 - **Suppliers** — delivery companies linked to manufacturers
 - **Pricing chain** — `base → markup → discount`: per-catalogue defaults plus optional per-item override on each leg (`nil` inherits, any value including `0` overrides)
@@ -18,7 +18,7 @@ Designed for manufacturing companies (e.g. kitchen/furniture producers) that nee
 - **Multilingual** — all translatable fields use PhoenixKit's multilang system
 - **Move operations** — move categories between catalogues, items between categories
 - **Card/table views** — all tables support card view toggle, persisted per user in localStorage
-- **Reusable components** — `item_table`, `search_input`, `view_mode_toggle`, `empty_state`, `scope_selector`, `catalogue_rules_picker` with gettext localization
+- **Reusable components** — `item_table`, `search_input`, `view_mode_toggle`, `empty_state`, `scope_selector`, `catalogue_rules_picker`, `item_picker` (server-side search combobox with colocated keyboard hook) with gettext localization
 - **Zero-config discovery** — auto-discovered by PhoenixKit via beam scanning
 
 ## Installation
@@ -55,7 +55,9 @@ Catalogue (1) ──> Category (many) ──> Item (many)
                   │                                  │
                   │                                  └── references another Catalogue
                   │                                       with (value, unit, position)
-                  └── position-ordered, soft-deletable
+                  ├── position-ordered, soft-deletable
+                  └── self-FK parent_uuid (V103) — arbitrary-depth tree;
+                      NULL means root; positions scoped per sibling group
 ```
 
 All tables use UUIDv7 primary keys and are prefixed with `phoenix_kit_cat_*`.
@@ -112,13 +114,28 @@ Catalogue.permanently_delete_catalogue(cat)        # hard-delete (cascades down)
 
 # ── Categories ────────────────────────────────────────
 Catalogue.list_categories_for_catalogue(cat_uuid)  # excludes deleted
-Catalogue.list_all_categories()                    # "Catalogue / Category" format
+Catalogue.list_all_categories()                    # "Catalogue / Ancestor / Child" breadcrumb format
 Catalogue.create_category(%{name: "Frames", catalogue_uuid: cat.uuid})
-Catalogue.trash_category(category)                 # cascades to items
-Catalogue.restore_category(category)               # cascades up + down
-Catalogue.permanently_delete_category(category)    # cascades to items
-Catalogue.move_category_to_catalogue(category, target_uuid)
-Catalogue.next_category_position(cat_uuid)
+Catalogue.create_category(%{name: "Nested", catalogue_uuid: cat.uuid, parent_uuid: parent.uuid})
+Catalogue.trash_category(category)                 # cascades through the whole subtree (V103)
+Catalogue.restore_category(category)               # restores deleted ancestors + subtree + items
+Catalogue.permanently_delete_category(category)    # hard-deletes subtree; cannot be undone
+Catalogue.move_category_to_catalogue(category, target_uuid)   # moves the whole subtree
+Catalogue.next_category_position(cat_uuid)         # root-level (parent_uuid: nil)
+Catalogue.next_category_position(cat_uuid, parent_uuid)  # scoped to a sibling group
+
+# ── Nested categories (V103) ──────────────────────────
+Catalogue.list_category_tree(cat_uuid)
+# => [{%Category{}, 0}, {%Category{}, 1}, ...]  # depth-first with depth
+Catalogue.list_category_tree(cat_uuid, exclude_subtree_of: editing.uuid)
+Catalogue.list_category_ancestors(child_uuid)      # [root, ..., direct_parent]
+
+Catalogue.move_category_under(child, parent.uuid)  # reparent within the catalogue
+Catalogue.move_category_under(child, nil)          # promote to root
+# => {:error, :would_create_cycle | :cross_catalogue | :parent_not_found}
+
+Catalogue.swap_category_positions(a, b)            # siblings only
+# => {:error, :not_siblings} for non-siblings
 
 # ── Items ─────────────────────────────────────────────
 Catalogue.list_items()                             # all non-deleted, preloads all
@@ -206,6 +223,12 @@ Catalogue.search_items("oak", category_uuids: [c1, c2])          # only these ca
 Catalogue.search_items("oak", catalogue_uuids: [a], category_uuids: [c1])  # AND
 Catalogue.search_items_in_catalogue(cat_uuid, "panel")           # convenience wrapper
 Catalogue.search_items_in_category(cat_uuid, "oak")              # convenience wrapper
+
+# Nested categories: scoping by a parent category also matches items
+# in descendant categories (default since V103). Pass false to scope
+# strictly to the given UUIDs.
+Catalogue.search_items("oak", category_uuids: [root_uuid])                            # matches descendants
+Catalogue.search_items("oak", category_uuids: [root_uuid], include_descendants: false) # literal set only
 
 # Unbounded total for paging / summaries (accepts the same scope filters)
 Catalogue.count_search_items("oak")
@@ -311,6 +334,29 @@ Smart-catalogue rule editor — one row per candidate catalogue with a checkbox,
 
 Emits four customizable events: `toggle_catalogue_rule`, `set_catalogue_rule_value`, `set_catalogue_rule_unit`, `clear_catalogue_rules`. The LV owns `working_rules` as a `%{referenced_catalogue_uuid => %{value, unit}}` map and calls `put_catalogue_rules/3` on save. Rows with blank values show `Inherit: N` as placeholder when an item default is set. The per-row unit dropdown is self-contained — toggling a row on defaults its unit to `"percent"` and the item's `default_unit` does not cascade into rule rows.
 
+### `item_picker/1`
+
+Combobox for picking a single item by searching across a scoped set of catalogues/categories. Server-side search, colocated keyboard-handling hook (arrow keys, enter, escape, home/end), debounced input. Pairs with the nested-category search: category scopes expand through descendants by default.
+
+```heex
+<.item_picker
+  id={"row-#{@row.id}-picker"}
+  category_uuids={[@category_uuid]}
+  selected_item={@row.item}
+  excluded_uuids={@used_uuids}
+  locale="en"
+/>
+```
+
+The parent LV handles two messages:
+
+```elixir
+def handle_info({:item_picker_select, id, %Item{} = item}, socket), do: ...
+def handle_info({:item_picker_clear, id}, socket), do: ...
+```
+
+The dropdown is absolutely positioned with `z-50`; ancestor containers must not `overflow: hidden`.
+
 ### `search_results_summary/1` and `empty_state/1`
 
 ```heex
@@ -324,6 +370,20 @@ Emits four customizable events: `toggle_catalogue_rule`, `set_catalogue_rule_val
 ```
 
 All component text (column headers, action labels, toggle tooltips, result counts) is localizable via PhoenixKit's Gettext backend.
+
+## Attachments (featured image + files)
+
+Both catalogue and item forms support a **featured image** plus an **inline files dropzone**, wired via the shared `PhoenixKitCatalogue.Attachments` module. Each resource owns one folder in `phoenix_kit_media_folders` (named `catalogue-<uuid>` / `catalogue-item-<uuid>`); `data["files_folder_uuid"]` on the resource points at it. `data["featured_image_uuid"]` points at a `phoenix_kit_files` row.
+
+The featured-image picker opens phoenix_kit's `MediaSelectorModal` scoped to the resource's folder (via a new `scope_folder_id` attr in phoenix_kit core) — browse and post-upload home folder are both constrained to that scope, so uploading the same file to two items creates a `FolderLink` rather than yanking the file between resources. See `lib/phoenix_kit_catalogue/attachments.ex` for the full behaviour (detach semantics for shared files, pending-folder rename on first save, upload-error messages, etc.).
+
+There's no dedicated `Catalogue.set_featured_image/2` context helper — programmatic callers use `update_item`/`update_catalogue` with `%{data: %{"featured_image_uuid" => uuid, "files_folder_uuid" => folder_uuid}}`.
+
+## Item Metadata (opt-in fields)
+
+Items can opt into a shared, code-defined list of metadata fields (color, weight, dimensions, material, finish, …) defined in `PhoenixKitCatalogue.ItemMetadata`. Values live in `item.data["meta"]` as a flat `%{key => string}` map. The form's Metadata tab lets the user pick which fields to attach per item; legacy keys (defined in older code revisions but no longer listed) surface as "Legacy" rows with a remove-only action so stored data isn't silently lost.
+
+Labels are translated via `PhoenixKitWeb.Gettext`. Adding / removing fields is a code edit to `definitions/0`.
 
 ## Admin UI
 

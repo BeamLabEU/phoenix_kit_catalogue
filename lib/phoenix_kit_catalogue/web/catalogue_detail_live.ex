@@ -24,6 +24,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   alias PhoenixKitCatalogue.Catalogue
   alias PhoenixKitCatalogue.Catalogue.PubSub
   alias PhoenixKitCatalogue.Paths
+  alias PhoenixKitCatalogue.Schemas.Category
 
   @per_page 100
 
@@ -35,6 +36,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         catalogue_uuid: uuid,
         catalogue: nil,
         category_list: [],
+        category_depths: %{},
         category_counts: %{},
         uncategorized_total: 0,
         loaded_cards: [],
@@ -463,7 +465,9 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
     mode = view_mode_to_atom(view_mode)
     catalogue = Catalogue.fetch_catalogue!(uuid)
-    category_list = Catalogue.list_categories_metadata_for_catalogue(uuid, mode: mode)
+    tree = Catalogue.list_category_tree(uuid, mode: mode)
+    category_list = Enum.map(tree, fn {cat, _depth} -> cat end)
+    category_depths = Map.new(tree, fn {cat, depth} -> {cat.uuid, depth} end)
     category_counts = Catalogue.item_counts_by_category_for_catalogue(uuid, mode: mode)
     uncategorized_total = Catalogue.uncategorized_count_for_catalogue(uuid, mode: mode)
 
@@ -474,6 +478,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       page_title: catalogue.name,
       catalogue: catalogue,
       category_list: category_list,
+      category_depths: category_depths,
       category_counts: category_counts,
       uncategorized_total: uncategorized_total,
       loaded_cards: [],
@@ -804,33 +809,47 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   defp view_mode_to_atom("deleted"), do: :deleted
 
   defp reorder_category(socket, uuid, direction) do
+    # V103 nested categories: reorder operates strictly among siblings
+    # (same parent_uuid). Swapping across parents would shuffle rows into
+    # different sub-trees and leave position values meaningless for the
+    # flat ordering that the detail view relies on.
     categories = socket.assigns.category_list
-    index = Enum.find_index(categories, &(&1.uuid == uuid))
 
-    swap_index =
-      case direction do
-        :up -> max(index - 1, 0)
-        :down -> min(index + 1, length(categories) - 1)
-      end
+    case Enum.find(categories, &(&1.uuid == uuid)) do
+      %Category{parent_uuid: parent_uuid} = cat_a ->
+        siblings = Enum.filter(categories, &(&1.parent_uuid == parent_uuid))
+        sibling_index = Enum.find_index(siblings, &(&1.uuid == uuid))
 
-    if index != swap_index do
-      cat_a = Enum.at(categories, index)
-      cat_b = Enum.at(categories, swap_index)
+        swap_index =
+          case direction do
+            :up -> sibling_index - 1
+            :down -> sibling_index + 1
+          end
 
-      case Catalogue.swap_category_positions(cat_a, cat_b, actor_opts(socket)) do
-        {:ok, _} ->
-          {:noreply, reset_and_load(socket)}
+        if swap_index >= 0 and swap_index < length(siblings) do
+          cat_b = Enum.at(siblings, swap_index)
+          swap_categories(socket, cat_a, cat_b)
+        else
+          {:noreply, socket}
+        end
 
-        {:error, _} ->
-          {:noreply,
-           put_flash(
-             socket,
-             :error,
-             Gettext.gettext(PhoenixKitWeb.Gettext, "Failed to reorder categories.")
-           )}
-      end
-    else
-      {:noreply, socket}
+      _ ->
+        {:noreply, socket}
+    end
+  end
+
+  defp swap_categories(socket, cat_a, cat_b) do
+    case Catalogue.swap_category_positions(cat_a, cat_b, actor_opts(socket)) do
+      {:ok, _} ->
+        {:noreply, reset_and_load(socket)}
+
+      {:error, _} ->
+        {:noreply,
+         put_flash(
+           socket,
+           :error,
+           Gettext.gettext(PhoenixKitWeb.Gettext, "Failed to reorder categories.")
+         )}
     end
   end
 
@@ -975,6 +994,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
             view_mode={@view_mode}
             category_total={length(@category_list)}
             category_counts={@category_counts}
+            category_depths={@category_depths}
+            category_list={@category_list}
             uncategorized_total={@uncategorized_total}
             catalogue={@catalogue}
           />
@@ -1060,24 +1081,37 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   attr(:view_mode, :string, required: true)
   attr(:category_total, :integer, required: true)
   attr(:category_counts, :map, required: true)
+  attr(:category_depths, :map, default: %{})
+  attr(:category_list, :list, default: [])
   attr(:uncategorized_total, :integer, required: true)
   attr(:catalogue, :any, required: true)
 
   defp detail_card(%{card: %{kind: :category}} = assigns) do
+    %{uuid: uuid, parent_uuid: parent_uuid} = assigns.card.category
+    siblings = Enum.filter(assigns.category_list, &(&1.parent_uuid == parent_uuid))
+    sibling_count = length(siblings)
+
     assigns =
-      assign(assigns, :total, Map.get(assigns.category_counts, assigns.card.category.uuid, 0))
+      assigns
+      |> assign(:total, Map.get(assigns.category_counts, uuid, 0))
+      |> assign(:depth, Map.get(assigns.category_depths, uuid, 0))
+      |> assign(:sibling_count, sibling_count)
 
     ~H"""
-    <div :if={@view_mode == "active" or @card.category.status == "deleted" or @total > 0} class="card bg-base-100 shadow">
+    <div
+      :if={@view_mode == "active" or @card.category.status == "deleted" or @total > 0}
+      class="card bg-base-100 shadow"
+      style={"margin-left: #{@depth * 1.5}rem"}
+    >
       <div class="card-body">
         <div class="flex items-center justify-between">
           <div class="flex items-center gap-2">
-            <div :if={@category_total > 1 && @view_mode == "active"} class="flex flex-col">
+            <div :if={@sibling_count > 1 && @view_mode == "active"} class="flex flex-col">
               <button
                 phx-click="move_category_up"
                 phx-value-uuid={@card.category.uuid}
                 class="btn btn-ghost btn-xs btn-square"
-                title={Gettext.gettext(PhoenixKitWeb.Gettext, "Move up")}
+                title={Gettext.gettext(PhoenixKitWeb.Gettext, "Move up (among siblings)")}
               >
                 <.icon name="hero-chevron-up" class="w-3 h-3" />
               </button>
@@ -1085,7 +1119,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                 phx-click="move_category_down"
                 phx-value-uuid={@card.category.uuid}
                 class="btn btn-ghost btn-xs btn-square"
-                title={Gettext.gettext(PhoenixKitWeb.Gettext, "Move down")}
+                title={Gettext.gettext(PhoenixKitWeb.Gettext, "Move down (among siblings)")}
               >
                 <.icon name="hero-chevron-down" class="w-3 h-3" />
               </button>

@@ -17,6 +17,9 @@ defmodule PhoenixKitCatalogue.Web.Components do
       value + unit per catalogue; pairs with `Catalogue.put_catalogue_rules/3`)
     * `view_mode_toggle/1` — table/card view toggle synced via localStorage
     * `item_table/1` — configurable item table with selectable columns
+    * `item_picker/1` — combobox for picking a single item via server-side
+      search; backed by `Components.ItemPicker` LiveComponent, fires
+      `{:item_picker_select, id, item}` / `{:item_picker_clear, id}` upward
     * `empty_state/1` — centered empty state card with message and optional action
 
   Several of these (`search_input`, `search_results_summary`,
@@ -1015,6 +1018,73 @@ defmodule PhoenixKitCatalogue.Web.Components do
         <.table_row_menu_button :if={@on_permanent_delete} phx-click={@on_permanent_delete} phx-value-uuid={@item.uuid} phx-value-type={@permanent_delete_type} icon="hero-trash" label={Gettext.gettext(PhoenixKitWeb.Gettext, "Delete Forever")} variant="error" />
       </.table_row_menu>
     </.table_default_cell>
+    """
+  end
+
+  # ═══════════════════════════════════════════════════════════════════
+  # Item Picker
+  # ═══════════════════════════════════════════════════════════════════
+
+  @doc """
+  Combobox for picking a single catalogue item via server-side search.
+
+  Thin wrapper around the `ItemPicker` LiveComponent — it's the
+  LiveComponent that owns search state, events, and the colocated JS
+  hook. This wrapper exists so consumers have an attr-declared call
+  site and don't have to remember `<.live_component module={...}>`.
+
+  The parent LiveView reacts to two messages in its `handle_info/2`:
+
+      {:item_picker_select, id, %Item{}}   # user chose an item
+      {:item_picker_clear,  id}            # user cleared the selection
+
+  where `id` is the `:id` you passed in — handy for multiple pickers on
+  one page.
+
+  ## Examples
+
+      <.item_picker
+        id={"row-\#{@row.id}-picker"}
+        category_uuids={[@category_uuid]}
+        selected_item={@row.item}
+        excluded_uuids={@used_uuids}
+        locale="en"
+      />
+
+  See `PhoenixKitCatalogue.Web.Components.ItemPicker` for the full attr
+  reference and the keyboard / a11y contract.
+  """
+
+  attr(:id, :string, required: true)
+  attr(:category_uuids, :list, default: nil)
+  attr(:catalogue_uuids, :list, default: nil)
+  attr(:include_descendants, :boolean, default: true)
+  attr(:selected_item, :any, default: nil)
+  attr(:excluded_uuids, :list, default: [])
+  attr(:locale, :string, required: true)
+  attr(:placeholder, :string, default: nil)
+  attr(:empty_query_limit, :integer, default: 10)
+  attr(:page_size, :integer, default: 20)
+  attr(:disabled, :boolean, default: false)
+  attr(:format_price, :any, default: nil)
+
+  def item_picker(assigns) do
+    ~H"""
+    <.live_component
+      module={PhoenixKitCatalogue.Web.Components.ItemPicker}
+      id={@id}
+      category_uuids={@category_uuids}
+      catalogue_uuids={@catalogue_uuids}
+      include_descendants={@include_descendants}
+      selected_item={@selected_item}
+      excluded_uuids={@excluded_uuids}
+      locale={@locale}
+      placeholder={@placeholder}
+      empty_query_limit={@empty_query_limit}
+      page_size={@page_size}
+      disabled={@disabled}
+      format_price={@format_price}
+    />
     """
   end
 

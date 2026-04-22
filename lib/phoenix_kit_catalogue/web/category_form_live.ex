@@ -25,8 +25,15 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
       case action do
         :new ->
           catalogue_uuid = params["catalogue_uuid"]
-          next_pos = Catalogue.next_category_position(catalogue_uuid)
-          cat = %Category{catalogue_uuid: catalogue_uuid, position: next_pos}
+          parent_uuid = blank_to_nil(params["parent_uuid"])
+          next_pos = Catalogue.next_category_position(catalogue_uuid, parent_uuid)
+
+          cat = %Category{
+            catalogue_uuid: catalogue_uuid,
+            parent_uuid: parent_uuid,
+            position: next_pos
+          }
+
           {cat, Catalogue.change_category(cat), catalogue_uuid}
 
         :edit ->
@@ -59,6 +66,8 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
         []
       end
 
+    parent_options = parent_options_for(action, category, catalogue_uuid)
+
     {:ok,
      socket
      |> assign(
@@ -72,11 +81,40 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
        catalogue_uuid: catalogue_uuid,
        confirm_delete_all: false,
        other_catalogues: other_catalogues,
+       parent_options: parent_options,
+       parent_move_target: category && category.parent_uuid,
        move_target: nil
      )
      |> assign_changeset(changeset)
      |> mount_multilang()}
   end
+
+  # Tree-flattened options for the parent picker. Root entry first,
+  # then each category prefixed with indentation that matches its
+  # depth. For edit mode, the category's own subtree is excluded so
+  # the user can't pick itself or one of its descendants.
+  defp parent_options_for(:new, _category, catalogue_uuid) do
+    Catalogue.list_category_tree(catalogue_uuid)
+    |> format_parent_options()
+  end
+
+  defp parent_options_for(:edit, %Category{uuid: uuid}, catalogue_uuid) do
+    catalogue_uuid
+    |> Catalogue.list_category_tree(exclude_subtree_of: uuid)
+    |> format_parent_options()
+  end
+
+  defp parent_options_for(_, _, _), do: []
+
+  defp format_parent_options(entries) do
+    Enum.map(entries, fn {category, depth} ->
+      {String.duplicate("— ", depth) <> category.name, category.uuid}
+    end)
+  end
+
+  defp blank_to_nil(nil), do: nil
+  defp blank_to_nil(""), do: nil
+  defp blank_to_nil(value), do: value
 
   defp assign_changeset(socket, changeset) do
     socket
@@ -93,6 +131,7 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
     params =
       params
       |> Map.put_new("catalogue_uuid", socket.assigns.catalogue_uuid)
+      |> normalize_parent_uuid()
       |> merge_translatable_params(socket, @translatable_fields,
         changeset: socket.assigns.changeset
       )
@@ -109,6 +148,7 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
     params =
       params
       |> Map.put_new("catalogue_uuid", socket.assigns.catalogue_uuid)
+      |> normalize_parent_uuid()
       |> merge_translatable_params(socket, @translatable_fields,
         changeset: socket.assigns.changeset
       )
@@ -181,9 +221,67 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
     end
   end
 
+  def handle_event("select_parent_move_target", %{"parent_uuid" => uuid}, socket) do
+    target = blank_to_nil(uuid)
+    {:noreply, assign(socket, :parent_move_target, target)}
+  end
+
+  def handle_event("move_under_parent", _params, socket) do
+    target = socket.assigns.parent_move_target
+
+    case Catalogue.move_category_under(socket.assigns.category, target, actor_opts(socket)) do
+      {:ok, updated} ->
+        {:noreply,
+         socket
+         |> assign(:category, updated)
+         |> assign(:parent_options, parent_options_for(:edit, updated, updated.catalogue_uuid))
+         |> put_flash(
+           :info,
+           Gettext.gettext(PhoenixKitWeb.Gettext, "Category moved.")
+         )}
+
+      {:error, :would_create_cycle} ->
+        {:noreply,
+         put_flash(
+           socket,
+           :error,
+           Gettext.gettext(
+             PhoenixKitWeb.Gettext,
+             "Cannot move a category under itself or one of its descendants."
+           )
+         )}
+
+      {:error, :cross_catalogue} ->
+        {:noreply,
+         put_flash(
+           socket,
+           :error,
+           Gettext.gettext(
+             PhoenixKitWeb.Gettext,
+             "Parent must live in the same catalogue."
+           )
+         )}
+
+      {:error, _} ->
+        {:noreply,
+         put_flash(
+           socket,
+           :error,
+           Gettext.gettext(PhoenixKitWeb.Gettext, "Failed to move category.")
+         )}
+    end
+  end
+
   def handle_event("cancel_delete", _params, socket) do
     {:noreply, assign(socket, :confirm_delete_all, false)}
   end
+
+  # Form-submitted empty string means "no parent" — normalize so the
+  # changeset treats it as NULL rather than attempting a malformed FK.
+  defp normalize_parent_uuid(%{"parent_uuid" => ""} = params),
+    do: Map.put(params, "parent_uuid", nil)
+
+  defp normalize_parent_uuid(params), do: params
 
   defp actor_opts(socket) do
     case socket.assigns[:phoenix_kit_current_user] do
@@ -275,6 +373,17 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
           <div class="card-body flex flex-col gap-5 pt-0">
             <div class="divider my-0"></div>
 
+            <div :if={@action == :new} class="form-control">
+              <.select
+                field={@form[:parent_uuid]}
+                label={Gettext.gettext(PhoenixKitWeb.Gettext, "Parent category")}
+                prompt={Gettext.gettext(PhoenixKitWeb.Gettext, "— Top level (no parent) —")}
+                options={@parent_options}
+                class="transition-colors focus-within:select-primary"
+              />
+              <span class="label-text-alt text-base-content/50 mt-1">{Gettext.gettext(PhoenixKitWeb.Gettext, "Pick a parent to nest this category inside, or leave blank to keep it at the top level. You can move it later.")}</span>
+            </div>
+
             <div class="form-control">
               <.input
                 field={@form[:position]}
@@ -301,6 +410,36 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
         </div>
       </.form>
 
+      <%!-- Move to a different parent — only in edit mode, within the same catalogue --%>
+      <div :if={@action == :edit} class="card bg-base-100 shadow-lg">
+        <div class="card-body flex flex-col gap-3">
+          <h3 class="text-sm font-semibold text-base-content/80">{Gettext.gettext(PhoenixKitWeb.Gettext, "Move to Another Parent")}</h3>
+          <p class="text-xs text-base-content/50">{Gettext.gettext(PhoenixKitWeb.Gettext, "Reparent this category within its catalogue. Its subtree comes along.")}</p>
+          <div class="flex items-end gap-3">
+            <div class="form-control flex-1">
+              <.select
+                name="parent_uuid"
+                id="category-parent-move-target"
+                value={@parent_move_target}
+                prompt={Gettext.gettext(PhoenixKitWeb.Gettext, "— Top level (no parent) —")}
+                options={@parent_options}
+                class="select-sm transition-colors focus-within:select-primary"
+                phx-change="select_parent_move_target"
+              />
+            </div>
+            <button
+              type="button"
+              phx-click="move_under_parent"
+              phx-disable-with={Gettext.gettext(PhoenixKitWeb.Gettext, "Moving...")}
+              disabled={@parent_move_target == @category.parent_uuid}
+              class="btn btn-sm btn-outline"
+            >
+              {Gettext.gettext(PhoenixKitWeb.Gettext, "Move")}
+            </button>
+          </div>
+        </div>
+      </div>
+
       <%!-- Move to another catalogue — only in edit mode with other catalogues available --%>
       <div :if={@action == :edit && @other_catalogues != []} class="card bg-base-100 shadow-lg">
         <div class="card-body flex flex-col gap-3">
@@ -321,6 +460,7 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
             <button
               type="button"
               phx-click="move_category"
+              phx-disable-with={Gettext.gettext(PhoenixKitWeb.Gettext, "Moving...")}
               disabled={is_nil(@move_target)}
               class="btn btn-sm btn-outline"
             >
