@@ -1,3 +1,29 @@
+## 0.1.11 - 2026-04-22
+
+### Added
+- **Nested categories** (requires phoenix_kit 1.7.103+ for the V103 `parent_uuid` self-FK migration). New `PhoenixKitCatalogue.Catalogue.Tree` module with recursive-CTE helpers (`subtree_uuids/1`, `descendant_uuids/1`, `ancestor_uuids/1`, `ancestors_in_order/1`) plus pure in-memory walkers (`build_children_index/1`, `walk_subtree/3`) for preloaded trees. CTEs use `UNION` (not `UNION ALL`) for defense-in-depth cycle safety.
+- `Catalogue.move_category_under/3` — same-catalogue reparent with `:would_create_cycle` / `:cross_catalogue` / `:parent_not_found` rejection; `nil` promotes to root.
+- `Catalogue.list_category_tree/2` returns `[{category, depth}]` with orphan promotion (deleted-ancestor children surface as roots) and an `:exclude_subtree_of` option for parent pickers.
+- `Catalogue.list_category_ancestors/1` (delegates to `Tree.ancestors_in_order/1`) for breadcrumbs.
+- `search_items/2` gains `:include_descendants` (default `true`) so a category-scoped search also matches items in descendant categories. Pass `false` for the literal-set semantics.
+- **Attachments** — new `PhoenixKitCatalogue.Attachments` module shared by item + catalogue forms. Folder-per-resource, featured-image pointer, inline files dropzone (20 files / 100 MB / `auto_upload: true`), pending-folder rename on first save. Smart detach splits home-folder vs `FolderLink` files; `list_files_in_folder/1` capped at 200 rows. Save button disabled while uploads are in flight.
+- **Item metadata** — new `PhoenixKitCatalogue.ItemMetadata` module with a global opt-in list of fields stored on `item.data["meta"]`. Labels are gettext-wrapped; legacy keys (dropped from code but still held by an item) surface as "Legacy" rows with a remove-only action so deleting a definition never wipes stored data.
+- **Item picker** — new `PhoenixKitCatalogue.Web.Components.ItemPicker` combobox LiveComponent with server-side search, `:category_uuids` / `:catalogue_uuids` scoping, `:include_descendants` toggle, `:excluded_uuids` dim-and-disable, colocated keyboard hook (ArrowUp/Down, Home/End, Enter, Escape), `has_more` "type to refine" sentinel, and render-shape tests.
+
+### Changed
+- Category position scoping moved from `catalogue_uuid` to `(catalogue_uuid, parent_uuid)` — `next_category_position/2` now takes a `parent_uuid` arg (default `nil` for root).
+- `swap_category_positions/3` refuses `{:error, :not_siblings}` when the two categories live under different parents or in different catalogues.
+- `trash_category` / `restore_category` / `permanently_delete_category` walk the whole subtree in one transaction. `restore_category` also restores deleted ancestors + the parent catalogue so the restored node is reachable. Activity metadata carries `subtree_size` + `items_cascaded`.
+- `move_category_to_catalogue` carries the subtree along in a transaction; takes `SELECT … FOR UPDATE` on the moved row and computes the target position *after* the subtree has moved — closes the stale-position race flagged in prior reviews.
+- `list_all_categories/0` renders full breadcrumbs (`"Catalogue / Parent / Child"`) and loads in two queries instead of N+1 per catalogue.
+- `Category.changeset` rejects self-parent; `create_category/2` and `update_category/3` additionally guard against cross-catalogue and descendant-as-parent (cycle) cases at the context level, so raw API / form callers can't bypass `move_category_under/3`.
+
+### Fixed
+- Catch-all `handle_info/2` on `CatalogueFormLive` and `ItemFormLive` — stray monitor signals used to crash these forms.
+- `phx-disable-with` on every Move button (category-under-parent, category-to-catalogue, item-to-category, item-to-smart-catalogue).
+- `Attachments.soft_trash_file/1` is inlined to avoid depending on the unreleased `PhoenixKit.Modules.Storage.trash_file/1`.
+- Credo / dialyzer clean after refactors: nested-too-deep in meta handlers, cyclomatic-10 `file_type_from_mime`, opaque MapSet in `list_category_tree`, unreachable `read_string/2` fallback.
+
 ## 0.1.10 - 2026-04-20
 
 ### Added
