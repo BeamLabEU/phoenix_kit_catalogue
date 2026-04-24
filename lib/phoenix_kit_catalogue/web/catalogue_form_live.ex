@@ -12,9 +12,13 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
   import PhoenixKitWeb.Components.Core.Input, only: [input: 1]
   import PhoenixKitWeb.Components.Core.Select, only: [select: 1]
 
+  import PhoenixKitCatalogue.Web.Components,
+    only: [featured_image_card: 1, metadata_editor: 1]
+
   alias PhoenixKit.Modules.Storage.URLSigner
   alias PhoenixKitCatalogue.Attachments
   alias PhoenixKitCatalogue.Catalogue
+  alias PhoenixKitCatalogue.Metadata
   alias PhoenixKitCatalogue.Paths
   alias PhoenixKitCatalogue.Schemas.Catalogue, as: CatalogueSchema
 
@@ -63,7 +67,9 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
            ),
          action: action,
          catalogue: catalogue,
-         confirm_delete: false
+         confirm_delete: false,
+         current_tab: :details,
+         meta_state: Metadata.build_state(:catalogue, catalogue)
        )
        |> Attachments.mount_attachments(catalogue)
        |> Attachments.allow_attachment_upload()
@@ -87,31 +93,77 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
     {:noreply, handle_switch_language(socket, lang_code)}
   end
 
-  def handle_event("validate", %{"catalogue" => params}, socket) do
-    params =
-      merge_translatable_params(params, socket, @translatable_fields,
+  def handle_event("switch_tab", %{"tab" => tab}, socket) do
+    {:noreply, assign(socket, :current_tab, parse_tab(tab))}
+  end
+
+  def handle_event("add_meta_field", %{"key" => key}, socket) do
+    case Metadata.definition(:catalogue, key) do
+      nil ->
+        # Unknown key from a stale client — ignore instead of writing data
+        # the save path can't round-trip.
+        {:noreply, socket}
+
+      _def ->
+        state = socket.assigns.meta_state
+
+        new_state =
+          if key in state.attached do
+            state
+          else
+            %{
+              attached: state.attached ++ [key],
+              values: Map.put_new(state.values, key, "")
+            }
+          end
+
+        {:noreply, assign(socket, :meta_state, new_state)}
+    end
+  end
+
+  def handle_event("remove_meta_field", %{"key" => key}, socket) do
+    state = socket.assigns.meta_state
+
+    new_state = %{
+      attached: Enum.reject(state.attached, &(&1 == key)),
+      values: Map.delete(state.values, key)
+    }
+
+    {:noreply, assign(socket, :meta_state, new_state)}
+  end
+
+  def handle_event("validate", params, socket) do
+    socket = absorb_meta_params(socket, params)
+    catalogue_params = Map.get(params, "catalogue", %{})
+
+    catalogue_params =
+      merge_translatable_params(catalogue_params, socket, @translatable_fields,
         changeset: socket.assigns.changeset,
         preserve_fields: @preserve_fields
       )
 
     changeset =
       socket.assigns.catalogue
-      |> Catalogue.change_catalogue(params)
+      |> Catalogue.change_catalogue(catalogue_params)
       |> Map.put(:action, socket.assigns.changeset.action)
 
     {:noreply, assign_changeset(socket, changeset)}
   end
 
-  def handle_event("save", %{"catalogue" => params}, socket) do
-    params =
-      params
+  def handle_event("save", params, socket) do
+    socket = absorb_meta_params(socket, params)
+    catalogue_params = Map.get(params, "catalogue", %{})
+
+    catalogue_params =
+      catalogue_params
       |> merge_translatable_params(socket, @translatable_fields,
         changeset: socket.assigns.changeset,
         preserve_fields: @preserve_fields
       )
+      |> Metadata.inject_into_data(socket.assigns.meta_state, :catalogue)
       |> Attachments.inject_attachment_data(socket)
 
-    save_catalogue(socket, socket.assigns.action, params)
+    save_catalogue(socket, socket.assigns.action, catalogue_params)
   end
 
   # ── Attachments (featured image modal + inline files dropzone) ──
@@ -175,6 +227,14 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
   # can't crash the form mid-edit.
   def handle_info(_msg, socket), do: {:noreply, socket}
 
+  defp parse_tab("metadata"), do: :metadata
+  defp parse_tab("files"), do: :files
+  defp parse_tab(_), do: :details
+
+  defp absorb_meta_params(socket, params) do
+    assign(socket, :meta_state, Metadata.absorb_params(socket.assigns.meta_state, params))
+  end
+
   defp actor_opts(socket) do
     case socket.assigns[:phoenix_kit_current_user] do
       %{uuid: uuid} -> [actor_uuid: uuid]
@@ -222,8 +282,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
     ~H"""
     <div class="flex flex-col mx-auto max-w-2xl px-4 py-8 gap-6">
       <%!-- Media selector — folder-scoped featured-image picker.
-           Reconfigured per open; the Files card below is inline so
-           no files-mode routing is needed. --%>
+           Reconfigured per open; the Files tab below hosts the
+           inline dropzone for everything else. --%>
       <.live_component
         module={PhoenixKitWeb.Live.Components.MediaSelectorModal}
         id="catalogue-form-media-selector"
@@ -238,85 +298,48 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
       <%!-- Header --%>
       <.admin_page_header back={Paths.index()} title={@page_title} subtitle={if @action == :new, do: Gettext.gettext(PhoenixKitWeb.Gettext, "Create a new product catalogue to organize categories and items."), else: Gettext.gettext(PhoenixKitWeb.Gettext, "Update catalogue details and settings.")} />
 
-      <%!-- Featured image card. Opens the scoped picker (images only,
-           single). Upload a new image or pick an attached one; the
-           uuid is stored on `catalogue.data["featured_image_uuid"]`. --%>
-      <div class="card bg-base-100 shadow-lg">
-        <div class="card-body flex flex-col gap-3">
-          <div class="flex items-center justify-between">
-            <h2 class="text-base font-semibold text-base-content/80 flex items-center gap-2">
-              <.icon name="hero-photo" class="w-4 h-4" />
-              {Gettext.gettext(PhoenixKitWeb.Gettext, "Featured Image")}
-            </h2>
-            <span class="text-xs text-base-content/50">
-              {Gettext.gettext(PhoenixKitWeb.Gettext, "Shown on catalogue listings and detail views.")}
-            </span>
-          </div>
-
-          <%= if @featured_image_file do %>
-            <div class="flex items-center gap-4">
-              <a
-                href={URLSigner.signed_url(@featured_image_uuid, "original")}
-                target="_blank"
-                rel="noopener"
-                class="shrink-0"
-                title={Gettext.gettext(PhoenixKitWeb.Gettext, "Open original")}
-              >
-                <img
-                  src={URLSigner.signed_url(@featured_image_uuid, "thumbnail")}
-                  alt={@featured_image_file.original_file_name}
-                  class="w-24 h-24 rounded-md object-cover bg-base-200 border border-base-300"
-                />
-              </a>
-              <div class="flex-1 min-w-0">
-                <p class="text-sm font-medium truncate">
-                  {@featured_image_file.original_file_name}
-                </p>
-                <p class="text-xs text-base-content/50">
-                  {Attachments.format_file_size(@featured_image_file.size)}
-                </p>
-              </div>
-              <div class="flex flex-col gap-2">
-                <button
-                  type="button"
-                  phx-click="open_featured_image_picker"
-                  class="btn btn-sm btn-outline"
-                >
-                  {Gettext.gettext(PhoenixKitWeb.Gettext, "Change")}
-                </button>
-                <button
-                  type="button"
-                  phx-click="clear_featured_image"
-                  class="btn btn-sm btn-ghost"
-                >
-                  {Gettext.gettext(PhoenixKitWeb.Gettext, "Remove")}
-                </button>
-              </div>
-            </div>
-          <% else %>
-            <div class="flex items-center justify-between py-4 border border-dashed border-base-300 rounded-md px-4">
-              <div class="flex items-center gap-3 text-base-content/60">
-                <.icon name="hero-photo" class="w-6 h-6" />
-                <span class="text-sm">
-                  {Gettext.gettext(PhoenixKitWeb.Gettext, "No featured image set.")}
-                </span>
-              </div>
-              <button
-                type="button"
-                phx-click="open_featured_image_picker"
-                class="btn btn-sm btn-primary"
-              >
-                <.icon name="hero-plus" class="w-4 h-4 mr-1" />
-                {Gettext.gettext(PhoenixKitWeb.Gettext, "Set featured image")}
-              </button>
-            </div>
-          <% end %>
-        </div>
+      <%!-- Tab strip — each panel stays in the DOM (toggled by `hidden`)
+           so the multilang wrapper + any user input don't lose state
+           when flipping tabs. --%>
+      <div role="tablist" class="tabs tabs-bordered">
+        <button
+          type="button"
+          phx-click="switch_tab"
+          phx-value-tab="details"
+          class={"tab #{if @current_tab == :details, do: "tab-active"}"}
+        >
+          <.icon name="hero-document-text" class="w-4 h-4 mr-1" />
+          {Gettext.gettext(PhoenixKitWeb.Gettext, "Details")}
+        </button>
+        <button
+          type="button"
+          phx-click="switch_tab"
+          phx-value-tab="metadata"
+          class={"tab #{if @current_tab == :metadata, do: "tab-active"}"}
+        >
+          <.icon name="hero-tag" class="w-4 h-4 mr-1" />
+          {Gettext.gettext(PhoenixKitWeb.Gettext, "Metadata")}
+          <span :if={@meta_state.attached != []} class="badge badge-sm badge-ghost ml-2">
+            {length(@meta_state.attached)}
+          </span>
+        </button>
+        <button
+          type="button"
+          phx-click="switch_tab"
+          phx-value-tab="files"
+          class={"tab #{if @current_tab == :files, do: "tab-active"}"}
+        >
+          <.icon name="hero-paper-clip" class="w-4 h-4 mr-1" />
+          {Gettext.gettext(PhoenixKitWeb.Gettext, "Files")}
+          <span :if={@files_state.files != []} class="badge badge-sm badge-ghost ml-2">
+            {length(@files_state.files)}
+          </span>
+        </button>
       </div>
 
       <.form for={@form} action="#" phx-change="validate" phx-submit="save">
-        <%!-- Main content card --%>
-        <div class="card bg-base-100 shadow-lg">
+        <%!-- Details tab — name, description, kind, pricing, status --%>
+        <div class={"card bg-base-100 shadow-lg #{if @current_tab != :details, do: "hidden"}"}>
           <.multilang_tabs
             multilang_enabled={@multilang_enabled}
             language_tabs={@language_tabs}
@@ -446,161 +469,178 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
           </div>
         </div>
 
-        <%!-- Files card lives inside the form so the file input's
-             phx-change hooks into the form's `validate` event (which
-             is what kicks off auto_upload). Rendering it outside the
-             form kept the server from ever seeing new entries. --%>
-        <div class="card bg-base-100 shadow-lg mt-6">
-        <div class="card-body flex flex-col gap-4">
-          <div class="flex flex-col gap-0.5">
-            <h2 class="text-base font-semibold text-base-content/80 flex items-center gap-2">
-              <.icon name="hero-paper-clip" class="w-4 h-4" />
-              {Gettext.gettext(PhoenixKitWeb.Gettext, "Attached Files")}
-              <span :if={@files_state.files != []} class="badge badge-sm badge-ghost ml-1">
-                {length(@files_state.files)}
-              </span>
-            </h2>
-            <p class="text-xs text-base-content/50">
-              {Gettext.gettext(PhoenixKitWeb.Gettext, "Brochures, spec sheets, datasheets. Any file type is accepted.")}
-            </p>
-          </div>
+        <%!-- Metadata tab — global field list, user opts in per catalogue.
+             Values live in `catalogue.data["meta"]`; legacy keys (stored
+             but no longer in Metadata.definitions(:catalogue)) render
+             with a "Legacy" pill and a remove-only action. --%>
+        <div class={"card bg-base-100 shadow-lg #{if @current_tab != :metadata, do: "hidden"}"}>
+          <.metadata_editor
+            resource_type={:catalogue}
+            state={@meta_state}
+            id_prefix="catalogue"
+            description={Gettext.gettext(PhoenixKitWeb.Gettext, "Attach any metadata fields that apply to this catalogue. Blank values are dropped on save.")}
+          />
+        </div>
 
-          <label
-            for={@uploads.attachment_files.ref}
-            class="flex flex-col items-center justify-center gap-2 py-6 border-2 border-dashed border-base-300 rounded-md bg-base-200/20 hover:bg-base-200/40 transition-colors cursor-pointer"
-            phx-drop-target={@uploads.attachment_files.ref}
-          >
-            <.icon name="hero-cloud-arrow-up" class="w-8 h-8 text-base-content/40" />
-            <div class="text-sm text-base-content/60">
-              <span class="font-medium text-primary">{Gettext.gettext(PhoenixKitWeb.Gettext, "Click to upload")}</span>
-              <span>{Gettext.gettext(PhoenixKitWeb.Gettext, " or drag & drop")}</span>
-            </div>
-            <.live_file_input upload={@uploads.attachment_files} class="hidden" />
-          </label>
+        <%!-- Files tab — featured image + inline files dropzone. --%>
+        <div class={"flex flex-col gap-6 #{if @current_tab != :files, do: "hidden"}"}>
+          <.featured_image_card
+            featured_image_uuid={@featured_image_uuid}
+            featured_image_file={@featured_image_file}
+            subtitle={Gettext.gettext(PhoenixKitWeb.Gettext, "Shown on catalogue listings and detail views.")}
+          />
 
-          <div :if={@uploads.attachment_files.entries != []} class="flex flex-col gap-2">
-            <div
-              :for={entry <- @uploads.attachment_files.entries}
-              class="flex items-center gap-3 rounded-md border border-base-300 bg-base-100 p-2"
-            >
-              <.icon name="hero-cloud-arrow-up" class="w-4 h-4 text-base-content/60 shrink-0" />
-              <div class="flex-1 min-w-0">
-                <p class="text-sm truncate">{entry.client_name}</p>
-                <progress
-                  class="progress progress-primary w-full h-1 mt-1"
-                  value={entry.progress}
-                  max="100"
-                >
-                </progress>
+          <div class="card bg-base-100 shadow-lg">
+            <div class="card-body flex flex-col gap-4">
+              <div class="flex flex-col gap-0.5">
+                <h2 class="text-base font-semibold text-base-content/80 flex items-center gap-2">
+                  <.icon name="hero-paper-clip" class="w-4 h-4" />
+                  {Gettext.gettext(PhoenixKitWeb.Gettext, "Attached Files")}
+                  <span :if={@files_state.files != []} class="badge badge-sm badge-ghost ml-1">
+                    {length(@files_state.files)}
+                  </span>
+                </h2>
+                <p class="text-xs text-base-content/50">
+                  {Gettext.gettext(PhoenixKitWeb.Gettext, "Brochures, spec sheets, datasheets. Any file type is accepted.")}
+                </p>
               </div>
-              <span class="text-xs text-base-content/50 tabular-nums">{entry.progress}%</span>
-              <button
-                type="button"
-                phx-click="cancel_upload"
-                phx-value-ref={entry.ref}
-                class="btn btn-ghost btn-xs btn-square"
-                title={Gettext.gettext(PhoenixKitWeb.Gettext, "Cancel")}
+
+              <label
+                for={@uploads.attachment_files.ref}
+                class="flex flex-col items-center justify-center gap-2 py-6 border-2 border-dashed border-base-300 rounded-md bg-base-200/20 hover:bg-base-200/40 transition-colors cursor-pointer"
+                phx-drop-target={@uploads.attachment_files.ref}
               >
-                <.icon name="hero-x-mark" class="w-4 h-4" />
-              </button>
-            </div>
-          </div>
+                <.icon name="hero-cloud-arrow-up" class="w-8 h-8 text-base-content/40" />
+                <div class="text-sm text-base-content/60">
+                  <span class="font-medium text-primary">{Gettext.gettext(PhoenixKitWeb.Gettext, "Click to upload")}</span>
+                  <span>{Gettext.gettext(PhoenixKitWeb.Gettext, " or drag & drop")}</span>
+                </div>
+                <.live_file_input upload={@uploads.attachment_files} class="hidden" />
+              </label>
 
-          <p
-            :for={err <- upload_errors(@uploads.attachment_files)}
-            class="text-xs text-error"
-          >
-            {Attachments.upload_error_message(err)}
-          </p>
+              <div :if={@uploads.attachment_files.entries != []} class="flex flex-col gap-2">
+                <div
+                  :for={entry <- @uploads.attachment_files.entries}
+                  class="flex items-center gap-3 rounded-md border border-base-300 bg-base-100 p-2"
+                >
+                  <.icon name="hero-cloud-arrow-up" class="w-4 h-4 text-base-content/60 shrink-0" />
+                  <div class="flex-1 min-w-0">
+                    <p class="text-sm truncate">{entry.client_name}</p>
+                    <progress
+                      class="progress progress-primary w-full h-1 mt-1"
+                      value={entry.progress}
+                      max="100"
+                    >
+                    </progress>
+                  </div>
+                  <span class="text-xs text-base-content/50 tabular-nums">{entry.progress}%</span>
+                  <button
+                    type="button"
+                    phx-click="cancel_upload"
+                    phx-value-ref={entry.ref}
+                    class="btn btn-ghost btn-xs btn-square"
+                    title={Gettext.gettext(PhoenixKitWeb.Gettext, "Cancel")}
+                  >
+                    <.icon name="hero-x-mark" class="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
 
-          <%= if @files_state.files == [] do %>
-            <div class="flex flex-col items-center gap-2 py-10 text-center border border-dashed border-base-300 rounded-md">
-              <.icon name="hero-paper-clip" class="w-8 h-8 text-base-content/30" />
-              <p class="text-sm text-base-content/50">
-                {Gettext.gettext(PhoenixKitWeb.Gettext, "No files attached yet.")}
+              <p
+                :for={err <- upload_errors(@uploads.attachment_files)}
+                class="text-xs text-error"
+              >
+                {Attachments.upload_error_message(err)}
               </p>
-            </div>
-          <% else %>
-            <ul class="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <li
-                :for={file <- @files_state.files}
-                class="flex items-center gap-3 rounded-md border border-base-300 bg-base-200/30 p-3"
-              >
-                <%= if file.file_type == "image" do %>
-                  <a
-                    href={URLSigner.signed_url(file.uuid, "original")}
-                    target="_blank"
-                    rel="noopener"
-                    class="shrink-0"
-                  >
-                    <img
-                      src={URLSigner.signed_url(file.uuid, "thumbnail")}
-                      alt={file.original_file_name}
-                      class="w-14 h-14 rounded object-cover bg-base-200 border border-base-300"
-                    />
-                  </a>
-                <% else %>
-                  <a
-                    href={URLSigner.signed_url(file.uuid, "original")}
-                    target="_blank"
-                    rel="noopener"
-                    class="shrink-0 flex items-center justify-center w-14 h-14 rounded bg-base-200 border border-base-300 text-base-content/60"
-                    title={Gettext.gettext(PhoenixKitWeb.Gettext, "Download")}
-                  >
-                    <.icon name={Attachments.file_icon(file)} class="w-6 h-6" />
-                  </a>
-                <% end %>
-                <div class="flex-1 min-w-0">
-                  <p class="text-sm font-medium truncate" title={file.original_file_name}>
-                    {file.original_file_name}
-                  </p>
-                  <p class="text-xs text-base-content/50">
-                    {Attachments.format_file_size(file.size)} · {file.file_type}
+
+              <%= if @files_state.files == [] do %>
+                <div class="flex flex-col items-center gap-2 py-10 text-center border border-dashed border-base-300 rounded-md">
+                  <.icon name="hero-paper-clip" class="w-8 h-8 text-base-content/30" />
+                  <p class="text-sm text-base-content/50">
+                    {Gettext.gettext(PhoenixKitWeb.Gettext, "No files attached yet.")}
                   </p>
                 </div>
-                <button
-                  type="button"
-                  phx-click="remove_file"
-                  phx-value-uuid={file.uuid}
-                  data-confirm={Gettext.gettext(PhoenixKitWeb.Gettext, "Remove this file from the catalogue? If it's not attached to any other resource, it will be moved to trash (admins can restore).")}
-                  class="btn btn-ghost btn-xs btn-square"
-                  title={Gettext.gettext(PhoenixKitWeb.Gettext, "Remove from catalogue")}
-                >
-                  <.icon name="hero-x-mark" class="w-4 h-4" />
-                </button>
-              </li>
-            </ul>
-          <% end %>
+              <% else %>
+                <ul class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <li
+                    :for={file <- @files_state.files}
+                    class="flex items-center gap-3 rounded-md border border-base-300 bg-base-200/30 p-3"
+                  >
+                    <%= if file.file_type == "image" do %>
+                      <a
+                        href={URLSigner.signed_url(file.uuid, "original")}
+                        target="_blank"
+                        rel="noopener"
+                        class="shrink-0"
+                      >
+                        <img
+                          src={URLSigner.signed_url(file.uuid, "thumbnail")}
+                          alt={file.original_file_name}
+                          class="w-14 h-14 rounded object-cover bg-base-200 border border-base-300"
+                        />
+                      </a>
+                    <% else %>
+                      <a
+                        href={URLSigner.signed_url(file.uuid, "original")}
+                        target="_blank"
+                        rel="noopener"
+                        class="shrink-0 flex items-center justify-center w-14 h-14 rounded bg-base-200 border border-base-300 text-base-content/60"
+                        title={Gettext.gettext(PhoenixKitWeb.Gettext, "Download")}
+                      >
+                        <.icon name={Attachments.file_icon(file)} class="w-6 h-6" />
+                      </a>
+                    <% end %>
+                    <div class="flex-1 min-w-0">
+                      <p class="text-sm font-medium truncate" title={file.original_file_name}>
+                        {file.original_file_name}
+                      </p>
+                      <p class="text-xs text-base-content/50">
+                        {Attachments.format_file_size(file.size)} · {file.file_type}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      phx-click="remove_file"
+                      phx-value-uuid={file.uuid}
+                      data-confirm={Gettext.gettext(PhoenixKitWeb.Gettext, "Remove this file from the catalogue? If it's not attached to any other resource, it will be moved to trash (admins can restore).")}
+                      class="btn btn-ghost btn-xs btn-square"
+                      title={Gettext.gettext(PhoenixKitWeb.Gettext, "Remove from catalogue")}
+                    >
+                      <.icon name="hero-x-mark" class="w-4 h-4" />
+                    </button>
+                  </li>
+                </ul>
+              <% end %>
+            </div>
+          </div>
         </div>
-      </div>
 
-      <%!-- Save/Cancel — at the bottom of the form so it covers
-           every card inside (main details + files).
-           Save is disabled while uploads are mid-flight so we don't
-           race the post-upload `handle_progress` write against the
-           save path. --%>
-      <div class="flex justify-end gap-3 pt-2">
-        <.link navigate={Paths.index()} class="btn btn-ghost">
-          {Gettext.gettext(PhoenixKitWeb.Gettext, "Cancel")}
-        </.link>
-        <button
-          type="submit"
-          class="btn btn-primary phx-submit-loading:opacity-75"
-          disabled={@uploads.attachment_files.entries != []}
-          phx-disable-with={Gettext.gettext(PhoenixKitWeb.Gettext, "Saving...")}
-        >
-          {cond do
-            @uploads.attachment_files.entries != [] ->
-              Gettext.gettext(PhoenixKitWeb.Gettext, "Waiting for uploads...")
+        <%!-- Actions — sit outside the tab panels so Save works from any
+             tab. Save is disabled while uploads are mid-flight so we
+             don't race the post-upload handle_progress write against
+             the save path. --%>
+        <div class="flex justify-end gap-3 pt-2">
+          <.link navigate={Paths.index()} class="btn btn-ghost">
+            {Gettext.gettext(PhoenixKitWeb.Gettext, "Cancel")}
+          </.link>
+          <button
+            type="submit"
+            class="btn btn-primary phx-submit-loading:opacity-75"
+            disabled={@uploads.attachment_files.entries != []}
+            phx-disable-with={Gettext.gettext(PhoenixKitWeb.Gettext, "Saving...")}
+          >
+            {cond do
+              @uploads.attachment_files.entries != [] ->
+                Gettext.gettext(PhoenixKitWeb.Gettext, "Waiting for uploads...")
 
-            @action == :new ->
-              Gettext.gettext(PhoenixKitWeb.Gettext, "Create Catalogue")
+              @action == :new ->
+                Gettext.gettext(PhoenixKitWeb.Gettext, "Create Catalogue")
 
-            true ->
-              Gettext.gettext(PhoenixKitWeb.Gettext, "Save Changes")
-          end}
-        </button>
-      </div>
+              true ->
+                Gettext.gettext(PhoenixKitWeb.Gettext, "Save Changes")
+            end}
+          </button>
+        </div>
       </.form>
 
       <%!-- Danger zone — only in edit mode --%>

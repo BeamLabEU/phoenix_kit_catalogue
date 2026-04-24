@@ -322,4 +322,131 @@ defmodule PhoenixKitCatalogue.Web.ComponentsTest do
       assert html =~ "test-key"
     end
   end
+
+  # ─────────────────────────────────────────────────────────────────
+  # featured_image_card
+  # ─────────────────────────────────────────────────────────────────
+
+  describe "featured_image_card/1" do
+    test "renders the empty-state when no image is set" do
+      html =
+        render_component(&featured_image_card/1,
+          featured_image_uuid: nil,
+          featured_image_file: nil
+        )
+
+      assert html =~ "No featured image set."
+      assert html =~ "Set featured image"
+      assert html =~ "open_featured_image_picker"
+    end
+
+    test "renders the filled state when an image is set" do
+      file = %{original_file_name: "hero.jpg", size: 1024}
+
+      html =
+        render_component(&featured_image_card/1,
+          featured_image_uuid: "abc-123",
+          featured_image_file: file
+        )
+
+      assert html =~ "hero.jpg"
+      # Change + Remove buttons surface only in the filled state.
+      assert html =~ "Change"
+      assert html =~ "Remove"
+      # Both events are wired up.
+      assert html =~ "open_featured_image_picker"
+      assert html =~ "clear_featured_image"
+    end
+
+    test "custom subtitle overrides the default caption" do
+      html =
+        render_component(&featured_image_card/1,
+          featured_image_uuid: nil,
+          featured_image_file: nil,
+          subtitle: "CUSTOM_SUBTITLE_STRING"
+        )
+
+      assert html =~ "CUSTOM_SUBTITLE_STRING"
+      refute html =~ "Shown on listings and detail views."
+    end
+  end
+
+  # ─────────────────────────────────────────────────────────────────
+  # metadata_editor
+  # ─────────────────────────────────────────────────────────────────
+
+  describe "metadata_editor/1" do
+    test "renders empty-state alert when no fields are attached" do
+      state = %{attached: [], values: %{}}
+
+      html =
+        render_component(&metadata_editor/1,
+          resource_type: :item,
+          state: state,
+          id_prefix: "test"
+        )
+
+      assert html =~ "No metadata attached yet"
+      # Add picker is always present.
+      assert html =~ "Pick a field"
+    end
+
+    test "renders text inputs for attached defined keys" do
+      state = %{attached: ["color"], values: %{"color" => "red"}}
+
+      html =
+        render_component(&metadata_editor/1,
+          resource_type: :item,
+          state: state,
+          id_prefix: "item"
+        )
+
+      # Uses the id_prefix correctly.
+      assert html =~ ~s(id="item-meta-color")
+      # Renders the stored value.
+      assert html =~ ~s(value="red")
+      # Uses the definition's label.
+      assert html =~ "Color"
+      # Remove button wired up.
+      assert html =~ "remove_meta_field"
+    end
+
+    test "renders legacy rows with a Legacy pill" do
+      state = %{attached: ["obsolete_key"], values: %{"obsolete_key" => "archived"}}
+
+      html =
+        render_component(&metadata_editor/1,
+          resource_type: :item,
+          state: state,
+          id_prefix: "item"
+        )
+
+      # Legacy key is rendered as disabled.
+      assert html =~ "obsolete_key"
+      assert html =~ "archived"
+      assert html =~ "Legacy"
+      assert html =~ "disabled"
+    end
+
+    test "add-picker excludes already-attached keys" do
+      state = %{attached: ["color"], values: %{"color" => "red"}}
+
+      html =
+        render_component(&metadata_editor/1,
+          resource_type: :item,
+          state: state,
+          id_prefix: "item"
+        )
+
+      # "Color" is attached, so it shouldn't be in the add-picker options.
+      # But it IS in the rendered row's label. Check options only: the
+      # picker uses a `<select>` with `<option>` children. We can look
+      # for key values in the picker's options list.
+      # Weight is not attached, so it should be an option value.
+      assert html =~ ~s(value="weight")
+      # The rendered row's label will include "Color" but the picker
+      # won't have a `<option value="color">` — check for that.
+      refute html =~ ~s(<option value="color">)
+    end
+  end
 end

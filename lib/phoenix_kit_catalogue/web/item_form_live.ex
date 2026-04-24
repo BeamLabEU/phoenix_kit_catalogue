@@ -10,13 +10,15 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   import PhoenixKitWeb.Components.Core.Icon, only: [icon: 1]
   import PhoenixKitWeb.Components.Core.Input, only: [input: 1]
   import PhoenixKitWeb.Components.Core.Select, only: [select: 1]
-  import PhoenixKitCatalogue.Web.Components, only: [catalogue_rules_picker: 1]
+
+  import PhoenixKitCatalogue.Web.Components,
+    only: [catalogue_rules_picker: 1, featured_image_card: 1, metadata_editor: 1]
 
   alias PhoenixKit.Modules.Storage.URLSigner
   alias PhoenixKit.Utils.Multilang
   alias PhoenixKitCatalogue.Attachments
   alias PhoenixKitCatalogue.Catalogue
-  alias PhoenixKitCatalogue.ItemMetadata
+  alias PhoenixKitCatalogue.Metadata
   alias PhoenixKitCatalogue.Paths
   alias PhoenixKitCatalogue.Schemas.Item
 
@@ -122,7 +124,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
       smart_move_targets: smart_move_targets,
       move_target: nil,
       current_tab: :details,
-      meta_state: build_meta_state(item)
+      meta_state: Metadata.build_state(:item, item)
     )
     |> Attachments.mount_attachments(item)
     |> Attachments.allow_attachment_upload()
@@ -130,33 +132,6 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
     |> assign_rule_state(item, kind, catalogue_uuid)
     |> mount_multilang()
     |> adjust_multilang_for_item(item)
-  end
-
-  # Metadata values live at `item.data["meta"]` (a flat %{key => string}
-  # map). Known keys are ordered by their position in
-  # `ItemMetadata.definitions/0`; legacy keys (stored but no longer
-  # defined in code) come after, alphabetized, so the UI can tag them
-  # and offer a remove-only action without losing data.
-  defp build_meta_state(%Item{data: data}) do
-    raw =
-      case data do
-        %{"meta" => %{} = m} -> m
-        _ -> %{}
-      end
-
-    defined_keys = Enum.map(ItemMetadata.definitions(), & &1.key)
-    present_defined = Enum.filter(defined_keys, &Map.has_key?(raw, &1))
-    legacy = raw |> Map.keys() |> Enum.reject(&(&1 in defined_keys)) |> Enum.sort()
-
-    %{attached: present_defined ++ legacy, values: stringify_values(raw)}
-  end
-
-  defp stringify_values(values) when is_map(values) do
-    Map.new(values, fn
-      {k, nil} -> {k, ""}
-      {k, v} when is_binary(v) -> {k, v}
-      {k, v} -> {k, to_string(v)}
-    end)
   end
 
   # Keeps both :changeset (for <.translatable_field>) and :form (for
@@ -260,7 +235,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   end
 
   def handle_event("add_meta_field", %{"key" => key}, socket) do
-    case ItemMetadata.definition(key) do
+    case Metadata.definition(:item, key) do
       nil ->
         # Unknown key arriving from a stale client — ignore rather than
         # inserting data the save path can't round-trip.
@@ -341,7 +316,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
         changeset: socket.assigns.changeset,
         preserve_fields: @preserve_fields
       )
-      |> inject_meta_into_data(socket.assigns.meta_state)
+      |> Metadata.inject_into_data(socket.assigns.meta_state, :item)
       |> Attachments.inject_attachment_data(socket)
 
     save_item(socket, socket.assigns.action, item_params)
@@ -421,6 +396,10 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   defp parse_tab("files"), do: :files
   defp parse_tab(_), do: :details
 
+  defp absorb_meta_params(socket, params) do
+    assign(socket, :meta_state, Metadata.absorb_params(socket.assigns.meta_state, params))
+  end
+
   # ── Attachments handle_info (delegated to Attachments module) ────
 
   @impl true
@@ -433,67 +412,6 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   # Catch-all so stray monitor signals or unrelated PubSub traffic
   # can't crash the form mid-edit.
   def handle_info(_msg, socket), do: {:noreply, socket}
-
-  # Inbound form params carry whatever is currently typed into the
-  # metadata inputs under `"meta"` (name="meta[color]"). We fold them
-  # into `meta_state.values` on every validate/save so the assign stays
-  # in sync with what the user sees — unattached keys are ignored to
-  # avoid resurrecting a row they just removed.
-  defp absorb_meta_params(socket, params) do
-    meta_params = Map.get(params, "meta", %{})
-    state = socket.assigns.meta_state
-
-    if is_map(meta_params) and meta_params != %{} do
-      values = Enum.reduce(state.attached, state.values, &absorb_one(meta_params, &1, &2))
-      assign(socket, :meta_state, %{state | values: values})
-    else
-      socket
-    end
-  end
-
-  defp absorb_one(meta_params, key, acc) do
-    case Map.get(meta_params, key) do
-      nil -> acc
-      value -> Map.put(acc, key, value)
-    end
-  end
-
-  # Casts the meta_state into its storage shape and wedges it into
-  # `params["data"]["meta"]`. Known-key values go through
-  # `ItemMetadata.cast_value/2` (blanks become nil → key dropped). Legacy
-  # keys (no current definition) pass through untouched so their data
-  # isn't silently nuked by a save — the user clears them explicitly
-  # via the × button.
-  defp inject_meta_into_data(params, %{attached: attached, values: values}) do
-    meta = Enum.reduce(attached, %{}, &cast_meta_entry(&1, values, &2))
-
-    data =
-      case Map.get(params, "data") do
-        %{} = d -> d
-        _ -> %{}
-      end
-
-    Map.put(params, "data", Map.put(data, "meta", meta))
-  end
-
-  defp cast_meta_entry(key, values, acc) do
-    raw = Map.get(values, key, "")
-
-    case ItemMetadata.definition(key) do
-      nil -> put_legacy_meta(acc, key, raw)
-      def_ -> put_defined_meta(acc, key, def_, raw)
-    end
-  end
-
-  defp put_legacy_meta(acc, _key, raw) when raw in [nil, ""], do: acc
-  defp put_legacy_meta(acc, key, raw), do: Map.put(acc, key, raw)
-
-  defp put_defined_meta(acc, key, def_, raw) do
-    case ItemMetadata.cast_value(def_, raw) do
-      nil -> acc
-      cast -> Map.put(acc, key, cast)
-    end
-  end
 
   # Routes on the parent catalogue's kind: smart items move across
   # catalogues (categories don't apply), standard items move between
@@ -742,77 +660,12 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
              mode. The picker both browses this item's images and
              accepts new uploads (which get dropped into the item's
              folder automatically). --%>
-        <div class={"card bg-base-100 shadow-lg mb-4 #{if @current_tab != :details, do: "hidden"}"}>
-          <div class="card-body flex flex-col gap-3">
-            <div class="flex items-center justify-between">
-              <h2 class="text-base font-semibold text-base-content/80 flex items-center gap-2">
-                <.icon name="hero-photo" class="w-4 h-4" />
-                {Gettext.gettext(PhoenixKitWeb.Gettext, "Featured Image")}
-              </h2>
-              <span class="text-xs text-base-content/50">
-                {Gettext.gettext(PhoenixKitWeb.Gettext, "Shown in lists and detail views.")}
-              </span>
-            </div>
-
-            <%= if @featured_image_file do %>
-              <div class="flex items-center gap-4">
-                <a
-                  href={URLSigner.signed_url(@featured_image_uuid, "original")}
-                  target="_blank"
-                  rel="noopener"
-                  class="shrink-0"
-                  title={Gettext.gettext(PhoenixKitWeb.Gettext, "Open original")}
-                >
-                  <img
-                    src={URLSigner.signed_url(@featured_image_uuid, "thumbnail")}
-                    alt={@featured_image_file.original_file_name}
-                    class="w-24 h-24 rounded-md object-cover bg-base-200 border border-base-300"
-                  />
-                </a>
-                <div class="flex-1 min-w-0">
-                  <p class="text-sm font-medium truncate">
-                    {@featured_image_file.original_file_name}
-                  </p>
-                  <p class="text-xs text-base-content/50">
-                    {Attachments.format_file_size(@featured_image_file.size)}
-                  </p>
-                </div>
-                <div class="flex flex-col gap-2">
-                  <button
-                    type="button"
-                    phx-click="open_featured_image_picker"
-                    class="btn btn-sm btn-outline"
-                  >
-                    {Gettext.gettext(PhoenixKitWeb.Gettext, "Change")}
-                  </button>
-                  <button
-                    type="button"
-                    phx-click="clear_featured_image"
-                    class="btn btn-sm btn-ghost"
-                  >
-                    {Gettext.gettext(PhoenixKitWeb.Gettext, "Remove")}
-                  </button>
-                </div>
-              </div>
-            <% else %>
-              <div class="flex items-center justify-between py-4 border border-dashed border-base-300 rounded-md px-4">
-                <div class="flex items-center gap-3 text-base-content/60">
-                  <.icon name="hero-photo" class="w-6 h-6" />
-                  <span class="text-sm">
-                    {Gettext.gettext(PhoenixKitWeb.Gettext, "No featured image set.")}
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  phx-click="open_featured_image_picker"
-                  class="btn btn-sm btn-primary"
-                >
-                  <.icon name="hero-plus" class="w-4 h-4 mr-1" />
-                  {Gettext.gettext(PhoenixKitWeb.Gettext, "Set featured image")}
-                </button>
-              </div>
-            <% end %>
-          </div>
+        <div class={"mb-4 #{if @current_tab != :details, do: "hidden"}"}>
+          <.featured_image_card
+            featured_image_uuid={@featured_image_uuid}
+            featured_image_file={@featured_image_file}
+            subtitle={Gettext.gettext(PhoenixKitWeb.Gettext, "Shown in lists and detail views.")}
+          />
         </div>
 
         <div class={"card bg-base-100 shadow-lg #{if @current_tab != :details, do: "hidden"}"}>
@@ -1111,62 +964,16 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
 
         <%!-- Metadata tab — global field list, user opts in per item.
              Values live in `item.data["meta"]`; legacy keys (stored
-             but no longer in ItemMetadata.definitions/0) render with a
+             but no longer in Metadata.definitions(:item)) render with a
              "Legacy" pill and a remove-only action so data isn't lost
              silently. --%>
         <div class={"card bg-base-100 shadow-lg #{if @current_tab != :metadata, do: "hidden"}"}>
-          <div class="card-body flex flex-col gap-5">
-            <div>
-              <h2 class="text-base font-semibold text-base-content/80 flex items-center gap-2">
-                <.icon name="hero-tag" class="w-4 h-4" />
-                {Gettext.gettext(PhoenixKitWeb.Gettext, "Metadata")}
-              </h2>
-              <p class="text-sm text-base-content/60 mt-1">
-                {Gettext.gettext(
-                  PhoenixKitWeb.Gettext,
-                  "Attach any metadata fields that apply to this item. Blank values are dropped on save."
-                )}
-              </p>
-            </div>
-
-            <div :if={@meta_state.attached == []} class="alert">
-              <.icon name="hero-information-circle" class="w-5 h-5 shrink-0" />
-              <span class="text-sm">
-                {Gettext.gettext(
-                  PhoenixKitWeb.Gettext,
-                  "No metadata attached yet. Pick a field below to add one."
-                )}
-              </span>
-            </div>
-
-            <div :if={@meta_state.attached != []} class="flex flex-col gap-3">
-              <div :for={key <- @meta_state.attached} class="flex items-end gap-3">
-                {render_meta_row(assigns, key)}
-              </div>
-            </div>
-
-            <%!-- Add-metadata picker: only surfaces definitions not yet
-                 attached. Uses phx-change on the <.select>; the ID
-                 cycles with the attached-count so morphdom replaces the
-                 element on each add — this collapses the "stuck
-                 selection" quirk that otherwise leaves the picker
-                 showing the just-added label. --%>
-            <div class="divider my-0"></div>
-            <div class="flex items-end gap-3">
-              <div class="flex-1">
-                <.select
-                  id={"item-metadata-add-#{length(@meta_state.attached)}"}
-                  name="key"
-                  value={nil}
-                  label={Gettext.gettext(PhoenixKitWeb.Gettext, "Add metadata")}
-                  prompt={Gettext.gettext(PhoenixKitWeb.Gettext, "— Pick a field —")}
-                  options={add_meta_options(@meta_state)}
-                  class="select-sm transition-colors focus-within:select-primary"
-                  phx-change="add_meta_field"
-                />
-              </div>
-            </div>
-          </div>
+          <.metadata_editor
+            resource_type={:item}
+            state={@meta_state}
+            id_prefix="item"
+            description={Gettext.gettext(PhoenixKitWeb.Gettext, "Attach any metadata fields that apply to this item. Blank values are dropped on save.")}
+          />
         </div>
 
         <%!-- Files tab — direct upload, per-item scope. Files are
@@ -1425,87 +1232,5 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
       %{name: name} -> name
       _ -> code
     end
-  end
-
-  # `[{label, key}, ...]` options list for the core `<.select>` — only
-  # definitions the user hasn't already attached.
-  defp add_meta_options(%{attached: attached}) do
-    ItemMetadata.definitions()
-    |> Enum.reject(fn def_ -> def_.key in attached end)
-    |> Enum.map(fn def_ -> {def_.label, def_.key} end)
-  end
-
-  # Renders one attached-metadata row. All fields are currently text;
-  # legacy keys (stored but no longer in code) fall into a separate
-  # read-only renderer that surfaces a "Legacy" pill so data isn't
-  # lost silently when a definition is dropped.
-  defp render_meta_row(assigns, key) do
-    value = Map.get(assigns.meta_state.values, key, "")
-
-    case ItemMetadata.definition(key) do
-      nil -> render_legacy_meta_row(assigns, key, value)
-      def_ -> render_text_meta_row(assigns, def_, value)
-    end
-  end
-
-  defp render_text_meta_row(assigns, def_, value) do
-    assigns = assign(assigns, def_: def_, value: value)
-
-    ~H"""
-    <div class="flex-1">
-      <.input
-        type="text"
-        name={"meta[#{@def_.key}]"}
-        id={"meta-#{@def_.key}"}
-        value={@value}
-        label={@def_.label}
-        class="input-sm transition-colors focus:input-primary"
-      />
-    </div>
-    <button
-      type="button"
-      phx-click="remove_meta_field"
-      phx-value-key={@def_.key}
-      class="btn btn-ghost btn-sm btn-square text-error"
-      title={Gettext.gettext(PhoenixKitWeb.Gettext, "Remove")}
-    >
-      <.icon name="hero-x-mark" class="w-4 h-4" />
-    </button>
-    """
-  end
-
-  # Legacy rows render the "Legacy" pill outside the Input component's
-  # own label slot because that slot only takes a plain string. The
-  # `<.input>` itself stays the single source of input styling.
-  defp render_legacy_meta_row(assigns, key, value) do
-    assigns = assign(assigns, key: key, value: value)
-
-    ~H"""
-    <div class="flex-1">
-      <div class="mb-2 flex items-center gap-2 text-sm">
-        <span class="font-mono">{@key}</span>
-        <span class="badge badge-warning badge-sm">
-          {Gettext.gettext(PhoenixKitWeb.Gettext, "Legacy")}
-        </span>
-      </div>
-      <.input
-        type="text"
-        name={"meta_legacy[#{@key}]"}
-        id={"meta-legacy-#{@key}"}
-        value={@value}
-        disabled
-        class="input-sm"
-      />
-    </div>
-    <button
-      type="button"
-      phx-click="remove_meta_field"
-      phx-value-key={@key}
-      class="btn btn-ghost btn-sm btn-square text-error"
-      title={Gettext.gettext(PhoenixKitWeb.Gettext, "Remove")}
-    >
-      <.icon name="hero-x-mark" class="w-4 h-4" />
-    </button>
-    """
   end
 end

@@ -10,7 +10,9 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
   import PhoenixKitWeb.Components.Core.Modal, only: [confirm_modal: 1]
   import PhoenixKitWeb.Components.Core.Input, only: [input: 1]
   import PhoenixKitWeb.Components.Core.Select, only: [select: 1]
+  import PhoenixKitCatalogue.Web.Components, only: [featured_image_card: 1]
 
+  alias PhoenixKitCatalogue.Attachments
   alias PhoenixKitCatalogue.Catalogue
   alias PhoenixKitCatalogue.Paths
   alias PhoenixKitCatalogue.Schemas.Category
@@ -85,6 +87,7 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
        parent_move_target: category && category.parent_uuid,
        move_target: nil
      )
+     |> Attachments.mount_attachments(category)
      |> assign_changeset(changeset)
      |> mount_multilang()}
   end
@@ -152,9 +155,23 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
       |> merge_translatable_params(socket, @translatable_fields,
         changeset: socket.assigns.changeset
       )
+      |> Attachments.inject_attachment_data(socket)
 
     save_category(socket, socket.assigns.action, params)
   end
+
+  # ── Attachments (featured image modal only) ──────────────────────
+  # Category has a featured image but no inline files grid — the
+  # lightweight treatment my AGENTS.md comparison landed on.
+
+  def handle_event("open_featured_image_picker", _params, socket),
+    do: Attachments.open_featured_image_picker(socket)
+
+  def handle_event("close_media_selector", _params, socket),
+    do: {:noreply, Attachments.close_media_selector(socket)}
+
+  def handle_event("clear_featured_image", _params, socket),
+    do: Attachments.clear_featured_image(socket)
 
   def handle_event("show_delete_confirm", _params, socket) do
     {:noreply, assign(socket, :confirm_delete_all, true)}
@@ -276,6 +293,17 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
     {:noreply, assign(socket, :confirm_delete_all, false)}
   end
 
+  @impl true
+  def handle_info({:media_selected, file_uuids}, socket),
+    do: Attachments.handle_media_selected(socket, file_uuids)
+
+  def handle_info({:media_selector_closed}, socket),
+    do: {:noreply, Attachments.close_media_selector(socket)}
+
+  # Catch-all so stray monitor signals or unrelated PubSub traffic
+  # can't crash the form mid-edit.
+  def handle_info(_msg, socket), do: {:noreply, socket}
+
   # Form-submitted empty string means "no parent" — normalize so the
   # changeset treats it as NULL rather than attempting a malformed FK.
   defp normalize_parent_uuid(%{"parent_uuid" => ""} = params),
@@ -292,7 +320,9 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
 
   defp save_category(socket, :new, params) do
     case Catalogue.create_category(params, actor_opts(socket)) do
-      {:ok, _} ->
+      {:ok, category} ->
+        _ = Attachments.maybe_rename_pending_folder(socket, category)
+
         {:noreply,
          socket
          |> put_flash(:info, Gettext.gettext(PhoenixKitWeb.Gettext, "Category created."))
@@ -327,8 +357,31 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
 
     ~H"""
     <div class="flex flex-col mx-auto max-w-2xl px-4 py-8 gap-6">
+      <%!-- Media selector — folder-scoped featured-image picker.
+           No inline files grid on Category forms; featured image only. --%>
+      <.live_component
+        module={PhoenixKitWeb.Live.Components.MediaSelectorModal}
+        id="category-form-media-selector"
+        show={@show_media_selector}
+        mode={@media_selection_mode}
+        file_type_filter={@media_filter}
+        selected_uuids={@media_selected_uuids}
+        scope_folder_id={@files_folder_uuid}
+        phoenix_kit_current_user={assigns[:phoenix_kit_current_user]}
+      />
+
       <%!-- Header --%>
       <.admin_page_header back={Paths.catalogue_detail(@catalogue_uuid)} title={@page_title} subtitle={if @action == :new, do: Gettext.gettext(PhoenixKitWeb.Gettext, "Add a new category to organize items within this catalogue."), else: Gettext.gettext(PhoenixKitWeb.Gettext, "Update category details and ordering.")} />
+
+      <%!-- Featured image — opens the scoped picker. Uuid stored on
+           `category.data["featured_image_uuid"]`. The folder is lazily
+           created on first open, so categories without a featured image
+           never materialize one. --%>
+      <.featured_image_card
+        featured_image_uuid={@featured_image_uuid}
+        featured_image_file={@featured_image_file}
+        subtitle={Gettext.gettext(PhoenixKitWeb.Gettext, "Shown on catalogue listings and category landing pages.")}
+      />
 
       <.form for={@form} action="#" phx-change="validate" phx-submit="save">
         <div class="card bg-base-100 shadow-lg">
