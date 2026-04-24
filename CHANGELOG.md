@@ -1,3 +1,20 @@
+## 0.1.12 - 2026-04-24
+
+### Added
+- **Catalogue form tabs** — `CatalogueFormLive` gains Details / Metadata / Files tabs (mirrors `ItemFormLive`). Featured image + attached files live under the Files tab; metadata under Metadata. Panels stay in the DOM (toggled via `hidden`) so multilang state and in-progress input survive tab switches. Save sits outside the tab panels and works from any tab.
+- **Catalogue metadata** — `Metadata.definitions(:catalogue)` ships five opt-in fields (`brand`, `collection`, `season`, `region`, `vendor_ref`) stored under `catalogue.data["meta"]`.
+- **Category featured image** — `CategoryFormLive` gains a featured-image card (no tabs, no file grid; a category is a taxonomy node). `Attachments.folder_name_for/1` picks up a `%Category{}` clause (`catalogue-category-<uuid>`). Folders are created lazily on first picker open, so categories without a featured image never materialize one.
+- `Components.featured_image_card/1` — shared featured-image card (thumbnail + name + size, or dashed empty state with primary button) used by catalogue / category / item forms.
+- `Components.metadata_editor/1` — shared metadata tab body (per-key text input + remove button + add-picker dropdown; legacy keys render disabled with a "Legacy" pill).
+
+### Changed
+- **`PhoenixKitCatalogue.ItemMetadata` → `PhoenixKitCatalogue.Metadata`** with resource-type-scoped `definitions/1`. Items keep `color / weight / width / height / depth / material / finish`; catalogues get the five new keys above. Upstream consumers of the `ItemMetadata` module (introduced in 0.1.11) need to update the alias and pass `:item` to `definitions/1`.
+- Extracted the three-phase form helpers — `Metadata.build_state/2`, `absorb_params/2`, `inject_into_data/3` — out of `ItemFormLive` and into the shared module so `CatalogueFormLive` uses the same plumbing (~150 lines of duplication removed across the three form LVs).
+
+### Notes
+- No migrations. All three schemas (`Item`, `Catalogue`, `Category`) already carry JSONB `data`; `featured_image_uuid`, `files_folder_uuid`, and `meta` all live under that column.
+- 27 unit tests for the pure `Metadata` helpers + 7 component-render tests for `featured_image_card/1` and `metadata_editor/1`.
+
 ## 0.1.11 - 2026-04-22
 
 ### Added
