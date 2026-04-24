@@ -6,8 +6,8 @@ Designed for manufacturing companies (e.g. kitchen/furniture producers) that nee
 
 ## Features
 
-- **Catalogues** — top-level groupings with configurable markup and discount percentage for pricing; featured image + file attachments
-- **Categories** — nested subdivisions within a catalogue (arbitrary-depth tree via V103 `parent_uuid`); sibling-scoped position ordering; trash/restore/delete cascades through the whole subtree
+- **Catalogues** — top-level groupings with configurable markup and discount percentage for pricing; featured image + file attachments; opt-in metadata (brand, collection, season, region, vendor reference)
+- **Categories** — nested subdivisions within a catalogue (arbitrary-depth tree via V103 `parent_uuid`); sibling-scoped position ordering; trash/restore/delete cascades through the whole subtree; optional featured image
 - **Items** — individual products with SKU, base price, unit of measure, and computed `sale_price` (post-markup) + `final_price` (post-discount). Optional per-item metadata fields (color, weight, dimensions, …) stored on `item.data["meta"]`; featured image + file attachments
 - **Manufacturers** — company directory with many-to-many supplier linking
 - **Suppliers** — delivery companies linked to manufacturers
@@ -373,17 +373,17 @@ All component text (column headers, action labels, toggle tooltips, result count
 
 ## Attachments (featured image + files)
 
-Both catalogue and item forms support a **featured image** plus an **inline files dropzone**, wired via the shared `PhoenixKitCatalogue.Attachments` module. Each resource owns one folder in `phoenix_kit_media_folders` (named `catalogue-<uuid>` / `catalogue-item-<uuid>`); `data["files_folder_uuid"]` on the resource points at it. `data["featured_image_uuid"]` points at a `phoenix_kit_files` row.
+All three resource types support a **featured image** through the shared `PhoenixKitCatalogue.Attachments` module. Catalogues and items additionally support an **inline files dropzone**; categories keep the lightweight featured-image-only treatment (they're a taxonomy node, so a full file grid per category is overkill). Each resource owns one folder in `phoenix_kit_media_folders` (named `catalogue-<uuid>` / `catalogue-category-<uuid>` / `catalogue-item-<uuid>`); `data["files_folder_uuid"]` on the resource points at it, and `data["featured_image_uuid"]` points at a `phoenix_kit_files` row. Folders are created lazily the first time the picker opens, so resources that never set a featured image don't materialize one.
 
 The featured-image picker opens phoenix_kit's `MediaSelectorModal` scoped to the resource's folder (via a new `scope_folder_id` attr in phoenix_kit core) — browse and post-upload home folder are both constrained to that scope, so uploading the same file to two items creates a `FolderLink` rather than yanking the file between resources. See `lib/phoenix_kit_catalogue/attachments.ex` for the full behaviour (detach semantics for shared files, pending-folder rename on first save, upload-error messages, etc.).
 
-There's no dedicated `Catalogue.set_featured_image/2` context helper — programmatic callers use `update_item`/`update_catalogue` with `%{data: %{"featured_image_uuid" => uuid, "files_folder_uuid" => folder_uuid}}`.
+There's no dedicated `Catalogue.set_featured_image/2` context helper — programmatic callers use `update_item`/`update_catalogue`/`update_category` with `%{data: %{"featured_image_uuid" => uuid, "files_folder_uuid" => folder_uuid}}`.
 
-## Item Metadata (opt-in fields)
+## Metadata (opt-in fields on items and catalogues)
 
-Items can opt into a shared, code-defined list of metadata fields (color, weight, dimensions, material, finish, …) defined in `PhoenixKitCatalogue.ItemMetadata`. Values live in `item.data["meta"]` as a flat `%{key => string}` map. The form's Metadata tab lets the user pick which fields to attach per item; legacy keys (defined in older code revisions but no longer listed) surface as "Legacy" rows with a remove-only action so stored data isn't silently lost.
+Items and catalogues can opt into their own shared, code-defined lists of metadata fields, defined in `PhoenixKitCatalogue.Metadata`. Item definitions cover color, weight, dimensions, material, finish; catalogue definitions cover brand, collection, season, region, vendor reference. Values live on `resource.data["meta"]` as a flat `%{key => string}` map. The Metadata tab in the item and catalogue forms lets the user pick which fields to attach; legacy keys (defined in older code revisions but no longer listed) surface as "Legacy" rows with a remove-only action so stored data isn't silently lost. Categories stay metadata-free — they're lightweight taxonomy nodes.
 
-Labels are translated via `PhoenixKitWeb.Gettext`. Adding / removing fields is a code edit to `definitions/0`.
+Labels are translated via `PhoenixKitWeb.Gettext`. Adding / removing fields is a code edit to `definitions/1`; bump the resource-type clause you need.
 
 ## Admin UI
 
