@@ -20,6 +20,14 @@ defmodule PhoenixKitCatalogue.Web.Components do
     * `item_picker/1` — combobox for picking a single item via server-side
       search; backed by `Components.ItemPicker` LiveComponent, fires
       `{:item_picker_select, id, item}` / `{:item_picker_clear, id}` upward
+    * `featured_image_card/1` — the shared featured-image card used on
+      catalogue / category / item forms (thumbnail or empty state + picker
+      buttons). Expects `open_featured_image_picker` / `clear_featured_image`
+      events wired up in the owning LV — see `Attachments`.
+    * `metadata_editor/1` — the shared metadata tab body for catalogue and
+      item forms (opt-in fields from `Metadata.definitions/1`). Expects
+      `add_meta_field` and `remove_meta_field` events wired up in the LV;
+      text edits are absorbed via the form's `validate`.
     * `empty_state/1` — centered empty state card with message and optional action
 
   Several of these (`search_input`, `search_results_summary`,
@@ -52,11 +60,324 @@ defmodule PhoenixKitCatalogue.Web.Components do
   require Logger
 
   import PhoenixKitWeb.Components.Core.Icon, only: [icon: 1]
+  import PhoenixKitWeb.Components.Core.Input, only: [input: 1]
   import PhoenixKitWeb.Components.Core.Select, only: [select: 1]
   import PhoenixKitWeb.Components.Core.TableDefault
   import PhoenixKitWeb.Components.Core.TableRowMenu
 
+  alias PhoenixKit.Modules.Storage.URLSigner
+  alias PhoenixKitCatalogue.Attachments
+  alias PhoenixKitCatalogue.Metadata
   alias PhoenixKitCatalogue.Schemas.Item
+
+  # ═══════════════════════════════════════════════════════════════════
+  # Featured image card
+  # ═══════════════════════════════════════════════════════════════════
+
+  @doc """
+  Renders the featured-image card used on catalogue, category, and item forms.
+
+  Shown on the form in a self-contained card: a thumbnail + file name + size
+  when an image is set, or a dashed empty-state with a primary button when
+  not. Owning LV must handle the three events wired up by this component:
+
+    * `open_featured_image_picker` — opens the `MediaSelectorModal`
+    * `clear_featured_image` — nulls the pointer
+    * (change — same `open_featured_image_picker` event)
+
+  Each of those has a one-liner delegator to `Attachments`; see the
+  reference wiring in `catalogue_form_live.ex`, `category_form_live.ex`,
+  or `item_form_live.ex`.
+
+  ## Attributes
+
+    * `featured_image_uuid` — uuid string or nil; drives which branch renders
+    * `featured_image_file` — the `%Storage.File{}` struct (for name/size) or nil
+    * `subtitle` — override the default caption text (optional)
+    * `class` — extra classes merged onto the outer card
+
+  ## Examples
+
+      <.featured_image_card
+        featured_image_uuid={@featured_image_uuid}
+        featured_image_file={@featured_image_file}
+      />
+
+      <.featured_image_card
+        featured_image_uuid={@featured_image_uuid}
+        featured_image_file={@featured_image_file}
+        subtitle={gettext("Shown on category landing pages.")}
+      />
+  """
+  attr(:featured_image_uuid, :string, default: nil)
+  attr(:featured_image_file, :any, default: nil)
+  attr(:subtitle, :string, default: nil)
+  attr(:class, :string, default: "")
+
+  def featured_image_card(assigns) do
+    assigns =
+      assign_new(assigns, :subtitle_text, fn ->
+        assigns[:subtitle] ||
+          Gettext.gettext(PhoenixKitWeb.Gettext, "Shown on listings and detail views.")
+      end)
+
+    ~H"""
+    <div class={["card bg-base-100 shadow-lg", @class]}>
+      <div class="card-body flex flex-col gap-3">
+        <div class="flex items-center justify-between">
+          <h2 class="text-base font-semibold text-base-content/80 flex items-center gap-2">
+            <.icon name="hero-photo" class="w-4 h-4" />
+            {Gettext.gettext(PhoenixKitWeb.Gettext, "Featured Image")}
+          </h2>
+          <span class="text-xs text-base-content/50">{@subtitle_text}</span>
+        </div>
+
+        <%= if @featured_image_file do %>
+          <div class="flex items-center gap-4">
+            <a
+              href={URLSigner.signed_url(@featured_image_uuid, "original")}
+              target="_blank"
+              rel="noopener"
+              class="shrink-0"
+              title={Gettext.gettext(PhoenixKitWeb.Gettext, "Open original")}
+            >
+              <img
+                src={URLSigner.signed_url(@featured_image_uuid, "thumbnail")}
+                alt={@featured_image_file.original_file_name}
+                class="w-24 h-24 rounded-md object-cover bg-base-200 border border-base-300"
+              />
+            </a>
+            <div class="flex-1 min-w-0">
+              <p class="text-sm font-medium truncate">
+                {@featured_image_file.original_file_name}
+              </p>
+              <p class="text-xs text-base-content/50">
+                {Attachments.format_file_size(@featured_image_file.size)}
+              </p>
+            </div>
+            <div class="flex flex-col gap-2">
+              <button
+                type="button"
+                phx-click="open_featured_image_picker"
+                class="btn btn-sm btn-outline"
+              >
+                {Gettext.gettext(PhoenixKitWeb.Gettext, "Change")}
+              </button>
+              <button
+                type="button"
+                phx-click="clear_featured_image"
+                class="btn btn-sm btn-ghost"
+              >
+                {Gettext.gettext(PhoenixKitWeb.Gettext, "Remove")}
+              </button>
+            </div>
+          </div>
+        <% else %>
+          <div class="flex items-center justify-between py-4 border border-dashed border-base-300 rounded-md px-4">
+            <div class="flex items-center gap-3 text-base-content/60">
+              <.icon name="hero-photo" class="w-6 h-6" />
+              <span class="text-sm">
+                {Gettext.gettext(PhoenixKitWeb.Gettext, "No featured image set.")}
+              </span>
+            </div>
+            <button
+              type="button"
+              phx-click="open_featured_image_picker"
+              class="btn btn-sm btn-primary"
+            >
+              <.icon name="hero-plus" class="w-4 h-4 mr-1" />
+              {Gettext.gettext(PhoenixKitWeb.Gettext, "Set featured image")}
+            </button>
+          </div>
+        <% end %>
+      </div>
+    </div>
+    """
+  end
+
+  # ═══════════════════════════════════════════════════════════════════
+  # Metadata editor
+  # ═══════════════════════════════════════════════════════════════════
+
+  @doc """
+  Renders the metadata editor used inside the Metadata tab on the item
+  and catalogue forms — heading + empty-state alert + one text input
+  per attached key + add-picker dropdown.
+
+  Owner LV must handle the three events wired up by this component:
+
+    * `add_meta_field` (from the add-picker `<.select>`'s `phx-change`)
+    * `remove_meta_field` (per-row × button)
+    * (text edits are absorbed by the form's `phx-change="validate"`
+      via `Metadata.absorb_params/2`)
+
+  ## Attributes
+
+    * `resource_type` — `:item` or `:catalogue`; drives which
+      `Metadata.definitions/1` list is consumed for the add-picker and
+      for legacy-key detection
+    * `state` — the `%{attached: [key], values: %{key => string}}` map
+      produced by `Metadata.build_state/2` and kept on the socket
+    * `id_prefix` — DOM-id prefix for inputs and the add-picker (so the
+      same Metadata editor can render twice on a page without colliding)
+    * `title` — heading text (optional, defaults to "Metadata")
+    * `description` — the grey subtitle under the heading (optional)
+
+  ## Examples
+
+      <.metadata_editor
+        resource_type={:catalogue}
+        state={@meta_state}
+        id_prefix="catalogue"
+      />
+  """
+  attr(:resource_type, :atom, required: true)
+  attr(:state, :map, required: true)
+  attr(:id_prefix, :string, required: true)
+  attr(:title, :string, default: nil)
+  attr(:description, :string, default: nil)
+
+  def metadata_editor(assigns) do
+    assigns =
+      assigns
+      |> assign_new(:title_text, fn ->
+        assigns[:title] || Gettext.gettext(PhoenixKitWeb.Gettext, "Metadata")
+      end)
+      |> assign_new(:description_text, fn ->
+        assigns[:description] ||
+          Gettext.gettext(
+            PhoenixKitWeb.Gettext,
+            "Attach any metadata fields that apply. Blank values are dropped on save."
+          )
+      end)
+
+    ~H"""
+    <div class="card-body flex flex-col gap-5">
+      <div>
+        <h2 class="text-base font-semibold text-base-content/80 flex items-center gap-2">
+          <.icon name="hero-tag" class="w-4 h-4" />
+          {@title_text}
+        </h2>
+        <p class="text-sm text-base-content/60 mt-1">{@description_text}</p>
+      </div>
+
+      <div :if={@state.attached == []} class="alert">
+        <.icon name="hero-information-circle" class="w-5 h-5 shrink-0" />
+        <span class="text-sm">
+          {Gettext.gettext(
+            PhoenixKitWeb.Gettext,
+            "No metadata attached yet. Pick a field below to add one."
+          )}
+        </span>
+      </div>
+
+      <div :if={@state.attached != []} class="flex flex-col gap-3">
+        <div :for={key <- @state.attached} class="flex items-end gap-3">
+          {render_metadata_row(assigns, key)}
+        </div>
+      </div>
+
+      <%!-- Add-metadata picker: only surfaces definitions not yet
+           attached. ID cycles with the attached-count so morphdom
+           replaces the element on each add — this collapses the
+           "stuck selection" quirk that otherwise leaves the picker
+           showing the just-added label. --%>
+      <div class="divider my-0"></div>
+      <div class="flex items-end gap-3">
+        <div class="flex-1">
+          <.select
+            id={"#{@id_prefix}-metadata-add-#{length(@state.attached)}"}
+            name="key"
+            value={nil}
+            label={Gettext.gettext(PhoenixKitWeb.Gettext, "Add metadata")}
+            prompt={Gettext.gettext(PhoenixKitWeb.Gettext, "— Pick a field —")}
+            options={metadata_add_options(@resource_type, @state)}
+            class="select-sm transition-colors focus-within:select-primary"
+            phx-change="add_meta_field"
+          />
+        </div>
+      </div>
+    </div>
+    """
+  end
+
+  defp metadata_add_options(resource_type, %{attached: attached}) do
+    resource_type
+    |> Metadata.definitions()
+    |> Enum.reject(fn def_ -> def_.key in attached end)
+    |> Enum.map(fn def_ -> {def_.label, def_.key} end)
+  end
+
+  # Renders one attached-metadata row. All fields are currently text;
+  # legacy keys (stored but no longer in code) fall into a separate
+  # read-only renderer that surfaces a "Legacy" pill so data isn't lost
+  # silently when a definition is dropped.
+  defp render_metadata_row(assigns, key) do
+    value = Map.get(assigns.state.values, key, "")
+
+    case Metadata.definition(assigns.resource_type, key) do
+      nil -> render_legacy_metadata_row(assigns, key, value)
+      def_ -> render_text_metadata_row(assigns, def_, value)
+    end
+  end
+
+  defp render_text_metadata_row(assigns, def_, value) do
+    assigns = assign(assigns, def_: def_, value: value)
+
+    ~H"""
+    <div class="flex-1">
+      <.input
+        type="text"
+        name={"meta[#{@def_.key}]"}
+        id={"#{@id_prefix}-meta-#{@def_.key}"}
+        value={@value}
+        label={@def_.label}
+        class="input-sm transition-colors focus:input-primary"
+      />
+    </div>
+    <button
+      type="button"
+      phx-click="remove_meta_field"
+      phx-value-key={@def_.key}
+      class="btn btn-ghost btn-sm btn-square text-error"
+      title={Gettext.gettext(PhoenixKitWeb.Gettext, "Remove")}
+    >
+      <.icon name="hero-x-mark" class="w-4 h-4" />
+    </button>
+    """
+  end
+
+  defp render_legacy_metadata_row(assigns, key, value) do
+    assigns = assign(assigns, key: key, value: value)
+
+    ~H"""
+    <div class="flex-1">
+      <div class="mb-2 flex items-center gap-2 text-sm">
+        <span class="font-mono">{@key}</span>
+        <span class="badge badge-warning badge-sm">
+          {Gettext.gettext(PhoenixKitWeb.Gettext, "Legacy")}
+        </span>
+      </div>
+      <.input
+        type="text"
+        name={"meta_legacy[#{@key}]"}
+        id={"#{@id_prefix}-meta-legacy-#{@key}"}
+        value={@value}
+        disabled
+        class="input-sm"
+      />
+    </div>
+    <button
+      type="button"
+      phx-click="remove_meta_field"
+      phx-value-key={@key}
+      class="btn btn-ghost btn-sm btn-square text-error"
+      title={Gettext.gettext(PhoenixKitWeb.Gettext, "Remove")}
+    >
+      <.icon name="hero-x-mark" class="w-4 h-4" />
+    </button>
+    """
+  end
 
   # ── Local status badge (catalogue statuses don't match upstream badge variants)
 

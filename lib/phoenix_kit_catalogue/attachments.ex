@@ -73,7 +73,7 @@ defmodule PhoenixKitCatalogue.Attachments do
   alias PhoenixKit.Modules.Storage
   alias PhoenixKit.Modules.Storage.{File, FolderLink}
   alias PhoenixKit.Users.Auth, as: UsersAuth
-  alias PhoenixKitCatalogue.Schemas.{Catalogue, Item}
+  alias PhoenixKitCatalogue.Schemas.{Catalogue, Category, Item}
 
   @upload_name :attachment_files
   @doc "Returns the upload ref name used for the inline files dropzone."
@@ -438,10 +438,14 @@ defmodule PhoenixKitCatalogue.Attachments do
 
   # ── Internals ────────────────────────────────────────────────────
 
-  # Naming convention: `catalogue-item-<uuid>` vs `catalogue-<uuid>`.
-  # Different prefixes prevent name collisions at the folder root.
+  # Naming convention: `catalogue-item-<uuid>` vs `catalogue-category-<uuid>`
+  # vs `catalogue-<uuid>`. Different prefixes prevent name collisions at
+  # the folder root.
   defp folder_name_for(%Item{uuid: uuid}) when is_binary(uuid),
     do: {:ok, "catalogue-item-#{uuid}"}
+
+  defp folder_name_for(%Category{uuid: uuid}) when is_binary(uuid),
+    do: {:ok, "catalogue-category-#{uuid}"}
 
   defp folder_name_for(%Catalogue{uuid: uuid}) when is_binary(uuid),
     do: {:ok, "catalogue-#{uuid}"}

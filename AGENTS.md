@@ -127,13 +127,14 @@ Both catalogue and item forms support a featured image + a folder-scoped file gr
 - **Query cap:** `list_files_in_folder/1` uses `limit: 200` to keep a mistakenly-huge folder from freezing the form on mount (the dropzone itself caps a single submission at 20 files).
 - **`file_type` allowlist widened** (in phoenix_kit core): `File.changeset` now permits `["image", "video", "audio", "document", "archive", "other"]` so `file_type_from_mime/1` can safely return `"other"` for unknowns.
 
-### Item Metadata (opt-in fields)
+### Metadata (opt-in fields on items and catalogues)
 
-`PhoenixKitCatalogue.ItemMetadata` holds a code-defined list of fields an item can opt into. Values live on `item.data["meta"]` as a flat `%{key => string}` map — not on their own columns. Adding a field is a code edit; removing one does **not** wipe stored values (they surface in the form as "Legacy" rows with a remove-only action, so the user cleans them up explicitly).
+`PhoenixKitCatalogue.Metadata` holds code-defined lists of metadata fields that items **and catalogues** can opt into (categories stay lightweight). Values live on `resource.data["meta"]` as a flat `%{key => string}` map — not on their own columns. Adding a field is a code edit; removing one does **not** wipe stored values (they surface in the form as "Legacy" rows with a remove-only action, so the user cleans them up explicitly).
 
-- `definitions/0` returns `[%{key: "color", label: Gettext.gettext(PhoenixKitWeb.Gettext, "Color")}, ...]`. The `:key` is stable (JSONB key, never translated). The `:label` is gettext-wrapped at call time — callers cannot cache it across locale changes.
-- The item form's metadata tab shows a pick-a-field dropdown (only definitions not yet attached), renders one text input per attached key, and folds them into `item.data["meta"]` on save via `inject_meta_into_data/2`. Blank values drop (don't store empty strings). Legacy keys pass through untouched.
-- There is **no** `Catalogue.set_item_metadata/3` context helper — use `update_item(item, %{data: %{"meta" => new_meta}})`. Merge the new meta with whatever else lives on `data`.
+- `definitions(:item)` and `definitions(:catalogue)` each return `[%{key: ..., label: Gettext.gettext(PhoenixKitWeb.Gettext, ...)}, ...]`. The `:key` is stable (JSONB key, never translated). The `:label` is gettext-wrapped at call time — callers cannot cache it across locale changes. Resource types keep their own separate definition lists (items cover color/weight/dimensions/material; catalogues cover brand/collection/season/region/vendor_ref).
+- `definition(:item, key)` / `definition(:catalogue, key)` fetch a single entry by stable key; returns `nil` for unknown keys.
+- Both Item and Catalogue form LVs render the same metadata tab shape: pick-a-field dropdown (only definitions not yet attached) + one text input per attached key, folded into `resource.data["meta"]` on save via a private `inject_meta_into_data/2`. Blank values drop; legacy keys pass through untouched.
+- There is **no** `Catalogue.set_metadata/3` context helper — use `update_item/3` / `update_catalogue/3` with `%{data: %{"meta" => new_meta}}`. Merge the new meta with whatever else lives on `data`.
 
 ### Item Picker component
 
@@ -212,6 +213,10 @@ All form LiveViews (`catalogue_form_live`, `item_form_live`, `manufacturer_form_
 
 **Move card also branches**: standard items get "Move to Another Category" (dropdown of `list_all_categories()` results, calls `move_item_to_category/3`); smart items get "Move to Another Smart Catalogue" (dropdown filtered to other smart catalogues via `list_catalogues(kind: :smart)`, calls `move_item_to_catalogue/3` which clears the category and sets the new catalogue). Each card only renders when its target list is non-empty.
 
+**Tabs on Item and Catalogue forms** — both `item_form_live` and `catalogue_form_live` split content into Details / Metadata / Files tabs. Tab state (`current_tab`, `switch_tab` event, private `parse_tab/1`) is duplicated in each LV; panels stay in the DOM and toggle via `hidden` so multilang wrapper state + in-flight input survive tab switches. Category form stays tab-less — it's a lightweight taxonomy node with only the featured image card above its form.
+
+**Featured image tiers** — all three resource types (Catalogue, Category, Item) accept a featured image through `Attachments.mount_attachments/2` + `MediaSelectorModal`. Catalogue and Item additionally support an inline files dropzone (registered via `Attachments.allow_attachment_upload/1`); Category does not. The folder is created lazily the first time the picker opens, so categories without a featured image never materialize a folder. Folder naming: `catalogue-<uuid>` / `catalogue-category-<uuid>` / `catalogue-item-<uuid>` — see `Attachments.folder_name_for/1`.
+
 **`import_live.ex` is a principled exception** — it uses raw `<select name={"mapping[#{i}]"}>` because its column-mapping UI has runtime-constructed field names that `%Phoenix.HTML.FormField{}` can't model, and it assigns `:current_lang` directly in its own `handle_event("switch_language", ...)` instead of going through `handle_switch_language/2` (so the debounced skeleton UX doesn't apply to the import wizard's language picker, which is semantically different — it's picking "which language is this spreadsheet in?", not "which translation am I editing?"). Don't try to refactor the import wizard into the component-style pattern without rethinking its shape.
 
 ### Settings Keys
@@ -237,7 +242,7 @@ lib/phoenix_kit_catalogue/
 │   ├── translations.ex                        # Multilang read/write against schema.data JSONB
 │   └── tree.ex                                # V103 recursive-CTE helpers (subtree/ancestor/children-index)
 ├── attachments.ex                             # Form-level featured-image + inline files dropzone wiring (shared by catalogue_form_live + item_form_live)
-├── item_metadata.ex                           # Global opt-in metadata field definitions (labels are gettext-wrapped)
+├── metadata.ex                                # Per-resource-type opt-in metadata field definitions (labels are gettext-wrapped)
 ├── paths.ex                                   # Centralized URL path helpers
 ├── schemas/
 │   ├── cat_catalogue.ex                       # Catalogue schema + changeset (kind: standard|smart)
