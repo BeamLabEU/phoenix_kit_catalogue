@@ -1,9 +1,14 @@
 defmodule PhoenixKitCatalogue.Catalogue.Helpers do
   @moduledoc false
   # Cross-section helpers used by multiple Catalogue submodules.
-  # Right now: polymorphic atom/string-keyed map accessors so the same
-  # helpers work on Phoenix form params (string-keyed) and IEx /
-  # internal-call attrs (atom-keyed).
+  # Polymorphic atom/string-keyed map accessors plus a shared
+  # `item_catalogue_uuid/1` lookup that both `Catalogue` and `Rules`
+  # use for PubSub broadcast scoping (avoids the duplicate query
+  # PR #13 review #2 flagged).
+
+  import Ecto.Query, warn: false
+
+  alias PhoenixKitCatalogue.Schemas.Item
 
   @doc "True when `attrs` has the key as either an atom or its string form."
   @spec has_attr?(map(), atom()) :: boolean()
@@ -61,5 +66,18 @@ defmodule PhoenixKitCatalogue.Catalogue.Helpers do
     |> String.replace("\\", "\\\\")
     |> String.replace("%", "\\%")
     |> String.replace("_", "\\_")
+  end
+
+  @doc """
+  Returns the catalogue UUID an item belongs to, or `nil` if the item
+  is missing. Single source of truth for the parent-catalogue lookup
+  used by PubSub broadcast scoping in `Catalogue.lookup_parent/2` and
+  `Rules.put_catalogue_rules/3` (PR #13 #2 dedupe).
+  """
+  @spec item_catalogue_uuid(Ecto.UUID.t()) :: Ecto.UUID.t() | nil
+  def item_catalogue_uuid(item_uuid) when is_binary(item_uuid) do
+    PhoenixKit.RepoHelper.repo().one(
+      from(i in Item, where: i.uuid == ^item_uuid, select: i.catalogue_uuid)
+    )
   end
 end

@@ -354,10 +354,11 @@ defmodule PhoenixKitCatalogue.Catalogue.Rules do
 
   # Lookup the parent catalogue for a smart-rule broadcast. The rule
   # itself only knows its item_uuid; the detail LV needs the catalogue
-  # UUID to filter cross-catalogue noise. Single indexed pkey lookup.
-  defp item_parent_catalogue_uuid(item_uuid) when is_binary(item_uuid) do
-    repo().one(from(i in Item, where: i.uuid == ^item_uuid, select: i.catalogue_uuid))
-  end
+  # UUID to filter cross-catalogue noise. Delegates to the shared
+  # `Helpers.item_catalogue_uuid/1` so this and `Catalogue.lookup_parent(:item, _)`
+  # don't duplicate the same query (PR #13 review #2 dedupe).
+  defp item_parent_catalogue_uuid(item_uuid) when is_binary(item_uuid),
+    do: Helpers.item_catalogue_uuid(item_uuid)
 
   defp item_parent_catalogue_uuid(_), do: nil
 end

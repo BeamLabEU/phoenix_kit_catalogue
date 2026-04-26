@@ -3,57 +3,86 @@
 Triaged against `main` on 2026-04-26 after the upstream merge
 (commit `6887741`). Single PINCER_REVIEW (also captured in
 `AGGREGATED_REVIEW.md`); verdict "✅ APPROVE — clean merge, no
-blockers". Four findings, all acknowledged in code by the PR itself.
+blockers". Four findings — two of them (`#1` MEDIUM and `#2` LOW)
+were fixed in this batch.
 
-## No findings (acknowledged-in-code)
+## Fixed (Batch 1 — 2026-04-26)
 
 - ~~**#1 (MEDIUM)** `lookup_parent/2` does a DB query inside the
-  broadcast path~~ — `lib/phoenix_kit_catalogue/catalogue.ex:119-139`.
-  The reviewer's verdict: "Acceptable for now — the comment explicitly
-  acknowledges the trade-off. High-frequency callers (import
-  executor) already suppress broadcasts." Re-verified the inline
-  comment is present + the executor still passes `broadcast: false`
-  per row + rolls up a single `:catalogue` broadcast at the end of
-  import. No action needed.
+  broadcast path~~ — Threaded `parent_catalogue_uuid:` into the
+  17 `category.*` and `item.*` `log_activity` callers in
+  `lib/phoenix_kit_catalogue/catalogue.ex`. The fallback
+  `lookup_parent/2` path now only fires for callers outside this
+  module (mix tasks, IEx, future API endpoints) — every in-module
+  mutation already has the parent in scope and threads it through
+  cheaply (zero extra DB queries).
 
-- ~~**#2 (LOW)** Duplicate `lookup_parent` between
-  `Catalogue` and `Rules`~~ — minor duplication; the Rules module
-  bypasses `log_activity` so it needs its own lookup helper. Reviewer
-  verdict: "Could be extracted to a shared
-  `Catalogue.item_catalogue_uuid/1` helper, but not worth blocking
-  on." Re-verified the duplication exists at
-  `catalogue.ex:126` and `catalogue/rules.ex:352`; the duplication is
-  semantic (both fetch `item.catalogue_uuid` for an item UUID). No
-  action — flagging for the next sweep if the helper count grows.
+  Specifically threaded:
+  - 8 `category.*` events (`created`, `updated`, `deleted`,
+    `trashed`, `restored`, `permanently_deleted`,
+    `positions_swapped`, plus 3 `category.moved` paths) →
+    `category.catalogue_uuid` / `moved.catalogue_uuid` /
+    `target_catalogue_uuid` depending on the move shape.
+  - 7 `item.*` events (`updated`, `deleted`, `trashed`, `restored`,
+    `permanently_deleted`, plus 2 `item.moved` paths) →
+    `item.catalogue_uuid` / `moved.catalogue_uuid` /
+    `catalogue_uuid` depending on the move shape.
+  - `item.created` already threaded (pre-existing from PR #13).
+  - `item.bulk_trashed` carries no `resource_uuid`, so
+    `broadcast_for/2` doesn't fan out for it — no parent needed.
 
-- ~~**#3 (LOW)** `nil` parent fallback is overly broad in the detail
-  LV~~ — by design. The `is_nil(parent)` clause keeps the LV
-  responsive to broadcasts from older callers that haven't been
-  updated to thread `parent_catalogue_uuid` yet. Re-verified at
-  `web/catalogue_detail_live.ex:109`. No action.
+  Pinned by 4 new tests in `test/activity_logging_test.exs` —
+  `describe "PubSub broadcast carries parent_catalogue_uuid
+  (PR #13 #1)"`. Each test subscribes to the catalogue topic,
+  performs a mutation, and asserts `assert_receive
+  {:catalogue_data_changed, kind, uuid, parent}` with the expected
+  `parent` UUID.
 
-- ~~**#4 (INFO)** `handle_info` clause restructuring~~ — positive
-  cleanup; the rescue is now in a dedicated `handle_catalogue_data_changed/1`
-  private function. Re-verified at `web/catalogue_detail_live.ex:115-127`.
-  No action.
+- ~~**#2 (LOW)** Duplicate `lookup_parent` between `Catalogue` and
+  `Rules`~~ — Extracted `Catalogue.Helpers.item_catalogue_uuid/1`
+  as the single source of truth. `Catalogue.lookup_parent(:item, _)`
+  now delegates to it; `Rules.item_parent_catalogue_uuid/1` does
+  the same. The two queries that did `from(i in Item, where: i.uuid
+  == ^uuid, select: i.catalogue_uuid)` in different files are now
+  one. Verified by `mix credo --strict` clean and `mix test`
+  655/655 passing.
 
 ## Skipped (with rationale)
 
-None — the PR ships clean.
+- **#3 (LOW)** `nil` parent fallback overly broad in detail LV —
+  by design. The `is_nil(parent)` clause keeps the LV responsive
+  to broadcasts from the few remaining external paths
+  (`lookup_parent/2` could still return `nil` if the resource was
+  deleted between the mutation and the broadcast lookup). After
+  fix #1, `nil` is rare, but treating it as "defensive refresh"
+  remains the right defensive choice — the alternative (drop the
+  message) silently masks bugs. No change.
+
+- **#4 (INFO)** `handle_info` clause restructuring — positive
+  cleanup, no action needed.
 
 ## Files touched
 
-None in this Phase 1 batch — all four findings are documented as
-intentional in-code or acceptable trade-offs.
+| File | Change |
+|------|--------|
+| `lib/phoenix_kit_catalogue/catalogue.ex` | #1 thread `parent_catalogue_uuid:` through 17 `log_activity` callers; #2 `lookup_parent(:item, _)` now delegates to `Helpers.item_catalogue_uuid/1` |
+| `lib/phoenix_kit_catalogue/catalogue/helpers.ex` | #2 new `item_catalogue_uuid/1` shared helper |
+| `lib/phoenix_kit_catalogue/catalogue/rules.ex` | #2 `item_parent_catalogue_uuid/1` now delegates to the shared helper |
+| `test/activity_logging_test.exs` | #1 4 new PubSub broadcast assertions pinning `parent_catalogue_uuid` threading |
 
 ## Verification
 
-- All four reviewer findings re-verified against current `main`
-  (post-merge). The code matches what the PINCER review described.
-- The Phase 2 quality sweep on this branch (commits `3c8e586`,
-  `b73006a`, `17bedb9`) was rebased cleanly over PR #13 — no
-  conflicts. Confirmed by `mix compile --warnings-as-errors` clean
-  + `mix test` 651/651 passing on the rebased state.
+- `mix compile --warnings-as-errors` clean
+- `mix format --check-formatted` clean
+- `mix credo --strict` 0 issues, 1138 mods/funs
+- `mix test` — 655 tests, 0 failures (was 651 pre-fix; +4 from PubSub
+  pinning tests)
+- 10/10 stable runs
+- Stale-ref greps — `Task.start`, `IO.inspect`, `TODO/FIXME`, raw
+  error strings — zero hits
+- The Phase 2 quality-sweep commits (`3c8e586` / `b73006a` /
+  `17bedb9`) rebased cleanly over PR #13 — no conflicts; the
+  threading work landed on top.
 
 ## Open
 
