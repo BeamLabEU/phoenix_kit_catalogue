@@ -65,37 +65,78 @@ defmodule PhoenixKitCatalogue.Catalogue do
   # Internal callers in the remaining sections still use this thin
   # alias for diff churn minimization.
   # `log_activity/1` writes an audit-log entry **and** fans out a
-  # `{:catalogue_data_changed, kind, uuid}` event so list LVs subscribed
-  # via `PubSub.subscribe/0` re-fetch. The two are coupled here because
-  # every write in this module that's worth auditing is also worth
-  # signalling — keeping them paired prevents accidental "I logged but
-  # forgot to broadcast" drift. Submodules under
+  # `{:catalogue_data_changed, kind, uuid, parent_catalogue_uuid}` event
+  # so list LVs subscribed via `PubSub.subscribe/0` re-fetch. The two are
+  # coupled here because every write in this module that's worth auditing
+  # is also worth signalling — keeping them paired prevents accidental
+  # "I logged but forgot to broadcast" drift. Submodules under
   # `PhoenixKitCatalogue.Catalogue.*` call `ActivityLog.log/1` and
-  # `PubSub.broadcast/2` directly to keep their dependencies explicit.
-  defp log_activity(attrs) do
+  # `PubSub.broadcast/3` directly to keep their dependencies explicit.
+  #
+  # The optional `parent_catalogue_uuid` field on `attrs` is used purely
+  # for PubSub routing (it's stripped before the activity entry is
+  # persisted). Bulk callers can pass `broadcast: false` in the second
+  # argument to suppress the per-row fan-out and emit a single roll-up
+  # broadcast at the end of the batch.
+  defp log_activity(attrs, opts \\ []) do
+    {parent_catalogue_uuid, attrs} = Map.pop(attrs, :parent_catalogue_uuid)
+
     ActivityLog.log(attrs)
-    broadcast_for(attrs)
+
+    if Keyword.get(opts, :broadcast, true) do
+      broadcast_for(attrs, parent_catalogue_uuid)
+    end
+
+    :ok
   end
 
-  defp broadcast_for(%{resource_type: "catalogue", resource_uuid: uuid}),
-    do: PubSub.broadcast(:catalogue, uuid)
+  defp broadcast_for(%{resource_type: "catalogue", resource_uuid: uuid}, _parent),
+    do: PubSub.broadcast(:catalogue, uuid, uuid)
 
-  defp broadcast_for(%{resource_type: "category", resource_uuid: uuid}),
-    do: PubSub.broadcast(:category, uuid)
+  defp broadcast_for(%{resource_type: "category", resource_uuid: uuid}, parent),
+    do: PubSub.broadcast(:category, uuid, parent || lookup_parent(:category, uuid))
 
-  defp broadcast_for(%{resource_type: "item", resource_uuid: uuid}),
-    do: PubSub.broadcast(:item, uuid)
+  defp broadcast_for(%{resource_type: "item", resource_uuid: uuid}, parent),
+    do: PubSub.broadcast(:item, uuid, parent || lookup_parent(:item, uuid))
 
-  defp broadcast_for(%{resource_type: "manufacturer", resource_uuid: uuid}),
-    do: PubSub.broadcast(:manufacturer, uuid)
+  defp broadcast_for(%{resource_type: "manufacturer", resource_uuid: uuid}, _parent),
+    do: PubSub.broadcast(:manufacturer, uuid, nil)
 
-  defp broadcast_for(%{resource_type: "supplier", resource_uuid: uuid}),
-    do: PubSub.broadcast(:supplier, uuid)
+  defp broadcast_for(%{resource_type: "supplier", resource_uuid: uuid}, _parent),
+    do: PubSub.broadcast(:supplier, uuid, nil)
 
-  defp broadcast_for(%{resource_type: "smart_rule", resource_uuid: uuid}),
-    do: PubSub.broadcast(:smart_rule, uuid)
+  defp broadcast_for(%{resource_type: "smart_rule", resource_uuid: uuid}, parent),
+    do: PubSub.broadcast(:smart_rule, uuid, parent || lookup_parent(:smart_rule, uuid))
 
-  defp broadcast_for(_attrs), do: :ok
+  defp broadcast_for(_attrs, _parent), do: :ok
+
+  # Fallback: when a caller doesn't thread `parent_catalogue_uuid:` into
+  # the activity-log attrs, look it up here so detail LVs can still
+  # filter cross-catalogue noise. One indexed pkey lookup per broadcast
+  # — adds ~ms to mutations on the rare path where the parent isn't
+  # already in scope. High-frequency callers (smart-rules sync, item
+  # CRUD) should thread it explicitly to avoid the lookup.
+  defp lookup_parent(:category, uuid) when is_binary(uuid) do
+    case repo().one(from(c in Category, where: c.uuid == ^uuid, select: c.catalogue_uuid)) do
+      nil -> nil
+      parent_uuid -> parent_uuid
+    end
+  end
+
+  defp lookup_parent(:item, uuid) when is_binary(uuid) do
+    case repo().one(from(i in Item, where: i.uuid == ^uuid, select: i.catalogue_uuid)) do
+      nil -> nil
+      parent_uuid -> parent_uuid
+    end
+  end
+
+  defp lookup_parent(:smart_rule, item_uuid) when is_binary(item_uuid) do
+    # `:smart_rule` events carry the item's UUID as `resource_uuid`; the
+    # parent is the catalogue containing that item.
+    lookup_parent(:item, item_uuid)
+  end
+
+  defp lookup_parent(_kind, _uuid), do: nil
 
   # ═══════════════════════════════════════════════════════════════════
   # Manufacturers — see PhoenixKitCatalogue.Catalogue.Manufacturers
@@ -1708,14 +1749,18 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
     case result do
       {:ok, item} ->
-        log_activity(%{
-          action: "item.created",
-          mode: opts[:mode] || "manual",
-          actor_uuid: opts[:actor_uuid],
-          resource_type: "item",
-          resource_uuid: item.uuid,
-          metadata: %{"name" => item.name, "sku" => item.sku || ""}
-        })
+        log_activity(
+          %{
+            action: "item.created",
+            mode: opts[:mode] || "manual",
+            actor_uuid: opts[:actor_uuid],
+            resource_type: "item",
+            resource_uuid: item.uuid,
+            parent_catalogue_uuid: item.catalogue_uuid,
+            metadata: %{"name" => item.name, "sku" => item.sku || ""}
+          },
+          opts
+        )
 
         {:ok, item}
 
