@@ -1,3 +1,15 @@
+## 0.1.13 - 2026-04-26
+
+### Added
+- `parent_catalogue_uuid` on PubSub broadcasts for scoped detail-view updates
+- `refresh_in_place/1` — updates counts/category tree without wiping scroll state
+- Smart items can now be assigned categories and manufacturers for organization
+- Import executor emits single roll-up broadcast instead of per-row events
+
+### Changed
+- `PubSub.broadcast/3` now accepts optional `parent_catalogue_uuid` (backward-compatible)
+- `log_activity/2` supports `broadcast: false` opt for bulk operations
+
 ## 0.1.12 - 2026-04-24
 
 ### Added
