@@ -31,6 +31,7 @@ defmodule PhoenixKitCatalogue.LiveCase do
       import Phoenix.ConnTest
       import Phoenix.LiveViewTest
       import PhoenixKitCatalogue.LiveCase
+      import PhoenixKitCatalogue.ActivityLogAssertions
     end
   end
 

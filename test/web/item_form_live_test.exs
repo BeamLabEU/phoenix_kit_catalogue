@@ -325,8 +325,6 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLiveTest do
       |> form("form[phx-submit=save]",
         item: %{
           "name" => item.name,
-          "base_price" => "0",
-          "unit" => "piece",
           "status" => "active"
         }
       )
@@ -351,8 +349,6 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLiveTest do
       |> form("form[phx-submit=save]",
         item: %{
           "name" => item.name,
-          "base_price" => "0",
-          "unit" => "piece",
           "status" => "active"
         }
       )
@@ -378,8 +374,6 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLiveTest do
       |> form("form[phx-submit=save]",
         item: %{
           "name" => item.name,
-          "base_price" => "0",
-          "unit" => "piece",
           "status" => "active"
         }
       )

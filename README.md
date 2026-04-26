@@ -96,6 +96,16 @@ All cascading operations run in database transactions.
 
 The public API lives in `PhoenixKitCatalogue.Catalogue`. Every function has `@doc` documentation — use `h/1` in IEx to explore.
 
+Mutating functions return `{:ok, struct}` on success or `{:error,
+reason}` where `reason` is an atom from a fixed vocabulary (e.g.
+`:would_create_cycle`, `:cross_catalogue`, `:not_siblings`,
+`:catalogue_not_found`), a tagged tuple (e.g.
+`{:referenced_by_smart_items, count}`), or an `Ecto.Changeset`.
+Translate atoms to user-facing strings via
+`PhoenixKitCatalogue.Errors.message/1` at the UI boundary — typically
+inside a LiveView's `put_flash(:error, ...)`. Unknown atoms fall
+through to a diagnostic `"Unexpected error: <inspect>"`.
+
 ### Quick Reference
 
 ```elixir
