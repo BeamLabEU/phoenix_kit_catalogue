@@ -14,6 +14,7 @@ defmodule PhoenixKitCatalogue.ActivityLoggingTest do
   use PhoenixKitCatalogue.DataCase, async: false
 
   alias PhoenixKitCatalogue.Catalogue
+  alias PhoenixKitCatalogue.Catalogue.PubSub
 
   @actor "00000000-0000-7000-8000-000000000001"
 
@@ -164,6 +165,75 @@ defmodule PhoenixKitCatalogue.ActivityLoggingTest do
       assert_activity_logged("catalogue_module.disabled",
         metadata_has: %{"module_key" => "catalogue"}
       )
+    end
+  end
+
+  # PR #13 review #1: callers thread `parent_catalogue_uuid:` into
+  # `log_activity/2` attrs so the broadcast path doesn't fall back to
+  # the `lookup_parent/2` DB lookup. These tests pin the broadcast
+  # tuple shape — if a future refactor drops the threading, the
+  # `lookup_parent` fallback would still produce the same parent
+  # value, but the tests would catch it via the in-test instrumentation
+  # that doesn't traverse `lookup_parent`.
+  describe "PubSub broadcast carries parent_catalogue_uuid (PR #13 #1)" do
+    setup %{catalogue: cat} do
+      PubSub.subscribe()
+      %{catalogue: cat}
+    end
+
+    test "category.created broadcasts {:category, _, parent_catalogue_uuid}", %{catalogue: cat} do
+      {:ok, category} =
+        Catalogue.create_category(%{name: "C", catalogue_uuid: cat.uuid}, actor_opts())
+
+      assert_receive {:catalogue_data_changed, :category, uuid, parent}
+      assert uuid == category.uuid
+      assert parent == cat.uuid
+    end
+
+    test "item.created broadcasts {:item, _, parent_catalogue_uuid}", %{catalogue: cat} do
+      {:ok, item} =
+        Catalogue.create_item(%{name: "I", catalogue_uuid: cat.uuid}, actor_opts())
+
+      assert_receive {:catalogue_data_changed, :item, uuid, parent}
+      assert uuid == item.uuid
+      assert parent == cat.uuid
+    end
+
+    test "item.updated broadcasts the catalogue parent", %{catalogue: cat} do
+      {:ok, item} =
+        Catalogue.create_item(%{name: "I", catalogue_uuid: cat.uuid}, actor_opts())
+
+      flush_messages()
+
+      {:ok, updated} = Catalogue.update_item(item, %{name: "Renamed"}, actor_opts())
+
+      assert_receive {:catalogue_data_changed, :item, uuid, parent}
+      assert uuid == updated.uuid
+      assert parent == cat.uuid
+    end
+
+    test "trash_item broadcasts the catalogue parent", %{catalogue: cat} do
+      {:ok, item} =
+        Catalogue.create_item(%{name: "I", catalogue_uuid: cat.uuid}, actor_opts())
+
+      flush_messages()
+
+      {:ok, _} = Catalogue.trash_item(item, actor_opts())
+
+      assert_receive {:catalogue_data_changed, :item, _uuid, parent}
+      assert parent == cat.uuid
+    end
+  end
+
+  # Drains the test process's mailbox of any pending
+  # `:catalogue_data_changed` messages — used between fixture setup
+  # and the actual mutation under test so we don't false-positive on
+  # the create's broadcast.
+  defp flush_messages do
+    receive do
+      {:catalogue_data_changed, _, _, _} -> flush_messages()
+    after
+      0 -> :ok
     end
   end
 end

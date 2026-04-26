@@ -130,10 +130,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
   end
 
   defp lookup_parent(:item, uuid) when is_binary(uuid) do
-    case repo().one(from(i in Item, where: i.uuid == ^uuid, select: i.catalogue_uuid)) do
-      nil -> nil
-      parent_uuid -> parent_uuid
-    end
+    Helpers.item_catalogue_uuid(uuid)
   end
 
   defp lookup_parent(:smart_rule, item_uuid) when is_binary(item_uuid) do
@@ -928,6 +925,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
           actor_uuid: opts[:actor_uuid],
           resource_type: "category",
           resource_uuid: category.uuid,
+          parent_catalogue_uuid: category.catalogue_uuid,
           metadata: %{"name" => category.name, "catalogue_uuid" => category.catalogue_uuid}
         })
 
@@ -955,6 +953,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
           actor_uuid: opts[:actor_uuid],
           resource_type: "category",
           resource_uuid: updated.uuid,
+          parent_catalogue_uuid: updated.catalogue_uuid,
           metadata: %{"name" => updated.name}
         })
 
@@ -1042,6 +1041,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
           actor_uuid: opts[:actor_uuid],
           resource_type: "category",
           resource_uuid: category.uuid,
+          parent_catalogue_uuid: category.catalogue_uuid,
           metadata: %{"name" => category.name}
         })
 
@@ -1098,6 +1098,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
           actor_uuid: opts[:actor_uuid],
           resource_type: "category",
           resource_uuid: category.uuid,
+          parent_catalogue_uuid: category.catalogue_uuid,
           metadata: %{
             "name" => category.name,
             "catalogue_uuid" => category.catalogue_uuid,
@@ -1176,6 +1177,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
           actor_uuid: opts[:actor_uuid],
           resource_type: "category",
           resource_uuid: category.uuid,
+          parent_catalogue_uuid: category.catalogue_uuid,
           metadata: %{
             "name" => category.name,
             "catalogue_uuid" => category.catalogue_uuid,
@@ -1231,6 +1233,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
           actor_uuid: opts[:actor_uuid],
           resource_type: "category",
           resource_uuid: category.uuid,
+          parent_catalogue_uuid: category.catalogue_uuid,
           metadata: %{
             "name" => category.name,
             "catalogue_uuid" => category.catalogue_uuid,
@@ -1317,6 +1320,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
           actor_uuid: opts[:actor_uuid],
           resource_type: "category",
           resource_uuid: moved.uuid,
+          parent_catalogue_uuid: target_catalogue_uuid,
           metadata: %{
             "name" => moved.name,
             "from_catalogue_uuid" => source_catalogue_uuid,
@@ -1384,6 +1388,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
         actor_uuid: opts[:actor_uuid],
         resource_type: "category",
         resource_uuid: moved.uuid,
+        parent_catalogue_uuid: moved.catalogue_uuid,
         metadata: %{
           "name" => moved.name,
           "from_parent_uuid" => from_parent_uuid,
@@ -1430,6 +1435,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
         actor_uuid: opts[:actor_uuid],
         resource_type: "category",
         resource_uuid: moved.uuid,
+        parent_catalogue_uuid: moved.catalogue_uuid,
         metadata: %{
           "name" => moved.name,
           "from_parent_uuid" => from_parent_uuid,
@@ -1528,6 +1534,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
         actor_uuid: opts[:actor_uuid],
         resource_type: "category",
         resource_uuid: cat_a.uuid,
+        parent_catalogue_uuid: cat_a.catalogue_uuid,
         metadata: %{
           "category_a_uuid" => cat_a.uuid,
           "category_a_name" => cat_a.name,
@@ -1952,6 +1959,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
           actor_uuid: opts[:actor_uuid],
           resource_type: "item",
           resource_uuid: updated.uuid,
+          parent_catalogue_uuid: updated.catalogue_uuid,
           metadata: %{"name" => updated.name, "sku" => updated.sku || ""}
         })
 
@@ -1972,6 +1980,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
           actor_uuid: opts[:actor_uuid],
           resource_type: "item",
           resource_uuid: item.uuid,
+          parent_catalogue_uuid: item.catalogue_uuid,
           metadata: %{"name" => item.name}
         })
 
@@ -2000,6 +2009,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
           actor_uuid: opts[:actor_uuid],
           resource_type: "item",
           resource_uuid: trashed.uuid,
+          parent_catalogue_uuid: trashed.catalogue_uuid,
           metadata: %{"name" => trashed.name}
         })
 
@@ -2037,6 +2047,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
         actor_uuid: opts[:actor_uuid],
         resource_type: "item",
         resource_uuid: restored.uuid,
+        parent_catalogue_uuid: restored.catalogue_uuid,
         metadata: %{"name" => restored.name}
       })
 
@@ -2083,6 +2094,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
           actor_uuid: opts[:actor_uuid],
           resource_type: "item",
           resource_uuid: item.uuid,
+          parent_catalogue_uuid: item.catalogue_uuid,
           metadata: %{"name" => item.name}
         })
 
@@ -2148,6 +2160,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
         actor_uuid: opts[:actor_uuid],
         resource_type: "item",
         resource_uuid: moved.uuid,
+        parent_catalogue_uuid: moved.catalogue_uuid,
         metadata: %{
           "name" => moved.name,
           "from_category_uuid" => from_category_uuid,
@@ -2212,6 +2225,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
             actor_uuid: opts[:actor_uuid],
             resource_type: "item",
             resource_uuid: moved.uuid,
+            parent_catalogue_uuid: catalogue_uuid,
             metadata: %{
               "name" => moved.name,
               "from_catalogue_uuid" => from_catalogue_uuid,
