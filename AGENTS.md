@@ -6,6 +6,17 @@ This file provides guidance to AI agents working with code in this repository.
 
 PhoenixKit Catalogue — an Elixir module for product catalogue management, built as a pluggable module for the PhoenixKit framework. Manages manufacturers, suppliers, catalogues, categories, and items with soft-delete cascading, multilingual support, and move operations. Designed for manufacturing companies (e.g. kitchen/furniture producers) that need to organize materials and components.
 
+## What This Module Does NOT Have (by design)
+
+This is a **mature full-featured module** in the PhoenixKit ecosystem; the omissions below are deliberate so consumers and future contributors don't expect them.
+
+- **No DB migrations of its own** — every schema this module owns is created by versioned migrations in core `phoenix_kit` (V87 catalogue, V89 markup, V96 catalogue_uuid backfill, V97 item markup override, V102 smart catalogues, V103 nested categories). Adding a new column means a phoenix_kit core migration first, then schema + changeset here.
+- **No authorization in the context** — every mutating function in `PhoenixKitCatalogue.Catalogue` accepts an `actor_uuid` only for activity logging. Permission gating happens at the LiveView mount layer via `live_session :phoenix_kit_admin` and the `:catalogue` permission key. Programmatic / IEx callers bypass the gate by design — that's the established phoenix_kit-ecosystem pattern.
+- **No JSONB GIN / pg_trgm search index** — `search_items/2` runs `?::text ILIKE ?` over `Item.data` for the multilang JSONB. Acceptable for the current item volumes; tracked as a perf concern for once a single catalogue exceeds ~50k items.
+- **No background jobs** — the catalogue does not use Oban. Imports run inline in `start_async/1` from the LiveView (see Import System section). The reference / dashboard data flows through PubSub broadcasts on the `"phoenix_kit_catalogue"` topic, not a queue.
+- **No HTTP / API surface** — Catalogue is admin-only. No public routes, no JSON endpoints, no webhook receivers. If a consumer needs catalogue data over HTTP, they wire that up in their own host app.
+- **No per-item versioning** — soft-delete (`status: "active" | "deleted"`) is the only history mechanism. Restoring resurrects the row with its current data; we don't keep prior states. The activity log captures every mutation so the audit trail is the version history.
+
 ## Common Commands
 
 ### Setup & Dependencies
@@ -142,15 +153,52 @@ Both catalogue and item forms support a featured image + a folder-scoped file gr
 
 The dropdown is absolutely positioned with `z-50` — the container's ancestors must not clip overflow.
 
+### Errors API
+
+The public `PhoenixKitCatalogue.Errors` module is the single source of
+truth for atom-to-user-facing-string translation. Every context fn
+that can fail returns one of:
+
+  * a plain atom (`:would_create_cycle`, `:cross_catalogue`,
+    `:parent_not_found`, `:not_siblings`, `:category_not_found`,
+    `:catalogue_not_found`, `:same_catalogue`, `:no_user`,
+    `:unsupported`, `:unsupported_file_format`, `:not_found`,
+    `:missing_item_name`, `:csv_empty`)
+  * a tagged tuple (`{:referenced_by_smart_items, count}`,
+    `{:duplicate_referenced_catalogue, uuid}`,
+    `{:invalid_price, raw}`, `{:invalid_markup, raw}`,
+    `{:sheet_empty, sheet}`, `{:sheet_read_failed, sheet, raw}`,
+    `{:xlsx_open_failed, raw}`, `{:xlsx_read_failed, raw}`,
+    `{:csv_parse_failed, raw}`)
+  * an `Ecto.Changeset` (passed through unchanged so callers can
+    keep it for `<.input>` rendering)
+
+`Errors.message/1` is called at the UI boundary — typically inside
+`put_flash(:error, ...)`. It wraps each atom in `gettext` so the
+message follows the active locale. Unknown atoms fall through to a
+diagnostic `"Unexpected error: <inspect>"` so nothing silently
+surfaces a raw struct.
+
+The per-atom translation set is pinned by `test/errors_test.exs`
+(one test per atom + tagged tuple). Adding a new atom requires
+extending both the `message/1` clause table and the test.
+
+Truncation: tagged tuples that ride a raw value into the translated
+string (e.g. `{:invalid_price, "very long input"}`) are capped at
+100 chars + ellipsis so a 5KB blob can't end up in a flash. Callers
+needing the full raw value should log it separately.
+
 ### Activity Logging
 
 Every mutating operation in `Catalogue` context is logged via `PhoenixKit.Activity.log/1`:
 
 - **Pattern**: Private `log_activity/1` helper guarded by `Code.ensure_loaded?(PhoenixKit.Activity)` with rescue to `Logger.warning`. Activity logging failures never crash the primary operation.
 - **Actor tracking**: All mutating functions accept `opts \\ []` keyword list. Pass `actor_uuid: user.uuid` to attribute the action.
-- **Actions logged**: `manufacturer.created/updated/deleted`, `supplier.created/updated/deleted`, `catalogue.created/updated/deleted/trashed/restored/permanently_deleted`, `category.created/updated/deleted/trashed/restored/permanently_deleted/moved/positions_swapped`, `item.created/updated/deleted/trashed/restored/permanently_deleted/moved/bulk_trashed`, `manufacturer.suppliers_synced`, `supplier.manufacturers_synced`, `smart_rules.synced` (with `added`/`updated`/`removed`/`total` counts), `import.started`, `import.completed`. Since V103, `category.trashed` / `category.restored` / `category.permanently_deleted` carry `subtree_size` + `items_cascaded`; `category.moved` includes `from_parent_uuid` / `to_parent_uuid` (in-catalogue reparents via `move_category_under/3`) or `from_catalogue_uuid` / `to_catalogue_uuid` + `subtree_size` + `items_cascaded` (cross-catalogue moves). Attachments (file uploads, featured-image changes) are not individually logged — they're captured as part of the `item.updated` / `catalogue.updated` entry on the containing save.
+- **Actions logged**: `manufacturer.created/updated/deleted`, `supplier.created/updated/deleted`, `catalogue.created/updated/deleted/trashed/restored/permanently_deleted`, `category.created/updated/deleted/trashed/restored/permanently_deleted/moved/positions_swapped`, `item.created/updated/deleted/trashed/restored/permanently_deleted/moved/bulk_trashed`, `manufacturer.suppliers_synced`, `supplier.manufacturers_synced`, `smart_rules.synced` (with `added`/`updated`/`removed`/`total` counts), `import.started`, `import.completed`, `catalogue_module.enabled` / `catalogue_module.disabled` (logged from the `enable_system/0` / `disable_system/0` callbacks in `lib/phoenix_kit_catalogue.ex`). Since V103, `category.trashed` / `category.restored` / `category.permanently_deleted` carry `subtree_size` + `items_cascaded`; `category.moved` includes `from_parent_uuid` / `to_parent_uuid` (in-catalogue reparents via `move_category_under/3`) or `from_catalogue_uuid` / `to_catalogue_uuid` + `subtree_size` + `items_cascaded` (cross-catalogue moves). Attachments (file uploads, featured-image changes) are not individually logged — they're captured as part of the `item.updated` / `catalogue.updated` entry on the containing save.
 - **Mode**: `"manual"` for user actions, `"auto"` for import-created items/categories
-- **LiveViews**: Extract actor UUID via `actor_opts(socket)` private helper reading `socket.assigns[:phoenix_kit_current_user]`
+- **LiveViews**: extract actor UUID via `actor_opts/1` from `PhoenixKitCatalogue.Web.Helpers` (imported into every form LV). Reads `socket.assigns[:phoenix_kit_current_user]`. The companion `actor_uuid/1` returns the bare UUID when a context call wants the bare value (e.g. `Activity.log/1` metadata).
+- **Convention — `:ok`-only**: the `Catalogue.ActivityLog` helper logs only on the `{:ok, _}` branch, never on `{:error, _}`. Failed mutations surface as `{:error, _}` to the LV, which logs the rich error context via its own `log_operation_error/3`. The activity log is the user-visible audit trail; operation errors are an engineer-visible log stream. Mixing the two would drown the audit feed in validation noise.
+- **Test pin**: `test/activity_logging_test.exs` runs one test per action atom — `actor_uuid` is asserted on every row so a regression that drops the opt anywhere in the LV → context plumbing fails immediately.
 
 ### Import System
 
@@ -241,7 +289,8 @@ lib/phoenix_kit_catalogue/
 │   ├── suppliers.ex                           # Supplier CRUD with activity logging
 │   ├── translations.ex                        # Multilang read/write against schema.data JSONB
 │   └── tree.ex                                # V103 recursive-CTE helpers (subtree/ancestor/children-index)
-├── attachments.ex                             # Form-level featured-image + inline files dropzone wiring (shared by catalogue_form_live + item_form_live)
+├── attachments.ex                             # Form-level featured-image + inline files dropzone wiring (shared by catalogue_form_live + item_form_live; CategoryFormLive opts out of files-grid via `files_grid: false`)
+├── errors.ex                                  # Atom-to-translated-string dispatcher for every `{:error, atom}` returned by the public API + the import pipeline
 ├── metadata.ex                                # Per-resource-type opt-in metadata field definitions (labels are gettext-wrapped)
 ├── paths.ex                                   # Centralized URL path helpers
 ├── schemas/
@@ -258,6 +307,7 @@ lib/phoenix_kit_catalogue/
 │   └── executor.ex                            # Import execution with progress reporting
 └── web/
     ├── components.ex                          # Reusable components (item_table, search_input, item_picker wrapper, etc.)
+    ├── helpers.ex                             # Tiny shared utilities every LV imports — `actor_opts/1`, `actor_uuid/1`, `status_label/1`
     ├── components/
     │   └── item_picker.ex                     # Combobox LiveComponent (server-side search + colocated JS hook)
     ├── catalogues_live.ex                     # Index page (catalogues/manufacturers/suppliers)
@@ -290,6 +340,18 @@ lib/phoenix_kit_catalogue/
 
 Start with action verbs: `Add`, `Update`, `Fix`, `Remove`, `Merge`.
 
+## Routing: Single Page vs Multi-Page
+
+> ⚠️ **Never hand-register plugin LiveView routes in the parent app's `router.ex`.** PhoenixKit injects module routes into its own `live_session :phoenix_kit_admin` automatically. A hand-written route sits outside that session, which (a) loses the admin layout — `:phoenix_kit_ensure_admin` only applies it inside the session — and (b) crashes the socket on navigation between admin pages (`navigate event failed because you are redirecting across live_sessions`).
+
+**Catalogue uses the multi-tab `live_view:` pattern**: every entry in `admin_tabs/0` (`lib/phoenix_kit_catalogue.ex`) declares its own `live_view: {Module, :action}` field, and PhoenixKit's `tab_to_route/1` (in `phoenix_kit/lib/phoenix_kit_web/integration.ex`) auto-generates one route per tab. Hidden CRUD sub-pages (new/edit forms) are extra `Tab` entries with `visible: false` and `parent: :admin_catalogue` — they appear nowhere in the sidebar but still register their route. **Dynamic path segments work**: `path: "catalogue/:uuid/edit"` is spliced verbatim into the generated `live` route.
+
+The `match:` field on each tab controls highlight behaviour. The catalogue list uses a regex match (`^/admin/catalogue(/(?!manufacturers|suppliers|import|events).*)?$`) so the "Catalogues" subtab stays highlighted on every page that conceptually belongs to it (catalogue list / detail / new / edit / nested category and item forms) while explicitly excluding sibling subtab paths. Without this, hidden subtabs with literal `:uuid` segments would never match a real URL and the sidebar would only highlight the parent on detail/form pages.
+
+**Static paths come first**: `catalogue/new`, `catalogue/manufacturers/new`, `catalogue/suppliers/new`, `catalogue/categories/:uuid/edit`, `catalogue/items/:uuid/edit` are declared before the wildcard `catalogue/:uuid` / `catalogue/:uuid/edit` / `catalogue/:catalogue_uuid/categories/new` / `catalogue/:catalogue_uuid/items/new` — Phoenix matches in declaration order and a wildcard placed first would swallow `catalogue/new` as a UUID.
+
+This module does **not** expose a `route_module/0` — every admin route lives on `admin_tabs/0`. If you ever need separate localized vs non-localized variants with distinct `:as` aliases, or many routes that are tedious to enumerate as Tabs, see `phoenix_kit_ai/lib/phoenix_kit_ai/routes.ex` for the route-module reference.
+
 ## Tailwind CSS Scanning
 
 This module implements `css_sources/0` returning `[:phoenix_kit_catalogue]` so PhoenixKit's installer adds the correct `@source` directive to the parent's `app.css`. Without this, Tailwind purges classes unique to this module's templates. CSS-source discovery is automatic at compile time via the `:phoenix_kit_css_sources` compiler — see `phoenix_kit/AGENTS.md > Tailwind CSS Scanning for External Modules`.
@@ -320,12 +382,34 @@ Without this, all DB calls through `PhoenixKit.RepoHelper` crash with "No reposi
 
 ```
 test/
-├── test_helper.exs                  # DB detection, sandbox setup
+├── test_helper.exs                  # DB detection, sandbox setup, Ecto.Migrator.run, Phoenix.PubSub start, pgcrypto
 ├── support/
+│   ├── activity_log_assertions.ex   # `assert_activity_logged/2` + `refute_activity_logged/2` — query phoenix_kit_activities directly with action / actor / resource / metadata-subset matching
+│   ├── data_case.ex                 # DataCase (sandbox + :integration tag, imports ActivityLogAssertions)
+│   ├── live_case.ex                 # LiveCase wires Test.Endpoint + fixtures + ActivityLogAssertions
+│   ├── postgres/migrations/         # Test-only migrations matching prod schema (V87/V102/V103 + phoenix_kit_settings + phoenix_kit_storage stubs)
+│   ├── test_endpoint.ex             # Minimal Phoenix.Endpoint for LiveViewTest
+│   ├── test_layouts.ex              # Renders flash-info / flash-error / flash-warning divs so flash assertions work
 │   ├── test_repo.ex                 # PhoenixKitCatalogue.Test.Repo
-│   └── data_case.ex                 # DataCase (sandbox + :integration tag)
+│   └── test_router.ex               # Test router scoped at /en/admin/catalogue
+├── activity_logging_test.exs        # Per-action `phoenix_kit_activities` assertions with actor_uuid pinning
+├── catalogue_test.exs               # Context integration tests (CRUD, cascade, move, smart catalogues)
+├── errors_test.exs                  # Per-atom Errors.message/1 string pin
+├── metadata_test.exs                # Metadata definitions + state helpers
 ├── phoenix_kit_catalogue_test.exs   # Module behaviour compliance tests
-├── catalogue_test.exs               # Context integration tests (CRUD, cascade, move)
+├── schemas_test.exs                 # Schema changeset edge cases
+├── web/
+│   ├── catalogue_detail_live_test.exs
+│   ├── catalogues_live_test.exs
+│   ├── components_test.exs          # Component render shape tests
+│   ├── events_live_test.exs
+│   ├── form_lives_test.exs
+│   ├── helpers_test.exs             # status_label / actor_opts / actor_uuid
+│   ├── import_live_test.exs
+│   ├── infrastructure_smoke_test.exs
+│   ├── item_form_live_test.exs
+│   ├── item_picker_test.exs
+│   └── sweep_delta_test.exs         # LV-visible deltas from this sweep (perm-delete phx-disable-with regex, status_label rendering, handle_info catch-all)
 └── import/
     ├── parser_test.exs              # File format detection and parsing
     ├── mapper_test.exs              # Column mapping and normalization
@@ -418,3 +502,9 @@ mix precommit               # compile + format + credo --strict + dialyzer
 - **ex_doc** (`~> 0.39`, dev only) — Documentation generation
 - **credo** (`~> 1.7`, dev/test) — Static analysis / code quality
 - **dialyxir** (`~> 1.4`, dev/test) — Static type checking
+- **lazy_html** (`~> 0.1`, test only) — Required by `Phoenix.LiveViewTest` HTML assertions
+
+## Two Module Types
+
+- **Full-featured** (this module): Admin tabs, routes, UI, settings, activity logging, full schema set, smart-catalogue rules engine, attachments + metadata + search infrastructure.
+- **Headless**: Functions/API only, no UI — still gets auto-discovery, toggles, and permissions. The catalogue is the opposite extreme: every operation surfaces through the admin LVs.

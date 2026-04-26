@@ -11,6 +11,7 @@ support_dir = Path.expand("support", __DIR__)
   "test_layouts.ex",
   "test_router.ex",
   "test_endpoint.ex",
+  "activity_log_assertions.ex",
   "data_case.ex",
   "live_case.ex"
 ]
@@ -49,9 +50,16 @@ repo_available =
     try do
       {:ok, _} = PhoenixKitCatalogue.Test.Repo.start_link()
 
-      # Create uuid-ossp extension and uuid_generate_v7() function
-      # (normally created by PhoenixKit V40 migration)
+      # `uuid-ossp` provides historical UUID helpers; `pgcrypto` is what
+      # `uuid_generate_v7/0` actually needs (gen_random_bytes lives in
+      # pgcrypto). Without both extensions, the very first INSERT into a
+      # `uuid_generate_v7()`-defaulted table fails with "function
+      # gen_random_bytes(integer) does not exist" — and the failure
+      # surfaces a long way from the helper's definition. Both
+      # extensions are normally created by the host's V40 / pgcrypto
+      # migrations; we recreate them here so the test DB is self-sufficient.
       PhoenixKitCatalogue.Test.Repo.query!("CREATE EXTENSION IF NOT EXISTS \"uuid-ossp\"")
+      PhoenixKitCatalogue.Test.Repo.query!("CREATE EXTENSION IF NOT EXISTS pgcrypto")
 
       PhoenixKitCatalogue.Test.Repo.query!("""
       CREATE OR REPLACE FUNCTION uuid_generate_v7()
@@ -68,6 +76,22 @@ repo_available =
       END;
       $$ LANGUAGE plpgsql VOLATILE;
       """)
+
+      # Apply every migration in `test/support/postgres/migrations/`.
+      # These mirror the post-V87 catalogue surface (V96 catalogue_uuid /
+      # V97 item markup override / V102 smart catalogues / V103 nested
+      # categories) plus the `phoenix_kit_settings` table the
+      # `enabled?/0` callback reads from. Without this run, every test
+      # that touches the V102 `kind` column crashes with
+      # `column "kind" does not exist` and every test that reads
+      # settings poisons the sandbox transaction.
+      Ecto.Migrator.run(
+        PhoenixKitCatalogue.Test.Repo,
+        Path.join([__DIR__, "support", "postgres", "migrations"]),
+        :up,
+        all: true,
+        log: false
+      )
 
       Ecto.Adapters.SQL.Sandbox.mode(PhoenixKitCatalogue.Test.Repo, :manual)
       true
@@ -107,5 +131,14 @@ exclude = if repo_available, do: [], else: [:integration]
 # LiveViews via `live/2` with real URLs. Runs with `server: false`, so
 # no port is opened.
 {:ok, _} = PhoenixKitCatalogue.Test.Endpoint.start_link()
+
+# Start a Phoenix.PubSub registered as `PhoenixKit.PubSub` so the
+# catalogue's `Catalogue.PubSub.broadcast/3` calls (fired on every
+# mutation) don't crash with "unknown registry". The host app provides
+# this in production.
+case Phoenix.PubSub.Supervisor.start_link(name: PhoenixKit.PubSub) do
+  {:ok, _} -> :ok
+  {:error, {:already_started, _}} -> :ok
+end
 
 ExUnit.start(exclude: exclude)

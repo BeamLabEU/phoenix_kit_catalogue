@@ -22,6 +22,8 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
       get_lang_data: 3
     ]
 
+  import PhoenixKitCatalogue.Web.Helpers, only: [actor_uuid: 1]
+
   @impl true
   def terminate(_reason, socket) do
     if socket.assigns[:ets_table] do
@@ -211,17 +213,9 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
          |> reset_picker_state()}
 
       {:error, reason} ->
-        Logger.warning("Import sheet parse error: #{reason}")
+        Logger.warning("Import sheet parse error: #{inspect(reason)}")
 
-        {:noreply,
-         put_flash(
-           socket,
-           :error,
-           Gettext.gettext(
-             PhoenixKitWeb.Gettext,
-             "Could not read this sheet. Please try another."
-           )
-         )}
+        {:noreply, put_flash(socket, :error, PhoenixKitCatalogue.Errors.message(reason))}
     end
   end
 
@@ -511,7 +505,8 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
     {:noreply, assign(socket, step: :done, import_result: result)}
   end
 
-  def handle_info(_msg, socket) do
+  def handle_info(msg, socket) do
+    Logger.debug("ImportLive ignored unhandled message: #{inspect(msg)}")
     {:noreply, socket}
   end
 
@@ -619,17 +614,9 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
          )}
 
       {:error, reason} ->
-        Logger.warning("Import file parse error: #{reason}")
+        Logger.warning("Import file parse error: #{inspect(reason)}")
 
-        {:noreply,
-         put_flash(
-           socket,
-           :error,
-           Gettext.gettext(
-             PhoenixKitWeb.Gettext,
-             "Could not read file. Please check the format and try again."
-           )
-         )}
+        {:noreply, put_flash(socket, :error, PhoenixKitCatalogue.Errors.message(reason))}
     end
   end
 
@@ -975,10 +962,13 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
     end
   end
 
+  # Import wizard threads `mode: "auto"` so the executor's CRUD ops are
+  # tagged accordingly in the activity log; for that reason it can't
+  # use the shared `actor_opts/1` directly.
   defp actor_opts(socket) do
-    case socket.assigns[:phoenix_kit_current_user] do
-      %{uuid: uuid} -> [actor_uuid: uuid, mode: "auto"]
-      _ -> [mode: "auto"]
+    case actor_uuid(socket) do
+      nil -> [mode: "auto"]
+      uuid -> [actor_uuid: uuid, mode: "auto"]
     end
   end
 
@@ -1077,34 +1067,40 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
 
     match_across_languages = socket.assigns.category_match_across_languages
 
-    Task.start(fn ->
-      try do
-        Executor.execute(import_plan, catalogue_uuid, lv_pid,
-          language: import_lang,
-          category_uuid: category_uuid,
-          manufacturer_uuid: manufacturer_uuid,
-          supplier_uuid: supplier_uuid,
-          match_categories_across_languages: match_across_languages,
-          actor_uuid: extract_actor_uuid(socket)
-        )
-      rescue
-        e ->
-          Logger.error("Import failed: #{Exception.message(e)}")
-
-          send(
-            lv_pid,
-            {:import_result,
-             %{
-               created: 0,
-               errors: [{0, Exception.message(e)}],
-               categories_created: 0,
-               manufacturers_created: 0,
-               suppliers_created: 0,
-               manufacturer_supplier_links_created: 0
-             }}
+    # Supervised under PhoenixKit.TaskSupervisor so the import survives a
+    # transient LV crash (the user's browser will reconnect to a new LV
+    # process; we still want the import to finish and surface its result
+    # in the activity feed via the executor's own logging) and so a task
+    # crash here can't leave an orphan process running indefinitely.
+    {:ok, _pid} =
+      Task.Supervisor.start_child(PhoenixKit.TaskSupervisor, fn ->
+        try do
+          Executor.execute(import_plan, catalogue_uuid, lv_pid,
+            language: import_lang,
+            category_uuid: category_uuid,
+            manufacturer_uuid: manufacturer_uuid,
+            supplier_uuid: supplier_uuid,
+            match_categories_across_languages: match_across_languages,
+            actor_uuid: extract_actor_uuid(socket)
           )
-      end
-    end)
+        rescue
+          e ->
+            Logger.error("Import failed: #{Exception.message(e)}")
+
+            send(
+              lv_pid,
+              {:import_result,
+               %{
+                 created: 0,
+                 errors: [{0, Exception.message(e)}],
+                 categories_created: 0,
+                 manufacturers_created: 0,
+                 suppliers_created: 0,
+                 manufacturer_supplier_links_created: 0
+               }}
+            )
+        end
+      end)
 
     {:noreply,
      assign(socket,
@@ -2167,16 +2163,7 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
 
   defp translate_target(label), do: label
 
-  defp translate_error("Missing item name"),
-    do: Gettext.gettext(PhoenixKitWeb.Gettext, "Missing item name")
-
-  defp translate_error("Invalid price: " <> val),
-    do: Gettext.gettext(PhoenixKitWeb.Gettext, "Invalid price: %{value}", value: val)
-
-  defp translate_error("Invalid markup: " <> val),
-    do: Gettext.gettext(PhoenixKitWeb.Gettext, "Invalid markup: %{value}", value: val)
-
-  defp translate_error(msg), do: msg
+  defp translate_error(reason), do: PhoenixKitCatalogue.Errors.message(reason)
 
   defp unique_column_values_from_ets(nil, _col_idx), do: []
 

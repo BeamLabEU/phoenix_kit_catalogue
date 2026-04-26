@@ -55,7 +55,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Tree do
   def subtree_uuids_for(roots) when is_list(roots) do
     initial =
       from(c in Category,
-        where: c.uuid in ^roots,
+        where: c.uuid in type(^roots, {:array, UUIDv7}),
         select: %{uuid: c.uuid}
       )
 
@@ -68,6 +68,14 @@ defmodule PhoenixKitCatalogue.Catalogue.Tree do
 
     cte = initial |> union(^recursion)
 
+    # The schema-less outer query (`"category_tree"`) doesn't carry
+    # field-type information, so Ecto returns the raw 16-byte binary
+    # form Postgres encodes UUIDs as. Most call sites pipe these
+    # straight into another `c.uuid in ^uuids` query (subtree trash /
+    # restore / permanent-delete) which expects the binary form too,
+    # so we keep them as-is. The one caller that compares against a
+    # textual UUID — `validate_parent_in_same_catalogue/1` — normalises
+    # both sides via `Ecto.UUID.dump/1` (see `catalogue.ex`).
     from(t in "category_tree", select: t.uuid)
     |> recursive_ctes(true)
     |> with_cte("category_tree", as: ^cte)
@@ -82,7 +90,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Tree do
   def ancestor_uuids(uuid) when is_binary(uuid) do
     initial =
       from(c in Category,
-        where: c.uuid == ^uuid,
+        where: c.uuid == type(^uuid, UUIDv7),
         select: %{uuid: c.uuid, parent_uuid: c.parent_uuid}
       )
 
@@ -95,8 +103,12 @@ defmodule PhoenixKitCatalogue.Catalogue.Tree do
 
     cte = initial |> union(^recursion)
 
+    # Returns raw 16-byte binaries — see `subtree_uuids_for/1` for the
+    # rationale (schema-less outer query loses type info, and most
+    # callers pipe straight into another `where: c.uuid in ^ancestors`
+    # query that expects the binary form).
     from(t in "category_tree",
-      where: t.uuid != ^uuid,
+      where: t.uuid != type(^uuid, UUIDv7),
       select: t.uuid
     )
     |> recursive_ctes(true)
@@ -115,17 +127,31 @@ defmodule PhoenixKitCatalogue.Catalogue.Tree do
         []
 
       uuids ->
+        # `ancestor_uuids/1` returns raw 16-byte binaries; the loaded
+        # `Category` rows below carry textual UUIDs via the schema's
+        # `UUIDv7` cast. Build the lookup map keyed by textual UUID,
+        # then seed the walk from the input's `parent_uuid` (also
+        # textual). Don't try to seed from `uuid` itself — the input
+        # category is intentionally excluded from `ancestor_uuids/1`'s
+        # result, so it isn't in the map and the walk would short-
+        # circuit on the very first lookup.
         by_uuid =
           from(c in Category, where: c.uuid in ^uuids)
           |> repo().all()
           |> Map.new(&{&1.uuid, &1})
 
-        # Walk from the category's direct parent up; then reverse so
-        # the caller gets root-first order. Using the loaded map means
-        # no extra round trips per hop.
-        uuid
-        |> walk_up(by_uuid, [])
-        |> Enum.reverse()
+        seed_parent_uuid =
+          from(c in Category, where: c.uuid == type(^uuid, UUIDv7), select: c.parent_uuid)
+          |> repo().one()
+
+        case seed_parent_uuid do
+          nil -> []
+          # walk_up/3 prepends each ancestor as it walks up, so the
+          # accumulator already comes out root → direct-parent without
+          # any reverse. (Direct parent is added first → ends up at
+          # the tail; the root is added last → ends up at the head.)
+          parent -> walk_up(parent, by_uuid, [])
+        end
     end
   end
 
@@ -147,9 +173,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Tree do
           (Ecto.UUID.t() | nil) => [Category.t()]
         }
   def build_children_index(categories) when is_list(categories) do
-    categories
-    |> Enum.group_by(& &1.parent_uuid)
-    |> Map.new(fn {k, children} -> {k, children} end)
+    Enum.group_by(categories, & &1.parent_uuid)
   end
 
   @doc """

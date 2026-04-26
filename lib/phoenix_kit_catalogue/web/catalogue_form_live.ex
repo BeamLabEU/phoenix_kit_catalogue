@@ -15,6 +15,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
   import PhoenixKitCatalogue.Web.Components,
     only: [featured_image_card: 1, metadata_editor: 1]
 
+  import PhoenixKitCatalogue.Web.Helpers, only: [actor_opts: 1]
+
   alias PhoenixKit.Modules.Storage.URLSigner
   alias PhoenixKitCatalogue.Attachments
   alias PhoenixKitCatalogue.Catalogue
@@ -225,7 +227,10 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
 
   # Catch-all so stray monitor signals or unrelated PubSub traffic
   # can't crash the form mid-edit.
-  def handle_info(_msg, socket), do: {:noreply, socket}
+  def handle_info(msg, socket) do
+    Logger.debug("CatalogueFormLive ignored unhandled message: #{inspect(msg)}")
+    {:noreply, socket}
+  end
 
   defp parse_tab("metadata"), do: :metadata
   defp parse_tab("files"), do: :files
@@ -235,12 +240,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
     assign(socket, :meta_state, Metadata.absorb_params(socket.assigns.meta_state, params))
   end
 
-  defp actor_opts(socket) do
-    case socket.assigns[:phoenix_kit_current_user] do
-      %{uuid: uuid} -> [actor_uuid: uuid]
-      _ -> []
-    end
-  end
+  # actor_opts/1 imported from PhoenixKitCatalogue.Web.Helpers
 
   defp save_catalogue(socket, :new, params) do
     case Catalogue.create_catalogue(params, actor_opts(socket)) do
