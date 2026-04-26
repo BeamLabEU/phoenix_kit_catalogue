@@ -900,9 +900,10 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
               />
             </div>
 
-            <%!-- Classification — hidden for smart catalogues, whose items
-                   don't belong to a category/manufacturer in the usual sense. --%>
-            <div :if={@catalogue_kind != "smart"} class="flex flex-col gap-5">
+            <%!-- Classification — available for both standard and smart
+                   items. Smart items use category/manufacturer purely for
+                   organization; the rule-based pricing is unaffected. --%>
+            <div class="flex flex-col gap-5">
               <div class="divider my-0"></div>
 
               <h2 class="text-base font-semibold text-base-content/80 flex items-center gap-2">
