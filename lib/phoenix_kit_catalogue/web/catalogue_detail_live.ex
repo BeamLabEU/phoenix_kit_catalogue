@@ -77,14 +77,43 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     end
   end
 
-  # PubSub: another LV touched a category/item/catalogue/smart-rule
-  # we might be displaying. Re-load the visible slice. The catch-all
-  # absorbs unrelated events without letting the LV crash on an
-  # unexpected message.
+  # PubSub: another LV touched a category/item/catalogue/smart-rule.
+  # Filter on `parent_catalogue_uuid` so a write in another catalogue
+  # doesn't reset *this* page — without that filter, every item edit
+  # anywhere in the system wipes the user's scroll state, and a busy
+  # admin or background importer can trap the LV in a permanent
+  # spinner as the mailbox queues up faster than `refresh_in_place`
+  # can drain it.
+  #
+  # `:catalogue` events match when the affected uuid is *this*
+  # catalogue. `:category` / `:item` / `:smart_rule` match when the
+  # mutated resource belongs to this catalogue (parent_catalogue_uuid
+  # is threaded through the broadcast). `nil` parent is treated as
+  # "unknown scope, refresh defensively" — the same way pre-filter
+  # behaviour worked, so older callers that haven't been updated still
+  # propagate.
   @impl true
-  def handle_info({:catalogue_data_changed, kind, _uuid}, socket)
-      when kind in [:catalogue, :category, :item, :smart_rule] do
-    {:noreply, reset_and_load(socket)}
+  def handle_info(
+        {:catalogue_data_changed, :catalogue, uuid, _parent},
+        %{assigns: %{catalogue_uuid: catalogue_uuid}} = socket
+      )
+      when uuid == catalogue_uuid do
+    handle_catalogue_data_changed(socket)
+  end
+
+  def handle_info(
+        {:catalogue_data_changed, kind, _uuid, parent},
+        %{assigns: %{catalogue_uuid: catalogue_uuid}} = socket
+      )
+      when kind in [:category, :item, :smart_rule] and
+             (parent == catalogue_uuid or is_nil(parent)) do
+    handle_catalogue_data_changed(socket)
+  end
+
+  def handle_info(_msg, socket), do: {:noreply, socket}
+
+  defp handle_catalogue_data_changed(socket) do
+    {:noreply, refresh_in_place(socket)}
   rescue
     Ecto.NoResultsError ->
       # The catalogue we're viewing was deleted in another session.
@@ -96,8 +125,6 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
        )
        |> push_navigate(to: Paths.index())}
   end
-
-  def handle_info(_msg, socket), do: {:noreply, socket}
 
   # ── Event handlers ──────────────────────────────────────────────
 
@@ -504,6 +531,48 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       active_item_count: Catalogue.item_count_for_catalogue(uuid),
       category_counts: Catalogue.item_counts_by_category_for_catalogue(uuid, mode: mode),
       uncategorized_total: Catalogue.uncategorized_count_for_catalogue(uuid, mode: mode)
+    )
+  end
+
+  # PubSub-driven refresh. Updates counts, the catalogue struct, and the
+  # category list (so newly-created or renamed categories show up in the
+  # tree without the user reloading), but **deliberately leaves**
+  # `loaded_cards` and `cursor` alone. A full `reset_and_load` would wipe
+  # the user's scroll state on every broadcast — combined with the
+  # global PubSub topic, that turns into a perpetual spinner whenever
+  # another admin (or the import wizard) is busy.
+  #
+  # Trade-off: an item that was deleted elsewhere may briefly remain
+  # visible in `loaded_cards` until the user navigates or refreshes; the
+  # counts will be correct, so the discrepancy is self-explanatory. The
+  # `Ecto.NoResultsError` rescue in the caller handles the edge case
+  # where this catalogue itself was deleted (caller redirects to index).
+  defp refresh_in_place(socket) do
+    uuid = socket.assigns.catalogue_uuid
+
+    catalogue = Catalogue.fetch_catalogue!(uuid)
+    deleted_count = Catalogue.deleted_count_for_catalogue(uuid)
+
+    view_mode =
+      if deleted_count == 0 and socket.assigns.view_mode == "deleted",
+        do: "active",
+        else: socket.assigns.view_mode
+
+    mode = view_mode_to_atom(view_mode)
+    tree = Catalogue.list_category_tree(uuid, mode: mode)
+    category_list = Enum.map(tree, fn {cat, _depth} -> cat end)
+    category_depths = Map.new(tree, fn {cat, depth} -> {cat.uuid, depth} end)
+
+    assign(socket,
+      page_title: catalogue.name,
+      catalogue: catalogue,
+      view_mode: view_mode,
+      category_list: category_list,
+      category_depths: category_depths,
+      category_counts: Catalogue.item_counts_by_category_for_catalogue(uuid, mode: mode),
+      uncategorized_total: Catalogue.uncategorized_count_for_catalogue(uuid, mode: mode),
+      deleted_count: deleted_count,
+      active_item_count: Catalogue.item_count_for_catalogue(uuid)
     )
   end
 

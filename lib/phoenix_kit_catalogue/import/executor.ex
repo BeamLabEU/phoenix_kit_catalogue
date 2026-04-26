@@ -10,6 +10,7 @@ defmodule PhoenixKitCatalogue.Import.Executor do
 
   alias PhoenixKit.Utils.Multilang
   alias PhoenixKitCatalogue.Catalogue
+  alias PhoenixKitCatalogue.Catalogue.PubSub
 
   @type import_result :: %{
           created: non_neg_integer(),
@@ -147,6 +148,14 @@ defmodule PhoenixKitCatalogue.Import.Executor do
       suppliers_created: suppliers_created,
       manufacturer_supplier_links_created: links_created
     }
+
+    # Roll-up broadcast: per-row events were suppressed via
+    # `broadcast: false` to keep open detail LVs responsive during the
+    # import. One `:catalogue` event here lets every subscriber refresh
+    # their slice once, after all rows have landed. We broadcast even on
+    # zero-created imports so any in-progress UI ("Importing..." flash,
+    # etc.) gets a definitive "done" signal.
+    PubSub.broadcast(:catalogue, catalogue_uuid, catalogue_uuid)
 
     send(notify_pid, {:import_result, result})
 
@@ -294,8 +303,13 @@ defmodule PhoenixKitCatalogue.Import.Executor do
   # (if set) was either just created inside that catalogue or was picked
   # from a UI dropdown restricted to it. Skipping derivation avoids one DB
   # lookup per imported item.
+  #
+  # `broadcast: false` suppresses the per-row PubSub fan-out — a single
+  # roll-up `:catalogue` event fires once at the end of `execute/4`. With
+  # it on, a 1k-row import sent 1k broadcasts and any open detail LV would
+  # spend the rest of the import re-running `refresh_in_place` on each one.
   defp insert_item(attrs, activity_opts) do
-    case Catalogue.create_item(attrs, [skip_derive: true] ++ activity_opts) do
+    case Catalogue.create_item(attrs, [skip_derive: true, broadcast: false] ++ activity_opts) do
       {:ok, _item} ->
         {:ok, :created}
 

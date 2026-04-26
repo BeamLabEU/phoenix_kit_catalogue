@@ -52,7 +52,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   # shared across all catalogue resources — we ignore events we don't
   # care about for the current tab.
   @impl true
-  def handle_info({:catalogue_data_changed, kind, _uuid}, socket) do
+  def handle_info({:catalogue_data_changed, kind, _uuid, _parent}, socket) do
     cond do
       socket.assigns.active_tab == :index and kind in [:catalogue, :item, :category] ->
         {:noreply, load_data(socket, :index)}

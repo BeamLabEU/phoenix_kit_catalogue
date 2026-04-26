@@ -119,7 +119,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Rules do
           }
         })
 
-        PubSub.broadcast(:smart_rule, item.uuid)
+        PubSub.broadcast(:smart_rule, item.uuid, item.catalogue_uuid)
 
         {:ok, list_catalogue_rules(item)}
 
@@ -279,7 +279,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Rules do
       )
 
     with {:ok, rule} <- result do
-      PubSub.broadcast(:smart_rule, rule.item_uuid)
+      PubSub.broadcast(:smart_rule, rule.item_uuid, item_parent_catalogue_uuid(rule.item_uuid))
       {:ok, rule}
     end
   end
@@ -307,7 +307,12 @@ defmodule PhoenixKitCatalogue.Catalogue.Rules do
       )
 
     with {:ok, updated} <- result do
-      PubSub.broadcast(:smart_rule, updated.item_uuid)
+      PubSub.broadcast(
+        :smart_rule,
+        updated.item_uuid,
+        item_parent_catalogue_uuid(updated.item_uuid)
+      )
+
       {:ok, updated}
     end
   end
@@ -335,8 +340,22 @@ defmodule PhoenixKitCatalogue.Catalogue.Rules do
       )
 
     with {:ok, deleted} <- result do
-      PubSub.broadcast(:smart_rule, deleted.item_uuid)
+      PubSub.broadcast(
+        :smart_rule,
+        deleted.item_uuid,
+        item_parent_catalogue_uuid(deleted.item_uuid)
+      )
+
       {:ok, deleted}
     end
   end
+
+  # Lookup the parent catalogue for a smart-rule broadcast. The rule
+  # itself only knows its item_uuid; the detail LV needs the catalogue
+  # UUID to filter cross-catalogue noise. Single indexed pkey lookup.
+  defp item_parent_catalogue_uuid(item_uuid) when is_binary(item_uuid) do
+    repo().one(from(i in Item, where: i.uuid == ^item_uuid, select: i.catalogue_uuid))
+  end
+
+  defp item_parent_catalogue_uuid(_), do: nil
 end
