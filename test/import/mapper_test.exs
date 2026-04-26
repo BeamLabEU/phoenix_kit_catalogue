@@ -182,7 +182,7 @@ defmodule PhoenixKitCatalogue.Import.MapperTest do
 
       plan = Mapper.build_import_plan(mappings, rows)
       assert plan.stats.invalid == 1
-      assert [{1, "Missing item name"}] = plan.errors
+      assert [{1, :missing_item_name}] = plan.errors
     end
 
     test "extracts categories to create" do
@@ -282,7 +282,7 @@ defmodule PhoenixKitCatalogue.Import.MapperTest do
 
       plan = Mapper.build_import_plan(mappings, [["Item", "abc"]])
       assert plan.stats.invalid == 1
-      assert [{1, "Invalid markup: abc"}] = plan.errors
+      assert [{1, {:invalid_markup, "abc"}}] = plan.errors
     end
 
     test "extracts unique manufacturer names" do

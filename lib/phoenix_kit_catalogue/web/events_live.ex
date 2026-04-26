@@ -169,7 +169,12 @@ defmodule PhoenixKitCatalogue.Web.EventsLive do
   defp humanize_resource_type("smart_rule"),
     do: Gettext.gettext(PhoenixKitWeb.Gettext, "Smart rule")
 
-  defp humanize_resource_type(other) when is_binary(other), do: String.capitalize(other)
+  # Unknown resource types fall back to the raw key. Wrapping in
+  # `String.capitalize/1` would pin English casing on a value the
+  # gettext extractor can't see — better to surface the raw key so a
+  # new resource_type triggers an obvious "we should add a literal
+  # clause above" follow-up.
+  defp humanize_resource_type(other) when is_binary(other), do: other
   defp humanize_resource_type(_), do: ""
 
   defp maybe_put(map, _key, nil), do: map

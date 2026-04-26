@@ -28,6 +28,7 @@ defmodule PhoenixKitCatalogue do
 
   alias PhoenixKit.Dashboard.Tab
   alias PhoenixKit.Settings
+  alias PhoenixKitCatalogue.Catalogue.ActivityLog
 
   # ===========================================================================
   # Required callbacks
@@ -44,16 +45,43 @@ defmodule PhoenixKitCatalogue do
     Settings.get_boolean_setting("catalogue_enabled", false)
   rescue
     _ -> false
+  catch
+    # Sandbox-owner-exited race: a non-DataCase test calls `enabled?/0`
+    # right as a sibling test's owner pid has stopped. The pool checkout
+    # exits before we even reach the `rescue` clause, so we have to
+    # `catch :exit` separately. Returning `false` is correct — if we
+    # can't read the setting, the module is effectively disabled.
+    :exit, _ -> false
   end
 
   @impl PhoenixKit.Module
   def enable_system do
-    Settings.update_boolean_setting_with_module("catalogue_enabled", true, module_key())
+    result =
+      Settings.update_boolean_setting_with_module("catalogue_enabled", true, module_key())
+
+    ActivityLog.log(%{
+      action: "catalogue_module.enabled",
+      mode: "manual",
+      resource_type: "module",
+      metadata: %{"module_key" => module_key()}
+    })
+
+    result
   end
 
   @impl PhoenixKit.Module
   def disable_system do
-    Settings.update_boolean_setting_with_module("catalogue_enabled", false, module_key())
+    result =
+      Settings.update_boolean_setting_with_module("catalogue_enabled", false, module_key())
+
+    ActivityLog.log(%{
+      action: "catalogue_module.disabled",
+      mode: "manual",
+      resource_type: "module",
+      metadata: %{"module_key" => module_key()}
+    })
+
+    result
   end
 
   # ===========================================================================

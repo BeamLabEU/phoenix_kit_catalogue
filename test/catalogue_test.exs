@@ -3340,4 +3340,23 @@ defmodule PhoenixKitCatalogue.CatalogueTest do
       assert Catalogue.category_counts_by_catalogue() == %{}
     end
   end
+
+  describe "list_category_ancestors/1" do
+    test "returns [] for a root category" do
+      cat = create_catalogue()
+      root = create_category(cat, %{name: "Root"})
+
+      assert PhoenixKitCatalogue.Catalogue.list_category_ancestors(root.uuid) == []
+    end
+
+    test "returns ancestor chain root → direct parent for a deep descendant" do
+      cat = create_catalogue()
+      root = create_category(cat, %{name: "Root"})
+      mid = create_category(cat, %{name: "Mid", parent_uuid: root.uuid})
+      leaf = create_category(cat, %{name: "Leaf", parent_uuid: mid.uuid})
+
+      ancestors = PhoenixKitCatalogue.Catalogue.list_category_ancestors(leaf.uuid)
+      assert Enum.map(ancestors, & &1.name) == ["Root", "Mid"]
+    end
+  end
 end

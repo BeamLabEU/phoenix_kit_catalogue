@@ -17,6 +17,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   import PhoenixKitWeb.Components.Core.TableRowMenu
 
   import PhoenixKitCatalogue.Web.Components
+  import PhoenixKitCatalogue.Web.Helpers, only: [actor_opts: 1, actor_uuid: 1, status_label: 1]
 
   alias PhoenixKitCatalogue.Catalogue
   alias PhoenixKitCatalogue.Catalogue.PubSub
@@ -68,7 +69,10 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     end
   end
 
-  def handle_info(_msg, socket), do: {:noreply, socket}
+  def handle_info(msg, socket) do
+    Logger.debug("CataloguesLive ignored unhandled message: #{inspect(msg)}")
+    {:noreply, socket}
+  end
 
   @impl true
   def handle_params(_params, _uri, socket) do
@@ -146,19 +150,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
 
   defp format_reason(other), do: inspect(other)
 
-  defp actor_uuid(socket) do
-    case socket.assigns[:phoenix_kit_current_user] do
-      %{uuid: uuid} -> uuid
-      _ -> nil
-    end
-  end
-
-  defp actor_opts(socket) do
-    case actor_uuid(socket) do
-      nil -> []
-      uuid -> [actor_uuid: uuid]
-    end
-  end
+  # actor_opts/1 + actor_uuid/1 imported from PhoenixKitCatalogue.Web.Helpers
 
   defp load_data(socket, :index) do
     if connected?(socket) do
@@ -759,7 +751,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         },
         %{
           label: Gettext.gettext(PhoenixKitWeb.Gettext, "Status"),
-          value: String.capitalize(c.status)
+          value: status_label(c.status)
         },
         %{
           label: Gettext.gettext(PhoenixKitWeb.Gettext, "Updated"),
@@ -774,7 +766,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       [
         %{
           label: Gettext.gettext(PhoenixKitWeb.Gettext, "Status"),
-          value: String.capitalize(c.status)
+          value: status_label(c.status)
         },
         %{
           label: Gettext.gettext(PhoenixKitWeb.Gettext, "Updated"),
@@ -875,7 +867,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         id="manufacturers-list" items={@manufacturers}
         card_fields={fn m -> [
           %{label: Gettext.gettext(PhoenixKitWeb.Gettext, "Website"), value: m.website || "—"},
-          %{label: Gettext.gettext(PhoenixKitWeb.Gettext, "Status"), value: String.capitalize(m.status)}
+          %{label: Gettext.gettext(PhoenixKitWeb.Gettext, "Status"), value: status_label(m.status)}
         ] end}
       >
         <.table_default_header>
@@ -930,7 +922,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         id="suppliers-list" items={@suppliers}
         card_fields={fn s -> [
           %{label: Gettext.gettext(PhoenixKitWeb.Gettext, "Website"), value: s.website || "—"},
-          %{label: Gettext.gettext(PhoenixKitWeb.Gettext, "Status"), value: String.capitalize(s.status)}
+          %{label: Gettext.gettext(PhoenixKitWeb.Gettext, "Status"), value: status_label(s.status)}
         ] end}
       >
         <.table_default_header>

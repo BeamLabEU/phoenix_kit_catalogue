@@ -214,13 +214,15 @@ defmodule PhoenixKitCatalogue.Catalogue.Rules do
   """
   @spec list_items_referencing_catalogue(Ecto.UUID.t()) :: [Item.t()]
   def list_items_referencing_catalogue(catalogue_uuid) do
-    from(r in CatalogueRule,
-      join: i in Item,
+    # Newer Ecto requires the preload binding to be present in `select`.
+    # Pull `i` (the items) directly via the rules' has-many → switch to
+    # `Item`-rooted query joining through rules, and preload off it.
+    from(i in Item,
+      join: r in CatalogueRule,
       on: r.item_uuid == i.uuid,
       where: r.referenced_catalogue_uuid == ^catalogue_uuid,
       where: i.status != "deleted",
       order_by: [asc: i.name, asc: i.uuid],
-      select: i,
       distinct: true,
       preload: [:catalogue]
     )

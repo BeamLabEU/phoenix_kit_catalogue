@@ -16,6 +16,7 @@ defmodule PhoenixKitCatalogue.DataCase do
       import Ecto.Changeset
       import Ecto.Query
       import PhoenixKitCatalogue.DataCase
+      import PhoenixKitCatalogue.ActivityLogAssertions
     end
   end
 

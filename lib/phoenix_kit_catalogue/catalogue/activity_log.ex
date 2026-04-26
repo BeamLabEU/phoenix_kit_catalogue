@@ -4,20 +4,46 @@ defmodule PhoenixKitCatalogue.Catalogue.ActivityLog do
   # Wraps `PhoenixKit.Activity.log/1` with the catalogue module key
   # injected. External plugins must guard with `Code.ensure_loaded?/1`,
   # which we do here once so callers don't have to repeat it.
+  #
+  # Convention: this module logs on **success** only. Failed mutations
+  # surface as `{:error, _}` to the LiveView, which logs the rich error
+  # context via its own `log_operation_error/3` (see
+  # `web/catalogue_detail_live.ex:425`). The activity log is the user-
+  # visible audit trail; operation errors are an engineer-visible log
+  # stream. Keeping the two separate prevents validation noise from
+  # drowning the audit feed.
 
   require Logger
 
   @module_key "catalogue"
 
+  @doc """
+  Direct, fire-and-forget log call. Always returns `:ok`.
+
+  Use this from inside transactions, multi-step operations, and the
+  module enable/disable callbacks. Never raises — DB hiccups, missing
+  table (host hasn't run core's V90 migration), or a mis-shaped Activity
+  context all swallow silently with a `Logger.warning`. Returning a
+  result from the primary operation must take precedence over logging
+  fidelity.
+  """
   @spec log(map()) :: :ok
   def log(attrs) when is_map(attrs) do
-    # Activity logging must never crash the primary operation. If the
-    # Activity context raises (e.g. DB hiccup, misconfigured module), we
-    # swallow it with a Logger warning so the caller's mutation succeeds.
     if Code.ensure_loaded?(PhoenixKit.Activity) do
       try do
         PhoenixKit.Activity.log(Map.put(attrs, :module, @module_key))
       rescue
+        e in Postgrex.Error ->
+          # Host hasn't run the activity migration — silent so test DBs
+          # without the table don't spam warnings.
+          if match?(%{postgres: %{code: :undefined_table}}, e) do
+            :ok
+          else
+            Logger.warning(
+              "PhoenixKitCatalogue activity log failed: #{Exception.message(e)} — attrs=#{inspect(Map.take(attrs, [:action, :resource_type, :resource_uuid]))}"
+            )
+          end
+
         error ->
           Logger.warning(
             "PhoenixKitCatalogue activity log failed: #{Exception.message(error)} — attrs=#{inspect(Map.take(attrs, [:action, :resource_type, :resource_uuid]))}"

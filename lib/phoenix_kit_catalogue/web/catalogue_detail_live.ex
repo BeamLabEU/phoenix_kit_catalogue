@@ -20,6 +20,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   import PhoenixKitWeb.Components.Core.AdminPageHeader, only: [admin_page_header: 1]
   import PhoenixKitWeb.Components.Core.Modal, only: [confirm_modal: 1]
   import PhoenixKitCatalogue.Web.Components
+  import PhoenixKitCatalogue.Web.Helpers, only: [actor_opts: 1, actor_uuid: 1]
 
   alias PhoenixKitCatalogue.Catalogue
   alias PhoenixKitCatalogue.Catalogue.PubSub
@@ -110,7 +111,10 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     handle_catalogue_data_changed(socket)
   end
 
-  def handle_info(_msg, socket), do: {:noreply, socket}
+  def handle_info(msg, socket) do
+    Logger.debug("CatalogueDetailLive ignored unhandled message: #{inspect(msg)}")
+    {:noreply, socket}
+  end
 
   defp handle_catalogue_data_changed(socket) do
     {:noreply, refresh_in_place(socket)}
@@ -459,19 +463,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
   defp format_reason(other), do: inspect(other)
 
-  defp actor_uuid(socket) do
-    case socket.assigns[:phoenix_kit_current_user] do
-      %{uuid: uuid} -> uuid
-      _ -> nil
-    end
-  end
-
-  defp actor_opts(socket) do
-    case actor_uuid(socket) do
-      nil -> []
-      uuid -> [actor_uuid: uuid]
-    end
-  end
+  # actor_opts/1 + actor_uuid/1 imported from PhoenixKitCatalogue.Web.Helpers
 
   defp initial_cursor, do: %{phase: :categories, category_index: 0, item_offset: 0}
 
