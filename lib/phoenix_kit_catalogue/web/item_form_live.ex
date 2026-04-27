@@ -147,7 +147,13 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   # catalogue is kind: "smart". For standard catalogues we still assign
   # empty defaults so the render path can reference the keys unconditionally.
   defp assign_rule_state(socket, _item, "smart" = _kind, catalogue_uuid) do
-    candidates = Catalogue.list_catalogues() |> Enum.reject(&(&1.uuid == catalogue_uuid))
+    # Smart-chain guard: a smart catalogue cannot be the referenced
+    # target of another smart item (issue #16). The changeset rejects
+    # writes; filtering here keeps the picker honest so the user is
+    # never offered an option that would fail on save.
+    candidates =
+      Catalogue.list_catalogues(kind: :standard)
+      |> Enum.reject(&(&1.uuid == catalogue_uuid))
 
     existing =
       case socket.assigns.item do
@@ -973,7 +979,12 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
             resource_type={:item}
             state={@meta_state}
             id_prefix="item"
-            description={Gettext.gettext(PhoenixKitWeb.Gettext, "Attach any metadata fields that apply to this item. Blank values are dropped on save.")}
+            description={
+              Gettext.gettext(
+                PhoenixKitWeb.Gettext,
+                "Attach any metadata fields that apply to this item. Blank values are dropped on save."
+              )
+            }
           />
         </div>
 
@@ -1015,7 +1026,9 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
             >
               <.icon name="hero-cloud-arrow-up" class="w-8 h-8 text-base-content/40" />
               <div class="text-sm text-base-content/60">
-                <span class="font-medium text-primary">{Gettext.gettext(PhoenixKitWeb.Gettext, "Click to upload")}</span>
+                <span class="font-medium text-primary">
+                  {Gettext.gettext(PhoenixKitWeb.Gettext, "Click to upload")}
+                </span>
                 <span>{Gettext.gettext(PhoenixKitWeb.Gettext, " or drag & drop")}</span>
               </div>
               <.live_file_input upload={@uploads.attachment_files} class="hidden" />
@@ -1030,7 +1043,12 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                 <.icon name="hero-cloud-arrow-up" class="w-4 h-4 text-base-content/60 shrink-0" />
                 <div class="flex-1 min-w-0">
                   <p class="text-sm truncate">{entry.client_name}</p>
-                  <progress class="progress progress-primary w-full h-1 mt-1" value={entry.progress} max="100"></progress>
+                  <progress
+                    class="progress progress-primary w-full h-1 mt-1"
+                    value={entry.progress}
+                    max="100"
+                  >
+                  </progress>
                 </div>
                 <span class="text-xs text-base-content/50 tabular-nums">{entry.progress}%</span>
                 <button
@@ -1099,7 +1117,12 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                     type="button"
                     phx-click="remove_file"
                     phx-value-uuid={file.uuid}
-                    data-confirm={Gettext.gettext(PhoenixKitWeb.Gettext, "Remove this file from the item? If it's not attached to any other item, it will be moved to trash (admins can restore).")}
+                    data-confirm={
+                      Gettext.gettext(
+                        PhoenixKitWeb.Gettext,
+                        "Remove this file from the item? If it's not attached to any other item, it will be moved to trash (admins can restore)."
+                      )
+                    }
                     class="btn btn-ghost btn-xs btn-square"
                     title={Gettext.gettext(PhoenixKitWeb.Gettext, "Remove from item")}
                   >
