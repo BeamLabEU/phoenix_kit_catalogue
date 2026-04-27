@@ -22,7 +22,10 @@ config :phoenix_kit_catalogue, PhoenixKitCatalogue.Test.Endpoint,
   live_view: [signing_salt: "catalogue-test-salt"],
   server: false,
   url: [host: "localhost"],
-  render_errors: [formats: [html: PhoenixKitCatalogue.Test.Layouts]]
+  render_errors: [formats: [html: PhoenixKitCatalogue.Test.Layouts]],
+  # Required by Phoenix.LiveViewTest's UploadClient when exercising
+  # `file_input/3` + `render_upload/3` against the test Endpoint.
+  pubsub_server: PhoenixKit.PubSub
 
 config :phoenix, :json_library, Jason
 
