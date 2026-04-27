@@ -199,6 +199,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
       Catalogue.list_catalogues(kind: :smart)         # only smart catalogues
       Catalogue.list_catalogues(kind: :standard)      # only standard catalogues
   """
+  @spec list_catalogues(keyword()) :: [Catalogue.t()]
   def list_catalogues(opts \\ []) do
     query = from(c in Catalogue, order_by: [asc: :name])
 
@@ -250,6 +251,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
       Catalogue.search_items("oak", catalogue_uuids: uuids)
   """
+  @spec list_catalogues_by_name_prefix(String.t(), keyword()) :: [Catalogue.t()]
   def list_catalogues_by_name_prefix(prefix, opts \\ []) when is_binary(prefix) do
     pattern = "#{Helpers.sanitize_like(prefix)}%"
 
@@ -275,6 +277,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
   end
 
   @doc "Returns the count of soft-deleted catalogues."
+  @spec deleted_catalogue_count() :: non_neg_integer()
   def deleted_catalogue_count do
     from(c in Catalogue, where: c.status == "deleted")
     |> repo().aggregate(:count)
@@ -310,6 +313,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
       Catalogue.get_catalogue!(uuid)                  # active view
       Catalogue.get_catalogue!(uuid, mode: :deleted)  # deleted view
   """
+  @spec get_catalogue!(Ecto.UUID.t(), keyword()) :: Catalogue.t()
   def get_catalogue!(uuid, opts \\ []) do
     mode = Keyword.get(opts, :mode, :active)
 
@@ -595,6 +599,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
   Preloads items (non-deleted only).
   """
+  @spec list_categories_for_catalogue(Ecto.UUID.t()) :: [Category.t()]
   def list_categories_for_catalogue(catalogue_uuid) do
     from(c in Category,
       where: c.catalogue_uuid == ^catalogue_uuid and c.status != "deleted",
@@ -616,6 +621,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
       `:deleted` (all categories — deleted categories can still contain
       trashed items we want to show).
   """
+  @spec list_categories_metadata_for_catalogue(Ecto.UUID.t(), keyword()) :: [Category.t()]
   def list_categories_metadata_for_catalogue(catalogue_uuid, opts \\ []) do
     mode = Keyword.get(opts, :mode, :active)
 
@@ -648,6 +654,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
     * `:offset` — default `0`
     * `:limit` — default `50`
   """
+  @spec list_items_for_category_paged(Ecto.UUID.t(), keyword()) :: [Item.t()]
   def list_items_for_category_paged(category_uuid, opts \\ []) do
     mode = Keyword.get(opts, :mode, :active)
     offset = Keyword.get(opts, :offset, 0)
@@ -684,6 +691,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
     * `:offset` — default `0`
     * `:limit` — default `50`
   """
+  @spec list_uncategorized_items_paged(Ecto.UUID.t(), keyword()) :: [Item.t()]
   def list_uncategorized_items_paged(catalogue_uuid, opts \\ []) do
     mode = Keyword.get(opts, :mode, :active)
     offset = Keyword.get(opts, :offset, 0)
@@ -712,6 +720,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
   `category_uuid IS NULL`). Used to decide whether the infinite-scroll
   detail view needs to show an "Uncategorized" card at all.
   """
+  @spec uncategorized_count_for_catalogue(Ecto.UUID.t(), keyword()) :: non_neg_integer()
   def uncategorized_count_for_catalogue(catalogue_uuid, opts \\ []) do
     mode = Keyword.get(opts, :mode, :active)
 
@@ -740,6 +749,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
     * `:mode` — `:active` (default) or `:deleted`
   """
+  @spec item_count_for_category(Ecto.UUID.t(), keyword()) :: non_neg_integer()
   def item_count_for_category(category_uuid, opts \\ []) do
     mode = Keyword.get(opts, :mode, :active)
 
@@ -767,6 +777,9 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
     * `:mode` — `:active` (default) or `:deleted`
   """
+  @spec item_counts_by_category_for_catalogue(Ecto.UUID.t(), keyword()) :: %{
+          Ecto.UUID.t() => non_neg_integer()
+        }
   def item_counts_by_category_for_catalogue(catalogue_uuid, opts \\ []) do
     mode = Keyword.get(opts, :mode, :active)
 
@@ -802,6 +815,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
   tree walk and breadcrumb rewrite happen in memory. Safe to call on
   demand from move-dropdowns.
   """
+  @spec list_all_categories() :: [Category.t()]
   def list_all_categories do
     catalogues =
       from(cat in Catalogue,
@@ -884,6 +898,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
   def get_category(uuid), do: repo().get(Category, uuid)
 
   @doc "Fetches a category by UUID. Raises `Ecto.NoResultsError` if not found."
+  @spec get_category!(Ecto.UUID.t()) :: Category.t()
   def get_category!(uuid), do: repo().get!(Category, uuid)
 
   @doc """
@@ -1026,6 +1041,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
   end
 
   @doc "Hard-deletes a category. Prefer `trash_category/1` for soft-delete."
+  @spec delete_category(Category.t(), keyword()) :: {:ok, Category.t()} | {:error, term()}
   def delete_category(%Category{} = category, opts \\ []) do
     case repo().delete(category) do
       {:ok, _} = ok ->
@@ -1063,6 +1079,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
       {:ok, _} = Catalogue.trash_category(category)
   """
+  @spec trash_category(Category.t(), keyword()) :: {:ok, Category.t()} | {:error, term()}
   def trash_category(%Category{} = category, opts \\ []) do
     result =
       repo().transaction(fn ->
@@ -1124,6 +1141,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
       {:ok, _} = Catalogue.restore_category(category)
   """
+  @spec restore_category(Category.t(), keyword()) :: {:ok, Category.t()} | {:error, term()}
   def restore_category(%Category{} = category, opts \\ []) do
     result =
       repo().transaction(fn ->
@@ -1196,6 +1214,8 @@ defmodule PhoenixKitCatalogue.Catalogue do
   subtree categories from leaves up (ordered so child FKs resolve
   before their parent is removed). This cannot be undone.
   """
+  @spec permanently_delete_category(Category.t(), keyword()) ::
+          {:ok, Category.t()} | {:error, term()}
   def permanently_delete_category(%Category{} = category, opts \\ []) do
     result =
       repo().transaction(fn ->
@@ -1647,6 +1667,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
   `parent_uuid` defaults to `nil`, i.e. root-level siblings. Returns 0
   if no siblings exist at that level, otherwise `max_position + 1`.
   """
+  @spec next_category_position(Ecto.UUID.t(), Ecto.UUID.t() | nil) :: non_neg_integer()
   def next_category_position(catalogue_uuid, parent_uuid \\ nil) do
     query =
       from(c in Category,
@@ -1687,6 +1708,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
       Catalogue.list_items(status: "active")          # only active
       Catalogue.list_items(limit: 100)                # first 100
   """
+  @spec list_items(keyword()) :: [Item.t()]
   def list_items(opts \\ []) do
     query =
       from(i in Item,
@@ -1714,6 +1736,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
   Preloads category (with catalogue) and manufacturer.
   """
+  @spec list_items_for_category(Ecto.UUID.t()) :: [Item.t()]
   def list_items_for_category(category_uuid) do
     from(i in Item,
       where: i.category_uuid == ^category_uuid and i.status != "deleted",
@@ -1729,6 +1752,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
   Preloads catalogue, category (with catalogue) and manufacturer.
   """
+  @spec list_items_for_catalogue(Ecto.UUID.t()) :: [Item.t()]
   def list_items_for_catalogue(catalogue_uuid) do
     from(i in Item,
       left_join: c in Category,
@@ -1753,6 +1777,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
       Catalogue.list_uncategorized_items(catalogue_uuid)
       Catalogue.list_uncategorized_items(catalogue_uuid, mode: :deleted)
   """
+  @spec list_uncategorized_items(Ecto.UUID.t(), keyword()) :: [Item.t()]
   def list_uncategorized_items(catalogue_uuid, opts \\ []) do
     mode = Keyword.get(opts, :mode, :active)
 
@@ -1780,6 +1805,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
   Fetches an item by UUID with preloaded category and manufacturer.
   Raises `Ecto.NoResultsError` if not found.
   """
+  @spec get_item!(Ecto.UUID.t()) :: Item.t()
   def get_item!(uuid) do
     Item
     |> repo().get!(uuid)
@@ -1965,6 +1991,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
   end
 
   @doc "Hard-deletes an item. Prefer `trash_item/1` for soft-delete."
+  @spec delete_item(Item.t(), keyword()) :: {:ok, Item.t()} | {:error, term()}
   def delete_item(%Item{} = item, opts \\ []) do
     case repo().delete(item) do
       {:ok, _} = ok ->
@@ -2024,6 +2051,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
       {:ok, item} = Catalogue.restore_item(item)
   """
+  @spec restore_item(Item.t(), keyword()) :: {:ok, Item.t()} | {:error, term()}
   def restore_item(%Item{} = item, opts \\ []) do
     result =
       repo().transaction(fn ->
@@ -2079,6 +2107,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
       {:ok, _} = Catalogue.permanently_delete_item(item)
   """
+  @spec permanently_delete_item(Item.t(), keyword()) :: {:ok, Item.t()} | {:error, term()}
   def permanently_delete_item(%Item{} = item, opts \\ []) do
     case repo().delete(item) do
       {:ok, _} = ok ->
@@ -2108,6 +2137,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
       {3, nil} = Catalogue.trash_items_in_category(category_uuid)
   """
+  @spec trash_items_in_category(Ecto.UUID.t(), keyword()) :: {non_neg_integer(), nil}
   def trash_items_in_category(category_uuid, opts \\ []) do
     {count, _} =
       from(i in Item,

@@ -1084,7 +1084,21 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
             actor_uuid: extract_actor_uuid(socket)
           )
         rescue
-          e ->
+          # Narrow to the exception families we actually expect from
+          # the import path: changeset / SQL errors from Executor's
+          # inserts, ArgumentError/RuntimeError from Mapper or row
+          # parsing, and Postgrex.Error if a constraint trips. A bare
+          # `rescue _` would also swallow programmer-error exceptions
+          # like KeyError / FunctionClauseError from a future
+          # refactor — those should crash the supervised task so the
+          # supervisor logs the full stacktrace.
+          e in [
+            ArgumentError,
+            RuntimeError,
+            Ecto.InvalidChangesetError,
+            Ecto.QueryError,
+            Postgrex.Error
+          ] ->
             Logger.error("Import failed: #{Exception.message(e)}")
 
             send(
