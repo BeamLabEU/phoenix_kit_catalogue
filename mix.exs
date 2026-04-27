@@ -32,7 +32,14 @@ defmodule PhoenixKitCatalogue.MixProject do
           ~r/^PhoenixKitCatalogue\.Test\./,
           PhoenixKitCatalogue.DataCase,
           PhoenixKitCatalogue.LiveCase,
-          PhoenixKitCatalogue.ActivityLogAssertions
+          PhoenixKitCatalogue.ActivityLogAssertions,
+          # NimbleCSV-generated parser modules — macro-defined CSV
+          # readers from the `nimble_csv` dep, not production code
+          # we own. Their internal branches are NimbleCSV's contract
+          # to test, not ours.
+          PhoenixKitCatalogue.Import.CommaParser,
+          PhoenixKitCatalogue.Import.SemicolonParser,
+          PhoenixKitCatalogue.Import.TabParser
         ]
       ]
     ]

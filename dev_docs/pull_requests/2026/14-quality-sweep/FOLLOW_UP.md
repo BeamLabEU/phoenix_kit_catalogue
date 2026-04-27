@@ -281,3 +281,137 @@ includes user-typed values" test.
 
 None.
 
+---
+
+## Batch 5 — coverage push 2026-04-28
+
+Per the workspace `AGENTS.md` "Coverage push pattern", the
+re-validation pipeline includes a no-deps `mix test --cover` push.
+The catalogue is a DB-only module (no HTTP/AI/Oban/Presence), so
+the empirical ceiling per the workspace pattern is ~95-97%; the
+post-Batch-4 baseline measured **63.31%**. This batch closed the
+biggest mechanical gaps in three sub-batches.
+
+### Fixed (Batch 5 — 2026-04-28)
+
+**Coverage filter** (`mix.exs`): added the three NimbleCSV-generated
+parser modules (`Import.{Comma,Semicolon,Tab}Parser`) to
+`test_coverage [ignore_modules]`. They're macro-defined CSV readers
+from the `nimble_csv` dep — internal NimbleCSV branches are not
+production code we own to test.
+
+**5a — pure-fn + ActivityLog rescue tests:**
+
+- `test/catalogue/activity_log_test.exs` (6 tests, `async: false`):
+  happy path; `Postgrex.Error :undefined_table` rescue via mid-tx
+  `DROP TABLE phoenix_kit_activities` per the destructive-rescue
+  pattern; generic-error rescue resilience; `with_log/2` `:ok` and
+  both `:error` shapes.
+- `test/attachments_test.exs` (24 tests, pure unit):
+  - `format_file_size/1` — nil + non-integer + B/KB/MB/GB ranges
+    + sci-notation edge case
+  - `file_icon/1` — every clause + file_type-vs-mime priority
+  - `upload_error_message/1` — every atom clause + interpolation
+    on unknown atoms
+  - `upload_name/0` — the `:attachment_files` constant
+  - `inject_attachment_data/2` — folder + featured-image threading
+    into `params["data"]`, including the "preserve unrelated keys"
+    contract and the "nil featured clears stale value" contract
+
+**5b — ImportLive wizard step (state-injected):**
+
+- `test/web/import_live_wizard_test.exs` (19 tests, `async: false`):
+  drives ImportLive past the upload step via `:sys.replace_state/3`
+  (no `:sync_complete`-style DB-reload handler in ImportLive, so
+  the document_creator-Batch-5 trap doesn't apply). Exercises:
+  - mapping-step events (`update_mapping`, `mapping_form_change`,
+    `update_unit_map`) including the unique-target reset path
+  - `continue_to_confirm` guard (no `:name` mapping → flash error)
+  - `back_to_mapping` round-trip
+  - category / manufacturer / supplier picker modes (`:none`,
+    `:create`) plus `validate_new_*` changeset updates
+  - `switch_language` + `set_duplicate_mode` (skip / import)
+  - `import_another` (resets to `:upload`) + `go_back` from `:map`
+    and `:confirm`
+
+**5c — form LV branch coverage:**
+
+- `test/web/form_lv_branches_test.exs` (17 tests, `async: false`):
+  every form LV's `handle_event` branches that the existing smoke
+  tests didn't already pin:
+  - `CatalogueFormLive` — `switch_tab` (details / metadata / files),
+    `switch_language` no-op (multilang disabled in test env),
+    `add_meta_field` + `remove_meta_field` round-trip,
+    `show_delete_confirm` + `cancel_delete` toggle on
+    `confirm_delete`, `delete_catalogue` (permanently_delete →
+    redirect)
+  - `CategoryFormLive` — same shape with the `confirm_delete_all`
+    assign (different name from CatalogueFormLive's
+    `confirm_delete`), `delete_category` (permanently_delete →
+    cascade), `select_move_target` + `move_category` (cross-
+    catalogue), `select_parent_move_target` + `move_under_parent`
+    (within-catalogue tree re-parenting), empty-string parent clear
+  - `ItemFormLive` — `switch_tab`, `clear_featured_image`
+    (state-injected featured uuid → cleared)
+
+### Coverage uplift
+
+| Module | Before | After | Δ |
+|--------|--------|-------|---|
+| **Total (production)** | **63.31%** | **71.86%** | **+8.55pp** |
+| `Web.ImportLive` | 13.51% | 45.68% | +32.17pp |
+| `Attachments` | 19.55% | 31.28% | +11.73pp |
+| `Web.CatalogueFormLive` | 62.56% | 74.36% | +11.80pp |
+| `Web.CategoryFormLive` | 64.58% | 85.42% | +20.84pp |
+| `Web.ItemFormLive` | 69.05% | 70.49% | +1.44pp |
+
+The catalogue lands at **~71.86%** with **66 new tests** for
+**+8.55pp** (7.7 tests/pp — well below the 50 tests/pp stop
+signal). Further push possible to ~80-85% with another batch on
+`ItemPicker`, `Translations`, `Components`, `EventsLive`, and the
+remaining `Web.ImportLive` upload-driven branches;
+document_creator's empirical curve (7.6 → 16.4 → 16.9 → 95
+tests/pp across four batches) suggests one more batch lands
+~5-10pp before the curve goes vertical.
+
+### What stays uncovered (deliberate)
+
+- `Web.ImportLive`'s upload pipeline (`parse_file` after a real
+  file binary lands via `consume_uploaded_entries`) — would need
+  a synthesized XLSX/CSV through `Phoenix.LiveViewTest.file_input/3`,
+  which is more plumbing than this push warrants. The mapping /
+  confirm / execute branches are reachable via state injection
+  (5b) and are now covered.
+- `Attachments` socket-bound functions that touch the Storage
+  module's DB tables (`mount_attachments/2`, `handle_progress/3`,
+  `consume_and_store/3`, `do_detach/2`, etc.) — these run inside
+  the form LVs' integration tests, which exercise the happy-path
+  surface; per-fn unit tests would duplicate that coverage.
+- `Catalogue.ActivityLog`'s catch-all `error -> Logger.warning`
+  branch: hard to trigger without stubbing `PhoenixKit.Activity.log/1`.
+  The `:undefined_table`, `DBConnection.OwnershipError`, and
+  `catch :exit` rescue branches are pinned by Batch 2 +
+  Batch 5a; the catch-all is defense-in-depth.
+
+### Files touched
+
+| File | Change |
+|------|--------|
+| `mix.exs` | added 3 NimbleCSV-generated modules to `ignore_modules` |
+| `test/catalogue/activity_log_test.exs` | new — 6 unit tests for log/1 + with_log/2 |
+| `test/attachments_test.exs` | new — 24 pure-fn tests |
+| `test/web/import_live_wizard_test.exs` | new — 19 state-injected wizard tests |
+| `test/web/form_lv_branches_test.exs` | new — 17 form-LV branch tests |
+
+### Verification
+
+- `mix test` — 689 → **755** (+66), 0 failures
+- `mix format --check-formatted` — clean
+- `mix credo --strict` — 1154 mods/funs, 0 issues
+- `mix dialyzer` — 0 errors
+- Production-line coverage: 63.31% → **71.86%** (+8.55pp)
+
+### Open
+
+None.
+
