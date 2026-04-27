@@ -26,7 +26,15 @@ defmodule PhoenixKitCatalogue.MixProject do
       name: "PhoenixKitCatalogue",
       source_url: @source_url,
       docs: docs(),
-      aliases: aliases()
+      aliases: aliases(),
+      test_coverage: [
+        ignore_modules: [
+          ~r/^PhoenixKitCatalogue\.Test\./,
+          PhoenixKitCatalogue.DataCase,
+          PhoenixKitCatalogue.LiveCase,
+          PhoenixKitCatalogue.ActivityLogAssertions
+        ]
+      ]
     ]
   end
 

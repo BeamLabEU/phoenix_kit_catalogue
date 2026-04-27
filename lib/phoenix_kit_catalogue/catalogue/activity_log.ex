@@ -44,10 +44,17 @@ defmodule PhoenixKitCatalogue.Catalogue.ActivityLog do
             )
           end
 
+        DBConnection.OwnershipError ->
+          # Async PubSub broadcast crossing into a logging path without
+          # sandbox checkout (test-only) — swallow per publishing-Batch-5.
+          :ok
+
         error ->
           Logger.warning(
             "PhoenixKitCatalogue activity log failed: #{Exception.message(error)} — attrs=#{inspect(Map.take(attrs, [:action, :resource_type, :resource_uuid]))}"
           )
+      catch
+        :exit, _reason -> :ok
       end
     end
 

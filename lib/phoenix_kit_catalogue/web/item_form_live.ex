@@ -1117,6 +1117,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                     type="button"
                     phx-click="remove_file"
                     phx-value-uuid={file.uuid}
+                    phx-disable-with={Gettext.gettext(PhoenixKitWeb.Gettext, "Removing...")}
                     data-confirm={
                       Gettext.gettext(
                         PhoenixKitWeb.Gettext,

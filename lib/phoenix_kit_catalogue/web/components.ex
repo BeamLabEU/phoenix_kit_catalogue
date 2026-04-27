@@ -166,6 +166,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
               <button
                 type="button"
                 phx-click="clear_featured_image"
+                phx-disable-with={Gettext.gettext(PhoenixKitWeb.Gettext, "Removing...")}
                 class="btn btn-sm btn-ghost"
               >
                 {Gettext.gettext(PhoenixKitWeb.Gettext, "Remove")}
@@ -339,6 +340,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
       type="button"
       phx-click="remove_meta_field"
       phx-value-key={@def_.key}
+      phx-disable-with={Gettext.gettext(PhoenixKitWeb.Gettext, "Removing...")}
       class="btn btn-ghost btn-sm btn-square text-error"
       title={Gettext.gettext(PhoenixKitWeb.Gettext, "Remove")}
     >
@@ -371,6 +373,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
       type="button"
       phx-click="remove_meta_field"
       phx-value-key={@key}
+      phx-disable-with={Gettext.gettext(PhoenixKitWeb.Gettext, "Removing...")}
       class="btn btn-ghost btn-sm btn-square text-error"
       title={Gettext.gettext(PhoenixKitWeb.Gettext, "Remove")}
     >

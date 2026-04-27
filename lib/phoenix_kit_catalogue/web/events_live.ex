@@ -8,6 +8,8 @@ defmodule PhoenixKitCatalogue.Web.EventsLive do
 
   use Phoenix.LiveView
 
+  require Logger
+
   import PhoenixKitWeb.Components.Core.Icon, only: [icon: 1]
   import PhoenixKitWeb.Components.Core.Select, only: [select: 1]
 
@@ -80,6 +82,12 @@ defmodule PhoenixKitCatalogue.Web.EventsLive do
     else
       {:noreply, socket}
     end
+  end
+
+  @impl true
+  def handle_info(msg, socket) do
+    Logger.debug("EventsLive ignored unhandled message: #{inspect(msg)}")
+    {:noreply, socket}
   end
 
   # ── Private ──────────────────────────────────────────────────────
