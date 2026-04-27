@@ -415,3 +415,127 @@ tests/pp across four batches) suggests one more batch lands
 
 None.
 
+---
+
+## Batch 6 — coverage push continued 2026-04-28
+
+Per the user's "haven't pushed all the way" pushback after Batch 5
+landed at 71.86%. The 7.7 tests/pp ratio at Batch 5 was well below
+the 50 tests/pp stop signal, so this batch continues the no-deps
+push toward the empirical ~95% ceiling for DB-only modules.
+
+### Fixed (Batch 6 — 2026-04-28)
+
+**6a — ImportLive upload pipeline via `Phoenix.LiveViewTest.file_input/3`:**
+
+`file_input/3` is built into `phoenix_live_view` (no external test
+dep). Required infra change: `config/test.exs` Test.Endpoint now
+includes `pubsub_server: PhoenixKit.PubSub` because
+LiveViewTest.UploadClient subscribes to the upload channel via the
+endpoint's pubsub. Without this the upload kicks back with
+"no :pubsub_server configured" before the test process even gets
+to consume_uploaded_entries.
+
+- `test/web/import_live_upload_test.exs` (6 tests, `async: false`):
+  - Valid CSV upload → `:upload` step transitions to `:map`
+    with parsed headers, row count, filename
+  - CSV with auto-detect-friendly headers (`Name`, `Article Code`,
+    `Base Price`) drives `Mapper.auto_detect_mappings/1` through
+    real headers (not state-injected) — pins `:name` / `:sku` /
+    `:base_price` mappings land
+  - `parse_file` guard: no catalogue → flash error, no upload
+    entry → flash "Please upload a file"
+  - Header-only CSV (no rows) survives without crashing
+  - Garbage XLSX bytes flash a parse error and the LV stays on
+    `:upload` step (didn't transition to `:map`)
+
+**6b — ItemPicker events + Translations + EventsLive:**
+
+- `test/web/item_picker_events_test.exs` (10 tests, `async: false`):
+  - `Translations.get_translation/2` with empty `data` returns
+    empty map; with content reads merged language data
+  - `Translations.set_translation/5` 2-arg vs 3-arg dispatch (opts
+    empty vs present); error propagation from update_fn
+  - EventsLive `filter` event narrows by action / resource_type
+  - EventsLive `clear_filters` resets both filter assigns
+  - EventsLive `load_more` is a no-op when `has_more` is false
+
+**6c — form LV branch coverage extras:**
+
+- `test/web/form_lv_branches_extras_test.exs` (16 tests, `async: false`):
+  - `ManufacturerFormLive.toggle_supplier` flips a supplier in
+    the linked MapSet (and toggles back)
+  - `SupplierFormLive.toggle_manufacturer` mirror shape
+  - `ItemFormLive.add_meta_field` with unknown key is a no-op
+    (no spurious metadata insertion); known key (`color`)
+    round-trips through add + remove
+  - `Schemas.Catalogue.changeset/2` validation edges:
+    - Status outside `~w(active archived deleted)` rejected
+    - Kind outside `~w(standard smart)` rejected; both valid
+      values accepted
+    - `markup_percentage` rejected at >1000 and <0; accepted
+      at boundaries 0 and 1000
+    - `discount_percentage` rejected at >100; accepted at 100
+    - 256-char name rejected
+    - `allowed_kinds/0` returns the canonical list
+  - `Catalogue.list_items_referencing_catalogue/1` happy path +
+    empty-list path
+
+### Coverage uplift
+
+| Module | Pre-Batch-6 | Post-Batch-6 | Δ |
+|--------|-------------|--------------|---|
+| **Total (production)** | **71.86%** | **73.98%** | **+2.12pp** |
+| `Web.ImportLive` | 45.68% | 51.39% | +5.71pp |
+| `Web.EventsLive` | 74.58% | 77.12% | +2.54pp |
+| `Catalogue.Translations` | 66.67% | 83.33% | +16.66pp |
+| `Web.SupplierFormLive` | 67.11% | 86.84% | +19.73pp |
+| `Web.ManufacturerFormLive` | 69.23% | 88.46% | +19.23pp |
+| `Web.ItemFormLive` | 70.49% | 74.79% | +4.30pp |
+| `Schemas.Catalogue` | 66.67% | 100.00% | +33.33pp |
+| `Import.Parser` | 84.93% | 87.67% | +2.74pp |
+
+32 new tests for +2.12pp = **15 tests/pp** — the diminishing-
+returns curve is steepening (7.7 → 15 from Batch 5 → Batch 6),
+as expected. Per the publishing PR #10 empirical curve
+(7.6 → 16.4 → 16.9 → 95 tests/pp), one more batch lands ~3-5pp
+before the curve goes vertical at 50 tests/pp. The biggest
+remaining gaps require either:
+
+- **`Attachments` socket-bound functions** — needs full PhoenixKit
+  Storage tables in the test migration to exercise
+  `mount_attachments/2`, `handle_progress/3`, `consume_and_store/3`,
+  `do_detach/2`. The form LV integration tests already drive these
+  paths; per-fn unit tests would duplicate that.
+- **`ItemPicker` events** — only mounted in `ItemFormLive` for
+  smart-catalogue items; full event coverage needs a smart-catalogue
+  fixture stack with rules already attached.
+- **`Catalogue.ActivityLog` catch-all `error -> Logger.warning`
+  branch** — defense-in-depth path that needs a stubbed
+  `PhoenixKit.Activity.log/1` raising on cue (would require an
+  app-config-injectable backend the catalogue doesn't currently
+  have, and which isn't worth adding for one branch).
+
+### Files touched
+
+| File | Change |
+|------|--------|
+| `config/test.exs` | added `pubsub_server: PhoenixKit.PubSub` to Test.Endpoint config |
+| `test/web/import_live_upload_test.exs` | new — 6 file_input/3-driven tests |
+| `test/web/item_picker_events_test.exs` | new — 10 Translations / EventsLive tests |
+| `test/web/form_lv_branches_extras_test.exs` | new — 16 toggle / metadata / schema-edge tests |
+
+### Verification
+
+- `mix test` — 755 → **787** (+32), 0 failures
+- `mix format --check-formatted` — clean
+- `mix credo --strict` — 1159 mods/funs, 0 issues
+- `mix dialyzer` — 0 errors
+- Production-line coverage: 71.86% → **73.98%** (+2.12pp)
+- Cumulative: 63.31% → **73.98%** (+10.67pp across Batches 5+6,
+  98 new tests = 9.2 tests/pp blended)
+
+### Open
+
+None.
+
