@@ -12,6 +12,7 @@ defmodule PhoenixKitCatalogue.Web.Revalidation20260428Test do
 
   alias PhoenixKitCatalogue.Catalogue.ActivityLog
   alias PhoenixKitCatalogue.Import.Mapper
+  alias PhoenixKitCatalogue.Web.Helpers, as: WebHelpers
 
   import ExUnit.CaptureLog
 
@@ -235,6 +236,138 @@ defmodule PhoenixKitCatalogue.Web.Revalidation20260428Test do
 
       refute log =~ "PhoenixKitCatalogue activity log failed",
              "Expected DBConnection.OwnershipError to be swallowed silently, but got warning."
+    end
+  end
+
+  describe "Batch 4 — log_operation_error/3 writes db_pending audit row" do
+    test "derive_activity_action/2 maps every LV operation to the canonical atom" do
+      # Every LV operation string passed to `log_operation_error/3`
+      # must derive to the same action atom the success path uses.
+      # If the catalogue context renames an action (or adds a new
+      # mutation verb), this table needs to keep up.
+      cases = [
+        {"trash_item", "item", "item.trashed"},
+        {"restore_item", "item", "item.restored"},
+        {"permanently_delete_item", "item", "item.permanently_deleted"},
+        {"trash_category", "category", "category.trashed"},
+        {"restore_category", "category", "category.restored"},
+        {"permanently_delete_category", "category", "category.permanently_deleted"},
+        {"trash_catalogue", "catalogue", "catalogue.trashed"},
+        {"restore_catalogue", "catalogue", "catalogue.restored"},
+        {"permanently_delete_catalogue", "catalogue", "catalogue.permanently_deleted"},
+        {"delete_manufacturer", "manufacturer", "manufacturer.deleted"},
+        {"delete_supplier", "supplier", "supplier.deleted"}
+      ]
+
+      Enum.each(cases, fn {operation, entity_type, expected_action} ->
+        assert WebHelpers.derive_activity_action(operation, entity_type) == expected_action,
+               "Operation #{operation} on #{entity_type} should derive #{expected_action}"
+      end)
+    end
+
+    test "unknown operation derives nil (no audit row written)" do
+      assert WebHelpers.derive_activity_action("frobnicate_widget", "widget") == nil
+      assert WebHelpers.derive_activity_action("trash_item", nil) == nil
+    end
+
+    test "log_operation_error/3 surfaces error_keys for changeset failures" do
+      # Synthetic invocation: build a changeset error reason and check
+      # the audit row carries the changeset's error keys (PII-safe —
+      # field names only, never user-typed values).
+      cat = fixture_catalogue(%{name: "Synthetic Cat"})
+
+      # Build a changeset with a known error key without invoking
+      # actual mutation paths.
+      cs =
+        %PhoenixKitCatalogue.Schemas.Catalogue{}
+        |> Ecto.Changeset.cast(%{name: ""}, [:name])
+        |> Ecto.Changeset.validate_required([:name])
+
+      socket = %Phoenix.LiveView.Socket{
+        view: PhoenixKitCatalogue.Web.CataloguesLive,
+        assigns: %{phoenix_kit_current_user: nil}
+      }
+
+      capture_log(fn ->
+        :ok =
+          WebHelpers.log_operation_error(socket, "trash_catalogue", %{
+            entity_type: "catalogue",
+            entity_uuid: cat.uuid,
+            reason: cs
+          })
+      end)
+
+      row =
+        assert_activity_logged("catalogue.trashed",
+          resource_uuid: cat.uuid,
+          metadata_has: %{"db_pending" => true, "error_kind" => "changeset"}
+        )
+
+      assert "name" in (row.metadata["error_keys"] || []),
+             "Expected error_keys to include the changeset's error field names; got #{inspect(row.metadata)}"
+    end
+
+    test "log_operation_error/3 surfaces atom reasons in metadata" do
+      cat = fixture_catalogue(%{name: "Atom Reason Cat"})
+
+      socket = %Phoenix.LiveView.Socket{
+        view: PhoenixKitCatalogue.Web.CataloguesLive,
+        assigns: %{phoenix_kit_current_user: nil}
+      }
+
+      capture_log(fn ->
+        :ok =
+          WebHelpers.log_operation_error(socket, "trash_catalogue", %{
+            entity_type: "catalogue",
+            entity_uuid: cat.uuid,
+            reason: :would_create_cycle
+          })
+      end)
+
+      assert_activity_logged("catalogue.trashed",
+        resource_uuid: cat.uuid,
+        metadata_has: %{
+          "db_pending" => true,
+          "error_kind" => "atom",
+          "reason" => "would_create_cycle"
+        }
+      )
+    end
+
+    test "log_operation_error/3 never logs PII-shaped values in metadata" do
+      # Even when the reason is a changeset whose attempted name was
+      # PII (an email, for example), the audit row must surface only
+      # the field name `name`, never the value.
+      cat = fixture_catalogue(%{name: "PII Safety Cat"})
+
+      cs =
+        %PhoenixKitCatalogue.Schemas.Catalogue{}
+        |> Ecto.Changeset.cast(%{name: "user@private.example"}, [:name])
+        |> Ecto.Changeset.add_error(:name, "is reserved")
+
+      socket = %Phoenix.LiveView.Socket{
+        view: PhoenixKitCatalogue.Web.CataloguesLive,
+        assigns: %{phoenix_kit_current_user: nil}
+      }
+
+      capture_log(fn ->
+        :ok =
+          WebHelpers.log_operation_error(socket, "trash_catalogue", %{
+            entity_type: "catalogue",
+            entity_uuid: cat.uuid,
+            reason: cs
+          })
+      end)
+
+      row =
+        assert_activity_logged("catalogue.trashed",
+          resource_uuid: cat.uuid,
+          metadata_has: %{"db_pending" => true}
+        )
+
+      metadata_str = inspect(row.metadata)
+      refute metadata_str =~ "user@private.example",
+             "Audit metadata must never contain user-typed values; got #{metadata_str}"
     end
   end
 

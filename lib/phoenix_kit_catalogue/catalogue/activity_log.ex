@@ -5,13 +5,33 @@ defmodule PhoenixKitCatalogue.Catalogue.ActivityLog do
   # injected. External plugins must guard with `Code.ensure_loaded?/1`,
   # which we do here once so callers don't have to repeat it.
   #
-  # Convention: this module logs on **success** only. Failed mutations
-  # surface as `{:error, _}` to the LiveView, which logs the rich error
-  # context via its own `log_operation_error/3` (see
-  # `web/catalogue_detail_live.ex:425`). The activity log is the user-
-  # visible audit trail; operation errors are an engineer-visible log
-  # stream. Keeping the two separate prevents validation noise from
-  # drowning the audit feed.
+  # ## Convention — layered logging
+  #
+  # The context layer (this module's callers — `Catalogue`, `Rules`,
+  # `Manufacturers`, etc.) logs on **success only**. Validation errors
+  # never reach the audit feed: they're handled by the LV's
+  # `assign_form/2` cycle and never persisted as audit rows.
+  #
+  # The LV layer logs on **both branches** via
+  # `PhoenixKitCatalogue.Web.Helpers.log_operation_error/3` (added in
+  # the 2026-04-28 re-validation Batch 4). On `{:error, _}`-from-
+  # context failures — FK violations, stale-entry races, downstream
+  # cascade refusals — the helper writes the same action atom the
+  # success path would have written, with `metadata.db_pending: true`
+  # so audit-feed readers can filter or highlight failed attempts.
+  #
+  # The two layers solve different problems and coexist:
+  #
+  #   * **Engineer-visible** errors flow through `Logger.error` with
+  #     full changeset/atom context for production-incident triage.
+  #   * **User-visible** audit rows capture user *intent* — a
+  #     legitimate attempted action that failed is still audit-worthy
+  #     for security and forensic purposes.
+  #
+  # Validation cycles never produce audit noise because
+  # `log_operation_error/3` is only called from `handle_event`
+  # `{:error, _}` branches that the form's error display didn't
+  # already handle.
 
   require Logger
 
