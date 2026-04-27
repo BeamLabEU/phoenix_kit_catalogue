@@ -33,6 +33,10 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
     * `:include_descendants` — when `true` (default), `:category_uuids`
       is expanded through the V103 tree; pass `false` for literal
       set semantics.
+    * `:only` — `:uncategorized_only` restricts results to items without
+      a category; `:categorized_only` restricts to items in some
+      category; `nil` (default) is unrestricted. Forwards to
+      `Catalogue.search_items/2`'s `:only` opt.
     * `:selected_item` — the `%Item{}` currently chosen (or `nil`).
       Drives the input text and the `aria-selected` / primary-border
       styling in the dropdown.
@@ -97,6 +101,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
        category_uuids: nil,
        catalogue_uuids: nil,
        include_descendants: true,
+       only: nil,
        placeholder: nil,
        empty_query_limit: @default_empty_query_limit,
        page_size: @default_page_size,
@@ -194,6 +199,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
       category_uuids: category_uuids,
       catalogue_uuids: catalogue_uuids,
       include_descendants: include_descendants,
+      only: only,
       page_size: page_size,
       empty_query_limit: empty_query_limit
     } = socket.assigns
@@ -208,6 +214,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
       [limit: limit, include_descendants: include_descendants]
       |> maybe_put(:category_uuids, category_uuids)
       |> maybe_put(:catalogue_uuids, catalogue_uuids)
+      |> maybe_put(:only, only)
 
     options = Catalogue.search_items(query || "", opts)
 
@@ -384,7 +391,10 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
             <div class="font-medium text-sm truncate">
               {item_display_name(item, @locale)}
             </div>
-            <div :if={item_breadcrumb(item, @locale) != ""} class="text-xs text-base-content/50 truncate">
+            <div
+              :if={item_breadcrumb(item, @locale) != ""}
+              class="text-xs text-base-content/50 truncate"
+            >
               {item_breadcrumb(item, @locale)}
             </div>
           </div>

@@ -1485,6 +1485,125 @@ defmodule PhoenixKitCatalogue.CatalogueTest do
     end
   end
 
+  describe "search_items/2 with :only scope (issue #15)" do
+    test ":uncategorized_only returns items with no category" do
+      cat = create_catalogue()
+      category = create_category(cat)
+
+      _categorized =
+        create_item(%{name: "Oak Panel A", category_uuid: category.uuid})
+
+      uncategorized =
+        create_item(%{
+          name: "Oak Panel B",
+          category_uuid: nil,
+          catalogue_uuid: cat.uuid
+        })
+
+      results = Catalogue.search_items("oak", only: :uncategorized_only)
+      assert length(results) == 1
+      assert hd(results).uuid == uncategorized.uuid
+    end
+
+    test ":categorized_only returns items that have a category" do
+      cat = create_catalogue()
+      category = create_category(cat)
+
+      categorized =
+        create_item(%{name: "Oak Panel A", category_uuid: category.uuid})
+
+      _uncategorized =
+        create_item(%{
+          name: "Oak Panel B",
+          category_uuid: nil,
+          catalogue_uuid: cat.uuid
+        })
+
+      results = Catalogue.search_items("oak", only: :categorized_only)
+      assert length(results) == 1
+      assert hd(results).uuid == categorized.uuid
+    end
+
+    test ":only composes AND with :catalogue_uuids" do
+      kitchen = create_catalogue(%{name: "Kitchen"})
+      bath = create_catalogue(%{name: "Bath"})
+
+      _k_cat_item =
+        create_item(%{
+          name: "Oak K1",
+          category_uuid: create_category(kitchen).uuid
+        })
+
+      target =
+        create_item(%{
+          name: "Oak K2",
+          category_uuid: nil,
+          catalogue_uuid: kitchen.uuid
+        })
+
+      _b_uncat =
+        create_item(%{
+          name: "Oak B1",
+          category_uuid: nil,
+          catalogue_uuid: bath.uuid
+        })
+
+      results =
+        Catalogue.search_items("oak",
+          catalogue_uuids: [kitchen.uuid],
+          only: :uncategorized_only
+        )
+
+      assert length(results) == 1
+      assert hd(results).uuid == target.uuid
+    end
+
+    test "count_search_items/2 honors :only" do
+      cat = create_catalogue()
+      category = create_category(cat)
+
+      create_item(%{name: "Oak A", category_uuid: category.uuid})
+
+      create_item(%{
+        name: "Oak B",
+        category_uuid: nil,
+        catalogue_uuid: cat.uuid
+      })
+
+      assert Catalogue.count_search_items("oak", only: :uncategorized_only) == 1
+      assert Catalogue.count_search_items("oak", only: :categorized_only) == 1
+      assert Catalogue.count_search_items("oak") == 2
+    end
+
+    test "category_uuids: [nil] raises ArgumentError instead of silently returning []" do
+      assert_raise ArgumentError, ~r/category_uuids must contain non-nil UUIDs/, fn ->
+        Catalogue.search_items("anything", category_uuids: [nil])
+      end
+
+      assert_raise ArgumentError, ~r/category_uuids must contain non-nil UUIDs/, fn ->
+        Catalogue.count_search_items("anything", category_uuids: [nil])
+      end
+    end
+
+    test ":uncategorized_only + non-empty category_uuids raises ArgumentError" do
+      cat = create_catalogue()
+      category = create_category(cat)
+
+      assert_raise ArgumentError, ~r/cannot be combined/, fn ->
+        Catalogue.search_items("anything",
+          category_uuids: [category.uuid],
+          only: :uncategorized_only
+        )
+      end
+    end
+
+    test "unknown :only value raises ArgumentError" do
+      assert_raise ArgumentError, ~r/unknown :only value/, fn ->
+        Catalogue.search_items("anything", only: :nonsense)
+      end
+    end
+  end
+
   describe "search_items_in_catalogue/2" do
     test "only returns items within the specified catalogue" do
       cat1 = create_catalogue(%{name: "Kitchen"})
@@ -3001,30 +3120,31 @@ defmodule PhoenixKitCatalogue.CatalogueTest do
       assert {:ok, _} = Catalogue.permanently_delete_catalogue(hardware)
     end
 
-    test "self-reference: a smart item can reference its own catalogue" do
-      services = create_catalogue(%{name: "Services", kind: "smart"})
-      delivery = create_item(%{name: "Delivery", catalogue_uuid: services.uuid})
-
-      assert {:ok, [_rule]} =
-               Catalogue.put_catalogue_rules(delivery, [
-                 %{referenced_catalogue_uuid: services.uuid, value: 5, unit: "percent"}
-               ])
-
-      assert [rule] = Catalogue.list_catalogue_rules(delivery)
-      assert rule.referenced_catalogue_uuid == services.uuid
-    end
-
-    test "smart-to-smart: a smart item can reference another smart catalogue" do
+    test "smart-to-smart references are rejected (issue #16)" do
       services_a = create_catalogue(%{name: "Services A", kind: "smart"})
       services_b = create_catalogue(%{name: "Services B", kind: "smart"})
       item = create_item(%{name: "X", catalogue_uuid: services_a.uuid})
 
-      assert {:ok, [rule]} =
+      assert {:error, %Ecto.Changeset{} = changeset} =
                Catalogue.put_catalogue_rules(item, [
                  %{referenced_catalogue_uuid: services_b.uuid, value: 7, unit: "percent"}
                ])
 
-      assert rule.referenced_catalogue_uuid == services_b.uuid
+      assert {"must reference a standard catalogue, not a smart catalogue", _} =
+               changeset.errors[:referenced_catalogue_uuid]
+    end
+
+    test "smart self-references are rejected (smart catalogue cannot be referenced at all)" do
+      services = create_catalogue(%{name: "Services", kind: "smart"})
+      delivery = create_item(%{name: "Delivery", catalogue_uuid: services.uuid})
+
+      assert {:error, %Ecto.Changeset{} = changeset} =
+               Catalogue.put_catalogue_rules(delivery, [
+                 %{referenced_catalogue_uuid: services.uuid, value: 5, unit: "percent"}
+               ])
+
+      assert {"must reference a standard catalogue, not a smart catalogue", _} =
+               changeset.errors[:referenced_catalogue_uuid]
     end
 
     test "duplicate detection: nil referenced_catalogue_uuid returns {:duplicate, nil}" do
@@ -3074,6 +3194,46 @@ defmodule PhoenixKitCatalogue.CatalogueTest do
 
       assert Decimal.equal?(updated.value, Decimal.new("9"))
       assert updated.unit == "flat"
+    end
+
+    test "create_catalogue_rule/2 rejects a smart referenced_catalogue (issue #16)" do
+      services_a = create_catalogue(%{name: "Services A", kind: "smart"})
+      services_b = create_catalogue(%{name: "Services B", kind: "smart"})
+      delivery = create_item(%{name: "Delivery", catalogue_uuid: services_a.uuid})
+
+      assert {:error, %Ecto.Changeset{} = changeset} =
+               Catalogue.create_catalogue_rule(%{
+                 item_uuid: delivery.uuid,
+                 referenced_catalogue_uuid: services_b.uuid,
+                 value: Decimal.new("10"),
+                 unit: "percent"
+               })
+
+      assert {"must reference a standard catalogue, not a smart catalogue", _} =
+               changeset.errors[:referenced_catalogue_uuid]
+    end
+
+    test "update_catalogue_rule/3 rejects retargeting at a smart catalogue (issue #16)" do
+      services_a = create_catalogue(%{name: "Services A", kind: "smart"})
+      services_b = create_catalogue(%{name: "Services B", kind: "smart"})
+      kitchen = create_catalogue(%{name: "Kitchen"})
+      delivery = create_item(%{name: "Delivery", catalogue_uuid: services_a.uuid})
+
+      {:ok, rule} =
+        Catalogue.create_catalogue_rule(%{
+          item_uuid: delivery.uuid,
+          referenced_catalogue_uuid: kitchen.uuid,
+          value: Decimal.new("5"),
+          unit: "percent"
+        })
+
+      assert {:error, %Ecto.Changeset{} = changeset} =
+               Catalogue.update_catalogue_rule(rule, %{
+                 referenced_catalogue_uuid: services_b.uuid
+               })
+
+      assert {"must reference a standard catalogue, not a smart catalogue", _} =
+               changeset.errors[:referenced_catalogue_uuid]
     end
 
     test "delete_catalogue_rule/2 removes one rule without affecting siblings" do

@@ -36,6 +36,12 @@ defmodule PhoenixKitCatalogue.Catalogue do
       # Move operations
       {:ok, _} = Catalogue.move_category_to_catalogue(category, other_catalogue_uuid)
       {:ok, _} = Catalogue.move_item_to_category(item, other_category_uuid)
+
+  ## Smart catalogues
+
+  For an end-to-end walkthrough of integrating smart catalogues
+  (`kind: "smart"` items priced as functions of other catalogues), see
+  the [Smart Catalogues guide](smart_catalogues.md).
   """
 
   import Ecto.Query, warn: false

@@ -65,14 +65,20 @@ defmodule PhoenixKitCatalogue.MixProject do
     [
       licenses: ["MIT"],
       links: %{"GitHub" => @source_url},
-      files: ~w(lib .formatter.exs mix.exs README.md CHANGELOG.md LICENSE)
+      files: ~w(lib guides .formatter.exs mix.exs README.md CHANGELOG.md LICENSE)
     ]
   end
 
   defp docs do
     [
       main: "PhoenixKitCatalogue",
-      source_ref: @version
+      source_ref: @version,
+      extras: [
+        "guides/smart_catalogues.md": [title: "Smart Catalogues"]
+      ],
+      groups_for_extras: [
+        Guides: ~r"guides/.+\.md"
+      ]
     ]
   end
 end
