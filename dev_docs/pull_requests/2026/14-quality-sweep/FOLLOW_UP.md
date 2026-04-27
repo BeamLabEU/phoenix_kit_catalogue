@@ -116,7 +116,88 @@ None.
 
 ---
 
-## Surfaced for Max — needs a call before Batch 3
+## Batch 3 — fix-everything pass 2026-04-28
+
+C12 agents surfaced several findings classified by Batch 2 as "fix in
+Batch 3". The default-mode sweep would surface those as deferred per
+`feedback_quality_sweep_scope.md`, but the canonical re-validation
+pattern across modules has been to do the fix-everything pass when the
+findings are mechanical wins or pin already-correct behaviour.
+
+### Fixed (Batch 3 — 2026-04-28)
+
+- ~~**`PhoenixKitCatalogue.Catalogue` had 26 public functions without
+  `@spec`.**~~ — backfilled. The full public API is now type-annotated:
+  `list_catalogues/1`, `list_catalogues_by_name_prefix/2`,
+  `deleted_catalogue_count/0`, `get_catalogue!/2`,
+  `list_categories_for_catalogue/1`,
+  `list_categories_metadata_for_catalogue/2`,
+  `list_items_for_category_paged/2`,
+  `list_uncategorized_items_paged/2`,
+  `uncategorized_count_for_catalogue/2`, `item_count_for_category/2`,
+  `item_counts_by_category_for_catalogue/2`, `list_all_categories/0`,
+  `get_category!/1`, `delete_category/2`, `trash_category/2`,
+  `restore_category/2`, `permanently_delete_category/2`,
+  `next_category_position/2`, `list_items/1`,
+  `list_items_for_category/1`, `list_items_for_catalogue/1`,
+  `list_uncategorized_items/2`, `get_item!/1`, `delete_item/2`,
+  `restore_item/2`, `permanently_delete_item/2`,
+  `trash_items_in_category/2`. `mix dialyzer` clean. The submodules
+  (`Helpers`, `Rules`, `Tree`, `Counts`, `Links`, `Manufacturers`,
+  `Suppliers`, `ActivityLog`, `PubSub`, `Search`, `Translations`)
+  were already at 100% spec coverage from the original sweep.
+
+- ~~**Broad `rescue e ->` in the supervised import task.**~~ —
+  narrowed to `[ArgumentError, RuntimeError, Ecto.InvalidChangesetError,
+  Ecto.QueryError, Postgrex.Error]` in
+  `lib/phoenix_kit_catalogue/web/import_live.ex`. A bare rescue would
+  also swallow programmer-error exceptions like `KeyError` /
+  `FunctionClauseError` from a future refactor — those should crash
+  the supervised task so the supervisor logs the full stacktrace and
+  the bug surfaces.
+
+- ~~**No edge-case tests for free-text fields (Unicode round-trip,
+  LIKE metacharacters in user input, over-length names, embedded
+  null bytes).**~~ — new `test/edge_cases_test.exs` (13 tests):
+  - `Helpers.sanitize_like/1` — LIKE metacharacter escapes (`%`,
+    `_`, `\`) plus combined metas. Pins the existing escape
+    contract so a future refactor surfaces.
+  - `search_items/2` Unicode round-trip — CJK, emoji, RTL Hebrew.
+  - `search_items/2` LIKE metacharacters — `%` and `_` literal-not-
+    wildcard, single-quote SQL-injection probe (parameter binding
+    safety), leading `%` not interpreted as a wildcard.
+  - `search_items/2` empty input — pins the "matches everything"
+    behaviour so a future tightening surfaces.
+  - `create_catalogue/2` — 256-char name returns `{:error,
+    %Ecto.Changeset{}}`, never raises (canonical Coverage-push
+    pattern #1: tighten contract → clean error tuple).
+  - `create_item/2` — Unicode name persists exactly through DB
+    round-trip.
+
+### Files touched
+
+| File | Change |
+|------|--------|
+| `lib/phoenix_kit_catalogue/catalogue.ex` | +27 `@spec` declarations on the public API |
+| `lib/phoenix_kit_catalogue/web/import_live.ex` | narrowed `rescue` clause in supervised import task |
+| `test/edge_cases_test.exs` | new file — 13 edge-case tests for free-text fields |
+
+### Verification
+
+- `mix test` — 671 → 684 (+13), 0 failures
+- `mix format --check-formatted` — clean
+- `mix credo --strict` — 1143 mods/funs, 0 issues
+- `mix dialyzer` — 0 errors
+
+### Open
+
+None. The error-branch activity logging design tension is surfaced
+below for Max's call — Batch 3 lands the rest of the fix-everything
+pass independent of the (A)/(B) decision.
+
+---
+
+## Surfaced for Max — needs a call
 
 **Error-branch activity logging design tension.** The catalogue's
 `ActivityLog` module documents a deliberate success-only logging
@@ -158,6 +239,6 @@ Both are reasonable. Picking one needs Max's call:
 
 Batch 3 (fix-everything pass — `@spec` backfill on
 `PhoenixKitCatalogue.Catalogue` public API, narrowed broad rescue in
-`import_live.ex:1087`, edge-case tests on free-text fields,
-`actor_uuid` pinning in LV smoke tests) lands regardless of (A)/(B).
+`import_live.ex:1087`, edge-case tests on free-text fields) landed
+independent of this — see Batch 3 section above.
 
