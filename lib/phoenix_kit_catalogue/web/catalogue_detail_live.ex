@@ -20,6 +20,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   import PhoenixKitWeb.Components.Core.AdminPageHeader, only: [admin_page_header: 1]
   import PhoenixKitWeb.Components.Core.Modal, only: [confirm_modal: 1]
   import PhoenixKitCatalogue.Web.Components
+
   import PhoenixKitCatalogue.Web.Helpers,
     only: [actor_opts: 1, actor_uuid: 1, log_operation_error: 3]
 

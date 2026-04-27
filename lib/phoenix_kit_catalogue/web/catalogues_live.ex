@@ -17,6 +17,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   import PhoenixKitWeb.Components.Core.TableRowMenu
 
   import PhoenixKitCatalogue.Web.Components
+
   import PhoenixKitCatalogue.Web.Helpers,
     only: [actor_opts: 1, actor_uuid: 1, log_operation_error: 3, status_label: 1]
 

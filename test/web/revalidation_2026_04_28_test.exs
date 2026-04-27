@@ -366,6 +366,7 @@ defmodule PhoenixKitCatalogue.Web.Revalidation20260428Test do
         )
 
       metadata_str = inspect(row.metadata)
+
       refute metadata_str =~ "user@private.example",
              "Audit metadata must never contain user-typed values; got #{metadata_str}"
     end
