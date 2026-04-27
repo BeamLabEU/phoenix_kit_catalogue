@@ -1518,7 +1518,12 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
               <p class="font-medium text-sm">{@filename}</p>
               <p class="text-xs text-base-content/60">{@row_count} {Gettext.gettext(PhoenixKitWeb.Gettext, "rows")} — {length(@headers)} {Gettext.gettext(PhoenixKitWeb.Gettext, "columns")}</p>
             </div>
-            <button type="button" phx-click="clear_file" class="btn btn-xs btn-ghost text-base-content/50">
+            <button
+              type="button"
+              phx-click="clear_file"
+              phx-disable-with={Gettext.gettext(PhoenixKitWeb.Gettext, "Clearing...")}
+              class="btn btn-xs btn-ghost text-base-content/50"
+            >
               <.icon name="hero-x-mark" class="w-4 h-4" />
               {Gettext.gettext(PhoenixKitWeb.Gettext, "Replace")}
             </button>
@@ -2149,6 +2154,9 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
     do: Gettext.gettext(PhoenixKitWeb.Gettext, "Article Code")
 
   defp translate_target("Base Price"), do: Gettext.gettext(PhoenixKitWeb.Gettext, "Base Price")
+
+  defp translate_target("Markup Override (%)"),
+    do: Gettext.gettext(PhoenixKitWeb.Gettext, "Markup Override (%)")
 
   defp translate_target("Unit of Measure"),
     do: Gettext.gettext(PhoenixKitWeb.Gettext, "Unit of Measure")

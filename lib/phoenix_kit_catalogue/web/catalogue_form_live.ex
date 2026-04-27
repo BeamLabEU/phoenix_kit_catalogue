@@ -602,6 +602,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
                       type="button"
                       phx-click="remove_file"
                       phx-value-uuid={file.uuid}
+                      phx-disable-with={Gettext.gettext(PhoenixKitWeb.Gettext, "Removing...")}
                       data-confirm={Gettext.gettext(PhoenixKitWeb.Gettext, "Remove this file from the catalogue? If it's not attached to any other resource, it will be moved to trash (admins can restore).")}
                       class="btn btn-ghost btn-xs btn-square"
                       title={Gettext.gettext(PhoenixKitWeb.Gettext, "Remove from catalogue")}
