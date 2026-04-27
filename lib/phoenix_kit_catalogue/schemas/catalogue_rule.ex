@@ -12,6 +12,9 @@ defmodule PhoenixKitCatalogue.Schemas.CatalogueRule do
   The `unit` vocabulary is open-ended VARCHAR so consumers can add new
   units without a migration. V1 recognizes `"percent"` and `"flat"`;
   anything else is stored verbatim and left to the consumer to validate.
+
+  See the [Smart Catalogues guide](smart_catalogues.md) for a worked
+  example and the consumer-side math pattern.
   """
 
   use Ecto.Schema
