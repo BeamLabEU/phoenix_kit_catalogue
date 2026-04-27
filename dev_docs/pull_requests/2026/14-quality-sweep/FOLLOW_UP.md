@@ -197,48 +197,87 @@ pass independent of the (A)/(B) decision.
 
 ---
 
-## Surfaced for Max — needs a call
+## Batch 4 — log_operation_error wired into ActivityLog 2026-04-28
 
-**Error-branch activity logging design tension.** The catalogue's
-`ActivityLog` module documents a deliberate success-only logging
-convention at `activity_log.ex:8–14`:
+Resolves the design tension between the catalogue's documented
+success-only convention and the post-Apr pipeline's both-branch
+audit-row requirement. **Refined (A)**: keep the context-layer's
+success-only design; have the LV layer write the failure-side audit
+row instead.
 
-> Convention: this module logs on **success** only. Failed mutations
-> surface as `{:error, _}` to the LiveView, which logs the rich error
-> context via its own `log_operation_error/3` (see
-> `web/catalogue_detail_live.ex:425`). The activity log is the user-
-> visible audit trail; operation errors are an engineer-visible log
-> stream. Keeping the two separate prevents validation noise from
-> drowning the audit feed.
+### What changed
 
-The post-Apr pipeline's C12 agent #2 prompt now requires:
+The catalogue had two near-identical `log_operation_error/3`
+definitions (one in `catalogue_detail_live.ex`, one in
+`catalogues_live.ex`) that fired on `{:error, _}` `handle_event`
+branches and emitted a `Logger.error` line. Consolidated into
+`PhoenixKitCatalogue.Web.Helpers.log_operation_error/3` and extended:
+in addition to the engineer-visible `Logger.error` line, the helper
+now writes an Activity row with the same action atom the success
+path would have used (`item.trashed`, `category.restored`, etc.) and
+`metadata.db_pending: true` so audit-feed readers can distinguish
+attempted-but-failed from successfully-completed actions.
 
-> Every CREATE / UPDATE / DELETE / status-change context fn must log
-> on BOTH `:ok` AND `:error` branches (the `:error` branch should log
-> with a `db_pending` or similar flag so the audit trail covers the
-> user-initiated action even when the cache write fails).
+Why this beats a straight (A):
 
-Both are reasonable. Picking one needs Max's call:
+- **Single edit point** vs. 12–15 mutation sites in the context layer.
+- **Solves the noise concern by construction.** The helper is called
+  only from `handle_event` `{:error, _}` branches that the form's
+  `assign_form/2` cycle didn't already handle. Validation cycles
+  never reach it, so the audit feed doesn't fill with form-validate
+  churn.
+- **Preserves the catalogue's documented design.** The
+  context layer keeps its success-only invariant (no risk of the
+  audit feed drowning in changeset errors from per-keystroke
+  validation), which the @moduledoc explicitly defends.
+- **Captures user intent.** A failed FK-violation delete is now
+  visible in the audit feed as `{action: "category.deleted",
+  db_pending: true}`. Forensics match the "user attempted action X
+  at time T, system rejected it" question that audit feeds exist to
+  answer.
 
-- **(A) Override the catalogue's design** — add `:error`-branch
-  logging across all CRUD mutations (~12–15 sites: `create_catalogue`,
-  `update_catalogue`, `delete_catalogue`, `trash_catalogue`,
-  `restore_catalogue`, `permanently_delete_catalogue`,
-  `create_category`, `update_category`, `delete_category`,
-  `trash_category`, `restore_category`,
-  `permanently_delete_category`, `move_category_under`,
-  `move_category_to_catalogue`, plus the item / smart-rule
-  equivalents). Match
-  `phoenix_kit_publishing` / `phoenix_kit_document_creator` /
-  `phoenix_kit_sync` precedent.
-- **(B) Keep the catalogue's intentional split** — document the
-  exception in `AGENTS.md` (workspace + module) so future
-  re-validation passes don't keep flagging it. The
-  `log_operation_error/3` flow already gives the engineer-side audit
-  channel; the `Activity` feed stays user-visible only.
+### Action-atom derivation
 
-Batch 3 (fix-everything pass — `@spec` backfill on
-`PhoenixKitCatalogue.Catalogue` public API, narrowed broad rescue in
-`import_live.ex:1087`, edge-case tests on free-text fields) landed
-independent of this — see Batch 3 section above.
+Operation strings from the LV map to the canonical action atoms:
+
+| Operation prefix         | Past-tense suffix         |
+|--------------------------|---------------------------|
+| `permanently_delete_*`   | `*.permanently_deleted`   |
+| `trash_*`                | `*.trashed`               |
+| `restore_*`              | `*.restored`              |
+| `delete_*`               | `*.deleted`               |
+
+Pinned by `derive_activity_action/2` table test that exercises
+every operation/entity-type pair the catalogue actually uses (11
+combinations).
+
+### PII safety
+
+Failure metadata never includes user-typed values. For changeset
+reasons, only the changeset's error keys (field names like `"name"`)
+land in metadata. For atom reasons (`:would_create_cycle` etc.), the
+atom string lands. For other shapes, only `db_pending: true` plus
+`error_kind: "other"` is recorded. Pinned by an explicit "never
+includes user-typed values" test.
+
+### Files touched
+
+| File | Change |
+|------|--------|
+| `lib/phoenix_kit_catalogue/web/helpers.ex` | new `log_operation_error/3` + `derive_activity_action/2` + private `format_error_context/1` / `format_reason/1` / `build_failure_metadata/1` / `verb_for/1` / `catalogue_lv_label/1`; `require Logger`, `alias Catalogue.ActivityLog`. |
+| `lib/phoenix_kit_catalogue/web/catalogue_detail_live.ex` | removed local `log_operation_error/3` + `format_error_context` + `format_reason`; widened the import of `Web.Helpers` to include `log_operation_error: 3`. |
+| `lib/phoenix_kit_catalogue/web/catalogues_live.ex` | same removal + import widening. |
+| `lib/phoenix_kit_catalogue/catalogue/activity_log.ex` | rewrote `@moduledoc` to document the layered design (context = success-only; LV = both branches). |
+| `test/web/revalidation_2026_04_28_test.exs` | +5 Batch 4 pinning tests (operation→action table, unknown-operation nil, changeset error_keys, atom reason, PII safety). |
+
+### Verification
+
+- `mix test` — 684 → **689** (+5), 0 failures, **5/5 stable**
+- `mix format --check-formatted` — clean
+- `mix credo --strict` — 1146 mods/funs, 0 issues
+- `mix dialyzer` — 0 errors
+
+### Open
+
+None.
 
