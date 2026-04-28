@@ -491,9 +491,19 @@ defmodule PhoenixKitCatalogue.Web.Components do
     ~H"""
     <span class="text-sm text-base-content/60">
       <%= if is_integer(@loaded) and @loaded < @count do %>
-        {Gettext.gettext(PhoenixKitWeb.Gettext, "Showing %{loaded} of %{count} results for \"%{query}\"", loaded: @loaded, count: @count, query: @query)}
+        {Gettext.gettext(
+          PhoenixKitWeb.Gettext,
+          "Showing %{loaded} of %{count} results for \"%{query}\"",
+          loaded: @loaded,
+          count: @count,
+          query: @query
+        )}
       <% else %>
-        {Gettext.ngettext(PhoenixKitWeb.Gettext, "%{count} result for \"%{query}\"", "%{count} results for \"%{query}\"", @count, count: @count, query: @query)}
+        {Gettext.ngettext(
+          PhoenixKitWeb.Gettext,
+          "%{count} result for \"%{query}\"",
+          "%{count} results for \"%{query}\"",
+          @count, count: @count, query: @query)}
       <% end %>
     </span>
     """
@@ -565,10 +575,20 @@ defmodule PhoenixKitCatalogue.Web.Components do
       <div data-table-view="" class="hidden"></div>
       <div data-card-view="" class="hidden"></div>
       <div class="join">
-        <button type="button" data-view-action="card" class="btn btn-sm join-item" title={Gettext.gettext(PhoenixKitWeb.Gettext, "Card view")}>
+        <button
+          type="button"
+          data-view-action="card"
+          class="btn btn-sm join-item"
+          title={Gettext.gettext(PhoenixKitWeb.Gettext, "Card view")}
+        >
           <.icon name="hero-squares-2x2" class="w-4 h-4" />
         </button>
-        <button type="button" data-view-action="table" class="btn btn-sm join-item" title={Gettext.gettext(PhoenixKitWeb.Gettext, "Table view")}>
+        <button
+          type="button"
+          data-view-action="table"
+          class="btn btn-sm join-item"
+          title={Gettext.gettext(PhoenixKitWeb.Gettext, "Table view")}
+        >
           <.icon name="hero-bars-3-bottom-left" class="w-4 h-4" />
         </button>
       </div>
@@ -1098,21 +1118,41 @@ defmodule PhoenixKitCatalogue.Web.Components do
       id={@id}
       storage_key={@storage_key}
       items={@items}
-      card_fields={&card_fields(&1, @card_columns, @markup_percentage, @discount_percentage, @catalogue_path)}
+      card_fields={
+        &card_fields(&1, @card_columns, @markup_percentage, @discount_percentage, @catalogue_path)
+      }
     >
       <:card_header :let={item}>
-        <.link :if={@edit_path && item.uuid} navigate={safe_call(@edit_path, item.uuid)} class="font-medium text-sm link link-hover">{item.name || "—"}</.link>
+        <.link
+          :if={@edit_path && item.uuid}
+          navigate={safe_call(@edit_path, item.uuid)}
+          class="font-medium text-sm link link-hover"
+        >
+          {item.name || "—"}
+        </.link>
         <span :if={!@edit_path || !item.uuid} class="font-medium text-sm">{item.name || "—"}</span>
       </:card_header>
       <.table_default_header>
         <.table_default_row>
-          <.table_default_header_cell :for={col <- @columns}>{column_label(col)}</.table_default_header_cell>
-          <.table_default_header_cell :if={@has_actions} class="text-right">{Gettext.gettext(PhoenixKitWeb.Gettext, "Actions")}</.table_default_header_cell>
+          <.table_default_header_cell :for={col <- @columns}>
+            {column_label(col)}
+          </.table_default_header_cell>
+          <.table_default_header_cell :if={@has_actions} class="text-right">
+            {Gettext.gettext(PhoenixKitWeb.Gettext, "Actions")}
+          </.table_default_header_cell>
         </.table_default_row>
       </.table_default_header>
       <.table_default_body>
         <.table_default_row :for={item <- @items}>
-          <.item_cell :for={col <- @columns} column={col} item={item} markup_percentage={@markup_percentage} discount_percentage={@discount_percentage} catalogue_path={@catalogue_path} edit_path={@edit_path} />
+          <.item_cell
+            :for={col <- @columns}
+            column={col}
+            item={item}
+            markup_percentage={@markup_percentage}
+            discount_percentage={@discount_percentage}
+            catalogue_path={@catalogue_path}
+            edit_path={@edit_path}
+          />
           <.item_actions
             :if={@has_actions}
             item={item}
@@ -1188,17 +1228,48 @@ defmodule PhoenixKitCatalogue.Web.Components do
 
   defp card_action_buttons(assigns) do
     ~H"""
-    <.link :if={@edit_path && @item.uuid} navigate={safe_call(@edit_path, @item.uuid)} class="btn btn-ghost btn-xs">
+    <.link
+      :if={@edit_path && @item.uuid}
+      navigate={safe_call(@edit_path, @item.uuid)}
+      class="btn btn-ghost btn-xs"
+    >
       <.icon name="hero-pencil" class="w-3.5 h-3.5" /> {Gettext.gettext(PhoenixKitWeb.Gettext, "Edit")}
     </.link>
-    <button :if={@on_delete} phx-click={@on_delete} phx-value-uuid={@item.uuid} phx-disable-with={Gettext.gettext(PhoenixKitWeb.Gettext, "Deleting...")} class="btn btn-ghost btn-xs text-error">
-      <.icon name="hero-trash" class="w-3.5 h-3.5" /> {Gettext.gettext(PhoenixKitWeb.Gettext, "Delete")}
+    <button
+      :if={@on_delete}
+      phx-click={@on_delete}
+      phx-value-uuid={@item.uuid}
+      phx-disable-with={Gettext.gettext(PhoenixKitWeb.Gettext, "Deleting...")}
+      class="btn btn-ghost btn-xs text-error"
+    >
+      <.icon name="hero-trash" class="w-3.5 h-3.5" /> {Gettext.gettext(
+        PhoenixKitWeb.Gettext,
+        "Delete"
+      )}
     </button>
-    <button :if={@on_restore} phx-click={@on_restore} phx-value-uuid={@item.uuid} phx-disable-with={Gettext.gettext(PhoenixKitWeb.Gettext, "Restoring...")} class="btn btn-ghost btn-xs text-success">
-      <.icon name="hero-arrow-path" class="w-3.5 h-3.5" /> {Gettext.gettext(PhoenixKitWeb.Gettext, "Restore")}
+    <button
+      :if={@on_restore}
+      phx-click={@on_restore}
+      phx-value-uuid={@item.uuid}
+      phx-disable-with={Gettext.gettext(PhoenixKitWeb.Gettext, "Restoring...")}
+      class="btn btn-ghost btn-xs text-success"
+    >
+      <.icon name="hero-arrow-path" class="w-3.5 h-3.5" /> {Gettext.gettext(
+        PhoenixKitWeb.Gettext,
+        "Restore"
+      )}
     </button>
-    <button :if={@on_permanent_delete} phx-click={@on_permanent_delete} phx-value-uuid={@item.uuid} phx-value-type={@permanent_delete_type} class="btn btn-ghost btn-xs text-error">
-      <.icon name="hero-trash" class="w-3.5 h-3.5" /> {Gettext.gettext(PhoenixKitWeb.Gettext, "Delete Forever")}
+    <button
+      :if={@on_permanent_delete}
+      phx-click={@on_permanent_delete}
+      phx-value-uuid={@item.uuid}
+      phx-value-type={@permanent_delete_type}
+      class="btn btn-ghost btn-xs text-error"
+    >
+      <.icon name="hero-trash" class="w-3.5 h-3.5" /> {Gettext.gettext(
+        PhoenixKitWeb.Gettext,
+        "Delete Forever"
+      )}
     </button>
     """
   end
@@ -1229,7 +1300,9 @@ defmodule PhoenixKitCatalogue.Web.Components do
 
   defp item_cell(%{column: :sku} = assigns) do
     ~H"""
-    <.table_default_cell class="text-sm font-mono text-base-content/60">{@item.sku || "—"}</.table_default_cell>
+    <.table_default_cell class="text-sm font-mono text-base-content/60">
+      {@item.sku || "—"}
+    </.table_default_cell>
     """
   end
 
@@ -1241,19 +1314,25 @@ defmodule PhoenixKitCatalogue.Web.Components do
 
   defp item_cell(%{column: :price} = assigns) do
     ~H"""
-    <.table_default_cell class="text-sm font-semibold">{format_price(safe_sale_price(@item, @markup_percentage))}</.table_default_cell>
+    <.table_default_cell class="text-sm font-semibold">
+      {format_price(safe_sale_price(@item, @markup_percentage))}
+    </.table_default_cell>
     """
   end
 
   defp item_cell(%{column: :discount} = assigns) do
     ~H"""
-    <.table_default_cell class="text-sm">{format_percentage(safe_effective_discount(@item, @discount_percentage))}</.table_default_cell>
+    <.table_default_cell class="text-sm">
+      {format_percentage(safe_effective_discount(@item, @discount_percentage))}
+    </.table_default_cell>
     """
   end
 
   defp item_cell(%{column: :final_price} = assigns) do
     ~H"""
-    <.table_default_cell class="text-sm font-semibold">{format_price(safe_final_price(@item, @markup_percentage, @discount_percentage))}</.table_default_cell>
+    <.table_default_cell class="text-sm font-semibold">
+      {format_price(safe_final_price(@item, @markup_percentage, @discount_percentage))}
+    </.table_default_cell>
     """
   end
 
@@ -1265,13 +1344,17 @@ defmodule PhoenixKitCatalogue.Web.Components do
 
   defp item_cell(%{column: :status} = assigns) do
     ~H"""
-    <.table_default_cell><.status_badge status={@item.status || "unknown"} size={:xs} /></.table_default_cell>
+    <.table_default_cell>
+      <.status_badge status={@item.status || "unknown"} size={:xs} />
+    </.table_default_cell>
     """
   end
 
   defp item_cell(%{column: :category} = assigns) do
     ~H"""
-    <.table_default_cell class="text-sm text-base-content/60">{safe_assoc_field(@item, :category, :name)}</.table_default_cell>
+    <.table_default_cell class="text-sm text-base-content/60">
+      {safe_assoc_field(@item, :category, :name)}
+    </.table_default_cell>
     """
   end
 
@@ -1299,7 +1382,9 @@ defmodule PhoenixKitCatalogue.Web.Components do
 
   defp item_cell(%{column: :manufacturer} = assigns) do
     ~H"""
-    <.table_default_cell class="text-sm text-base-content/60">{safe_assoc_field(@item, :manufacturer, :name)}</.table_default_cell>
+    <.table_default_cell class="text-sm text-base-content/60">
+      {safe_assoc_field(@item, :manufacturer, :name)}
+    </.table_default_cell>
     """
   end
 
@@ -1331,12 +1416,41 @@ defmodule PhoenixKitCatalogue.Web.Components do
     ~H"""
     <.table_default_cell class="text-right whitespace-nowrap">
       <.table_row_menu mode="auto" id={"item-action-#{@item.uuid}"}>
-        <.table_row_menu_link :if={@edit_path} navigate={safe_call(@edit_path, @item.uuid)} icon="hero-pencil" label={Gettext.gettext(PhoenixKitWeb.Gettext, "Edit")} />
+        <.table_row_menu_link
+          :if={@edit_path}
+          navigate={safe_call(@edit_path, @item.uuid)}
+          icon="hero-pencil"
+          label={Gettext.gettext(PhoenixKitWeb.Gettext, "Edit")}
+        />
         <.table_row_menu_divider :if={@edit_path && (@on_delete || @on_restore)} />
-        <.table_row_menu_button :if={@on_delete} phx-click={@on_delete} phx-value-uuid={@item.uuid} phx-disable-with={Gettext.gettext(PhoenixKitWeb.Gettext, "Deleting...")} icon="hero-trash" label={Gettext.gettext(PhoenixKitWeb.Gettext, "Delete")} variant="error" />
-        <.table_row_menu_button :if={@on_restore} phx-click={@on_restore} phx-value-uuid={@item.uuid} phx-disable-with={Gettext.gettext(PhoenixKitWeb.Gettext, "Restoring...")} icon="hero-arrow-path" label={Gettext.gettext(PhoenixKitWeb.Gettext, "Restore")} variant="success" />
+        <.table_row_menu_button
+          :if={@on_delete}
+          phx-click={@on_delete}
+          phx-value-uuid={@item.uuid}
+          phx-disable-with={Gettext.gettext(PhoenixKitWeb.Gettext, "Deleting...")}
+          icon="hero-trash"
+          label={Gettext.gettext(PhoenixKitWeb.Gettext, "Delete")}
+          variant="error"
+        />
+        <.table_row_menu_button
+          :if={@on_restore}
+          phx-click={@on_restore}
+          phx-value-uuid={@item.uuid}
+          phx-disable-with={Gettext.gettext(PhoenixKitWeb.Gettext, "Restoring...")}
+          icon="hero-arrow-path"
+          label={Gettext.gettext(PhoenixKitWeb.Gettext, "Restore")}
+          variant="success"
+        />
         <.table_row_menu_divider :if={@on_restore && @on_permanent_delete} />
-        <.table_row_menu_button :if={@on_permanent_delete} phx-click={@on_permanent_delete} phx-value-uuid={@item.uuid} phx-value-type={@permanent_delete_type} icon="hero-trash" label={Gettext.gettext(PhoenixKitWeb.Gettext, "Delete Forever")} variant="error" />
+        <.table_row_menu_button
+          :if={@on_permanent_delete}
+          phx-click={@on_permanent_delete}
+          phx-value-uuid={@item.uuid}
+          phx-value-type={@permanent_delete_type}
+          icon="hero-trash"
+          label={Gettext.gettext(PhoenixKitWeb.Gettext, "Delete Forever")}
+          variant="error"
+        />
       </.table_row_menu>
     </.table_default_cell>
     """
@@ -1380,6 +1494,13 @@ defmodule PhoenixKitCatalogue.Web.Components do
   attr(:category_uuids, :list, default: nil)
   attr(:catalogue_uuids, :list, default: nil)
   attr(:include_descendants, :boolean, default: true)
+
+  attr(:only, :atom,
+    default: nil,
+    values: [nil, :uncategorized_only, :categorized_only],
+    doc: "Restrict results to uncategorised or categorised items only."
+  )
+
   attr(:selected_item, :any, default: nil)
   attr(:excluded_uuids, :list, default: [])
   attr(:locale, :string, required: true)
@@ -1397,6 +1518,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
       category_uuids={@category_uuids}
       catalogue_uuids={@catalogue_uuids}
       include_descendants={@include_descendants}
+      only={@only}
       selected_item={@selected_item}
       excluded_uuids={@excluded_uuids}
       locale={@locale}
