@@ -83,20 +83,38 @@ defmodule PhoenixKitCatalogue.Attachments do
 
   @doc """
   Populates the attachment-related assigns on the socket. Accepts the
-  owning resource (Item or Catalogue). Stashes the resource at
-  `:attachments_resource` so later callbacks (progress, events) can
+  owning resource (Item or Catalogue or Category). Stashes the resource
+  at `:attachments_resource` so later callbacks (progress, events) can
   reach it without plumbing.
+
+  ## Options
+
+    * `:files_grid` (default `true`) — set to `false` to skip the
+      `assign_files_state/1` work (and the per-mount DB query that
+      enumerates the folder's files). The CategoryFormLive uses this
+      because its UI only renders the featured-image card; it has no
+      files grid, so the file list query was wasted.
   """
-  def mount_attachments(socket, resource) do
-    socket
-    |> assign(:attachments_resource, resource)
-    |> assign_files_folder(resource)
-    # Featured image must be set before files_state so the merge can
-    # surface it even if it's in a different folder (e.g. the file was
-    # moved to another resource's folder after being featured here).
-    |> assign_featured_image_state(resource)
-    |> assign_files_state()
-    |> assign_media_selector_defaults()
+  def mount_attachments(socket, resource, opts \\ []) do
+    files_grid? = Keyword.get(opts, :files_grid, true)
+
+    socket =
+      socket
+      |> assign(:attachments_resource, resource)
+      |> assign_files_folder(resource)
+      # Featured image must be set before files_state so the merge can
+      # surface it even if it's in a different folder (e.g. the file was
+      # moved to another resource's folder after being featured here).
+      |> assign_featured_image_state(resource)
+
+    socket =
+      if files_grid? do
+        assign_files_state(socket)
+      else
+        assign(socket, :files_state, %{files: []})
+      end
+
+    assign_media_selector_defaults(socket)
   end
 
   @doc """

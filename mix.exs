@@ -26,7 +26,22 @@ defmodule PhoenixKitCatalogue.MixProject do
       name: "PhoenixKitCatalogue",
       source_url: @source_url,
       docs: docs(),
-      aliases: aliases()
+      aliases: aliases(),
+      test_coverage: [
+        ignore_modules: [
+          ~r/^PhoenixKitCatalogue\.Test\./,
+          PhoenixKitCatalogue.DataCase,
+          PhoenixKitCatalogue.LiveCase,
+          PhoenixKitCatalogue.ActivityLogAssertions,
+          # NimbleCSV-generated parser modules — macro-defined CSV
+          # readers from the `nimble_csv` dep, not production code
+          # we own. Their internal branches are NimbleCSV's contract
+          # to test, not ours.
+          PhoenixKitCatalogue.Import.CommaParser,
+          PhoenixKitCatalogue.Import.SemicolonParser,
+          PhoenixKitCatalogue.Import.TabParser
+        ]
+      ]
     ]
   end
 

@@ -3262,6 +3262,28 @@ defmodule PhoenixKitCatalogue.CatalogueTest do
       assert {_, _} = cs.errors[:referenced_catalogue_uuid]
     end
 
+    test "change_catalogue_rule/2 surfaces smart-chain error during form validate (issue #16)" do
+      services_a = create_catalogue(%{name: "Services A", kind: "smart"})
+      services_b = create_catalogue(%{name: "Services B", kind: "smart"})
+      delivery = create_item(%{name: "Delivery", catalogue_uuid: services_a.uuid})
+
+      cs =
+        Catalogue.change_catalogue_rule(
+          %PhoenixKitCatalogue.Schemas.CatalogueRule{},
+          %{
+            item_uuid: delivery.uuid,
+            referenced_catalogue_uuid: services_b.uuid,
+            value: Decimal.new("5"),
+            unit: "percent"
+          }
+        )
+
+      assert {"must reference a standard catalogue, not a smart catalogue", meta} =
+               cs.errors[:referenced_catalogue_uuid]
+
+      assert meta[:validation] == :smart_chain
+    end
+
     test "V102 CHECK constraint on kind refuses an invalid enum via raw SQL" do
       # Ecto's changeset validates `kind` before it hits the DB, so the
       # CHECK constraint is only visible on direct inserts. This guards
@@ -3338,6 +3360,25 @@ defmodule PhoenixKitCatalogue.CatalogueTest do
 
     test "returns empty map when there are no categories" do
       assert Catalogue.category_counts_by_catalogue() == %{}
+    end
+  end
+
+  describe "list_category_ancestors/1" do
+    test "returns [] for a root category" do
+      cat = create_catalogue()
+      root = create_category(cat, %{name: "Root"})
+
+      assert PhoenixKitCatalogue.Catalogue.list_category_ancestors(root.uuid) == []
+    end
+
+    test "returns ancestor chain root → direct parent for a deep descendant" do
+      cat = create_catalogue()
+      root = create_category(cat, %{name: "Root"})
+      mid = create_category(cat, %{name: "Mid", parent_uuid: root.uuid})
+      leaf = create_category(cat, %{name: "Leaf", parent_uuid: mid.uuid})
+
+      ancestors = PhoenixKitCatalogue.Catalogue.list_category_ancestors(leaf.uuid)
+      assert Enum.map(ancestors, & &1.name) == ["Root", "Mid"]
     end
   end
 end

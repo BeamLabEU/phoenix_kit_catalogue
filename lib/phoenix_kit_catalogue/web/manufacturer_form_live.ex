@@ -11,6 +11,8 @@ defmodule PhoenixKitCatalogue.Web.ManufacturerFormLive do
   import PhoenixKitWeb.Components.Core.Select, only: [select: 1]
   import PhoenixKitWeb.Components.Core.Textarea, only: [textarea: 1]
 
+  import PhoenixKitCatalogue.Web.Helpers, only: [actor_opts: 1]
+
   alias PhoenixKitCatalogue.Catalogue
   alias PhoenixKitCatalogue.Paths
   alias PhoenixKitCatalogue.Schemas.Manufacturer
@@ -93,12 +95,7 @@ defmodule PhoenixKitCatalogue.Web.ManufacturerFormLive do
     save_manufacturer(socket, socket.assigns.action, params)
   end
 
-  defp actor_opts(socket) do
-    case socket.assigns[:phoenix_kit_current_user] do
-      %{uuid: uuid} -> [actor_uuid: uuid]
-      _ -> []
-    end
-  end
+  # actor_opts/1 imported from PhoenixKitCatalogue.Web.Helpers
 
   defp save_manufacturer(socket, :new, params) do
     opts = actor_opts(socket)

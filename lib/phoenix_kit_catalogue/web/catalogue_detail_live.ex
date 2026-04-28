@@ -21,6 +21,9 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   import PhoenixKitWeb.Components.Core.Modal, only: [confirm_modal: 1]
   import PhoenixKitCatalogue.Web.Components
 
+  import PhoenixKitCatalogue.Web.Helpers,
+    only: [actor_opts: 1, actor_uuid: 1, log_operation_error: 3]
+
   alias PhoenixKitCatalogue.Catalogue
   alias PhoenixKitCatalogue.Catalogue.PubSub
   alias PhoenixKitCatalogue.Paths
@@ -110,7 +113,10 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     handle_catalogue_data_changed(socket)
   end
 
-  def handle_info(_msg, socket), do: {:noreply, socket}
+  def handle_info(msg, socket) do
+    Logger.debug("CatalogueDetailLive ignored unhandled message: #{inspect(msg)}")
+    {:noreply, socket}
+  end
 
   defp handle_catalogue_data_changed(socket) do
     {:noreply, refresh_in_place(socket)}
@@ -419,59 +425,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
      )}
   end
 
-  # Structured error log for failed mutations — includes actor, entity,
-  # and changeset errors where available so a production incident can be
-  # diagnosed from the log alone.
-  defp log_operation_error(socket, operation, context) do
-    ctx = Map.put_new(context, :actor_uuid, actor_uuid(socket))
-
-    Logger.error(fn ->
-      [
-        "Catalogue detail LV ",
-        operation,
-        " failed: ",
-        format_error_context(ctx)
-      ]
-    end)
-  end
-
-  defp format_error_context(%{reason: reason} = ctx) do
-    rest = Map.delete(ctx, :reason)
-
-    [
-      inspect(rest, limit: :infinity),
-      " reason=",
-      format_reason(reason)
-    ]
-  end
-
-  defp format_reason(%Ecto.Changeset{} = cs) do
-    errors =
-      cs
-      |> Ecto.Changeset.traverse_errors(fn {msg, opts} ->
-        Enum.reduce(opts, msg, fn {k, v}, acc ->
-          String.replace(acc, "%{#{k}}", to_string(v))
-        end)
-      end)
-
-    "changeset_errors=#{inspect(errors)}"
-  end
-
-  defp format_reason(other), do: inspect(other)
-
-  defp actor_uuid(socket) do
-    case socket.assigns[:phoenix_kit_current_user] do
-      %{uuid: uuid} -> uuid
-      _ -> nil
-    end
-  end
-
-  defp actor_opts(socket) do
-    case actor_uuid(socket) do
-      nil -> []
-      uuid -> [actor_uuid: uuid]
-    end
-  end
+  # actor_opts/1, actor_uuid/1, and log_operation_error/3 imported from
+  # PhoenixKitCatalogue.Web.Helpers.
 
   defp initial_cursor, do: %{phase: :categories, category_index: 0, item_offset: 0}
 

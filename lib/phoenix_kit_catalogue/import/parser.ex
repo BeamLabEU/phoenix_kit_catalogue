@@ -41,19 +41,19 @@ defmodule PhoenixKitCatalogue.Import.Parser do
 
     * `:sheet` — sheet name to parse (XLSX only, defaults to first sheet)
   """
-  @spec parse(binary(), String.t(), keyword()) :: {:ok, parsed_file()} | {:error, String.t()}
+  @spec parse(binary(), String.t(), keyword()) :: {:ok, parsed_file()} | {:error, term()}
   def parse(binary, filename, opts \\ []) do
     case detect_format(filename) do
       :xlsx -> parse_xlsx(binary, opts)
       :csv -> parse_csv(binary)
-      {:error, :unsupported} -> {:error, "Unsupported file format. Please upload .xlsx or .csv"}
+      {:error, :unsupported} -> {:error, :unsupported_file_format}
     end
   end
 
   @doc """
   Lists sheet names from an XLSX file.
   """
-  @spec list_sheets(binary()) :: {:ok, [String.t()]} | {:error, String.t()}
+  @spec list_sheets(binary()) :: {:ok, [String.t()]} | {:error, term()}
   def list_sheets(binary) do
     with_temp_file(binary, ".xlsx", fn path ->
       case XlsxReader.open(path) do
@@ -61,7 +61,7 @@ defmodule PhoenixKitCatalogue.Import.Parser do
           {:ok, XlsxReader.sheet_names(package)}
 
         {:error, reason} ->
-          {:error, "Failed to read XLSX: #{inspect(reason)}"}
+          {:error, {:xlsx_read_failed, reason}}
       end
     end)
   end
@@ -79,7 +79,7 @@ defmodule PhoenixKitCatalogue.Import.Parser do
           read_xlsx_sheet(package, target_sheet, sheets)
 
         {:error, reason} ->
-          {:error, "Failed to open XLSX: #{inspect(reason)}"}
+          {:error, {:xlsx_open_failed, reason}}
       end
     end)
   end
@@ -87,7 +87,7 @@ defmodule PhoenixKitCatalogue.Import.Parser do
   defp read_xlsx_sheet(package, target_sheet, sheets) do
     case XlsxReader.sheet(package, target_sheet, empty_rows: false) do
       {:ok, []} ->
-        {:error, "Sheet '#{target_sheet}' is empty"}
+        {:error, {:sheet_empty, target_sheet}}
 
       {:ok, [header_row | data_rows]} ->
         headers = Enum.map(header_row, &to_string/1)
@@ -102,7 +102,7 @@ defmodule PhoenixKitCatalogue.Import.Parser do
         {:ok, %{sheets: sheets, headers: headers, rows: rows, row_count: length(rows)}}
 
       {:error, reason} ->
-        {:error, "Failed to read sheet '#{target_sheet}': #{inspect(reason)}"}
+        {:error, {:sheet_read_failed, target_sheet, reason}}
     end
   end
 
@@ -129,7 +129,7 @@ defmodule PhoenixKitCatalogue.Import.Parser do
 
       case all_rows do
         [] ->
-          {:error, "CSV file is empty"}
+          {:error, :csv_empty}
 
         [header_row | data_rows] ->
           headers = Enum.map(header_row, &String.trim/1)
@@ -147,7 +147,7 @@ defmodule PhoenixKitCatalogue.Import.Parser do
       end
     rescue
       e ->
-        {:error, "Failed to parse CSV: #{Exception.message(e)}"}
+        {:error, {:csv_parse_failed, Exception.message(e)}}
     end
   end
 

@@ -18,6 +18,9 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
 
   import PhoenixKitCatalogue.Web.Components
 
+  import PhoenixKitCatalogue.Web.Helpers,
+    only: [actor_opts: 1, actor_uuid: 1, log_operation_error: 3, status_label: 1]
+
   alias PhoenixKitCatalogue.Catalogue
   alias PhoenixKitCatalogue.Catalogue.PubSub
   alias PhoenixKitCatalogue.Paths
@@ -68,7 +71,10 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     end
   end
 
-  def handle_info(_msg, socket), do: {:noreply, socket}
+  def handle_info(msg, socket) do
+    Logger.debug("CataloguesLive ignored unhandled message: #{inspect(msg)}")
+    {:noreply, socket}
+  end
 
   @impl true
   def handle_params(_params, _uri, socket) do
@@ -106,59 +112,8 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
      )}
   end
 
-  # Structured error log for failed mutations — includes actor, entity,
-  # and changeset errors where available so a production incident can be
-  # diagnosed from the log alone.
-  defp log_operation_error(socket, operation, context) do
-    ctx = Map.put_new(context, :actor_uuid, actor_uuid(socket))
-
-    Logger.error(fn ->
-      [
-        "CataloguesLive ",
-        operation,
-        " failed: ",
-        format_error_context(ctx)
-      ]
-    end)
-  end
-
-  defp format_error_context(%{reason: reason} = ctx) do
-    rest = Map.delete(ctx, :reason)
-
-    [
-      inspect(rest, limit: :infinity),
-      " reason=",
-      format_reason(reason)
-    ]
-  end
-
-  defp format_reason(%Ecto.Changeset{} = cs) do
-    errors =
-      cs
-      |> Ecto.Changeset.traverse_errors(fn {msg, opts} ->
-        Enum.reduce(opts, msg, fn {k, v}, acc ->
-          String.replace(acc, "%{#{k}}", to_string(v))
-        end)
-      end)
-
-    "changeset_errors=#{inspect(errors)}"
-  end
-
-  defp format_reason(other), do: inspect(other)
-
-  defp actor_uuid(socket) do
-    case socket.assigns[:phoenix_kit_current_user] do
-      %{uuid: uuid} -> uuid
-      _ -> nil
-    end
-  end
-
-  defp actor_opts(socket) do
-    case actor_uuid(socket) do
-      nil -> []
-      uuid -> [actor_uuid: uuid]
-    end
-  end
+  # actor_opts/1, actor_uuid/1, and log_operation_error/3 imported from
+  # PhoenixKitCatalogue.Web.Helpers.
 
   defp load_data(socket, :index) do
     if connected?(socket) do
@@ -759,7 +714,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         },
         %{
           label: Gettext.gettext(PhoenixKitWeb.Gettext, "Status"),
-          value: String.capitalize(c.status)
+          value: status_label(c.status)
         },
         %{
           label: Gettext.gettext(PhoenixKitWeb.Gettext, "Updated"),
@@ -774,7 +729,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       [
         %{
           label: Gettext.gettext(PhoenixKitWeb.Gettext, "Status"),
-          value: String.capitalize(c.status)
+          value: status_label(c.status)
         },
         %{
           label: Gettext.gettext(PhoenixKitWeb.Gettext, "Updated"),
@@ -875,7 +830,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         id="manufacturers-list" items={@manufacturers}
         card_fields={fn m -> [
           %{label: Gettext.gettext(PhoenixKitWeb.Gettext, "Website"), value: m.website || "—"},
-          %{label: Gettext.gettext(PhoenixKitWeb.Gettext, "Status"), value: String.capitalize(m.status)}
+          %{label: Gettext.gettext(PhoenixKitWeb.Gettext, "Status"), value: status_label(m.status)}
         ] end}
       >
         <.table_default_header>
@@ -930,7 +885,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         id="suppliers-list" items={@suppliers}
         card_fields={fn s -> [
           %{label: Gettext.gettext(PhoenixKitWeb.Gettext, "Website"), value: s.website || "—"},
-          %{label: Gettext.gettext(PhoenixKitWeb.Gettext, "Status"), value: String.capitalize(s.status)}
+          %{label: Gettext.gettext(PhoenixKitWeb.Gettext, "Status"), value: status_label(s.status)}
         ] end}
       >
         <.table_default_header>

@@ -11,6 +11,7 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
   import PhoenixKitWeb.Components.Core.Input, only: [input: 1]
   import PhoenixKitWeb.Components.Core.Select, only: [select: 1]
   import PhoenixKitCatalogue.Web.Components, only: [featured_image_card: 1]
+  import PhoenixKitCatalogue.Web.Helpers, only: [actor_opts: 1]
 
   alias PhoenixKitCatalogue.Attachments
   alias PhoenixKitCatalogue.Catalogue
@@ -87,7 +88,7 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
        parent_move_target: category && category.parent_uuid,
        move_target: nil
      )
-     |> Attachments.mount_attachments(category)
+     |> Attachments.mount_attachments(category, files_grid: false)
      |> assign_changeset(changeset)
      |> mount_multilang()}
   end
@@ -302,7 +303,10 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
 
   # Catch-all so stray monitor signals or unrelated PubSub traffic
   # can't crash the form mid-edit.
-  def handle_info(_msg, socket), do: {:noreply, socket}
+  def handle_info(msg, socket) do
+    Logger.debug("CategoryFormLive ignored unhandled message: #{inspect(msg)}")
+    {:noreply, socket}
+  end
 
   # Form-submitted empty string means "no parent" — normalize so the
   # changeset treats it as NULL rather than attempting a malformed FK.
@@ -311,12 +315,7 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
 
   defp normalize_parent_uuid(params), do: params
 
-  defp actor_opts(socket) do
-    case socket.assigns[:phoenix_kit_current_user] do
-      %{uuid: uuid} -> [actor_uuid: uuid]
-      _ -> []
-    end
-  end
+  # actor_opts/1 imported from PhoenixKitCatalogue.Web.Helpers
 
   defp save_category(socket, :new, params) do
     case Catalogue.create_category(params, actor_opts(socket)) do

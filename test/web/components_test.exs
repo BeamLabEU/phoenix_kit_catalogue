@@ -36,9 +36,14 @@ defmodule PhoenixKitCatalogue.Web.ComponentsTest do
     end
 
     test "renders with an unknown status" do
-      # Should not crash — uses a fallback class.
+      # Should not crash — uses a fallback class. The raw key is rendered
+      # as-is; status_label/1 deliberately doesn't `String.capitalize/1`
+      # the fallback because that would pin English casing on a value
+      # the gettext extractor can't see (do-not-ask rule from
+      # workspace AGENTS.md). Add a literal `status_label` clause when
+      # a new status atom is introduced.
       html = render_component(&status_badge/1, status: "mystery")
-      assert html =~ "Mystery"
+      assert html =~ "mystery"
     end
   end
 
