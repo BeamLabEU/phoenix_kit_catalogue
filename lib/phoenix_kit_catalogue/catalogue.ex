@@ -124,10 +124,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
   end
 
   defp lookup_parent(:item, uuid) when is_binary(uuid) do
-    case repo().one(from(i in Item, where: i.uuid == ^uuid, select: i.catalogue_uuid)) do
-      nil -> nil
-      parent_uuid -> parent_uuid
-    end
+    Helpers.item_catalogue_uuid(uuid)
   end
 
   defp lookup_parent(:smart_rule, item_uuid) when is_binary(item_uuid) do
@@ -202,6 +199,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
       Catalogue.list_catalogues(kind: :smart)         # only smart catalogues
       Catalogue.list_catalogues(kind: :standard)      # only standard catalogues
   """
+  @spec list_catalogues(keyword()) :: [Catalogue.t()]
   def list_catalogues(opts \\ []) do
     query = from(c in Catalogue, order_by: [asc: :name])
 
@@ -253,6 +251,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
       Catalogue.search_items("oak", catalogue_uuids: uuids)
   """
+  @spec list_catalogues_by_name_prefix(String.t(), keyword()) :: [Catalogue.t()]
   def list_catalogues_by_name_prefix(prefix, opts \\ []) when is_binary(prefix) do
     pattern = "#{Helpers.sanitize_like(prefix)}%"
 
@@ -278,12 +277,14 @@ defmodule PhoenixKitCatalogue.Catalogue do
   end
 
   @doc "Returns the count of soft-deleted catalogues."
+  @spec deleted_catalogue_count() :: non_neg_integer()
   def deleted_catalogue_count do
     from(c in Catalogue, where: c.status == "deleted")
     |> repo().aggregate(:count)
   end
 
   @doc "Fetches a catalogue by UUID without preloads. Returns `nil` if not found."
+  @spec get_catalogue(Ecto.UUID.t()) :: Catalogue.t() | nil
   def get_catalogue(uuid), do: repo().get(Catalogue, uuid)
 
   @doc """
@@ -293,6 +294,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
   (e.g. the infinite-scroll detail view, which pages categories and
   items separately).
   """
+  @spec fetch_catalogue!(Ecto.UUID.t()) :: Catalogue.t()
   def fetch_catalogue!(uuid), do: repo().get!(Catalogue, uuid)
 
   @doc """
@@ -311,6 +313,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
       Catalogue.get_catalogue!(uuid)                  # active view
       Catalogue.get_catalogue!(uuid, mode: :deleted)  # deleted view
   """
+  @spec get_catalogue!(Ecto.UUID.t(), keyword()) :: Catalogue.t()
   def get_catalogue!(uuid, opts \\ []) do
     mode = Keyword.get(opts, :mode, :active)
 
@@ -347,6 +350,8 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
       Catalogue.create_catalogue(%{name: "Kitchen Furniture"})
   """
+  @spec create_catalogue(map(), keyword()) ::
+          {:ok, Catalogue.t()} | {:error, Ecto.Changeset.t(Catalogue.t())}
   def create_catalogue(attrs, opts \\ []) do
     case %Catalogue{} |> Catalogue.changeset(attrs) |> repo().insert() do
       {:ok, catalogue} = ok ->
@@ -367,6 +372,8 @@ defmodule PhoenixKitCatalogue.Catalogue do
   end
 
   @doc "Updates a catalogue with the given attributes."
+  @spec update_catalogue(Catalogue.t(), map(), keyword()) ::
+          {:ok, Catalogue.t()} | {:error, Ecto.Changeset.t(Catalogue.t())}
   def update_catalogue(%Catalogue{} = catalogue, attrs, opts \\ []) do
     case catalogue |> Catalogue.changeset(attrs) |> repo().update() do
       {:ok, updated} = ok ->
@@ -387,6 +394,8 @@ defmodule PhoenixKitCatalogue.Catalogue do
   end
 
   @doc "Hard-deletes a catalogue. Prefer `trash_catalogue/1` for soft-delete."
+  @spec delete_catalogue(Catalogue.t(), keyword()) ::
+          {:ok, Catalogue.t()} | {:error, Ecto.Changeset.t(Catalogue.t())}
   def delete_catalogue(%Catalogue{} = catalogue, opts \\ []) do
     case repo().delete(catalogue) do
       {:ok, _} = ok ->
@@ -418,6 +427,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
       {:ok, catalogue} = Catalogue.trash_catalogue(catalogue)
   """
+  @spec trash_catalogue(Catalogue.t(), keyword()) :: {:ok, Catalogue.t()} | {:error, term()}
   def trash_catalogue(%Catalogue{} = catalogue, opts \\ []) do
     result =
       repo().transaction(fn ->
@@ -462,6 +472,8 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
       {:ok, catalogue} = Catalogue.restore_catalogue(catalogue)
   """
+  @spec restore_catalogue(Catalogue.t(), keyword()) ::
+          {:ok, Catalogue.t()} | {:error, term()}
   def restore_catalogue(%Catalogue{} = catalogue, opts \\ []) do
     result =
       repo().transaction(fn ->
@@ -573,6 +585,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
   end
 
   @doc "Returns a changeset for tracking catalogue changes."
+  @spec change_catalogue(Catalogue.t(), map()) :: Ecto.Changeset.t(Catalogue.t())
   def change_catalogue(%Catalogue{} = catalogue, attrs \\ %{}) do
     Catalogue.changeset(catalogue, attrs)
   end
@@ -586,6 +599,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
   Preloads items (non-deleted only).
   """
+  @spec list_categories_for_catalogue(Ecto.UUID.t()) :: [Category.t()]
   def list_categories_for_catalogue(catalogue_uuid) do
     from(c in Category,
       where: c.catalogue_uuid == ^catalogue_uuid and c.status != "deleted",
@@ -607,6 +621,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
       `:deleted` (all categories — deleted categories can still contain
       trashed items we want to show).
   """
+  @spec list_categories_metadata_for_catalogue(Ecto.UUID.t(), keyword()) :: [Category.t()]
   def list_categories_metadata_for_catalogue(catalogue_uuid, opts \\ []) do
     mode = Keyword.get(opts, :mode, :active)
 
@@ -639,6 +654,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
     * `:offset` — default `0`
     * `:limit` — default `50`
   """
+  @spec list_items_for_category_paged(Ecto.UUID.t(), keyword()) :: [Item.t()]
   def list_items_for_category_paged(category_uuid, opts \\ []) do
     mode = Keyword.get(opts, :mode, :active)
     offset = Keyword.get(opts, :offset, 0)
@@ -675,6 +691,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
     * `:offset` — default `0`
     * `:limit` — default `50`
   """
+  @spec list_uncategorized_items_paged(Ecto.UUID.t(), keyword()) :: [Item.t()]
   def list_uncategorized_items_paged(catalogue_uuid, opts \\ []) do
     mode = Keyword.get(opts, :mode, :active)
     offset = Keyword.get(opts, :offset, 0)
@@ -703,6 +720,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
   `category_uuid IS NULL`). Used to decide whether the infinite-scroll
   detail view needs to show an "Uncategorized" card at all.
   """
+  @spec uncategorized_count_for_catalogue(Ecto.UUID.t(), keyword()) :: non_neg_integer()
   def uncategorized_count_for_catalogue(catalogue_uuid, opts \\ []) do
     mode = Keyword.get(opts, :mode, :active)
 
@@ -731,6 +749,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
     * `:mode` — `:active` (default) or `:deleted`
   """
+  @spec item_count_for_category(Ecto.UUID.t(), keyword()) :: non_neg_integer()
   def item_count_for_category(category_uuid, opts \\ []) do
     mode = Keyword.get(opts, :mode, :active)
 
@@ -758,6 +777,9 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
     * `:mode` — `:active` (default) or `:deleted`
   """
+  @spec item_counts_by_category_for_catalogue(Ecto.UUID.t(), keyword()) :: %{
+          Ecto.UUID.t() => non_neg_integer()
+        }
   def item_counts_by_category_for_catalogue(catalogue_uuid, opts \\ []) do
     mode = Keyword.get(opts, :mode, :active)
 
@@ -793,6 +815,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
   tree walk and breadcrumb rewrite happen in memory. Safe to call on
   demand from move-dropdowns.
   """
+  @spec list_all_categories() :: [Category.t()]
   def list_all_categories do
     catalogues =
       from(cat in Catalogue,
@@ -871,9 +894,11 @@ defmodule PhoenixKitCatalogue.Catalogue do
   end
 
   @doc "Fetches a category by UUID. Returns `nil` if not found."
+  @spec get_category(Ecto.UUID.t()) :: Category.t() | nil
   def get_category(uuid), do: repo().get(Category, uuid)
 
   @doc "Fetches a category by UUID. Raises `Ecto.NoResultsError` if not found."
+  @spec get_category!(Ecto.UUID.t()) :: Category.t()
   def get_category!(uuid), do: repo().get!(Category, uuid)
 
   @doc """
@@ -893,6 +918,8 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
       Catalogue.create_category(%{name: "Frames", catalogue_uuid: catalogue.uuid})
   """
+  @spec create_category(map(), keyword()) ::
+          {:ok, Category.t()} | {:error, Ecto.Changeset.t(Category.t())}
   def create_category(attrs, opts \\ []) do
     changeset =
       %Category{}
@@ -907,6 +934,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
           actor_uuid: opts[:actor_uuid],
           resource_type: "category",
           resource_uuid: category.uuid,
+          parent_catalogue_uuid: category.catalogue_uuid,
           metadata: %{"name" => category.name, "catalogue_uuid" => category.catalogue_uuid}
         })
 
@@ -918,6 +946,8 @@ defmodule PhoenixKitCatalogue.Catalogue do
   end
 
   @doc "Updates a category with the given attributes."
+  @spec update_category(Category.t(), map(), keyword()) ::
+          {:ok, Category.t()} | {:error, Ecto.Changeset.t(Category.t())}
   def update_category(%Category{} = category, attrs, opts \\ []) do
     changeset =
       category
@@ -932,6 +962,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
           actor_uuid: opts[:actor_uuid],
           resource_type: "category",
           resource_uuid: updated.uuid,
+          parent_catalogue_uuid: updated.catalogue_uuid,
           metadata: %{"name" => updated.name}
         })
 
@@ -966,7 +997,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
           "cannot be set without a catalogue"
         )
 
-      own_uuid && parent_uuid in Tree.subtree_uuids(own_uuid) ->
+      own_uuid && cycle?(parent_uuid, own_uuid) ->
         Ecto.Changeset.add_error(
           changeset,
           :parent_uuid,
@@ -975,6 +1006,20 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
       true ->
         check_parent_catalogue(changeset, parent_uuid, catalogue_uuid)
+    end
+  end
+
+  # `Tree.subtree_uuids/1` returns raw 16-byte binaries (the schema-less
+  # outer CTE select strips Ecto's type info). The textual `parent_uuid`
+  # we got from the changeset doesn't match those, so dump it to the
+  # raw binary form before the membership test. Without this, a real
+  # cycle is silently accepted — the test
+  # `update_category/3 rejects a parent that is a descendant (cycle)`
+  # pins the regression.
+  defp cycle?(parent_uuid, own_uuid) do
+    case Ecto.UUID.dump(parent_uuid) do
+      {:ok, raw} -> raw in Tree.subtree_uuids(own_uuid)
+      :error -> false
     end
   end
 
@@ -996,6 +1041,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
   end
 
   @doc "Hard-deletes a category. Prefer `trash_category/1` for soft-delete."
+  @spec delete_category(Category.t(), keyword()) :: {:ok, Category.t()} | {:error, term()}
   def delete_category(%Category{} = category, opts \\ []) do
     case repo().delete(category) do
       {:ok, _} = ok ->
@@ -1005,6 +1051,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
           actor_uuid: opts[:actor_uuid],
           resource_type: "category",
           resource_uuid: category.uuid,
+          parent_catalogue_uuid: category.catalogue_uuid,
           metadata: %{"name" => category.name}
         })
 
@@ -1032,6 +1079,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
       {:ok, _} = Catalogue.trash_category(category)
   """
+  @spec trash_category(Category.t(), keyword()) :: {:ok, Category.t()} | {:error, term()}
   def trash_category(%Category{} = category, opts \\ []) do
     result =
       repo().transaction(fn ->
@@ -1061,6 +1109,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
           actor_uuid: opts[:actor_uuid],
           resource_type: "category",
           resource_uuid: category.uuid,
+          parent_catalogue_uuid: category.catalogue_uuid,
           metadata: %{
             "name" => category.name,
             "catalogue_uuid" => category.catalogue_uuid,
@@ -1092,6 +1141,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
       {:ok, _} = Catalogue.restore_category(category)
   """
+  @spec restore_category(Category.t(), keyword()) :: {:ok, Category.t()} | {:error, term()}
   def restore_category(%Category{} = category, opts \\ []) do
     result =
       repo().transaction(fn ->
@@ -1139,6 +1189,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
           actor_uuid: opts[:actor_uuid],
           resource_type: "category",
           resource_uuid: category.uuid,
+          parent_catalogue_uuid: category.catalogue_uuid,
           metadata: %{
             "name" => category.name,
             "catalogue_uuid" => category.catalogue_uuid,
@@ -1163,6 +1214,8 @@ defmodule PhoenixKitCatalogue.Catalogue do
   subtree categories from leaves up (ordered so child FKs resolve
   before their parent is removed). This cannot be undone.
   """
+  @spec permanently_delete_category(Category.t(), keyword()) ::
+          {:ok, Category.t()} | {:error, term()}
   def permanently_delete_category(%Category{} = category, opts \\ []) do
     result =
       repo().transaction(fn ->
@@ -1194,6 +1247,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
           actor_uuid: opts[:actor_uuid],
           resource_type: "category",
           resource_uuid: category.uuid,
+          parent_catalogue_uuid: category.catalogue_uuid,
           metadata: %{
             "name" => category.name,
             "catalogue_uuid" => category.catalogue_uuid,
@@ -1225,6 +1279,8 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
       {:ok, moved} = Catalogue.move_category_to_catalogue(category, target_catalogue_uuid)
   """
+  @spec move_category_to_catalogue(Category.t(), Ecto.UUID.t(), keyword()) ::
+          {:ok, Category.t()} | {:error, term()}
   def move_category_to_catalogue(%Category{} = category, target_catalogue_uuid, opts \\ []) do
     source_catalogue_uuid = category.catalogue_uuid
 
@@ -1278,6 +1334,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
           actor_uuid: opts[:actor_uuid],
           resource_type: "category",
           resource_uuid: moved.uuid,
+          parent_catalogue_uuid: target_catalogue_uuid,
           metadata: %{
             "name" => moved.name,
             "from_catalogue_uuid" => source_catalogue_uuid,
@@ -1345,6 +1402,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
         actor_uuid: opts[:actor_uuid],
         resource_type: "category",
         resource_uuid: moved.uuid,
+        parent_catalogue_uuid: moved.catalogue_uuid,
         metadata: %{
           "name" => moved.name,
           "from_parent_uuid" => from_parent_uuid,
@@ -1359,49 +1417,80 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
   def move_category_under(%Category{} = category, new_parent_uuid, opts)
       when is_binary(new_parent_uuid) do
-    cond do
-      new_parent_uuid == category.uuid ->
-        {:error, :would_create_cycle}
-
-      new_parent_uuid in Tree.subtree_uuids(category.uuid) ->
-        {:error, :would_create_cycle}
-
-      true ->
-        do_move_category_under(category, new_parent_uuid, opts)
+    if new_parent_uuid == category.uuid do
+      {:error, :would_create_cycle}
+    else
+      do_move_category_under(category, new_parent_uuid, opts)
     end
   end
 
+  # Runs the cycle check + parent validation + position calc + update
+  # inside a single transaction with `FOR UPDATE` on the moved row.
+  # Two concurrent reparents on different nodes that would jointly
+  # create a cycle now serialise: the second one re-runs `Tree.subtree_uuids/1`
+  # against the post-commit tree and gets `:would_create_cycle` instead
+  # of silently shipping a corrupting structure.
   defp do_move_category_under(category, new_parent_uuid, opts) do
+    result =
+      repo().transaction(fn ->
+        repo().one!(from(c in Category, where: c.uuid == ^category.uuid, lock: "FOR UPDATE"))
+
+        if cycle?(new_parent_uuid, category.uuid) do
+          repo().rollback(:would_create_cycle)
+        else
+          run_locked_reparent(category, new_parent_uuid)
+        end
+      end)
+
+    with {:ok, {moved, from_parent_uuid}} <- result do
+      log_activity(%{
+        action: "category.moved",
+        mode: "manual",
+        actor_uuid: opts[:actor_uuid],
+        resource_type: "category",
+        resource_uuid: moved.uuid,
+        parent_catalogue_uuid: moved.catalogue_uuid,
+        metadata: %{
+          "name" => moved.name,
+          "from_parent_uuid" => from_parent_uuid,
+          "to_parent_uuid" => new_parent_uuid,
+          "catalogue_uuid" => moved.catalogue_uuid
+        }
+      })
+
+      {:ok, moved}
+    end
+  end
+
+  # Loads a raw 16-byte binary UUID from a Tree CTE result back into the
+  # textual `xxxxxxxx-xxxx-...` form, falling back to the raw input if
+  # it isn't a valid UUID. Used by `list_category_tree/2`'s
+  # `:exclude_subtree_of` membership test (loaded `Category` rows carry
+  # textual UUIDs).
+  defp load_uuid(raw) do
+    case Ecto.UUID.load(raw) do
+      {:ok, str} -> str
+      :error -> raw
+    end
+  end
+
+  defp run_locked_reparent(category, new_parent_uuid) do
     case repo().get(Category, new_parent_uuid) do
       nil ->
-        {:error, :parent_not_found}
+        repo().rollback(:parent_not_found)
 
       %Category{catalogue_uuid: other} when other != category.catalogue_uuid ->
-        {:error, :cross_catalogue}
+        repo().rollback(:cross_catalogue)
 
       %Category{} ->
         from_parent_uuid = category.parent_uuid
         next_pos = next_category_position(category.catalogue_uuid, new_parent_uuid)
 
-        with {:ok, moved} <-
-               category
-               |> Category.changeset(%{parent_uuid: new_parent_uuid, position: next_pos})
-               |> repo().update() do
-          log_activity(%{
-            action: "category.moved",
-            mode: "manual",
-            actor_uuid: opts[:actor_uuid],
-            resource_type: "category",
-            resource_uuid: moved.uuid,
-            metadata: %{
-              "name" => moved.name,
-              "from_parent_uuid" => from_parent_uuid,
-              "to_parent_uuid" => new_parent_uuid,
-              "catalogue_uuid" => moved.catalogue_uuid
-            }
-          })
-
-          {:ok, moved}
+        case category
+             |> Category.changeset(%{parent_uuid: new_parent_uuid, position: next_pos})
+             |> repo().update() do
+          {:ok, moved} -> {moved, from_parent_uuid}
+          {:error, changeset} -> repo().rollback(changeset)
         end
     end
   end
@@ -1436,11 +1525,20 @@ defmodule PhoenixKitCatalogue.Catalogue do
   defp do_swap_category_positions(cat_a, cat_b, opts) do
     result =
       repo().transaction(fn ->
-        pos_a = cat_a.position
-        pos_b = cat_b.position
+        # Take FOR UPDATE on both rows before reading their positions so
+        # two concurrent swaps with overlapping siblings serialise. The
+        # first transaction commits its swap; the second re-reads the
+        # post-commit positions and writes the correct values, instead
+        # of computing both positions off pre-commit reads and producing
+        # duplicates.
+        a =
+          repo().one!(from(c in Category, where: c.uuid == ^cat_a.uuid, lock: "FOR UPDATE"))
 
-        cat_a |> Category.changeset(%{position: pos_b}) |> repo().update!()
-        cat_b |> Category.changeset(%{position: pos_a}) |> repo().update!()
+        b =
+          repo().one!(from(c in Category, where: c.uuid == ^cat_b.uuid, lock: "FOR UPDATE"))
+
+        a |> Category.changeset(%{position: b.position}) |> repo().update!()
+        b |> Category.changeset(%{position: a.position}) |> repo().update!()
       end)
 
     with {:ok, _} <- result do
@@ -1450,6 +1548,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
         actor_uuid: opts[:actor_uuid],
         resource_type: "category",
         resource_uuid: cat_a.uuid,
+        parent_catalogue_uuid: cat_a.catalogue_uuid,
         metadata: %{
           "category_a_uuid" => cat_a.uuid,
           "category_a_name" => cat_a.name,
@@ -1463,6 +1562,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
   end
 
   @doc "Returns a changeset for tracking category changes."
+  @spec change_category(Category.t(), map()) :: Ecto.Changeset.t(Category.t())
   def change_category(%Category{} = category, attrs \\ %{}) do
     Category.changeset(category, attrs)
   end
@@ -1498,10 +1598,13 @@ defmodule PhoenixKitCatalogue.Catalogue do
     # a single branch (order of 1–20 uuids) and keeping a list here
     # lets dialyzer type-check the `in` check without tripping on
     # MapSet's opaque struct.
+    # `Tree.subtree_uuids/1` returns raw 16-byte binaries; loaded
+    # `Category` rows carry textual UUIDs. Normalise both sides via
+    # `Ecto.UUID.load/1` so the membership test actually fires.
     exclude_uuids =
       case Keyword.get(opts, :exclude_subtree_of) do
         nil -> []
-        uuid -> Tree.subtree_uuids(uuid)
+        uuid -> uuid |> Tree.subtree_uuids() |> Enum.map(&load_uuid/1)
       end
 
     query =
@@ -1564,6 +1667,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
   `parent_uuid` defaults to `nil`, i.e. root-level siblings. Returns 0
   if no siblings exist at that level, otherwise `max_position + 1`.
   """
+  @spec next_category_position(Ecto.UUID.t(), Ecto.UUID.t() | nil) :: non_neg_integer()
   def next_category_position(catalogue_uuid, parent_uuid \\ nil) do
     query =
       from(c in Category,
@@ -1604,6 +1708,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
       Catalogue.list_items(status: "active")          # only active
       Catalogue.list_items(limit: 100)                # first 100
   """
+  @spec list_items(keyword()) :: [Item.t()]
   def list_items(opts \\ []) do
     query =
       from(i in Item,
@@ -1631,6 +1736,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
   Preloads category (with catalogue) and manufacturer.
   """
+  @spec list_items_for_category(Ecto.UUID.t()) :: [Item.t()]
   def list_items_for_category(category_uuid) do
     from(i in Item,
       where: i.category_uuid == ^category_uuid and i.status != "deleted",
@@ -1646,6 +1752,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
   Preloads catalogue, category (with catalogue) and manufacturer.
   """
+  @spec list_items_for_catalogue(Ecto.UUID.t()) :: [Item.t()]
   def list_items_for_catalogue(catalogue_uuid) do
     from(i in Item,
       left_join: c in Category,
@@ -1670,6 +1777,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
       Catalogue.list_uncategorized_items(catalogue_uuid)
       Catalogue.list_uncategorized_items(catalogue_uuid, mode: :deleted)
   """
+  @spec list_uncategorized_items(Ecto.UUID.t(), keyword()) :: [Item.t()]
   def list_uncategorized_items(catalogue_uuid, opts \\ []) do
     mode = Keyword.get(opts, :mode, :active)
 
@@ -1690,12 +1798,14 @@ defmodule PhoenixKitCatalogue.Catalogue do
   end
 
   @doc "Fetches an item by UUID without preloads. Returns `nil` if not found."
+  @spec get_item(Ecto.UUID.t()) :: Item.t() | nil
   def get_item(uuid), do: repo().get(Item, uuid)
 
   @doc """
   Fetches an item by UUID with preloaded category and manufacturer.
   Raises `Ecto.NoResultsError` if not found.
   """
+  @spec get_item!(Ecto.UUID.t()) :: Item.t()
   def get_item!(uuid) do
     Item
     |> repo().get!(uuid)
@@ -1727,6 +1837,8 @@ defmodule PhoenixKitCatalogue.Catalogue do
       Catalogue.create_item(%{name: "Oak Panel 18mm", catalogue_uuid: cat.uuid, base_price: 25.50})
       Catalogue.create_item(%{name: "Hinge", category_uuid: category.uuid, manufacturer_uuid: m.uuid})
   """
+  @spec create_item(map(), keyword()) ::
+          {:ok, Item.t()} | {:error, Ecto.Changeset.t(Item.t())}
   def create_item(attrs, opts \\ []) do
     skip_derive? = Keyword.get(opts, :skip_derive, false)
 
@@ -1844,6 +1956,8 @@ defmodule PhoenixKitCatalogue.Catalogue do
   defp blank_to_nil(value), do: value
 
   @doc "Updates an item with the given attributes."
+  @spec update_item(Item.t(), map(), keyword()) ::
+          {:ok, Item.t()} | {:error, Ecto.Changeset.t(Item.t())}
   def update_item(%Item{} = item, attrs, opts \\ []) do
     skip_derive? = Keyword.get(opts, :skip_derive, false)
 
@@ -1865,6 +1979,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
           actor_uuid: opts[:actor_uuid],
           resource_type: "item",
           resource_uuid: updated.uuid,
+          parent_catalogue_uuid: updated.catalogue_uuid,
           metadata: %{"name" => updated.name, "sku" => updated.sku || ""}
         })
 
@@ -1876,6 +1991,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
   end
 
   @doc "Hard-deletes an item. Prefer `trash_item/1` for soft-delete."
+  @spec delete_item(Item.t(), keyword()) :: {:ok, Item.t()} | {:error, term()}
   def delete_item(%Item{} = item, opts \\ []) do
     case repo().delete(item) do
       {:ok, _} = ok ->
@@ -1885,6 +2001,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
           actor_uuid: opts[:actor_uuid],
           resource_type: "item",
           resource_uuid: item.uuid,
+          parent_catalogue_uuid: item.catalogue_uuid,
           metadata: %{"name" => item.name}
         })
 
@@ -1902,6 +2019,8 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
       {:ok, item} = Catalogue.trash_item(item)
   """
+  @spec trash_item(Item.t(), keyword()) ::
+          {:ok, Item.t()} | {:error, Ecto.Changeset.t(Item.t())}
   def trash_item(%Item{} = item, opts \\ []) do
     case item |> Item.changeset(%{status: "deleted"}) |> repo().update() do
       {:ok, trashed} = ok ->
@@ -1911,6 +2030,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
           actor_uuid: opts[:actor_uuid],
           resource_type: "item",
           resource_uuid: trashed.uuid,
+          parent_catalogue_uuid: trashed.catalogue_uuid,
           metadata: %{"name" => trashed.name}
         })
 
@@ -1931,6 +2051,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
       {:ok, item} = Catalogue.restore_item(item)
   """
+  @spec restore_item(Item.t(), keyword()) :: {:ok, Item.t()} | {:error, term()}
   def restore_item(%Item{} = item, opts \\ []) do
     result =
       repo().transaction(fn ->
@@ -1948,6 +2069,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
         actor_uuid: opts[:actor_uuid],
         resource_type: "item",
         resource_uuid: restored.uuid,
+        parent_catalogue_uuid: restored.catalogue_uuid,
         metadata: %{"name" => restored.name}
       })
 
@@ -1985,6 +2107,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
       {:ok, _} = Catalogue.permanently_delete_item(item)
   """
+  @spec permanently_delete_item(Item.t(), keyword()) :: {:ok, Item.t()} | {:error, term()}
   def permanently_delete_item(%Item{} = item, opts \\ []) do
     case repo().delete(item) do
       {:ok, _} = ok ->
@@ -1994,6 +2117,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
           actor_uuid: opts[:actor_uuid],
           resource_type: "item",
           resource_uuid: item.uuid,
+          parent_catalogue_uuid: item.catalogue_uuid,
           metadata: %{"name" => item.name}
         })
 
@@ -2013,6 +2137,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
       {3, nil} = Catalogue.trash_items_in_category(category_uuid)
   """
+  @spec trash_items_in_category(Ecto.UUID.t(), keyword()) :: {non_neg_integer(), nil}
   def trash_items_in_category(category_uuid, opts \\ []) do
     {count, _} =
       from(i in Item,
@@ -2046,6 +2171,8 @@ defmodule PhoenixKitCatalogue.Catalogue do
       {:ok, item} = Catalogue.move_item_to_category(item, new_category_uuid)
       {:ok, item} = Catalogue.move_item_to_category(item, nil)  # make uncategorized
   """
+  @spec move_item_to_category(Item.t(), Ecto.UUID.t() | nil, keyword()) ::
+          {:ok, Item.t()} | {:error, :category_not_found | Ecto.Changeset.t(Item.t())}
   def move_item_to_category(%Item{} = item, category_uuid, opts \\ []) do
     from_category_uuid = item.category_uuid
 
@@ -2057,6 +2184,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
         actor_uuid: opts[:actor_uuid],
         resource_type: "item",
         resource_uuid: moved.uuid,
+        parent_catalogue_uuid: moved.catalogue_uuid,
         metadata: %{
           "name" => moved.name,
           "from_category_uuid" => from_category_uuid,
@@ -2121,6 +2249,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
             actor_uuid: opts[:actor_uuid],
             resource_type: "item",
             resource_uuid: moved.uuid,
+            parent_catalogue_uuid: catalogue_uuid,
             metadata: %{
               "name" => moved.name,
               "from_catalogue_uuid" => from_catalogue_uuid,
@@ -2136,6 +2265,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
   end
 
   @doc "Returns a changeset for tracking item changes."
+  @spec change_item(Item.t(), map()) :: Ecto.Changeset.t(Item.t())
   def change_item(%Item{} = item, attrs \\ %{}) do
     Item.changeset(item, attrs)
   end

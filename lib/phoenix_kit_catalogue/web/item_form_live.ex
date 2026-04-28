@@ -14,6 +14,8 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   import PhoenixKitCatalogue.Web.Components,
     only: [catalogue_rules_picker: 1, featured_image_card: 1, metadata_editor: 1]
 
+  import PhoenixKitCatalogue.Web.Helpers, only: [actor_opts: 1]
+
   alias PhoenixKit.Modules.Storage.URLSigner
   alias PhoenixKit.Utils.Multilang
   alias PhoenixKitCatalogue.Attachments
@@ -411,7 +413,10 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
 
   # Catch-all so stray monitor signals or unrelated PubSub traffic
   # can't crash the form mid-edit.
-  def handle_info(_msg, socket), do: {:noreply, socket}
+  def handle_info(msg, socket) do
+    Logger.debug("ItemFormLive ignored unhandled message: #{inspect(msg)}")
+    {:noreply, socket}
+  end
 
   # Routes on the parent catalogue's kind: smart items move across
   # catalogues (categories don't apply), standard items move between
@@ -443,12 +448,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
     end
   end
 
-  defp actor_opts(socket) do
-    case socket.assigns[:phoenix_kit_current_user] do
-      %{uuid: uuid} -> [actor_uuid: uuid]
-      _ -> []
-    end
-  end
+  # actor_opts/1 imported from PhoenixKitCatalogue.Web.Helpers
 
   defp save_item(socket, :new, params) do
     params = Map.put_new(params, "catalogue_uuid", socket.assigns.catalogue_uuid)
@@ -1099,6 +1099,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                     type="button"
                     phx-click="remove_file"
                     phx-value-uuid={file.uuid}
+                    phx-disable-with={Gettext.gettext(PhoenixKitWeb.Gettext, "Removing...")}
                     data-confirm={Gettext.gettext(PhoenixKitWeb.Gettext, "Remove this file from the item? If it's not attached to any other item, it will be moved to trash (admins can restore).")}
                     class="btn btn-ghost btn-xs btn-square"
                     title={Gettext.gettext(PhoenixKitWeb.Gettext, "Remove from item")}

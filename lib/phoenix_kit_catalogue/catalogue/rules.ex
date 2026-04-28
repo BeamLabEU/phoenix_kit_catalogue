@@ -214,13 +214,15 @@ defmodule PhoenixKitCatalogue.Catalogue.Rules do
   """
   @spec list_items_referencing_catalogue(Ecto.UUID.t()) :: [Item.t()]
   def list_items_referencing_catalogue(catalogue_uuid) do
-    from(r in CatalogueRule,
-      join: i in Item,
+    # Newer Ecto requires the preload binding to be present in `select`.
+    # Pull `i` (the items) directly via the rules' has-many → switch to
+    # `Item`-rooted query joining through rules, and preload off it.
+    from(i in Item,
+      join: r in CatalogueRule,
       on: r.item_uuid == i.uuid,
       where: r.referenced_catalogue_uuid == ^catalogue_uuid,
       where: i.status != "deleted",
       order_by: [asc: i.name, asc: i.uuid],
-      select: i,
       distinct: true,
       preload: [:catalogue]
     )
@@ -352,10 +354,11 @@ defmodule PhoenixKitCatalogue.Catalogue.Rules do
 
   # Lookup the parent catalogue for a smart-rule broadcast. The rule
   # itself only knows its item_uuid; the detail LV needs the catalogue
-  # UUID to filter cross-catalogue noise. Single indexed pkey lookup.
-  defp item_parent_catalogue_uuid(item_uuid) when is_binary(item_uuid) do
-    repo().one(from(i in Item, where: i.uuid == ^item_uuid, select: i.catalogue_uuid))
-  end
+  # UUID to filter cross-catalogue noise. Delegates to the shared
+  # `Helpers.item_catalogue_uuid/1` so this and `Catalogue.lookup_parent(:item, _)`
+  # don't duplicate the same query (PR #13 review #2 dedupe).
+  defp item_parent_catalogue_uuid(item_uuid) when is_binary(item_uuid),
+    do: Helpers.item_catalogue_uuid(item_uuid)
 
   defp item_parent_catalogue_uuid(_), do: nil
 end

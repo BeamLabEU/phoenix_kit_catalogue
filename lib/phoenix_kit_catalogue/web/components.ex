@@ -166,6 +166,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
               <button
                 type="button"
                 phx-click="clear_featured_image"
+                phx-disable-with={Gettext.gettext(PhoenixKitWeb.Gettext, "Removing...")}
                 class="btn btn-sm btn-ghost"
               >
                 {Gettext.gettext(PhoenixKitWeb.Gettext, "Remove")}
@@ -339,6 +340,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
       type="button"
       phx-click="remove_meta_field"
       phx-value-key={@def_.key}
+      phx-disable-with={Gettext.gettext(PhoenixKitWeb.Gettext, "Removing...")}
       class="btn btn-ghost btn-sm btn-square text-error"
       title={Gettext.gettext(PhoenixKitWeb.Gettext, "Remove")}
     >
@@ -371,6 +373,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
       type="button"
       phx-click="remove_meta_field"
       phx-value-key={@key}
+      phx-disable-with={Gettext.gettext(PhoenixKitWeb.Gettext, "Removing...")}
       class="btn btn-ghost btn-sm btn-square text-error"
       title={Gettext.gettext(PhoenixKitWeb.Gettext, "Remove")}
     >
@@ -401,13 +404,16 @@ defmodule PhoenixKitCatalogue.Web.Components do
 
   # Status labels are translated via gettext so admin UIs render in the
   # active locale instead of the raw English DB value. Unknown statuses
-  # fall through to a capitalized version of the raw string.
+  # render the raw key verbatim — wrapping it in `String.capitalize/1`
+  # would pin English casing on a value the gettext extractor can't
+  # see, so we leave it raw and rely on a future status enum addition
+  # to surface the missing literal here.
   defp status_label("active"), do: Gettext.gettext(PhoenixKitWeb.Gettext, "Active")
   defp status_label("inactive"), do: Gettext.gettext(PhoenixKitWeb.Gettext, "Inactive")
   defp status_label("archived"), do: Gettext.gettext(PhoenixKitWeb.Gettext, "Archived")
   defp status_label("deleted"), do: Gettext.gettext(PhoenixKitWeb.Gettext, "Deleted")
   defp status_label("discontinued"), do: Gettext.gettext(PhoenixKitWeb.Gettext, "Discontinued")
-  defp status_label(other) when is_binary(other), do: String.capitalize(other)
+  defp status_label(other) when is_binary(other), do: other
   defp status_label(_), do: Gettext.gettext(PhoenixKitWeb.Gettext, "Unknown")
 
   defp size_class(:xs), do: "badge-xs"
@@ -429,20 +435,29 @@ defmodule PhoenixKitCatalogue.Web.Components do
   ## Attributes
 
     * `query` — current search query string (required)
-    * `placeholder` — input placeholder text (default: "Search...")
+    * `placeholder` — input placeholder text. `nil` (default) resolves
+      to a translated `gettext("Search...")` inside the component body.
+      Pass an explicit string to override (e.g.
+      `gettext("Search items...")`).
     * `on_search` — event name for search (default: "search")
     * `on_clear` — event name for clear (default: "clear_search")
     * `debounce` — debounce ms (default: 300)
     * `class` — additional CSS classes on the wrapper div
   """
   attr(:query, :string, required: true)
-  attr(:placeholder, :string, default: "Search...")
+  attr(:placeholder, :string, default: nil)
   attr(:on_search, :string, default: "search")
   attr(:on_clear, :string, default: "clear_search")
   attr(:debounce, :integer, default: 300)
   attr(:class, :string, default: "")
 
   def search_input(assigns) do
+    placeholder =
+      assigns.placeholder ||
+        Gettext.gettext(PhoenixKitWeb.Gettext, "Search...")
+
+    assigns = assign(assigns, :placeholder, placeholder)
+
     ~H"""
     <div class={["flex gap-2", @class]}>
       <form phx-change={@on_search} phx-submit={@on_search} class="flex-1 relative">
@@ -1164,7 +1179,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
   defp card_field_value(item, :unit, _, _, _), do: format_unit(item.unit)
 
   defp card_field_value(item, :status, _, _, _),
-    do: String.capitalize(item.status || "unknown")
+    do: status_label(item.status || "unknown")
 
   defp card_field_value(item, :category, _, _, _), do: safe_assoc_field(item, :category, :name)
 
@@ -1197,7 +1212,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
     <button :if={@on_restore} phx-click={@on_restore} phx-value-uuid={@item.uuid} phx-disable-with={Gettext.gettext(PhoenixKitWeb.Gettext, "Restoring...")} class="btn btn-ghost btn-xs text-success">
       <.icon name="hero-arrow-path" class="w-3.5 h-3.5" /> {Gettext.gettext(PhoenixKitWeb.Gettext, "Restore")}
     </button>
-    <button :if={@on_permanent_delete} phx-click={@on_permanent_delete} phx-value-uuid={@item.uuid} phx-value-type={@permanent_delete_type} class="btn btn-ghost btn-xs text-error">
+    <button :if={@on_permanent_delete} phx-click={@on_permanent_delete} phx-value-uuid={@item.uuid} phx-value-type={@permanent_delete_type} phx-disable-with={Gettext.gettext(PhoenixKitWeb.Gettext, "Deleting...")} class="btn btn-ghost btn-xs text-error">
       <.icon name="hero-trash" class="w-3.5 h-3.5" /> {Gettext.gettext(PhoenixKitWeb.Gettext, "Delete Forever")}
     </button>
     """
@@ -1336,7 +1351,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
         <.table_row_menu_button :if={@on_delete} phx-click={@on_delete} phx-value-uuid={@item.uuid} phx-disable-with={Gettext.gettext(PhoenixKitWeb.Gettext, "Deleting...")} icon="hero-trash" label={Gettext.gettext(PhoenixKitWeb.Gettext, "Delete")} variant="error" />
         <.table_row_menu_button :if={@on_restore} phx-click={@on_restore} phx-value-uuid={@item.uuid} phx-disable-with={Gettext.gettext(PhoenixKitWeb.Gettext, "Restoring...")} icon="hero-arrow-path" label={Gettext.gettext(PhoenixKitWeb.Gettext, "Restore")} variant="success" />
         <.table_row_menu_divider :if={@on_restore && @on_permanent_delete} />
-        <.table_row_menu_button :if={@on_permanent_delete} phx-click={@on_permanent_delete} phx-value-uuid={@item.uuid} phx-value-type={@permanent_delete_type} icon="hero-trash" label={Gettext.gettext(PhoenixKitWeb.Gettext, "Delete Forever")} variant="error" />
+        <.table_row_menu_button :if={@on_permanent_delete} phx-click={@on_permanent_delete} phx-value-uuid={@item.uuid} phx-value-type={@permanent_delete_type} phx-disable-with={Gettext.gettext(PhoenixKitWeb.Gettext, "Deleting...")} icon="hero-trash" label={Gettext.gettext(PhoenixKitWeb.Gettext, "Delete Forever")} variant="error" />
       </.table_row_menu>
     </.table_default_cell>
     """
@@ -1427,7 +1442,11 @@ defmodule PhoenixKitCatalogue.Web.Components do
   defp column_label(:category), do: Gettext.gettext(PhoenixKitWeb.Gettext, "Category")
   defp column_label(:catalogue), do: Gettext.gettext(PhoenixKitWeb.Gettext, "Catalogue")
   defp column_label(:manufacturer), do: Gettext.gettext(PhoenixKitWeb.Gettext, "Manufacturer")
-  defp column_label(col), do: col |> to_string() |> String.capitalize()
+  # `column_label` is called with a programmatic atom; falling back to
+  # the raw atom name avoids pinning English casing on a value the
+  # gettext extractor can't see. Add a literal clause above this one
+  # when a new opt-in column is introduced.
+  defp column_label(col), do: to_string(col)
 
   defp format_price(nil), do: "—"
 

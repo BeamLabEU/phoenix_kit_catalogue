@@ -476,13 +476,13 @@ defmodule PhoenixKitCatalogue.Import.Mapper do
   defp validate_item_attrs(attrs) do
     cond do
       not Map.has_key?(attrs, :name) or attrs[:name] == "" ->
-        {:error, "Missing item name"}
+        {:error, :missing_item_name}
 
       Map.has_key?(attrs, :_price_error) ->
-        {:error, "Invalid price: #{attrs[:_price_error]}"}
+        {:error, {:invalid_price, attrs[:_price_error]}}
 
       Map.has_key?(attrs, :_markup_error) ->
-        {:error, "Invalid markup: #{attrs[:_markup_error]}"}
+        {:error, {:invalid_markup, attrs[:_markup_error]}}
 
       true ->
         {:ok, Map.drop(attrs, [:_price_error, :_markup_error])}
