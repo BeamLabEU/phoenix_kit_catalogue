@@ -34,6 +34,7 @@ defmodule PhoenixKitCatalogue.Test.Repo.Migrations.PhoenixKitStorage do
     create_if_not_exists table(:phoenix_kit_media_folders, primary_key: false) do
       add(:uuid, :binary_id, primary_key: true)
       add(:name, :string, null: false)
+      add(:color, :string)
       add(:parent_uuid, :binary_id)
       add(:user_uuid, :binary_id)
       add(:status, :string, default: "active")
@@ -41,40 +42,54 @@ defmodule PhoenixKitCatalogue.Test.Repo.Migrations.PhoenixKitStorage do
       timestamps()
     end
 
+    # Defensive: if an older test DB already created the table without
+    # `color`, add it now. ALTER … ADD COLUMN IF NOT EXISTS is a no-op
+    # when the column already exists.
+    execute("ALTER TABLE phoenix_kit_media_folders ADD COLUMN IF NOT EXISTS color varchar(255)")
+
     create_if_not_exists(index(:phoenix_kit_media_folders, [:parent_uuid]))
     create_if_not_exists(index(:phoenix_kit_media_folders, [:user_uuid]))
 
     create_if_not_exists table(:phoenix_kit_files, primary_key: false) do
       add(:uuid, :binary_id, primary_key: true)
-      add(:filename, :string)
-      add(:original_filename, :string)
-      add(:content_type, :string)
+      add(:file_name, :string)
+      add(:original_file_name, :string)
+      add(:file_path, :string)
+      add(:mime_type, :string)
       add(:file_type, :string)
-      add(:size_bytes, :integer)
-      add(:storage_key, :string)
+      add(:ext, :string)
+      add(:file_checksum, :string)
+      add(:user_file_checksum, :string)
+      add(:size, :integer)
+      add(:width, :integer)
+      add(:height, :integer)
+      add(:duration, :integer)
       add(:bucket_uuid, :binary_id)
       add(:folder_uuid, :binary_id)
       add(:user_uuid, :binary_id)
       add(:status, :string, default: "active")
-      add(:data, :map, default: %{})
+      add(:trashed_at, :utc_datetime)
+      add(:metadata, :map, default: %{})
       timestamps()
     end
 
     create_if_not_exists(index(:phoenix_kit_files, [:folder_uuid]))
     create_if_not_exists(index(:phoenix_kit_files, [:user_uuid]))
 
-    create_if_not_exists table(:phoenix_kit_folder_links, primary_key: false) do
+    create_if_not_exists table(:phoenix_kit_media_folder_links, primary_key: false) do
       add(:uuid, :binary_id, primary_key: true)
       add(:folder_uuid, :binary_id, null: false)
       add(:file_uuid, :binary_id, null: false)
       timestamps()
     end
 
-    create_if_not_exists(unique_index(:phoenix_kit_folder_links, [:folder_uuid, :file_uuid]))
+    create_if_not_exists(
+      unique_index(:phoenix_kit_media_folder_links, [:folder_uuid, :file_uuid])
+    )
   end
 
   def down do
-    drop_if_exists(table(:phoenix_kit_folder_links))
+    drop_if_exists(table(:phoenix_kit_media_folder_links))
     drop_if_exists(table(:phoenix_kit_files))
     drop_if_exists(table(:phoenix_kit_media_folders))
     drop_if_exists(table(:phoenix_kit_buckets))

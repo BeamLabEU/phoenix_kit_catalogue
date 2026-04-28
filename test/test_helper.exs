@@ -141,4 +141,12 @@ case Phoenix.PubSub.Supervisor.start_link(name: PhoenixKit.PubSub) do
   {:error, {:already_started, _}} -> :ok
 end
 
+# Start a Task.Supervisor registered as `PhoenixKit.TaskSupervisor` so
+# ImportLive's supervised import task can start in tests. The host app
+# provides this in production.
+case Task.Supervisor.start_link(name: PhoenixKit.TaskSupervisor) do
+  {:ok, _} -> :ok
+  {:error, {:already_started, _}} -> :ok
+end
+
 ExUnit.start(exclude: exclude)
