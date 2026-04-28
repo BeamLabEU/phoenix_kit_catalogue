@@ -886,3 +886,63 @@ None.
 | `test/web/item_form_live_test.exs` | +1 pinning test for `assign_rule_state/4` picker filter |
 | `dev_docs/pull_requests/2026/14-quality-sweep/FOLLOW_UP.md` | this batch entry |
 
+## Post-merge follow-ups — 2026-04-28 (commit `5deee76`)
+
+Post-merge review of PR #14 + PR #18 (now both on `main`). Three
+findings, all resolved in one commit:
+
+### Resolved
+
+- ~~**`Catalogue.broadcast_for/2` dead clauses** (flagged in Batch
+  7 "What stays uncovered")~~ — deleted the
+  `"manufacturer"` / `"supplier"` / `"smart_rule"` clauses in
+  `lib/phoenix_kit_catalogue/catalogue.ex` plus the now-orphan
+  `lookup_parent(:smart_rule, _)`. Confirmed dead by grepping
+  every `log_activity(%{ resource_type: …` call site in the
+  module — only `"catalogue"` / `"category"` / `"item"` reach
+  the helper. The fallback `defp broadcast_for(_attrs, _parent),
+  do: :ok` now carries a comment explaining why it's the only
+  remaining catch-all.
+
+- ~~**`change_catalogue_rule/2` per-keystroke DB lookup** (Batch 8
+  "Findings classified out-of-scope" called this rule-row scoped;
+  it's actually keystroke-scoped because the LiveView form calls
+  `change_catalogue_rule/2` on every `phx-change`)~~ — the guard
+  in `Rules.validate_referenced_catalogue_kind/1` now uses
+  `Ecto.Changeset.get_change/2` instead of `get_field/2`. The DB
+  lookup only fires when `:referenced_catalogue_uuid` is in
+  `changes` — i.e. once when the picker selection actually
+  changes, zero on every other keystroke. Existing pinning tests
+  still pass because they all build from a fresh
+  `%CatalogueRule{}` (the value lands in `changes`).
+
+- ~~**Self-reference comment in `Rules.build_rule_changeset/2`**~~
+  — the comment said self-references "stay valid" but the test
+  `"smart self-references are rejected"` asserts the opposite.
+  Rewrote the comment to match the actual behavior (self-refs
+  are caught as a side effect of the same smart-chain guard).
+
+### Verification
+
+- `mix compile --warnings-as-errors` — clean
+- `mix format --check-formatted` — clean
+- `mix credo --strict` — 1187 mods/funs, 0 issues
+- `mix test` — not run locally (no Postgres in the review env);
+  CI to confirm. Logical reasoning for non-regression: the only
+  behavioral change is `get_field` → `get_change`, and every
+  test that exercises `validate_referenced_catalogue_kind/1`
+  builds from a fresh changeset where the value is in `changes`.
+
+### Files touched
+
+| File | Change |
+|------|--------|
+| `lib/phoenix_kit_catalogue/catalogue.ex` | drop dead `broadcast_for/2` + `lookup_parent(:smart_rule, _)` clauses |
+| `lib/phoenix_kit_catalogue/catalogue/rules.ex` | `get_field` → `get_change`; clarify self-ref comment |
+| `dev_docs/pull_requests/2026/14-quality-sweep/FOLLOW_UP.md` | this section |
+| `dev_docs/pull_requests/2026/18-fix-issues-15-16-17/FOLLOW_UP.md` | new — covers the `rules.ex` half of the same commit |
+
+### Open
+
+None.
+
