@@ -25,10 +25,17 @@ defmodule PhoenixKitCatalogue.Catalogue.Search do
 
     * `:catalogue_uuids` — list of catalogue UUIDs to scope to. `nil` or `[]` = all.
     * `:category_uuids` — list of category UUIDs to scope to. `nil` or `[]` = all + uncategorized.
+      Must contain only non-nil UUIDs; passing `[nil]` raises `ArgumentError`
+      (use `:only => :uncategorized_only` for that intent).
     * `:include_descendants` — when `true` (default since V103), each
       entry in `:category_uuids` is expanded to include every descendant
       category in the nested-category tree. Pass `false` to scope
       strictly to the given UUIDs.
+    * `:only` — `:uncategorized_only` restricts to items with no
+      `category_uuid`; `:categorized_only` restricts to items that
+      belong to some category. `nil` (default) is unrestricted.
+      Combining `:uncategorized_only` with a non-empty `:category_uuids`
+      is a logical contradiction and raises `ArgumentError`.
     * `:limit` — max results (default 50).
     * `:offset` — paging offset (default 0).
   """
@@ -103,9 +110,12 @@ defmodule PhoenixKitCatalogue.Catalogue.Search do
 
   # Builds the shared base query (joins + status + text-match + scope filters).
   defp search_items_base(query_str, opts) do
+    validate_scope_opts!(opts)
+
     pattern = "%#{Helpers.sanitize_like(query_str)}%"
     catalogue_uuids = opts[:catalogue_uuids]
     category_uuids = expand_category_scope(opts)
+    only = Keyword.get(opts, :only)
 
     from(i in Item,
       join: cat in Catalogue,
@@ -122,6 +132,47 @@ defmodule PhoenixKitCatalogue.Catalogue.Search do
     )
     |> maybe_scope_catalogues(catalogue_uuids)
     |> maybe_scope_categories(category_uuids)
+    |> maybe_scope_only(only)
+  end
+
+  # Catches two foot-guns up front so callers see a loud error instead
+  # of a silently-wrong empty result set:
+  #
+  #   * `category_uuids: [nil]` — `WHERE category_uuid IN (NULL)` is a
+  #     SQL no-op that returns no rows. The `:only => :uncategorized_only`
+  #     option is the correct way to ask for "no category".
+  #   * `only: :uncategorized_only` AND a non-empty `:category_uuids` —
+  #     a logical contradiction (an item can't simultaneously belong to
+  #     a category AND have no category). Always returns 0 rows.
+  defp validate_scope_opts!(opts) do
+    validate_only!(Keyword.get(opts, :only))
+    validate_category_uuids!(opts[:category_uuids], Keyword.get(opts, :only))
+  end
+
+  defp validate_only!(nil), do: :ok
+  defp validate_only!(:uncategorized_only), do: :ok
+  defp validate_only!(:categorized_only), do: :ok
+
+  defp validate_only!(other),
+    do: raise(ArgumentError, "unknown :only value #{inspect(other)}")
+
+  defp validate_category_uuids!(nil, _only), do: :ok
+  defp validate_category_uuids!([], _only), do: :ok
+
+  defp validate_category_uuids!(uuids, only) when is_list(uuids) do
+    if Enum.any?(uuids, &is_nil/1) do
+      raise ArgumentError,
+            "category_uuids must contain non-nil UUIDs; pass `nil` or `[]` " <>
+              "for unscoped, or `only: :uncategorized_only` for items without a category"
+    end
+
+    if only == :uncategorized_only do
+      raise ArgumentError,
+            "only: :uncategorized_only cannot be combined with a non-empty " <>
+              "category_uuids — the two scopes contradict each other"
+    end
+
+    :ok
   end
 
   # Expands `:category_uuids` through the V103 nested-category tree so
@@ -155,5 +206,15 @@ defmodule PhoenixKitCatalogue.Catalogue.Search do
 
   defp maybe_scope_categories(query, uuids) when is_list(uuids) do
     from([i, _cat, _c] in query, where: i.category_uuid in ^uuids)
+  end
+
+  defp maybe_scope_only(query, nil), do: query
+
+  defp maybe_scope_only(query, :uncategorized_only) do
+    from([i, _cat, _c] in query, where: is_nil(i.category_uuid))
+  end
+
+  defp maybe_scope_only(query, :categorized_only) do
+    from([i, _cat, _c] in query, where: not is_nil(i.category_uuid))
   end
 end

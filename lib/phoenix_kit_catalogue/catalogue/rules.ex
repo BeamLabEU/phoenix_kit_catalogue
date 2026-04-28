@@ -159,11 +159,11 @@ defmodule PhoenixKitCatalogue.Catalogue.Rules do
 
       case Map.get(to_keep, referenced_uuid) do
         nil ->
-          changeset = CatalogueRule.changeset(%CatalogueRule{}, attrs)
+          changeset = build_rule_changeset(%CatalogueRule{}, attrs)
           Ecto.Multi.insert(multi, {:insert, referenced_uuid}, changeset)
 
         %CatalogueRule{} = existing ->
-          changeset = CatalogueRule.changeset(existing, attrs)
+          changeset = build_rule_changeset(existing, attrs)
           Ecto.Multi.update(multi, {:update, referenced_uuid}, changeset)
       end
     end)
@@ -246,7 +246,46 @@ defmodule PhoenixKitCatalogue.Catalogue.Rules do
   @doc "Returns a changeset for tracking a single rule's changes."
   @spec change_catalogue_rule(CatalogueRule.t(), map()) :: Ecto.Changeset.t(CatalogueRule.t())
   def change_catalogue_rule(%CatalogueRule{} = rule, attrs \\ %{}) do
-    CatalogueRule.changeset(rule, attrs)
+    build_rule_changeset(rule, attrs)
+  end
+
+  # Builds the canonical write-side changeset: schema validation plus the
+  # context-level smart-chain guard (a smart catalogue may not be the
+  # `referenced_catalogue` of a rule — see issue #16). Self-references
+  # within a single smart catalogue stay valid because they only fail
+  # when the *referenced* catalogue is itself smart, which a self-ref
+  # by definition is.
+  defp build_rule_changeset(rule, attrs) do
+    rule
+    |> CatalogueRule.changeset(attrs)
+    |> validate_referenced_catalogue_kind()
+  end
+
+  # Rejects rules whose referenced catalogue is itself smart. Without
+  # this guard, downstream consumers — which sum standard items only —
+  # silently treat the rule's contribution as 0 with no UI signal.
+  # Skips the lookup when the referenced uuid is missing (the required
+  # validation already produced an error) or when the catalogue can't
+  # be found (the foreign-key constraint will surface that on insert).
+  defp validate_referenced_catalogue_kind(%Ecto.Changeset{} = changeset) do
+    case Ecto.Changeset.get_field(changeset, :referenced_catalogue_uuid) do
+      nil ->
+        changeset
+
+      uuid ->
+        case repo().get(Catalogue, uuid) do
+          %Catalogue{kind: "smart"} ->
+            Ecto.Changeset.add_error(
+              changeset,
+              :referenced_catalogue_uuid,
+              "must reference a standard catalogue, not a smart catalogue",
+              validation: :smart_chain
+            )
+
+          _ ->
+            changeset
+        end
+    end
   end
 
   @doc """
@@ -260,7 +299,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Rules do
       ActivityLog.with_log(
         fn ->
           %CatalogueRule{}
-          |> CatalogueRule.changeset(normalize_rule_attrs(attrs))
+          |> build_rule_changeset(normalize_rule_attrs(attrs))
           |> repo().insert()
         end,
         fn rule ->
@@ -290,7 +329,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Rules do
   def update_catalogue_rule(%CatalogueRule{} = rule, attrs, opts \\ []) do
     result =
       ActivityLog.with_log(
-        fn -> rule |> CatalogueRule.changeset(normalize_rule_attrs(attrs)) |> repo().update() end,
+        fn -> rule |> build_rule_changeset(normalize_rule_attrs(attrs)) |> repo().update() end,
         fn updated ->
           %{
             action: "smart_rule.updated",
