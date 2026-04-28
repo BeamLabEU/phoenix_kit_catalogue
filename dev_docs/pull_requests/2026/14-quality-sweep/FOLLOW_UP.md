@@ -539,3 +539,196 @@ remaining gaps require either:
 
 None.
 
+---
+
+## Batch 7 — final no-deps push 2026-04-28
+
+Per the user's "just keep going until you can't find anything else
+to test." The `Batch 5/6` 15 tests/pp ratio was still well below
+the 50 tests/pp stop signal, so this batch keeps pushing until the
+diminishing-returns curve goes vertical.
+
+### Required infra changes
+
+- **`config/test.exs`** — already added `pubsub_server: PhoenixKit.PubSub`
+  for `LiveViewTest.UploadClient` (Batch 6). Reused here.
+- **`test/test_helper.exs`** — start `Task.Supervisor` registered as
+  `PhoenixKit.TaskSupervisor`. Without this, ImportLive's
+  supervised import task crashes with `:noproc` when `execute_import`
+  fires (the host app provides this in production).
+- **`test/support/postgres/migrations/20260318172859_phoenix_kit_storage.exs`**
+  — schema realigned to match the production Storage schema:
+  - `phoenix_kit_files` columns renamed: `filename → file_name`,
+    `original_filename → original_file_name`,
+    `content_type → mime_type`, `size_bytes → size`,
+    `storage_key → file_path`, `data → metadata`
+  - `phoenix_kit_files` columns added: `ext`, `file_checksum`,
+    `user_file_checksum`, `width`, `height`, `duration`,
+    `trashed_at`
+  - `phoenix_kit_media_folders.color` column added
+  - `phoenix_kit_folder_links` renamed to
+    `phoenix_kit_media_folder_links`
+  - Idempotent `ALTER TABLE … ADD COLUMN IF NOT EXISTS` for the
+    color column so existing test DBs pick it up
+
+### Fixed (Batch 7 — 2026-04-28)
+
+**Attachments LV-driven coverage** (+7 tests, `Attachments` 31% → 49%)
+
+- `test/web/attachments_lv_test.exs`: drives socket-bound functions
+  through CatalogueFormLive mount + event firing.
+  - `open_featured_image_picker` flips media-selector flags
+  - `close_media_selector` clears all media-selector assigns
+  - `clear_featured_image` nulls featured-image assigns
+  - `handle_info({:media_selected, …})` for empty + populated lists
+  - `remove_file` (trash_file) for unknown uuid (no-op) and known
+    file in resource folder (status flips to "deleted")
+
+**ImportLive end-to-end execute_import** (+3 tests,
+`Web.ImportLive` 51% → 68%)
+
+- `test/web/import_live_execute_test.exs`: drives the full upload
+  → map → confirm → execute pipeline using
+  `Phoenix.LiveViewTest.file_input/3` + a real CSV binary.
+  - Imports two rows from a CSV (`:none` picker modes)
+  - Imports with `:create` mode for category (creates a new
+    category in the same transaction)
+  - `:create` category with empty name flashes the guard error +
+    stays on `:map` step
+
+**CatalogueDetailLive branch coverage** (+11 tests,
+`Web.CatalogueDetailLive` 76.47% → 79.08%)
+
+- `test/web/catalogue_detail_branches_test.exs`:
+  - `switch_view` active ↔ deleted (with deleted items present)
+  - `search` populates query, empty query clears, `clear_search`
+    resets state
+  - `delete_item` + `restore_item` happy-path cycle
+  - `delete_item` with unknown uuid flashes "not found"
+  - `trash_category` + `restore_category` cycle
+  - `show_delete_confirm` + `cancel_delete` toggle on
+    `confirm_delete` tuple
+  - `permanently_delete_item` runs only after confirm matches
+  - `move_category_up` + `move_category_down` on adjacent
+    siblings + non-existent uuid no-op
+
+**EventsLive branch coverage** (+4 tests,
+`Web.EventsLive` 77.12% → 78.81%)
+
+- `test/web/events_live_branches_test.exs`:
+  - Filter dropdown renders multi-resource-type labels after
+    seeding catalogues / categories / items / manufacturers /
+    suppliers
+  - Filter event reset_and_load path (action + resource_type)
+  - `load_filter_options` populates action_types + resource_types
+
+**Catalogue context branch coverage** (+21 tests,
+`Catalogue` 87.16% → 88.51%)
+
+- `test/catalogue_context_branches_test.exs`:
+  - `delete_catalogue` (hard delete) + activity log
+  - `get_catalogue!` mode `:deleted` preload
+  - `list_catalogues` filter by status / kind (smart, standard)
+  - `list_catalogues_by_name_prefix` case-insensitive, :limit,
+    :status filter, LIKE-meta escaping
+  - `deleted_catalogue_count` delta math
+  - `list_categories_metadata_for_catalogue` :active vs :deleted
+  - `uncategorized_count_for_catalogue` :active + :deleted
+  - `item_counts_by_category_for_catalogue` returns count map
+  - `permanently_delete_item` activity log
+  - `list_uncategorized_items` :active + :deleted
+  - Unknown resource_type SQL injection via raw INSERT (events
+    feed pass-through)
+
+**Components / smart-rule render branches** (+9 tests,
+`Web.Components` 71.96% → 72.46%)
+
+- `test/web/components_branches_test.exs`:
+  - Smart-catalogue ItemFormLive renders without crashing
+  - Rule with attached value + unit (percent) renders +
+    trailing-zero stripping (15.0000 → 15)
+  - Rule with `unit: "flat"` renders the gettext "Flat" label
+  - Rule with no value renders blank
+  - `set_catalogue_rule_value` + `set_catalogue_rule_unit`
+    branches: empty-string unit clears, unknown rule uuid no-op,
+    non-decimal raw stores nil
+
+### Final coverage
+
+| Module | Pre-Batch-7 | Post-Batch-7 | Δ |
+|--------|-------------|--------------|---|
+| **Total (production)** | **73.98%** | **78.48%** | **+4.50pp** |
+| `Web.ImportLive` | 51.39% | 68.52% | +17.13pp |
+| `Attachments` | 31.28% | 49.16% | +17.88pp |
+| `Web.CatalogueDetailLive` | 76.47% | 79.08% | +2.61pp |
+| `Web.EventsLive` | 77.12% | 78.81% | +1.69pp |
+| `Catalogue` | 87.16% | 88.51% | +1.35pp |
+| `Web.ItemFormLive` | 74.79% | 76.22% | +1.43pp |
+| `Web.Components` | 71.96% | 72.46% | +0.50pp |
+
+55 new tests for +4.50pp = **12.2 tests/pp** — still under the
+50 tests/pp stop signal. Cumulative across Batches 5+6+7:
+**63.31% → 78.48% (+15.17pp)** from **153 new tests** =
+10.1 tests/pp blended.
+
+### What stays uncovered (deliberate residual)
+
+These paths remain at <80% coverage. Each represents either dead
+code, an external dependency the no-deps constraint can't stub, or
+a UI variant whose marginal coverage cost has crossed the
+50 tests/pp threshold.
+
+- **`Catalogue.ActivityLog`** (43.75%): the catch-all
+  `error -> Logger.warning` branch needs a stubbed
+  `PhoenixKit.Activity.log/1` that raises on cue. Adding an
+  app-config-injectable backend (à la AI module's
+  `Req.Test`-via-app-config) is non-trivial and not worth the one
+  branch.
+- **`Web.Components.ItemPicker`** (60.18%): the LiveComponent
+  isn't mounted by any catalogue LV in production — it's exposed
+  for host apps. Driving its events would need a synthesized host
+  LV in the test infra.
+- **`Catalogue` `broadcast_for(%{resource_type: "manufacturer"|...
+  "supplier"|"smart_rule"}, _)` clauses** (uncovered): dead code.
+  The submodules (`Manufacturers`, `Suppliers`, `Rules`) call
+  `PubSub.broadcast/2|3` directly and bypass the top-level
+  `log_activity` helper. These clauses exist for a hypothetical
+  future code path that never executes today. Removing them is
+  scope-creep beyond a coverage-push batch (per
+  `feedback_quality_sweep_scope.md`); flagging for Max.
+- **`Attachments`** Storage write paths (`consume_and_store/3`,
+  `store_upload/4`, `ensure_folder/1`'s create branch): need a
+  real Storage bucket + S3-style upload simulation, which
+  requires a stubbed bucket backend the catalogue doesn't have.
+- **`Web.ImportLive`** sheet selection on multi-sheet XLSX +
+  upload-progress branches: would need a real XLSX binary
+  (xlsx_reader needs a valid zip), out of scope for unit tests.
+
+### Files touched
+
+| File | Change |
+|------|--------|
+| `config/test.exs` | (Batch 6 — `pubsub_server` already added) |
+| `test/test_helper.exs` | start `PhoenixKit.TaskSupervisor` |
+| `test/support/postgres/migrations/20260318172859_phoenix_kit_storage.exs` | schema realigned to production Storage shape |
+| `test/web/attachments_lv_test.exs` | new — 7 LV-driven Attachments tests |
+| `test/web/import_live_execute_test.exs` | new — 3 end-to-end execute tests |
+| `test/web/catalogue_detail_branches_test.exs` | new — 11 detail LV branch tests |
+| `test/web/events_live_branches_test.exs` | new — 4 EventsLive tests |
+| `test/catalogue_context_branches_test.exs` | new — 21 Catalogue context tests |
+| `test/web/components_branches_test.exs` | new — 9 smart-rule + render tests |
+
+### Verification
+
+- `mix test` — 787 → **842** (+55), 0 failures
+- `mix format --check-formatted` — clean
+- `mix credo --strict` — 1165 mods/funs, 0 issues
+- `mix dialyzer` — 0 errors
+- Production-line coverage: 73.98% → **78.48%** (+4.50pp)
+- Cumulative across Batches 5+6+7: 63.31% → **78.48%** (+15.17pp,
+  153 new tests, 10.1 tests/pp blended)
+
+### Open
+
+None.
+
