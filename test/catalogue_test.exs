@@ -3262,6 +3262,28 @@ defmodule PhoenixKitCatalogue.CatalogueTest do
       assert {_, _} = cs.errors[:referenced_catalogue_uuid]
     end
 
+    test "change_catalogue_rule/2 surfaces smart-chain error during form validate (issue #16)" do
+      services_a = create_catalogue(%{name: "Services A", kind: "smart"})
+      services_b = create_catalogue(%{name: "Services B", kind: "smart"})
+      delivery = create_item(%{name: "Delivery", catalogue_uuid: services_a.uuid})
+
+      cs =
+        Catalogue.change_catalogue_rule(
+          %PhoenixKitCatalogue.Schemas.CatalogueRule{},
+          %{
+            item_uuid: delivery.uuid,
+            referenced_catalogue_uuid: services_b.uuid,
+            value: Decimal.new("5"),
+            unit: "percent"
+          }
+        )
+
+      assert {"must reference a standard catalogue, not a smart catalogue", meta} =
+               cs.errors[:referenced_catalogue_uuid]
+
+      assert meta[:validation] == :smart_chain
+    end
+
     test "V102 CHECK constraint on kind refuses an invalid enum via raw SQL" do
       # Ecto's changeset validates `kind` before it hits the DB, so the
       # CHECK constraint is only visible on direct inserts. This guards

@@ -381,5 +381,25 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLiveTest do
 
       assert Catalogue.list_catalogue_rules(item) == []
     end
+
+    test "rule picker excludes smart catalogues + the parent itself (issue #16)", %{
+      conn: conn,
+      item: item,
+      smart: smart,
+      kitchen: kitchen,
+      hardware: hardware
+    } do
+      other_smart = fixture_catalogue(%{name: "Other Smart", kind: "smart"})
+
+      {:ok, view, _html} = live(conn, edit_item_url(item.uuid))
+
+      candidates = :sys.get_state(view.pid).socket.assigns.rule_candidates
+      uuids = Enum.map(candidates, & &1.uuid)
+
+      assert kitchen.uuid in uuids
+      assert hardware.uuid in uuids
+      refute smart.uuid in uuids
+      refute other_smart.uuid in uuids
+    end
   end
 end

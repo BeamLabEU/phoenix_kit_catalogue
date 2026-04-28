@@ -822,3 +822,67 @@ The next batch would need ~50 tests/pp — past the documented
 stop signal and into territory that produces brittle synthetic
 tests rather than real behaviour pinning.
 
+## Batch 8 — post-fix-merge rebase + re-validation 2026-04-28
+
+**Trigger:** `BeamLabEU/phoenix_kit_catalogue#18` (`mdon:fix/issues-15-16-17` → `BeamLabEU:main`) merged upstream while PR #14 was still open. Upstream uses merge-commits; the merge landed `a6b874e` (the fix) under merge commit `79de606` on `upstream/main`.
+
+**Action:** rebased the 12 quality-sweep commits onto `upstream/main`, then ran a re-validation pass over the fix's new code paths (smart-chain guard, `:only` search option, picker filter for issue #16, smart-catalogues guide).
+
+### Rebase
+
+`git rebase upstream/main` from `main` (12 commits). Two file conflicts, both formatting-vs-`phx-disable-with` overlap from C5:
+
+| File | Conflict | Resolution |
+|------|----------|------------|
+| `lib/phoenix_kit_catalogue/web/components.ex` | Permanent-delete buttons in `card_action_buttons/1` and the `:item_actions` table-row menu — fix kept multi-line heex, sweep collapsed to single-line + added `phx-disable-with` | Multi-line shape from fix + `phx-disable-with` from sweep |
+| `lib/phoenix_kit_catalogue/web/item_form_live.ex` | `remove_file` button — fix kept multi-line `data-confirm`, sweep added `phx-disable-with` and collapsed | Multi-line `data-confirm` + `phx-disable-with` |
+
+No conflicts in `catalogue.ex`, `rules.ex`, `search.ex`, `catalogue_rule.ex`, `item_picker.ex`, `mix.exs`, `AGENTS.md`, or `test/catalogue_test.exs` — the sweep had touched different sections of those files.
+
+### Re-validation findings (C12 against fix's new code)
+
+The fix's tests cover the headline behavior cleanly:
+
+- ✅ `put_catalogue_rules/3` smart→smart rejection
+- ✅ `put_catalogue_rules/3` smart self-reference rejection
+- ✅ `create_catalogue_rule/2` smart-target rejection
+- ✅ `update_catalogue_rule/3` retarget-to-smart rejection
+- ✅ `:only => :uncategorized_only` / `:categorized_only` search filters
+- ✅ `category_uuids: [nil]` raises `ArgumentError`
+- ✅ `:uncategorized_only` + non-empty `category_uuids` raises `ArgumentError`
+- ✅ `guides/smart_catalogues.md` worked-example round-trip in `test/smart_catalogues_guide_test.exs`
+
+Two pinning gaps closed in this batch:
+
+| Gap | Pinning test |
+|-----|--------------|
+| `change_catalogue_rule/2` smart-chain guard fires on form-render path (only `is_struct(cs, Ecto.Changeset)` was asserted; the `:smart_chain` validation atom on `referenced_catalogue_uuid` was unpinned) | `test/catalogue_test.exs` "change_catalogue_rule/2 surfaces smart-chain error during form validate (issue #16)" |
+| `ItemFormLive.assign_rule_state/4` filters rule-picker candidates to `kind: :standard` AND excludes the parent catalogue (the picker-side mirror of issue #16's context guard) | `test/web/item_form_live_test.exs` "rule picker excludes smart catalogues + the parent itself (issue #16)" |
+
+### Findings classified out-of-scope (existing patterns)
+
+- The hardcoded English error string `"must reference a standard catalogue, not a smart catalogue"` in `validate_referenced_catalogue_kind/1` matches the existing `validate_inclusion(:unit, …)` "is invalid" precedent in the same schema. Catalogue's convention is to leave changeset errors as English (Ecto default) and let `<.input>`'s `translate_error/1` handle gettext extraction at the UI boundary.
+- The per-changeset `repo().get(Catalogue, uuid)` in `validate_referenced_catalogue_kind/1` is rule-row scoped (called per-rule during `put_catalogue_rules` mapping, not per-keystroke during item-form validate), so it does not represent a hot path. Documented as defensible.
+
+### Verification
+
+- `mix compile --warnings-as-errors` — clean
+- `mix test` — 855 → 867 (fix's tests) → **869** (+2 pinning tests this batch), **0 failures**
+- `mix format --check-formatted` — clean
+- `mix credo --strict` — 1191 mods/funs, 0 issues
+- `mix dialyzer` — 0 errors
+
+### Open
+
+None.
+
+### Files touched (Batch 8)
+
+| File | Change |
+|------|--------|
+| `lib/phoenix_kit_catalogue/web/components.ex` | rebase conflict resolved (multi-line + `phx-disable-with`) |
+| `lib/phoenix_kit_catalogue/web/item_form_live.ex` | rebase conflict resolved (multi-line + `phx-disable-with`) |
+| `test/catalogue_test.exs` | +1 pinning test for `change_catalogue_rule/2` smart-chain |
+| `test/web/item_form_live_test.exs` | +1 pinning test for `assign_rule_state/4` picker filter |
+| `dev_docs/pull_requests/2026/14-quality-sweep/FOLLOW_UP.md` | this batch entry |
+
