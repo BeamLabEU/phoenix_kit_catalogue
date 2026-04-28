@@ -105,15 +105,11 @@ defmodule PhoenixKitCatalogue.Catalogue do
   defp broadcast_for(%{resource_type: "item", resource_uuid: uuid}, parent),
     do: PubSub.broadcast(:item, uuid, parent || lookup_parent(:item, uuid))
 
-  defp broadcast_for(%{resource_type: "manufacturer", resource_uuid: uuid}, _parent),
-    do: PubSub.broadcast(:manufacturer, uuid, nil)
-
-  defp broadcast_for(%{resource_type: "supplier", resource_uuid: uuid}, _parent),
-    do: PubSub.broadcast(:supplier, uuid, nil)
-
-  defp broadcast_for(%{resource_type: "smart_rule", resource_uuid: uuid}, parent),
-    do: PubSub.broadcast(:smart_rule, uuid, parent || lookup_parent(:smart_rule, uuid))
-
+  # Manufacturer/supplier/smart_rule activity rows never reach this
+  # helper today — `Manufacturers`, `Suppliers`, and `Rules` call
+  # `PubSub.broadcast/3` directly and bypass `log_activity`. Anything
+  # else falls through to `:ok` so adding a new resource type doesn't
+  # crash the audit-log path before its broadcast clause is wired up.
   defp broadcast_for(_attrs, _parent), do: :ok
 
   # Fallback: when a caller doesn't thread `parent_catalogue_uuid:` into
@@ -131,12 +127,6 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
   defp lookup_parent(:item, uuid) when is_binary(uuid) do
     Helpers.item_catalogue_uuid(uuid)
-  end
-
-  defp lookup_parent(:smart_rule, item_uuid) when is_binary(item_uuid) do
-    # `:smart_rule` events carry the item's UUID as `resource_uuid`; the
-    # parent is the catalogue containing that item.
-    lookup_parent(:item, item_uuid)
   end
 
   defp lookup_parent(_kind, _uuid), do: nil

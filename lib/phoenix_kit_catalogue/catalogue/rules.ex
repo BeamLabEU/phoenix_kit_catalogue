@@ -254,9 +254,10 @@ defmodule PhoenixKitCatalogue.Catalogue.Rules do
   # Builds the canonical write-side changeset: schema validation plus the
   # context-level smart-chain guard (a smart catalogue may not be the
   # `referenced_catalogue` of a rule — see issue #16). Self-references
-  # within a single smart catalogue stay valid because they only fail
-  # when the *referenced* catalogue is itself smart, which a self-ref
-  # by definition is.
+  # are rejected as a side effect of the same guard: the only way to
+  # self-reference is for the rule's referenced catalogue to be the
+  # item's own catalogue, which (since rules only exist on smart items)
+  # is smart by definition and therefore caught here.
   defp build_rule_changeset(rule, attrs) do
     rule
     |> CatalogueRule.changeset(attrs)
@@ -266,11 +267,16 @@ defmodule PhoenixKitCatalogue.Catalogue.Rules do
   # Rejects rules whose referenced catalogue is itself smart. Without
   # this guard, downstream consumers — which sum standard items only —
   # silently treat the rule's contribution as 0 with no UI signal.
-  # Skips the lookup when the referenced uuid is missing (the required
-  # validation already produced an error) or when the catalogue can't
-  # be found (the foreign-key constraint will surface that on insert).
+  #
+  # Only runs when `:referenced_catalogue_uuid` is in `changes` (i.e. a
+  # new rule, or an existing rule whose ref the user just changed). On
+  # the form-validate path that means: one DB lookup when the picker
+  # selection changes, zero on every other keystroke. The catalogue's
+  # `kind` was already validated when the original ref was written, so
+  # re-checking unchanged values would only surface drift from a
+  # standard→smart kind flip — out of scope for a per-keystroke guard.
   defp validate_referenced_catalogue_kind(%Ecto.Changeset{} = changeset) do
-    case Ecto.Changeset.get_field(changeset, :referenced_catalogue_uuid) do
+    case Ecto.Changeset.get_change(changeset, :referenced_catalogue_uuid) do
       nil ->
         changeset
 
