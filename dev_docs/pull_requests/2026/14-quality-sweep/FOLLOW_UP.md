@@ -732,3 +732,93 @@ a UI variant whose marginal coverage cost has crossed the
 
 None.
 
+---
+
+## Batch 7.1 — keep going 2026-04-28
+
+The user pushed back again ("are these all the tests you can do?")
+and the 12.2 tests/pp ratio at Batch 7 was still under the 50
+tests/pp stop signal. This sub-batch targets specific remaining
+ImportLive + ItemFormLive branches.
+
+### Fixed (Batch 7.1)
+
+**ImportLive remaining branches** (+6 tests, 68.52% → 71.45%)
+
+`test/web/import_live_more_branches_test.exs`:
+- `continue_to_confirm` guards for empty manufacturer name +
+  empty supplier name (parallel structure to the existing
+  category-name guard test)
+- `mapping_form_change` with real mapping params drives
+  `apply_mapping_changes` end-to-end (changes column 0 to :name
+  via the form-change event shape)
+- `go_back` from `:upload` is a no-op (the catch-all branch)
+- `continue_or_parse` short-circuit when filename is already set
+  (re-trigger parse_file after go_back)
+- `import_progress` message updates progress + total assigns
+
+**ItemFormLive remaining** (+7 tests, 74.79% → 77.36%)
+
+`test/web/item_form_live_extra_test.exs`:
+- `open_featured_image_picker` + `close_media_selector`
+  delegations from ItemFormLive
+- `add_meta_field` idempotence (re-adding a key is a no-op)
+- `move_item` to category in same catalogue, with empty target
+  (no-op), and smart-catalogue path (catalogue_uuid key,
+  dispatches to `move_item_to_catalogue`)
+- `validate` event with string-keyed params produces a changeset
+
+### Coverage
+
+| Module | Pre-7.1 | Post-7.1 | Δ |
+|--------|---------|----------|---|
+| **Total (production)** | **78.48%** | **79.32%** | **+0.84pp** |
+| `Web.ImportLive` | 68.52% | 71.45% | +2.93pp |
+| `Web.ItemFormLive` | 76.22% | 77.36% | +1.14pp |
+
+13 new tests for +0.84pp = **15.5 tests/pp** — curve is
+steepening. Per publishing's empirical curve
+(7.6 → 16.4 → 16.9 → 95 tests/pp), we're at the equivalent of
+"Batch 7" — one more push would likely cross the 50 tests/pp
+stop signal.
+
+### Cumulative across Batches 5+6+7+7.1
+
+- Tests: 655 → **855** (+200 from re-validation coverage push)
+- Production coverage: 63.31% → **79.32%** (+16.01pp)
+- Blended ratio: 12.5 tests/pp
+
+### Verification
+
+- `mix test` — 842 → **855** (+13), 0 failures, **5/5 stable**
+- `mix format --check-formatted` — clean
+- `mix credo --strict` — 1165 mods/funs, 0 issues
+- `mix dialyzer` — 0 errors
+
+### Open
+
+None.
+
+### Why stopping here
+
+The remaining gaps are either:
+
+1. **Genuinely external** (smart-rule ItemPicker events need a
+   synthesized host LV; multi-sheet XLSX needs a real `xlsx_reader`
+   binary; Storage write paths need a stubbed bucket backend; the
+   `ActivityLog` catch-all warning needs a stubbed `Activity.log/1`).
+2. **Dead code** (`broadcast_for/2` clauses for manufacturer /
+   supplier / smart_rule that no caller reaches; flagged for Max).
+3. **Defense-in-depth** (`enabled?/0` rescue + `catch :exit`,
+   private fallback clauses where the whitelist already prevents
+   the path being reached).
+4. **Multilang-conditional paths** that need the host's settings
+   table to enable multilang (the `check_item_primary_language`
+   branches in ItemFormLive).
+
+These match the canonical "What stays uncovered (deliberate)"
+list from the workspace AGENTS.md "Coverage push pattern" section.
+The next batch would need ~50 tests/pp — past the documented
+stop signal and into territory that produces brittle synthetic
+tests rather than real behaviour pinning.
+
