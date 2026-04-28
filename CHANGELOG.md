@@ -1,3 +1,27 @@
+## 0.1.14 - 2026-04-28
+
+### Added
+- **Smart-chain guard (issue #16)** — `CatalogueRule` now rejects rules whose `referenced_catalogue` is itself `kind: "smart"`, with the error `"must reference a standard catalogue, not a smart catalogue"` on `:referenced_catalogue_uuid` (`validation: :smart_chain`). Self-references fall under the same guard. Applied to `create_catalogue_rule/2`, `update_catalogue_rule/3`, `put_catalogue_rules/3`, and `change_catalogue_rule/2`. The item-form rule picker now lists only standard catalogues so the user is never offered an option that would fail on save.
+- **`:only` scope on `search_items/2` + `count_search_items/2` + `<.item_picker>` (issue #15)** — `:uncategorized_only` restricts to items with no `category_uuid`, `:categorized_only` restricts to items in some category, `nil` (default) is unrestricted.
+- **`PhoenixKitCatalogue.Errors`** — central atom-to-string dispatcher (13 plain atoms + 9 tagged tuples) for UI flashes. Plus per-atom pinning tests.
+- **Smart Catalogues guide** (`guides/smart_catalogues.md`) — concepts, schema diagram, worked example, host-side reference implementation, pitfalls. Wired into `mix.exs` `package.files` and `docs.extras`.
+- `@spec` backfill on the 14 most-called CRUD entry points + 26 specs across `Catalogue`.
+- `Test.Endpoint` / `Test.Router` / `Test.Layouts` / `LiveCase` test infra so the suite actually runs (598 → 869 tests).
+
+### Changed
+- `search_items/2` and `count_search_items/2` now raise `ArgumentError` on two foot-guns that previously yielded silent empty results: `category_uuids: [nil]` (use `:only => :uncategorized_only` instead) and `:only => :uncategorized_only` combined with non-empty `:category_uuids` (logical contradiction).
+- Activity logging — `enable_system` / `disable_system` log `catalogue_module.{enabled,disabled}`. `enabled?/0` adds `catch :exit, _` for sandbox-owner shutdowns. `ActivityLog` rescue narrowed to `Postgrex.Error :undefined_table` for the host-without-V90 case before logging a warning.
+- Failure-side audit rows — LV layer writes `metadata.db_pending: true` rows on every LV-visible failure via `Helpers.log_operation_error/3`. Context layer stays success-only.
+- `Tree.subtree_uuids_for/1` and `ancestor_uuids/1` cast `^uuid` / `^roots` via `type(_, UUIDv7)` (CTE was losing type info). `ancestors_in_order/1` rewritten — previously returned `[]` for every non-root category.
+- `Task.start/1` → `Task.Supervisor.start_child(PhoenixKit.TaskSupervisor, ...)` for the supervised import task.
+- `phx-disable-with="Deleting..."` on the two permanent-delete buttons in `components.ex`.
+
+### Removed
+- Dead `Catalogue.broadcast_for/2` clauses (`"manufacturer"` / `"supplier"` / `"smart_rule"`) and the orphan `lookup_parent(:smart_rule, _)`. The submodules (`Manufacturers`, `Suppliers`, `Rules`) call `PubSub.broadcast/3` directly and never reached the helper.
+
+### Fixed
+- `change_catalogue_rule/2` smart-chain guard no longer issues a DB lookup on every form keystroke — switched to `Ecto.Changeset.get_change/2` so the lookup only fires when `:referenced_catalogue_uuid` actually changes.
+
 ## 0.1.13 - 2026-04-26
 
 ### Added
