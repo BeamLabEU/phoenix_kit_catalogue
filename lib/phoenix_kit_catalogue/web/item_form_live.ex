@@ -20,6 +20,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   alias PhoenixKit.Utils.Multilang
   alias PhoenixKitCatalogue.Attachments
   alias PhoenixKitCatalogue.Catalogue
+  alias PhoenixKitCatalogue.Catalogue.Helpers
   alias PhoenixKitCatalogue.Metadata
   alias PhoenixKitCatalogue.Paths
   alias PhoenixKitCatalogue.Schemas.Item
@@ -148,6 +149,13 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   # Smart-catalogue picker state: only populated when the parent
   # catalogue is kind: "smart". For standard catalogues we still assign
   # empty defaults so the render path can reference the keys unconditionally.
+  #
+  # Note: this runs in `mount/3` and therefore fires twice per page
+  # load (HTTP + WebSocket). Moving the data load to `handle_params/3`
+  # is tracked as a separate follow-up; here we just make sure the
+  # smart branch issues a *single* `list_catalogue_rules/1` query
+  # instead of the two it used to (one for the working_rules map and a
+  # second for the display order).
   defp assign_rule_state(socket, _item, "smart" = _kind, catalogue_uuid) do
     # Smart-chain guard: a smart catalogue cannot be the referenced
     # target of another smart item (issue #16). The changeset rejects
@@ -157,16 +165,29 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
       Catalogue.list_catalogues(kind: :standard)
       |> Enum.reject(&(&1.uuid == catalogue_uuid))
 
-    existing =
+    rules =
       case socket.assigns.item do
-        %Item{uuid: nil} -> %{}
-        %Item{} = item -> Catalogue.catalogue_rule_map(item) |> Map.new(&to_working_entry/1)
+        %Item{uuid: nil} -> []
+        %Item{} = item -> Catalogue.list_catalogue_rules(item)
       end
 
+    existing =
+      Map.new(rules, fn rule ->
+        to_working_entry({rule.referenced_catalogue_uuid, rule})
+      end)
+
     # Initial display order: existing rules first (by their stored
-    # position), then the remaining candidates that haven't been turned
-    # into rules yet, in catalogue.name order.
-    rule_order = compute_initial_rule_order(socket.assigns.item, candidates)
+    # position from `list_catalogue_rules/1`), then the remaining
+    # candidates that haven't been turned into rules yet, in
+    # catalogue.name order.
+    rule_uuids = Enum.map(rules, & &1.referenced_catalogue_uuid)
+
+    rest_uuids =
+      candidates
+      |> Enum.map(& &1.uuid)
+      |> Enum.reject(&(&1 in rule_uuids))
+
+    rule_order = rule_uuids ++ rest_uuids
 
     assign(socket,
       rule_candidates: candidates,
@@ -198,26 +219,6 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
     leftovers = Enum.reject(candidates, fn c -> c.uuid in order end)
 
     ordered ++ leftovers
-  end
-
-  defp compute_initial_rule_order(%Item{uuid: nil}, candidates),
-    do: Enum.map(candidates, & &1.uuid)
-
-  defp compute_initial_rule_order(%Item{} = item, candidates) do
-    # `list_catalogue_rules/1` already orders by position, so we get the
-    # active rules in their persisted order; the remaining candidates
-    # follow in alphabetical order.
-    rule_uuids =
-      item
-      |> Catalogue.list_catalogue_rules()
-      |> Enum.map(& &1.referenced_catalogue_uuid)
-
-    rest =
-      candidates
-      |> Enum.map(& &1.uuid)
-      |> Enum.reject(&(&1 in rule_uuids))
-
-    rule_uuids ++ rest
   end
 
   # Coerce nil units to "percent" on load. Persisted NULL units are a
@@ -434,8 +435,11 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
     # Build the new candidate order: incoming UUIDs first (deduped),
     # then any candidates the DOM didn't surface (defensive — keeps
     # rows from disappearing if the client only sent a partial list).
+    # Use the shared `dedupe_keep_last/1` so a stale-DOM duplicate
+    # surfaces the *latest* drop position, matching the catalogue /
+    # category / item reorder paths.
     current = socket.assigns.rule_candidate_order
-    incoming = Enum.uniq(ordered_ids)
+    incoming = Helpers.dedupe_keep_last(ordered_ids)
     rest = Enum.reject(current, &(&1 in incoming))
     {:noreply, assign(socket, :rule_candidate_order, incoming ++ rest)}
   end

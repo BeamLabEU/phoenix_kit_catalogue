@@ -215,9 +215,14 @@ defmodule PhoenixKitCatalogue.Catalogue.Rules do
   blowing up over). Wraps both passes in a single transaction.
   """
   # Same cap reasoning as the catalogues / categories / items reorder
-  # paths — even a smart item with a hundred catalogue rules never paints
-  # a thousand at once.
-  @reorder_max_uuids 1000
+  # paths in `Catalogue` — single source of truth via
+  # `config :phoenix_kit_catalogue, :reorder_max_uuids, N`. Resolved at
+  # compile time so it's available in the `when length(x) > @…` guard.
+  @reorder_max_uuids Application.compile_env(
+                       :phoenix_kit_catalogue,
+                       :reorder_max_uuids,
+                       1000
+                     )
 
   @spec reorder_catalogue_rules(Ecto.UUID.t(), [Ecto.UUID.t()], keyword()) ::
           :ok | {:error, :too_many_uuids | term()}
@@ -238,9 +243,15 @@ defmodule PhoenixKitCatalogue.Catalogue.Rules do
 
   def reorder_catalogue_rules(item_uuid, ordered_referenced_uuids, opts)
       when is_binary(item_uuid) and is_list(ordered_referenced_uuids) do
-    unique = ordered_referenced_uuids |> Enum.reverse() |> Enum.uniq() |> Enum.reverse()
+    unique = Helpers.dedupe_keep_last(ordered_referenced_uuids)
     pairs = Enum.with_index(unique, 1)
 
+    # Future (perf): collapse the two-pass loop below to a single
+    # `UPDATE phoenix_kit_cat_item_catalogue_rules SET position = v.pos
+    #   FROM (VALUES (item_uuid, ref_uuid, pos), …) AS v(...)
+    #   WHERE …` round-trip per item. Trigger to revisit:
+    # `:reorder_max_uuids` config bumped past 1000, or a unique index
+    # on `(item_uuid, position)` is added.
     result =
       repo().transaction(fn ->
         Enum.each(pairs, fn {ref_uuid, idx} ->

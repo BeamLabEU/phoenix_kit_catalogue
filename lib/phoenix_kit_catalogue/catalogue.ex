@@ -134,24 +134,28 @@ defmodule PhoenixKitCatalogue.Catalogue do
   # Same cap reasoning as entities — even a workspace with hundreds of
   # catalogues, categories, or items per group never paints a thousand
   # at once. Beyond this we'd want an explicit batched API rather than
-  # an unbounded transaction. Defined near the top of the module so
-  # every guard clause that references it sees a defined attribute.
-  @reorder_max_uuids 1000
+  # an unbounded transaction. Resolved at compile time so the literal
+  # is available inside `when length(x) > @reorder_max_uuids` guards.
+  # Single source of truth shared with `Catalogue.Rules` via
+  # `config :phoenix_kit_catalogue, :reorder_max_uuids, N`.
+  @reorder_max_uuids Application.compile_env(
+                       :phoenix_kit_catalogue,
+                       :reorder_max_uuids,
+                       1000
+                     )
 
-  # Reorder helpers shared by `reorder_catalogues/2`, `reorder_categories/4`,
-  # and `reorder_items/4`. Two responsibilities:
-  # - `dedupe_keep_last/1` collapses an `[uuid]` payload so a stale DOM
-  #   sending the same uuid twice writes the *intended* (latest) position
-  #   only once. Same shape as `EntityData.bulk_update_positions/2`.
-  # - `log_reorder_rejected/5` and `log_reorder_db_error/5` cover the
-  #   audit-trail gap on early rejection (`:too_many_uuids`,
-  #   `:not_siblings`, `:wrong_scope`) and post-transaction failure.
-  #   `db_pending: true` lets audit consumers tell rejected/failed rows
-  #   apart from successful ones.
-
-  defp dedupe_keep_last(uuids) when is_list(uuids) do
-    uuids |> Enum.reverse() |> Enum.uniq() |> Enum.reverse()
-  end
+  # Reorder logging helpers shared by `reorder_catalogues/2`,
+  # `reorder_categories/4`, and `reorder_items/4`.
+  # `log_reorder_rejected/5` and `log_reorder_db_error/5` cover the
+  # audit-trail gap on early rejection (`:too_many_uuids`,
+  # `:not_siblings`, `:wrong_scope`) and post-transaction failure.
+  # `db_pending: true` lets audit consumers tell rejected/failed rows
+  # apart from successful ones.
+  #
+  # All logging helpers run **outside** the database transaction, so
+  # callers that wrap a reorder in an outer transaction (e.g.
+  # `move_item_and_reorder_destination/4`) can rely on the rejection
+  # row landing even when the outer rolls back.
 
   defp log_reorder_rejected(kind, reason, count, parent_catalogue_uuid, opts) do
     ActivityLog.log(
@@ -1824,77 +1828,219 @@ defmodule PhoenixKitCatalogue.Catalogue do
   @spec reorder_categories(Ecto.UUID.t(), Ecto.UUID.t() | nil, [Ecto.UUID.t()], keyword()) ::
           :ok | {:error, :not_siblings | :too_many_uuids | term()}
   def reorder_categories(catalogue_uuid, parent_uuid, ordered_uuids, opts \\ [])
-
-  def reorder_categories(catalogue_uuid, _parent_uuid, ordered_uuids, opts)
-      when is_binary(catalogue_uuid) and is_list(ordered_uuids) and
-             length(ordered_uuids) > @reorder_max_uuids do
-    log_reorder_rejected(:category, :too_many_uuids, length(ordered_uuids), catalogue_uuid, opts)
-    {:error, :too_many_uuids}
-  end
-
-  def reorder_categories(catalogue_uuid, parent_uuid, ordered_uuids, opts)
       when is_binary(catalogue_uuid) and is_list(ordered_uuids) do
-    unique_uuids = dedupe_keep_last(ordered_uuids)
-
-    rows =
-      from(c in Category, where: c.uuid in ^unique_uuids)
-      |> repo().all()
-
-    valid_scope? =
-      Enum.all?(rows, fn c ->
-        c.catalogue_uuid == catalogue_uuid and c.parent_uuid == parent_uuid
-      end)
-
-    cond do
-      not valid_scope? ->
-        log_reorder_rejected(:category, :not_siblings, length(unique_uuids), catalogue_uuid, opts)
-        {:error, :not_siblings}
-
-      rows == [] ->
+    case validate_and_apply_category_reorder(catalogue_uuid, parent_uuid, ordered_uuids) do
+      {:ok, 0} ->
+        # No matching rows after dedupe — silent no-op, no audit row.
         :ok
 
-      true ->
-        do_reorder_categories(catalogue_uuid, parent_uuid, unique_uuids, opts)
-    end
-  end
-
-  defp do_reorder_categories(catalogue_uuid, parent_uuid, ordered_uuids, opts) do
-    pairs = Enum.with_index(ordered_uuids, 1)
-
-    result =
-      repo().transaction(fn ->
-        Enum.each(pairs, fn {uuid, idx} ->
-          from(c in Category, where: c.uuid == ^uuid)
-          |> repo().update_all(set: [position: -idx])
-        end)
-
-        Enum.each(pairs, fn {uuid, idx} ->
-          from(c in Category, where: c.uuid == ^uuid)
-          |> repo().update_all(set: [position: idx])
-        end)
-      end)
-
-    case result do
-      {:ok, _} ->
+      {:ok, count} ->
         log_activity(%{
           action: "category.reordered",
           mode: "manual",
           actor_uuid: opts[:actor_uuid],
           resource_type: "category",
-          resource_uuid: List.first(ordered_uuids),
+          resource_uuid: List.first(Helpers.dedupe_keep_last(ordered_uuids)),
           parent_catalogue_uuid: catalogue_uuid,
           metadata: %{
             "parent_uuid" => parent_uuid,
-            "count" => length(ordered_uuids)
+            "count" => count
           }
         })
 
         :ok
 
+      {:error, reason} when reason in [:too_many_uuids, :not_siblings] ->
+        log_reorder_rejected(
+          :category,
+          reason,
+          length(ordered_uuids),
+          catalogue_uuid,
+          opts
+        )
+
+        {:error, reason}
+
       {:error, reason} ->
-        log_reorder_db_error(:category, ordered_uuids, catalogue_uuid, opts)
+        log_reorder_db_error(
+          :category,
+          Helpers.dedupe_keep_last(ordered_uuids),
+          catalogue_uuid,
+          opts
+        )
+
         {:error, reason}
     end
+  end
+
+  @doc """
+  Re-indexes multiple sibling groups of categories in **one outer
+  transaction** — the LV layer hits this when a single drop touches
+  more than one parent group.
+
+  Each group is `{parent_uuid_or_nil, [uuid]}`. All groups are
+  validated up front (cap + sibling scope) before any writes; if any
+  group fails validation, the whole batch returns the error and no
+  writes happen.
+
+  Atomicity: a DB-level failure in any group rolls back every group.
+  Beats the previous LV-side `Enum.reduce` over per-group calls,
+  which committed groups one at a time and could leave partial state.
+  """
+  @spec reorder_categories_groups(
+          Ecto.UUID.t(),
+          [{Ecto.UUID.t() | nil, [Ecto.UUID.t()]}],
+          keyword()
+        ) :: :ok | {:error, :too_many_uuids | :not_siblings | term()}
+  def reorder_categories_groups(catalogue_uuid, groups, opts \\ [])
+      when is_binary(catalogue_uuid) and is_list(groups) do
+    deduped_groups =
+      Enum.map(groups, fn {parent_uuid, uuids} ->
+        {parent_uuid, Helpers.dedupe_keep_last(uuids)}
+      end)
+
+    total_count = deduped_groups |> Enum.flat_map(fn {_p, u} -> u end) |> length()
+
+    if total_count > @reorder_max_uuids do
+      log_reorder_rejected(:category, :too_many_uuids, total_count, catalogue_uuid, opts)
+      {:error, :too_many_uuids}
+    else
+      run_categories_groups_transaction(catalogue_uuid, deduped_groups, total_count, opts)
+    end
+  end
+
+  defp run_categories_groups_transaction(catalogue_uuid, deduped_groups, total_count, opts) do
+    txn_result =
+      repo().transaction(fn ->
+        Enum.reduce_while(deduped_groups, :ok, fn group, _acc ->
+          apply_category_group_step(catalogue_uuid, group)
+        end)
+      end)
+
+    case txn_result do
+      {:ok, :ok} ->
+        log_activity(%{
+          action: "category.reordered",
+          mode: "manual",
+          actor_uuid: opts[:actor_uuid],
+          resource_type: "category",
+          parent_catalogue_uuid: catalogue_uuid,
+          metadata: %{
+            "groups" => length(deduped_groups),
+            "count" => total_count
+          }
+        })
+
+        :ok
+
+      {:error, reason} when reason in [:too_many_uuids, :not_siblings] ->
+        log_reorder_rejected(:category, reason, total_count, catalogue_uuid, opts)
+        {:error, reason}
+
+      {:error, reason} ->
+        log_reorder_db_error(
+          :category,
+          Enum.flat_map(deduped_groups, fn {_p, u} -> u end),
+          catalogue_uuid,
+          opts
+        )
+
+        {:error, reason}
+    end
+  end
+
+  # Step inside `Enum.reduce_while` over groups. Returns the
+  # `:cont` / `:halt` tuple the caller's reduce expects, and on error
+  # rolls back the outer transaction so partial commits aren't
+  # possible.
+  defp apply_category_group_step(catalogue_uuid, {parent_uuid, uuids}) do
+    case validate_and_apply_category_reorder_in_txn(catalogue_uuid, parent_uuid, uuids) do
+      :ok -> {:cont, :ok}
+      {:error, reason} -> {:halt, repo().rollback(reason)}
+    end
+  end
+
+  # Validates scope + applies the two-pass write inside its own
+  # transaction. Returns `{:ok, count}` on success or `{:error, reason}`
+  # without any logging — callers handle logging outside the
+  # transaction so audit rows survive a rollback.
+  defp validate_and_apply_category_reorder(catalogue_uuid, _parent_uuid, ordered_uuids)
+       when is_binary(catalogue_uuid) and is_list(ordered_uuids) and
+              length(ordered_uuids) > @reorder_max_uuids,
+       do: {:error, :too_many_uuids}
+
+  defp validate_and_apply_category_reorder(catalogue_uuid, parent_uuid, ordered_uuids)
+       when is_binary(catalogue_uuid) and is_list(ordered_uuids) do
+    unique_uuids = Helpers.dedupe_keep_last(ordered_uuids)
+
+    case category_scope_check(catalogue_uuid, parent_uuid, unique_uuids) do
+      :empty -> {:ok, 0}
+      :ok -> commit_category_positions(unique_uuids)
+      {:error, _} = err -> err
+    end
+  end
+
+  defp commit_category_positions(unique_uuids) do
+    case repo().transaction(fn -> write_category_positions(unique_uuids) end) do
+      {:ok, _} -> {:ok, length(unique_uuids)}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  # In-transaction variant for `reorder_categories_groups/3` —
+  # validates + writes without opening its own savepoint. Returns
+  # `:ok` on empty/success, `{:error, reason}` otherwise.
+  defp validate_and_apply_category_reorder_in_txn(catalogue_uuid, parent_uuid, unique_uuids)
+       when is_binary(catalogue_uuid) and is_list(unique_uuids) do
+    case category_scope_check(catalogue_uuid, parent_uuid, unique_uuids) do
+      :empty -> :ok
+      :ok -> write_category_positions(unique_uuids)
+      {:error, _} = err -> err
+    end
+  end
+
+  defp category_scope_check(catalogue_uuid, parent_uuid, unique_uuids) do
+    rows =
+      from(c in Category, where: c.uuid in ^unique_uuids)
+      |> repo().all()
+
+    cond do
+      rows == [] ->
+        :empty
+
+      not Enum.all?(rows, fn c ->
+        c.catalogue_uuid == catalogue_uuid and c.parent_uuid == parent_uuid
+      end) ->
+        {:error, :not_siblings}
+
+      true ->
+        :ok
+    end
+  end
+
+  # Future (perf): collapse the two-pass loop below to a single
+  # `UPDATE phoenix_kit_cat_categories SET position = v.pos
+  #   FROM (VALUES (uuid, pos), …) AS v(uuid, pos)
+  #   WHERE phoenix_kit_cat_categories.uuid = v.uuid`
+  # round-trip per scope. PG checks unique constraints at statement
+  # end, so a CASE-based or VALUES-join UPDATE works even with a
+  # future unique index on `(catalogue_uuid, parent_uuid, position)`.
+  # Trigger to revisit: `:reorder_max_uuids` config bumped past 1000,
+  # or a unique index is added.
+  defp write_category_positions(unique_uuids) do
+    pairs = Enum.with_index(unique_uuids, 1)
+
+    Enum.each(pairs, fn {uuid, idx} ->
+      from(c in Category, where: c.uuid == ^uuid)
+      |> repo().update_all(set: [position: -idx])
+    end)
+
+    Enum.each(pairs, fn {uuid, idx} ->
+      from(c in Category, where: c.uuid == ^uuid)
+      |> repo().update_all(set: [position: idx])
+    end)
+
+    :ok
   end
 
   @doc """
@@ -1928,7 +2074,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
   end
 
   def reorder_catalogues(ordered_uuids, opts) when is_list(ordered_uuids) do
-    unique_uuids = dedupe_keep_last(ordered_uuids)
+    unique_uuids = Helpers.dedupe_keep_last(ordered_uuids)
 
     case write_catalogue_positions(unique_uuids) do
       {:ok, _} ->
@@ -1949,6 +2095,11 @@ defmodule PhoenixKitCatalogue.Catalogue do
     end
   end
 
+  # Future (perf): single-pass and single-statement variant once payload
+  # sizes warrant it (see categories/items helpers above for the same
+  # cross-reference). Catalogues currently have no unique index on
+  # `position`, so the negative-pass dance isn't even strictly
+  # required — kept here for parity with the other reorder paths.
   defp write_catalogue_positions(unique_uuids) do
     pairs = Enum.with_index(unique_uuids, 1)
 
@@ -2000,80 +2151,144 @@ defmodule PhoenixKitCatalogue.Catalogue do
   @spec reorder_items(Ecto.UUID.t(), Ecto.UUID.t() | nil, [Ecto.UUID.t()], keyword()) ::
           :ok | {:error, :wrong_scope | :too_many_uuids | term()}
   def reorder_items(catalogue_uuid, category_uuid, ordered_uuids, opts \\ [])
-
-  def reorder_items(catalogue_uuid, _category_uuid, ordered_uuids, opts)
-      when is_binary(catalogue_uuid) and is_list(ordered_uuids) and
-             length(ordered_uuids) > @reorder_max_uuids do
-    log_reorder_rejected(:item, :too_many_uuids, length(ordered_uuids), catalogue_uuid, opts)
-    {:error, :too_many_uuids}
-  end
-
-  def reorder_items(catalogue_uuid, category_uuid, ordered_uuids, opts)
       when is_binary(catalogue_uuid) and is_list(ordered_uuids) do
-    unique_uuids = dedupe_keep_last(ordered_uuids)
-
-    rows =
-      from(i in Item, where: i.uuid in ^unique_uuids)
-      |> repo().all()
-
-    valid_scope? =
-      Enum.all?(rows, fn i ->
-        i.catalogue_uuid == catalogue_uuid and i.category_uuid == category_uuid
-      end)
-
-    cond do
-      not valid_scope? ->
-        log_reorder_rejected(:item, :wrong_scope, length(unique_uuids), catalogue_uuid, opts)
-        {:error, :wrong_scope}
-
-      rows == [] ->
+    case validate_and_apply_item_reorder(catalogue_uuid, category_uuid, ordered_uuids) do
+      {:ok, 0} ->
         :ok
 
-      true ->
-        do_reorder_items(catalogue_uuid, category_uuid, unique_uuids, opts)
-    end
-  end
+      {:ok, count} ->
+        unique_uuids = Helpers.dedupe_keep_last(ordered_uuids)
 
-  defp do_reorder_items(catalogue_uuid, category_uuid, ordered_uuids, opts) do
-    pairs = Enum.with_index(ordered_uuids, 1)
-
-    result =
-      repo().transaction(fn ->
-        Enum.each(pairs, fn {uuid, idx} ->
-          from(i in Item, where: i.uuid == ^uuid)
-          |> repo().update_all(set: [position: -idx])
-        end)
-
-        Enum.each(pairs, fn {uuid, idx} ->
-          from(i in Item, where: i.uuid == ^uuid)
-          |> repo().update_all(set: [position: idx])
-        end)
-      end)
-
-    case result do
-      {:ok, _} ->
         log_activity(%{
           action: "item.reordered",
           mode: "manual",
           actor_uuid: opts[:actor_uuid],
           resource_type: "item",
-          resource_uuid: List.first(ordered_uuids),
+          resource_uuid: List.first(unique_uuids),
           parent_catalogue_uuid: catalogue_uuid,
           metadata: %{
             "category_uuid" => category_uuid,
-            "count" => length(ordered_uuids)
+            "count" => count
           }
         })
 
         :ok
 
+      {:error, reason} when reason in [:too_many_uuids, :wrong_scope] ->
+        log_reorder_rejected(
+          :item,
+          reason,
+          length(ordered_uuids),
+          catalogue_uuid,
+          opts
+        )
+
+        {:error, reason}
+
       {:error, reason} ->
-        log_reorder_db_error(:item, ordered_uuids, catalogue_uuid, opts,
+        log_reorder_db_error(
+          :item,
+          Helpers.dedupe_keep_last(ordered_uuids),
+          catalogue_uuid,
+          opts,
           category_uuid: category_uuid
         )
 
         {:error, reason}
     end
+  end
+
+  # Validates scope + applies the two-pass write inside its own
+  # transaction. Returns `{:ok, count}` on success or `{:error, reason}`
+  # without any logging — callers (incl. `move_item_and_reorder_destination/4`)
+  # handle logging outside the transaction so audit rows survive a
+  # rollback.
+  defp validate_and_apply_item_reorder(catalogue_uuid, _category_uuid, ordered_uuids)
+       when is_binary(catalogue_uuid) and is_list(ordered_uuids) and
+              length(ordered_uuids) > @reorder_max_uuids,
+       do: {:error, :too_many_uuids}
+
+  defp validate_and_apply_item_reorder(catalogue_uuid, category_uuid, ordered_uuids)
+       when is_binary(catalogue_uuid) and is_list(ordered_uuids) do
+    unique_uuids = Helpers.dedupe_keep_last(ordered_uuids)
+
+    case item_scope_check(catalogue_uuid, category_uuid, unique_uuids) do
+      :empty -> {:ok, 0}
+      :ok -> commit_item_positions(unique_uuids)
+      {:error, _} = err -> err
+    end
+  end
+
+  defp commit_item_positions(unique_uuids) do
+    case repo().transaction(fn -> write_item_positions(unique_uuids) end) do
+      {:ok, _} -> {:ok, length(unique_uuids)}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  # In-transaction variant — used by `move_item_and_reorder_destination/4`
+  # so the move + reorder live inside one outer transaction without a
+  # nested savepoint.
+  defp validate_and_apply_item_reorder_in_txn(catalogue_uuid, category_uuid, ordered_uuids)
+       when is_binary(catalogue_uuid) and is_list(ordered_uuids) do
+    if length(ordered_uuids) > @reorder_max_uuids do
+      {:error, :too_many_uuids}
+    else
+      unique_uuids = Helpers.dedupe_keep_last(ordered_uuids)
+
+      case item_scope_check(catalogue_uuid, category_uuid, unique_uuids) do
+        :empty -> {:ok, 0}
+        :ok -> {:ok, write_item_positions_count(unique_uuids)}
+        {:error, _} = err -> err
+      end
+    end
+  end
+
+  defp item_scope_check(catalogue_uuid, category_uuid, unique_uuids) do
+    rows =
+      from(i in Item, where: i.uuid in ^unique_uuids)
+      |> repo().all()
+
+    cond do
+      rows == [] ->
+        :empty
+
+      not Enum.all?(rows, fn i ->
+        i.catalogue_uuid == catalogue_uuid and i.category_uuid == category_uuid
+      end) ->
+        {:error, :wrong_scope}
+
+      true ->
+        :ok
+    end
+  end
+
+  # Future (perf): collapse the two-pass loop below to a single
+  # `UPDATE phoenix_kit_cat_items SET position = v.pos
+  #   FROM (VALUES (uuid, pos), …) AS v(uuid, pos)
+  #   WHERE phoenix_kit_cat_items.uuid = v.uuid`
+  # round-trip per scope. Trigger to revisit: `:reorder_max_uuids`
+  # config bumped past 1000, or a unique index on
+  # `(catalogue_uuid, category_uuid, position)` is added.
+  defp write_item_positions(unique_uuids) do
+    pairs = Enum.with_index(unique_uuids, 1)
+
+    Enum.each(pairs, fn {uuid, idx} ->
+      from(i in Item, where: i.uuid == ^uuid)
+      |> repo().update_all(set: [position: -idx])
+    end)
+
+    Enum.each(pairs, fn {uuid, idx} ->
+      from(i in Item, where: i.uuid == ^uuid)
+      |> repo().update_all(set: [position: idx])
+    end)
+
+    :ok
+  end
+
+  defp write_item_positions_count(unique_uuids) do
+    write_item_positions(unique_uuids)
+    length(unique_uuids)
   end
 
   # ═══════════════════════════════════════════════════════════════════
@@ -2598,14 +2813,16 @@ defmodule PhoenixKitCatalogue.Catalogue do
   a stale position. Wrapping both in a single `repo().transaction/1`
   closes that window — either both land or both roll back.
 
-  Validates the destination scope before issuing the move (catches
-  `:category_not_found` early) and runs `reorder_items/4` against the
-  *post-move* catalogue_uuid so a destination-scope mismatch is
-  caught before the visible state diverges.
+  Calls the unlogged `validate_and_apply_item_reorder_in_txn/3` so
+  rejection / db-error audit rows are written **outside** the outer
+  transaction. Otherwise a rejection inside the inner reorder would
+  log a row that the outer rollback then discards, reopening the
+  audit-trail gap.
 
-  Activity-log fan-out for the two sub-actions still happens through
-  their normal paths — `item.moved` and `item.reordered` both land,
-  giving the audit trail full attribution.
+  Activity-log fan-out: `item.moved` lands inside the inner
+  `move_item_to_category/3` (rolled back if the reorder fails, which
+  is correct — the move didn't actually happen). `item.reordered`
+  lands here, after the outer transaction commits.
   """
   @spec move_item_and_reorder_destination(
           Item.t(),
@@ -2621,20 +2838,68 @@ defmodule PhoenixKitCatalogue.Catalogue do
         ordered_uuids,
         opts \\ []
       ) do
-    repo().transaction(fn ->
-      with {:ok, moved} <- move_item_to_category(item, to_category_uuid, opts),
-           :ok <-
-             reorder_items(
-               moved.catalogue_uuid,
-               to_category_uuid,
-               ordered_uuids,
-               opts
-             ) do
-        moved
-      else
-        {:error, reason} -> repo().rollback(reason)
-      end
-    end)
+    txn_result =
+      repo().transaction(fn ->
+        with {:ok, moved} <- move_item_to_category(item, to_category_uuid, opts),
+             {:ok, count} <-
+               validate_and_apply_item_reorder_in_txn(
+                 moved.catalogue_uuid,
+                 to_category_uuid,
+                 ordered_uuids
+               ) do
+          {moved, count}
+        else
+          {:error, reason} -> repo().rollback(reason)
+        end
+      end)
+
+    case txn_result do
+      {:ok, {moved, 0}} ->
+        {:ok, moved}
+
+      {:ok, {moved, count}} ->
+        log_activity(%{
+          action: "item.reordered",
+          mode: "manual",
+          actor_uuid: opts[:actor_uuid],
+          resource_type: "item",
+          resource_uuid: List.first(Helpers.dedupe_keep_last(ordered_uuids)),
+          parent_catalogue_uuid: moved.catalogue_uuid,
+          metadata: %{
+            "category_uuid" => to_category_uuid,
+            "count" => count
+          }
+        })
+
+        {:ok, moved}
+
+      {:error, reason} when reason in [:too_many_uuids, :wrong_scope] ->
+        log_reorder_rejected(
+          :item,
+          reason,
+          length(ordered_uuids),
+          item.catalogue_uuid,
+          opts
+        )
+
+        {:error, reason}
+
+      {:error, :category_not_found} = err ->
+        # `move_item_to_category/3` already logged nothing (validation
+        # failed before its own audit). Surface as-is — caller flashes.
+        err
+
+      {:error, reason} ->
+        log_reorder_db_error(
+          :item,
+          Helpers.dedupe_keep_last(ordered_uuids),
+          item.catalogue_uuid,
+          opts,
+          category_uuid: to_category_uuid
+        )
+
+        {:error, reason}
+    end
   end
 
   defp resolve_move_attrs(nil), do: {:ok, %{category_uuid: nil}}
