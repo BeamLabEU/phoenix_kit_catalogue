@@ -163,14 +163,61 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
         %Item{} = item -> Catalogue.catalogue_rule_map(item) |> Map.new(&to_working_entry/1)
       end
 
+    # Initial display order: existing rules first (by their stored
+    # position), then the remaining candidates that haven't been turned
+    # into rules yet, in catalogue.name order.
+    rule_order = compute_initial_rule_order(socket.assigns.item, candidates)
+
     assign(socket,
       rule_candidates: candidates,
-      working_rules: existing
+      working_rules: existing,
+      rule_candidate_order: rule_order
     )
   end
 
   defp assign_rule_state(socket, _item, _kind, _catalogue_uuid) do
-    assign(socket, rule_candidates: [], working_rules: %{})
+    assign(socket, rule_candidates: [], working_rules: %{}, rule_candidate_order: [])
+  end
+
+  # Reorders `candidates` to match `rule_candidate_order`. Candidates
+  # not in the order list (e.g. catalogues added since mount) are
+  # appended at the end. Candidates listed in the order but no longer
+  # present are silently dropped.
+  defp sort_candidates(candidates, order) when is_list(candidates) and is_list(order) do
+    by_uuid = Map.new(candidates, &{&1.uuid, &1})
+
+    ordered =
+      order
+      |> Enum.flat_map(fn uuid ->
+        case Map.fetch(by_uuid, uuid) do
+          {:ok, c} -> [c]
+          :error -> []
+        end
+      end)
+
+    leftovers = Enum.reject(candidates, fn c -> c.uuid in order end)
+
+    ordered ++ leftovers
+  end
+
+  defp compute_initial_rule_order(%Item{uuid: nil}, candidates),
+    do: Enum.map(candidates, & &1.uuid)
+
+  defp compute_initial_rule_order(%Item{} = item, candidates) do
+    # `list_catalogue_rules/1` already orders by position, so we get the
+    # active rules in their persisted order; the remaining candidates
+    # follow in alphabetical order.
+    rule_uuids =
+      item
+      |> Catalogue.list_catalogue_rules()
+      |> Enum.map(& &1.referenced_catalogue_uuid)
+
+    rest =
+      candidates
+      |> Enum.map(& &1.uuid)
+      |> Enum.reject(&(&1 in rule_uuids))
+
+    rule_uuids ++ rest
   end
 
   # Coerce nil units to "percent" on load. Persisted NULL units are a
@@ -382,6 +429,17 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
     {:noreply, assign(socket, :working_rules, %{})}
   end
 
+  def handle_event("reorder_catalogue_rules", %{"ordered_ids" => ordered_ids}, socket)
+      when is_list(ordered_ids) do
+    # Build the new candidate order: incoming UUIDs first (deduped),
+    # then any candidates the DOM didn't surface (defensive — keeps
+    # rows from disappearing if the client only sent a partial list).
+    current = socket.assigns.rule_candidate_order
+    incoming = Enum.uniq(ordered_ids)
+    rest = Enum.reject(current, &(&1 in incoming))
+    {:noreply, assign(socket, :rule_candidate_order, incoming ++ rest)}
+  end
+
   def handle_event("select_move_target", params, socket) do
     # Accept the UUID under either key depending on which select fired —
     # standard forms use `category_uuid`, smart forms use `catalogue_uuid`.
@@ -523,7 +581,12 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   defp maybe_put_rules(socket, item) do
     case socket.assigns.catalogue_kind do
       "smart" ->
-        rules = working_rules_to_specs(socket.assigns.working_rules)
+        rules =
+          working_rules_to_specs(
+            socket.assigns.working_rules,
+            socket.assigns.rule_candidate_order
+          )
+
         Catalogue.put_catalogue_rules(item, rules, actor_opts(socket))
 
       _ ->
@@ -531,10 +594,25 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
     end
   end
 
-  defp working_rules_to_specs(working_rules) do
-    working_rules
+  # Walks the user-defined display order and emits one spec per active
+  # rule, with `position` reflecting the visible row index. UUIDs in
+  # `working_rules` that aren't in the order list (defensive — should
+  # never happen) get appended at the end so we never silently drop a
+  # rule the user toggled on.
+  defp working_rules_to_specs(working_rules, candidate_order) do
+    ordered =
+      candidate_order
+      |> Enum.filter(&Map.has_key?(working_rules, &1))
+
+    leftovers =
+      working_rules
+      |> Map.keys()
+      |> Enum.reject(&(&1 in ordered))
+
+    (ordered ++ leftovers)
     |> Enum.with_index()
-    |> Enum.map(fn {{uuid, %{value: v, unit: u}}, idx} ->
+    |> Enum.map(fn {uuid, idx} ->
+      %{value: v, unit: u} = Map.fetch!(working_rules, uuid)
       %{referenced_catalogue_uuid: uuid, value: v, unit: u, position: idx}
     end)
   end
@@ -900,9 +978,10 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
               </div>
 
               <.catalogue_rules_picker
-                catalogues={@rule_candidates}
+                catalogues={sort_candidates(@rule_candidates, @rule_candidate_order)}
                 rules={@working_rules}
                 item_default_value={Ecto.Changeset.get_field(@changeset, :default_value)}
+                on_reorder={if length(@rule_candidates) > 1, do: "reorder_catalogue_rules"}
               />
             </div>
 

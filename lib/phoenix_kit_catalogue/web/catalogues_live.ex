@@ -12,6 +12,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
 
   require Logger
 
+  import PhoenixKitWeb.Components.Core.Icon, only: [icon: 1]
   import PhoenixKitWeb.Components.Core.Modal, only: [confirm_modal: 1]
   import PhoenixKitWeb.Components.Core.TableDefault
   import PhoenixKitWeb.Components.Core.TableRowMenu
@@ -167,6 +168,24 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
      |> assign(:catalogue_view_mode, mode)
      |> assign(:confirm_delete, nil)
      |> load_data(:index)}
+  end
+
+  def handle_event("reorder_catalogues", %{"ordered_ids" => ordered_ids}, socket)
+      when is_list(ordered_ids) do
+    case Catalogue.reorder_catalogues(ordered_ids, actor_opts(socket)) do
+      :ok ->
+        {:noreply, load_data(socket, :index)}
+
+      {:error, reason} ->
+        log_operation_error(socket, "reorder_catalogues", %{reason: reason})
+
+        {:noreply,
+         put_flash(
+           socket,
+           :error,
+           Gettext.gettext(PhoenixKitWeb.Gettext, "Failed to save the new order.")
+         )}
+    end
   end
 
   def handle_event("trash_catalogue", %{"uuid" => uuid}, socket) do
@@ -753,10 +772,13 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       <.table_default
         variant="zebra" size="sm" toggleable={true}
         id={"catalogues-#{@view_mode}"} items={@catalogues}
+        on_reorder="reorder_catalogues"
+        item_id={fn cat -> cat.uuid end}
         card_fields={build_catalogue_card_fields(@view_mode, @item_counts)}
       >
         <.table_default_header>
           <.table_default_row>
+            <.table_default_header_cell :if={length(@catalogues) > 1} class="w-8"></.table_default_header_cell>
             <.table_default_header_cell>{Gettext.gettext(PhoenixKitWeb.Gettext, "Name")}</.table_default_header_cell>
             <.table_default_header_cell :if={@view_mode == "active"} class="text-right">{Gettext.gettext(PhoenixKitWeb.Gettext, "Items")}</.table_default_header_cell>
             <.table_default_header_cell>{Gettext.gettext(PhoenixKitWeb.Gettext, "Status")}</.table_default_header_cell>
@@ -764,8 +786,21 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
             <.table_default_header_cell class="text-right whitespace-nowrap">{Gettext.gettext(PhoenixKitWeb.Gettext, "Actions")}</.table_default_header_cell>
           </.table_default_row>
         </.table_default_header>
-        <.table_default_body>
-          <.table_default_row :for={catalogue <- @catalogues}>
+        <tbody
+          id={"catalogues-tbody-#{@view_mode}"}
+          data-sortable="true"
+          data-sortable-event="reorder_catalogues"
+          data-sortable-items=".sortable-item"
+          data-sortable-hide-source="false"
+          phx-hook="SortableGrid"
+        >
+          <.table_default_row :for={catalogue <- @catalogues} class="sortable-item" data-id={catalogue.uuid}>
+            <.table_default_cell
+              :if={length(@catalogues) > 1}
+              class="cursor-grab active:cursor-grabbing text-base-content/40"
+            >
+              <.icon name="hero-bars-3" class="w-4 h-4" />
+            </.table_default_cell>
             <.table_default_cell>
               <.link :if={@view_mode == "active"} navigate={Paths.catalogue_detail(catalogue.uuid)} class="link link-hover font-medium">
                 {catalogue.name}
@@ -797,7 +832,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
               </.table_row_menu>
             </.table_default_cell>
           </.table_default_row>
-        </.table_default_body>
+        </tbody>
         <:card_header :let={catalogue}>
           <.link :if={@view_mode == "active"} navigate={Paths.catalogue_detail(catalogue.uuid)} class="font-medium text-sm link link-hover">{catalogue.name}</.link>
           <span :if={@view_mode == "deleted"} class="font-medium text-sm text-base-content/50">{catalogue.name}</span>

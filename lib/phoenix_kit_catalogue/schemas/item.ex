@@ -49,6 +49,7 @@ defmodule PhoenixKitCatalogue.Schemas.Item do
     field(:default_unit, :string)
     field(:unit, :string, default: "piece")
     field(:status, :string, default: "active")
+    field(:position, :integer, default: 0)
     field(:data, :map, default: %{})
 
     belongs_to(:catalogue, PhoenixKitCatalogue.Schemas.Catalogue,
@@ -88,6 +89,7 @@ defmodule PhoenixKitCatalogue.Schemas.Item do
     :default_unit,
     :unit,
     :status,
+    :position,
     :category_uuid,
     :manufacturer_uuid,
     :data

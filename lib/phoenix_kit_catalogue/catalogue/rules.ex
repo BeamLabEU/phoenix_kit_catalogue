@@ -205,6 +205,54 @@ defmodule PhoenixKitCatalogue.Catalogue.Rules do
   end
 
   @doc """
+  Re-indexes the rule rows attached to an item from a list of
+  referenced-catalogue UUIDs.
+
+  This is the lighter-weight sibling of `put_catalogue_rules/3` for the
+  DnD case — leaves `value` / `unit` untouched, only writes new
+  `position` values `1..N`. UUIDs that don't match an existing rule on
+  the item are silently skipped (a stale-DOM artifact, not worth
+  blowing up over). Wraps both passes in a single transaction.
+  """
+  @spec reorder_catalogue_rules(Ecto.UUID.t(), [Ecto.UUID.t()], keyword()) ::
+          :ok | {:error, term()}
+  def reorder_catalogue_rules(item_uuid, ordered_referenced_uuids, opts \\ [])
+      when is_binary(item_uuid) and is_list(ordered_referenced_uuids) do
+    pairs = Enum.with_index(ordered_referenced_uuids, 1)
+
+    result =
+      repo().transaction(fn ->
+        Enum.each(pairs, fn {ref_uuid, idx} ->
+          from(r in CatalogueRule,
+            where: r.item_uuid == ^item_uuid and r.referenced_catalogue_uuid == ^ref_uuid
+          )
+          |> repo().update_all(set: [position: -idx])
+        end)
+
+        Enum.each(pairs, fn {ref_uuid, idx} ->
+          from(r in CatalogueRule,
+            where: r.item_uuid == ^item_uuid and r.referenced_catalogue_uuid == ^ref_uuid
+          )
+          |> repo().update_all(set: [position: idx])
+        end)
+      end)
+
+    with {:ok, _} <- result do
+      ActivityLog.log(%{
+        action: "smart_rules.reordered",
+        mode: "manual",
+        actor_uuid: opts[:actor_uuid],
+        resource_type: "item",
+        resource_uuid: item_uuid,
+        metadata: %{"count" => length(ordered_referenced_uuids)}
+      })
+
+      PubSub.broadcast(:smart_rule, item_uuid, item_parent_catalogue_uuid(item_uuid))
+      :ok
+    end
+  end
+
+  @doc """
   Lists non-deleted smart items that reference a given catalogue.
 
   Useful for warning-before-delete flows: "This catalogue is referenced
