@@ -214,11 +214,32 @@ defmodule PhoenixKitCatalogue.Catalogue.Rules do
   the item are silently skipped (a stale-DOM artifact, not worth
   blowing up over). Wraps both passes in a single transaction.
   """
+  # Same cap reasoning as the catalogues / categories / items reorder
+  # paths — even a smart item with a hundred catalogue rules never paints
+  # a thousand at once.
+  @reorder_max_uuids 1000
+
   @spec reorder_catalogue_rules(Ecto.UUID.t(), [Ecto.UUID.t()], keyword()) ::
-          :ok | {:error, term()}
+          :ok | {:error, :too_many_uuids | term()}
   def reorder_catalogue_rules(item_uuid, ordered_referenced_uuids, opts \\ [])
+
+  def reorder_catalogue_rules(item_uuid, ordered_referenced_uuids, opts)
+      when is_binary(item_uuid) and is_list(ordered_referenced_uuids) and
+             length(ordered_referenced_uuids) > @reorder_max_uuids do
+    log_smart_rules_reorder_rejected(
+      :too_many_uuids,
+      length(ordered_referenced_uuids),
+      item_uuid,
+      opts
+    )
+
+    {:error, :too_many_uuids}
+  end
+
+  def reorder_catalogue_rules(item_uuid, ordered_referenced_uuids, opts)
       when is_binary(item_uuid) and is_list(ordered_referenced_uuids) do
-    pairs = Enum.with_index(ordered_referenced_uuids, 1)
+    unique = ordered_referenced_uuids |> Enum.reverse() |> Enum.uniq() |> Enum.reverse()
+    pairs = Enum.with_index(unique, 1)
 
     result =
       repo().transaction(fn ->
@@ -237,19 +258,53 @@ defmodule PhoenixKitCatalogue.Catalogue.Rules do
         end)
       end)
 
-    with {:ok, _} <- result do
-      ActivityLog.log(%{
-        action: "smart_rules.reordered",
-        mode: "manual",
-        actor_uuid: opts[:actor_uuid],
-        resource_type: "item",
-        resource_uuid: item_uuid,
-        metadata: %{"count" => length(ordered_referenced_uuids)}
-      })
+    case result do
+      {:ok, _} ->
+        ActivityLog.log(%{
+          action: "smart_rules.reordered",
+          mode: "manual",
+          actor_uuid: opts[:actor_uuid],
+          resource_type: "item",
+          resource_uuid: item_uuid,
+          metadata: %{"count" => length(unique)}
+        })
 
-      PubSub.broadcast(:smart_rule, item_uuid, item_parent_catalogue_uuid(item_uuid))
-      :ok
+        PubSub.broadcast(:smart_rule, item_uuid, item_parent_catalogue_uuid(item_uuid))
+        :ok
+
+      {:error, reason} ->
+        log_smart_rules_reorder_db_error(item_uuid, length(unique), opts)
+        {:error, reason}
     end
+  end
+
+  defp log_smart_rules_reorder_rejected(reason, count, item_uuid, opts) do
+    ActivityLog.log(%{
+      action: "smart_rules.reordered",
+      mode: "manual",
+      actor_uuid: opts[:actor_uuid],
+      resource_type: "item",
+      resource_uuid: item_uuid,
+      metadata: %{
+        "count" => count,
+        "db_pending" => true,
+        "rejected" => to_string(reason)
+      }
+    })
+  end
+
+  defp log_smart_rules_reorder_db_error(item_uuid, count, opts) do
+    ActivityLog.log(%{
+      action: "smart_rules.reordered",
+      mode: "manual",
+      actor_uuid: opts[:actor_uuid],
+      resource_type: "item",
+      resource_uuid: item_uuid,
+      metadata: %{
+        "count" => count,
+        "db_pending" => true
+      }
+    })
   end
 
   @doc """

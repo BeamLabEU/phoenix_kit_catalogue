@@ -406,7 +406,11 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   # the item, then reorder the destination to match the visual order
   # the user dropped it into. The source's remaining order is preserved
   # implicitly — its position values stay valid since they're per-scope.
-  def handle_event("reorder_items", %{"ordered_ids" => ordered_ids, "moved_id" => moved_id} = params, socket)
+  def handle_event(
+        "reorder_items",
+        %{"ordered_ids" => ordered_ids, "moved_id" => moved_id} = params,
+        socket
+      )
       when is_list(ordered_ids) and is_binary(moved_id) do
     to_catalogue_uuid = params["catalogueUuid"]
     to_category_uuid = blank_to_nil(params["categoryUuid"])
@@ -430,18 +434,23 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
          socket
          |> put_flash(
            :error,
-           Gettext.gettext(PhoenixKitWeb.Gettext, "Items can only be moved within the same catalogue.")
+           Gettext.gettext(
+             PhoenixKitWeb.Gettext,
+             "Items can only be moved within the same catalogue."
+           )
          )
          |> reset_and_load()}
 
       true ->
+        # `move_item_and_reorder_destination/4` wraps the move + reorder
+        # in a single transaction so a reorder failure rolls back the
+        # category flip — no in-between half-state where the item has
+        # the new category_uuid but the wrong position.
         with %Item{} = item <- Catalogue.get_item(moved_id),
              from_category_uuid = item.category_uuid,
              {:ok, _moved} <-
-               Catalogue.move_item_to_category(item, to_category_uuid, actor_opts(socket)),
-             :ok <-
-               Catalogue.reorder_items(
-                 to_catalogue_uuid,
+               Catalogue.move_item_and_reorder_destination(
+                 item,
                  to_category_uuid,
                  ordered_ids,
                  actor_opts(socket)
@@ -482,36 +491,38 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     catalogue_uuid = params["catalogueUuid"]
     category_uuid = blank_to_nil(params["categoryUuid"])
 
-    cond do
-      catalogue_uuid != socket.assigns.catalogue_uuid ->
+    if catalogue_uuid != socket.assigns.catalogue_uuid do
+      {:noreply,
+       put_flash(
+         socket,
+         :error,
+         Gettext.gettext(PhoenixKitWeb.Gettext, "Wrong catalogue scope.")
+       )}
+    else
+      apply_in_scope_item_reorder(socket, catalogue_uuid, category_uuid, ordered_ids)
+    end
+  end
+
+  defp apply_in_scope_item_reorder(socket, catalogue_uuid, category_uuid, ordered_ids) do
+    case Catalogue.reorder_items(
+           catalogue_uuid,
+           category_uuid,
+           ordered_ids,
+           actor_opts(socket)
+         ) do
+      :ok ->
+        scope = category_uuid || :uncategorized
+        {:noreply, refresh_card_items(socket, scope)}
+
+      {:error, reason} ->
+        log_operation_error(socket, "reorder_items", %{reason: reason})
+
         {:noreply,
          put_flash(
            socket,
            :error,
-           Gettext.gettext(PhoenixKitWeb.Gettext, "Wrong catalogue scope.")
+           Gettext.gettext(PhoenixKitWeb.Gettext, "Failed to reorder items.")
          )}
-
-      true ->
-        case Catalogue.reorder_items(
-               catalogue_uuid,
-               category_uuid,
-               ordered_ids,
-               actor_opts(socket)
-             ) do
-          :ok ->
-            scope = category_uuid || :uncategorized
-            {:noreply, refresh_card_items(socket, scope)}
-
-          {:error, reason} ->
-            log_operation_error(socket, "reorder_items", %{reason: reason})
-
-            {:noreply,
-             put_flash(
-               socket,
-               :error,
-               Gettext.gettext(PhoenixKitWeb.Gettext, "Failed to reorder items.")
-             )}
-        end
     end
   end
 

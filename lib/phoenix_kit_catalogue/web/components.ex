@@ -1142,16 +1142,22 @@ defmodule PhoenixKitCatalogue.Web.Components do
   attr(:variant, :string, default: "default")
   attr(:size, :string, default: "sm")
   attr(:wrapper_class, :string, default: nil)
-  attr(:on_reorder, :string, default: nil, doc: "When set, rows become draggable and emit this event")
+
+  attr(:on_reorder, :string,
+    default: nil,
+    doc: "When set, rows become draggable and emit this event"
+  )
 
   attr(:reorder_scope, :map,
     default: %{},
-    doc: "Map of extra scope values (e.g. %{catalogue_uuid: \"...\", category_uuid: \"...\"}) — exposed to the SortableGrid hook as data-sortable-scope-* attrs"
+    doc:
+      "Map of extra scope values (e.g. %{catalogue_uuid: \"...\", category_uuid: \"...\"}) — exposed to the SortableGrid hook as data-sortable-scope-* attrs"
   )
 
   attr(:reorder_group, :string,
     default: nil,
-    doc: "SortableJS group name; tables sharing a group can exchange items via cross-container drag (e.g. items moving between categories)"
+    doc:
+      "SortableJS group name; tables sharing a group can exchange items via cross-container drag (e.g. items moving between categories)"
   )
 
   def item_table(assigns) do
