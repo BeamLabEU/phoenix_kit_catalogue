@@ -205,6 +205,109 @@ defmodule PhoenixKitCatalogue.Catalogue.Rules do
   end
 
   @doc """
+  Re-indexes the rule rows attached to an item from a list of
+  referenced-catalogue UUIDs.
+
+  This is the lighter-weight sibling of `put_catalogue_rules/3` for the
+  DnD case — leaves `value` / `unit` untouched, only writes new
+  `position` values `1..N`. UUIDs that don't match an existing rule on
+  the item are silently skipped (a stale-DOM artifact, not worth
+  blowing up over). Wraps both passes in a single transaction.
+  """
+  # Same cap reasoning as the catalogues / categories / items reorder
+  # paths — even a smart item with a hundred catalogue rules never paints
+  # a thousand at once.
+  @reorder_max_uuids 1000
+
+  @spec reorder_catalogue_rules(Ecto.UUID.t(), [Ecto.UUID.t()], keyword()) ::
+          :ok | {:error, :too_many_uuids | term()}
+  def reorder_catalogue_rules(item_uuid, ordered_referenced_uuids, opts \\ [])
+
+  def reorder_catalogue_rules(item_uuid, ordered_referenced_uuids, opts)
+      when is_binary(item_uuid) and is_list(ordered_referenced_uuids) and
+             length(ordered_referenced_uuids) > @reorder_max_uuids do
+    log_smart_rules_reorder_rejected(
+      :too_many_uuids,
+      length(ordered_referenced_uuids),
+      item_uuid,
+      opts
+    )
+
+    {:error, :too_many_uuids}
+  end
+
+  def reorder_catalogue_rules(item_uuid, ordered_referenced_uuids, opts)
+      when is_binary(item_uuid) and is_list(ordered_referenced_uuids) do
+    unique = ordered_referenced_uuids |> Enum.reverse() |> Enum.uniq() |> Enum.reverse()
+    pairs = Enum.with_index(unique, 1)
+
+    result =
+      repo().transaction(fn ->
+        Enum.each(pairs, fn {ref_uuid, idx} ->
+          from(r in CatalogueRule,
+            where: r.item_uuid == ^item_uuid and r.referenced_catalogue_uuid == ^ref_uuid
+          )
+          |> repo().update_all(set: [position: -idx])
+        end)
+
+        Enum.each(pairs, fn {ref_uuid, idx} ->
+          from(r in CatalogueRule,
+            where: r.item_uuid == ^item_uuid and r.referenced_catalogue_uuid == ^ref_uuid
+          )
+          |> repo().update_all(set: [position: idx])
+        end)
+      end)
+
+    case result do
+      {:ok, _} ->
+        ActivityLog.log(%{
+          action: "smart_rules.reordered",
+          mode: "manual",
+          actor_uuid: opts[:actor_uuid],
+          resource_type: "item",
+          resource_uuid: item_uuid,
+          metadata: %{"count" => length(unique)}
+        })
+
+        PubSub.broadcast(:smart_rule, item_uuid, item_parent_catalogue_uuid(item_uuid))
+        :ok
+
+      {:error, reason} ->
+        log_smart_rules_reorder_db_error(item_uuid, length(unique), opts)
+        {:error, reason}
+    end
+  end
+
+  defp log_smart_rules_reorder_rejected(reason, count, item_uuid, opts) do
+    ActivityLog.log(%{
+      action: "smart_rules.reordered",
+      mode: "manual",
+      actor_uuid: opts[:actor_uuid],
+      resource_type: "item",
+      resource_uuid: item_uuid,
+      metadata: %{
+        "count" => count,
+        "db_pending" => true,
+        "rejected" => to_string(reason)
+      }
+    })
+  end
+
+  defp log_smart_rules_reorder_db_error(item_uuid, count, opts) do
+    ActivityLog.log(%{
+      action: "smart_rules.reordered",
+      mode: "manual",
+      actor_uuid: opts[:actor_uuid],
+      resource_type: "item",
+      resource_uuid: item_uuid,
+      metadata: %{
+        "count" => count,
+        "db_pending" => true
+      }
+    })
+  end
+
+  @doc """
   Lists non-deleted smart items that reference a given catalogue.
 
   Useful for warning-before-delete flows: "This catalogue is referenced
