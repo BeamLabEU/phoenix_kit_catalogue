@@ -879,6 +879,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
   attr(:on_set_value, :string, default: "set_catalogue_rule_value")
   attr(:on_set_unit, :string, default: "set_catalogue_rule_unit")
   attr(:on_clear, :string, default: "clear_catalogue_rules")
+  attr(:on_reorder, :string, default: nil, doc: "When set, rule rows are draggable")
   attr(:id, :string, default: "catalogue-rules-picker")
   attr(:class, :string, default: "")
 
@@ -907,13 +908,22 @@ defmodule PhoenixKitCatalogue.Web.Components do
             {Gettext.gettext(PhoenixKitWeb.Gettext, "Clear all")}
           </button>
         </div>
-        <div class="rounded-box border border-base-300 bg-base-100 divide-y divide-base-300">
+        <div
+          id={"#{@id}-rows"}
+          class="rounded-box border border-base-300 bg-base-100 divide-y divide-base-300"
+          data-sortable={if @on_reorder, do: "true"}
+          data-sortable-event={@on_reorder}
+          data-sortable-items=".sortable-item"
+          data-sortable-hide-source="false"
+          phx-hook={if @on_reorder, do: "SortableGrid"}
+        >
           <.catalogue_rule_row
             :for={cat <- @catalogues}
             catalogue={cat}
             rule={Map.get(@rules, cat.uuid)}
             default_placeholder={@default_placeholder}
             units={@units}
+            draggable={not is_nil(@on_reorder)}
             on_toggle={@on_toggle}
             on_set_value={@on_set_value}
             on_set_unit={@on_set_unit}
@@ -928,6 +938,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
   attr(:rule, :any, default: nil)
   attr(:default_placeholder, :string, default: "")
   attr(:units, :list, required: true)
+  attr(:draggable, :boolean, default: false)
   attr(:on_toggle, :string, required: true)
   attr(:on_set_value, :string, required: true)
   attr(:on_set_unit, :string, required: true)
@@ -943,7 +954,20 @@ defmodule PhoenixKitCatalogue.Web.Components do
       |> assign(:kind_label, kind_label(assigns.catalogue))
 
     ~H"""
-    <div class="flex items-center gap-3 px-3 py-2">
+    <div
+      class={[
+        "flex items-center gap-3 px-3 py-2",
+        @draggable && "sortable-item"
+      ]}
+      data-id={@catalogue.uuid}
+    >
+      <div
+        :if={@draggable}
+        class="cursor-grab active:cursor-grabbing text-base-content/30 hover:text-base-content/70 select-none"
+        title={Gettext.gettext(PhoenixKitWeb.Gettext, "Drag to reorder")}
+      >
+        <.icon name="hero-bars-3" class="w-4 h-4" />
+      </div>
       <label class="flex items-center gap-2 flex-1 min-w-0 cursor-pointer">
         <input
           type="checkbox"
@@ -1119,20 +1143,43 @@ defmodule PhoenixKitCatalogue.Web.Components do
   attr(:size, :string, default: "sm")
   attr(:wrapper_class, :string, default: nil)
 
+  attr(:on_reorder, :string,
+    default: nil,
+    doc: "When set, rows become draggable and emit this event"
+  )
+
+  attr(:reorder_scope, :map,
+    default: %{},
+    doc:
+      "Map of extra scope values (e.g. %{catalogue_uuid: \"...\", category_uuid: \"...\"}) — exposed to the SortableGrid hook as data-sortable-scope-* attrs"
+  )
+
+  attr(:reorder_group, :string,
+    default: nil,
+    doc:
+      "SortableJS group name; tables sharing a group can exchange items via cross-container drag (e.g. items moving between categories)"
+  )
+
   def item_table(assigns) do
     assigns =
       assigns
       |> assign(:has_actions, has_actions?(assigns))
       |> assign(:card_columns, Enum.reject(assigns.columns, &(&1 == :name)))
+      |> assign(:reorder_scope_attrs, build_reorder_scope_attrs(assigns[:reorder_scope] || %{}))
 
     ~H"""
     <.table_default
       variant={@variant}
       size={@size}
       toggleable={@cards}
+      show_toggle={@show_toggle}
       id={@id}
       storage_key={@storage_key}
       items={@items}
+      on_reorder={@on_reorder}
+      reorder_scope={@reorder_scope}
+      reorder_group={@reorder_group}
+      item_id={fn item -> item.uuid end}
       card_fields={
         &card_fields(&1, @card_columns, @markup_percentage, @discount_percentage, @catalogue_path)
       }
@@ -1149,6 +1196,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
       </:card_header>
       <.table_default_header>
         <.table_default_row>
+          <.table_default_header_cell :if={@on_reorder} class="w-8"></.table_default_header_cell>
           <.table_default_header_cell :for={col <- @columns}>
             {column_label(col)}
           </.table_default_header_cell>
@@ -1157,8 +1205,27 @@ defmodule PhoenixKitCatalogue.Web.Components do
           </.table_default_header_cell>
         </.table_default_row>
       </.table_default_header>
-      <.table_default_body>
-        <.table_default_row :for={item <- @items}>
+      <tbody
+        id={if @on_reorder, do: "#{@id || "items-tbody"}-tbody"}
+        data-sortable={if @on_reorder, do: "true"}
+        data-sortable-event={@on_reorder}
+        data-sortable-items=".sortable-item"
+        data-sortable-hide-source="false"
+        data-sortable-group={@reorder_group}
+        phx-hook={if @on_reorder, do: "SortableGrid"}
+        {@reorder_scope_attrs}
+      >
+        <.table_default_row
+          :for={item <- @items}
+          class={if @on_reorder, do: "sortable-item"}
+          data-id={item.uuid}
+        >
+          <.table_default_cell
+            :if={@on_reorder}
+            class="cursor-grab active:cursor-grabbing text-base-content/40"
+          >
+            <.icon name="hero-bars-3" class="w-4 h-4" />
+          </.table_default_cell>
           <.item_cell
             :for={col <- @columns}
             column={col}
@@ -1178,7 +1245,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
             permanent_delete_type={@permanent_delete_type}
           />
         </.table_default_row>
-      </.table_default_body>
+      </tbody>
       <:card_actions :let={item} :if={@has_actions}>
         <.card_action_buttons
           item={item}
@@ -1194,6 +1261,28 @@ defmodule PhoenixKitCatalogue.Web.Components do
   end
 
   # ── Card view helpers ───────────────────────────────────────────
+
+  # Translates a `%{key => value}` map into a list of
+  # `{"data-sortable-scope-key" => value}` tuples so the SortableGrid
+  # hook can pluck them off the container as extra payload. `nil` /
+  # blank values become `""`-valued attrs so the parser side can detect
+  # "uncategorized" without ambiguity.
+  defp build_reorder_scope_attrs(scope) when is_map(scope) do
+    Enum.flat_map(scope, fn {key, value} ->
+      attr_name = "data-sortable-scope-" <> dash_case(to_string(key))
+      [{attr_name, scope_value_to_string(value)}]
+    end)
+  end
+
+  defp scope_value_to_string(nil), do: ""
+  defp scope_value_to_string(v) when is_binary(v), do: v
+  defp scope_value_to_string(v), do: to_string(v)
+
+  defp dash_case(name) do
+    name
+    |> String.replace("_", "-")
+    |> String.downcase()
+  end
 
   defp card_fields(item, columns, markup_percentage, discount_percentage, catalogue_path) do
     Enum.flat_map(columns, fn col ->

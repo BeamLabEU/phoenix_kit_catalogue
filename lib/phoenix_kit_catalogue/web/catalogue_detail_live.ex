@@ -27,7 +27,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   alias PhoenixKitCatalogue.Catalogue
   alias PhoenixKitCatalogue.Catalogue.PubSub
   alias PhoenixKitCatalogue.Paths
-  alias PhoenixKitCatalogue.Schemas.Category
+  alias PhoenixKitCatalogue.Schemas.{Category, Item}
 
   @per_page 100
 
@@ -396,12 +396,134 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     {:noreply, assign(socket, :confirm_delete, nil)}
   end
 
-  def handle_event("move_category_up", %{"uuid" => uuid}, socket) do
-    reorder_category(socket, uuid, :up)
+  def handle_event("reorder_categories", %{"ordered_ids" => ordered_ids}, socket)
+      when is_list(ordered_ids) do
+    apply_category_reorder(socket, ordered_ids)
   end
 
-  def handle_event("move_category_down", %{"uuid" => uuid}, socket) do
-    reorder_category(socket, uuid, :down)
+  # Cross-category drop: SortableJS sent `moved_id` plus the source
+  # category in `from*` keys alongside the destination's scope. We move
+  # the item, then reorder the destination to match the visual order
+  # the user dropped it into. The source's remaining order is preserved
+  # implicitly — its position values stay valid since they're per-scope.
+  def handle_event(
+        "reorder_items",
+        %{"ordered_ids" => ordered_ids, "moved_id" => moved_id} = params,
+        socket
+      )
+      when is_list(ordered_ids) and is_binary(moved_id) do
+    to_catalogue_uuid = params["catalogueUuid"]
+    to_category_uuid = blank_to_nil(params["categoryUuid"])
+    from_catalogue_uuid = params["fromCatalogueUuid"]
+
+    cond do
+      to_catalogue_uuid != socket.assigns.catalogue_uuid ->
+        {:noreply,
+         put_flash(
+           socket,
+           :error,
+           Gettext.gettext(PhoenixKitWeb.Gettext, "Wrong catalogue scope.")
+         )}
+
+      from_catalogue_uuid != to_catalogue_uuid ->
+        # Items can't change catalogue via DnD (Item.catalogue_uuid is
+        # the strong root scope; cross-catalogue moves go through the
+        # explicit "Move to catalogue" form). Reload to snap the DOM
+        # back to the persisted state.
+        {:noreply,
+         socket
+         |> put_flash(
+           :error,
+           Gettext.gettext(
+             PhoenixKitWeb.Gettext,
+             "Items can only be moved within the same catalogue."
+           )
+         )
+         |> reset_and_load()}
+
+      true ->
+        # `move_item_and_reorder_destination/4` wraps the move + reorder
+        # in a single transaction so a reorder failure rolls back the
+        # category flip — no in-between half-state where the item has
+        # the new category_uuid but the wrong position.
+        with %Item{} = item <- Catalogue.get_item(moved_id),
+             from_category_uuid = item.category_uuid,
+             {:ok, _moved} <-
+               Catalogue.move_item_and_reorder_destination(
+                 item,
+                 to_category_uuid,
+                 ordered_ids,
+                 actor_opts(socket)
+               ) do
+          from_scope = from_category_uuid || :uncategorized
+          to_scope = to_category_uuid || :uncategorized
+
+          {:noreply,
+           socket
+           |> refresh_card_items(from_scope)
+           |> refresh_card_items(to_scope)
+           |> refresh_counts()}
+        else
+          nil ->
+            {:noreply,
+             put_flash(socket, :error, Gettext.gettext(PhoenixKitWeb.Gettext, "Item not found."))}
+
+          {:error, reason} ->
+            log_operation_error(socket, "move_item_via_dnd", %{
+              item_uuid: moved_id,
+              to_category_uuid: to_category_uuid,
+              reason: reason
+            })
+
+            {:noreply,
+             socket
+             |> put_flash(
+               :error,
+               Gettext.gettext(PhoenixKitWeb.Gettext, "Failed to move item.")
+             )
+             |> reset_and_load()}
+        end
+    end
+  end
+
+  def handle_event("reorder_items", %{"ordered_ids" => ordered_ids} = params, socket)
+      when is_list(ordered_ids) do
+    catalogue_uuid = params["catalogueUuid"]
+    category_uuid = blank_to_nil(params["categoryUuid"])
+
+    if catalogue_uuid != socket.assigns.catalogue_uuid do
+      {:noreply,
+       put_flash(
+         socket,
+         :error,
+         Gettext.gettext(PhoenixKitWeb.Gettext, "Wrong catalogue scope.")
+       )}
+    else
+      apply_in_scope_item_reorder(socket, catalogue_uuid, category_uuid, ordered_ids)
+    end
+  end
+
+  defp apply_in_scope_item_reorder(socket, catalogue_uuid, category_uuid, ordered_ids) do
+    case Catalogue.reorder_items(
+           catalogue_uuid,
+           category_uuid,
+           ordered_ids,
+           actor_opts(socket)
+         ) do
+      :ok ->
+        scope = category_uuid || :uncategorized
+        {:noreply, refresh_card_items(socket, scope)}
+
+      {:error, reason} ->
+        log_operation_error(socket, "reorder_items", %{reason: reason})
+
+        {:noreply,
+         put_flash(
+           socket,
+           :error,
+           Gettext.gettext(PhoenixKitWeb.Gettext, "Failed to reorder items.")
+         )}
+    end
   end
 
   # ── Helpers ─────────────────────────────────────────────────────
@@ -829,53 +951,148 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     assign(socket, :loaded_cards, cards)
   end
 
+  # Re-fetches the items inside a single loaded card after an in-place
+  # change (DnD reorder, cross-category move). `scope` is the
+  # category UUID, or `:uncategorized` for the no-category bucket.
+  # Re-uses the card's currently-loaded item count so the user doesn't
+  # see fewer rows than before they dragged. Cards that don't match
+  # the scope pass through untouched. Cursor / has_more / loading are
+  # all left alone — scroll state is preserved.
+  defp refresh_card_items(socket, scope) do
+    catalogue_uuid = socket.assigns.catalogue_uuid
+    mode = view_mode_to_atom(socket.assigns.view_mode)
+
+    cards =
+      Enum.map(socket.assigns.loaded_cards, fn card ->
+        if card_matches_scope?(card, scope) do
+          # Always reload at least one batch worth — picks up the item
+          # we just dropped in even if the card was empty before.
+          limit = max(length(card.items) + 1, 1)
+          fresh = fetch_card_items(scope, catalogue_uuid, mode, limit)
+          %{card | items: fresh}
+        else
+          card
+        end
+      end)
+
+    assign(socket, :loaded_cards, cards)
+  end
+
+  defp card_matches_scope?(%{kind: :category, category: %{uuid: uuid}}, scope)
+       when is_binary(scope),
+       do: uuid == scope
+
+  defp card_matches_scope?(%{kind: :uncategorized}, :uncategorized), do: true
+  defp card_matches_scope?(_, _), do: false
+
+  defp fetch_card_items(:uncategorized, catalogue_uuid, mode, limit) do
+    Catalogue.list_uncategorized_items_paged(catalogue_uuid,
+      mode: mode,
+      offset: 0,
+      limit: limit
+    )
+  end
+
+  defp fetch_card_items(category_uuid, _catalogue_uuid, mode, limit)
+       when is_binary(category_uuid) do
+    Catalogue.list_items_for_category_paged(category_uuid,
+      mode: mode,
+      offset: 0,
+      limit: limit
+    )
+  end
+
+  # Reloads the category tree (positions changed) and re-sorts
+  # `loaded_cards` to match — without touching the cursor. Used after
+  # category DnD so the user's scroll state is preserved.
+  defp refresh_categories_in_place(socket) do
+    uuid = socket.assigns.catalogue_uuid
+    mode = view_mode_to_atom(socket.assigns.view_mode)
+    tree = Catalogue.list_category_tree(uuid, mode: mode)
+    category_list = Enum.map(tree, fn {cat, _depth} -> cat end)
+    category_depths = Map.new(tree, fn {cat, depth} -> {cat.uuid, depth} end)
+
+    # Build a position index so we can re-sort `loaded_cards` to match
+    # the new tree order. The Uncategorized card stays at the end.
+    tree_index =
+      tree
+      |> Enum.with_index()
+      |> Map.new(fn {{cat, _depth}, idx} -> {cat.uuid, idx} end)
+
+    sorted_cards =
+      socket.assigns.loaded_cards
+      |> Enum.sort_by(fn
+        %{kind: :category, category: %{uuid: uuid}} ->
+          Map.get(tree_index, uuid, :infinity)
+
+        %{kind: :uncategorized} ->
+          :end_of_list
+      end)
+
+    assign(socket,
+      category_list: category_list,
+      category_depths: category_depths,
+      loaded_cards: sorted_cards
+    )
+  end
+
   defp view_mode_to_atom("active"), do: :active
   defp view_mode_to_atom("deleted"), do: :deleted
 
-  defp reorder_category(socket, uuid, direction) do
-    # V103 nested categories: reorder operates strictly among siblings
-    # (same parent_uuid). Swapping across parents would shuffle rows into
-    # different sub-trees and leave position values meaningless for the
-    # flat ordering that the detail view relies on.
-    categories = socket.assigns.category_list
+  # Processes a flat list of category UUIDs that came back from the
+  # detail-view DnD. Categories live in a parent-scoped tree, but the
+  # client sees them as one ordered list. We group the dropped order by
+  # `parent_uuid`, preserve the relative order inside each group, and
+  # call `Catalogue.reorder_categories/4` per group. UUIDs whose parent
+  # changed are silently kept under their original parent — DnD here is
+  # for sibling-only reorder, not reparenting.
+  defp apply_category_reorder(socket, ordered_ids) do
+    by_uuid = Map.new(socket.assigns.category_list, fn %Category{} = c -> {c.uuid, c} end)
 
-    case Enum.find(categories, &(&1.uuid == uuid)) do
-      %Category{parent_uuid: parent_uuid} = cat_a ->
-        siblings = Enum.filter(categories, &(&1.parent_uuid == parent_uuid))
-        sibling_index = Enum.find_index(siblings, &(&1.uuid == uuid))
-
-        swap_index =
-          case direction do
-            :up -> sibling_index - 1
-            :down -> sibling_index + 1
-          end
-
-        if swap_index >= 0 and swap_index < length(siblings) do
-          cat_b = Enum.at(siblings, swap_index)
-          swap_categories(socket, cat_a, cat_b)
-        else
-          {:noreply, socket}
+    groups =
+      ordered_ids
+      |> Enum.flat_map(fn id ->
+        case Map.fetch(by_uuid, id) do
+          {:ok, c} -> [{c.parent_uuid, id}]
+          :error -> []
         end
+      end)
+      |> Enum.group_by(fn {parent_uuid, _id} -> parent_uuid end, fn {_parent, id} -> id end)
 
-      _ ->
-        {:noreply, socket}
+    catalogue_uuid = socket.assigns.catalogue_uuid
+
+    failures =
+      Enum.reduce(groups, [], fn {parent_uuid, ids}, acc ->
+        case Catalogue.reorder_categories(
+               catalogue_uuid,
+               parent_uuid,
+               ids,
+               actor_opts(socket)
+             ) do
+          :ok -> acc
+          {:error, reason} -> [{parent_uuid, reason} | acc]
+        end
+      end)
+
+    socket = refresh_categories_in_place(socket)
+
+    if failures == [] do
+      {:noreply, socket}
+    else
+      log_operation_error(socket, "reorder_categories", %{failures: failures})
+
+      {:noreply,
+       put_flash(
+         socket,
+         :error,
+         Gettext.gettext(PhoenixKitWeb.Gettext, "Failed to reorder categories.")
+       )}
     end
   end
 
-  defp swap_categories(socket, cat_a, cat_b) do
-    case Catalogue.swap_category_positions(cat_a, cat_b, actor_opts(socket)) do
-      {:ok, _} ->
-        {:noreply, reset_and_load(socket)}
-
-      {:error, _} ->
-        {:noreply,
-         put_flash(
-           socket,
-           :error,
-           Gettext.gettext(PhoenixKitWeb.Gettext, "Failed to reorder categories.")
-         )}
-    end
-  end
+  defp blank_to_nil(nil), do: nil
+  defp blank_to_nil(""), do: nil
+  defp blank_to_nil(value) when is_binary(value), do: value
 
   # ── Render ──────────────────────────────────────────────────────
 
@@ -1011,19 +1228,42 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         </div>
 
         <%!-- Streamed cards (one per category, one for uncategorized). --%>
-        <%= for {card, card_idx} <- Enum.with_index(@loaded_cards), is_nil(@search_results) and not @search_loading do %>
-          <.detail_card
-            card={card}
-            card_idx={card_idx}
-            view_mode={@view_mode}
-            category_total={length(@category_list)}
-            category_counts={@category_counts}
-            category_depths={@category_depths}
-            category_list={@category_list}
-            uncategorized_total={@uncategorized_total}
-            catalogue={@catalogue}
-          />
-        <% end %>
+        <div
+          :if={is_nil(@search_results) and not @search_loading and @loaded_cards != []}
+          id="catalogue-detail-cards"
+          class="flex flex-col gap-6"
+          data-sortable="true"
+          data-sortable-event="reorder_categories"
+          data-sortable-items=".sortable-item"
+          data-sortable-hide-source="false"
+          data-sortable-group="catalogue-categories"
+          phx-hook={if @view_mode == "active", do: "SortableGrid"}
+        >
+          <%= for {card, card_idx} <- Enum.with_index(@loaded_cards) do %>
+            <div
+              class={
+                cond do
+                  card.kind == :uncategorized -> "sortable-ignore"
+                  card.category && card.category.status == "deleted" -> "sortable-ignore"
+                  true -> "sortable-item"
+                end
+              }
+              data-id={card.kind == :category && card.category && card.category.uuid}
+            >
+              <.detail_card
+                card={card}
+                card_idx={card_idx}
+                view_mode={@view_mode}
+                category_total={length(@category_list)}
+                category_counts={@category_counts}
+                category_depths={@category_depths}
+                category_list={@category_list}
+                uncategorized_total={@uncategorized_total}
+                catalogue={@catalogue}
+              />
+            </div>
+          <% end %>
+        </div>
 
         <%!-- Infinite-scroll sentinel --%>
         <div
@@ -1130,23 +1370,12 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       <div class="card-body">
         <div class="flex items-center justify-between">
           <div class="flex items-center gap-2">
-            <div :if={@sibling_count > 1 && @view_mode == "active"} class="flex flex-col">
-              <button
-                phx-click="move_category_up"
-                phx-value-uuid={@card.category.uuid}
-                class="btn btn-ghost btn-xs btn-square"
-                title={Gettext.gettext(PhoenixKitWeb.Gettext, "Move up (among siblings)")}
-              >
-                <.icon name="hero-chevron-up" class="w-3 h-3" />
-              </button>
-              <button
-                phx-click="move_category_down"
-                phx-value-uuid={@card.category.uuid}
-                class="btn btn-ghost btn-xs btn-square"
-                title={Gettext.gettext(PhoenixKitWeb.Gettext, "Move down (among siblings)")}
-              >
-                <.icon name="hero-chevron-down" class="w-3 h-3" />
-              </button>
+            <div
+              :if={@view_mode == "active" and @sibling_count > 1}
+              class="cursor-grab active:cursor-grabbing text-base-content/30 hover:text-base-content/70 select-none"
+              title={Gettext.gettext(PhoenixKitWeb.Gettext, "Drag to reorder (among siblings)")}
+            >
+              <.icon name="hero-bars-3" class="w-4 h-4" />
             </div>
             <.link
               :if={@view_mode == "active"}
@@ -1218,6 +1447,12 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
             storage_key="catalogue-detail-items"
             id={"cat-items-active-#{@card.category.uuid}"}
             wrapper_class="overflow-x-auto shadow-none rounded-none"
+            on_reorder="reorder_items"
+            reorder_group="catalogue-items"
+            reorder_scope={%{
+              catalogue_uuid: @catalogue.uuid,
+              category_uuid: @card.category.uuid
+            }}
           />
         </div>
         <%!-- Items table: deleted mode --%>
@@ -1267,6 +1502,12 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
             show_toggle={false}
             storage_key="catalogue-detail-items"
             id={"uncategorized-items-#{@card_idx}"}
+            on_reorder={if @view_mode == "active", do: "reorder_items"}
+            reorder_group="catalogue-items"
+            reorder_scope={%{
+              catalogue_uuid: @catalogue.uuid,
+              category_uuid: nil
+            }}
           />
         </div>
       </div>

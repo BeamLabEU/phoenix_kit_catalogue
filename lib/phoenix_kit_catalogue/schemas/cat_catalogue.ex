@@ -21,6 +21,7 @@ defmodule PhoenixKitCatalogue.Schemas.Catalogue do
     field(:markup_percentage, :decimal, default: Decimal.new("0"))
     field(:discount_percentage, :decimal, default: Decimal.new("0"))
     field(:status, :string, default: "active")
+    field(:position, :integer, default: 0)
     field(:data, :map, default: %{})
 
     has_many(:categories, PhoenixKitCatalogue.Schemas.Category,
@@ -38,6 +39,7 @@ defmodule PhoenixKitCatalogue.Schemas.Catalogue do
     :markup_percentage,
     :discount_percentage,
     :status,
+    :position,
     :data
   ]
 

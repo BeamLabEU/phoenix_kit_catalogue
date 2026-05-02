@@ -46,7 +46,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Search do
 
     query
     |> search_items_base(opts)
-    |> order_by([i, _cat, _c], asc: i.name, asc: i.uuid)
+    |> order_by([i, _cat, _c], asc: i.position, asc: i.name, asc: i.uuid)
     |> limit(^limit)
     |> offset(^offset)
     |> preload([:catalogue, category: :catalogue, manufacturer: []])
@@ -79,7 +79,12 @@ defmodule PhoenixKitCatalogue.Catalogue.Search do
 
     query
     |> search_items_base(opts)
-    |> order_by([i, _cat, c], asc_nulls_last: c.position, asc: i.name, asc: i.uuid)
+    |> order_by([i, _cat, c],
+      asc_nulls_last: c.position,
+      asc: i.position,
+      asc: i.name,
+      asc: i.uuid
+    )
     |> limit(^limit)
     |> offset(^offset)
     |> preload([:catalogue, category: :catalogue, manufacturer: []])

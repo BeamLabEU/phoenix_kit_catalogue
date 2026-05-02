@@ -131,6 +131,122 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
   defp lookup_parent(_kind, _uuid), do: nil
 
+  # Same cap reasoning as entities — even a workspace with hundreds of
+  # catalogues, categories, or items per group never paints a thousand
+  # at once. Beyond this we'd want an explicit batched API rather than
+  # an unbounded transaction. Defined near the top of the module so
+  # every guard clause that references it sees a defined attribute.
+  @reorder_max_uuids 1000
+
+  # Reorder helpers shared by `reorder_catalogues/2`, `reorder_categories/4`,
+  # and `reorder_items/4`. Two responsibilities:
+  # - `dedupe_keep_last/1` collapses an `[uuid]` payload so a stale DOM
+  #   sending the same uuid twice writes the *intended* (latest) position
+  #   only once. Same shape as `EntityData.bulk_update_positions/2`.
+  # - `log_reorder_rejected/5` and `log_reorder_db_error/5` cover the
+  #   audit-trail gap on early rejection (`:too_many_uuids`,
+  #   `:not_siblings`, `:wrong_scope`) and post-transaction failure.
+  #   `db_pending: true` lets audit consumers tell rejected/failed rows
+  #   apart from successful ones.
+
+  defp dedupe_keep_last(uuids) when is_list(uuids) do
+    uuids |> Enum.reverse() |> Enum.uniq() |> Enum.reverse()
+  end
+
+  defp log_reorder_rejected(kind, reason, count, parent_catalogue_uuid, opts) do
+    ActivityLog.log(
+      Map.merge(
+        %{
+          action: reorder_action_for(kind),
+          mode: "manual",
+          actor_uuid: opts[:actor_uuid],
+          resource_type: to_string(kind),
+          metadata: %{
+            "count" => count,
+            "db_pending" => true,
+            "rejected" => to_string(reason)
+          }
+        },
+        if(parent_catalogue_uuid,
+          do: %{parent_catalogue_uuid: parent_catalogue_uuid},
+          else: %{}
+        )
+      )
+    )
+  end
+
+  defp log_reorder_db_error(kind, ordered_uuids, parent_catalogue_uuid, opts, extras \\ []) do
+    metadata =
+      %{
+        "count" => length(ordered_uuids),
+        "db_pending" => true
+      }
+      |> maybe_put_metadata("category_uuid", Keyword.get(extras, :category_uuid))
+
+    ActivityLog.log(
+      Map.merge(
+        %{
+          action: reorder_action_for(kind),
+          mode: "manual",
+          actor_uuid: opts[:actor_uuid],
+          resource_type: to_string(kind),
+          resource_uuid: List.first(ordered_uuids),
+          metadata: metadata
+        },
+        if(parent_catalogue_uuid,
+          do: %{parent_catalogue_uuid: parent_catalogue_uuid},
+          else: %{}
+        )
+      )
+    )
+  end
+
+  defp reorder_action_for(:catalogue), do: "catalogue.reordered"
+  defp reorder_action_for(:category), do: "category.reordered"
+  defp reorder_action_for(:item), do: "item.reordered"
+
+  defp maybe_put_metadata(map, _key, nil), do: map
+  defp maybe_put_metadata(map, key, value), do: Map.put(map, key, value)
+
+  # Auto-assigns a position to a new catalogue when the caller hasn't
+  # supplied one — places the new row at the end of the manual-order
+  # list. Existing tests / callers that pass `:position` keep control.
+  defp maybe_put_catalogue_position(attrs) when is_map(attrs) do
+    if Helpers.has_attr?(attrs, :position) do
+      attrs
+    else
+      Helpers.put_attr(attrs, :position, next_catalogue_position())
+    end
+  end
+
+  # Same idea for items, scoped by `(catalogue_uuid, category_uuid)`.
+  # Only fires when both scope fields are already in attrs — otherwise
+  # we don't have enough information to compute the next position, so
+  # we leave it at the schema default (0).
+  defp maybe_put_item_position(attrs) when is_map(attrs) do
+    cond do
+      Helpers.has_attr?(attrs, :position) ->
+        attrs
+
+      Helpers.has_attr?(attrs, :catalogue_uuid) ->
+        catalogue_uuid = Helpers.fetch_attr(attrs, :catalogue_uuid)
+
+        category_uuid =
+          if Helpers.has_attr?(attrs, :category_uuid),
+            do: attrs |> Helpers.fetch_attr(:category_uuid) |> blank_to_nil(),
+            else: nil
+
+        if is_binary(catalogue_uuid) do
+          Helpers.put_attr(attrs, :position, next_item_position(catalogue_uuid, category_uuid))
+        else
+          attrs
+        end
+
+      true ->
+        attrs
+    end
+  end
+
   # ═══════════════════════════════════════════════════════════════════
   # Manufacturers — see PhoenixKitCatalogue.Catalogue.Manufacturers
   # ═══════════════════════════════════════════════════════════════════
@@ -197,7 +313,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
   """
   @spec list_catalogues(keyword()) :: [Catalogue.t()]
   def list_catalogues(opts \\ []) do
-    query = from(c in Catalogue, order_by: [asc: :name])
+    query = from(c in Catalogue, order_by: [asc: c.position, asc: c.name])
 
     query =
       case Keyword.get(opts, :status) do
@@ -317,11 +433,14 @@ defmodule PhoenixKitCatalogue.Catalogue do
       case mode do
         :active ->
           {from(c in Category, where: c.status != "deleted", order_by: [asc: :position]),
-           from(i in Item, where: i.status != "deleted", order_by: [asc: :name])}
+           from(i in Item, where: i.status != "deleted", order_by: [asc: :position, asc: :name])}
 
         :deleted ->
           {from(c in Category, order_by: [asc: :position]),
-           from(i in Item, where: i.status == "deleted", order_by: [asc: :name])}
+           from(i in Item,
+             where: i.status == "deleted",
+             order_by: [asc: :position, asc: :name]
+           )}
       end
 
     Catalogue
@@ -349,6 +468,8 @@ defmodule PhoenixKitCatalogue.Catalogue do
   @spec create_catalogue(map(), keyword()) ::
           {:ok, Catalogue.t()} | {:error, Ecto.Changeset.t(Catalogue.t())}
   def create_catalogue(attrs, opts \\ []) do
+    attrs = maybe_put_catalogue_position(attrs)
+
     case %Catalogue{} |> Catalogue.changeset(attrs) |> repo().insert() do
       {:ok, catalogue} = ok ->
         log_activity(%{
@@ -659,7 +780,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
     query =
       from(i in Item,
         where: i.category_uuid == ^category_uuid,
-        order_by: [asc: :name],
+        order_by: [asc: i.position, asc: i.name],
         offset: ^offset,
         limit: ^limit,
         preload: [:catalogue, :manufacturer]
@@ -696,7 +817,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
     query =
       from(i in Item,
         where: i.catalogue_uuid == ^catalogue_uuid and is_nil(i.category_uuid),
-        order_by: [asc: :name],
+        order_by: [asc: i.position, asc: i.name],
         offset: ^offset,
         limit: ^limit,
         preload: [:catalogue, :manufacturer]
@@ -816,7 +937,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
     catalogues =
       from(cat in Catalogue,
         where: cat.status != "deleted",
-        order_by: [asc: cat.name]
+        order_by: [asc: cat.position, asc: cat.name]
       )
       |> repo().all()
 
@@ -1683,6 +1804,278 @@ defmodule PhoenixKitCatalogue.Catalogue do
     end
   end
 
+  @doc """
+  Re-indexes a sibling group of categories from a list of UUIDs.
+
+  Sibling scope is `(catalogue_uuid, parent_uuid)` — the same scope used
+  by `swap_category_positions/2` and `next_category_position/2`. The
+  function loads the supplied categories, verifies they all share that
+  scope, and writes positions `1..N` in the order given. UUIDs not found
+  in the table are ignored; UUIDs that don't share the scope abort the
+  whole batch with `{:error, :not_siblings}`.
+
+  Two-pass updates inside a single transaction — the first pass writes
+  negative positions to dodge any future unique index on
+  `(catalogue_uuid, parent_uuid, position)`; the second pass writes the
+  final positive values. If no such index exists today, the cost is one
+  extra `UPDATE` per row, which is cheap relative to the LV round-trip
+  that triggers the call.
+  """
+  @spec reorder_categories(Ecto.UUID.t(), Ecto.UUID.t() | nil, [Ecto.UUID.t()], keyword()) ::
+          :ok | {:error, :not_siblings | :too_many_uuids | term()}
+  def reorder_categories(catalogue_uuid, parent_uuid, ordered_uuids, opts \\ [])
+
+  def reorder_categories(catalogue_uuid, _parent_uuid, ordered_uuids, opts)
+      when is_binary(catalogue_uuid) and is_list(ordered_uuids) and
+             length(ordered_uuids) > @reorder_max_uuids do
+    log_reorder_rejected(:category, :too_many_uuids, length(ordered_uuids), catalogue_uuid, opts)
+    {:error, :too_many_uuids}
+  end
+
+  def reorder_categories(catalogue_uuid, parent_uuid, ordered_uuids, opts)
+      when is_binary(catalogue_uuid) and is_list(ordered_uuids) do
+    unique_uuids = dedupe_keep_last(ordered_uuids)
+
+    rows =
+      from(c in Category, where: c.uuid in ^unique_uuids)
+      |> repo().all()
+
+    valid_scope? =
+      Enum.all?(rows, fn c ->
+        c.catalogue_uuid == catalogue_uuid and c.parent_uuid == parent_uuid
+      end)
+
+    cond do
+      not valid_scope? ->
+        log_reorder_rejected(:category, :not_siblings, length(unique_uuids), catalogue_uuid, opts)
+        {:error, :not_siblings}
+
+      rows == [] ->
+        :ok
+
+      true ->
+        do_reorder_categories(catalogue_uuid, parent_uuid, unique_uuids, opts)
+    end
+  end
+
+  defp do_reorder_categories(catalogue_uuid, parent_uuid, ordered_uuids, opts) do
+    pairs = Enum.with_index(ordered_uuids, 1)
+
+    result =
+      repo().transaction(fn ->
+        Enum.each(pairs, fn {uuid, idx} ->
+          from(c in Category, where: c.uuid == ^uuid)
+          |> repo().update_all(set: [position: -idx])
+        end)
+
+        Enum.each(pairs, fn {uuid, idx} ->
+          from(c in Category, where: c.uuid == ^uuid)
+          |> repo().update_all(set: [position: idx])
+        end)
+      end)
+
+    case result do
+      {:ok, _} ->
+        log_activity(%{
+          action: "category.reordered",
+          mode: "manual",
+          actor_uuid: opts[:actor_uuid],
+          resource_type: "category",
+          resource_uuid: List.first(ordered_uuids),
+          parent_catalogue_uuid: catalogue_uuid,
+          metadata: %{
+            "parent_uuid" => parent_uuid,
+            "count" => length(ordered_uuids)
+          }
+        })
+
+        :ok
+
+      {:error, reason} ->
+        log_reorder_db_error(:category, ordered_uuids, catalogue_uuid, opts)
+        {:error, reason}
+    end
+  end
+
+  @doc """
+  Returns the next available `position` for a new catalogue — one past
+  the current max, falling back to `1` on an empty table.
+  """
+  @spec next_catalogue_position() :: integer()
+  def next_catalogue_position do
+    case repo().one(from(c in Catalogue, select: max(c.position))) do
+      nil -> 1
+      n -> n + 1
+    end
+  end
+
+  @doc """
+  Re-indexes the supplied list of catalogue UUIDs into positions
+  `1..N`. Used by the catalogues index DnD handler.
+
+  UUIDs missing from the table are skipped. The whole pass runs in one
+  transaction. Returns `:ok` on success or `{:error, reason}` on
+  transaction failure.
+  """
+  @spec reorder_catalogues([Ecto.UUID.t()], keyword()) ::
+          :ok | {:error, :too_many_uuids | term()}
+  def reorder_catalogues(ordered_uuids, opts \\ [])
+
+  def reorder_catalogues(ordered_uuids, opts)
+      when is_list(ordered_uuids) and length(ordered_uuids) > @reorder_max_uuids do
+    log_reorder_rejected(:catalogue, :too_many_uuids, length(ordered_uuids), nil, opts)
+    {:error, :too_many_uuids}
+  end
+
+  def reorder_catalogues(ordered_uuids, opts) when is_list(ordered_uuids) do
+    unique_uuids = dedupe_keep_last(ordered_uuids)
+
+    case write_catalogue_positions(unique_uuids) do
+      {:ok, _} ->
+        log_activity(%{
+          action: "catalogue.reordered",
+          mode: "manual",
+          actor_uuid: opts[:actor_uuid],
+          resource_type: "catalogue",
+          resource_uuid: List.first(unique_uuids),
+          metadata: %{"count" => length(unique_uuids)}
+        })
+
+        :ok
+
+      {:error, reason} ->
+        log_reorder_db_error(:catalogue, unique_uuids, nil, opts)
+        {:error, reason}
+    end
+  end
+
+  defp write_catalogue_positions(unique_uuids) do
+    pairs = Enum.with_index(unique_uuids, 1)
+
+    repo().transaction(fn ->
+      Enum.each(pairs, fn {uuid, idx} ->
+        from(c in Catalogue, where: c.uuid == ^uuid)
+        |> repo().update_all(set: [position: idx])
+      end)
+    end)
+  end
+
+  @doc """
+  Returns the next available `position` for a new item within a scope.
+
+  Items are scoped to `(catalogue_uuid, category_uuid)`. Pass
+  `category_uuid: nil` for the uncategorized bucket of a catalogue.
+  """
+  @spec next_item_position(Ecto.UUID.t(), Ecto.UUID.t() | nil) :: integer()
+  def next_item_position(catalogue_uuid, category_uuid)
+      when is_binary(catalogue_uuid) do
+    query =
+      from(i in Item,
+        where: i.catalogue_uuid == ^catalogue_uuid,
+        select: max(i.position)
+      )
+
+    query =
+      case category_uuid do
+        nil -> where(query, [i], is_nil(i.category_uuid))
+        uuid -> where(query, [i], i.category_uuid == ^uuid)
+      end
+
+    case repo().one(query) do
+      nil -> 1
+      n -> n + 1
+    end
+  end
+
+  @doc """
+  Re-indexes the items inside a `(catalogue_uuid, category_uuid)`
+  bucket. Pass `category_uuid: nil` to reorder the uncategorized
+  bucket. Behaves like `reorder_categories/4`: validates scope, runs
+  two passes inside a transaction, logs an activity row.
+
+  UUIDs that don't belong to the scope abort with
+  `{:error, :wrong_scope}` so a stale DOM can't bleed reorder writes
+  across catalogues.
+  """
+  @spec reorder_items(Ecto.UUID.t(), Ecto.UUID.t() | nil, [Ecto.UUID.t()], keyword()) ::
+          :ok | {:error, :wrong_scope | :too_many_uuids | term()}
+  def reorder_items(catalogue_uuid, category_uuid, ordered_uuids, opts \\ [])
+
+  def reorder_items(catalogue_uuid, _category_uuid, ordered_uuids, opts)
+      when is_binary(catalogue_uuid) and is_list(ordered_uuids) and
+             length(ordered_uuids) > @reorder_max_uuids do
+    log_reorder_rejected(:item, :too_many_uuids, length(ordered_uuids), catalogue_uuid, opts)
+    {:error, :too_many_uuids}
+  end
+
+  def reorder_items(catalogue_uuid, category_uuid, ordered_uuids, opts)
+      when is_binary(catalogue_uuid) and is_list(ordered_uuids) do
+    unique_uuids = dedupe_keep_last(ordered_uuids)
+
+    rows =
+      from(i in Item, where: i.uuid in ^unique_uuids)
+      |> repo().all()
+
+    valid_scope? =
+      Enum.all?(rows, fn i ->
+        i.catalogue_uuid == catalogue_uuid and i.category_uuid == category_uuid
+      end)
+
+    cond do
+      not valid_scope? ->
+        log_reorder_rejected(:item, :wrong_scope, length(unique_uuids), catalogue_uuid, opts)
+        {:error, :wrong_scope}
+
+      rows == [] ->
+        :ok
+
+      true ->
+        do_reorder_items(catalogue_uuid, category_uuid, unique_uuids, opts)
+    end
+  end
+
+  defp do_reorder_items(catalogue_uuid, category_uuid, ordered_uuids, opts) do
+    pairs = Enum.with_index(ordered_uuids, 1)
+
+    result =
+      repo().transaction(fn ->
+        Enum.each(pairs, fn {uuid, idx} ->
+          from(i in Item, where: i.uuid == ^uuid)
+          |> repo().update_all(set: [position: -idx])
+        end)
+
+        Enum.each(pairs, fn {uuid, idx} ->
+          from(i in Item, where: i.uuid == ^uuid)
+          |> repo().update_all(set: [position: idx])
+        end)
+      end)
+
+    case result do
+      {:ok, _} ->
+        log_activity(%{
+          action: "item.reordered",
+          mode: "manual",
+          actor_uuid: opts[:actor_uuid],
+          resource_type: "item",
+          resource_uuid: List.first(ordered_uuids),
+          parent_catalogue_uuid: catalogue_uuid,
+          metadata: %{
+            "category_uuid" => category_uuid,
+            "count" => length(ordered_uuids)
+          }
+        })
+
+        :ok
+
+      {:error, reason} ->
+        log_reorder_db_error(:item, ordered_uuids, catalogue_uuid, opts,
+          category_uuid: category_uuid
+        )
+
+        {:error, reason}
+    end
+  end
+
   # ═══════════════════════════════════════════════════════════════════
   # Items
   # ═══════════════════════════════════════════════════════════════════
@@ -1708,7 +2101,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
   def list_items(opts \\ []) do
     query =
       from(i in Item,
-        order_by: [asc: :name],
+        order_by: [asc: i.position, asc: i.name],
         preload: [:catalogue, category: :catalogue, manufacturer: []]
       )
 
@@ -1736,7 +2129,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
   def list_items_for_category(category_uuid) do
     from(i in Item,
       where: i.category_uuid == ^category_uuid and i.status != "deleted",
-      order_by: [asc: :name],
+      order_by: [asc: i.position, asc: i.name],
       preload: [:catalogue, category: :catalogue, manufacturer: []]
     )
     |> repo().all()
@@ -1754,7 +2147,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
       left_join: c in Category,
       on: i.category_uuid == c.uuid,
       where: i.catalogue_uuid == ^catalogue_uuid and i.status != "deleted",
-      order_by: [asc_nulls_last: c.position, asc: i.name],
+      order_by: [asc_nulls_last: c.position, asc: i.position, asc: i.name],
       preload: [:catalogue, category: :catalogue, manufacturer: []]
     )
     |> repo().all()
@@ -1780,7 +2173,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
     query =
       from(i in Item,
         where: i.catalogue_uuid == ^catalogue_uuid and is_nil(i.category_uuid),
-        order_by: [asc: i.name],
+        order_by: [asc: i.position, asc: i.name],
         preload: [:manufacturer]
       )
 
@@ -1837,6 +2230,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
           {:ok, Item.t()} | {:error, Ecto.Changeset.t(Item.t())}
   def create_item(attrs, opts \\ []) do
     skip_derive? = Keyword.get(opts, :skip_derive, false)
+    attrs = maybe_put_item_position(attrs)
 
     # We run derivation + insert in the same transaction so that the
     # `FOR SHARE` row lock inside `put_catalogue_from_effective_category`
@@ -2192,6 +2586,57 @@ defmodule PhoenixKitCatalogue.Catalogue do
     end
   end
 
+  @doc """
+  Atomic combine of `move_item_to_category/3` and `reorder_items/4` for
+  the cross-category drag-and-drop case.
+
+  The DnD path triggers two writes on a single drop: the moved item's
+  `category_uuid` flips, and the destination category's `position`
+  values get re-indexed to match the visual order. Calling the two
+  context fns separately leaves a window where the move commits but
+  the reorder rolls back, leaving the item in the new category with
+  a stale position. Wrapping both in a single `repo().transaction/1`
+  closes that window — either both land or both roll back.
+
+  Validates the destination scope before issuing the move (catches
+  `:category_not_found` early) and runs `reorder_items/4` against the
+  *post-move* catalogue_uuid so a destination-scope mismatch is
+  caught before the visible state diverges.
+
+  Activity-log fan-out for the two sub-actions still happens through
+  their normal paths — `item.moved` and `item.reordered` both land,
+  giving the audit trail full attribution.
+  """
+  @spec move_item_and_reorder_destination(
+          Item.t(),
+          Ecto.UUID.t() | nil,
+          [Ecto.UUID.t()],
+          keyword()
+        ) ::
+          {:ok, Item.t()}
+          | {:error, :category_not_found | :wrong_scope | :too_many_uuids | term()}
+  def move_item_and_reorder_destination(
+        %Item{} = item,
+        to_category_uuid,
+        ordered_uuids,
+        opts \\ []
+      ) do
+    repo().transaction(fn ->
+      with {:ok, moved} <- move_item_to_category(item, to_category_uuid, opts),
+           :ok <-
+             reorder_items(
+               moved.catalogue_uuid,
+               to_category_uuid,
+               ordered_uuids,
+               opts
+             ) do
+        moved
+      else
+        {:error, reason} -> repo().rollback(reason)
+      end
+    end)
+  end
+
   defp resolve_move_attrs(nil), do: {:ok, %{category_uuid: nil}}
 
   defp resolve_move_attrs(category_uuid) when is_binary(category_uuid) do
@@ -2404,6 +2849,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
   defdelegate catalogue_rule_map(item_or_uuid), to: Rules
   defdelegate get_catalogue_rule(item_uuid, referenced_catalogue_uuid), to: Rules
   defdelegate put_catalogue_rules(item, rules, opts \\ []), to: Rules
+  defdelegate reorder_catalogue_rules(item_uuid, ordered_referenced_uuids, opts \\ []), to: Rules
   defdelegate list_items_referencing_catalogue(catalogue_uuid), to: Rules
   defdelegate catalogue_reference_count(catalogue_uuid), to: Rules
   defdelegate change_catalogue_rule(rule, attrs \\ %{}), to: Rules
