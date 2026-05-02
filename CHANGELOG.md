@@ -1,3 +1,20 @@
+## 0.1.15 - 2026-05-02
+
+### Added
+- **Drag-and-drop reorder** — catalogues, categories, items, and smart-rule rows can be reordered via DnD. Position writes use a two-pass (negative-then-positive) strategy to avoid unique-index collisions. Cap enforced via `Application.compile_env(:phoenix_kit_catalogue, :reorder_max_uuids, 1000)`.
+- **`reorder_categories_groups/3`** — atomic reorder across multiple parent groups in a single outer transaction (cross-parent partial-commit protection).
+- **`Helpers.dedupe_keep_last/1`** — shared last-wins deduplication for DnD payloads, replacing ad-hoc `Enum.uniq` calls.
+
+### Changed
+- **Audit-trail integrity on cross-category item moves** — rejection and DB-error log rows from `reorder_items/4` inside `move_item_and_reorder_destination/4` now survive outer-transaction rollbacks (split into unlogged inner + logged outer).
+- **`refresh_card_items/3`** — gains explicit `delta` param (default `0`). In-scope reorder no longer inflates the limit by `+1` on every drag.
+- **`@reorder_max_uuids`** consolidated to `Application.compile_env/3` — single config source shared by `Catalogue` and `Rules`.
+- **Global `search_items/2` `order_by`** — reverted to `name + uuid` only. `position` is per-scope and meaningless across catalogues; catalogue-scoped search keeps it.
+
+### Fixed
+- Duplicate `list_catalogue_rules` query on smart-item mount eliminated — single fetch derives both `working_rules` and `rule_candidate_order`.
+- Smart-rule DnD now uses `dedupe_keep_last` (last-wins) matching catalogue/category/item reorder semantics.
+
 ## 0.1.14 - 2026-04-28
 
 ### Added
