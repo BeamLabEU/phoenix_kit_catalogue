@@ -80,4 +80,15 @@ defmodule PhoenixKitCatalogue.Catalogue.Helpers do
       from(i in Item, where: i.uuid == ^item_uuid, select: i.catalogue_uuid)
     )
   end
+
+  @doc """
+  Collapses a list of UUIDs so each appears once, keeping the *last*
+  occurrence's position. Shared dedupe semantics for every DnD reorder
+  payload — a stale DOM that emits the same uuid twice writes the
+  intended (latest) position only.
+  """
+  @spec dedupe_keep_last([term()]) :: [term()]
+  def dedupe_keep_last(items) when is_list(items) do
+    items |> Enum.reverse() |> Enum.uniq() |> Enum.reverse()
+  end
 end

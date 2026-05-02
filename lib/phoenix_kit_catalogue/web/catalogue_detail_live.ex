@@ -460,8 +460,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
           {:noreply,
            socket
-           |> refresh_card_items(from_scope)
-           |> refresh_card_items(to_scope)
+           |> refresh_card_items(from_scope, -1)
+           |> refresh_card_items(to_scope, +1)
            |> refresh_counts()}
         else
           nil ->
@@ -954,20 +954,23 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   # Re-fetches the items inside a single loaded card after an in-place
   # change (DnD reorder, cross-category move). `scope` is the
   # category UUID, or `:uncategorized` for the no-category bucket.
-  # Re-uses the card's currently-loaded item count so the user doesn't
-  # see fewer rows than before they dragged. Cards that don't match
-  # the scope pass through untouched. Cursor / has_more / loading are
-  # all left alone — scroll state is preserved.
-  defp refresh_card_items(socket, scope) do
+  # Cards that don't match the scope pass through untouched. Cursor /
+  # has_more / loading are all left alone — scroll state is preserved.
+  #
+  # `delta` adjusts the loaded count for the affected card:
+  #   * `0` — in-scope reorder (count unchanged)
+  #   * `+1` — destination card after a cross-category drop
+  #   * `-1` — source card after a cross-category drop
+  # Without this, every refresh used to pad +1 unconditionally and the
+  # loaded set crept up by one per reorder.
+  defp refresh_card_items(socket, scope, delta \\ 0) do
     catalogue_uuid = socket.assigns.catalogue_uuid
     mode = view_mode_to_atom(socket.assigns.view_mode)
 
     cards =
       Enum.map(socket.assigns.loaded_cards, fn card ->
         if card_matches_scope?(card, scope) do
-          # Always reload at least one batch worth — picks up the item
-          # we just dropped in even if the card was empty before.
-          limit = max(length(card.items) + 1, 1)
+          limit = max(length(card.items) + delta, 1)
           fresh = fetch_card_items(scope, catalogue_uuid, mode, limit)
           %{card | items: fresh}
         else
@@ -1043,9 +1046,11 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   # detail-view DnD. Categories live in a parent-scoped tree, but the
   # client sees them as one ordered list. We group the dropped order by
   # `parent_uuid`, preserve the relative order inside each group, and
-  # call `Catalogue.reorder_categories/4` per group. UUIDs whose parent
-  # changed are silently kept under their original parent — DnD here is
-  # for sibling-only reorder, not reparenting.
+  # hand the whole batch to `Catalogue.reorder_categories_groups/3` —
+  # one outer transaction so partial failure can't leave the tree in
+  # a half-reordered state. UUIDs whose parent changed are silently
+  # kept under their original parent — DnD here is for sibling-only
+  # reorder, not reparenting.
   defp apply_category_reorder(socket, ordered_ids) do
     by_uuid = Map.new(socket.assigns.category_list, fn %Category{} = c -> {c.uuid, c} end)
 
@@ -1058,35 +1063,30 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         end
       end)
       |> Enum.group_by(fn {parent_uuid, _id} -> parent_uuid end, fn {_parent, id} -> id end)
+      |> Enum.into([])
 
-    catalogue_uuid = socket.assigns.catalogue_uuid
-
-    failures =
-      Enum.reduce(groups, [], fn {parent_uuid, ids}, acc ->
-        case Catalogue.reorder_categories(
-               catalogue_uuid,
-               parent_uuid,
-               ids,
-               actor_opts(socket)
-             ) do
-          :ok -> acc
-          {:error, reason} -> [{parent_uuid, reason} | acc]
-        end
-      end)
+    result =
+      Catalogue.reorder_categories_groups(
+        socket.assigns.catalogue_uuid,
+        groups,
+        actor_opts(socket)
+      )
 
     socket = refresh_categories_in_place(socket)
 
-    if failures == [] do
-      {:noreply, socket}
-    else
-      log_operation_error(socket, "reorder_categories", %{failures: failures})
+    case result do
+      :ok ->
+        {:noreply, socket}
 
-      {:noreply,
-       put_flash(
-         socket,
-         :error,
-         Gettext.gettext(PhoenixKitWeb.Gettext, "Failed to reorder categories.")
-       )}
+      {:error, reason} ->
+        log_operation_error(socket, "reorder_categories", %{reason: reason})
+
+        {:noreply,
+         put_flash(
+           socket,
+           :error,
+           Gettext.gettext(PhoenixKitWeb.Gettext, "Failed to reorder categories.")
+         )}
     end
   end
 

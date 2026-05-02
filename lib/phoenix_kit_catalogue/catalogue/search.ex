@@ -44,9 +44,15 @@ defmodule PhoenixKitCatalogue.Catalogue.Search do
     limit = Keyword.get(opts, :limit, 50)
     offset = Keyword.get(opts, :offset, 0)
 
+    # Ordering note: `i.position` is intentionally NOT in the global
+    # `search_items/2` order_by. `position` is per-`(catalogue_uuid,
+    # category_uuid)` scope, so interleaving across catalogues by raw
+    # position is meaningless. Single-catalogue search (see
+    # `search_items_in_catalogue/3` below) keeps `i.position` because
+    # the scope is narrow enough for it to be coherent.
     query
     |> search_items_base(opts)
-    |> order_by([i, _cat, _c], asc: i.position, asc: i.name, asc: i.uuid)
+    |> order_by([i, _cat, _c], asc: i.name, asc: i.uuid)
     |> limit(^limit)
     |> offset(^offset)
     |> preload([:catalogue, category: :catalogue, manufacturer: []])
