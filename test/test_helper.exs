@@ -50,44 +50,15 @@ repo_available =
     try do
       {:ok, _} = PhoenixKitCatalogue.Test.Repo.start_link()
 
-      # `uuid-ossp` provides historical UUID helpers; `pgcrypto` is what
-      # `uuid_generate_v7/0` actually needs (gen_random_bytes lives in
-      # pgcrypto). Without both extensions, the very first INSERT into a
-      # `uuid_generate_v7()`-defaulted table fails with "function
-      # gen_random_bytes(integer) does not exist" — and the failure
-      # surfaces a long way from the helper's definition. Both
-      # extensions are normally created by the host's V40 / pgcrypto
-      # migrations; we recreate them here so the test DB is self-sufficient.
-      PhoenixKitCatalogue.Test.Repo.query!("CREATE EXTENSION IF NOT EXISTS \"uuid-ossp\"")
-      PhoenixKitCatalogue.Test.Repo.query!("CREATE EXTENSION IF NOT EXISTS pgcrypto")
-
-      PhoenixKitCatalogue.Test.Repo.query!("""
-      CREATE OR REPLACE FUNCTION uuid_generate_v7()
-      RETURNS uuid AS $$
-      DECLARE
-        unix_ts_ms bytea;
-        uuid_bytes bytea;
-      BEGIN
-        unix_ts_ms := substring(int8send(floor(extract(epoch FROM clock_timestamp()) * 1000)::bigint) FROM 3);
-        uuid_bytes := unix_ts_ms || gen_random_bytes(10);
-        uuid_bytes := set_byte(uuid_bytes, 6, (get_byte(uuid_bytes, 6) & 15) | 112);
-        uuid_bytes := set_byte(uuid_bytes, 8, (get_byte(uuid_bytes, 8) & 63) | 128);
-        RETURN encode(uuid_bytes, 'hex')::uuid;
-      END;
-      $$ LANGUAGE plpgsql VOLATILE;
-      """)
-
-      # Apply every migration in `test/support/postgres/migrations/`.
-      # These mirror the post-V87 catalogue surface (V96 catalogue_uuid /
-      # V97 item markup override / V102 smart catalogues / V103 nested
-      # categories) plus the `phoenix_kit_settings` table the
-      # `enabled?/0` callback reads from. Without this run, every test
-      # that touches the V102 `kind` column crashes with
-      # `column "kind" does not exist` and every test that reads
-      # settings poisons the sandbox transaction.
+      # Build the schema directly from core's versioned migrations — same
+      # call the host app makes in production. The catalogue tables come
+      # from core (V87 creates them; V89 / V96 / V97 / V102 / V103 / V108
+      # evolve them) along with phoenix_kit_settings (V03), the storage
+      # family (V20+), and the `uuid-ossp` / `pgcrypto` extensions and
+      # `uuid_generate_v7()` function (V40). No module-owned DDL anywhere.
       Ecto.Migrator.run(
         PhoenixKitCatalogue.Test.Repo,
-        Path.join([__DIR__, "support", "postgres", "migrations"]),
+        [{0, PhoenixKit.Migration}],
         :up,
         all: true,
         log: false
