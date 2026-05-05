@@ -767,4 +767,264 @@ defmodule PhoenixKitCatalogue.SchemasTest do
       assert CatalogueRule.effective(rule, nil) == {Decimal.new("5"), "percent"}
     end
   end
+
+  # ═══════════════════════════════════════════════════════════════════
+  # PDF library schemas (added by 2026-05-06 Phase 2 sweep)
+  # ═══════════════════════════════════════════════════════════════════
+
+  alias PhoenixKitCatalogue.Schemas.{Pdf, PdfExtraction, PdfPage, PdfPageContent}
+
+  describe "Pdf.changeset/2" do
+    test "accepts minimal valid attrs" do
+      cs = Pdf.changeset(%Pdf{}, %{file_uuid: UUIDv7.generate(), original_filename: "x.pdf"})
+      assert cs.valid?
+    end
+
+    test "requires file_uuid" do
+      cs = Pdf.changeset(%Pdf{}, %{original_filename: "x.pdf"})
+      refute cs.valid?
+      assert %{file_uuid: ["can't be blank"]} = errors_on(cs)
+    end
+
+    test "requires original_filename" do
+      cs = Pdf.changeset(%Pdf{}, %{file_uuid: UUIDv7.generate()})
+      refute cs.valid?
+      assert %{original_filename: ["can't be blank"]} = errors_on(cs)
+    end
+
+    test "rejects original_filename longer than 500 chars" do
+      cs =
+        Pdf.changeset(%Pdf{}, %{
+          file_uuid: UUIDv7.generate(),
+          original_filename: String.duplicate("a", 501)
+        })
+
+      refute cs.valid?
+      assert %{original_filename: [_]} = errors_on(cs)
+    end
+
+    test "accepts both active and trashed status" do
+      base = %{file_uuid: UUIDv7.generate(), original_filename: "x.pdf"}
+      assert Pdf.changeset(%Pdf{}, Map.put(base, :status, "active")).valid?
+      assert Pdf.changeset(%Pdf{}, Map.put(base, :status, "trashed")).valid?
+    end
+
+    test "rejects unknown status" do
+      cs =
+        Pdf.changeset(%Pdf{}, %{
+          file_uuid: UUIDv7.generate(),
+          original_filename: "x.pdf",
+          status: "purgatory"
+        })
+
+      refute cs.valid?
+      assert %{status: ["is invalid"]} = errors_on(cs)
+    end
+  end
+
+  describe "Pdf.trash_changeset/1" do
+    test "flips status to trashed and stamps trashed_at" do
+      cs = Pdf.trash_changeset(%Pdf{status: "active"})
+      assert cs.changes.status == "trashed"
+      assert %DateTime{} = cs.changes.trashed_at
+    end
+
+    test "trashed_at is current-second precision" do
+      cs = Pdf.trash_changeset(%Pdf{status: "active"})
+      assert cs.changes.trashed_at == DateTime.truncate(cs.changes.trashed_at, :second)
+    end
+  end
+
+  describe "Pdf.restore_changeset/1" do
+    test "flips status to active and clears trashed_at" do
+      pdf = %Pdf{status: "trashed", trashed_at: DateTime.utc_now() |> DateTime.truncate(:second)}
+      cs = Pdf.restore_changeset(pdf)
+      assert cs.changes.status == "active"
+      assert cs.changes.trashed_at == nil
+    end
+  end
+
+  describe "Pdf.statuses/0" do
+    test "lists exactly the two valid statuses" do
+      assert Pdf.statuses() == ~w(active trashed)
+    end
+  end
+
+  describe "PdfExtraction.changeset/2" do
+    test "accepts minimal valid attrs" do
+      cs = PdfExtraction.changeset(%PdfExtraction{}, %{file_uuid: UUIDv7.generate()})
+      assert cs.valid?
+    end
+
+    test "requires file_uuid" do
+      cs = PdfExtraction.changeset(%PdfExtraction{}, %{})
+      refute cs.valid?
+      assert %{file_uuid: ["can't be blank"]} = errors_on(cs)
+    end
+
+    test "rejects unknown extraction_status" do
+      cs =
+        PdfExtraction.changeset(%PdfExtraction{}, %{
+          file_uuid: UUIDv7.generate(),
+          extraction_status: "haunted"
+        })
+
+      refute cs.valid?
+      assert %{extraction_status: ["is invalid"]} = errors_on(cs)
+    end
+
+    test "rejects negative page_count" do
+      cs =
+        PdfExtraction.changeset(%PdfExtraction{}, %{
+          file_uuid: UUIDv7.generate(),
+          page_count: -1
+        })
+
+      refute cs.valid?
+      assert %{page_count: [_]} = errors_on(cs)
+    end
+
+    test "accepts page_count of 0 (empty PDF edge case)" do
+      cs =
+        PdfExtraction.changeset(%PdfExtraction{}, %{
+          file_uuid: UUIDv7.generate(),
+          page_count: 0
+        })
+
+      assert cs.valid?
+    end
+  end
+
+  describe "PdfExtraction.status_changeset/2" do
+    test "flips extraction_status from pending to extracting" do
+      cs =
+        PdfExtraction.status_changeset(
+          %PdfExtraction{extraction_status: "pending"},
+          %{extraction_status: "extracting"}
+        )
+
+      assert cs.changes.extraction_status == "extracting"
+    end
+
+    test "rejects unknown status transition" do
+      cs = PdfExtraction.status_changeset(%PdfExtraction{}, %{extraction_status: "vanished"})
+      refute cs.valid?
+    end
+
+    test "accepts page_count + extracted_at + error_message together" do
+      now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+      cs =
+        PdfExtraction.status_changeset(%PdfExtraction{}, %{
+          extraction_status: "extracted",
+          page_count: 42,
+          extracted_at: now,
+          error_message: nil
+        })
+
+      assert cs.valid?
+      assert cs.changes.page_count == 42
+      assert cs.changes.extracted_at == now
+    end
+  end
+
+  describe "PdfExtraction.statuses/0" do
+    test "lists the five worker states" do
+      assert PdfExtraction.statuses() == ~w(pending extracting extracted scanned_no_text failed)
+    end
+  end
+
+  describe "PdfPage.changeset/2" do
+    test "accepts minimal valid attrs" do
+      cs =
+        PdfPage.changeset(%PdfPage{}, %{
+          file_uuid: UUIDv7.generate(),
+          page_number: 1,
+          content_hash: String.duplicate("a", 64),
+          inserted_at: DateTime.utc_now() |> DateTime.truncate(:second)
+        })
+
+      assert cs.valid?
+    end
+
+    test "requires file_uuid + page_number + content_hash + inserted_at" do
+      cs = PdfPage.changeset(%PdfPage{}, %{})
+      refute cs.valid?
+
+      keys = errors_on(cs) |> Map.keys()
+
+      for required <- [:file_uuid, :page_number, :content_hash, :inserted_at] do
+        assert required in keys, "expected `#{required}` in errors, got #{inspect(keys)}"
+      end
+    end
+
+    test "rejects page_number below 1" do
+      cs =
+        PdfPage.changeset(%PdfPage{}, %{
+          file_uuid: UUIDv7.generate(),
+          page_number: 0,
+          content_hash: String.duplicate("a", 64),
+          inserted_at: DateTime.utc_now() |> DateTime.truncate(:second)
+        })
+
+      refute cs.valid?
+      assert %{page_number: [_]} = errors_on(cs)
+    end
+  end
+
+  describe "PdfPageContent.changeset/2" do
+    test "accepts a 64-char hex content_hash" do
+      cs =
+        PdfPageContent.changeset(%PdfPageContent{}, %{
+          content_hash: String.duplicate("0", 64),
+          text: "hello",
+          inserted_at: DateTime.utc_now() |> DateTime.truncate(:second)
+        })
+
+      assert cs.valid?
+    end
+
+    test "rejects content_hash with the wrong length" do
+      cs =
+        PdfPageContent.changeset(%PdfPageContent{}, %{
+          content_hash: "short",
+          text: "hello",
+          inserted_at: DateTime.utc_now() |> DateTime.truncate(:second)
+        })
+
+      refute cs.valid?
+      assert %{content_hash: [_]} = errors_on(cs)
+    end
+
+    test "requires content_hash + text + inserted_at" do
+      cs = PdfPageContent.changeset(%PdfPageContent{}, %{})
+      refute cs.valid?
+
+      keys = errors_on(cs) |> Map.keys()
+
+      for required <- [:content_hash, :text, :inserted_at] do
+        assert required in keys, "expected `#{required}` in errors, got #{inspect(keys)}"
+      end
+    end
+
+    test "rejects empty-string text via validate_required" do
+      # Pinned for documentation: the changeset rejects `""` because
+      # `validate_required` treats empty strings as blank. Production
+      # ingestion bypasses the changeset — the worker uses
+      # `repo().insert_all/3` with raw maps so genuinely-empty pages
+      # (image-only PDFs) get stored. If a future caller routes
+      # PdfPageContent inserts through the changeset, this test will
+      # fail and the caller can either: (a) skip empty-text rows, or
+      # (b) drop `:text` from `@required_fields`.
+      cs =
+        PdfPageContent.changeset(%PdfPageContent{}, %{
+          content_hash: String.duplicate("e", 64),
+          text: "",
+          inserted_at: DateTime.utc_now() |> DateTime.truncate(:second)
+        })
+
+      refute cs.valid?
+      assert %{text: [_]} = errors_on(cs)
+    end
+  end
 end

@@ -133,7 +133,10 @@ defmodule PhoenixKitCatalogue.Workers.PdfExtractor do
       {:error, {:pdfinfo_failed, "pdfinfo not on PATH: #{Exception.message(e)}"}}
   end
 
-  defp parse_page_count(output) when is_binary(output) do
+  @doc false
+  # Public for testability — internal pure function over `pdfinfo`'s
+  # text output. Returns `{:ok, n}` or `{:error, {:pdfinfo_failed, msg}}`.
+  def parse_page_count(output) when is_binary(output) do
     Regex.scan(~r/^Pages:\s+(\d+)/m, output)
     |> List.first()
     |> case do
@@ -197,7 +200,10 @@ defmodule PhoenixKitCatalogue.Workers.PdfExtractor do
   # - Replace common ligatures (ﬁ, ﬂ, ﬀ, ﬃ, ﬄ)
   # - Collapse all whitespace runs to a single space
   # - Trim
-  defp normalize(text) when is_binary(text) do
+  @doc false
+  # Public for testability — pure-function text normalizer applied to
+  # every page's `pdftotext` output before storage.
+  def normalize(text) when is_binary(text) do
     text
     |> String.replace("­", "")
     |> ligatures()
@@ -206,7 +212,7 @@ defmodule PhoenixKitCatalogue.Workers.PdfExtractor do
     |> String.trim()
   end
 
-  defp normalize(_), do: ""
+  def normalize(_), do: ""
 
   defp ligatures(text) do
     text
@@ -217,13 +223,17 @@ defmodule PhoenixKitCatalogue.Workers.PdfExtractor do
     |> String.replace("ﬄ", "ffl")
   end
 
-  defp inspect_reason({:pdfinfo_failed, msg}), do: "pdfinfo: #{msg}"
+  @doc false
+  # Public for testability — collapses internal worker error tuples
+  # into the human-readable string stored in `extractions.error_message`
+  # and surfaced by the LV's "Extraction failed" alert.
+  def inspect_reason({:pdfinfo_failed, msg}), do: "pdfinfo: #{msg}"
 
-  defp inspect_reason({:pdftotext_failed, page, code, msg}),
+  def inspect_reason({:pdftotext_failed, page, code, msg}),
     do: "pdftotext failed on page #{page} (exit #{inspect(code)}): #{msg}"
 
-  defp inspect_reason({:insert_page_failed, page, _cs}),
+  def inspect_reason({:insert_page_failed, page, _cs}),
     do: "could not insert page #{page} (DB error)"
 
-  defp inspect_reason(other), do: inspect(other)
+  def inspect_reason(other), do: inspect(other)
 end
