@@ -55,6 +55,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
     PubSub,
     Rules,
     Search,
+    SmartPricing,
     Suppliers,
     Translations,
     Tree
@@ -774,12 +775,15 @@ defmodule PhoenixKitCatalogue.Catalogue do
       (only deleted items)
     * `:offset` — default `0`
     * `:limit` — default `50`
+    * `:preload` — extra associations appended to the default
+      `[:catalogue, :manufacturer]`.
   """
   @spec list_items_for_category_paged(Ecto.UUID.t(), keyword()) :: [Item.t()]
   def list_items_for_category_paged(category_uuid, opts \\ []) do
     mode = Keyword.get(opts, :mode, :active)
     offset = Keyword.get(opts, :offset, 0)
     limit = Keyword.get(opts, :limit, 50)
+    preloads = Helpers.merge_preloads([:catalogue, :manufacturer], opts)
 
     query =
       from(i in Item,
@@ -787,7 +791,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
         order_by: [asc: i.position, asc: i.name],
         offset: ^offset,
         limit: ^limit,
-        preload: [:catalogue, :manufacturer]
+        preload: ^preloads
       )
 
     query =
@@ -811,12 +815,15 @@ defmodule PhoenixKitCatalogue.Catalogue do
     * `:mode` — `:active` (default) or `:deleted`
     * `:offset` — default `0`
     * `:limit` — default `50`
+    * `:preload` — extra associations appended to the default
+      `[:catalogue, :manufacturer]`.
   """
   @spec list_uncategorized_items_paged(Ecto.UUID.t(), keyword()) :: [Item.t()]
   def list_uncategorized_items_paged(catalogue_uuid, opts \\ []) do
     mode = Keyword.get(opts, :mode, :active)
     offset = Keyword.get(opts, :offset, 0)
     limit = Keyword.get(opts, :limit, 50)
+    preloads = Helpers.merge_preloads([:catalogue, :manufacturer], opts)
 
     query =
       from(i in Item,
@@ -824,7 +831,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
         order_by: [asc: i.position, asc: i.name],
         offset: ^offset,
         limit: ^limit,
-        preload: [:catalogue, :manufacturer]
+        preload: ^preloads
       )
 
     query =
@@ -921,6 +928,65 @@ defmodule PhoenixKitCatalogue.Catalogue do
     |> repo().all()
     |> Map.new()
   end
+
+  @doc """
+  One-shot helper for lazy-loading a catalogue's category tree. Returns
+  category metadata plus per-category and uncategorized item counts in
+  two queries instead of three.
+
+  Combines the work of:
+
+    * `list_categories_metadata_for_catalogue/2`
+    * `item_counts_by_category_for_catalogue/2`
+    * `uncategorized_count_for_catalogue/2`
+
+  Categories are ordered the same way `list_categories_metadata_for_catalogue/2`
+  orders them. Empty categories don't appear in `:item_counts` (treat
+  missing keys as `0`).
+
+  ## Options
+
+    * `:mode` — `:active` (default, excludes deleted) or `:deleted`.
+      Mode is applied uniformly to both the categories query and the
+      item-count query.
+  """
+  @spec category_summary_for_catalogue(Ecto.UUID.t(), keyword()) :: %{
+          categories: [Category.t()],
+          item_counts: %{Ecto.UUID.t() => non_neg_integer()},
+          uncategorized_count: non_neg_integer()
+        }
+  def category_summary_for_catalogue(catalogue_uuid, opts \\ []) do
+    mode = Keyword.get(opts, :mode, :active)
+
+    categories = list_categories_metadata_for_catalogue(catalogue_uuid, mode: mode)
+
+    rows =
+      from(i in Item,
+        where: i.catalogue_uuid == ^catalogue_uuid,
+        group_by: i.category_uuid,
+        select: {i.category_uuid, count(i.uuid)}
+      )
+      |> apply_summary_mode(mode)
+      |> repo().all()
+
+    {item_counts, uncategorized_count} =
+      Enum.reduce(rows, {%{}, 0}, fn
+        {nil, count}, {map, _} -> {map, count}
+        {uuid, count}, {map, uncat} -> {Map.put(map, uuid, count), uncat}
+      end)
+
+    %{
+      categories: categories,
+      item_counts: item_counts,
+      uncategorized_count: uncategorized_count
+    }
+  end
+
+  defp apply_summary_mode(query, :active),
+    do: where(query, [i], i.status != "deleted")
+
+  defp apply_summary_mode(query, :deleted),
+    do: where(query, [i], i.status == "deleted")
 
   @doc """
   Lists all non-deleted categories across all non-deleted catalogues,
@@ -2336,16 +2402,19 @@ defmodule PhoenixKitCatalogue.Catalogue do
   end
 
   @doc """
-  Lists non-deleted items for a category, ordered by name.
+  Lists non-deleted items for a category, ordered by position then name.
 
-  Preloads category (with catalogue) and manufacturer.
+  Default preloads `[:catalogue, category: :catalogue, manufacturer: []]`.
+  Pass `:preload` in `opts` to add more (e.g.
+  `preload: [catalogue_rules: :referenced_catalogue]` for smart-pricing
+  consumers); the lists are concatenated, not replaced.
   """
-  @spec list_items_for_category(Ecto.UUID.t()) :: [Item.t()]
-  def list_items_for_category(category_uuid) do
+  @spec list_items_for_category(Ecto.UUID.t(), keyword()) :: [Item.t()]
+  def list_items_for_category(category_uuid, opts \\ []) do
     from(i in Item,
       where: i.category_uuid == ^category_uuid and i.status != "deleted",
       order_by: [asc: i.position, asc: i.name],
-      preload: [:catalogue, category: :catalogue, manufacturer: []]
+      preload: ^Helpers.merge_preloads([:catalogue, category: :catalogue, manufacturer: []], opts)
     )
     |> repo().all()
   end
@@ -2354,16 +2423,17 @@ defmodule PhoenixKitCatalogue.Catalogue do
   Lists non-deleted items for a catalogue, ordered by category position then
   item name. Includes uncategorized items (those with no category) at the end.
 
-  Preloads catalogue, category (with catalogue) and manufacturer.
+  Default preloads `[:catalogue, category: :catalogue, manufacturer: []]`.
+  Pass `:preload` in `opts` to add more — see `list_items_for_category/2`.
   """
-  @spec list_items_for_catalogue(Ecto.UUID.t()) :: [Item.t()]
-  def list_items_for_catalogue(catalogue_uuid) do
+  @spec list_items_for_catalogue(Ecto.UUID.t(), keyword()) :: [Item.t()]
+  def list_items_for_catalogue(catalogue_uuid, opts \\ []) do
     from(i in Item,
       left_join: c in Category,
       on: i.category_uuid == c.uuid,
       where: i.catalogue_uuid == ^catalogue_uuid and i.status != "deleted",
       order_by: [asc_nulls_last: c.position, asc: i.position, asc: i.name],
-      preload: [:catalogue, category: :catalogue, manufacturer: []]
+      preload: ^Helpers.merge_preloads([:catalogue, category: :catalogue, manufacturer: []], opts)
     )
     |> repo().all()
   end
@@ -2375,6 +2445,9 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
     * `:mode` — `:active` (default) excludes deleted items;
       `:deleted` returns only deleted items.
+    * `:preload` — extra associations appended to the default
+      `[:catalogue, :manufacturer]` preloads. Pass
+      `[catalogue_rules: :referenced_catalogue]` for smart-pricing.
 
   ## Examples
 
@@ -2384,12 +2457,13 @@ defmodule PhoenixKitCatalogue.Catalogue do
   @spec list_uncategorized_items(Ecto.UUID.t(), keyword()) :: [Item.t()]
   def list_uncategorized_items(catalogue_uuid, opts \\ []) do
     mode = Keyword.get(opts, :mode, :active)
+    preloads = Helpers.merge_preloads([:catalogue, :manufacturer], opts)
 
     query =
       from(i in Item,
         where: i.catalogue_uuid == ^catalogue_uuid and is_nil(i.category_uuid),
         order_by: [asc: i.position, asc: i.name],
-        preload: [:manufacturer]
+        preload: ^preloads
       )
 
     query =
@@ -2401,19 +2475,86 @@ defmodule PhoenixKitCatalogue.Catalogue do
     repo().all(query)
   end
 
-  @doc "Fetches an item by UUID without preloads. Returns `nil` if not found."
-  @spec get_item(Ecto.UUID.t()) :: Item.t() | nil
-  def get_item(uuid), do: repo().get(Item, uuid)
+  @doc """
+  Fetches an item by UUID. Returns `nil` if not found.
+
+  ## Options
+
+    * `:preload` — list of associations to preload. Default `[]`.
+      Common smart-pricing preload: `[catalogue_rules: :referenced_catalogue]`.
+
+  ## Examples
+
+      Catalogue.get_item(uuid)
+      Catalogue.get_item(uuid, preload: [:catalogue, catalogue_rules: :referenced_catalogue])
+  """
+  @spec get_item(Ecto.UUID.t(), keyword()) :: Item.t() | nil
+  def get_item(uuid, opts \\ []) do
+    case repo().get(Item, uuid) do
+      nil -> nil
+      item -> repo().preload(item, Keyword.get(opts, :preload, []))
+    end
+  end
 
   @doc """
-  Fetches an item by UUID with preloaded category and manufacturer.
-  Raises `Ecto.NoResultsError` if not found.
+  Fetches an item by UUID with preloaded `:catalogue`, `:category`, and
+  `:manufacturer`. Raises `Ecto.NoResultsError` if not found.
+
+  Pass `:preload` to add more associations (concatenated with the
+  defaults).
   """
-  @spec get_item!(Ecto.UUID.t()) :: Item.t()
-  def get_item!(uuid) do
+  @spec get_item!(Ecto.UUID.t(), keyword()) :: Item.t()
+  def get_item!(uuid, opts \\ []) do
     Item
     |> repo().get!(uuid)
-    |> repo().preload([:category, :manufacturer])
+    |> repo().preload(Helpers.merge_preloads([:catalogue, :category, :manufacturer], opts))
+  end
+
+  @doc """
+  Bulk-fetches items by a list of UUIDs. Excludes soft-deleted items.
+  Result order matches the input UUID order; missing UUIDs are dropped
+  (no `nil` placeholders, no error). Duplicate input UUIDs collapse to
+  a single result.
+
+  Designed for snapshot rehydration — e.g. an order stored as a list of
+  item UUIDs that needs full item data on reload. Avoids the N+1 trap
+  of looping `get_item/1` per UUID.
+
+  ## Options
+
+    * `:preload` — extra associations appended to the default
+      `[:catalogue, :category, :manufacturer]`. Pass
+      `[catalogue_rules: :referenced_catalogue]` for smart-pricing.
+
+  ## Examples
+
+      Catalogue.list_items_by_uuids([uuid1, uuid2, uuid3])
+      Catalogue.list_items_by_uuids(uuids, preload: [catalogue_rules: :referenced_catalogue])
+  """
+  @spec list_items_by_uuids([Ecto.UUID.t()], keyword()) :: [Item.t()]
+  def list_items_by_uuids(uuids, opts \\ [])
+
+  def list_items_by_uuids([], _opts), do: []
+
+  def list_items_by_uuids(uuids, opts) when is_list(uuids) do
+    preloads = Helpers.merge_preloads([:catalogue, :category, :manufacturer], opts)
+
+    items_by_uuid =
+      from(i in Item,
+        where: i.uuid in ^uuids and i.status != "deleted",
+        preload: ^preloads
+      )
+      |> repo().all()
+      |> Map.new(&{&1.uuid, &1})
+
+    uuids
+    |> Enum.uniq()
+    |> Enum.flat_map(fn uuid ->
+      case Map.get(items_by_uuid, uuid) do
+        nil -> []
+        item -> [item]
+      end
+    end)
   end
 
   @doc """
@@ -3121,6 +3262,12 @@ defmodule PhoenixKitCatalogue.Catalogue do
   defdelegate create_catalogue_rule(attrs, opts \\ []), to: Rules
   defdelegate update_catalogue_rule(rule, attrs, opts \\ []), to: Rules
   defdelegate delete_catalogue_rule(rule, opts \\ []), to: Rules
+
+  # ═══════════════════════════════════════════════════════════════════
+  # Smart-catalogue pricing — see PhoenixKitCatalogue.Catalogue.SmartPricing
+  # ═══════════════════════════════════════════════════════════════════
+
+  defdelegate evaluate_smart_rules(entries, opts \\ []), to: SmartPricing
 
   # ═══════════════════════════════════════════════════════════════════
   # Search — see PhoenixKitCatalogue.Catalogue.Search
