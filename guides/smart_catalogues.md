@@ -113,81 +113,85 @@ delivery would:
 3. For the delivery item, sum each rule: `15% × 100 = 15`.
 4. Set the delivery line's price to `15`.
 
-## 4. Reference implementation
+## 4. Computing prices
+
+Use `Catalogue.evaluate_smart_rules/2` — the canonical implementation
+of the algorithm. It pairs with `Catalogue.item_pricing/1` for the
+smart-catalogue case: standard entries pass through unchanged, smart
+items get a computed price written to a configurable key.
 
 ```elixir
-defmodule MyApp.SmartRules do
-  @moduledoc "Reference: applies CatalogueRule rows to a snapshot."
+alias PhoenixKitCatalogue.Catalogue
 
-  alias PhoenixKitCatalogue.Schemas.{CatalogueRule, Item}
+# Items must have :catalogue (and, for smart items, :catalogue_rules
+# with :referenced_catalogue) preloaded. The bulk fetchers accept a
+# :preload opt for exactly this:
+items =
+  Catalogue.list_items_for_catalogue(catalogue_uuid,
+    preload: [catalogue_rules: :referenced_catalogue]
+  )
 
-  @doc """
-  `entries` is a list of `%{item: %Item{}, qty: integer}`. Items in a
-  smart catalogue must have `:catalogue_rules` and the rules' nested
-  `:referenced_catalogue` preloaded — see "Pitfalls" below.
-  """
-  def apply_rules(entries) do
-    ref_sums = build_ref_sums(entries)
-    Enum.map(entries, &compute_price(&1, ref_sums))
-  end
+entries = Enum.map(items, &%{item: &1, qty: qty_for(&1)})
 
-  # Sum each standard catalogue's contribution to the order. Smart
-  # items deliberately don't contribute — their prices are themselves
-  # rule-computed and would yield 0 anyway.
-  defp build_ref_sums(entries) do
-    entries
-    |> Enum.filter(&(&1.item.catalogue.kind == "standard"))
-    |> Enum.group_by(& &1.item.catalogue_uuid)
-    |> Map.new(fn {catalogue_uuid, group} ->
-      {catalogue_uuid, Enum.reduce(group, Decimal.new(0), &Decimal.add(line_total(&1), &2))}
-    end)
-  end
+priced = Catalogue.evaluate_smart_rules(entries)
+# => standard entries unchanged; smart entries get :smart_price
+```
 
-  defp line_total(%{item: %Item{base_price: nil}}), do: Decimal.new(0)
-  defp line_total(%{item: %Item{base_price: price}, qty: qty}),
-    do: Decimal.mult(price, Decimal.new(qty))
+Default behaviour:
 
-  defp compute_price(%{item: %Item{catalogue: %{kind: "smart"}} = item} = entry, ref_sums) do
-    price =
-      Enum.reduce(item.catalogue_rules, Decimal.new(0), fn rule, acc ->
-        Decimal.add(acc, rule_amount(rule, item, ref_sums))
-      end)
+  * `:line_total` — `entry.item.base_price * entry.qty` (returns 0
+    when `base_price` is `nil`).
+  * `:write_to` — `:smart_price`.
+  * Smart items with no rules get `Decimal.new("0.00")`.
+  * A rule referencing a catalogue not present in `entries` contributes 0.
 
-    Map.put(entry, :computed_price, price)
-  end
+### Customizing line_total
 
-  defp compute_price(entry, _ref_sums), do: entry
+The one piece of consumer policy is what an entry contributes to its
+catalogue's ref-sum. Override `:line_total` to apply discounts before
+smart-pricing, exclude tax, or compose your own snapshot rules:
 
-  defp rule_amount(rule, item, ref_sums) do
-    {value, unit} = CatalogueRule.effective(rule, item)
-    ref_sum = Map.get(ref_sums, rule.referenced_catalogue_uuid, Decimal.new(0))
-
-    case {value, unit} do
-      {nil, _}        -> Decimal.new(0)
-      {v, "percent"}  -> Decimal.div(Decimal.mult(v, ref_sum), Decimal.new(100))
-      {v, "flat"}     -> v
-      {_, _}          -> Decimal.new(0)
-    end
-  end
+```elixir
+discounted_line_total = fn %{item: i, qty: q} ->
+  base = i.base_price |> Decimal.mult(Decimal.new(q))
+  markup = Decimal.add(Decimal.new(1), Decimal.div(i.markup_percentage || 0, 100))
+  discount = Decimal.sub(Decimal.new(1), Decimal.div(i.discount_percentage || 0, 100))
+  base |> Decimal.mult(markup) |> Decimal.mult(discount)
 end
+
+Catalogue.evaluate_smart_rules(entries, line_total: discounted_line_total)
+```
+
+### Customizing the output key
+
+For consumers that want a different field on each entry (e.g. to align
+with their snapshot's column naming):
+
+```elixir
+Catalogue.evaluate_smart_rules(entries, write_to: :computed_price)
 ```
 
 ## 5. Pitfalls
 
 ### Smart items must be loaded with rules preloaded
 
-Neither `Catalogue.list_items_for_category/1` nor
-`Catalogue.search_items/2` preloads `:catalogue_rules`. Hosts that
-render smart prices must do this themselves:
+`Catalogue.list_items_for_category/2`, `list_items_for_catalogue/2`,
+`list_uncategorized_items/2`, `search_items/2`, `get_item/2`,
+`get_item!/2`, and `list_items_by_uuids/2` all accept a `:preload` opt
+that merges into their default preloads. For smart-pricing, pass:
 
 ```elixir
-items
-|> MyApp.Repo.preload(catalogue_rules: :referenced_catalogue)
+Catalogue.list_items_for_catalogue(uuid,
+  preload: [catalogue_rules: :referenced_catalogue]
+)
 ```
 
-`Catalogue.list_catalogue_rules/1` and `Catalogue.catalogue_rule_map/1`
-*do* preload the referenced catalogue, so if you fetch rules separately
-you don't need to chain another preload.
+`evaluate_smart_rules/2` raises `ArgumentError` if `:catalogue` or
+`:catalogue_rules` is `%Ecto.Association.NotLoaded{}` on any entry —
+no silent zero-pricing. `Catalogue.list_catalogue_rules/1` and
+`Catalogue.catalogue_rule_map/1` *do* preload the referenced catalogue
+already, so if you fetch rules separately you don't need to chain
+another preload.
 
 ### `unit` does not inherit at the UI layer (only `value` does)
 

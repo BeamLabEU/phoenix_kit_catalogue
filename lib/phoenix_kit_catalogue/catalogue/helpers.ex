@@ -91,4 +91,17 @@ defmodule PhoenixKitCatalogue.Catalogue.Helpers do
   def dedupe_keep_last(items) when is_list(items) do
     items |> Enum.reverse() |> Enum.uniq() |> Enum.reverse()
   end
+
+  @doc """
+  Concatenates the caller-provided `:preload` opt onto the bulk-fetcher's
+  defaults. Ecto handles atom dedup at preload time, so a caller passing
+  `[:catalogue]` redundantly is safe. Callers passing nested
+  specifications (e.g. `catalogue: :categories`) on a key already
+  present as a bare atom should know what they're doing — Ecto silently
+  prefers the nested spec.
+  """
+  @spec merge_preloads(list(), keyword()) :: list()
+  def merge_preloads(defaults, opts) do
+    defaults ++ Keyword.get(opts, :preload, [])
+  end
 end
