@@ -1,3 +1,25 @@
+## 0.1.16 - 2026-05-05
+
+### Added
+- **`Catalogue.evaluate_smart_rules/2` (issue #20)** — public smart-pricing evaluator. Standard entries pass through; smart items get a computed price written to a configurable key (default `:smart_price`). Single consumer-policy injection point: `:line_total` lambda (default `base_price × qty`). Lives in new `PhoenixKitCatalogue.Catalogue.SmartPricing` submodule. Loud `ArgumentError` raises when `:catalogue` or `:catalogue_rules` is `%NotLoaded{}` on any entry — better than silent zero-pricing.
+- **`Catalogue.list_items_by_uuids/2` (issue #19)** — order-preserving, soft-delete excluded, deduped, no `nil` placeholders for missing UUIDs. Designed for order-snapshot rehydration without leaking `Repo` to consumers.
+- **`Catalogue.category_summary_for_catalogue/2` (issue #21)** — returns `%{categories:, item_counts:, uncategorized_count:}` in two queries. Replaces the three-roundtrip pattern (`list_categories_metadata_for_catalogue` + `item_counts_by_category_for_catalogue` + `uncategorized_count_for_catalogue`) lazy-load consumers had to write.
+- **`:preload` opt on bulk fetchers (issue #19)** — `search_items/2`, `search_items_in_catalogue/3`, `list_items_for_category/2`, `list_items_for_catalogue/2`, `list_uncategorized_items/2`, `list_items_for_category_paged/2`, `list_uncategorized_items_paged/2`, `get_item/2`, `get_item!/2`, and `list_items_by_uuids/2` all accept `:preload`, concatenating onto each function's defaults. Pass `[catalogue_rules: :referenced_catalogue]` for smart-pricing.
+- `Catalogue.Helpers.merge_preloads/2` — single-source preload concat helper (was duplicated in `catalogue.ex` and `search.ex`).
+
+### Changed
+- **`get_item!/2` default preloads expanded** to `[:catalogue, :category, :manufacturer]`. The previous arity-1 form silently omitted `:catalogue`, which downstream smart-pricing callers had to add via a separate `Repo.preload`. Pure addition for callers that didn't access `.catalogue`.
+- **`list_uncategorized_items/2` default preload widened** from `[:manufacturer]` to `[:catalogue, :manufacturer]`. Pure addition.
+- `guides/smart_catalogues.md` §4 rewritten to call `evaluate_smart_rules/2` directly. The 100-line copy-paste reference impl is gone; one source of truth lives in the package now. §5 (preload pitfall) updated to reference the new `:preload` opt.
+- Test infrastructure switched from `Ecto.Migrator.run([{0, PhoenixKit.Migration}])` to `PhoenixKit.Migration.ensure_current/2`. The old pattern was idempotent at the outer Ecto.Migrator layer (version `0` cached in `schema_migrations`) so newly-shipped Vxxx migrations silently never applied. Requires `phoenix_kit ~> 1.7.105` for the test suite; runtime constraint unchanged.
+- Test-helper rescue narrowed to `[DBConnection.ConnectionError, Postgrex.Error]` only — code/version bugs (`UndefinedFunctionError`, etc.) now propagate loudly instead of dark-running the `:integration` suite under a misleading "DB unavailable" banner.
+
+### Fixed
+- `evaluate_smart_rules/2` `%NotLoaded{}` raise message for `:catalogue` no longer points readers at `:catalogue_rules` (separate raise below already names that one).
+- `Catalogue.Helpers.merge_preloads/2` docstring now matches the pinning test in `catalogue_test.exs` — bare-atom + nested-keyword collision merges (parent loads AND nested child loads), not "silently prefers nested" as the doc previously claimed.
+- `lib/phoenix_kit_catalogue.ex` `version/0` and the `version/0` test were stuck at `"0.1.13"` since the 0.1.13 release — now match the package version.
+- Closes #16, #17 — already shipped in 0.1.14 (PR #18) but didn't auto-close on GitHub.
+
 ## 0.1.15 - 2026-05-02
 
 ### Added

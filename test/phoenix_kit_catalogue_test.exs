@@ -216,7 +216,7 @@ defmodule PhoenixKitCatalogueTest do
 
   describe "version/0" do
     test "returns version string" do
-      assert PhoenixKitCatalogue.version() == "0.1.13"
+      assert PhoenixKitCatalogue.version() == "0.1.16"
     end
   end
 
