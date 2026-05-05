@@ -59,6 +59,16 @@ defmodule PhoenixKitCatalogue.ErrorsTest do
     test "csv_empty" do
       assert Errors.message(:csv_empty) == "CSV file is empty."
     end
+
+    test "pdf_invalid_format" do
+      assert Errors.message(:pdf_invalid_format) ==
+               "The uploaded file is not a valid PDF."
+    end
+
+    test "pdf_extraction_failed" do
+      assert Errors.message(:pdf_extraction_failed) ==
+               "Could not extract text from this PDF. Check the events log for details."
+    end
   end
 
   describe "message/1 — tagged tuples" do
@@ -99,6 +109,11 @@ defmodule PhoenixKitCatalogue.ErrorsTest do
 
     test "{:csv_parse_failed, raw}" do
       assert Errors.message({:csv_parse_failed, "bad row"}) == "Failed to parse CSV file."
+    end
+
+    test "{:pdftotext_failed, raw}" do
+      assert Errors.message({:pdftotext_failed, "exit 1: malformed pdf"}) ==
+               "PDF text extractor returned an error: exit 1: malformed pdf"
     end
   end
 

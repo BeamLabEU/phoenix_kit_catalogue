@@ -145,7 +145,9 @@ defmodule PhoenixKitCatalogue do
         # (e.g. "catalogue/:uuid/edit") never match a real URL, so the
         # parent "Catalogue" tab is the only thing that lights up on
         # detail/form pages — which looks wrong in the sidebar.
-        match: {:regex, ~r"^/admin/catalogue(/(?!manufacturers|suppliers|import|events).*)?$"},
+        match:
+          {:regex,
+           ~r"^/admin/catalogue(/(?!manufacturers|suppliers|import|events|pdfs).*)?$"},
         parent: :admin_catalogue,
         live_view: {PhoenixKitCatalogue.Web.CataloguesLive, :index}
       },
@@ -194,6 +196,35 @@ defmodule PhoenixKitCatalogue do
         permission: module_key(),
         parent: :admin_catalogue,
         live_view: {PhoenixKitCatalogue.Web.EventsLive, :index}
+      },
+      # PDF library — visible subtab. Sits last among the visible
+      # subtabs (after Events, priority 665).
+      %Tab{
+        id: :admin_catalogue_pdfs,
+        label: "PDFs",
+        icon: "hero-document-text",
+        path: "catalogue/pdfs",
+        priority: 690,
+        level: :admin,
+        permission: module_key(),
+        match: :prefix,
+        parent: :admin_catalogue,
+        live_view: {PhoenixKitCatalogue.Web.PdfLibraryLive, :index}
+      },
+      # PDF detail — hidden subtab; must be declared BEFORE
+      # `catalogue/:uuid` so Phoenix matches the literal "pdfs" segment
+      # first instead of treating it as a UUID.
+      %Tab{
+        id: :admin_catalogue_pdf_detail,
+        label: "PDF",
+        icon: "hero-document-text",
+        path: "catalogue/pdfs/:uuid",
+        priority: 691,
+        level: :admin,
+        permission: module_key(),
+        parent: :admin_catalogue,
+        visible: false,
+        live_view: {PhoenixKitCatalogue.Web.PdfDetailLive, :show}
       },
       # Static paths MUST come before wildcard :uuid paths
       # so Phoenix router matches them first.

@@ -186,6 +186,24 @@ defmodule PhoenixKitCatalogue.Errors do
   def message({:csv_parse_failed, _raw}),
     do: Gettext.gettext(PhoenixKitWeb.Gettext, "Failed to parse CSV file.")
 
+  def message(:pdf_invalid_format),
+    do: Gettext.gettext(PhoenixKitWeb.Gettext, "The uploaded file is not a valid PDF.")
+
+  def message(:pdf_extraction_failed),
+    do:
+      Gettext.gettext(
+        PhoenixKitWeb.Gettext,
+        "Could not extract text from this PDF. Check the events log for details."
+      )
+
+  def message({:pdftotext_failed, raw}),
+    do:
+      Gettext.gettext(
+        PhoenixKitWeb.Gettext,
+        "PDF text extractor returned an error: %{detail}",
+        detail: truncate(raw)
+      )
+
   # Pass-through for shapes that already carry user-renderable content.
 
   def message(%Changeset{} = changeset), do: changeset

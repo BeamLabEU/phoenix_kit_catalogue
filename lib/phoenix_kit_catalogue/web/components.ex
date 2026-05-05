@@ -1143,6 +1143,12 @@ defmodule PhoenixKitCatalogue.Web.Components do
   attr(:size, :string, default: "sm")
   attr(:wrapper_class, :string, default: nil)
 
+  attr(:pdf_search_event, :string,
+    default: nil,
+    doc:
+      "When set, action menu gets a 'Search PDFs' entry that pushes this event with phx-value-uuid"
+  )
+
   attr(:on_reorder, :string,
     default: nil,
     doc: "When set, rows become draggable and emit this event"
@@ -1243,6 +1249,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
             on_restore={@on_restore}
             on_permanent_delete={@on_permanent_delete}
             permanent_delete_type={@permanent_delete_type}
+            pdf_search_event={@pdf_search_event}
           />
         </.table_default_row>
       </tbody>
@@ -1254,6 +1261,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
           on_restore={@on_restore}
           on_permanent_delete={@on_permanent_delete}
           permanent_delete_type={@permanent_delete_type}
+          pdf_search_event={@pdf_search_event}
         />
       </:card_actions>
     </.table_default>
@@ -1329,6 +1337,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
   attr(:on_restore, :string, default: nil)
   attr(:on_permanent_delete, :string, default: nil)
   attr(:permanent_delete_type, :string, default: "item")
+  attr(:pdf_search_event, :string, default: nil)
 
   defp card_action_buttons(assigns) do
     ~H"""
@@ -1339,6 +1348,18 @@ defmodule PhoenixKitCatalogue.Web.Components do
     >
       <.icon name="hero-pencil" class="w-3.5 h-3.5" /> {Gettext.gettext(PhoenixKitWeb.Gettext, "Edit")}
     </.link>
+    <button
+      :if={@pdf_search_event && @item.uuid}
+      type="button"
+      phx-click={@pdf_search_event}
+      phx-value-uuid={@item.uuid}
+      class="btn btn-ghost btn-xs"
+    >
+      <.icon name="hero-document-magnifying-glass" class="w-3.5 h-3.5" /> {Gettext.gettext(
+        PhoenixKitWeb.Gettext,
+        "Search PDFs"
+      )}
+    </button>
     <button
       :if={@on_delete}
       phx-click={@on_delete}
@@ -1510,6 +1531,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
   attr(:on_restore, :string, default: nil)
   attr(:on_permanent_delete, :string, default: nil)
   attr(:permanent_delete_type, :string, default: "item")
+  attr(:pdf_search_event, :string, default: nil)
 
   defp item_actions(%{item: %{uuid: nil}} = assigns) do
     ~H"""
@@ -1527,7 +1549,16 @@ defmodule PhoenixKitCatalogue.Web.Components do
           icon="hero-pencil"
           label={Gettext.gettext(PhoenixKitWeb.Gettext, "Edit")}
         />
-        <.table_row_menu_divider :if={@edit_path && (@on_delete || @on_restore)} />
+        <.table_row_menu_button
+          :if={@pdf_search_event}
+          phx-click={@pdf_search_event}
+          phx-value-uuid={@item.uuid}
+          icon="hero-document-magnifying-glass"
+          label={Gettext.gettext(PhoenixKitWeb.Gettext, "Search PDFs")}
+        />
+        <.table_row_menu_divider :if={
+          (@edit_path || @pdf_search_event) && (@on_delete || @on_restore)
+        } />
         <.table_row_menu_button
           :if={@on_delete}
           phx-click={@on_delete}
@@ -1641,7 +1672,8 @@ defmodule PhoenixKitCatalogue.Web.Components do
 
   defp has_actions?(assigns) do
     assigns[:edit_path] != nil or assigns[:on_delete] != nil or
-      assigns[:on_restore] != nil or assigns[:on_permanent_delete] != nil
+      assigns[:on_restore] != nil or assigns[:on_permanent_delete] != nil or
+      assigns[:pdf_search_event] != nil
   end
 
   defp column_label(:name), do: Gettext.gettext(PhoenixKitWeb.Gettext, "Name")

@@ -52,6 +52,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
     Helpers,
     Links,
     Manufacturers,
+    PdfLibrary,
     PubSub,
     Rules,
     Search,
@@ -3300,4 +3301,24 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
   defdelegate set_translation(record, lang_code, field_data, update_fn, opts \\ []),
     to: Translations
+
+  # ═══════════════════════════════════════════════════════════════════
+  # PDF library — see PhoenixKitCatalogue.Catalogue.PdfLibrary
+  # ═══════════════════════════════════════════════════════════════════
+
+  defdelegate list_pdfs(opts \\ []), to: PdfLibrary
+  defdelegate count_pdfs(opts \\ []), to: PdfLibrary
+  defdelegate get_pdf(uuid), to: PdfLibrary
+  defdelegate get_pdf!(uuid), to: PdfLibrary
+  defdelegate get_pdf_extraction(pdf), to: PdfLibrary, as: :get_extraction
+
+  defdelegate create_pdf_from_upload(tmp_path, original_filename, byte_size, opts \\ []),
+    to: PdfLibrary
+
+  defdelegate trash_pdf(pdf, opts \\ []), to: PdfLibrary
+  defdelegate restore_pdf(pdf, opts \\ []), to: PdfLibrary
+  defdelegate permanently_delete_pdf(pdf, opts \\ []), to: PdfLibrary
+  defdelegate search_pdfs_for_item(item, opts \\ []), to: PdfLibrary
+  defdelegate more_pdf_matches_for_item(item, pdf_uuid, opts \\ []), to: PdfLibrary
+  defdelegate prune_orphan_pdf_page_contents(), to: PdfLibrary, as: :prune_orphan_page_contents
 end
