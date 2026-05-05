@@ -18,9 +18,8 @@ defmodule PhoenixKitCatalogue.Web.Helpers do
     * `log_operation_error/3` — engineer-visible `Logger.error` for a
       failed mutation **plus** an Activity row tagged
       `db_pending: true` so the user-visible audit feed records the
-      attempted action even when it fails. See
-      `PhoenixKitCatalogue.Catalogue.ActivityLog` for the
-      success-vs-failure layering.
+      attempted action even when it fails. The function's own docs
+      describe the success-vs-failure layering in detail.
   """
 
   require Logger
