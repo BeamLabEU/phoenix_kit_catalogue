@@ -2077,6 +2077,49 @@ defmodule PhoenixKitCatalogue.CatalogueTest do
       assert %PhoenixKitCatalogue.Schemas.Catalogue{} = item.catalogue
       assert is_list(item.catalogue.categories)
     end
+
+    test "list_items_for_category_paged/2 merges :preload with defaults", %{
+      category: category,
+      smart_item: smart_item
+    } do
+      [item] =
+        Catalogue.list_items_for_category_paged(category.uuid,
+          preload: [catalogue_rules: :referenced_catalogue]
+        )
+
+      assert item.uuid == smart_item.uuid
+      assert %PhoenixKitCatalogue.Schemas.Catalogue{} = item.catalogue
+      [rule] = item.catalogue_rules
+      assert rule.referenced_catalogue.name == "Kitchen"
+    end
+
+    test "list_uncategorized_items_paged/2 merges :preload with defaults" do
+      smart = create_catalogue(%{name: "Loose Paged Smart", kind: "smart"})
+      standard = create_catalogue(%{name: "Loose Paged Std"})
+
+      loose =
+        create_item(%{
+          name: "Loose paged",
+          catalogue_uuid: smart.uuid,
+          default_value: Decimal.new("10"),
+          default_unit: "flat"
+        })
+
+      {:ok, _} =
+        Catalogue.put_catalogue_rules(loose, [
+          %{referenced_catalogue_uuid: standard.uuid, value: Decimal.new("5"), unit: "percent"}
+        ])
+
+      [item] =
+        Catalogue.list_uncategorized_items_paged(smart.uuid,
+          preload: [catalogue_rules: :referenced_catalogue]
+        )
+
+      assert item.uuid == loose.uuid
+      assert %PhoenixKitCatalogue.Schemas.Catalogue{} = item.catalogue
+      [rule] = item.catalogue_rules
+      assert rule.referenced_catalogue.name == "Loose Paged Std"
+    end
   end
 
   describe "list_items_by_uuids/2 (issue #19)" do

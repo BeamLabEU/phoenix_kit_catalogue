@@ -127,8 +127,8 @@ defmodule PhoenixKitCatalogue.Catalogue.SmartPricing do
   defp standard?(%{item: %Item{catalogue: %Ecto.Association.NotLoaded{}}}) do
     raise ArgumentError,
           "evaluate_smart_rules/2 requires :catalogue to be preloaded on every entry's item. " <>
-            "Use Catalogue.list_items_*(... preload: [catalogue_rules: :referenced_catalogue]) " <>
-            "or chain Repo.preload before calling."
+            "The Catalogue.list_items_* bulk fetchers include :catalogue in their default " <>
+            "preloads; otherwise chain Repo.preload(item, :catalogue) before calling."
   end
 
   defp compute_price(

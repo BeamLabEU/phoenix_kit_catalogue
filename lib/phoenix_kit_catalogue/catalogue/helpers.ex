@@ -95,10 +95,12 @@ defmodule PhoenixKitCatalogue.Catalogue.Helpers do
   @doc """
   Concatenates the caller-provided `:preload` opt onto the bulk-fetcher's
   defaults. Ecto handles atom dedup at preload time, so a caller passing
-  `[:catalogue]` redundantly is safe. Callers passing nested
-  specifications (e.g. `catalogue: :categories`) on a key already
-  present as a bare atom should know what they're doing — Ecto silently
-  prefers the nested spec.
+  `[:catalogue]` redundantly is safe. When a default bare atom collides
+  with a caller-provided nested spec on the same key (e.g. defaults
+  contain `:catalogue` and the caller passes `[catalogue: :categories]`),
+  Ecto merges the two: the parent association loads *and* the nested
+  child loads. Pinned by the `":preload collision with default atom"`
+  test in `catalogue_test.exs`.
   """
   @spec merge_preloads(list(), keyword()) :: list()
   def merge_preloads(defaults, opts) do

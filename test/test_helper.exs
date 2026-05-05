@@ -67,7 +67,13 @@ repo_available =
       Ecto.Adapters.SQL.Sandbox.mode(PhoenixKitCatalogue.Test.Repo, :manual)
       true
     rescue
-      e ->
+      # Catch only DB-connectivity failure modes — anything else (in
+      # particular `UndefinedFunctionError`, which surfaces when the
+      # pinned `phoenix_kit` is older than the migration helper this
+      # file calls) propagates so version mismatches and code bugs
+      # don't masquerade as "DB unavailable" with the full
+      # `:integration` suite silently excluded.
+      e in [DBConnection.ConnectionError, Postgrex.Error] ->
         IO.puts("""
         \n⚠  Could not connect to test database — integration tests will be excluded.
            Run `mix test.setup` to create the test database.
