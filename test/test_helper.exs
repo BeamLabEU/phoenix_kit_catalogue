@@ -50,19 +50,19 @@ repo_available =
     try do
       {:ok, _} = PhoenixKitCatalogue.Test.Repo.start_link()
 
-      # Build the schema directly from core's versioned migrations — same
-      # call the host app makes in production. The catalogue tables come
-      # from core (V87 creates them; V89 / V96 / V97 / V102 / V103 / V108
-      # evolve them) along with phoenix_kit_settings (V03), the storage
-      # family (V20+), and the `uuid-ossp` / `pgcrypto` extensions and
-      # `uuid_generate_v7()` function (V40). No module-owned DDL anywhere.
-      Ecto.Migrator.run(
-        PhoenixKitCatalogue.Test.Repo,
-        [{0, PhoenixKit.Migration}],
-        :up,
-        all: true,
-        log: false
-      )
+      # Build the schema directly from core's versioned migrations.
+      # `ensure_current/2` re-applies any newly-shipped Vxxx migrations
+      # on every boot — the older
+      # `Ecto.Migrator.run([{0, PhoenixKit.Migration}])` pattern was
+      # idempotent at the outer Ecto.Migrator layer (version `0`
+      # cached in `schema_migrations`), so newly-shipped Vxxx versions
+      # silently never applied. The catalogue tables come from core
+      # (V87 creates them; V89 / V96 / V97 / V102 / V103 / V108 evolve
+      # them) along with phoenix_kit_settings (V03), the storage
+      # family (V20+), and the `uuid-ossp` / `pgcrypto` extensions +
+      # `uuid_generate_v7()` function (V40). No module-owned DDL
+      # anywhere.
+      PhoenixKit.Migration.ensure_current(PhoenixKitCatalogue.Test.Repo, log: false)
 
       Ecto.Adapters.SQL.Sandbox.mode(PhoenixKitCatalogue.Test.Repo, :manual)
       true

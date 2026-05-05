@@ -38,11 +38,15 @@ defmodule PhoenixKitCatalogue.Catalogue.Search do
       is a logical contradiction and raises `ArgumentError`.
     * `:limit` — max results (default 50).
     * `:offset` — paging offset (default 0).
+    * `:preload` — extra associations appended to the default
+      `[:catalogue, category: :catalogue, manufacturer: []]`. Pass
+      `[catalogue_rules: :referenced_catalogue]` for smart-pricing.
   """
   @spec search_items(String.t(), keyword()) :: [Item.t()]
   def search_items(query, opts \\ []) do
     limit = Keyword.get(opts, :limit, 50)
     offset = Keyword.get(opts, :offset, 0)
+    preloads = Helpers.merge_preloads([:catalogue, category: :catalogue, manufacturer: []], opts)
 
     # Ordering note: `i.position` is intentionally NOT in the global
     # `search_items/2` order_by. `position` is per-`(catalogue_uuid,
@@ -55,7 +59,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Search do
     |> order_by([i, _cat, _c], asc: i.name, asc: i.uuid)
     |> limit(^limit)
     |> offset(^offset)
-    |> preload([:catalogue, category: :catalogue, manufacturer: []])
+    |> preload(^preloads)
     |> repo().all()
   end
 
@@ -76,12 +80,16 @@ defmodule PhoenixKitCatalogue.Catalogue.Search do
   around `search_items/2` with `catalogue_uuids: [catalogue_uuid]`,
   but orders by category position first (then item name) for a stable
   walk through a catalogue's categories.
+
+  Same `:preload` opt as `search_items/2` (extra associations appended
+  to the default `[:catalogue, category: :catalogue, manufacturer: []]`).
   """
   @spec search_items_in_catalogue(Ecto.UUID.t(), String.t(), keyword()) :: [Item.t()]
   def search_items_in_catalogue(catalogue_uuid, query, opts \\ []) do
     limit = Keyword.get(opts, :limit, 50)
     offset = Keyword.get(opts, :offset, 0)
     opts = Keyword.put(opts, :catalogue_uuids, [catalogue_uuid])
+    preloads = Helpers.merge_preloads([:catalogue, category: :catalogue, manufacturer: []], opts)
 
     query
     |> search_items_base(opts)
@@ -93,7 +101,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Search do
     )
     |> limit(^limit)
     |> offset(^offset)
-    |> preload([:catalogue, category: :catalogue, manufacturer: []])
+    |> preload(^preloads)
     |> repo().all()
   end
 
