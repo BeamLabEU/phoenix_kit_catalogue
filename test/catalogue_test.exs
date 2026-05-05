@@ -1935,6 +1935,234 @@ defmodule PhoenixKitCatalogue.CatalogueTest do
     end
   end
 
+  describe ":preload opt on bulk fetchers (issue #19)" do
+    setup do
+      standard = create_catalogue(%{name: "Kitchen"})
+      smart = create_catalogue(%{name: "Services", kind: "smart"})
+      category = create_category(smart, %{name: "Delivery"})
+
+      smart_item =
+        create_item(%{
+          name: "Express Delivery",
+          category_uuid: category.uuid,
+          default_value: Decimal.new("5"),
+          default_unit: "percent"
+        })
+
+      {:ok, _rules} =
+        Catalogue.put_catalogue_rules(smart_item, [
+          %{
+            referenced_catalogue_uuid: standard.uuid,
+            value: Decimal.new("15"),
+            unit: "percent"
+          }
+        ])
+
+      %{smart: smart, category: category, smart_item: smart_item}
+    end
+
+    test "list_items_for_category/2 merges :preload with defaults", %{
+      category: category,
+      smart_item: smart_item
+    } do
+      [item] =
+        Catalogue.list_items_for_category(category.uuid,
+          preload: [catalogue_rules: :referenced_catalogue]
+        )
+
+      assert item.uuid == smart_item.uuid
+      assert %PhoenixKitCatalogue.Schemas.Catalogue{} = item.catalogue
+      [rule] = item.catalogue_rules
+      assert %PhoenixKitCatalogue.Schemas.Catalogue{name: "Kitchen"} = rule.referenced_catalogue
+    end
+
+    test "list_items_for_catalogue/2 merges :preload with defaults", %{
+      smart: smart,
+      smart_item: smart_item
+    } do
+      [item] =
+        Catalogue.list_items_for_catalogue(smart.uuid,
+          preload: [catalogue_rules: :referenced_catalogue]
+        )
+
+      assert item.uuid == smart_item.uuid
+      [rule] = item.catalogue_rules
+      assert rule.referenced_catalogue.name == "Kitchen"
+    end
+
+    test "list_uncategorized_items/2 merges :preload with defaults" do
+      smart = create_catalogue(%{name: "Loose Smart", kind: "smart"})
+      standard = create_catalogue(%{name: "Loose Std"})
+
+      loose =
+        create_item(%{
+          name: "Standalone",
+          catalogue_uuid: smart.uuid,
+          default_value: Decimal.new("10"),
+          default_unit: "flat"
+        })
+
+      {:ok, _} =
+        Catalogue.put_catalogue_rules(loose, [
+          %{referenced_catalogue_uuid: standard.uuid, value: Decimal.new("5"), unit: "percent"}
+        ])
+
+      [item] =
+        Catalogue.list_uncategorized_items(smart.uuid,
+          preload: [catalogue_rules: :referenced_catalogue]
+        )
+
+      assert item.uuid == loose.uuid
+      assert %PhoenixKitCatalogue.Schemas.Catalogue{} = item.catalogue
+      [rule] = item.catalogue_rules
+      assert rule.referenced_catalogue.name == "Loose Std"
+    end
+
+    test "search_items/2 merges :preload with defaults", %{smart_item: smart_item} do
+      [item] =
+        Catalogue.search_items("Express",
+          preload: [catalogue_rules: :referenced_catalogue]
+        )
+
+      assert item.uuid == smart_item.uuid
+      [rule] = item.catalogue_rules
+      assert rule.referenced_catalogue.name == "Kitchen"
+    end
+
+    test "get_item/2 with :preload returns item with preloaded assocs", %{smart_item: smart_item} do
+      item =
+        Catalogue.get_item(smart_item.uuid, preload: [catalogue_rules: :referenced_catalogue])
+
+      assert item.uuid == smart_item.uuid
+      [rule] = item.catalogue_rules
+      assert rule.referenced_catalogue.name == "Kitchen"
+    end
+
+    test "get_item/1 still works with no preloads (backwards compat)", %{smart_item: smart_item} do
+      item = Catalogue.get_item(smart_item.uuid)
+      assert item.uuid == smart_item.uuid
+      assert %Ecto.Association.NotLoaded{} = item.catalogue_rules
+    end
+
+    test "get_item!/2 default preloads include :catalogue (was missing before)", %{
+      smart_item: smart_item
+    } do
+      item = Catalogue.get_item!(smart_item.uuid)
+
+      assert %PhoenixKitCatalogue.Schemas.Catalogue{} = item.catalogue
+      assert %PhoenixKitCatalogue.Schemas.Category{} = item.category
+    end
+
+    test "get_item!/2 with :preload merges with defaults", %{smart_item: smart_item} do
+      item =
+        Catalogue.get_item!(smart_item.uuid, preload: [catalogue_rules: :referenced_catalogue])
+
+      assert %PhoenixKitCatalogue.Schemas.Catalogue{} = item.catalogue
+      [rule] = item.catalogue_rules
+      assert rule.referenced_catalogue.name == "Kitchen"
+    end
+
+    test ":preload collision with default atom — Ecto merges to nested spec", %{
+      smart_item: smart_item
+    } do
+      # The default preload list includes `:catalogue` as a bare atom.
+      # Pinning the contract: a caller passing a nested spec on the same
+      # key (`catalogue: :categories`) gets both — Ecto loads `:catalogue`
+      # AND its nested `:categories` association. `Helpers.merge_preloads`
+      # docstring warns this is the expected behavior; this test makes
+      # the contract auditable so a future Ecto upgrade that changes the
+      # merge semantics surfaces here.
+      item = Catalogue.get_item!(smart_item.uuid, preload: [catalogue: :categories])
+
+      assert %PhoenixKitCatalogue.Schemas.Catalogue{} = item.catalogue
+      assert is_list(item.catalogue.categories)
+    end
+  end
+
+  describe "list_items_by_uuids/2 (issue #19)" do
+    test "preserves input order" do
+      cat = create_catalogue()
+      a = create_item(%{name: "A", catalogue_uuid: cat.uuid})
+      b = create_item(%{name: "B", catalogue_uuid: cat.uuid})
+      c = create_item(%{name: "C", catalogue_uuid: cat.uuid})
+
+      result = Catalogue.list_items_by_uuids([c.uuid, a.uuid, b.uuid])
+
+      assert Enum.map(result, & &1.uuid) == [c.uuid, a.uuid, b.uuid]
+    end
+
+    test "drops missing UUIDs (no nil placeholders)" do
+      cat = create_catalogue()
+      a = create_item(%{name: "A", catalogue_uuid: cat.uuid})
+      missing = Ecto.UUID.generate()
+
+      result = Catalogue.list_items_by_uuids([a.uuid, missing])
+
+      assert Enum.map(result, & &1.uuid) == [a.uuid]
+    end
+
+    test "excludes soft-deleted items" do
+      cat = create_catalogue()
+      a = create_item(%{name: "A", catalogue_uuid: cat.uuid})
+      b = create_item(%{name: "B", catalogue_uuid: cat.uuid})
+      Catalogue.trash_item(b)
+
+      result = Catalogue.list_items_by_uuids([a.uuid, b.uuid])
+
+      assert Enum.map(result, & &1.uuid) == [a.uuid]
+    end
+
+    test "deduplicates input UUIDs" do
+      cat = create_catalogue()
+      a = create_item(%{name: "A", catalogue_uuid: cat.uuid})
+
+      result = Catalogue.list_items_by_uuids([a.uuid, a.uuid, a.uuid])
+
+      assert Enum.map(result, & &1.uuid) == [a.uuid]
+    end
+
+    test "returns [] for empty input without hitting the DB" do
+      assert Catalogue.list_items_by_uuids([]) == []
+    end
+
+    test "default preloads include :catalogue, :category, :manufacturer" do
+      cat = create_catalogue()
+      category = create_category(cat)
+      a = create_item(%{name: "A", category_uuid: category.uuid})
+
+      [item] = Catalogue.list_items_by_uuids([a.uuid])
+
+      assert %PhoenixKitCatalogue.Schemas.Catalogue{} = item.catalogue
+      assert %PhoenixKitCatalogue.Schemas.Category{} = item.category
+    end
+
+    test "merges :preload with defaults (smart-rule rehydration use case)" do
+      standard = create_catalogue(%{name: "Std"})
+      smart = create_catalogue(%{name: "Smart", kind: "smart"})
+
+      smart_item =
+        create_item(%{
+          name: "S",
+          catalogue_uuid: smart.uuid,
+          default_value: Decimal.new("5"),
+          default_unit: "percent"
+        })
+
+      {:ok, _} =
+        Catalogue.put_catalogue_rules(smart_item, [
+          %{referenced_catalogue_uuid: standard.uuid, value: Decimal.new("10"), unit: "percent"}
+        ])
+
+      [item] =
+        Catalogue.list_items_by_uuids([smart_item.uuid],
+          preload: [catalogue_rules: :referenced_catalogue]
+        )
+
+      [rule] = item.catalogue_rules
+      assert rule.referenced_catalogue.name == "Std"
+    end
+  end
+
   describe "paged helpers for infinite scroll" do
     test "list_categories_metadata_for_catalogue/2 returns categories without items, ordered by position" do
       cat = create_catalogue()
@@ -2139,6 +2367,52 @@ defmodule PhoenixKitCatalogue.CatalogueTest do
 
       counts = Catalogue.item_counts_by_category_for_catalogue(cat.uuid)
       assert counts == %{cat_a.uuid => 1}
+    end
+
+    test "category_summary_for_catalogue/2 returns categories + counts + uncategorized in one shape" do
+      cat = create_catalogue()
+      cat_a = create_category(cat, %{name: "A", position: 1})
+      cat_b = create_category(cat, %{name: "B", position: 2})
+      _empty = create_category(cat, %{name: "Empty", position: 3})
+
+      for _ <- 1..3, do: create_item(%{name: "x", category_uuid: cat_a.uuid})
+      for _ <- 1..2, do: create_item(%{name: "y", category_uuid: cat_b.uuid})
+      create_item(%{name: "loose 1", catalogue_uuid: cat.uuid})
+      create_item(%{name: "loose 2", catalogue_uuid: cat.uuid})
+
+      summary = Catalogue.category_summary_for_catalogue(cat.uuid)
+
+      assert Enum.map(summary.categories, & &1.name) == ["A", "B", "Empty"]
+      assert summary.item_counts == %{cat_a.uuid => 3, cat_b.uuid => 2}
+      assert summary.uncategorized_count == 2
+    end
+
+    test "category_summary_for_catalogue/2 excludes deleted items in :active mode" do
+      cat = create_catalogue()
+      cat_a = create_category(cat, %{name: "A"})
+      create_item(%{name: "live", category_uuid: cat_a.uuid})
+      trashed = create_item(%{name: "dead", category_uuid: cat_a.uuid})
+      Catalogue.trash_item(trashed)
+
+      loose_trashed = create_item(%{name: "loose dead", catalogue_uuid: cat.uuid})
+      Catalogue.trash_item(loose_trashed)
+      create_item(%{name: "loose live", catalogue_uuid: cat.uuid})
+
+      active = Catalogue.category_summary_for_catalogue(cat.uuid)
+      deleted = Catalogue.category_summary_for_catalogue(cat.uuid, mode: :deleted)
+
+      assert active.item_counts == %{cat_a.uuid => 1}
+      assert active.uncategorized_count == 1
+
+      assert deleted.item_counts == %{cat_a.uuid => 1}
+      assert deleted.uncategorized_count == 1
+    end
+
+    test "category_summary_for_catalogue/2 omits empty catalogues + still returns a valid shape" do
+      cat = create_catalogue()
+
+      assert Catalogue.category_summary_for_catalogue(cat.uuid) ==
+               %{categories: [], item_counts: %{}, uncategorized_count: 0}
     end
   end
 

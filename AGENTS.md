@@ -368,7 +368,7 @@ This repo contains **no database migrations**. All database tables and migration
 
 ### Setup
 
-The test database is created and migrated by the parent `phoenix_kit` project. This repo assumes the DB already exists with the correct schema.
+The test database is created locally; schema setup runs core's versioned migrations directly via `PhoenixKit.Migration.ensure_current/2` in `test/test_helper.exs`. The helper re-applies any newly-shipped Vxxx migrations on every boot — do **not** swap in `Ecto.Migrator.run([{0, PhoenixKit.Migration}])` (silently goes stale once `0` lands in `schema_migrations`; see `PhoenixKit.Migration.ensure_current/2` moduledoc for the bug story).
 
 The critical config wiring is in `config/test.exs`:
 
@@ -382,7 +382,7 @@ Without this, all DB calls through `PhoenixKit.RepoHelper` crash with "No reposi
 
 ```
 test/
-├── test_helper.exs                  # DB detection, sandbox setup, Ecto.Migrator.run, Phoenix.PubSub start, pgcrypto
+├── test_helper.exs                  # DB detection, sandbox setup, PhoenixKit.Migration.ensure_current/2, Phoenix.PubSub start, pgcrypto
 ├── support/
 │   ├── activity_log_assertions.ex   # `assert_activity_logged/2` + `refute_activity_logged/2` — query phoenix_kit_activities directly with action / actor / resource / metadata-subset matching
 │   ├── data_case.ex                 # DataCase (sandbox + :integration tag, imports ActivityLogAssertions)
