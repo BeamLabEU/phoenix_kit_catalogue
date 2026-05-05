@@ -28,6 +28,7 @@ defmodule PhoenixKitCatalogue.Schemas.Pdf do
 
   @statuses ~w(active trashed)
 
+  @spec statuses() :: [String.t()]
   def statuses, do: @statuses
 
   schema "phoenix_kit_cat_pdfs" do
@@ -50,6 +51,7 @@ defmodule PhoenixKitCatalogue.Schemas.Pdf do
   @required_fields [:file_uuid, :original_filename]
   @optional_fields [:byte_size, :status, :trashed_at]
 
+  @spec changeset(t() | %__MODULE__{}, map()) :: Ecto.Changeset.t(t())
   def changeset(pdf, attrs) do
     pdf
     |> cast(attrs, @required_fields ++ @optional_fields)
@@ -58,10 +60,12 @@ defmodule PhoenixKitCatalogue.Schemas.Pdf do
     |> validate_inclusion(:status, @statuses)
   end
 
+  @spec trash_changeset(t()) :: Ecto.Changeset.t(t())
   def trash_changeset(pdf) do
     change(pdf, status: "trashed", trashed_at: DateTime.utc_now() |> DateTime.truncate(:second))
   end
 
+  @spec restore_changeset(t()) :: Ecto.Changeset.t(t())
   def restore_changeset(pdf) do
     change(pdf, status: "active", trashed_at: nil)
   end

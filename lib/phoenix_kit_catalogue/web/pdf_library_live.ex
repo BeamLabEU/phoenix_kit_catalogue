@@ -22,6 +22,12 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLive do
   alias PhoenixKitCatalogue.Web.Helpers
 
   @max_file_size 200 * 1024 * 1024
+  # Chunk size for the WS upload — large enough to keep round-trips
+  # cheap on big PDFs (default LV is 64 KB ≈ 1600 chunks for a 100 MB
+  # upload). 5 MB is well within Phoenix 1.8's `:infinity` default
+  # `max_frame_size`.
+  @upload_chunk_size 5_000_000
+  @max_concurrent_uploads 5
 
   @impl true
   def mount(_params, _session, socket) do
@@ -37,9 +43,9 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLive do
      )
      |> allow_upload(:pdf,
        accept: ~w(.pdf application/pdf),
-       max_entries: 5,
+       max_entries: @max_concurrent_uploads,
        max_file_size: @max_file_size,
-       chunk_size: 5_000_000,
+       chunk_size: @upload_chunk_size,
        auto_upload: true,
        progress: &handle_progress/3
      )}
@@ -65,6 +71,7 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLive do
   @impl true
   def handle_event("trash", %{"uuid" => uuid}, socket) do
     handle_pdf_action(socket, uuid, &Catalogue.trash_pdf/2,
+      operation: "trash_pdf",
       success: Gettext.gettext(PhoenixKitWeb.Gettext, "PDF moved to trash."),
       failure: Gettext.gettext(PhoenixKitWeb.Gettext, "Could not move the PDF to trash.")
     )
@@ -73,6 +80,7 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLive do
   @impl true
   def handle_event("restore", %{"uuid" => uuid}, socket) do
     handle_pdf_action(socket, uuid, &Catalogue.restore_pdf/2,
+      operation: "restore_pdf",
       success: Gettext.gettext(PhoenixKitWeb.Gettext, "PDF restored."),
       failure: Gettext.gettext(PhoenixKitWeb.Gettext, "Could not restore the PDF.")
     )
@@ -81,6 +89,7 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLive do
   @impl true
   def handle_event("permanently_delete", %{"uuid" => uuid}, socket) do
     handle_pdf_action(socket, uuid, &Catalogue.permanently_delete_pdf/2,
+      operation: "permanently_delete_pdf",
       success: Gettext.gettext(PhoenixKitWeb.Gettext, "PDF permanently deleted."),
       failure: Gettext.gettext(PhoenixKitWeb.Gettext, "Could not permanently delete the PDF.")
     )
@@ -99,7 +108,13 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLive do
              |> put_flash(:info, Keyword.fetch!(messages, :success))
              |> assign(:pdfs, Catalogue.list_pdfs(status: socket.assigns.filter))}
 
-          {:error, _} ->
+          {:error, reason} ->
+            Helpers.log_operation_error(socket, Keyword.fetch!(messages, :operation), %{
+              entity_type: "pdf",
+              entity_uuid: pdf.uuid,
+              reason: reason
+            })
+
             {:noreply, put_flash(socket, :error, Keyword.fetch!(messages, :failure))}
         end
     end
@@ -131,11 +146,13 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLive do
   defp finalize_upload(socket, entry) do
     consume_result =
       consume_uploaded_entry(socket, entry, fn %{path: tmp_path} ->
+        # `byte_size` is intentionally NOT passed through — the context
+        # reads the truth from `File.stat!(tmp_path).size` so the
+        # persisted value can't be lied about by the browser.
         {:ok,
          Catalogue.create_pdf_from_upload(
            tmp_path,
            entry.client_name,
-           entry.client_size,
            Helpers.actor_opts(socket)
          )}
       end)
@@ -148,15 +165,69 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLive do
          |> assign(:pdfs, Catalogue.list_pdfs(status: socket.assigns.filter))}
 
       {:error, reason} ->
-        Logger.warning("PDF upload failed: #{inspect(reason)}")
+        # Log path-leak-safe failure summary (drop full `inspect`).
+        Logger.warning(fn ->
+          "PDF upload failed: " <> failure_log_label(reason)
+        end)
+
+        # `db_pending: true` activity row so the user-initiated upload
+        # is in the audit trail even when storage / catalogue insert
+        # failed. Action mirrors the success-side `pdf.uploaded`.
+        PhoenixKitCatalogue.Catalogue.ActivityLog.log(%{
+          action: "pdf.uploaded",
+          mode: "manual",
+          actor_uuid: Helpers.actor_uuid(socket),
+          resource_type: "pdf",
+          metadata: %{
+            "db_pending" => true,
+            "error_kind" => failure_error_kind(reason),
+            "reason" => failure_log_label(reason),
+            "original_filename" => entry.client_name,
+            # `client_size` is browser-supplied; flagged with `client_`
+            # prefix so audit consumers know it's untrusted (the
+            # success-side `byte_size` is computed server-side).
+            "client_size" => entry.client_size
+          }
+        })
+
         {:noreply, assign(socket, :upload_error, format_upload_failure(reason))}
     end
   end
 
-  defp format_upload_failure({:storage_failed, reason}),
-    do: "Could not save uploaded file: #{inspect(reason)}"
+  # User-visible flash text — gettext-wrapped, no `inspect` reveal of
+  # internal shapes (paths, exception structs).
+  defp format_upload_failure({:storage_failed, _}),
+    do:
+      Gettext.gettext(
+        PhoenixKitWeb.Gettext,
+        "Could not save the uploaded file. Please try again or contact support if it persists."
+      )
 
-  defp format_upload_failure(other), do: inspect(other)
+  defp format_upload_failure(_),
+    do:
+      Gettext.gettext(
+        PhoenixKitWeb.Gettext,
+        "Upload failed for an unexpected reason. Please try again."
+      )
+
+  # Logger / activity-metadata-safe summary (no absolute paths).
+  defp failure_log_label({:storage_failed, %Ecto.Changeset{errors: errors}}),
+    do:
+      "storage_failed:changeset(" <>
+        (errors |> Enum.map(fn {k, _} -> Atom.to_string(k) end) |> Enum.uniq() |> Enum.join(",")) <>
+        ")"
+
+  defp failure_log_label({:storage_failed, atom}) when is_atom(atom),
+    do: "storage_failed:#{atom}"
+
+  defp failure_log_label({:storage_failed, _}), do: "storage_failed:other"
+  defp failure_log_label(atom) when is_atom(atom), do: Atom.to_string(atom)
+  defp failure_log_label(_), do: "other"
+
+  defp failure_error_kind({:storage_failed, %Ecto.Changeset{}}), do: "changeset"
+  defp failure_error_kind({:storage_failed, _}), do: "storage"
+  defp failure_error_kind(atom) when is_atom(atom), do: "atom"
+  defp failure_error_kind(_), do: "other"
 
   # ── Render ─────────────────────────────────────────────────────────
 
@@ -273,11 +344,11 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLive do
                     {extraction_badge(pdf)}
                   </td>
                   <td>
-                    {extraction_pages(pdf)}
+                    {Helpers.pdf_extraction_pages(pdf) || "—"}
                   </td>
-                  <td class="text-base-content/60">{format_size(pdf.byte_size)}</td>
+                  <td class="text-base-content/60">{Helpers.format_byte_size(pdf.byte_size)}</td>
                   <td class="text-base-content/60 text-xs">
-                    {format_time_ago(timestamp_for_filter(pdf, @filter))}
+                    {Helpers.format_time_ago(timestamp_for_filter(pdf, @filter))}
                   </td>
                   <td class="text-right">
                     <%= if @filter == "trashed" do %>
@@ -285,6 +356,7 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLive do
                         type="button"
                         phx-click="restore"
                         phx-value-uuid={pdf.uuid}
+                        phx-disable-with={Gettext.gettext(PhoenixKitWeb.Gettext, "Restoring…")}
                         class="btn btn-ghost btn-xs"
                       >
                         <.icon name="hero-arrow-uturn-left" class="w-3.5 h-3.5" />
@@ -293,6 +365,7 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLive do
                         type="button"
                         phx-click="permanently_delete"
                         phx-value-uuid={pdf.uuid}
+                        phx-disable-with={Gettext.gettext(PhoenixKitWeb.Gettext, "Deleting…")}
                         data-confirm={
                           Gettext.gettext(
                             PhoenixKitWeb.Gettext,
@@ -308,6 +381,7 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLive do
                         type="button"
                         phx-click="trash"
                         phx-value-uuid={pdf.uuid}
+                        phx-disable-with={Gettext.gettext(PhoenixKitWeb.Gettext, "Trashing…")}
                         data-confirm={
                           Gettext.gettext(
                             PhoenixKitWeb.Gettext,
@@ -331,73 +405,36 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLive do
   end
 
   # ── Helpers ─────────────────────────────────────────────────────────
+  # Most PDF display helpers live in `Web.Helpers` and are shared with
+  # `Web.PdfDetailLive`. The renderers that wrap raw markup stay here
+  # because they're LV-specific layout choices.
 
   defp extraction_badge(pdf) do
-    case extraction_status(pdf) do
-      "extracted" ->
-        Phoenix.HTML.raw(
-          ~s|<span class="badge badge-sm badge-success">| <>
-            Gettext.gettext(PhoenixKitWeb.Gettext, "Extracted") <> "</span>"
-        )
+    status = Helpers.pdf_extraction_status(pdf)
+    label = Helpers.pdf_status_label(status)
+    klass = Helpers.pdf_status_badge_class(status)
 
-      "scanned_no_text" ->
-        Phoenix.HTML.raw(
-          ~s|<span class="badge badge-sm badge-warning">| <>
-            Gettext.gettext(PhoenixKitWeb.Gettext, "Scanned (no text)") <> "</span>"
-        )
-
-      "extracting" ->
-        Phoenix.HTML.raw(
-          ~s|<span class="badge badge-sm badge-info">| <>
-            Gettext.gettext(PhoenixKitWeb.Gettext, "Extracting") <> "</span>"
-        )
-
+    case status do
       "failed" ->
-        msg = (pdf.extraction && pdf.extraction.error_message) || ""
+        msg = Helpers.pdf_error_message(pdf) || ""
 
         Phoenix.HTML.raw(
-          ~s|<span class="badge badge-sm badge-error" title="#{escape_html(msg)}">| <>
-            Gettext.gettext(PhoenixKitWeb.Gettext, "Failed") <> "</span>"
+          ~s|<span class="badge badge-sm #{klass}" title="#{Helpers.escape_html(msg)}">| <>
+            Helpers.escape_html(label) <> "</span>"
         )
 
       _ ->
         Phoenix.HTML.raw(
-          ~s|<span class="badge badge-sm badge-ghost">| <>
-            Gettext.gettext(PhoenixKitWeb.Gettext, "Pending") <> "</span>"
+          ~s|<span class="badge badge-sm #{klass}">| <>
+            Helpers.escape_html(label) <> "</span>"
         )
     end
   end
 
-  defp extraction_status(%{extraction: %{extraction_status: s}}) when is_binary(s), do: s
-  defp extraction_status(_), do: "pending"
-
-  defp extraction_pages(%{extraction: %{page_count: n}}) when is_integer(n), do: to_string(n)
-  defp extraction_pages(_), do: "—"
-
-  defp escape_html(s), do: s |> to_string() |> Phoenix.HTML.html_escape() |> Phoenix.HTML.safe_to_string()
-
+  # Trashed-list view shows when the row was trashed; everything else
+  # shows the upload time.
   defp timestamp_for_filter(pdf, "trashed"), do: pdf.trashed_at || pdf.inserted_at
   defp timestamp_for_filter(pdf, _), do: pdf.inserted_at
-
-  defp format_size(nil), do: "—"
-  defp format_size(bytes) when bytes < 1024, do: "#{bytes} B"
-  defp format_size(bytes) when bytes < 1024 * 1024, do: "#{div(bytes, 1024)} KB"
-  defp format_size(bytes) when bytes < 1024 * 1024 * 1024, do: "#{div(bytes, 1024 * 1024)} MB"
-  defp format_size(bytes), do: "#{Float.round(bytes / (1024 * 1024 * 1024), 2)} GB"
-
-  defp format_time_ago(nil), do: "—"
-
-  defp format_time_ago(datetime) do
-    diff = DateTime.diff(DateTime.utc_now(), datetime, :second)
-
-    cond do
-      diff < 60 -> Gettext.gettext(PhoenixKitWeb.Gettext, "just now")
-      diff < 3600 -> "#{div(diff, 60)}m ago"
-      diff < 86_400 -> "#{div(diff, 3600)}h ago"
-      diff < 604_800 -> "#{div(diff, 86_400)}d ago"
-      true -> Calendar.strftime(datetime, "%b %d, %Y")
-    end
-  end
 
   defp format_upload_error(:too_large),
     do: Gettext.gettext(PhoenixKitWeb.Gettext, "File is too large.")

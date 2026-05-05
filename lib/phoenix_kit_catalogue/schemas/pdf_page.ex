@@ -36,6 +36,7 @@ defmodule PhoenixKitCatalogue.Schemas.PdfPage do
 
   @required_fields [:file_uuid, :page_number, :content_hash, :inserted_at]
 
+  @spec changeset(t() | %__MODULE__{}, map()) :: Ecto.Changeset.t(t())
   def changeset(page, attrs) do
     page
     |> cast(attrs, @required_fields)

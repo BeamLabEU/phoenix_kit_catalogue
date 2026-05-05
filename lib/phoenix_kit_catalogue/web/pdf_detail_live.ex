@@ -22,6 +22,14 @@ defmodule PhoenixKitCatalogue.Web.PdfDetailLive do
 
   @impl true
   def mount(%{"uuid" => uuid}, _session, socket) do
+    # Subscribe BEFORE the initial load. A worker `:catalogue_data_changed`
+    # broadcast arriving between `load_pdf` and `subscribe` would
+    # otherwise be lost — the LV would render the stale "Extraction in
+    # progress" alert until the next manual refresh. Cost of this
+    # ordering: at most one duplicate refresh in the rare race window
+    # (handle_info re-fetches the same row and assigns are unchanged).
+    if connected?(socket), do: CataloguePubSub.subscribe()
+
     case load_pdf(uuid) do
       nil ->
         {:ok,
@@ -30,8 +38,6 @@ defmodule PhoenixKitCatalogue.Web.PdfDetailLive do
          |> push_navigate(to: Paths.pdfs())}
 
       pdf ->
-        if connected?(socket), do: CataloguePubSub.subscribe()
-
         {:ok,
          assign(socket,
            pdf: pdf,
@@ -56,58 +62,54 @@ defmodule PhoenixKitCatalogue.Web.PdfDetailLive do
 
   @impl true
   def handle_event("trash", _params, socket) do
-    case Catalogue.trash_pdf(socket.assigns.pdf, Helpers.actor_opts(socket)) do
-      {:ok, _} ->
-        {:noreply,
-         socket
-         |> put_flash(:info, Gettext.gettext(PhoenixKitWeb.Gettext, "PDF moved to trash."))
-         |> push_navigate(to: Paths.pdfs())}
-
-      {:error, _} ->
-        {:noreply,
-         put_flash(
-           socket,
-           :error,
-           Gettext.gettext(PhoenixKitWeb.Gettext, "Could not move the PDF to trash.")
-         )}
-    end
+    detail_pdf_action(socket, &Catalogue.trash_pdf/2,
+      operation: "trash_pdf",
+      success: Gettext.gettext(PhoenixKitWeb.Gettext, "PDF moved to trash."),
+      failure: Gettext.gettext(PhoenixKitWeb.Gettext, "Could not move the PDF to trash."),
+      after_ok: :push_navigate
+    )
   end
 
   @impl true
   def handle_event("restore", _params, socket) do
-    case Catalogue.restore_pdf(socket.assigns.pdf, Helpers.actor_opts(socket)) do
-      {:ok, _} ->
-        {:noreply,
-         socket
-         |> put_flash(:info, Gettext.gettext(PhoenixKitWeb.Gettext, "PDF restored."))
-         |> assign(:pdf, load_pdf(socket.assigns.pdf.uuid))}
-
-      {:error, _} ->
-        {:noreply,
-         put_flash(
-           socket,
-           :error,
-           Gettext.gettext(PhoenixKitWeb.Gettext, "Could not restore the PDF.")
-         )}
-    end
+    detail_pdf_action(socket, &Catalogue.restore_pdf/2,
+      operation: "restore_pdf",
+      success: Gettext.gettext(PhoenixKitWeb.Gettext, "PDF restored."),
+      failure: Gettext.gettext(PhoenixKitWeb.Gettext, "Could not restore the PDF."),
+      after_ok: :reload
+    )
   end
 
   @impl true
   def handle_event("permanently_delete", _params, socket) do
-    case Catalogue.permanently_delete_pdf(socket.assigns.pdf, Helpers.actor_opts(socket)) do
-      {:ok, _} ->
-        {:noreply,
-         socket
-         |> put_flash(:info, Gettext.gettext(PhoenixKitWeb.Gettext, "PDF permanently deleted."))
-         |> push_navigate(to: Paths.pdfs())}
+    detail_pdf_action(socket, &Catalogue.permanently_delete_pdf/2,
+      operation: "permanently_delete_pdf",
+      success: Gettext.gettext(PhoenixKitWeb.Gettext, "PDF permanently deleted."),
+      failure: Gettext.gettext(PhoenixKitWeb.Gettext, "Could not permanently delete the PDF."),
+      after_ok: :push_navigate
+    )
+  end
 
-      {:error, _} ->
-        {:noreply,
-         put_flash(
-           socket,
-           :error,
-           Gettext.gettext(PhoenixKitWeb.Gettext, "Could not permanently delete the PDF.")
-         )}
+  defp detail_pdf_action(socket, action_fn, opts) do
+    pdf = socket.assigns.pdf
+
+    case action_fn.(pdf, Helpers.actor_opts(socket)) do
+      {:ok, _} ->
+        ok_socket = put_flash(socket, :info, Keyword.fetch!(opts, :success))
+
+        case Keyword.fetch!(opts, :after_ok) do
+          :push_navigate -> {:noreply, push_navigate(ok_socket, to: Paths.pdfs())}
+          :reload -> {:noreply, assign(ok_socket, :pdf, load_pdf(pdf.uuid))}
+        end
+
+      {:error, reason} ->
+        Helpers.log_operation_error(socket, Keyword.fetch!(opts, :operation), %{
+          entity_type: "pdf",
+          entity_uuid: pdf.uuid,
+          reason: reason
+        })
+
+        {:noreply, put_flash(socket, :error, Keyword.fetch!(opts, :failure))}
     end
   end
 
@@ -169,24 +171,24 @@ defmodule PhoenixKitCatalogue.Web.PdfDetailLive do
           </div>
 
           <div class="flex items-center gap-3 mt-2 text-xs text-base-content/60">
-            <span class={"badge badge-sm #{extraction_badge_class(@pdf)}"}>
-              {extraction_status_label(@pdf)}
+            <span class={"badge badge-sm #{Helpers.pdf_status_badge_class(Helpers.pdf_extraction_status(@pdf))}"}>
+              {Helpers.pdf_status_label(Helpers.pdf_extraction_status(@pdf))}
             </span>
-            <%= if page_count(@pdf) do %>
+            <%= if Helpers.pdf_extraction_pages(@pdf) do %>
               <span>
                 {Gettext.gettext(PhoenixKitWeb.Gettext, "%{count} pages",
-                  count: page_count(@pdf)
+                  count: Helpers.pdf_extraction_pages(@pdf)
                 )}
               </span>
             <% end %>
             <%= if @pdf.byte_size do %>
-              <span>{format_size(@pdf.byte_size)}</span>
+              <span>{Helpers.format_byte_size(@pdf.byte_size)}</span>
             <% end %>
-            <%= if extracted_at(@pdf) do %>
+            <%= if Helpers.pdf_extracted_at(@pdf) do %>
               <span>
                 {Gettext.gettext(PhoenixKitWeb.Gettext, "Extracted")}: {Calendar.strftime(
-                  extracted_at(@pdf),
-                  "%b %d, %Y %H:%M"
+                  Helpers.pdf_extracted_at(@pdf),
+                  Gettext.gettext(PhoenixKitWeb.Gettext, "%b %d, %Y %H:%M")
                 )}
               </span>
             <% end %>
@@ -198,6 +200,7 @@ defmodule PhoenixKitCatalogue.Web.PdfDetailLive do
             <button
               type="button"
               phx-click="restore"
+              phx-disable-with={Gettext.gettext(PhoenixKitWeb.Gettext, "Restoring…")}
               class="btn btn-ghost btn-sm"
             >
               <.icon name="hero-arrow-uturn-left" class="w-4 h-4" />
@@ -206,6 +209,7 @@ defmodule PhoenixKitCatalogue.Web.PdfDetailLive do
             <button
               type="button"
               phx-click="permanently_delete"
+              phx-disable-with={Gettext.gettext(PhoenixKitWeb.Gettext, "Deleting…")}
               data-confirm={
                 Gettext.gettext(
                   PhoenixKitWeb.Gettext,
@@ -221,6 +225,7 @@ defmodule PhoenixKitCatalogue.Web.PdfDetailLive do
             <button
               type="button"
               phx-click="trash"
+              phx-disable-with={Gettext.gettext(PhoenixKitWeb.Gettext, "Trashing…")}
               data-confirm={
                 Gettext.gettext(PhoenixKitWeb.Gettext, "Move this PDF to trash?")
               }
@@ -233,19 +238,19 @@ defmodule PhoenixKitCatalogue.Web.PdfDetailLive do
         </div>
       </div>
 
-      <%= if extraction_status(@pdf) == "failed" and error_message(@pdf) do %>
+      <%= if Helpers.pdf_extraction_status(@pdf) == "failed" and Helpers.pdf_error_message(@pdf) do %>
         <div class="alert alert-error">
           <.icon name="hero-exclamation-triangle" class="w-4 h-4" />
           <div>
             <div class="font-semibold">
               {Gettext.gettext(PhoenixKitWeb.Gettext, "Extraction failed")}
             </div>
-            <div class="text-xs opacity-80">{error_message(@pdf)}</div>
+            <div class="text-xs opacity-80">{Helpers.pdf_error_message(@pdf)}</div>
           </div>
         </div>
       <% end %>
 
-      <%= if extraction_status(@pdf) == "scanned_no_text" do %>
+      <%= if Helpers.pdf_extraction_status(@pdf) == "scanned_no_text" do %>
         <div class="alert alert-warning">
           <.icon name="hero-photo" class="w-4 h-4" />
           <div>
@@ -262,7 +267,7 @@ defmodule PhoenixKitCatalogue.Web.PdfDetailLive do
         </div>
       <% end %>
 
-      <%= if extraction_status(@pdf) in ["pending", "extracting"] do %>
+      <%= if Helpers.pdf_extraction_status(@pdf) in ["pending", "extracting"] do %>
         <div class="alert alert-info">
           <span class="loading loading-spinner loading-sm"></span>
           <div>
@@ -289,46 +294,4 @@ defmodule PhoenixKitCatalogue.Web.PdfDetailLive do
 
   defp viewer_url(pdf, nil), do: Paths.pdf_viewer(pdf)
   defp viewer_url(pdf, page) when is_integer(page), do: Paths.pdf_viewer(pdf, page)
-
-  # ── Extraction accessor helpers ─────────────────────────────────────
-
-  defp extraction_status(%{extraction: %{extraction_status: s}}) when is_binary(s), do: s
-  defp extraction_status(_), do: "pending"
-
-  defp page_count(%{extraction: %{page_count: n}}) when is_integer(n), do: n
-  defp page_count(_), do: nil
-
-  defp extracted_at(%{extraction: %{extracted_at: dt}}), do: dt
-  defp extracted_at(_), do: nil
-
-  defp error_message(%{extraction: %{error_message: m}}) when is_binary(m), do: m
-  defp error_message(_), do: nil
-
-  defp extraction_badge_class(pdf) do
-    case extraction_status(pdf) do
-      "pending" -> "badge-ghost"
-      "extracting" -> "badge-info"
-      "extracted" -> "badge-success"
-      "scanned_no_text" -> "badge-warning"
-      "failed" -> "badge-error"
-      _ -> "badge-ghost"
-    end
-  end
-
-  defp extraction_status_label(pdf) do
-    case extraction_status(pdf) do
-      "pending" -> Gettext.gettext(PhoenixKitWeb.Gettext, "Pending")
-      "extracting" -> Gettext.gettext(PhoenixKitWeb.Gettext, "Extracting")
-      "extracted" -> Gettext.gettext(PhoenixKitWeb.Gettext, "Extracted")
-      "scanned_no_text" -> Gettext.gettext(PhoenixKitWeb.Gettext, "Scanned (no text)")
-      "failed" -> Gettext.gettext(PhoenixKitWeb.Gettext, "Failed")
-      other -> other
-    end
-  end
-
-  defp format_size(nil), do: "—"
-  defp format_size(bytes) when bytes < 1024, do: "#{bytes} B"
-  defp format_size(bytes) when bytes < 1024 * 1024, do: "#{div(bytes, 1024)} KB"
-  defp format_size(bytes) when bytes < 1024 * 1024 * 1024, do: "#{div(bytes, 1024 * 1024)} MB"
-  defp format_size(bytes), do: "#{Float.round(bytes / (1024 * 1024 * 1024), 2)} GB"
 end

@@ -3312,7 +3312,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
   defdelegate get_pdf!(uuid), to: PdfLibrary
   defdelegate get_pdf_extraction(pdf), to: PdfLibrary, as: :get_extraction
 
-  defdelegate create_pdf_from_upload(tmp_path, original_filename, byte_size, opts \\ []),
+  defdelegate create_pdf_from_upload(tmp_path, original_filename, opts \\ []),
     to: PdfLibrary
 
   defdelegate trash_pdf(pdf, opts \\ []), to: PdfLibrary

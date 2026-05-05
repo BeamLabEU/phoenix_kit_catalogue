@@ -22,6 +22,7 @@ defmodule PhoenixKitCatalogue.Schemas.PdfExtraction do
 
   @statuses ~w(pending extracting extracted scanned_no_text failed)
 
+  @spec statuses() :: [String.t()]
   def statuses, do: @statuses
 
   schema "phoenix_kit_cat_pdf_extractions" do
@@ -36,6 +37,7 @@ defmodule PhoenixKitCatalogue.Schemas.PdfExtraction do
   @required_fields [:file_uuid]
   @optional_fields [:extraction_status, :page_count, :extracted_at, :error_message]
 
+  @spec changeset(t() | %__MODULE__{}, map()) :: Ecto.Changeset.t(t())
   def changeset(extraction, attrs) do
     extraction
     |> cast(attrs, @required_fields ++ @optional_fields)
@@ -44,6 +46,7 @@ defmodule PhoenixKitCatalogue.Schemas.PdfExtraction do
     |> validate_number(:page_count, greater_than_or_equal_to: 0)
   end
 
+  @spec status_changeset(t(), map()) :: Ecto.Changeset.t(t())
   def status_changeset(extraction, attrs) do
     extraction
     |> cast(attrs, [:extraction_status, :page_count, :extracted_at, :error_message])

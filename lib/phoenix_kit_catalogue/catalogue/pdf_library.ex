@@ -20,7 +20,22 @@ defmodule PhoenixKitCatalogue.Catalogue.PdfLibrary do
 
   Public surface re-exported from `PhoenixKitCatalogue.Catalogue`.
   Activity logging follows the catalogue convention — success-only on
-  the context layer.
+  the context layer; the LV layer's `Web.Helpers.log_operation_error/3`
+  writes the `db_pending: true` audit row on failure.
+
+  ## Authorization
+
+  The mutating context functions accept `:actor_uuid` for activity
+  attribution but **do not enforce role checks** — authorization is
+  the LV mount layer's job (admin `live_session` + `on_mount` hook).
+  Same convention as the rest of the catalogue context. New non-LV
+  callers (background jobs, RPC, extension modules) MUST verify the
+  caller is allowed before invoking these functions.
+
+  `create_pdf_from_upload/3` does require a non-nil `:actor_uuid` —
+  not as authorization, but because core's `phoenix_kit_files.user_uuid`
+  is NOT NULL and we'd otherwise crash mid-flow after writing bytes
+  to disk. Returns `{:error, :missing_actor}` cleanly when missing.
   """
 
   import Ecto.Query, warn: false
@@ -76,7 +91,6 @@ defmodule PhoenixKitCatalogue.Catalogue.PdfLibrary do
     |> by_status(status)
     |> select([p], count(p.uuid))
     |> repo().one()
-    |> Kernel.||(0)
   end
 
   defp by_status(query, nil), do: query
@@ -120,18 +134,42 @@ defmodule PhoenixKitCatalogue.Catalogue.PdfLibrary do
        `content_dedup: true` when the file row was a hit.
 
   Returns `{:ok, pdf}` on success.
+
+  The persisted `byte_size` is read from the file on disk via
+  `File.stat!/1` — never from a browser-supplied value — so the
+  recorded size always matches the actual stored bytes.
   """
-  @spec create_pdf_from_upload(String.t(), String.t(), non_neg_integer(), keyword()) ::
+  @spec create_pdf_from_upload(String.t(), String.t(), keyword()) ::
           {:ok, Pdf.t()} | {:error, term()}
-  def create_pdf_from_upload(tmp_path, original_filename, byte_size, opts \\ []) do
+  def create_pdf_from_upload(tmp_path, original_filename, opts \\ []) do
     actor_uuid = opts[:actor_uuid]
 
-    with {:ok, file, dedup_kind} <-
-           store_via_core(tmp_path, original_filename, byte_size, actor_uuid),
-         {:ok, _extraction} <- ensure_extraction(file.uuid),
-         {:ok, pdf} <- insert_pdf_row(file, original_filename, byte_size, dedup_kind, opts) do
-      PubSub.broadcast(:pdf, pdf.uuid)
-      {:ok, pdf}
+    cond do
+      not is_binary(actor_uuid) or actor_uuid == "" ->
+        # Core's `phoenix_kit_files.user_uuid` is NOT NULL; without an
+        # actor, `Storage.store_file/2` would crash with a changeset
+        # validation error after copying the file to disk. Reject early
+        # so the LV gets a clean `{:error, :missing_actor}` to surface.
+        {:error, :missing_actor}
+
+      true ->
+        do_create_pdf_from_upload(tmp_path, original_filename, opts, actor_uuid)
+    end
+  end
+
+  defp do_create_pdf_from_upload(tmp_path, original_filename, opts, actor_uuid) do
+    case File.stat(tmp_path) do
+      {:ok, %File.Stat{size: byte_size}} ->
+        with {:ok, file, dedup_kind} <-
+               store_via_core(tmp_path, original_filename, byte_size, actor_uuid),
+             {:ok, _extraction} <- ensure_extraction(file.uuid),
+             {:ok, pdf} <- insert_pdf_row(file, original_filename, byte_size, dedup_kind, opts) do
+          PubSub.broadcast(:pdf, pdf.uuid)
+          {:ok, pdf}
+        end
+
+      {:error, posix} ->
+        {:error, {:tmp_file_missing, posix}}
     end
   end
 
@@ -139,6 +177,16 @@ defmodule PhoenixKitCatalogue.Catalogue.PdfLibrary do
   # by `file_checksum`, reuse if a non-trashed row already exists.
   # Otherwise hand off to `Storage.store_file/2` with the actor as
   # `user_uuid` (core requires it NOT NULL).
+  #
+  # Race note: concurrent uploads of identical NEW content can both
+  # miss this pre-check and both fall through to `Storage.store_file`.
+  # Core's atomic `unique_index(user_file_checksum)` resolves the
+  # same-user case (one wins, other returns `{:error, changeset}` →
+  # `{:storage_failed, _}`); the cross-user case (different actors,
+  # same content) intentionally produces two file rows because core's
+  # dedup is per-user. The catalogue's per-page-content cache
+  # (`PdfPageContent.content_hash` PK) still dedupes the actual page
+  # text storage in both cases.
   defp store_via_core(tmp_path, filename, byte_size, actor_uuid) do
     file_checksum = sha256_file(tmp_path)
 
@@ -174,25 +222,47 @@ defmodule PhoenixKitCatalogue.Catalogue.PdfLibrary do
     |> Base.encode16(case: :lower)
   end
 
+  # Idempotent: concurrent uploads of identical NEW content can both
+  # branch the `nil` case; using `on_conflict: :nothing` makes the
+  # second insert a no-op rather than raising a PK violation that would
+  # abort the outer upload pipeline. We still need a follow-up `get/2`
+  # to fetch the inserted row's actual fields when the conflict path
+  # was taken (Ecto's `on_conflict: :nothing` returns the changeset's
+  # uncommitted struct, not the existing row's data).
   defp ensure_extraction(file_uuid) do
-    case repo().get(PdfExtraction, file_uuid) do
-      nil ->
-        case %PdfExtraction{}
-             |> PdfExtraction.changeset(%{
-               file_uuid: file_uuid,
-               extraction_status: "pending"
-             })
-             |> repo().insert() do
-          {:ok, extraction} ->
-            enqueue_extraction(file_uuid)
+    changeset =
+      PdfExtraction.changeset(%PdfExtraction{}, %{
+        file_uuid: file_uuid,
+        extraction_status: "pending"
+      })
+
+    case repo().insert(changeset,
+           on_conflict: :nothing,
+           conflict_target: :file_uuid
+         ) do
+      {:ok, _stub} ->
+        # Conflict path: returned struct may be the un-persisted stub.
+        # Re-fetch to ensure we report extraction_status reliably and
+        # only enqueue when the row was newly inserted.
+        case repo().get(PdfExtraction, file_uuid) do
+          %PdfExtraction{extraction_status: "pending", inserted_at: inserted_at} = extraction ->
+            # Heuristic: if inserted within the last second, this call
+            # is the inserter — enqueue. Otherwise another caller already
+            # did so. Idempotent worst case: duplicate enqueue, worker
+            # short-circuits on terminal status.
+            age_secs = DateTime.diff(DateTime.utc_now(), inserted_at, :second)
+            if age_secs <= 1, do: enqueue_extraction(file_uuid)
             {:ok, extraction}
 
-          {:error, _} = err ->
-            err
+          %PdfExtraction{} = extraction ->
+            {:ok, extraction}
+
+          nil ->
+            {:error, :ensure_extraction_lost_row}
         end
 
-      extraction ->
-        {:ok, extraction}
+      {:error, _} = err ->
+        err
     end
   end
 
@@ -292,28 +362,56 @@ defmodule PhoenixKitCatalogue.Catalogue.PdfLibrary do
   def permanently_delete_pdf(%Pdf{} = pdf, opts \\ []) do
     file_uuid = pdf.file_uuid
 
-    result =
-      ActivityLog.with_log(
-        fn -> repo().delete(pdf) end,
-        fn p ->
-          %{
-            action: "pdf.deleted",
-            mode: "manual",
-            actor_uuid: opts[:actor_uuid],
-            resource_type: "pdf",
-            resource_uuid: p.uuid,
-            metadata: %{
-              "original_filename" => p.original_filename,
-              "file_uuid" => file_uuid
-            }
-          }
-        end
+    # Wrap the delete + refcount-then-handoff sequence in a serializable
+    # transaction so a concurrent `create_pdf_from_upload` for the same
+    # `file_uuid` can't slip a new row in between the refcount check
+    # (returns 0) and `Storage.trash_file/1` — which would otherwise
+    # leave the new upload's reference orphaned by core's prune. Postgres
+    # SERIALIZABLE detects the read-write conflict and aborts one of
+    # the racing transactions; the loser surfaces as `40001` and the
+    # caller can retry.
+    txn =
+      repo().transaction(
+        fn ->
+          case repo().delete(pdf) do
+            {:ok, deleted} ->
+              maybe_handoff_underlying_file(file_uuid)
+              deleted
+
+            {:error, changeset} ->
+              repo().rollback(changeset)
+          end
+        end,
+        isolation: :serializable
       )
 
-    with {:ok, deleted} <- result do
-      maybe_handoff_underlying_file(file_uuid)
-      PubSub.broadcast(:pdf, deleted.uuid)
-      {:ok, deleted}
+    case txn do
+      {:ok, deleted} ->
+        # Action name is `pdf.permanently_deleted` (not `pdf.deleted`)
+        # so it lines up with `Web.Helpers.derive_activity_action/2`'s
+        # `permanently_delete_` prefix → past tense `permanently_deleted`
+        # mapping. Lets the LV's `:error` branch use `log_operation_error`
+        # without a custom action override.
+        ActivityLog.log(%{
+          action: "pdf.permanently_deleted",
+          mode: "manual",
+          actor_uuid: opts[:actor_uuid],
+          resource_type: "pdf",
+          resource_uuid: deleted.uuid,
+          metadata: %{
+            "original_filename" => deleted.original_filename,
+            "file_uuid" => file_uuid
+          }
+        })
+
+        PubSub.broadcast(:pdf, deleted.uuid)
+        {:ok, deleted}
+
+      {:error, %Postgrex.Error{postgres: %{code: :serialization_failure}}} ->
+        {:error, :serialization_conflict}
+
+      {:error, _} = err ->
+        err
     end
   end
 
@@ -430,13 +528,32 @@ defmodule PhoenixKitCatalogue.Catalogue.PdfLibrary do
   end
 
   defp tap_log_extraction({:ok, extraction} = res, action, file_uuid, extra_metadata) do
-    # Activity row per active/trashed PDF entry pointing at this file —
-    # so the audit feed shows the extraction outcome alongside each
-    # user-facing upload row.
-    pdfs =
-      repo().all(
-        from(p in Pdf, where: p.file_uuid == ^file_uuid)
-      )
+    log_extraction_per_pdf(action, file_uuid, extra_metadata, %{})
+    _ = extraction
+    res
+  end
+
+  # `:error` branch: the DB write for the worker callback failed
+  # (e.g. extraction row vanished, sandbox stale). Per the workspace
+  # playbook, log a `db_pending: true` audit row so the user-initiated
+  # action is still in the audit trail even when persistence failed.
+  defp tap_log_extraction({:error, reason} = res, action, file_uuid, extra_metadata) do
+    log_extraction_per_pdf(action, file_uuid, extra_metadata, %{
+      "db_pending" => true,
+      "error_kind" => failure_error_kind(reason),
+      "reason" => failure_reason(reason)
+    })
+
+    res
+  end
+
+  defp tap_log_extraction(other, _, _, _), do: other
+
+  # One audit row per active/trashed PDF entry pointing at this file —
+  # so the audit feed shows the extraction outcome alongside each
+  # user-facing upload row.
+  defp log_extraction_per_pdf(action, file_uuid, extra_metadata, failure_metadata) do
+    pdfs = repo().all(from(p in Pdf, where: p.file_uuid == ^file_uuid))
 
     Enum.each(pdfs, fn pdf ->
       ActivityLog.log(%{
@@ -445,21 +562,23 @@ defmodule PhoenixKitCatalogue.Catalogue.PdfLibrary do
         resource_type: "pdf",
         resource_uuid: pdf.uuid,
         metadata:
-          Map.merge(
-            %{
-              "original_filename" => pdf.original_filename,
-              "file_uuid" => file_uuid
-            },
-            extra_metadata
-          )
+          %{"original_filename" => pdf.original_filename, "file_uuid" => file_uuid}
+          |> Map.merge(extra_metadata)
+          |> Map.merge(failure_metadata)
       })
     end)
-
-    _ = extraction
-    res
   end
 
-  defp tap_log_extraction(other, _, _, _), do: other
+  defp failure_error_kind(:not_found), do: "not_found"
+  defp failure_error_kind(%Ecto.Changeset{}), do: "changeset"
+  defp failure_error_kind(reason) when is_atom(reason), do: "atom"
+  defp failure_error_kind(_), do: "other"
+
+  defp failure_reason(:not_found), do: "extraction_row_vanished"
+  defp failure_reason(%Ecto.Changeset{errors: errors}),
+    do: errors |> Enum.map(fn {k, _} -> Atom.to_string(k) end) |> Enum.uniq() |> Enum.join(",")
+  defp failure_reason(reason) when is_atom(reason), do: Atom.to_string(reason)
+  defp failure_reason(_), do: "unspecified"
 
   # ── Search ──────────────────────────────────────────────────────────
 
@@ -561,6 +680,7 @@ defmodule PhoenixKitCatalogue.Catalogue.PdfLibrary do
   end
 
   @doc false
+  @spec item_titles(Item.t()) :: [String.t()]
   def item_titles(%Item{} = item) do
     primary = [item.name]
 
@@ -574,7 +694,16 @@ defmodule PhoenixKitCatalogue.Catalogue.PdfLibrary do
             |> Map.get("name")
           end)
         rescue
-          _ -> []
+          # Multilang ships with the host app; the realistic failure
+          # surface here is a stale settings cache (KeyError),
+          # missing-locale list (ArgumentError), or a future API
+          # change (UndefinedFunctionError). Anything else (DB error,
+          # programmer bug) re-raises so it surfaces in telemetry
+          # instead of silently degrading the search to "no
+          # translations found".
+          e in [KeyError, ArgumentError, UndefinedFunctionError] ->
+            Logger.warning("PdfLibrary.item_titles Multilang lookup failed: #{Exception.message(e)}")
+            []
         end
       else
         []
@@ -858,7 +987,17 @@ defmodule PhoenixKitCatalogue.Catalogue.PdfLibrary do
         |> PhoenixKitCatalogue.Workers.PdfExtractor.new()
         |> Oban.insert()
       rescue
-        e ->
+        # Realistic Oban.insert failure modes: DB connectivity, schema
+        # drift on `oban_jobs` (Ecto.QueryError / Postgrex.Error), or
+        # ArgumentError when Oban hasn't been started in the host app
+        # (e.g. test env without the supervisor). Anything else
+        # re-raises so it surfaces in telemetry.
+        e in [
+          DBConnection.ConnectionError,
+          Postgrex.Error,
+          Ecto.QueryError,
+          ArgumentError
+        ] ->
           Logger.warning("PdfExtractor enqueue failed: #{Exception.message(e)}")
           :error
       end

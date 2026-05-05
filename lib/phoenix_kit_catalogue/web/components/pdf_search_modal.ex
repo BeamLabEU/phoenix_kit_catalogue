@@ -86,14 +86,30 @@ defmodule PhoenixKitCatalogue.Web.Components.PdfSearchModal do
         last_item_uuid: item.uuid
       )
     rescue
-      e ->
+      # Narrowed: only catch DB-side and known query errors. Anything
+      # else (programmer error, missing module, etc.) re-raises so it
+      # surfaces in telemetry instead of silently rendering as a UI
+      # message that hides the bug.
+      e in [
+        DBConnection.ConnectionError,
+        Postgrex.Error,
+        Ecto.QueryError,
+        Ecto.Query.CastError
+      ] ->
+        require Logger
+        Logger.warning("PdfSearchModal.run_search/2 DB error: #{Exception.message(e)}")
+
         assign(socket,
           groups: [],
           titles: [],
           trigram_query: nil,
           loading: false,
           expanding: MapSet.new(),
-          error: Exception.message(e),
+          error:
+            Gettext.gettext(
+              PhoenixKitWeb.Gettext,
+              "Search is temporarily unavailable. Please try again in a moment."
+            ),
           last_item_uuid: item.uuid
         )
     end
@@ -137,11 +153,25 @@ defmodule PhoenixKitCatalogue.Web.Components.PdfSearchModal do
          |> assign(:groups, new_groups)
          |> assign(:expanding, MapSet.delete(socket.assigns.expanding, pdf_uuid))}
       rescue
-        e ->
+        e in [
+          DBConnection.ConnectionError,
+          Postgrex.Error,
+          Ecto.QueryError,
+          Ecto.Query.CastError
+        ] ->
+          require Logger
+          Logger.warning("PdfSearchModal.show_more DB error: #{Exception.message(e)}")
+
           {:noreply,
            socket
            |> assign(:expanding, MapSet.delete(socket.assigns.expanding, pdf_uuid))
-           |> assign(:error, Exception.message(e))}
+           |> assign(
+             :error,
+             Gettext.gettext(
+               PhoenixKitWeb.Gettext,
+               "Could not load more matches. Please try again."
+             )
+           )}
       end
     end
   end

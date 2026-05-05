@@ -48,9 +48,13 @@ defmodule PhoenixKitCatalogue.Paths do
 
   # ── PDF library ──────────────────────────────────────────────────
 
+  @spec pdfs() :: String.t()
   def pdfs, do: Routes.path("#{@base}/pdfs")
+
+  @spec pdf_detail(Ecto.UUID.t()) :: String.t()
   def pdf_detail(uuid), do: Routes.path("#{@base}/pdfs/#{uuid}")
 
+  @spec pdf_detail(Ecto.UUID.t(), pos_integer()) :: String.t()
   def pdf_detail(uuid, page) when is_integer(page) and page >= 1,
     do: Routes.path("#{@base}/pdfs/#{uuid}?page=#{page}")
 
@@ -59,6 +63,7 @@ defmodule PhoenixKitCatalogue.Paths do
   core's `Storage.URLSigner` — the host app already routes
   `/file/:file_uuid/:variant/:token` through core's `FileController`.
   """
+  @spec pdf_file(map()) :: String.t()
   def pdf_file(%{file_uuid: file_uuid}) when is_binary(file_uuid) do
     PhoenixKit.Modules.Storage.URLSigner.signed_url(file_uuid, "original")
   end
@@ -68,13 +73,21 @@ defmodule PhoenixKitCatalogue.Paths do
   optional page fragment set. The viewer assets are vendored under
   `priv/static/pdfjs/` and served at `/_pdfjs/` by the host
   endpoint's `Plug.Static` mount.
+
+  The signed file URL is encoded via `URI.encode_www_form/1` so
+  reserved characters in the underlying URL (`?`, `&`, `=`, `#`,
+  spaces) become percent-escaped query-param-safe bytes — `URI.encode/1`
+  alone does NOT escape those, which would corrupt the viewer's own
+  `#page=N` fragment if the file URL ever carries them.
   """
+  @spec pdf_viewer(map(), pos_integer()) :: String.t()
   def pdf_viewer(pdf, page) when is_integer(page) and page >= 1 do
-    "/_pdfjs/web/viewer.html?file=" <> URI.encode(pdf_file(pdf)) <>
+    "/_pdfjs/web/viewer.html?file=" <> URI.encode_www_form(pdf_file(pdf)) <>
       "#page=" <> Integer.to_string(page)
   end
 
+  @spec pdf_viewer(map()) :: String.t()
   def pdf_viewer(pdf) do
-    "/_pdfjs/web/viewer.html?file=" <> URI.encode(pdf_file(pdf))
+    "/_pdfjs/web/viewer.html?file=" <> URI.encode_www_form(pdf_file(pdf))
   end
 end

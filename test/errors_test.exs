@@ -60,15 +60,12 @@ defmodule PhoenixKitCatalogue.ErrorsTest do
       assert Errors.message(:csv_empty) == "CSV file is empty."
     end
 
-    test "pdf_invalid_format" do
-      assert Errors.message(:pdf_invalid_format) ==
-               "The uploaded file is not a valid PDF."
-    end
-
-    test "pdf_extraction_failed" do
-      assert Errors.message(:pdf_extraction_failed) ==
-               "Could not extract text from this PDF. Check the events log for details."
-    end
+    # `:pdf_invalid_format` and `:pdf_extraction_failed` removed
+    # 2026-05-06 (Phase 2 sweep) — neither had a caller. The PDF
+    # library upload pipeline rejects non-PDF MIME at the LV's
+    # `accept` attr, and the worker stores extraction errors as
+    # raw strings in `error_message` for direct LV display, never
+    # routing through `Errors.message/1`.
   end
 
   describe "message/1 — tagged tuples" do
@@ -111,10 +108,11 @@ defmodule PhoenixKitCatalogue.ErrorsTest do
       assert Errors.message({:csv_parse_failed, "bad row"}) == "Failed to parse CSV file."
     end
 
-    test "{:pdftotext_failed, raw}" do
-      assert Errors.message({:pdftotext_failed, "exit 1: malformed pdf"}) ==
-               "PDF text extractor returned an error: exit 1: malformed pdf"
-    end
+    # `{:pdftotext_failed, raw}` removed 2026-05-06 (Phase 2 sweep) —
+    # the worker emits 4-arity `{:pdftotext_failed, page, code, msg}`
+    # tuples internally and collapses them to a string via its own
+    # `inspect_reason/1` helper before persisting; never routes
+    # through `Errors.message/1`.
   end
 
   describe "message/1 — pass-through shapes" do
