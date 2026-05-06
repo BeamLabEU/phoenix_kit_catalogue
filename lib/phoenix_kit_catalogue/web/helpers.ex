@@ -226,4 +226,100 @@ defmodule PhoenixKitCatalogue.Web.Helpers do
   defp build_failure_metadata(_other) do
     %{"db_pending" => true, "error_kind" => "other"}
   end
+
+  # ── PDF library display helpers ─────────────────────────────────────
+  # Shared between `Web.PdfLibraryLive` and `Web.PdfDetailLive`. Pure
+  # accessors / formatters with no side effects — safe to call from a
+  # template's interpolated expression.
+
+  @doc "Pulls the extraction status off a (possibly preloaded) Pdf row; defaults to `pending`."
+  @spec pdf_extraction_status(map()) :: String.t()
+  def pdf_extraction_status(%{extraction: %{extraction_status: s}}) when is_binary(s), do: s
+  def pdf_extraction_status(_), do: "pending"
+
+  @doc "Pulls the page count off a (possibly preloaded) Pdf row; returns nil if unknown."
+  @spec pdf_extraction_pages(map()) :: integer() | nil
+  def pdf_extraction_pages(%{extraction: %{page_count: n}}) when is_integer(n), do: n
+  def pdf_extraction_pages(_), do: nil
+
+  @doc "Pulls the extracted_at timestamp off a (possibly preloaded) Pdf row; nil if not extracted."
+  @spec pdf_extracted_at(map()) :: DateTime.t() | NaiveDateTime.t() | nil
+  def pdf_extracted_at(%{extraction: %{extracted_at: dt}}), do: dt
+  def pdf_extracted_at(_), do: nil
+
+  @doc "Pulls the error_message off a (possibly preloaded) Pdf row; nil if no error."
+  @spec pdf_error_message(map()) :: String.t() | nil
+  def pdf_error_message(%{extraction: %{error_message: m}}) when is_binary(m), do: m
+  def pdf_error_message(_), do: nil
+
+  @doc "daisyUI badge class for an extraction status string."
+  @spec pdf_status_badge_class(String.t()) :: String.t()
+  def pdf_status_badge_class("pending"), do: "badge-ghost"
+  def pdf_status_badge_class("extracting"), do: "badge-info"
+  def pdf_status_badge_class("extracted"), do: "badge-success"
+  def pdf_status_badge_class("scanned_no_text"), do: "badge-warning"
+  def pdf_status_badge_class("failed"), do: "badge-error"
+  def pdf_status_badge_class(_), do: "badge-ghost"
+
+  @doc "Translated label for an extraction status."
+  @spec pdf_status_label(String.t()) :: String.t()
+  def pdf_status_label("pending"), do: Gettext.gettext(PhoenixKitWeb.Gettext, "Pending")
+  def pdf_status_label("extracting"), do: Gettext.gettext(PhoenixKitWeb.Gettext, "Extracting")
+  def pdf_status_label("extracted"), do: Gettext.gettext(PhoenixKitWeb.Gettext, "Extracted")
+
+  def pdf_status_label("scanned_no_text"),
+    do: Gettext.gettext(PhoenixKitWeb.Gettext, "Scanned (no text)")
+
+  def pdf_status_label("failed"), do: Gettext.gettext(PhoenixKitWeb.Gettext, "Failed")
+  def pdf_status_label(other), do: other
+
+  @doc "Human-readable byte size with B / KB / MB / GB suffixes."
+  @spec format_byte_size(integer() | nil) :: String.t()
+  def format_byte_size(nil), do: "—"
+  def format_byte_size(bytes) when bytes < 1024, do: "#{bytes} B"
+  def format_byte_size(bytes) when bytes < 1024 * 1024, do: "#{div(bytes, 1024)} KB"
+
+  def format_byte_size(bytes) when bytes < 1024 * 1024 * 1024,
+    do: "#{div(bytes, 1024 * 1024)} MB"
+
+  def format_byte_size(bytes), do: "#{Float.round(bytes / (1024 * 1024 * 1024), 2)} GB"
+
+  @doc """
+  Translated relative-time label for a timestamp.
+
+  Buckets: `< 1m` → "just now", `< 1h` → "Nm ago", `< 1d` → "Nh ago",
+  `< 1w` → "Nd ago", else `Mon DD, YYYY` (locale-formatted via
+  gettext'd strftime template).
+  """
+  @spec format_time_ago(DateTime.t() | nil) :: String.t()
+  def format_time_ago(nil), do: "—"
+
+  def format_time_ago(datetime) do
+    diff = DateTime.diff(DateTime.utc_now(), datetime, :second)
+
+    cond do
+      diff < 60 ->
+        Gettext.gettext(PhoenixKitWeb.Gettext, "just now")
+
+      diff < 3600 ->
+        Gettext.gettext(PhoenixKitWeb.Gettext, "%{n}m ago", n: div(diff, 60))
+
+      diff < 86_400 ->
+        Gettext.gettext(PhoenixKitWeb.Gettext, "%{n}h ago", n: div(diff, 3600))
+
+      diff < 604_800 ->
+        Gettext.gettext(PhoenixKitWeb.Gettext, "%{n}d ago", n: div(diff, 86_400))
+
+      true ->
+        Calendar.strftime(
+          datetime,
+          Gettext.gettext(PhoenixKitWeb.Gettext, "%b %d, %Y")
+        )
+    end
+  end
+
+  @doc "HTML-escapes a string for safe interpolation into raw markup."
+  @spec escape_html(String.t() | nil) :: String.t()
+  def escape_html(s),
+    do: s |> to_string() |> Phoenix.HTML.html_escape() |> Phoenix.HTML.safe_to_string()
 end

@@ -31,6 +31,17 @@ defmodule PhoenixKitCatalogue.Catalogue.SmartPricing do
   silent `%Ecto.Association.NotLoaded{}` propagating into `Decimal`
   math and crashing further downstream.
 
+  ## Numeric precision for `:qty`
+
+  `entry.qty` accepts `integer()`, `Decimal.t()`, or `float()`; floats
+  are converted via `Decimal.from_float/1` and carry their binary-float
+  imprecision (e.g. `1.1` → `1.100000000000000088817841970012523233890533447265625`)
+  into every downstream Decimal op, including the per-catalogue ref-sum
+  that drives `percent`-rule pricing. Callers needing cent-exact billing
+  output should pass `Decimal.t()` or `integer()`; floats are acceptable
+  for display-only previews where the imprecision washes out in the
+  rounding step.
+
   ## No rules → 0
 
   A smart item with no rule rows is written `Decimal.new("0.00")`,

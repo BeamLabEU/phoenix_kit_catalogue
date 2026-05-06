@@ -186,6 +186,16 @@ defmodule PhoenixKitCatalogue.Errors do
   def message({:csv_parse_failed, _raw}),
     do: Gettext.gettext(PhoenixKitWeb.Gettext, "Failed to parse CSV file.")
 
+  # PDF library error atoms removed 2026-05-06 (Phase 2 sweep) —
+  # `:pdf_invalid_format` had no caller (the upload pipeline rejects
+  # non-PDF MIME at the LV's `accept` attr, never via Errors).
+  # `:pdf_extraction_failed` had no caller (worker stores the raw
+  # message string in `error_message` and the LV renders it directly).
+  # `{:pdftotext_failed, raw}` was 2-arity but the worker emits 4-arity
+  # `{:pdftotext_failed, page, code, msg}` and collapses it to a string
+  # via its own `inspect_reason/1` helper before persisting — never
+  # routes through this module.
+
   # Pass-through for shapes that already carry user-renderable content.
 
   def message(%Changeset{} = changeset), do: changeset

@@ -153,6 +153,44 @@ Both catalogue and item forms support a featured image + a folder-scoped file gr
 
 The dropdown is absolutely positioned with `z-50` — the container's ancestors must not clip overflow.
 
+### PDF library (V111, prototype)
+
+> **Status: prototype, in development.** First in-flight feature where the catalogue grew background-job and binary-asset surfaces. The full pipeline runs end-to-end (upload → async extract → search → page jump in PDF.js) but several known cuts are deliberate v1 scope (see "Cuts from v1" below). Cross-repo touches in `phoenix_kit` core (V111) and `phoenix_kit_parent` (endpoint static plugs + Oban queue) — see "Resuming the work" at the bottom of this section if the prototype gets re-stashed.
+
+Admin-facing PDF library at `/admin/catalogue/pdfs` with a per-item "Search PDFs" button on the item edit form. Users upload PDFs of any size; the catalogue extracts per-page text asynchronously via Oban; clicking the button on an item searches the entire library for any of the item's translated names and opens hits in an embedded PDF.js viewer at the matching page.
+
+- **Schemas** (V111 in core, see `phoenix_kit/lib/phoenix_kit/migrations/postgres/v111.ex`):
+  - `phoenix_kit_cat_pdfs` — one row per uploaded PDF. Holds `original_filename`, on-disk `file_path`, `byte_size`, `status`, `page_count`, `extracted_at`, `error_message`. Status flow `pending → extracting → extracted | scanned_no_text | failed`. Deliberately does **not** go through `phoenix_kit_files` — PDFs are non-displayable, large, and have no use for variants/folders/links, so the row owns its file metadata directly. The on-disk filename UUID and the row UUID are generated independently (filename pre-generated at upload time before the row exists); always derive the URL from `pdf.file_path`'s basename, never from `pdf.uuid`.
+  - `phoenix_kit_cat_pdf_pages` — one row per extracted page. UNIQUE on `(pdf_uuid, page_number)`, `ON DELETE CASCADE`. GIN trigram index on `text` (`gin_trgm_ops` from `pg_trgm`, enabled in V111's `up/1`) — load-bearing once the corpus exceeds ~10k pages.
+- **File storage** — uploaded PDFs land in `Application.app_dir(:phoenix_kit_catalogue, "priv/uploads/pdfs/<uuid>.pdf")`. Served by a `Plug.Static` mount on the host endpoint at `/_pdf_uploads/`. PDF.js viewer assets (~1MB, vendored from `pdfjs-dist` v4.10.38) live under `priv/static/pdfjs/`, served at `/_pdfjs/`. Both static plugs are mounts on the host's `endpoint.ex` — see "Resuming the work" for the exact wiring.
+- **Async extraction** — `PhoenixKitCatalogue.Workers.PdfExtractor` is the catalogue's first Oban worker (small pivot from the "no background jobs" line above; phoenix_kit core already provides Oban so it's not new infra). Queue `:catalogue_pdf`, `max_attempts: 3`, recommended host concurrency 2. Reads page count via `pdfinfo`, then runs `pdftotext -layout -enc UTF-8 -f N -l N file -` per page. Page text is normalized at write time: strips soft-hyphens, undoes line-break hyphenation (`Pre-\nmium` → `Premium`), unfolds common ligatures (`ﬁ`, `ﬂ`, `ﬀ`, `ﬃ`, `ﬄ`), collapses whitespace runs to single spaces. If every page comes back empty the row flips to `scanned_no_text` (deliberate signal that OCR is needed; see "Cuts from v1"). Process spawn errors / non-zero pdftotext exits flip to `failed` with a 500-char-truncated stderr.
+- **Context** — `Catalogue.PdfLibrary` submodule. Public surface re-exported via `defdelegate` from `Catalogue`: `list_pdfs/1`, `count_pdfs/1`, `get_pdf/1`, `get_pdf!/1`, `create_pdf/2`, `delete_pdf/2`, `search_pdfs_for_item/2`, `pdf_storage_dir/0`. Worker callbacks (`mark_extracting/1`, `insert_page/3`, `mark_extracted/2`, `mark_scanned_no_text/2`, `mark_failed/2`) are `@doc false` and called only from the worker.
+- **Search semantics** — `search_pdfs_for_item/2` builds the title list from `item.name` plus every enabled language's `data["translations"][lang]["name"]`, normalises whitespace, dedupes. Two-stage match:
+  1. **Literal `ILIKE ANY($titles)`** — fast, precise, returns up to `:limit` (default 50) hits ordered by `(pdf inserted_at DESC, page_number ASC)`.
+  2. **Trigram fallback** when literal returns nothing — runs `similarity(text, longest_title) > 0.4` (configurable via `:similarity_threshold` opt) and orders by similarity DESC. The fallback exists because PDF text extraction routinely mangles ligatures, line-break hyphenation, and header/footer noise even after normalisation; literal recall on real PDFs is only ~80%.
+  Each hit returns `%{pdf, page_number, snippet, score}`. The 200-char snippet is centred on the first matching title in the page's text (case-insensitive substring match for the window).
+- **PubSub** — every PDF mutation broadcasts `{:catalogue_data_changed, :pdf, uuid, nil}` on the existing `"phoenix_kit_catalogue"` topic. `:pdf` is added to the `kind` typespec in `Catalogue.PubSub`. The library and detail LVs subscribe in `mount/3` (guarded by `connected?/1`) so the worker's status transitions refresh the open page without manual reload.
+- **Search button + modal** — `PhoenixKitCatalogue.Web.Components.PdfSearchModal` LiveComponent, dropped into `ItemFormLive`'s render only when `@action == :edit`. Button click sets `:show_pdf_search` true; modal runs the search on first visible mount via `update/2` (cached per-item-uuid so reopens don't re-query); close button sends `{:pdf_search_modal_closed}` back to the parent LV via `send/2`. Each hit links to `Paths.pdf_detail(pdf_uuid, page_number)` which becomes a query-param URL the detail LV plumbs into the iframe `#page=N` fragment.
+- **Activity logging** — added actions: `pdf.uploaded` (manual, on `create_pdf/2`), `pdf.extracted` (auto, on extraction success with `page_count`), `pdf.scanned_no_text` (auto), `pdf.extraction_failed` (auto, with `error_message`), `pdf.deleted` (manual). All logged via the existing `Catalogue.ActivityLog` `:ok`-only convention.
+- **Errors module** — added atoms: `:pdf_invalid_format`, `:pdf_extraction_failed`, `{:pdftotext_failed, raw}`. Test rows in `test/errors_test.exs` pin each.
+
+**Cuts from v1 (deliberate)** — none of the below was implemented; each is a clean follow-up rather than throwaway work:
+
+- **OCR fallback** for scanned PDFs. The `scanned_no_text` status badge is the user-visible signal; integrating Tesseract via port (`tesseract input.pdf - -l eng`) is the right shape but adds 1–5s/page and external-binary dependency.
+- **Re-extraction UI** — current flow is delete + re-upload. Re-extract button on the detail page is a 10-line addition once needed.
+- **Per-catalogue scoping** — the library is global; the search button searches across all PDFs. If catalogues become reference-doc silos, add a `catalogue_uuid` FK on `phoenix_kit_cat_pdfs` and gate the search.
+- **AI / embeddings** — the per-page text rows are intentionally a clean shape for an embeddings pipeline. The `text` column doubles as input to a future `phoenix_kit_cat_pdf_embeddings(page_uuid, vector)` table.
+- **Search-click activity log** — search button clicks are not logged. Would be noisy and aren't audit-worthy at this stage.
+- **File size cap** — soft cap at 200MB in the LV upload config; no server-side enforcement beyond that. Server-side cap would live as a Setting once needed.
+- **Search button on item table rows** — only on the item edit form for v1; adding it to `item_table` rows on the catalogue detail / search results is straightforward but adds visual noise to a row-dense UI.
+
+**Resuming the work** — this prototype is currently stashed (see git stash list in `phoenix_kit` and `phoenix_kit_catalogue`). To resume:
+
+1. `cd phoenix_kit && git stash pop` — restores the V111 migration and orchestrator bump.
+2. `cd phoenix_kit_catalogue && git stash pop` — restores the schemas, context, worker, LVs, components, errors, vendored PDF.js, and this AGENTS.md section.
+3. Apply the V111 migration: `cd phoenix_kit_parent && mix run -e 'Ecto.Migrator.run(PhoenixKitParent.Repo, [{0, PhoenixKit.Migration}], :up, all: true)'`. The host endpoint already has the two `Plug.Static` mounts (`/_pdfjs`, `/_pdf_uploads`) and the `:catalogue_pdf` Oban queue config — those edits live in `phoenix_kit_parent` and were left unstashed because the parent is disposable.
+4. `cd phoenix_kit_parent && mix phx.server` — boot. Browse to `/phoenix_kit/<locale>/admin/catalogue/pdfs` to upload. Worker fires automatically.
+
 ### Errors API
 
 The public `PhoenixKitCatalogue.Errors` module is the single source of

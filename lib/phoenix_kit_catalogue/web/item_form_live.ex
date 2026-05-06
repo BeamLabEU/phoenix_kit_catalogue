@@ -127,7 +127,8 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
       smart_move_targets: smart_move_targets,
       move_target: nil,
       current_tab: :details,
-      meta_state: Metadata.build_state(:item, item)
+      meta_state: Metadata.build_state(:item, item),
+      show_pdf_search: false
     )
     |> Attachments.mount_attachments(item)
     |> Attachments.allow_attachment_upload()
@@ -344,6 +345,9 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   def handle_event("clear_featured_image", _params, socket),
     do: Attachments.clear_featured_image(socket)
 
+  def handle_event("open_pdf_search", _params, socket),
+    do: {:noreply, assign(socket, :show_pdf_search, true)}
+
   def handle_event("validate", params, socket) do
     socket = absorb_meta_params(socket, params)
     item_params = Map.get(params, "item", %{})
@@ -478,6 +482,9 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
 
   def handle_info({:media_selector_closed}, socket),
     do: {:noreply, Attachments.close_media_selector(socket)}
+
+  def handle_info({:pdf_search_modal_closed}, socket),
+    do: {:noreply, assign(socket, :show_pdf_search, false)}
 
   # Catch-all so stray monitor signals or unrelated PubSub traffic
   # can't crash the form mid-edit.
@@ -676,6 +683,35 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                 "Update item details, pricing, and classification."
               )
         }
+      />
+
+      <%!-- PDF search button — visible on edit only. Opens a modal that
+           searches the PDF library for any page mentioning the item's
+           translated names. --%>
+      <div :if={@action == :edit} class="flex items-center justify-between bg-base-200 rounded-lg p-3 gap-3">
+        <div class="text-sm">
+          <div class="font-medium">
+            {Gettext.gettext(PhoenixKitWeb.Gettext, "Find this item in PDFs")}
+          </div>
+          <div class="text-xs text-base-content/60">
+            {Gettext.gettext(
+              PhoenixKitWeb.Gettext,
+              "Searches the entire PDF library for the item's name across all enabled languages."
+            )}
+          </div>
+        </div>
+        <button type="button" phx-click="open_pdf_search" class="btn btn-sm btn-primary">
+          <.icon name="hero-magnifying-glass" class="w-4 h-4" />
+          {Gettext.gettext(PhoenixKitWeb.Gettext, "Search PDFs")}
+        </button>
+      </div>
+
+      <.live_component
+        :if={@action == :edit}
+        module={PhoenixKitCatalogue.Web.Components.PdfSearchModal}
+        id="pdf-search-modal"
+        item={@item}
+        show={@show_pdf_search}
       />
 
       <%!-- Primary language warning --%>

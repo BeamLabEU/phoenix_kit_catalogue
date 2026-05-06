@@ -28,6 +28,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   alias PhoenixKitCatalogue.Catalogue.PubSub
   alias PhoenixKitCatalogue.Paths
   alias PhoenixKitCatalogue.Schemas.{Category, Item}
+  alias PhoenixKitCatalogue.Web.Components.PdfSearchModal
 
   @per_page 100
 
@@ -55,7 +56,9 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         search_offset: 0,
         search_total: 0,
         search_has_more: false,
-        search_loading: false
+        search_loading: false,
+        show_pdf_search: false,
+        pdf_search_item: nil
       )
 
     if connected?(socket) do
@@ -111,6 +114,10 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       when kind in [:category, :item, :smart_rule] and
              (parent == catalogue_uuid or is_nil(parent)) do
     handle_catalogue_data_changed(socket)
+  end
+
+  def handle_info({:pdf_search_modal_closed}, socket) do
+    {:noreply, assign(socket, show_pdf_search: false, pdf_search_item: nil)}
   end
 
   def handle_info(msg, socket) do
@@ -170,6 +177,19 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
   def handle_event("clear_search", _params, socket) do
     {:noreply, clear_search(socket)}
+  end
+
+  def handle_event("show_pdf_search", %{"uuid" => uuid}, socket) do
+    case Catalogue.get_item(uuid) do
+      nil ->
+        {:noreply, socket}
+
+      item ->
+        {:noreply,
+         socket
+         |> assign(:pdf_search_item, item)
+         |> assign(:show_pdf_search, true)}
+    end
   end
 
   def handle_event("delete_item", %{"uuid" => uuid}, socket) do
@@ -1160,6 +1180,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               columns={[:name, :sku, :base_price, :price, :unit, :status]}
               markup_percentage={@catalogue.markup_percentage}
               edit_path={&Paths.item_edit/1}
+              pdf_search_event="show_pdf_search"
               cards={true}
               show_toggle={false}
               storage_key="catalogue-detail-items"
@@ -1304,6 +1325,14 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         confirm_text={Gettext.gettext(PhoenixKitWeb.Gettext, "Delete Forever")}
         danger={true}
       />
+
+      <.live_component
+        :if={@pdf_search_item}
+        module={PdfSearchModal}
+        id="catalogue-detail-pdf-search"
+        item={@pdf_search_item}
+        show={@show_pdf_search}
+      />
     </div>
 
     <script>
@@ -1442,6 +1471,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
             markup_percentage={@catalogue.markup_percentage}
             edit_path={&Paths.item_edit/1}
             on_delete="delete_item"
+            pdf_search_event="show_pdf_search"
             cards={true}
             show_toggle={false}
             storage_key="catalogue-detail-items"
@@ -1498,6 +1528,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
             on_restore={if @view_mode == "deleted", do: "restore_item"}
             on_permanent_delete={if @view_mode == "deleted", do: "show_delete_confirm"}
             permanent_delete_type="item"
+            pdf_search_event={if @view_mode == "active", do: "show_pdf_search"}
             cards={true}
             show_toggle={false}
             storage_key="catalogue-detail-items"

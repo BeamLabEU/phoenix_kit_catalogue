@@ -59,6 +59,13 @@ defmodule PhoenixKitCatalogue.ErrorsTest do
     test "csv_empty" do
       assert Errors.message(:csv_empty) == "CSV file is empty."
     end
+
+    # `:pdf_invalid_format` and `:pdf_extraction_failed` removed
+    # 2026-05-06 (Phase 2 sweep) — neither had a caller. The PDF
+    # library upload pipeline rejects non-PDF MIME at the LV's
+    # `accept` attr, and the worker stores extraction errors as
+    # raw strings in `error_message` for direct LV display, never
+    # routing through `Errors.message/1`.
   end
 
   describe "message/1 — tagged tuples" do
@@ -100,6 +107,12 @@ defmodule PhoenixKitCatalogue.ErrorsTest do
     test "{:csv_parse_failed, raw}" do
       assert Errors.message({:csv_parse_failed, "bad row"}) == "Failed to parse CSV file."
     end
+
+    # `{:pdftotext_failed, raw}` removed 2026-05-06 (Phase 2 sweep) —
+    # the worker emits 4-arity `{:pdftotext_failed, page, code, msg}`
+    # tuples internally and collapses them to a string via its own
+    # `inspect_reason/1` helper before persisting; never routes
+    # through `Errors.message/1`.
   end
 
   describe "message/1 — pass-through shapes" do
