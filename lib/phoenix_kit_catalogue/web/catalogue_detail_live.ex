@@ -51,6 +51,9 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         view_mode: "active",
         deleted_count: 0,
         active_item_count: 0,
+        deleted_item_count: 0,
+        active_category_count: 0,
+        deleted_category_count: 0,
         search_query: "",
         search_results: nil,
         search_offset: 0,
@@ -58,7 +61,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         search_has_more: false,
         search_loading: false,
         show_pdf_search: false,
-        pdf_search_item: nil
+        pdf_search_item: nil,
+        tab: "items"
       )
 
     if connected?(socket) do
@@ -81,6 +85,20 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     else
       {:ok, socket}
     end
+  end
+
+  # `?tab=items|categories` is reflected into socket assigns on every
+  # patch. The default is "items"; any unknown value falls back to
+  # "items" so a stale link can't push the LV into an undefined tab.
+  @impl true
+  def handle_params(params, _uri, socket) do
+    tab =
+      case params["tab"] do
+        "categories" -> "categories"
+        _ -> "items"
+      end
+
+    {:noreply, assign(socket, :tab, tab)}
   end
 
   # PubSub: another LV touched a category/item/catalogue/smart-rule.
@@ -148,6 +166,19 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
      |> assign(:view_mode, mode)
      |> assign(:confirm_delete, nil)
      |> reset_and_load()}
+  end
+
+  # Items/Categories tab switch. URL is patched so the choice survives
+  # back-button + reload + share-link. handle_params/3 echoes the param
+  # into the :tab assign, so we don't update assigns here directly.
+  def handle_event("switch_tab", %{"tab" => tab}, socket) when tab in ~w(items categories) do
+    target =
+      case tab do
+        "items" -> Paths.catalogue_detail(socket.assigns.catalogue_uuid)
+        "categories" -> Paths.catalogue_detail(socket.assigns.catalogue_uuid) <> "?tab=categories"
+      end
+
+    {:noreply, push_patch(socket, to: target)}
   end
 
   def handle_event("load_more", _params, socket) do
@@ -611,6 +642,9 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       loading: has_any_content,
       deleted_count: deleted_count,
       active_item_count: Catalogue.item_count_for_catalogue(uuid),
+      deleted_item_count: Catalogue.deleted_item_count_for_catalogue(uuid),
+      active_category_count: Catalogue.category_count_for_catalogue(uuid),
+      deleted_category_count: Catalogue.deleted_category_count_for_catalogue(uuid),
       view_mode: view_mode
     )
     |> load_next_batch()
@@ -626,6 +660,9 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     assign(socket,
       deleted_count: Catalogue.deleted_count_for_catalogue(uuid),
       active_item_count: Catalogue.item_count_for_catalogue(uuid),
+      deleted_item_count: Catalogue.deleted_item_count_for_catalogue(uuid),
+      active_category_count: Catalogue.category_count_for_catalogue(uuid),
+      deleted_category_count: Catalogue.deleted_category_count_for_catalogue(uuid),
       category_counts: Catalogue.item_counts_by_category_for_catalogue(uuid, mode: mode),
       uncategorized_total: Catalogue.uncategorized_count_for_catalogue(uuid, mode: mode)
     )
@@ -669,7 +706,10 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       category_counts: Catalogue.item_counts_by_category_for_catalogue(uuid, mode: mode),
       uncategorized_total: Catalogue.uncategorized_count_for_catalogue(uuid, mode: mode),
       deleted_count: deleted_count,
-      active_item_count: Catalogue.item_count_for_catalogue(uuid)
+      active_item_count: Catalogue.item_count_for_catalogue(uuid),
+      deleted_item_count: Catalogue.deleted_item_count_for_catalogue(uuid),
+      active_category_count: Catalogue.category_count_for_catalogue(uuid),
+      deleted_category_count: Catalogue.deleted_category_count_for_catalogue(uuid)
     )
   end
 
@@ -1141,20 +1181,41 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
           </:actions>
         </.admin_page_header>
 
-        <div :if={@catalogue.description || Decimal.gt?(@catalogue.markup_percentage, Decimal.new("0"))} class="-mt-4">
-          <p :if={@catalogue.description} class="text-base-content/60">
+        <div :if={@catalogue.description} class="-mt-4">
+          <p class="text-base-content/60">
             {@catalogue.description}
-          </p>
-          <p :if={Decimal.gt?(@catalogue.markup_percentage, Decimal.new("0"))} class="text-sm text-base-content/50 mt-0.5">
-            {Gettext.gettext(PhoenixKitWeb.Gettext, "Markup: %{percentage}%", percentage: Decimal.to_string(@catalogue.markup_percentage, :normal))}
           </p>
         </div>
 
-        <%!-- Search --%>
-        <.search_input :if={@view_mode == "active"} query={@search_query} placeholder={Gettext.gettext(PhoenixKitWeb.Gettext, "Search items by name, description, or SKU...")} />
+        <%!-- Items / Categories tab bar --%>
+        <div role="tablist" class="tabs tabs-bordered">
+          <button
+            type="button"
+            role="tab"
+            phx-click="switch_tab"
+            phx-value-tab="items"
+            class={["tab", @tab == "items" && "tab-active"]}
+          >
+            {Gettext.gettext(PhoenixKitWeb.Gettext, "Items")}
+          </button>
+          <button
+            type="button"
+            role="tab"
+            phx-click="switch_tab"
+            phx-value-tab="categories"
+            class={["tab", @tab == "categories" && "tab-active"]}
+          >
+            {Gettext.gettext(PhoenixKitWeb.Gettext, "Categories")} ({length(@category_list)})
+          </button>
+        </div>
 
-        <%!-- View toggle --%>
-        <.view_mode_toggle :if={@category_list != []} storage_key="catalogue-detail-items" />
+        <%!-- ── Items tab ────────────────────────────────────────── --%>
+        <div :if={@tab == "items"} class="flex flex-col gap-6">
+          <%!-- Search (Items tab only — Categories tab has no search yet) --%>
+          <.search_input :if={@view_mode == "active"} query={@search_query} placeholder={Gettext.gettext(PhoenixKitWeb.Gettext, "Search items by name, description, or SKU...")} />
+
+          <%!-- View toggle --%>
+          <.view_mode_toggle :if={@category_list != []} storage_key="catalogue-detail-items" />
 
         <%!-- Search results (visible when the user has typed a query) --%>
         <div :if={@search_results != nil or @search_loading} class="flex flex-col gap-4">
@@ -1177,7 +1238,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
           <div :if={@search_results not in [nil, []]} class={["transition-opacity", @search_loading && "opacity-50"]}>
             <.item_table
               items={@search_results}
-              columns={[:name, :sku, :base_price, :price, :unit, :status]}
+              columns={[:name, :sku, :price, :unit, :status]}
               markup_percentage={@catalogue.markup_percentage}
               edit_path={&Paths.item_edit/1}
               pdf_search_event="show_pdf_search"
@@ -1202,8 +1263,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
           </div>
         </div>
 
-        <%!-- Status tabs --%>
-        <div :if={@deleted_count > 0 and is_nil(@search_results) and not @search_loading} class="flex items-center gap-0.5 border-b border-base-200">
+        <%!-- Status tabs (item counts — items tab) --%>
+        <div :if={(@deleted_item_count > 0 or @view_mode == "deleted") and is_nil(@search_results) and not @search_loading} class="flex items-center gap-0.5 border-b border-base-200">
           <button
             type="button"
             phx-click="switch_view"
@@ -1230,7 +1291,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               )
             ]}
           >
-            {Gettext.gettext(PhoenixKitWeb.Gettext, "Deleted")} ({@deleted_count})
+            {Gettext.gettext(PhoenixKitWeb.Gettext, "Deleted")} ({@deleted_item_count})
           </button>
         </div>
 
@@ -1248,30 +1309,16 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
           </div>
         </div>
 
-        <%!-- Streamed cards (one per category, one for uncategorized). --%>
+        <%!-- Streamed cards (one per category, one for uncategorized).
+             Category DnD lives on the Categories tab — Items tab is
+             read-only structure so admins focus on item-level edits. --%>
         <div
           :if={is_nil(@search_results) and not @search_loading and @loaded_cards != []}
           id="catalogue-detail-cards"
           class="flex flex-col gap-6"
-          data-sortable="true"
-          data-sortable-event="reorder_categories"
-          data-sortable-items=".sortable-item"
-          data-sortable-hide-source="false"
-          data-sortable-group="catalogue-categories"
-          data-sortable-handle=".pk-drag-handle"
-          phx-hook={if @view_mode == "active", do: "SortableGrid"}
         >
           <%= for {card, card_idx} <- Enum.with_index(@loaded_cards) do %>
-            <div
-              class={
-                cond do
-                  card.kind == :uncategorized -> "sortable-ignore"
-                  card.category && card.category.status == "deleted" -> "sortable-ignore"
-                  true -> "sortable-item"
-                end
-              }
-              data-id={card.kind == :category && card.category && card.category.uuid}
-            >
+            <div>
               <.detail_card
                 card={card}
                 card_idx={card_idx}
@@ -1300,9 +1347,88 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
           </div>
         </div>
 
-        <div :if={is_nil(@search_results) and not @search_loading and not @has_more and @loaded_cards != []} class="text-center text-xs text-base-content/40 py-2">
-          {Gettext.gettext(PhoenixKitWeb.Gettext, "All items loaded")}
+          <div :if={is_nil(@search_results) and not @search_loading and not @has_more and @loaded_cards != []} class="text-center text-xs text-base-content/40 py-2">
+            {Gettext.gettext(PhoenixKitWeb.Gettext, "All items loaded")}
+          </div>
         </div>
+        <%!-- ── /Items tab ───────────────────────────────────────── --%>
+
+        <%!-- ── Categories tab ───────────────────────────────────── --%>
+        <div :if={@tab == "categories"} class="flex flex-col gap-4">
+          <%!-- Status switcher (category counts — categories tab) --%>
+          <div :if={@deleted_category_count > 0 or @view_mode == "deleted"} class="flex items-center gap-0.5 border-b border-base-200">
+            <button
+              type="button"
+              phx-click="switch_view"
+              phx-value-mode="active"
+              class={[
+                "px-3 py-1.5 text-xs font-medium border-b-2 transition-colors cursor-pointer",
+                if(@view_mode == "active",
+                  do: "border-primary text-primary",
+                  else: "border-transparent text-base-content/50 hover:text-base-content"
+                )
+              ]}
+            >
+              {Gettext.gettext(PhoenixKitWeb.Gettext, "Active")} ({@active_category_count})
+            </button>
+            <button
+              type="button"
+              phx-click="switch_view"
+              phx-value-mode="deleted"
+              class={[
+                "px-3 py-1.5 text-xs font-medium border-b-2 transition-colors cursor-pointer",
+                if(@view_mode == "deleted",
+                  do: "border-error text-error",
+                  else: "border-transparent text-base-content/50 hover:text-base-content"
+                )
+              ]}
+            >
+              {Gettext.gettext(PhoenixKitWeb.Gettext, "Deleted")} ({@deleted_category_count})
+            </button>
+          </div>
+
+          <% visible_category_count =
+            if @view_mode == "deleted", do: @deleted_category_count, else: @active_category_count %>
+
+          <div :if={visible_category_count == 0} class="card bg-base-100 shadow">
+            <div class="card-body items-center text-center py-12">
+              <p class="text-base-content/60">
+                {if @view_mode == "deleted",
+                  do: Gettext.gettext(PhoenixKitWeb.Gettext, "No deleted categories."),
+                  else: Gettext.gettext(PhoenixKitWeb.Gettext, "No categories yet. Add one to start organizing items.")}
+              </p>
+              <.link :if={@view_mode == "active"} navigate={Paths.category_new(@catalogue.uuid)} class="btn btn-primary btn-sm mt-2">
+                <.icon name="hero-folder-plus" class="w-4 h-4" /> {Gettext.gettext(PhoenixKitWeb.Gettext, "Add Category")}
+              </.link>
+            </div>
+          </div>
+
+          <%!-- Flat list of categories with depth indent. Same DnD wiring
+               as the Items tab so reorder works identically. --%>
+          <div
+            :if={visible_category_count > 0}
+            id="catalogue-categories-list"
+            class="flex flex-col gap-2"
+            data-sortable="true"
+            data-sortable-event="reorder_categories"
+            data-sortable-items=".sortable-item"
+            data-sortable-hide-source="false"
+            data-sortable-group="catalogue-categories-tab"
+            data-sortable-handle=".pk-drag-handle"
+            phx-hook={if @view_mode == "active", do: "SortableGrid"}
+          >
+            <%= for cat <- @category_list do %>
+              <.category_row
+                category={cat}
+                depth={Map.get(@category_depths, cat.uuid, 0)}
+                count={Map.get(@category_counts, cat.uuid, 0)}
+                view_mode={@view_mode}
+                sibling_count={Enum.count(@category_list, &(&1.parent_uuid == cat.parent_uuid))}
+              />
+            <% end %>
+          </div>
+        </div>
+        <%!-- ── /Categories tab ──────────────────────────────────── --%>
       </div>
 
       <.confirm_modal
@@ -1381,15 +1507,12 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   attr(:catalogue, :any, required: true)
 
   defp detail_card(%{card: %{kind: :category}} = assigns) do
-    %{uuid: uuid, parent_uuid: parent_uuid} = assigns.card.category
-    siblings = Enum.filter(assigns.category_list, &(&1.parent_uuid == parent_uuid))
-    sibling_count = length(siblings)
+    %{uuid: uuid} = assigns.card.category
 
     assigns =
       assigns
       |> assign(:total, Map.get(assigns.category_counts, uuid, 0))
       |> assign(:depth, Map.get(assigns.category_depths, uuid, 0))
-      |> assign(:sibling_count, sibling_count)
 
     ~H"""
     <div
@@ -1400,13 +1523,6 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       <div class="card-body">
         <div class="flex items-center justify-between">
           <div class="flex items-center gap-2">
-            <div
-              :if={@view_mode == "active" and @sibling_count > 1}
-              class="pk-drag-handle cursor-grab active:cursor-grabbing text-base-content/30 hover:text-base-content/70 select-none"
-              title={Gettext.gettext(PhoenixKitWeb.Gettext, "Drag to reorder (among siblings)")}
-            >
-              <.icon name="hero-bars-3" class="w-4 h-4" />
-            </div>
             <.link
               :if={@view_mode == "active"}
               navigate={Paths.category_edit(@card.category.uuid)}
@@ -1468,7 +1584,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         <div :if={@card.items != [] and @view_mode == "active"} class="mt-2">
           <.item_table
             items={@card.items}
-            columns={[:name, :sku, :base_price, :price, :unit, :status]}
+            columns={[:name, :sku, :price, :unit, :status]}
             markup_percentage={@catalogue.markup_percentage}
             edit_path={&Paths.item_edit/1}
             on_delete="delete_item"
@@ -1490,7 +1606,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         <div :if={@card.items != [] and @view_mode == "deleted"} class="mt-2">
           <.item_table
             items={@card.items}
-            columns={[:name, :sku, :base_price, :price, :unit, :status]}
+            columns={[:name, :sku, :price, :unit, :status]}
             markup_percentage={@catalogue.markup_percentage}
             on_restore="restore_item"
             on_permanent_delete="show_delete_confirm"
@@ -1523,7 +1639,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         <div class={if @category_total > 0, do: "mt-2", else: ""}>
           <.item_table
             items={@card.items}
-            columns={[:name, :sku, :base_price, :unit, :status]}
+            columns={[:name, :sku, :unit, :status]}
             edit_path={if @view_mode == "active", do: &Paths.item_edit/1}
             on_delete={if @view_mode == "active", do: "delete_item"}
             on_restore={if @view_mode == "deleted", do: "restore_item"}
@@ -1541,6 +1657,95 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               category_uuid: nil
             }}
           />
+        </div>
+      </div>
+    </div>
+    """
+  end
+
+  # One row in the Categories tab — a compact card with depth indent,
+  # drag handle (active mode only, when there are siblings to swap with),
+  # name (linked to edit), item count, and per-mode actions.
+  attr(:category, :map, required: true)
+  attr(:depth, :integer, required: true)
+  attr(:count, :integer, required: true)
+  attr(:view_mode, :string, required: true)
+  attr(:sibling_count, :integer, required: true)
+
+  defp category_row(assigns) do
+    ~H"""
+    <div
+      :if={@view_mode == "active" or @category.status == "deleted"}
+      class={
+        cond do
+          @view_mode == "active" and @category.status == "active" -> "sortable-item"
+          true -> "sortable-ignore"
+        end
+      }
+      data-id={@category.status == "active" && @category.uuid}
+      style={"margin-left: #{@depth * 1.5}rem"}
+    >
+      <div class="card card-sm bg-base-100 shadow">
+        <div class="card-body py-3 flex-row items-center justify-between gap-3">
+          <div class="flex items-center gap-2 min-w-0">
+            <div
+              :if={@view_mode == "active" and @sibling_count > 1 and @category.status == "active"}
+              class="pk-drag-handle cursor-grab active:cursor-grabbing text-base-content/30 hover:text-base-content/70 select-none"
+              title={Gettext.gettext(PhoenixKitWeb.Gettext, "Drag to reorder (among siblings)")}
+            >
+              <.icon name="hero-bars-3" class="w-4 h-4" />
+            </div>
+            <.link
+              :if={@view_mode == "active" and @category.status == "active"}
+              navigate={Paths.category_edit(@category.uuid)}
+              class="font-medium link link-hover truncate"
+            >
+              {@category.name}
+            </.link>
+            <span
+              :if={@view_mode != "active" or @category.status != "active"}
+              class={["font-medium truncate", @category.status == "deleted" && "text-error/70"]}
+            >
+              {@category.name}
+            </span>
+            <span :if={@category.status == "deleted"} class="badge badge-error badge-xs">deleted</span>
+            <span class="badge badge-ghost badge-sm">{@count} {Gettext.gettext(PhoenixKitWeb.Gettext, "items")}</span>
+          </div>
+
+          <%!-- Active mode: Edit + Delete --%>
+          <div :if={@view_mode == "active" and @category.status == "active"} class="flex gap-1 shrink-0">
+            <.link navigate={Paths.category_edit(@category.uuid)} class="btn btn-ghost btn-xs">
+              {Gettext.gettext(PhoenixKitWeb.Gettext, "Edit")}
+            </.link>
+            <button
+              phx-click="trash_category"
+              phx-value-uuid={@category.uuid}
+              phx-disable-with={Gettext.gettext(PhoenixKitWeb.Gettext, "Deleting...")}
+              class="btn btn-ghost btn-xs text-error"
+            >
+              {Gettext.gettext(PhoenixKitWeb.Gettext, "Delete")}
+            </button>
+          </div>
+
+          <%!-- Deleted mode: Restore + Permanent Delete --%>
+          <div :if={@view_mode == "deleted" and @category.status == "deleted"} class="flex gap-1 shrink-0">
+            <button
+              phx-click="restore_category"
+              phx-value-uuid={@category.uuid}
+              phx-disable-with={Gettext.gettext(PhoenixKitWeb.Gettext, "Restoring...")}
+              class="inline-flex items-center gap-1.5 px-2.5 h-[2.5em] rounded-lg border border-success/30 bg-success/10 hover:bg-success/20 text-success text-xs font-medium transition-colors cursor-pointer"
+            >
+              {Gettext.gettext(PhoenixKitWeb.Gettext, "Restore")}
+            </button>
+            <button
+              phx-click="show_delete_confirm"
+              phx-value-uuid={@category.uuid}
+              phx-value-type="category"
+              class="btn btn-ghost btn-xs text-error"
+            >
+              {Gettext.gettext(PhoenixKitWeb.Gettext, "Delete Forever")}
+            </button>
+          </div>
         </div>
       </div>
     </div>
