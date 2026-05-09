@@ -56,7 +56,6 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         uncategorized_total: 0,
         loaded_cards: [],
         expanding_cards: MapSet.new(),
-        loading: false,
         confirm_delete: nil,
         trash_modal: nil,
         bulk_move_modal: nil,
@@ -222,7 +221,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   # plays out (~800ms), then on refresh fire green flash for the
   # arriving rows when the kind is :restored or :moved.
   def handle_info(
-        {:catalogue_bulk_change, cat_uuid, kind, uuids, _scopes, from},
+        {:catalogue_bulk_change, cat_uuid, kind, uuids, from},
         %{assigns: %{catalogue_uuid: catalogue_uuid}} = socket
       )
       when cat_uuid == catalogue_uuid and from != self() do
@@ -246,7 +245,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   end
 
   # Originator's own bulk-change broadcast — already updated locally.
-  def handle_info({:catalogue_bulk_change, _, _, _, _, from}, socket) when from == self(),
+  def handle_info({:catalogue_bulk_change, _, _, _, from}, socket) when from == self(),
     do: {:noreply, socket}
 
   # Tail of the cross-tab bulk animation — applies the actual state
@@ -1022,7 +1021,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   defp do_bulk_trash_items(socket) do
     uuids = socket.assigns.selected_items |> MapSet.to_list()
     {count, _} = Catalogue.bulk_trash_items(uuids, actor_opts(socket))
-    PubSub.broadcast_bulk_change(socket.assigns.catalogue_uuid, :trashed, uuids, [])
+    PubSub.broadcast_bulk_change(socket.assigns.catalogue_uuid, :trashed, uuids)
 
     socket
     |> assign(:bulk_confirm, nil)
@@ -1038,7 +1037,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   defp do_bulk_permanent_delete_items(socket) do
     uuids = socket.assigns.selected_items |> MapSet.to_list()
     {count, _} = Catalogue.bulk_permanently_delete_items(uuids, actor_opts(socket))
-    PubSub.broadcast_bulk_change(socket.assigns.catalogue_uuid, :permanent_delete, uuids, [])
+    PubSub.broadcast_bulk_change(socket.assigns.catalogue_uuid, :permanent_delete, uuids)
 
     socket
     |> assign(:bulk_confirm, nil)
@@ -1054,7 +1053,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   defp do_bulk_restore_items(socket) do
     uuids = socket.assigns.selected_items |> MapSet.to_list()
     {count, _} = Catalogue.bulk_restore_items(uuids, actor_opts(socket))
-    PubSub.broadcast_bulk_change(socket.assigns.catalogue_uuid, :restored, uuids, [])
+    PubSub.broadcast_bulk_change(socket.assigns.catalogue_uuid, :restored, uuids)
 
     socket
     |> assign(:selected_items, MapSet.new())
@@ -1076,7 +1075,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       {:ok, count} ->
         # `:moved` triggers the receiver's full red-fade → refresh →
         # green-fade sequence on every other open tab.
-        PubSub.broadcast_bulk_change(socket.assigns.catalogue_uuid, :moved, uuids, [])
+        PubSub.broadcast_bulk_change(socket.assigns.catalogue_uuid, :moved, uuids)
 
         socket
         |> assign(:bulk_move_modal, nil)

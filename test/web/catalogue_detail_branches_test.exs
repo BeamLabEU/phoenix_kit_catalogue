@@ -324,7 +324,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailBranchesTest do
 
       {:ok, view, _html} = live(conn, "/en/admin/catalogue/#{cat.uuid}")
 
-      send(view.pid, {:catalogue_bulk_change, cat.uuid, :trashed, [item.uuid], [], self()})
+      send(view.pid, {:catalogue_bulk_change, cat.uuid, :trashed, [item.uuid], self()})
       :sys.get_state(view.pid)
 
       # Two-step animation: receiver applied red flash; the deferred

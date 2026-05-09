@@ -1385,20 +1385,34 @@ defmodule PhoenixKitCatalogue.Catalogue do
   defp disposition_to_metadata({:move_to, uuid}), do: "move_to:#{uuid}"
 
   @doc """
-  Restores a soft-deleted category (and its deleted subtree) by
-  setting status back to `"active"`.
+  Restores a soft-deleted category by flipping its status back to
+  `"active"`. **No cascades** — each entity owns its own status, so
+  restore-as-undo doesn't ripple sideways.
 
-  **Cascades both directions** in a transaction:
-  - **Upward**: restores every deleted ancestor category so the restored
-    node is reachable in the active tree, then the parent catalogue if
-    it's deleted too.
-  - **Downward**: restores all deleted categories in this subtree and
-    all deleted items inside them. Restoring a node after a prior
-    trash cascade brings the whole sub-branch back as one action.
+  - **Refuses with `{:error, :parent_catalogue_deleted}`** when the
+    category's parent catalogue is itself deleted. The operator must
+    restore the catalogue explicitly first.
+  - **Items keep their (deleted) status.** Items that were trashed via
+    the prior `:cascade` disposition stay deleted; the operator restores
+    them individually from the Items-tab Deleted view, where
+    `restore_item/2` routes them through the now-active parent (or
+    detaches them to Uncategorized if some intermediate parent is still
+    deleted).
+  - **Descendant categories keep their (deleted) status.**
+    `list_category_tree/2`'s orphan-promotion will surface this re-active
+    leaf as a root if all its ancestors are still deleted.
+  - **Ancestor categories keep their (active or deleted) status.** The
+    only ancestor we check is the parent catalogue (above).
+
+  Activity log records `category.restored` with `name` and
+  `catalogue_uuid` only — no `subtree_size` / `items_cascaded`, since
+  the answer is always 0 under the no-cascade rule.
 
   ## Examples
 
       {:ok, _} = Catalogue.restore_category(category)
+      {:error, :parent_catalogue_deleted} =
+        Catalogue.restore_category(category_under_deleted_catalogue)
   """
   @spec restore_category(Category.t(), keyword()) ::
           {:ok, Category.t()}
@@ -3065,45 +3079,23 @@ defmodule PhoenixKitCatalogue.Catalogue do
   end
 
   @doc """
-  Bulk restores items by UUID. Refuses any item whose parent catalogue
-  is deleted (returns the count of *attempted* successes; skipped ones
-  are excluded). Items with deleted parent categories are uncategorized
-  on restore — same rule as `restore_item/2`.
+  Bulk restores items by UUID. Skips items whose parent catalogue is
+  deleted (returns only the count of items actually flipped to active).
+  Items with deleted parent categories are uncategorized on restore —
+  same rule as `restore_item/2`.
+
+  Wrapped in `repo().transaction/1` so the read-then-partition-then-write
+  pipeline can't be interleaved with another connection flipping a
+  parent's status mid-flight. Without that envelope a concurrent
+  category trash/restore could push the partition off-by-one and either
+  detach an item that should have stayed attached or vice versa.
   """
   @spec bulk_restore_items([Ecto.UUID.t()], keyword()) :: {non_neg_integer(), nil}
   def bulk_restore_items([], _opts), do: {0, nil}
 
   def bulk_restore_items(uuids, opts) when is_list(uuids) do
-    now = DateTime.utc_now()
-
-    items =
-      from(i in Item,
-        where: i.uuid in ^uuids and i.status == "deleted",
-        preload: [:catalogue, :category]
-      )
-      |> repo().all()
-      |> Enum.reject(fn i -> i.catalogue && i.catalogue.status == "deleted" end)
-
-    {ok_uuids, detached_uuids} =
-      Enum.reduce(items, {[], []}, fn item, {ok_acc, det_acc} ->
-        if item.category && item.category.status == "deleted" do
-          {[item.uuid | ok_acc], [item.uuid | det_acc]}
-        else
-          {[item.uuid | ok_acc], det_acc}
-        end
-      end)
-
-    {count_attached, _} =
-      from(i in Item,
-        where: i.uuid in ^(ok_uuids -- detached_uuids) and i.status == "deleted"
-      )
-      |> repo().update_all(set: [status: "active", updated_at: now])
-
-    {count_detached, _} =
-      from(i in Item, where: i.uuid in ^detached_uuids and i.status == "deleted")
-      |> repo().update_all(set: [status: "active", category_uuid: nil, updated_at: now])
-
-    count = count_attached + count_detached
+    {:ok, {count, count_detached, restored_uuids}} =
+      repo().transaction(fn -> do_bulk_restore_items(uuids) end)
 
     if count > 0 do
       log_activity(%{
@@ -3114,12 +3106,44 @@ defmodule PhoenixKitCatalogue.Catalogue do
         metadata: %{
           "count" => count,
           "detached_count" => count_detached,
-          "uuids" => ok_uuids
+          "uuids" => restored_uuids
         }
       })
     end
 
     {count, nil}
+  end
+
+  defp do_bulk_restore_items(uuids) do
+    now = DateTime.utc_now()
+
+    items =
+      from(i in Item,
+        where: i.uuid in ^uuids and i.status == "deleted",
+        preload: [:catalogue, :category]
+      )
+      |> repo().all()
+      |> Enum.reject(fn i -> i.catalogue && i.catalogue.status == "deleted" end)
+
+    {attached_uuids, detached_uuids} =
+      Enum.split_with(items, fn item ->
+        is_nil(item.category) || item.category.status != "deleted"
+      end)
+      |> then(fn {attached, detached} ->
+        {Enum.map(attached, & &1.uuid), Enum.map(detached, & &1.uuid)}
+      end)
+
+    {count_attached, _} =
+      from(i in Item,
+        where: i.uuid in ^attached_uuids and i.status == "deleted"
+      )
+      |> repo().update_all(set: [status: "active", updated_at: now])
+
+    {count_detached, _} =
+      from(i in Item, where: i.uuid in ^detached_uuids and i.status == "deleted")
+      |> repo().update_all(set: [status: "active", category_uuid: nil, updated_at: now])
+
+    {count_attached + count_detached, count_detached, attached_uuids ++ detached_uuids}
   end
 
   @doc """
@@ -3215,8 +3239,12 @@ defmodule PhoenixKitCatalogue.Catalogue do
   end
 
   defp do_bulk_move(uuids, nil, catalogue_uuid, opts) do
+    # Status guard mirrors the other bulk fns (`bulk_trash_items`,
+    # `bulk_restore_items`) so a stale tab can't move a soft-deleted
+    # row by submitting its UUID. The selection is built from rendered
+    # active cards, so the LV's happy path is unaffected.
     {count, _} =
-      from(i in Item, where: i.uuid in ^uuids)
+      from(i in Item, where: i.uuid in ^uuids and i.status != "deleted")
       |> repo().update_all(set: [category_uuid: nil, updated_at: DateTime.utc_now()])
 
     if count > 0 do
@@ -3235,7 +3263,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
   defp do_bulk_move(uuids, %Category{} = target, _catalogue_uuid, opts) do
     {count, _} =
-      from(i in Item, where: i.uuid in ^uuids)
+      from(i in Item, where: i.uuid in ^uuids and i.status != "deleted")
       |> repo().update_all(set: [category_uuid: target.uuid, updated_at: DateTime.utc_now()])
 
     if count > 0 do
