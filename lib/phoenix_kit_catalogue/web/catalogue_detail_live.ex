@@ -38,6 +38,10 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   # retry. Calibrated for "user lost network mid-click" not "the DB is
   # slow" — the inline query itself rarely takes more than 50ms.
   @expand_timeout_ms 8_000
+  # Cross-tab bulk-change red-flash → state-refresh delay. Long enough
+  # that the receiver sees the leaving rows pulse red before they
+  # vanish on the refresh, short enough not to feel laggy.
+  @bulk_change_apply_delay_ms 800
 
   @impl true
   def mount(%{"uuid" => uuid}, _session, socket) do
@@ -236,7 +240,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         do: Enum.reduce(uuids, socket, &flash_reorder(&2, &1, leaving_status)),
         else: socket
 
-    Process.send_after(self(), {:bulk_change_apply, kind, uuids}, 800)
+    Process.send_after(self(), {:bulk_change_apply, kind, uuids}, @bulk_change_apply_delay_ms)
 
     {:noreply, socket}
   end
@@ -264,33 +268,32 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   # `expanding_cards` and we no-op.
   def handle_info({:apply_expand, scope}, socket) do
     if MapSet.member?(socket.assigns.expanding_cards, scope) do
-      mode = view_mode_to_atom(socket.assigns.view_mode)
-      catalogue_uuid = socket.assigns.catalogue_uuid
-
-      cards =
-        Enum.map(socket.assigns.loaded_cards, fn card ->
-          if scope_matches_card?(scope, card) do
-            more =
-              fetch_card_items(
-                card_scope(card),
-                catalogue_uuid,
-                mode,
-                @per_card,
-                length(card.items)
-              )
-
-            %{card | items: card.items ++ more}
-          else
-            card
-          end
-        end)
-
-      {:noreply,
-       socket
-       |> assign(:loaded_cards, cards)
-       |> assign(:expanding_cards, MapSet.delete(socket.assigns.expanding_cards, scope))}
+      {:noreply, do_apply_expand(socket, scope)}
     else
       {:noreply, socket}
+    end
+  end
+
+  defp do_apply_expand(socket, scope) do
+    mode = view_mode_to_atom(socket.assigns.view_mode)
+    catalogue_uuid = socket.assigns.catalogue_uuid
+
+    cards =
+      Enum.map(socket.assigns.loaded_cards, &expand_one_card(&1, scope, catalogue_uuid, mode))
+
+    socket
+    |> assign(:loaded_cards, cards)
+    |> assign(:expanding_cards, MapSet.delete(socket.assigns.expanding_cards, scope))
+  end
+
+  defp expand_one_card(card, scope, catalogue_uuid, mode) do
+    if scope_matches_card?(scope, card) do
+      more =
+        fetch_card_items(card_scope(card), catalogue_uuid, mode, @per_card, length(card.items))
+
+      %{card | items: card.items ++ more}
+    else
+      card
     end
   end
 
@@ -876,7 +879,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   def handle_event(
         "reorder_items",
         %{"ordered_ids" => ordered_ids, "moved_id" => moved_id, "fromCatalogueUuid" => _} =
-            params,
+          params,
         socket
       )
       when is_list(ordered_ids) and is_binary(moved_id) do
@@ -1024,7 +1027,10 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     socket
     |> assign(:bulk_confirm, nil)
     |> assign(:selected_items, MapSet.new())
-    |> put_flash(:info, "Deleted #{count} items.")
+    |> put_flash(
+      :info,
+      Gettext.gettext(PhoenixKitWeb.Gettext, "Deleted %{count} items.", count: count)
+    )
     |> reset_and_load()
     |> then(&{:noreply, &1})
   end
@@ -1037,7 +1043,10 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     socket
     |> assign(:bulk_confirm, nil)
     |> assign(:selected_items, MapSet.new())
-    |> put_flash(:info, "Permanently deleted #{count} items.")
+    |> put_flash(
+      :info,
+      Gettext.gettext(PhoenixKitWeb.Gettext, "Permanently deleted %{count} items.", count: count)
+    )
     |> reset_and_load()
     |> then(&{:noreply, &1})
   end
@@ -1049,7 +1058,10 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
     socket
     |> assign(:selected_items, MapSet.new())
-    |> put_flash(:info, "Restored #{count} items.")
+    |> put_flash(
+      :info,
+      Gettext.gettext(PhoenixKitWeb.Gettext, "Restored %{count} items.", count: count)
+    )
     |> reset_and_load()
     |> then(&{:noreply, &1})
   end
@@ -1057,7 +1069,10 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   defp do_bulk_move_items(socket, target_uuid) do
     uuids = socket.assigns.selected_items |> MapSet.to_list()
 
-    case Catalogue.bulk_move_items_to_category(uuids, target_uuid, actor_opts(socket)) do
+    opts =
+      actor_opts(socket) |> Keyword.put(:catalogue_uuid, socket.assigns.catalogue_uuid)
+
+    case Catalogue.bulk_move_items_to_category(uuids, target_uuid, opts) do
       {:ok, count} ->
         # `:moved` triggers the receiver's full red-fade → refresh →
         # green-fade sequence on every other open tab.
@@ -1066,12 +1081,33 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         socket
         |> assign(:bulk_move_modal, nil)
         |> assign(:selected_items, MapSet.new())
-        |> put_flash(:info, "Moved #{count} items.")
+        |> put_flash(
+          :info,
+          Gettext.gettext(PhoenixKitWeb.Gettext, "Moved %{count} items.", count: count)
+        )
         |> reset_and_load()
         |> then(&{:noreply, &1})
 
       {:error, :category_not_found} ->
-        {:noreply, put_flash(socket, :error, "Target category not found.")}
+        {:noreply,
+         put_flash(
+           socket,
+           :error,
+           Gettext.gettext(PhoenixKitWeb.Gettext, "Target category not found.")
+         )}
+
+      {:error, scope_err} when scope_err in [:wrong_catalogue_scope, :missing_catalogue_scope] ->
+        log_operation_error(socket, "bulk_move_items_to_category", %{reason: scope_err})
+
+        {:noreply,
+         put_flash(
+           socket,
+           :error,
+           Gettext.gettext(
+             PhoenixKitWeb.Gettext,
+             "Items can only be moved within this catalogue."
+           )
+         )}
     end
   end
 
@@ -1091,14 +1127,22 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         socket
         |> assign(:bulk_confirm, nil)
         |> assign(:selected_categories, MapSet.new())
-        |> put_flash(:info, "Deleted #{count} categories.")
+        |> put_flash(
+          :info,
+          Gettext.gettext(PhoenixKitWeb.Gettext, "Deleted %{count} categories.", count: count)
+        )
         |> reset_and_load()
         |> then(&{:noreply, &1})
 
       {:error, reason} ->
         log_operation_error(socket, "bulk_trash_categories", %{reason: reason})
 
-        {:noreply, put_flash(socket, :error, "Failed to delete categories: #{inspect(reason)}")}
+        {:noreply,
+         put_flash(
+           socket,
+           :error,
+           Gettext.gettext(PhoenixKitWeb.Gettext, "Failed to delete categories.")
+         )}
     end
   end
 
@@ -1117,14 +1161,27 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     socket =
       socket
       |> assign(:selected_categories, MapSet.new())
-      |> put_flash(:info, "Restored #{ok} categories.")
+      |> put_flash(
+        :info,
+        Gettext.gettext(PhoenixKitWeb.Gettext, "Restored %{count} categories.", count: ok)
+      )
       |> reset_and_load()
 
-    if errors == [],
-      do: {:noreply, socket},
-      else:
-        {:noreply,
-         put_flash(socket, :error, "Some categories couldn't be restored: #{inspect(errors)}")}
+    if errors == [] do
+      {:noreply, socket}
+    else
+      log_operation_error(socket, "bulk_restore_categories_partial", %{reasons: errors})
+
+      {:noreply,
+       put_flash(
+         socket,
+         :error,
+         Gettext.gettext(
+           PhoenixKitWeb.Gettext,
+           "Some categories couldn't be restored. The catalogue may be deleted — restore it first."
+         )
+       )}
+    end
   end
 
   defp build_trash_modal_state(%Category{} = category, item_count) do

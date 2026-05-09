@@ -3148,16 +3148,73 @@ defmodule PhoenixKitCatalogue.Catalogue do
   end
 
   @doc """
-  Bulk-moves items to a target category. Target must live in the same
-  catalogue as the items; cross-catalogue moves are rejected. Use
-  `target_uuid: nil` to uncategorize all items (within whichever
-  catalogue each item already lives in).
+  Bulk-moves items to a target category within a single catalogue.
+
+  ## Required opts
+
+    * `:catalogue_uuid` — the calling LV's catalogue scope. Every item
+      in `uuids` MUST already belong to this catalogue, and `target_uuid`
+      (when not `nil`) must live in this catalogue. The single-item DnD
+      handler enforces the same scope; this guard makes the bulk path
+      symmetric so a crafted client request can't silently flip an
+      item's `catalogue_uuid` cross-catalogue.
+
+  Pass `target_uuid: nil` to uncategorize all items within their
+  catalogue.
+
+  Returns `{:ok, count}`, `{:error, :category_not_found}` (target),
+  `{:error, :wrong_catalogue_scope}` (target lives elsewhere or one or
+  more items don't belong to `:catalogue_uuid`), or
+  `{:error, :missing_catalogue_scope}` (caller forgot the required opt).
   """
   @spec bulk_move_items_to_category([Ecto.UUID.t()], Ecto.UUID.t() | nil, keyword()) ::
-          {:ok, non_neg_integer()} | {:error, :category_not_found}
+          {:ok, non_neg_integer()}
+          | {:error, :category_not_found}
+          | {:error, :wrong_catalogue_scope}
+          | {:error, :missing_catalogue_scope}
   def bulk_move_items_to_category([], _target, _opts), do: {:ok, 0}
 
-  def bulk_move_items_to_category(uuids, nil, opts) when is_list(uuids) do
+  def bulk_move_items_to_category(uuids, target_uuid, opts) when is_list(uuids) do
+    case Keyword.fetch(opts, :catalogue_uuid) do
+      :error ->
+        {:error, :missing_catalogue_scope}
+
+      {:ok, catalogue_uuid} when is_binary(catalogue_uuid) ->
+        with :ok <- ensure_items_in_catalogue(uuids, catalogue_uuid),
+             {:ok, target} <- resolve_move_target(target_uuid, catalogue_uuid) do
+          do_bulk_move(uuids, target, catalogue_uuid, opts)
+        end
+    end
+  end
+
+  defp ensure_items_in_catalogue(uuids, catalogue_uuid) do
+    foreign? =
+      from(i in Item,
+        where: i.uuid in ^uuids and i.catalogue_uuid != ^catalogue_uuid,
+        limit: 1,
+        select: i.uuid
+      )
+      |> repo().exists?()
+
+    if foreign?, do: {:error, :wrong_catalogue_scope}, else: :ok
+  end
+
+  defp resolve_move_target(nil, _catalogue_uuid), do: {:ok, nil}
+
+  defp resolve_move_target(target_uuid, catalogue_uuid) do
+    case repo().get(Category, target_uuid) do
+      nil ->
+        {:error, :category_not_found}
+
+      %Category{catalogue_uuid: ^catalogue_uuid} = cat ->
+        {:ok, cat}
+
+      %Category{} ->
+        {:error, :wrong_catalogue_scope}
+    end
+  end
+
+  defp do_bulk_move(uuids, nil, catalogue_uuid, opts) do
     {count, _} =
       from(i in Item, where: i.uuid in ^uuids)
       |> repo().update_all(set: [category_uuid: nil, updated_at: DateTime.utc_now()])
@@ -3168,6 +3225,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
         mode: "manual",
         actor_uuid: opts[:actor_uuid],
         resource_type: "item",
+        parent_catalogue_uuid: catalogue_uuid,
         metadata: %{"count" => count, "to_category_uuid" => nil}
       })
     end
@@ -3175,38 +3233,27 @@ defmodule PhoenixKitCatalogue.Catalogue do
     {:ok, count}
   end
 
-  def bulk_move_items_to_category(uuids, target_uuid, opts) when is_list(uuids) do
-    case repo().get(Category, target_uuid) do
-      nil ->
-        {:error, :category_not_found}
+  defp do_bulk_move(uuids, %Category{} = target, _catalogue_uuid, opts) do
+    {count, _} =
+      from(i in Item, where: i.uuid in ^uuids)
+      |> repo().update_all(set: [category_uuid: target.uuid, updated_at: DateTime.utc_now()])
 
-      %Category{} = target ->
-        {count, _} =
-          from(i in Item, where: i.uuid in ^uuids)
-          |> repo().update_all(
-            set: [
-              category_uuid: target.uuid,
-              catalogue_uuid: target.catalogue_uuid,
-              updated_at: DateTime.utc_now()
-            ]
-          )
-
-        if count > 0 do
-          log_activity(%{
-            action: "item.bulk_moved",
-            mode: "manual",
-            actor_uuid: opts[:actor_uuid],
-            resource_type: "item",
-            metadata: %{
-              "count" => count,
-              "to_category_uuid" => target.uuid,
-              "to_catalogue_uuid" => target.catalogue_uuid
-            }
-          })
-        end
-
-        {:ok, count}
+    if count > 0 do
+      log_activity(%{
+        action: "item.bulk_moved",
+        mode: "manual",
+        actor_uuid: opts[:actor_uuid],
+        resource_type: "item",
+        parent_catalogue_uuid: target.catalogue_uuid,
+        metadata: %{
+          "count" => count,
+          "to_category_uuid" => target.uuid,
+          "to_catalogue_uuid" => target.catalogue_uuid
+        }
+      })
     end
+
+    {:ok, count}
   end
 
   @doc """
@@ -3228,27 +3275,27 @@ defmodule PhoenixKitCatalogue.Catalogue do
   def bulk_trash_categories(uuids, disposition, opts) when is_list(uuids) do
     repo().transaction(fn ->
       Enum.reduce_while(uuids, %{categories: 0, items_handled: 0}, fn uuid, acc ->
-        case repo().get(Category, uuid) do
-          nil ->
-            {:cont, acc}
-
-          %Category{status: "deleted"} ->
-            {:cont, acc}
-
-          %Category{} = category ->
-            case trash_category(category, Keyword.put(opts, :items, disposition)) do
-              {:ok, _} ->
-                {:cont, %{acc | categories: acc.categories + 1}}
-
-              {:error, reason} ->
-                repo().rollback(reason)
-            end
-        end
+        bulk_trash_category_step(uuid, disposition, opts, acc)
       end)
     end)
     |> case do
       {:ok, summary} -> {:ok, summary}
       error -> error
+    end
+  end
+
+  defp bulk_trash_category_step(uuid, disposition, opts, acc) do
+    case repo().get(Category, uuid) do
+      nil -> {:cont, acc}
+      %Category{status: "deleted"} -> {:cont, acc}
+      %Category{} = category -> trash_one_in_bulk(category, disposition, opts, acc)
+    end
+  end
+
+  defp trash_one_in_bulk(category, disposition, opts, acc) do
+    case trash_category(category, Keyword.put(opts, :items, disposition)) do
+      {:ok, _} -> {:cont, %{acc | categories: acc.categories + 1}}
+      {:error, reason} -> {:halt, repo().rollback(reason)}
     end
   end
 
