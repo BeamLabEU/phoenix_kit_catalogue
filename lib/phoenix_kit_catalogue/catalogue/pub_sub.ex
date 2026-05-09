@@ -155,24 +155,23 @@ defmodule PhoenixKitCatalogue.Catalogue.PubSub do
       as `:trashed`; the row removal is harder to undo but the visual
       cue is the same).
 
-  `uuids` is the affected item list. `scopes` is the list of category
-  scopes (UUIDs or `:uncategorized`) whose cards need to refresh — for
-  moves this is the union of source and destination; for trash/restore
-  it's the scope that gained/lost items.
+  `uuids` is the affected item list. The receiver does a full
+  `reset_and_load` since a bulk change can rearrange every visible card;
+  per-scope filtering would only be a worthwhile optimisation once
+  catalogues routinely render dozens of cards.
   """
   @spec broadcast_bulk_change(
           Ecto.UUID.t(),
           :trashed | :restored | :moved | :permanent_delete,
           [Ecto.UUID.t()],
-          [Ecto.UUID.t() | :uncategorized],
           pid()
         ) :: :ok
-  def broadcast_bulk_change(catalogue_uuid, kind, uuids, scopes, from \\ self())
-      when is_atom(kind) and is_list(uuids) and is_list(scopes) do
+  def broadcast_bulk_change(catalogue_uuid, kind, uuids, from \\ self())
+      when is_atom(kind) and is_list(uuids) do
     if Code.ensure_loaded?(PhoenixKit.PubSubHelper) do
       PhoenixKit.PubSubHelper.broadcast(
         @topic,
-        {:catalogue_bulk_change, catalogue_uuid, kind, uuids, scopes, from}
+        {:catalogue_bulk_change, catalogue_uuid, kind, uuids, from}
       )
     end
 
