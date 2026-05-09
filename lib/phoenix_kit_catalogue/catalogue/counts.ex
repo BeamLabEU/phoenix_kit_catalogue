@@ -9,6 +9,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Counts do
 
   import Ecto.Query, warn: false
 
+  alias PhoenixKitCatalogue.Catalogue.Tree
   alias PhoenixKitCatalogue.Schemas.{Category, Item}
 
   defp repo, do: PhoenixKit.RepoHelper.repo()
@@ -29,7 +30,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Counts do
   """
   @spec active_item_count_in_subtree(Ecto.UUID.t()) :: non_neg_integer()
   def active_item_count_in_subtree(category_uuid) do
-    subtree = PhoenixKitCatalogue.Catalogue.Tree.subtree_uuids(category_uuid)
+    subtree = Tree.subtree_uuids(category_uuid)
 
     from(i in Item,
       where: i.category_uuid in ^subtree and i.status != "deleted"
