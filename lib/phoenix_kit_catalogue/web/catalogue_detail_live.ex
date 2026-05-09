@@ -32,6 +32,12 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   alias PhoenixKitCatalogue.Web.Components.PdfSearchModal
 
   @per_page 100
+  @per_card 25
+  # Show-more button timeout — if the deferred :apply_expand doesn't
+  # complete within this window the button restores so the user can
+  # retry. Calibrated for "user lost network mid-click" not "the DB is
+  # slow" — the inline query itself rarely takes more than 50ms.
+  @expand_timeout_ms 8_000
 
   @impl true
   def mount(%{"uuid" => uuid}, _session, socket) do
@@ -45,8 +51,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         category_counts: %{},
         uncategorized_total: 0,
         loaded_cards: [],
-        cursor: initial_cursor(),
-        has_more: false,
+        expanding_cards: MapSet.new(),
         loading: false,
         confirm_delete: nil,
         trash_modal: nil,
@@ -253,6 +258,62 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     {:noreply, socket}
   end
 
+  # Deferred apply for the show-more click. The handler that scheduled
+  # this might have been outraced by `:expand_timeout` (operator on a
+  # bad connection) — in that case the scope is no longer in
+  # `expanding_cards` and we no-op.
+  def handle_info({:apply_expand, scope}, socket) do
+    if MapSet.member?(socket.assigns.expanding_cards, scope) do
+      mode = view_mode_to_atom(socket.assigns.view_mode)
+      catalogue_uuid = socket.assigns.catalogue_uuid
+
+      cards =
+        Enum.map(socket.assigns.loaded_cards, fn card ->
+          if scope_matches_card?(scope, card) do
+            more =
+              fetch_card_items(
+                card_scope(card),
+                catalogue_uuid,
+                mode,
+                @per_card,
+                length(card.items)
+              )
+
+            %{card | items: card.items ++ more}
+          else
+            card
+          end
+        end)
+
+      {:noreply,
+       socket
+       |> assign(:loaded_cards, cards)
+       |> assign(:expanding_cards, MapSet.delete(socket.assigns.expanding_cards, scope))}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  # Smart-fail: if the apply hasn't landed within @expand_timeout_ms
+  # (network hiccup, BEAM stuck), restore the button and surface a
+  # flash so the operator can retry.
+  def handle_info({:expand_timeout, scope}, socket) do
+    if MapSet.member?(socket.assigns.expanding_cards, scope) do
+      {:noreply,
+       socket
+       |> assign(:expanding_cards, MapSet.delete(socket.assigns.expanding_cards, scope))
+       |> put_flash(
+         :error,
+         Gettext.gettext(
+           PhoenixKitWeb.Gettext,
+           "Loading more items took too long. Please try again."
+         )
+       )}
+    else
+      {:noreply, socket}
+    end
+  end
+
   def handle_info(msg, socket) do
     Logger.debug("CatalogueDetailLive ignored unhandled message: #{inspect(msg)}")
     {:noreply, socket}
@@ -298,18 +359,42 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     {:noreply, push_patch(socket, to: target)}
   end
 
+  # `load_more` is now only used by the search results pagination —
+  # the category cards expand on-demand via `expand_card` instead of
+  # via a global bottom sentinel.
   def handle_event("load_more", _params, socket) do
-    cond do
-      socket.assigns.search_results != nil and socket.assigns.search_has_more and
-          not socket.assigns.search_loading ->
-        {:noreply, start_search_page(socket)}
+    if socket.assigns.search_results != nil and socket.assigns.search_has_more and
+         not socket.assigns.search_loading do
+      {:noreply, start_search_page(socket)}
+    else
+      {:noreply, socket}
+    end
+  end
 
-      is_nil(socket.assigns.search_results) and socket.assigns.has_more and
-          not socket.assigns.loading ->
-        {:noreply, socket |> assign(:loading, true) |> load_next_batch()}
+  # Per-card "Show N more" button. `scope` is either a category UUID
+  # or the literal string "uncategorized".
+  #
+  # Deferred apply pattern: the event handler returns immediately after
+  # marking the card as expanding (so the LV re-renders the disabled
+  # "Loading…" button), then `:apply_expand` does the actual fetch on
+  # the next mailbox tick. Without this defer the LV would block in
+  # one go and the user would never see the loading state.
+  #
+  # Smart-fail: if the apply doesn't land within @expand_timeout_ms
+  # (default 8s), `:expand_timeout` clears the expanding flag and
+  # surfaces a flash so the user can retry. The query itself runs
+  # inline (not async) so the timeout fires only when the BEAM /
+  # socket is genuinely stuck, not when the DB is just slow — but
+  # that's the failure mode worth recovering from.
+  def handle_event("expand_card", %{"scope" => scope}, socket) do
+    if MapSet.member?(socket.assigns.expanding_cards, scope) do
+      {:noreply, socket}
+    else
+      send(self(), {:apply_expand, scope})
+      Process.send_after(self(), {:expand_timeout, scope}, @expand_timeout_ms)
 
-      true ->
-        {:noreply, socket}
+      {:noreply,
+       assign(socket, :expanding_cards, MapSet.put(socket.assigns.expanding_cards, scope))}
     end
   end
 
@@ -896,6 +981,24 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     end
   end
 
+  # ── Per-card expand helpers ──────────────────────────────────────
+
+  # Template helper: turns a card map into the scope key used by
+  # `expanding_cards` / `expand_card` events.
+  defp scope_key(%{kind: :uncategorized}), do: "uncategorized"
+  defp scope_key(%{kind: :category, category: %{uuid: uuid}}), do: uuid
+
+  defp scope_matches_card?("uncategorized", %{kind: :uncategorized}), do: true
+
+  defp scope_matches_card?(uuid, %{kind: :category, category: %{uuid: cat_uuid}})
+       when is_binary(uuid),
+       do: uuid == cat_uuid
+
+  defp scope_matches_card?(_, _), do: false
+
+  defp card_scope(%{kind: :uncategorized}), do: :uncategorized
+  defp card_scope(%{kind: :category, category: %{uuid: uuid}}), do: uuid
+
   # ── Bulk-action helpers ──────────────────────────────────────────
 
   defp toggle(set, uuid) do
@@ -1124,8 +1227,6 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   # actor_opts/1, actor_uuid/1, and log_operation_error/3 imported from
   # PhoenixKitCatalogue.Web.Helpers.
 
-  defp initial_cursor, do: %{phase: :categories, category_index: 0, item_offset: 0}
-
   # Resets paging state and loads the first batch. Called on mount, when
   # the user switches active/deleted tabs, and after any structural
   # change (category trash/restore/permanent-delete/reorder) because
@@ -1133,10 +1234,6 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   defp reset_and_load(socket) do
     uuid = socket.assigns.catalogue_uuid
 
-    # Pre-compute tab-relevant deleted count for the auto-flip decision.
-    # The flip rule: if the tab the user is in has no deleted entries
-    # AND they're sitting in the Deleted view, snap them back to Active
-    # so they don't land in an empty Deleted bucket.
     deleted_item_count = Catalogue.deleted_item_count_for_catalogue(uuid)
     deleted_category_count = Catalogue.deleted_category_count_for_catalogue(uuid)
     deleted_count = deleted_item_count + deleted_category_count
@@ -1160,11 +1257,6 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     category_counts = Catalogue.item_counts_by_category_for_catalogue(uuid, mode: mode)
     uncategorized_total = Catalogue.uncategorized_count_for_catalogue(uuid, mode: mode)
 
-    has_any_content = category_list != [] or uncategorized_total > 0
-
-    # Items tab Deleted view is a flat recency-ordered list, not the
-    # category-grouped streamed cards. Skip the cursor / load_next_batch
-    # machinery in that branch and load the flat list directly.
     items_tab_deleted? = view_mode == "deleted" and socket.assigns.tab == "items"
 
     deleted_items =
@@ -1172,29 +1264,71 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         do: Catalogue.list_deleted_items_for_catalogue(uuid),
         else: []
 
-    socket =
-      socket
-      |> assign(
-        page_title: catalogue.name,
-        catalogue: catalogue,
-        category_list: category_list,
-        category_depths: category_depths,
-        category_counts: category_counts,
-        uncategorized_total: uncategorized_total,
-        loaded_cards: [],
-        cursor: initial_cursor(),
-        has_more: not items_tab_deleted? and has_any_content,
-        loading: not items_tab_deleted? and has_any_content,
-        deleted_count: deleted_count,
-        active_item_count: Catalogue.item_count_for_catalogue(uuid),
-        deleted_item_count: deleted_item_count,
-        active_category_count: Catalogue.category_count_for_catalogue(uuid),
-        deleted_category_count: deleted_category_count,
-        view_mode: view_mode,
-        deleted_items: deleted_items
-      )
+    # Per-card preview build. Each category gets its first @per_card
+    # items + a total; uncategorized too. The "Show N more" button on
+    # each card requests the next slice via `expand_card`. Replaces the
+    # global cursor walk + bottom-sentinel infinite scroll.
+    loaded_cards =
+      if items_tab_deleted? do
+        []
+      else
+        build_loaded_cards(uuid, category_list, category_counts, uncategorized_total, mode)
+      end
 
-    if items_tab_deleted?, do: socket, else: load_next_batch(socket)
+    socket
+    |> assign(
+      page_title: catalogue.name,
+      catalogue: catalogue,
+      category_list: category_list,
+      category_depths: category_depths,
+      category_counts: category_counts,
+      uncategorized_total: uncategorized_total,
+      loaded_cards: loaded_cards,
+      deleted_count: deleted_count,
+      active_item_count: Catalogue.item_count_for_catalogue(uuid),
+      deleted_item_count: deleted_item_count,
+      active_category_count: Catalogue.category_count_for_catalogue(uuid),
+      deleted_category_count: deleted_category_count,
+      view_mode: view_mode,
+      deleted_items: deleted_items
+    )
+  end
+
+  # Builds the full set of cards eagerly — one per category in display
+  # order, then an Uncategorized card if applicable. Each card holds
+  # its first @per_card items plus the total count so the template can
+  # render a "Show N more" button when more items exist.
+  defp build_loaded_cards(uuid, category_list, category_counts, uncategorized_total, mode) do
+    category_cards =
+      Enum.map(category_list, fn category ->
+        total = Map.get(category_counts, category.uuid, 0)
+
+        items =
+          if total > 0,
+            do:
+              Catalogue.list_items_for_category_paged(category.uuid,
+                mode: mode,
+                offset: 0,
+                limit: @per_card
+              ),
+            else: []
+
+        %{kind: :category, category: category, items: items, total: total}
+      end)
+
+    if uncategorized_total > 0 do
+      uncat_items =
+        Catalogue.list_uncategorized_items_paged(uuid,
+          mode: mode,
+          offset: 0,
+          limit: @per_card
+        )
+
+      category_cards ++
+        [%{kind: :uncategorized, items: uncat_items, total: uncategorized_total}]
+    else
+      category_cards
+    end
   end
 
   # Refreshes the header counts (Active / Deleted tabs) and the
@@ -1217,6 +1351,20 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         do: Catalogue.list_deleted_items_for_catalogue(uuid),
         else: socket.assigns[:deleted_items] || []
 
+    category_counts = Catalogue.item_counts_by_category_for_catalogue(uuid, mode: mode)
+    uncategorized_total = Catalogue.uncategorized_count_for_catalogue(uuid, mode: mode)
+
+    refreshed_cards =
+      Enum.map(socket.assigns.loaded_cards, fn card ->
+        case card do
+          %{kind: :category, category: %{uuid: cat_uuid}} ->
+            %{card | total: Map.get(category_counts, cat_uuid, 0)}
+
+          %{kind: :uncategorized} ->
+            %{card | total: uncategorized_total}
+        end
+      end)
+
     socket =
       assign(socket,
         deleted_count: Catalogue.deleted_count_for_catalogue(uuid),
@@ -1224,9 +1372,10 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         deleted_item_count: Catalogue.deleted_item_count_for_catalogue(uuid),
         active_category_count: Catalogue.category_count_for_catalogue(uuid),
         deleted_category_count: Catalogue.deleted_category_count_for_catalogue(uuid),
-        category_counts: Catalogue.item_counts_by_category_for_catalogue(uuid, mode: mode),
-        uncategorized_total: Catalogue.uncategorized_count_for_catalogue(uuid, mode: mode),
-        deleted_items: deleted_items
+        category_counts: category_counts,
+        uncategorized_total: uncategorized_total,
+        deleted_items: deleted_items,
+        loaded_cards: refreshed_cards
       )
 
     maybe_auto_flip_to_active(socket)
@@ -1272,6 +1421,23 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     tree = Catalogue.list_category_tree(uuid, mode: mode)
     category_list = Enum.map(tree, fn {cat, _depth} -> cat end)
     category_depths = Map.new(tree, fn {cat, depth} -> {cat.uuid, depth} end)
+    category_counts = Catalogue.item_counts_by_category_for_catalogue(uuid, mode: mode)
+    uncategorized_total = Catalogue.uncategorized_count_for_catalogue(uuid, mode: mode)
+
+    # Re-sync each card's `total` from the fresh counts so the
+    # "Show N more (k)" button reflects current reality after a
+    # cross-tab mutation. Loaded `items` lists are intentionally left
+    # alone to preserve the user's expanded slice.
+    refreshed_cards =
+      Enum.map(socket.assigns.loaded_cards, fn card ->
+        case card do
+          %{kind: :category, category: %{uuid: cat_uuid}} ->
+            %{card | total: Map.get(category_counts, cat_uuid, 0)}
+
+          %{kind: :uncategorized} ->
+            %{card | total: uncategorized_total}
+        end
+      end)
 
     socket
     |> assign(
@@ -1279,8 +1445,9 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       catalogue: catalogue,
       category_list: category_list,
       category_depths: category_depths,
-      category_counts: Catalogue.item_counts_by_category_for_catalogue(uuid, mode: mode),
-      uncategorized_total: Catalogue.uncategorized_count_for_catalogue(uuid, mode: mode),
+      category_counts: category_counts,
+      uncategorized_total: uncategorized_total,
+      loaded_cards: refreshed_cards,
       deleted_count: Catalogue.deleted_count_for_catalogue(uuid),
       active_item_count: Catalogue.item_count_for_catalogue(uuid),
       deleted_item_count: Catalogue.deleted_item_count_for_catalogue(uuid),
@@ -1288,64 +1455,6 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       deleted_category_count: Catalogue.deleted_category_count_for_catalogue(uuid)
     )
     |> maybe_auto_flip_to_active()
-  end
-
-  # Loads one batch (up to `@per_page` items) based on the current
-  # cursor and appends/merges it into `loaded_cards`. Advances the
-  # cursor. Sets `has_more = false` when nothing else remains to load.
-  defp load_next_batch(socket) do
-    %{
-      cursor: cursor,
-      catalogue_uuid: uuid,
-      view_mode: view_mode,
-      category_list: categories,
-      loaded_cards: cards
-    } = socket.assigns
-
-    mode = view_mode_to_atom(view_mode)
-
-    case fetch_next(cursor, uuid, categories, mode) do
-      :done ->
-        assign(socket, has_more: false, loading: false)
-
-      {:category, category, items, exhausted?} ->
-        new_cards = merge_category_card(cards, category, items)
-
-        new_cursor =
-          if exhausted? do
-            %{cursor | category_index: cursor.category_index + 1, item_offset: 0}
-          else
-            %{cursor | item_offset: cursor.item_offset + length(items)}
-          end
-
-        assign(socket,
-          loaded_cards: new_cards,
-          cursor: new_cursor,
-          has_more: true,
-          loading: false
-        )
-
-      {:uncategorized, items, exhausted?} ->
-        new_cards = merge_uncategorized_card(cards, items)
-
-        new_cursor =
-          if exhausted? do
-            %{cursor | phase: :done}
-          else
-            %{
-              phase: :uncategorized,
-              category_index: 0,
-              item_offset: cursor.item_offset + length(items)
-            }
-          end
-
-        assign(socket,
-          loaded_cards: new_cards,
-          cursor: new_cursor,
-          has_more: new_cursor.phase != :done,
-          loading: false
-        )
-    end
   end
 
   # Runs a fresh search query asynchronously. If a prior search is still
@@ -1488,93 +1597,6 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     )
   end
 
-  # Drives the cursor walk. Returns the next batch to render, or
-  # `:done` when the cursor has nothing left in either phase. Walks:
-  # categories (in display order) → uncategorized → done.
-  defp fetch_next(%{phase: :categories} = cursor, uuid, categories, mode) do
-    case Enum.at(categories, cursor.category_index) do
-      nil ->
-        fetch_next(
-          %{phase: :uncategorized, category_index: 0, item_offset: 0},
-          uuid,
-          categories,
-          mode
-        )
-
-      category ->
-        fetch_category_batch(category, cursor, uuid, categories, mode)
-    end
-  end
-
-  defp fetch_next(%{phase: :uncategorized, item_offset: off}, uuid, _categories, mode) do
-    items =
-      Catalogue.list_uncategorized_items_paged(uuid,
-        mode: mode,
-        offset: off,
-        limit: @per_page
-      )
-
-    if items == [] do
-      :done
-    else
-      {:uncategorized, items, length(items) < @per_page}
-    end
-  end
-
-  defp fetch_next(%{phase: :done}, _uuid, _categories, _mode), do: :done
-
-  defp fetch_category_batch(category, cursor, uuid, categories, mode) do
-    items =
-      Catalogue.list_items_for_category_paged(category.uuid,
-        mode: mode,
-        offset: cursor.item_offset,
-        limit: @per_page
-      )
-
-    cond do
-      # Empty category — push an empty card on the first visit so the
-      # category is still visible with its controls, then advance.
-      items == [] and cursor.item_offset == 0 ->
-        {:category, category, [], true}
-
-      items == [] ->
-        fetch_next(
-          %{phase: :categories, category_index: cursor.category_index + 1, item_offset: 0},
-          uuid,
-          categories,
-          mode
-        )
-
-      true ->
-        {:category, category, items, length(items) < @per_page}
-    end
-  end
-
-  # Appends items to the last card if it's already for this category,
-  # otherwise pushes a fresh card.
-  defp merge_category_card(cards, category, items) do
-    case List.last(cards) do
-      %{kind: :category, category: last_cat, items: existing}
-      when last_cat.uuid == category.uuid ->
-        updated = %{kind: :category, category: category, items: existing ++ items}
-        List.replace_at(cards, length(cards) - 1, updated)
-
-      _ ->
-        cards ++ [%{kind: :category, category: category, items: items}]
-    end
-  end
-
-  defp merge_uncategorized_card(cards, items) do
-    case List.last(cards) do
-      %{kind: :uncategorized, items: existing} ->
-        updated = %{kind: :uncategorized, items: existing ++ items}
-        List.replace_at(cards, length(cards) - 1, updated)
-
-      _ ->
-        cards ++ [%{kind: :uncategorized, items: items}]
-    end
-  end
-
   # Removes a trashed/restored/deleted item from its card's items list
   # in place. No DB reload, so scroll position is preserved.
   defp remove_item_locally(socket, item_uuid) do
@@ -1604,18 +1626,31 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     catalogue_uuid = socket.assigns.catalogue_uuid
     mode = view_mode_to_atom(socket.assigns.view_mode)
 
+    fresh_total = card_total(scope, catalogue_uuid, mode)
+
     cards =
       Enum.map(socket.assigns.loaded_cards, fn card ->
         if card_matches_scope?(card, scope) do
-          limit = max(length(card.items) + delta, 1)
+          # Keep the same loaded slice (clamped to the new total) so a
+          # reorder/move doesn't collapse a card the user expanded.
+          limit = max(length(card.items) + delta, @per_card)
           fresh = fetch_card_items(scope, catalogue_uuid, mode, limit)
-          %{card | items: fresh}
+          %{card | items: fresh, total: fresh_total}
         else
           card
         end
       end)
 
     assign(socket, :loaded_cards, cards)
+  end
+
+  defp card_total(:uncategorized, catalogue_uuid, mode) do
+    Catalogue.uncategorized_count_for_catalogue(catalogue_uuid, mode: mode)
+  end
+
+  defp card_total(category_uuid, catalogue_uuid, mode) when is_binary(category_uuid) do
+    Catalogue.item_counts_by_category_for_catalogue(catalogue_uuid, mode: mode)
+    |> Map.get(category_uuid, 0)
   end
 
   defp card_matches_scope?(%{kind: :category, category: %{uuid: uuid}}, scope)
@@ -1625,19 +1660,21 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   defp card_matches_scope?(%{kind: :uncategorized}, :uncategorized), do: true
   defp card_matches_scope?(_, _), do: false
 
-  defp fetch_card_items(:uncategorized, catalogue_uuid, mode, limit) do
+  defp fetch_card_items(scope, catalogue_uuid, mode, limit, offset \\ 0)
+
+  defp fetch_card_items(:uncategorized, catalogue_uuid, mode, limit, offset) do
     Catalogue.list_uncategorized_items_paged(catalogue_uuid,
       mode: mode,
-      offset: 0,
+      offset: offset,
       limit: limit
     )
   end
 
-  defp fetch_card_items(category_uuid, _catalogue_uuid, mode, limit)
+  defp fetch_card_items(category_uuid, _catalogue_uuid, mode, limit, offset)
        when is_binary(category_uuid) do
     Catalogue.list_items_for_category_paged(category_uuid,
       mode: mode,
-      offset: 0,
+      offset: offset,
       limit: limit
     )
   end
@@ -1918,9 +1955,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
         <%!-- Status switcher moved to the tabs row above. --%>
 
-        <%!-- Normal (non-search) view: infinite-scroll cards --%>
-        <%!-- Empty states only shown when nothing is loading AND nothing was ever loaded --%>
-        <div :if={is_nil(@search_results) and not @search_loading and @loaded_cards == [] and not @has_more and not @loading and @view_mode == "active"} class="card bg-base-100 shadow">
+        <%!-- Empty states --%>
+        <div :if={is_nil(@search_results) and not @search_loading and @loaded_cards == [] and @view_mode == "active"} class="card bg-base-100 shadow">
           <div class="card-body items-center text-center py-12">
             <p class="text-base-content/60">{Gettext.gettext(PhoenixKitWeb.Gettext, "No categories or items yet. Add a category or item to get started.")}</p>
           </div>
@@ -1932,9 +1968,11 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
           </div>
         </div>
 
-        <%!-- Active view: streamed cards (one per category + Uncategorized).
-             Category DnD lives on the Categories tab — Items tab is
-             read-only structure so admins focus on item-level edits. --%>
+        <%!-- Active view: every category card eagerly rendered with a
+             25-item preview. Each card has its own "Show N more"
+             button (PdfSearchModal-style per-group expand) so the user
+             can scan the catalogue's structure at a glance and drill
+             into the categories they care about. --%>
         <div
           :if={is_nil(@search_results) and not @search_loading and @view_mode == "active" and @loaded_cards != []}
           id="catalogue-detail-cards"
@@ -1953,6 +1991,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                 uncategorized_total={@uncategorized_total}
                 catalogue={@catalogue}
                 selected_items={@selected_items}
+                expanding={MapSet.member?(@expanding_cards, scope_key(card))}
               />
             </div>
           <% end %>
@@ -1980,24 +2019,6 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
             on_toggle_select="toggle_select_item"
           />
         </div>
-
-        <%!-- Infinite-scroll sentinel (active view only — deleted view
-             is a one-shot 500-row list and doesn't paginate yet). --%>
-        <div
-          :if={is_nil(@search_results) and not @search_loading and @view_mode == "active" and @has_more}
-          id="detail-load-more-sentinel"
-          phx-hook="InfiniteScroll"
-          data-cursor={"#{@cursor.phase}-#{@cursor.category_index}-#{@cursor.item_offset}"}
-          class="py-4"
-        >
-          <div class="flex justify-center">
-            <span class="loading loading-spinner loading-sm text-base-content/30"></span>
-          </div>
-        </div>
-
-          <div :if={is_nil(@search_results) and not @search_loading and @view_mode == "active" and not @has_more and @loaded_cards != []} class="text-center text-xs text-base-content/40 py-2">
-            {Gettext.gettext(PhoenixKitWeb.Gettext, "All items loaded")}
-          </div>
         </div>
         <%!-- ── /Items tab ───────────────────────────────────────── --%>
 
@@ -2382,14 +2403,16 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   attr(:uncategorized_total, :integer, required: true)
   attr(:catalogue, :any, required: true)
   attr(:selected_items, :any, default: nil)
+  attr(:expanding, :boolean, default: false)
 
   defp detail_card(%{card: %{kind: :category}} = assigns) do
     %{uuid: uuid} = assigns.card.category
 
     assigns =
       assigns
-      |> assign(:total, Map.get(assigns.category_counts, uuid, 0))
+      |> assign(:total, assigns.card[:total] || Map.get(assigns.category_counts, uuid, 0))
       |> assign(:depth, Map.get(assigns.category_depths, uuid, 0))
+      |> assign(:loaded, length(assigns.card.items))
 
     ~H"""
     <div
@@ -2473,6 +2496,25 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
             selected_uuids={@selected_items}
             on_toggle_select="toggle_select_item"
           />
+          <%!-- Per-category "Show N more" — same expand-on-demand
+               pattern as the PDF search modal. --%>
+          <div :if={@loaded < @total} class="flex justify-center pt-2">
+            <button
+              type="button"
+              phx-click="expand_card"
+              phx-value-scope={@card.category.uuid}
+              disabled={@expanding}
+              class="btn btn-ghost btn-xs"
+            >
+              <%= if @expanding do %>
+                <span class="loading loading-spinner loading-xs"></span>
+                {Gettext.gettext(PhoenixKitWeb.Gettext, "Loading…")}
+              <% else %>
+                <.icon name="hero-chevron-down" class="w-3 h-3" />
+                {Gettext.gettext(PhoenixKitWeb.Gettext, "Show %{n} more", n: @total - @loaded)}
+              <% end %>
+            </button>
+          </div>
         </div>
         <%!-- Items table: deleted mode --%>
         <div :if={@card.items != [] and @view_mode == "deleted"} class="mt-2">
@@ -2500,6 +2542,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   end
 
   defp detail_card(%{card: %{kind: :uncategorized}} = assigns) do
+    assigns = assign(assigns, :loaded, length(assigns.card.items))
+
     ~H"""
     <div class="card bg-base-100 shadow">
       <div class="card-body">
@@ -2532,6 +2576,23 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
             selected_uuids={@selected_items}
             on_toggle_select="toggle_select_item"
           />
+          <div :if={@loaded < @uncategorized_total and @view_mode == "active"} class="flex justify-center pt-2">
+            <button
+              type="button"
+              phx-click="expand_card"
+              phx-value-scope="uncategorized"
+              disabled={@expanding}
+              class="btn btn-ghost btn-xs"
+            >
+              <%= if @expanding do %>
+                <span class="loading loading-spinner loading-xs"></span>
+                {Gettext.gettext(PhoenixKitWeb.Gettext, "Loading…")}
+              <% else %>
+                <.icon name="hero-chevron-down" class="w-3 h-3" />
+                {Gettext.gettext(PhoenixKitWeb.Gettext, "Show %{n} more", n: @uncategorized_total - @loaded)}
+              <% end %>
+            </button>
+          </div>
         </div>
       </div>
     </div>

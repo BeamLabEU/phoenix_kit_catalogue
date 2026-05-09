@@ -1252,7 +1252,21 @@ defmodule PhoenixKitCatalogue.Web.Components do
       >
         <.table_default_row
           :for={item <- @items}
-          class={if @on_reorder, do: "sortable-item group", else: "group"}
+          class={
+            [
+              if(@on_reorder, do: "sortable-item"),
+              "group",
+              # Selected-row tint + left-edge primary accent. 10% bg
+              # alone (the media_browser convention) is too subtle on
+              # zebra-striped tables; the left border makes selection
+              # unambiguous at a glance. `!` overrides daisyUI's table
+              # zebra row bg.
+              selected?(@selected_uuids, item.uuid) &&
+                "!bg-primary/15 border-l-4 border-l-primary"
+            ]
+            |> Enum.reject(&(&1 in [nil, false]))
+            |> Enum.join(" ")
+          }
           data-id={item.uuid}
         >
           <%!-- Combined checkbox + drag handle column. Checkbox is
