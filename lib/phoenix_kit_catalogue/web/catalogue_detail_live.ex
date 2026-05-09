@@ -273,29 +273,6 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     end
   end
 
-  defp do_apply_expand(socket, scope) do
-    mode = view_mode_to_atom(socket.assigns.view_mode)
-    catalogue_uuid = socket.assigns.catalogue_uuid
-
-    cards =
-      Enum.map(socket.assigns.loaded_cards, &expand_one_card(&1, scope, catalogue_uuid, mode))
-
-    socket
-    |> assign(:loaded_cards, cards)
-    |> assign(:expanding_cards, MapSet.delete(socket.assigns.expanding_cards, scope))
-  end
-
-  defp expand_one_card(card, scope, catalogue_uuid, mode) do
-    if scope_matches_card?(scope, card) do
-      more =
-        fetch_card_items(card_scope(card), catalogue_uuid, mode, @per_card, length(card.items))
-
-      %{card | items: card.items ++ more}
-    else
-      card
-    end
-  end
-
   # Smart-fail: if the apply hasn't landed within @expand_timeout_ms
   # (network hiccup, BEAM stuck), restore the button and surface a
   # flash so the operator can retry.
@@ -319,6 +296,29 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   def handle_info(msg, socket) do
     Logger.debug("CatalogueDetailLive ignored unhandled message: #{inspect(msg)}")
     {:noreply, socket}
+  end
+
+  defp do_apply_expand(socket, scope) do
+    mode = view_mode_to_atom(socket.assigns.view_mode)
+    catalogue_uuid = socket.assigns.catalogue_uuid
+
+    cards =
+      Enum.map(socket.assigns.loaded_cards, &expand_one_card(&1, scope, catalogue_uuid, mode))
+
+    socket
+    |> assign(:loaded_cards, cards)
+    |> assign(:expanding_cards, MapSet.delete(socket.assigns.expanding_cards, scope))
+  end
+
+  defp expand_one_card(card, scope, catalogue_uuid, mode) do
+    if scope_matches_card?(scope, card) do
+      more =
+        fetch_card_items(card_scope(card), catalogue_uuid, mode, @per_card, length(card.items))
+
+      %{card | items: card.items ++ more}
+    else
+      card
+    end
   end
 
   defp handle_catalogue_data_changed(socket) do
