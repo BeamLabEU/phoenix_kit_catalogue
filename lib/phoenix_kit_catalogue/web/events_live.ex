@@ -253,7 +253,7 @@ defmodule PhoenixKitCatalogue.Web.EventsLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <div class="flex flex-col mx-auto max-w-5xl px-4 py-6 gap-4">
+    <div class="flex flex-col w-full px-4 py-6 gap-4">
       <div class="flex items-center justify-between">
         <div class="text-sm text-base-content/60">
           {Gettext.gettext(PhoenixKitCatalogue.Gettext, "%{count} events", count: @total)}
@@ -318,19 +318,17 @@ defmodule PhoenixKitCatalogue.Web.EventsLive do
             </div>
 
             <%!-- Resource + name --%>
-            <div class="flex-1 min-w-0">
+            <div class="flex-1 min-w-0 flex items-center gap-1.5">
               <%= if entry.resource_type do %>
-                <span class="badge badge-ghost badge-xs">{entry.resource_type}</span>
+                <span class="badge badge-ghost badge-xs shrink-0">{entry.resource_type}</span>
                 <%= if entry.metadata["name"] do %>
-                  <span class="text-sm ml-1 font-medium">{entry.metadata["name"]}</span>
+                  <span class="text-sm font-medium shrink-0">{entry.metadata["name"]}</span>
                 <% end %>
               <% end %>
               <% summary = summarize_metadata(entry.metadata) %>
               <%= if summary do %>
-                <span
-                  class="text-xs text-base-content/50 ml-2 truncate inline-block max-w-[200px] align-bottom"
-                  title={summary}
-                >
+                <%!-- Fills remaining row width; ellipsizes only on real overflow, not a fixed cap. --%>
+                <span class="text-xs text-base-content/50 truncate min-w-0" title={summary}>
                   {summary}
                 </span>
               <% end %>
