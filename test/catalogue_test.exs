@@ -4253,4 +4253,37 @@ defmodule PhoenixKitCatalogue.CatalogueTest do
       assert length(Catalogue.list_deleted_items_for_catalogue(cat.uuid, limit: 2)) == 2
     end
   end
+
+  describe "item_status_counts_for_category/1 and _for_uncategorized/1" do
+    test "group a category's items by status (drives the per-status tabs)" do
+      cat = create_catalogue()
+      category = create_category(cat, %{name: "Shelf"})
+
+      create_item(%{name: "a1", category_uuid: category.uuid, status: "active"})
+      create_item(%{name: "a2", category_uuid: category.uuid, status: "active"})
+      create_item(%{name: "i1", category_uuid: category.uuid, status: "inactive"})
+      create_item(%{name: "d1", category_uuid: category.uuid, status: "discontinued"})
+      create_item(%{name: "x1", category_uuid: category.uuid, status: "deleted"})
+
+      counts = Catalogue.item_status_counts_for_category(category.uuid)
+
+      assert counts["active"] == 2
+      assert counts["inactive"] == 1
+      assert counts["discontinued"] == 1
+      assert counts["deleted"] == 1
+    end
+
+    test "uncategorized counts cover the catalogue's loose items by status" do
+      cat = create_catalogue()
+      create_item(%{name: "u1", catalogue_uuid: cat.uuid, status: "active"})
+      create_item(%{name: "u2", catalogue_uuid: cat.uuid, status: "discontinued"})
+
+      counts = Catalogue.item_status_counts_for_uncategorized(cat.uuid)
+
+      assert counts["active"] == 1
+      assert counts["discontinued"] == 1
+      # Absent statuses simply have no key (group_by), not a zero.
+      assert Map.get(counts, "inactive", 0) == 0
+    end
+  end
 end
