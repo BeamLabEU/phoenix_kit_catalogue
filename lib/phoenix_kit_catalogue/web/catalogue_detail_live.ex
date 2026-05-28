@@ -1828,7 +1828,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <div class="flex flex-col mx-auto max-w-5xl px-4 py-6 gap-6">
+    <div class="flex flex-col w-full px-4 py-6 gap-6">
       <%!-- Loading state --%>
       <div :if={is_nil(@catalogue)} class="flex justify-center py-12">
         <span class="loading loading-spinner loading-lg"></span>

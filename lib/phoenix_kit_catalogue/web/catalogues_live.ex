@@ -17,6 +17,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   import PhoenixKitWeb.Components.Core.TableDefault
   import PhoenixKitWeb.Components.Core.TableRowMenu
   import PhoenixKitWeb.Components.Core.EmptyState, only: [empty_state: 1]
+  import PhoenixKitWeb.Components.Core.AdminPageHeader, only: [admin_page_header: 1]
 
   import PhoenixKitCatalogue.Web.Components
 
@@ -862,31 +863,11 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <div class="flex flex-col mx-auto max-w-5xl px-4 py-6 gap-6">
-      <%!-- Tab navigation --%>
-      <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div role="tablist" class="tabs tabs-bordered">
-          <.link
-            patch={Paths.index()}
-            class={["tab", @active_tab == :index && "tab-active"]}
-          >
-            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Catalogues")}
-          </.link>
-          <.link
-            patch={Paths.manufacturers()}
-            class={["tab", @active_tab == :manufacturers && "tab-active"]}
-          >
-            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Manufacturers")}
-          </.link>
-          <.link
-            patch={Paths.suppliers()}
-            class={["tab", @active_tab == :suppliers && "tab-active"]}
-          >
-            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Suppliers")}
-          </.link>
-        </div>
-
-        <div class="self-end sm:self-auto flex items-center gap-2">
+    <div class="flex flex-col w-full px-4 py-6 gap-6">
+      <%!-- Navigation between Catalogues / Manufacturers / Suppliers lives in
+           the admin sidebar; the page just titles the current view. --%>
+      <.admin_page_header title={tab_title(@active_tab)}>
+        <:actions>
           <button
             :if={@active_tab == :index && @catalogue_view_mode == "active"}
             type="button"
@@ -905,8 +886,8 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
           <.link :if={@active_tab == :suppliers} navigate={Paths.supplier_new()} class="btn btn-primary btn-sm">
             {Gettext.gettext(PhoenixKitCatalogue.Gettext, "New Supplier")}
           </.link>
-        </div>
-      </div>
+        </:actions>
+      </.admin_page_header>
 
       <%!-- Global search (only on catalogues tab). While a tree row is being
            dragged, the CatalogueTreeDnD hook swaps the search bar for the
