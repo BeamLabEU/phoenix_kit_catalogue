@@ -790,7 +790,6 @@ defmodule PhoenixKitCatalogue.Catalogue do
     query =
       from(i in Item,
         where: i.category_uuid == ^category_uuid,
-        order_by: [asc: i.position, asc: i.name],
         offset: ^offset,
         limit: ^limit,
         preload: ^preloads
@@ -802,7 +801,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
         :deleted -> where(query, [i], i.status == "deleted")
       end
 
-    repo().all(query)
+    query |> apply_item_order(opts) |> repo().all()
   end
 
   @doc """
@@ -830,7 +829,6 @@ defmodule PhoenixKitCatalogue.Catalogue do
     query =
       from(i in Item,
         where: i.catalogue_uuid == ^catalogue_uuid and is_nil(i.category_uuid),
-        order_by: [asc: i.position, asc: i.name],
         offset: ^offset,
         limit: ^limit,
         preload: ^preloads
@@ -842,8 +840,32 @@ defmodule PhoenixKitCatalogue.Catalogue do
         :deleted -> where(query, [i], i.status == "deleted")
       end
 
-    repo().all(query)
+    query |> apply_item_order(opts) |> repo().all()
   end
+
+  # ── Item sort + strategy reorder ─────────────────────────────────
+
+  # Sortable item columns. `:position` is the manual-order default
+  # (matches the pre-sort behavior); `name` sorts on the raw `name`
+  # column (multilang lives in `data` JSONB, not sorted here).
+  @item_sort_fields ~w(position name sku base_price inserted_at status)a
+
+  # Applies `:sort_by` / `:sort_dir` from `opts` to an Item query. Every
+  # order ends with `asc: i.uuid` so paging is deterministic across ties.
+  defp apply_item_order(query, opts) do
+    sort_by = Keyword.get(opts, :sort_by, :position)
+    sort_dir = if Keyword.get(opts, :sort_dir) == :desc, do: :desc, else: :asc
+    item_order_by(query, sort_by, sort_dir)
+  end
+
+  defp item_order_by(query, :position, _dir),
+    do: order_by(query, [i], asc: i.position, asc: i.name, asc: i.uuid)
+
+  defp item_order_by(query, field, dir) when field in @item_sort_fields,
+    do: order_by(query, [i], [{^dir, field(i, ^field)}, {:asc, i.uuid}])
+
+  defp item_order_by(query, _field, _dir),
+    do: order_by(query, [i], asc: i.position, asc: i.name, asc: i.uuid)
 
   @doc """
   Counts non-deleted uncategorized items for a catalogue (items with
@@ -1894,6 +1916,32 @@ defmodule PhoenixKitCatalogue.Catalogue do
         uuid -> uuid |> Tree.subtree_uuids() |> Enum.map(&load_uuid/1)
       end
 
+    normalized = normalized_category_rows(catalogue_uuid, mode, exclude_uuids)
+    index = Tree.build_children_index(normalized)
+
+    {acc, _} =
+      Enum.reduce(Map.get(index, nil, []), {[], index}, fn root, {acc, idx} ->
+        {collect_tree(root, idx, 0, acc), idx}
+      end)
+
+    Enum.reverse(acc)
+  end
+
+  defp collect_tree(%Category{} = cat, index, depth, acc) do
+    acc = [{cat, depth} | acc]
+
+    index
+    |> Map.get(cat.uuid, [])
+    |> Enum.reduce(acc, fn child, acc -> collect_tree(child, index, depth + 1, acc) end)
+  end
+
+  # Loads the catalogue's categories for `mode`, drops the excluded
+  # subtree, and orphan-promotes rows whose parent is missing from the
+  # set (deleted ancestor in :active mode, or excluded subtree) to roots
+  # by rewriting `parent_uuid` to nil — so they never vanish from the UI.
+  # Shared by `list_category_tree/2` and `list_child_categories/3` so the
+  # drill-down's level view and the flat tree agree on what's a root.
+  defp normalized_category_rows(catalogue_uuid, mode, exclude_uuids) do
     query =
       from(c in Category,
         where: c.catalogue_uuid == ^catalogue_uuid,
@@ -1911,37 +1959,79 @@ defmodule PhoenixKitCatalogue.Catalogue do
       |> repo().all()
       |> Enum.reject(&(&1.uuid in exclude_uuids))
 
-    # Some parents may be missing from the filtered list (deleted
-    # ancestors in :active mode, or excluded subtree). Orphans — rows
-    # whose `parent_uuid` no longer has a matching row in this set —
-    # get surfaced as roots so they don't vanish from the UI.
     uuid_set = MapSet.new(categories, & &1.uuid)
 
-    normalized =
-      Enum.map(categories, fn c ->
-        if c.parent_uuid == nil or MapSet.member?(uuid_set, c.parent_uuid) do
-          c
-        else
-          %{c | parent_uuid: nil}
-        end
-      end)
-
-    index = Tree.build_children_index(normalized)
-
-    {acc, _} =
-      Enum.reduce(Map.get(index, nil, []), {[], index}, fn root, {acc, idx} ->
-        {collect_tree(root, idx, 0, acc), idx}
-      end)
-
-    Enum.reverse(acc)
+    Enum.map(categories, fn c ->
+      if c.parent_uuid == nil or MapSet.member?(uuid_set, c.parent_uuid) do
+        c
+      else
+        %{c | parent_uuid: nil}
+      end
+    end)
   end
 
-  defp collect_tree(%Category{} = cat, index, depth, acc) do
-    acc = [{cat, depth} | acc]
+  @doc """
+  Lists the categories shown at one drill level — the direct children of
+  `parent_uuid` within the catalogue (`nil` = the root level).
 
-    index
-    |> Map.get(cat.uuid, [])
-    |> Enum.reduce(acc, fn child, acc -> collect_tree(child, index, depth + 1, acc) end)
+  In `:active` mode (default) the result reuses `list_category_tree/2`'s
+  orphan promotion: a category whose parent is deleted (e.g. a child
+  restored under a still-trashed parent — `restore_category/2` does not
+  cascade) surfaces at the root level so it stays reachable by
+  drill-down. In `:deleted` mode it returns the strict set of *deleted*
+  direct children (no promotion) — the deleted subtree is navigated by
+  drilling into deleted parents.
+
+  Ordered by `position` then `name`.
+  """
+  @spec list_child_categories(Ecto.UUID.t(), Ecto.UUID.t() | nil, keyword()) :: [Category.t()]
+  def list_child_categories(catalogue_uuid, parent_uuid, opts \\ []) do
+    case Keyword.get(opts, :mode, :active) do
+      :active ->
+        catalogue_uuid
+        |> normalized_category_rows(:active, [])
+        |> Enum.filter(&(&1.parent_uuid == parent_uuid))
+
+      :deleted ->
+        base =
+          from(c in Category,
+            where: c.catalogue_uuid == ^catalogue_uuid and c.status == "deleted",
+            order_by: [asc: :position, asc: :name]
+          )
+
+        query =
+          case parent_uuid do
+            nil -> where(base, [c], is_nil(c.parent_uuid))
+            uuid -> where(base, [c], c.parent_uuid == ^uuid)
+          end
+
+        repo().all(query)
+    end
+  end
+
+  @doc """
+  Returns the set of category UUIDs (within the catalogue, in the given
+  `:mode`) that have at least one child category — lets drill cards show
+  a "has subcategories" affordance without an N+1 per card.
+  """
+  @spec category_uuids_with_children(Ecto.UUID.t(), keyword()) :: MapSet.t()
+  def category_uuids_with_children(catalogue_uuid, opts \\ []) do
+    mode = Keyword.get(opts, :mode, :active)
+
+    query =
+      from(c in Category,
+        where: c.catalogue_uuid == ^catalogue_uuid and not is_nil(c.parent_uuid),
+        select: c.parent_uuid,
+        distinct: true
+      )
+
+    query =
+      case mode do
+        :active -> where(query, [c], c.status != "deleted")
+        :deleted -> query
+      end
+
+    query |> repo().all() |> MapSet.new()
   end
 
   @doc """
@@ -2456,6 +2546,222 @@ defmodule PhoenixKitCatalogue.Catalogue do
     write_item_positions(unique_uuids)
     length(unique_uuids)
   end
+
+  @valid_item_reorder_strategies ~w(name_asc name_desc created_asc created_desc reverse)a
+
+  @doc """
+  Bulk-reorders the items in one `(catalogue_uuid, category_uuid)` scope
+  by a strategy (mirrors `PhoenixKitProjects.reorder_tasks_by/3`).
+
+  `category_uuid` is normalized via `normalize_category_uuid/1` (`nil` /
+  `:uncategorized` → the uncategorized scope). `scope`:
+
+    * `:all` — reindex the whole scope `1..N` in strategy order.
+    * a list of item UUIDs — permute those rows in place into their own
+      (sorted) position slots. Requires distinct positions; otherwise
+      `{:error, :duplicate_positions}` (run an `:all` reorder first to
+      normalise — catalogue items default to `position: 0`).
+
+  Strategies: `:name_asc` / `:name_desc` (raw `name` column),
+  `:created_asc` / `:created_desc`, `:reverse`.
+  """
+  @spec reorder_items_by(
+          Ecto.UUID.t(),
+          Ecto.UUID.t() | :uncategorized | nil,
+          atom(),
+          :all | [Ecto.UUID.t()],
+          keyword()
+        ) ::
+          :ok
+          | {:error,
+             :invalid_strategy
+             | :duplicate_positions
+             | :uuids_outside_scope
+             | :too_many_uuids
+             | term()}
+  def reorder_items_by(catalogue_uuid, category_uuid, strategy, scope, opts \\ [])
+
+  def reorder_items_by(_catalogue_uuid, _category_uuid, strategy, _scope, _opts)
+      when strategy not in @valid_item_reorder_strategies,
+      do: {:error, :invalid_strategy}
+
+  def reorder_items_by(catalogue_uuid, category_uuid, strategy, :all, opts)
+      when is_binary(catalogue_uuid) do
+    cat_uuid = normalize_category_uuid(category_uuid)
+    ordered = catalogue_uuid |> scope_items(cat_uuid) |> item_strategy_order(strategy)
+
+    cond do
+      ordered == [] ->
+        :ok
+
+      length(ordered) > @reorder_max_uuids ->
+        {:error, :too_many_uuids}
+
+      true ->
+        finish_item_reorder_by(
+          repo().transaction(fn -> write_item_positions(ordered) end),
+          catalogue_uuid,
+          cat_uuid,
+          strategy,
+          :all,
+          ordered,
+          opts
+        )
+    end
+  end
+
+  def reorder_items_by(catalogue_uuid, category_uuid, strategy, uuids, opts)
+      when is_binary(catalogue_uuid) and is_list(uuids) do
+    cat_uuid = normalize_category_uuid(category_uuid)
+    unique = Helpers.dedupe_keep_last(uuids)
+
+    if length(unique) > @reorder_max_uuids do
+      {:error, :too_many_uuids}
+    else
+      case item_scope_check(catalogue_uuid, cat_uuid, unique) do
+        :empty -> :ok
+        {:error, :wrong_scope} -> {:error, :uuids_outside_scope}
+        :ok -> permute_items_by(catalogue_uuid, cat_uuid, unique, strategy, opts)
+      end
+    end
+  end
+
+  # Permute the selected rows into their own (sorted) position slots.
+  defp permute_items_by(catalogue_uuid, cat_uuid, unique, strategy, opts) do
+    rows = from(i in Item, where: i.uuid in ^unique) |> repo().all()
+    slots = rows |> Enum.map(& &1.position) |> Enum.sort()
+
+    if slots != Enum.uniq(slots) do
+      {:error, :duplicate_positions}
+    else
+      pairs = Enum.zip(item_strategy_order(rows, strategy), slots)
+
+      finish_item_reorder_by(
+        repo().transaction(fn -> write_item_permutation(pairs) end),
+        catalogue_uuid,
+        cat_uuid,
+        strategy,
+        :selected,
+        Enum.map(pairs, fn {uuid, _} -> uuid end),
+        opts
+      )
+    end
+  end
+
+  defp finish_item_reorder_by({:ok, _}, catalogue_uuid, cat_uuid, strategy, mode, ordered, opts) do
+    log_activity(%{
+      action: "item.reordered",
+      mode: "manual",
+      actor_uuid: opts[:actor_uuid],
+      resource_type: "item",
+      resource_uuid: List.first(ordered),
+      parent_catalogue_uuid: catalogue_uuid,
+      metadata: %{
+        "category_uuid" => cat_uuid,
+        "strategy" => Atom.to_string(strategy),
+        "scope" => Atom.to_string(mode),
+        "count" => length(ordered)
+      }
+    })
+
+    :ok
+  end
+
+  defp finish_item_reorder_by(
+         {:error, reason},
+         catalogue_uuid,
+         cat_uuid,
+         _strategy,
+         _mode,
+         ordered,
+         opts
+       ) do
+    log_reorder_db_error(:item, ordered, catalogue_uuid, opts, category_uuid: cat_uuid)
+    {:error, reason}
+  end
+
+  defp scope_items(catalogue_uuid, nil) do
+    from(i in Item,
+      where:
+        i.catalogue_uuid == ^catalogue_uuid and is_nil(i.category_uuid) and i.status != "deleted"
+    )
+    |> repo().all()
+  end
+
+  defp scope_items(catalogue_uuid, category_uuid) do
+    from(i in Item,
+      where:
+        i.catalogue_uuid == ^catalogue_uuid and i.category_uuid == ^category_uuid and
+          i.status != "deleted"
+    )
+    |> repo().all()
+  end
+
+  # Writes arbitrary {uuid, position} pairs two-phase (negatives, then the
+  # final positives) to dodge transient unique collisions; uuid-sorted
+  # write order is deadlock-safe.
+  defp write_item_permutation(pairs) do
+    write_order = Enum.sort_by(pairs, fn {uuid, _pos} -> uuid end)
+
+    write_order
+    |> Enum.with_index(1)
+    |> Enum.each(fn {{uuid, _pos}, idx} ->
+      from(i in Item, where: i.uuid == ^uuid) |> repo().update_all(set: [position: -idx])
+    end)
+
+    Enum.each(write_order, fn {uuid, pos} ->
+      from(i in Item, where: i.uuid == ^uuid) |> repo().update_all(set: [position: pos])
+    end)
+
+    :ok
+  end
+
+  # Maps rows → uuids in the order a strategy implies. uuid pre-sort is a
+  # stable tiebreaker for equal names / same-second inserts.
+  defp item_strategy_order(rows, :reverse),
+    do: rows |> Enum.sort_by(& &1.position) |> Enum.reverse() |> Enum.map(& &1.uuid)
+
+  defp item_strategy_order(rows, :name_asc),
+    do:
+      rows
+      |> Enum.sort_by(& &1.uuid)
+      |> Enum.sort_by(&downcase_or_empty(&1.name))
+      |> Enum.map(& &1.uuid)
+
+  defp item_strategy_order(rows, :name_desc),
+    do:
+      rows
+      |> Enum.sort_by(& &1.uuid, :desc)
+      |> Enum.sort_by(&downcase_or_empty(&1.name), :desc)
+      |> Enum.map(& &1.uuid)
+
+  defp item_strategy_order(rows, :created_asc),
+    do: rows |> Enum.sort_by(& &1.uuid) |> Enum.sort_by(& &1.inserted_at) |> Enum.map(& &1.uuid)
+
+  defp item_strategy_order(rows, :created_desc),
+    do:
+      rows
+      |> Enum.sort_by(& &1.uuid, :desc)
+      |> Enum.sort_by(& &1.inserted_at, :desc)
+      |> Enum.map(& &1.uuid)
+
+  defp downcase_or_empty(nil), do: ""
+  defp downcase_or_empty(s) when is_binary(s), do: String.downcase(s)
+
+  @doc """
+  Normalizes a node reference to an item `category_uuid`: `nil` /
+  `:uncategorized` / `"uncategorized"` → `nil` (the uncategorized scope);
+  `%Category{}` → its uuid; a uuid string passes through. Shared by the
+  detail LV and `reorder_items_by/5` so the uncategorized bucket always
+  reaches scope checks as `category_uuid: nil`.
+  """
+  @spec normalize_category_uuid(nil | :uncategorized | String.t() | Category.t()) ::
+          Ecto.UUID.t() | nil
+  def normalize_category_uuid(nil), do: nil
+  def normalize_category_uuid(:uncategorized), do: nil
+  def normalize_category_uuid("uncategorized"), do: nil
+  def normalize_category_uuid(%Category{uuid: uuid}), do: uuid
+  def normalize_category_uuid(uuid) when is_binary(uuid), do: uuid
 
   # ═══════════════════════════════════════════════════════════════════
   # Items
