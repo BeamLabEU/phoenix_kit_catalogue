@@ -24,17 +24,21 @@ defmodule PhoenixKitCatalogue.FoldersTest do
   # ═══════════════════════════════════════════════════════════════════
 
   describe "list_folder_tree/1" do
-    test "returns folders with depth in DFS (position, name) order" do
+    test "returns folders depth-first, newest-first within each level" do
+      # `create_folder` front-inserts (see `front_folder_position/1`): a
+      # new folder sorts to the top of its level so it's immediately
+      # visible. So at the root, b (created after a) comes first; then the
+      # DFS descends a's subtree.
       a = create_folder(%{name: "A"})
       b = create_folder(%{name: "B"})
       a1 = create_folder(%{name: "A1", parent_uuid: a.uuid})
       a1x = create_folder(%{name: "A1x", parent_uuid: a1.uuid})
 
       assert tree_uuids() == [
+               {b.uuid, 0},
                {a.uuid, 0},
                {a1.uuid, 1},
-               {a1x.uuid, 2},
-               {b.uuid, 0}
+               {a1x.uuid, 2}
              ]
     end
 
