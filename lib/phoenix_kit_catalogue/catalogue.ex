@@ -2166,21 +2166,6 @@ defmodule PhoenixKitCatalogue.Catalogue do
   end
 
   @doc """
-  Lists the folders shown at one level — the direct children of
-  `parent_uuid` (`nil` = root). In `:active` mode reuses the tree's
-  orphan promotion (a folder whose parent is trashed surfaces at root).
-  Ordered by `position` then `name`.
-  """
-  @spec list_child_folders(Ecto.UUID.t() | nil, keyword()) :: [Folder.t()]
-  def list_child_folders(parent_uuid, opts \\ []) do
-    mode = Keyword.get(opts, :mode, :active)
-
-    mode
-    |> normalized_folder_rows([])
-    |> Enum.filter(&(&1.parent_uuid == parent_uuid))
-  end
-
-  @doc """
   Returns the set of folder UUIDs (in the given `:mode`) that have at
   least one child folder — lets the tree show an expand affordance
   without an N+1.
@@ -2199,23 +2184,6 @@ defmodule PhoenixKitCatalogue.Catalogue do
       end
 
     query |> repo().all() |> MapSet.new()
-  end
-
-  @doc """
-  Returns a `%{folder_uuid => count}` map of active (non-deleted)
-  catalogues per folder. Catalogues filed under a trashed/missing folder
-  are not counted here (they orphan-promote to root in the tree view).
-  Root/unfiled catalogues are keyed under `nil`.
-  """
-  @spec folder_catalogue_counts() :: %{(Ecto.UUID.t() | nil) => non_neg_integer()}
-  def folder_catalogue_counts do
-    from(c in Catalogue,
-      where: c.status != "deleted",
-      group_by: c.folder_uuid,
-      select: {c.folder_uuid, count(c.uuid)}
-    )
-    |> repo().all()
-    |> Map.new()
   end
 
   @doc """
