@@ -140,11 +140,16 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
           do: "active",
           else: requested
 
+      # Loaded once and shared by both the active row builder and the
+      # "Move to folder" picker — they previously each ran their own
+      # identical `list_folder_tree(:active)` query.
+      active_tree = Catalogue.list_folder_tree(mode: :active)
+
       rows =
         if mode == "deleted" do
           build_deleted_rows(deleted_folders, Catalogue.list_catalogues(status: "deleted"))
         else
-          build_active_rows(socket.assigns.expanded_folders)
+          build_active_rows(active_tree, socket.assigns.expanded_folders)
         end
 
       assign(socket,
@@ -153,7 +158,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         deleted_catalogue_count: deleted_cat_count,
         deleted_folder_count: deleted_folder_count,
         catalogue_view_mode: mode,
-        folder_options: folder_options()
+        folder_options: folder_options(active_tree)
       )
     else
       socket
@@ -181,11 +186,16 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   # unfiled catalogues. Orphan promotion (a child of a trashed folder, or
   # a catalogue whose folder is trashed) is already handled by the
   # context — promoted rows arrive with `parent_uuid`/folder = nil.
-  defp build_active_rows(expanded) do
-    folders = Catalogue.list_folder_tree(mode: :active) |> Enum.map(fn {f, _depth} -> f end)
+  defp build_active_rows(active_tree, expanded) do
+    folders = Enum.map(active_tree, fn {f, _depth} -> f end)
     folders_by_parent = Enum.group_by(folders, & &1.parent_uuid)
     cats_by_folder = Catalogue.catalogues_by_folder()
-    counts = Catalogue.folder_catalogue_counts()
+    # Folder rows only ever look up their own (active) folder's count, and
+    # those catalogues are already loaded in `cats_by_folder` — derive the
+    # counts from it instead of a second `folder_catalogue_counts/0` query
+    # (which also keeps the badge and the rendered children consistent by
+    # construction).
+    counts = Map.new(cats_by_folder, fn {folder_uuid, cats} -> {folder_uuid, length(cats)} end)
     with_child_folders = Catalogue.folder_uuids_with_children(mode: :active)
 
     walk_level(nil, 0, folders_by_parent, cats_by_folder, counts, with_child_folders, expanded)
@@ -245,10 +255,9 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
 
   # Depth-indented `{value, label}` options for the "Move to folder"
   # picker — active folders only; root is the empty-string sentinel.
-  defp folder_options do
+  defp folder_options(active_tree) do
     nested =
-      Catalogue.list_folder_tree(mode: :active)
-      |> Enum.map(fn {folder, depth} ->
+      Enum.map(active_tree, fn {folder, depth} ->
         {folder.uuid, String.duplicate("  ", depth) <> folder.name}
       end)
 
