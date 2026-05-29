@@ -646,6 +646,52 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     end
   end
 
+  def handle_event("permanently_delete_folder", _params, socket) do
+    case socket.assigns.confirm_delete do
+      {"folder", uuid} ->
+        with %{} = folder <- Catalogue.get_folder(uuid),
+             {:ok, _} <- Catalogue.permanently_delete_folder(folder, actor_opts(socket)) do
+          {:noreply,
+           socket
+           |> put_flash(
+             :info,
+             Gettext.gettext(PhoenixKitCatalogue.Gettext, "Folder permanently deleted.")
+           )
+           |> assign(:confirm_delete, nil)
+           |> load_data(:index)}
+        else
+          nil ->
+            {:noreply,
+             socket
+             |> assign(:confirm_delete, nil)
+             |> put_flash(
+               :error,
+               Gettext.gettext(PhoenixKitCatalogue.Gettext, "Folder not found.")
+             )
+             |> load_data(:index)}
+
+          {:error, reason} ->
+            log_operation_error(socket, "permanently_delete_folder", %{
+              entity_type: "folder",
+              entity_uuid: uuid,
+              reason: reason
+            })
+
+            {:noreply,
+             socket
+             |> assign(:confirm_delete, nil)
+             |> put_flash(
+               :error,
+               Gettext.gettext(PhoenixKitCatalogue.Gettext, "Failed to delete folder.")
+             )
+             |> load_data(:index)}
+        end
+
+      _ ->
+        unexpected_confirm_event(socket, "permanently_delete_folder")
+    end
+  end
+
   def handle_event("delete_manufacturer", _params, socket) do
     case socket.assigns.confirm_delete do
       {"manufacturer", uuid} ->
@@ -1022,6 +1068,17 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       />
 
       <.confirm_modal
+        show={match?({"folder", _}, @confirm_delete)}
+        on_confirm="permanently_delete_folder"
+        on_cancel="cancel_delete"
+        title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Permanently Delete Folder")}
+        title_icon="hero-trash"
+        messages={[{:warning, Gettext.gettext(PhoenixKitCatalogue.Gettext, "This will permanently delete this folder. Subfolders are moved to root and catalogues filed here are unfiled — neither is deleted. This cannot be undone.")}]}
+        confirm_text={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete Forever")}
+        danger={true}
+      />
+
+      <.confirm_modal
         show={match?({"manufacturer", _}, @confirm_delete)}
         on_confirm="delete_manufacturer"
         on_cancel="cancel_delete"
@@ -1339,6 +1396,8 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
                     </.table_row_menu>
                     <.table_row_menu :if={@view_mode == "deleted"} mode="auto" id={"folder-del-menu-#{folder.uuid}"}>
                       <.table_row_menu_button phx-click="restore_folder" phx-value-uuid={folder.uuid} phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Restoring...")} icon="hero-arrow-path" label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Restore")} variant="success" />
+                      <.table_row_menu_divider />
+                      <.table_row_menu_button phx-click="show_delete_confirm" phx-value-uuid={folder.uuid} phx-value-type="folder" icon="hero-trash" label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete Forever")} variant="error" />
                     </.table_row_menu>
                   </td>
                 </tr>
