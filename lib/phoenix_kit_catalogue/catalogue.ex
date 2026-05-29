@@ -2296,23 +2296,28 @@ defmodule PhoenixKitCatalogue.Catalogue do
   def move_folder(%Folder{} = folder, new_parent_uuid, opts \\ []) do
     new_parent = normalize_folder_uuid(new_parent_uuid)
 
-    cond do
-      new_parent == folder.parent_uuid ->
-        {:ok, folder}
-
-      new_parent != nil and new_parent in folder_subtree_uuids(folder.uuid) ->
-        {:error, :cycle}
-
-      true ->
-        do_move_folder(folder, new_parent, opts)
+    if new_parent == folder.parent_uuid do
+      {:ok, folder}
+    else
+      do_move_folder(folder, new_parent, opts)
     end
   end
 
+  # Cycle check + target validation + position calc + update run inside a
+  # single transaction with `FOR UPDATE` on the moved row, mirroring
+  # `do_move_category_under/3`. The cycle check re-runs against the
+  # committed tree under the lock, so a concurrent reparent that already
+  # landed is seen here and rejected with `:cycle` rather than silently
+  # committing a structure that would vanish from `list_folder_tree/1`
+  # (it only walks from `nil` roots).
   defp do_move_folder(folder, new_parent, opts) do
-    attrs = %{parent_uuid: new_parent, position: next_folder_position(new_parent)}
+    result =
+      repo().transaction(fn ->
+        repo().one!(from(f in Folder, where: f.uuid == ^folder.uuid, lock: "FOR UPDATE"))
+        run_locked_folder_move(folder, new_parent)
+      end)
 
-    with :ok <- validate_target_folder(new_parent),
-         {:ok, updated} <- folder |> Folder.changeset(attrs) |> repo().update() do
+    with {:ok, updated} <- result do
       log_activity(%{
         action: "folder.moved",
         mode: "manual",
@@ -2328,6 +2333,28 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
       {:ok, updated}
     end
+  end
+
+  # Runs under the `FOR UPDATE` lock from `do_move_folder/3`. Re-checks the
+  # cycle against the committed tree, validates the target, then reparents.
+  # Any error rolls the transaction back with the reason so the outer
+  # `{:ok, _} <- result` short-circuits without logging.
+  defp run_locked_folder_move(folder, new_parent) do
+    attrs = %{parent_uuid: new_parent, position: next_folder_position(new_parent)}
+
+    with :ok <- folder_cycle_guard(folder, new_parent),
+         :ok <- validate_target_folder(new_parent),
+         {:ok, updated} <- folder |> Folder.changeset(attrs) |> repo().update() do
+      updated
+    else
+      {:error, reason} -> repo().rollback(reason)
+    end
+  end
+
+  defp folder_cycle_guard(folder, new_parent) do
+    if new_parent != nil and new_parent in folder_subtree_uuids(folder.uuid),
+      do: {:error, :cycle},
+      else: :ok
   end
 
   @doc """
@@ -2387,6 +2414,42 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
       error ->
         error
+    end
+  end
+
+  @doc """
+  Permanently deletes a folder from the database. Non-cascading, matching
+  the trash/orphan-promotion semantics: direct child folders are promoted
+  to root (their `parent_uuid` is NULLed) and catalogues filed here are
+  unfiled (their `folder_uuid` is NULLed) inside the same transaction
+  before the folder row is removed — so neither is destroyed along with
+  the folder. This cannot be undone.
+  """
+  @spec permanently_delete_folder(Folder.t(), keyword()) ::
+          {:ok, Folder.t()} | {:error, term()}
+  def permanently_delete_folder(%Folder{} = folder, opts \\ []) do
+    result =
+      repo().transaction(fn ->
+        from(f in Folder, where: f.parent_uuid == ^folder.uuid)
+        |> repo().update_all(set: [parent_uuid: nil])
+
+        from(c in Catalogue, where: c.folder_uuid == ^folder.uuid)
+        |> repo().update_all(set: [folder_uuid: nil])
+
+        repo().delete!(folder)
+      end)
+
+    with {:ok, _} <- result do
+      log_activity(%{
+        action: "folder.permanently_deleted",
+        mode: "manual",
+        actor_uuid: opts[:actor_uuid],
+        resource_type: "folder",
+        resource_uuid: folder.uuid,
+        metadata: %{"name" => folder.name}
+      })
+
+      result
     end
   end
 
@@ -3008,9 +3071,16 @@ defmodule PhoenixKitCatalogue.Catalogue do
     unique_uuids = Helpers.dedupe_keep_last(ordered_uuids)
 
     case item_scope_check(catalogue_uuid, category_uuid, unique_uuids) do
-      :empty -> {:ok, 0}
-      :ok -> commit_item_positions(unique_uuids)
-      {:error, _} = err -> err
+      :empty ->
+        {:ok, 0}
+
+      {:ok, valid} ->
+        unique_uuids
+        |> Enum.filter(&MapSet.member?(valid, &1))
+        |> commit_item_positions()
+
+      {:error, _} = err ->
+        err
     end
   end
 
@@ -3032,16 +3102,30 @@ defmodule PhoenixKitCatalogue.Catalogue do
       unique_uuids = Helpers.dedupe_keep_last(ordered_uuids)
 
       case item_scope_check(catalogue_uuid, category_uuid, unique_uuids) do
-        :empty -> {:ok, 0}
-        :ok -> {:ok, write_item_positions_count(unique_uuids)}
-        {:error, _} = err -> err
+        :empty ->
+          {:ok, 0}
+
+        {:ok, valid} ->
+          {:ok,
+           unique_uuids
+           |> Enum.filter(&MapSet.member?(valid, &1))
+           |> write_item_positions_count()}
+
+        {:error, _} = err ->
+          err
       end
     end
   end
 
+  # Deleted items are excluded up front: a uuid captured in a client-side
+  # selection (or stale DOM order) that gets trashed in another tab before
+  # the reorder lands must not be re-slotted into the active sequence.
+  # Mirrors the active-only invariant `scope_items/2` enforces on the
+  # `:all` path. Returns the in-scope, non-deleted uuids as a MapSet so the
+  # caller can drop them while preserving the requested order.
   defp item_scope_check(catalogue_uuid, category_uuid, unique_uuids) do
     rows =
-      from(i in Item, where: i.uuid in ^unique_uuids)
+      from(i in Item, where: i.uuid in ^unique_uuids and i.status != "deleted")
       |> repo().all()
 
     cond do
@@ -3054,7 +3138,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
         {:error, :wrong_scope}
 
       true ->
-        :ok
+        {:ok, MapSet.new(rows, & &1.uuid)}
     end
   end
 
@@ -3158,9 +3242,15 @@ defmodule PhoenixKitCatalogue.Catalogue do
       {:error, :too_many_uuids}
     else
       case item_scope_check(catalogue_uuid, cat_uuid, unique) do
-        :empty -> :ok
-        {:error, :wrong_scope} -> {:error, :uuids_outside_scope}
-        :ok -> permute_items_by(catalogue_uuid, cat_uuid, unique, strategy, opts)
+        :empty ->
+          :ok
+
+        {:error, :wrong_scope} ->
+          {:error, :uuids_outside_scope}
+
+        {:ok, valid} ->
+          kept = Enum.filter(unique, &MapSet.member?(valid, &1))
+          permute_items_by(catalogue_uuid, cat_uuid, kept, strategy, opts)
       end
     end
   end

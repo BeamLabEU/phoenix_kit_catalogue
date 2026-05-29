@@ -1356,12 +1356,19 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     cat_mode = view_mode_to_atom(status)
     show_categories? = status in ["active", "deleted"]
 
-    {child_categories, children_with_subs, _active_child_count, _deleted_child_count} =
+    {child_categories, children_with_subs} =
       if show_categories?,
         do: load_level_children(uuid, current, cat_mode),
-        else: {[], MapSet.new(), 0, 0}
+        else: {[], MapSet.new()}
 
-    counts_map = Catalogue.item_counts_by_category_for_catalogue(uuid, mode: cat_mode)
+    # `@child_counts` is read only inside the `child_categories`
+    # comprehension, which is empty unless we're showing category cards —
+    # skip the whole-catalogue GROUP BY on the inactive/discontinued tabs.
+    counts_map =
+      if show_categories?,
+        do: Catalogue.item_counts_by_category_for_catalogue(uuid, mode: cat_mode),
+        else: %{}
+
     uncat_active = Catalogue.uncategorized_count_for_catalogue(uuid, mode: :active)
 
     # Per-status item counts for the current node — drive the four tab labels.
@@ -1406,18 +1413,18 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     )
   end
 
-  # The child categories shown at this level + counts in both modes (for
-  # the toggle). The uncategorized bucket has none. Active mode reuses
-  # orphan promotion; deleted mode is strict (see `list_child_categories/3`).
-  defp load_level_children(_uuid, :uncategorized, _mode), do: {[], MapSet.new(), 0, 0}
+  # The child categories shown at this level (in the current `mode` only)
+  # plus the set of those with their own sub-children. The uncategorized
+  # bucket has none. `mode` is always `:active`/`:deleted` here (the caller
+  # only loads children on those tabs). Active mode reuses orphan
+  # promotion; deleted mode is strict (see `list_child_categories/3`).
+  defp load_level_children(_uuid, :uncategorized, _mode), do: {[], MapSet.new()}
 
   defp load_level_children(uuid, current, mode) do
     parent_uuid = node_parent_uuid(current)
-    active = Catalogue.list_child_categories(uuid, parent_uuid, mode: :active)
-    deleted = Catalogue.list_child_categories(uuid, parent_uuid, mode: :deleted)
+    shown = Catalogue.list_child_categories(uuid, parent_uuid, mode: mode)
     subs = Catalogue.category_uuids_with_children(uuid, mode: mode)
-    shown = if mode == :deleted, do: deleted, else: active
-    {shown, subs, length(active), length(deleted)}
+    {shown, subs}
   end
 
   # The current node's own direct-item counts in both modes. Root and the
