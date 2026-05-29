@@ -1,3 +1,29 @@
+## 0.3.0 - 2026-05-29
+
+### Added
+- **Catalogue folders** — an inline, nested folder tree-table on `/admin/catalogue` (Finder-style): disclosure chevrons, native drag-and-drop filing, an Actions "Move to folder" picker, and front-insertion so new folders surface at the top. Folders are **module-global** (a dedicated `phoenix_kit_cat_folders` table; **requires core V123**) and unrelated to the media-folder system. New schema `PhoenixKitCatalogue.Schemas.Folder` and `cat_catalogues.folder_uuid` (`ON DELETE SET NULL`). New context API: `list_folder_tree/1`, `catalogues_by_folder/1`, `folder_uuids_with_children/1`, `get_folder/1`, `create_folder/2`, `update_folder/3`, `move_folder/3`, `trash_folder/2`, `restore_folder/2`, `permanently_delete_folder/2`, `reorder_folders/2`, `move_catalogue_to_folder/3`. Folder mutations broadcast a `:folder` PubSub event so the tree converges across open sessions.
+- **Per-status item tabs** on the catalogue detail page — Active / Inactive / Discontinued / Deleted (empty Inactive hidden); discontinued items are no longer mixed into Active.
+- **Detail drill-down rework** — the detail page is now a category drill-down built on the core list-UI toolkit (sortable / bulk-select / `load_more`), replacing the old per-card expand mechanism. The current category is carried in `?category=` for deep-linkable, back-button-friendly navigation.
+
+### Changed
+- **Full-width, sidebar-driven layout** for the catalogue admin pages — the three redundant top tabs are replaced by a sidebar-driven header.
+- **Duplicate SKUs are now accepted** — core V123 drops the global unique `cat_items.sku` index.
+- Housekeeping: catalogue search-empty states use core `<.empty_state>`; blank-string normalization migrated to `PhoenixKit.Utils.Values.blank_to_nil`.
+
+### Fixed
+- **Reorder no longer re-slots a trashed item into the active sequence** — `item_scope_check/3` now excludes `status = "deleted"` (parity with the active-only `:all` reorder path), closing a cross-tab race where an item selected client-side then trashed elsewhere could still be repositioned.
+- **Folder moves are now serialized** — the cycle check + validation + update run inside a transaction with `FOR UPDATE` on the moved row (parity with category moves), so concurrent reparents can't commit a cycle that would vanish from the tree view.
+- **Test suite repaired** — the suite had been silently uncompilable since the PDF sweep (a `with_scope/2` helper that never existed); added the missing LiveView scope test-infra + PDF routes and folder / PubSub / status-count coverage.
+- De-brittled the smart-pricing float-qty test (assert behavior, not version-dependent `Decimal` internals).
+- Trimmed redundant work on the index render (duplicate folder-tree / count queries) and the detail `load_level` (fetched both `:active` and `:deleted` child-category lists and discarded one; ran a per-category count `GROUP BY` even on the status tabs where no cards render).
+
+### Removed
+- Cross-category drag-move on the detail page — superseded by the explicit bulk "Move" modal in the single-node drill view.
+- Dead code: `list_child_folders/2` and `folder_catalogue_counts/0`.
+
+### Notes
+- **Requires core V123** (catalogue folders + dropping the global unique `cat_items.sku` index). The `{:phoenix_kit, "~> 1.7"}` constraint is intentionally kept loose; ensure the host app is on a `phoenix_kit` release that ships V123 before running migrations.
+
 ## 0.2.0 - 2026-05-11
 
 ### Added
