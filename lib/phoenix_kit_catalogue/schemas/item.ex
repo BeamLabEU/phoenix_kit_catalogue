@@ -28,6 +28,25 @@ defmodule PhoenixKitCatalogue.Schemas.Item do
   @spec allowed_default_units() :: [String.t()]
   def allowed_default_units, do: @default_units
 
+  @doc """
+  Human-facing abbreviation for a measurement unit (`"piece"` → `"pc"`,
+  `"m2"` → `"m²"`, `"running_meter"` → `"rm"`, …). Unknown strings pass
+  through unchanged; `nil` and non-binaries collapse to `""`.
+
+  Single source of truth for unit labels, shared by the items table and the
+  item picker — each caller layers its own empty/placeholder handling on top.
+  """
+  @spec unit_label(term()) :: String.t()
+  def unit_label(nil), do: ""
+  def unit_label("piece"), do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "pc")
+  def unit_label("set"), do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "set")
+  def unit_label("pair"), do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "pair")
+  def unit_label("sheet"), do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "sheet")
+  def unit_label("m2"), do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "m²")
+  def unit_label("running_meter"), do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "rm")
+  def unit_label(other) when is_binary(other), do: other
+  def unit_label(_), do: ""
+
   schema "phoenix_kit_cat_items" do
     field(:name, :string)
     field(:description, :string)
