@@ -345,24 +345,6 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
     fun.(item)
   end
 
-  # Default measurement-unit label used when no `:format_unit` function is
-  # supplied. Common abbreviations (piece→pc, set→set, pair→pair, sheet→sheet,
-  # m2→m², running_meter→rm); `nil`/unknown collapses to "" so the column is
-  # omitted. Consumers with a different unit vocabulary pass their own
-  # `:format_unit` 1-arity function instead.
-  defp default_unit_label(nil), do: ""
-  defp default_unit_label("piece"), do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "pc")
-  defp default_unit_label("set"), do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "set")
-  defp default_unit_label("pair"), do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "pair")
-  defp default_unit_label("sheet"), do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "sheet")
-  defp default_unit_label("m2"), do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "m²")
-
-  defp default_unit_label("running_meter"),
-    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "rm")
-
-  defp default_unit_label(other) when is_binary(other), do: other
-  defp default_unit_label(_), do: ""
-
   defp default_format_price(%Item{} = item) do
     pricing = Catalogue.item_pricing(item)
 
@@ -392,7 +374,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
       )
       |> assign(
         :unit_fun,
-        assigns[:format_unit] || (&default_unit_label/1)
+        assigns[:format_unit] || (&Item.unit_label/1)
       )
 
     ~H"""
@@ -419,7 +401,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
         phx-focus="open"
         class={[
           "input input-sm w-full pr-8",
-          @highlight_selected and (@selected_item && "input-primary")
+          @highlight_selected && @selected_item && "input-primary"
         ]}
       />
 

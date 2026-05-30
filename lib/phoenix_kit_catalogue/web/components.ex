@@ -1845,14 +1845,10 @@ defmodule PhoenixKitCatalogue.Web.Components do
     _ -> "—"
   end
 
+  # Table cells show an em-dash for a missing unit; the abbreviation table
+  # itself lives in `Item.unit_label/1` (shared with the item picker).
   defp format_unit(nil), do: "—"
-  defp format_unit("piece"), do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "pc")
-  defp format_unit("set"), do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "set")
-  defp format_unit("pair"), do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "pair")
-  defp format_unit("sheet"), do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "sheet")
-  defp format_unit("m2"), do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "m²")
-  defp format_unit("running_meter"), do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "rm")
-  defp format_unit(other), do: to_string(other)
+  defp format_unit(unit), do: Item.unit_label(unit)
 
   # Sale-price wrapper: coerces non-Decimal markup at the boundary so
   # callers can pass Decimal | number | string | nil without thinking.

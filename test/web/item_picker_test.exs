@@ -272,8 +272,9 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPickerTest do
           })
         )
 
-      # No unit row text leaks in; name still renders
+      # Name still renders, but the muted unit row is omitted entirely.
       assert html =~ "Oak Plank"
+      refute html =~ ~s(<div class="text-xs text-base-content/50">)
     end
   end
 
