@@ -268,7 +268,10 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
       render_click(view, "restore_item", %{"uuid" => item.uuid})
 
       assert Catalogue.get_item(item.uuid).status == "active"
-      assert Process.alive?(view.pid)
+      # Pair the DB check with the user-visible flash (per quality_sweep
+      # "don't leave DB-only assertions" — the view auto-flips back to
+      # the Active tab, where the restored item now appears).
+      assert render(view) =~ "Item restored."
     end
 
     test "delete_item with a bogus uuid doesn't crash", %{conn: conn} do
@@ -366,7 +369,6 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
       html = render_change(view, "sort_items", %{"sort_by" => "evil; DROP"})
 
       assert html =~ "Solo"
-      assert Process.alive?(view.pid)
     end
   end
 
