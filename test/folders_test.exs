@@ -248,5 +248,22 @@ defmodule PhoenixKitCatalogue.FoldersTest do
       refute cs.valid?
       assert %{parent_uuid: ["folder cannot be its own parent"]} = errors_on(cs)
     end
+
+    test "requires a name" do
+      cs = Folder.changeset(%Folder{}, %{name: ""})
+      refute cs.valid?
+      assert %{name: ["can't be blank"]} = errors_on(cs)
+    end
+
+    test "rejects a name longer than 255 chars" do
+      cs = Folder.changeset(%Folder{}, %{name: String.duplicate("x", 256)})
+      refute cs.valid?
+      assert %{name: ["should be at most 255 character(s)"]} = errors_on(cs)
+    end
+
+    test "accepts a 255-char name (boundary)" do
+      cs = Folder.changeset(%Folder{}, %{name: String.duplicate("x", 255)})
+      assert cs.valid?
+    end
   end
 end
