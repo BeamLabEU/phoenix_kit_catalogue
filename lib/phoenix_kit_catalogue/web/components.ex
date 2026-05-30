@@ -1756,8 +1756,13 @@ defmodule PhoenixKitCatalogue.Web.Components do
   """
 
   attr(:id, :string, required: true)
-  attr(:category_uuids, :list, default: nil)
-  attr(:catalogue_uuids, :list, default: nil)
+  # `:any` (not `:list`) so callers can pass an explicit `nil` for the
+  # documented "all categories + uncategorized" scope without tripping
+  # Phoenix's attr type check — `default: nil` only covers omission, not
+  # an explicit `nil`. The LiveComponent + `search_items/2` both treat
+  # `nil`/`[]` identically.
+  attr(:category_uuids, :any, default: nil)
+  attr(:catalogue_uuids, :any, default: nil)
   attr(:include_descendants, :boolean, default: true)
 
   attr(:only, :atom,

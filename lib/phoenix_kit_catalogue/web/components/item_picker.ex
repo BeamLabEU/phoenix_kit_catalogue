@@ -156,31 +156,32 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
         assign(socket, :query, item_display_name(assigns[:selected_item], locale) || "")
       end
 
-    # Opt-in: seed the input with an arbitrary search string the first time
-    # `initial_query` is provided, and run the search so results appear
-    # immediately. Only fires once (guarded by `:seeded_initial_query`) and
-    # only when nothing is selected and the user hasn't typed yet, so it never
-    # clobbers a real selection or mid-typing query.
+    {:ok, maybe_seed_initial_query(socket, incoming_uuid)}
+  end
+
+  # Opt-in: seed the input with an arbitrary search string the first time
+  # `initial_query` is provided, and run the search so results appear
+  # immediately. Only fires once (guarded by `:seeded_initial_query`) and
+  # only when nothing is selected and the user hasn't typed yet, so it never
+  # clobbers a real selection or mid-typing query.
+  defp maybe_seed_initial_query(socket, incoming_uuid) do
     initial_query = socket.assigns.initial_query
 
-    socket =
-      cond do
-        socket.assigns.seeded_initial_query ->
-          socket
+    cond do
+      socket.assigns.seeded_initial_query ->
+        socket
 
-        is_binary(initial_query) and initial_query != "" and is_nil(incoming_uuid) and
-            String.trim(socket.assigns.query || "") == "" ->
-          socket
-          |> assign(:query, initial_query)
-          |> assign(:seeded_initial_query, true)
-          |> assign(:open, true)
-          |> run_search()
+      is_binary(initial_query) and initial_query != "" and is_nil(incoming_uuid) and
+          String.trim(socket.assigns.query || "") == "" ->
+        socket
+        |> assign(:query, initial_query)
+        |> assign(:seeded_initial_query, true)
+        |> assign(:open, true)
+        |> run_search()
 
-        true ->
-          socket
-      end
-
-    {:ok, socket}
+      true ->
+        socket
+    end
   end
 
   defp uuid_of(%Item{uuid: u}), do: u
