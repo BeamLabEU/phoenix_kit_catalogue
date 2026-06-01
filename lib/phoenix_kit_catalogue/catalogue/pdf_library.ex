@@ -436,6 +436,122 @@ defmodule PhoenixKitCatalogue.Catalogue.PdfLibrary do
     end
   end
 
+  # ── Re-extraction / self-heal ───────────────────────────────────────
+
+  @doc """
+  Retries text extraction for a single PDF.
+
+  Resets the extraction row to `pending` (clearing any prior
+  `error_message`) and re-enqueues the worker. Use for a `failed` row
+  (transient failure: queue was down, `pdftotext` hiccup) or one that
+  looks stuck in `pending` / `extracting`.
+
+  The worker no-ops on a terminal status, so resetting to `pending`
+  first is what lets a `failed` row run again.
+
+  Returns:
+
+    * `{:ok, extraction}` — reset + enqueued.
+    * `{:error, :no_extraction}` — the file has no extraction row.
+    * `{:error, reason}` — the enqueue guard refused (e.g.
+      `:extraction_queue_unavailable` when the `:catalogue_pdf` queue
+      still isn't running). The row is left `failed` with the
+      actionable message in that case, exactly as on upload.
+
+  Accepts a `%Pdf{}` (the LV path) or a bare `file_uuid`.
+  """
+  @spec retry_extraction(Pdf.t() | Ecto.UUID.t(), keyword()) ::
+          {:ok, PdfExtraction.t()} | {:error, term()}
+  def retry_extraction(pdf_or_file_uuid, opts \\ [])
+
+  def retry_extraction(%Pdf{file_uuid: file_uuid}, opts),
+    do: retry_extraction(file_uuid, opts)
+
+  def retry_extraction(file_uuid, opts) when is_binary(file_uuid) do
+    case repo().get(PdfExtraction, file_uuid) do
+      nil -> {:error, :no_extraction}
+      _extraction -> reset_and_reenqueue(file_uuid, opts)
+    end
+  end
+
+  defp reset_and_reenqueue(file_uuid, opts) do
+    with {:ok, reset} <-
+           update_extraction(file_uuid, %{extraction_status: "pending", error_message: nil}) do
+      finish_retry(enqueue_extraction(file_uuid), reset, file_uuid, opts)
+    end
+  end
+
+  # enqueue_extraction already flipped the row back to `failed` with an
+  # actionable message on its guarded paths — surface the reason so the
+  # LV can flash it.
+  defp finish_retry({:error, _reason} = err, _reset, _file_uuid, _opts), do: err
+
+  defp finish_retry(_ok, reset, file_uuid, opts) do
+    log_retry(file_uuid, opts)
+    {:ok, reset}
+  end
+
+  @doc """
+  Re-enqueues extraction for every PDF stuck in a non-terminal state.
+
+  The heal path for PDFs uploaded while the `:catalogue_pdf` queue was
+  unavailable (their jobs never ran) or orphaned `extracting` rows whose
+  worker died mid-run. The per-upload `enqueue_extraction/1` guard only
+  fires at upload time, so without this nothing ever re-drives those rows.
+
+  `pending` rows are always re-enqueued — no live job can exist for them.
+  `extracting` rows are re-enqueued only when older than
+  `:stale_after_seconds` (default `900`) so an actively-running
+  extraction isn't double-processed.
+
+  Returns `{:ok, count}` — the number of rows re-enqueued. Safe to call
+  repeatedly (the worker is idempotent and short-circuits on terminal
+  status).
+
+  ## Options
+
+    * `:stale_after_seconds` (default `900`) — minimum age of an
+      `extracting` row before it's considered orphaned.
+  """
+  @spec requeue_stuck_extractions(keyword()) :: {:ok, non_neg_integer()}
+  def requeue_stuck_extractions(opts \\ []) do
+    stale_after = Keyword.get(opts, :stale_after_seconds, 900)
+
+    cutoff =
+      DateTime.utc_now()
+      |> DateTime.add(-stale_after, :second)
+      |> DateTime.truncate(:second)
+
+    file_uuids =
+      repo().all(
+        from(e in PdfExtraction,
+          where:
+            e.extraction_status == "pending" or
+              (e.extraction_status == "extracting" and e.updated_at < ^cutoff),
+          select: e.file_uuid
+        )
+      )
+
+    Enum.each(file_uuids, &enqueue_extraction/1)
+    {:ok, length(file_uuids)}
+  end
+
+  # One audit row per active/trashed PDF entry pointing at this file.
+  defp log_retry(file_uuid, opts) do
+    from(p in Pdf, where: p.file_uuid == ^file_uuid)
+    |> repo().all()
+    |> Enum.each(fn pdf ->
+      ActivityLog.log(%{
+        action: "pdf.extraction_retried",
+        mode: "manual",
+        actor_uuid: opts[:actor_uuid],
+        resource_type: "pdf",
+        resource_uuid: pdf.uuid,
+        metadata: %{"original_filename" => pdf.original_filename, "file_uuid" => file_uuid}
+      })
+    end)
+  end
+
   # ── Worker callbacks (file_uuid-keyed) ──────────────────────────────
 
   @doc false
@@ -1033,6 +1149,17 @@ defmodule PhoenixKitCatalogue.Catalogue.PdfLibrary do
   end
 
   defp insert_extraction_job(file_uuid) do
+    # A non-terminal job already covering this file means we skip the
+    # insert (the pile-up the Retry/requeue paths would otherwise cause)
+    # and treat it as success — the existing job will run.
+    if extraction_job_pending?(file_uuid) do
+      :ok
+    else
+      do_insert_extraction_job(file_uuid)
+    end
+  end
+
+  defp do_insert_extraction_job(file_uuid) do
     case %{"file_uuid" => file_uuid} |> PdfExtractor.new() |> Oban.insert() do
       {:ok, _job} = ok ->
         ok
@@ -1053,6 +1180,39 @@ defmodule PhoenixKitCatalogue.Catalogue.PdfLibrary do
       Logger.warning("PdfExtractor enqueue failed: #{Exception.message(e)}")
       _ = mark_failed(file_uuid, "Could not queue PDF text extraction: #{Exception.message(e)}.")
       {:error, :enqueue_failed}
+  end
+
+  # Hardcoded rather than `Oban.Worker.to_string/1` so it can't drift if
+  # the worker is renamed without updating the dedup query (it would
+  # silently stop deduping). Oban stores `worker` without the `Elixir.`
+  # prefix.
+  @extractor_worker "PhoenixKitCatalogue.Workers.PdfExtractor"
+
+  # True when a non-terminal `PdfExtractor` job already covers this file.
+  #
+  # Queries ONLY the four states present in every Oban version
+  # (`available` / `scheduled` / `executing` / `retryable`) — never
+  # `:suspended` / `:cancelled`, which may be absent from the host's
+  # `oban_job_state` enum when the Oban lib was upgraded ahead of its
+  # migration (querying a missing enum value raises `22P02`). Any query
+  # failure (no `oban_jobs` table, DB error) returns `false` so the
+  # enqueue still proceeds — a possible duplicate that the idempotent
+  # worker collapses beats a dropped extraction.
+  defp extraction_job_pending?(file_uuid) do
+    repo().exists?(
+      from(j in Oban.Job,
+        where: j.worker == @extractor_worker,
+        where: j.state in ["available", "scheduled", "executing", "retryable"],
+        where: fragment("? ->> 'file_uuid' = ?", j.args, ^file_uuid)
+      )
+    )
+  rescue
+    e in [DBConnection.ConnectionError, Postgrex.Error, Ecto.QueryError, ArgumentError] ->
+      Logger.warning(
+        "PdfExtractor dedup check failed (proceeding to enqueue): #{Exception.message(e)}"
+      )
+
+      false
   end
 
   # True when an Oban instance is running and `:catalogue_pdf` jobs can
