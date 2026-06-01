@@ -414,4 +414,90 @@ defmodule PhoenixKitCatalogue.Catalogue.PdfLibraryTest do
       )
     end
   end
+
+  describe "requeue_stuck_extractions/1 — self-heal for rows whose job never ran" do
+    # Oban isn't running in this env, so each re-enqueue takes the
+    # graceful fallback (logs + marks failed). We assert the *selection*
+    # count — which rows the heal picks up — not the enqueue outcome.
+    test "picks up pending + stale extracting, skips terminal and fresh-extracting rows" do
+      pending = insert_file!()
+      _ = insert_pdf!(pending)
+      _ = insert_extraction!(pending, %{extraction_status: "pending"})
+
+      stale = insert_file!()
+      _ = insert_pdf!(stale)
+      _ = insert_extraction!(stale, %{extraction_status: "extracting"})
+      backdate_extraction!(stale, -3600)
+
+      fresh = insert_file!()
+      _ = insert_pdf!(fresh)
+      _ = insert_extraction!(fresh, %{extraction_status: "extracting"})
+
+      extracted = insert_file!()
+      _ = insert_pdf!(extracted)
+      _ = insert_extraction!(extracted, %{extraction_status: "extracted", page_count: 3})
+
+      failed = insert_file!()
+      _ = insert_pdf!(failed)
+      _ = insert_extraction!(failed, %{extraction_status: "failed", error_message: "x"})
+
+      capture_log(fn ->
+        assert {:ok, 2} = PdfLibrary.requeue_stuck_extractions()
+      end)
+    end
+
+    test "an extracting row younger than :stale_after_seconds is left alone" do
+      file_uuid = insert_file!()
+      _ = insert_pdf!(file_uuid)
+      _ = insert_extraction!(file_uuid, %{extraction_status: "extracting"})
+      backdate_extraction!(file_uuid, -120)
+
+      capture_log(fn ->
+        # 300s threshold: the 120s-old row is still considered live.
+        assert {:ok, 0} = PdfLibrary.requeue_stuck_extractions(stale_after_seconds: 300)
+      end)
+    end
+
+    test "an extracting row older than :stale_after_seconds is re-enqueued" do
+      file_uuid = insert_file!()
+      _ = insert_pdf!(file_uuid)
+      _ = insert_extraction!(file_uuid, %{extraction_status: "extracting"})
+      backdate_extraction!(file_uuid, -120)
+
+      capture_log(fn ->
+        assert {:ok, 1} = PdfLibrary.requeue_stuck_extractions(stale_after_seconds: 60)
+      end)
+    end
+  end
+
+  describe "retry_extraction/2" do
+    test "returns {:error, :no_extraction} when the file has no extraction row" do
+      file_uuid = insert_file!()
+      _ = insert_pdf!(file_uuid)
+
+      assert {:error, :no_extraction} = PdfLibrary.retry_extraction(file_uuid)
+    end
+
+    test "accepts a %Pdf{} and surfaces the queue-unavailable error in this env" do
+      file_uuid = insert_file!()
+      pdf = insert_pdf!(file_uuid)
+      _ = insert_extraction!(file_uuid, %{extraction_status: "failed", error_message: "boom"})
+
+      capture_log(fn ->
+        assert {:error, :extraction_queue_unavailable} = PdfLibrary.retry_extraction(pdf)
+      end)
+    end
+  end
+
+  defp backdate_extraction!(file_uuid, seconds) do
+    ts = DateTime.utc_now() |> DateTime.add(seconds, :second) |> DateTime.truncate(:second)
+
+    {1, _} =
+      Repo.update_all(
+        from(e in PdfExtraction, where: e.file_uuid == ^file_uuid),
+        set: [updated_at: ts]
+      )
+
+    :ok
+  end
 end

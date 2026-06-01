@@ -97,6 +97,34 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLive do
     )
   end
 
+  @impl true
+  def handle_event("retry_extraction", %{"uuid" => uuid}, socket) do
+    handle_pdf_action(socket, uuid, &Catalogue.retry_extraction/2,
+      operation: "retry_extraction",
+      success: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Re-queued text extraction."),
+      failure:
+        Gettext.gettext(
+          PhoenixKitCatalogue.Gettext,
+          "Could not start extraction. The :catalogue_pdf Oban queue may not be running."
+        )
+    )
+  end
+
+  @impl true
+  def handle_event("requeue_stuck", _params, socket) do
+    {:ok, count} = Catalogue.requeue_stuck_extractions()
+
+    {:noreply,
+     socket
+     |> put_flash(
+       :info,
+       Gettext.gettext(PhoenixKitCatalogue.Gettext, "Re-queued %{count} stuck extraction(s).",
+         count: count
+       )
+     )
+     |> assign(:pdfs, Catalogue.list_pdfs(status: socket.assigns.filter))}
+  end
+
   defp handle_pdf_action(socket, uuid, action_fn, messages) do
     case Catalogue.get_pdf(uuid) do
       nil ->
@@ -260,6 +288,23 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLive do
               {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Trash")}
             </button>
           </div>
+          <%= if @filter == "active" do %>
+            <button
+              type="button"
+              phx-click="requeue_stuck"
+              phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Re-queuing…")}
+              class="btn btn-ghost btn-sm"
+              title={
+                Gettext.gettext(
+                  PhoenixKitCatalogue.Gettext,
+                  "Re-queue any PDFs whose text extraction never ran or got stuck (e.g. after the job queue was down)."
+                )
+              }
+            >
+              <.icon name="hero-arrow-path" class="w-4 h-4" />
+              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Retry stuck")}
+            </button>
+          <% end %>
           <div class="text-sm text-base-content/60">
             {Gettext.gettext(PhoenixKitCatalogue.Gettext, "%{count} PDFs", count: length(@pdfs))}
           </div>
@@ -379,6 +424,22 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLive do
                         <.icon name="hero-x-mark" class="w-3.5 h-3.5" />
                       </button>
                     <% else %>
+                      <%= if Helpers.pdf_extraction_status(pdf) == "failed" do %>
+                        <button
+                          type="button"
+                          phx-click="retry_extraction"
+                          phx-value-uuid={pdf.uuid}
+                          phx-disable-with={
+                            Gettext.gettext(PhoenixKitCatalogue.Gettext, "Retrying…")
+                          }
+                          class="btn btn-ghost btn-xs"
+                          title={
+                            Gettext.gettext(PhoenixKitCatalogue.Gettext, "Retry text extraction")
+                          }
+                        >
+                          <.icon name="hero-arrow-path" class="w-3.5 h-3.5" />
+                        </button>
+                      <% end %>
                       <button
                         type="button"
                         phx-click="trash"

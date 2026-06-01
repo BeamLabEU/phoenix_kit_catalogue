@@ -28,6 +28,22 @@ defmodule PhoenixKitCatalogue.Workers.PdfExtractor do
   Configured via the host app's Oban queue config. Recommend
   `queue: :catalogue_pdf, limit: 2` so a 1000-page PDF doesn't pin
   CPU or block other queues.
+
+  ## Deduplication
+
+  Re-enqueueing the same content (duplicate-content upload, the self-heal
+  `requeue_stuck_extractions/1`, or the per-PDF Retry button) is deduped
+  *application-side* in `PdfLibrary.insert_extraction_job/1` — it skips
+  the insert when a non-terminal `PdfExtractor` job already exists for the
+  `file_uuid`. We deliberately do **not** use Oban's built-in `unique:`
+  option: satisfying its compile-time check requires listing every
+  incomplete state including `:suspended`, but that enum value is absent
+  from the `oban_job_state` enum on hosts that upgraded the Oban *library*
+  without running its latest *migration* — the uniqueness query then
+  raises `22P02` and kills every enqueue. The app-side guard queries only
+  the four states (`available` / `scheduled` / `executing` / `retryable`)
+  present in every Oban version. Races are harmless: this worker
+  short-circuits on a terminal status and page inserts are upserts.
   """
 
   use Oban.Worker,
