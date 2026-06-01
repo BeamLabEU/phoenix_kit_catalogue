@@ -466,12 +466,23 @@ defmodule PhoenixKitCatalogue.Catalogue.PdfLibrary do
 
     * `{:ok, extraction}` — reset + enqueued.
     * `{:error, :no_extraction}` — the file has no extraction row.
+    * `{:error, :already_extracted}` — the row is already in a SUCCESS
+      terminal (`extracted` / `scanned_no_text`). Refused so a stray
+      caller can't reset a good extraction back to `pending` and drop the
+      PDF out of search mid-run. Pass `force: true` to override (e.g. a
+      deliberate re-extract after a normalizer change). The admin UI only
+      offers Retry on `failed` rows, so this only bites a programmatic
+      caller.
     * `{:error, reason}` — the enqueue guard refused (e.g.
       `:extraction_queue_unavailable` when the `:catalogue_pdf` queue
       still isn't running). The row is left `failed` with the
       actionable message in that case, exactly as on upload.
 
   Accepts a `%Pdf{}` (the LV path) or a bare `file_uuid`.
+
+  ## Options
+
+    * `:force` (default `false`) — re-run even a success-terminal row.
   """
   @spec retry_extraction(Pdf.t() | Ecto.UUID.t(), keyword()) ::
           {:ok, PdfExtraction.t()} | {:error, term()}
@@ -481,9 +492,18 @@ defmodule PhoenixKitCatalogue.Catalogue.PdfLibrary do
     do: retry_extraction(file_uuid, opts)
 
   def retry_extraction(file_uuid, opts) when is_binary(file_uuid) do
+    force = Keyword.get(opts, :force, false)
+
     case repo().get(PdfExtraction, file_uuid) do
-      nil -> {:error, :no_extraction}
-      _extraction -> reset_and_reenqueue(file_uuid, opts)
+      nil ->
+        {:error, :no_extraction}
+
+      %PdfExtraction{extraction_status: status}
+      when status in ["extracted", "scanned_no_text"] and not force ->
+        {:error, :already_extracted}
+
+      _extraction ->
+        reset_and_reenqueue(file_uuid, opts)
     end
   end
 
@@ -517,13 +537,22 @@ defmodule PhoenixKitCatalogue.Catalogue.PdfLibrary do
   `:stale_after_seconds` (default `900`) so an actively-running
   extraction isn't double-processed.
 
-  Returns `{:ok, %{requeued: n, failed: m}}` — `requeued` is the number of
-  rows whose extraction job was (re-)enqueued, `failed` is the number whose
-  enqueue was refused (e.g. the `:catalogue_pdf` queue is still not
-  running, so `enqueue_extraction/1` marked them `failed` instead). The
-  caller surfaces both so "re-queued N" can't lie when every enqueue
-  actually failed. Safe to call repeatedly (the worker is idempotent and
-  the app-level dedup skips rows that already have a live job).
+  Returns `{:ok, %{requeued: n, skipped: s, failed: m}}`:
+
+    * `requeued` — rows whose extraction job was actually (re-)enqueued.
+    * `skipped` — rows a live job already covers, so there was nothing to
+      do (the app-level dedup). Reported separately so `requeued` can't
+      claim credit for rows we didn't touch.
+    * `failed` — rows whose enqueue was refused (e.g. the `:catalogue_pdf`
+      queue is still not running, so they were marked `failed` with the
+      actionable message instead).
+
+  The split keeps "re-queued N" honest when every enqueue actually failed
+  or was a no-op. Safe to call repeatedly (the worker is idempotent).
+
+  The whole selection is de-duped against live jobs in a single query and
+  enqueued with one `Oban.insert_all/1`, so a full `#{@requeue_cap}`-row
+  click is a handful of statements rather than ~2k per-row round-trips.
 
   Capped at `#{@requeue_cap}` rows per call; re-run to process more.
 
@@ -534,7 +563,12 @@ defmodule PhoenixKitCatalogue.Catalogue.PdfLibrary do
     * `:limit` (default `#{@requeue_cap}`) — max rows touched per call.
   """
   @spec requeue_stuck_extractions(keyword()) ::
-          {:ok, %{requeued: non_neg_integer(), failed: non_neg_integer()}}
+          {:ok,
+           %{
+             requeued: non_neg_integer(),
+             skipped: non_neg_integer(),
+             failed: non_neg_integer()
+           }}
   def requeue_stuck_extractions(opts \\ []) do
     stale_after = Keyword.get(opts, :stale_after_seconds, 900)
     limit = Keyword.get(opts, :limit, @requeue_cap)
@@ -561,15 +595,7 @@ defmodule PhoenixKitCatalogue.Catalogue.PdfLibrary do
       )
     end
 
-    counts =
-      Enum.reduce(file_uuids, %{requeued: 0, failed: 0}, fn file_uuid, acc ->
-        case enqueue_extraction(file_uuid) do
-          {:error, _reason} -> Map.update!(acc, :failed, &(&1 + 1))
-          _ok -> Map.update!(acc, :requeued, &(&1 + 1))
-        end
-      end)
-
-    {:ok, counts}
+    {:ok, bulk_requeue(file_uuids)}
   end
 
   # One audit row per active/trashed PDF entry pointing at this file.
@@ -1310,6 +1336,17 @@ defmodule PhoenixKitCatalogue.Catalogue.PdfLibrary do
   # failure (no `oban_jobs` table, DB error) returns `false` so the
   # enqueue still proceeds — a possible duplicate that the idempotent
   # worker collapses beats a dropped extraction.
+  #
+  # PERF NOTE: the `args ->> 'file_uuid'` filter has no index, so on a host
+  # with a busy `oban_jobs` table this (and `live_extraction_job_file_uuids/1`)
+  # seq-scans. `oban_jobs` is owned by core/the host, and this repo ships no
+  # migrations of its own (see AGENTS.md), so the index belongs in a core
+  # `phoenix_kit` migration when the job table grows large:
+  #
+  #   CREATE INDEX CONCURRENTLY oban_jobs_catalogue_pdf_file_uuid_idx
+  #     ON oban_jobs ((args ->> 'file_uuid'))
+  #     WHERE worker = 'PhoenixKitCatalogue.Workers.PdfExtractor'
+  #       AND state IN ('available','scheduled','executing','retryable');
   defp extraction_job_pending?(file_uuid) do
     repo().exists?(
       from(j in Oban.Job,
@@ -1325,6 +1362,81 @@ defmodule PhoenixKitCatalogue.Catalogue.PdfLibrary do
       )
 
       false
+  end
+
+  # ── Batched self-heal enqueue (requeue_stuck_extractions/1) ─────────
+  #
+  # Unlike the per-upload `enqueue_extraction/1` (one row, one Oban
+  # round-trip), this de-dupes the whole selection against live jobs in a
+  # SINGLE query and inserts the survivors with one `Oban.insert_all/1` —
+  # so a 1000-row admin click is a handful of statements, not ~2000. The
+  # returned counts stay honest: `requeued` rows we actually enqueued,
+  # `skipped` rows a live job already covers, `failed` rows whose enqueue
+  # was refused (queue not running → marked `failed` with the message).
+  defp bulk_requeue([]), do: %{requeued: 0, skipped: 0, failed: 0}
+
+  defp bulk_requeue(file_uuids) do
+    cond do
+      not Code.ensure_loaded?(PdfExtractor) ->
+        # Worker not compiled in — abnormal build; leave the rows pending.
+        %{requeued: 0, skipped: length(file_uuids), failed: 0}
+
+      not catalogue_pdf_queue_available?() ->
+        # Same terminal-fail semantics as the per-row guard, so "Retry
+        # stuck" surfaces the misconfiguration instead of lying.
+        Enum.each(file_uuids, &mark_failed(&1, @queue_unavailable_message))
+        %{requeued: 0, skipped: 0, failed: length(file_uuids)}
+
+      true ->
+        live = live_extraction_job_file_uuids(file_uuids)
+        {fresh, skipped} = Enum.split_with(file_uuids, &(not MapSet.member?(live, &1)))
+        Map.put(do_bulk_enqueue(fresh), :skipped, length(skipped))
+    end
+  end
+
+  defp do_bulk_enqueue([]), do: %{requeued: 0, failed: 0}
+
+  defp do_bulk_enqueue(file_uuids) do
+    jobs =
+      file_uuids
+      |> Enum.map(&PdfExtractor.new(%{"file_uuid" => &1}))
+      |> Oban.insert_all()
+
+    %{requeued: length(jobs), failed: 0}
+  rescue
+    e in [DBConnection.ConnectionError, Postgrex.Error, Ecto.QueryError, ArgumentError] ->
+      Logger.warning("PdfExtractor bulk enqueue failed: #{Exception.message(e)}")
+
+      Enum.each(
+        file_uuids,
+        &mark_failed(&1, "Could not queue PDF text extraction: #{Exception.message(e)}.")
+      )
+
+      %{requeued: 0, failed: length(file_uuids)}
+  end
+
+  # Single-query batch counterpart to `extraction_job_pending?/1`: which of
+  # these file_uuids already have a non-terminal `PdfExtractor` job. Same
+  # four-states-only rationale and same fail-open behavior — any query
+  # failure returns an empty set so we proceed to enqueue (a duplicate the
+  # idempotent worker collapses beats a dropped extraction).
+  defp live_extraction_job_file_uuids(file_uuids) do
+    repo().all(
+      from(j in Oban.Job,
+        where: j.worker == @extractor_worker,
+        where: j.state in ["available", "scheduled", "executing", "retryable"],
+        where: fragment("? ->> 'file_uuid' = ANY(?)", j.args, ^file_uuids),
+        select: fragment("? ->> 'file_uuid'", j.args)
+      )
+    )
+    |> MapSet.new()
+  rescue
+    e in [DBConnection.ConnectionError, Postgrex.Error, Ecto.QueryError, ArgumentError] ->
+      Logger.warning(
+        "PdfExtractor bulk dedup check failed (proceeding to enqueue all): #{Exception.message(e)}"
+      )
+
+      MapSet.new()
   end
 
   # True when an Oban instance is running and `:catalogue_pdf` jobs can

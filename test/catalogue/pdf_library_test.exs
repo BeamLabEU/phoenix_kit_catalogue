@@ -445,7 +445,8 @@ defmodule PhoenixKitCatalogue.Catalogue.PdfLibraryTest do
       # graceful-fallback path and counts as `failed` (not `requeued`) —
       # the point of this test is the *selection*: 2 rows picked up.
       capture_log(fn ->
-        assert {:ok, %{requeued: 0, failed: 2}} = PdfLibrary.requeue_stuck_extractions()
+        assert {:ok, %{requeued: 0, skipped: 0, failed: 2}} =
+                 PdfLibrary.requeue_stuck_extractions()
       end)
     end
 
@@ -458,7 +459,7 @@ defmodule PhoenixKitCatalogue.Catalogue.PdfLibraryTest do
       capture_log(fn ->
         # 300s threshold: the 120s-old row is still considered live — not
         # selected, so nothing is touched.
-        assert {:ok, %{requeued: 0, failed: 0}} =
+        assert {:ok, %{requeued: 0, skipped: 0, failed: 0}} =
                  PdfLibrary.requeue_stuck_extractions(stale_after_seconds: 300)
       end)
     end
@@ -470,7 +471,7 @@ defmodule PhoenixKitCatalogue.Catalogue.PdfLibraryTest do
       backdate_extraction!(file_uuid, -120)
 
       capture_log(fn ->
-        assert {:ok, %{requeued: 0, failed: 1}} =
+        assert {:ok, %{requeued: 0, skipped: 0, failed: 1}} =
                  PdfLibrary.requeue_stuck_extractions(stale_after_seconds: 60)
       end)
     end
@@ -491,6 +492,33 @@ defmodule PhoenixKitCatalogue.Catalogue.PdfLibraryTest do
 
       capture_log(fn ->
         assert {:error, :extraction_queue_unavailable} = PdfLibrary.retry_extraction(pdf)
+      end)
+    end
+
+    test "refuses to reset a success-terminal row without force" do
+      for status <- ["extracted", "scanned_no_text"] do
+        file_uuid = insert_file!()
+        _ = insert_pdf!(file_uuid)
+        _ = insert_extraction!(file_uuid, %{extraction_status: status, page_count: 3})
+
+        assert {:error, :already_extracted} = PdfLibrary.retry_extraction(file_uuid)
+
+        # Untouched — still the success terminal it was.
+        assert %PdfExtraction{extraction_status: ^status} = Repo.get(PdfExtraction, file_uuid)
+      end
+    end
+
+    test "force: true bypasses the success-terminal guard and re-runs" do
+      file_uuid = insert_file!()
+      _ = insert_pdf!(file_uuid)
+      _ = insert_extraction!(file_uuid, %{extraction_status: "extracted", page_count: 3})
+
+      # With Oban unavailable in this env the reset reaches the enqueue
+      # guard and surfaces its error — proving `force` got past the
+      # already_extracted short-circuit (which would have returned earlier).
+      capture_log(fn ->
+        assert {:error, :extraction_queue_unavailable} =
+                 PdfLibrary.retry_extraction(file_uuid, force: true)
       end)
     end
   end

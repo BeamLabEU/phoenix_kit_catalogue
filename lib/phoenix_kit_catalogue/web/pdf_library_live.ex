@@ -34,12 +34,15 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLive do
   def mount(_params, _session, socket) do
     if connected?(socket), do: CataloguePubSub.subscribe()
 
+    # No DB query in mount (it runs twice — dead HTTP render + live socket).
+    # The list loads in `handle_params/3`, which also lets the `?filter=`
+    # query param deep-link straight into the trashed view.
     {:ok,
      socket
      |> assign(
        page_title: Gettext.gettext(PhoenixKitCatalogue.Gettext, "PDFs"),
        filter: "active",
-       pdfs: Catalogue.list_pdfs(status: "active"),
+       pdfs: [],
        upload_error: nil
      )
      |> allow_upload(:pdf,
@@ -50,6 +53,28 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLive do
        auto_upload: true,
        progress: &handle_progress/3
      )}
+  end
+
+  @impl true
+  def handle_params(params, _uri, socket) do
+    {:noreply,
+     socket
+     |> assign(:filter, parse_filter(params))
+     |> assign_pdfs()}
+  end
+
+  defp parse_filter(%{"filter" => filter}) when filter in ["active", "trashed"], do: filter
+  defp parse_filter(_params), do: "active"
+
+  # The list query lives here (not mount) so it runs once on the live
+  # connection rather than twice. On the disconnected dead render
+  # (`connected?` false) we skip it — the connected render fills the list in.
+  defp assign_pdfs(socket) do
+    if connected?(socket) do
+      assign(socket, :pdfs, Catalogue.list_pdfs(status: socket.assigns.filter))
+    else
+      assign(socket, :pdfs, [])
+    end
   end
 
   @impl true
@@ -66,7 +91,7 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLive do
     {:noreply,
      socket
      |> assign(:filter, filter)
-     |> assign(:pdfs, Catalogue.list_pdfs(status: filter))}
+     |> assign_pdfs()}
   end
 
   @impl true
@@ -112,19 +137,21 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLive do
 
   @impl true
   def handle_event("requeue_stuck", _params, socket) do
-    {:ok, %{requeued: requeued, failed: failed}} = Catalogue.requeue_stuck_extractions()
+    {:ok, counts} = Catalogue.requeue_stuck_extractions()
 
     socket =
       socket
-      |> flash_requeue_result(requeued, failed)
-      |> assign(:pdfs, Catalogue.list_pdfs(status: socket.assigns.filter))
+      |> flash_requeue_result(counts)
+      |> assign_pdfs()
 
     {:noreply, socket}
   end
 
   # Honest flash: a warning (not "success") when some/all enqueues were
-  # refused — which is exactly the queue-missing case this button targets.
-  defp flash_requeue_result(socket, 0, 0) do
+  # refused — which is exactly the queue-missing case this button targets —
+  # and a distinct note when rows were skipped because a job already covers
+  # them, so "Re-queued N" never claims credit for work it didn't do.
+  defp flash_requeue_result(socket, %{requeued: 0, skipped: 0, failed: 0}) do
     put_flash(
       socket,
       :info,
@@ -132,7 +159,20 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLive do
     )
   end
 
-  defp flash_requeue_result(socket, requeued, 0) do
+  defp flash_requeue_result(socket, %{failed: failed} = counts) when failed > 0 do
+    put_flash(
+      socket,
+      :warning,
+      Gettext.gettext(
+        PhoenixKitCatalogue.Gettext,
+        "Re-queued %{ok}; %{failed} could not be queued — the :catalogue_pdf queue may not be running.",
+        ok: counts.requeued,
+        failed: failed
+      )
+    )
+  end
+
+  defp flash_requeue_result(socket, %{requeued: requeued, skipped: 0}) do
     put_flash(
       socket,
       :info,
@@ -142,15 +182,15 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLive do
     )
   end
 
-  defp flash_requeue_result(socket, requeued, failed) do
+  defp flash_requeue_result(socket, %{requeued: requeued, skipped: skipped}) do
     put_flash(
       socket,
-      :warning,
+      :info,
       Gettext.gettext(
         PhoenixKitCatalogue.Gettext,
-        "Re-queued %{ok}; %{failed} could not be queued — the :catalogue_pdf queue may not be running.",
-        ok: requeued,
-        failed: failed
+        "Re-queued %{count} stuck extraction(s); %{skipped} already running.",
+        count: requeued,
+        skipped: skipped
       )
     )
   end
@@ -166,7 +206,7 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLive do
             {:noreply,
              socket
              |> put_flash(:info, Keyword.fetch!(messages, :success))
-             |> assign(:pdfs, Catalogue.list_pdfs(status: socket.assigns.filter))}
+             |> assign_pdfs()}
 
           {:error, reason} ->
             Helpers.log_operation_error(socket, Keyword.fetch!(messages, :operation), %{
@@ -182,7 +222,7 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLive do
 
   @impl true
   def handle_info({:catalogue_data_changed, :pdf, _uuid, _parent}, socket) do
-    {:noreply, assign(socket, :pdfs, Catalogue.list_pdfs(status: socket.assigns.filter))}
+    {:noreply, assign_pdfs(socket)}
   end
 
   def handle_info({:catalogue_data_changed, _kind, _uuid, _parent}, socket),
@@ -222,7 +262,7 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLive do
         {:noreply,
          socket
          |> assign(:upload_error, nil)
-         |> assign(:pdfs, Catalogue.list_pdfs(status: socket.assigns.filter))}
+         |> assign_pdfs()}
 
       {:error, reason} ->
         # Log path-leak-safe failure summary (drop full `inspect`).
@@ -418,7 +458,7 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLive do
                     </.link>
                   </td>
                   <td>
-                    {extraction_badge(pdf)}
+                    <.extraction_badge pdf={pdf} />
                   </td>
                   <td>
                     {Helpers.pdf_extraction_pages(pdf) || "—"}
@@ -502,26 +542,24 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLive do
   # `Web.PdfDetailLive`. The renderers that wrap raw markup stay here
   # because they're LV-specific layout choices.
 
-  defp extraction_badge(pdf) do
-    status = Helpers.pdf_extraction_status(pdf)
-    label = Helpers.pdf_status_label(status)
-    klass = Helpers.pdf_status_badge_class(status)
+  # HEEx component (was hand-built `Phoenix.HTML.raw` string concat) — gets
+  # auto-escaping of the label + failure title for free. `@title` is nil for
+  # non-failed rows, so HEEx omits the attribute, matching the old markup.
+  attr(:pdf, :map, required: true)
 
-    case status do
-      "failed" ->
-        msg = Helpers.pdf_error_message(pdf) || ""
+  defp extraction_badge(assigns) do
+    status = Helpers.pdf_extraction_status(assigns.pdf)
 
-        Phoenix.HTML.raw(
-          ~s|<span class="badge badge-sm #{klass}" title="#{Helpers.escape_html(msg)}">| <>
-            Helpers.escape_html(label) <> "</span>"
-        )
+    assigns =
+      assign(assigns,
+        klass: Helpers.pdf_status_badge_class(status),
+        label: Helpers.pdf_status_label(status),
+        title: if(status == "failed", do: Helpers.pdf_error_message(assigns.pdf) || "", else: nil)
+      )
 
-      _ ->
-        Phoenix.HTML.raw(
-          ~s|<span class="badge badge-sm #{klass}">| <>
-            Helpers.escape_html(label) <> "</span>"
-        )
-    end
+    ~H"""
+    <span class={"badge badge-sm #{@klass}"} title={@title}>{@label}</span>
+    """
   end
 
   # Trashed-list view shows when the row was trashed; everything else
