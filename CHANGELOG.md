@@ -1,3 +1,24 @@
+## 0.5.0 - 2026-06-01
+
+### Added
+- **PDF viewer fallback** (#31) — a persistent **"Open"** link on the PDF detail page points at the always-present signed `/file/` route, so the document is reachable in the browser's native viewer even when the embedded `/_pdfjs` frame can't load. Pairs with a core router-served `/_pdfjs` fallback, but the catalogue side works independently.
+- **PDF extraction self-heal** (#31) — `Catalogue.requeue_stuck_extractions/1` re-drives every `pending` extraction plus `extracting` rows orphaned past `:stale_after_seconds` (default 900), and `Catalogue.retry_extraction/2` resets a single row to `pending` and re-enqueues so a terminal `failed` row runs again. Surfaced in the UI as a per-row **Retry** button, a detail-page Retry on the failed alert, and a **"Retry stuck"** header action. New `pdf.extraction_retried` activity action. Both functions re-exported from `Catalogue` via `defdelegate`.
+
+### Changed
+- **App-level Oban enqueue dedup** (#31) instead of Oban's built-in `unique:` — satisfying the `unique` compile check forces listing `:suspended`, an `oban_job_state` enum value absent on hosts that upgraded the Oban *lib* ahead of its *migration* (querying it raises `22P02` and kills every enqueue). The app guard skips the insert when a non-terminal `PdfExtractor` job already exists for the `file_uuid`, querying only the four always-present states (`available`/`scheduled`/`executing`/`retryable`) and proceeding on any query error. The worker name is derived via `inspect/1` so a rename is a compile error, not a silently-broken query.
+- **Guarded, atomic extraction status transitions** (#31) — `mark_failed/2` and `mark_extracting/1` only advance from a non-terminal state (`UPDATE … WHERE status IN ('pending','extracting')`), so a concurrent worker can no longer clobber a success terminal (`extracted` / `scanned_no_text`) back to `failed` — silent data loss that broke search — nor pull a finished extraction back to `extracting`. Success markers stay last-writer-wins.
+- **Honest, batched `requeue_stuck_extractions/1`** — returns `%{requeued, skipped, failed}` (capped at 1000 rows/call) where `skipped` is rows a live job already covers, so "Re-queued N" never takes credit for no-ops; the **"Retry stuck"** flash is a *warning* (not "success") when enqueues were refused — the exact queue-missing case the button targets. The whole selection is de-duped against live jobs in **one** query and enqueued with **one** `Oban.insert_all/1` rather than ~2k per-row round-trips at the cap.
+- **`retry_extraction/2` refuses a success-terminal row** with `{:error, :already_extracted}` unless `force: true` is passed, so a stray programmatic caller can't reset a good extraction to `pending` and drop the PDF out of search mid-re-extract.
+- **Bulk-action bars folded onto core `<.bulk_actions_bar>`** (#31) on the catalogue detail page (categories + deleted-items lists) — removes ~50 lines of duplicate component markup while keeping the sticky styling and `clear_selection` behaviour.
+- `PdfLibraryLive` loads its list in `handle_params/3` (not `mount`, which runs twice) and now honours a `?filter=active|trashed` deep-link; the extraction-status badge is a HEEx component with auto-escaping instead of hand-built `Phoenix.HTML.raw` markup.
+
+### Fixed
+- The `permanently_delete_pdf/2` refcount-then-handoff sequence runs inside a `Repo.transaction(_, isolation: :serializable)` so a concurrent upload of the same content can't orphan a reference between the count and `Storage.trash_file/1`.
+
+### Notes
+- **No new core requirement** — still `phoenix_kit ~> 1.7 and >= 1.7.125`. The PDF `oban_jobs` dedup filters on `args ->> 'file_uuid'`, which has no index; since this module ships no migrations and `oban_jobs` is core/host-owned, a partial expression index belongs in a future core migration once the job table grows large (tracked in `AGENTS.md` and on `PdfLibrary.extraction_job_pending?/1`).
+- Verification: `mix precommit` clean (compile + format + credo --strict + dialyzer). The Web/context test suites that exercise the new guards are DB-gated and run against a host whose schema is at core V111+.
+
 ## 0.4.0 - 2026-05-30
 
 ### Added
