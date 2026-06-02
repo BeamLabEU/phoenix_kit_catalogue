@@ -1272,6 +1272,16 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   end
 
   defp apply_in_scope_item_reorder(socket, catalogue_uuid, category_uuid, ordered_ids, moved_id) do
+    # Dropped back in the same place — the order is unchanged, so skip the
+    # DB write, PubSub broadcast, and flash entirely.
+    if ordered_ids == Enum.map(socket.assigns.items, & &1.uuid) do
+      {:noreply, socket}
+    else
+      do_in_scope_item_reorder(socket, catalogue_uuid, category_uuid, ordered_ids, moved_id)
+    end
+  end
+
+  defp do_in_scope_item_reorder(socket, catalogue_uuid, category_uuid, ordered_ids, moved_id) do
     case Catalogue.reorder_items(
            catalogue_uuid,
            category_uuid,
@@ -2615,12 +2625,16 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   attr(:reorder_captured_uuids, :list, required: true)
 
   defp level_items(assigns) do
+    # `draggable?` controls the handle *column* (manual sort, not the deleted
+    # list); `reorderable?` controls the actual grip + DnD, which needs ≥2
+    # items. The column is kept even at a single item — rendered as an empty
+    # spacer cell — so deleting down to one row doesn't shift the layout.
+    draggable? = assigns.items_sort_by == :position and assigns.view_mode != "deleted"
+
     assigns =
-      assign(
-        assigns,
-        :draggable?,
-        assigns.items_sort_by == :position and assigns.view_mode != "deleted"
-      )
+      assigns
+      |> assign(:draggable?, draggable?)
+      |> assign(:reorderable?, draggable? and assigns.items_total > 1)
 
     ~H"""
     <div class="flex flex-col gap-2">
@@ -2634,7 +2648,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         <.bulk_actions_toolbar
           on_open_reorder="open_items_reorder_modal"
           reorder_dialog_id="items-reorder-modal"
-          reorder_gate={if @items_sort_by == :position, do: :always, else: :multi}
+          reorder_gate={if @items_total > 1 and @items_sort_by == :position, do: :always, else: :multi}
           on_bulk_delete="request_bulk_delete_items"
           noun_singular={Gettext.gettext(PhoenixKitCatalogue.Gettext, "item")}
           noun_plural={Gettext.gettext(PhoenixKitCatalogue.Gettext, "items")}
@@ -2695,11 +2709,14 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
           </.table_default_header>
           <.sortable_tbody
             id={"items-body-" <> (@current_category_uuid || "root")}
-            enabled={@draggable?}
+            enabled={@reorderable?}
             event="reorder_items"
           >
             <.sortable_row :for={item <- @items} item_id={item.uuid}>
-              <.drag_handle_cell :if={@draggable?} />
+              <.drag_handle_cell :if={@reorderable?} />
+              <%!-- Single-item list: keep the column width so the layout
+                   doesn't jump when a delete drops the list to one row. --%>
+              <td :if={@draggable? and not @reorderable?} class="w-8"></td>
               <.bulk_select_cell value={item.uuid} />
               <.item_pricing_cell item={item} edit_path={&Paths.item_edit/1} />
               <.item_row_menu
