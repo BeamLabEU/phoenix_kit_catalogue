@@ -145,8 +145,7 @@ defmodule PhoenixKitCatalogue.AITranslatable do
     # Always MERGE into the lang subtree (never wholesale-replace) so other
     # keys in that language are preserved — important if `lang` ever resolves
     # to the primary subtree (e.g. an item whose embedded primary differs
-    # from the global one). `primary` is bound only to seed the marker above.
-    _ = primary
+    # from the global one).
     Map.put(base, lang, Map.merge(Map.get(base, lang, %{}), full_field_data))
   end
 
