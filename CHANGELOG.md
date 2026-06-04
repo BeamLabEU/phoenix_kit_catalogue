@@ -1,3 +1,8 @@
+## 0.6.1 - 2026-06-04
+
+### Fixed
+- **Docs build warning** — the `PhoenixKitCatalogue.AITranslatable` moduledoc auto-linked `PhoenixKitCatalogue.ai_translatables/0`, an `@impl PhoenixKit.Module` callback ExDoc treats as hidden, so `mix docs` / `hex.publish` warned about a reference to a hidden function. Reworded to point at the `PhoenixKitCatalogue` module instead of the hidden callback; docs now build clean. No functional change.
+
 ## 0.6.0 - 2026-06-04
 
 ### Added

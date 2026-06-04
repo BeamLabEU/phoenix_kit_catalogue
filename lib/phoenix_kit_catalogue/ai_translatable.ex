@@ -21,8 +21,9 @@ defmodule PhoenixKitCatalogue.AITranslatable do
   `_`-form before writing, so the secondary-language inputs actually render
   the result.
 
-  Registered from `PhoenixKitCatalogue.ai_translatables/0`. The enqueue,
-  the AI call, broadcasts, retry policy, and the audit log all live in core.
+  Registered via the host module's `ai_translatables` callback (see
+  `PhoenixKitCatalogue`). The enqueue, the AI call, broadcasts, retry policy,
+  and the audit log all live in core.
   """
 
   @behaviour PhoenixKit.Modules.AI.Translatable
