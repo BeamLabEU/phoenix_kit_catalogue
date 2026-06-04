@@ -25,6 +25,7 @@ defmodule PhoenixKitCatalogue.Web.Helpers do
   require Logger
 
   alias PhoenixKitCatalogue.Catalogue.ActivityLog
+  alias PhoenixKitWeb.Components.AITranslate.FormGlue
 
   @typedoc "Convenience alias for the keyword list shape mutating ctx fns accept."
   @type actor_opts :: [actor_uuid: Ecto.UUID.t()] | []
@@ -229,6 +230,31 @@ defmodule PhoenixKitCatalogue.Web.Helpers do
   defp build_failure_metadata(_other) do
     %{"db_pending" => true, "error_kind" => "other"}
   end
+
+  # ── AI translation (delegates to the shared core glue) ───────────────
+  # All modal/progress/stall state + dispatch + PubSub handling lives in
+  # `PhoenixKitWeb.Components.AITranslate.FormGlue`; the catalogue-specific
+  # storage (multilang `data`, `_`-prefixed keys) is in
+  # `PhoenixKitCatalogue.AITranslateBinding`.
+
+  @doc "See `FormGlue.assign_ai_translation/4` — wires the catalogue binding."
+  def assign_ai_translation(socket, resource_type, resource),
+    do:
+      FormGlue.assign_ai_translation(
+        socket,
+        resource_type,
+        resource,
+        PhoenixKitCatalogue.AITranslateBinding
+      )
+
+  defdelegate toggle_ai_modal(socket), to: FormGlue
+  defdelegate select_ai_endpoint(socket, uuid), to: FormGlue
+  defdelegate select_ai_prompt(socket, uuid), to: FormGlue
+  defdelegate select_ai_scope(socket, scope), to: FormGlue
+  defdelegate generate_ai_prompt(socket), to: FormGlue
+  defdelegate ai_translate_config(assigns), to: FormGlue
+  defdelegate dispatch_ai_translate(socket, lang), to: FormGlue
+  defdelegate handle_ai_translation_event(socket, event, payload, assign_cs), to: FormGlue
 
   # ── PDF library display helpers ─────────────────────────────────────
   # Shared between `Web.PdfLibraryLive` and `Web.PdfDetailLive`. Pure
