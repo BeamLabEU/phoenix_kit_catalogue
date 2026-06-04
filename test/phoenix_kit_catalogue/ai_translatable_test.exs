@@ -10,6 +10,7 @@ defmodule PhoenixKitCatalogue.AITranslatableTest do
   alias PhoenixKit.Utils.Multilang
   alias PhoenixKitCatalogue.AITranslatable
   alias PhoenixKitCatalogue.Catalogue
+  alias PhoenixKitCatalogue.Schemas.Item
 
   defp primary, do: Multilang.primary_language()
 
@@ -22,11 +23,32 @@ defmodule PhoenixKitCatalogue.AITranslatableTest do
     item
   end
 
+  defp create_category(attrs \\ %{}) do
+    {:ok, cat} = Catalogue.create_catalogue(%{name: "Cat"})
+
+    {:ok, category} =
+      Catalogue.create_category(Map.merge(%{name: "Cards", catalogue_uuid: cat.uuid}, attrs))
+
+    category
+  end
+
   describe "fetch/2" do
     test "loads a known item by type + uuid" do
       item = create_item()
       assert {:ok, fetched} = AITranslatable.fetch("catalogue_item", item.uuid)
       assert fetched.uuid == item.uuid
+    end
+
+    test "loads a known catalogue by type + uuid" do
+      {:ok, cat} = Catalogue.create_catalogue(%{name: "Cat"})
+      assert {:ok, fetched} = AITranslatable.fetch("catalogue", cat.uuid)
+      assert fetched.uuid == cat.uuid
+    end
+
+    test "loads a known category by type + uuid" do
+      category = create_category()
+      assert {:ok, fetched} = AITranslatable.fetch("catalogue_category", category.uuid)
+      assert fetched.uuid == category.uuid
     end
 
     test "missing row → :resource_not_found" do
@@ -50,6 +72,24 @@ defmodule PhoenixKitCatalogue.AITranslatableTest do
       item = create_item(%{name: "Widget"})
       # description not set → not in the source map
       refute Map.has_key?(AITranslatable.source_fields(item, primary()), "description")
+    end
+
+    test "prefers the multilang `_`-prefixed override over the column" do
+      item = %Item{
+        name: "Column",
+        data: %{"_primary_language" => primary(), "fr" => %{"_name" => "Renard"}}
+      }
+
+      assert AITranslatable.source_fields(item, "fr")["name"] == "Renard"
+    end
+
+    test "falls back to a legacy plain key when there's no `_`-prefixed override" do
+      item = %Item{
+        name: "Column",
+        data: %{"_primary_language" => primary(), "fr" => %{"name" => "Plain"}}
+      }
+
+      assert AITranslatable.source_fields(item, "fr")["name"] == "Plain"
     end
   end
 
@@ -79,6 +119,24 @@ defmodule PhoenixKitCatalogue.AITranslatableTest do
 
       reloaded = Catalogue.get_item(item.uuid)
       assert reloaded.data["es"]["_name"] == "ABC123"
+    end
+
+    test "round-trips a catalogue (fetch → translate → reload)" do
+      {:ok, cat} = Catalogue.create_catalogue(%{name: "Cat"})
+      {:ok, fetched} = AITranslatable.fetch("catalogue", cat.uuid)
+      assert {:ok, _} = AITranslatable.put_translation(fetched, "es", %{"name" => "Gato"}, [])
+
+      reloaded = Catalogue.get_catalogue(cat.uuid)
+      assert reloaded.data["es"]["_name"] == "Gato"
+    end
+
+    test "round-trips a category (fetch → translate → reload)" do
+      category = create_category()
+      {:ok, fetched} = AITranslatable.fetch("catalogue_category", category.uuid)
+      assert {:ok, _} = AITranslatable.put_translation(fetched, "es", %{"name" => "Tarjetas"}, [])
+
+      reloaded = Catalogue.get_category(category.uuid)
+      assert reloaded.data["es"]["_name"] == "Tarjetas"
     end
   end
 
