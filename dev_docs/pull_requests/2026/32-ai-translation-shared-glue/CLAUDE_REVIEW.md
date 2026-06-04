@@ -15,7 +15,9 @@ adapter unit tests).
 Solid, well-commented PR. The risky parts (multilang `data` merge semantics,
 concurrent per-language writes, broadcast suppression) are handled correctly
 and the design respects the relevant skill "iron laws". Findings below are
-small — one applied cleanup, the rest are low-priority/optional.
+small. Three are applied in this pass (dead-code cleanup, `column_value/2`
+de-exception-ing, and expanded adapter tests); one (per-LiveView wiring
+duplication) is deferred by recommendation.
 
 ---
 
@@ -52,25 +54,26 @@ small — one applied cleanup, the rest are low-priority/optional.
 suppressed nothing. Removed the line and trimmed the comment. Recompiles clean
 with `--warnings-as-errors`.
 
-### 2. [LOW] Adapter test coverage gaps
+### 2. [APPLIED] Adapter test coverage gaps
 
-`test/phoenix_kit_catalogue/ai_translatable_test.exs` (10 tests) covers the
-`item` resource type well but leaves gaps:
+`test/phoenix_kit_catalogue/ai_translatable_test.exs` (10 tests) covered the
+`item` resource type well but left gaps that are now filled (15 tests):
 
-- `source_fields/2` only exercises the **column-fallback** path. The
-  `_`-prefixed multilang-override branch and the legacy plain-key branch
-  (`field_value/3`, `ai_translatable.ex:63–69`) — the more interesting
-  paths — are untested.
-- `fetch/2` and `put_translation/4` are only tested for `"catalogue_item"`.
-  The `"catalogue"` / `"catalogue_category"` dispatch clauses (and their
-  `persist_target/1` mappings) have no coverage, so a wrong schema/updater
-  pairing would slip through.
+- `source_fields/2` only exercised the **column-fallback** path. Added two
+  tests for the more interesting branches of `field_value/3`
+  (`ai_translatable.ex:64–70`): the `_`-prefixed multilang override winning
+  over the column, and the legacy plain-key fallback.
+- `fetch/2` and `put_translation/4` were only tested for `"catalogue_item"`.
+  Added `fetch` coverage for `"catalogue"` and `"catalogue_category"`, plus
+  `put_translation` round-trips for both — exercising the `persist_target/1`
+  schema/updater mappings (a wrong pairing would now fail a test).
 
-Suggested additions (low risk, mirror existing patterns): a `source_fields`
-test that seeds `data[lang]["_name"]` and asserts the override wins over the
-column; a `fetch`/`put_translation` round-trip for a category. Not applied here
-because the suite needs a live Postgres that isn't available in this
-environment — flagging rather than pushing unverified test code.
+**Caveat:** the suite needs a live Postgres that isn't available in this
+environment, so these new tests are **format-checked and syntax-valid but not
+executed here**. They mirror the existing passing patterns and the
+`%Item{}`-struct `source_fields` tests are pure (no DB). Run `mix test
+test/phoenix_kit_catalogue/ai_translatable_test.exs` against a local
+core/DB to confirm green before relying on them.
 
 ### 3. [LOW / optional] Duplicated AI-translate wiring across 3 LiveViews
 
@@ -94,12 +97,14 @@ current explicit delegation is verbose but greppable and warning-free. Net
 recommendation: **leave as-is** unless a 4th consumer appears; revisit then
 with a `@before_compile`-based injection that keeps clauses grouped.
 
-### 4. [INFO] `column_value/2` `String.to_existing_atom` + rescue
+### 4. [APPLIED] `column_value/2` `String.to_existing_atom` + rescue
 
-For the fixed set `@translatable_fields ["name", "description"]`, a compile-time
-`%{"name" => :name, "description" => :description}` lookup would be marginally
-clearer and drop the `rescue ArgumentError`. The current form is more general
-and harmless — noting only, not worth changing.
+For the fixed field set, the runtime `String.to_existing_atom/1` +
+`rescue ArgumentError` was an unnecessary use of exceptions for what is a
+static mapping. Replaced with a compile-time `@field_columns` map
+(`%{"name" => :name, "description" => :description}`), and derived
+`@translatable_fields` from its keys so the two can't drift. `column_value/2`
+is now a total `Map.fetch!/2` lookup with no `rescue`.
 
 ---
 
@@ -115,11 +120,19 @@ and harmless — noting only, not worth changing.
 
 | File | Change |
 |------|--------|
-| `lib/phoenix_kit_catalogue/ai_translatable.ex` | Drop dead `_ = primary` discard + correct the trailing comment in `force_put_language/3` |
+| `lib/phoenix_kit_catalogue/ai_translatable.ex` | Drop dead `_ = primary` discard + correct comment in `force_put_language/3` (Finding 1) |
+| `lib/phoenix_kit_catalogue/ai_translatable.ex` | Replace `String.to_existing_atom` + `rescue` in `column_value/2` with a compile-time `@field_columns` map; derive `@translatable_fields` from it (Finding 4) |
+| `test/phoenix_kit_catalogue/ai_translatable_test.exs` | Add `source_fields` override + legacy-key tests, and `fetch`/`put_translation` coverage for `catalogue` + `category` (Finding 2) — 10 → 15 tests |
+
+All changes recompile clean with `mix compile --warnings-as-errors`;
+`mix format --check-formatted` passes.
 
 ## Open / recommended (not applied)
 
-- Add the `source_fields` override-path and catalogue/category
-  `fetch`+`put_translation` tests (Finding 2) — needs a DB to verify.
-- Optional macro de-duplication of the per-LiveView AI wiring (Finding 3) —
-  deferred by recommendation.
+- **Run the expanded test suite against a DB** (Finding 2) — added tests are
+  syntax-/format-verified but not executed in this environment.
+- **Optional macro de-duplication of the per-LiveView AI wiring** (Finding 3)
+  — deferred by recommendation; revisit only if a 4th consumer appears, using
+  a `@before_compile` injection that keeps `handle_event`/`handle_info` clauses
+  grouped (else `--warnings-as-errors` builds break on the "clauses should be
+  grouped" warning).

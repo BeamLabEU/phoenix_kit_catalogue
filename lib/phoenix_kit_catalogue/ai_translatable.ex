@@ -35,7 +35,11 @@ defmodule PhoenixKitCatalogue.AITranslatable do
   alias PhoenixKitCatalogue.Schemas.Catalogue, as: CatalogueSchema
   alias PhoenixKitCatalogue.Schemas.{Category, Item}
 
-  @translatable_fields ["name", "description"]
+  # Engine-facing field names (plain strings) ↔ their schema columns. The AI
+  # engine speaks the string keys; `column_value/2` maps back to the atom
+  # column. Keeping them in one map avoids the two lists drifting apart.
+  @field_columns %{"name" => :name, "description" => :description}
+  @translatable_fields Map.keys(@field_columns)
 
   @impl true
   def fetch("catalogue", uuid), do: wrap(Catalogue.get_catalogue(uuid))
@@ -72,9 +76,7 @@ defmodule PhoenixKitCatalogue.AITranslatable do
   defp nonempty(_), do: false
 
   defp column_value(resource, field) do
-    Map.get(resource, String.to_existing_atom(field))
-  rescue
-    ArgumentError -> nil
+    Map.get(resource, Map.fetch!(@field_columns, field))
   end
 
   @impl true
