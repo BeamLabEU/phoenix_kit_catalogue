@@ -1,4 +1,4 @@
-## Unreleased
+## 0.7.0 - 2026-06-07
 
 ### Fixed
 - **European number formats in price import** — `Import.Mapper.normalize_price/1` mis-parsed the European `"1.234,56"` convention (dot thousands, comma decimal): it stripped the comma and read the value as `1.23456` — silently off by ~1000×. It now decides the decimal separator by whichever of `.`/`,` appears last, so both `"1,234.56"` (US/UK) and `"1.234,56"` (EU) parse correctly, including multi-group values and currency-prefixed strings.
@@ -16,7 +16,8 @@
 - Fixed a stale "SKU is unique" note in the `create_item/update_item` docs — core V123 dropped that index; item SKUs are non-unique by design.
 
 ### Notes
-- Verification: `mix compile --warnings-as-errors`, `mix credo --strict`, and `mix format --check-formatted` are clean; the new pure-function behavior (price normalization, delimiter detection, size/row caps) is covered by added unit tests. The full ExUnit suite is DB-gated — run `mix test` against a host with PostgreSQL.
+- **Requires a phoenix_kit release containing `PhoenixKitWeb.Components.AITranslate.Embed`** (BeamLabEU/phoenix_kit#585) — the macro the form LiveViews now `use`. Developed and locked against core **1.7.132**; the `mix.exs` constraint stays loose (`~> 1.7 and >= 1.7.125`), so pin a `phoenix_kit >= 1.7.132` in the parent app.
+- Verification: `mix precommit` is clean (compile `--warnings-as-errors` + `format --check-formatted` + `credo --strict` + `deps.unlock --check-unused` + `dialyzer`). The new pure-function behavior (price normalization, delimiter detection, size/row caps) is covered by added unit tests. The full ExUnit suite is DB-gated — run `mix test` against a host with PostgreSQL.
 - Deferred follow-up: several form LiveViews still issue DB queries directly in `mount/3` (which runs twice). Documented in `dev_docs/followup_2026_06_07_mount_connected_guard.md`; deferred because validating the disconnected-render change needs the DB-backed LiveView test suite.
 
 ## 0.6.1 - 2026-06-04
