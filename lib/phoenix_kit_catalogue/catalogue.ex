@@ -3642,7 +3642,8 @@ defmodule PhoenixKitCatalogue.Catalogue do
   ## Optional attributes
 
     * `:description` — text description
-    * `:sku` — stock keeping unit (unique, max 100 chars)
+    * `:sku` — stock keeping unit (max 100 chars; not unique — the same
+      SKU may appear on multiple items)
     * `:base_price` — decimal, must be >= 0 (cost/purchase price before markup)
     * `:unit` — `"piece"` (default), `"m2"`, or `"running_meter"`
     * `:status` — `"active"` (default), `"inactive"`, `"discontinued"`, or `"deleted"`

@@ -55,6 +55,8 @@ defmodule PhoenixKitCatalogue.Errors do
           | :missing_item_name
           | :unsupported_file_format
           | :csv_empty
+          | :file_too_large
+          | :too_many_rows
           | :parent_catalogue_deleted
 
   @doc """
@@ -128,6 +130,20 @@ defmodule PhoenixKitCatalogue.Errors do
 
   def message(:csv_empty),
     do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "CSV file is empty.")
+
+  def message(:file_too_large),
+    do:
+      Gettext.gettext(
+        PhoenixKitCatalogue.Gettext,
+        "File is too large to import. Please split it into smaller files."
+      )
+
+  def message(:too_many_rows),
+    do:
+      Gettext.gettext(
+        PhoenixKitCatalogue.Gettext,
+        "File has too many rows to import. Please split it into smaller files."
+      )
 
   def message(:parent_catalogue_deleted),
     do:

@@ -67,6 +67,28 @@ defmodule PhoenixKitCatalogue.Import.ParserTest do
       assert {:error, _msg} = Parser.parse("data", "test.pdf")
     end
 
+    test "detects the delimiter even when a quoted header cell contains a comma" do
+      # The header's first cell holds a comma inside quotes; naive comma
+      # counting would pick the comma parser and collapse every row to one
+      # column. Parsing with each candidate and scoring picks semicolon.
+      csv = ~s("Name, full";SKU;Price\n"Oak Panel";OAK-18;1.234,56\n)
+      assert {:ok, result} = Parser.parse(csv, "test.csv")
+      assert result.headers == ["Name, full", "SKU", "Price"]
+      assert List.first(result.rows) == ["Oak Panel", "OAK-18", "1.234,56"]
+    end
+
+    test "rejects a file that exceeds the byte-size cap" do
+      oversized = String.duplicate("a,b,c\n", 5_000_000)
+      assert byte_size(oversized) > 25 * 1024 * 1024
+      assert {:error, :file_too_large} = Parser.parse(oversized, "test.csv")
+    end
+
+    test "rejects a file that exceeds the row cap" do
+      header = "Name,SKU\n"
+      rows = String.duplicate("Oak,OAK-1\n", 50_001)
+      assert {:error, :too_many_rows} = Parser.parse(header <> rows, "test.csv")
+    end
+
     test "strips a fully empty leading column" do
       # Common spreadsheet quirk: a leading blank column survives export
       # as empty cells in every row. Without stripping, the importer

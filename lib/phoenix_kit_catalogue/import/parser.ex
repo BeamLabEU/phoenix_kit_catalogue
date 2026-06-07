@@ -14,6 +14,16 @@ defmodule PhoenixKitCatalogue.Import.Parser do
 
   alias PhoenixKitCatalogue.Import.{CommaParser, SemicolonParser, TabParser}
 
+  # Upload guards. The import path materializes the whole sheet in memory
+  # (NimbleCSV / XlsxReader both return all rows), so cap the raw byte
+  # size before parsing and the row count after, surfacing a clean error
+  # rather than letting a pathological upload spike memory.
+  @max_byte_size 25 * 1024 * 1024
+  @max_rows 50_000
+
+  # Candidate CSV parsers, tried in preference order on ties.
+  @candidate_parsers [CommaParser, SemicolonParser, TabParser]
+
   @type parsed_file :: %{
           sheets: [String.t()],
           headers: [String.t()],
@@ -43,17 +53,28 @@ defmodule PhoenixKitCatalogue.Import.Parser do
   """
   @spec parse(binary(), String.t(), keyword()) :: {:ok, parsed_file()} | {:error, term()}
   def parse(binary, filename, opts \\ []) do
-    case detect_format(filename) do
-      :xlsx -> parse_xlsx(binary, opts)
-      :csv -> parse_csv(binary)
-      {:error, :unsupported} -> {:error, :unsupported_file_format}
+    if byte_size(binary) > @max_byte_size do
+      {:error, :file_too_large}
+    else
+      case detect_format(filename) do
+        :xlsx -> binary |> parse_xlsx(opts) |> enforce_row_cap()
+        :csv -> binary |> parse_csv() |> enforce_row_cap()
+        {:error, :unsupported} -> {:error, :unsupported_file_format}
+      end
     end
   end
+
+  defp enforce_row_cap({:ok, %{row_count: row_count}}) when row_count > @max_rows,
+    do: {:error, :too_many_rows}
+
+  defp enforce_row_cap(result), do: result
 
   @doc """
   Lists sheet names from an XLSX file.
   """
   @spec list_sheets(binary()) :: {:ok, [String.t()]} | {:error, term()}
+  def list_sheets(binary) when byte_size(binary) > @max_byte_size, do: {:error, :file_too_large}
+
   def list_sheets(binary) do
     with_temp_file(binary, ".xlsx", fn path ->
       case XlsxReader.open(path) do
@@ -154,20 +175,43 @@ defmodule PhoenixKitCatalogue.Import.Parser do
   defp strip_bom(<<0xEF, 0xBB, 0xBF, rest::binary>>), do: rest
   defp strip_bom(binary), do: binary
 
+  # Pick the delimiter by actually parsing a sample of the file with each
+  # candidate parser and scoring the result, rather than counting raw
+  # delimiter characters on the first line. Character counting is fooled
+  # by delimiters inside quoted fields (e.g. a single quoted header cell
+  # `"Name, with comma"` would pick the comma parser and collapse every
+  # row to one column). Parsing a multi-line sample and preferring the
+  # parser that yields the most columns with a consistent count across
+  # rows is robust to that.
   defp detect_csv_separator(binary) do
-    first_line = binary |> String.split(~r/\r?\n/, parts: 2) |> List.first("")
+    sample =
+      binary
+      |> String.split(~r/\r?\n/, parts: 11)
+      |> Enum.take(10)
+      |> Enum.reject(&(&1 == ""))
+      |> Enum.join("\n")
 
-    comma_count = first_line |> String.graphemes() |> Enum.count(&(&1 == ","))
-    semicolon_count = first_line |> String.graphemes() |> Enum.count(&(&1 == ";"))
-    tab_count = first_line |> String.graphemes() |> Enum.count(&(&1 == "\t"))
+    @candidate_parsers
+    |> Enum.map(fn parser -> {parser, sample_score(parser, sample)} end)
+    |> Enum.max_by(fn {_parser, score} -> score end, fn -> {CommaParser, 0} end)
+    |> elem(0)
+  end
 
-    cond do
-      tab_count > comma_count and tab_count > semicolon_count -> TabParser
-      semicolon_count > comma_count -> SemicolonParser
-      comma_count > 0 -> CommaParser
-      semicolon_count > 0 -> SemicolonParser
-      true -> CommaParser
+  # Score a candidate parser on the sample: header column count dominates
+  # (a wrong delimiter yields 1 column), with consistency across the
+  # sampled rows as a tiebreaker. Returns 0 if the parser raises.
+  defp sample_score(parser, sample) do
+    case parser.parse_string(sample, skip_headers: false) do
+      [header | _] = rows ->
+        header_cols = length(header)
+        consistent = Enum.count(rows, fn row -> length(row) == header_cols end)
+        header_cols * 100 + consistent
+
+      _ ->
+        0
     end
+  rescue
+    _ -> 0
   end
 
   # ── Helpers ───────────────────────────────────────────────────

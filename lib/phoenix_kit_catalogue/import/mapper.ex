@@ -212,10 +212,26 @@ defmodule PhoenixKitCatalogue.Import.Mapper do
 
     import Ecto.Query
 
+    # A match requires name equality (`name_matches?/2`), so only items
+    # whose name appears in the import plan can possibly match. Narrowing
+    # the query by those names keeps this off the "load the whole
+    # catalogue into memory" path for large catalogues — we fetch at most
+    # the rows that share a name with the import.
+    import_names =
+      plan.items
+      |> Enum.map(& &1[:name])
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
+
     existing_items =
-      PhoenixKitCatalogue.Schemas.Item
-      |> where([i], i.catalogue_uuid == ^catalogue_uuid and i.status != "deleted")
-      |> PhoenixKit.RepoHelper.repo().all()
+      if import_names == [] do
+        []
+      else
+        PhoenixKitCatalogue.Schemas.Item
+        |> where([i], i.catalogue_uuid == ^catalogue_uuid and i.status != "deleted")
+        |> where([i], i.name in ^import_names)
+        |> PhoenixKit.RepoHelper.repo().all()
+      end
 
     Enum.count(plan.items, fn import_item ->
       Enum.any?(existing_items, fn existing ->
@@ -322,13 +338,21 @@ defmodule PhoenixKitCatalogue.Import.Mapper do
       |> String.trim()
       |> String.replace(~r/[€$£\s]/, "")
 
-    # Handle comma as decimal separator: "4,88" -> "4.88"
-    # But not thousands separator: "1,234.56" stays as-is
+    # Decide which separator is the decimal point. When both `.` and `,`
+    # appear, the one that occurs LAST is the decimal separator and the
+    # other is the thousands grouping — this handles both the US/UK
+    # "1,234.56" and the European "1.234,56" conventions. A lone comma
+    # is always treated as the decimal separator ("4,88" -> "4.88").
     cleaned =
       cond do
         String.contains?(cleaned, ".") and String.contains?(cleaned, ",") ->
-          # Has both: comma is thousands separator, dot is decimal
-          String.replace(cleaned, ",", "")
+          if last_index(cleaned, ",") > last_index(cleaned, ".") do
+            # European: dot groups thousands, comma is decimal.
+            cleaned |> String.replace(".", "") |> String.replace(",", ".")
+          else
+            # US/UK: comma groups thousands, dot is decimal.
+            String.replace(cleaned, ",", "")
+          end
 
         String.contains?(cleaned, ",") ->
           # Only comma: it's the decimal separator
@@ -352,6 +376,14 @@ defmodule PhoenixKitCatalogue.Import.Mapper do
   end
 
   # ── Private ───────────────────────────────────────────────────
+
+  # Last byte offset of `needle` in `string`, or -1 when absent.
+  defp last_index(string, needle) do
+    case :binary.matches(string, needle) do
+      [] -> -1
+      matches -> matches |> List.last() |> elem(0)
+    end
+  end
 
   defp detect_target(header, used_targets) do
     normalized = normalize_header(header)
