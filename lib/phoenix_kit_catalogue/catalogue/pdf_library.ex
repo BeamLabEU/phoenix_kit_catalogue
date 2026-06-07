@@ -262,15 +262,18 @@ defmodule PhoenixKitCatalogue.Catalogue.PdfLibrary do
   end
 
   # Conflict path: `on_conflict: :nothing` returns the un-persisted stub,
-  # so re-fetch to report `extraction_status` reliably and only enqueue
-  # when this caller was the inserter (heuristic: inserted within the
-  # last second). Worst case is a duplicate enqueue — the worker
-  # short-circuits on a terminal status.
+  # so re-fetch to report `extraction_status` reliably and (re-)enqueue
+  # whenever the row is still `pending`. We do NOT gate this on a
+  # wall-clock "was I the inserter?" heuristic: under DB/GC latency the
+  # inserting caller can arrive seconds later and would then skip the
+  # enqueue, leaving a pending row with no job (only the manual
+  # `requeue_stuck_extractions` would heal it). `enqueue_extraction/1` is
+  # already idempotent — it no-ops when a non-terminal job exists — so
+  # enqueueing on every pending observation is safe and self-healing.
   defp resolve_extraction_after_insert(file_uuid) do
     case repo().get(PdfExtraction, file_uuid) do
-      %PdfExtraction{extraction_status: "pending", inserted_at: inserted_at} = extraction ->
-        age_secs = DateTime.diff(DateTime.utc_now(), inserted_at, :second)
-        if age_secs <= 1, do: enqueue_extraction(file_uuid)
+      %PdfExtraction{extraction_status: "pending"} = extraction ->
+        _ = enqueue_extraction(file_uuid)
         {:ok, extraction}
 
       %PdfExtraction{} = extraction ->

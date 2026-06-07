@@ -71,6 +71,11 @@ defmodule PhoenixKitCatalogue.MixProject do
       {:phoenix_kit, "~> 1.7 and >= 1.7.125"},
       {:phoenix_live_view, "~> 1.1"},
       {:xlsx_reader, "~> 0.8"},
+      # Used directly by the CSV import parser (NimbleCSV.define/2). Declared
+      # explicitly rather than relying on the transitive pull through
+      # :phoenix_kit, so the import pipeline doesn't silently break if core
+      # ever drops it.
+      {:nimble_csv, "~> 1.2"},
       {:ex_doc, "~> 0.39", only: :dev, runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},

@@ -110,12 +110,42 @@ defmodule PhoenixKitCatalogue.Workers.PdfExtractor do
   end
 
   defp run_extraction(file_uuid, file_path) do
-    with {:ok, page_count} <- pdfinfo_page_count(file_path),
-         :ok <- extract_pages(file_uuid, file_path, page_count) do
-      finalize(file_uuid, page_count)
-    else
-      {:error, reason} -> fail(file_uuid, reason)
+    case pdfinfo_page_count(file_path) do
+      {:ok, page_count} ->
+        {ok_count, failed} = extract_pages(file_uuid, file_path, page_count)
+        finalize_with_failures(file_uuid, page_count, ok_count, Enum.reverse(failed))
+
+      {:error, reason} ->
+        fail(file_uuid, reason)
     end
+  end
+
+  # Every page failed (e.g. `pdftotext` missing, or a wholly unreadable
+  # file): fail the job so Oban retries — don't mark an empty document as
+  # successfully extracted.
+  defp finalize_with_failures(file_uuid, _page_count, 0, [_ | _] = failed) do
+    fail(file_uuid, {:all_pages_failed, summarize_failures(failed)})
+  end
+
+  # At least one page extracted: keep the usable partial result. A single
+  # corrupt page (or a transient per-page hiccup) no longer discards the
+  # whole document and burns all retries — we log the unreadable pages and
+  # finalize on what we got.
+  defp finalize_with_failures(file_uuid, page_count, _ok_count, failed) do
+    if failed != [] do
+      Logger.warning(
+        "PdfExtractor: #{length(failed)} page(s) failed for #{inspect(file_uuid)}; " <>
+          "keeping partial extraction (#{summarize_failures(failed)})"
+      )
+    end
+
+    finalize(file_uuid, page_count)
+  end
+
+  defp summarize_failures(failed) do
+    failed
+    |> Enum.map_join("; ", fn {page, reason} -> "p#{page}: #{inspect_reason(reason)}" end)
+    |> String.slice(0, 500)
   end
 
   defp fail(file_uuid, reason) do
@@ -184,13 +214,16 @@ defmodule PhoenixKitCatalogue.Workers.PdfExtractor do
     end
   end
 
-  defp extract_pages(_file_uuid, _path, 0), do: :ok
+  # Returns `{succeeded_count, failed}` where `failed` is a list of
+  # `{page_number, reason}` in reverse page order. Continues past a failed
+  # page instead of halting, so one bad page doesn't discard the rest.
+  defp extract_pages(_file_uuid, _path, 0), do: {0, []}
 
   defp extract_pages(file_uuid, file_path, page_count) do
-    Enum.reduce_while(1..page_count, :ok, fn page_number, _acc ->
+    Enum.reduce(1..page_count, {0, []}, fn page_number, {ok_count, failed} ->
       case extract_page(file_uuid, file_path, page_number) do
-        :ok -> {:cont, :ok}
-        {:error, _} = err -> {:halt, err}
+        :ok -> {ok_count + 1, failed}
+        {:error, reason} -> {ok_count, [{page_number, reason} | failed]}
       end
     end)
   end
@@ -266,6 +299,9 @@ defmodule PhoenixKitCatalogue.Workers.PdfExtractor do
 
   def inspect_reason({:insert_page_failed, page, _cs}),
     do: "could not insert page #{page} (DB error)"
+
+  def inspect_reason({:all_pages_failed, summary}),
+    do: "all pages failed (#{summary})"
 
   def inspect_reason(other), do: inspect(other)
 end

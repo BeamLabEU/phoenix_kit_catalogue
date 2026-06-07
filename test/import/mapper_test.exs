@@ -98,6 +98,24 @@ defmodule PhoenixKitCatalogue.Import.MapperTest do
       assert Decimal.equal?(d, Decimal.new("1234.56"))
     end
 
+    test "handles European thousands separator with comma decimal" do
+      assert {:ok, d} = Mapper.normalize_price("1.234,56")
+      assert Decimal.equal?(d, Decimal.new("1234.56"))
+    end
+
+    test "handles European format with currency symbol and whitespace" do
+      assert {:ok, d} = Mapper.normalize_price("€ 1.299,00")
+      assert Decimal.equal?(d, Decimal.new("1299.00"))
+    end
+
+    test "handles multiple thousands groups in both conventions" do
+      assert {:ok, eu} = Mapper.normalize_price("1.234.567,89")
+      assert Decimal.equal?(eu, Decimal.new("1234567.89"))
+
+      assert {:ok, us} = Mapper.normalize_price("1,234,567.89")
+      assert Decimal.equal?(us, Decimal.new("1234567.89"))
+    end
+
     test "handles whitespace" do
       assert {:ok, d} = Mapper.normalize_price("  4.88  ")
       assert Decimal.equal?(d, Decimal.new("4.88"))
