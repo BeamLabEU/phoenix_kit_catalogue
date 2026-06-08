@@ -24,8 +24,8 @@ defmodule PhoenixKitCatalogue.Web.Helpers do
 
   require Logger
 
-  alias PhoenixKitCatalogue.Catalogue.ActivityLog
   alias PhoenixKitAI.Components.AITranslate.FormGlue
+  alias PhoenixKitCatalogue.Catalogue.ActivityLog
 
   @typedoc "Convenience alias for the keyword list shape mutating ctx fns accept."
   @type actor_opts :: [actor_uuid: Ecto.UUID.t()] | []
