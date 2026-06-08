@@ -16,7 +16,7 @@
 - Fixed a stale "SKU is unique" note in the `create_item/update_item` docs — core V123 dropped that index; item SKUs are non-unique by design.
 
 ### Notes
-- **Requires `phoenix_kit_ai ~> 0.3` for AI translation** — the shared embed macro and translation pipeline now live in the AI plugin. Catalogue's core constraint stays focused on its database/UI requirements.
+- **Requires `phoenix_kit_ai >= 0.4.0` for AI translation** — the shared embed macro and translation pipeline (`PhoenixKitAI.{Translatable,Translations}`, `PhoenixKitAI.Components.AITranslate.{Embed,FormBinding,FormGlue}`) first shipped in the AI plugin's **0.4.0** release; the earlier 0.3.x line does not contain them. The `mix.exs` constraint is `~> 0.4` (loose, `< 1.0`). Catalogue's core constraint stays focused on its database/UI requirements.
 - Verification: `mix precommit` is clean (compile `--warnings-as-errors` + `format --check-formatted` + `credo --strict` + `deps.unlock --check-unused` + `dialyzer`). The new pure-function behavior (price normalization, delimiter detection, size/row caps) is covered by added unit tests. The full ExUnit suite is DB-gated — run `mix test` against a host with PostgreSQL.
 - Deferred follow-up: several form LiveViews still issue DB queries directly in `mount/3` (which runs twice). Documented in `dev_docs/followup_2026_06_07_mount_connected_guard.md`; deferred because validating the disconnected-render change needs the DB-backed LiveView test suite.
 
