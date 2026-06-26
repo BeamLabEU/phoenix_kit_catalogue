@@ -52,9 +52,35 @@ defmodule PhoenixKitCatalogue.Web.ExportLive do
             {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Export Items")}
           </h2>
 
-          <form id="export-form" phx-change="change_form" class="flex flex-col gap-4">
+          <form id="export-form" phx-change="change_form" class="flex flex-col gap-5">
+            <%!-- Catalogues checkbox list --%>
+            <div class="form-control w-full max-w-lg">
+              <div class="flex items-center justify-between mb-2">
+                <span class="text-sm font-medium">
+                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Catalogues")}
+                </span>
+                <span class="badge badge-ghost badge-sm">
+                  {length(@selected_catalogue_uuids)} / {length(@catalogues)}
+                </span>
+              </div>
+              <div class="max-h-96 overflow-y-auto border border-base-300 rounded-box divide-y divide-base-200 bg-base-100">
+                <%= for catalogue <- @catalogues do %>
+                  <label class="flex items-center gap-3 px-4 py-2.5 cursor-pointer hover:bg-base-200 transition-colors">
+                    <input
+                      type="checkbox"
+                      name="catalogue_uuids[]"
+                      value={catalogue.uuid}
+                      checked={catalogue.uuid in @selected_catalogue_uuids}
+                      class="checkbox checkbox-sm checkbox-primary shrink-0"
+                    />
+                    <span class="text-sm truncate min-w-0">{catalogue.name}</span>
+                  </label>
+                <% end %>
+              </div>
+            </div>
+
             <%!-- Destination select --%>
-            <div class="form-control w-full max-w-md">
+            <div class="form-control w-full max-w-lg">
               <span class="block mb-2 text-sm font-medium">
                 {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Destination")}
               </span>
@@ -66,29 +92,8 @@ defmodule PhoenixKitCatalogue.Web.ExportLive do
               />
             </div>
 
-            <%!-- Catalogues checkbox list --%>
-            <div class="form-control w-full max-w-md">
-              <span class="block mb-2 text-sm font-medium">
-                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Catalogues")}
-              </span>
-              <div class="max-h-64 overflow-y-auto border border-base-300 rounded-box p-3 flex flex-col gap-2">
-                <%= for catalogue <- @catalogues do %>
-                  <label class="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      name="catalogue_uuids[]"
-                      value={catalogue.uuid}
-                      checked={catalogue.uuid in @selected_catalogue_uuids}
-                      class="checkbox checkbox-sm"
-                    />
-                    <span class="text-sm">{catalogue.name}</span>
-                  </label>
-                <% end %>
-              </div>
-            </div>
-
             <%!-- Format select --%>
-            <div class="form-control w-full max-w-md">
+            <div class="form-control w-full max-w-lg">
               <span class="block mb-2 text-sm font-medium">
                 {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Format")}
               </span>
