@@ -17,7 +17,6 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   require Logger
 
   import PhoenixKitWeb.Components.Core.Icon, only: [icon: 1]
-  import PhoenixKitWeb.Components.Core.AdminPageHeader, only: [admin_page_header: 1]
   import PhoenixKitWeb.Components.Core.Modal, only: [confirm_modal: 1]
   import PhoenixKitWeb.Components.Core.EmptyState, only: [empty_state: 1]
   import PhoenixKitWeb.Components.Core.Pagination, only: [load_more: 1]
@@ -81,6 +80,16 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     "created_asc" => :created_asc,
     "reverse" => :reverse
   }
+
+  # PhoenixKit auto-applies its admin chrome layout to external module admin
+  # views via socket.private[:live_layout]. Opt out here so this view can
+  # self-wrap with LayoutWrapper.app_layout and push its title/subtitle into
+  # the global admin header (same pattern as /admin/media and orders/index).
+  on_mount({__MODULE__, :self_wrapped_layout})
+
+  def on_mount(:self_wrapped_layout, _params, _session, socket) do
+    {:cont, put_in(socket.private[:live_layout], {PhoenixKitWeb.Layouts, :app})}
+  end
 
   @impl true
   def mount(%{"uuid" => uuid}, _session, socket) do
@@ -1927,58 +1936,63 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <div class="flex flex-col w-full px-4 py-6 gap-6">
-      <%!-- Loading state --%>
-      <div :if={is_nil(@catalogue)} class="flex justify-center py-12">
-        <span class="loading loading-spinner loading-lg"></span>
-      </div>
+    <PhoenixKitWeb.Components.LayoutWrapper.app_layout
+      socket={@socket}
+      flash={@flash}
+      phoenix_kit_current_scope={assigns[:phoenix_kit_current_scope]}
+      page_title={@page_title}
+      current_path={assigns[:url_path] || Paths.index()}
+      current_locale={assigns[:current_locale]}
+    >
+      <div class="flex flex-col w-full px-4 py-6 gap-6">
+        <%!-- Loading state --%>
+        <div :if={is_nil(@catalogue)} class="flex justify-center py-12">
+          <span class="loading loading-spinner loading-lg"></span>
+        </div>
 
-      <div :if={@catalogue} class="flex flex-col gap-6">
-        <%!-- Header --%>
-        <%!-- The title doubles as the breadcrumb trail: at root it's just
-             the catalogue name; drilled in it's `Catalogue › … › Current`
-             with the ancestors as muted patch links and the current node
-             as the bold end. `@breadcrumb` is trimmed to the active
-             ancestor chain in Active mode, so an orphan never links to a
-             deleted ancestor. --%>
-        <.admin_page_header>
-          <h1 class="text-xl sm:text-2xl lg:text-3xl font-bold text-base-content flex flex-wrap items-center gap-x-2 gap-y-1">
-            <%= if @current_category == nil do %>
-              {@catalogue.name}
-            <% else %>
-              <.link
-                patch={Paths.catalogue_detail(@catalogue.uuid)}
-                class="font-normal text-base-content/50 hover:text-primary"
-              >
-                {@catalogue.name}
-              </.link>
-              <%= for cat <- @breadcrumb do %>
-                <.icon name="hero-chevron-right" class="w-5 h-5 text-base-content/30 shrink-0" />
+        <div :if={@catalogue} class="flex flex-col gap-6">
+          <%!-- In-body header: breadcrumb when drilled into a category
+               (catalogue name now lives in the global admin header); action
+               buttons whenever the view is active. --%>
+          <div
+            :if={@view_mode == "active" or @current_category != nil}
+            class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-3"
+          >
+            <div :if={@current_category != nil} class="min-w-0">
+              <h1 class="text-xl sm:text-2xl lg:text-3xl font-bold text-base-content flex flex-wrap items-center gap-x-2 gap-y-1">
                 <.link
-                  patch={Paths.category_browse(@catalogue.uuid, cat.uuid)}
+                  patch={Paths.catalogue_detail(@catalogue.uuid)}
                   class="font-normal text-base-content/50 hover:text-primary"
                 >
-                  {cat.name}
+                  {@catalogue.name}
                 </.link>
-              <% end %>
-              <.icon name="hero-chevron-right" class="w-5 h-5 text-base-content/30 shrink-0" />
-              <span class="truncate">{current_node_label(@current_category)}</span>
-            <% end %>
-          </h1>
-          <:actions :if={@view_mode == "active"}>
-            <.link navigate={Paths.category_new(@catalogue.uuid)} class="btn btn-outline btn-sm">
-              <.icon name="hero-folder-plus" class="w-4 h-4" /> {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Add Category")}
-            </.link>
-            <.link navigate={Paths.item_new(@catalogue.uuid)} class="btn btn-primary btn-sm">
-              <.icon name="hero-plus" class="w-4 h-4" /> {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Add Item")}
-            </.link>
-            <.link navigate={Paths.catalogue_edit(@catalogue.uuid)} class="btn btn-ghost btn-sm">
-              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")}
-            </.link>
-          </:actions>
-        </.admin_page_header>
+                <%= for cat <- @breadcrumb do %>
+                  <.icon name="hero-chevron-right" class="w-5 h-5 text-base-content/30 shrink-0" />
+                  <.link
+                    patch={Paths.category_browse(@catalogue.uuid, cat.uuid)}
+                    class="font-normal text-base-content/50 hover:text-primary"
+                  >
+                    {cat.name}
+                  </.link>
+                <% end %>
+                <.icon name="hero-chevron-right" class="w-5 h-5 text-base-content/30 shrink-0" />
+                <span class="truncate">{current_node_label(@current_category)}</span>
+              </h1>
+            </div>
+            <div :if={@view_mode == "active"} class="flex flex-wrap items-center gap-2 sm:flex-shrink-0">
+              <.link navigate={Paths.category_new(@catalogue.uuid)} class="btn btn-outline btn-sm">
+                <.icon name="hero-folder-plus" class="w-4 h-4" /> {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Add Category")}
+              </.link>
+              <.link navigate={Paths.item_new(@catalogue.uuid)} class="btn btn-primary btn-sm">
+                <.icon name="hero-plus" class="w-4 h-4" /> {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Add Item")}
+              </.link>
+              <.link navigate={Paths.catalogue_edit(@catalogue.uuid)} class="btn btn-ghost btn-sm">
+                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")}
+              </.link>
+            </div>
+          </div>
 
-        <div :if={@catalogue.description} class="-mt-4">
+          <div :if={@catalogue.description} class="-mt-4">
           <p class="text-base-content/60">
             {@catalogue.description}
           </p>
@@ -2462,7 +2476,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         item={@pdf_search_item}
         show={@show_pdf_search}
       />
-    </div>
+      </div>
+    </PhoenixKitWeb.Components.LayoutWrapper.app_layout>
     """
   end
 

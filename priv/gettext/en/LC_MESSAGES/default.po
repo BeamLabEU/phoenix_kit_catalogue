@@ -670,6 +670,9 @@ msgstr "Map Columns"
 msgid "All events loaded"
 msgstr "All events loaded"
 
+msgid "Events: %{count}"
+msgstr "Events: %{count}"
+
 msgid "Danger Zone"
 msgstr "Danger Zone"
 
