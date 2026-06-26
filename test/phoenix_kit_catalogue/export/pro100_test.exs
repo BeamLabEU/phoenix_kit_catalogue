@@ -120,7 +120,7 @@ defmodule PhoenixKitCatalogue.Export.Pro100Test do
   describe "render(:furniture, ctx)" do
     test "returns Furniture.txt filename" do
       {filename, _content, _mime} = Pro100.render(:furniture, ctx([]))
-      assert filename == "Furniture.txt"
+      assert filename =~ ~r/\AFurniture \d{4}-\d{2}-\d{2}\.txt\z/
     end
 
     test "returns text/plain; charset=utf-8 mime" do
@@ -251,7 +251,7 @@ defmodule PhoenixKitCatalogue.Export.Pro100Test do
   describe "render(:materials, ctx)" do
     test "returns Materials.txt filename" do
       {filename, _, _} = Pro100.render(:materials, ctx([]))
-      assert filename == "Materials.txt"
+      assert filename =~ ~r/\AMaterials \d{4}-\d{2}-\d{2}\.txt\z/
     end
 
     test "returns text/plain mime" do
