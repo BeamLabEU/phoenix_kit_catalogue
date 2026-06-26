@@ -55,14 +55,14 @@ defmodule PhoenixKitCatalogue.Export.Pro100 do
     %{items: items, index: index} = ctx
     header = ["# Parts", @tab, Integer.to_string(index), @crlf]
     rows = Enum.map(items, &furniture_row/1)
-    {"Furniture.txt", [@bom, header | rows], "text/plain; charset=utf-8"}
+    {"Furniture #{date_str(index)}.txt", [@bom, header | rows], "text/plain; charset=utf-8"}
   end
 
   def render(:materials, ctx) do
     %{items: items, index: index} = ctx
     header = ["# Materials", @tab, Integer.to_string(index), @crlf]
     rows = Enum.map(items, &materials_row/1)
-    {"Materials.txt", [@bom, header | rows], "text/plain; charset=utf-8"}
+    {"Materials #{date_str(index)}.txt", [@bom, header | rows], "text/plain; charset=utf-8"}
   end
 
   # ---------------------------------------------------------------------------
@@ -112,6 +112,12 @@ defmodule PhoenixKitCatalogue.Export.Pro100 do
   # ---------------------------------------------------------------------------
   # Helpers
   # ---------------------------------------------------------------------------
+
+  # Date suffix for filenames (UTC date of the export, derived from the index
+  # timestamp so the value is deterministic). Format: "YYYY-MM-DD".
+  @doc false
+  def date_str(index) when is_integer(index),
+    do: index |> DateTime.from_unix!() |> DateTime.to_date() |> Date.to_iso8601()
 
   @doc false
   def format_price(nil), do: "0.00"

@@ -16,9 +16,9 @@ defmodule PhoenixKitCatalogue.Export.UniversalJson do
         ]
       }
 
-  Filename: when a single catalogue is exported, the file is named after the
-  catalogue (e.g. `"My Catalogue.json"`). When multiple catalogues are exported
-  the file is named `"Catalogues.json"`.
+  Filename includes the export date (`YYYY-MM-DD`): a single catalogue is named
+  after the catalogue (e.g. `"My Catalogue 2026-06-26.json"`); multiple
+  catalogues produce `"Catalogues 2026-06-26.json"`.
   """
 
   alias PhoenixKitCatalogue.Export.Pro100
@@ -43,7 +43,7 @@ defmodule PhoenixKitCatalogue.Export.UniversalJson do
       "items" => Enum.map(items, &encode_item/1)
     }
 
-    filename = build_filename(catalogues)
+    filename = build_filename(catalogues, Pro100.date_str(index))
     json = Jason.encode!(payload, pretty: true)
     {filename, json, "application/json"}
   end
@@ -68,11 +68,11 @@ defmodule PhoenixKitCatalogue.Export.UniversalJson do
     }
   end
 
-  defp build_filename([catalogue]) do
-    "#{sanitize_filename(catalogue.name)}.json"
+  defp build_filename([catalogue], date) do
+    "#{sanitize_filename(catalogue.name)} #{date}.json"
   end
 
-  defp build_filename(_), do: "Catalogues.json"
+  defp build_filename(_, date), do: "Catalogues #{date}.json"
 
   defp sanitize_filename(name) when is_binary(name) do
     name
