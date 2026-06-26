@@ -32,6 +32,27 @@ defmodule PhoenixKitCatalogue.Paths do
 
   def import, do: Routes.path("#{@base}/import")
 
+  # ── Export ───────────────────────────────────────────────────────
+
+  def export, do: Routes.path("#{@base}/export")
+
+  @doc """
+  Returns the download URL for a catalogue export.
+
+  `params` is a map with required keys `:source`, `:format`, `:catalogue_uuid`
+  and an optional `:category_uuid`. All values are strings or atoms.
+  """
+  @spec export_download(map()) :: String.t()
+  def export_download(params) when is_map(params) do
+    query =
+      params
+      |> Enum.reject(fn {_k, v} -> is_nil(v) or v == "" end)
+      |> Enum.map(fn {k, v} -> {to_string(k), to_string(v)} end)
+      |> URI.encode_query()
+
+    Routes.path("#{@base}/export/download?#{query}")
+  end
+
   # ── Events ──────────────────────────────────────────────────────
 
   def events, do: Routes.path("#{@base}/events")
