@@ -5,7 +5,6 @@ defmodule PhoenixKitCatalogue.Web.SupplierFormLive do
 
   require Logger
 
-  import PhoenixKitWeb.Components.Core.AdminPageHeader, only: [admin_page_header: 1]
   import PhoenixKitWeb.Components.Core.Icon, only: [icon: 1]
   import PhoenixKitWeb.Components.Core.Input, only: [input: 1]
   import PhoenixKitWeb.Components.Core.Select, only: [select: 1]
@@ -16,6 +15,16 @@ defmodule PhoenixKitCatalogue.Web.SupplierFormLive do
   alias PhoenixKitCatalogue.Catalogue
   alias PhoenixKitCatalogue.Paths
   alias PhoenixKitCatalogue.Schemas.Supplier
+
+  # PhoenixKit auto-applies its admin chrome layout to external module admin
+  # views via socket.private[:live_layout]. Opt out here so this view can
+  # self-wrap with LayoutWrapper.app_layout and push its title/subtitle into
+  # the global admin header (same pattern as /admin/media and orders/index).
+  on_mount({__MODULE__, :self_wrapped_layout})
+
+  def on_mount(:self_wrapped_layout, _params, _session, socket) do
+    {:cont, put_in(socket.private[:live_layout], {PhoenixKitWeb.Layouts, :app})}
+  end
 
   @impl true
   def mount(params, _session, socket) do
@@ -175,13 +184,16 @@ defmodule PhoenixKitCatalogue.Web.SupplierFormLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <div class="flex flex-col mx-auto max-w-2xl px-4 py-8 gap-6">
-      <%!-- Header --%>
-      <.admin_page_header
-        back={Paths.suppliers()}
-        title={@page_title}
-        subtitle={if @action == :new, do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Add a new supplier to your catalogue system."), else: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Update supplier details and manufacturer links.")}
-      />
+    <PhoenixKitWeb.Components.LayoutWrapper.app_layout
+      socket={@socket}
+      flash={@flash}
+      phoenix_kit_current_scope={assigns[:phoenix_kit_current_scope]}
+      page_title={@page_title}
+      page_subtitle={if @action == :new, do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Add a new supplier to your catalogue system."), else: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Update supplier details and manufacturer links.")}
+      current_path={assigns[:url_path] || Paths.suppliers()}
+      current_locale={assigns[:current_locale]}
+    >
+      <div class="flex flex-col mx-auto max-w-2xl px-4 py-8 gap-6">
 
       <.form for={@form} action="#" phx-change="validate" phx-submit="save">
         <div class="card bg-base-100 shadow-lg">
@@ -300,7 +312,8 @@ defmodule PhoenixKitCatalogue.Web.SupplierFormLive do
           </div>
         </div>
       </.form>
-    </div>
+      </div>
+    </PhoenixKitWeb.Components.LayoutWrapper.app_layout>
     """
   end
 end

@@ -675,6 +675,9 @@ msgstr ""
 msgid "All events loaded"
 msgstr ""
 
+msgid "Events: %{count}"
+msgstr ""
+
 msgid "Danger Zone"
 msgstr ""
 

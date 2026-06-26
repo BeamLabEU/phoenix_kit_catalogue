@@ -670,6 +670,9 @@ msgstr "Сопоставление столбцов"
 msgid "All events loaded"
 msgstr "Все события загружены"
 
+msgid "Events: %{count}"
+msgstr "Событий: %{count}"
+
 msgid "Danger Zone"
 msgstr "Опасная зона"
 
