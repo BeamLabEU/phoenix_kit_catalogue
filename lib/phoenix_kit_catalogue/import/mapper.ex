@@ -52,6 +52,7 @@ defmodule PhoenixKitCatalogue.Import.Mapper do
     "m2" => "m2",
     "m²" => "m2",
     "sqm" => "m2",
+    "m" => "running_meter",
     "jm" => "running_meter",
     "rm" => "running_meter",
     "lm" => "running_meter",
@@ -326,6 +327,21 @@ defmodule PhoenixKitCatalogue.Import.Mapper do
       true -> "piece"
     end
   end
+
+  @doc """
+  Resolves a PRO100 unit label to a canonical unit, or `:unknown` if it has no
+  mapping. Unlike `normalize_unit/2`, never coerces unknown labels to "piece"
+  (PRO100's `m³` has no equivalent and must surface in the report).
+  """
+  @spec resolve_pro100_unit(String.t() | nil) :: {:ok, String.t()} | :unknown
+  def resolve_pro100_unit(label) when is_binary(label) do
+    case Map.get(@unit_aliases, String.downcase(String.trim(label))) do
+      nil -> :unknown
+      unit -> {:ok, unit}
+    end
+  end
+
+  def resolve_pro100_unit(_), do: :unknown
 
   @doc """
   Normalizes a price string to a Decimal.
