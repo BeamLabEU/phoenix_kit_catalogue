@@ -781,3 +781,158 @@ msgstr "Teisaldati %{count} toodet."
 
 msgid "Permanently deleted %{count} items."
 msgstr "Jäädavalt kustutati %{count} toodet."
+
+## Catalogue table toolbar
+msgid "Columns"
+msgstr "Veerud"
+
+msgid "Shown"
+msgstr "Näidatud"
+
+msgid "Available"
+msgstr "Saadaval"
+
+msgid "Reset"
+msgstr "Lähtesta"
+
+msgid "Apply"
+msgstr "Rakenda"
+
+msgid "Toggle sort direction"
+msgstr "Muuda sortimissuunda"
+
+## Catalogue table columns
+msgid "Folder"
+msgstr "Kaust"
+
+msgid "Discount %"
+msgstr "Allahindlus %"
+
+msgid "Contact Info"
+msgstr "Kontaktandmed"
+
+msgid "Website"
+msgstr "Veebisait"
+
+## Catalogue index toolbar / filters
+msgid "Folders"
+msgstr "Kaustad"
+
+msgid "Folders…"
+msgstr "Kaustad…"
+
+msgid "All folders"
+msgstr "Kõik kaustad"
+
+msgid "All statuses"
+msgstr "Kõik staatused"
+
+## Folder management modal
+msgid "No folders yet."
+msgstr "Kaustu pole veel."
+
+msgid "Nothing in the trash."
+msgstr "Prügikast on tühi."
+
+msgid "New Folder"
+msgstr "Uus kaust"
+
+msgid "New folder"
+msgstr "Uus kaust"
+
+msgid "New subfolder"
+msgstr "Uus alamkaust"
+
+msgid "Move to folder"
+msgstr "Teisalda kausta"
+
+msgid "Rename"
+msgstr "Nimeta ümber"
+
+msgid "Permanently Delete Folder"
+msgstr "Kustuta kaust jäädavalt"
+
+msgid "Creating..."
+msgstr "Loomisel..."
+
+msgid "Moving..."
+msgstr "Teisaldamisel..."
+
+msgid "Restoring..."
+msgstr "Taastamisel..."
+
+msgid "— Root (unfiled) —"
+msgstr "— Juur (liigitamata) —"
+
+msgid "Choose a destination folder for this folder."
+msgstr "Valige selle kausta jaoks sihtkaust."
+
+msgid "Choose a destination folder for this catalogue."
+msgstr "Valige kataloogi jaoks sihtkaust."
+
+msgid "Can't move a folder into itself or one of its subfolders."
+msgstr "Ei saa kausta iseendasse ega selle alamkaustadesse teisaldada."
+
+msgid "That folder is in the trash."
+msgstr "See kaust on prügikastis."
+
+msgid "That folder no longer exists."
+msgstr "See kaust enam ei eksisteeri."
+
+msgid "This will permanently delete this folder. Subfolders are moved to root and catalogues filed here are unfiled — neither is deleted. This cannot be undone."
+msgstr "See kustutab kausta jäädavalt. Alamkaustad teisaldatakse juure ja siin asuvad kataloogid muutuvad liigitamatuks — kumbagi ei kustutata. Seda ei saa tagasi võtta."
+
+msgid "Folder moved."
+msgstr "Kaust teisaldati."
+
+msgid "Folder restored."
+msgstr "Kaust taastati."
+
+msgid "Folder moved to deleted."
+msgstr "Kaust teisaldati kustututesse."
+
+msgid "Folder not found."
+msgstr "Kausta ei leitud."
+
+msgid "Folder permanently deleted."
+msgstr "Kaust kustutati jäädavalt."
+
+msgid "Failed to create folder."
+msgstr "Kausta loomine ebaõnnestus."
+
+msgid "Failed to delete folder."
+msgstr "Kausta kustutamine ebaõnnestus."
+
+msgid "Failed to restore folder."
+msgstr "Kausta taastamine ebaõnnestus."
+
+msgid "Failed to move folder."
+msgstr "Kausta teisaldamine ebaõnnestus."
+
+msgid "Failed to move catalogue."
+msgstr "Kataloogi teisaldamine ebaõnnestus."
+
+msgid "Failed to move."
+msgstr "Teisaldamine ebaõnnestus."
+
+msgid "Unexpected request. Please try again."
+msgstr "Ootamatu päring. Proovige uuesti."
+
+## Catalogue confirm-delete dialogs
+msgid "Catalogue moved."
+msgstr "Kataloog teisaldati."
+
+msgid "Delete Manufacturer"
+msgstr "Kustuta tootja"
+
+msgid "Delete Supplier"
+msgstr "Kustuta tarnija"
+
+msgid "This will permanently delete this catalogue, all its categories, and all items. This cannot be undone."
+msgstr "See kustutab selle kataloogi, kõik selle kategooriad ja tooted jäädavalt. Seda ei saa tagasi võtta."
+
+msgid "This will permanently delete this manufacturer. Items referencing it will lose the association."
+msgstr "See kustutab selle tootja jäädavalt. Tooted, mis sellele viitavad, kaotavad seose."
+
+msgid "This will permanently delete this supplier. Manufacturer links will be removed."
+msgstr "See kustutab selle tarnija jäädavalt. Tootjate seosed eemaldatakse."
