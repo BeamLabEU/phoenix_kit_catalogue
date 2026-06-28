@@ -18,6 +18,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   import PhoenixKitWeb.Components.Core.TableRowMenu
   import PhoenixKitWeb.Components.Core.EmptyState, only: [empty_state: 1]
   import PhoenixKitCatalogue.Web.Components
+  import PhoenixKitCatalogue.Web.TableToolbar
 
   import PhoenixKitCatalogue.Web.Helpers,
     only: [actor_opts: 1, actor_uuid: 1, log_operation_error: 3, status_label: 1]
@@ -927,9 +928,16 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     end
   end
 
-  def handle_event("set_view", %{"view" => v}, socket) when v in ["table", "card"] do
+  def handle_event("set_view", %{"mode" => v}, socket) when v in ["table", "card"] do
     scope = active_scope(socket.assigns)
     {:noreply, put_cfg(socket, scope, %{current_cfg(socket.assigns) | view: v})}
+  end
+
+  # Transient per-scope text search — NOT persisted via put_cfg.
+  def handle_event("table_search", %{"query" => q}, socket) do
+    scope = active_scope(socket.assigns)
+    cfg = Map.put(current_cfg(socket.assigns), :search, q)
+    {:noreply, assign(socket, :view_configs, Map.put(socket.assigns.view_configs, scope, cfg))}
   end
 
   # ── Search helpers ──────────────────────────────────────────────
@@ -1065,6 +1073,23 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
 
   # ── View-config helpers ──────────────────────────────────────────
 
+  # Visible columns (col maps) for a scope per the user's cfg, in order.
+  # "name" is always first (it is never managed/hidden).
+  defp visible_columns(scope, cfg) do
+    map = PhoenixKitCatalogue.Web.TableConfig.column_map(scope)
+    (["name"] ++ cfg.columns) |> Enum.uniq() |> Enum.map(&map[&1]) |> Enum.reject(&is_nil/1)
+  end
+
+  # Apply search/filter/sort to a raw list for a scope.
+  defp derive_rows(rows, scope, cfg) do
+    PhoenixKitCatalogue.Web.TableQuery.apply(rows, scope, %{
+      search: cfg[:search] || "",
+      filters: cfg.filters,
+      sort_by: cfg.sort_by,
+      sort_dir: cfg.sort_dir
+    })
+  end
+
   defp flip(:asc), do: :desc
   defp flip(_), do: :asc
 
@@ -1120,12 +1145,6 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
           </button>
           <.link :if={@active_tab == :index && @catalogue_view_mode == "active"} navigate={Paths.catalogue_new()} class="btn btn-primary btn-sm">
             {Gettext.gettext(PhoenixKitCatalogue.Gettext, "New Catalogue")}
-          </.link>
-          <.link :if={@active_tab == :manufacturers} navigate={Paths.manufacturer_new()} class="btn btn-primary btn-sm">
-            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "New Manufacturer")}
-          </.link>
-          <.link :if={@active_tab == :suppliers} navigate={Paths.supplier_new()} class="btn btn-primary btn-sm">
-            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "New Supplier")}
           </.link>
         </div>
 
@@ -1232,12 +1251,123 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         />
       </div>
 
-      <div :if={@active_tab == :manufacturers and is_nil(@search_results)}>
-        <.manufacturers_table manufacturers={@manufacturers} />
+      <div :if={@active_tab == :manufacturers and is_nil(@search_results)} class="flex flex-col gap-4">
+        <% cfg = @view_configs.manufacturers %>
+        <.table_toolbar scope={:manufacturers} cfg={cfg} rows={@manufacturers}>
+          <:filters>
+            <.enum_filter
+              id="status"
+              label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Status")}
+              value={cfg.filters["status"]}
+              prompt={Gettext.gettext(PhoenixKitCatalogue.Gettext, "All statuses")}
+              options={PhoenixKitCatalogue.Web.TableQuery.enum_options(@manufacturers, :manufacturers, "status")}
+            />
+          </:filters>
+          <:actions>
+            <.link navigate={Paths.manufacturer_new()} class="btn btn-primary btn-sm">
+              <.icon name="hero-plus" class="w-4 h-4" />
+              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "New Manufacturer")}
+            </.link>
+          </:actions>
+        </.table_toolbar>
+        <.simple_table
+          scope={:manufacturers}
+          cfg={cfg}
+          rows={derive_rows(@manufacturers, :manufacturers, cfg)}
+          empty={Gettext.gettext(PhoenixKitCatalogue.Gettext, "No manufacturers yet.")}
+        >
+          <:row_actions :let={m}>
+            <.table_row_menu mode="auto" id={"mfg-menu-#{m.uuid}"}>
+              <.table_row_menu_link
+                navigate={Paths.manufacturer_edit(m.uuid)}
+                icon="hero-pencil"
+                label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")}
+              />
+              <.table_row_menu_divider />
+              <.table_row_menu_button
+                phx-click="show_delete_confirm"
+                phx-value-uuid={m.uuid}
+                phx-value-type="manufacturer"
+                icon="hero-trash"
+                label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")}
+                variant="error"
+              />
+            </.table_row_menu>
+          </:row_actions>
+          <:card_actions :let={m}>
+            <.link navigate={Paths.manufacturer_edit(m.uuid)} class="btn btn-ghost btn-xs">
+              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")}
+            </.link>
+            <button
+              phx-click="show_delete_confirm"
+              phx-value-uuid={m.uuid}
+              phx-value-type="manufacturer"
+              class="btn btn-ghost btn-xs text-error"
+            >
+              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")}
+            </button>
+          </:card_actions>
+        </.simple_table>
       </div>
 
-      <div :if={@active_tab == :suppliers and is_nil(@search_results)}>
-        <.suppliers_table suppliers={@suppliers} />
+      <div :if={@active_tab == :suppliers and is_nil(@search_results)} class="flex flex-col gap-4">
+        <% cfg = @view_configs.suppliers %>
+        <.table_toolbar scope={:suppliers} cfg={cfg} rows={@suppliers}>
+          <:filters>
+            <.enum_filter
+              id="status"
+              label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Status")}
+              value={cfg.filters["status"]}
+              prompt={Gettext.gettext(PhoenixKitCatalogue.Gettext, "All statuses")}
+              options={PhoenixKitCatalogue.Web.TableQuery.enum_options(@suppliers, :suppliers, "status")}
+            />
+          </:filters>
+          <:actions>
+            <.link navigate={Paths.supplier_new()} class="btn btn-primary btn-sm">
+              <.icon name="hero-plus" class="w-4 h-4" />
+              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "New Supplier")}
+            </.link>
+          </:actions>
+        </.table_toolbar>
+        <.simple_table
+          scope={:suppliers}
+          cfg={cfg}
+          rows={derive_rows(@suppliers, :suppliers, cfg)}
+          empty={Gettext.gettext(PhoenixKitCatalogue.Gettext, "No suppliers yet.")}
+        >
+          <:row_actions :let={s}>
+            <.table_row_menu mode="auto" id={"supplier-menu-#{s.uuid}"}>
+              <.table_row_menu_link
+                navigate={Paths.supplier_edit(s.uuid)}
+                icon="hero-pencil"
+                label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")}
+                variant="secondary"
+              />
+              <.table_row_menu_divider />
+              <.table_row_menu_button
+                phx-click="show_delete_confirm"
+                phx-value-uuid={s.uuid}
+                phx-value-type="supplier"
+                icon="hero-trash"
+                label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")}
+                variant="error"
+              />
+            </.table_row_menu>
+          </:row_actions>
+          <:card_actions :let={s}>
+            <.link navigate={Paths.supplier_edit(s.uuid)} class="btn btn-ghost btn-xs">
+              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")}
+            </.link>
+            <button
+              phx-click="show_delete_confirm"
+              phx-value-uuid={s.uuid}
+              phx-value-type="supplier"
+              class="btn btn-ghost btn-xs text-error"
+            >
+              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")}
+            </button>
+          </:card_actions>
+        </.simple_table>
       </div>
 
       <.confirm_modal
@@ -1303,6 +1433,13 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
           </div>
         </form>
       </.modal>
+
+      <.column_settings_modal
+        show={@show_column_modal}
+        scope={active_scope(assigns)}
+        selected={current_cfg(assigns).columns}
+        temp_selected={@temp_columns}
+      />
       </div>
 
       <script>
@@ -1660,113 +1797,214 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
 
   defp move_dialog_label(_), do: ""
 
-  defp manufacturers_table(assigns) do
-    ~H"""
-    <div :if={@manufacturers == []} class="card bg-base-100 shadow">
-      <div class="card-body items-center text-center py-12">
-        <p class="text-base-content/60">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "No manufacturers yet.")}</p>
-      </div>
-    </div>
+  # ── Toolbar private component ────────────────────────────────────
 
-    <div :if={@manufacturers != []}>
-      <.table_default
-        variant="zebra" size="sm" toggleable={true}
-        id="manufacturers-list" items={@manufacturers}
-        card_fields={fn m -> [
-          %{label: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Website"), value: m.website || "—"},
-          %{label: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Status"), value: status_label(m.status)}
-        ] end}
-      >
-        <.table_default_header>
-          <.table_default_row>
-            <.table_default_header_cell>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Name")}</.table_default_header_cell>
-            <.table_default_header_cell>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Website")}</.table_default_header_cell>
-            <.table_default_header_cell>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Status")}</.table_default_header_cell>
-            <.table_default_header_cell class="text-right whitespace-nowrap">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Actions")}</.table_default_header_cell>
-          </.table_default_row>
-        </.table_default_header>
-        <.table_default_body>
-          <.table_default_row :for={m <- @manufacturers}>
-            <.table_default_cell class="font-medium">
-              <.link navigate={Paths.manufacturer_edit(m.uuid)} class="link link-hover">
-                {m.name}
-              </.link>
-            </.table_default_cell>
-            <.table_default_cell class="text-sm text-base-content/60">{m.website}</.table_default_cell>
-            <.table_default_cell><.status_badge status={m.status} size={:sm} /></.table_default_cell>
-            <.table_default_cell class="text-right whitespace-nowrap">
-              <.table_row_menu mode="auto" id={"mfg-menu-#{m.uuid}"}>
-                <.table_row_menu_link navigate={Paths.manufacturer_edit(m.uuid)} icon="hero-pencil" label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")} />
-                <.table_row_menu_divider />
-                <.table_row_menu_button phx-click="show_delete_confirm" phx-value-uuid={m.uuid} phx-value-type="manufacturer" icon="hero-trash" label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")} variant="error" />
-              </.table_row_menu>
-            </.table_default_cell>
-          </.table_default_row>
-        </.table_default_body>
-        <:card_header :let={m}>
-          <.link navigate={Paths.manufacturer_edit(m.uuid)} class="font-medium text-sm link link-hover">{m.name}</.link>
-        </:card_header>
-        <:card_actions :let={m}>
-          <.link navigate={Paths.manufacturer_edit(m.uuid)} class="btn btn-ghost btn-xs">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")}</.link>
-          <button phx-click="show_delete_confirm" phx-value-uuid={m.uuid} phx-value-type="manufacturer" class="btn btn-ghost btn-xs text-error">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")}</button>
-        </:card_actions>
-      </.table_default>
+  attr(:scope, :atom, required: true)
+  attr(:cfg, :map, required: true)
+  attr(:rows, :list, required: true)
+  slot(:filters)
+  slot(:actions)
+
+  defp table_toolbar(assigns) do
+    ~H"""
+    <div class="flex flex-wrap items-center gap-2 mb-3">
+      <form phx-change="table_search" class="contents">
+        <label class="input input-sm w-full sm:w-64">
+          <.icon name="hero-magnifying-glass" class="h-4 w-4 opacity-50" />
+          <input
+            type="search"
+            name="query"
+            value={@cfg[:search] || ""}
+            phx-debounce="300"
+            placeholder={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search...")}
+            class="grow"
+          />
+        </label>
+      </form>
+      {render_slot(@filters)}
+      <div class="flex-1"></div>
+      <.sort_controls
+        scope={@scope}
+        selected={@cfg.columns}
+        sort_by={@cfg.sort_by}
+        sort_dir={@cfg.sort_dir}
+      />
+      <button type="button" phx-click="show_column_modal" class="btn btn-outline btn-sm">
+        <.icon name="hero-adjustments-horizontal" class="w-4 h-4" />
+        <span class="hidden sm:inline">
+          {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Columns")}
+        </span>
+      </button>
+      {render_slot(@actions)}
     </div>
     """
   end
 
-  defp suppliers_table(assigns) do
+  # ── Generic table + card view ────────────────────────────────────
+
+  attr(:scope, :atom, required: true)
+  attr(:cfg, :map, required: true)
+  attr(:rows, :list, required: true)
+  attr(:empty, :string, required: true)
+  slot(:row_actions, required: true)
+  slot(:card_actions, required: true)
+
+  defp simple_table(assigns) do
+    assigns = assign(assigns, :cols, visible_columns(assigns.scope, assigns.cfg))
+
     ~H"""
-    <div :if={@suppliers == []} class="card bg-base-100 shadow">
+    <div :if={@rows == []} class="card bg-base-100 shadow">
       <div class="card-body items-center text-center py-12">
-        <p class="text-base-content/60">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "No suppliers yet.")}</p>
+        <p class="text-base-content/60">{@empty}</p>
       </div>
     </div>
 
-    <div :if={@suppliers != []}>
-      <.table_default
-        variant="zebra" size="sm" toggleable={true}
-        id="suppliers-list" items={@suppliers}
-        card_fields={fn s -> [
-          %{label: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Website"), value: s.website || "—"},
-          %{label: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Status"), value: status_label(s.status)}
-        ] end}
-      >
-        <.table_default_header>
-          <.table_default_row>
-            <.table_default_header_cell>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Name")}</.table_default_header_cell>
-            <.table_default_header_cell>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Website")}</.table_default_header_cell>
-            <.table_default_header_cell>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Status")}</.table_default_header_cell>
-            <.table_default_header_cell class="text-right whitespace-nowrap">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Actions")}</.table_default_header_cell>
-          </.table_default_row>
-        </.table_default_header>
-        <.table_default_body>
-          <.table_default_row :for={s <- @suppliers}>
-            <.table_default_cell class="font-medium">
-              <.link navigate={Paths.supplier_edit(s.uuid)} class="link link-hover">
-                {s.name}
-              </.link>
-            </.table_default_cell>
-            <.table_default_cell class="text-sm text-base-content/60">{s.website}</.table_default_cell>
-            <.table_default_cell><.status_badge status={s.status} size={:sm} /></.table_default_cell>
-            <.table_default_cell class="text-right whitespace-nowrap">
-              <.table_row_menu mode="auto" id={"supplier-menu-#{s.uuid}"}>
-                <.table_row_menu_link navigate={Paths.supplier_edit(s.uuid)} icon="hero-pencil" label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")} variant="secondary" />
-                <.table_row_menu_divider />
-                <.table_row_menu_button phx-click="show_delete_confirm" phx-value-uuid={s.uuid} phx-value-type="supplier" icon="hero-trash" label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")} variant="error" />
-              </.table_row_menu>
-            </.table_default_cell>
-          </.table_default_row>
-        </.table_default_body>
-        <:card_header :let={s}>
-          <.link navigate={Paths.supplier_edit(s.uuid)} class="font-medium text-sm link link-hover">{s.name}</.link>
-        </:card_header>
-        <:card_actions :let={s}>
-          <.link navigate={Paths.supplier_edit(s.uuid)} class="btn btn-ghost btn-xs">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")}</.link>
-          <button phx-click="show_delete_confirm" phx-value-uuid={s.uuid} phx-value-type="supplier" class="btn btn-ghost btn-xs text-error">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")}</button>
-        </:card_actions>
-      </.table_default>
-    </div>
+    <.table_default
+      :if={@rows != []}
+      id={"#{@scope}-table"}
+      variant="zebra"
+      size="sm"
+      toggleable
+      view_mode={@cfg.view}
+      view_event="set_view"
+      items={@rows}
+      card_fields={fn row ->
+        for c <- @cols, c.id != "name" do
+          %{label: c.label.(), value: render_card_value(@scope, c.id, row)}
+        end
+      end}
+    >
+      <.table_default_header>
+        <.table_default_row>
+          <.table_default_header_cell
+            :for={c <- @cols}
+            class={c.align == :right && "text-right"}
+          >
+            <.sort_header
+              :if={c.sortable?}
+              by={c.id}
+              label={c.label.()}
+              sort_by={@cfg.sort_by}
+              sort_dir={@cfg.sort_dir}
+              align={c.align}
+            />
+            <span :if={!c.sortable?}>{c.label.()}</span>
+          </.table_default_header_cell>
+          <.table_default_header_cell class="text-right">
+            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Actions")}
+          </.table_default_header_cell>
+        </.table_default_row>
+      </.table_default_header>
+      <.table_default_body>
+        <.table_default_row :for={row <- @rows}>
+          <.table_default_cell :for={c <- @cols} class={c.align == :right && "text-right"}>
+            {render_cell(@scope, c.id, row)}
+          </.table_default_cell>
+          <.table_default_cell class="text-right whitespace-nowrap">
+            {render_slot(@row_actions, row)}
+          </.table_default_cell>
+        </.table_default_row>
+      </.table_default_body>
+      <:card_header :let={row}>{render_cell(@scope, "name", row)}</:card_header>
+      <:card_actions :let={row}>{render_slot(@card_actions, row)}</:card_actions>
+    </.table_default>
     """
   end
+
+  # ── Sort header button ───────────────────────────────────────────
+
+  attr(:by, :string, required: true)
+  attr(:label, :string, required: true)
+  attr(:sort_by, :string, required: true)
+  attr(:sort_dir, :atom, required: true)
+  attr(:align, :atom, default: :left)
+
+  defp sort_header(assigns) do
+    assigns = assign(assigns, :active?, assigns.sort_by == assigns.by)
+
+    ~H"""
+    <button
+      type="button"
+      phx-click="toggle_sort"
+      phx-value-by={@by}
+      class={[
+        "inline-flex items-center gap-1 cursor-pointer select-none",
+        @align == :right && "justify-end w-full"
+      ]}
+    >
+      <span>{@label}</span>
+      <.icon
+        :if={@active?}
+        name={if @sort_dir == :asc, do: "hero-chevron-up-mini", else: "hero-chevron-down-mini"}
+        class="w-3.5 h-3.5"
+      />
+    </button>
+    """
+  end
+
+  # ── Cell renderers (suppliers / manufacturers) ───────────────────
+
+  defp render_cell(scope, "name", row) when scope in [:suppliers, :manufacturers] do
+    path =
+      if scope == :suppliers,
+        do: Paths.supplier_edit(row.uuid),
+        else: Paths.manufacturer_edit(row.uuid)
+
+    assigns = %{path: path, name: row.name}
+
+    ~H"""
+    <.link navigate={@path} class="link link-hover font-medium">{@name}</.link>
+    """
+  end
+
+  defp render_cell(_scope, "website", row), do: website_cell(row.website)
+  defp render_cell(_scope, "contact_info", row), do: text_or_dash(row.contact_info)
+  defp render_cell(_scope, "status", row), do: status_badge_cell(row.status)
+  defp render_cell(_scope, "updated", row), do: ts(row.updated_at)
+
+  defp render_card_value(_scope, "website", row), do: row.website || "—"
+  defp render_card_value(_scope, "status", row), do: status_label(row.status)
+  defp render_card_value(_scope, "contact_info", row), do: row.contact_info || "—"
+  defp render_card_value(_scope, "updated", row), do: ts_str(row.updated_at)
+  defp render_card_value(_scope, _id, _row), do: "—"
+
+  # ── Small render helpers ─────────────────────────────────────────
+
+  defp website_cell(nil), do: ""
+
+  defp website_cell(url) do
+    assigns = %{url: url}
+    ~H"<span class='text-sm text-base-content/60'>{@url}</span>"
+  end
+
+  defp text_or_dash(nil) do
+    assigns = %{}
+    ~H"<span class='text-base-content/40'>—</span>"
+  end
+
+  defp text_or_dash(v) do
+    assigns = %{v: v}
+    ~H"<span class='text-sm'>{@v}</span>"
+  end
+
+  defp status_badge_cell(status) do
+    assigns = %{status: status}
+    ~H"<.status_badge status={@status} size={:sm} />"
+  end
+
+  defp ts(nil) do
+    assigns = %{}
+    ~H"<span class='text-base-content/40'>—</span>"
+  end
+
+  defp ts(dt) do
+    assigns = %{dt: dt}
+
+    ~H"""
+    <span class="text-sm text-base-content/60">{Calendar.strftime(@dt, "%Y-%m-%d %H:%M")}</span>
+    """
+  end
+
+  defp ts_str(nil), do: "—"
+  defp ts_str(dt), do: Calendar.strftime(dt, "%Y-%m-%d %H:%M")
 end
