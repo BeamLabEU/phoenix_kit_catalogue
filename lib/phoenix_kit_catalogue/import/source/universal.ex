@@ -10,7 +10,7 @@ defmodule PhoenixKitCatalogue.Import.Source.Universal do
   @impl true
   def formats, do: [{:spreadsheet, "XLSX / CSV"}, {:json, "JSON (экспорт)"}]
   @impl true
-  def accept, do: ~w(.xlsx .csv .tsv .json)
+  def accept, do: ~w(.xlsx .csv .json)
   @impl true
   def flow, do: :mapping
 

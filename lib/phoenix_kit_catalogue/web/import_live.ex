@@ -117,7 +117,7 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
      )
      |> mount_multilang()
      |> allow_upload(:import_file,
-       accept: ~w(.xlsx .csv .tsv .txt .json),
+       accept: ~w(.xlsx .csv .txt .json),
        max_entries: 1,
        max_file_size: @max_file_size,
        auto_upload: true
@@ -467,7 +467,7 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
      )
      |> reset_picker_state()
      |> allow_upload(:import_file,
-       accept: ~w(.xlsx .csv .tsv .txt .json),
+       accept: ~w(.xlsx .csv .txt .json),
        max_entries: 1,
        max_file_size: @max_file_size,
        auto_upload: true
@@ -1657,7 +1657,7 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
                       {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Drag file here or click to browse")}
                     </p>
                     <p class="text-sm text-base-content/70 mt-1">
-                      {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Supports .xlsx, .csv, .tsv, .txt, .json files (max 10MB)")}
+                      {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Supports .xlsx, .csv, .txt, .json files (max 10MB)")}
                     </p>
                   </div>
                 </div>
