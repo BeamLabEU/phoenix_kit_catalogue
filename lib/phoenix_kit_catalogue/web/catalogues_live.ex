@@ -63,7 +63,10 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
        search_offset: 0,
        search_total: 0,
        search_has_more: false,
-       search_loading: false
+       search_loading: false,
+       view_configs: load_view_configs(socket),
+       show_column_modal: false,
+       temp_columns: nil
      )}
   end
 
@@ -105,6 +108,29 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       |> load_data(action)
 
     {:noreply, socket}
+  end
+
+  # Maps the active UI tab to a TableConfig/ViewConfig scope.
+  defp active_scope(%{assigns: a}), do: active_scope(a)
+  defp active_scope(%{active_tab: :index}), do: :catalogues
+  defp active_scope(%{active_tab: :manufacturers}), do: :manufacturers
+  defp active_scope(%{active_tab: :suppliers}), do: :suppliers
+
+  defp load_view_configs(socket) do
+    user = socket.assigns[:phoenix_kit_current_user]
+
+    Map.new([:catalogues, :suppliers, :manufacturers], fn scope ->
+      {scope, PhoenixKitCatalogue.Web.ViewConfig.load(user, scope)}
+    end)
+  end
+
+  defp current_cfg(assigns), do: Map.fetch!(assigns.view_configs, active_scope(assigns))
+
+  # Update one scope's cfg in assigns AND persist to the user row.
+  defp put_cfg(socket, scope, cfg) do
+    user = socket.assigns[:phoenix_kit_current_user]
+    _ = PhoenixKitCatalogue.Web.ViewConfig.save(user, scope, cfg)
+    assign(socket, :view_configs, Map.put(socket.assigns.view_configs, scope, cfg))
   end
 
   defp tab_title(:index), do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Catalogues")
@@ -794,6 +820,118 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     end
   end
 
+  # ── Column / sort / filter / view handlers ──────────────────────
+
+  def handle_event("show_column_modal", _p, socket) do
+    {:noreply,
+     assign(socket,
+       show_column_modal: true,
+       temp_columns: current_cfg(socket.assigns).columns
+     )}
+  end
+
+  def handle_event("hide_column_modal", _p, socket),
+    do: {:noreply, assign(socket, show_column_modal: false, temp_columns: nil)}
+
+  def handle_event("add_column", %{"column_id" => id}, socket) do
+    {:noreply, update(socket, :temp_columns, &((&1 || []) ++ [id]))}
+  end
+
+  def handle_event("remove_column", %{"column_id" => id}, socket) do
+    {:noreply, update(socket, :temp_columns, &Enum.reject(&1 || [], fn c -> c == id end))}
+  end
+
+  def handle_event("reorder_columns", params, socket) do
+    {:noreply, assign(socket, :temp_columns, parse_order(params))}
+  end
+
+  def handle_event("reset_columns", _p, socket) do
+    scope = active_scope(socket.assigns)
+
+    {:noreply,
+     assign(socket, :temp_columns, PhoenixKitCatalogue.Web.TableConfig.default_columns(scope))}
+  end
+
+  def handle_event("apply_columns", params, socket) do
+    scope = active_scope(socket.assigns)
+
+    ids =
+      PhoenixKitCatalogue.Web.TableConfig.validate_columns(
+        scope,
+        parse_order(params) || socket.assigns.temp_columns || []
+      )
+
+    ids =
+      if ids == [], do: PhoenixKitCatalogue.Web.TableConfig.default_columns(scope), else: ids
+
+    cfg = %{current_cfg(socket.assigns) | columns: ids}
+    cfg = if cfg.sort_by in ids, do: cfg, else: %{cfg | sort_by: List.first(ids)}
+
+    {:noreply,
+     socket |> put_cfg(scope, cfg) |> assign(show_column_modal: false, temp_columns: nil)}
+  end
+
+  def handle_event("set_sort", %{"sort_by" => by}, socket) do
+    scope = active_scope(socket.assigns)
+
+    if MapSet.member?(known_sortable_ids(scope), by) do
+      {:noreply, put_cfg(socket, scope, %{current_cfg(socket.assigns) | sort_by: by})}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_event("flip_sort_dir", _p, socket) do
+    scope = active_scope(socket.assigns)
+    cfg = current_cfg(socket.assigns)
+    {:noreply, put_cfg(socket, scope, %{cfg | sort_dir: flip(cfg.sort_dir)})}
+  end
+
+  def handle_event("toggle_sort", %{"by" => by}, socket) do
+    scope = active_scope(socket.assigns)
+
+    if MapSet.member?(known_sortable_ids(scope), by) do
+      cfg = current_cfg(socket.assigns)
+      dir = if cfg.sort_by == by, do: flip(cfg.sort_dir), else: :asc
+      {:noreply, put_cfg(socket, scope, %{cfg | sort_by: by, sort_dir: dir})}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_event("set_filter", %{"column_id" => id, "value" => val}, socket) do
+    scope = active_scope(socket.assigns)
+
+    if MapSet.member?(filterable_ids(scope), id) do
+      cfg = current_cfg(socket.assigns)
+
+      filters =
+        if val in [nil, "", "all"],
+          do: Map.delete(cfg.filters, id),
+          else: Map.put(cfg.filters, id, val)
+
+      {:noreply, put_cfg(socket, scope, %{cfg | filters: filters})}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_event("clear_filter", %{"column_id" => id}, socket) do
+    scope = active_scope(socket.assigns)
+
+    if MapSet.member?(filterable_ids(scope), id) do
+      cfg = current_cfg(socket.assigns)
+      {:noreply, put_cfg(socket, scope, %{cfg | filters: Map.delete(cfg.filters, id)})}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_event("set_view", %{"view" => v}, socket) when v in ["table", "card"] do
+    scope = active_scope(socket.assigns)
+    {:noreply, put_cfg(socket, scope, %{current_cfg(socket.assigns) | view: v})}
+  end
+
   # ── Search helpers ──────────────────────────────────────────────
 
   # Runs a fresh search query asynchronously. If a prior search is still
@@ -923,6 +1061,36 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       search_has_more: false,
       search_loading: false
     )
+  end
+
+  # ── View-config helpers ──────────────────────────────────────────
+
+  defp flip(:asc), do: :desc
+  defp flip(_), do: :asc
+
+  # SortableGrid sends "ordered_ids"/"order" (list) or "column_order" (csv).
+  defp parse_order(%{"ordered_ids" => ids}) when is_list(ids), do: ids
+  defp parse_order(%{"order" => ids}) when is_list(ids), do: ids
+
+  defp parse_order(%{"column_order" => csv}) when is_binary(csv),
+    do: String.split(csv, ",", trim: true)
+
+  defp parse_order(_), do: nil
+
+  # Guard helpers: prevent client-supplied ids from flowing into
+  # String.to_existing_atom (filterable) or persisting junk sort keys.
+  defp filterable_ids(scope) do
+    scope
+    |> PhoenixKitCatalogue.Web.TableConfig.columns()
+    |> Enum.filter(& &1.filterable?)
+    |> MapSet.new(& &1.id)
+  end
+
+  defp known_sortable_ids(scope) do
+    scope
+    |> PhoenixKitCatalogue.Web.TableConfig.columns()
+    |> Enum.filter(& &1.sortable?)
+    |> MapSet.new(& &1.id)
   end
 
   # ── Render ──────────────────────────────────────────────────────
