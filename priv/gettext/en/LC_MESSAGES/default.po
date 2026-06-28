@@ -936,3 +936,6 @@ msgstr "This will permanently delete this manufacturer. Items referencing it wil
 
 msgid "This will permanently delete this supplier. Manufacturer links will be removed."
 msgstr "This will permanently delete this supplier. Manufacturer links will be removed."
+
+msgid "No results found."
+msgstr "No results found."

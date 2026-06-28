@@ -936,3 +936,6 @@ msgstr "See kustutab selle tootja jäädavalt. Tooted, mis sellele viitavad, kao
 
 msgid "This will permanently delete this supplier. Manufacturer links will be removed."
 msgstr "See kustutab selle tarnija jäädavalt. Tootjate seosed eemaldatakse."
+
+msgid "No results found."
+msgstr "Tulemusi ei leitud."

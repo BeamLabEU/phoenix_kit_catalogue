@@ -945,3 +945,6 @@ msgstr "Это навсегда удалит производителя. Поз�
 
 msgid "This will permanently delete this supplier. Manufacturer links will be removed."
 msgstr "Это навсегда удалит поставщика. Связи с производителями будут удалены."
+
+msgid "No results found."
+msgstr "Ничего не найдено."
