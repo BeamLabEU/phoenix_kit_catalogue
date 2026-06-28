@@ -945,3 +945,6 @@ msgstr ""
 
 msgid "This will permanently delete this supplier. Manufacturer links will be removed."
 msgstr ""
+
+msgid "No results found."
+msgstr ""

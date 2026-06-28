@@ -388,10 +388,19 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   def handle_event("restore_folder", %{"uuid" => uuid}, socket) do
     with %{} = folder <- Catalogue.get_folder(uuid),
          {:ok, _} <- Catalogue.restore_folder(folder, actor_opts(socket)) do
-      {:noreply,
-       socket
-       |> put_flash(:info, Gettext.gettext(PhoenixKitCatalogue.Gettext, "Folder restored."))
-       |> load_data(:index)}
+      socket =
+        socket
+        |> put_flash(:info, Gettext.gettext(PhoenixKitCatalogue.Gettext, "Folder restored."))
+        |> load_data(:index)
+
+      # If no deleted folders remain, return to the active view so the user
+      # isn't stranded on an empty "Deleted" list with no way to switch back.
+      socket =
+        if socket.assigns.deleted_folder_count == 0,
+          do: assign(socket, :folders_modal_view, "active"),
+          else: socket
+
+      {:noreply, socket}
     else
       _ ->
         {:noreply,
@@ -910,7 +919,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
               {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Deleted")} ({@deleted_catalogue_count})
             </button>
           </div>
-          <.table_toolbar scope={:catalogues} cfg={cfg} rows={@catalogue_rows}>
+          <.table_toolbar scope={:catalogues} cfg={cfg}>
             <:filters>
               <.enum_filter
                 id="folder"
@@ -955,6 +964,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
             scope={:catalogues}
             cfg={cfg}
             rows={derive_rows(@catalogue_rows, :catalogues, cfg)}
+            total={length(@catalogue_rows)}
             empty={Gettext.gettext(PhoenixKitCatalogue.Gettext, "No catalogues yet.")}
           >
             <:row_actions :let={c}>
@@ -1046,7 +1056,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
 
         <div :if={@active_tab == :manufacturers} class="flex flex-col gap-4">
         <% cfg = @view_configs.manufacturers %>
-        <.table_toolbar scope={:manufacturers} cfg={cfg} rows={@manufacturers}>
+        <.table_toolbar scope={:manufacturers} cfg={cfg}>
           <:filters>
             <.enum_filter
               id="status"
@@ -1067,6 +1077,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
           scope={:manufacturers}
           cfg={cfg}
           rows={derive_rows(@manufacturers, :manufacturers, cfg)}
+          total={length(@manufacturers)}
           empty={Gettext.gettext(PhoenixKitCatalogue.Gettext, "No manufacturers yet.")}
         >
           <:row_actions :let={m}>
@@ -1105,7 +1116,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
 
       <div :if={@active_tab == :suppliers} class="flex flex-col gap-4">
         <% cfg = @view_configs.suppliers %>
-        <.table_toolbar scope={:suppliers} cfg={cfg} rows={@suppliers}>
+        <.table_toolbar scope={:suppliers} cfg={cfg}>
           <:filters>
             <.enum_filter
               id="status"
@@ -1126,6 +1137,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
           scope={:suppliers}
           cfg={cfg}
           rows={derive_rows(@suppliers, :suppliers, cfg)}
+          total={length(@suppliers)}
           empty={Gettext.gettext(PhoenixKitCatalogue.Gettext, "No suppliers yet.")}
         >
           <:row_actions :let={s}>
@@ -1434,7 +1446,6 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
 
   attr(:scope, :atom, required: true)
   attr(:cfg, :map, required: true)
-  attr(:rows, :list, required: true)
   slot(:filters)
   slot(:actions)
 
@@ -1478,6 +1489,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   attr(:scope, :atom, required: true)
   attr(:cfg, :map, required: true)
   attr(:rows, :list, required: true)
+  attr(:total, :integer, required: true)
   attr(:empty, :string, required: true)
   slot(:row_actions, required: true)
   slot(:card_actions, required: true)
@@ -1488,7 +1500,13 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     ~H"""
     <div :if={@rows == []} class="card bg-base-100 shadow">
       <div class="card-body items-center text-center py-12">
-        <p class="text-base-content/60">{@empty}</p>
+        <p class="text-base-content/60">
+          <%= if @total > 0 do %>
+            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "No results found.")}
+          <% else %>
+            {@empty}
+          <% end %>
+        </p>
       </div>
     </div>
 
