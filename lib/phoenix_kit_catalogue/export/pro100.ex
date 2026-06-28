@@ -80,15 +80,15 @@ defmodule PhoenixKitCatalogue.Export.Pro100 do
       @tab,
       pro100_id(item.sku),
       @tab,
-      "0",
+      service(item, "c3", "0"),
       @tab,
       format_price(item.base_price),
       @tab,
-      "1.0",
+      service(item, "c5", "1.0"),
       @tab,
-      "",
+      service(item, "c6", ""),
       @tab,
-      "0.0",
+      service(item, "c7", "0.0"),
       @crlf
     ]
   end
@@ -101,15 +101,24 @@ defmodule PhoenixKitCatalogue.Export.Pro100 do
       @tab,
       pro100_id(item.sku),
       @tab,
-      "0",
+      service(item, "c3", "0"),
       @tab,
       format_price(item.base_price),
       @tab,
-      "1.0",
+      service(item, "c5", "1.0"),
       @tab,
       sanitize(Item.unit_label(item.unit)),
       @crlf
     ]
+  end
+
+  # Stored PRO100 service column, falling back to the given default when the
+  # item was never imported from PRO100.
+  defp service(item, key, default) do
+    case item do
+      %{data: %{"pro100" => %{^key => value}}} when is_binary(value) -> value
+      _ -> default
+    end
   end
 
   # Column 1 (name). When prefix? is true, prepend the item's catalogue name as
