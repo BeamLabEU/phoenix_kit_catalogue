@@ -9,8 +9,8 @@ defmodule PhoenixKitCatalogue.Import.Pro100Parser do
       Furniture: name  id  c3  price  c5  c6  c7
       Materials: name  id  c3  price  c5  unit
   """
-  alias PhoenixKitCatalogue.Pro100.Id
   alias PhoenixKitCatalogue.Import.Mapper
+  alias PhoenixKitCatalogue.Pro100.Id
 
   @bom <<0xEF, 0xBB, 0xBF>>
 
