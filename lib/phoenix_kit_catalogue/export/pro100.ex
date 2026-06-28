@@ -28,6 +28,7 @@ defmodule PhoenixKitCatalogue.Export.Pro100 do
 
   @behaviour PhoenixKitCatalogue.Export.Destination
 
+  alias PhoenixKitCatalogue.Pro100.Id
   alias PhoenixKitCatalogue.Schemas.Item
 
   @tab "\t"
@@ -159,8 +160,5 @@ defmodule PhoenixKitCatalogue.Export.Pro100 do
   # PRO100 requires the ID column (column 2) to contain digits only, so keep
   # only 0-9 from the SKU (e.g. "76.0026.12" -> "76002612"). nil/no-digit -> "".
   @doc false
-  def pro100_id(nil), do: ""
-
-  def pro100_id(sku) when is_binary(sku),
-    do: String.replace(sku, ~r/\D/, "")
+  def pro100_id(sku), do: Id.digits_only(sku)
 end
