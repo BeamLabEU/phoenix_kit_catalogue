@@ -670,6 +670,9 @@ msgstr "Vastenda veerud"
 msgid "All events loaded"
 msgstr "Kõik sündmused laaditud"
 
+msgid "Events: %{count}"
+msgstr "Sündmusi: %{count}"
+
 msgid "Danger Zone"
 msgstr "Ohutsoon"
 

@@ -17,8 +17,6 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   import PhoenixKitWeb.Components.Core.TableDefault
   import PhoenixKitWeb.Components.Core.TableRowMenu
   import PhoenixKitWeb.Components.Core.EmptyState, only: [empty_state: 1]
-  import PhoenixKitWeb.Components.Core.AdminPageHeader, only: [admin_page_header: 1]
-
   import PhoenixKitCatalogue.Web.Components
 
   import PhoenixKitCatalogue.Web.Helpers,
@@ -29,6 +27,16 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   alias PhoenixKitCatalogue.Paths
 
   @per_page 100
+
+  # PhoenixKit auto-applies its admin chrome layout to external module admin
+  # views via socket.private[:live_layout]. Opt out here so this view can
+  # self-wrap with LayoutWrapper.app_layout and push its title/subtitle into
+  # the global admin header (same pattern as /admin/media and orders/index).
+  on_mount({__MODULE__, :self_wrapped_layout})
+
+  def on_mount(:self_wrapped_layout, _params, _session, socket) do
+    {:cont, put_in(socket.private[:live_layout], {PhoenixKitWeb.Layouts, :app})}
+  end
 
   @impl true
   def mount(_params, _session, socket) do
@@ -105,6 +113,10 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Manufacturers")
 
   defp tab_title(:suppliers), do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Suppliers")
+
+  defp tab_path(:index), do: Paths.index()
+  defp tab_path(:manufacturers), do: Paths.manufacturers()
+  defp tab_path(:suppliers), do: Paths.suppliers()
 
   # Graceful handler for a delete event that fires while `confirm_delete`
   # is nil (e.g. someone pushed the event without first opening the
@@ -918,11 +930,16 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <div class="flex flex-col w-full px-4 py-6 gap-6">
-      <%!-- Navigation between Catalogues / Manufacturers / Suppliers lives in
-           the admin sidebar; the page just titles the current view. --%>
-      <.admin_page_header title={tab_title(@active_tab)}>
-        <:actions>
+    <PhoenixKitWeb.Components.LayoutWrapper.app_layout
+      socket={@socket}
+      flash={@flash}
+      phoenix_kit_current_scope={assigns[:phoenix_kit_current_scope]}
+      page_title={tab_title(@active_tab)}
+      current_path={assigns[:url_path] || tab_path(@active_tab)}
+      current_locale={assigns[:current_locale]}
+    >
+      <div class="flex flex-col w-full px-4 py-6 gap-6">
+        <div class="flex flex-wrap items-center justify-end gap-2 mb-2">
           <button
             :if={@active_tab == :index && @catalogue_view_mode == "active"}
             type="button"
@@ -942,10 +959,9 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
           <.link :if={@active_tab == :suppliers} navigate={Paths.supplier_new()} class="btn btn-primary btn-sm">
             {Gettext.gettext(PhoenixKitCatalogue.Gettext, "New Supplier")}
           </.link>
-        </:actions>
-      </.admin_page_header>
+        </div>
 
-      <%!-- Global search (only on catalogues tab). While a tree row is being
+        <%!-- Global search (only on catalogues tab). While a tree row is being
            dragged, the CatalogueTreeDnD hook swaps the search bar for the
            "move to root" drop target in-place, so the layout doesn't jump. --%>
       <div :if={@active_tab == :index} class="relative">
@@ -1119,10 +1135,10 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
           </div>
         </form>
       </.modal>
-    </div>
+      </div>
 
-    <script>
-      window.PhoenixKitHooks = window.PhoenixKitHooks || {};
+      <script>
+        window.PhoenixKitHooks = window.PhoenixKitHooks || {};
       window.PhoenixKitHooks.InfiniteScroll = window.PhoenixKitHooks.InfiniteScroll || {
         mounted() {
           this.intersecting = false;
@@ -1296,7 +1312,8 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
           this.clearAll();
         }
       };
-    </script>
+      </script>
+    </PhoenixKitWeb.Components.LayoutWrapper.app_layout>
     """
   end
 

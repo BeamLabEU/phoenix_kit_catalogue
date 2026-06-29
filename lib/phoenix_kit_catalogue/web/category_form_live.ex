@@ -7,7 +7,6 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
   require Logger
 
   import PhoenixKitWeb.Components.MultilangForm
-  import PhoenixKitWeb.Components.Core.AdminPageHeader, only: [admin_page_header: 1]
   import PhoenixKitWeb.Components.Core.Icon, only: [icon: 1]
   import PhoenixKitWeb.Components.Core.Modal, only: [confirm_modal: 1]
   import PhoenixKitWeb.Components.Core.Input, only: [input: 1]
@@ -36,6 +35,16 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
   alias PhoenixKitCatalogue.Schemas.Category
 
   @translatable_fields ["name", "description"]
+
+  # PhoenixKit auto-applies its admin chrome layout to external module admin
+  # views via socket.private[:live_layout]. Opt out here so this view can
+  # self-wrap with LayoutWrapper.app_layout and push its title/subtitle into
+  # the global admin header (same pattern as /admin/media and orders/index).
+  on_mount({__MODULE__, :self_wrapped_layout})
+
+  def on_mount(:self_wrapped_layout, _params, _session, socket) do
+    {:cont, put_in(socket.private[:live_layout], {PhoenixKitWeb.Layouts, :app})}
+  end
 
   @impl true
   def mount(params, _session, socket) do
@@ -371,7 +380,16 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
       )
 
     ~H"""
-    <div class="flex flex-col mx-auto max-w-2xl px-4 py-8 gap-6">
+    <PhoenixKitWeb.Components.LayoutWrapper.app_layout
+      socket={@socket}
+      flash={@flash}
+      phoenix_kit_current_scope={assigns[:phoenix_kit_current_scope]}
+      page_title={@page_title}
+      page_subtitle={if @action == :new, do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Add a new category to organize items within this catalogue."), else: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Update category details and ordering.")}
+      current_path={assigns[:url_path] || Paths.catalogue_detail(@catalogue_uuid)}
+      current_locale={assigns[:current_locale]}
+    >
+      <div class="flex flex-col mx-auto max-w-2xl px-4 py-8 gap-6">
       <%!-- Media selector — folder-scoped featured-image picker.
            No inline files grid on Category forms; featured image only. --%>
       <.live_component
@@ -384,9 +402,6 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
         scope_folder_id={@files_folder_uuid}
         phoenix_kit_current_user={assigns[:phoenix_kit_current_user]}
       />
-
-      <%!-- Header --%>
-      <.admin_page_header back={Paths.catalogue_detail(@catalogue_uuid)} title={@page_title} subtitle={if @action == :new, do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Add a new category to organize items within this catalogue."), else: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Update category details and ordering.")} />
 
       <%!-- Featured image — opens the scoped picker. Uuid stored on
            `category.data["featured_image_uuid"]`. The folder is lazily
@@ -597,7 +612,8 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
         confirm_text={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete Forever")}
         danger={true}
       />
-    </div>
+      </div>
+    </PhoenixKitWeb.Components.LayoutWrapper.app_layout>
     """
   end
 end
