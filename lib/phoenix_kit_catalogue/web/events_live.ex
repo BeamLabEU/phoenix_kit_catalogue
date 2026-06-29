@@ -19,6 +19,16 @@ defmodule PhoenixKitCatalogue.Web.EventsLive do
 
   @per_page 20
 
+  # PhoenixKit auto-applies its admin chrome layout to external module admin
+  # views via socket.private[:live_layout]. Opt out here so this view can
+  # self-wrap with LayoutWrapper.app_layout and push its title/subtitle into
+  # the global admin header (same pattern as /admin/media and orders/index).
+  on_mount({__MODULE__, :self_wrapped_layout})
+
+  def on_mount(:self_wrapped_layout, _params, _session, socket) do
+    {:cont, put_in(socket.private[:live_layout], {PhoenixKitWeb.Layouts, :app})}
+  end
+
   @impl true
   def mount(_params, _session, socket) do
     {:ok,
@@ -253,13 +263,20 @@ defmodule PhoenixKitCatalogue.Web.EventsLive do
   @impl true
   def render(assigns) do
     ~H"""
+    <PhoenixKitWeb.Components.LayoutWrapper.app_layout
+      socket={@socket}
+      flash={@flash}
+      phoenix_kit_current_scope={assigns[:phoenix_kit_current_scope]}
+      page_title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Events")}
+      page_subtitle={
+        Gettext.gettext(PhoenixKitCatalogue.Gettext, "Catalogue") <>
+          " · " <>
+          Gettext.gettext(PhoenixKitCatalogue.Gettext, "Events: %{count}", count: @total)
+      }
+      current_path={assigns[:url_path] || Paths.events()}
+      current_locale={assigns[:current_locale]}
+    >
     <div class="flex flex-col w-full px-4 py-6 gap-4">
-      <div class="flex items-center justify-between">
-        <div class="text-sm text-base-content/60">
-          {Gettext.gettext(PhoenixKitCatalogue.Gettext, "%{count} events", count: @total)}
-        </div>
-      </div>
-
       <%!-- Filters --%>
       <div class="bg-base-200 rounded-lg p-3">
         <.form for={%{}} phx-change="filter" class="flex flex-wrap gap-3 items-end">
@@ -413,6 +430,7 @@ defmodule PhoenixKitCatalogue.Web.EventsLive do
         }
       };
     </script>
+    </PhoenixKitWeb.Components.LayoutWrapper.app_layout>
     """
   end
 end
