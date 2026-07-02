@@ -13,13 +13,15 @@ defmodule PhoenixKitCatalogue.Web.TableQuery do
     |> sort(scope, Map.get(opts, :sort_by), Map.get(opts, :sort_dir, :asc))
   end
 
-  @spec search([map()], String.t() | nil) :: [map()]
-  def search(rows, q) when is_binary(q) and q != "" do
+  @spec search([map()], String.t() | nil, (map() -> String.t() | nil)) :: [map()]
+  def search(rows, q, field_fn \\ & &1.name)
+
+  def search(rows, q, field_fn) when is_binary(q) and q != "" do
     needle = String.downcase(q)
-    Enum.filter(rows, fn r -> String.contains?(String.downcase(r.name || ""), needle) end)
+    Enum.filter(rows, fn r -> String.contains?(String.downcase(field_fn.(r) || ""), needle) end)
   end
 
-  def search(rows, _), do: rows
+  def search(rows, _, _), do: rows
 
   @spec filter([map()], TableConfig.scope(), map()) :: [map()]
   def filter(rows, scope, filters) when is_map(filters) do

@@ -685,12 +685,8 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLive do
   # `Web.PdfDetailLive`. The renderers that wrap raw markup stay here
   # because they're LV-specific layout choices.
 
-  defp filter_by_search(pdfs, ""), do: pdfs
-
-  defp filter_by_search(pdfs, search) do
-    q = String.downcase(search)
-    Enum.filter(pdfs, fn pdf -> String.contains?(String.downcase(pdf.original_filename), q) end)
-  end
+  defp filter_by_search(pdfs, search),
+    do: PhoenixKitCatalogue.Web.TableQuery.search(pdfs, search, & &1.original_filename)
 
   # HEEx component (was hand-built `Phoenix.HTML.raw` string concat) — gets
   # auto-escaping of the label + failure title for free. `@title` is nil for
