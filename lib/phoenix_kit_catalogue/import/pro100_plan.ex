@@ -8,16 +8,37 @@ defmodule PhoenixKitCatalogue.Import.Pro100Plan do
 
   @spec build([map()], map()) :: %{updates: [map()], skipped: [map()], stats: map()}
   def build(rows, index) do
-    {updates, skipped} =
-      Enum.reduce(rows, {[], []}, fn row, {ups, skips} ->
+    # Accumulate changes in a map keyed by item UUID so that if multiple PRO100
+    # rows resolve to the same catalogue item we fold them into ONE change entry
+    # rather than emitting two independent writes (each built from the item's
+    # pre-import snapshot) that would silently overwrite each other on apply.
+    # Policy: last-row-wins for conflicting fields — an explicit, intentional
+    # choice implemented as a reduce, not as an accidental second DB write.
+    {by_uuid, uuid_order, skipped} =
+      Enum.reduce(rows, {%{}, [], []}, fn row, {by_uuid, order, skips} ->
         case Matcher.resolve(index, row.id) do
-          {:matched, item} -> {[change(item, row) | ups], skips}
-          {:ambiguous, _} -> {ups, [%{row: row, reason: :ambiguous} | skips]}
-          :unmatched -> {ups, [%{row: row, reason: :unmatched} | skips]}
+          {:matched, item} ->
+            c = change(item, row)
+
+            {new_by_uuid, new_order} =
+              if Map.has_key?(by_uuid, item.uuid) do
+                {Map.update!(by_uuid, item.uuid, &merge_changes(&1, c)), order}
+              else
+                {Map.put(by_uuid, item.uuid, c), [item.uuid | order]}
+              end
+
+            {new_by_uuid, new_order, skips}
+
+          {:ambiguous, _} ->
+            {by_uuid, order, [%{row: row, reason: :ambiguous} | skips]}
+
+          :unmatched ->
+            {by_uuid, order, [%{row: row, reason: :unmatched} | skips]}
         end
       end)
 
-    updates = Enum.reverse(updates)
+    # Restore input order (first occurrence of each item) and reverse skipped.
+    updates = uuid_order |> Enum.reverse() |> Enum.map(&by_uuid[&1])
     skipped = Enum.reverse(skipped)
 
     %{
@@ -83,5 +104,24 @@ defmodule PhoenixKitCatalogue.Import.Pro100Plan do
     base
     |> Map.put("pro100", pro100)
     |> Map.merge(extra)
+  end
+
+  # Folds a newer change into an existing one when two PRO100 rows resolve to
+  # the same item. The newer row wins for all conflicting fields. `data` is
+  # merged with Map.merge/2 so the newer row's "pro100" key overwrites the
+  # older one. Flags from both rows are kept (concatenated) since they are
+  # non-exclusive diagnostics, not per-item state.
+  defp merge_changes(existing, newer) do
+    merged_status =
+      if existing.status == :update or newer.status == :update, do: :update, else: :nochange
+
+    %{
+      item: existing.item,
+      row: newer.row,
+      changes: Map.merge(existing.changes, newer.changes),
+      data: Map.merge(existing.data, newer.data),
+      flags: existing.flags ++ newer.flags,
+      status: merged_status
+    }
   end
 end
