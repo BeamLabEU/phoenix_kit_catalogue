@@ -57,6 +57,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   alias PhoenixKitCatalogue.Errors
   alias PhoenixKitCatalogue.Paths
   alias PhoenixKitCatalogue.Schemas.Category
+  alias PhoenixKitCatalogue.Schemas.Item
   alias PhoenixKitCatalogue.Web.Components.PdfSearchModal
 
   @per_page 100
@@ -2694,7 +2695,78 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
           </:leading>
         </.bulk_actions_toolbar>
 
-        <.table_default id="level-items-active" size="sm" wrapper_class="overflow-x-auto shadow-none rounded-none">
+        <.table_default
+          id="level-items-active"
+          size="sm"
+          wrapper_class="overflow-x-auto shadow-none rounded-none"
+          toggleable={true}
+          items={@items}
+          storage_key="catalogue-detail-items-active"
+        >
+          <%!-- Mobile card view: name + checkbox header, key-value body,
+               icon-only action footer. Checkbox uses data-bulk-role so
+               the BulkSelectScope hook picks it up without a phx-click. --%>
+          <:card_body :let={item}>
+            <div class="flex items-center gap-2 font-medium text-sm">
+              <input
+                type="checkbox"
+                class="checkbox checkbox-xs shrink-0"
+                data-bulk-role="row"
+                data-uuid={item.uuid}
+              />
+              <.link
+                :if={item.uuid}
+                navigate={Paths.item_edit(item.uuid)}
+                class="link link-hover min-w-0 truncate"
+              >
+                {item.name || "—"}
+              </.link>
+            </div>
+            <div class="grid grid-cols-2 gap-x-4 gap-y-1 text-sm flex-1">
+              <div class="text-base-content/60">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "SKU")}</div>
+              <div class="font-mono text-base-content/60">{item.sku || "—"}</div>
+              <div class="text-base-content/60">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Price")}</div>
+              <div class="font-semibold">
+                {if item.base_price, do: Decimal.to_string(item.base_price, :normal), else: "—"}
+              </div>
+              <div class="text-base-content/60">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Unit")}</div>
+              <div>{Item.unit_label(item.unit)}</div>
+              <div class="text-base-content/60">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Status")}</div>
+              <div><.status_badge status={item.status || "unknown"} size={:xs} /></div>
+            </div>
+          </:card_body>
+          <:card_actions :let={item}>
+            <.link
+              :if={item.uuid}
+              navigate={Paths.item_edit(item.uuid)}
+              class="btn btn-ghost btn-xs btn-square"
+              title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")}
+              aria-label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")}
+            >
+              <.icon name="hero-pencil" class="w-4 h-4" />
+            </.link>
+            <button
+              type="button"
+              phx-click="show_pdf_search"
+              phx-value-uuid={item.uuid}
+              class="btn btn-ghost btn-xs btn-square"
+              title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search PDFs")}
+              aria-label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search PDFs")}
+            >
+              <.icon name="hero-document-magnifying-glass" class="w-4 h-4" />
+            </button>
+            <button
+              phx-click="delete_item"
+              phx-value-uuid={item.uuid}
+              phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Deleting...")}
+              class="btn btn-ghost btn-xs btn-square text-error"
+              title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")}
+              aria-label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")}
+            >
+              <.icon name="hero-trash" class="w-4 h-4" />
+            </button>
+          </:card_actions>
+          <%!-- Desktop table view: sort headers, bulk-select, DnD unchanged --%>
           <.table_default_header>
             <.table_default_row>
               <.drag_handle_header_cell :if={@draggable?} />
