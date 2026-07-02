@@ -1452,7 +1452,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   defp table_toolbar(assigns) do
     ~H"""
     <div class="flex flex-wrap items-center gap-2 mb-3">
-      <form phx-change="table_search" class="contents">
+      <form phx-change="table_search" phx-submit="table_search" class="contents">
         <label class="input input-sm w-full sm:w-64">
           <.icon name="hero-magnifying-glass" class="h-4 w-4 opacity-50" />
           <input
@@ -1676,11 +1676,8 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   end
 
   defp ts(dt) do
-    assigns = %{dt: dt}
-
-    ~H"""
-    <span class="text-sm text-base-content/60">{Calendar.strftime(@dt, "%Y-%m-%d %H:%M")}</span>
-    """
+    assigns = %{s: ts_str(dt)}
+    ~H"<span class='text-sm text-base-content/60'>{@s}</span>"
   end
 
   defp ts_str(nil), do: "—"
@@ -1692,8 +1689,8 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   end
 
   defp pct(d) do
-    assigns = %{v: Decimal.to_string(d)}
-    ~H"<span class='tabular-nums'>{@v}%</span>"
+    assigns = %{s: pct_str(d)}
+    ~H"<span class='tabular-nums'>{@s}</span>"
   end
 
   defp pct_str(nil), do: "—"
