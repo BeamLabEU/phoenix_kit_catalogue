@@ -446,7 +446,7 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLive do
         </div>
 
         <%!-- Search box --%>
-        <form phx-change="search" class="w-full sm:w-72">
+        <form phx-change="search" phx-submit="search" class="w-full sm:w-72">
           <label class="input input-sm w-full">
             <.icon name="hero-magnifying-glass" class="h-4 w-4 opacity-50" />
             <input
@@ -462,18 +462,24 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLive do
 
         <%!-- PDF list --%>
         <% visible_pdfs = filter_by_search(@pdfs, @search) %>
-        <%= if @pdfs == [] do %>
-          <div class="text-center py-12 text-base-content/60">
-            <.icon name="hero-document-text" class="w-12 h-12 mx-auto mb-2 opacity-50" />
-            <p>
-              <%= if @filter == "trashed" do %>
-                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Trash is empty.")}
-              <% else %>
-                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "No PDFs uploaded yet.")}
-              <% end %>
-            </p>
-          </div>
-        <% else %>
+        <%= cond do %>
+          <% @pdfs == [] -> %>
+            <div class="text-center py-12 text-base-content/60">
+              <.icon name="hero-document-text" class="w-12 h-12 mx-auto mb-2 opacity-50" />
+              <p>
+                <%= if @filter == "trashed" do %>
+                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Trash is empty.")}
+                <% else %>
+                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "No PDFs uploaded yet.")}
+                <% end %>
+              </p>
+            </div>
+          <% visible_pdfs == [] -> %>
+            <div class="text-center py-12 text-base-content/60">
+              <.icon name="hero-magnifying-glass" class="w-12 h-12 mx-auto mb-2 opacity-50" />
+              <p>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "No PDFs matching your search.")}</p>
+            </div>
+          <% true -> %>
           <.table_default
             id="pdf-library-table"
             size="sm"
