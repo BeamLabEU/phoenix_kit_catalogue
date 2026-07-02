@@ -318,7 +318,7 @@ defmodule PhoenixKitCatalogue.Import.Executor do
     end
   end
 
-  defp format_changeset_errors(changeset) do
+  def format_changeset_errors(changeset) do
     Ecto.Changeset.traverse_errors(changeset, fn {msg, opts} ->
       Regex.replace(~r"%{(\w+)}", msg, fn _, key ->
         opts |> Keyword.get(String.to_existing_atom(key), key) |> to_string()
