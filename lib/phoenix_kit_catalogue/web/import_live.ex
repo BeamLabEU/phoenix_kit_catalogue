@@ -629,7 +629,11 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
 
           {:error, reason} ->
             Logger.warning("PRO100 analyze error: #{inspect(reason)}")
-            {:noreply, put_flash(socket, :error, pro100_error_message(reason))}
+
+            {:noreply,
+             socket
+             |> assign(:ets_table, nil)
+             |> put_flash(:error, pro100_error_message(reason))}
         end
     end
   end
@@ -637,8 +641,11 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
   defp handle_mapping_file(socket, binary, filename) do
     format_atom =
       case socket.assigns.selected_format do
-        nil -> :spreadsheet
-        format_str -> String.to_existing_atom(format_str)
+        nil ->
+          if String.ends_with?(String.downcase(filename), ".json"), do: :json, else: :spreadsheet
+
+        format_str ->
+          String.to_existing_atom(format_str)
       end
 
     case Import.Source.Universal.parse(binary, filename, format_atom) do
@@ -2674,13 +2681,7 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
   end
 
   defp changeset_error_string(changeset) do
-    Ecto.Changeset.traverse_errors(changeset, fn {msg, opts} ->
-      Enum.reduce(opts, msg, fn {key, value}, acc ->
-        String.replace(acc, "%{#{key}}", to_string(value))
-      end)
-    end)
-    |> Enum.flat_map(fn {field, errors} -> Enum.map(errors, &"#{field}: #{&1}") end)
-    |> Enum.join("; ")
+    PhoenixKitCatalogue.Import.Executor.format_changeset_errors(changeset)
   end
 
   defp pro100_error_message(:empty) do
