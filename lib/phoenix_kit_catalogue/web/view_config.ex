@@ -47,11 +47,24 @@ defmodule PhoenixKitCatalogue.Web.ViewConfig do
         list -> list
       end
 
+    filters =
+      if is_map(raw["filters"]) do
+        valid_filter_ids =
+          scope
+          |> TableConfig.columns()
+          |> Enum.filter(& &1.filterable?)
+          |> MapSet.new(& &1.id)
+
+        Map.filter(raw["filters"], fn {k, _v} -> MapSet.member?(valid_filter_ids, k) end)
+      else
+        %{}
+      end
+
     %{
       columns: cols,
       sort_by: raw["sort_by"] || d.sort_by,
       sort_dir: dir(raw["sort_dir"], d.sort_dir),
-      filters: (is_map(raw["filters"]) && raw["filters"]) || %{},
+      filters: filters,
       view: (raw["view"] in ["table", "card"] && raw["view"]) || "table"
     }
   end
