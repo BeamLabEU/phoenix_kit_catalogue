@@ -35,8 +35,14 @@ defmodule PhoenixKitCatalogue.Web.TableQuery do
 
   defp filter_match?(_scope, "folder", row, val), do: to_string(row[:folder_uuid]) == val
 
-  defp filter_match?(_scope, id, row, val),
-    do: to_string(Map.get(row, String.to_existing_atom(id))) == val
+  defp filter_match?(_scope, id, row, val) do
+    try do
+      to_string(Map.get(row, String.to_existing_atom(id))) == val
+    rescue
+      # Unknown atom = no column exists for this id; skip the filter rather than crash.
+      ArgumentError -> true
+    end
+  end
 
   @spec sort([map()], TableConfig.scope(), String.t() | nil, :asc | :desc) :: [map()]
   def sort(rows, scope, sort_by, dir) when is_binary(sort_by) do
@@ -58,13 +64,17 @@ defmodule PhoenixKitCatalogue.Web.TableQuery do
   end
 
   def enum_options(rows, _scope, id) do
-    key = String.to_existing_atom(id)
+    try do
+      key = String.to_existing_atom(id)
 
-    rows
-    |> Enum.map(&to_string(Map.get(&1, key)))
-    |> Enum.reject(&(&1 in ["", "nil"]))
-    |> Enum.uniq()
-    |> Enum.sort()
-    |> Enum.map(&{&1, &1})
+      rows
+      |> Enum.map(&to_string(Map.get(&1, key)))
+      |> Enum.reject(&(&1 in ["", "nil"]))
+      |> Enum.uniq()
+      |> Enum.sort()
+      |> Enum.map(&{&1, &1})
+    rescue
+      ArgumentError -> []
+    end
   end
 end
