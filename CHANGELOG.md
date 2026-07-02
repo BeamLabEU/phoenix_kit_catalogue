@@ -1,3 +1,23 @@
+## 0.9.0 - 2026-06-29
+
+### Added
+- **PRO100 / Universal JSON catalogue export** (#35) — a new export pipeline that produces PRO100-compatible and Universal JSON output. Lets you pick a Destination (PRO100 / Universal), export multiple catalogues at once, and optionally drop the category level. PRO100 output writes a UTF-8 BOM on Furniture/Materials exports (Cyrillic detection) and keeps the ID column (column 2) digits-only; an option prefixes each item name with its catalogue name. Export filenames now carry the export date (`YYYY-MM-DD`) and local time (`HH-MM`), and JSON filenames are Unicode-safe. The catalogue lookup behind the export uses a lightweight query.
+
+### Changed
+- **Catalogue admin headers moved into the global admin header bar** (#36) — the 8 catalogue admin LiveViews that rendered an in-content `<.admin_page_header>` now adopt the core `/admin/media` self-wrap pattern: a per-module `on_mount` resets `socket.private[:live_layout]` from the auto-applied admin chrome back to the passthrough `:app`, and `render/1` wraps in `LayoutWrapper.app_layout`, so each page's title/subtitle land in the global admin header (breadcrumb) instead of an in-content header. Action buttons and the rich catalogue breadcrumb relocate to in-body toolbars.
+- **Export form UI** (#35) — reordered the fields (Catalogues → Destination → Format) and tidied/enlarged the catalogue list.
+- **`mix precommit`** now runs `hex.audit` to scan for retired Hex dependencies.
+
+### Fixed
+- **Events tab counter showed the wrong plural form** (#36) — the inline counter called `Gettext.gettext/3` on the `"%{count} events"` msgid, which cannot express plural agreement and rendered the Russian singular form for every value (e.g. "208 событие"). The count now appears in the header subtitle as `"<module> · Events: %{count}"` via a new agreement-free `"Events: %{count}"` msgid, translated for en/ru/et.
+- **`PhoenixKitCatalogue.version/0` drift** — the runtime `PhoenixKit.Module` `version/0` callback reported a stale `0.2.0` while the package was `0.8.0`; it is now synced to the released version. The `version/0` compliance test no longer accepts any `\d+.\d+.\d+` shape (a regex is what let the drift slip through) — it asserts equality with `mix.exs`'s `@version`, so the three-places sync rule in AGENTS.md is actually enforced.
+
+### Notes
+- **Dependency lockfile advances** (no `mix.exs` constraint changes): `phoenix_kit` 1.7.133 → 1.7.169, `phoenix_kit_ai` 0.4.0 → 0.10.0, `phoenix_live_view` 1.1.31 → 1.2.4, `phoenix` 1.8.7 → 1.8.8, `req` 0.6.1 → 0.6.2 (plus `phoenix_kit` transitive deps: `leaf` 0.2 → 0.3, `etcher` 0.6 → 0.7, `tessera` 0.2 → 0.3, `mdex` added, `earmark` dropped). Constraints stay loose; pin `phoenix_kit >= 1.7.169` in the parent app if you depend on the latest admin-chrome behavior.
+- Removed the now-unused `earmark` entry from `mix.lock` (`mix deps.unlock --unused`) after the `phoenix_kit` upgrade dropped it — required for `mix deps.unlock --check-unused` / `mix precommit` to pass.
+- Verification: `mix precommit` is clean (compile `--warnings-as-errors` + `deps.unlock --check-unused` + `hex.audit` + `format --check-formatted` + `credo --strict` + `dialyzer`). ExUnit is DB-gated — run `mix test` against a host with PostgreSQL.
+- Post-merge review of #36: `dev_docs/pull_requests/2026/36-admin-headers-global-bar/CLAUDE_REVIEW.md`.
+
 ## 0.8.0 - 2026-06-08
 
 ### Changed
