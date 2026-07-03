@@ -2167,7 +2167,12 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
           <%!-- Card/table view toggle — deleted list only (it still
                renders via `item_table` with a card view). The active
-               list is the core-toolkit table (table-only). --%>
+               list falls back to its own card layout under the `md`
+               breakpoint automatically (table_default's responsive
+               default) but has no manual desktop toggle — its card
+               body has no select-all / drag-reorder affordance, so
+               offering it as a desktop opt-in would silently drop
+               those features (see `show_toggle={false}` below). --%>
           <div :if={@view_mode == "deleted" and @show_items_section and @items != []} class="flex justify-end">
             <.view_mode_toggle storage_key="catalogue-detail-items" />
           </div>
@@ -2700,6 +2705,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
           size="sm"
           wrapper_class="overflow-x-auto shadow-none rounded-none"
           toggleable={true}
+          show_toggle={false}
           items={@items}
           storage_key="catalogue-detail-items-active"
         >
@@ -2727,7 +2733,9 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               <div class="font-mono text-base-content/60">{item.sku || "—"}</div>
               <div class="text-base-content/60">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Price")}</div>
               <div class="font-semibold">
-                {if item.base_price, do: Decimal.to_string(item.base_price, :normal), else: "—"}
+                {if sale_price = Catalogue.item_pricing(item).sale_price,
+                  do: Decimal.to_string(sale_price, :normal),
+                  else: "—"}
               </div>
               <div class="text-base-content/60">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Unit")}</div>
               <div>{Item.unit_label(item.unit)}</div>

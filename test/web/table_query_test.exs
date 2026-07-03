@@ -45,4 +45,15 @@ defmodule PhoenixKitCatalogue.Web.TableQueryTest do
   test "enum_options for folder skips unfiled and dedups" do
     assert Q.enum_options(rows(), :catalogues, "folder") == [{"f1", "Kitchen"}]
   end
+
+  # Regression: `to_string(nil) == ""`, which `filter/2` already reserves to
+  # mean "no filter set" — so the unfiled sentinel must be a distinct value,
+  # not the row's stringified nil folder_uuid.
+  test "filter by the unfiled sentinel matches only rows with a nil folder_uuid" do
+    assert Enum.map(
+             Q.filter(rows(), :catalogues, %{"folder" => Q.unfiled_folder_value()}),
+             & &1.name
+           ) ==
+             ["alpha"]
+  end
 end

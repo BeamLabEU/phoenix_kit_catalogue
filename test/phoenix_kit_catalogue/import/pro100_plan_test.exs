@@ -100,4 +100,35 @@ defmodule PhoenixKitCatalogue.Import.Pro100PlanTest do
     # The newer row's pro100 data wins (data-loss regression guard).
     assert change.data["pro100"]["c3"] == "second"
   end
+
+  # Regression: when the LAST of two colliding rows reasserts the item's
+  # original (pre-import) price, the field must be treated as unchanged —
+  # not silently left at an earlier colliding row's stale price. The bug:
+  # each row's diff was computed independently against the pristine item, so
+  # a row matching the original value produced an EMPTY diff and couldn't
+  # override an earlier row's real change via Map.merge.
+  test "last row reverting to the item's original price wins over an earlier row's change" do
+    item = item(base_price: Decimal.new("80.00"), uuid: "uuid-revert-test")
+    idx = Matcher.index([item])
+
+    row1 = row(%{id: "76002612", base_price: Decimal.new("100.00"), service: %{"c3" => "first"}})
+    row2 = row(%{id: "76002612", base_price: Decimal.new("80.00"), service: %{"c3" => "second"}})
+
+    plan = Pro100Plan.build([row1, row2], idx)
+
+    assert [change] = plan.updates
+    refute Map.has_key?(change.changes, :base_price)
+    assert change.data["pro100"]["c3"] == "second"
+  end
+
+  test "ambiguous rows carry the colliding items for the report" do
+    item_a = item(uuid: "a")
+    item_b = item(uuid: "b")
+    idx = Matcher.index([item_a, item_b])
+
+    plan = Pro100Plan.build([row(%{})], idx)
+
+    assert [%{reason: :ambiguous, items: items}] = plan.skipped
+    assert length(items) == 2
+  end
 end

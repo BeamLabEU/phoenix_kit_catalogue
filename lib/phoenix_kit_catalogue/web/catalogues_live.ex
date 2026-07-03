@@ -119,9 +119,21 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   defp current_cfg(assigns), do: Map.fetch!(assigns.view_configs, active_scope(assigns))
 
   # Update one scope's cfg in assigns AND persist to the user row.
+  #
+  # `ViewConfig.save/3` writes the WHOLE `custom_fields` column (Ecto cast,
+  # not a DB-level JSONB merge) from whatever `user.custom_fields` the caller
+  # passes in. If we didn't refresh `phoenix_kit_current_user` with the
+  # returned row, the next `put_cfg` call (any scope) would build its write
+  # from the stale pre-save snapshot and silently revert this save.
   defp put_cfg(socket, scope, cfg) do
     user = socket.assigns[:phoenix_kit_current_user]
-    _ = PhoenixKitCatalogue.Web.ViewConfig.save(user, scope, cfg)
+
+    socket =
+      case PhoenixKitCatalogue.Web.ViewConfig.save(user, scope, cfg) do
+        {:ok, updated_user} -> assign(socket, :phoenix_kit_current_user, updated_user)
+        _ -> socket
+      end
+
     assign(socket, :view_configs, Map.put(socket.assigns.view_configs, scope, cfg))
   end
 
@@ -750,7 +762,11 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       if ids == [], do: PhoenixKitCatalogue.Web.TableConfig.default_columns(scope), else: ids
 
     cfg = %{current_cfg(socket.assigns) | columns: ids}
-    cfg = if cfg.sort_by in ids, do: cfg, else: %{cfg | sort_by: List.first(ids)}
+    # "name" is always visible (managed?: false, forced into visible_columns/2)
+    # but never in `ids` (validate_columns/2 only returns managed columns) —
+    # without it here, Apply silently knocks the default "name" sort off to
+    # whatever column happens to be first.
+    cfg = if cfg.sort_by in ["name" | ids], do: cfg, else: %{cfg | sort_by: List.first(ids)}
 
     {:noreply,
      socket |> put_cfg(scope, cfg) |> assign(show_column_modal: false, temp_columns: nil)}
@@ -864,6 +880,23 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     |> MapSet.new(& &1.id)
   end
 
+  # "All folders" / "Unfiled (root)" / each folder, per the design doc — the
+  # unfiled sentinel isn't derivable from TableQuery.enum_options/3 alone
+  # since it needs a localized label, so it's prepended here.
+  defp folder_filter_options(rows) do
+    base = PhoenixKitCatalogue.Web.TableQuery.enum_options(rows, :catalogues, "folder")
+
+    if Enum.any?(rows, &is_nil(&1[:folder_uuid])) do
+      [
+        {PhoenixKitCatalogue.Web.TableQuery.unfiled_folder_value(),
+         Gettext.gettext(PhoenixKitCatalogue.Gettext, "Unfiled (root)")}
+        | base
+      ]
+    else
+      base
+    end
+  end
+
   defp known_sortable_ids(scope) do
     scope
     |> PhoenixKitCatalogue.Web.TableConfig.columns()
@@ -926,7 +959,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
                 label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Folder")}
                 value={cfg.filters["folder"]}
                 prompt={Gettext.gettext(PhoenixKitCatalogue.Gettext, "All folders")}
-                options={PhoenixKitCatalogue.Web.TableQuery.enum_options(@catalogue_rows, :catalogues, "folder")}
+                options={folder_filter_options(@catalogue_rows)}
               />
               <.enum_filter
                 id="status"
@@ -1469,7 +1502,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       <div class="flex-1"></div>
       <.sort_controls
         scope={@scope}
-        selected={@cfg.columns}
+        selected={["name" | @cfg.columns]}
         sort_by={@cfg.sort_by}
         sort_dir={@cfg.sort_dir}
       />

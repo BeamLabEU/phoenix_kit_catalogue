@@ -141,24 +141,7 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
   end
 
   def handle_event("clear_file", _params, socket) do
-    if socket.assigns.ets_table, do: :ets.delete(socket.assigns.ets_table)
-
-    {:noreply,
-     socket
-     |> assign(
-       filename: nil,
-       file_binary: nil,
-       headers: [],
-       preview_rows: [],
-       row_count: 0,
-       sheets: [],
-       column_mappings: [],
-       unit_values: [],
-       unit_map: %{},
-       ets_table: nil,
-       import_plan: nil
-     )
-     |> reset_picker_state()}
+    {:noreply, reset_parsed_file(socket)}
   end
 
   def handle_event("parse_file", params, socket) do
@@ -2637,25 +2620,64 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
 
   defp apply_source_format(socket, params) do
     current_source = socket.assigns.selected_source
+    current_format = socket.assigns.selected_format
     new_source = Map.get(params, "source") || current_source
     source_changed? = new_source != current_source
+    selected_format = resolve_selected_format(params, new_source, current_format, source_changed?)
 
-    selected_format =
-      if source_changed? do
-        nil
-      else
-        format_str = params["format"]
-        source_mod = Import.source_by_key(new_source)
+    socket = assign(socket, selected_source: new_source, selected_format: selected_format)
 
-        if source_mod && is_binary(format_str) && format_str != "" &&
-             Enum.any?(source_mod.formats(), fn {k, _} -> Atom.to_string(k) == format_str end) do
-          format_str
-        else
-          socket.assigns.selected_format
-        end
-      end
+    # A file already parsed under the PREVIOUS source/format is invalid for
+    # the new selection — without this, `continue_or_parse/1` sees a
+    # leftover `filename` and jumps straight to `:map` on the stale parse,
+    # silently running the wrong import path (e.g. a Universal spreadsheet
+    # parse used as if it were a PRO100 sync).
+    if socket.assigns.filename && (source_changed? || selected_format != current_format) do
+      reset_parsed_file(socket)
+    else
+      socket
+    end
+  end
 
-    assign(socket, selected_source: new_source, selected_format: selected_format)
+  defp resolve_selected_format(_params, _new_source, _current_format, true), do: nil
+
+  defp resolve_selected_format(params, new_source, current_format, false) do
+    format_str = params["format"]
+    source_mod = Import.source_by_key(new_source)
+
+    if valid_format?(source_mod, format_str), do: format_str, else: current_format
+  end
+
+  defp valid_format?(nil, _format_str), do: false
+
+  defp valid_format?(_source_mod, format_str) when not is_binary(format_str) or format_str == "",
+    do: false
+
+  defp valid_format?(source_mod, format_str) do
+    Enum.any?(source_mod.formats(), fn {k, _} -> Atom.to_string(k) == format_str end)
+  end
+
+  # Clears everything tied to a parsed upload (used both by the explicit
+  # "Replace" button and when switching Source/Format invalidates the
+  # current parse — see apply_source_format/2).
+  defp reset_parsed_file(socket) do
+    if socket.assigns.ets_table, do: :ets.delete(socket.assigns.ets_table)
+
+    socket
+    |> assign(
+      filename: nil,
+      file_binary: nil,
+      headers: [],
+      preview_rows: [],
+      row_count: 0,
+      sheets: [],
+      column_mappings: [],
+      unit_values: [],
+      unit_map: %{},
+      ets_table: nil,
+      import_plan: nil
+    )
+    |> reset_picker_state()
   end
 
   # ── PRO100 apply helpers ─────────────────────────────────────────
@@ -2707,9 +2729,14 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
     )
   end
 
-  defp sync_skip_reason(%{reason: :ambiguous, row: row}) do
-    Gettext.gettext(PhoenixKitCatalogue.Gettext, "Row %{row}: multiple items match",
-      row: row.name
+  defp sync_skip_reason(%{reason: :ambiguous, row: row, items: items}) do
+    matches = Enum.map_join(items, ", ", &(&1.sku || &1.name))
+
+    Gettext.gettext(
+      PhoenixKitCatalogue.Gettext,
+      "Row %{row}: multiple items match (%{matches})",
+      row: row.name,
+      matches: matches
     )
   end
 
