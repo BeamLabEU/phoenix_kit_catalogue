@@ -1,3 +1,22 @@
+## 0.10.0 - 2026-07-03
+
+### Added
+- **PRO100 round-trip import** (#40) — mirrors the existing PRO100 export. A new `Import.Source` registry (`Universal` / `PRO100`) lets you pick a Source + Format alongside the target catalogue on the upload step; PRO100 (Фурнитура / Материалы) reads the `# Parts` / `# Materials` text formats, matches rows to existing items in the target catalogue by digits-only id, and **updates** them (no auto-create) via a `preview → apply → report` flow — unmatched/ambiguous/failed rows surface with the raw file line, not silently dropped. Round-trip fidelity: the PRO100 "service" columns the export used to hardcode are preserved per item in `data["pro100"]` on import and re-emitted by the export. Universal JSON import (mirroring the Universal JSON export) is also new; existing XLSX/CSV import is untouched.
+- **Catalogue admin table stack** (#40) — the catalogues/suppliers/manufacturers admin lists gained a shared toolbar (search, per-column filters, sort, table/card view toggle, column show/hide), with the user's column/sort/filter/view choices persisted per-user across sessions (`phoenix_kit_users.custom_fields`, no new table). The catalogues index converted to a flat table with a Folder filter + Folder column; the inline folder tree + drag-and-drop was replaced by a "Folders…" modal preserving full folder CRUD. `PdfLibraryLive` migrated to the shared admin-header + `table_default` pattern. `CatalogueDetailLive`'s active items table gained a mobile card fallback.
+
+### Fixed
+- **Per-user view-config writes for one admin tab could silently revert another tab's earlier save in the same session** — `CataloguesLive` wrote the whole `custom_fields` column from a snapshot it never refreshed after a save, so switching tabs and changing a second tab's view settings would revert the first tab's just-saved change.
+- **Clicking "Apply" on the Columns modal could silently reset the table's sort away from "Name"** (and "Name" never appeared as a sort option), because the always-visible `name` column was excluded from the id list used for the sort-preserving check.
+- **Switching Import Source/Format after a file was already parsed could silently run the wrong import path** — going back to the upload step and picking PRO100 over an already-parsed Universal spreadsheet (or vice versa) reused the stale parse instead of re-parsing under the new selection.
+- **`CatalogueDetailLive`'s new mobile card showed the raw base price instead of the marked-up sale price**, disagreeing with the desktop table for any item/catalogue with a non-zero markup.
+- **Folder filter never offered "Unfiled (root)"**, and an incomplete `PRO100` duplicate-item merge (from a prior fix) could keep an earlier row's stale price change when the last colliding row reasserted the item's original value.
+- Ambiguous PRO100 matches now list the colliding items' SKU/name in the report instead of just "multiple items match"; the new mobile card/table toggle on `CatalogueDetailLive`'s active list no longer offers a desktop card view missing bulk-select/drag-reorder.
+- Full findings, rationale, and what was verified-but-not-changed: `dev_docs/pull_requests/2026/40-catalogue-table-stack-pro100-import/CLAUDE_REVIEW.md`.
+
+### Notes
+- **Dependency lockfile advances** (no `mix.exs` constraint changes): `phoenix_kit` 1.7.169 → 1.7.171, `phoenix_live_view` 1.2.4 → 1.2.5, `plug` 1.20.1 → 1.20.2, `mdex` 0.13.2 → 0.13.3, `mdex_native` 0.2.3 → 0.2.4, `makeup` 1.2.1 → 1.2.2. Constraints stay loose.
+- Verification: `mix format`, `mix compile --warnings-as-errors`, and `mix dialyzer` are clean. `mix credo --strict` is at parity with the pre-existing baseline (see the review doc — baseline `main` already carries 14 Design/Readability/Refactor-level suggestions unrelated to this release). `mix test` could not be run in this environment (no local Postgres); the new pure-logic fixes (PRO100 plan, table-query folder filter) have dedicated unit tests, the LiveView-level fixes were verified by manual trace and should get DB-backed regression coverage in a follow-up.
+
 ## 0.9.0 - 2026-06-29
 
 ### Added
