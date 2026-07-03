@@ -1,0 +1,4 @@
+# Parts	1111111111
+		Second 1 furniture 222	1111	0	2222.00	1.0	222.00	1.0
+		First 2 furniture 1111	911	0	111.00	1.0		0.0
+		Third 3 furniture 333	111	0	333.00	1.0		2.0

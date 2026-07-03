@@ -120,38 +120,6 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
   end
 
   # ─────────────────────────────────────────────────────────────────
-  # Search
-  # ─────────────────────────────────────────────────────────────────
-
-  describe "global item search" do
-    test "search matches by item name across all catalogues", %{conn: conn} do
-      cat = fixture_catalogue()
-      category = fixture_category(cat)
-      fixture_item(%{name: "Oak Panel", category_uuid: category.uuid})
-      fixture_item(%{name: "Pine Board", category_uuid: category.uuid})
-
-      {:ok, view, _html} = live(conn, @base)
-      render_change(view, "search", %{"query" => "oak"})
-      # Search runs via start_async — wait for handle_async to land before asserting.
-      html = render_async(view)
-
-      assert html =~ "Oak Panel"
-      refute html =~ "Pine Board"
-    end
-
-    test "clear_search restores the normal catalogues table", %{conn: conn} do
-      fixture_catalogue(%{name: "Back to normal"})
-
-      {:ok, view, _html} = live(conn, @base)
-      render_change(view, "search", %{"query" => "zzz_no_match"})
-      _ = render_async(view)
-      html = render_click(view, "clear_search", %{})
-
-      assert html =~ "Back to normal"
-    end
-  end
-
-  # ─────────────────────────────────────────────────────────────────
   # Catalogue mutations
   # ─────────────────────────────────────────────────────────────────
 

@@ -28,6 +28,7 @@ defmodule PhoenixKitCatalogue.Export.Pro100 do
 
   @behaviour PhoenixKitCatalogue.Export.Destination
 
+  alias PhoenixKitCatalogue.Pro100.Id
   alias PhoenixKitCatalogue.Schemas.Item
 
   @tab "\t"
@@ -79,15 +80,15 @@ defmodule PhoenixKitCatalogue.Export.Pro100 do
       @tab,
       pro100_id(item.sku),
       @tab,
-      "0",
+      service(item, "c3", "0"),
       @tab,
       format_price(item.base_price),
       @tab,
-      "1.0",
+      service(item, "c5", "1.0"),
       @tab,
-      "",
+      service(item, "c6", ""),
       @tab,
-      "0.0",
+      service(item, "c7", "0.0"),
       @crlf
     ]
   end
@@ -100,15 +101,24 @@ defmodule PhoenixKitCatalogue.Export.Pro100 do
       @tab,
       pro100_id(item.sku),
       @tab,
-      "0",
+      service(item, "c3", "0"),
       @tab,
       format_price(item.base_price),
       @tab,
-      "1.0",
+      service(item, "c5", "1.0"),
       @tab,
       sanitize(Item.unit_label(item.unit)),
       @crlf
     ]
+  end
+
+  # Stored PRO100 service column, falling back to the given default when the
+  # item was never imported from PRO100.
+  defp service(item, key, default) do
+    case item do
+      %{data: %{"pro100" => %{^key => value}}} when is_binary(value) -> value
+      _ -> default
+    end
   end
 
   # Column 1 (name). When prefix? is true, prepend the item's catalogue name as
@@ -159,8 +169,5 @@ defmodule PhoenixKitCatalogue.Export.Pro100 do
   # PRO100 requires the ID column (column 2) to contain digits only, so keep
   # only 0-9 from the SKU (e.g. "76.0026.12" -> "76002612"). nil/no-digit -> "".
   @doc false
-  def pro100_id(nil), do: ""
-
-  def pro100_id(sku) when is_binary(sku),
-    do: String.replace(sku, ~r/\D/, "")
+  def pro100_id(sku), do: Id.digits_only(sku)
 end

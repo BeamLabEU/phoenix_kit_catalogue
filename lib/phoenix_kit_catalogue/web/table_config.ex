@@ -1,0 +1,159 @@
+defmodule PhoenixKitCatalogue.Web.TableConfig do
+  @moduledoc """
+  Column metadata for the catalogue admin tables, keyed by scope
+  (`:catalogues`, `:suppliers`, `:manufacturers`). Pure data — cell and
+  card rendering live in the LiveView. Labels are zero-arity fns so they
+  resolve in the request's current locale.
+  """
+  alias PhoenixKitCatalogue.Gettext, as: G
+
+  @type scope :: :catalogues | :suppliers | :manufacturers
+  @type column :: %{
+          id: String.t(),
+          label: (-> String.t()),
+          default?: boolean(),
+          managed?: boolean(),
+          sortable?: boolean(),
+          sort_key: (map() -> term()) | nil,
+          align: :left | :right,
+          filterable?: boolean(),
+          filter_type: :enum | nil
+        }
+
+  defp g(s), do: Gettext.gettext(G, s)
+
+  # Build a column with sensible defaults.
+  defp col(id, label_fn, opts) do
+    %{
+      id: id,
+      label: label_fn,
+      default?: Keyword.get(opts, :default?, false),
+      managed?: Keyword.get(opts, :managed?, true),
+      sortable?: Keyword.get(opts, :sortable?, false),
+      sort_key: Keyword.get(opts, :sort_key),
+      align: Keyword.get(opts, :align, :left),
+      filterable?: Keyword.get(opts, :filterable?, false),
+      filter_type: Keyword.get(opts, :filter_type)
+    }
+  end
+
+  @spec columns(scope()) :: [column()]
+  def columns(:catalogues) do
+    [
+      col("name", fn -> g("Name") end,
+        default?: true,
+        managed?: false,
+        sortable?: true,
+        sort_key: &down(&1.name)
+      ),
+      col("folder", fn -> g("Folder") end,
+        default?: true,
+        sortable?: true,
+        sort_key: &down(&1[:folder_name]),
+        filterable?: true,
+        filter_type: :enum
+      ),
+      col("items", fn -> g("Items") end,
+        default?: true,
+        sortable?: true,
+        align: :right,
+        sort_key: &(&1[:item_count] || 0)
+      ),
+      col("status", fn -> g("Status") end,
+        default?: true,
+        sortable?: true,
+        sort_key: &down(&1.status),
+        filterable?: true,
+        filter_type: :enum
+      ),
+      col("kind", fn -> g("Kind") end,
+        sortable?: true,
+        sort_key: &down(&1.kind),
+        filterable?: true,
+        filter_type: :enum
+      ),
+      col("markup", fn -> g("Markup %") end,
+        sortable?: true,
+        align: :right,
+        sort_key: &dec(&1.markup_percentage)
+      ),
+      col("discount", fn -> g("Discount %") end,
+        sortable?: true,
+        align: :right,
+        sort_key: &dec(&1.discount_percentage)
+      ),
+      col("updated", fn -> g("Updated") end,
+        default?: true,
+        sortable?: true,
+        sort_key: & &1.updated_at
+      ),
+      col("created", fn -> g("Created") end, sortable?: true, sort_key: & &1.inserted_at)
+    ]
+  end
+
+  def columns(scope) when scope in [:suppliers, :manufacturers] do
+    [
+      col("name", fn -> g("Name") end,
+        default?: true,
+        managed?: false,
+        sortable?: true,
+        sort_key: &down(&1.name)
+      ),
+      col("website", fn -> g("Website") end,
+        default?: true,
+        sortable?: true,
+        sort_key: &down(&1.website)
+      ),
+      col("status", fn -> g("Status") end,
+        default?: true,
+        sortable?: true,
+        sort_key: &down(&1.status),
+        filterable?: true,
+        filter_type: :enum
+      ),
+      col("contact_info", fn -> g("Contact Info") end,
+        sortable?: true,
+        sort_key: &down(&1.contact_info)
+      ),
+      col("updated", fn -> g("Updated") end, sortable?: true, sort_key: & &1.updated_at)
+    ]
+  end
+
+  @spec default_columns(scope()) :: [String.t()]
+  def default_columns(scope) do
+    scope |> columns() |> Enum.filter(& &1.default?) |> Enum.map(& &1.id)
+  end
+
+  @spec managed_columns(scope()) :: [column()]
+  def managed_columns(scope), do: scope |> columns() |> Enum.filter(& &1.managed?)
+
+  @spec column_map(scope()) :: %{String.t() => column()}
+  def column_map(scope), do: scope |> columns() |> Map.new(&{&1.id, &1})
+
+  @spec validate_columns(scope(), [String.t()]) :: [String.t()]
+  def validate_columns(scope, ids) when is_list(ids) do
+    known = scope |> managed_columns() |> MapSet.new(& &1.id)
+    ids |> Enum.filter(&MapSet.member?(known, &1)) |> Enum.uniq()
+  end
+
+  def validate_columns(_scope, _), do: []
+
+  @spec sortable_visible(scope(), [String.t()]) :: [column()]
+  def sortable_visible(scope, ids) do
+    map = column_map(scope)
+    ids |> Enum.map(&Map.get(map, &1)) |> Enum.filter(&(&1 && &1.sortable?))
+  end
+
+  @spec default_sort(scope()) :: {String.t(), :asc | :desc}
+  def default_sort(:catalogues), do: {"name", :asc}
+  def default_sort(_), do: {"name", :asc}
+
+  # sort helpers: case-insensitive for strings, Decimal→float, nil-safe.
+  defp down(nil), do: ""
+  defp down(s) when is_binary(s), do: String.downcase(s)
+  defp down(other), do: other
+
+  defp dec(%Decimal{} = d), do: Decimal.to_float(d)
+  defp dec(n) when is_number(n), do: n
+  defp dec(_), do: 0.0
+end

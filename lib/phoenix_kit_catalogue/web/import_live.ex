@@ -36,6 +36,7 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
   end
 
   alias PhoenixKitCatalogue.Catalogue
+  alias PhoenixKitCatalogue.Import
   alias PhoenixKitCatalogue.Import.{Executor, Mapper, Parser}
   alias PhoenixKitCatalogue.Paths
   alias PhoenixKitCatalogue.Schemas.{Category, Item, Manufacturer, Supplier}
@@ -98,9 +99,14 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
        import_supplier_uuid: nil,
        new_supplier: nil,
        new_supplier_changeset: nil,
+       # Source / format selector
+       sources: Import.sources(),
+       selected_source: "universal",
+       selected_format: nil,
        # Import
        import_plan: nil,
        import_result: nil,
+       report: nil,
        duplicate_row_count: 0,
        existing_duplicate_count: 0,
        duplicate_mode: :import,
@@ -111,7 +117,7 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
      )
      |> mount_multilang()
      |> allow_upload(:import_file,
-       accept: ~w(.xlsx .csv),
+       accept: ~w(.xlsx .csv .txt .json),
        max_entries: 1,
        max_file_size: @max_file_size,
        auto_upload: true
@@ -126,14 +132,8 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
   # ── Step 1: Upload ──────────────────────────────────────────────
 
   @impl true
-  def handle_event("validate_upload", %{"catalogue" => uuid} = _params, socket) when uuid != "" do
-    catalogue = Enum.find(socket.assigns.catalogues, &(&1.uuid == uuid))
-    socket = if catalogue, do: assign(socket, :selected_catalogue, catalogue), else: socket
-    {:noreply, socket}
-  end
-
-  def handle_event("validate_upload", _params, socket) do
-    {:noreply, socket}
+  def handle_event("validate_upload", params, socket) do
+    {:noreply, apply_upload_form_params(socket, params)}
   end
 
   def handle_event("cancel_upload", %{"ref" => ref}, socket) do
@@ -162,16 +162,7 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
   end
 
   def handle_event("parse_file", params, socket) do
-    # Read catalogue from form params
-    socket =
-      case params["catalogue"] do
-        uuid when is_binary(uuid) and uuid != "" ->
-          catalogue = Enum.find(socket.assigns.catalogues, &(&1.uuid == uuid))
-          if catalogue, do: assign(socket, :selected_catalogue, catalogue), else: socket
-
-        _ ->
-          socket
-      end
+    socket = apply_upload_form_params(socket, params)
 
     if socket.assigns.selected_catalogue == nil do
       {:noreply,
@@ -465,15 +456,18 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
        column_mappings: [],
        unit_values: [],
        unit_map: %{},
+       selected_source: "universal",
+       selected_format: nil,
        import_plan: nil,
        import_result: nil,
+       report: nil,
        import_progress: 0,
        import_total: 0,
        ets_table: nil
      )
      |> reset_picker_state()
      |> allow_upload(:import_file,
-       accept: ~w(.xlsx .csv),
+       accept: ~w(.xlsx .csv .txt .json),
        max_entries: 1,
        max_file_size: @max_file_size,
        auto_upload: true
@@ -491,6 +485,39 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
       end
 
     {:noreply, assign(socket, :step, prev_step)}
+  end
+
+  # ── PRO100 Sync Apply ───────────────────────────────────────────
+
+  def handle_event("apply_pro100", _params, socket) do
+    plan = socket.assigns.import_plan
+    actor = extract_actor_uuid(socket)
+
+    {persisted_count, failures} =
+      Enum.reduce(plan.updates, {0, []}, fn change, {count, fails} ->
+        if should_persist_pro100?(change) do
+          attrs = pro100_update_attrs(change)
+
+          case Catalogue.update_item(change.item, attrs, actor_uuid: actor) do
+            {:ok, _updated} ->
+              {count + 1, fails}
+
+            {:error, changeset} ->
+              error = %{
+                row: change.row,
+                reason: :error,
+                message: changeset_error_string(changeset)
+              }
+
+              {count, [error | fails]}
+          end
+        else
+          {count, fails}
+        end
+      end)
+
+    report = %{updated: persisted_count, skipped: plan.skipped ++ Enum.reverse(failures)}
+    {:noreply, assign(socket, report: report, step: :report)}
   end
 
   # ── Step 5: Importing ──────────────────────────────────────────
@@ -573,7 +600,55 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
   end
 
   defp handle_parsed_file(socket, binary, filename) do
-    case Parser.parse(binary, filename) do
+    source_mod = Import.source_by_key(socket.assigns.selected_source)
+
+    case source_mod && source_mod.flow() do
+      :sync -> handle_sync_file(socket, binary, source_mod)
+      _ -> handle_mapping_file(socket, binary, filename)
+    end
+  end
+
+  defp handle_sync_file(socket, binary, source_mod) do
+    case socket.assigns.selected_format do
+      nil ->
+        {:noreply,
+         put_flash(
+           socket,
+           :error,
+           Gettext.gettext(PhoenixKitCatalogue.Gettext, "Please select a format.")
+         )}
+
+      format_str ->
+        format_atom = String.to_existing_atom(format_str)
+        if socket.assigns.ets_table, do: :ets.delete(socket.assigns.ets_table)
+        items = Catalogue.list_items_for_catalogue(socket.assigns.selected_catalogue.uuid)
+
+        case source_mod.analyze(binary, format_atom, items) do
+          {:ok, plan} ->
+            {:noreply, assign(socket, import_plan: plan, step: :preview, ets_table: nil)}
+
+          {:error, reason} ->
+            Logger.warning("PRO100 analyze error: #{inspect(reason)}")
+
+            {:noreply,
+             socket
+             |> assign(:ets_table, nil)
+             |> put_flash(:error, pro100_error_message(reason))}
+        end
+    end
+  end
+
+  defp handle_mapping_file(socket, binary, filename) do
+    format_atom =
+      case socket.assigns.selected_format do
+        nil ->
+          if String.ends_with?(String.downcase(filename), ".json"), do: :json, else: :spreadsheet
+
+        format_str ->
+          String.to_existing_atom(format_str)
+      end
+
+    case Import.Source.Universal.parse(binary, filename, format_atom) do
       {:ok, data} ->
         # Store in ETS
         ets_table = :ets.new(:import_data, [:ordered_set, :private])
@@ -615,7 +690,6 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
 
       {:error, reason} ->
         Logger.warning("Import file parse error: #{inspect(reason)}")
-
         {:noreply, put_flash(socket, :error, PhoenixKitCatalogue.Errors.message(reason))}
     end
   end
@@ -1183,6 +1257,8 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
       <.confirm_step :if={@step == :confirm} {assigns} />
       <.importing_step :if={@step == :importing} {assigns} />
       <.done_step :if={@step == :done} {assigns} />
+      <.sync_preview_step :if={@step == :preview} {assigns} />
+      <.sync_report_step :if={@step == :report} {assigns} />
     </div>
     """
   end
@@ -1525,6 +1601,34 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
             </p>
           </div>
 
+          <%!-- Source selector --%>
+          <div class="form-control w-full max-w-md">
+            <span class="block mb-2 text-sm font-medium">
+              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Source")}
+            </span>
+            <.select
+              name="source"
+              id="upload-source"
+              value={@selected_source}
+              options={Enum.map(@sources, &{&1.label(), Atom.to_string(&1.key())})}
+            />
+          </div>
+
+          <%!-- Format selector (only shown when the source has multiple formats) --%>
+          <% source_mod = Import.source_by_key(@selected_source) %>
+          <div :if={source_mod && length(source_mod.formats()) > 1} class="form-control w-full max-w-md">
+            <span class="block mb-2 text-sm font-medium">
+              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Format")}
+            </span>
+            <.select
+              name="format"
+              id="upload-format"
+              value={@selected_format}
+              prompt={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Select a format...")}
+              options={Enum.map(source_mod.formats(), fn {k, label} -> {label, Atom.to_string(k)} end)}
+            />
+          </div>
+
           <%!-- Already parsed file --%>
           <div :if={@filename} class="flex items-center gap-3 p-4 border border-success/30 bg-success/5 rounded-lg">
             <.icon name="hero-document-check" class="w-5 h-5 text-success" />
@@ -1560,7 +1664,7 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
                       {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Drag file here or click to browse")}
                     </p>
                     <p class="text-sm text-base-content/70 mt-1">
-                      {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Supports .xlsx and .csv files (max 10MB)")}
+                      {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Supports .xlsx, .csv, .txt, .json files (max 10MB)")}
                     </p>
                   </div>
                 </div>
@@ -1604,6 +1708,7 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
             disabled={
               cond do
                 @selected_catalogue == nil -> true
+                @selected_source == "pro100" && @selected_format == nil -> true
                 @filename -> false
                 @uploads.import_file.entries == [] -> true
                 upload_in_progress? -> true
@@ -2133,6 +2238,158 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
     """
   end
 
+  # ── PRO100 Sync Preview Step ────────────────────────────────────
+
+  defp sync_preview_step(assigns) do
+    ~H"""
+    <div class="card bg-base-100 shadow-sm">
+      <div class="card-body gap-6">
+        <h2 class="card-title">
+          <.icon name="hero-magnifying-glass" class="w-5 h-5" />
+          {Gettext.gettext(PhoenixKitCatalogue.Gettext, "PRO100 Sync Preview")}
+        </h2>
+
+        <div class="stats shadow">
+          <div class="stat">
+            <div class="stat-title">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Updates")}</div>
+            <div class="stat-value text-primary">{length(@import_plan.updates)}</div>
+          </div>
+          <div class="stat">
+            <div class="stat-title">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Skipped")}</div>
+            <div class="stat-value text-warning">{length(@import_plan.skipped)}</div>
+          </div>
+        </div>
+
+        <%!-- Updates table --%>
+        <div :if={@import_plan.updates != []} class="overflow-x-auto">
+          <table class="table table-sm w-full">
+            <thead>
+              <tr>
+                <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Name")}</th>
+                <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "SKU")}</th>
+                <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Changes")}</th>
+                <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Flags")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              <%= for change <- @import_plan.updates do %>
+                <tr>
+                  <td class="font-medium">{change.item.name}</td>
+                  <td class="text-base-content/60">{change.item.sku}</td>
+                  <td>
+                    <div :if={Map.has_key?(change.changes, :base_price)} class="text-sm">
+                      <span class="text-base-content/50 line-through">
+                        {elem(change.changes.base_price, 0)}
+                      </span>
+                      <span class="mx-1">→</span>
+                      <span class="font-semibold">{elem(change.changes.base_price, 1)}</span>
+                    </div>
+                    <div :if={Map.has_key?(change.changes, :unit)} class="text-sm">
+                      <span class="text-xs text-base-content/50">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "unit")}:</span>
+                      <span class="text-base-content/50 line-through">
+                        {elem(change.changes.unit, 0)}
+                      </span>
+                      <span class="mx-1">→</span>
+                      <span class="font-semibold">{elem(change.changes.unit, 1)}</span>
+                    </div>
+                    <span :if={change.changes == %{}} class="text-xs text-base-content/40">
+                      {Gettext.gettext(PhoenixKitCatalogue.Gettext, "service data only")}
+                    </span>
+                  </td>
+                  <td>
+                    <span
+                      :if={:unit_unrecognized in (change.flags || [])}
+                      class="badge badge-warning badge-sm"
+                    >
+                      {Gettext.gettext(PhoenixKitCatalogue.Gettext, "unit?")}
+                    </span>
+                  </td>
+                </tr>
+              <% end %>
+            </tbody>
+          </table>
+        </div>
+
+        <%!-- Skipped rows summary --%>
+        <div :if={@import_plan.skipped != []} class="alert alert-warning">
+          <.icon name="hero-exclamation-triangle" class="w-5 h-5" />
+          <div class="text-sm">
+            <p class="font-semibold">
+              {Gettext.ngettext(
+                PhoenixKitCatalogue.Gettext,
+                "%{count} row skipped",
+                "%{count} rows skipped",
+                length(@import_plan.skipped),
+                count: length(@import_plan.skipped)
+              )}
+            </p>
+            <p :for={skip <- Enum.take(@import_plan.skipped, 5)} class="mt-1">
+              {sync_skip_reason(skip)}
+            </p>
+          </div>
+        </div>
+
+        <div class="flex gap-3">
+          <button class="btn btn-primary" phx-click="apply_pro100" phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Applying...")}>
+            <.icon name="hero-check" class="w-4 h-4" />
+            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Apply Updates")}
+          </button>
+          <button class="btn btn-ghost" phx-click="import_another">
+            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Cancel")}
+          </button>
+        </div>
+      </div>
+    </div>
+    """
+  end
+
+  # ── PRO100 Sync Report Step ─────────────────────────────────────
+
+  defp sync_report_step(assigns) do
+    ~H"""
+    <div class="card bg-base-100 shadow-sm">
+      <div class="card-body items-center gap-4 py-12">
+        <div class="text-success">
+          <.icon name="hero-check-circle" class="w-16 h-16" />
+        </div>
+        <h2 class="text-xl font-bold">
+          {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Sync Complete")}
+        </h2>
+
+        <div class="stats shadow">
+          <div class="stat">
+            <div class="stat-title">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Updated")}</div>
+            <div class="stat-value text-success">{@report.updated}</div>
+          </div>
+          <div class="stat">
+            <div class="stat-title">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Skipped")}</div>
+            <div class="stat-value text-warning">{length(@report.skipped)}</div>
+          </div>
+        </div>
+
+        <div :if={@report.skipped != []} class="alert alert-warning max-w-lg w-full">
+          <div class="text-sm w-full">
+            <p :for={skip <- Enum.take(@report.skipped, 10)}>
+              {sync_skip_reason(skip)}
+            </p>
+          </div>
+        </div>
+
+        <div class="flex gap-2 mt-4">
+          <.link :if={@selected_catalogue} navigate={Paths.catalogue_detail(@selected_catalogue.uuid)} class="btn btn-primary btn-sm">
+            <.icon name="hero-eye" class="w-4 h-4" />
+            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "View Catalogue")}
+          </.link>
+          <button class="btn btn-ghost btn-sm" phx-click="import_another">
+            <.icon name="hero-arrow-path" class="w-4 h-4" />
+            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Import Another")}
+          </button>
+        </div>
+      </div>
+    </div>
+    """
+  end
+
   # ── Private helpers ─────────────────────────────────────────────
 
   # Builds the label shown for one catalogue in the Target Catalogue
@@ -2356,5 +2613,112 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
       %{uuid: uuid} -> uuid
       _ -> nil
     end
+  end
+
+  # ── Upload form helpers ─────────────────────────────────────────
+
+  # Applies all upload-form field changes (catalogue, source, format)
+  # to the socket. Used by both phx-change (validate_upload) and
+  # phx-submit (parse_file) so both paths stay in sync.
+  defp apply_upload_form_params(socket, params) do
+    socket
+    |> maybe_update_catalogue(params)
+    |> apply_source_format(params)
+  end
+
+  defp maybe_update_catalogue(socket, %{"catalogue" => uuid}) when uuid != "" do
+    case Enum.find(socket.assigns.catalogues, &(&1.uuid == uuid)) do
+      nil -> socket
+      catalogue -> assign(socket, :selected_catalogue, catalogue)
+    end
+  end
+
+  defp maybe_update_catalogue(socket, _params), do: socket
+
+  defp apply_source_format(socket, params) do
+    current_source = socket.assigns.selected_source
+    new_source = Map.get(params, "source") || current_source
+    source_changed? = new_source != current_source
+
+    selected_format =
+      if source_changed? do
+        nil
+      else
+        format_str = params["format"]
+        source_mod = Import.source_by_key(new_source)
+
+        if source_mod && is_binary(format_str) && format_str != "" &&
+             Enum.any?(source_mod.formats(), fn {k, _} -> Atom.to_string(k) == format_str end) do
+          format_str
+        else
+          socket.assigns.selected_format
+        end
+      end
+
+    assign(socket, selected_source: new_source, selected_format: selected_format)
+  end
+
+  # ── PRO100 apply helpers ─────────────────────────────────────────
+
+  defp should_persist_pro100?(change) do
+    change.status == :update ||
+      get_in(change.item.data, ["pro100"]) != change.data["pro100"]
+  end
+
+  defp pro100_update_attrs(change) do
+    attrs = %{data: change.data}
+
+    attrs =
+      case change.changes do
+        %{base_price: {_old, new}} -> Map.put(attrs, :base_price, new)
+        _ -> attrs
+      end
+
+    case change.changes do
+      %{unit: {_old, new}} -> Map.put(attrs, :unit, new)
+      _ -> attrs
+    end
+  end
+
+  defp changeset_error_string(changeset) do
+    PhoenixKitCatalogue.Import.Executor.format_changeset_errors(changeset)
+  end
+
+  defp pro100_error_message(:empty) do
+    Gettext.gettext(PhoenixKitCatalogue.Gettext, "The file is empty.")
+  end
+
+  defp pro100_error_message(:bad_header) do
+    Gettext.gettext(
+      PhoenixKitCatalogue.Gettext,
+      "File format does not match the selected format."
+    )
+  end
+
+  defp pro100_error_message(reason) do
+    Gettext.gettext(PhoenixKitCatalogue.Gettext, "Import failed: %{reason}",
+      reason: inspect(reason)
+    )
+  end
+
+  defp sync_skip_reason(%{reason: :unmatched, row: row}) do
+    Gettext.gettext(PhoenixKitCatalogue.Gettext, "Row %{row}: no matching item found",
+      row: row.name
+    )
+  end
+
+  defp sync_skip_reason(%{reason: :ambiguous, row: row}) do
+    Gettext.gettext(PhoenixKitCatalogue.Gettext, "Row %{row}: multiple items match",
+      row: row.name
+    )
+  end
+
+  defp sync_skip_reason(%{reason: :error, row: row, message: msg}) do
+    row_label = if is_map(row) && Map.has_key?(row, :name), do: row.name, else: inspect(row)
+    Gettext.gettext(PhoenixKitCatalogue.Gettext, "Row %{row}: %{msg}", row: row_label, msg: msg)
+  end
+
+  defp sync_skip_reason(%{reason: reason}) do
+    inspect(reason)
   end
 end

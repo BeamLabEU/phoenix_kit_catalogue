@@ -790,3 +790,161 @@ msgstr "Перемещено %{count} позиций."
 
 msgid "Permanently deleted %{count} items."
 msgstr "Окончательно удалено %{count} позиций."
+
+## Catalogue table toolbar
+msgid "Columns"
+msgstr "Колонки"
+
+msgid "Shown"
+msgstr "Показаны"
+
+msgid "Available"
+msgstr "Доступные"
+
+msgid "Reset"
+msgstr "Сбросить"
+
+msgid "Apply"
+msgstr "Применить"
+
+msgid "Toggle sort direction"
+msgstr "Сменить направление сортировки"
+
+## Catalogue table columns
+msgid "Folder"
+msgstr "Папка"
+
+msgid "Discount %"
+msgstr "Скидка %"
+
+msgid "Contact Info"
+msgstr "Контакты"
+
+msgid "Website"
+msgstr "Сайт"
+
+## Catalogue index toolbar / filters
+msgid "Folders"
+msgstr "Папки"
+
+msgid "Folders…"
+msgstr "Папки…"
+
+msgid "All folders"
+msgstr "Все папки"
+
+msgid "All statuses"
+msgstr "Все статусы"
+
+## Folder management modal
+msgid "No folders yet."
+msgstr "Папок ещё нет."
+
+msgid "Nothing in the trash."
+msgstr "В корзине ничего нет."
+
+msgid "New Folder"
+msgstr "Новая папка"
+
+msgid "New folder"
+msgstr "Новая папка"
+
+msgid "New subfolder"
+msgstr "Новая подпапка"
+
+msgid "Move to folder"
+msgstr "Переместить в папку"
+
+msgid "Rename"
+msgstr "Переименовать"
+
+msgid "Permanently Delete Folder"
+msgstr "Удалить папку навсегда"
+
+msgid "Creating..."
+msgstr "Создаётся..."
+
+msgid "Moving..."
+msgstr "Перемещается..."
+
+msgid "Restoring..."
+msgstr "Восстанавливается..."
+
+msgid "— Root (unfiled) —"
+msgstr "— Корень (без папки) —"
+
+msgid "Choose a destination folder for this folder."
+msgstr "Выберите папку назначения для этой папки."
+
+msgid "Choose a destination folder for this catalogue."
+msgstr "Выберите папку назначения для каталога."
+
+msgid "Can't move a folder into itself or one of its subfolders."
+msgstr "Нельзя переместить папку в саму себя или одну из её подпапок."
+
+msgid "That folder is in the trash."
+msgstr "Эта папка в корзине."
+
+msgid "That folder no longer exists."
+msgstr "Этой папки больше не существует."
+
+msgid "This will permanently delete this folder. Subfolders are moved to root and catalogues filed here are unfiled — neither is deleted. This cannot be undone."
+msgstr "Это навсегда удалит папку. Подпапки переместятся в корень, а каталоги из неё станут неотсортированными — ни те, ни другие удалены не будут. Отменить невозможно."
+
+msgid "Folder moved."
+msgstr "Папка перемещена."
+
+msgid "Folder restored."
+msgstr "Папка восстановлена."
+
+msgid "Folder moved to deleted."
+msgstr "Папка перемещена в корзину."
+
+msgid "Folder not found."
+msgstr "Папка не найдена."
+
+msgid "Folder permanently deleted."
+msgstr "Папка удалена навсегда."
+
+msgid "Failed to create folder."
+msgstr "Не удалось создать папку."
+
+msgid "Failed to delete folder."
+msgstr "Не удалось удалить папку."
+
+msgid "Failed to restore folder."
+msgstr "Не удалось восстановить папку."
+
+msgid "Failed to move folder."
+msgstr "Не удалось переместить папку."
+
+msgid "Failed to move catalogue."
+msgstr "Не удалось переместить каталог."
+
+msgid "Failed to move."
+msgstr "Не удалось переместить."
+
+msgid "Unexpected request. Please try again."
+msgstr "Неожиданный запрос. Попробуйте снова."
+
+## Catalogue confirm-delete dialogs
+msgid "Catalogue moved."
+msgstr "Каталог перемещён."
+
+msgid "Delete Manufacturer"
+msgstr "Удалить производителя"
+
+msgid "Delete Supplier"
+msgstr "Удалить поставщика"
+
+msgid "This will permanently delete this catalogue, all its categories, and all items. This cannot be undone."
+msgstr "Это навсегда удалит этот каталог, все его категории и позиции. Отменить невозможно."
+
+msgid "This will permanently delete this manufacturer. Items referencing it will lose the association."
+msgstr "Это навсегда удалит производителя. Позиции, ссылающиеся на него, потеряют эту связь."
+
+msgid "This will permanently delete this supplier. Manufacturer links will be removed."
+msgstr "Это навсегда удалит поставщика. Связи с производителями будут удалены."
+
+msgid "No results found."
+msgstr "Ничего не найдено."
