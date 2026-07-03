@@ -781,3 +781,161 @@ msgstr "Moved %{count} items."
 
 msgid "Permanently deleted %{count} items."
 msgstr "Permanently deleted %{count} items."
+
+## Catalogue table toolbar
+msgid "Columns"
+msgstr "Columns"
+
+msgid "Shown"
+msgstr "Shown"
+
+msgid "Available"
+msgstr "Available"
+
+msgid "Reset"
+msgstr "Reset"
+
+msgid "Apply"
+msgstr "Apply"
+
+msgid "Toggle sort direction"
+msgstr "Toggle sort direction"
+
+## Catalogue table columns
+msgid "Folder"
+msgstr "Folder"
+
+msgid "Discount %"
+msgstr "Discount %"
+
+msgid "Contact Info"
+msgstr "Contact Info"
+
+msgid "Website"
+msgstr "Website"
+
+## Catalogue index toolbar / filters
+msgid "Folders"
+msgstr "Folders"
+
+msgid "Folders…"
+msgstr "Folders…"
+
+msgid "All folders"
+msgstr "All folders"
+
+msgid "All statuses"
+msgstr "All statuses"
+
+## Folder management modal
+msgid "No folders yet."
+msgstr "No folders yet."
+
+msgid "Nothing in the trash."
+msgstr "Nothing in the trash."
+
+msgid "New Folder"
+msgstr "New Folder"
+
+msgid "New folder"
+msgstr "New folder"
+
+msgid "New subfolder"
+msgstr "New subfolder"
+
+msgid "Move to folder"
+msgstr "Move to folder"
+
+msgid "Rename"
+msgstr "Rename"
+
+msgid "Permanently Delete Folder"
+msgstr "Permanently Delete Folder"
+
+msgid "Creating..."
+msgstr "Creating..."
+
+msgid "Moving..."
+msgstr "Moving..."
+
+msgid "Restoring..."
+msgstr "Restoring..."
+
+msgid "— Root (unfiled) —"
+msgstr "— Root (unfiled) —"
+
+msgid "Choose a destination folder for this folder."
+msgstr "Choose a destination folder for this folder."
+
+msgid "Choose a destination folder for this catalogue."
+msgstr "Choose a destination folder for this catalogue."
+
+msgid "Can't move a folder into itself or one of its subfolders."
+msgstr "Can't move a folder into itself or one of its subfolders."
+
+msgid "That folder is in the trash."
+msgstr "That folder is in the trash."
+
+msgid "That folder no longer exists."
+msgstr "That folder no longer exists."
+
+msgid "This will permanently delete this folder. Subfolders are moved to root and catalogues filed here are unfiled — neither is deleted. This cannot be undone."
+msgstr "This will permanently delete this folder. Subfolders are moved to root and catalogues filed here are unfiled — neither is deleted. This cannot be undone."
+
+msgid "Folder moved."
+msgstr "Folder moved."
+
+msgid "Folder restored."
+msgstr "Folder restored."
+
+msgid "Folder moved to deleted."
+msgstr "Folder moved to deleted."
+
+msgid "Folder not found."
+msgstr "Folder not found."
+
+msgid "Folder permanently deleted."
+msgstr "Folder permanently deleted."
+
+msgid "Failed to create folder."
+msgstr "Failed to create folder."
+
+msgid "Failed to delete folder."
+msgstr "Failed to delete folder."
+
+msgid "Failed to restore folder."
+msgstr "Failed to restore folder."
+
+msgid "Failed to move folder."
+msgstr "Failed to move folder."
+
+msgid "Failed to move catalogue."
+msgstr "Failed to move catalogue."
+
+msgid "Failed to move."
+msgstr "Failed to move."
+
+msgid "Unexpected request. Please try again."
+msgstr "Unexpected request. Please try again."
+
+## Catalogue confirm-delete dialogs
+msgid "Catalogue moved."
+msgstr "Catalogue moved."
+
+msgid "Delete Manufacturer"
+msgstr "Delete Manufacturer"
+
+msgid "Delete Supplier"
+msgstr "Delete Supplier"
+
+msgid "This will permanently delete this catalogue, all its categories, and all items. This cannot be undone."
+msgstr "This will permanently delete this catalogue, all its categories, and all items. This cannot be undone."
+
+msgid "This will permanently delete this manufacturer. Items referencing it will lose the association."
+msgstr "This will permanently delete this manufacturer. Items referencing it will lose the association."
+
+msgid "This will permanently delete this supplier. Manufacturer links will be removed."
+msgstr "This will permanently delete this supplier. Manufacturer links will be removed."
+
+msgid "No results found."
+msgstr "No results found."

@@ -15,12 +15,24 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLive do
 
   import PhoenixKitWeb.Components.Core.Icon, only: [icon: 1]
   import PhoenixKitWeb.Components.Core.FileUpload, only: [file_upload: 1]
+  import PhoenixKitWeb.Components.Core.TableDefault
+  import PhoenixKitWeb.Components.Core.TableRowMenu
 
   alias PhoenixKitCatalogue.Catalogue
   alias PhoenixKitCatalogue.Catalogue.ActivityLog
   alias PhoenixKitCatalogue.Catalogue.PubSub, as: CataloguePubSub
   alias PhoenixKitCatalogue.Paths
   alias PhoenixKitCatalogue.Web.Helpers
+
+  # PhoenixKit auto-applies its admin chrome layout to external module admin
+  # views via socket.private[:live_layout]. Opt out here so this view can
+  # self-wrap with LayoutWrapper.app_layout and push its title/subtitle into
+  # the global admin header (same pattern as /admin/media and orders/index).
+  on_mount({__MODULE__, :self_wrapped_layout})
+
+  def on_mount(:self_wrapped_layout, _params, _session, socket) do
+    {:cont, put_in(socket.private[:live_layout], {PhoenixKitWeb.Layouts, :app})}
+  end
 
   @max_file_size 200 * 1024 * 1024
   # Chunk size for the WS upload — large enough to keep round-trips
@@ -43,6 +55,7 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLive do
        page_title: Gettext.gettext(PhoenixKitCatalogue.Gettext, "PDFs"),
        filter: "active",
        pdfs: [],
+       search: "",
        upload_error: nil
      )
      |> allow_upload(:pdf,
@@ -91,7 +104,13 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLive do
     {:noreply,
      socket
      |> assign(:filter, filter)
+     |> assign(:search, "")
      |> assign_pdfs()}
+  end
+
+  @impl true
+  def handle_event("search", %{"query" => q}, socket) do
+    {:noreply, assign(socket, :search, q)}
   end
 
   @impl true
@@ -334,18 +353,31 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <div class="flex flex-col w-full px-4 py-6 gap-6">
-      <div class="flex items-center justify-between">
-        <h2 class="text-xl font-semibold">
-          {Gettext.gettext(PhoenixKitCatalogue.Gettext, "PDF library")}
-        </h2>
-        <div class="flex items-center gap-3">
+    <PhoenixKitWeb.Components.LayoutWrapper.app_layout
+      socket={@socket}
+      flash={@flash}
+      phoenix_kit_current_scope={assigns[:phoenix_kit_current_scope]}
+      page_title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "PDF library")}
+      page_subtitle={
+        Gettext.gettext(PhoenixKitCatalogue.Gettext, "Catalogue") <>
+          " · " <>
+          Gettext.gettext(PhoenixKitCatalogue.Gettext, "%{count} PDFs", count: length(@pdfs))
+      }
+      current_path={assigns[:url_path] || Paths.pdfs()}
+      current_locale={assigns[:current_locale]}
+    >
+      <div class="flex flex-col w-full px-4 py-6 gap-6">
+        <%!-- Filter toolbar: active/trash toggle + retry-stuck + count --%>
+        <div class="flex items-center gap-3 flex-wrap">
           <div class="join">
             <button
               type="button"
               phx-click="set_filter"
               phx-value-filter="active"
-              class={"join-item btn btn-sm #{if @filter == "active", do: "btn-primary", else: "btn-ghost"}"}
+              class={[
+                "join-item btn btn-sm",
+                if(@filter == "active", do: "btn-primary", else: "btn-ghost")
+              ]}
             >
               {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Active")}
             </button>
@@ -353,37 +385,37 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLive do
               type="button"
               phx-click="set_filter"
               phx-value-filter="trashed"
-              class={"join-item btn btn-sm #{if @filter == "trashed", do: "btn-primary", else: "btn-ghost"}"}
+              class={[
+                "join-item btn btn-sm",
+                if(@filter == "trashed", do: "btn-primary", else: "btn-ghost")
+              ]}
             >
               {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Trash")}
             </button>
           </div>
-          <%= if @filter == "active" do %>
-            <button
-              type="button"
-              phx-click="requeue_stuck"
-              phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Re-queuing…")}
-              class="btn btn-ghost btn-sm"
-              title={
-                Gettext.gettext(
-                  PhoenixKitCatalogue.Gettext,
-                  "Re-queue any PDFs whose text extraction never ran or got stuck (e.g. after the job queue was down)."
-                )
-              }
-            >
-              <.icon name="hero-arrow-path" class="w-4 h-4" />
-              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Retry stuck")}
-            </button>
-          <% end %>
+          <button
+            :if={@filter == "active"}
+            type="button"
+            phx-click="requeue_stuck"
+            phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Re-queuing…")}
+            class="btn btn-ghost btn-sm"
+            title={
+              Gettext.gettext(
+                PhoenixKitCatalogue.Gettext,
+                "Re-queue any PDFs whose text extraction never ran or got stuck (e.g. after the job queue was down)."
+              )
+            }
+          >
+            <.icon name="hero-arrow-path" class="w-4 h-4" />
+            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Retry stuck")}
+          </button>
           <div class="text-sm text-base-content/60">
             {Gettext.gettext(PhoenixKitCatalogue.Gettext, "%{count} PDFs", count: length(@pdfs))}
           </div>
         </div>
-      </div>
 
-      <%!-- Upload zone (hidden in trash view) --%>
-      <%= if @filter == "active" do %>
-        <div class="bg-base-100 rounded-lg p-4">
+        <%!-- Upload zone (hidden in trash view) --%>
+        <div :if={@filter == "active"} class="bg-base-100 rounded-lg p-4">
           <.file_upload
             upload={@uploads.pdf}
             label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Upload PDF")}
@@ -410,130 +442,241 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLive do
             <% end %>
           <% end %>
 
-          <%= if @upload_error do %>
-            <div class="text-error text-xs mt-2">{@upload_error}</div>
-          <% end %>
+          <div :if={@upload_error} class="text-error text-xs mt-2">{@upload_error}</div>
         </div>
-      <% end %>
 
-      <%!-- List --%>
-      <div class="bg-base-100 rounded-lg shadow-sm border border-base-200 overflow-hidden">
-        <%= if @pdfs == [] do %>
-          <div class="text-center py-12 text-base-content/60">
-            <.icon name="hero-document-text" class="w-12 h-12 mx-auto mb-2 opacity-50" />
-            <p>
-              <%= if @filter == "trashed" do %>
-                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Trash is empty.")}
-              <% else %>
-                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "No PDFs uploaded yet.")}
-              <% end %>
-            </p>
-          </div>
-        <% else %>
-          <table class="table table-sm">
-            <thead class="text-xs uppercase text-base-content/60">
-              <tr>
-                <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Filename")}</th>
-                <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Status")}</th>
-                <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Pages")}</th>
-                <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Size")}</th>
-                <th>
+        <%!-- Search box --%>
+        <form phx-change="search" phx-submit="search" class="w-full sm:w-72">
+          <label class="input input-sm w-full">
+            <.icon name="hero-magnifying-glass" class="h-4 w-4 opacity-50" />
+            <input
+              type="search"
+              name="query"
+              value={@search}
+              placeholder={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search by filename…")}
+              class="grow"
+              phx-debounce="200"
+            />
+          </label>
+        </form>
+
+        <%!-- PDF list --%>
+        <% visible_pdfs = filter_by_search(@pdfs, @search) %>
+        <%= cond do %>
+          <% @pdfs == [] -> %>
+            <div class="text-center py-12 text-base-content/60">
+              <.icon name="hero-document-text" class="w-12 h-12 mx-auto mb-2 opacity-50" />
+              <p>
+                <%= if @filter == "trashed" do %>
+                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Trash is empty.")}
+                <% else %>
+                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "No PDFs uploaded yet.")}
+                <% end %>
+              </p>
+            </div>
+          <% visible_pdfs == [] -> %>
+            <div class="text-center py-12 text-base-content/60">
+              <.icon name="hero-magnifying-glass" class="w-12 h-12 mx-auto mb-2 opacity-50" />
+              <p>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "No PDFs matching your search.")}</p>
+            </div>
+          <% true -> %>
+          <.table_default
+            id="pdf-library-table"
+            size="sm"
+            toggleable={true}
+            items={visible_pdfs}
+            card_title={fn pdf -> pdf.original_filename end}
+            card_fields={fn pdf ->
+              [
+                %{
+                  label: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Status"),
+                  value: Helpers.pdf_status_label(Helpers.pdf_extraction_status(pdf))
+                },
+                %{
+                  label: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Pages"),
+                  value: Helpers.pdf_extraction_pages(pdf) || "—"
+                },
+                %{
+                  label: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Size"),
+                  value: Helpers.format_byte_size(pdf.byte_size)
+                },
+                %{
+                  label:
+                    if(@filter == "trashed",
+                      do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Trashed"),
+                      else: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Uploaded")
+                    ),
+                  value: Helpers.format_time_ago(timestamp_for_filter(pdf, @filter))
+                }
+              ]
+            end}
+          >
+            <.table_default_header>
+              <.table_default_row>
+                <.table_default_header_cell>
+                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Filename")}
+                </.table_default_header_cell>
+                <.table_default_header_cell>
+                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Status")}
+                </.table_default_header_cell>
+                <.table_default_header_cell>
+                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Pages")}
+                </.table_default_header_cell>
+                <.table_default_header_cell>
+                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Size")}
+                </.table_default_header_cell>
+                <.table_default_header_cell>
                   <%= if @filter == "trashed" do %>
                     {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Trashed")}
                   <% else %>
                     {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Uploaded")}
                   <% end %>
-                </th>
-                <th class="text-right">
+                </.table_default_header_cell>
+                <.table_default_header_cell class="text-right">
                   {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Actions")}
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              <%= for pdf <- @pdfs do %>
-                <tr id={"pdf-row-#{pdf.uuid}"}>
-                  <td class="font-medium">
+                </.table_default_header_cell>
+              </.table_default_row>
+            </.table_default_header>
+            <.table_default_body>
+              <%= for pdf <- visible_pdfs do %>
+                <.table_default_row id={"pdf-row-#{pdf.uuid}"}>
+                  <.table_default_cell class="font-medium">
                     <.link navigate={Paths.pdf_detail(pdf.uuid)} class="link link-hover">
                       {pdf.original_filename}
                     </.link>
-                  </td>
-                  <td>
+                  </.table_default_cell>
+                  <.table_default_cell>
                     <.extraction_badge pdf={pdf} />
-                  </td>
-                  <td>
+                  </.table_default_cell>
+                  <.table_default_cell>
                     {Helpers.pdf_extraction_pages(pdf) || "—"}
-                  </td>
-                  <td class="text-base-content/60">{Helpers.format_byte_size(pdf.byte_size)}</td>
-                  <td class="text-base-content/60 text-xs">
+                  </.table_default_cell>
+                  <.table_default_cell class="text-base-content/60">
+                    {Helpers.format_byte_size(pdf.byte_size)}
+                  </.table_default_cell>
+                  <.table_default_cell class="text-base-content/60 text-xs">
                     {Helpers.format_time_ago(timestamp_for_filter(pdf, @filter))}
-                  </td>
-                  <td class="text-right">
+                  </.table_default_cell>
+                  <.table_default_cell class="text-right">
                     <%= if @filter == "trashed" do %>
-                      <button
-                        type="button"
-                        phx-click="restore"
-                        phx-value-uuid={pdf.uuid}
-                        phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Restoring…")}
-                        class="btn btn-ghost btn-xs"
-                      >
-                        <.icon name="hero-arrow-uturn-left" class="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        type="button"
-                        phx-click="permanently_delete"
-                        phx-value-uuid={pdf.uuid}
-                        phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Deleting…")}
-                        data-confirm={
-                          Gettext.gettext(
-                            PhoenixKitCatalogue.Gettext,
-                            "Permanently delete this PDF? If no other library entry references the same file content, the underlying file will be queued for hard deletion."
-                          )
-                        }
-                        class="btn btn-ghost btn-xs text-error"
-                      >
-                        <.icon name="hero-x-mark" class="w-3.5 h-3.5" />
-                      </button>
+                      <.table_row_menu mode="auto" id={"pdf-trashed-menu-#{pdf.uuid}"}>
+                        <.table_row_menu_button
+                          phx-click="restore"
+                          phx-value-uuid={pdf.uuid}
+                          phx-disable-with={
+                            Gettext.gettext(PhoenixKitCatalogue.Gettext, "Restoring…")
+                          }
+                          icon="hero-arrow-uturn-left"
+                          label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Restore")}
+                          variant="success"
+                        />
+                        <.table_row_menu_divider />
+                        <.table_row_menu_button
+                          phx-click="permanently_delete"
+                          phx-value-uuid={pdf.uuid}
+                          phx-disable-with={
+                            Gettext.gettext(PhoenixKitCatalogue.Gettext, "Deleting…")
+                          }
+                          data-confirm={
+                            Gettext.gettext(
+                              PhoenixKitCatalogue.Gettext,
+                              "Permanently delete this PDF? If no other library entry references the same file content, the underlying file will be queued for hard deletion."
+                            )
+                          }
+                          icon="hero-trash"
+                          label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete Forever")}
+                          variant="error"
+                        />
+                      </.table_row_menu>
                     <% else %>
-                      <%= if Helpers.pdf_extraction_status(pdf) == "failed" do %>
-                        <button
-                          type="button"
+                      <.table_row_menu mode="auto" id={"pdf-active-menu-#{pdf.uuid}"}>
+                        <.table_row_menu_button
+                          :if={Helpers.pdf_extraction_status(pdf) == "failed"}
                           phx-click="retry_extraction"
                           phx-value-uuid={pdf.uuid}
                           phx-disable-with={
                             Gettext.gettext(PhoenixKitCatalogue.Gettext, "Retrying…")
                           }
-                          class="btn btn-ghost btn-xs"
-                          title={
-                            Gettext.gettext(PhoenixKitCatalogue.Gettext, "Retry text extraction")
+                          icon="hero-arrow-path"
+                          label={
+                            Gettext.gettext(PhoenixKitCatalogue.Gettext, "Retry extraction")
                           }
-                        >
-                          <.icon name="hero-arrow-path" class="w-3.5 h-3.5" />
-                        </button>
-                      <% end %>
-                      <button
-                        type="button"
-                        phx-click="trash"
-                        phx-value-uuid={pdf.uuid}
-                        phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Trashing…")}
-                        data-confirm={
-                          Gettext.gettext(
-                            PhoenixKitCatalogue.Gettext,
-                            "Move this PDF to trash?"
-                          )
-                        }
-                        class="btn btn-ghost btn-xs text-error"
-                      >
-                        <.icon name="hero-trash" class="w-3.5 h-3.5" />
-                      </button>
+                        />
+                        <.table_row_menu_divider
+                          :if={Helpers.pdf_extraction_status(pdf) == "failed"}
+                        />
+                        <.table_row_menu_button
+                          phx-click="trash"
+                          phx-value-uuid={pdf.uuid}
+                          phx-disable-with={
+                            Gettext.gettext(PhoenixKitCatalogue.Gettext, "Trashing…")
+                          }
+                          data-confirm={
+                            Gettext.gettext(
+                              PhoenixKitCatalogue.Gettext,
+                              "Move this PDF to trash?"
+                            )
+                          }
+                          icon="hero-trash"
+                          label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")}
+                          variant="error"
+                        />
+                      </.table_row_menu>
                     <% end %>
-                  </td>
-                </tr>
+                  </.table_default_cell>
+                </.table_default_row>
               <% end %>
-            </tbody>
-          </table>
+            </.table_default_body>
+            <:card_actions :let={pdf}>
+              <%= if @filter == "trashed" do %>
+                <button
+                  phx-click="restore"
+                  phx-value-uuid={pdf.uuid}
+                  class="btn btn-ghost btn-xs text-success"
+                >
+                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Restore")}
+                </button>
+                <button
+                  phx-click="permanently_delete"
+                  phx-value-uuid={pdf.uuid}
+                  data-confirm={
+                    Gettext.gettext(
+                      PhoenixKitCatalogue.Gettext,
+                      "Permanently delete this PDF? If no other library entry references the same file content, the underlying file will be queued for hard deletion."
+                    )
+                  }
+                  class="btn btn-ghost btn-xs text-error"
+                >
+                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete Forever")}
+                </button>
+              <% else %>
+                <button
+                  :if={Helpers.pdf_extraction_status(pdf) == "failed"}
+                  phx-click="retry_extraction"
+                  phx-value-uuid={pdf.uuid}
+                  class="btn btn-ghost btn-xs"
+                >
+                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Retry")}
+                </button>
+                <button
+                  phx-click="trash"
+                  phx-value-uuid={pdf.uuid}
+                  data-confirm={
+                    Gettext.gettext(
+                      PhoenixKitCatalogue.Gettext,
+                      "Move this PDF to trash?"
+                    )
+                  }
+                  class="btn btn-ghost btn-xs text-error"
+                >
+                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")}
+                </button>
+              <% end %>
+            </:card_actions>
+          </.table_default>
         <% end %>
       </div>
-    </div>
+    </PhoenixKitWeb.Components.LayoutWrapper.app_layout>
     """
   end
 
@@ -541,6 +684,9 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLive do
   # Most PDF display helpers live in `Web.Helpers` and are shared with
   # `Web.PdfDetailLive`. The renderers that wrap raw markup stay here
   # because they're LV-specific layout choices.
+
+  defp filter_by_search(pdfs, search),
+    do: PhoenixKitCatalogue.Web.TableQuery.search(pdfs, search, & &1.original_filename)
 
   # HEEx component (was hand-built `Phoenix.HTML.raw` string concat) — gets
   # auto-escaping of the label + failure title for free. `@title` is nil for

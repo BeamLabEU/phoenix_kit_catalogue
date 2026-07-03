@@ -16,8 +16,8 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   import PhoenixKitWeb.Components.Core.Modal, only: [confirm_modal: 1, modal: 1]
   import PhoenixKitWeb.Components.Core.TableDefault
   import PhoenixKitWeb.Components.Core.TableRowMenu
-  import PhoenixKitWeb.Components.Core.EmptyState, only: [empty_state: 1]
   import PhoenixKitCatalogue.Web.Components
+  import PhoenixKitCatalogue.Web.TableToolbar
 
   import PhoenixKitCatalogue.Web.Helpers,
     only: [actor_opts: 1, actor_uuid: 1, log_operation_error: 3, status_label: 1]
@@ -25,8 +25,6 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   alias PhoenixKitCatalogue.Catalogue
   alias PhoenixKitCatalogue.Catalogue.PubSub
   alias PhoenixKitCatalogue.Paths
-
-  @per_page 100
 
   # PhoenixKit auto-applies its admin chrome layout to external module admin
   # views via socket.private[:live_layout]. Opt out here so this view can
@@ -45,25 +43,23 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     {:ok,
      assign(socket,
        page_title: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Catalogue"),
-       catalogues: [],
-       item_counts: %{},
+       catalogue_rows: [],
        manufacturers: [],
        suppliers: [],
        confirm_delete: nil,
        catalogue_view_mode: "active",
        deleted_catalogue_count: 0,
        deleted_folder_count: 0,
-       rows: [],
-       expanded_folders: MapSet.new(),
+       folder_tree: [],
+       folder_tree_deleted: [],
        renaming_folder: nil,
        move_dialog: nil,
        folder_options: [],
-       search_query: "",
-       search_results: nil,
-       search_offset: 0,
-       search_total: 0,
-       search_has_more: false,
-       search_loading: false
+       show_folders_modal: false,
+       folders_modal_view: "active",
+       view_configs: load_view_configs(socket),
+       show_column_modal: false,
+       temp_columns: nil
      )}
   end
 
@@ -101,10 +97,32 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       socket
       |> assign(:active_tab, action)
       |> assign(:page_title, tab_title(action))
-      |> clear_search()
       |> load_data(action)
 
     {:noreply, socket}
+  end
+
+  # Maps the active UI tab to a TableConfig/ViewConfig scope.
+  defp active_scope(%{assigns: a}), do: active_scope(a)
+  defp active_scope(%{active_tab: :index}), do: :catalogues
+  defp active_scope(%{active_tab: :manufacturers}), do: :manufacturers
+  defp active_scope(%{active_tab: :suppliers}), do: :suppliers
+
+  defp load_view_configs(socket) do
+    user = socket.assigns[:phoenix_kit_current_user]
+
+    Map.new([:catalogues, :suppliers, :manufacturers], fn scope ->
+      {scope, PhoenixKitCatalogue.Web.ViewConfig.load(user, scope)}
+    end)
+  end
+
+  defp current_cfg(assigns), do: Map.fetch!(assigns.view_configs, active_scope(assigns))
+
+  # Update one scope's cfg in assigns AND persist to the user row.
+  defp put_cfg(socket, scope, cfg) do
+    user = socket.assigns[:phoenix_kit_current_user]
+    _ = PhoenixKitCatalogue.Web.ViewConfig.save(user, scope, cfg)
+    assign(socket, :view_configs, Map.put(socket.assigns.view_configs, scope, cfg))
   end
 
   defp tab_title(:index), do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Catalogues")
@@ -143,8 +161,8 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     if connected?(socket) do
       requested = socket.assigns.catalogue_view_mode
       deleted_cat_count = Catalogue.deleted_catalogue_count()
-      deleted_folders = Catalogue.list_folder_tree(mode: :deleted)
-      deleted_folder_count = length(deleted_folders)
+      deleted_folder_tree = Catalogue.list_folder_tree(mode: :deleted)
+      deleted_folder_count = length(deleted_folder_tree)
 
       # Auto-switch to active when nothing is deleted in either dimension.
       mode =
@@ -152,24 +170,26 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
           do: "active",
           else: requested
 
-      # Loaded once and shared by both the active row builder and the
-      # "Move to folder" picker — they previously each ran their own
-      # identical `list_folder_tree(:active)` query.
       active_tree = Catalogue.list_folder_tree(mode: :active)
+      folder_lookup = Map.new(active_tree, fn {f, _depth} -> {f.uuid, f} end)
+      item_counts = Catalogue.item_counts_by_catalogue()
 
-      rows =
+      catalogues =
         if mode == "deleted" do
-          build_deleted_rows(deleted_folders, Catalogue.list_catalogues(status: "deleted"))
+          Catalogue.list_catalogues(status: "deleted")
         else
-          build_active_rows(active_tree, socket.assigns.expanded_folders)
+          Catalogue.catalogues_by_folder() |> Map.values() |> List.flatten()
         end
 
+      catalogue_rows = build_catalogue_rows(catalogues, folder_lookup, item_counts)
+
       assign(socket,
-        rows: rows,
-        item_counts: Catalogue.item_counts_by_catalogue(),
+        catalogue_rows: catalogue_rows,
         deleted_catalogue_count: deleted_cat_count,
         deleted_folder_count: deleted_folder_count,
         catalogue_view_mode: mode,
+        folder_tree: active_tree,
+        folder_tree_deleted: deleted_folder_tree,
         folder_options: folder_options(active_tree)
       )
     else
@@ -189,80 +209,19 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       else: socket
   end
 
-  # ── Tree-row assembly ────────────────────────────────────────────
-  #
-  # The active view is a single flattened list of `{:folder, …}` /
-  # `{:catalogue, …}` rows in depth-first display order: at each level
-  # child folders come first (each recursing only when expanded), then
-  # the catalogues filed at that level; the root level ends with the
-  # unfiled catalogues. Orphan promotion (a child of a trashed folder, or
-  # a catalogue whose folder is trashed) is already handled by the
-  # context — promoted rows arrive with `parent_uuid`/folder = nil.
-  defp build_active_rows(active_tree, expanded) do
-    folders = Enum.map(active_tree, fn {f, _depth} -> f end)
-    folders_by_parent = Enum.group_by(folders, & &1.parent_uuid)
-    cats_by_folder = Catalogue.catalogues_by_folder()
-    # Folder rows only ever look up their own (active) folder's count, and
-    # those catalogues are already loaded in `cats_by_folder` — derive the
-    # counts from it instead of a second `folder_catalogue_counts/0` query
-    # (which also keeps the badge and the rendered children consistent by
-    # construction).
-    counts = Map.new(cats_by_folder, fn {folder_uuid, cats} -> {folder_uuid, length(cats)} end)
-    with_child_folders = Catalogue.folder_uuids_with_children(mode: :active)
-
-    walk_level(nil, 0, folders_by_parent, cats_by_folder, counts, with_child_folders, expanded)
-  end
-
-  defp walk_level(parent_uuid, depth, folders_by_parent, cats, counts, with_children, expanded) do
-    # `parent_key` identifies the sibling group for drag-reorder ("root"
-    # at the top level). Both folders and the catalogues filed here share
-    # this level's parent.
-    parent_key = parent_uuid || "root"
-
-    folder_rows =
-      folders_by_parent
-      |> Map.get(parent_uuid, [])
-      |> Enum.flat_map(fn folder ->
-        cat_count = Map.get(counts, folder.uuid, 0)
-        has_children = MapSet.member?(with_children, folder.uuid) or cat_count > 0
-        is_expanded = MapSet.member?(expanded, folder.uuid)
-
-        meta = %{expanded: is_expanded, has_children: has_children, count: cat_count}
-        row = {:folder, folder, depth, meta, parent_key}
-
-        if is_expanded do
-          [
-            row
-            | walk_level(
-                folder.uuid,
-                depth + 1,
-                folders_by_parent,
-                cats,
-                counts,
-                with_children,
-                expanded
-              )
-          ]
-        else
-          [row]
-        end
-      end)
-
-    catalogue_rows =
-      cats |> Map.get(parent_uuid, []) |> Enum.map(&{:catalogue, &1, depth, parent_key})
-
-    folder_rows ++ catalogue_rows
-  end
-
-  # Deleted view is a flat recovery list: deleted folders first, then
-  # deleted catalogues. No nesting, no expand/collapse, no DnD.
-  defp build_deleted_rows(deleted_folder_tree, deleted_catalogues) do
-    folder_rows =
-      Enum.map(deleted_folder_tree, fn {folder, _depth} ->
-        {:folder, folder, 0, %{expanded: false, has_children: false, count: 0}, "root"}
-      end)
-
-    folder_rows ++ Enum.map(deleted_catalogues, &{:catalogue, &1, 0, "root"})
+  # Each catalogue enriched into a plain atom-key map for the flat table:
+  # `:folder_name` from the lookup, `:item_count` from item_counts.
+  defp build_catalogue_rows(catalogues, folder_lookup, item_counts) do
+    Enum.map(catalogues, fn c ->
+      c
+      |> Map.from_struct()
+      |> Map.put(:folder_uuid, c.folder_uuid)
+      |> Map.put(
+        :folder_name,
+        c.folder_uuid && folder_lookup[c.folder_uuid] && folder_lookup[c.folder_uuid].name
+      )
+      |> Map.put(:item_count, Map.get(item_counts, c.uuid, 0))
+    end)
   end
 
   # Depth-indented `{value, label}` options for the "Move to folder"
@@ -342,15 +301,6 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
 
   # ── Folder handlers ─────────────────────────────────────────────
 
-  def handle_event("toggle_folder", %{"uuid" => uuid}, socket) do
-    expanded =
-      if MapSet.member?(socket.assigns.expanded_folders, uuid),
-        do: MapSet.delete(socket.assigns.expanded_folders, uuid),
-        else: MapSet.put(socket.assigns.expanded_folders, uuid)
-
-    {:noreply, socket |> assign(:expanded_folders, expanded) |> load_data(:index)}
-  end
-
   def handle_event("new_folder", _params, socket) do
     case Catalogue.create_folder(%{name: default_folder_name()}, actor_opts(socket)) do
       {:ok, folder} ->
@@ -372,11 +322,9 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
            actor_opts(socket)
          ) do
       {:ok, folder} ->
-        expanded = MapSet.put(socket.assigns.expanded_folders, parent_uuid)
-
         {:noreply,
          socket
-         |> assign(expanded_folders: expanded, renaming_folder: folder.uuid)
+         |> assign(:renaming_folder, folder.uuid)
          |> load_data(:index)}
 
       {:error, _} ->
@@ -440,10 +388,19 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   def handle_event("restore_folder", %{"uuid" => uuid}, socket) do
     with %{} = folder <- Catalogue.get_folder(uuid),
          {:ok, _} <- Catalogue.restore_folder(folder, actor_opts(socket)) do
-      {:noreply,
-       socket
-       |> put_flash(:info, Gettext.gettext(PhoenixKitCatalogue.Gettext, "Folder restored."))
-       |> load_data(:index)}
+      socket =
+        socket
+        |> put_flash(:info, Gettext.gettext(PhoenixKitCatalogue.Gettext, "Folder restored."))
+        |> load_data(:index)
+
+      # If no deleted folders remain, return to the active view so the user
+      # isn't stranded on an empty "Deleted" list with no way to switch back.
+      socket =
+        if socket.assigns.deleted_folder_count == 0,
+          do: assign(socket, :folders_modal_view, "active"),
+          else: socket
+
+      {:noreply, socket}
     else
       _ ->
         {:noreply,
@@ -459,7 +416,8 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   def handle_event("open_move", %{"type" => type, "uuid" => uuid}, socket)
       when type in ~w(folder catalogue) do
     target_type = if type == "folder", do: :folder, else: :catalogue
-    {:noreply, assign(socket, :move_dialog, {target_type, uuid})}
+    # Close the folders modal when opening the move dialog so dialogs don't stack.
+    {:noreply, assign(socket, move_dialog: {target_type, uuid}, show_folders_modal: false)}
   end
 
   def handle_event("cancel_move", _params, socket) do
@@ -479,8 +437,8 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     {:noreply, socket |> assign(:move_dialog, nil) |> load_data(:index)}
   end
 
-  # Native drag-to-file (CatalogueTreeDnD hook): a row dropped onto a
-  # folder row. `target` is the destination folder uuid (or "root").
+  # Used by "Move to folder" row menu and the move dialog.
+  # `target` is the destination folder uuid (or "root" → nil → unfiled).
   def handle_event(
         "move_to_folder",
         %{"type" => type, "uuid" => uuid, "target" => target},
@@ -496,42 +454,6 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       end
 
     {:noreply, load_data(socket, :index)}
-  end
-
-  def handle_event("reorder_catalogues", %{"ordered_ids" => ordered_ids}, socket)
-      when is_list(ordered_ids) do
-    case Catalogue.reorder_catalogues(ordered_ids, actor_opts(socket)) do
-      :ok ->
-        {:noreply, load_data(socket, :index)}
-
-      {:error, reason} ->
-        log_operation_error(socket, "reorder_catalogues", %{reason: reason})
-
-        {:noreply,
-         put_flash(
-           socket,
-           :error,
-           Gettext.gettext(PhoenixKitCatalogue.Gettext, "Failed to save the new order.")
-         )}
-    end
-  end
-
-  def handle_event("reorder_folders", %{"ordered_ids" => ordered_ids}, socket)
-      when is_list(ordered_ids) do
-    case Catalogue.reorder_folders(ordered_ids, actor_opts(socket)) do
-      :ok ->
-        {:noreply, load_data(socket, :index)}
-
-      {:error, reason} ->
-        log_operation_error(socket, "reorder_folders", %{reason: reason})
-
-        {:noreply,
-         put_flash(
-           socket,
-           :error,
-           Gettext.gettext(PhoenixKitCatalogue.Gettext, "Failed to save the new order.")
-         )}
-    end
   end
 
   def handle_event("trash_catalogue", %{"uuid" => uuid}, socket) do
@@ -608,7 +530,9 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   end
 
   def handle_event("show_delete_confirm", %{"uuid" => uuid, "type" => type}, socket) do
-    {:noreply, assign(socket, :confirm_delete, {type, uuid})}
+    # Close the folders modal when confirming folder deletion so dialogs don't stack.
+    show_folders = if type == "folder", do: false, else: socket.assigns.show_folders_modal
+    {:noreply, assign(socket, confirm_delete: {type, uuid}, show_folders_modal: show_folders)}
   end
 
   def handle_event("permanently_delete_catalogue", _params, socket) do
@@ -771,158 +695,180 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     {:noreply, assign(socket, :confirm_delete, nil)}
   end
 
-  def handle_event("search", %{"query" => query}, socket) do
-    query = String.trim(query)
+  def handle_event("show_folders_modal", _p, socket),
+    do: {:noreply, assign(socket, show_folders_modal: true, folders_modal_view: "active")}
 
-    if query == "" do
-      {:noreply, clear_search(socket)}
-    else
-      {:noreply, run_search(socket, query)}
-    end
+  def handle_event("hide_folders_modal", _p, socket),
+    do: {:noreply, assign(socket, :show_folders_modal, false)}
+
+  def handle_event("set_folders_modal_view", %{"mode" => mode}, socket)
+      when mode in ~w(active deleted),
+      do: {:noreply, assign(socket, :folders_modal_view, mode)}
+
+  # ── Column / sort / filter / view handlers ──────────────────────
+
+  def handle_event("show_column_modal", _p, socket) do
+    {:noreply,
+     assign(socket,
+       show_column_modal: true,
+       temp_columns: current_cfg(socket.assigns).columns
+     )}
   end
 
-  def handle_event("clear_search", _params, socket) do
-    {:noreply, clear_search(socket)}
+  def handle_event("hide_column_modal", _p, socket),
+    do: {:noreply, assign(socket, show_column_modal: false, temp_columns: nil)}
+
+  def handle_event("add_column", %{"column_id" => id}, socket) do
+    {:noreply, update(socket, :temp_columns, &((&1 || []) ++ [id]))}
   end
 
-  def handle_event("load_more", _params, socket) do
-    if socket.assigns.search_results != nil and socket.assigns.search_has_more and
-         not socket.assigns.search_loading do
-      {:noreply, start_search_page(socket)}
-    else
-      {:noreply, socket}
-    end
+  def handle_event("remove_column", %{"column_id" => id}, socket) do
+    {:noreply, update(socket, :temp_columns, &Enum.reject(&1 || [], fn c -> c == id end))}
   end
 
-  # ── Search helpers ──────────────────────────────────────────────
-
-  # Runs a fresh search query asynchronously. If a prior search is still
-  # in flight, `start_async/3` cancels it — so fast typing (type-pause-
-  # type-pause) doesn't flash stale intermediate results as each old
-  # request lands out of order. The actual assign happens in
-  # `handle_async(:search, ...)`, guarded by a query equality check.
-  defp run_search(socket, query) do
-    socket
-    |> assign(search_query: query, search_loading: true)
-    |> start_async(:search, fn ->
-      results = Catalogue.search_items(query, limit: @per_page, offset: 0)
-      total = Catalogue.count_search_items(query)
-      {query, results, total}
-    end)
+  def handle_event("reorder_columns", params, socket) do
+    {:noreply, assign(socket, :temp_columns, parse_order(params))}
   end
 
-  @impl true
-  def handle_async(:search, {:ok, {query, results, total}}, socket) do
-    # Only apply if the user is still asking for this query. A late
-    # response for a query the user has already superseded gets dropped.
-    if socket.assigns.search_query == query do
-      {:noreply,
-       assign(socket,
-         search_results: results,
-         search_offset: length(results),
-         search_total: total,
-         search_has_more: length(results) < total,
-         search_loading: false
-       )}
-    else
-      {:noreply, socket}
-    end
+  def handle_event("reset_columns", _p, socket) do
+    scope = active_scope(socket.assigns)
+
+    {:noreply,
+     assign(socket, :temp_columns, PhoenixKitCatalogue.Web.TableConfig.default_columns(scope))}
   end
 
-  def handle_async(:search, {:exit, reason}, socket) do
-    # Cancellations (reason `:shutdown` / `:killed` / `{:shutdown, _}`) are
-    # expected when a newer query supersedes a pending one — the newer
-    # handler owns `search_loading`, so leave the socket alone. For any
-    # other exit (crashed DB query, timeout, raise in the task fn) clear
-    # loading and flash the user so they don't stare at a perpetual
-    # spinner, and log so we can debug without reproducing.
-    case reason do
-      r when r in [:shutdown, :killed] ->
-        {:noreply, socket}
+  def handle_event("apply_columns", params, socket) do
+    scope = active_scope(socket.assigns)
 
-      {:shutdown, _} ->
-        {:noreply, socket}
+    ids =
+      PhoenixKitCatalogue.Web.TableConfig.validate_columns(
+        scope,
+        parse_order(params) || socket.assigns.temp_columns || []
+      )
 
-      other ->
-        Logger.warning(
-          "CataloguesLive search task exited unexpectedly: reason=#{inspect(other)} query=#{inspect(socket.assigns.search_query)} actor_uuid=#{inspect(actor_uuid(socket))}"
-        )
+    ids =
+      if ids == [], do: PhoenixKitCatalogue.Web.TableConfig.default_columns(scope), else: ids
 
-        {:noreply,
-         socket
-         |> assign(:search_loading, false)
-         |> put_flash(
-           :error,
-           Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search failed. Please try again.")
-         )}
-    end
+    cfg = %{current_cfg(socket.assigns) | columns: ids}
+    cfg = if cfg.sort_by in ids, do: cfg, else: %{cfg | sort_by: List.first(ids)}
+
+    {:noreply,
+     socket |> put_cfg(scope, cfg) |> assign(show_column_modal: false, temp_columns: nil)}
   end
 
-  def handle_async(:search_page, {:ok, {query, offset, page}}, socket) do
-    if socket.assigns.search_query == query and socket.assigns.search_offset == offset do
-      new_offset = offset + length(page)
-      has_more = page != [] and new_offset < socket.assigns.search_total
+  def handle_event("set_sort", %{"sort_by" => by}, socket) do
+    scope = active_scope(socket.assigns)
 
-      {:noreply,
-       assign(socket,
-         search_results: (socket.assigns.search_results || []) ++ page,
-         search_offset: new_offset,
-         search_has_more: has_more,
-         search_loading: false
-       )}
+    if MapSet.member?(known_sortable_ids(scope), by) do
+      {:noreply, put_cfg(socket, scope, %{current_cfg(socket.assigns) | sort_by: by})}
     else
       {:noreply, socket}
     end
   end
 
-  def handle_async(:search_page, {:exit, reason}, socket) do
-    case reason do
-      r when r in [:shutdown, :killed] ->
-        {:noreply, socket}
+  def handle_event("flip_sort_dir", _p, socket) do
+    scope = active_scope(socket.assigns)
+    cfg = current_cfg(socket.assigns)
+    {:noreply, put_cfg(socket, scope, %{cfg | sort_dir: flip(cfg.sort_dir)})}
+  end
 
-      {:shutdown, _} ->
-        {:noreply, socket}
+  def handle_event("toggle_sort", %{"by" => by}, socket) do
+    scope = active_scope(socket.assigns)
 
-      other ->
-        Logger.warning(
-          "CataloguesLive search_page task exited unexpectedly: reason=#{inspect(other)} query=#{inspect(socket.assigns.search_query)} offset=#{socket.assigns.search_offset} actor_uuid=#{inspect(actor_uuid(socket))}"
-        )
-
-        {:noreply,
-         socket
-         |> assign(:search_loading, false)
-         |> put_flash(
-           :error,
-           Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search failed. Please try again.")
-         )}
+    if MapSet.member?(known_sortable_ids(scope), by) do
+      cfg = current_cfg(socket.assigns)
+      dir = if cfg.sort_by == by, do: flip(cfg.sort_dir), else: :asc
+      {:noreply, put_cfg(socket, scope, %{cfg | sort_by: by, sort_dir: dir})}
+    else
+      {:noreply, socket}
     end
   end
 
-  # Global-search paging runs off-process for the same reason the
-  # per-catalogue detail view does: the ILIKE-against-jsonb-as-text
-  # query doesn't hit an index and can take hundreds of ms on large
-  # datasets. `handle_async(:search_page, …)` guards on `{query, offset}`
-  # so a superseding new search or a stale page can't double-append.
-  defp start_search_page(socket) do
-    %{search_query: query, search_offset: offset} = socket.assigns
+  def handle_event("set_filter", %{"column_id" => id, "value" => val}, socket) do
+    scope = active_scope(socket.assigns)
 
-    socket
-    |> assign(:search_loading, true)
-    |> start_async(:search_page, fn ->
-      page = Catalogue.search_items(query, limit: @per_page, offset: offset)
-      {query, offset, page}
-    end)
+    if MapSet.member?(filterable_ids(scope), id) do
+      cfg = current_cfg(socket.assigns)
+
+      filters =
+        if val in [nil, "", "all"],
+          do: Map.delete(cfg.filters, id),
+          else: Map.put(cfg.filters, id, val)
+
+      {:noreply, put_cfg(socket, scope, %{cfg | filters: filters})}
+    else
+      {:noreply, socket}
+    end
   end
 
-  defp clear_search(socket) do
-    assign(socket,
-      search_query: "",
-      search_results: nil,
-      search_offset: 0,
-      search_total: 0,
-      search_has_more: false,
-      search_loading: false
-    )
+  def handle_event("clear_filter", %{"column_id" => id}, socket) do
+    scope = active_scope(socket.assigns)
+
+    if MapSet.member?(filterable_ids(scope), id) do
+      cfg = current_cfg(socket.assigns)
+      {:noreply, put_cfg(socket, scope, %{cfg | filters: Map.delete(cfg.filters, id)})}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_event("set_view", %{"mode" => v}, socket) when v in ["table", "card"] do
+    scope = active_scope(socket.assigns)
+    {:noreply, put_cfg(socket, scope, %{current_cfg(socket.assigns) | view: v})}
+  end
+
+  # Transient per-scope text search — NOT persisted via put_cfg.
+  def handle_event("table_search", %{"query" => q}, socket) do
+    scope = active_scope(socket.assigns)
+    cfg = Map.put(current_cfg(socket.assigns), :search, q)
+    {:noreply, assign(socket, :view_configs, Map.put(socket.assigns.view_configs, scope, cfg))}
+  end
+
+  # ── View-config helpers ──────────────────────────────────────────
+
+  # Visible columns (col maps) for a scope per the user's cfg, in order.
+  # "name" is always first (it is never managed/hidden).
+  defp visible_columns(scope, cfg) do
+    map = PhoenixKitCatalogue.Web.TableConfig.column_map(scope)
+    (["name"] ++ cfg.columns) |> Enum.uniq() |> Enum.map(&map[&1]) |> Enum.reject(&is_nil/1)
+  end
+
+  # Apply search/filter/sort to a raw list for a scope.
+  defp derive_rows(rows, scope, cfg) do
+    PhoenixKitCatalogue.Web.TableQuery.apply(rows, scope, %{
+      search: cfg[:search] || "",
+      filters: cfg.filters,
+      sort_by: cfg.sort_by,
+      sort_dir: cfg.sort_dir
+    })
+  end
+
+  defp flip(:asc), do: :desc
+  defp flip(_), do: :asc
+
+  # SortableGrid sends "ordered_ids"/"order" (list) or "column_order" (csv).
+  defp parse_order(%{"ordered_ids" => ids}) when is_list(ids), do: ids
+  defp parse_order(%{"order" => ids}) when is_list(ids), do: ids
+
+  defp parse_order(%{"column_order" => csv}) when is_binary(csv),
+    do: String.split(csv, ",", trim: true)
+
+  defp parse_order(_), do: nil
+
+  # Guard helpers: prevent client-supplied ids from flowing into
+  # String.to_existing_atom (filterable) or persisting junk sort keys.
+  defp filterable_ids(scope) do
+    scope
+    |> PhoenixKitCatalogue.Web.TableConfig.columns()
+    |> Enum.filter(& &1.filterable?)
+    |> MapSet.new(& &1.id)
+  end
+
+  defp known_sortable_ids(scope) do
+    scope
+    |> PhoenixKitCatalogue.Web.TableConfig.columns()
+    |> Enum.filter(& &1.sortable?)
+    |> MapSet.new(& &1.id)
   end
 
   # ── Render ──────────────────────────────────────────────────────
@@ -939,137 +885,294 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       current_locale={assigns[:current_locale]}
     >
       <div class="flex flex-col w-full px-4 py-6 gap-6">
-        <div class="flex flex-wrap items-center justify-end gap-2 mb-2">
-          <button
-            :if={@active_tab == :index && @catalogue_view_mode == "active"}
-            type="button"
-            phx-click="new_folder"
-            phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Creating...")}
-            class="btn btn-ghost btn-sm gap-1"
-          >
-            <.icon name="hero-folder-plus" class="w-4 h-4" />
-            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "New Folder")}
-          </button>
-          <.link :if={@active_tab == :index && @catalogue_view_mode == "active"} navigate={Paths.catalogue_new()} class="btn btn-primary btn-sm">
-            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "New Catalogue")}
-          </.link>
-          <.link :if={@active_tab == :manufacturers} navigate={Paths.manufacturer_new()} class="btn btn-primary btn-sm">
-            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "New Manufacturer")}
-          </.link>
-          <.link :if={@active_tab == :suppliers} navigate={Paths.supplier_new()} class="btn btn-primary btn-sm">
-            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "New Supplier")}
-          </.link>
-        </div>
-
-        <%!-- Global search (only on catalogues tab). While a tree row is being
-           dragged, the CatalogueTreeDnD hook swaps the search bar for the
-           "move to root" drop target in-place, so the layout doesn't jump. --%>
-      <div :if={@active_tab == :index} class="relative">
-        <.search_input query={@search_query} placeholder={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search items across all catalogues...")} />
-        <%!-- Overlaid on the search bar's exact box while dragging (absolute, so
-             it adds no height) → the "move to root" target appears with no jump. --%>
-        <div
-          data-tree-rootzone="1"
-          data-tree-drop="root"
-          class="hidden absolute inset-0 z-10 flex items-center justify-center gap-1 rounded-lg border-2 border-dashed border-primary/50 bg-base-100 text-sm text-base-content/60"
-        >
-          <.icon name="hero-arrow-up-tray" class="w-4 h-4" />
-          {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Drop here to move to root (unfiled)")}
-        </div>
-      </div>
-
-      <%!-- Search results (visible when the user has typed a query) --%>
-      <div :if={@search_results != nil or @search_loading} class="flex flex-col gap-4">
-        <%!-- Status line: spinner while loading, "X of Y results" when settled --%>
-        <div class="flex items-center gap-2">
-          <%= if @search_loading and is_nil(@search_results) do %>
-            <span class="text-sm text-base-content/60">
-              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Searching for \"%{query}\"...", query: @search_query)}
-            </span>
-          <% else %>
-            <.search_results_summary :if={@search_results != nil} count={@search_total} query={@search_query} loaded={length(@search_results)} />
-          <% end %>
-          <span :if={@search_loading} class="loading loading-spinner loading-xs text-base-content/40"></span>
-        </div>
-
-        <.empty_state :if={@search_results == [] and not @search_loading} variant="card" title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "No items match your search.")} />
-
-        <%!-- Stale results are dimmed while a newer query is in flight to
-             signal that the list is about to update. --%>
-        <div :if={@search_results not in [nil, []]} class={["transition-opacity", @search_loading && "opacity-50"]}>
-          <.item_table
-            items={@search_results}
-            columns={[:name, :sku, :base_price, :catalogue, :category, :manufacturer, :status]}
-            variant="zebra"
-            edit_path={&Paths.item_edit/1}
-            catalogue_path={&Paths.catalogue_detail/1}
-            cards={true}
-            id="global-search-items"
-          />
-        </div>
-
-        <%!-- Infinite-scroll sentinel for global search --%>
-        <div
-          :if={@search_has_more and not @search_loading}
-          id="catalogues-search-load-more-sentinel"
-          phx-hook="InfiniteScroll"
-          data-cursor={"global-search-#{@search_offset}"}
-          class="py-4"
-        >
-          <div class="flex justify-center">
-            <span class="loading loading-spinner loading-sm text-base-content/30"></span>
+        <%!-- Catalogue tab content --%>
+        <div :if={@active_tab == :index} class="flex flex-col gap-4">
+          <% cfg = @view_configs.catalogues %>
+          <%!-- Active/Deleted sub-tabs — shown only when there are deleted items. --%>
+          <div :if={@deleted_catalogue_count > 0} class="flex items-center gap-0.5 border-b border-base-200">
+            <button
+              type="button"
+              phx-click="switch_catalogue_view"
+              phx-value-mode="active"
+              class={[
+                "px-3 py-1.5 text-xs font-medium border-b-2 transition-colors cursor-pointer",
+                if(@catalogue_view_mode == "active",
+                  do: "border-primary text-primary",
+                  else: "border-transparent text-base-content/50 hover:text-base-content"
+                )
+              ]}
+            >
+              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Active")}
+            </button>
+            <button
+              type="button"
+              phx-click="switch_catalogue_view"
+              phx-value-mode="deleted"
+              class={[
+                "px-3 py-1.5 text-xs font-medium border-b-2 transition-colors cursor-pointer",
+                if(@catalogue_view_mode == "deleted",
+                  do: "border-error text-error",
+                  else: "border-transparent text-base-content/50 hover:text-base-content"
+                )
+              ]}
+            >
+              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Deleted")} ({@deleted_catalogue_count})
+            </button>
           </div>
-        </div>
-      </div>
-
-      <%!-- Catalogue tab content --%>
-      <div :if={@active_tab == :index and is_nil(@search_results) and not @search_loading} class="flex flex-col gap-4">
-        <%!-- Status sub-tabs for catalogues --%>
-        <div :if={@deleted_catalogue_count > 0} class="flex items-center gap-0.5 border-b border-base-200">
-          <button
-            type="button"
-            phx-click="switch_catalogue_view"
-            phx-value-mode="active"
-            class={[
-              "px-3 py-1.5 text-xs font-medium border-b-2 transition-colors cursor-pointer",
-              if(@catalogue_view_mode == "active",
-                do: "border-primary text-primary",
-                else: "border-transparent text-base-content/50 hover:text-base-content"
-              )
-            ]}
+          <.table_toolbar scope={:catalogues} cfg={cfg}>
+            <:filters>
+              <.enum_filter
+                id="folder"
+                label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Folder")}
+                value={cfg.filters["folder"]}
+                prompt={Gettext.gettext(PhoenixKitCatalogue.Gettext, "All folders")}
+                options={PhoenixKitCatalogue.Web.TableQuery.enum_options(@catalogue_rows, :catalogues, "folder")}
+              />
+              <.enum_filter
+                id="status"
+                label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Status")}
+                value={cfg.filters["status"]}
+                prompt={Gettext.gettext(PhoenixKitCatalogue.Gettext, "All statuses")}
+                options={PhoenixKitCatalogue.Web.TableQuery.enum_options(@catalogue_rows, :catalogues, "status")}
+              />
+            </:filters>
+            <:actions>
+              <button
+                :if={@catalogue_view_mode == "active"}
+                type="button"
+                phx-click="new_folder"
+                phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Creating...")}
+                class="btn btn-ghost btn-sm gap-1"
+              >
+                <.icon name="hero-folder-plus" class="w-4 h-4" />
+                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "New Folder")}
+              </button>
+              <button
+                type="button"
+                phx-click="show_folders_modal"
+                class="btn btn-ghost btn-sm gap-1"
+              >
+                <.icon name="hero-folder-open" class="w-4 h-4" />
+                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Folders…")}
+              </button>
+              <.link :if={@catalogue_view_mode == "active"} navigate={Paths.catalogue_new()} class="btn btn-primary btn-sm">
+                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "New Catalogue")}
+              </.link>
+            </:actions>
+          </.table_toolbar>
+          <.simple_table
+            scope={:catalogues}
+            cfg={cfg}
+            rows={derive_rows(@catalogue_rows, :catalogues, cfg)}
+            total={length(@catalogue_rows)}
+            empty={Gettext.gettext(PhoenixKitCatalogue.Gettext, "No catalogues yet.")}
           >
-            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Active")}
-          </button>
-          <button
-            type="button"
-            phx-click="switch_catalogue_view"
-            phx-value-mode="deleted"
-            class={[
-              "px-3 py-1.5 text-xs font-medium border-b-2 transition-colors cursor-pointer",
-              if(@catalogue_view_mode == "deleted",
-                do: "border-error text-error",
-                else: "border-transparent text-base-content/50 hover:text-base-content"
-              )
-            ]}
-          >
-            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Deleted")} ({@deleted_catalogue_count})
-          </button>
+            <:row_actions :let={c}>
+              <.table_row_menu :if={@catalogue_view_mode == "active"} mode="auto" id={"cat-menu-#{c.uuid}"}>
+                <.table_row_menu_link
+                  navigate={Paths.catalogue_detail(c.uuid)}
+                  icon="hero-eye"
+                  label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "View")}
+                />
+                <.table_row_menu_link
+                  navigate={Paths.catalogue_edit(c.uuid)}
+                  icon="hero-pencil"
+                  label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")}
+                  variant="secondary"
+                />
+                <.table_row_menu_button
+                  phx-click="open_move"
+                  phx-value-type="catalogue"
+                  phx-value-uuid={c.uuid}
+                  icon="hero-folder-arrow-down"
+                  label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Move to folder")}
+                  variant="secondary"
+                />
+                <.table_row_menu_divider />
+                <.table_row_menu_button
+                  phx-click="trash_catalogue"
+                  phx-value-uuid={c.uuid}
+                  phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Deleting...")}
+                  icon="hero-trash"
+                  label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")}
+                  variant="error"
+                />
+              </.table_row_menu>
+              <.table_row_menu :if={@catalogue_view_mode == "deleted"} mode="auto" id={"cat-del-menu-#{c.uuid}"}>
+                <.table_row_menu_button
+                  phx-click="restore_catalogue"
+                  phx-value-uuid={c.uuid}
+                  phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Restoring...")}
+                  icon="hero-arrow-path"
+                  label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Restore")}
+                  variant="success"
+                />
+                <.table_row_menu_divider />
+                <.table_row_menu_button
+                  phx-click="show_delete_confirm"
+                  phx-value-uuid={c.uuid}
+                  phx-value-type="catalogue"
+                  icon="hero-trash"
+                  label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete Forever")}
+                  variant="error"
+                />
+              </.table_row_menu>
+            </:row_actions>
+            <:card_actions :let={c}>
+              <.link
+                :if={@catalogue_view_mode == "active"}
+                navigate={Paths.catalogue_detail(c.uuid)}
+                class="btn btn-ghost btn-xs"
+              >
+                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "View")}
+              </.link>
+              <.link
+                :if={@catalogue_view_mode == "active"}
+                navigate={Paths.catalogue_edit(c.uuid)}
+                class="btn btn-ghost btn-xs"
+              >
+                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")}
+              </.link>
+              <button
+                :if={@catalogue_view_mode == "deleted"}
+                phx-click="restore_catalogue"
+                phx-value-uuid={c.uuid}
+                class="btn btn-ghost btn-xs text-success"
+              >
+                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Restore")}
+              </button>
+              <button
+                :if={@catalogue_view_mode == "deleted"}
+                phx-click="show_delete_confirm"
+                phx-value-uuid={c.uuid}
+                phx-value-type="catalogue"
+                class="btn btn-ghost btn-xs text-error"
+              >
+                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete Forever")}
+              </button>
+            </:card_actions>
+          </.simple_table>
         </div>
 
-        <.folder_tree_table
-          rows={@rows}
-          item_counts={@item_counts}
-          view_mode={@catalogue_view_mode}
-          renaming_folder={@renaming_folder}
-        />
+        <div :if={@active_tab == :manufacturers} class="flex flex-col gap-4">
+        <% cfg = @view_configs.manufacturers %>
+        <.table_toolbar scope={:manufacturers} cfg={cfg}>
+          <:filters>
+            <.enum_filter
+              id="status"
+              label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Status")}
+              value={cfg.filters["status"]}
+              prompt={Gettext.gettext(PhoenixKitCatalogue.Gettext, "All statuses")}
+              options={PhoenixKitCatalogue.Web.TableQuery.enum_options(@manufacturers, :manufacturers, "status")}
+            />
+          </:filters>
+          <:actions>
+            <.link navigate={Paths.manufacturer_new()} class="btn btn-primary btn-sm">
+              <.icon name="hero-plus" class="w-4 h-4" />
+              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "New Manufacturer")}
+            </.link>
+          </:actions>
+        </.table_toolbar>
+        <.simple_table
+          scope={:manufacturers}
+          cfg={cfg}
+          rows={derive_rows(@manufacturers, :manufacturers, cfg)}
+          total={length(@manufacturers)}
+          empty={Gettext.gettext(PhoenixKitCatalogue.Gettext, "No manufacturers yet.")}
+        >
+          <:row_actions :let={m}>
+            <.table_row_menu mode="auto" id={"mfg-menu-#{m.uuid}"}>
+              <.table_row_menu_link
+                navigate={Paths.manufacturer_edit(m.uuid)}
+                icon="hero-pencil"
+                label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")}
+              />
+              <.table_row_menu_divider />
+              <.table_row_menu_button
+                phx-click="show_delete_confirm"
+                phx-value-uuid={m.uuid}
+                phx-value-type="manufacturer"
+                icon="hero-trash"
+                label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")}
+                variant="error"
+              />
+            </.table_row_menu>
+          </:row_actions>
+          <:card_actions :let={m}>
+            <.link navigate={Paths.manufacturer_edit(m.uuid)} class="btn btn-ghost btn-xs">
+              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")}
+            </.link>
+            <button
+              phx-click="show_delete_confirm"
+              phx-value-uuid={m.uuid}
+              phx-value-type="manufacturer"
+              class="btn btn-ghost btn-xs text-error"
+            >
+              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")}
+            </button>
+          </:card_actions>
+        </.simple_table>
       </div>
 
-      <div :if={@active_tab == :manufacturers and is_nil(@search_results)}>
-        <.manufacturers_table manufacturers={@manufacturers} />
-      </div>
-
-      <div :if={@active_tab == :suppliers and is_nil(@search_results)}>
-        <.suppliers_table suppliers={@suppliers} />
+      <div :if={@active_tab == :suppliers} class="flex flex-col gap-4">
+        <% cfg = @view_configs.suppliers %>
+        <.table_toolbar scope={:suppliers} cfg={cfg}>
+          <:filters>
+            <.enum_filter
+              id="status"
+              label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Status")}
+              value={cfg.filters["status"]}
+              prompt={Gettext.gettext(PhoenixKitCatalogue.Gettext, "All statuses")}
+              options={PhoenixKitCatalogue.Web.TableQuery.enum_options(@suppliers, :suppliers, "status")}
+            />
+          </:filters>
+          <:actions>
+            <.link navigate={Paths.supplier_new()} class="btn btn-primary btn-sm">
+              <.icon name="hero-plus" class="w-4 h-4" />
+              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "New Supplier")}
+            </.link>
+          </:actions>
+        </.table_toolbar>
+        <.simple_table
+          scope={:suppliers}
+          cfg={cfg}
+          rows={derive_rows(@suppliers, :suppliers, cfg)}
+          total={length(@suppliers)}
+          empty={Gettext.gettext(PhoenixKitCatalogue.Gettext, "No suppliers yet.")}
+        >
+          <:row_actions :let={s}>
+            <.table_row_menu mode="auto" id={"supplier-menu-#{s.uuid}"}>
+              <.table_row_menu_link
+                navigate={Paths.supplier_edit(s.uuid)}
+                icon="hero-pencil"
+                label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")}
+                variant="secondary"
+              />
+              <.table_row_menu_divider />
+              <.table_row_menu_button
+                phx-click="show_delete_confirm"
+                phx-value-uuid={s.uuid}
+                phx-value-type="supplier"
+                icon="hero-trash"
+                label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")}
+                variant="error"
+              />
+            </.table_row_menu>
+          </:row_actions>
+          <:card_actions :let={s}>
+            <.link navigate={Paths.supplier_edit(s.uuid)} class="btn btn-ghost btn-xs">
+              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")}
+            </.link>
+            <button
+              phx-click="show_delete_confirm"
+              phx-value-uuid={s.uuid}
+              phx-value-type="supplier"
+              class="btn btn-ghost btn-xs text-error"
+            >
+              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")}
+            </button>
+          </:card_actions>
+        </.simple_table>
       </div>
 
       <.confirm_modal
@@ -1135,347 +1238,194 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
           </div>
         </form>
       </.modal>
-      </div>
 
-      <script>
-        window.PhoenixKitHooks = window.PhoenixKitHooks || {};
-      window.PhoenixKitHooks.InfiniteScroll = window.PhoenixKitHooks.InfiniteScroll || {
-        mounted() {
-          this.intersecting = false;
-          this.observer = new IntersectionObserver((entries) => {
-            this.intersecting = entries[0].isIntersecting;
-            if (this.intersecting) {
-              this.pushEvent("load_more", {});
-            }
-          }, { rootMargin: "200px" });
-          this.observer.observe(this.el);
-        },
-        updated() {
-          // IntersectionObserver only fires on state transitions. When the
-          // viewport is tall or the user jumped via Page Down / resize, the
-          // sentinel stays continuously in view across batches — so the
-          // observer goes silent after the first fire. Re-trigger explicitly
-          // whenever the server patches us while we're still on-screen.
-          // The server's `loading` guard dedupes duplicate events.
-          if (this.intersecting) {
-            this.pushEvent("load_more", {});
-          }
-        },
-        destroyed() {
-          this.observer.disconnect();
-        }
-      };
-
-      // Native HTML5 DnD for the catalogue folder tree-table — one system,
-      // no SortableJS, so nothing collides. Grab a row's handle, then drop:
-      //   • on a folder's MIDDLE → file into that folder
-      //   • on a row's TOP/BOTTOM edge → reorder among same-parent siblings
-      //   • on a "move to root" zone → unfile to root
-      // The context enforces the cycle / trashed-target guards server-side.
-      window.PhoenixKitHooks.CatalogueTreeDnD = window.PhoenixKitHooks.CatalogueTreeDnD || {
-        mounted() { this.setupTreeDnD(); },
-        updated() { this.setupTreeDnD(); },
-        setupTreeDnD() {
-          var hook = this;
-
-          // Drag sources: the grip handles.
-          this.el.querySelectorAll("[data-tree-item]").forEach(function(handle) {
-            handle.setAttribute("draggable", "true");
-            handle.ondragstart = function(e) {
-              var row = handle.closest("tr");
-              hook._drag = row && {
-                uuid: row.dataset.treeUuid,
-                type: row.dataset.treeType,
-                parent: row.dataset.treeParent
-              };
-              e.dataTransfer.setData("text/plain", handle.dataset.treeItem);
-              e.dataTransfer.effectAllowed = "move";
-              if (row) {
-                try { e.dataTransfer.setDragImage(row, 12, 12); } catch (err) {}
-                row.classList.add("opacity-50");
-                hook._dragRowEl = row;
-              }
-              // Reveal the "move to root" target, overlaid on the search bar's
-              // box (absolute → no layout shift).
-              document.querySelectorAll("[data-tree-rootzone]").forEach(function(z) {
-                z.classList.remove("hidden");
-              });
-            };
-            handle.ondragend = function() { hook.endDrag(); };
-          });
-
-          // Row targets: file-into (folder middle) or reorder (top/bottom edge).
-          this.el.querySelectorAll("[data-tree-uuid]").forEach(function(row) {
-            row.ondragover = function(e) {
-              var intent = hook.dropIntent(row, e);
-              if (!intent) return;
-              e.preventDefault();
-              e.dataTransfer.dropEffect = "move";
-              hook.showIndicator(row, intent);
-            };
-            row.ondragleave = function() { hook.clearRow(row); };
-            row.ondrop = function(e) {
-              var intent = hook.dropIntent(row, e);
-              hook.clearRow(row);
-              if (!intent || !hook._drag) return;
-              e.preventDefault();
-              var drag = hook._drag;
-              if (intent === "into") {
-                hook.pushEvent("move_to_folder", { type: drag.type, uuid: drag.uuid, target: row.dataset.treeDrop });
-              } else {
-                hook.reorder(drag, row, intent);
-              }
-            };
-          });
-
-          // Root drop zone lives in the search-bar slot (outside this.el),
-          // so query the whole document to bind + toggle it.
-          document.querySelectorAll("[data-tree-rootzone]").forEach(function(zone) {
-            zone.ondragover = function(e) {
-              if (!hook._drag) return;
-              e.preventDefault();
-              e.dataTransfer.dropEffect = "move";
-              zone.classList.add("bg-primary/10");
-            };
-            zone.ondragleave = function() { zone.classList.remove("bg-primary/10"); };
-            zone.ondrop = function(e) {
-              e.preventDefault();
-              zone.classList.remove("bg-primary/10");
-              if (hook._drag) {
-                hook.pushEvent("move_to_folder", { type: hook._drag.type, uuid: hook._drag.uuid, target: "root" });
-              }
-            };
-          });
-        },
-
-        // "into" | "before" | "after" | null for the pointer over `row`.
-        dropIntent(row, e) {
-          var drag = this._drag;
-          if (!drag || drag.uuid === row.dataset.treeUuid) return null;
-          var rect = row.getBoundingClientRect();
-          var ratio = (e.clientY - rect.top) / rect.height;
-          var isFolder = row.hasAttribute("data-tree-drop");
-          if (isFolder && ratio > 0.25 && ratio < 0.75) return "into";
-          if (drag.parent === row.dataset.treeParent && drag.type === row.dataset.treeType) {
-            return ratio < 0.5 ? "before" : "after";
-          }
-          // Over a folder but not a sibling → fall back to filing into it.
-          return isFolder ? "into" : null;
-        },
-
-        reorder(drag, row, intent) {
-          // Same-parent, same-type siblings in current DOM order.
-          var order = [];
-          this.el.querySelectorAll("[data-tree-uuid]").forEach(function(r) {
-            if (r.dataset.treeParent === drag.parent &&
-                r.dataset.treeType === drag.type &&
-                r.dataset.treeUuid !== drag.uuid) {
-              order.push(r.dataset.treeUuid);
-            }
-          });
-          var idx = order.indexOf(row.dataset.treeUuid);
-          if (idx < 0) return;
-          order.splice(intent === "before" ? idx : idx + 1, 0, drag.uuid);
-          this.pushEvent(drag.type === "folder" ? "reorder_folders" : "reorder_catalogues", { ordered_ids: order });
-        },
-
-        showIndicator(row, intent) {
-          this.clearAll();
-          if (intent === "into") {
-            // Inline style (not a class) so the highlight wins over the
-            // table-zebra row background, which otherwise hides it.
-            row.style.backgroundColor = "rgba(59, 130, 246, 0.18)";
-          } else {
-            row.style.boxShadow = intent === "before"
-              ? "inset 0 3px 0 0 rgb(59 130 246)"
-              : "inset 0 -3px 0 0 rgb(59 130 246)";
-          }
-        },
-
-        clearRow(row) {
-          row.style.backgroundColor = "";
-          row.style.boxShadow = "";
-        },
-
-        clearAll() {
-          var self = this;
-          this.el.querySelectorAll("[data-tree-uuid]").forEach(function(r) { self.clearRow(r); });
-        },
-
-        endDrag() {
-          if (this._dragRowEl) { this._dragRowEl.classList.remove("opacity-50"); this._dragRowEl = null; }
-          this._drag = null;
-          document.querySelectorAll("[data-tree-rootzone]").forEach(function(z) {
-            z.classList.add("hidden");
-            z.classList.remove("bg-primary/10");
-          });
-          this.clearAll();
-        }
-      };
-      </script>
-    </PhoenixKitWeb.Components.LayoutWrapper.app_layout>
-    """
-  end
-
-  defp folder_tree_table(assigns) do
-    ~H"""
-    <div :if={@rows == []} class="card bg-base-100 shadow">
-      <div class="card-body items-center text-center py-12">
-        <p class="text-base-content/60">
-          {if @view_mode == "deleted", do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Nothing in the trash."), else: Gettext.gettext(PhoenixKitCatalogue.Gettext, "No catalogues yet.")}
-        </p>
-      </div>
-    </div>
-
-    <div :if={@rows != []} id={"cat-tree-#{@view_mode}"} phx-hook="CatalogueTreeDnD" class="overflow-x-auto">
-      <table class="table table-zebra table-sm">
-        <thead>
-          <tr>
-            <th :if={@view_mode == "active"} class="w-8"></th>
-            <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Name")}</th>
-            <th class="text-right">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Items")}</th>
-            <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Status")}</th>
-            <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Updated")}</th>
-            <th class="text-right whitespace-nowrap">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Actions")}</th>
-          </tr>
-        </thead>
-        <tbody>
-          <%= for row <- @rows do %>
-            <%= case row do %>
-              <% {:folder, folder, depth, meta, parent_key} -> %>
-                <tr
-                  class={["group/row hover"]}
-                  data-tree-uuid={@view_mode == "active" && folder.uuid}
-                  data-tree-type={@view_mode == "active" && "folder"}
-                  data-tree-parent={@view_mode == "active" && parent_key}
-                  data-tree-drop={@view_mode == "active" && folder.uuid}
-                >
-                  <td
-                    :if={@view_mode == "active"}
-                    data-tree-item={"folder:" <> folder.uuid}
-                    class="w-8 pk-tree-handle cursor-grab active:cursor-grabbing text-base-content/40 opacity-0 group-hover/row:opacity-100 transition-opacity"
-                    title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Drag to move into a folder")}
-                  >
-                    <.icon name="hero-bars-3" class="w-4 h-4" />
-                  </td>
-                  <td>
-                    <div class="flex items-center gap-1.5" style={"padding-left: #{depth * 1.5}rem"}>
-                      <button
-                        :if={meta.has_children}
-                        type="button"
-                        phx-click="toggle_folder"
-                        phx-value-uuid={folder.uuid}
-                        class="btn btn-ghost btn-xs p-0 min-h-0 h-5 w-5"
-                        aria-label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Toggle folder")}
-                      >
-                        <.icon name={if meta.expanded, do: "hero-chevron-down-mini", else: "hero-chevron-right-mini"} class="w-4 h-4 text-base-content/50" />
-                      </button>
-                      <span :if={not meta.has_children} class="w-5"></span>
-                      <.icon name="hero-folder" class="w-4 h-4 text-warning shrink-0" />
-                      <%= cond do %>
-                        <% @renaming_folder == folder.uuid -> %>
-                          <form phx-submit="rename_folder" phx-value-uuid={folder.uuid}>
-                            <input
-                              type="text"
-                              name="name"
-                              value={folder.name}
-                              phx-mounted={Phoenix.LiveView.JS.focus()}
-                              phx-blur="rename_folder"
-                              phx-value-uuid={folder.uuid}
-                              class="input input-bordered input-xs"
-                            />
-                          </form>
-                        <% @view_mode == "active" -> %>
-                          <button
-                            type="button"
-                            phx-click="start_rename_folder"
-                            phx-value-uuid={folder.uuid}
-                            class="font-medium text-left cursor-pointer hover:underline decoration-dotted underline-offset-2"
-                            title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Click to rename")}
-                          >
-                            {folder.name}
-                          </button>
-                        <% true -> %>
-                          <span class="font-medium text-base-content/50">{folder.name}</span>
-                      <% end %>
-                    </div>
-                  </td>
-                  <td class="text-right tabular-nums text-base-content/60">{meta.count}</td>
-                  <td><.status_badge status={folder.status} size={:sm} /></td>
-                  <td class="text-sm text-base-content/60">{Calendar.strftime(folder.updated_at, "%Y-%m-%d %H:%M")}</td>
-                  <td class="text-right whitespace-nowrap">
-                    <.table_row_menu :if={@view_mode == "active"} mode="auto" id={"folder-menu-#{folder.uuid}"}>
-                      <.table_row_menu_button phx-click="new_subfolder" phx-value-uuid={folder.uuid} phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Creating...")} icon="hero-folder-plus" label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "New subfolder")} />
-                      <.table_row_menu_button phx-click="start_rename_folder" phx-value-uuid={folder.uuid} icon="hero-pencil" label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Rename")} variant="secondary" />
-                      <.table_row_menu_button phx-click="open_move" phx-value-type="folder" phx-value-uuid={folder.uuid} icon="hero-folder-arrow-down" label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Move to folder")} variant="secondary" />
-                      <.table_row_menu_divider />
-                      <.table_row_menu_button phx-click="trash_folder" phx-value-uuid={folder.uuid} phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Deleting...")} icon="hero-trash" label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")} variant="error" />
-                    </.table_row_menu>
-                    <.table_row_menu :if={@view_mode == "deleted"} mode="auto" id={"folder-del-menu-#{folder.uuid}"}>
-                      <.table_row_menu_button phx-click="restore_folder" phx-value-uuid={folder.uuid} phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Restoring...")} icon="hero-arrow-path" label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Restore")} variant="success" />
-                      <.table_row_menu_divider />
-                      <.table_row_menu_button phx-click="show_delete_confirm" phx-value-uuid={folder.uuid} phx-value-type="folder" icon="hero-trash" label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete Forever")} variant="error" />
-                    </.table_row_menu>
-                  </td>
-                </tr>
-              <% {:catalogue, catalogue, depth, parent_key} -> %>
-                <tr
-                  class={["group/row hover"]}
-                  data-tree-uuid={@view_mode == "active" && catalogue.uuid}
-                  data-tree-type={@view_mode == "active" && "catalogue"}
-                  data-tree-parent={@view_mode == "active" && parent_key}
-                >
-                  <td
-                    :if={@view_mode == "active"}
-                    data-tree-item={"catalogue:" <> catalogue.uuid}
-                    class="w-8 pk-tree-handle cursor-grab active:cursor-grabbing text-base-content/40 opacity-0 group-hover/row:opacity-100 transition-opacity"
-                    title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Drag to move into a folder")}
-                  >
-                    <.icon name="hero-bars-3" class="w-4 h-4" />
-                  </td>
-                  <td>
-                    <div class="flex items-center gap-1.5" style={"padding-left: #{depth * 1.5 + 1.5}rem"}>
-                      <.icon name="hero-document-text" class="w-4 h-4 text-base-content/40 shrink-0" />
-                      <.link :if={@view_mode == "active"} navigate={Paths.catalogue_detail(catalogue.uuid)} class="link link-hover font-medium">
-                        {catalogue.name}
-                      </.link>
-                      <span :if={@view_mode == "deleted"} class="font-medium text-base-content/50">{catalogue.name}</span>
-                    </div>
-                  </td>
-                  <td class="text-right tabular-nums">{Map.get(@item_counts, catalogue.uuid, 0)}</td>
-                  <td><.status_badge status={catalogue.status} size={:sm} /></td>
-                  <td class="text-sm text-base-content/60">{Calendar.strftime(catalogue.updated_at, "%Y-%m-%d %H:%M")}</td>
-                  <td class="text-right whitespace-nowrap">
-                    <.table_row_menu :if={@view_mode == "active"} mode="auto" id={"cat-menu-#{catalogue.uuid}"}>
-                      <.table_row_menu_link navigate={Paths.catalogue_detail(catalogue.uuid)} icon="hero-eye" label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "View")} />
-                      <.table_row_menu_link navigate={Paths.catalogue_edit(catalogue.uuid)} icon="hero-pencil" label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")} variant="secondary" />
-                      <.table_row_menu_button phx-click="open_move" phx-value-type="catalogue" phx-value-uuid={catalogue.uuid} icon="hero-folder-arrow-down" label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Move to folder")} variant="secondary" />
-                      <.table_row_menu_divider />
-                      <.table_row_menu_button phx-click="trash_catalogue" phx-value-uuid={catalogue.uuid} phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Deleting...")} icon="hero-trash" label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")} variant="error" />
-                    </.table_row_menu>
-                    <.table_row_menu :if={@view_mode == "deleted"} mode="auto" id={"cat-del-menu-#{catalogue.uuid}"}>
-                      <.table_row_menu_button phx-click="restore_catalogue" phx-value-uuid={catalogue.uuid} phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Restoring...")} icon="hero-arrow-path" label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Restore")} variant="success" />
-                      <.table_row_menu_divider />
-                      <.table_row_menu_button phx-click="show_delete_confirm" phx-value-uuid={catalogue.uuid} phx-value-type="catalogue" icon="hero-trash" label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete Forever")} variant="error" />
-                    </.table_row_menu>
-                  </td>
-                </tr>
-            <% end %>
-          <% end %>
-        </tbody>
-      </table>
-      <%!-- "Move to root" target below the list (revealed only while dragging).
-           Below the table, so appearing here doesn't shift the rows above. --%>
-      <div
-        :if={@view_mode == "active"}
-        data-tree-rootzone="1"
-        data-tree-drop="root"
-        class="hidden mt-2 rounded-lg border-2 border-dashed border-primary/50 py-3 text-center text-sm text-base-content/60"
+      <%!-- Folders management modal — create, rename, move, trash, restore, delete-forever. --%>
+      <.modal
+        :if={@show_folders_modal}
+        id="catalogue-folders-modal"
+        show
+        on_close="hide_folders_modal"
       >
-        <.icon name="hero-arrow-up-tray" class="w-4 h-4 inline-block mr-1 align-text-bottom" />
-        {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Drop here to move to root (unfiled)")}
+        <div class="flex flex-col gap-4 min-w-72">
+          <h3 class="text-lg font-semibold">
+            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Folders")}
+          </h3>
+
+          <%!-- Active / Deleted toggle — only when there are deleted folders. --%>
+          <div
+            :if={@deleted_folder_count > 0}
+            class="flex items-center gap-0.5 border-b border-base-200"
+          >
+            <button
+              type="button"
+              phx-click="set_folders_modal_view"
+              phx-value-mode="active"
+              class={[
+                "px-3 py-1.5 text-xs font-medium border-b-2 transition-colors cursor-pointer",
+                if(@folders_modal_view == "active",
+                  do: "border-primary text-primary",
+                  else: "border-transparent text-base-content/50 hover:text-base-content"
+                )
+              ]}
+            >
+              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Active")}
+            </button>
+            <button
+              type="button"
+              phx-click="set_folders_modal_view"
+              phx-value-mode="deleted"
+              class={[
+                "px-3 py-1.5 text-xs font-medium border-b-2 transition-colors cursor-pointer",
+                if(@folders_modal_view == "deleted",
+                  do: "border-error text-error",
+                  else: "border-transparent text-base-content/50 hover:text-base-content"
+                )
+              ]}
+            >
+              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Deleted")} ({@deleted_folder_count})
+            </button>
+          </div>
+
+          <%!-- Empty states --%>
+          <p
+            :if={@folders_modal_view == "active" and @folder_tree == []}
+            class="text-sm text-base-content/60 py-2"
+          >
+            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "No folders yet.")}
+          </p>
+          <p
+            :if={@folders_modal_view == "deleted" and @folder_tree_deleted == []}
+            class="text-sm text-base-content/60 py-2"
+          >
+            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Nothing in the trash.")}
+          </p>
+
+          <%!-- Folder list --%>
+          <% tree = if @folders_modal_view == "deleted", do: @folder_tree_deleted, else: @folder_tree %>
+          <div :if={tree != []} class="flex flex-col divide-y divide-base-200 max-h-96 overflow-y-auto">
+            <%= for {folder, depth} <- tree do %>
+              <div
+                class="flex items-center gap-2 py-1.5 group/row"
+                style={"padding-left: #{depth * 1.25 + 0.5}rem"}
+              >
+                <.icon name="hero-folder" class="w-4 h-4 text-warning shrink-0" />
+
+                <%!-- Inline rename input or display name --%>
+                <%= if @renaming_folder == folder.uuid do %>
+                  <form phx-submit="rename_folder" phx-value-uuid={folder.uuid} class="flex-1 min-w-0">
+                    <input
+                      type="text"
+                      name="name"
+                      value={folder.name}
+                      phx-mounted={Phoenix.LiveView.JS.focus()}
+                      phx-blur="rename_folder"
+                      phx-value-uuid={folder.uuid}
+                      class="input input-bordered input-xs w-full"
+                    />
+                  </form>
+                <% else %>
+                  <span class={[
+                    "flex-1 min-w-0 truncate text-sm",
+                    @folders_modal_view == "deleted" && "text-base-content/50"
+                  ]}>
+                    {folder.name}
+                  </span>
+                <% end %>
+
+                <%!-- Active row actions (hidden until hover) --%>
+                <div
+                  :if={@folders_modal_view == "active" and @renaming_folder != folder.uuid}
+                  class="flex items-center gap-0.5 opacity-0 group-hover/row:opacity-100 transition-opacity shrink-0"
+                >
+                  <button
+                    type="button"
+                    phx-click="start_rename_folder"
+                    phx-value-uuid={folder.uuid}
+                    class="btn btn-ghost btn-xs"
+                    title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Rename")}
+                  >
+                    <.icon name="hero-pencil" class="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    phx-click="new_subfolder"
+                    phx-value-uuid={folder.uuid}
+                    class="btn btn-ghost btn-xs"
+                    title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "New subfolder")}
+                  >
+                    <.icon name="hero-folder-plus" class="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    phx-click="open_move"
+                    phx-value-type="folder"
+                    phx-value-uuid={folder.uuid}
+                    class="btn btn-ghost btn-xs"
+                    title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Move to folder")}
+                  >
+                    <.icon name="hero-folder-arrow-down" class="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    phx-click="trash_folder"
+                    phx-value-uuid={folder.uuid}
+                    class="btn btn-ghost btn-xs text-error"
+                    title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")}
+                  >
+                    <.icon name="hero-trash" class="w-3.5 h-3.5" />
+                  </button>
+                </div>
+
+                <%!-- Deleted row actions --%>
+                <div :if={@folders_modal_view == "deleted"} class="flex items-center gap-0.5 shrink-0">
+                  <button
+                    type="button"
+                    phx-click="restore_folder"
+                    phx-value-uuid={folder.uuid}
+                    class="btn btn-ghost btn-xs text-success"
+                    title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Restore")}
+                  >
+                    <.icon name="hero-arrow-path" class="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    phx-click="show_delete_confirm"
+                    phx-value-uuid={folder.uuid}
+                    phx-value-type="folder"
+                    class="btn btn-ghost btn-xs text-error"
+                    title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete Forever")}
+                  >
+                    <.icon name="hero-trash" class="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+            <% end %>
+          </div>
+
+          <%!-- Footer: New Folder button (active view only) --%>
+          <div :if={@folders_modal_view == "active"} class="flex justify-start pt-1 border-t border-base-200">
+            <button
+              type="button"
+              phx-click="new_folder"
+              phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Creating...")}
+              class="btn btn-ghost btn-sm gap-1"
+            >
+              <.icon name="hero-folder-plus" class="w-4 h-4" />
+              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "New Folder")}
+            </button>
+          </div>
+        </div>
+      </.modal>
+
+      <.column_settings_modal
+        show={@show_column_modal}
+        scope={active_scope(assigns)}
+        selected={current_cfg(assigns).columns}
+        temp_selected={@temp_columns}
+      />
       </div>
-    </div>
+
+    </PhoenixKitWeb.Components.LayoutWrapper.app_layout>
     """
   end
 
@@ -1492,113 +1442,257 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
 
   defp move_dialog_label(_), do: ""
 
-  defp manufacturers_table(assigns) do
-    ~H"""
-    <div :if={@manufacturers == []} class="card bg-base-100 shadow">
-      <div class="card-body items-center text-center py-12">
-        <p class="text-base-content/60">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "No manufacturers yet.")}</p>
-      </div>
-    </div>
+  # ── Toolbar private component ────────────────────────────────────
 
-    <div :if={@manufacturers != []}>
-      <.table_default
-        variant="zebra" size="sm" toggleable={true}
-        id="manufacturers-list" items={@manufacturers}
-        card_fields={fn m -> [
-          %{label: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Website"), value: m.website || "—"},
-          %{label: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Status"), value: status_label(m.status)}
-        ] end}
-      >
-        <.table_default_header>
-          <.table_default_row>
-            <.table_default_header_cell>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Name")}</.table_default_header_cell>
-            <.table_default_header_cell>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Website")}</.table_default_header_cell>
-            <.table_default_header_cell>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Status")}</.table_default_header_cell>
-            <.table_default_header_cell class="text-right whitespace-nowrap">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Actions")}</.table_default_header_cell>
-          </.table_default_row>
-        </.table_default_header>
-        <.table_default_body>
-          <.table_default_row :for={m <- @manufacturers}>
-            <.table_default_cell class="font-medium">
-              <.link navigate={Paths.manufacturer_edit(m.uuid)} class="link link-hover">
-                {m.name}
-              </.link>
-            </.table_default_cell>
-            <.table_default_cell class="text-sm text-base-content/60">{m.website}</.table_default_cell>
-            <.table_default_cell><.status_badge status={m.status} size={:sm} /></.table_default_cell>
-            <.table_default_cell class="text-right whitespace-nowrap">
-              <.table_row_menu mode="auto" id={"mfg-menu-#{m.uuid}"}>
-                <.table_row_menu_link navigate={Paths.manufacturer_edit(m.uuid)} icon="hero-pencil" label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")} />
-                <.table_row_menu_divider />
-                <.table_row_menu_button phx-click="show_delete_confirm" phx-value-uuid={m.uuid} phx-value-type="manufacturer" icon="hero-trash" label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")} variant="error" />
-              </.table_row_menu>
-            </.table_default_cell>
-          </.table_default_row>
-        </.table_default_body>
-        <:card_header :let={m}>
-          <.link navigate={Paths.manufacturer_edit(m.uuid)} class="font-medium text-sm link link-hover">{m.name}</.link>
-        </:card_header>
-        <:card_actions :let={m}>
-          <.link navigate={Paths.manufacturer_edit(m.uuid)} class="btn btn-ghost btn-xs">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")}</.link>
-          <button phx-click="show_delete_confirm" phx-value-uuid={m.uuid} phx-value-type="manufacturer" class="btn btn-ghost btn-xs text-error">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")}</button>
-        </:card_actions>
-      </.table_default>
+  attr(:scope, :atom, required: true)
+  attr(:cfg, :map, required: true)
+  slot(:filters)
+  slot(:actions)
+
+  defp table_toolbar(assigns) do
+    ~H"""
+    <div class="flex flex-wrap items-center gap-2 mb-3">
+      <form phx-change="table_search" phx-submit="table_search" class="contents">
+        <label class="input input-sm w-full sm:w-64">
+          <.icon name="hero-magnifying-glass" class="h-4 w-4 opacity-50" />
+          <input
+            type="search"
+            name="query"
+            value={@cfg[:search] || ""}
+            phx-debounce="300"
+            placeholder={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search...")}
+            class="grow"
+          />
+        </label>
+      </form>
+      {render_slot(@filters)}
+      <div class="flex-1"></div>
+      <.sort_controls
+        scope={@scope}
+        selected={@cfg.columns}
+        sort_by={@cfg.sort_by}
+        sort_dir={@cfg.sort_dir}
+      />
+      <button type="button" phx-click="show_column_modal" class="btn btn-outline btn-sm">
+        <.icon name="hero-adjustments-horizontal" class="w-4 h-4" />
+        <span class="hidden sm:inline">
+          {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Columns")}
+        </span>
+      </button>
+      {render_slot(@actions)}
     </div>
     """
   end
 
-  defp suppliers_table(assigns) do
+  # ── Generic table + card view ────────────────────────────────────
+
+  attr(:scope, :atom, required: true)
+  attr(:cfg, :map, required: true)
+  attr(:rows, :list, required: true)
+  attr(:total, :integer, required: true)
+  attr(:empty, :string, required: true)
+  slot(:row_actions, required: true)
+  slot(:card_actions, required: true)
+
+  defp simple_table(assigns) do
+    assigns = assign(assigns, :cols, visible_columns(assigns.scope, assigns.cfg))
+
     ~H"""
-    <div :if={@suppliers == []} class="card bg-base-100 shadow">
+    <div :if={@rows == []} class="card bg-base-100 shadow">
       <div class="card-body items-center text-center py-12">
-        <p class="text-base-content/60">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "No suppliers yet.")}</p>
+        <p class="text-base-content/60">
+          <%= if @total > 0 do %>
+            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "No results found.")}
+          <% else %>
+            {@empty}
+          <% end %>
+        </p>
       </div>
     </div>
 
-    <div :if={@suppliers != []}>
-      <.table_default
-        variant="zebra" size="sm" toggleable={true}
-        id="suppliers-list" items={@suppliers}
-        card_fields={fn s -> [
-          %{label: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Website"), value: s.website || "—"},
-          %{label: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Status"), value: status_label(s.status)}
-        ] end}
-      >
-        <.table_default_header>
-          <.table_default_row>
-            <.table_default_header_cell>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Name")}</.table_default_header_cell>
-            <.table_default_header_cell>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Website")}</.table_default_header_cell>
-            <.table_default_header_cell>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Status")}</.table_default_header_cell>
-            <.table_default_header_cell class="text-right whitespace-nowrap">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Actions")}</.table_default_header_cell>
-          </.table_default_row>
-        </.table_default_header>
-        <.table_default_body>
-          <.table_default_row :for={s <- @suppliers}>
-            <.table_default_cell class="font-medium">
-              <.link navigate={Paths.supplier_edit(s.uuid)} class="link link-hover">
-                {s.name}
-              </.link>
-            </.table_default_cell>
-            <.table_default_cell class="text-sm text-base-content/60">{s.website}</.table_default_cell>
-            <.table_default_cell><.status_badge status={s.status} size={:sm} /></.table_default_cell>
-            <.table_default_cell class="text-right whitespace-nowrap">
-              <.table_row_menu mode="auto" id={"supplier-menu-#{s.uuid}"}>
-                <.table_row_menu_link navigate={Paths.supplier_edit(s.uuid)} icon="hero-pencil" label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")} variant="secondary" />
-                <.table_row_menu_divider />
-                <.table_row_menu_button phx-click="show_delete_confirm" phx-value-uuid={s.uuid} phx-value-type="supplier" icon="hero-trash" label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")} variant="error" />
-              </.table_row_menu>
-            </.table_default_cell>
-          </.table_default_row>
-        </.table_default_body>
-        <:card_header :let={s}>
-          <.link navigate={Paths.supplier_edit(s.uuid)} class="font-medium text-sm link link-hover">{s.name}</.link>
-        </:card_header>
-        <:card_actions :let={s}>
-          <.link navigate={Paths.supplier_edit(s.uuid)} class="btn btn-ghost btn-xs">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")}</.link>
-          <button phx-click="show_delete_confirm" phx-value-uuid={s.uuid} phx-value-type="supplier" class="btn btn-ghost btn-xs text-error">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")}</button>
-        </:card_actions>
-      </.table_default>
-    </div>
+    <.table_default
+      :if={@rows != []}
+      id={"#{@scope}-table"}
+      variant="zebra"
+      size="sm"
+      toggleable
+      view_mode={@cfg.view}
+      view_event="set_view"
+      items={@rows}
+      card_fields={fn row ->
+        for c <- @cols, c.id != "name" do
+          %{label: c.label.(), value: render_card_value(@scope, c.id, row)}
+        end
+      end}
+    >
+      <.table_default_header>
+        <.table_default_row>
+          <.table_default_header_cell
+            :for={c <- @cols}
+            class={c.align == :right && "text-right"}
+          >
+            <.sort_header
+              :if={c.sortable?}
+              by={c.id}
+              label={c.label.()}
+              sort_by={@cfg.sort_by}
+              sort_dir={@cfg.sort_dir}
+              align={c.align}
+            />
+            <span :if={!c.sortable?}>{c.label.()}</span>
+          </.table_default_header_cell>
+          <.table_default_header_cell class="text-right">
+            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Actions")}
+          </.table_default_header_cell>
+        </.table_default_row>
+      </.table_default_header>
+      <.table_default_body>
+        <.table_default_row :for={row <- @rows}>
+          <.table_default_cell :for={c <- @cols} class={c.align == :right && "text-right"}>
+            {render_cell(@scope, c.id, row)}
+          </.table_default_cell>
+          <.table_default_cell class="text-right whitespace-nowrap">
+            {render_slot(@row_actions, row)}
+          </.table_default_cell>
+        </.table_default_row>
+      </.table_default_body>
+      <:card_header :let={row}>{render_cell(@scope, "name", row)}</:card_header>
+      <:card_actions :let={row}>{render_slot(@card_actions, row)}</:card_actions>
+    </.table_default>
     """
   end
+
+  # ── Sort header button ───────────────────────────────────────────
+
+  attr(:by, :string, required: true)
+  attr(:label, :string, required: true)
+  attr(:sort_by, :string, required: true)
+  attr(:sort_dir, :atom, required: true)
+  attr(:align, :atom, default: :left)
+
+  defp sort_header(assigns) do
+    assigns = assign(assigns, :active?, assigns.sort_by == assigns.by)
+
+    ~H"""
+    <button
+      type="button"
+      phx-click="toggle_sort"
+      phx-value-by={@by}
+      class={[
+        "inline-flex items-center gap-1 cursor-pointer select-none",
+        @align == :right && "justify-end w-full"
+      ]}
+    >
+      <span>{@label}</span>
+      <.icon
+        :if={@active?}
+        name={if @sort_dir == :asc, do: "hero-chevron-up-mini", else: "hero-chevron-down-mini"}
+        class="w-3.5 h-3.5"
+      />
+    </button>
+    """
+  end
+
+  # ── Cell renderers ───────────────────────────────────────────────
+
+  defp render_cell(:catalogues, "name", row) do
+    assigns = %{row: row}
+
+    ~H"""
+    <.link :if={@row.status != "deleted"} navigate={Paths.catalogue_detail(@row.uuid)} class="link link-hover font-medium">{@row.name}</.link>
+    <span :if={@row.status == "deleted"} class="font-medium text-base-content/50">{@row.name}</span>
+    """
+  end
+
+  defp render_cell(:catalogues, "folder", row), do: text_or_dash(row[:folder_name])
+
+  defp render_cell(:catalogues, "items", row) do
+    assigns = %{n: row[:item_count] || 0}
+    ~H"<span class='tabular-nums'>{@n}</span>"
+  end
+
+  defp render_cell(:catalogues, "kind", row), do: text_or_dash(row[:kind])
+  defp render_cell(:catalogues, "markup", row), do: pct(row[:markup_percentage])
+  defp render_cell(:catalogues, "discount", row), do: pct(row[:discount_percentage])
+  defp render_cell(:catalogues, "created", row), do: ts(row[:inserted_at])
+
+  defp render_cell(scope, "name", row) when scope in [:suppliers, :manufacturers] do
+    path =
+      if scope == :suppliers,
+        do: Paths.supplier_edit(row.uuid),
+        else: Paths.manufacturer_edit(row.uuid)
+
+    assigns = %{path: path, name: row.name}
+
+    ~H"""
+    <.link navigate={@path} class="link link-hover font-medium">{@name}</.link>
+    """
+  end
+
+  defp render_cell(_scope, "website", row), do: website_cell(row.website)
+  defp render_cell(_scope, "contact_info", row), do: text_or_dash(row.contact_info)
+  defp render_cell(_scope, "status", row), do: status_badge_cell(row.status)
+  defp render_cell(_scope, "updated", row), do: ts(row.updated_at)
+
+  defp render_card_value(:catalogues, "folder", row), do: row[:folder_name] || "—"
+  defp render_card_value(:catalogues, "items", row), do: to_string(row[:item_count] || 0)
+  defp render_card_value(:catalogues, "kind", row), do: row[:kind] || "—"
+  defp render_card_value(:catalogues, "markup", row), do: pct_str(row[:markup_percentage])
+  defp render_card_value(:catalogues, "discount", row), do: pct_str(row[:discount_percentage])
+  defp render_card_value(:catalogues, "created", row), do: ts_str(row[:inserted_at])
+  defp render_card_value(_scope, "website", row), do: row.website || "—"
+  defp render_card_value(_scope, "status", row), do: status_label(row.status)
+  defp render_card_value(_scope, "contact_info", row), do: row.contact_info || "—"
+  defp render_card_value(_scope, "updated", row), do: ts_str(row.updated_at)
+  defp render_card_value(_scope, _id, _row), do: "—"
+
+  # ── Small render helpers ─────────────────────────────────────────
+
+  defp website_cell(nil), do: ""
+
+  defp website_cell(url) do
+    assigns = %{url: url}
+    ~H"<span class='text-sm text-base-content/60'>{@url}</span>"
+  end
+
+  defp text_or_dash(nil) do
+    assigns = %{}
+    ~H"<span class='text-base-content/40'>—</span>"
+  end
+
+  defp text_or_dash(v) do
+    assigns = %{v: v}
+    ~H"<span class='text-sm'>{@v}</span>"
+  end
+
+  defp status_badge_cell(status) do
+    assigns = %{status: status}
+    ~H"<.status_badge status={@status} size={:sm} />"
+  end
+
+  defp ts(nil) do
+    assigns = %{}
+    ~H"<span class='text-base-content/40'>—</span>"
+  end
+
+  defp ts(dt) do
+    assigns = %{s: ts_str(dt)}
+    ~H"<span class='text-sm text-base-content/60'>{@s}</span>"
+  end
+
+  defp ts_str(nil), do: "—"
+  defp ts_str(dt), do: Calendar.strftime(dt, "%Y-%m-%d %H:%M")
+
+  defp pct(nil) do
+    assigns = %{}
+    ~H"<span class='text-base-content/40'>—</span>"
+  end
+
+  defp pct(d) do
+    assigns = %{s: pct_str(d)}
+    ~H"<span class='tabular-nums'>{@s}</span>"
+  end
+
+  defp pct_str(nil), do: "—"
+  defp pct_str(d), do: Decimal.to_string(d) <> "%"
 end
