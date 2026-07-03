@@ -5,6 +5,13 @@ defmodule PhoenixKitCatalogue.Web.TableQuery do
   """
   alias PhoenixKitCatalogue.Web.TableConfig
 
+  # Sentinel filter value for "folder is nil" — distinct from `to_string(nil)`
+  # (which is `""`, already reserved by `filter/2` to mean "no filter set").
+  @unfiled_folder "__unfiled__"
+
+  @spec unfiled_folder_value() :: String.t()
+  def unfiled_folder_value, do: @unfiled_folder
+
   @spec apply([map()], TableConfig.scope(), map()) :: [map()]
   def apply(rows, scope, opts) do
     rows
@@ -33,6 +40,7 @@ defmodule PhoenixKitCatalogue.Web.TableQuery do
 
   def filter(rows, _scope, _), do: rows
 
+  defp filter_match?(_scope, "folder", row, @unfiled_folder), do: is_nil(row[:folder_uuid])
   defp filter_match?(_scope, "folder", row, val), do: to_string(row[:folder_uuid]) == val
 
   defp filter_match?(_scope, id, row, val) do
