@@ -123,7 +123,7 @@ defmodule PhoenixKitCatalogue.Web.ImportLivePro100Test do
       assigns = :sys.get_state(view.pid).socket.assigns
       assert assigns.step == :preview
       assert assigns.import_plan != nil
-      assert length(assigns.import_plan.updates) >= 1
+      assert assigns.import_plan.updates != []
     end
 
     test "apply_pro100 persists price update and transitions to :report",
