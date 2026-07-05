@@ -23,6 +23,7 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLive do
   alias PhoenixKitCatalogue.Catalogue.PubSub, as: CataloguePubSub
   alias PhoenixKitCatalogue.Paths
   alias PhoenixKitCatalogue.Web.Helpers
+  alias PhoenixKitCatalogue.Web.TableQuery
 
   # PhoenixKit auto-applies its admin chrome layout to external module admin
   # views via socket.private[:live_layout]. Opt out here so this view can
@@ -686,7 +687,7 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLive do
   # because they're LV-specific layout choices.
 
   defp filter_by_search(pdfs, search),
-    do: PhoenixKitCatalogue.Web.TableQuery.search(pdfs, search, & &1.original_filename)
+    do: TableQuery.search(pdfs, search, & &1.original_filename)
 
   # HEEx component (was hand-built `Phoenix.HTML.raw` string concat) — gets
   # auto-escaping of the label + failure title for free. `@title` is nil for

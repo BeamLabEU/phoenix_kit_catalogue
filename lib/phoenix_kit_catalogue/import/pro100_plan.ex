@@ -15,27 +15,7 @@ defmodule PhoenixKitCatalogue.Import.Pro100Plan do
     # see change/3 below for why the diff is computed against the LAST row
     # only, not folded field-by-field across rows.
     {by_uuid, uuid_order, skipped} =
-      Enum.reduce(rows, {%{}, [], []}, fn row, {by_uuid, order, skips} ->
-        case Matcher.resolve(index, row.id) do
-          {:matched, item} ->
-            {new_by_uuid, new_order} =
-              case Map.get(by_uuid, item.uuid) do
-                nil ->
-                  {Map.put(by_uuid, item.uuid, %{item: item, rows: [row]}), [item.uuid | order]}
-
-                entry ->
-                  {Map.put(by_uuid, item.uuid, %{entry | rows: [row | entry.rows]}), order}
-              end
-
-            {new_by_uuid, new_order, skips}
-
-          {:ambiguous, items} ->
-            {by_uuid, order, [%{row: row, reason: :ambiguous, items: items} | skips]}
-
-          :unmatched ->
-            {by_uuid, order, [%{row: row, reason: :unmatched} | skips]}
-        end
-      end)
+      Enum.reduce(rows, {%{}, [], []}, &accumulate_row(index, &1, &2))
 
     # Restore input order (first occurrence of each item) and reverse skipped.
     updates =
@@ -62,6 +42,32 @@ defmodule PhoenixKitCatalogue.Import.Pro100Plan do
         ambiguous: Enum.count(skipped, &(&1.reason == :ambiguous))
       }
     }
+  end
+
+  defp accumulate_row(index, row, {by_uuid, order, skips}) do
+    case Matcher.resolve(index, row.id) do
+      {:matched, item} ->
+        merge_matched_row(item, row, by_uuid, order, skips)
+
+      {:ambiguous, items} ->
+        {by_uuid, order, [%{row: row, reason: :ambiguous, items: items} | skips]}
+
+      :unmatched ->
+        {by_uuid, order, [%{row: row, reason: :unmatched} | skips]}
+    end
+  end
+
+  defp merge_matched_row(item, row, by_uuid, order, skips) do
+    {new_by_uuid, new_order} =
+      case Map.get(by_uuid, item.uuid) do
+        nil ->
+          {Map.put(by_uuid, item.uuid, %{item: item, rows: [row]}), [item.uuid | order]}
+
+        entry ->
+          {Map.put(by_uuid, item.uuid, %{entry | rows: [row | entry.rows]}), order}
+      end
+
+    {new_by_uuid, new_order, skips}
   end
 
   # Diffs against the TRUE pre-import `item`, using only the last row for

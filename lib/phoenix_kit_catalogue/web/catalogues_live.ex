@@ -25,6 +25,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   alias PhoenixKitCatalogue.Catalogue
   alias PhoenixKitCatalogue.Catalogue.PubSub
   alias PhoenixKitCatalogue.Paths
+  alias PhoenixKitCatalogue.Web.{TableConfig, TableQuery, ViewConfig}
 
   # PhoenixKit auto-applies its admin chrome layout to external module admin
   # views via socket.private[:live_layout]. Opt out here so this view can
@@ -112,7 +113,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     user = socket.assigns[:phoenix_kit_current_user]
 
     Map.new([:catalogues, :suppliers, :manufacturers], fn scope ->
-      {scope, PhoenixKitCatalogue.Web.ViewConfig.load(user, scope)}
+      {scope, ViewConfig.load(user, scope)}
     end)
   end
 
@@ -129,7 +130,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     user = socket.assigns[:phoenix_kit_current_user]
 
     socket =
-      case PhoenixKitCatalogue.Web.ViewConfig.save(user, scope, cfg) do
+      case ViewConfig.save(user, scope, cfg) do
         {:ok, updated_user} -> assign(socket, :phoenix_kit_current_user, updated_user)
         _ -> socket
       end
@@ -745,21 +746,20 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   def handle_event("reset_columns", _p, socket) do
     scope = active_scope(socket.assigns)
 
-    {:noreply,
-     assign(socket, :temp_columns, PhoenixKitCatalogue.Web.TableConfig.default_columns(scope))}
+    {:noreply, assign(socket, :temp_columns, TableConfig.default_columns(scope))}
   end
 
   def handle_event("apply_columns", params, socket) do
     scope = active_scope(socket.assigns)
 
     ids =
-      PhoenixKitCatalogue.Web.TableConfig.validate_columns(
+      TableConfig.validate_columns(
         scope,
         parse_order(params) || socket.assigns.temp_columns || []
       )
 
     ids =
-      if ids == [], do: PhoenixKitCatalogue.Web.TableConfig.default_columns(scope), else: ids
+      if ids == [], do: TableConfig.default_columns(scope), else: ids
 
     cfg = %{current_cfg(socket.assigns) | columns: ids}
     # "name" is always visible (managed?: false, forced into visible_columns/2)
@@ -845,13 +845,13 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   # Visible columns (col maps) for a scope per the user's cfg, in order.
   # "name" is always first (it is never managed/hidden).
   defp visible_columns(scope, cfg) do
-    map = PhoenixKitCatalogue.Web.TableConfig.column_map(scope)
+    map = TableConfig.column_map(scope)
     (["name"] ++ cfg.columns) |> Enum.uniq() |> Enum.map(&map[&1]) |> Enum.reject(&is_nil/1)
   end
 
   # Apply search/filter/sort to a raw list for a scope.
   defp derive_rows(rows, scope, cfg) do
-    PhoenixKitCatalogue.Web.TableQuery.apply(rows, scope, %{
+    TableQuery.apply(rows, scope, %{
       search: cfg[:search] || "",
       filters: cfg.filters,
       sort_by: cfg.sort_by,
@@ -875,7 +875,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   # String.to_existing_atom (filterable) or persisting junk sort keys.
   defp filterable_ids(scope) do
     scope
-    |> PhoenixKitCatalogue.Web.TableConfig.columns()
+    |> TableConfig.columns()
     |> Enum.filter(& &1.filterable?)
     |> MapSet.new(& &1.id)
   end
@@ -884,11 +884,11 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   # unfiled sentinel isn't derivable from TableQuery.enum_options/3 alone
   # since it needs a localized label, so it's prepended here.
   defp folder_filter_options(rows) do
-    base = PhoenixKitCatalogue.Web.TableQuery.enum_options(rows, :catalogues, "folder")
+    base = TableQuery.enum_options(rows, :catalogues, "folder")
 
     if Enum.any?(rows, &is_nil(&1[:folder_uuid])) do
       [
-        {PhoenixKitCatalogue.Web.TableQuery.unfiled_folder_value(),
+        {TableQuery.unfiled_folder_value(),
          Gettext.gettext(PhoenixKitCatalogue.Gettext, "Unfiled (root)")}
         | base
       ]
@@ -899,7 +899,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
 
   defp known_sortable_ids(scope) do
     scope
-    |> PhoenixKitCatalogue.Web.TableConfig.columns()
+    |> TableConfig.columns()
     |> Enum.filter(& &1.sortable?)
     |> MapSet.new(& &1.id)
   end
@@ -966,7 +966,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
                 label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Status")}
                 value={cfg.filters["status"]}
                 prompt={Gettext.gettext(PhoenixKitCatalogue.Gettext, "All statuses")}
-                options={PhoenixKitCatalogue.Web.TableQuery.enum_options(@catalogue_rows, :catalogues, "status")}
+                options={TableQuery.enum_options(@catalogue_rows, :catalogues, "status")}
               />
             </:filters>
             <:actions>
@@ -1096,7 +1096,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
               label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Status")}
               value={cfg.filters["status"]}
               prompt={Gettext.gettext(PhoenixKitCatalogue.Gettext, "All statuses")}
-              options={PhoenixKitCatalogue.Web.TableQuery.enum_options(@manufacturers, :manufacturers, "status")}
+              options={TableQuery.enum_options(@manufacturers, :manufacturers, "status")}
             />
           </:filters>
           <:actions>
@@ -1156,7 +1156,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
               label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Status")}
               value={cfg.filters["status"]}
               prompt={Gettext.gettext(PhoenixKitCatalogue.Gettext, "All statuses")}
-              options={PhoenixKitCatalogue.Web.TableQuery.enum_options(@suppliers, :suppliers, "status")}
+              options={TableQuery.enum_options(@suppliers, :suppliers, "status")}
             />
           </:filters>
           <:actions>

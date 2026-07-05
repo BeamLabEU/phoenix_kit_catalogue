@@ -38,6 +38,7 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
   alias PhoenixKitCatalogue.Catalogue
   alias PhoenixKitCatalogue.Import
   alias PhoenixKitCatalogue.Import.{Executor, Mapper, Parser}
+  alias PhoenixKitCatalogue.Import.Source.Universal
   alias PhoenixKitCatalogue.Paths
   alias PhoenixKitCatalogue.Schemas.{Category, Item, Manufacturer, Supplier}
 
@@ -477,30 +478,32 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
     actor = extract_actor_uuid(socket)
 
     {persisted_count, failures} =
-      Enum.reduce(plan.updates, {0, []}, fn change, {count, fails} ->
-        if should_persist_pro100?(change) do
-          attrs = pro100_update_attrs(change)
-
-          case Catalogue.update_item(change.item, attrs, actor_uuid: actor) do
-            {:ok, _updated} ->
-              {count + 1, fails}
-
-            {:error, changeset} ->
-              error = %{
-                row: change.row,
-                reason: :error,
-                message: changeset_error_string(changeset)
-              }
-
-              {count, [error | fails]}
-          end
-        else
-          {count, fails}
-        end
-      end)
+      Enum.reduce(plan.updates, {0, []}, &apply_pro100_update(&1, actor, &2))
 
     report = %{updated: persisted_count, skipped: plan.skipped ++ Enum.reverse(failures)}
     {:noreply, assign(socket, report: report, step: :report)}
+  end
+
+  defp apply_pro100_update(change, actor, {count, fails}) do
+    if should_persist_pro100?(change) do
+      attrs = pro100_update_attrs(change)
+
+      case Catalogue.update_item(change.item, attrs, actor_uuid: actor) do
+        {:ok, _updated} ->
+          {count + 1, fails}
+
+        {:error, changeset} ->
+          error = %{
+            row: change.row,
+            reason: :error,
+            message: changeset_error_string(changeset)
+          }
+
+          {count, [error | fails]}
+      end
+    else
+      {count, fails}
+    end
   end
 
   # ── Step 5: Importing ──────────────────────────────────────────
@@ -631,7 +634,7 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
           String.to_existing_atom(format_str)
       end
 
-    case Import.Source.Universal.parse(binary, filename, format_atom) do
+    case Universal.parse(binary, filename, format_atom) do
       {:ok, data} ->
         # Store in ETS
         ets_table = :ets.new(:import_data, [:ordered_set, :private])
@@ -2703,7 +2706,7 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
   end
 
   defp changeset_error_string(changeset) do
-    PhoenixKitCatalogue.Import.Executor.format_changeset_errors(changeset)
+    Executor.format_changeset_errors(changeset)
   end
 
   defp pro100_error_message(:empty) do
