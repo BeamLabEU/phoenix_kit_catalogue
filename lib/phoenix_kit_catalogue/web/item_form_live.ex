@@ -49,7 +49,8 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
     "unit" => :unit,
     "status" => :status,
     "category_uuid" => :category_uuid,
-    "manufacturer_uuid" => :manufacturer_uuid
+    "manufacturer_uuid" => :manufacturer_uuid,
+    "primary_supplier_uuid" => :primary_supplier_uuid
   }
 
   # PhoenixKit auto-applies its admin chrome layout to external module admin
@@ -93,7 +94,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
       item ->
         item =
           item
-          |> PhoenixKit.RepoHelper.repo().preload([:category, :manufacturer])
+          |> PhoenixKit.RepoHelper.repo().preload([:category, :manufacturer, :primary_supplier])
           |> normalize_display_decimals()
 
         {item, Catalogue.change_item(item), item.catalogue_uuid}
@@ -146,6 +147,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
       catalogue_discount: discount_from_catalogue(parent_catalogue),
       categories: categories,
       manufacturers: Catalogue.list_manufacturers(status: "active"),
+      suppliers: Catalogue.list_suppliers(status: "active"),
       all_categories: all_categories,
       smart_move_targets: smart_move_targets,
       move_target: nil,
@@ -1101,6 +1103,13 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                   class="transition-colors focus-within:select-primary"
                   prompt={Gettext.gettext(PhoenixKitCatalogue.Gettext, "-- No manufacturer --")}
                   options={Enum.map(@manufacturers, &{&1.name, &1.uuid})}
+                />
+                <.select
+                  field={@form[:primary_supplier_uuid]}
+                  label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Primary supplier")}
+                  class="transition-colors focus-within:select-primary"
+                  prompt={Gettext.gettext(PhoenixKitCatalogue.Gettext, "-- No primary supplier --")}
+                  options={Enum.map(@suppliers, &{&1.name, &1.uuid})}
                 />
               </div>
             </div>
