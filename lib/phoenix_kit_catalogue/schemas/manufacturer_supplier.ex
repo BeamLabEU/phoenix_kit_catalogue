@@ -2,6 +2,7 @@ defmodule PhoenixKitCatalogue.Schemas.ManufacturerSupplier do
   @moduledoc "Join table linking manufacturers to suppliers (many-to-many)."
 
   use Ecto.Schema
+  use PhoenixKit.SchemaPrefix
   import Ecto.Changeset
 
   @type t :: %__MODULE__{}

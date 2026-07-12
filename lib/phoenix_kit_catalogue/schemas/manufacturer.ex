@@ -2,6 +2,7 @@ defmodule PhoenixKitCatalogue.Schemas.Manufacturer do
   @moduledoc "Schema for manufacturers."
 
   use Ecto.Schema
+  use PhoenixKit.SchemaPrefix
   import Ecto.Changeset
 
   @type t :: %__MODULE__{}
