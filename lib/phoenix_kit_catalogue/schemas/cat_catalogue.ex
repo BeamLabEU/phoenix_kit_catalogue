@@ -2,6 +2,7 @@ defmodule PhoenixKitCatalogue.Schemas.Catalogue do
   @moduledoc "Schema for catalogues — top-level groupings (e.g., Kitchen Furniture, Plumbing)."
 
   use Ecto.Schema
+  use PhoenixKit.SchemaPrefix
   import Ecto.Changeset
 
   @type t :: %__MODULE__{}

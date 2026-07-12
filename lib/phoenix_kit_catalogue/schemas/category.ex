@@ -2,6 +2,7 @@ defmodule PhoenixKitCatalogue.Schemas.Category do
   @moduledoc "Schema for categories within a catalogue."
 
   use Ecto.Schema
+  use PhoenixKit.SchemaPrefix
   import Ecto.Changeset
 
   @type t :: %__MODULE__{}

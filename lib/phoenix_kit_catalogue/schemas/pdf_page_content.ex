@@ -18,6 +18,7 @@ defmodule PhoenixKitCatalogue.Schemas.PdfPageContent do
   """
 
   use Ecto.Schema
+  use PhoenixKit.SchemaPrefix
   import Ecto.Changeset
 
   @type t :: %__MODULE__{}
