@@ -8,6 +8,7 @@ defmodule PhoenixKitCatalogue.Web.ExportLive do
 
   use Phoenix.LiveView
 
+  import PhoenixKitWeb.Components.Core.Checkbox, only: [checkbox: 1]
   import PhoenixKitWeb.Components.Core.Icon, only: [icon: 1]
   import PhoenixKitWeb.Components.Core.Select, only: [select: 1]
 
@@ -120,21 +121,17 @@ defmodule PhoenixKitCatalogue.Web.ExportLive do
               :if={@selected_destination && @selected_destination.key() == :pro100}
               class="form-control w-full max-w-lg"
             >
-              <label class="flex items-center gap-3 cursor-pointer">
-                <input
-                  type="checkbox"
-                  name="prefix_catalogue"
-                  value="true"
-                  checked={@selected_prefix_catalogue}
-                  class="checkbox checkbox-sm checkbox-primary shrink-0"
-                />
-                <span class="text-sm">
-                  {Gettext.gettext(
+              <.checkbox
+                name="prefix_catalogue"
+                checked={@selected_prefix_catalogue}
+                class="checkbox-sm"
+                label={
+                  Gettext.gettext(
                     PhoenixKitCatalogue.Gettext,
                     "Add the catalogue name to the item name"
-                  )}
-                </span>
-              </label>
+                  )
+                }
+              />
             </div>
           </form>
 
