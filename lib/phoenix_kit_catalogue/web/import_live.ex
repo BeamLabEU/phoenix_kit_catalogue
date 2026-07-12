@@ -9,6 +9,7 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
 
   require Logger
 
+  import PhoenixKitWeb.Components.Core.Checkbox, only: [checkbox: 1]
   import PhoenixKitWeb.Components.Core.Icon, only: [icon: 1]
   import PhoenixKitWeb.Components.Core.Select, only: [select: 1]
 
@@ -1801,17 +1802,13 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
               <%!-- Cross-language match toggle. Only meaningful when
                    multilang is on — without it there's only ever one
                    language so "across languages" is a no-op. --%>
-              <label
+              <.checkbox
                 :if={@multilang_enabled}
-                class="flex items-center gap-2 mb-3 cursor-pointer text-xs text-base-content/70"
+                name="category_match_across_languages"
+                checked={@category_match_across_languages}
+                class="checkbox-xs"
+                wrapper_class="mb-3 text-xs text-base-content/70"
               >
-                <input
-                  type="checkbox"
-                  name="category_match_across_languages"
-                  value="true"
-                  checked={@category_match_across_languages}
-                  class="checkbox checkbox-xs checkbox-primary"
-                />
                 {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Match across all languages")}
                 <span
                   class="tooltip tooltip-right tooltip-info"
@@ -1824,7 +1821,7 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
                 >
                   <.icon name="hero-information-circle" class="w-3.5 h-3.5 text-base-content/40 hover:text-base-content/70" />
                 </span>
-              </label>
+              </.checkbox>
 
               <% available_category_cols = available_picker_columns(@column_mappings, :category) %>
               <span class="block mb-1 text-xs text-base-content/60">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Which column contains the category names?")}</span>
