@@ -18,12 +18,20 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailBranchesTest do
   describe "switch_view active/deleted" do
     test "switch_view to deleted then back to active when deleted items exist",
          %{conn: conn, catalogue: cat} do
-      # Create + trash an item so the deleted view has content. Without
-      # this the LV auto-switches back to active.
+      # Populate BOTH tabs: effective_view_mode auto-selects a populated
+      # tab, so a node with only deleted items pins to Deleted (and one
+      # with only active items pins to Active). The round-trip only
+      # sticks when each side has content.
+      {:ok, _active} = Catalogue.create_item(%{name: "Kept", catalogue_uuid: cat.uuid})
       {:ok, item} = Catalogue.create_item(%{name: "Trashed", catalogue_uuid: cat.uuid})
       {:ok, _} = Catalogue.trash_item(item)
 
-      {:ok, view, _html} = live(conn, "/en/admin/catalogue/#{cat.uuid}")
+      # Status tabs live INSIDE a node — the root is a pure navigation
+      # step, forced to "active" with no tabs. Drill into the
+      # uncategorized bucket (where the trashed item lives) to exercise
+      # the view switch.
+      {:ok, view, _html} =
+        live(conn, "/en/admin/catalogue/#{cat.uuid}?category=uncategorized")
 
       render_click(view, "switch_view", %{"mode" => "deleted"})
       assert :sys.get_state(view.pid).socket.assigns.view_mode == "deleted"
