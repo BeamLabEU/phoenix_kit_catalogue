@@ -37,6 +37,7 @@ defmodule PhoenixKitCatalogue.LiveCase do
 
   alias Ecto.Adapters.SQL
   alias Ecto.Adapters.SQL.Sandbox
+  alias PhoenixKit.Users.Auth.Scope
   alias PhoenixKitCatalogue.Test.Repo, as: TestRepo
 
   setup tags do
@@ -106,7 +107,7 @@ defmodule PhoenixKitCatalogue.LiveCase do
       Phoenix.Component.assign(
         socket,
         :phoenix_kit_current_scope,
-        PhoenixKit.Users.Auth.Scope.for_user(nil)
+        Scope.for_user(nil)
       )
 
     case session do
