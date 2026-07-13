@@ -243,8 +243,10 @@ defmodule PhoenixKitCatalogueTest do
       assert PhoenixKitCatalogue.children() == []
     end
 
-    test "route_module/0 returns nil" do
-      assert PhoenixKitCatalogue.route_module() == nil
+    test "route_module/0 returns the module's route provider" do
+      # The module moved from single-page (live_view: on the tab; nil
+      # here) to the multi-page route_module pattern.
+      assert PhoenixKitCatalogue.route_module() == PhoenixKitCatalogue.Web.Routes
     end
   end
 end

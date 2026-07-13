@@ -65,6 +65,15 @@ defmodule PhoenixKitCatalogue.Web.ImportLivePro100Test do
     test "selecting source + format updates both assigns", %{conn: conn, catalogue: cat} do
       {:ok, view, _html} = live(conn, @import_url)
 
+      # Changing the source deliberately resets the format (see
+      # resolve_selected_format/4), so a single event carrying both a NEW
+      # source and a format discards the format. Real usage is two steps:
+      # pick the source, then pick the format.
+      render_change(view, "validate_upload", %{
+        "catalogue" => cat.uuid,
+        "source" => "pro100"
+      })
+
       render_change(view, "validate_upload", %{
         "catalogue" => cat.uuid,
         "source" => "pro100",
