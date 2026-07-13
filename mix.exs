@@ -86,7 +86,7 @@ defmodule PhoenixKitCatalogue.MixProject do
 
   defp deps do
     [
-      pk_dep(:phoenix_kit, "~> 1.7 and >= 1.7.184"),
+      pk_dep(:phoenix_kit, "~> 1.7.189"),
       pk_dep(:phoenix_kit_ai, "~> 0.4"),
       {:phoenix_live_view, "~> 1.1"},
       {:xlsx_reader, "~> 0.8"},
