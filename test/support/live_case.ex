@@ -97,6 +97,18 @@ defmodule PhoenixKitCatalogue.LiveCase do
   exactly as before (anonymous actor).
   """
   def on_mount(:assign_test_current_user, _params, session, socket) do
+    # Core's admin layout (>= 1.7.190, the multi-session dropdown port)
+    # requires a %Scope{} in :phoenix_kit_current_scope — production's
+    # live_session always provides one, so the test session must too. An
+    # anonymous scope suffices for the layout; the actor flow reads
+    # :phoenix_kit_current_user separately (see Web.Helpers.actor_uuid/1).
+    socket =
+      Phoenix.Component.assign(
+        socket,
+        :phoenix_kit_current_scope,
+        PhoenixKit.Users.Auth.Scope.for_user(nil)
+      )
+
     case session do
       %{"pk_current_user_uuid" => uuid} when is_binary(uuid) ->
         {:cont, Phoenix.Component.assign(socket, :phoenix_kit_current_user, %{uuid: uuid})}
