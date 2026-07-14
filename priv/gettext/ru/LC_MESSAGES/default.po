@@ -948,3 +948,57 @@ msgstr "Это навсегда удалит поставщика. Связи с
 
 msgid "No results found."
 msgstr "Ничего не найдено."
+
+msgid "Add Supplier"
+msgstr "Добавить поставщика"
+
+msgid "Supplier SKU"
+msgstr "Артикул поставщика"
+
+msgid "Unit Cost"
+msgstr "Цена за единицу"
+
+msgid "Lead Time (days)"
+msgstr "Срок поставки (дней)"
+
+msgid "Min. Order Qty"
+msgstr "Мин. кол-во заказа"
+
+msgid "No suppliers linked yet."
+msgstr "Поставщики ещё не привязаны."
+
+msgid "Lead (d)"
+msgstr "Срок (д)"
+
+msgid "MOQ"
+msgstr "МКЗ"
+
+msgid "Primary"
+msgstr "Основной"
+
+msgid "Make primary"
+msgstr "Сделать основным"
+
+msgid "Remove this supplier link?"
+msgstr "Удалить связь с поставщиком?"
+
+msgid "-- Select supplier --"
+msgstr "-- Выберите поставщика --"
+
+msgid "Please select a supplier."
+msgstr "Пожалуйста, выберите поставщика."
+
+msgid "Supplier added."
+msgstr "Поставщик добавлен."
+
+msgid "Failed to add supplier."
+msgstr "Не удалось добавить поставщика."
+
+msgid "Failed to set primary supplier."
+msgstr "Не удалось установить основного поставщика."
+
+msgid "Supplier removed."
+msgstr "Поставщик удалён."
+
+msgid "Failed to remove supplier."
+msgstr "Не удалось удалить поставщика."
