@@ -939,3 +939,57 @@ msgstr "See kustutab selle tarnija jäädavalt. Tootjate seosed eemaldatakse."
 
 msgid "No results found."
 msgstr "Tulemusi ei leitud."
+
+msgid "Add Supplier"
+msgstr "Lisa tarnija"
+
+msgid "Supplier SKU"
+msgstr "Tarnija SKU"
+
+msgid "Unit Cost"
+msgstr "Ühikuhind"
+
+msgid "Lead Time (days)"
+msgstr "Tarneaeg (päevades)"
+
+msgid "Min. Order Qty"
+msgstr "Min. tellimiskogus"
+
+msgid "No suppliers linked yet."
+msgstr "Tarnijaid pole veel seotud."
+
+msgid "Lead (d)"
+msgstr "Tarneaeg (p)"
+
+msgid "MOQ"
+msgstr "MTK"
+
+msgid "Primary"
+msgstr "Esmane"
+
+msgid "Make primary"
+msgstr "Tee esmaseks"
+
+msgid "Remove this supplier link?"
+msgstr "Eemaldada tarnija seos?"
+
+msgid "-- Select supplier --"
+msgstr "-- Vali tarnija --"
+
+msgid "Please select a supplier."
+msgstr "Palun valige tarnija."
+
+msgid "Supplier added."
+msgstr "Tarnija lisatud."
+
+msgid "Failed to add supplier."
+msgstr "Tarnija lisamine ebaõnnestus."
+
+msgid "Failed to set primary supplier."
+msgstr "Esmase tarnija määramine ebaõnnestus."
+
+msgid "Supplier removed."
+msgstr "Tarnija eemaldatud."
+
+msgid "Failed to remove supplier."
+msgstr "Tarnija eemaldamine ebaõnnestus."
