@@ -939,3 +939,57 @@ msgstr "This will permanently delete this supplier. Manufacturer links will be r
 
 msgid "No results found."
 msgstr "No results found."
+
+msgid "Add Supplier"
+msgstr "Add Supplier"
+
+msgid "Supplier SKU"
+msgstr "Supplier SKU"
+
+msgid "Unit Cost"
+msgstr "Unit Cost"
+
+msgid "Lead Time (days)"
+msgstr "Lead Time (days)"
+
+msgid "Min. Order Qty"
+msgstr "Min. Order Qty"
+
+msgid "No suppliers linked yet."
+msgstr "No suppliers linked yet."
+
+msgid "Lead (d)"
+msgstr "Lead (d)"
+
+msgid "MOQ"
+msgstr "MOQ"
+
+msgid "Primary"
+msgstr "Primary"
+
+msgid "Make primary"
+msgstr "Make primary"
+
+msgid "Remove this supplier link?"
+msgstr "Remove this supplier link?"
+
+msgid "-- Select supplier --"
+msgstr "-- Select supplier --"
+
+msgid "Please select a supplier."
+msgstr "Please select a supplier."
+
+msgid "Supplier added."
+msgstr "Supplier added."
+
+msgid "Failed to add supplier."
+msgstr "Failed to add supplier."
+
+msgid "Failed to set primary supplier."
+msgstr "Failed to set primary supplier."
+
+msgid "Supplier removed."
+msgstr "Supplier removed."
+
+msgid "Failed to remove supplier."
+msgstr "Failed to remove supplier."

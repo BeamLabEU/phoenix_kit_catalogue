@@ -724,10 +724,6 @@ msgid "Search PDFs"
 msgstr ""
 
 ## Plural forms
-msgid_plural "%{count} items"
-msgstr[0] ""
-msgstr[1] ""
-
 msgid "%{count} item"
 msgid_plural "%{count} items"
 msgstr[0] ""
@@ -947,4 +943,59 @@ msgid "This will permanently delete this supplier. Manufacturer links will be re
 msgstr ""
 
 msgid "No results found."
+msgstr ""
+
+## Supplier-info junction UI (V149 wave)
+msgid "Add Supplier"
+msgstr ""
+
+msgid "Supplier SKU"
+msgstr ""
+
+msgid "Unit Cost"
+msgstr ""
+
+msgid "Lead Time (days)"
+msgstr ""
+
+msgid "Min. Order Qty"
+msgstr ""
+
+msgid "No suppliers linked yet."
+msgstr ""
+
+msgid "Lead (d)"
+msgstr ""
+
+msgid "MOQ"
+msgstr ""
+
+msgid "Primary"
+msgstr ""
+
+msgid "Make primary"
+msgstr ""
+
+msgid "Remove this supplier link?"
+msgstr ""
+
+msgid "-- Select supplier --"
+msgstr ""
+
+msgid "Please select a supplier."
+msgstr ""
+
+msgid "Supplier added."
+msgstr ""
+
+msgid "Failed to add supplier."
+msgstr ""
+
+msgid "Failed to set primary supplier."
+msgstr ""
+
+msgid "Supplier removed."
+msgstr ""
+
+msgid "Failed to remove supplier."
 msgstr ""
