@@ -14,6 +14,7 @@ defmodule PhoenixKitCatalogue.Catalogue.ItemSupplierInfos do
   import Ecto.Query, warn: false
 
   alias Ecto.Multi
+  alias PhoenixKitCatalogue.Catalogue.{ActivityLog, PubSub}
   alias PhoenixKitCatalogue.Schemas.ItemSupplierInfo
 
   defp repo, do: PhoenixKit.RepoHelper.repo()
@@ -32,28 +33,98 @@ defmodule PhoenixKitCatalogue.Catalogue.ItemSupplierInfos do
   @spec get(Ecto.UUID.t()) :: ItemSupplierInfo.t() | nil
   def get(uuid), do: repo().get(ItemSupplierInfo, uuid)
 
-  @doc "Creates a supplier-info row."
-  @spec create(map()) ::
+  @doc """
+  Creates a supplier-info row.
+
+  When the item has no primary supplier yet, the newly linked row is
+  auto-promoted to primary (an item with suppliers but no primary is a
+  valid state only when the user explicitly demotes it).
+  """
+  @spec create(map(), keyword()) ::
           {:ok, ItemSupplierInfo.t()} | {:error, Ecto.Changeset.t(ItemSupplierInfo.t())}
-  def create(attrs) do
-    %ItemSupplierInfo{}
-    |> ItemSupplierInfo.changeset(attrs)
-    |> repo().insert()
+  def create(attrs, opts \\ []) do
+    result =
+      ActivityLog.with_log(
+        fn -> %ItemSupplierInfo{} |> ItemSupplierInfo.changeset(attrs) |> repo().insert() end,
+        fn info ->
+          %{
+            action: "item_supplier_info.created",
+            mode: "manual",
+            actor_uuid: opts[:actor_uuid],
+            resource_type: "item_supplier_info",
+            resource_uuid: info.uuid,
+            metadata: %{
+              "item_uuid" => info.item_uuid,
+              "supplier_uuid" => info.supplier_uuid,
+              "supplier_source" => info.supplier_source
+            }
+          }
+        end
+      )
+
+    with {:ok, info} <- result do
+      PubSub.broadcast(:item_supplier_info, info.uuid)
+
+      if info.is_primary == false and primary_for_item(info.item_uuid) == nil do
+        set_primary(info, opts)
+      else
+        {:ok, info}
+      end
+    end
   end
 
   @doc "Updates a supplier-info row."
-  @spec update(ItemSupplierInfo.t(), map()) ::
+  @spec update(ItemSupplierInfo.t(), map(), keyword()) ::
           {:ok, ItemSupplierInfo.t()} | {:error, Ecto.Changeset.t(ItemSupplierInfo.t())}
-  def update(%ItemSupplierInfo{} = info, attrs) do
-    info
-    |> ItemSupplierInfo.changeset(attrs)
-    |> repo().update()
+  def update(%ItemSupplierInfo{} = info, attrs, opts \\ []) do
+    result =
+      ActivityLog.with_log(
+        fn -> info |> ItemSupplierInfo.changeset(attrs) |> repo().update() end,
+        fn updated ->
+          %{
+            action: "item_supplier_info.updated",
+            mode: "manual",
+            actor_uuid: opts[:actor_uuid],
+            resource_type: "item_supplier_info",
+            resource_uuid: updated.uuid,
+            metadata: %{"item_uuid" => updated.item_uuid}
+          }
+        end
+      )
+
+    with {:ok, updated} <- result do
+      PubSub.broadcast(:item_supplier_info, updated.uuid)
+      {:ok, updated}
+    end
   end
 
   @doc "Deletes a supplier-info row."
-  @spec delete(ItemSupplierInfo.t()) ::
+  @spec delete(ItemSupplierInfo.t(), keyword()) ::
           {:ok, ItemSupplierInfo.t()} | {:error, Ecto.Changeset.t(ItemSupplierInfo.t())}
-  def delete(%ItemSupplierInfo{} = info), do: repo().delete(info)
+  def delete(%ItemSupplierInfo{} = info, opts \\ []) do
+    result =
+      ActivityLog.with_log(
+        fn -> repo().delete(info) end,
+        fn deleted ->
+          %{
+            action: "item_supplier_info.deleted",
+            mode: "manual",
+            actor_uuid: opts[:actor_uuid],
+            resource_type: "item_supplier_info",
+            resource_uuid: deleted.uuid,
+            metadata: %{
+              "item_uuid" => deleted.item_uuid,
+              "supplier_uuid" => deleted.supplier_uuid
+            }
+          }
+        end
+      )
+
+    with {:ok, deleted} <- result do
+      PubSub.broadcast(:item_supplier_info, deleted.uuid)
+      {:ok, deleted}
+    end
+  end
 
   @doc """
   Promotes a supplier-info row to primary for its item.
@@ -63,9 +134,9 @@ defmodule PhoenixKitCatalogue.Catalogue.ItemSupplierInfos do
   index — concurrent callers produce a constraint violation rather than
   double-marking.
   """
-  @spec set_primary(ItemSupplierInfo.t()) ::
+  @spec set_primary(ItemSupplierInfo.t(), keyword()) ::
           {:ok, ItemSupplierInfo.t()} | {:error, any()}
-  def set_primary(%ItemSupplierInfo{} = info) do
+  def set_primary(%ItemSupplierInfo{} = info, opts \\ []) do
     Multi.new()
     |> Multi.update_all(
       :clear_primary,
@@ -74,11 +145,37 @@ defmodule PhoenixKitCatalogue.Catalogue.ItemSupplierInfos do
       ),
       set: [is_primary: false]
     )
-    |> Multi.update(:set_primary, ItemSupplierInfo.changeset(info, %{is_primary: true}))
+    # force_change: when `info` is already the in-memory primary (e.g. the
+    # auto-promoted first row), a plain changeset diffs to empty and the
+    # UPDATE is skipped — while clear_primary above has just demoted the DB
+    # row, silently leaving the item with no primary at all.
+    |> Multi.update(
+      :set_primary,
+      info
+      |> Ecto.Changeset.change()
+      |> Ecto.Changeset.force_change(:is_primary, true)
+      |> Ecto.Changeset.unique_constraint(:item_uuid,
+        name: :phoenix_kit_cat_item_supplier_info_primary_uniq,
+        message: "another supplier is already marked primary for this item"
+      )
+    )
     |> repo().transaction()
     |> case do
-      {:ok, %{set_primary: updated}} -> {:ok, updated}
-      {:error, _op, reason, _changes} -> {:error, reason}
+      {:ok, %{set_primary: updated}} ->
+        ActivityLog.log(%{
+          action: "item_supplier_info.primary_set",
+          mode: "manual",
+          actor_uuid: opts[:actor_uuid],
+          resource_type: "item_supplier_info",
+          resource_uuid: updated.uuid,
+          metadata: %{"item_uuid" => updated.item_uuid}
+        })
+
+        PubSub.broadcast(:item_supplier_info, updated.uuid)
+        {:ok, updated}
+
+      {:error, _op, reason, _changes} ->
+        {:error, reason}
     end
   end
 

@@ -5,6 +5,12 @@ defmodule PhoenixKitCatalogue.Schemas.ItemSupplierInfo do
   Each row stores a snapshot of the supplier's name at write time so the
   record remains readable even when the supplier is later renamed or deleted.
   A partial unique index enforces at most one primary row per item.
+
+  There is intentionally NO uniqueness on `(item_uuid, supplier_uuid)`:
+  multiple rows per supplier are allowed so future price revisions can
+  coexist via `valid_from`/`valid_to` windows (planned purchase-price
+  history). The only uniqueness is the partial index on `is_primary`.
+
   """
 
   use Ecto.Schema
@@ -71,6 +77,10 @@ defmodule PhoenixKitCatalogue.Schemas.ItemSupplierInfo do
     |> validate_number(:lead_time_days, greater_than_or_equal_to: 0)
     |> validate_date_range()
     |> foreign_key_constraint(:item_uuid)
+    |> unique_constraint(:item_uuid,
+      name: :phoenix_kit_cat_item_supplier_info_primary_uniq,
+      message: "another supplier is already marked primary for this item"
+    )
   end
 
   defp validate_currency(changeset) do
