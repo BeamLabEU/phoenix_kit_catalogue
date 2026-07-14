@@ -528,16 +528,17 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
          Gettext.gettext(PhoenixKitCatalogue.Gettext, "Please select a supplier.")
        )}
     else
-      snapshot =
-        case Enum.find(all_suppliers, &(&1.uuid == supplier_uuid)) do
-          nil -> nil
-          s -> s.name
-        end
+      selected = Enum.find(all_suppliers, &(&1.uuid == supplier_uuid))
+      snapshot = selected && selected.name
+      # The dropdown mixes local and CRM suppliers; persist the source of the
+      # chosen entry — a CRM party stored as "local" would misroute the
+      # resolver and the audit task.
+      source = if selected, do: Atom.to_string(selected.source), else: "local"
 
       attrs = %{
         "item_uuid" => item.uuid,
         "supplier_uuid" => supplier_uuid,
-        "supplier_source" => "local",
+        "supplier_source" => source,
         "supplier_name_snapshot" => snapshot,
         "supplier_sku" => Map.get(draft, "supplier_sku"),
         "unit_cost" => Map.get(draft, "unit_cost"),

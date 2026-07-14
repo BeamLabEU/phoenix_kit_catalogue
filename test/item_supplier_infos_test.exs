@@ -183,7 +183,56 @@ defmodule PhoenixKitCatalogue.ItemSupplierInfosTest do
 
       assert info.item_uuid == item.uuid
       assert info.supplier_uuid == supplier.uuid
-      assert info.is_primary == false
+      # The first linked supplier is auto-promoted to primary.
+      assert info.is_primary == true
+    end
+
+    test "create/1 does not steal primary from an existing row" do
+      cat = create_catalogue()
+      item = create_item(cat)
+      s1 = create_supplier()
+      s2 = create_supplier()
+
+      {:ok, first} =
+        ItemSupplierInfos.create(%{
+          "item_uuid" => item.uuid,
+          "supplier_uuid" => s1.uuid,
+          "supplier_source" => "local"
+        })
+
+      {:ok, second} =
+        ItemSupplierInfos.create(%{
+          "item_uuid" => item.uuid,
+          "supplier_uuid" => s2.uuid,
+          "supplier_source" => "local"
+        })
+
+      assert first.is_primary == true
+      assert second.is_primary == false
+    end
+
+    test "create/1 with is_primary while a primary exists returns a changeset error" do
+      cat = create_catalogue()
+      item = create_item(cat)
+      s1 = create_supplier()
+      s2 = create_supplier()
+
+      {:ok, _first} =
+        ItemSupplierInfos.create(%{
+          "item_uuid" => item.uuid,
+          "supplier_uuid" => s1.uuid,
+          "supplier_source" => "local"
+        })
+
+      assert {:error, %Ecto.Changeset{errors: errors}} =
+               ItemSupplierInfos.create(%{
+                 "item_uuid" => item.uuid,
+                 "supplier_uuid" => s2.uuid,
+                 "supplier_source" => "local",
+                 "is_primary" => true
+               })
+
+      assert Keyword.has_key?(errors, :item_uuid)
     end
 
     test "list_for_item/1 returns rows ordered by position then inserted_at" do
@@ -299,11 +348,13 @@ defmodule PhoenixKitCatalogue.ItemSupplierInfosTest do
       assert uuid == info.uuid
     end
 
-    test "primary_for_item/1 returns nil when no primary" do
+    test "primary_for_item/1 returns nil when the primary is demoted" do
       cat = create_catalogue()
       item = create_item(cat)
       supplier = create_supplier()
-      _info = create_info(item, supplier)
+      # First row is auto-promoted; explicitly demote it.
+      info = create_info(item, supplier)
+      {:ok, _} = ItemSupplierInfos.update(info, %{"is_primary" => false})
 
       assert is_nil(ItemSupplierInfos.primary_for_item(item.uuid))
     end
