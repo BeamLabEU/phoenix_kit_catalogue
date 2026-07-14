@@ -90,15 +90,6 @@ defmodule PhoenixKitCatalogue.Schemas.Item do
       type: UUIDv7
     )
 
-    # Default supplier to order this item from, independent of manufacturer —
-    # set directly when there's no brand to resolve through (generic materials)
-    # or when a manufacturer has several suppliers and one should always win.
-    belongs_to(:primary_supplier, PhoenixKitCatalogue.Schemas.Supplier,
-      foreign_key: :primary_supplier_uuid,
-      references: :uuid,
-      type: UUIDv7
-    )
-
     has_many(:catalogue_rules, PhoenixKitCatalogue.Schemas.CatalogueRule,
       foreign_key: :item_uuid,
       references: :uuid
@@ -121,7 +112,6 @@ defmodule PhoenixKitCatalogue.Schemas.Item do
     :position,
     :category_uuid,
     :manufacturer_uuid,
-    :primary_supplier_uuid,
     :data
   ]
 
@@ -144,7 +134,6 @@ defmodule PhoenixKitCatalogue.Schemas.Item do
     |> validate_inclusion(:default_unit, @default_units ++ [nil])
     |> foreign_key_constraint(:catalogue_uuid)
     |> foreign_key_constraint(:category_uuid)
-    |> foreign_key_constraint(:primary_supplier_uuid)
   end
 
   @doc """

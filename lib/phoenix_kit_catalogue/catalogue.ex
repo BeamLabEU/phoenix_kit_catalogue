@@ -3571,8 +3571,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
   @doc """
   Fetches an item by UUID with preloaded `:catalogue`, `:category`,
-  `:manufacturer`, and `:primary_supplier`. Raises `Ecto.NoResultsError` if
-  not found.
+  and `:manufacturer`. Raises `Ecto.NoResultsError` if not found.
 
   Pass `:preload` to add more associations (concatenated with the
   defaults).
@@ -3581,9 +3580,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
   def get_item!(uuid, opts \\ []) do
     Item
     |> repo().get!(uuid)
-    |> repo().preload(
-      Helpers.merge_preloads([:catalogue, :category, :manufacturer, :primary_supplier], opts)
-    )
+    |> repo().preload(Helpers.merge_preloads([:catalogue, :category, :manufacturer], opts))
   end
 
   @doc """
