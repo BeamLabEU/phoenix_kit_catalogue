@@ -14,7 +14,7 @@
 - **New context functions bypassed the `Catalogue` facade** — `ItemSupplierInfos` and the new `Suppliers.resolve/1` / `.list_all/1` had no `defdelegate` on `PhoenixKitCatalogue.Catalogue`, contradicting the module's own documented "one-stop facade" convention. Added `resolve_supplier/1`, `list_all_suppliers/1`, and the full `*_supplier_info` CRUD surface.
 
 ### Notes
-- Dependency lockfile advances (no `mix.exs` constraint changes): `phoenix_kit` 1.7.189 → 1.7.194 (this is the version that first pulls in core's `V149` migration — see the known blocker above), `phoenix_kit_ai` 0.11.0 → 0.12.2 (adds a transitive `xai`/`grpc`/`protobuf`/`googleapis` chain), `ex_ast` 0.12.9 → 0.12.10, `mint` 1.9.1 → 1.9.2, `phoenix_live_view` 1.2.6 → 1.2.7. Constraints stay loose.
+- Dependency lockfile advances (no `mix.exs` constraint changes): `phoenix_kit` 1.7.189 → 1.7.194 (this is the version that first pulls in core's `V149` migration — see the known blocker above), `phoenix_kit_ai` 0.11.0 → 0.12.2 (adds a transitive `xai`/`grpc`/`protobuf`/`googleapis` chain), `ex_ast` 0.12.9 → 0.12.10, `phoenix_live_view` 1.2.6 → 1.2.7. `mint` bumped to 1.9.3, patching `EEF-CVE-2026-59249` (chunk-size parser response-smuggling advisory) flagged by `mix hex.audit`. Constraints stay loose.
 - Verification: `mix format`, `mix compile --warnings-as-errors`, `mix dialyzer` are clean. `mix credo --strict` is at parity with the pre-existing baseline (see the review doc). `mix test` could not be run in this environment (no local Postgres) — the same condition that let the migration gap above ship unnoticed in #44; the new/updated tests were reviewed by manual trace and should get a real CI/Postgres run before this release is considered fully verified.
 
 ## 0.10.0 - 2026-07-03
