@@ -381,11 +381,24 @@ defmodule PhoenixKitCatalogue.ItemSupplierInfosTest do
   end
 
   describe "Suppliers.resolve/1 — guarded CRM path (CRM absent)" do
-    test "falls back to local when CRM module is not loaded" do
-      # CRM is not present in the catalogue test env; the guard should
-      # mean we only hit the local path — no crash or exception.
+    test "falls back to local when the uuid isn't a known CRM party" do
+      # test/support/fake_crm_party_roles.ex makes `PhoenixKitCRM.PartyRoles`
+      # loaded for the whole suite, so this exercises the guard's "checked
+      # CRM, found nothing" branch rather than "module not loaded" — a real
+      # host without phoenix_kit_crm installed hits `crm_available?() ==
+      # false` instead and short-circuits before ever calling `get_supplier/1`.
       supplier = create_supplier()
       assert {:ok, %{source: :local}} = Suppliers.resolve(supplier.uuid)
+    end
+  end
+
+  describe "Suppliers.resolve/1 — guarded CRM path (CRM present)" do
+    test "resolves a CRM-sourced supplier with the generic :crm tag" do
+      # Fixture uuid from FakeCrmPartyRoles.get_supplier/1.
+      assert {:ok, resolved} = Suppliers.resolve("11111111-1111-7111-8111-111111111111")
+      assert resolved.name == "Acme Supply Co"
+      assert resolved.email == "sales@acme.test"
+      assert resolved.source == :crm
     end
   end
 
@@ -408,6 +421,24 @@ defmodule PhoenixKitCatalogue.ItemSupplierInfosTest do
       assert Enum.all?(all, &Map.has_key?(&1, :uuid))
       assert Enum.all?(all, &Map.has_key?(&1, :name))
       assert Enum.all?(all, &Map.has_key?(&1, :source))
+    end
+
+    test "tags CRM companies and contacts distinctly, not lumped as :crm_company" do
+      all = Suppliers.list_all()
+      by_uuid = Map.new(all, &{&1.uuid, &1})
+
+      assert by_uuid["11111111-1111-7111-8111-111111111111"].source == :crm_company
+      assert by_uuid["33333333-3333-7333-8333-333333333333"].source == :crm_contact
+    end
+
+    test "falls back to a placeholder name for blank CRM company/contact names" do
+      all = Suppliers.list_all()
+      by_uuid = Map.new(all, &{&1.uuid, &1})
+
+      assert by_uuid["22222222-2222-7222-8222-222222222222"].name == "Unnamed"
+      # Blank-named contact falls back to its email, mirroring
+      # `PhoenixKitCRM.Schemas.Contact.display_name/1`.
+      assert by_uuid["44444444-4444-7444-8444-444444444444"].name == "anon@example.test"
     end
   end
 

@@ -241,6 +241,38 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLiveTest do
   end
 
   # ─────────────────────────────────────────────────────────────────
+  # Suppliers card (item_supplier_info)
+  # ─────────────────────────────────────────────────────────────────
+
+  describe "supplier info card" do
+    test "save_supplier_info attributes the activity log to the logged-in actor",
+         %{conn: conn, scope: scope} do
+      catalogue = fixture_catalogue()
+      category = fixture_category(catalogue)
+      item = fixture_item(%{name: "Oak Panel", category_uuid: category.uuid})
+      supplier = fixture_supplier()
+
+      {:ok, view, _html} = conn |> with_scope(scope) |> live(edit_item_url(item.uuid))
+
+      render_click(view, "open_add_supplier", %{})
+
+      render_change(view, "supplier_info_field_change", %{
+        "supplier_info" => %{"supplier_uuid" => supplier.uuid}
+      })
+
+      render_click(view, "save_supplier_info", %{})
+
+      [info] = Catalogue.list_supplier_infos_for_item(item.uuid)
+
+      assert_activity_logged("item_supplier_info.created",
+        resource_uuid: info.uuid,
+        actor_uuid: scope.user.uuid,
+        metadata_has: %{"item_uuid" => item.uuid}
+      )
+    end
+  end
+
+  # ─────────────────────────────────────────────────────────────────
   # move_item
   # ─────────────────────────────────────────────────────────────────
 
