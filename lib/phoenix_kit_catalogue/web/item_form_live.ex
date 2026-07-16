@@ -547,7 +547,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
         "min_order_qty" => Map.get(draft, "min_order_qty")
       }
 
-      case ItemSupplierInfos.create(attrs) do
+      case ItemSupplierInfos.create(attrs, actor_opts(socket)) do
         {:ok, _info} ->
           {:noreply,
            socket
@@ -577,7 +577,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
         {:noreply, socket}
 
       info ->
-        case ItemSupplierInfos.set_primary(info) do
+        case ItemSupplierInfos.set_primary(info, actor_opts(socket)) do
           {:ok, _} ->
             {:noreply, assign(socket, supplier_infos: ItemSupplierInfos.list_for_item(item.uuid))}
 
@@ -600,7 +600,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
         {:noreply, socket}
 
       info ->
-        case ItemSupplierInfos.delete(info) do
+        case ItemSupplierInfos.delete(info, actor_opts(socket)) do
           {:ok, _} ->
             {:noreply,
              socket

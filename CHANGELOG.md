@@ -1,3 +1,22 @@
+## 0.11.0 - 2026-07-16
+
+### Added
+- **Supplier×item info layer** (#44) — a new `phoenix_kit_cat_item_supplier_info` junction table lets an item be sourced from several suppliers (local or CRM), each with its own SKU, unit cost/currency, lead time, and MOQ, plus a per-item "primary supplier" flag. The item edit form gained a Suppliers card (add/remove, make-primary) replacing the old single `primary_supplier_uuid` dropdown. `Catalogue.Suppliers.resolve/1` and `.list_all/1` provide a unified local+CRM supplier view, guarded so the catalogue module compiles and runs without `phoenix_kit_crm` present. `mix phoenix_kit_catalogue.audit_supplier_refs` reports unresolvable supplier UUIDs. See ADR `dev_docs/adr/0001-cross-module-references.md` for the soft-UUID-reference pattern this introduces for cross-module data.
+
+### ⚠ Known blocker — Suppliers card does not work yet
+- **The new Suppliers card cannot save.** The core `phoenix_kit` migration this feature depends on (V149, shipped in `phoenix_kit` 1.7.194) creates `phoenix_kit_cat_item_supplier_info` without the `supplier_source` / `is_primary` columns or the partial unique index the new Ecto schema requires — every "Add Supplier" click fails with a Postgres `undefined_column` error. Confirmed still present through `phoenix_kit` 1.7.196 (latest at release time); no follow-up migration has shipped. **Do not rely on this feature in production** until a `phoenix_kit` migration adds the missing columns/index and this repo's `mix.lock` is bumped to depend on it. Full detail: `dev_docs/pull_requests/2026/44-parties-supplier-info/CLAUDE_REVIEW.md`.
+
+### Fixed
+- **CRM suppliers never appeared in the item form's supplier picker** — `Suppliers.list_all/1` called a `PhoenixKitCRM.PartyRoles.list_suppliers/0` function that doesn't exist anywhere in `phoenix_kit_crm`; the guarded lookup silently and permanently returned `[]`. Now backed by the role-scoped `list_companies_with_role/2` / `list_contacts_with_role/2` functions that actually exist.
+- **CRM contacts were always mislabeled `crm_company`** — the source-type heuristic checked for a `:company_uuid` key that `PhoenixKitCRM.PartyRoles.get_supplier/1` never returns for either party type. Company/contact entries from `list_all/1` are now tagged correctly at the source; `resolve/1`'s single-party lookup reports the honest generic `:crm` tag instead of guessing.
+- **Adding/promoting/removing a supplier link never recorded who did it** — the three new `ItemFormLive` handlers didn't thread `actor_opts(socket)` into the `ItemSupplierInfos` calls, unlike every other mutating call in that LiveView, so `item_supplier_info.*` activity rows always had `actor_uuid: nil`.
+- **`Catalogue.PubSub`'s `kind()` typespec was never extended** for the new `:item_supplier_info` broadcast — no runtime crash (every subscriber matches `kind` loosely), but it broke the type contract badly enough that a from-scratch `mix dialyzer` run flagged 7 of its 8 total warnings from this one gap (cascading into false "unreachable `{:ok, _}` branch" warnings on the three new `ItemFormLive` handlers). `mix dialyzer` is now a clean pass.
+- **New context functions bypassed the `Catalogue` facade** — `ItemSupplierInfos` and the new `Suppliers.resolve/1` / `.list_all/1` had no `defdelegate` on `PhoenixKitCatalogue.Catalogue`, contradicting the module's own documented "one-stop facade" convention. Added `resolve_supplier/1`, `list_all_suppliers/1`, and the full `*_supplier_info` CRUD surface.
+
+### Notes
+- Dependency lockfile advances (no `mix.exs` constraint changes): `phoenix_kit` 1.7.189 → 1.7.194 (this is the version that first pulls in core's `V149` migration — see the known blocker above), `phoenix_kit_ai` 0.11.0 → 0.12.2 (adds a transitive `xai`/`grpc`/`protobuf`/`googleapis` chain), `ex_ast` 0.12.9 → 0.12.10, `mint` 1.9.1 → 1.9.2, `phoenix_live_view` 1.2.6 → 1.2.7. Constraints stay loose.
+- Verification: `mix format`, `mix compile --warnings-as-errors`, `mix dialyzer` are clean. `mix credo --strict` is at parity with the pre-existing baseline (see the review doc). `mix test` could not be run in this environment (no local Postgres) — the same condition that let the migration gap above ship unnoticed in #44; the new/updated tests were reviewed by manual trace and should get a real CI/Postgres run before this release is considered fully verified.
+
 ## 0.10.0 - 2026-07-03
 
 ### Added

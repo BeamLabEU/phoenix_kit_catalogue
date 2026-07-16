@@ -148,8 +148,14 @@ defmodule PhoenixKitCatalogue.Catalogue.Suppliers do
   Resolves a supplier UUID to a unified map regardless of source.
 
   Returns `{:ok, map}` with keys `:uuid`, `:name`, `:email`, `:phone`,
-  `:website`, `:source` (`:crm_company | :crm_contact | :local`), or
-  `:error` when the supplier cannot be found in any source.
+  `:website`, `:source` (`:crm | :local`), or `:error` when the supplier
+  cannot be found in any source.
+
+  The CRM branch reports the generic `:crm` tag rather than
+  `:crm_company` / `:crm_contact` — `PhoenixKitCRM.PartyRoles.get_supplier/1`
+  resolves either roleable type in one call but its return shape doesn't
+  say which; `list_all/1` (backed by per-type role listings) is the
+  source for the more specific tags used elsewhere in this module.
 
   CRM lookup is guarded — when `PhoenixKitCRM.PartyRoles` is not loaded
   (the CRM module is an optional runtime dependency), the CRM path is
@@ -180,8 +186,9 @@ defmodule PhoenixKitCatalogue.Catalogue.Suppliers do
   Lists all suppliers from all available sources as normalized maps.
 
   Each entry has keys `:uuid`, `:name`, `:email`, `:phone`, `:website`,
-  `:source`. CRM suppliers are listed first (when available), then local
-  suppliers ordered by name.
+  `:source` (`:crm_company | :crm_contact | :local`). CRM companies then
+  CRM contacts are listed first (when available), then local suppliers
+  ordered by name.
 
   CRM access is guarded — when `PhoenixKitCRM.PartyRoles` is not loaded,
   only local suppliers are returned.
@@ -222,8 +229,6 @@ defmodule PhoenixKitCatalogue.Catalogue.Suppliers do
           :error
 
         party ->
-          source = crm_party_source(party)
-
           {:ok,
            %{
              uuid: uuid,
@@ -231,7 +236,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Suppliers do
              email: Map.get(party, :email),
              phone: Map.get(party, :phone),
              website: Map.get(party, :website),
-             source: source
+             source: :crm
            }}
       end
     else
@@ -239,19 +244,30 @@ defmodule PhoenixKitCatalogue.Catalogue.Suppliers do
     end
   end
 
+  # `PartyRoles.get_supplier/1` federates both roleable types behind one
+  # call but doesn't say which it hydrated (see `resolve/1` doc), so
+  # listing goes through the per-type role queries instead — that's also
+  # what lets each entry carry the specific `:crm_company` / `:crm_contact`
+  # tag that `ItemFormLive` persists onto `item_supplier_info.supplier_source`.
   defp list_crm_suppliers do
-    if crm_available?() and function_exported?(PhoenixKitCRM.PartyRoles, :list_suppliers, 0) do
-      apply(PhoenixKitCRM.PartyRoles, :list_suppliers, [])
-      |> Enum.map(fn party ->
-        source = crm_party_source(party)
+    if crm_available?() do
+      list_crm_companies() ++ list_crm_contacts()
+    else
+      []
+    end
+  end
 
+  defp list_crm_companies do
+    if function_exported?(PhoenixKitCRM.PartyRoles, :list_companies_with_role, 2) do
+      apply(PhoenixKitCRM.PartyRoles, :list_companies_with_role, ["supplier", []])
+      |> Enum.map(fn c ->
         %{
-          uuid: party.uuid,
-          name: party.name,
-          email: Map.get(party, :email),
-          phone: Map.get(party, :phone),
-          website: Map.get(party, :website),
-          source: source
+          uuid: c.uuid,
+          name: blank_to_unnamed(c.name),
+          email: c.email,
+          phone: c.phone,
+          website: c.website,
+          source: :crm_company
         }
       end)
     else
@@ -259,15 +275,32 @@ defmodule PhoenixKitCatalogue.Catalogue.Suppliers do
     end
   end
 
+  defp list_crm_contacts do
+    if function_exported?(PhoenixKitCRM.PartyRoles, :list_contacts_with_role, 2) do
+      apply(PhoenixKitCRM.PartyRoles, :list_contacts_with_role, ["supplier", []])
+      |> Enum.map(fn c ->
+        %{
+          uuid: c.uuid,
+          name: if(c.name in [nil, ""], do: blank_to_unnamed(c.email), else: c.name),
+          email: c.email,
+          phone: c.phone,
+          # Contacts have no website field on the CRM side (mirrors
+          # `PartyRoles`' own hydration for contacts).
+          website: nil,
+          source: :crm_contact
+        }
+      end)
+    else
+      []
+    end
+  end
+
+  defp blank_to_unnamed(nil), do: "Unnamed"
+  defp blank_to_unnamed(""), do: "Unnamed"
+  defp blank_to_unnamed(value), do: value
+
   defp crm_available? do
     Code.ensure_loaded?(PhoenixKitCRM.PartyRoles) and
       function_exported?(PhoenixKitCRM.PartyRoles, :get_supplier, 1)
-  end
-
-  defp crm_party_source(party) do
-    cond do
-      Map.has_key?(party, :company_uuid) -> :crm_contact
-      true -> :crm_company
-    end
   end
 end

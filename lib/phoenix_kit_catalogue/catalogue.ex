@@ -50,6 +50,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
     ActivityLog,
     Counts,
     Helpers,
+    ItemSupplierInfos,
     Links,
     Manufacturers,
     PdfLibrary,
@@ -284,6 +285,31 @@ defmodule PhoenixKitCatalogue.Catalogue do
   defdelegate update_supplier(supplier, attrs, opts \\ []), to: Suppliers
   defdelegate delete_supplier(supplier, opts \\ []), to: Suppliers
   defdelegate change_supplier(supplier, attrs \\ %{}), to: Suppliers
+
+  @doc "Resolves a supplier UUID to a unified map regardless of source (local or CRM)."
+  defdelegate resolve_supplier(uuid), to: Suppliers, as: :resolve
+
+  @doc "Lists all suppliers from all available sources (local + CRM) as normalized maps."
+  defdelegate list_all_suppliers(opts \\ []), to: Suppliers, as: :list_all
+
+  # ═══════════════════════════════════════════════════════════════════
+  # Item ↔ Supplier info — see PhoenixKitCatalogue.Catalogue.ItemSupplierInfos
+  # ═══════════════════════════════════════════════════════════════════
+
+  defdelegate list_supplier_infos_for_item(item_uuid), to: ItemSupplierInfos, as: :list_for_item
+  defdelegate get_supplier_info(uuid), to: ItemSupplierInfos, as: :get
+  defdelegate create_supplier_info(attrs, opts \\ []), to: ItemSupplierInfos, as: :create
+  defdelegate update_supplier_info(info, attrs, opts \\ []), to: ItemSupplierInfos, as: :update
+  defdelegate delete_supplier_info(info, opts \\ []), to: ItemSupplierInfos, as: :delete
+
+  defdelegate set_primary_supplier_info(info, opts \\ []),
+    to: ItemSupplierInfos,
+    as: :set_primary
+
+  @doc "Returns the primary supplier-info row for an item, or `nil` if none is marked primary."
+  defdelegate primary_supplier_info_for_item(item_uuid),
+    to: ItemSupplierInfos,
+    as: :primary_for_item
 
   # ═══════════════════════════════════════════════════════════════════
   # Manufacturer ↔ Supplier links — see PhoenixKitCatalogue.Catalogue.Links
