@@ -1002,3 +1002,24 @@ msgstr "Поставщик удалён."
 
 msgid "Failed to remove supplier."
 msgstr "Не удалось удалить поставщика."
+
+msgid "History"
+msgstr "История"
+
+msgid "Price History"
+msgstr "История цен"
+
+msgid "No price history."
+msgstr "История цен пуста."
+
+msgid "Currency"
+msgstr "Валюта"
+
+msgid "Valid From"
+msgstr "Действует с"
+
+msgid "Valid To"
+msgstr "Действует по"
+
+msgid "Current"
+msgstr "Текущая"

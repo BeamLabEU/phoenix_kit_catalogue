@@ -999,3 +999,24 @@ msgstr ""
 
 msgid "Failed to remove supplier."
 msgstr ""
+
+msgid "History"
+msgstr ""
+
+msgid "Price History"
+msgstr ""
+
+msgid "No price history."
+msgstr ""
+
+msgid "Currency"
+msgstr ""
+
+msgid "Valid From"
+msgstr ""
+
+msgid "Valid To"
+msgstr ""
+
+msgid "Current"
+msgstr ""
