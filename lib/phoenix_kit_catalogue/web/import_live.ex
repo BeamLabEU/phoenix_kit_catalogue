@@ -15,7 +15,7 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
 
   import PhoenixKitWeb.Components.MultilangForm,
     only: [
-      mount_multilang: 1,
+      mount_multilang: 2,
       multilang_tabs: 1,
       merge_translatable_params: 4,
       translatable_field: 1,
@@ -117,7 +117,9 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
        # ETS
        ets_table: nil
      )
-     |> mount_multilang()
+     # Opt out of the auto "switch_language" hook: this screen switches the
+     # language immediately (no debounce) via its own handle_event clause below.
+     |> mount_multilang(auto_switch_language: false)
      |> allow_upload(:import_file,
        accept: ~w(.xlsx .csv .txt .json),
        max_entries: 1,
