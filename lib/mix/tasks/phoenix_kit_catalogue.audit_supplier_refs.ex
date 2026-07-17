@@ -44,6 +44,7 @@ defmodule Mix.Tasks.PhoenixKitCatalogue.AuditSupplierRefs do
       repo.query!(
         "SELECT uuid, item_uuid, supplier_uuid, supplier_source, supplier_name_snapshot " <>
           "FROM #{p}phoenix_kit_cat_item_supplier_info " <>
+          "WHERE valid_to IS NULL " <>
           "ORDER BY inserted_at"
       )
 
