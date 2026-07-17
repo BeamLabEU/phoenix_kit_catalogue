@@ -1,3 +1,12 @@
+## 0.12.1 - 2026-07-17
+
+### Fixed
+- **Import screen's language picker would have been double-handled by core's new auto hook** (#46) — `phoenix_kit` 1.7.199 (core PR #643) made `mount_multilang/2` auto-attach a `"switch_language"` event hook via a debounced skeleton UX. `ImportLive` intentionally switches language immediately (no debounce) through its own `handle_event("switch_language", …)` clause, so it now opts out with `mount_multilang(auto_switch_language: false)` to keep that clause reachable.
+- **Three other form LiveViews carried a now-dead `switch_language` clause** — `CatalogueFormLive`, `ItemFormLive`, and `CategoryFormLive` still defined their own `handle_event("switch_language", …)` clause even though they call `mount_multilang()` with the default `auto_switch_language: true`, so the clause was unreachable (the core hook halts before it) as of the `phoenix_kit` 1.7.199 pin. Not a behavior bug — the hook calls the same helper the dead clauses called — but misleading dead code; removed in all three files. See `dev_docs/pull_requests/2026/46-import-multilang-auto-switch-language/CLAUDE_REVIEW.md`.
+
+### Notes
+- Verification: `mix format`, `mix compile --warnings-as-errors`, `mix credo --strict`, and `mix dialyzer` are all clean. `mix test` could not be run in this environment (no local Postgres) — the affected code paths are exercised end-to-end (through the real LiveView hook dispatch) by the existing `test/web/form_lv_branches_test.exs` switch_language tests; get a real CI/Postgres run before treating this release as fully verified.
+
 ## 0.12.0 - 2026-07-17
 
 ### Added
