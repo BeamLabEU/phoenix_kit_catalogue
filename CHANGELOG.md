@@ -1,3 +1,18 @@
+## 0.12.0 - 2026-07-17
+
+### Added
+- **Unit-cost revisions with validity-window price history** (#45) — `phoenix_kit_cat_item_supplier_info` rows now carry a non-destructive price history via their existing `valid_from`/`valid_to` date fields. `Catalogue.revise_supplier_info_cost/3` (`ItemSupplierInfos.revise_unit_cost/3`) closes the current junction row (`valid_to: today`, `is_primary: false`) and inserts a successor with the new cost, `valid_from: today`, `valid_to: nil`, freeing the partial-unique primary index inside the same transaction so the successor can inherit `is_primary`. A row is "current" when `valid_to` is `nil`; `list_for_item/1`, `primary_for_item/1`, and `mix phoenix_kit_catalogue.audit_supplier_refs` were all updated to filter on that predicate so closed history rows no longer surface as active links. New `Catalogue.supplier_info_history_for_pair/2` / `active_supplier_info_for/2` round out the read side — the latter is the function intended for warehouse/goods-receipt integrations to check whether a receipt's unit price diverges from the catalogued cost. The item edit form's Suppliers card gained a read-only "Price History" column/modal showing the full validity-window history for a supplier.
+
+### Fixed
+- **`revise_unit_cost/3` silently no-op'd a currency-only correction** — the no-op guard only compared the new cost to the row's existing `unit_cost`, so calling it with the *same* cost but a different `opts[:currency]` (e.g. correcting a mis-recorded currency without a price change) returned `{:ok, info}` without creating a revision row, logging the change, or updating the currency — despite the function's own docs describing currency correction as supported. The guard now also requires the currency to be unchanged before treating the call as a no-op. See `dev_docs/pull_requests/2026/45-unit-cost-revisions/CLAUDE_REVIEW.md`.
+
+### Known limitation (not fixed — needs a core migration)
+- **No guard against two concurrent `revise_unit_cost/3` calls producing two simultaneous "current" rows for the same non-primary item/supplier pair.** The primary case self-corrects via the existing partial-unique `is_primary` index (a race errors loudly instead of double-writing), but a non-primary junction row has no equivalent — the schema intentionally carries no uniqueness on `(item_uuid, supplier_uuid)`. Closing this needs a partial unique index (`WHERE valid_to IS NULL`) added in a core `phoenix_kit` migration; out of scope for this repo alone per its own "no DB migrations of its own" rule. Full detail in the review doc above.
+
+### Notes
+- **Dependency lockfile advances** (no `mix.exs` constraint changes): `phoenix_kit` 1.7.194 → 1.7.199 (pulls in core's `V151` migration — `supplier_source`/`is_primary` columns + the partial-unique index — already required by the #44 feature; the migration-gap "Known blocker" noted in 0.11.0 is resolved as of this pin), `phoenix_kit_ai` 0.12.2 → 0.16.0, `hackney` 4.5.2 → 4.6.0, `etcher` 0.7.2 → 0.8.0, `fresco` 0.8.0 → 0.9.0, `mdex_native` 0.2.5 → 0.2.6, `mint` 1.9.2 → 1.9.3 (`EEF-CVE-2026-59249`), `quic` 1.7.0 → 1.7.1, `req` 0.6.2 → 0.6.3, `tessera` 0.3.2 → 0.3.3. Constraints stay loose.
+- Verification: `mix format`, `mix compile --warnings-as-errors`, `mix credo --strict`, and `mix dialyzer` are all clean. `mix test` could not be run in this environment (no local Postgres) — the new no-op-guard regression test was reviewed by manual trace against the transaction logic rather than executed; get a real CI/Postgres run before treating this release as fully verified.
+
 ## 0.11.0 - 2026-07-16
 
 ### Added
