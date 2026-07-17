@@ -150,11 +150,11 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
   end
 
   # AI-translate modal events handled by `use ...AITranslate.Embed`.
-  @impl true
-  def handle_event("switch_language", %{"lang" => lang_code}, socket) do
-    {:noreply, handle_switch_language(socket, lang_code)}
-  end
 
+  # "switch_language" is handled by the core `mount_multilang/1` auto hook
+  # (default `auto_switch_language: true`) — no clause needed here.
+
+  @impl true
   def handle_event("validate", %{"category" => params}, socket) do
     params =
       params
