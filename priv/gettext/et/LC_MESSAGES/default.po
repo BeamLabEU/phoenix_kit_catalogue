@@ -993,3 +993,24 @@ msgstr "Tarnija eemaldatud."
 
 msgid "Failed to remove supplier."
 msgstr "Tarnija eemaldamine ebaõnnestus."
+
+msgid "History"
+msgstr "Ajalugu"
+
+msgid "Price History"
+msgstr "Hinna ajalugu"
+
+msgid "No price history."
+msgstr "Hinna ajalugu puudub."
+
+msgid "Currency"
+msgstr "Valuuta"
+
+msgid "Valid From"
+msgstr "Kehtib alates"
+
+msgid "Valid To"
+msgstr "Kehtib kuni"
+
+msgid "Current"
+msgstr "Praegune"

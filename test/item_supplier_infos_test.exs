@@ -454,4 +454,294 @@ defmodule PhoenixKitCatalogue.ItemSupplierInfosTest do
       assert result.uuid == info.uuid
     end
   end
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # revise_unit_cost
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  describe "ItemSupplierInfos.revise_unit_cost/3" do
+    test "closes the current row and inserts a successor with the new cost" do
+      cat = create_catalogue()
+      item = create_item(cat)
+      supplier = create_supplier()
+      info = create_info(item, supplier, %{"unit_cost" => "10.00", "currency" => "EUR"})
+
+      new_cost = Decimal.new("12.50")
+      assert {:ok, successor} = ItemSupplierInfos.revise_unit_cost(info, new_cost)
+
+      # Successor has the new cost and is current
+      assert Decimal.equal?(successor.unit_cost, new_cost)
+      assert is_nil(successor.valid_to)
+      assert successor.valid_from == Date.utc_today()
+      assert successor.currency == "EUR"
+
+      # Original row is now closed
+      closed = ItemSupplierInfos.get(info.uuid)
+      assert closed.valid_to == Date.utc_today()
+      assert closed.is_primary == false
+    end
+
+    test "carries over is_primary: true from the closed row to the successor" do
+      cat = create_catalogue()
+      item = create_item(cat)
+      supplier = create_supplier()
+      info = create_info(item, supplier, %{"unit_cost" => "5.00"})
+
+      # First row is auto-promoted to primary
+      info = ItemSupplierInfos.get(info.uuid)
+      assert info.is_primary == true
+
+      assert {:ok, successor} = ItemSupplierInfos.revise_unit_cost(info, Decimal.new("6.00"))
+
+      assert successor.is_primary == true
+      refute ItemSupplierInfos.get(info.uuid).is_primary
+    end
+
+    test "non-primary row: successor is also non-primary" do
+      cat = create_catalogue()
+      item = create_item(cat)
+      s1 = create_supplier()
+      s2 = create_supplier()
+
+      _primary = create_info(item, s1)
+      secondary = create_info(item, s2)
+
+      assert secondary.is_primary == false
+      assert {:ok, successor} = ItemSupplierInfos.revise_unit_cost(secondary, Decimal.new("9.00"))
+      assert successor.is_primary == false
+    end
+
+    test "returns {:error, :not_current} when valid_to is set" do
+      cat = create_catalogue()
+      item = create_item(cat)
+      supplier = create_supplier()
+      info = create_info(item, supplier, %{"unit_cost" => "10.00"})
+
+      # Manually close the row
+      {:ok, closed} = ItemSupplierInfos.update(info, %{"valid_to" => Date.utc_today()})
+
+      assert {:error, :not_current} =
+               ItemSupplierInfos.revise_unit_cost(closed, Decimal.new("15.00"))
+    end
+
+    test "returns {:ok, info} unchanged when new_cost equals existing unit_cost (no-op)" do
+      cat = create_catalogue()
+      item = create_item(cat)
+      supplier = create_supplier()
+      info = create_info(item, supplier, %{"unit_cost" => "10.00"})
+
+      assert {:ok, ^info} = ItemSupplierInfos.revise_unit_cost(info, Decimal.new("10.00"))
+
+      # No new row was created
+      assert length(ItemSupplierInfos.history_for_pair(item.uuid, supplier.uuid)) == 1
+    end
+
+    test "no-op when unit_cost is nil and new_cost is zero" do
+      cat = create_catalogue()
+      item = create_item(cat)
+      supplier = create_supplier()
+      info = create_info(item, supplier)
+
+      assert {:ok, ^info} = ItemSupplierInfos.revise_unit_cost(info, Decimal.new(0))
+    end
+
+    test "stores new currency when opts[:currency] differs" do
+      cat = create_catalogue()
+      item = create_item(cat)
+      supplier = create_supplier()
+      info = create_info(item, supplier, %{"unit_cost" => "10.00", "currency" => "EUR"})
+
+      assert {:ok, successor} =
+               ItemSupplierInfos.revise_unit_cost(info, Decimal.new("8.00"), currency: "USD")
+
+      assert successor.currency == "USD"
+    end
+
+    test "keeps original currency when opts[:currency] is same as existing" do
+      cat = create_catalogue()
+      item = create_item(cat)
+      supplier = create_supplier()
+      info = create_info(item, supplier, %{"unit_cost" => "10.00", "currency" => "EUR"})
+
+      assert {:ok, successor} =
+               ItemSupplierInfos.revise_unit_cost(info, Decimal.new("8.00"), currency: "EUR")
+
+      assert successor.currency == "EUR"
+    end
+
+    test "copies item_uuid, supplier_uuid, supplier_source, sku, lead_time_days, min_order_qty, position" do
+      cat = create_catalogue()
+      item = create_item(cat)
+      supplier = create_supplier()
+
+      info =
+        create_info(item, supplier, %{
+          "unit_cost" => "10.00",
+          "supplier_sku" => "SKU-1",
+          "lead_time_days" => 7,
+          "min_order_qty" => "3.0",
+          "position" => 2
+        })
+
+      assert {:ok, successor} = ItemSupplierInfos.revise_unit_cost(info, Decimal.new("11.00"))
+
+      assert successor.item_uuid == info.item_uuid
+      assert successor.supplier_uuid == info.supplier_uuid
+      assert successor.supplier_source == info.supplier_source
+      assert successor.supplier_sku == info.supplier_sku
+      assert successor.lead_time_days == info.lead_time_days
+      assert Decimal.equal?(successor.min_order_qty, info.min_order_qty)
+      assert successor.position == info.position
+    end
+  end
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # history_for_pair
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  describe "history_for_pair/2" do
+    test "returns all rows for a pair ordered newest-first (current then closed)" do
+      cat = create_catalogue()
+      item = create_item(cat)
+      supplier = create_supplier()
+      info = create_info(item, supplier, %{"unit_cost" => "10.00"})
+
+      {:ok, successor} = ItemSupplierInfos.revise_unit_cost(info, Decimal.new("12.00"))
+      {:ok, _successor2} = ItemSupplierInfos.revise_unit_cost(successor, Decimal.new("14.00"))
+
+      rows = ItemSupplierInfos.history_for_pair(item.uuid, supplier.uuid)
+      assert length(rows) == 3
+
+      # Most recent (current, valid_to nil) is first
+      assert is_nil(hd(rows).valid_to)
+      assert Decimal.equal?(hd(rows).unit_cost, Decimal.new("14.00"))
+    end
+
+    test "does not include rows from a different supplier" do
+      cat = create_catalogue()
+      item = create_item(cat)
+      s1 = create_supplier()
+      s2 = create_supplier()
+
+      info1 = create_info(item, s1, %{"unit_cost" => "10.00"})
+      _info2 = create_info(item, s2, %{"unit_cost" => "20.00"})
+
+      {:ok, _} = ItemSupplierInfos.revise_unit_cost(info1, Decimal.new("11.00"))
+
+      rows = ItemSupplierInfos.history_for_pair(item.uuid, s1.uuid)
+      assert length(rows) == 2
+      assert Enum.all?(rows, &(&1.supplier_uuid == s1.uuid))
+    end
+  end
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # list_for_item current-only
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  describe "list_for_item/1 current-only filter" do
+    test "excludes closed rows after a cost revision" do
+      cat = create_catalogue()
+      item = create_item(cat)
+      supplier = create_supplier()
+      info = create_info(item, supplier, %{"unit_cost" => "10.00"})
+
+      {:ok, _successor} = ItemSupplierInfos.revise_unit_cost(info, Decimal.new("12.00"))
+
+      rows = ItemSupplierInfos.list_for_item(item.uuid)
+      # Only the current (successor) row should appear
+      assert length(rows) == 1
+      assert Decimal.equal?(hd(rows).unit_cost, Decimal.new("12.00"))
+    end
+  end
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # primary_for_item current-only
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  describe "primary_for_item/1 current-only filter" do
+    test "returns nil when only a closed primary row exists" do
+      cat = create_catalogue()
+      item = create_item(cat)
+      supplier = create_supplier()
+      info = create_info(item, supplier, %{"unit_cost" => "10.00"})
+
+      # info is auto-primary; now close it manually (simulates partial state)
+      {:ok, _} =
+        ItemSupplierInfos.update(info, %{"is_primary" => true, "valid_to" => Date.utc_today()})
+
+      assert is_nil(ItemSupplierInfos.primary_for_item(item.uuid))
+    end
+
+    test "returns current primary after revision" do
+      cat = create_catalogue()
+      item = create_item(cat)
+      supplier = create_supplier()
+      info = create_info(item, supplier, %{"unit_cost" => "10.00"})
+
+      assert info.is_primary == true
+      {:ok, successor} = ItemSupplierInfos.revise_unit_cost(info, Decimal.new("15.00"))
+
+      primary = ItemSupplierInfos.primary_for_item(item.uuid)
+      assert primary.uuid == successor.uuid
+    end
+  end
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # Suppliers facade additions
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  describe "Suppliers.active_info_for/2" do
+    test "returns the current junction row for a pair" do
+      cat = create_catalogue()
+      item = create_item(cat)
+      supplier = create_supplier()
+      info = create_info(item, supplier, %{"unit_cost" => "10.00"})
+
+      result = Suppliers.active_info_for(item.uuid, supplier.uuid)
+      assert result.uuid == info.uuid
+    end
+
+    test "returns nil when the current row has been closed" do
+      cat = create_catalogue()
+      item = create_item(cat)
+      supplier = create_supplier()
+      info = create_info(item, supplier, %{"unit_cost" => "10.00"})
+
+      {:ok, _} = ItemSupplierInfos.update(info, %{"valid_to" => Date.utc_today()})
+
+      assert is_nil(Suppliers.active_info_for(item.uuid, supplier.uuid))
+    end
+
+    test "returns nil when no junction row exists" do
+      cat = create_catalogue()
+      item = create_item(cat)
+      supplier = create_supplier()
+
+      assert is_nil(Suppliers.active_info_for(item.uuid, supplier.uuid))
+    end
+
+    test "returns successor after revision, not the closed row" do
+      cat = create_catalogue()
+      item = create_item(cat)
+      supplier = create_supplier()
+      info = create_info(item, supplier, %{"unit_cost" => "10.00"})
+
+      {:ok, successor} = ItemSupplierInfos.revise_unit_cost(info, Decimal.new("12.00"))
+
+      result = Suppliers.active_info_for(item.uuid, supplier.uuid)
+      assert result.uuid == successor.uuid
+    end
+  end
+
+  describe "Suppliers.revise_unit_cost/3" do
+    test "delegates to ItemSupplierInfos.revise_unit_cost/3" do
+      cat = create_catalogue()
+      item = create_item(cat)
+      supplier = create_supplier()
+      info = create_info(item, supplier, %{"unit_cost" => "5.00"})
+
+      assert {:ok, successor} = Suppliers.revise_unit_cost(info, Decimal.new("7.00"))
+      assert Decimal.equal?(successor.unit_cost, Decimal.new("7.00"))
+    end
+  end
 end

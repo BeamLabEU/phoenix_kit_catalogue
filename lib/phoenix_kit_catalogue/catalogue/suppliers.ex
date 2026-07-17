@@ -217,6 +217,42 @@ defmodule PhoenixKitCatalogue.Catalogue.Suppliers do
   @spec primary_for_item(Ecto.UUID.t()) :: PhoenixKitCatalogue.Schemas.ItemSupplierInfo.t() | nil
   def primary_for_item(item_uuid), do: ItemSupplierInfos.primary_for_item(item_uuid)
 
+  @doc """
+  Returns the *current* junction row for an item/supplier pair, or `nil`.
+
+  "Current" means `valid_to` is `nil`. This is the function warehouse calls
+  to check whether a receipt line's unit price diverges from the catalogued
+  cost for the same supplier.
+  """
+  @spec active_info_for(Ecto.UUID.t(), Ecto.UUID.t()) ::
+          PhoenixKitCatalogue.Schemas.ItemSupplierInfo.t() | nil
+  def active_info_for(item_uuid, supplier_uuid) do
+    import Ecto.Query, warn: false
+
+    from(i in PhoenixKitCatalogue.Schemas.ItemSupplierInfo,
+      where:
+        i.item_uuid == ^item_uuid and i.supplier_uuid == ^supplier_uuid and is_nil(i.valid_to),
+      limit: 1
+    )
+    |> repo().one()
+  end
+
+  @doc """
+  Delegates to `ItemSupplierInfos.revise_unit_cost/3`.
+
+  This is the stable public surface that warehouse and other consumers should
+  call. See `ItemSupplierInfos.revise_unit_cost/3` for full documentation.
+  """
+  @spec revise_unit_cost(
+          PhoenixKitCatalogue.Schemas.ItemSupplierInfo.t(),
+          Decimal.t(),
+          keyword()
+        ) ::
+          {:ok, PhoenixKitCatalogue.Schemas.ItemSupplierInfo.t()}
+          | {:error, :not_current | Ecto.Changeset.t()}
+  def revise_unit_cost(info, new_cost, opts \\ []),
+    do: ItemSupplierInfos.revise_unit_cost(info, new_cost, opts)
+
   # ── CRM helpers ────────────────────────────────────────────────────────────
   # All CRM calls are guarded behind function_exported? so the catalogue
   # module compiles and runs without the CRM module present. CRM is an
