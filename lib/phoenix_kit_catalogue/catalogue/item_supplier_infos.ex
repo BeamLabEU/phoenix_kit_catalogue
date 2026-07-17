@@ -339,30 +339,25 @@ defmodule PhoenixKitCatalogue.Catalogue.ItemSupplierInfos do
             do: %{"old_currency" => info.currency, "new_currency" => new_currency},
             else: %{}
 
-        ActivityLog.log(
-          Map.merge(
-            %{
-              action: "item_supplier_info.cost_revised",
-              mode: "manual",
-              actor_uuid: opts[:actor_uuid],
-              resource_type: "item_supplier_info",
-              resource_uuid: successor.uuid,
-              metadata:
-                Map.merge(
-                  %{
-                    "item_uuid" => info.item_uuid,
-                    "supplier_uuid" => info.supplier_uuid,
-                    "old_cost" => old_cost_str,
-                    "new_cost" => Decimal.to_string(new_cost, :normal),
-                    "source" => opts[:source],
-                    "source_uuid" => opts[:source_uuid]
-                  },
-                  currency_meta
-                )
-            },
-            if(opts[:actor_uuid], do: %{actor_uuid: opts[:actor_uuid]}, else: %{})
-          )
-        )
+        ActivityLog.log(%{
+          action: "item_supplier_info.cost_revised",
+          mode: "manual",
+          actor_uuid: opts[:actor_uuid],
+          resource_type: "item_supplier_info",
+          resource_uuid: successor.uuid,
+          metadata:
+            Map.merge(
+              %{
+                "item_uuid" => info.item_uuid,
+                "supplier_uuid" => info.supplier_uuid,
+                "old_cost" => old_cost_str,
+                "new_cost" => Decimal.to_string(new_cost, :normal),
+                "source" => opts[:source],
+                "source_uuid" => opts[:source_uuid]
+              },
+              currency_meta
+            )
+        })
 
         PubSub.broadcast(:item_supplier_info, successor.uuid)
         {:ok, successor}
