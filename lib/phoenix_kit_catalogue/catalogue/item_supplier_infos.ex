@@ -237,7 +237,9 @@ defmodule PhoenixKitCatalogue.Catalogue.ItemSupplierInfos do
     * `{:error, :not_current}` — `info.valid_to` is not `nil`; only the current
       row can be revised.
     * `{:ok, info}` (no-op) — `new_cost` equals `info.unit_cost` (or both
-      effectively zero when `unit_cost` is `nil`).
+      effectively zero when `unit_cost` is `nil`), *and* `opts[:currency]` is
+      either absent or matches the row's current currency. A currency-only
+      change (same cost, different `:currency`) still creates a revision.
 
   ## Transaction
 
@@ -271,11 +273,15 @@ defmodule PhoenixKitCatalogue.Catalogue.ItemSupplierInfos do
   @spec revise_unit_cost(ItemSupplierInfo.t(), Decimal.t(), keyword()) ::
           {:ok, ItemSupplierInfo.t()} | {:error, :not_current | Ecto.Changeset.t()}
   def revise_unit_cost(%ItemSupplierInfo{} = info, new_cost, opts \\ []) do
+    caller_currency = opts[:currency]
+    currency_unchanged = is_nil(caller_currency) or caller_currency == info.currency
+
     cond do
       not is_nil(info.valid_to) ->
         {:error, :not_current}
 
-      Decimal.compare(new_cost, info.unit_cost || Decimal.new(0)) == :eq ->
+      Decimal.compare(new_cost, info.unit_cost || Decimal.new(0)) == :eq and
+          currency_unchanged ->
         {:ok, info}
 
       true ->

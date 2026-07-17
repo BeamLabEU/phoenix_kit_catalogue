@@ -545,6 +545,25 @@ defmodule PhoenixKitCatalogue.ItemSupplierInfosTest do
       assert {:ok, ^info} = ItemSupplierInfos.revise_unit_cost(info, Decimal.new(0))
     end
 
+    test "same cost but different currency still creates a revision (not a no-op)" do
+      cat = create_catalogue()
+      item = create_item(cat)
+      supplier = create_supplier()
+      info = create_info(item, supplier, %{"unit_cost" => "10.00", "currency" => "EUR"})
+
+      assert {:ok, successor} =
+               ItemSupplierInfos.revise_unit_cost(info, Decimal.new("10.00"), currency: "USD")
+
+      refute successor.uuid == info.uuid
+      assert successor.currency == "USD"
+      assert Decimal.equal?(successor.unit_cost, Decimal.new("10.00"))
+
+      closed = ItemSupplierInfos.get(info.uuid)
+      assert closed.valid_to == Date.utc_today()
+
+      assert length(ItemSupplierInfos.history_for_pair(item.uuid, supplier.uuid)) == 2
+    end
+
     test "stores new currency when opts[:currency] differs" do
       cat = create_catalogue()
       item = create_item(cat)
