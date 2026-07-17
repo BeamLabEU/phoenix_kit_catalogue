@@ -311,6 +311,21 @@ defmodule PhoenixKitCatalogue.Catalogue do
     to: ItemSupplierInfos,
     as: :primary_for_item
 
+  @doc "Returns all rows for an item/supplier pair ordered newest-first (current + closed)."
+  defdelegate supplier_info_history_for_pair(item_uuid, supplier_uuid),
+    to: ItemSupplierInfos,
+    as: :history_for_pair
+
+  @doc "Returns the current junction row for an item/supplier pair or nil."
+  defdelegate active_supplier_info_for(item_uuid, supplier_uuid),
+    to: Suppliers,
+    as: :active_info_for
+
+  @doc "Closes the current junction row and inserts a successor with the new unit cost."
+  defdelegate revise_supplier_info_cost(info, new_cost, opts \\ []),
+    to: ItemSupplierInfos,
+    as: :revise_unit_cost
+
   # ═══════════════════════════════════════════════════════════════════
   # Manufacturer ↔ Supplier links — see PhoenixKitCatalogue.Catalogue.Links
   # ═══════════════════════════════════════════════════════════════════

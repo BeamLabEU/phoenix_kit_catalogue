@@ -153,6 +153,9 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
       supplier_infos: load_supplier_infos(action, item),
       supplier_form_open: false,
       supplier_info_draft: %{},
+      supplier_history_open: false,
+      supplier_history_rows: [],
+      supplier_history_name: nil,
       all_categories: all_categories,
       smart_move_targets: smart_move_targets,
       move_target: nil,
@@ -590,6 +593,33 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
              )}
         end
     end
+  end
+
+  def handle_event("open_supplier_history", %{"uuid" => uuid}, socket) do
+    case ItemSupplierInfos.get(uuid) do
+      nil ->
+        {:noreply, socket}
+
+      info ->
+        rows = ItemSupplierInfos.history_for_pair(info.item_uuid, info.supplier_uuid)
+        name = supplier_display_name(info, socket.assigns.all_suppliers)
+
+        {:noreply,
+         assign(socket,
+           supplier_history_open: true,
+           supplier_history_rows: rows,
+           supplier_history_name: name
+         )}
+    end
+  end
+
+  def handle_event("close_supplier_history", _params, socket) do
+    {:noreply,
+     assign(socket,
+       supplier_history_open: false,
+       supplier_history_rows: [],
+       supplier_history_name: nil
+     )}
   end
 
   def handle_event("delete_supplier_info", %{"uuid" => uuid}, socket) do
@@ -1381,6 +1411,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                       <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Lead (d)")}</th>
                       <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "MOQ")}</th>
                       <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Primary")}</th>
+                      <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "History")}</th>
                       <th></th>
                     </tr>
                   </thead>
@@ -1423,6 +1454,17 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                         <td>
                           <button
                             type="button"
+                            phx-click="open_supplier_history"
+                            phx-value-uuid={info.uuid}
+                            class="btn btn-xs btn-ghost"
+                            title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Price History")}
+                          >
+                            <.icon name="hero-chevron-down" class="w-3 h-3" />
+                          </button>
+                        </td>
+                        <td>
+                          <button
+                            type="button"
                             phx-click="delete_supplier_info"
                             phx-value-uuid={info.uuid}
                             data-confirm={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Remove this supplier link?")}
@@ -1437,6 +1479,64 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                 </table>
               </div>
             </div>
+
+            <%!-- Supplier price-history modal — read-only, compact. Shows closed
+                 revision rows for the selected item/supplier pair. --%>
+            <dialog :if={@supplier_history_open} open class="modal">
+              <div class="modal-box max-w-lg">
+                <h3 class="font-bold text-lg mb-4">
+                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Price History")}
+                  <span :if={@supplier_history_name} class="font-normal text-base-content/60 ml-1">
+                    — {@supplier_history_name}
+                  </span>
+                </h3>
+                <div :if={@supplier_history_rows == []} class="text-sm text-base-content/50 italic py-2">
+                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "No price history.")}
+                </div>
+                <div :if={@supplier_history_rows != []} class="overflow-x-auto">
+                  <table class="table table-xs w-full">
+                    <thead>
+                      <tr>
+                        <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Unit Cost")}</th>
+                        <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Currency")}</th>
+                        <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Valid From")}</th>
+                        <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Valid To")}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <%= for row <- @supplier_history_rows do %>
+                        <tr class={if is_nil(row.valid_to), do: "font-medium", else: "text-base-content/60"}>
+                          <td class="tabular-nums">
+                            <%= if row.unit_cost do %>
+                              {Decimal.to_string(row.unit_cost, :normal)}
+                            <% else %>
+                              —
+                            <% end %>
+                          </td>
+                          <td>{row.currency || "—"}</td>
+                          <td>{if row.valid_from, do: Date.to_string(row.valid_from), else: "—"}</td>
+                          <td>
+                            <%= if is_nil(row.valid_to) do %>
+                              <span class="badge badge-xs badge-primary">
+                                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Current")}
+                              </span>
+                            <% else %>
+                              {Date.to_string(row.valid_to)}
+                            <% end %>
+                          </td>
+                        </tr>
+                      <% end %>
+                    </tbody>
+                  </table>
+                </div>
+                <div class="modal-action">
+                  <button type="button" phx-click="close_supplier_history" class="btn btn-sm">
+                    {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Close")}
+                  </button>
+                </div>
+              </div>
+              <div class="modal-backdrop" phx-click="close_supplier_history"></div>
+            </dialog>
 
             <div class="form-control">
               <.select
