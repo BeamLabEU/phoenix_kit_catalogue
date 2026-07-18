@@ -689,8 +689,6 @@ The version must be updated in **three places** when bumping:
 
 ### Changelog
 
-> **Maintainer-owned:** `CHANGELOG.md` entries are written by the project maintainer, not by agents. If you bump `mix.exs` `@version` and the CHANGELOG hasn't caught up yet, that's intentional — flag the gap to the user and stop. Do not auto-write entries.
-
 Update `CHANGELOG.md` before releasing. Each version gets a section:
 
 ```markdown
