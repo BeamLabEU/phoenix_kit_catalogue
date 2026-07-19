@@ -98,7 +98,7 @@ Key invariants to preserve:
 
 SemVer. The version lives in **two places** — bump both: `mix.exs` `@version` and `PhoenixKitCatalogue.version/0`. `test/phoenix_kit_catalogue_test.exs` pins them equal, so a missed bump fails the test.
 
-- `CHANGELOG.md` is **maintainer-owned** — never write entries yourself; flag the gap to the user and stop.
+- Update `CHANGELOG.md` before releasing, using [Keep a Changelog](https://keepachangelog.com/) categories (`Added`, `Changed`, `Fixed`, `Removed`).
 - Tags are bare version numbers (`git tag 0.1.1`). Create the GitHub release with `gh release create` titled `<version> - <date>`, notes from the changelog section. Never tag before all changes are committed **and pushed**.
 - Commit messages start with `Add`, `Update`, `Fix`, `Remove`, or `Merge`.
 - Run `mix precommit` before committing.
