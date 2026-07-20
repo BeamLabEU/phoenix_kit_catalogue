@@ -53,40 +53,9 @@ defmodule Mix.Tasks.PhoenixKitCatalogue.AuditSupplierRefs do
         function_exported?(PhoenixKitCRM.PartyRoles, :get_supplier, 1)
 
     {unresolvable, crm_skipped, ok} =
-      Enum.reduce(rows.rows, {[], [], []}, fn [uuid, item_uuid, supplier_uuid, source, snapshot],
-                                              {unresolvable, crm_skipped, ok} ->
-        case source do
-          "local" ->
-            found =
-              repo.exists?(
-                from(s in PhoenixKitCatalogue.Schemas.Supplier, where: s.uuid == ^supplier_uuid)
-              )
-
-            if found do
-              {unresolvable, crm_skipped, [uuid | ok]}
-            else
-              {[{uuid, item_uuid, supplier_uuid, source, snapshot} | unresolvable], crm_skipped,
-               ok}
-            end
-
-          src when src in ["crm_company", "crm_contact"] ->
-            if crm_available do
-              case apply(PhoenixKitCRM.PartyRoles, :get_supplier, [supplier_uuid]) do
-                nil ->
-                  {[{uuid, item_uuid, supplier_uuid, source, snapshot} | unresolvable],
-                   crm_skipped, ok}
-
-                _party ->
-                  {unresolvable, crm_skipped, [uuid | ok]}
-              end
-            else
-              {unresolvable, [{uuid, source} | crm_skipped], ok}
-            end
-
-          _other ->
-            {unresolvable, crm_skipped, ok}
-        end
-      end)
+      rows.rows
+      |> Enum.map(&resolve_junction_row(repo, crm_available, &1))
+      |> Enum.reduce({[], [], []}, &bucket_junction_result/2)
 
     total = length(rows.rows)
     Mix.shell().info("Total junction rows: #{total}")
@@ -115,6 +84,66 @@ defmodule Mix.Tasks.PhoenixKitCatalogue.AuditSupplierRefs do
       end)
     end
   end
+
+  defp resolve_junction_row(repo, _crm_available, [
+         uuid,
+         item_uuid,
+         supplier_uuid,
+         "local",
+         snapshot
+       ]) do
+    found =
+      repo.exists?(
+        from(s in PhoenixKitCatalogue.Schemas.Supplier, where: s.uuid == ^supplier_uuid)
+      )
+
+    if found do
+      {:ok, uuid}
+    else
+      {:unresolvable, {uuid, item_uuid, supplier_uuid, "local", snapshot}}
+    end
+  end
+
+  defp resolve_junction_row(_repo, crm_available, [
+         uuid,
+         item_uuid,
+         supplier_uuid,
+         source,
+         snapshot
+       ])
+       when source in ["crm_company", "crm_contact"] do
+    cond do
+      not crm_available ->
+        {:crm_skipped, {uuid, source}}
+
+      crm_supplier_found?(supplier_uuid) ->
+        {:ok, uuid}
+
+      true ->
+        {:unresolvable, {uuid, item_uuid, supplier_uuid, source, snapshot}}
+    end
+  end
+
+  defp resolve_junction_row(_repo, _crm_available, _row), do: :skip
+
+  defp crm_supplier_found?(supplier_uuid) do
+    # credo:disable-for-next-line Credo.Check.Refactor.Apply
+    case apply(PhoenixKitCRM.PartyRoles, :get_supplier, [supplier_uuid]) do
+      nil -> false
+      _party -> true
+    end
+  end
+
+  defp bucket_junction_result({:ok, uuid}, {unresolvable, crm_skipped, ok}),
+    do: {unresolvable, crm_skipped, [uuid | ok]}
+
+  defp bucket_junction_result({:unresolvable, entry}, {unresolvable, crm_skipped, ok}),
+    do: {[entry | unresolvable], crm_skipped, ok}
+
+  defp bucket_junction_result({:crm_skipped, entry}, {unresolvable, crm_skipped, ok}),
+    do: {unresolvable, [entry | crm_skipped], ok}
+
+  defp bucket_junction_result(:skip, acc), do: acc
 
   defp audit_crm_company_links(repo, p) do
     Mix.shell().info("\n== Suppliers with crm_company_uuid links (informational) ==")
