@@ -30,7 +30,15 @@ defmodule PhoenixKitCatalogue.Import.Executor do
   `category_uuid` / `manufacturer_uuid` per row from the lookups
   built in phase 1 (or the fixed UUIDs). Phase 3: link
   manufacturers↔suppliers (M:N). Sends `{:import_progress, current,
-  total}` messages to `notify_pid` after each item.
+  total}` messages to `notify_pid` after each item, and
+  `{:import_result, result}` once at the end.
+
+  `notify_pid` may be `nil` for callers that run `execute/4` inline and
+  read the returned result map directly. Both messages are then skipped.
+  `ImportLive`'s PRO100 sync branch needs this: it applies its plan
+  synchronously inside `handle_event` and renders its own report step, so
+  a delivered `{:import_result, _}` would be picked up by the universal
+  import's `handle_info` and flip the operator to the wrong screen.
 
   ## Options
 
@@ -129,7 +137,7 @@ defmodule PhoenixKitCatalogue.Import.Executor do
 
         result = insert_item(attrs, activity_opts)
 
-        send(notify_pid, {:import_progress, idx, total})
+        maybe_notify(notify_pid, {:import_progress, idx, total})
 
         accumulate_item_result(result, {cr, errs, pairs, mfrs}, idx, mfr_uuid, sup_uuid)
       end)
@@ -157,10 +165,13 @@ defmodule PhoenixKitCatalogue.Import.Executor do
     # etc.) gets a definitive "done" signal.
     PubSub.broadcast(:catalogue, catalogue_uuid, catalogue_uuid)
 
-    send(notify_pid, {:import_result, result})
+    maybe_notify(notify_pid, {:import_result, result})
 
     result
   end
+
+  defp maybe_notify(nil, _message), do: :ok
+  defp maybe_notify(pid, message) when is_pid(pid), do: send(pid, message)
 
   # ── Category Creation ─────────────────────────────────────────
 
