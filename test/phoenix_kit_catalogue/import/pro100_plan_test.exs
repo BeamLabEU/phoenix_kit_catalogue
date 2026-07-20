@@ -65,11 +65,191 @@ defmodule PhoenixKitCatalogue.Import.Pro100PlanTest do
     assert change.data["original_unit"] == "m³"
   end
 
-  test "unmatched and ambiguous rows go to skipped with reasons" do
+  test "an unmatched row with a usable id and name becomes a create, not a skip" do
     idx = Matcher.index([])
     plan = Pro100Plan.build([row(%{})], idx)
-    assert [%{reason: :unmatched}] = plan.skipped
-    assert plan.stats.unmatched == 1
+    assert plan.skipped == []
+    assert [create] = plan.creates
+    assert plan.stats.create == 1
+    assert create.attrs.sku == "76002612"
+    assert create.attrs.name == "X"
+  end
+
+  test "an unmatched row without an id is skipped as :no_id" do
+    idx = Matcher.index([])
+    plan = Pro100Plan.build([row(%{id: ""})], idx)
+    assert [%{reason: :no_id}] = plan.skipped
+    assert plan.creates == []
+    assert plan.stats.no_id == 1
+  end
+
+  test "an unmatched row without a name is skipped as :no_name" do
+    idx = Matcher.index([])
+    plan = Pro100Plan.build([row(%{name: "   "})], idx)
+    assert [%{reason: :no_name}] = plan.skipped
+    assert plan.creates == []
+    assert plan.stats.no_name == 1
+  end
+
+  test "ambiguous rows are never created, even with a usable id and name" do
+    dupes = [item(uuid: "a", sku: "76002612"), item(uuid: "b", sku: "76.0026.12")]
+    plan = Pro100Plan.build([row(%{})], Matcher.index(dupes))
+    assert [%{reason: :ambiguous}] = plan.skipped
+    assert plan.creates == []
+    assert plan.stats.ambiguous == 1
+  end
+
+  describe "name/category split" do
+    test "splits the group prefix into a category" do
+      plan =
+        Pro100Plan.build([row(%{name: "Andi Karkass  / MP U741 ST9 16mm"})], Matcher.index([]))
+
+      assert [create] = plan.creates
+      assert create.category == "Andi Karkass"
+      assert create.attrs.name == "MP U741 ST9 16mm"
+      assert create.attrs[:_category_name] == "Andi Karkass"
+    end
+
+    # A bare slash inside an article code must not be mistaken for a group
+    # separator — "MP U767 PM/ST9" would otherwise split into category
+    # "MP U767 PM" and name "ST9 18mm".
+    test "ignores a slash that is not whitespace-padded" do
+      plan = Pro100Plan.build([row(%{name: "MP U767 PM/ST9 18mm"})], Matcher.index([]))
+      assert [create] = plan.creates
+      assert create.category == nil
+      assert create.attrs.name == "MP U767 PM/ST9 18mm"
+      refute Map.has_key?(create.attrs, :_category_name)
+    end
+
+    test "keeps the padded separator when a bare slash also appears" do
+      plan =
+        Pro100Plan.build([row(%{name: "Andi Karkass / MP U767 PM/ST9 18mm"})], Matcher.index([]))
+
+      assert [create] = plan.creates
+      assert create.category == "Andi Karkass"
+      assert create.attrs.name == "MP U767 PM/ST9 18mm"
+    end
+
+    test "a blank part on either side falls back to no category" do
+      for name <- [" / Foo", "Group / ", " / "] do
+        plan = Pro100Plan.build([row(%{name: name})], Matcher.index([]))
+
+        case plan.creates do
+          [create] -> assert create.category == nil
+          [] -> assert [%{reason: :no_name}] = plan.skipped
+        end
+      end
+    end
+
+    test "trims a name with no separator" do
+      plan = Pro100Plan.build([row(%{name: "  Loose Name  "})], Matcher.index([]))
+      assert [create] = plan.creates
+      assert create.attrs.name == "Loose Name"
+    end
+  end
+
+  describe "create attrs" do
+    # The schema default "piece" only applies to ABSENT keys; an explicit nil
+    # writes NULL. The parser hands us unit: nil for every furniture row.
+    test "omits :unit entirely for furniture rows" do
+      plan = Pro100Plan.build([row(%{})], Matcher.index([]))
+      assert [create] = plan.creates
+      refute Map.has_key?(create.attrs, :unit)
+    end
+
+    test "sets :unit for materials rows with a recognized unit" do
+      r = row(%{format: :materials, unit: "tk", service: %{"c3" => "0", "c5" => "1.0"}})
+      plan = Pro100Plan.build([r], Matcher.index([]))
+      assert [create] = plan.creates
+      assert create.attrs.unit == "piece"
+    end
+
+    test "omits :unit but stashes original_unit for an unrecognized materials unit" do
+      r = row(%{format: :materials, unit: "m³", service: %{"c3" => "0", "c5" => "1.0"}})
+      plan = Pro100Plan.build([r], Matcher.index([]))
+      assert [create] = plan.creates
+      refute Map.has_key?(create.attrs, :unit)
+      assert create.attrs.data["original_unit"] == "m³"
+      assert :unit_unrecognized in create.flags
+    end
+
+    test "never sets catalogue_uuid, category_uuid, status or position" do
+      plan = Pro100Plan.build([row(%{name: "Group / Thing"})], Matcher.index([]))
+      assert [create] = plan.creates
+
+      for key <- [:catalogue_uuid, :category_uuid, :status, :position] do
+        refute Map.has_key?(create.attrs, key)
+      end
+    end
+
+    test "carries the pro100 service blob" do
+      plan = Pro100Plan.build([row(%{})], Matcher.index([]))
+      assert [create] = plan.creates
+
+      assert create.attrs.data["pro100"] == %{
+               "format" => "furniture",
+               "c3" => "0",
+               "c5" => "1.0",
+               "c6" => "222.00",
+               "c7" => "2.0"
+             }
+    end
+
+    test "an unparseable price omits base_price and flags the row" do
+      plan = Pro100Plan.build([row(%{base_price: nil})], Matcher.index([]))
+      assert [create] = plan.creates
+      refute Map.has_key?(create.attrs, :base_price)
+      assert :price_unparseable in create.flags
+    end
+  end
+
+  test "two unmatched rows with the same id create one item, last row wins" do
+    rows = [
+      row(%{id: "76002612", name: "First", base_price: Decimal.new("90.00")}),
+      row(%{id: "76002612", name: "Second", base_price: Decimal.new("100.00")})
+    ]
+
+    plan = Pro100Plan.build(rows, Matcher.index([]))
+    assert [create] = plan.creates
+    assert create.attrs.name == "Second"
+    assert Decimal.equal?(create.attrs.base_price, Decimal.new("100.00"))
+  end
+
+  describe "to_executor_plan/1" do
+    test "maps attrs and collects distinct category names" do
+      rows = [
+        row(%{id: "1", name: "Andi Karkass / A"}),
+        row(%{id: "2", name: "Andi Karkass / B"}),
+        row(%{id: "3", name: "Other Group / C"}),
+        row(%{id: "4", name: "No Group"})
+      ]
+
+      plan = Pro100Plan.build(rows, Matcher.index([]))
+      exec = Pro100Plan.to_executor_plan(plan.creates)
+
+      assert length(exec.items) == 4
+      assert exec.categories_to_create == ["Andi Karkass", "Other Group"]
+    end
+
+    # A `_category_name` absent from categories_to_create is dropped silently by
+    # the executor, leaving items uncategorized with no error — the two must
+    # stay derived from the same source.
+    test "every item's :_category_name appears in categories_to_create" do
+      rows = [row(%{id: "1", name: "G1 / A"}), row(%{id: "2", name: "G2 / B"})]
+
+      exec =
+        Pro100Plan.build(rows, Matcher.index([]))
+        |> Map.fetch!(:creates)
+        |> Pro100Plan.to_executor_plan()
+
+      for item <- exec.items, name = item[:_category_name], not is_nil(name) do
+        assert name in exec.categories_to_create
+      end
+    end
+
+    test "returns empty lists for an empty bucket" do
+      assert Pro100Plan.to_executor_plan([]) == %{items: [], categories_to_create: []}
+    end
   end
 
   # Regression: two PRO100 rows whose digits-only ids both resolve to the same

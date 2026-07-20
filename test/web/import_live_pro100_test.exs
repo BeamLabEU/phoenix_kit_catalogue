@@ -247,4 +247,103 @@ defmodule PhoenixKitCatalogue.Web.ImportLivePro100Test do
       assert assigns.import_plan == nil
     end
   end
+
+  describe "force-creating unmatched rows" do
+    # Uploads a file whose single row matches nothing in the catalogue and
+    # returns the LiveView sitting on the :preview step.
+    defp preview_with_unmatched(conn, cat, name \\ "Andi Karkass / MP U741 ST9 16mm") do
+      {:ok, view, _html} = live(conn, @import_url)
+
+      render_change(view, "validate_upload", %{
+        "catalogue" => cat.uuid,
+        "source" => "pro100",
+        "format" => "furniture"
+      })
+
+      txt = furniture_file([{name, "7374116", "108.88"}])
+      file = build_file_input(view, "export.txt", "text/plain", txt)
+      render_upload(file, "export.txt")
+
+      render_submit(view, "parse_file", %{
+        "catalogue" => cat.uuid,
+        "source" => "pro100",
+        "format" => "furniture"
+      })
+
+      view
+    end
+
+    test "unmatched row lands in :creates with the box checked by default",
+         %{conn: conn, catalogue: cat} do
+      view = preview_with_unmatched(conn, cat)
+      assigns = :sys.get_state(view.pid).socket.assigns
+
+      assert assigns.step == :preview
+      assert assigns.import_plan.updates == []
+      assert [create] = assigns.import_plan.creates
+      assert create.attrs.name == "MP U741 ST9 16mm"
+      assert create.category == "Andi Karkass"
+      # Nothing to update → the checkbox defaults on.
+      assert assigns.create_unmatched
+    end
+
+    test "applying creates the item, its category, and stays on the sync report",
+         %{conn: conn, catalogue: cat} do
+      view = preview_with_unmatched(conn, cat)
+      render_click(view, "apply_pro100", %{})
+
+      assigns = :sys.get_state(view.pid).socket.assigns
+
+      # Regression guard: Executor.execute/4 sends {:import_result, _}, which
+      # this LiveView also handles by switching to the universal import's
+      # :done screen. Passing nil as notify_pid is what keeps us here.
+      assert assigns.step == :report
+      assert assigns.report.created == 1
+      assert assigns.report.updated == 0
+
+      items = Catalogue.list_items_for_catalogue(cat.uuid)
+      created = Enum.find(items, &(&1.sku == "7374116"))
+
+      assert created.name == "MP U741 ST9 16mm"
+      assert Decimal.equal?(created.base_price, Decimal.new("108.88"))
+      # unit was omitted from attrs, so the schema default applies — NOT NULL.
+      assert created.unit == "piece"
+      assert created.status == "active"
+      assert created.data["pro100"]["format"] == "furniture"
+      refute is_nil(created.category_uuid)
+    end
+
+    test "with the box unchecked nothing is created and the rows are still reported",
+         %{conn: conn, catalogue: cat} do
+      view = preview_with_unmatched(conn, cat)
+      render_click(view, "toggle_create_unmatched", %{})
+
+      refute :sys.get_state(view.pid).socket.assigns.create_unmatched
+
+      render_click(view, "apply_pro100", %{})
+      assigns = :sys.get_state(view.pid).socket.assigns
+
+      assert assigns.report.created == 0
+      # The row must not vanish from the report just because it was not created.
+      assert [%{reason: :not_imported}] = assigns.report.skipped
+
+      items = Catalogue.list_items_for_catalogue(cat.uuid)
+      refute Enum.any?(items, &(&1.sku == "7374116"))
+    end
+
+    test "a row with no group prefix is created without a category",
+         %{conn: conn, catalogue: cat} do
+      view = preview_with_unmatched(conn, cat, "MP U767 PM/ST9 18mm")
+      render_click(view, "apply_pro100", %{})
+
+      created =
+        cat.uuid
+        |> Catalogue.list_items_for_catalogue()
+        |> Enum.find(&(&1.sku == "7374116"))
+
+      # The bare slash in the article code must not be read as a group split.
+      assert created.name == "MP U767 PM/ST9 18mm"
+      assert is_nil(created.category_uuid)
+    end
+  end
 end
