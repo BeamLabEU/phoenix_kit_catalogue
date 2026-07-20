@@ -260,6 +260,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Suppliers do
 
   defp try_resolve_crm(uuid) do
     if crm_available?() do
+      # credo:disable-for-next-line Credo.Check.Refactor.Apply
       case apply(PhoenixKitCRM.PartyRoles, :get_supplier, [uuid]) do
         nil ->
           :error
@@ -295,6 +296,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Suppliers do
 
   defp list_crm_companies do
     if function_exported?(PhoenixKitCRM.PartyRoles, :list_companies_with_role, 2) do
+      # credo:disable-for-next-line Credo.Check.Refactor.Apply
       apply(PhoenixKitCRM.PartyRoles, :list_companies_with_role, ["supplier", []])
       |> Enum.map(fn c ->
         %{
@@ -313,6 +315,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Suppliers do
 
   defp list_crm_contacts do
     if function_exported?(PhoenixKitCRM.PartyRoles, :list_contacts_with_role, 2) do
+      # credo:disable-for-next-line Credo.Check.Refactor.Apply
       apply(PhoenixKitCRM.PartyRoles, :list_contacts_with_role, ["supplier", []])
       |> Enum.map(fn c ->
         %{
