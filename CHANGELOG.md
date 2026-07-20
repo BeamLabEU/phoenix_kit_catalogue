@@ -1,3 +1,11 @@
+## 0.12.2 - 2026-07-20
+
+### Fixed
+- **`mix precommit` was failing `credo --strict`** — `mix.tasks.phoenix_kit_catalogue.audit_supplier_refs`'s `audit_junction_rows/2` exceeded the nesting-depth and cyclomatic-complexity limits; split into per-source-pattern-matched `resolve_junction_row/3` and a `bucket_junction_result/2` reducer, same behavior. The remaining `apply/2,3` calls to the optional `PhoenixKitCRM.PartyRoles` module (in this task and in `Catalogue.Suppliers`) are intentional — they avoid a hard compile-time reference to a soft dependency that may not be present — so they're marked `credo:disable-for-next-line` instead of being rewritten.
+
+### Notes
+- Verification: `mix format`, `mix compile --warnings-as-errors`, `mix credo --strict`, and `mix dialyzer` are all clean. `mix test` could not be run in this environment (no local Postgres).
+
 ## 0.12.1 - 2026-07-17
 
 ### Fixed
