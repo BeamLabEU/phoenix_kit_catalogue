@@ -22,10 +22,8 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
 
   import PhoenixKitAI.Components.AITranslate,
     only: [
-      ai_translate_button: 1,
-      ai_translate_modal: 1,
-      ai_translate_progress: 1,
-      ai_translate_hint: 1
+      ai_multilang_tabs: 1,
+      ai_translate_modal: 1
     ]
 
   alias PhoenixKit.Utils.Values
@@ -415,15 +413,13 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
 
       <.form for={@form} action="#" phx-change="validate" phx-submit="save">
         <div class="card bg-base-100 shadow-lg">
-          <.multilang_tabs multilang_enabled={@multilang_enabled} language_tabs={@language_tabs} current_lang={@current_lang} />
-
-          <div :if={@ai_translation_available?} class="px-6 -mt-1 mb-2">
-            <div class="flex items-center gap-3">
-              <.ai_translate_button ai_translate={ai_translate_config(assigns)} />
-              <.ai_translate_progress ai_translate={ai_translate_config(assigns)} />
-            </div>
-            <.ai_translate_hint ai_translate={ai_translate_config(assigns)} />
-          </div>
+          <%!-- Bundled tabs + AI row (phoenix_kit_ai's canonical placement). --%>
+          <.ai_multilang_tabs
+            multilang_enabled={@multilang_enabled}
+            language_tabs={@language_tabs}
+            current_lang={@current_lang}
+            ai_translate={ai_translate_config(assigns)}
+          />
 
           <%!-- Only translatable fields live inside the wrapper so a
                language switch only re-mounts name + description, not

@@ -1,3 +1,15 @@
+## 0.12.3 - 2026-07-22
+
+### Changed
+- **Catalogue/category/item forms migrated to `phoenix_kit_ai`'s bundled `<.ai_multilang_tabs>`** (#48) — the hand-placed AI-translate row (button + progress bar + hint) under each form's language tabs is now rendered by the shared component instead of three near-identical copies. Same config (`ai_translate_config/1`), same events; the component additionally hides the row on single-language sites (previously the row could show without a `<.multilang_tabs>` at all). Requires `phoenix_kit_ai` >= 0.17.0 (first Hex release shipping `ai_multilang_tabs/1`); the lockfile was bumped accordingly.
+
+### Fixed
+- **`PhoenixKitCatalogue.version/0` lagged the 0.12.2 release bump** — the 0.12.2 release commit updated `mix.exs` but missed the `lib/phoenix_kit_catalogue.ex` callback, so it still reported `"0.12.1"`; `test/phoenix_kit_catalogue_test.exs` pins the two together but wasn't run against a Postgres-backed suite before that release shipped. Fixed as part of this release's version bump.
+
+### Notes
+- **Dependency lockfile advances** (no `mix.exs` constraint changes): `phoenix_kit` 1.7.199 → 1.7.208, `phoenix_kit_ai` 0.16.0 → 0.17.0 (ships `ai_multilang_tabs/1`), plus routine transitive bumps (`beamlab_countries`, `elixir_make`, `etcher`, `fresco`, `lazy_html`, `tessera`) and the `beamlab_ex_aws_sqs` → `ex_aws_sqs` rename picked up from core. Constraints stay loose.
+- Verification: `mix format`, `mix compile --warnings-as-errors`, `mix credo --strict`, and `mix dialyzer` are all clean (`mix precommit`). `mix test` could not be run in this environment (`psql` is not installed, not just DB-unavailable) — the migrated templates are render-only changes with no test coverage gap identified; get a real CI/Postgres run before treating this release as fully verified.
+
 ## 0.12.2 - 2026-07-20
 
 ### Fixed

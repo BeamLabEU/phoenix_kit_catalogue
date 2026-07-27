@@ -1,7 +1,7 @@
 defmodule PhoenixKitCatalogue.MixProject do
   use Mix.Project
 
-  @version "0.12.2"
+  @version "0.12.3"
   @source_url "https://github.com/BeamLabEU/phoenix_kit_catalogue"
 
   def project do
@@ -115,7 +115,9 @@ defmodule PhoenixKitCatalogue.MixProject do
   defp docs do
     [
       main: "PhoenixKitCatalogue",
-      source_ref: @version,
+      # Tags in this repo are v-prefixed, not bare version numbers — a bare ref
+      # points at a tag that does not exist and 404s every HexDocs source link.
+      source_ref: "v#{@version}",
       extras: [
         "guides/smart_catalogues.md": [title: "Smart Catalogues"]
       ],
