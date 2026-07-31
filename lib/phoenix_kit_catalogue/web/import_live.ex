@@ -665,7 +665,12 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
         if socket.assigns.ets_table, do: :ets.delete(socket.assigns.ets_table)
         items = Catalogue.list_items_for_catalogue(socket.assigns.selected_catalogue.uuid)
 
-        case source_mod.analyze(binary, format_atom, items) do
+        case source_mod.analyze(
+               binary,
+               format_atom,
+               items,
+               socket.assigns.selected_catalogue.name
+             ) do
           {:ok, plan} ->
             # Default the create checkbox ON only when there is nothing to
             # update — the fresh-price-list case, where the screen would
@@ -2893,6 +2898,15 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
       "Row %{row}: multiple items match (%{matches})",
       row: row.name,
       matches: matches
+    )
+  end
+
+  defp sync_skip_reason(%{reason: :foreign_group, row: row, group: group}) do
+    Gettext.gettext(
+      PhoenixKitCatalogue.Gettext,
+      "Row %{row}: belongs to %{group}, not to this catalogue",
+      row: row.name,
+      group: group
     )
   end
 
