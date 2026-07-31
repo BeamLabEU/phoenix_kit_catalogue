@@ -23,7 +23,7 @@ defmodule PhoenixKitCatalogue.Import.Pro100PlanTest do
 
   test "matched row with a new price yields an :update with a price change + pro100 data" do
     idx = Matcher.index([item(base_price: Decimal.new("80.00"))])
-    plan = Pro100Plan.build([row(%{})], idx)
+    plan = Pro100Plan.build([row(%{})], idx, nil)
     assert [change] = plan.updates
     assert change.status == :update
     {old, new} = change.changes.base_price
@@ -41,7 +41,7 @@ defmodule PhoenixKitCatalogue.Import.Pro100PlanTest do
 
   test "identical price yields :nochange (still carries pro100 data)" do
     idx = Matcher.index([item(base_price: Decimal.new("100.00"))])
-    plan = Pro100Plan.build([row(%{})], idx)
+    plan = Pro100Plan.build([row(%{})], idx, nil)
     assert [change] = plan.updates
     assert change.status == :nochange
   end
@@ -58,7 +58,7 @@ defmodule PhoenixKitCatalogue.Import.Pro100PlanTest do
         service: %{"c3" => "0", "c5" => "1.0"}
       })
 
-    plan = Pro100Plan.build([r], idx)
+    plan = Pro100Plan.build([r], idx, nil)
     assert [change] = plan.updates
     assert :unit_unrecognized in change.flags
     refute Map.has_key?(change.changes, :unit)
@@ -67,7 +67,7 @@ defmodule PhoenixKitCatalogue.Import.Pro100PlanTest do
 
   test "an unmatched row with a usable id and name becomes a create, not a skip" do
     idx = Matcher.index([])
-    plan = Pro100Plan.build([row(%{})], idx)
+    plan = Pro100Plan.build([row(%{})], idx, nil)
     assert plan.skipped == []
     assert [create] = plan.creates
     assert plan.stats.create == 1
@@ -77,7 +77,7 @@ defmodule PhoenixKitCatalogue.Import.Pro100PlanTest do
 
   test "an unmatched row without an id is skipped as :no_id" do
     idx = Matcher.index([])
-    plan = Pro100Plan.build([row(%{id: ""})], idx)
+    plan = Pro100Plan.build([row(%{id: ""})], idx, nil)
     assert [%{reason: :no_id}] = plan.skipped
     assert plan.creates == []
     assert plan.stats.no_id == 1
@@ -85,7 +85,7 @@ defmodule PhoenixKitCatalogue.Import.Pro100PlanTest do
 
   test "an unmatched row without a name is skipped as :no_name" do
     idx = Matcher.index([])
-    plan = Pro100Plan.build([row(%{name: "   "})], idx)
+    plan = Pro100Plan.build([row(%{name: "   "})], idx, nil)
     assert [%{reason: :no_name}] = plan.skipped
     assert plan.creates == []
     assert plan.stats.no_name == 1
@@ -93,7 +93,7 @@ defmodule PhoenixKitCatalogue.Import.Pro100PlanTest do
 
   test "ambiguous rows are never created, even with a usable id and name" do
     dupes = [item(uuid: "a", sku: "76002612"), item(uuid: "b", sku: "76.0026.12")]
-    plan = Pro100Plan.build([row(%{})], Matcher.index(dupes))
+    plan = Pro100Plan.build([row(%{})], Matcher.index(dupes), nil)
     assert [%{reason: :ambiguous}] = plan.skipped
     assert plan.creates == []
     assert plan.stats.ambiguous == 1
@@ -102,7 +102,11 @@ defmodule PhoenixKitCatalogue.Import.Pro100PlanTest do
   describe "name/category split" do
     test "splits the group prefix into a category" do
       plan =
-        Pro100Plan.build([row(%{name: "Andi Karkass  / MP U741 ST9 16mm"})], Matcher.index([]))
+        Pro100Plan.build(
+          [row(%{name: "Andi Karkass  / MP U741 ST9 16mm"})],
+          Matcher.index([]),
+          nil
+        )
 
       assert [create] = plan.creates
       assert create.category == "Andi Karkass"
@@ -114,7 +118,7 @@ defmodule PhoenixKitCatalogue.Import.Pro100PlanTest do
     # separator — "MP U767 PM/ST9" would otherwise split into category
     # "MP U767 PM" and name "ST9 18mm".
     test "ignores a slash that is not whitespace-padded" do
-      plan = Pro100Plan.build([row(%{name: "MP U767 PM/ST9 18mm"})], Matcher.index([]))
+      plan = Pro100Plan.build([row(%{name: "MP U767 PM/ST9 18mm"})], Matcher.index([]), nil)
       assert [create] = plan.creates
       assert create.category == nil
       assert create.attrs.name == "MP U767 PM/ST9 18mm"
@@ -123,7 +127,11 @@ defmodule PhoenixKitCatalogue.Import.Pro100PlanTest do
 
     test "keeps the padded separator when a bare slash also appears" do
       plan =
-        Pro100Plan.build([row(%{name: "Andi Karkass / MP U767 PM/ST9 18mm"})], Matcher.index([]))
+        Pro100Plan.build(
+          [row(%{name: "Andi Karkass / MP U767 PM/ST9 18mm"})],
+          Matcher.index([]),
+          nil
+        )
 
       assert [create] = plan.creates
       assert create.category == "Andi Karkass"
@@ -132,7 +140,7 @@ defmodule PhoenixKitCatalogue.Import.Pro100PlanTest do
 
     test "a blank part on either side falls back to no category" do
       for name <- [" / Foo", "Group / ", " / "] do
-        plan = Pro100Plan.build([row(%{name: name})], Matcher.index([]))
+        plan = Pro100Plan.build([row(%{name: name})], Matcher.index([]), nil)
 
         case plan.creates do
           [create] -> assert create.category == nil
@@ -142,7 +150,7 @@ defmodule PhoenixKitCatalogue.Import.Pro100PlanTest do
     end
 
     test "trims a name with no separator" do
-      plan = Pro100Plan.build([row(%{name: "  Loose Name  "})], Matcher.index([]))
+      plan = Pro100Plan.build([row(%{name: "  Loose Name  "})], Matcher.index([]), nil)
       assert [create] = plan.creates
       assert create.attrs.name == "Loose Name"
     end
@@ -152,21 +160,21 @@ defmodule PhoenixKitCatalogue.Import.Pro100PlanTest do
     # The schema default "piece" only applies to ABSENT keys; an explicit nil
     # writes NULL. The parser hands us unit: nil for every furniture row.
     test "omits :unit entirely for furniture rows" do
-      plan = Pro100Plan.build([row(%{})], Matcher.index([]))
+      plan = Pro100Plan.build([row(%{})], Matcher.index([]), nil)
       assert [create] = plan.creates
       refute Map.has_key?(create.attrs, :unit)
     end
 
     test "sets :unit for materials rows with a recognized unit" do
       r = row(%{format: :materials, unit: "tk", service: %{"c3" => "0", "c5" => "1.0"}})
-      plan = Pro100Plan.build([r], Matcher.index([]))
+      plan = Pro100Plan.build([r], Matcher.index([]), nil)
       assert [create] = plan.creates
       assert create.attrs.unit == "piece"
     end
 
     test "omits :unit but stashes original_unit for an unrecognized materials unit" do
       r = row(%{format: :materials, unit: "m³", service: %{"c3" => "0", "c5" => "1.0"}})
-      plan = Pro100Plan.build([r], Matcher.index([]))
+      plan = Pro100Plan.build([r], Matcher.index([]), nil)
       assert [create] = plan.creates
       refute Map.has_key?(create.attrs, :unit)
       assert create.attrs.data["original_unit"] == "m³"
@@ -174,7 +182,7 @@ defmodule PhoenixKitCatalogue.Import.Pro100PlanTest do
     end
 
     test "never sets catalogue_uuid, category_uuid, status or position" do
-      plan = Pro100Plan.build([row(%{name: "Group / Thing"})], Matcher.index([]))
+      plan = Pro100Plan.build([row(%{name: "Group / Thing"})], Matcher.index([]), nil)
       assert [create] = plan.creates
 
       for key <- [:catalogue_uuid, :category_uuid, :status, :position] do
@@ -183,7 +191,7 @@ defmodule PhoenixKitCatalogue.Import.Pro100PlanTest do
     end
 
     test "carries the pro100 service blob" do
-      plan = Pro100Plan.build([row(%{})], Matcher.index([]))
+      plan = Pro100Plan.build([row(%{})], Matcher.index([]), nil)
       assert [create] = plan.creates
 
       assert create.attrs.data["pro100"] == %{
@@ -196,7 +204,7 @@ defmodule PhoenixKitCatalogue.Import.Pro100PlanTest do
     end
 
     test "an unparseable price omits base_price and flags the row" do
-      plan = Pro100Plan.build([row(%{base_price: nil})], Matcher.index([]))
+      plan = Pro100Plan.build([row(%{base_price: nil})], Matcher.index([]), nil)
       assert [create] = plan.creates
       refute Map.has_key?(create.attrs, :base_price)
       assert :price_unparseable in create.flags
@@ -209,7 +217,7 @@ defmodule PhoenixKitCatalogue.Import.Pro100PlanTest do
       row(%{id: "76002612", name: "Second", base_price: Decimal.new("100.00")})
     ]
 
-    plan = Pro100Plan.build(rows, Matcher.index([]))
+    plan = Pro100Plan.build(rows, Matcher.index([]), nil)
     assert [create] = plan.creates
     assert create.attrs.name == "Second"
     assert Decimal.equal?(create.attrs.base_price, Decimal.new("100.00"))
@@ -224,7 +232,7 @@ defmodule PhoenixKitCatalogue.Import.Pro100PlanTest do
         row(%{id: "4", name: "No Group"})
       ]
 
-      plan = Pro100Plan.build(rows, Matcher.index([]))
+      plan = Pro100Plan.build(rows, Matcher.index([]), nil)
       exec = Pro100Plan.to_executor_plan(plan.creates)
 
       assert length(exec.items) == 4
@@ -238,7 +246,7 @@ defmodule PhoenixKitCatalogue.Import.Pro100PlanTest do
       rows = [row(%{id: "1", name: "G1 / A"}), row(%{id: "2", name: "G2 / B"})]
 
       exec =
-        Pro100Plan.build(rows, Matcher.index([]))
+        Pro100Plan.build(rows, Matcher.index([]), nil)
         |> Map.fetch!(:creates)
         |> Pro100Plan.to_executor_plan()
 
@@ -265,7 +273,7 @@ defmodule PhoenixKitCatalogue.Import.Pro100PlanTest do
     row1 = row(%{id: "76002612", base_price: Decimal.new("90.00"), service: %{"c3" => "first"}})
     row2 = row(%{id: "76002612", base_price: Decimal.new("100.00"), service: %{"c3" => "second"}})
 
-    plan = Pro100Plan.build([row1, row2], idx)
+    plan = Pro100Plan.build([row1, row2], idx, nil)
 
     # Must produce exactly one change for that item, not two.
     assert length(plan.updates) == 1
@@ -294,7 +302,7 @@ defmodule PhoenixKitCatalogue.Import.Pro100PlanTest do
     row1 = row(%{id: "76002612", base_price: Decimal.new("100.00"), service: %{"c3" => "first"}})
     row2 = row(%{id: "76002612", base_price: Decimal.new("80.00"), service: %{"c3" => "second"}})
 
-    plan = Pro100Plan.build([row1, row2], idx)
+    plan = Pro100Plan.build([row1, row2], idx, nil)
 
     assert [change] = plan.updates
     refute Map.has_key?(change.changes, :base_price)
@@ -306,9 +314,114 @@ defmodule PhoenixKitCatalogue.Import.Pro100PlanTest do
     item_b = item(uuid: "b")
     idx = Matcher.index([item_a, item_b])
 
-    plan = Pro100Plan.build([row(%{})], idx)
+    plan = Pro100Plan.build([row(%{})], idx, nil)
 
     assert [%{reason: :ambiguous, items: items}] = plan.skipped
     assert length(items) == 2
+  end
+
+  describe "name-aware matching" do
+    test "a shared code is disambiguated by the row name instead of going ambiguous" do
+      plain = item(uuid: "plain", sku: "73.U767.18", name: "MP U767 ST9 18mm")
+      pm = item(uuid: "pm", sku: "73.U767.PM.18", name: "MP U767 PM/ST9 18mm")
+      idx = Matcher.index([plain, pm])
+
+      plan = Pro100Plan.build([row(%{id: "7376718", name: "MP U767 PM/ST9 18mm"})], idx, nil)
+
+      assert [change] = plan.updates
+      assert change.item.uuid == "pm"
+      assert plan.stats.ambiguous == 0
+    end
+  end
+
+  describe "foreign-group guard" do
+    test "a row from another group is skipped, never created" do
+      plan =
+        Pro100Plan.build(
+          [row(%{name: "Andi Töötasapind / Акрил Crystal"})],
+          Matcher.index([]),
+          "Andi Karkass"
+        )
+
+      assert [%{reason: :foreign_group, group: "Andi Töötasapind"}] = plan.skipped
+      assert plan.creates == []
+      assert plan.stats.foreign_group == 1
+    end
+
+    test "the catalogue name is compared trimmed" do
+      # The live catalogue is stored as "Andi Karkass " — with a trailing space —
+      # while the file writes "Andi Karkass".
+      plan =
+        Pro100Plan.build(
+          [row(%{name: "Andi Karkass / MP U741"})],
+          Matcher.index([]),
+          "Andi Karkass "
+        )
+
+      assert plan.skipped == []
+      assert [_] = plan.creates
+    end
+
+    test "a row with no group prefix belongs to the selected catalogue" do
+      # Per-catalogue PRO100 exports carry no prefix at all.
+      plan =
+        Pro100Plan.build(
+          [row(%{name: "Акрил Crystal V2778"})],
+          Matcher.index([]),
+          "Andi Töötasapind"
+        )
+
+      assert plan.skipped == []
+      assert [create] = plan.creates
+      assert create.category == nil
+    end
+
+    test "with no catalogue name the guard is off" do
+      plan = Pro100Plan.build([row(%{name: "Whatever / Thing"})], Matcher.index([]), nil)
+
+      assert plan.skipped == []
+      assert [_] = plan.creates
+    end
+
+    # THE placement regression. If the foreign check runs after Matcher.resolve
+    # instead of before it, a foreign row whose lossy digits also exist in the
+    # target catalogue resolves to a local item and silently updates it — a
+    # cross-catalogue price overwrite. No real export triggers this today, so
+    # only this synthetic case can catch the ordering.
+    test "a foreign row whose code matches a local item is skipped, not matched" do
+      local = item(uuid: "local", sku: "76.0026.12", base_price: Decimal.new("80.00"))
+      idx = Matcher.index([local])
+
+      plan =
+        Pro100Plan.build(
+          [
+            row(%{
+              id: "76002612",
+              name: "Andi Töötasapind / X",
+              base_price: Decimal.new("999.00")
+            })
+          ],
+          idx,
+          "Andi Karkass"
+        )
+
+      assert [%{reason: :foreign_group}] = plan.skipped
+      assert plan.updates == []
+      assert plan.stats.update == 0
+    end
+
+    test "buckets partition the input" do
+      rows = [
+        row(%{id: "76002612", name: "Andi Karkass / Own"}),
+        row(%{id: "999", name: "Andi Töötasapind / Foreign"}),
+        row(%{id: "", name: "Andi Karkass / No Id"})
+      ]
+
+      plan = Pro100Plan.build(rows, Matcher.index([]), "Andi Karkass")
+      s = plan.stats
+
+      assert s.update + s.nochange + s.create + s.ambiguous + s.no_id + s.no_name +
+               s.foreign_group == length(rows)
+    end
   end
 end

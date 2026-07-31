@@ -6,8 +6,8 @@ defmodule PhoenixKitCatalogue.Import.Pro100Plan do
       materials `unit`) plus a `data["pro100"]` round-trip blob
     * `:creates` — rows with no catalogue match but enough data to become a
       new item; applied only when the operator opts in on the preview screen
-    * `:skipped` — ambiguous matches, and unmatched rows that cannot be
-      created (no id, no name)
+    * `:skipped` — ambiguous matches, rows belonging to another group, and
+      unmatched rows that cannot be created (no id, no name)
 
   Pure — no DB. All three buckets are computed unconditionally so the preview
   can show counts before the operator decides what to apply.
@@ -19,14 +19,14 @@ defmodule PhoenixKitCatalogue.Import.Pro100Plan do
   # slashes ("MP U767 PM/ST9 18mm") that must NOT be treated as a group split.
   @group_separator ~r/\s+\/\s+/
 
-  @spec build([map()], map()) :: %{
+  @spec build([map()], Matcher.t(), String.t() | nil) :: %{
           updates: [map()],
           creates: [map()],
           skipped: [map()],
           stats: map()
         }
-  def build(rows, index) do
-    classified = Enum.map(rows, &classify(index, &1))
+  def build(rows, index, catalogue_name) do
+    classified = Enum.map(rows, &classify(index, &1, catalogue_name))
 
     updates = build_updates(classified)
     creates = build_creates(classified)
@@ -42,29 +42,54 @@ defmodule PhoenixKitCatalogue.Import.Pro100Plan do
         create: length(creates),
         ambiguous: Enum.count(skipped, &(&1.reason == :ambiguous)),
         no_id: Enum.count(skipped, &(&1.reason == :no_id)),
-        no_name: Enum.count(skipped, &(&1.reason == :no_name))
+        no_name: Enum.count(skipped, &(&1.reason == :no_name)),
+        foreign_group: Enum.count(skipped, &(&1.reason == :foreign_group))
       }
     }
   end
 
   # ── Classification ───────────────────────────────────────────────
 
-  defp classify(index, row) do
-    case Matcher.resolve(index, row.id) do
-      {:matched, item} -> {:match, item, row}
-      {:ambiguous, items} -> {:skip, %{row: row, reason: :ambiguous, items: items}}
-      :unmatched -> classify_unmatched(row)
+  # `split_name/1` runs once per row, at the top: the group half feeds the
+  # foreign check, the name half feeds the match key, and the create path reuses
+  # both. Splitting again downstream would be three regex passes and an
+  # opportunity for the two halves to disagree.
+  #
+  # The foreign check runs BEFORE Matcher.resolve, deliberately. A row from
+  # another group must never be matched at all: nothing rules out its code and
+  # name also existing in the target catalogue, and resolving first would let it
+  # quietly update an item in the wrong catalogue — the exact failure this guard
+  # exists to prevent.
+  defp classify(index, row, catalogue_name) do
+    {group, name} = split_name(row.name)
+
+    if foreign_group?(group, catalogue_name) do
+      {:skip, %{row: row, reason: :foreign_group, group: group}}
+    else
+      case Matcher.resolve(index, row.id, name) do
+        {:matched, item} -> {:match, item, row}
+        {:ambiguous, items} -> {:skip, %{row: row, reason: :ambiguous, items: items}}
+        :unmatched -> classify_unmatched(row, group, name)
+      end
     end
   end
+
+  # A row with no group prefix belongs to whatever catalogue was selected: the
+  # per-catalogue PRO100 exports carry no prefix at all, and the `# Materials`
+  # layout has no group column. With no catalogue name to compare against
+  # (callers that do not care about grouping), the check is off.
+  defp foreign_group?(nil, _catalogue_name), do: false
+  defp foreign_group?(_group, nil), do: false
+
+  defp foreign_group?(group, catalogue_name),
+    do: String.trim(group) != String.trim(catalogue_name)
 
   # An id-less row is creatable on paper, but it would get `sku: nil`, never
   # match on the next sync, and duplicate itself on every subsequent import —
   # silent multiplication is worse than an explicit skip. A nameless row would
   # fail the item changeset deep inside the executor; catching it here turns an
   # opaque per-row error into a clear plan-time reason.
-  defp classify_unmatched(row) do
-    {category, name} = split_name(row.name)
-
+  defp classify_unmatched(row, category, name) do
     cond do
       row.id in [nil, ""] -> {:skip, %{row: row, reason: :no_id}}
       name == "" -> {:skip, %{row: row, reason: :no_name}}

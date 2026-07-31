@@ -1014,3 +1014,8 @@ msgstr "Valid To"
 
 msgid "Current"
 msgstr "Current"
+
+## Import — PRO100 sync skip reasons
+
+msgid "Row %{row}: belongs to %{group}, not to this catalogue"
+msgstr ""
