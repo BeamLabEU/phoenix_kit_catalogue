@@ -10,6 +10,11 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
 
   use Phoenix.LiveView
 
+  use PhoenixKitWeb.Live.UrlState,
+    params: [
+      search_query: [default: "", url_key: "q"]
+    ]
+
   require Logger
 
   import PhoenixKitWeb.Components.Core.Icon, only: [icon: 1]
@@ -91,16 +96,40 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   end
 
   @impl true
-  def handle_params(_params, _uri, socket) do
+  def handle_params(_params, _uri, socket), do: {:noreply, socket}
+
+  # Called by UrlState after mount and on every URL state change (including
+  # tab navigation, which drops ?q= and clears search for the new scope).
+  #
+  # Tab identity lives in live_action (set by the router), not a URL
+  # query param — the scope IS already in the URL via the route path.
+  # A single ?q= is unambiguous because it always belongs to the active scope.
+  #
+  # Behaviour change vs. pre-UrlState: previously each tab remembered its
+  # own search string when you switched away. Now navigating to a tab always
+  # starts with an empty search (the tab links don't carry ?q=), so search
+  # is transient within a single tab visit. This is the correct trade-off
+  # for a URL that exactly reproduces what the viewer sees.
+  @impl true
+  def handle_url_state(state, socket) do
     action = socket.assigns.live_action || :index
+    prev_tab = socket.assigns[:active_tab]
+    tab_changed? = action != prev_tab
+
+    scope = active_scope(%{active_tab: action})
+    cfg = Map.put(Map.fetch!(socket.assigns.view_configs, scope), :search, state.search_query)
 
     socket =
       socket
       |> assign(:active_tab, action)
       |> assign(:page_title, tab_title(action))
-      |> load_data(action)
+      |> assign(:view_configs, Map.put(socket.assigns.view_configs, scope, cfg))
 
-    {:noreply, socket}
+    if tab_changed? do
+      load_data(socket, action)
+    else
+      socket
+    end
   end
 
   # Maps the active UI tab to a TableConfig/ViewConfig scope.
@@ -833,11 +862,12 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     {:noreply, put_cfg(socket, scope, %{current_cfg(socket.assigns) | view: v})}
   end
 
-  # Transient per-scope text search — NOT persisted via put_cfg.
+  # Transient per-scope text search — NOT persisted via put_cfg. The URL
+  # carries the active scope via the route path, so a single ?q= is
+  # unambiguous. UrlState calls handle_url_state which syncs q into
+  # view_configs[scope].search for derive_rows.
   def handle_event("table_search", %{"query" => q}, socket) do
-    scope = active_scope(socket.assigns)
-    cfg = Map.put(current_cfg(socket.assigns), :search, q)
-    {:noreply, assign(socket, :view_configs, Map.put(socket.assigns.view_configs, scope, cfg))}
+    {:noreply, push_url_state(socket, [search_query: q], replace: true)}
   end
 
   # ── View-config helpers ──────────────────────────────────────────
