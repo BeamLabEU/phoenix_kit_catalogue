@@ -11,6 +11,12 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLive do
 
   use Phoenix.LiveView
 
+  use PhoenixKitWeb.Live.UrlState,
+    params: [
+      filter: [default: "active", url_key: "filter", in: ~w(active trashed)],
+      search: [default: "", url_key: "q"]
+    ]
+
   require Logger
 
   import PhoenixKitWeb.Components.Core.Icon, only: [icon: 1]
@@ -54,9 +60,7 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLive do
      socket
      |> assign(
        page_title: Gettext.gettext(PhoenixKitCatalogue.Gettext, "PDFs"),
-       filter: "active",
        pdfs: [],
-       search: "",
        upload_error: nil
      )
      |> allow_upload(:pdf,
@@ -70,15 +74,10 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLive do
   end
 
   @impl true
-  def handle_params(params, _uri, socket) do
-    {:noreply,
-     socket
-     |> assign(:filter, parse_filter(params))
-     |> assign_pdfs()}
-  end
+  def handle_params(_params, _uri, socket), do: {:noreply, socket}
 
-  defp parse_filter(%{"filter" => filter}) when filter in ["active", "trashed"], do: filter
-  defp parse_filter(_params), do: "active"
+  @impl true
+  def handle_url_state(_state, socket), do: assign_pdfs(socket)
 
   # The list query lives here (not mount) so it runs once on the live
   # connection rather than twice. On the disconnected dead render
@@ -102,16 +101,12 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLive do
   @impl true
   def handle_event("set_filter", %{"filter" => filter}, socket)
       when filter in ["active", "trashed"] do
-    {:noreply,
-     socket
-     |> assign(:filter, filter)
-     |> assign(:search, "")
-     |> assign_pdfs()}
+    {:noreply, push_url_state(socket, filter: filter, search: "")}
   end
 
   @impl true
   def handle_event("search", %{"query" => q}, socket) do
-    {:noreply, assign(socket, :search, q)}
+    {:noreply, push_url_state(socket, [search: q], replace: true)}
   end
 
   @impl true
@@ -456,7 +451,7 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLive do
               value={@search}
               placeholder={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search by filename…")}
               class="grow"
-              phx-debounce="200"
+              phx-debounce="300"
             />
           </label>
         </form>
