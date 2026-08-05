@@ -77,7 +77,21 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLive do
   def handle_params(_params, _uri, socket), do: {:noreply, socket}
 
   @impl true
-  def handle_url_state(_state, socket), do: assign_pdfs(socket)
+  def handle_url_state(state, socket) do
+    # Only the status filter decides which rows come back — the search is
+    # applied client-side by filter_by_search/2 at render. Reloading on a
+    # search change would re-run list_pdfs/1 once per debounce pause for a
+    # byte-identical result, so the query is confined to a real filter change.
+    # `prior_filter` is nil only before the first call; the filter itself is
+    # whitelisted to "active" or "trashed" and never nil.
+    if state.filter == socket.assigns[:prior_filter] do
+      socket
+    else
+      socket
+      |> assign(:prior_filter, state.filter)
+      |> assign_pdfs()
+    end
+  end
 
   # The list query lives here (not mount) so it runs once on the live
   # connection rather than twice. On the disconnected dead render
