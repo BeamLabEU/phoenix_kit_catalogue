@@ -14,6 +14,12 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
   use Phoenix.LiveView
 
+  use PhoenixKitWeb.Live.UrlState,
+    params: [
+      current_category_uuid: [default: nil, url_key: "category"],
+      search_query: [default: "", url_key: "q"]
+    ]
+
   require Logger
 
   import PhoenixKitWeb.Components.Core.Icon, only: [icon: 1]
@@ -100,10 +106,14 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         catalogue_uuid: uuid,
         catalogue: nil,
         # ── Drill-down position ──
-        # current_category_uuid: nil = root level, "uncategorized" = the
-        # uncategorized bucket, or a real category UUID. current_category
-        # is the resolved value: nil | :uncategorized | %Category{}.
-        current_category_uuid: nil,
+        # current_category_uuid is managed by UrlState (?category=).
+        # nil = root level, "uncategorized" = the uncategorized bucket,
+        # or a real category UUID. current_category is the resolved value:
+        # nil | :uncategorized | %Category{}.
+        # prior_category_uuid: tracks the last-loaded category so
+        # handle_url_state can detect node changes without needing to diff
+        # the assigns on a struct that includes mutable association maps.
+        prior_category_uuid: :__unset__,
         current_category: nil,
         # Trimmed active-ancestor chain above the current node (root and
         # current node excluded). Drives the breadcrumb.
@@ -143,7 +153,6 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         show_items_reorder: false,
         reorder_captured_uuids: [],
         view_mode: "active",
-        search_query: "",
         search_results: nil,
         search_offset: 0,
         search_total: 0,
@@ -162,64 +171,78 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     {:ok, socket}
   end
 
-  # The drilled-into category lives in `?category=` — `nil` = root,
-  # "uncategorized" = the uncategorized bucket, or a category UUID. This
-  # runs after mount and on every drill patch.
-  #
-  # On a *node change* we drop selections and fully reset search (so a
-  # stale async result from the previous scope can't land). The level is
-  # loaded only when connected — the disconnected first render stays a
-  # cheap loading shell, and the connected mount does the single DB load.
-  # An invalid / foreign category UUID bounces back to the root level.
+  # `?category=` and `?q=` are managed by UrlState. This stub satisfies
+  # Phoenix's handle_params/3 callback (required because @impl is used).
+  # UrlState attaches its own hook via on_mount, which composes alongside.
   @impl true
-  def handle_params(params, _uri, socket) do
-    new_key = normalize_category_key(params["category"])
+  def handle_params(_params, _uri, socket), do: {:noreply, socket}
+
+  # Called by UrlState after mount and on every URL state change. Detects
+  # node changes via `prior_category_uuid` (set to :__unset__ in mount so
+  # the very first call always triggers a level load). On a node change we
+  # reset selections and reload the level; on a search-only change we run
+  # or clear the search without touching the level data.
+  @impl true
+  def handle_url_state(state, socket) do
+    # Normalize the key so that nil and "" both mean "root level" — the
+    # same guard that the old handle_params used via normalize_category_key.
+    cat_key = normalize_category_key(state.current_category_uuid)
+    prev_cat = socket.assigns.prior_category_uuid
+    cat_changed? = cat_key != prev_cat
 
     socket =
-      if new_key == socket.assigns.current_category_uuid do
+      if cat_changed? do
         socket
-      else
-        socket
-        |> assign(:current_category_uuid, new_key)
+        |> assign(:prior_category_uuid, cat_key)
         |> assign(:selected_items, MapSet.new())
         |> assign(:selected_categories, MapSet.new())
-        |> clear_search()
+      else
+        socket
       end
 
     if connected?(socket) do
-      load_params_level(socket, new_key)
+      if cat_changed? do
+        load_url_state_level(socket, cat_key, state.search_query)
+      else
+        handle_url_state_search(socket, state.search_query)
+      end
     else
-      {:noreply, socket}
+      socket
     end
   end
 
-  defp load_params_level(socket, key) do
-    case resolve_node(socket.assigns.catalogue_uuid, key) do
+  # Resolves the category UUID from URL state, loads the level, then
+  # handles any search query present in the URL. Bounces back to root on
+  # an invalid / foreign category UUID; navigates to index if the
+  # catalogue itself is gone.
+  defp load_url_state_level(socket, cat_key, search_query) do
+    case resolve_node(socket.assigns.catalogue_uuid, cat_key) do
       {:ok, current} ->
-        {:noreply,
-         socket
-         |> assign(:current_category, current)
-         |> reset_and_load()
-         |> maybe_auto_flip_to_active()}
+        socket
+        |> assign(:current_category, current)
+        |> handle_url_state_search(search_query)
+        |> reset_and_load()
+        |> maybe_auto_flip_to_active()
 
       :invalid ->
-        {:noreply,
-         socket
-         |> put_flash(
-           :error,
-           Gettext.gettext(PhoenixKitCatalogue.Gettext, "Category not found.")
-         )
-         |> push_patch(to: Paths.catalogue_detail(socket.assigns.catalogue_uuid))}
+        socket
+        |> put_flash(
+          :error,
+          Gettext.gettext(PhoenixKitCatalogue.Gettext, "Category not found.")
+        )
+        |> push_patch(to: Paths.catalogue_detail(socket.assigns.catalogue_uuid))
     end
   rescue
     Ecto.NoResultsError ->
       Logger.warning("Catalogue not found: #{socket.assigns.catalogue_uuid}")
 
-      {:noreply,
-       socket
-       |> put_flash(:error, Gettext.gettext(PhoenixKitCatalogue.Gettext, "Catalogue not found."))
-       |> push_navigate(to: Paths.index())}
+      socket
+      |> put_flash(:error, Gettext.gettext(PhoenixKitCatalogue.Gettext, "Catalogue not found."))
+      |> push_navigate(to: Paths.index())
   end
+
+  defp handle_url_state_search(socket, ""), do: clear_search(socket)
+  defp handle_url_state_search(socket, query), do: run_search(socket, query)
 
   defp normalize_category_key(nil), do: nil
   defp normalize_category_key(""), do: nil
@@ -422,16 +445,11 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
   def handle_event("search", %{"query" => query}, socket) do
     query = String.trim(query)
-
-    if query == "" do
-      {:noreply, clear_search(socket)}
-    else
-      {:noreply, run_search(socket, query)}
-    end
+    {:noreply, push_url_state(socket, [search_query: query], replace: true)}
   end
 
   def handle_event("clear_search", _params, socket) do
-    {:noreply, clear_search(socket)}
+    {:noreply, push_url_state(socket, search_query: "")}
   end
 
   def handle_event("show_pdf_search", %{"uuid" => uuid}, socket) do
