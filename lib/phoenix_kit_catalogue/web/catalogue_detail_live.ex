@@ -190,6 +190,16 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     prev_cat = socket.assigns.prior_category_uuid
     cat_changed? = cat_key != prev_cat
 
+    # Write the normalized key back over the raw one UrlState decoded, so the
+    # assign the template reads is the same value the rest of this module
+    # branches on. `?category=` (empty) otherwise leaves `""` in the assign:
+    # the DOM ids built from `@current_category_uuid || "root"` come out as
+    # `items-body-` instead of `items-body-root`, and because push_url_state
+    # reads its merge base back from the assigns, the next search patch
+    # re-writes the empty `?category=` into the URL. UrlState documents a
+    # plain assign on a declared param as the supported way to do this.
+    socket = assign(socket, :current_category_uuid, cat_key)
+
     socket =
       if cat_changed? do
         socket
@@ -2018,15 +2028,20 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         </div>
 
         <%!-- Toolbar: scoped search (Active mode only — context search
-             excludes deleted rows) + per-level Active/Deleted toggle. --%>
+             excludes deleted rows) + per-level Active/Deleted toggle.
+             The input also stays up whenever a search is on screen: `?q=` now
+             survives the level load, so a deep link into a node whose Active
+             tab is empty lands in the Deleted view with results rendered —
+             hiding the input there would leave them with no way to clear. --%>
+        <% show_search_input = @view_mode == "active" or @search_results != nil or @search_loading %>
         <div class="flex items-end justify-between gap-4 flex-wrap border-b border-base-200 pb-2">
           <.search_input
-            :if={@view_mode == "active"}
+            :if={show_search_input}
             class="grow"
             query={@search_query}
             placeholder={search_placeholder(@current_category)}
           />
-          <div :if={@view_mode != "active"}></div>
+          <div :if={not show_search_input}></div>
 
           <%!-- One tab per populated item status; each shows only that status's
                items so e.g. discontinued isn't mixed in with active. The strip

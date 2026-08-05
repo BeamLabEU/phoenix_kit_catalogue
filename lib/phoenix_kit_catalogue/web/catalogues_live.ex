@@ -98,18 +98,23 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   @impl true
   def handle_params(_params, _uri, socket), do: {:noreply, socket}
 
-  # Called by UrlState after mount and on every URL state change (including
-  # tab navigation, which drops ?q= and clears search for the new scope).
+  # Called by UrlState after mount and on every URL state change.
   #
   # Tab identity lives in live_action (set by the router), not a URL
   # query param — the scope IS already in the URL via the route path.
   # A single ?q= is unambiguous because it always belongs to the active scope.
+  # Search stays transient per tab visit: the sidebar tab links don't carry
+  # ?q=, so arriving on a tab always starts from an empty search.
   #
-  # Behaviour change vs. pre-UrlState: previously each tab remembered its
-  # own search string when you switched away. Now navigating to a tab always
-  # starts with an empty search (the tab links don't carry ?q=), so search
-  # is transient within a single tab visit. This is the correct trade-off
-  # for a URL that exactly reproduces what the viewer sees.
+  # `tab_changed?` keeps a search patch from re-running the tab's queries —
+  # ?q= filters `catalogue_rows` / `manufacturers` / `suppliers` client-side
+  # in derive_rows, so the rows themselves never need re-fetching. It is
+  # sound only because the three tabs are separate routes reached with
+  # `<.link navigate=…>` (PhoenixKit's tab_item), which re-mounts: prev_tab
+  # is therefore nil on the one call that matters. Were they ever switched to
+  # `patch`, UrlState's reload? would skip the callback entirely whenever ?q=
+  # is empty on both sides, and the new tab would render the old tab's data —
+  # see the round-trip tests in test/web/catalogues_live_test.exs.
   @impl true
   def handle_url_state(state, socket) do
     action = socket.assigns.live_action || :index

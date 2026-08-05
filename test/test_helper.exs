@@ -22,8 +22,17 @@ db_name =
   Application.get_env(:phoenix_kit_catalogue, PhoenixKitCatalogue.Test.Repo)[:database] ||
     "phoenix_kit_catalogue_test"
 
+# `System.cmd/3` raises `:enoent` when the binary isn't on PATH, so probe for
+# the client first — a machine without libpq installed must fall through to
+# `:try_connect` (and from there to the exclusion notice below), not abort the
+# whole run before a single test loads.
+psql_listing =
+  if System.find_executable("psql"),
+    do: System.cmd("psql", ["-lqt"], stderr_to_stdout: true),
+    else: {"", 1}
+
 db_check =
-  case System.cmd("psql", ["-lqt"], stderr_to_stdout: true) do
+  case psql_listing do
     {output, 0} ->
       exists =
         output
