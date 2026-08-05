@@ -179,4 +179,47 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLiveTest do
       assert html =~ "Extracted"
     end
   end
+
+  describe "PdfLibraryLive — url-backed filter + search" do
+    test "?q= filters the listed PDFs straight from the URL", %{conn: conn} do
+      fixture_pdf_with_extraction(filename: "kitchen.pdf")
+      fixture_pdf_with_extraction(filename: "bathroom.pdf")
+
+      {:ok, _view, html} = live(conn, @lib_path <> "?q=kitch")
+
+      assert html =~ "kitchen.pdf"
+      refute html =~ "bathroom.pdf"
+    end
+
+    # The search is applied client-side over the already-loaded rows, so a
+    # keystroke may patch the URL but must not touch list_pdfs/1 — the guard
+    # that makes that true is `state.filter == prior_filter` in
+    # handle_url_state/2.
+    test "the search event patches ?q= and narrows the rendered rows", %{conn: conn} do
+      fixture_pdf_with_extraction(filename: "kitchen.pdf")
+      fixture_pdf_with_extraction(filename: "bathroom.pdf")
+
+      {:ok, view, _html} = live(conn, @lib_path)
+
+      html = render_change(view, "search", %{"query" => "bath"})
+
+      assert_patch(view, @lib_path <> "?q=bath")
+      assert html =~ "bathroom.pdf"
+      refute html =~ "kitchen.pdf"
+    end
+
+    test "switching the filter drops ?q= and reloads for the new status", %{conn: conn} do
+      fixture_pdf_with_extraction(filename: "kitchen.pdf")
+      fixture_pdf_with_extraction(status: "trashed", filename: "retired.pdf")
+
+      {:ok, view, html} = live(conn, @lib_path <> "?q=kitch")
+      assert html =~ "kitchen.pdf"
+
+      html = render_click(view, "set_filter", %{"filter" => "trashed"})
+
+      assert_patch(view, @lib_path <> "?filter=trashed")
+      assert html =~ "retired.pdf"
+      refute html =~ "kitchen.pdf"
+    end
+  end
 end

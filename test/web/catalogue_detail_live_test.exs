@@ -569,4 +569,73 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
       assert html_after =~ "Oak panel"
     end
   end
+
+  # ─────────────────────────────────────────────────────────────────
+  # URL-backed drill + search state (?category= / ?q=)
+  # ─────────────────────────────────────────────────────────────────
+
+  describe "url state" do
+    test "?q= in the URL runs the search on arrival", %{conn: conn} do
+      catalogue = fixture_catalogue()
+      category = fixture_category(catalogue, %{name: "Cat A"})
+      fixture_item(%{name: "Oak panel", category_uuid: category.uuid})
+      fixture_item(%{name: "Pine board", category_uuid: category.uuid})
+
+      {:ok, view, _html} = live(conn, cat_url(catalogue.uuid, category.uuid) <> "&q=oak")
+      html = render_async(view)
+
+      assert html =~ "Oak panel"
+      refute html =~ "Pine board"
+    end
+
+    test "searching writes ?q= into the URL and clearing takes it back out", %{conn: conn} do
+      catalogue = fixture_catalogue()
+      fixture_item(%{name: "Oak panel", catalogue_uuid: catalogue.uuid})
+
+      {:ok, view, _html} = live(conn, url(catalogue.uuid))
+
+      render_change(view, "search", %{"query" => "oak"})
+      assert_patch(view, url(catalogue.uuid) <> "?q=oak")
+      _ = render_async(view)
+
+      render_click(view, "clear_search", %{})
+      assert_patch(view, url(catalogue.uuid))
+    end
+
+    # `?category=` (empty) is the root level, and the assign has to say so
+    # too: the item-list DOM ids are built from `@current_category_uuid ||
+    # "root"`, and push_url_state reads its merge base back from the assigns
+    # — so a raw "" left in place both mangles the ids and re-writes the
+    # empty `?category=` into every later search patch.
+    test "an empty ?category= normalizes to the root level", %{conn: conn} do
+      catalogue = fixture_catalogue()
+      fixture_item(%{name: "Oak panel", catalogue_uuid: catalogue.uuid})
+
+      {:ok, view, html} = live(conn, url(catalogue.uuid) <> "?category=")
+
+      assert html =~ "Oak panel"
+      assert html =~ ~s(id="items-body-root")
+
+      render_change(view, "search", %{"query" => "oak"})
+      assert_patch(view, url(catalogue.uuid) <> "?q=oak")
+    end
+
+    # `?q=` now survives the level load, so a deep link into a node whose
+    # Active tab is empty settles on the Deleted view with search results on
+    # screen. The input has to come along, or there is no way to clear them.
+    test "the search input stays reachable when the level lands on a non-active tab",
+         %{conn: conn} do
+      catalogue = fixture_catalogue()
+      category = fixture_category(catalogue, %{name: "Cat A"})
+      gone = fixture_item(%{name: "Retired panel", category_uuid: category.uuid})
+      Catalogue.trash_item(gone)
+
+      {:ok, view, _html} = live(conn, cat_url(catalogue.uuid, category.uuid) <> "&q=oak")
+      html = render_async(view)
+
+      assert html =~ "No items match your search."
+      assert html =~ "Search within this category"
+      assert html =~ "clear_search"
+    end
+  end
 end

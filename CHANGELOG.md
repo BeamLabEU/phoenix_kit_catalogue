@@ -1,3 +1,18 @@
+## 0.12.4 - 2026-08-05
+
+### Added
+- **The catalogue list search and filters now live in the URL** (#49) — `CatalogueDetailLive`, `CataloguesLive` and `PdfLibraryLive` adopt core's `PhoenixKitWeb.Live.UrlState` (`:patch` mode), so a filtered list is a real link: `?q=` on all three, `?category=` on the detail drill-down (already there, now joined by the search), and `?filter=active|trashed` on the PDF library. Filtered lists are shareable, bookmarkable, survive a reload, and the Back button leaves the query instead of the page. Debounced search boxes push with `replace: true`, so Back doesn't walk the query backwards a few characters at a time.
+
+### Fixed
+- **`mix test` aborted outright on any machine without `psql`** — `test/test_helper.exs` probed for the test database with `System.cmd("psql", …)`, which *raises* `ErlangError :enoent` when the binary isn't on `PATH` rather than returning a tuple its `case` could fall through on. A missing libpq client therefore killed the whole run before a single test loaded, instead of taking the documented path of excluding `:integration` and running the rest — which is why the last three releases all shipped with "`mix test` could not be run in this environment" in these notes. Now probed with `System.find_executable/1` first; the suite completes (525 tests, 787 integration excluded) with no database present.
+- **An empty `?category=` on the catalogue detail page left `""` in the assign** (#49 follow-up) — `handle_url_state/2` normalized the value into a local but not back into `@current_category_uuid`, so the root-level item-list DOM ids came out `items-body-` instead of `items-body-root`, and because `push_url_state/3` reads its merge base back from the assigns, the empty `?category=` was re-written into the URL on every subsequent search patch.
+- **Search results could be stranded on screen with no way to clear them** (#49 follow-up) — now that `?q=` survives the level load, a deep link into a category whose Active tab is empty settles the level on the Deleted view, where `<.search_input>` was hidden — leaving the rendered results (usually the empty state, since the context search excludes deleted rows) with no visible clear control. The input now also renders whenever a search is on screen.
+
+### Notes
+- Review: `dev_docs/pull_requests/2026/49-url-state-search/CLAUDE_REVIEW.md`.
+- **Dependency lockfile advances** (no `mix.exs` constraint changes): eight orphaned `mix.lock` entries left behind by the dependency bump in `242bad9` (`ex_ast`, `glob_ex`, `igniter`, `owl`, `rewrite`, `sourceror`, `spitfire`, `text_diff`) were pruned — they were failing `mix precommit`'s `deps.unlock --check-unused` step. Constraints stay loose.
+- Verification: `mix precommit` is clean (compile `--warnings-as-errors`, `deps.unlock --check-unused`, `hex.audit`, `format --check-formatted`, `credo --strict`, `dialyzer`). `mix test` runs but excludes the `:integration` suite — no Postgres in this environment — so the new `?q=` round-trip tests on all three LiveViews have not been executed; get a Postgres-backed CI run before treating the URL round-trip as verified.
+
 ## 0.12.3 - 2026-07-22
 
 ### Changed

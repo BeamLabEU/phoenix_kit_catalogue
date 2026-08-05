@@ -240,4 +240,60 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
       assert Catalogue.get_supplier(s.uuid) == nil
     end
   end
+
+  # ─────────────────────────────────────────────────────────────────
+  # URL-backed search (?q=)
+  # ─────────────────────────────────────────────────────────────────
+
+  describe "url-backed search" do
+    test "?q= filters the catalogue rows straight from the URL", %{conn: conn} do
+      fixture_catalogue(%{name: "Zephyr"})
+      fixture_catalogue(%{name: "Quokka"})
+
+      {:ok, _view, html} = live(conn, "#{@base}?q=zeph")
+
+      assert html =~ "Zephyr"
+      refute html =~ "Quokka"
+    end
+
+    test "table_search patches ?q= in, and clearing patches it back out", %{conn: conn} do
+      fixture_catalogue(%{name: "Zephyr"})
+      fixture_catalogue(%{name: "Quokka"})
+
+      {:ok, view, _html} = live(conn, @base)
+
+      html = render_change(view, "table_search", %{"query" => "quo"})
+      assert_patch(view, "#{@base}?q=quo")
+      assert html =~ "Quokka"
+      refute html =~ "Zephyr"
+
+      html = render_change(view, "table_search", %{"query" => ""})
+      assert_patch(view, @base)
+      assert html =~ "Zephyr"
+    end
+
+    test "?q= applies to whichever tab the route selected", %{conn: conn} do
+      fixture_manufacturer(%{name: "Zephyr Werke"})
+      fixture_manufacturer(%{name: "Quokka GmbH"})
+
+      {:ok, _view, html} = live(conn, "#{@base}/manufacturers?q=quokka")
+
+      assert html =~ "Quokka GmbH"
+      refute html =~ "Zephyr Werke"
+    end
+
+    # `tab_changed?` keeps the search patch from re-running load_data — the
+    # tab's own assigns (active_tab, page_title, the rows it already loaded)
+    # still have to survive that patch.
+    test "a search patch leaves the tab itself intact", %{conn: conn} do
+      fixture_manufacturer(%{name: "Zephyr Werke"})
+
+      {:ok, view, _html} = live(conn, "#{@base}/manufacturers")
+
+      html = render_change(view, "table_search", %{"query" => "zephyr"})
+
+      assert html =~ "Zephyr Werke"
+      assert html =~ "New Manufacturer"
+    end
+  end
 end
