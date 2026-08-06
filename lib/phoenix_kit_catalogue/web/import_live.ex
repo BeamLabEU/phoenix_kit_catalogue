@@ -38,7 +38,7 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
 
   alias PhoenixKitCatalogue.Catalogue
   alias PhoenixKitCatalogue.Import
-  alias PhoenixKitCatalogue.Import.{Executor, Mapper, Parser}
+  alias PhoenixKitCatalogue.Import.{Executor, Mapper, Parser, Pro100Plan}
   alias PhoenixKitCatalogue.Import.Source.Universal
   alias PhoenixKitCatalogue.Paths
   alias PhoenixKitCatalogue.Schemas.{Category, Item, Manufacturer, Supplier}
@@ -109,6 +109,8 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
        import_plan: nil,
        import_result: nil,
        report: nil,
+       # PRO100 sync: create rows that matched nothing (set per plan)
+       create_unmatched: false,
        duplicate_row_count: 0,
        existing_duplicate_count: 0,
        duplicate_mode: :import,
@@ -476,6 +478,10 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
 
   # ── PRO100 Sync Apply ───────────────────────────────────────────
 
+  def handle_event("toggle_create_unmatched", _params, socket) do
+    {:noreply, update(socket, :create_unmatched, &(!&1))}
+  end
+
   def handle_event("apply_pro100", _params, socket) do
     plan = socket.assigns.import_plan
     actor = extract_actor_uuid(socket)
@@ -483,8 +489,55 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
     {persisted_count, failures} =
       Enum.reduce(plan.updates, {0, []}, &apply_pro100_update(&1, actor, &2))
 
-    report = %{updated: persisted_count, skipped: plan.skipped ++ Enum.reverse(failures)}
+    {created_count, create_failures} = apply_pro100_creates(socket, plan)
+
+    report = %{
+      updated: persisted_count,
+      created: created_count,
+      skipped: plan.skipped ++ Enum.reverse(failures) ++ create_failures
+    }
+
     {:noreply, assign(socket, report: report, step: :report)}
+  end
+
+  # Creates run through the universal Executor so category get-or-create,
+  # activity logging and the roll-up PubSub event all behave identically to a
+  # normal import. `notify_pid` is nil on purpose: execute/4 otherwise sends
+  # `{:import_result, _}`, which this LiveView already handles by switching to
+  # the universal import's `:done` screen — that would throw the operator off
+  # the sync report we are about to render.
+  defp apply_pro100_creates(%{assigns: %{create_unmatched: true}} = socket, %{creates: creates})
+       when creates != [] do
+    exec_plan = Pro100Plan.to_executor_plan(creates)
+
+    opts =
+      case extract_actor_uuid(socket) do
+        nil -> []
+        actor -> [actor_uuid: actor]
+      end
+
+    result =
+      Executor.execute(exec_plan, socket.assigns.selected_catalogue.uuid, nil, opts)
+
+    {result.created, create_errors_to_skips(result.errors, creates)}
+  end
+
+  # Checkbox off (or nothing to create): the rows still have to be accounted
+  # for. They no longer sit in plan.skipped, so without this a 500-row file
+  # applied with the box unchecked would report "Updated 0 · Skipped 0".
+  defp apply_pro100_creates(_socket, %{creates: creates}) do
+    {0, Enum.map(creates, &%{row: &1.row, reason: :not_imported})}
+  end
+
+  # Executor errors are {idx, message} with idx 1-based into the items list,
+  # which was built in `creates` order — map back to get a row label.
+  defp create_errors_to_skips(errors, creates) do
+    Enum.map(errors, fn {idx, message} ->
+      case Enum.at(creates, idx - 1) do
+        nil -> %{row: %{name: "##{idx}"}, reason: :error, message: message}
+        entry -> %{row: entry.row, reason: :error, message: message}
+      end
+    end)
   end
 
   defp apply_pro100_update(change, actor, {count, fails}) do
@@ -612,9 +665,24 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
         if socket.assigns.ets_table, do: :ets.delete(socket.assigns.ets_table)
         items = Catalogue.list_items_for_catalogue(socket.assigns.selected_catalogue.uuid)
 
-        case source_mod.analyze(binary, format_atom, items) do
+        case source_mod.analyze(
+               binary,
+               format_atom,
+               items,
+               socket.assigns.selected_catalogue.name
+             ) do
           {:ok, plan} ->
-            {:noreply, assign(socket, import_plan: plan, step: :preview, ets_table: nil)}
+            # Default the create checkbox ON only when there is nothing to
+            # update — the fresh-price-list case, where the screen would
+            # otherwise offer no action at all. A routine price sync (which
+            # has updates) never creates rows unless the operator asks.
+            {:noreply,
+             assign(socket,
+               import_plan: plan,
+               create_unmatched: plan.updates == [],
+               step: :preview,
+               ets_table: nil
+             )}
 
           {:error, reason} ->
             Logger.warning("PRO100 analyze error: #{inspect(reason)}")
@@ -2240,6 +2308,10 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
             <div class="stat-value text-primary">{length(@import_plan.updates)}</div>
           </div>
           <div class="stat">
+            <div class="stat-title">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "To create")}</div>
+            <div class="stat-value text-info">{length(@import_plan.creates)}</div>
+          </div>
+          <div class="stat">
             <div class="stat-title">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Skipped")}</div>
             <div class="stat-value text-warning">{length(@import_plan.skipped)}</div>
           </div>
@@ -2295,6 +2367,65 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
           </table>
         </div>
 
+        <%!-- Rows with no catalogue match, offered for creation --%>
+        <div :if={@import_plan.creates != []} class="space-y-3">
+          <label class="label cursor-pointer justify-start gap-3 p-0">
+            <input
+              type="checkbox"
+              class="checkbox checkbox-primary"
+              checked={@create_unmatched}
+              phx-click="toggle_create_unmatched"
+            />
+            <span class="label-text font-semibold">
+              {Gettext.ngettext(
+                PhoenixKitCatalogue.Gettext,
+                "Create %{count} unmatched position",
+                "Create %{count} unmatched positions",
+                length(@import_plan.creates),
+                count: length(@import_plan.creates)
+              )}
+            </span>
+          </label>
+
+          <div class="overflow-x-auto">
+            <table class="table table-sm w-full">
+              <thead>
+                <tr>
+                  <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Name")}</th>
+                  <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "SKU")}</th>
+                  <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Price")}</th>
+                  <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Category")}</th>
+                  <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Flags")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr :for={create <- Enum.take(@import_plan.creates, 20)}>
+                  <td class="font-medium">{create.name}</td>
+                  <td class="text-base-content/60">{create.attrs.sku}</td>
+                  <td>{create.attrs[:base_price]}</td>
+                  <td class="text-base-content/60">
+                    {create.category ||
+                      Gettext.gettext(PhoenixKitCatalogue.Gettext, "— no category —")}
+                  </td>
+                  <td class="flex gap-1">
+                    <span :if={:price_unparseable in create.flags} class="badge badge-warning badge-sm">
+                      {Gettext.gettext(PhoenixKitCatalogue.Gettext, "price?")}
+                    </span>
+                    <span :if={:unit_unrecognized in create.flags} class="badge badge-warning badge-sm">
+                      {Gettext.gettext(PhoenixKitCatalogue.Gettext, "unit?")}
+                    </span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+            <p :if={length(@import_plan.creates) > 20} class="text-xs text-base-content/50 mt-2">
+              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "…and %{count} more",
+                count: length(@import_plan.creates) - 20
+              )}
+            </p>
+          </div>
+        </div>
+
         <%!-- Skipped rows summary --%>
         <div :if={@import_plan.skipped != []} class="alert alert-warning">
           <.icon name="hero-exclamation-triangle" class="w-5 h-5" />
@@ -2317,7 +2448,7 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
         <div class="flex gap-3">
           <button class="btn btn-primary" phx-click="apply_pro100" phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Applying...")}>
             <.icon name="hero-check" class="w-4 h-4" />
-            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Apply Updates")}
+            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Apply")}
           </button>
           <button class="btn btn-ghost" phx-click="import_another">
             {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Cancel")}
@@ -2345,6 +2476,10 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
           <div class="stat">
             <div class="stat-title">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Updated")}</div>
             <div class="stat-value text-success">{@report.updated}</div>
+          </div>
+          <div class="stat">
+            <div class="stat-title">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Created")}</div>
+            <div class="stat-value text-info">{@report.created}</div>
           </div>
           <div class="stat">
             <div class="stat-title">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Skipped")}</div>
@@ -2731,6 +2866,30 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
     )
   end
 
+  defp sync_skip_reason(%{reason: :no_id, row: row}) do
+    Gettext.gettext(
+      PhoenixKitCatalogue.Gettext,
+      "Row %{row}: no id, cannot be created",
+      row: row.name
+    )
+  end
+
+  defp sync_skip_reason(%{reason: :no_name, row: row}) do
+    Gettext.gettext(
+      PhoenixKitCatalogue.Gettext,
+      "Row %{row}: no name, cannot be created",
+      row: row.raw_line
+    )
+  end
+
+  defp sync_skip_reason(%{reason: :not_imported, row: row}) do
+    Gettext.gettext(
+      PhoenixKitCatalogue.Gettext,
+      "Row %{row}: no matching item, not created",
+      row: row.name
+    )
+  end
+
   defp sync_skip_reason(%{reason: :ambiguous, row: row, items: items}) do
     matches = Enum.map_join(items, ", ", &(&1.sku || &1.name))
 
@@ -2739,6 +2898,15 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
       "Row %{row}: multiple items match (%{matches})",
       row: row.name,
       matches: matches
+    )
+  end
+
+  defp sync_skip_reason(%{reason: :foreign_group, row: row, group: group}) do
+    Gettext.gettext(
+      PhoenixKitCatalogue.Gettext,
+      "Row %{row}: belongs to %{group}, not to this catalogue",
+      row: row.name,
+      group: group
     )
   end
 

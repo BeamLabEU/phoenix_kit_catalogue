@@ -1023,3 +1023,8 @@ msgstr "Действует по"
 
 msgid "Current"
 msgstr "Текущая"
+
+## Import — PRO100 sync skip reasons
+
+msgid "Row %{row}: belongs to %{group}, not to this catalogue"
+msgstr "Строка %{row}: относится к «%{group}», а не к этому каталогу"

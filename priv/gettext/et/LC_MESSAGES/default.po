@@ -1014,3 +1014,8 @@ msgstr "Kehtib kuni"
 
 msgid "Current"
 msgstr "Praegune"
+
+## Import — PRO100 sync skip reasons
+
+msgid "Row %{row}: belongs to %{group}, not to this catalogue"
+msgstr "Rida %{row}: kuulub kataloogi „%{group}“, mitte sellesse kataloogi"
