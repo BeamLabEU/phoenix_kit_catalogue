@@ -54,7 +54,7 @@ defmodule PhoenixKitCatalogue.Import.Executor do
       is linked (M:N) to every distinct manufacturer the items in
       this import ended up assigned to
   """
-  @spec execute(map(), String.t(), pid(), keyword()) :: import_result()
+  @spec execute(map(), String.t(), pid() | nil, keyword()) :: import_result()
   def execute(import_plan, catalogue_uuid, notify_pid, opts \\ []) do
     language = Keyword.get(opts, :language)
     fixed_category_uuid = Keyword.get(opts, :category_uuid)

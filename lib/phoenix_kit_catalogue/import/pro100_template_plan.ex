@@ -52,6 +52,7 @@ defmodule PhoenixKitCatalogue.Import.Pro100TemplatePlan do
           catalogues: [catalogue()],
           headings: [%{catalogue: String.t(), section: String.t() | nil, name: String.t()}],
           price_from_name: [%{name: String.t(), gross: Decimal.t()}],
+          problems: [map()],
           stats: map()
         }
 
@@ -67,7 +68,12 @@ defmodule PhoenixKitCatalogue.Import.Pro100TemplatePlan do
 
   @type category :: %{name: String.t(), parent: String.t() | nil, position: integer()}
   @type item :: map()
-  @type rule :: %{item_name: String.t(), referenced_catalogue: String.t(), value: Decimal.t(), unit: String.t()}
+  @type rule :: %{
+          item_name: String.t(),
+          referenced_catalogue: String.t(),
+          value: Decimal.t(),
+          unit: String.t()
+        }
 
   @spec build([Parser.table()], keyword()) :: t()
   def build(tables, opts \\ []) do
@@ -130,7 +136,8 @@ defmodule PhoenixKitCatalogue.Import.Pro100TemplatePlan do
           n > 1,
           do: %{kind: :duplicate_category, catalogue: c.name, category: key}
 
-    guids = catalogues |> Enum.flat_map(& &1.items) |> Enum.map(& &1.data["pro100"]["template_guid"])
+    guids =
+      catalogues |> Enum.flat_map(& &1.items) |> Enum.map(& &1.data["pro100"]["template_guid"])
 
     guid_problems =
       cond do
@@ -220,27 +227,31 @@ defmodule PhoenixKitCatalogue.Import.Pro100TemplatePlan do
   # filtering: the item→category link depends on position, not on content.
   defp walk_lines(table) do
     {headings, items, from_name, _} =
-      Enum.reduce(table.lines, {[], [], [], {nil, nil}}, fn line, {hs, is, fns, {sec, sub}} ->
-        sub = if line.section != sec, do: nil, else: sub
-
-        if heading?(line) do
-          h = %{name: clean_heading(line.name), section: line.section, raw: line.name}
-          {[h | hs], is, fns, {line.section, h.name}}
-        else
-          {gross, recovered?, fns} = resolve_price(line, fns)
-
-          # The category is carried as {parent_section, name}, never as a bare
-          # name: two sub-headings under different sections, or a sub-heading
-          # sharing a section's name, are distinct categories, and `Category`
-          # has no unique constraint to catch a caller that conflates them.
-          category = if sub, do: {line.section, sub}, else: {nil, line.section}
-
-          entry = %{line: line, category: category, gross: gross, price_recovered: recovered?}
-          {hs, [entry | is], fns, {line.section, sub}}
-        end
-      end)
+      Enum.reduce(table.lines, {[], [], [], {nil, nil}}, &walk_line/2)
 
     {Enum.reverse(headings), Enum.reverse(items), Enum.reverse(from_name)}
+  end
+
+  defp walk_line(line, {hs, is, fns, {sec, sub}}) do
+    # A sub-heading only owns lines inside its own section; crossing a section
+    # boundary drops it.
+    sub = if line.section != sec, do: nil, else: sub
+
+    if heading?(line) do
+      h = %{name: clean_heading(line.name), section: line.section, raw: line.name}
+      {[h | hs], is, fns, {line.section, h.name}}
+    else
+      {gross, recovered?, fns} = resolve_price(line, fns)
+
+      # The category is carried as {parent_section, name}, never as a bare
+      # name: two sub-headings under different sections, or a sub-heading
+      # sharing a section's name, are distinct categories, and `Category`
+      # has no unique constraint to catch a caller that conflates them.
+      category = if sub, do: {line.section, sub}, else: {nil, line.section}
+
+      entry = %{line: line, category: category, gross: gross, price_recovered: recovered?}
+      {hs, [entry | is], fns, {line.section, sub}}
+    end
   end
 
   defp heading?(line) do
@@ -332,7 +343,9 @@ defmodule PhoenixKitCatalogue.Import.Pro100TemplatePlan do
   defp net(nil), do: nil
 
   defp net(gross) do
-    if Decimal.equal?(gross, 0), do: gross, else: gross |> Decimal.div(@vat_divisor) |> Decimal.round(2)
+    if Decimal.equal?(gross, 0),
+      do: gross,
+      else: gross |> Decimal.div(@vat_divisor) |> Decimal.round(2)
   end
 
   defp maybe_flag(map, _key, false), do: map
@@ -349,7 +362,8 @@ defmodule PhoenixKitCatalogue.Import.Pro100TemplatePlan do
       rules: catalogues |> Enum.flat_map(& &1.rules) |> length(),
       headings: length(headings),
       price_from_name: length(from_name),
-      zero_price_items: Enum.count(items, &(is_nil(&1.base_price) or Decimal.equal?(&1.base_price, 0)))
+      zero_price_items:
+        Enum.count(items, &(is_nil(&1.base_price) or Decimal.equal?(&1.base_price, 0)))
     }
   end
 end

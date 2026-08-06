@@ -100,7 +100,7 @@ defmodule PhoenixKitCatalogue.Import.Pro100PlanTest do
   end
 
   describe "name/category split" do
-    test "splits the group prefix into a category" do
+    test "splits the group prefix off the name; with no catalogue name it becomes a category" do
       plan =
         Pro100Plan.build(
           [row(%{name: "Andi Karkass  / MP U741 ST9 16mm"})],
@@ -112,6 +112,25 @@ defmodule PhoenixKitCatalogue.Import.Pro100PlanTest do
       assert create.category == "Andi Karkass"
       assert create.attrs.name == "MP U741 ST9 16mm"
       assert create.attrs[:_category_name] == "Andi Karkass"
+    end
+
+    # The group prefix only ever survives the foreign-group guard when it IS the
+    # selected catalogue's name, so making a category out of it would file every
+    # created row under a category duplicating the catalogue — while the
+    # unprefixed rows of the very same export land at the catalogue root.
+    test "a group matching the selected catalogue yields no category" do
+      plan =
+        Pro100Plan.build(
+          [row(%{name: "Andi Karkass / MP U741 ST9 16mm"})],
+          Matcher.index([]),
+          "Andi Karkass"
+        )
+
+      assert [create] = plan.creates
+      assert create.attrs.name == "MP U741 ST9 16mm"
+      assert create.category == nil
+      refute Map.has_key?(create.attrs, :_category_name)
+      assert Pro100Plan.to_executor_plan(plan.creates).categories_to_create == []
     end
 
     # A bare slash inside an article code must not be mistaken for a group

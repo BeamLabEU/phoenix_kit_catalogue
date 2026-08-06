@@ -69,10 +69,24 @@ defmodule PhoenixKitCatalogue.Import.Pro100Plan do
       case Matcher.resolve(index, row.id, name) do
         {:matched, item} -> {:match, item, row}
         {:ambiguous, items} -> {:skip, %{row: row, reason: :ambiguous, items: items}}
-        :unmatched -> classify_unmatched(row, group, name)
+        :unmatched -> classify_unmatched(row, category_from_group(group, catalogue_name), name)
       end
     end
   end
+
+  # A group that survived `foreign_group?/2` against a real catalogue name IS
+  # that catalogue name — nothing else gets past the guard. Turning it into a
+  # category would file every created row under a category duplicating the
+  # catalogue, while the unprefixed rows of the same export land at the
+  # catalogue root: two placements for one file. So a checked group carries no
+  # grouping information and yields no category.
+  #
+  # It still does when there was no catalogue name to check against — the
+  # `analyze/4` contract lets a caller opt out of the group guard, and for that
+  # caller the prefix is the only structure the file has.
+  defp category_from_group(nil, _catalogue_name), do: nil
+  defp category_from_group(_group, catalogue_name) when is_binary(catalogue_name), do: nil
+  defp category_from_group(group, nil), do: group
 
   # A row with no group prefix belongs to whatever catalogue was selected: the
   # per-catalogue PRO100 exports carry no prefix at all, and the `# Materials`
