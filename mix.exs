@@ -86,7 +86,11 @@ defmodule PhoenixKitCatalogue.MixProject do
 
   defp deps do
     [
-      pk_dep(:phoenix_kit, "~> 1.7.189"),
+      # 1.7.231 is the floor: that release ships
+      # `PhoenixKitWeb.Live.UrlState`, which 3 LiveView files in this
+      # module `use`. Anything below it resolves a core with no such
+      # module, and the failure surfaces in the consumer's build.
+      pk_dep(:phoenix_kit, "~> 1.7.231"),
       pk_dep(:phoenix_kit_ai, "~> 0.4"),
       {:phoenix_live_view, "~> 1.1"},
       {:xlsx_reader, "~> 0.8"},
