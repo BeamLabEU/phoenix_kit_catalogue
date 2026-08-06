@@ -95,6 +95,12 @@ defmodule PhoenixKitCatalogue.MixProject do
       # :phoenix_kit, so the import pipeline doesn't silently break if core
       # ever drops it.
       {:nimble_csv, "~> 1.2"},
+      # Same reasoning for the PRO100 estimate-template parser. xmerl (OTP) was
+      # tried first and rejects the file: the export declares no encoding and
+      # carries Estonian and Cyrillic text, so xmerl fails on the first "ö".
+      # Saxy decodes UTF-8 natively and resolves no external entities, which
+      # matters for a file that arrives from outside.
+      {:saxy, "~> 1.6"},
       {:ex_doc, "~> 0.39", only: :dev, runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
