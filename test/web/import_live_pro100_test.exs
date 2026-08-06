@@ -249,9 +249,14 @@ defmodule PhoenixKitCatalogue.Web.ImportLivePro100Test do
   end
 
   describe "force-creating unmatched rows" do
+    # The group prefix has to be the selected catalogue's own name: any other
+    # prefix is refused by the foreign-group guard before the row is ever
+    # considered for creation. The fixture catalogue is "PRO100 Test Cat".
+    @prefixed_row "PRO100 Test Cat / MP U741 ST9 16mm"
+
     # Uploads a file whose single row matches nothing in the catalogue and
     # returns the LiveView sitting on the :preview step.
-    defp preview_with_unmatched(conn, cat, name \\ "Andi Karkass / MP U741 ST9 16mm") do
+    defp preview_with_unmatched(conn, cat, name \\ @prefixed_row) do
       {:ok, view, _html} = live(conn, @import_url)
 
       render_change(view, "validate_upload", %{
@@ -282,12 +287,14 @@ defmodule PhoenixKitCatalogue.Web.ImportLivePro100Test do
       assert assigns.import_plan.updates == []
       assert [create] = assigns.import_plan.creates
       assert create.attrs.name == "MP U741 ST9 16mm"
-      assert create.category == "Andi Karkass"
+      # The prefix is stripped from the name but does NOT become a category:
+      # it only names the catalogue we are already importing into.
+      assert create.category == nil
       # Nothing to update → the checkbox defaults on.
       assert assigns.create_unmatched
     end
 
-    test "applying creates the item, its category, and stays on the sync report",
+    test "applying creates the item and stays on the sync report",
          %{conn: conn, catalogue: cat} do
       view = preview_with_unmatched(conn, cat)
       render_click(view, "apply_pro100", %{})
@@ -310,7 +317,8 @@ defmodule PhoenixKitCatalogue.Web.ImportLivePro100Test do
       assert created.unit == "piece"
       assert created.status == "active"
       assert created.data["pro100"]["format"] == "furniture"
-      refute is_nil(created.category_uuid)
+      # Same placement as an unprefixed row: the catalogue root.
+      assert is_nil(created.category_uuid)
     end
 
     test "with the box unchecked nothing is created and the rows are still reported",
@@ -344,6 +352,27 @@ defmodule PhoenixKitCatalogue.Web.ImportLivePro100Test do
       # The bare slash in the article code must not be read as a group split.
       assert created.name == "MP U767 PM/ST9 18mm"
       assert is_nil(created.category_uuid)
+    end
+
+    # The two halves of this feature were built on separate branches — creation
+    # of unmatched rows, then the foreign-group guard — and the guard runs
+    # first. A row prefixed with anything other than the selected catalogue's
+    # name never reaches :creates, whatever the checkbox says.
+    test "a row from another group is refused, not created",
+         %{conn: conn, catalogue: cat} do
+      view = preview_with_unmatched(conn, cat, "Andi Karkass / MP U741 ST9 16mm")
+      assigns = :sys.get_state(view.pid).socket.assigns
+
+      assert assigns.import_plan.creates == []
+      assert [%{reason: :foreign_group, group: "Andi Karkass"}] = assigns.import_plan.skipped
+
+      render_click(view, "apply_pro100", %{})
+
+      assert :sys.get_state(view.pid).socket.assigns.report.created == 0
+
+      refute cat.uuid
+             |> Catalogue.list_items_for_catalogue()
+             |> Enum.any?(&(&1.sku == "7374116"))
     end
   end
 end

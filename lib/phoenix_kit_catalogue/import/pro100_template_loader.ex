@@ -36,6 +36,7 @@ defmodule PhoenixKitCatalogue.Import.Pro100TemplateLoader do
   @type report :: %{
           folder: :created | :reused,
           catalogues: [map()],
+          rules: [map()],
           absent: [map()],
           reported: [map()],
           stats: map()
@@ -53,12 +54,14 @@ defmodule PhoenixKitCatalogue.Import.Pro100TemplateLoader do
         {:ok, run(plan, true)}
 
       true ->
-        repo().transaction(fn ->
-          report = run(plan, false)
-          if report.stats.errors > 0, do: repo().rollback({:errors, report.reported})
-          report
-        end)
+        repo().transaction(fn -> run_or_rollback(plan) end)
     end
+  end
+
+  defp run_or_rollback(plan) do
+    report = run(plan, false)
+    if report.stats.errors > 0, do: repo().rollback({:errors, report.reported})
+    report
   end
 
   defp run(plan, dry?) do
@@ -127,7 +130,8 @@ defmodule PhoenixKitCatalogue.Import.Pro100TemplateLoader do
       name: cat.name,
       kind: cat.kind,
       status: status,
-      categories_created: Enum.count(category_uuids, fn {_key, {_uuid, status}} -> status == :created end),
+      categories_created:
+        Enum.count(category_uuids, fn {_key, {_uuid, status}} -> status == :created end),
       items_created: Enum.count(items, &(&1 == :created)),
       items_updated: Enum.count(items, &(&1 == :updated)),
       items_unchanged: Enum.count(items, &(&1 == :unchanged)),
@@ -160,7 +164,9 @@ defmodule PhoenixKitCatalogue.Import.Pro100TemplateLoader do
   defp folder_clause(nil), do: dynamic([c], is_nil(c.folder_uuid))
   defp folder_clause(uuid), do: dynamic([c], c.folder_uuid == ^uuid)
 
-  defp ensure_catalogue(_cat, _folder, %CatalogueSchema{} = existing, _dry?), do: {existing.uuid, :reused}
+  defp ensure_catalogue(_cat, _folder, %CatalogueSchema{} = existing, _dry?),
+    do: {existing.uuid, :reused}
+
   defp ensure_catalogue(_cat, _folder, nil, true), do: {nil, :created}
 
   defp ensure_catalogue(cat, folder, nil, false) do
@@ -182,7 +188,10 @@ defmodule PhoenixKitCatalogue.Import.Pro100TemplateLoader do
   defp apply_categories(cat, catalogue_uuid, dry?) do
     existing =
       if catalogue_uuid,
-        do: catalogue_uuid |> Catalogue.list_categories_for_catalogue() |> Map.new(&{{&1.parent_uuid, &1.name}, &1}),
+        do:
+          catalogue_uuid
+          |> Catalogue.list_categories_for_catalogue()
+          |> Map.new(&{{&1.parent_uuid, &1.name}, &1}),
         else: %{}
 
     {roots, subs} = Enum.split_with(cat.categories, &is_nil(&1.parent))
@@ -194,7 +203,12 @@ defmodule PhoenixKitCatalogue.Import.Pro100TemplateLoader do
 
     Enum.reduce(subs, root_uuids, fn c, acc ->
       parent_uuid = acc |> Map.get({nil, c.parent}) |> uuid_of()
-      Map.put(acc, {c.parent, c.name}, ensure_category(c, parent_uuid, catalogue_uuid, existing, dry?))
+
+      Map.put(
+        acc,
+        {c.parent, c.name},
+        ensure_category(c, parent_uuid, catalogue_uuid, existing, dry?)
+      )
     end)
   end
 
@@ -240,7 +254,8 @@ defmodule PhoenixKitCatalogue.Import.Pro100TemplateLoader do
 
         case resolve_item(item, by_guid, by_name) do
           {:update, found} ->
-            {[write_update(found, item, category_uuid, dry?) | acc], MapSet.put(seen, found.uuid), errs}
+            {[write_update(found, item, category_uuid, dry?) | acc], MapSet.put(seen, found.uuid),
+             errs}
 
           :create ->
             {[write_create(item, catalogue_uuid, category_uuid, dry?) | acc], seen, errs}
@@ -262,15 +277,16 @@ defmodule PhoenixKitCatalogue.Import.Pro100TemplateLoader do
     guid = item.data["pro100"]["template_guid"]
 
     case Map.get(by_guid, guid) do
-      %Item{} = found ->
-        {:update, found}
+      %Item{} = found -> {:update, found}
+      nil -> resolve_item_by_name(item, by_name)
+    end
+  end
 
-      nil ->
-        case Map.get(by_name, Matcher.normalize_name(item.name), []) do
-          [] -> :create
-          [one] -> if guid_of(one), do: {:report, :name_taken_by_other_line}, else: {:update, one}
-          _many -> {:report, :ambiguous_name}
-        end
+  defp resolve_item_by_name(item, by_name) do
+    case Map.get(by_name, Matcher.normalize_name(item.name), []) do
+      [] -> :create
+      [one] -> if guid_of(one), do: {:report, :name_taken_by_other_line}, else: {:update, one}
+      _many -> {:report, :ambiguous_name}
     end
   end
 
