@@ -1,7 +1,7 @@
 defmodule PhoenixKitCatalogue.MixProject do
   use Mix.Project
 
-  @version "0.12.5"
+  @version "0.13.0"
   @source_url "https://github.com/BeamLabEU/phoenix_kit_catalogue"
 
   def project do
@@ -90,8 +90,8 @@ defmodule PhoenixKitCatalogue.MixProject do
       # `PhoenixKitWeb.Live.UrlState`, which 3 LiveView files in this
       # module `use`. Anything below it resolves a core with no such
       # module, and the failure surfaces in the consumer's build.
-      pk_dep(:phoenix_kit, "~> 1.7.231"),
-      pk_dep(:phoenix_kit_ai, "~> 0.4"),
+      pk_dep(:phoenix_kit, "~> 2.0"),
+      pk_dep(:phoenix_kit_ai, "~> 0.18"),
       {:phoenix_live_view, "~> 1.1"},
       {:xlsx_reader, "~> 0.8"},
       # Used directly by the CSV import parser (NimbleCSV.define/2). Declared
