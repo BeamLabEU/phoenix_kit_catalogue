@@ -814,6 +814,9 @@ msgstr "Kontaktandmed"
 msgid "Website"
 msgstr "Veebisait"
 
+msgid "Manual order"
+msgstr "Käsitsi järjestus"
+
 ## Catalogue index toolbar / filters
 msgid "Folders"
 msgstr "Kaustad"
@@ -826,6 +829,9 @@ msgstr "Kõik kaustad"
 
 msgid "All statuses"
 msgstr "Kõik staatused"
+
+msgid "Clear search and filters to drag-and-drop reorder."
+msgstr "Tühjenda otsing ja filtrid, et lohistades ümber järjestada."
 
 ## Folder management modal
 msgid "No folders yet."

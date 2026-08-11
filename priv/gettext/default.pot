@@ -819,6 +819,9 @@ msgstr ""
 msgid "Website"
 msgstr ""
 
+msgid "Manual order"
+msgstr ""
+
 ## Catalogue index toolbar / filters
 msgid "Folders"
 msgstr ""
@@ -830,6 +833,9 @@ msgid "All folders"
 msgstr ""
 
 msgid "All statuses"
+msgstr ""
+
+msgid "Clear search and filters to drag-and-drop reorder."
 msgstr ""
 
 ## Folder management modal
