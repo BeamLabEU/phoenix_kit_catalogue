@@ -51,6 +51,20 @@ defmodule PhoenixKitCatalogue.Web.TableQueryTest do
            ]
   end
 
+  test "sort by position ties break on name (mirrors Catalogue.list_catalogues/1's [asc: :position, asc: :name])" do
+    tied = [
+      %{name: "Zeta", position: 0},
+      %{name: "Alpha", position: 0},
+      %{name: "Mid", position: 0}
+    ]
+
+    assert Enum.map(Q.sort(tied, :catalogues, "position", :asc), & &1.name) == [
+             "Alpha",
+             "Mid",
+             "Zeta"
+           ]
+  end
+
   test "enum_options for folder skips unfiled and dedups" do
     assert Q.enum_options(rows(), :catalogues, "folder") == [{"f1", "Kitchen"}]
   end
