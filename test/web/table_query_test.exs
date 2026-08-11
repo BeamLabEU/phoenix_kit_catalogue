@@ -10,7 +10,8 @@ defmodule PhoenixKitCatalogue.Web.TableQueryTest do
         item_count: 3,
         folder_uuid: "f1",
         folder_name: "Kitchen",
-        updated_at: ~U[2026-01-02 00:00:00Z]
+        updated_at: ~U[2026-01-02 00:00:00Z],
+        position: 1
       },
       %{
         name: "alpha",
@@ -18,7 +19,8 @@ defmodule PhoenixKitCatalogue.Web.TableQueryTest do
         item_count: 9,
         folder_uuid: nil,
         folder_name: nil,
-        updated_at: ~U[2026-01-01 00:00:00Z]
+        updated_at: ~U[2026-01-01 00:00:00Z],
+        position: 0
       }
     ]
   end
@@ -40,6 +42,13 @@ defmodule PhoenixKitCatalogue.Web.TableQueryTest do
   test "sort by name is case-insensitive; dir respected" do
     assert Enum.map(Q.sort(rows(), :catalogues, "name", :asc), & &1.name) == ["alpha", "Beta"]
     assert Enum.map(Q.sort(rows(), :catalogues, "name", :desc), & &1.name) == ["Beta", "alpha"]
+  end
+
+  test "sort by position (manual order)" do
+    assert Enum.map(Q.sort(rows(), :catalogues, "position", :asc), & &1.name) == [
+             "alpha",
+             "Beta"
+           ]
   end
 
   test "enum_options for folder skips unfiled and dedups" do
