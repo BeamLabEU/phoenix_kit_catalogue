@@ -5,6 +5,8 @@ defmodule PhoenixKitCatalogue.Web.TableConfig do
   card rendering live in the LiveView. Labels are zero-arity fns so they
   resolve in the request's current locale.
   """
+  use Gettext, backend: PhoenixKitCatalogue.Gettext
+
   alias PhoenixKitCatalogue.Gettext, as: G
 
   @type scope :: :catalogues | :suppliers | :manufacturers
@@ -45,6 +47,15 @@ defmodule PhoenixKitCatalogue.Web.TableConfig do
         managed?: false,
         sortable?: true,
         sort_key: &down(&1.name)
+      ),
+      # Sort-only pseudo column — never added to `cfg.columns`, so it
+      # never renders as an actual grid column (no "Manual order" cell/
+      # header). Selecting it as `sort_by` switches the index into
+      # drag-and-drop mode; see `CataloguesLive.manual_order_draggable?/2`.
+      col("position", fn -> gettext("Manual order") end,
+        managed?: false,
+        sortable?: true,
+        sort_key: & &1.position
       ),
       col("folder", fn -> g("Folder") end,
         default?: true,

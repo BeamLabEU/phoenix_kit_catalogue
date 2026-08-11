@@ -296,4 +296,31 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
       assert html =~ "New Manufacturer"
     end
   end
+
+  # ─────────────────────────────────────────────────────────────────
+  # Manual order (drag-and-drop reorder of catalogues)
+  # ─────────────────────────────────────────────────────────────────
+  #
+  # Only the `reorder_catalogues` handler itself is exercised here (via
+  # `render_hook`, mirroring `reorder_items`'s LV test in
+  # catalogue_detail_live_test.exs). Rendering the drag handles requires
+  # `view_configs.catalogues.sort_by == "position"`, which is only reachable
+  # by persisting through `ViewConfig`/`phoenix_kit_current_user` — the test
+  # harness's `phoenix_kit_current_user` is always a bare `%{uuid: uuid}}`
+  # map (see `LiveCase.on_mount/4`), and `ViewConfig.save/3` requires a real
+  # `%PhoenixKit.Users.Auth.User{}`, so driving that round-trip through a
+  # live-mounted view isn't possible with the current test support.
+  describe "manual order — DnD reorder" do
+    test "reorder_catalogues persists the dropped order", %{conn: conn} do
+      a = fixture_catalogue(%{name: "A", position: 0})
+      b = fixture_catalogue(%{name: "B", position: 1})
+      c = fixture_catalogue(%{name: "C", position: 2})
+
+      {:ok, view, _html} = live(conn, @base)
+
+      render_hook(view, "reorder_catalogues", %{"ordered_ids" => [c.uuid, a.uuid, b.uuid]})
+
+      assert Catalogue.list_catalogues() |> Enum.map(& &1.name) == ["C", "A", "B"]
+    end
+  end
 end

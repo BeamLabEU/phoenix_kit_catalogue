@@ -11,6 +11,18 @@ defmodule PhoenixKitCatalogue.Web.TableConfigTest do
     assert TC.column_map(:catalogues)["name"].managed? == false
   end
 
+  test "position is a sortable, unmanaged, non-default pseudo column (manual order)" do
+    col = TC.column_map(:catalogues)["position"]
+    assert col.sortable?
+    refute col.managed?
+    refute col.default?
+    # Never listed among managed columns (can't be toggled via the Columns
+    # modal) or default columns (never a real grid column) — it only ever
+    # surfaces as a sort option.
+    refute Enum.any?(TC.managed_columns(:catalogues), &(&1.id == "position"))
+    refute "position" in TC.default_columns(:catalogues)
+  end
+
   test "validate_columns drops unknown + non-managed ids and dedups" do
     assert TC.validate_columns(:catalogues, ["items", "items", "bogus", "name"]) == ["items"]
   end

@@ -15,12 +15,15 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       search_query: [default: "", url_key: "q"]
     ]
 
+  use Gettext, backend: PhoenixKitCatalogue.Gettext
+
   require Logger
 
   import PhoenixKitWeb.Components.Core.Icon, only: [icon: 1]
   import PhoenixKitWeb.Components.Core.Modal, only: [confirm_modal: 1, modal: 1]
   import PhoenixKitWeb.Components.Core.TableDefault
   import PhoenixKitWeb.Components.Core.TableRowMenu
+  import PhoenixKitWeb.Components.Core.Sortable, only: [sortable_tbody: 1, sortable_row: 1]
   import PhoenixKitCatalogue.Web.Components
   import PhoenixKitCatalogue.Web.TableToolbar
 
@@ -503,6 +506,24 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     {:noreply, load_data(socket, :index)}
   end
 
+  # DnD reorder of the catalogues index (manual-order mode only — see
+  # `manual_order_draggable?/2`). `ordered_ids` is exactly the rendered
+  # row order (post search/filter), which `manual_order_draggable?/2`
+  # guarantees is the full unfiltered set whenever handles are shown, so
+  # re-indexing it into 1..N can't clash with rows outside the view.
+  def handle_event("reorder_catalogues", %{"ordered_ids" => ordered_ids}, socket)
+      when is_list(ordered_ids) do
+    case Catalogue.reorder_catalogues(ordered_ids, actor_opts(socket)) do
+      :ok ->
+        {:noreply, load_data(socket, :index)}
+
+      {:error, reason} ->
+        log_operation_error(socket, "reorder_catalogues", %{reason: reason})
+
+        {:noreply, put_flash(socket, :error, gettext("Failed to save the new order."))}
+    end
+  end
+
   def handle_event("trash_catalogue", %{"uuid" => uuid}, socket) do
     with %{} = catalogue <- Catalogue.get_catalogue(uuid),
          {:ok, _} <- Catalogue.trash_catalogue(catalogue, actor_opts(socket)) do
@@ -897,6 +918,19 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   defp flip(:asc), do: :desc
   defp flip(_), do: :asc
 
+  # Drag handles + DnD render only for the unfiltered, unsearched "active"
+  # manual-order view. `Catalogue.reorder_catalogues/2` re-indexes exactly
+  # the uuids it's given into 1..N with no sibling/scope check (catalogue
+  # position is a single flat sequence, unlike categories/items) — dragging
+  # a filtered subset would renumber just those rows and silently clash
+  # with untouched rows outside the filter. That is exactly how `position`
+  # ended up with duplicate values in the first place (each folder's rows
+  # renumbered independently by the old per-folder tree DnD).
+  defp manual_order_draggable?(view_mode, cfg) do
+    view_mode == "active" and cfg.sort_by == "position" and cfg.filters == %{} and
+      (cfg[:search] || "") == ""
+  end
+
   # SortableGrid sends "ordered_ids"/"order" (list) or "column_order" (csv).
   defp parse_order(%{"ordered_ids" => ids}) when is_list(ids), do: ids
   defp parse_order(%{"order" => ids}) when is_list(ids), do: ids
@@ -1028,12 +1062,22 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
               </.link>
             </:actions>
           </.table_toolbar>
+          <p
+            :if={
+              @catalogue_view_mode == "active" and cfg.sort_by == "position" and
+                not manual_order_draggable?(@catalogue_view_mode, cfg)
+            }
+            class="text-xs text-base-content/50"
+          >
+            {gettext("Clear search and filters to drag-and-drop reorder.")}
+          </p>
           <.simple_table
             scope={:catalogues}
             cfg={cfg}
             rows={derive_rows(@catalogue_rows, :catalogues, cfg)}
             total={length(@catalogue_rows)}
             empty={Gettext.gettext(PhoenixKitCatalogue.Gettext, "No catalogues yet.")}
+            draggable={manual_order_draggable?(@catalogue_view_mode, cfg)}
           >
             <:row_actions :let={c}>
               <.table_row_menu :if={@catalogue_view_mode == "active"} mode="auto" id={"cat-menu-#{c.uuid}"}>
@@ -1537,9 +1581,10 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       <div class="flex-1"></div>
       <.sort_controls
         scope={@scope}
-        selected={["name" | @cfg.columns]}
+        selected={["position", "name" | @cfg.columns]}
         sort_by={@cfg.sort_by}
         sort_dir={@cfg.sort_dir}
+        manual_value="position"
       />
       <button type="button" phx-click="show_column_modal" class="btn btn-outline btn-sm">
         <.icon name="hero-adjustments-horizontal" class="w-4 h-4" />
@@ -1559,11 +1604,20 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   attr(:rows, :list, required: true)
   attr(:total, :integer, required: true)
   attr(:empty, :string, required: true)
+
+  attr(:draggable, :boolean,
+    default: false,
+    doc: "Manual-order mode: render drag handles and DnD-enable the table body."
+  )
+
   slot(:row_actions, required: true)
   slot(:card_actions, required: true)
 
   defp simple_table(assigns) do
-    assigns = assign(assigns, :cols, visible_columns(assigns.scope, assigns.cfg))
+    assigns =
+      assigns
+      |> assign(:cols, visible_columns(assigns.scope, assigns.cfg))
+      |> assign(:reorderable?, assigns.draggable and length(assigns.rows) > 1)
 
     ~H"""
     <div :if={@rows == []} class="card bg-base-100 shadow">
@@ -1595,6 +1649,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     >
       <.table_default_header>
         <.table_default_row>
+          <.drag_handle_header_cell :if={@draggable} />
           <.table_default_header_cell
             :for={c <- @cols}
             class={c.align == :right && "text-right"}
@@ -1614,7 +1669,19 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
           </.table_default_header_cell>
         </.table_default_row>
       </.table_default_header>
-      <.table_default_body>
+      <.sortable_tbody :if={@draggable} id={"#{@scope}-table-body"} enabled={@reorderable?} event="reorder_catalogues">
+        <.sortable_row :for={row <- @rows} item_id={row.uuid}>
+          <.drag_handle_cell :if={@reorderable?} />
+          <td :if={!@reorderable?} class="w-8"></td>
+          <.table_default_cell :for={c <- @cols} class={c.align == :right && "text-right"}>
+            {render_cell(@scope, c.id, row)}
+          </.table_default_cell>
+          <.table_default_cell class="text-right whitespace-nowrap">
+            {render_slot(@row_actions, row)}
+          </.table_default_cell>
+        </.sortable_row>
+      </.sortable_tbody>
+      <.table_default_body :if={!@draggable}>
         <.table_default_row :for={row <- @rows}>
           <.table_default_cell :for={c <- @cols} class={c.align == :right && "text-right"}>
             {render_cell(@scope, c.id, row)}

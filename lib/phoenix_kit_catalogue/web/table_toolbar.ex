@@ -106,9 +106,20 @@ defmodule PhoenixKitCatalogue.Web.TableToolbar do
   attr(:sort_by, :string, required: true)
   attr(:sort_dir, :atom, required: true)
 
+  attr(:manual_value, :string,
+    default: nil,
+    doc:
+      "sort_by value that means \"manual/drag order\" (e.g. \"position\"). When active, the direction toggle is hidden — direction has no meaning for a user-dragged order."
+  )
+
   def sort_controls(assigns) do
     assigns =
-      assign(assigns, :options, TableConfig.sortable_visible(assigns.scope, assigns.selected))
+      assigns
+      |> assign(:options, TableConfig.sortable_visible(assigns.scope, assigns.selected))
+      |> assign(
+        :manual_active?,
+        assigns.manual_value != nil and assigns.sort_by == assigns.manual_value
+      )
 
     ~H"""
     <form phx-change="set_sort" class="join">
@@ -116,6 +127,7 @@ defmodule PhoenixKitCatalogue.Web.TableToolbar do
         <option :for={c <- @options} value={c.id} selected={@sort_by == c.id}>{c.label.()}</option>
       </select>
       <button
+        :if={!@manual_active?}
         type="button"
         phx-click="flip_sort_dir"
         class="btn btn-sm btn-ghost join-item"
