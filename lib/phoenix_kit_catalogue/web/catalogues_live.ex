@@ -15,12 +15,15 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       search_query: [default: "", url_key: "q"]
     ]
 
+  use Gettext, backend: PhoenixKitCatalogue.Gettext
+
   require Logger
 
   import PhoenixKitWeb.Components.Core.Icon, only: [icon: 1]
   import PhoenixKitWeb.Components.Core.Modal, only: [confirm_modal: 1, modal: 1]
   import PhoenixKitWeb.Components.Core.TableDefault
   import PhoenixKitWeb.Components.Core.TableRowMenu
+  import PhoenixKitWeb.Components.Core.Sortable, only: [sortable_tbody: 1, sortable_row: 1]
   import PhoenixKitCatalogue.Web.Components
   import PhoenixKitCatalogue.Web.TableToolbar
 
@@ -503,6 +506,24 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     {:noreply, load_data(socket, :index)}
   end
 
+  # DnD reorder of the catalogues index (manual-order mode only — see
+  # `manual_order_draggable?/2`). `ordered_ids` is exactly the rendered
+  # row order (post search/filter), which `manual_order_draggable?/2`
+  # guarantees is the full unfiltered set whenever handles are shown, so
+  # re-indexing it into 1..N can't clash with rows outside the view.
+  def handle_event("reorder_catalogues", %{"ordered_ids" => ordered_ids}, socket)
+      when is_list(ordered_ids) do
+    case Catalogue.reorder_catalogues(ordered_ids, actor_opts(socket)) do
+      :ok ->
+        {:noreply, load_data(socket, :index)}
+
+      {:error, reason} ->
+        log_operation_error(socket, "reorder_catalogues", %{reason: reason})
+
+        {:noreply, put_flash(socket, :error, gettext("Failed to save the new order."))}
+    end
+  end
+
   def handle_event("trash_catalogue", %{"uuid" => uuid}, socket) do
     with %{} = catalogue <- Catalogue.get_catalogue(uuid),
          {:ok, _} <- Catalogue.trash_catalogue(catalogue, actor_opts(socket)) do
@@ -796,11 +817,17 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       if ids == [], do: TableConfig.default_columns(scope), else: ids
 
     cfg = %{current_cfg(socket.assigns) | columns: ids}
-    # "name" is always visible (managed?: false, forced into visible_columns/2)
-    # but never in `ids` (validate_columns/2 only returns managed columns) —
-    # without it here, Apply silently knocks the default "name" sort off to
-    # whatever column happens to be first.
-    cfg = if cfg.sort_by in ["name" | ids], do: cfg, else: %{cfg | sort_by: List.first(ids)}
+    # Keep the active sort whenever it's still a real sortable column in this
+    # scope. "name" is always visible (managed?: false) but never in `ids`
+    # (validate_columns/2 only returns managed columns), and "position"
+    # (manual order) is a sort-only pseudo column that's never in `ids`
+    # either — see TableConfig.columns/1. Sorting doesn't require the column
+    # to be currently *displayed*, so only reset when Apply dropped a
+    # `sort_by` that isn't sortable at all anymore.
+    cfg =
+      if MapSet.member?(known_sortable_ids(scope), cfg.sort_by),
+        do: cfg,
+        else: %{cfg | sort_by: List.first(ids)}
 
     {:noreply,
      socket |> put_cfg(scope, cfg) |> assign(show_column_modal: false, temp_columns: nil)}
@@ -810,7 +837,10 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     scope = active_scope(socket.assigns)
 
     if MapSet.member?(known_sortable_ids(scope), by) do
-      {:noreply, put_cfg(socket, scope, %{current_cfg(socket.assigns) | sort_by: by})}
+      cfg = current_cfg(socket.assigns)
+
+      {:noreply,
+       put_cfg(socket, scope, %{cfg | sort_by: by, sort_dir: sort_dir_for(by, cfg.sort_dir)})}
     else
       {:noreply, socket}
     end
@@ -828,7 +858,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     if MapSet.member?(known_sortable_ids(scope), by) do
       cfg = current_cfg(socket.assigns)
       dir = if cfg.sort_by == by, do: flip(cfg.sort_dir), else: :asc
-      {:noreply, put_cfg(socket, scope, %{cfg | sort_by: by, sort_dir: dir})}
+      {:noreply, put_cfg(socket, scope, %{cfg | sort_by: by, sort_dir: sort_dir_for(by, dir)})}
     else
       {:noreply, socket}
     end
@@ -896,6 +926,44 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
 
   defp flip(:asc), do: :desc
   defp flip(_), do: :asc
+
+  # Manual/drag order (`sort_by == "position"`) has no direction — the flip
+  # button is hidden while it's active (`sort_controls/1`'s `manual_active?`
+  # guard, keyed off `manual_value="position"`), so a stale `:desc` carried
+  # over from whatever column was sorted before would silently invert every
+  # drag with no way back to `:asc` from the UI. Force `:asc` on the way in,
+  # from both `set_sort` (picking "Manual order" from the dropdown) and
+  # `toggle_sort` (defensive — "position" isn't a real header, so this path
+  # isn't reachable from the current UI, but the guard costs nothing).
+  #
+  # `def`, not `defp`, and `@doc false`: exposed purely so it's unit-tested
+  # directly. `ViewConfig.save/3` needs a real `%PhoenixKit.Users.Auth.User{}`
+  # in `phoenix_kit_current_user` to not raise, which the test harness can't
+  # provide (see the "manual order — DnD reorder" describe block in
+  # catalogues_live_test.exs) — so a `handle_event` round-trip can't drive
+  # this in a LiveView test.
+  @doc false
+  @spec sort_dir_for(String.t(), :asc | :desc) :: :asc | :desc
+  def sort_dir_for("position", _dir), do: :asc
+  def sort_dir_for(_by, dir), do: dir
+
+  # Drag handles + DnD render only for the unfiltered, unsearched "active"
+  # manual-order view. `Catalogue.reorder_catalogues/2` re-indexes exactly
+  # the uuids it's given into 1..N with no sibling/scope check (catalogue
+  # position is a single flat sequence, unlike categories/items) — dragging
+  # a filtered subset would renumber just those rows and silently clash
+  # with untouched rows outside the filter. That is exactly how `position`
+  # ended up with duplicate values in the first place (each folder's rows
+  # renumbered independently by the old per-folder tree DnD).
+  #
+  # `def`/`@doc false` for the same reason as `sort_dir_for/2` above — direct
+  # unit coverage instead of an unreachable LiveView round-trip.
+  @doc false
+  @spec manual_order_draggable?(String.t(), map()) :: boolean()
+  def manual_order_draggable?(view_mode, cfg) do
+    view_mode == "active" and cfg.sort_by == "position" and cfg.filters == %{} and
+      (cfg[:search] || "") == ""
+  end
 
   # SortableGrid sends "ordered_ids"/"order" (list) or "column_order" (csv).
   defp parse_order(%{"ordered_ids" => ids}) when is_list(ids), do: ids
@@ -1028,12 +1096,22 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
               </.link>
             </:actions>
           </.table_toolbar>
+          <p
+            :if={
+              @catalogue_view_mode == "active" and cfg.sort_by == "position" and
+                not manual_order_draggable?(@catalogue_view_mode, cfg)
+            }
+            class="text-xs text-base-content/50"
+          >
+            {gettext("Clear search and filters to drag-and-drop reorder.")}
+          </p>
           <.simple_table
             scope={:catalogues}
             cfg={cfg}
             rows={derive_rows(@catalogue_rows, :catalogues, cfg)}
             total={length(@catalogue_rows)}
             empty={Gettext.gettext(PhoenixKitCatalogue.Gettext, "No catalogues yet.")}
+            draggable={manual_order_draggable?(@catalogue_view_mode, cfg)}
           >
             <:row_actions :let={c}>
               <.table_row_menu :if={@catalogue_view_mode == "active"} mode="auto" id={"cat-menu-#{c.uuid}"}>
@@ -1537,9 +1615,10 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       <div class="flex-1"></div>
       <.sort_controls
         scope={@scope}
-        selected={["name" | @cfg.columns]}
+        selected={["position", "name" | @cfg.columns]}
         sort_by={@cfg.sort_by}
         sort_dir={@cfg.sort_dir}
+        manual_value="position"
       />
       <button type="button" phx-click="show_column_modal" class="btn btn-outline btn-sm">
         <.icon name="hero-adjustments-horizontal" class="w-4 h-4" />
@@ -1559,11 +1638,20 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   attr(:rows, :list, required: true)
   attr(:total, :integer, required: true)
   attr(:empty, :string, required: true)
+
+  attr(:draggable, :boolean,
+    default: false,
+    doc: "Manual-order mode: render drag handles and DnD-enable the table body."
+  )
+
   slot(:row_actions, required: true)
   slot(:card_actions, required: true)
 
   defp simple_table(assigns) do
-    assigns = assign(assigns, :cols, visible_columns(assigns.scope, assigns.cfg))
+    assigns =
+      assigns
+      |> assign(:cols, visible_columns(assigns.scope, assigns.cfg))
+      |> assign(:reorderable?, assigns.draggable and length(assigns.rows) > 1)
 
     ~H"""
     <div :if={@rows == []} class="card bg-base-100 shadow">
@@ -1595,6 +1683,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     >
       <.table_default_header>
         <.table_default_row>
+          <.drag_handle_header_cell :if={@draggable} />
           <.table_default_header_cell
             :for={c <- @cols}
             class={c.align == :right && "text-right"}
@@ -1614,7 +1703,19 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
           </.table_default_header_cell>
         </.table_default_row>
       </.table_default_header>
-      <.table_default_body>
+      <.sortable_tbody :if={@draggable} id={"#{@scope}-table-body"} enabled={@reorderable?} event="reorder_catalogues">
+        <.sortable_row :for={row <- @rows} item_id={row.uuid}>
+          <.drag_handle_cell :if={@reorderable?} />
+          <td :if={!@reorderable?} class="w-8"></td>
+          <.table_default_cell :for={c <- @cols} class={c.align == :right && "text-right"}>
+            {render_cell(@scope, c.id, row)}
+          </.table_default_cell>
+          <.table_default_cell class="text-right whitespace-nowrap">
+            {render_slot(@row_actions, row)}
+          </.table_default_cell>
+        </.sortable_row>
+      </.sortable_tbody>
+      <.table_default_body :if={!@draggable}>
         <.table_default_row :for={row <- @rows}>
           <.table_default_cell :for={c <- @cols} class={c.align == :right && "text-right"}>
             {render_cell(@scope, c.id, row)}

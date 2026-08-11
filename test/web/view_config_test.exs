@@ -44,6 +44,13 @@ defmodule PhoenixKitCatalogue.Web.ViewConfigTest do
     assert got.filters == %{"status" => "active"}
   end
 
+  test "normalize preserves a persisted 'position' (manual order) sort_by" do
+    # sort_by isn't whitelisted against known columns here (the write-path
+    # LV events validate against TableConfig's known_sortable_ids before
+    # ever calling `put_cfg`) — normalize just has to not clobber it.
+    assert VC.normalize(:catalogues, %{"sort_by" => "position"}).sort_by == "position"
+  end
+
   test "load reads from a user struct's custom_fields" do
     user = %{custom_fields: %{"catalogue_view_configs" => %{"suppliers" => %{"view" => "card"}}}}
     assert VC.load(user, :suppliers).view == "card"
