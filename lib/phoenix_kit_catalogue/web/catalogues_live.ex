@@ -837,7 +837,10 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     scope = active_scope(socket.assigns)
 
     if MapSet.member?(known_sortable_ids(scope), by) do
-      {:noreply, put_cfg(socket, scope, %{current_cfg(socket.assigns) | sort_by: by})}
+      cfg = current_cfg(socket.assigns)
+
+      {:noreply,
+       put_cfg(socket, scope, %{cfg | sort_by: by, sort_dir: sort_dir_for(by, cfg.sort_dir)})}
     else
       {:noreply, socket}
     end
@@ -855,7 +858,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     if MapSet.member?(known_sortable_ids(scope), by) do
       cfg = current_cfg(socket.assigns)
       dir = if cfg.sort_by == by, do: flip(cfg.sort_dir), else: :asc
-      {:noreply, put_cfg(socket, scope, %{cfg | sort_by: by, sort_dir: dir})}
+      {:noreply, put_cfg(socket, scope, %{cfg | sort_by: by, sort_dir: sort_dir_for(by, dir)})}
     else
       {:noreply, socket}
     end
@@ -923,6 +926,26 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
 
   defp flip(:asc), do: :desc
   defp flip(_), do: :asc
+
+  # Manual/drag order (`sort_by == "position"`) has no direction — the flip
+  # button is hidden while it's active (`sort_controls/1`'s `manual_active?`
+  # guard, keyed off `manual_value="position"`), so a stale `:desc` carried
+  # over from whatever column was sorted before would silently invert every
+  # drag with no way back to `:asc` from the UI. Force `:asc` on the way in,
+  # from both `set_sort` (picking "Manual order" from the dropdown) and
+  # `toggle_sort` (defensive — "position" isn't a real header, so this path
+  # isn't reachable from the current UI, but the guard costs nothing).
+  #
+  # `def`, not `defp`, and `@doc false`: exposed purely so it's unit-tested
+  # directly. `ViewConfig.save/3` needs a real `%PhoenixKit.Users.Auth.User{}`
+  # in `phoenix_kit_current_user` to not raise, which the test harness can't
+  # provide (see the "manual order — DnD reorder" describe block in
+  # catalogues_live_test.exs) — so a `handle_event` round-trip can't drive
+  # this in a LiveView test.
+  @doc false
+  @spec sort_dir_for(String.t(), :asc | :desc) :: :asc | :desc
+  def sort_dir_for("position", _dir), do: :asc
+  def sort_dir_for(_by, dir), do: dir
 
   # Drag handles + DnD render only for the unfiltered, unsearched "active"
   # manual-order view. `Catalogue.reorder_catalogues/2` re-indexes exactly
