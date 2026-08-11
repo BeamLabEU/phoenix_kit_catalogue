@@ -817,11 +817,17 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       if ids == [], do: TableConfig.default_columns(scope), else: ids
 
     cfg = %{current_cfg(socket.assigns) | columns: ids}
-    # "name" is always visible (managed?: false, forced into visible_columns/2)
-    # but never in `ids` (validate_columns/2 only returns managed columns) —
-    # without it here, Apply silently knocks the default "name" sort off to
-    # whatever column happens to be first.
-    cfg = if cfg.sort_by in ["name" | ids], do: cfg, else: %{cfg | sort_by: List.first(ids)}
+    # Keep the active sort whenever it's still a real sortable column in this
+    # scope. "name" is always visible (managed?: false) but never in `ids`
+    # (validate_columns/2 only returns managed columns), and "position"
+    # (manual order) is a sort-only pseudo column that's never in `ids`
+    # either — see TableConfig.columns/1. Sorting doesn't require the column
+    # to be currently *displayed*, so only reset when Apply dropped a
+    # `sort_by` that isn't sortable at all anymore.
+    cfg =
+      if MapSet.member?(known_sortable_ids(scope), cfg.sort_by),
+        do: cfg,
+        else: %{cfg | sort_by: List.first(ids)}
 
     {:noreply,
      socket |> put_cfg(scope, cfg) |> assign(show_column_modal: false, temp_columns: nil)}
