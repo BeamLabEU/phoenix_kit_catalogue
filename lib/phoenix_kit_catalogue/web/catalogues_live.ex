@@ -955,7 +955,12 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   # with untouched rows outside the filter. That is exactly how `position`
   # ended up with duplicate values in the first place (each folder's rows
   # renumbered independently by the old per-folder tree DnD).
-  defp manual_order_draggable?(view_mode, cfg) do
+  #
+  # `def`/`@doc false` for the same reason as `sort_dir_for/2` above — direct
+  # unit coverage instead of an unreachable LiveView round-trip.
+  @doc false
+  @spec manual_order_draggable?(String.t(), map()) :: boolean()
+  def manual_order_draggable?(view_mode, cfg) do
     view_mode == "active" and cfg.sort_by == "position" and cfg.filters == %{} and
       (cfg[:search] || "") == ""
   end
