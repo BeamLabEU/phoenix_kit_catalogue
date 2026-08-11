@@ -823,6 +823,9 @@ msgstr "Контакты"
 msgid "Website"
 msgstr "Сайт"
 
+msgid "Manual order"
+msgstr "Ручной порядок"
+
 ## Catalogue index toolbar / filters
 msgid "Folders"
 msgstr "Папки"
@@ -835,6 +838,9 @@ msgstr "Все папки"
 
 msgid "All statuses"
 msgstr "Все статусы"
+
+msgid "Clear search and filters to drag-and-drop reorder."
+msgstr "Очистите поиск и фильтры, чтобы менять порядок перетаскиванием."
 
 ## Folder management modal
 msgid "No folders yet."
