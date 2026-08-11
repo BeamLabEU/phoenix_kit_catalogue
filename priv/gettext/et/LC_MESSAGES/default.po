@@ -20,6 +20,9 @@ msgstr "Tarnijad"
 msgid "Import"
 msgstr "Importimine"
 
+msgid "Export"
+msgstr "Eksportimine"
+
 msgid "Events"
 msgstr "Sündmused"
 
@@ -663,6 +666,9 @@ msgstr "Tagasi veergude vastendamise juurde"
 
 msgid "Import Items"
 msgstr "Impordi tooteid"
+
+msgid "Export Items"
+msgstr "Ekspordi tooteid"
 
 msgid "Map Columns"
 msgstr "Vastenda veerud"
