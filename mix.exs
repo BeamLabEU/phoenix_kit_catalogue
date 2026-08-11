@@ -1,7 +1,7 @@
 defmodule PhoenixKitCatalogue.MixProject do
   use Mix.Project
 
-  @version "0.13.0"
+  @version "0.14.0"
   @source_url "https://github.com/BeamLabEU/phoenix_kit_catalogue"
 
   def project do
@@ -118,7 +118,17 @@ defmodule PhoenixKitCatalogue.MixProject do
     [
       licenses: ["MIT"],
       links: %{"GitHub" => @source_url},
-      files: ~w(lib guides .formatter.exs mix.exs README.md CHANGELOG.md LICENSE)
+      # `priv` is not optional here, though it looked it for a long time. It
+      # carries the gettext catalogues — a Hex consumer without them gets the
+      # English msgid for every string, which is the bug #9 and #17 fixed in
+      # phoenix_kit_manufacturing and phoenix_kit_warehouse — AND
+      # `priv/static/pdfjs/`, the vendored viewer that `Paths.pdf_viewer/1`
+      # points an iframe at. Both documented delivery routes for those assets
+      # (the host's `Plug.Static` mount and core's `PdfViewerController`
+      # fallback) read them out of the installed package, so with `priv`
+      # unshipped neither could work and the PDF viewer was broken for every
+      # consumer installing from Hex.
+      files: ~w(lib priv guides .formatter.exs mix.exs README.md CHANGELOG.md LICENSE)
     ]
   end
 

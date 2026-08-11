@@ -511,16 +511,36 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   # row order (post search/filter), which `manual_order_draggable?/2`
   # guarantees is the full unfiltered set whenever handles are shown, so
   # re-indexing it into 1..N can't clash with rows outside the view.
+  #
+  # That guarantee is about RENDERING, so it has to be re-asserted here
+  # before acting on it. A `phx-hook` event is a client message: it can be
+  # pushed from a console at any time, and it can legitimately arrive late —
+  # a drag begun in manual order lands after the user has typed in the search
+  # box or switched to the deleted view. `reorder_catalogues/2` re-indexes
+  # whatever list it is handed into 1..N with no scope check, so acting on a
+  # filtered subset renumbers just those rows and collides with every row
+  # outside the view. That is the duplicate-`position` corruption this
+  # feature's own comments describe as how the column got into that state the
+  # first time; gating only the handles would have left the same door open.
   def handle_event("reorder_catalogues", %{"ordered_ids" => ordered_ids}, socket)
       when is_list(ordered_ids) do
-    case Catalogue.reorder_catalogues(ordered_ids, actor_opts(socket)) do
-      :ok ->
-        {:noreply, load_data(socket, :index)}
+    if manual_order_draggable?(socket.assigns.catalogue_view_mode, current_cfg(socket.assigns)) do
+      case Catalogue.reorder_catalogues(ordered_ids, actor_opts(socket)) do
+        :ok ->
+          {:noreply, load_data(socket, :index)}
 
-      {:error, reason} ->
-        log_operation_error(socket, "reorder_catalogues", %{reason: reason})
+        {:error, reason} ->
+          log_operation_error(socket, "reorder_catalogues", %{reason: reason})
 
-        {:noreply, put_flash(socket, :error, gettext("Failed to save the new order."))}
+          {:noreply, put_flash(socket, :error, gettext("Failed to save the new order."))}
+      end
+    else
+      log_operation_error(socket, "reorder_catalogues", %{reason: :not_in_manual_order})
+
+      {:noreply,
+       socket
+       |> put_flash(:error, gettext("Clear search and filters to drag-and-drop reorder."))
+       |> load_data(:index)}
     end
   end
 

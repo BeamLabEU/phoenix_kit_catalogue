@@ -1,3 +1,44 @@
+## 0.14.0 - 2026-08-11
+
+### Added
+
+- **Manual ordering is back on the catalogues index** (#53). It was lost in
+  `5a01d13`, which replaced the folder tree (and its reordering) with a flat
+  sortable table: `Catalogue.reorder_catalogues/2` survived that commit but lost
+  its only caller, so the `position` column kept existing with nothing able to
+  write it. It returns as a sort option rather than a separate mode — "Manual
+  order" is a sort-only pseudo column (`managed?: false`), so it appears in the
+  sort dropdown without ever becoming a grid column.
+
+  Drag handles appear only in the unfiltered, unsearched "active" view, because
+  `reorder_catalogues/2` re-indexes exactly the list it is handed into `1..N`
+  with no scope check — reordering a filtered subset would renumber only the
+  visible rows and collide with everything outside the filter.
+
+### Fixed
+
+- **`priv/` is now shipped in the Hex package.** It never was, which broke two
+  things for anyone installing from Hex rather than from a checkout: every
+  string rendered in English because `priv/gettext` was absent, and the PDF
+  viewer failed to load because both delivery routes for `priv/static/pdfjs/`
+  (the host's `Plug.Static` mount and core's `PdfViewerController` fallback)
+  read those assets out of the installed package. Same defect as
+  `phoenix_kit_manufacturing` #9 and `phoenix_kit_warehouse` #17.
+
+- **Reordering was only guarded on the way in, not on the way back.** The drag
+  handles were correctly hidden outside manual order, but
+  `handle_event("reorder_catalogues", …)` acted on whatever it received. A hook
+  event is a client message — it can be pushed directly, and it can arrive after
+  the user has applied a filter or switched view — so the renumbering could still
+  run against a subset and produce exactly the duplicate `position` values the
+  handle restriction exists to prevent. The handler re-checks the same condition
+  before writing.
+
+- **Applying a column selection no longer drops the active sort.** It reset
+  `sort_by` whenever the sorted column wasn't among the *displayed* ones;
+  sorting doesn't require a column to be displayed, and both "name" and
+  "position" are deliberately never in that list.
+
 ## 0.13.0 - 2026-08-10
 
 ### Changed
