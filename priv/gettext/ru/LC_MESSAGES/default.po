@@ -20,6 +20,9 @@ msgstr "Поставщики"
 msgid "Import"
 msgstr "Импорт"
 
+msgid "Export"
+msgstr "Экспорт"
+
 msgid "Events"
 msgstr "События"
 
@@ -663,6 +666,9 @@ msgstr "Назад к маппингу"
 
 msgid "Import Items"
 msgstr "Импорт позиций"
+
+msgid "Export Items"
+msgstr "Экспорт позиций"
 
 msgid "Map Columns"
 msgstr "Сопоставление столбцов"

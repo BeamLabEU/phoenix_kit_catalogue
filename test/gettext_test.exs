@@ -39,6 +39,32 @@ defmodule PhoenixKitCatalogue.GettextTest do
     assert Tab.localized_label(tab) == "Kataloog"
   end
 
+  test "Tab.localized_label/1 returns Russian translation for Export" do
+    Gettext.put_locale(PhoenixKitCatalogue.Gettext, "ru")
+
+    tab = %Tab{
+      id: :admin_catalogue_export,
+      label: "Export",
+      gettext_backend: PhoenixKitCatalogue.Gettext,
+      gettext_domain: "default"
+    }
+
+    assert Tab.localized_label(tab) == "Экспорт"
+  end
+
+  test "Tab.localized_label/1 returns Estonian translation for Export" do
+    Gettext.put_locale(PhoenixKitCatalogue.Gettext, "et")
+
+    tab = %Tab{
+      id: :admin_catalogue_export,
+      label: "Export",
+      gettext_backend: PhoenixKitCatalogue.Gettext,
+      gettext_domain: "default"
+    }
+
+    assert Tab.localized_label(tab) == "Eksportimine"
+  end
+
   test "Tab.localized_label/1 falls back to raw label when no gettext_backend set" do
     tab = %Tab{
       id: :admin_catalogue,
@@ -59,6 +85,37 @@ defmodule PhoenixKitCatalogue.GettextTest do
     }
 
     assert Tab.localized_label(tab) == "This string has no translation"
+  end
+
+  # Regression: "Manual order" and "Clear search and filters to
+  # drag-and-drop reorder." were added to the .pot and to the et/ru .po
+  # files by hand (the manual-order sort feature isn't picked up by
+  # `mix gettext.extract`, same as every other string in this backend),
+  # but the en.po entry was forgotten — silently harmless today since
+  # gettext falls back to the raw msgid, but a ticking trap if the
+  # English source text ever changes without updating en.po too.
+  describe "manual-order sort strings are present in every locale" do
+    test "Manual order" do
+      assert gettext_in("en", "Manual order") == "Manual order"
+      assert gettext_in("et", "Manual order") == "Käsitsi järjestus"
+      assert gettext_in("ru", "Manual order") == "Ручной порядок"
+    end
+
+    test "Clear search and filters to drag-and-drop reorder." do
+      msgid = "Clear search and filters to drag-and-drop reorder."
+      assert gettext_in("en", msgid) == msgid
+
+      assert gettext_in("et", msgid) ==
+               "Tühjenda otsing ja filtrid, et lohistades ümber järjestada."
+
+      assert gettext_in("ru", msgid) ==
+               "Очистите поиск и фильтры, чтобы менять порядок перетаскиванием."
+    end
+
+    defp gettext_in(locale, msgid) do
+      Gettext.put_locale(PhoenixKitCatalogue.Gettext, locale)
+      Gettext.gettext(PhoenixKitCatalogue.Gettext, msgid)
+    end
   end
 
   describe "ngettext plural selection" do
