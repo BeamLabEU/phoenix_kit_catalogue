@@ -670,6 +670,18 @@ msgstr "Impordi tooteid"
 msgid "Export Items"
 msgstr "Ekspordi tooteid"
 
+msgid "Destination"
+msgstr "Sihtkoht"
+
+msgid "Format"
+msgstr "Formaat"
+
+msgid "Select a format..."
+msgstr "Vali formaat..."
+
+msgid "Add the catalogue name to the item name"
+msgstr "Lisa kataloogi nimi toote nimele"
+
 msgid "Map Columns"
 msgstr "Vastenda veerud"
 
