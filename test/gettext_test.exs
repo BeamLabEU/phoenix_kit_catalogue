@@ -94,16 +94,24 @@ defmodule PhoenixKitCatalogue.GettextTest do
   # but the en.po entry was forgotten — silently harmless today since
   # gettext falls back to the raw msgid, but a ticking trap if the
   # English source text ever changes without updating en.po too.
+  #
+  # The `en` assertions read the parsed .po file directly rather than
+  # going through `Gettext.gettext/2` at runtime: since the English
+  # translation text is identical to the msgid, a runtime lookup
+  # returns the same string whether or not the entry actually exists
+  # (Gettext's documented behavior on a missing translation is to fall
+  # back to the raw msgid) — that would make the assertion pass even
+  # with the en.po entry deleted entirely, catching nothing.
   describe "manual-order sort strings are present in every locale" do
     test "Manual order" do
-      assert gettext_in("en", "Manual order") == "Manual order"
+      assert po_msgstr("en", "Manual order") == "Manual order"
       assert gettext_in("et", "Manual order") == "Käsitsi järjestus"
       assert gettext_in("ru", "Manual order") == "Ручной порядок"
     end
 
     test "Clear search and filters to drag-and-drop reorder." do
       msgid = "Clear search and filters to drag-and-drop reorder."
-      assert gettext_in("en", msgid) == msgid
+      assert po_msgstr("en", msgid) == msgid
 
       assert gettext_in("et", msgid) ==
                "Tühjenda otsing ja filtrid, et lohistades ümber järjestada."
@@ -115,6 +123,21 @@ defmodule PhoenixKitCatalogue.GettextTest do
     defp gettext_in(locale, msgid) do
       Gettext.put_locale(PhoenixKitCatalogue.Gettext, locale)
       Gettext.gettext(PhoenixKitCatalogue.Gettext, msgid)
+    end
+
+    # Reads the msgstr for `msgid` straight out of the locale's .po file
+    # (nil if the entry is missing), bypassing Gettext's fallback-to-msgid
+    # behavior so a deleted/never-added entry actually fails the assertion.
+    defp po_msgstr(locale, msgid) do
+      path = Path.join(["priv", "gettext", locale, "LC_MESSAGES", "default.po"])
+      {:ok, po} = Expo.PO.parse_file(path)
+
+      po.messages
+      |> Enum.find(&(IO.iodata_to_binary(&1.msgid) == msgid))
+      |> case do
+        nil -> nil
+        entry -> IO.iodata_to_binary(entry.msgstr)
+      end
     end
   end
 
