@@ -20,6 +20,9 @@ msgstr "Suppliers"
 msgid "Import"
 msgstr "Import"
 
+msgid "Export"
+msgstr "Export"
+
 msgid "Events"
 msgstr "Events"
 
@@ -664,6 +667,21 @@ msgstr "Back to Mapping"
 msgid "Import Items"
 msgstr "Import Items"
 
+msgid "Export Items"
+msgstr "Export Items"
+
+msgid "Destination"
+msgstr "Destination"
+
+msgid "Format"
+msgstr "Format"
+
+msgid "Select a format..."
+msgstr "Select a format..."
+
+msgid "Add the catalogue name to the item name"
+msgstr "Add the catalogue name to the item name"
+
 msgid "Map Columns"
 msgstr "Map Columns"
 
@@ -814,6 +832,9 @@ msgstr "Contact Info"
 msgid "Website"
 msgstr "Website"
 
+msgid "Manual order"
+msgstr "Manual order"
+
 ## Catalogue index toolbar / filters
 msgid "Folders"
 msgstr "Folders"
@@ -826,6 +847,9 @@ msgstr "All folders"
 
 msgid "All statuses"
 msgstr "All statuses"
+
+msgid "Clear search and filters to drag-and-drop reorder."
+msgstr "Clear search and filters to drag-and-drop reorder."
 
 ## Folder management modal
 msgid "No folders yet."
@@ -1018,4 +1042,4 @@ msgstr "Current"
 ## Import — PRO100 sync skip reasons
 
 msgid "Row %{row}: belongs to %{group}, not to this catalogue"
-msgstr ""
+msgstr "Row %{row}: belongs to %{group}, not to this catalogue"

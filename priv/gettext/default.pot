@@ -25,6 +25,9 @@ msgstr ""
 msgid "Import"
 msgstr ""
 
+msgid "Export"
+msgstr ""
+
 msgid "Events"
 msgstr ""
 
@@ -667,6 +670,21 @@ msgid "Back to Mapping"
 msgstr ""
 
 msgid "Import Items"
+msgstr ""
+
+msgid "Export Items"
+msgstr ""
+
+msgid "Destination"
+msgstr ""
+
+msgid "Format"
+msgstr ""
+
+msgid "Select a format..."
+msgstr ""
+
+msgid "Add the catalogue name to the item name"
 msgstr ""
 
 msgid "Map Columns"
