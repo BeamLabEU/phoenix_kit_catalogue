@@ -670,6 +670,18 @@ msgstr "Import Items"
 msgid "Export Items"
 msgstr "Export Items"
 
+msgid "Destination"
+msgstr "Destination"
+
+msgid "Format"
+msgstr "Format"
+
+msgid "Select a format..."
+msgstr "Select a format..."
+
+msgid "Add the catalogue name to the item name"
+msgstr "Add the catalogue name to the item name"
+
 msgid "Map Columns"
 msgstr "Map Columns"
 

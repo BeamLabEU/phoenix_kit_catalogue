@@ -670,6 +670,18 @@ msgstr "Импорт позиций"
 msgid "Export Items"
 msgstr "Экспорт позиций"
 
+msgid "Destination"
+msgstr "Назначение"
+
+msgid "Format"
+msgstr "Формат"
+
+msgid "Select a format..."
+msgstr "Выберите формат..."
+
+msgid "Add the catalogue name to the item name"
+msgstr "Добавить название каталога к названию позиции"
+
 msgid "Map Columns"
 msgstr "Сопоставление столбцов"
 
