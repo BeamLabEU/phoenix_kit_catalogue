@@ -111,4 +111,23 @@ SemVer. The version lives in **two places** — bump both: `mix.exs` `@version` 
 - **Tailwind:** `css_sources/0` returns `[:phoenix_kit_catalogue]` so the host's `app.css` scans this module's templates.
 - **JS hooks:** shared hooks (RowMenu, SortableGrid, InfiniteScroll, …) come from phoenix_kit core's `window.PhoenixKitHooks`; this module ships no external hooks.
 - **Gettext:** the module has its own backend, `PhoenixKitCatalogue.Gettext` — use it (not `PhoenixKitWeb.Gettext`) for new strings.
+
+  ⚠️ **Do not run `mix gettext.extract` / `mix gettext.merge` in this repo — they
+  would delete almost every translation.** Nearly all strings here are written
+  as the *runtime function* call `Gettext.gettext(PhoenixKitCatalogue.Gettext,
+  "…")` (~891 call sites) rather than the `gettext("…")` macro (~7 sites),
+  because most LiveViews here don't `use Gettext, backend:
+  PhoenixKitCatalogue.Gettext`. `mix gettext.extract` only sees macro calls, so
+  a fresh `.pot` would contain those ~7 strings instead of the 336 currently
+  in `priv/gettext/default.pot`, and `mix gettext.merge` (`on_obsolete:
+  :delete` by default) would then strip the remaining ~329 entries from all
+  three `.po` files. The catalogues are **hand-maintained**: add new msgids to
+  `default.pot` and to each of `en`/`et`/`ru` by hand, and pin them with a test
+  in `test/gettext_test.exs`.
+
+  The real fix is to add `use Gettext, backend: PhoenixKitCatalogue.Gettext` to
+  each LiveView and convert the call sites to the macro form, which would make
+  extraction work normally. `web/table_config.ex` and `web/catalogues_live.ex`
+  already do this. Until that conversion happens, treat the catalogues as
+  hand-edited files.
 - **Settings keys:** `catalogue_enabled`.

@@ -1,3 +1,49 @@
+## 0.14.1 - 2026-08-12
+
+### Fixed
+
+- **`PhoenixKitCatalogue.version/0` reported `0.13.0` in the 0.14.0 release.**
+  The version lives in both `mix.exs` and a hardcoded `version/0`, and 0.14.0
+  moved only the first — so the published package reported a version it was
+  not. Both move together here. The repo's own
+  `version/0 stays in sync with mix.exs @version` test catches this and is not
+  database-gated, so it was already failing on `main`; run `mix test` (not only
+  `mix precommit`, which runs no tests) before publishing.
+- **Missing translations on the Export page** (#57). `Export Items` had `en`
+  and `ru` entries but no `et` one, and four further strings — `Destination`,
+  `Format`, `Select a format...`, and `Add the catalogue name to the item
+  name` — were in no locale at all, leaving Russian and Estonian admins with
+  raw English on that page. `Format` and `Select a format...` are shared with
+  the Import page. The `en` entry for the pre-existing `Manual order` strings
+  was also missing; harmless while the English text matches the msgid, but a
+  trap the moment the source string changes.
+
+### Added
+
+- **`PGDATABASE` / `PGPOOL` overrides for the test suite** (#58).
+  `config/test.exs` reads both from the environment, falling back to the
+  previous hardcoded database name and `System.schedulers_online() * 2`.
+  Without them the only way to run the `:integration` half of the suite was a
+  Postgres role holding `CREATEDB`, which shared and managed instances
+  withhold. Same mechanism core `phoenix_kit` already uses; CI and local runs
+  are unaffected.
+
+### Documentation
+
+- `AGENTS.md` now warns that **`mix gettext.extract` / `mix gettext.merge` must
+  not be run in this repo.** Nearly every string here uses the runtime
+  `Gettext.gettext(PhoenixKitCatalogue.Gettext, "…")` form (~891 call sites)
+  rather than the `gettext("…")` macro (~7), and extraction only sees macro
+  calls — so a regenerated `.pot` would hold ~7 entries instead of 336, and a
+  following `merge` (which defaults to `on_obsolete: :delete`) would strip the
+  other ~329 from all three locales. The catalogues are hand-maintained until
+  the call sites are converted to the macro form.
+
+### Changed
+
+- Dependency updates: `phoenix_kit_ai` 0.19.0, `phoenix` 1.8.11,
+  `beamlab_ex_aws_sqs` 5.0.1, `xai` 0.2.1, `hackney` 4.7.4.
+
 ## 0.14.0 - 2026-08-11
 
 ### Added
