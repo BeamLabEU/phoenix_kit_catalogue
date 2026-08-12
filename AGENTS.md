@@ -93,6 +93,8 @@ Key invariants to preserve:
 - `test/test_helper.exs` runs `PhoenixKit.Migration.ensure_current/2` for schema setup — do **not** replace it with `Ecto.Migrator.run([{0, PhoenixKit.Migration}])` (silently goes stale).
 - Integration tests (via `DataCase` / `LiveCase`, tagged `:integration`) are automatically excluded when no database is available.
 - Test support: `support/data_case.ex`, `support/live_case.ex` (Test.Endpoint + router scoped at `/en/admin/catalogue`), `support/activity_log_assertions.ex`.
+- `database:` / `pool_size:` in `config/test.exs` read `PGDATABASE` / `PGPOOL`, falling back to the hardcoded `phoenix_kit_catalogue_test` name and `System.schedulers_online() * 2` when unset — same mechanism core `phoenix_kit`'s `config/test.exs` uses. Set both to point this suite at a database it doesn't own and can't `CREATEDB` for itself (e.g. a shared instance also used by sibling `phoenix_kit_*` modules): `PGDATABASE=migration_test_db PGPOOL=6 mix test`.
+- **Caution:** if `PGDATABASE` points at a database other modules also use, don't combine it with `PHOENIX_KIT_PATH=../phoenix_kit` (local core checkout) — `test/test_helper.exs`'s `ensure_current/2` call would then run *that* core's migration chain against the shared database, moving its schema for every other module pointed at the same `PGDATABASE`, not just this suite.
 
 ## Versioning & releases
 
