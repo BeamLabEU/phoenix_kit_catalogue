@@ -334,6 +334,70 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPickerTest do
     end
   end
 
+  describe "selected item photo preview" do
+    test "renders a thumbnail to the left of the input when the selected item has a photo" do
+      item = %{
+        fake_item("item-1", "Oak Plank")
+        | data: %{"featured_image_uuid" => "photo-uuid-abc"}
+      }
+
+      html = render_component(ItemPicker, base_assigns(%{selected_item: item}))
+
+      # An <img> preview appears and its src carries the featured file UUID.
+      assert html =~ "<img"
+      assert html =~ "photo-uuid-abc"
+    end
+
+    test "renders no thumbnail when the selected item has no photo" do
+      # fake_item/2 sets data: %{} — no featured_image_uuid.
+      item = fake_item("item-1", "Oak Plank")
+
+      html = render_component(ItemPicker, base_assigns(%{selected_item: item}))
+
+      refute html =~ "<img"
+    end
+
+    test "renders no thumbnail when nothing is selected" do
+      html = render_component(ItemPicker, base_assigns())
+
+      refute html =~ "<img"
+    end
+
+    test "treats a blank featured_image_uuid as no photo" do
+      item = %{fake_item("item-1", "Oak Plank") | data: %{"featured_image_uuid" => ""}}
+
+      html = render_component(ItemPicker, base_assigns(%{selected_item: item}))
+
+      refute html =~ "<img"
+    end
+
+    test "thumbnail is inert by default (no click hook)" do
+      item = %{
+        fake_item("item-1", "Oak Plank")
+        | data: %{"featured_image_uuid" => "photo-uuid-abc"}
+      }
+
+      html = render_component(ItemPicker, base_assigns(%{selected_item: item}))
+
+      assert html =~ "<img"
+      refute html =~ ~s(phx-click="photo_click")
+    end
+
+    test "photo_clickable=true wraps the thumbnail in a click hook" do
+      item = %{
+        fake_item("item-1", "Oak Plank")
+        | data: %{"featured_image_uuid" => "photo-uuid-abc"}
+      }
+
+      html =
+        render_component(ItemPicker, base_assigns(%{selected_item: item, photo_clickable: true}))
+
+      # The navigation hook the product-card feature (L026.1) wires up.
+      assert html =~ ~s(phx-click="photo_click")
+      assert html =~ "photo-uuid-abc"
+    end
+  end
+
   # initial_query SEEDING here only covers the DB-free guard branches (the
   # positive "search runs and prefills" path needs the catalogue Repo and lives
   # in the integration suite). update/2 must never clobber a real selection or a
