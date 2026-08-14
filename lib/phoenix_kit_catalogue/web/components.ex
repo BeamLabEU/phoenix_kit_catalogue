@@ -232,6 +232,13 @@ defmodule PhoenixKitCatalogue.Web.Components do
 
   def featured_image_uuid(_), do: nil
 
+  @doc """
+  Whether any row in a list carries a featured image — gates the photo
+  column in table views, so a table with no images at all doesn't spend a
+  permanently empty column on them.
+  """
+  def any_featured_thumb?(rows), do: Enum.any?(rows, &(featured_image_uuid(&1) != nil))
+
   # ═══════════════════════════════════════════════════════════════════
   # Metadata editor
   # ═══════════════════════════════════════════════════════════════════
@@ -1197,6 +1204,9 @@ defmodule PhoenixKitCatalogue.Web.Components do
       |> assign(:has_actions, has_actions?(assigns))
       |> assign(:card_columns, Enum.reject(assigns.columns, &(&1 == :name)))
       |> assign(:reorder_scope_attrs, build_reorder_scope_attrs(assigns[:reorder_scope] || %{}))
+      # Featured images get their own slim column (inline-left of the name
+      # made rows jagged); it only exists when at least one row has one.
+      |> assign(:photo_col?, any_featured_thumb?(assigns.items))
 
     ~H"""
     <.table_default
@@ -1242,6 +1252,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
       <.table_default_header>
         <.table_default_row>
           <.table_default_header_cell :if={!is_nil(@on_reorder) or @selectable} class="w-10"></.table_default_header_cell>
+          <.table_default_header_cell :if={@photo_col?} class="w-12"></.table_default_header_cell>
           <.table_default_header_cell :for={col <- @columns}>
             {column_label(col)}
           </.table_default_header_cell>
@@ -1303,6 +1314,9 @@ defmodule PhoenixKitCatalogue.Web.Components do
               />
             </div>
           </.table_default_cell>
+          <.table_default_cell :if={@photo_col?} class="w-12">
+            <.featured_thumb resource={item} />
+          </.table_default_cell>
           <.item_cell
             :for={col <- @columns}
             column={col}
@@ -1361,17 +1375,14 @@ defmodule PhoenixKitCatalogue.Web.Components do
 
     ~H"""
     <.table_default_cell class="font-medium">
-      <div class="flex items-center gap-2 min-w-0">
-        <.featured_thumb resource={@item} />
-        <.link
-          :if={@edit_path && @item.uuid}
-          navigate={safe_call(@edit_path, @item.uuid)}
-          class="link link-hover"
-        >
-          {@item.name || "—"}
-        </.link>
-        <span :if={!@edit_path || !@item.uuid}>{@item.name || "—"}</span>
-      </div>
+      <.link
+        :if={@edit_path && @item.uuid}
+        navigate={safe_call(@edit_path, @item.uuid)}
+        class="link link-hover"
+      >
+        {@item.name || "—"}
+      </.link>
+      <span :if={!@edit_path || !@item.uuid}>{@item.name || "—"}</span>
     </.table_default_cell>
     <.table_default_cell class="text-sm font-mono text-base-content/60">
       {@item.sku || "—"}
@@ -1580,17 +1591,14 @@ defmodule PhoenixKitCatalogue.Web.Components do
   defp item_cell(%{column: :name} = assigns) do
     ~H"""
     <.table_default_cell class="font-medium">
-      <div class="flex items-center gap-2 min-w-0">
-        <.featured_thumb resource={@item} />
-        <.link
-          :if={@edit_path && @item.uuid}
-          navigate={safe_call(@edit_path, @item.uuid)}
-          class="link link-hover"
-        >
-          {@item.name || "—"}
-        </.link>
-        <span :if={!@edit_path || !@item.uuid}>{@item.name || "—"}</span>
-      </div>
+      <.link
+        :if={@edit_path && @item.uuid}
+        navigate={safe_call(@edit_path, @item.uuid)}
+        class="link link-hover"
+      >
+        {@item.name || "—"}
+      </.link>
+      <span :if={!@edit_path || !@item.uuid}>{@item.name || "—"}</span>
     </.table_default_cell>
     """
   end
