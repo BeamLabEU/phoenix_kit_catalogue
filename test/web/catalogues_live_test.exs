@@ -301,15 +301,11 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
   # Manual order (drag-and-drop reorder of catalogues)
   # ─────────────────────────────────────────────────────────────────
   #
-  # Only the `reorder_catalogues` handler itself is exercised here (via
-  # `render_hook`, mirroring `reorder_items`'s LV test in
-  # catalogue_detail_live_test.exs). Rendering the drag handles requires
-  # `view_configs.catalogues.sort_by == "position"`, which is only reachable
-  # by persisting through `ViewConfig`/`phoenix_kit_current_user` — the test
-  # harness's `phoenix_kit_current_user` is always a bare `%{uuid: uuid}}`
-  # map (see `LiveCase.on_mount/4`), and `ViewConfig.save/3` requires a real
-  # `%PhoenixKit.Users.Auth.User{}`, so driving that round-trip through a
-  # live-mounted view isn't possible with the current test support.
+  # `reorder_catalogues` only acts in manual-order mode, so the test first
+  # drives `set_sort` to "position" — reachable now that `ViewConfig.save/3`
+  # degrades gracefully on the harness's bare `%{uuid: uuid}` user instead of
+  # raising out of `put_cfg` (per-user persistence is skipped; the in-memory
+  # cfg and the global sort setting still update).
   describe "manual order — DnD reorder" do
     test "reorder_catalogues persists the dropped order", %{conn: conn} do
       a = fixture_catalogue(%{name: "A", position: 0})
@@ -318,9 +314,77 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
 
       {:ok, view, _html} = live(conn, @base)
 
+      render_click(view, "set_sort", %{"sort_by" => "position"})
       render_hook(view, "reorder_catalogues", %{"ordered_ids" => [c.uuid, a.uuid, b.uuid]})
 
       assert Catalogue.list_catalogues() |> Enum.map(& &1.name) == ["C", "A", "B"]
+    end
+  end
+
+  # ─────────────────────────────────────────────────────────────────
+  # Global sort — the catalogues index shares ONE sort across admins
+  # ─────────────────────────────────────────────────────────────────
+  describe "global sort (catalogues scope)" do
+    alias PhoenixKitCatalogue.Web.ViewConfig
+
+    defp appears_before?(html, first, second) do
+      {i1, _} = :binary.match(html, first)
+      {i2, _} = :binary.match(html, second)
+      i1 < i2
+    end
+
+    test "set_sort persists the shared setting", %{conn: conn} do
+      fixture_catalogue(%{name: "Alpha"})
+
+      {:ok, view, _html} = live(conn, @base)
+      render_click(view, "set_sort", %{"sort_by" => "updated"})
+
+      assert PhoenixKit.Settings.get_setting("catalogue_sort_catalogues", nil) == "updated:asc"
+    end
+
+    test "a second open index follows a sort change live", %{conn: conn} do
+      # Positions invert the alphabetical order, so which name renders first
+      # tells us which sort is active.
+      fixture_catalogue(%{name: "Alpha", position: 1})
+      fixture_catalogue(%{name: "Zed", position: 0})
+
+      {:ok, viewer, viewer_html} = live(conn, @base)
+      {:ok, changer, _html} = live(conn, @base)
+
+      assert appears_before?(viewer_html, "Alpha", "Zed")
+
+      render_click(changer, "set_sort", %{"sort_by" => "position"})
+
+      assert appears_before?(render(viewer), "Zed", "Alpha")
+    end
+
+    test "a fresh mount reads the shared sort", %{conn: conn} do
+      fixture_catalogue(%{name: "Alpha", position: 1})
+      fixture_catalogue(%{name: "Zed", position: 0})
+
+      {:ok, _} = ViewConfig.save_global_sort(:catalogues, "position", :asc)
+
+      {:ok, _view, html} = live(conn, @base)
+      assert appears_before?(html, "Zed", "Alpha")
+    end
+
+    test "an invalid stored value falls back to the default sort" do
+      PhoenixKit.Settings.update_setting_with_module(
+        "catalogue_sort_catalogues",
+        "bogus:sideways",
+        "catalogue"
+      )
+
+      assert ViewConfig.load_global_sort(:catalogues) == {"name", :asc}
+    end
+
+    test "manufacturers sort stays per-user", %{conn: conn} do
+      fixture_manufacturer(%{name: "Blum"})
+
+      {:ok, view, _html} = live(conn, "#{@base}/manufacturers")
+      render_click(view, "set_sort", %{"sort_by" => "updated"})
+
+      assert PhoenixKit.Settings.get_setting("catalogue_sort_manufacturers", nil) == nil
     end
   end
 end

@@ -93,6 +93,26 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     end
   end
 
+  # Another admin changed the shared sort for a global-sort scope (see
+  # ViewConfig.global_sort?/1). Apply it to assigns only — the setting was
+  # already written by the originator, and writing the per-user copy here
+  # would trample this user's OTHER per-user prefs mid-render. Rows re-sort
+  # at render time (derive_rows), so no data reload is needed; when the sort
+  # lands on "position" the drag handles appear on the next render the same
+  # way they do for the admin who switched.
+  def handle_info({:catalogue_view_sort_changed, scope, sort_by, sort_dir, from}, socket) do
+    cfg = socket.assigns.view_configs[scope]
+
+    if from == self() or is_nil(cfg) do
+      {:noreply, socket}
+    else
+      updated = %{cfg | sort_by: sort_by, sort_dir: sort_dir}
+
+      {:noreply,
+       assign(socket, :view_configs, Map.put(socket.assigns.view_configs, scope, updated))}
+    end
+  end
+
   def handle_info(msg, socket) do
     Logger.debug("CataloguesLive ignored unhandled message: #{inspect(msg)}")
     {:noreply, socket}
@@ -165,12 +185,23 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   # from the stale pre-save snapshot and silently revert this save.
   defp put_cfg(socket, scope, cfg) do
     user = socket.assigns[:phoenix_kit_current_user]
+    prev = Map.fetch!(socket.assigns.view_configs, scope)
 
     socket =
       case ViewConfig.save(user, scope, cfg) do
         {:ok, updated_user} -> assign(socket, :phoenix_kit_current_user, updated_user)
         _ -> socket
       end
+
+    # Global-sort scopes share their ordering: persist the new sort as a
+    # module setting and tell every other open index to switch live. Keyed
+    # off an actual sort change so column/filter/view edits (which also
+    # travel through put_cfg) don't rewrite the setting or spam the topic.
+    if ViewConfig.global_sort?(scope) and
+         {cfg.sort_by, cfg.sort_dir} != {prev.sort_by, prev.sort_dir} do
+      ViewConfig.save_global_sort(scope, cfg.sort_by, cfg.sort_dir)
+      PubSub.broadcast_view_sort_changed(scope, cfg.sort_by, cfg.sort_dir)
+    end
 
     assign(socket, :view_configs, Map.put(socket.assigns.view_configs, scope, cfg))
   end
