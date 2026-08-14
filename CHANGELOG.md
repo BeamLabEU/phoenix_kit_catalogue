@@ -8,8 +8,11 @@
   list. Items without a photo render as before. The thumbnail is an opt-in
   navigation hook via the new `photo_clickable` attr (default `false`).
 - **Product card opened from the preview.** Clicking the thumbnail opens a
-  read-only product card entirely inside the picker (no host wiring beyond
-  `photo_clickable={true}`): a core `<.modal>` with a "one expanded" image
+  read-only product card entirely inside the picker (opt in with
+  `photo_clickable={true}`; the host must also handle the upward
+  `{:item_picker_photo_click, …}` message with a `handle_info/2` clause or a
+  catch-all, or the click crashes its LiveView): a core `<.modal>` with a
+  "one expanded" image
   gallery (main image large, a thumbnail strip of the item's other images,
   switching on click) and the item's filled fields (SKU, price, unit,
   description, metadata); empty fields are hidden. Exposed as the function
