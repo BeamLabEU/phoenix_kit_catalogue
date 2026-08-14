@@ -28,6 +28,18 @@
   `data` changes onto its current `data`, matching the merge-under-`"pro100"`
   pattern already used by the PRO100 template loader.
 
+- **A `photo_click` with nothing selected sent `{:item_picker_photo_click, id,
+  nil}` upward.** The handler guarded on `photo_clickable` but not on there
+  being an item, and the message fired before the card-opening path (which was
+  already nil-safe) could ignore it — so a host matching the documented
+  `%Item{}` shape crashed. The event is now inert unless both hold, which makes
+  the message's third element the `%Item{}` the moduledoc promises.
+
+- Removed two clauses dialyzer reported as unreachable (`open_card/2`'s nil
+  fallback, made dead by the fix above, and `read_uuid/2`'s non-map fallback,
+  already dead since both call sites sit under an `is_map/1` guard). `mix
+  precommit` now exits 0.
+
 ### Changed
 
 - **Minimum `phoenix_kit` raised to `~> 2.3`** — the product card uses
