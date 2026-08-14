@@ -170,4 +170,56 @@ defmodule PhoenixKitCatalogue.Web.Components.ProductCardTest do
       refute "Unit" in labels
     end
   end
+
+  # ── Files section (pdf viewer / file list) ────────────────────────
+
+  defp files do
+    [
+      %{uuid: "pdf-1", name: "spec-sheet.pdf", size: 120_000, pdf?: true},
+      %{uuid: "doc-1", name: "notes.txt", size: 900, pdf?: false}
+    ]
+  end
+
+  describe "files section" do
+    test "lists files with size, Open link, and View only for PDFs" do
+      html = render_card(%{files: files()})
+
+      assert html =~ "spec-sheet.pdf"
+      assert html =~ "notes.txt"
+      assert html =~ "120.0 KB"
+      # Every file opens via its signed URL in a new tab.
+      assert html =~ ~s(target="_blank")
+      # Only the PDF gets the inline-viewer toggle.
+      assert html =~ "card_view_file"
+      assert html =~ "View"
+      refute html =~ "<iframe"
+    end
+
+    test "the selected PDF expands into an inline iframe viewer" do
+      html = render_card(%{files: files(), current_file: "pdf-1"})
+
+      assert html =~ "<iframe"
+      assert html =~ "pdf-1"
+      # The toggle now reads Hide for the expanded file.
+      assert html =~ "Hide"
+    end
+
+    test "no files renders no Files section" do
+      refute render_card() =~ "card_view_file"
+    end
+  end
+
+  describe "product_card_body/1 (notpopup form)" do
+    test "renders the same content without the modal shell" do
+      html =
+        render_component(
+          &ProductCard.product_card_body/1,
+          base_assigns(%{files: files()}) |> Map.drop([:id, :show, :on_close])
+        )
+
+      assert html =~ "img-1"
+      assert html =~ "spec-sheet.pdf"
+      refute html =~ "<dialog"
+    end
+  end
 end

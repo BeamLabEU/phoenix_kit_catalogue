@@ -65,6 +65,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   alias PhoenixKitCatalogue.Paths
   alias PhoenixKitCatalogue.Schemas.Category
   alias PhoenixKitCatalogue.Schemas.Item
+  alias PhoenixKitCatalogue.Web.Components.ProductCard
   alias PhoenixKitCatalogue.Web.Components.PdfSearchModal
 
   @per_page 100
@@ -137,6 +138,14 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         # `[{status, label, count}]` for the tabs to actually render — only
         # populated statuses; the strip hides itself when there's ≤1.
         status_tabs: [],
+        # ── Product-view card (opened by clicking a featured thumb) ──
+        card_open: false,
+        card_name: nil,
+        card_images: [],
+        card_current: nil,
+        card_fields: [],
+        card_files: [],
+        card_file: nil,
         confirm_delete: nil,
         trash_modal: nil,
         bulk_move_modal: nil,
@@ -461,6 +470,72 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
   def handle_event("clear_search", _params, socket) do
     {:noreply, push_url_state(socket, search_query: "")}
+  end
+
+  # ── Product-view card (opened by clicking a featured-image thumb) ──
+  # Host-side mirror of ItemPicker's card handlers: no phx-target on the
+  # thumbs/table events here, so they arrive at this LiveView. All payloads
+  # are client-forgeable — every clause has a catch-all or validates the
+  # uuid against the card's own state.
+
+  def handle_event("show_product_card", %{"uuid" => uuid}, socket) do
+    case Catalogue.get_item(uuid) do
+      %Item{} = item ->
+        images = ProductCard.resolve_images(item)
+
+        current =
+          case images do
+            [%{uuid: first} | _] -> first
+            _ -> nil
+          end
+
+        locale = socket.assigns[:current_locale] || "en"
+
+        {:noreply,
+         assign(socket,
+           card_open: true,
+           card_name: ProductCard.resolve_name(item, locale),
+           card_images: images,
+           card_current: current,
+           card_fields: ProductCard.build_fields(item, locale),
+           card_files: ProductCard.resolve_files(item),
+           card_file: nil
+         )}
+
+      _ ->
+        {:noreply, socket}
+    end
+  end
+
+  def handle_event("show_product_card", _params, socket), do: {:noreply, socket}
+
+  def handle_event("card_select_image", %{"uuid" => uuid}, socket) do
+    if Enum.any?(socket.assigns.card_images, &(&1.uuid == uuid)) do
+      {:noreply, assign(socket, :card_current, uuid)}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_event("card_select_image", _params, socket), do: {:noreply, socket}
+
+  def handle_event("card_view_file", %{"uuid" => uuid}, socket) do
+    cond do
+      socket.assigns.card_file == uuid ->
+        {:noreply, assign(socket, :card_file, nil)}
+
+      Enum.any?(socket.assigns.card_files, &(&1.uuid == uuid)) ->
+        {:noreply, assign(socket, :card_file, uuid)}
+
+      true ->
+        {:noreply, socket}
+    end
+  end
+
+  def handle_event("card_view_file", _params, socket), do: {:noreply, socket}
+
+  def handle_event("card_close", _params, socket) do
+    {:noreply, assign(socket, card_open: false, card_file: nil)}
   end
 
   def handle_event("show_pdf_search", %{"uuid" => uuid}, socket) do
@@ -2089,6 +2164,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
           <div :if={@search_results not in [nil, []]} class={["transition-opacity", @search_loading && "opacity-50"]}>
             <.item_table
+              photo_click="show_product_card"
               items={@search_results}
               columns={[:name, :sku, :price, :unit, :status]}
               markup_percentage={@catalogue.markup_percentage}
@@ -2520,6 +2596,19 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         item={@pdf_search_item}
         show={@show_pdf_search}
       />
+
+      <ProductCard.product_card
+        id="catalogue-detail-product"
+        show={@card_open}
+        item_name={@card_name}
+        images={@card_images}
+        current_image={@card_current}
+        fields={@card_fields}
+        files={@card_files}
+        current_file={@card_file}
+        target={nil}
+        on_close="card_close"
+      />
       </div>
     </PhoenixKitWeb.Components.LayoutWrapper.app_layout>
     """
@@ -2759,7 +2848,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                 data-bulk-role="row"
                 data-uuid={item.uuid}
               />
-              <.featured_thumb resource={item} class="w-7 h-7" />
+              <.featured_thumb resource={item} class="w-7 h-7" on_click="show_product_card" />
               <.link
                 :if={item.uuid}
                 navigate={Paths.item_edit(item.uuid)}
@@ -2858,7 +2947,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               <td :if={@draggable? and not @reorderable?} class="w-8"></td>
               <.bulk_select_cell value={item.uuid} />
               <.table_default_cell :if={any_featured_thumb?(@items)} class="w-10 !pr-0">
-                <.featured_thumb resource={item} />
+                <.featured_thumb resource={item} on_click="show_product_card" />
               </.table_default_cell>
               <.item_pricing_cell item={item} edit_path={&Paths.item_edit/1} />
               <.item_row_menu

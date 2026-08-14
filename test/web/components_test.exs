@@ -452,7 +452,10 @@ defmodule PhoenixKitCatalogue.Web.ComponentsTest do
     @uuid "01890000-0000-7000-8000-000000000001"
 
     test "renders a signed thumbnail img when the resource carries an image" do
-      html = render_component(&featured_thumb/1, resource: %Item{data: %{"featured_image_uuid" => @uuid}})
+      html =
+        render_component(&featured_thumb/1,
+          resource: %Item{data: %{"featured_image_uuid" => @uuid}}
+        )
 
       assert html =~ "<img"
       assert html =~ @uuid
@@ -462,9 +465,22 @@ defmodule PhoenixKitCatalogue.Web.ComponentsTest do
     end
 
     test "works on the catalogues index's plain row maps too" do
-      html = render_component(&featured_thumb/1, resource: %{data: %{"featured_image_uuid" => @uuid}})
+      html =
+        render_component(&featured_thumb/1, resource: %{data: %{"featured_image_uuid" => @uuid}})
 
       assert html =~ "<img"
+    end
+
+    test "on_click wraps the thumb in a button pushing the event with the uuid" do
+      item = %Item{uuid: "item-1", data: %{"featured_image_uuid" => @uuid}}
+      html = render_component(&featured_thumb/1, resource: item, on_click: "show_product_card")
+
+      assert html =~ "<button"
+      assert html =~ ~s(phx-click="show_product_card")
+      assert html =~ ~s(phx-value-uuid="item-1")
+      # Without on_click the thumb stays a bare, inert img.
+      inert = render_component(&featured_thumb/1, resource: item)
+      refute inert =~ "<button"
     end
 
     test "renders nothing without an image" do

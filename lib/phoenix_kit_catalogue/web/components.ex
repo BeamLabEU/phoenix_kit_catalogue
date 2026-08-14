@@ -210,12 +210,36 @@ defmodule PhoenixKitCatalogue.Web.Components do
   attr(:resource, :any, required: true)
   attr(:class, :any, default: "w-8 h-8")
 
+  attr(:on_click, :string,
+    default: nil,
+    doc:
+      "When set, the thumb becomes a button pushing this event with the resource's " <>
+        "uuid — the product-view hook (\"pressing on the featured image\"). nil keeps " <>
+        "the thumb inert."
+  )
+
   def featured_thumb(assigns) do
     assigns = assign(assigns, :uuid, featured_image_uuid(assigns.resource))
 
     ~H"""
+    <button
+      :if={@uuid && @on_click}
+      type="button"
+      phx-click={@on_click}
+      phx-value-uuid={@resource.uuid}
+      class="shrink-0 cursor-pointer"
+      title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "View item details")}
+    >
+      <img
+        src={URLSigner.signed_url(@uuid, "thumbnail")}
+        alt=""
+        loading="lazy"
+        onerror="this.style.display='none'"
+        class={["rounded object-cover shrink-0 bg-base-200", @class]}
+      />
+    </button>
     <img
-      :if={@uuid}
+      :if={@uuid && !@on_click}
       src={URLSigner.signed_url(@uuid, "thumbnail")}
       alt=""
       loading="lazy"
@@ -1148,6 +1172,15 @@ defmodule PhoenixKitCatalogue.Web.Components do
   # Card view on by default (deliberate product call, 2026-08-14) — a new
   # item table gets the card/table toggle without having to ask for it.
   attr(:cards, :boolean, default: true)
+
+  attr(:photo_click, :string,
+    default: nil,
+    doc:
+      "Event pushed (with the item's uuid) when a featured-image thumb is " <>
+        "clicked — the host renders the ProductCard modal and handles its " <>
+        "events. nil keeps thumbs inert."
+  )
+
   attr(:show_toggle, :boolean, default: true)
   attr(:id, :string, default: nil)
   attr(:storage_key, :string, default: nil)
@@ -1240,7 +1273,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
             phx-click={@on_toggle_select}
             phx-value-uuid={item.uuid}
           />
-          <.featured_thumb resource={item} />
+          <.featured_thumb resource={item} on_click={@photo_click} />
           <.link
             :if={@edit_path && item.uuid}
             navigate={safe_call(@edit_path, item.uuid)}
@@ -1317,7 +1350,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
             </div>
           </.table_default_cell>
           <.table_default_cell :if={@photo_col?} class="w-10 !pr-0">
-            <.featured_thumb resource={item} />
+            <.featured_thumb resource={item} on_click={@photo_click} />
           </.table_default_cell>
           <.item_cell
             :for={col <- @columns}

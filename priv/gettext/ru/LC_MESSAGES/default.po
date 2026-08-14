@@ -1068,3 +1068,9 @@ msgstr "Показать это изображение"
 
 msgid "Close"
 msgstr "Закрыть"
+
+msgid "Open"
+msgstr "Открыть"
+
+msgid "Hide"
+msgstr "Скрыть"

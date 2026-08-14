@@ -1064,3 +1064,9 @@ msgstr ""
 
 msgid "Close"
 msgstr ""
+
+msgid "Open"
+msgstr ""
+
+msgid "Hide"
+msgstr ""

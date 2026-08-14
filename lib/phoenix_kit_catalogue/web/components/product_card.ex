@@ -34,10 +34,12 @@ defmodule PhoenixKitCatalogue.Web.Components.ProductCard do
 
   use Phoenix.Component
 
+  import PhoenixKitWeb.Components.Core.Icon, only: [icon: 1]
   import PhoenixKitWeb.Components.Core.Modal, only: [modal: 1]
 
   alias PhoenixKit.Modules.Storage
   alias PhoenixKit.Modules.Storage.URLSigner
+  alias PhoenixKit.Utils.Format
   alias PhoenixKitCatalogue.{Catalogue, Metadata}
   alias PhoenixKitCatalogue.Schemas.Item
 
@@ -69,6 +71,8 @@ defmodule PhoenixKitCatalogue.Web.Components.ProductCard do
   attr(:images, :list, default: [])
   attr(:current_image, :string, default: nil)
   attr(:fields, :list, default: [])
+  attr(:files, :list, default: [])
+  attr(:current_file, :string, default: nil)
   attr(:on_close, :string, default: "card_close")
 
   def product_card(assigns) do
@@ -76,50 +80,15 @@ defmodule PhoenixKitCatalogue.Web.Components.ProductCard do
     <.modal show={@show} id={"#{@id}-card"} on_close={@on_close} max_width="3xl">
       <:title>{@item_name || Gettext.gettext(PhoenixKitCatalogue.Gettext, "Item")}</:title>
 
-      <div class="flex flex-col gap-4">
-        <%!-- Main (expanded) image --%>
-        <img
-          :if={@current_image}
-          src={URLSigner.signed_url(@current_image, "medium")}
-          alt={@item_name}
-          class="w-full max-h-[50vh] object-contain rounded-lg bg-base-200"
-        />
-
-        <%!-- Thumbnail strip — only when there is more than one image.
-             Scrolls horizontally on narrow screens. --%>
-        <div :if={length(@images) > 1} class="flex gap-2 overflow-x-auto pb-1">
-          <button
-            :for={img <- @images}
-            type="button"
-            phx-click="card_select_image"
-            phx-value-uuid={img.uuid}
-            phx-target={@target}
-            class="shrink-0"
-            aria-label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Show this image")}
-            aria-pressed={to_string(img.uuid == @current_image)}
-          >
-            <img
-              src={URLSigner.signed_url(img.uuid, "thumbnail")}
-              alt={img.name || ""}
-              class={[
-                "w-16 h-16 object-cover rounded border-2",
-                (img.uuid == @current_image && "border-primary") || "border-base-300"
-              ]}
-            />
-          </button>
-        </div>
-
-        <%!-- Filled fields (empty ones already dropped by build_fields/2) --%>
-        <dl
-          :if={@fields != []}
-          class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3 border-t border-base-200 pt-4"
-        >
-          <div :for={{label, value} <- @fields} class="min-w-0">
-            <dt class="text-xs font-medium text-base-content/50">{label}</dt>
-            <dd class="text-sm text-base-content break-words whitespace-pre-line">{value}</dd>
-          </div>
-        </dl>
-      </div>
+      <.product_card_body
+        target={@target}
+        item_name={@item_name}
+        images={@images}
+        current_image={@current_image}
+        fields={@fields}
+        files={@files}
+        current_file={@current_file}
+      />
 
       <:actions>
         <button type="button" class="btn btn-ghost" phx-click={@on_close} phx-target={@target}>
@@ -127,6 +96,120 @@ defmodule PhoenixKitCatalogue.Web.Components.ProductCard do
         </button>
       </:actions>
     </.modal>
+    """
+  end
+
+  @doc """
+  The card's content without the modal shell — the "notpopup" form, for
+  embedding the same product view inline (a detail pane, a future product
+  page). Same attrs as `product_card/1` minus the modal ones; the host
+  still owns the state and handles `card_select_image` / `card_view_file`.
+  """
+  attr(:target, :any, required: true)
+  attr(:item_name, :string, default: nil)
+  attr(:images, :list, default: [])
+  attr(:current_image, :string, default: nil)
+  attr(:fields, :list, default: [])
+  attr(:files, :list, default: [])
+  attr(:current_file, :string, default: nil)
+
+  def product_card_body(assigns) do
+    ~H"""
+    <div class="flex flex-col gap-4">
+      <%!-- Main (expanded) image --%>
+      <img
+        :if={@current_image}
+        src={URLSigner.signed_url(@current_image, "medium")}
+        alt={@item_name}
+        class="w-full max-h-[50vh] object-contain rounded-lg bg-base-200"
+      />
+
+      <%!-- Thumbnail strip — only when there is more than one image.
+           Scrolls horizontally on narrow screens. --%>
+      <div :if={length(@images) > 1} class="flex gap-2 overflow-x-auto pb-1">
+        <button
+          :for={img <- @images}
+          type="button"
+          phx-click="card_select_image"
+          phx-value-uuid={img.uuid}
+          phx-target={@target}
+          class="shrink-0"
+          aria-label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Show this image")}
+          aria-pressed={to_string(img.uuid == @current_image)}
+        >
+          <img
+            src={URLSigner.signed_url(img.uuid, "thumbnail")}
+            alt={img.name || ""}
+            class={[
+              "w-16 h-16 object-cover rounded border-2",
+              (img.uuid == @current_image && "border-primary") || "border-base-300"
+            ]}
+          />
+        </button>
+      </div>
+
+      <%!-- Filled fields (empty ones already dropped by build_fields/2) --%>
+      <dl
+        :if={@fields != []}
+        class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3 border-t border-base-200 pt-4"
+      >
+        <div :for={{label, value} <- @fields} class="min-w-0">
+          <dt class="text-xs font-medium text-base-content/50">{label}</dt>
+          <dd class="text-sm text-base-content break-words whitespace-pre-line">{value}</dd>
+        </div>
+      </dl>
+
+      <%!-- Attached (non-image) files. PDFs expand into an inline viewer;
+           everything opens via its signed URL in a new tab. --%>
+      <div :if={@files != []} class="border-t border-base-200 pt-4">
+        <h4 class="text-xs font-medium text-base-content/50 mb-2">
+          {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Files")}
+        </h4>
+        <ul class="flex flex-col gap-1.5">
+          <li :for={file <- @files} class="rounded-lg border border-base-200 overflow-hidden">
+            <div class="flex items-center gap-3 px-3 py-2">
+              <.icon
+                name={(file.pdf? && "hero-document-text") || "hero-document"}
+                class="w-4 h-4 shrink-0 text-base-content/40"
+              />
+              <span class="text-sm truncate flex-1 min-w-0">{file.name}</span>
+              <span class="text-xs text-base-content/50 tabular-nums shrink-0">
+                {format_size(file.size)}
+              </span>
+              <button
+                :if={file.pdf?}
+                type="button"
+                phx-click="card_view_file"
+                phx-value-uuid={file.uuid}
+                phx-target={@target}
+                class="btn btn-ghost btn-xs"
+              >
+                <%= if @current_file == file.uuid do %>
+                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Hide")}
+                <% else %>
+                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "View")}
+                <% end %>
+              </button>
+              <a
+                href={URLSigner.signed_url(file.uuid, "original")}
+                target="_blank"
+                rel="noopener"
+                class="btn btn-ghost btn-xs"
+              >
+                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Open")}
+              </a>
+            </div>
+            <iframe
+              :if={file.pdf? and @current_file == file.uuid}
+              src={URLSigner.signed_url(file.uuid, "original")}
+              class="w-full h-[60vh] bg-base-200 border-t border-base-200"
+              title={file.name}
+            >
+            </iframe>
+          </li>
+        </ul>
+      </div>
+    </div>
     """
   end
 
@@ -153,6 +236,23 @@ defmodule PhoenixKitCatalogue.Web.Components.ProductCard do
   end
 
   def resolve_images(_), do: []
+
+  @doc """
+  Resolves the item's attached NON-image files (documents, PDFs, …) from
+  its `files_folder_uuid`, as `%{uuid, name, size, pdf?}` maps. PDFs are
+  flagged so the card can offer the inline viewer. Nil/blank-safe and
+  rescued the same way `resolve_images/1` is.
+  """
+  @spec resolve_files(Item.t() | term()) ::
+          [%{uuid: String.t(), name: String.t() | nil, size: integer() | nil, pdf?: boolean()}]
+  def resolve_files(%Item{data: data}) when is_map(data) do
+    case read_uuid(data, "files_folder_uuid") do
+      nil -> []
+      folder_uuid -> list_folder_files(folder_uuid)
+    end
+  end
+
+  def resolve_files(_), do: []
 
   @doc "Resolves the item's display name for the given locale (translation, then bare name)."
   @spec resolve_name(Item.t() | term(), String.t()) :: String.t() | nil
@@ -200,6 +300,27 @@ defmodule PhoenixKitCatalogue.Web.Components.ProductCard do
   rescue
     _ -> []
   end
+
+  defp list_folder_files(folder_uuid) when is_binary(folder_uuid) do
+    {files, _total} = Storage.list_files_in_scope(nil, folder_uuid: folder_uuid, per_page: 50)
+
+    files
+    |> Enum.reject(&(&1.status == "trashed" or &1.file_type == "image"))
+    |> Enum.map(
+      &%{uuid: &1.uuid, name: &1.original_file_name, size: &1.size, pdf?: pdf_file?(&1)}
+    )
+  rescue
+    _ -> []
+  end
+
+  defp pdf_file?(file) do
+    file.mime_type == "application/pdf" or file.ext in ["pdf", ".pdf"]
+  end
+
+  defp format_size(size) when is_integer(size) and size > 0,
+    do: Format.bytes(size, base: 1000, decimals: 2)
+
+  defp format_size(_), do: ""
 
   # Keeps the featured pointer only when it still resolves to a live image —
   # a trashed or deleted file would otherwise render a broken thumbnail.
