@@ -2563,6 +2563,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
             />
           </div>
 
+          <.featured_thumb resource={@category} />
           <.link
             patch={Paths.category_browse(@catalogue_uuid, @category.uuid)}
             class={["font-medium truncate hover:text-primary", @category.status == "deleted" && "text-error/70"]}
@@ -2753,6 +2754,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                 data-bulk-role="row"
                 data-uuid={item.uuid}
               />
+              <.featured_thumb resource={item} class="w-7 h-7" />
               <.link
                 :if={item.uuid}
                 navigate={Paths.item_edit(item.uuid)}

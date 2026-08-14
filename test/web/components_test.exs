@@ -443,4 +443,41 @@ defmodule PhoenixKitCatalogue.Web.ComponentsTest do
       refute html =~ ~s(<option value="color">)
     end
   end
+
+  # ─────────────────────────────────────────────────────────────────
+  # featured_thumb — list-row thumbnail left of the name
+  # ─────────────────────────────────────────────────────────────────
+
+  describe "featured_thumb/1" do
+    @uuid "01890000-0000-7000-8000-000000000001"
+
+    test "renders a signed thumbnail img when the resource carries an image" do
+      html = render_component(&featured_thumb/1, resource: %Item{data: %{"featured_image_uuid" => @uuid}})
+
+      assert html =~ "<img"
+      assert html =~ @uuid
+      assert html =~ "thumbnail"
+      # A dangling pointer must hide itself, not show a broken-image glyph.
+      assert html =~ "onerror"
+    end
+
+    test "works on the catalogues index's plain row maps too" do
+      html = render_component(&featured_thumb/1, resource: %{data: %{"featured_image_uuid" => @uuid}})
+
+      assert html =~ "<img"
+    end
+
+    test "renders nothing without an image" do
+      for resource <- [
+            %Item{data: %{}},
+            %Item{data: nil},
+            %Catalogue{},
+            %{data: %{"featured_image_uuid" => ""}},
+            %{name: "row map without data key"}
+          ] do
+        html = render_component(&featured_thumb/1, resource: resource)
+        refute html =~ "<img", "expected no img for #{inspect(resource)}"
+      end
+    end
+  end
 end

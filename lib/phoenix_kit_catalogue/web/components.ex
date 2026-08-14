@@ -196,6 +196,42 @@ defmodule PhoenixKitCatalogue.Web.Components do
     """
   end
 
+  @doc """
+  Featured-image thumbnail for list rows, rendered to the left of the name.
+  Renders nothing when the resource carries no attached image. Works on
+  anything with a `data` map holding `"featured_image_uuid"` — catalogue /
+  category / item structs and the index's `Map.from_struct/1` row maps alike.
+
+  The URL is signed straight off the stored uuid (no per-row file lookup, so
+  lists stay query-free); a dangling pointer — the file was deleted after
+  being attached — 404s and removes itself via `onerror` instead of showing
+  the browser's broken-image glyph.
+  """
+  attr(:resource, :any, required: true)
+  attr(:class, :any, default: "w-8 h-8")
+
+  def featured_thumb(assigns) do
+    assigns = assign(assigns, :uuid, featured_image_uuid(assigns.resource))
+
+    ~H"""
+    <img
+      :if={@uuid}
+      src={URLSigner.signed_url(@uuid, "thumbnail")}
+      alt=""
+      loading="lazy"
+      onerror="this.style.display='none'"
+      class={["rounded object-cover shrink-0 bg-base-200", @class]}
+    />
+    """
+  end
+
+  @doc false
+  def featured_image_uuid(%{data: %{"featured_image_uuid" => uuid}})
+      when is_binary(uuid) and uuid != "",
+      do: uuid
+
+  def featured_image_uuid(_), do: nil
+
   # ═══════════════════════════════════════════════════════════════════
   # Metadata editor
   # ═══════════════════════════════════════════════════════════════════
@@ -1192,6 +1228,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
             phx-click={@on_toggle_select}
             phx-value-uuid={item.uuid}
           />
+          <.featured_thumb resource={item} />
           <.link
             :if={@edit_path && item.uuid}
             navigate={safe_call(@edit_path, item.uuid)}
@@ -1324,14 +1361,17 @@ defmodule PhoenixKitCatalogue.Web.Components do
 
     ~H"""
     <.table_default_cell class="font-medium">
-      <.link
-        :if={@edit_path && @item.uuid}
-        navigate={safe_call(@edit_path, @item.uuid)}
-        class="link link-hover"
-      >
-        {@item.name || "—"}
-      </.link>
-      <span :if={!@edit_path || !@item.uuid}>{@item.name || "—"}</span>
+      <div class="flex items-center gap-2 min-w-0">
+        <.featured_thumb resource={@item} />
+        <.link
+          :if={@edit_path && @item.uuid}
+          navigate={safe_call(@edit_path, @item.uuid)}
+          class="link link-hover"
+        >
+          {@item.name || "—"}
+        </.link>
+        <span :if={!@edit_path || !@item.uuid}>{@item.name || "—"}</span>
+      </div>
     </.table_default_cell>
     <.table_default_cell class="text-sm font-mono text-base-content/60">
       {@item.sku || "—"}
@@ -1540,14 +1580,17 @@ defmodule PhoenixKitCatalogue.Web.Components do
   defp item_cell(%{column: :name} = assigns) do
     ~H"""
     <.table_default_cell class="font-medium">
-      <.link
-        :if={@edit_path && @item.uuid}
-        navigate={safe_call(@edit_path, @item.uuid)}
-        class="link link-hover"
-      >
-        {@item.name || "—"}
-      </.link>
-      <span :if={!@edit_path || !@item.uuid}>{@item.name || "—"}</span>
+      <div class="flex items-center gap-2 min-w-0">
+        <.featured_thumb resource={@item} />
+        <.link
+          :if={@edit_path && @item.uuid}
+          navigate={safe_call(@edit_path, @item.uuid)}
+          class="link link-hover"
+        >
+          {@item.name || "—"}
+        </.link>
+        <span :if={!@edit_path || !@item.uuid}>{@item.name || "—"}</span>
+      </div>
     </.table_default_cell>
     """
   end
