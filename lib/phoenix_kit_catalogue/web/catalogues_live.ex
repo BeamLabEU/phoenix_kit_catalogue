@@ -1703,6 +1703,10 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       assigns
       |> assign(:cols, visible_columns(assigns.scope, assigns.cfg))
       |> assign(:reorderable?, assigns.draggable and length(assigns.rows) > 1)
+      # Featured images get their own slim column (inline-left of the name
+      # made rows jagged). Catalogues only — manufacturers/suppliers don't
+      # carry featured images — and only when some visible row has one.
+      |> then(&assign(&1, :photo_col?, &1.scope == :catalogues and any_featured_thumb?(&1.rows)))
 
     ~H"""
     <div :if={@rows == []} class="card bg-base-100 shadow">
@@ -1735,6 +1739,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       <.table_default_header>
         <.table_default_row>
           <.drag_handle_header_cell :if={@draggable} />
+          <.table_default_header_cell :if={@photo_col?} class="w-12"></.table_default_header_cell>
           <.table_default_header_cell
             :for={c <- @cols}
             class={c.align == :right && "text-right"}
@@ -1758,6 +1763,9 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         <.sortable_row :for={row <- @rows} item_id={row.uuid}>
           <.drag_handle_cell :if={@reorderable?} />
           <td :if={!@reorderable?} class="w-8"></td>
+          <.table_default_cell :if={@photo_col?} class="w-12">
+            <.featured_thumb resource={row} />
+          </.table_default_cell>
           <.table_default_cell :for={c <- @cols} class={c.align == :right && "text-right"}>
             {render_cell(@scope, c.id, row)}
           </.table_default_cell>
@@ -1768,6 +1776,9 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       </.sortable_tbody>
       <.table_default_body :if={!@draggable}>
         <.table_default_row :for={row <- @rows}>
+          <.table_default_cell :if={@photo_col?} class="w-12">
+            <.featured_thumb resource={row} />
+          </.table_default_cell>
           <.table_default_cell :for={c <- @cols} class={c.align == :right && "text-right"}>
             {render_cell(@scope, c.id, row)}
           </.table_default_cell>
@@ -1776,7 +1787,12 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
           </.table_default_cell>
         </.table_default_row>
       </.table_default_body>
-      <:card_header :let={row}>{render_cell(@scope, "name", row)}</:card_header>
+      <:card_header :let={row}>
+        <div class="flex items-center gap-2 min-w-0">
+          <.featured_thumb :if={@scope == :catalogues} resource={row} />
+          {render_cell(@scope, "name", row)}
+        </div>
+      </:card_header>
       <:card_actions :let={row}>{render_slot(@card_actions, row)}</:card_actions>
     </.table_default>
     """
@@ -1819,11 +1835,8 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     assigns = %{row: row}
 
     ~H"""
-    <div class="flex items-center gap-2 min-w-0">
-      <.featured_thumb resource={@row} />
-      <.link :if={@row.status != "deleted"} navigate={Paths.catalogue_detail(@row.uuid)} class="link link-hover font-medium">{@row.name}</.link>
-      <span :if={@row.status == "deleted"} class="font-medium text-base-content/50">{@row.name}</span>
-    </div>
+    <.link :if={@row.status != "deleted"} navigate={Paths.catalogue_detail(@row.uuid)} class="link link-hover font-medium">{@row.name}</.link>
+    <span :if={@row.status == "deleted"} class="font-medium text-base-content/50">{@row.name}</span>
     """
   end
 

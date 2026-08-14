@@ -47,6 +47,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       table_default_header: 1,
       table_default_row: 1,
       table_default_header_cell: 1,
+      table_default_cell: 1,
       sort_header_cell: 1,
       drag_handle_cell: 1,
       drag_handle_header_cell: 1
@@ -2817,6 +2818,10 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                 id="level-items-select-all"
                 aria_label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Select all items")}
               />
+              <%!-- Featured images get their own slim column (inline-left
+                   of the name made rows jagged); only when some row on
+                   this level actually has one. --%>
+              <.table_default_header_cell :if={any_featured_thumb?(@items)} class="w-12"></.table_default_header_cell>
               <.sort_header_cell field={:name} sort={%{by: @items_sort_by, dir: @items_sort_dir}} event="toggle_sort_items">
                 {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Name")}
               </.sort_header_cell>
@@ -2848,6 +2853,9 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                    doesn't jump when a delete drops the list to one row. --%>
               <td :if={@draggable? and not @reorderable?} class="w-8"></td>
               <.bulk_select_cell value={item.uuid} />
+              <.table_default_cell :if={any_featured_thumb?(@items)} class="w-12">
+                <.featured_thumb resource={item} />
+              </.table_default_cell>
               <.item_pricing_cell item={item} edit_path={&Paths.item_edit/1} />
               <.item_row_menu
                 item={item}
