@@ -46,6 +46,51 @@ defmodule PhoenixKitCatalogue.Import.Pro100PlanTest do
     assert change.status == :nochange
   end
 
+  # L026 invariant: re-importing the same file must not drop a photo the
+  # operator attached to an already-imported item. build_data/3 seeds from the
+  # existing item.data and only refreshes the "pro100" key, so the photo
+  # pointers survive. This would fail if that merge were ever changed to
+  # replace `data` wholesale.
+  test "reimport update preserves the item's featured_image_uuid + files_folder_uuid" do
+    idx =
+      Matcher.index([
+        item(
+          base_price: Decimal.new("80.00"),
+          data: %{
+            "featured_image_uuid" => "photo-uuid-123",
+            "files_folder_uuid" => "folder-uuid-9",
+            "pro100" => %{"stale" => "prev"}
+          }
+        )
+      ])
+
+    plan = Pro100Plan.build([row(%{})], idx, nil)
+
+    assert [change] = plan.updates
+    assert change.status == :update
+    # Operator's photo pointers survive the pro100 data merge untouched…
+    assert change.data["featured_image_uuid"] == "photo-uuid-123"
+    assert change.data["files_folder_uuid"] == "folder-uuid-9"
+    # …while the pro100 round-trip blob is refreshed from the new row.
+    assert change.data["pro100"]["format"] == "furniture"
+  end
+
+  test "reimport with no field changes still carries the photo pointer forward" do
+    idx =
+      Matcher.index([
+        item(
+          base_price: Decimal.new("100.00"),
+          data: %{"featured_image_uuid" => "photo-uuid-123"}
+        )
+      ])
+
+    plan = Pro100Plan.build([row(%{})], idx, nil)
+
+    assert [change] = plan.updates
+    assert change.status == :nochange
+    assert change.data["featured_image_uuid"] == "photo-uuid-123"
+  end
+
   test "materials unknown unit flags unit_unrecognized and keeps current unit" do
     mat_item = item(unit: "piece")
     idx = Matcher.index([mat_item])
