@@ -117,6 +117,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
   alias PhoenixKit.Modules.Storage.URLSigner
   alias PhoenixKitCatalogue.Catalogue
   alias PhoenixKitCatalogue.Schemas.Item
+  alias PhoenixKitCatalogue.Web.Components.ProductCard
 
   @default_empty_query_limit 10
   @default_page_size 20
@@ -147,6 +148,11 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
        initial_query: nil,
        seeded_initial_query: false,
        photo_clickable: false,
+       card_open: false,
+       card_name: nil,
+       card_images: [],
+       card_current: nil,
+       card_fields: [],
        locale: "en"
      )}
   end
@@ -169,8 +175,15 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
       if prior_uuid == incoming_uuid do
         socket
       else
+        # Selection changed under us — mirror the new name and dismiss any
+        # open product card so it can't show stale images/fields for the
+        # previous item on a parent-driven reassignment.
         locale = socket.assigns.locale
-        assign(socket, :query, item_display_name(assigns[:selected_item], locale) || "")
+
+        assign(socket,
+          query: item_display_name(assigns[:selected_item], locale) || "",
+          card_open: false
+        )
       end
 
     {:ok, maybe_seed_initial_query(socket, incoming_uuid)}
@@ -244,13 +257,27 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
   end
 
   def handle_event("photo_click", _params, socket) do
-    # Navigation hook for the product-card feature (L026.1): echo the chosen
-    # item upward so the parent LV can open its detail card. Guarded by
-    # `photo_clickable` in the template, so this only fires when a consumer has
-    # opted in (and therefore handles the message).
-    send(self(), {:item_picker_photo_click, socket.assigns.id, socket.assigns.selected_item})
+    # Open the product card for the chosen item (L026.1): resolve its
+    # gallery images + filled fields and show the modal. Still echo the
+    # item upward so a host that wants to react (analytics, its own
+    # navigation) can — the card opening is self-contained either way.
+    item = socket.assigns.selected_item
+    send(self(), {:item_picker_photo_click, socket.assigns.id, item})
 
-    {:noreply, socket}
+    {:noreply, open_card(socket, item)}
+  end
+
+  def handle_event("card_select_image", %{"uuid" => uuid}, socket) do
+    # Switch the expanded image; ignore a uuid that isn't in this card's set.
+    if Enum.any?(socket.assigns.card_images, &(&1.uuid == uuid)) do
+      {:noreply, assign(socket, :card_current, uuid)}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_event("card_close", _params, socket) do
+    {:noreply, assign(socket, :card_open, false)}
   end
 
   def handle_event("clear", _params, socket) do
@@ -324,6 +351,29 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
   end
 
   defp selected_photo_uuid(_), do: nil
+
+  # Resolves the product card's images + filled fields for `item` and
+  # opens the modal. The main (featured) image is the first one, shown
+  # expanded. Called from `photo_click`.
+  defp open_card(socket, %Item{} = item) do
+    images = ProductCard.resolve_images(item)
+
+    current =
+      case images do
+        [%{uuid: uuid} | _] -> uuid
+        _ -> nil
+      end
+
+    assign(socket,
+      card_open: true,
+      card_name: ProductCard.resolve_name(item, socket.assigns.locale),
+      card_images: images,
+      card_current: current,
+      card_fields: ProductCard.build_fields(item, socket.assigns.locale)
+    )
+  end
+
+  defp open_card(socket, _), do: socket
 
   defp item_display_name(nil, _locale), do: nil
 
@@ -554,6 +604,17 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
       </div>
         </div>
       </div>
+
+      <ProductCard.product_card
+        id={@id}
+        show={@card_open}
+        item_name={@card_name}
+        images={@card_images}
+        current_image={@card_current}
+        fields={@card_fields}
+        target={@myself}
+        on_close="card_close"
+      />
 
       <script :type={Phoenix.LiveView.ColocatedHook} name=".ItemPicker">
         export default {
