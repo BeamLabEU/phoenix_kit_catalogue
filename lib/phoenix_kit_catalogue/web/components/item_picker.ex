@@ -160,6 +160,8 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
        card_images: [],
        card_current: nil,
        card_fields: [],
+       card_files: [],
+       card_file: nil,
        locale: "en"
      )}
   end
@@ -304,6 +306,22 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
   # (same hardening photo_click already got in the 0.15.0 gate pass).
   def handle_event("card_select_image", _params, socket), do: {:noreply, socket}
 
+  def handle_event("card_view_file", %{"uuid" => uuid}, socket) do
+    # Toggle the inline PDF viewer; ignore a uuid outside this card's files.
+    cond do
+      socket.assigns.card_file == uuid ->
+        {:noreply, assign(socket, :card_file, nil)}
+
+      Enum.any?(socket.assigns.card_files, &(&1.uuid == uuid)) ->
+        {:noreply, assign(socket, :card_file, uuid)}
+
+      true ->
+        {:noreply, socket}
+    end
+  end
+
+  def handle_event("card_view_file", _params, socket), do: {:noreply, socket}
+
   def handle_event("card_close", _params, socket) do
     {:noreply, assign(socket, :card_open, false)}
   end
@@ -399,7 +417,9 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
       card_name: ProductCard.resolve_name(item, socket.assigns.locale),
       card_images: images,
       card_current: current,
-      card_fields: ProductCard.build_fields(item, socket.assigns.locale)
+      card_fields: ProductCard.build_fields(item, socket.assigns.locale),
+      card_files: ProductCard.resolve_files(item),
+      card_file: nil
     )
   end
 
@@ -643,6 +663,8 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
         images={@card_images}
         current_image={@card_current}
         fields={@card_fields}
+        files={@card_files}
+        current_file={@card_file}
         target={@myself}
         on_close="card_close"
       />

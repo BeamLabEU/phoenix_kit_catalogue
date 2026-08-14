@@ -214,6 +214,18 @@ defmodule PhoenixKitCatalogue.GettextTest do
       assert gettext_in("et", "Close") == "Sulge"
       assert gettext_in("ru", "Close") == "Закрыть"
     end
+
+    test "Open" do
+      assert po_msgstr("en", "Open") == "Open"
+      assert gettext_in("et", "Open") == "Ava"
+      assert gettext_in("ru", "Open") == "Открыть"
+    end
+
+    test "Hide" do
+      assert po_msgstr("en", "Hide") == "Hide"
+      assert gettext_in("et", "Hide") == "Peida"
+      assert gettext_in("ru", "Hide") == "Скрыть"
+    end
   end
 
   describe "ngettext plural selection" do

@@ -1059,3 +1059,9 @@ msgstr "Näita seda pilti"
 
 msgid "Close"
 msgstr "Sulge"
+
+msgid "Open"
+msgstr "Ava"
+
+msgid "Hide"
+msgstr "Peida"
