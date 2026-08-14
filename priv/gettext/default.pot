@@ -1049,3 +1049,8 @@ msgstr ""
 
 msgid "Row %{row}: belongs to %{group}, not to this catalogue"
 msgstr ""
+
+## Media picker
+
+msgid "Select Featured Image"
+msgstr ""

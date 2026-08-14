@@ -324,6 +324,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
         show={@show_media_selector}
         mode={@media_selection_mode}
         file_type_filter={@media_filter}
+        lock_file_type
+        title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Select Featured Image")}
         selected_uuids={@media_selected_uuids}
         scope_folder_id={@files_folder_uuid}
         phoenix_kit_current_user={assigns[:phoenix_kit_current_user]}

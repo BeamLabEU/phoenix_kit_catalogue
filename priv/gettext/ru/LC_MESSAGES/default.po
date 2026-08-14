@@ -1052,3 +1052,8 @@ msgstr "Текущая"
 
 msgid "Row %{row}: belongs to %{group}, not to this catalogue"
 msgstr "Строка %{row}: относится к «%{group}», а не к этому каталогу"
+
+## Media picker
+
+msgid "Select Featured Image"
+msgstr "Выбрать главное изображение"
