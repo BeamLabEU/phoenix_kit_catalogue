@@ -1347,7 +1347,7 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
 
   defp party_picker(assigns) do
     ~H"""
-    <div class="form-control w-full max-w-md">
+    <div class="fieldset w-full max-w-md">
       <span class="block mb-2 text-sm font-medium">{@label}</span>
       <form id={@form_id} phx-change={@on_change} class="space-y-3">
         <.select
@@ -1435,8 +1435,8 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
       class="mt-2 pl-4 border-l-2 border-secondary/20 max-w-md"
     >
       <div class="flex flex-col gap-4">
-        <div class="form-control">
-          <span class="label-text font-semibold mb-2">
+        <div class="fieldset">
+          <span class="fieldset-legend font-semibold mb-2">
             {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Name")} *
           </span>
           <input
@@ -1444,7 +1444,7 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
             name={"#{@form_prefix}[name]"}
             value={Ecto.Changeset.get_field(@changeset, :name) || ""}
             placeholder={@name_placeholder}
-            class="input input-bordered w-full transition-colors focus:input-primary"
+            class="input w-full transition-colors focus:input-primary"
             required
           />
           <span :for={err <- field_errors(@changeset, :name)} class="text-error text-xs mt-1">
@@ -1452,19 +1452,19 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
           </span>
         </div>
 
-        <div class="form-control">
-          <span class="label-text font-semibold mb-2">
+        <div class="fieldset">
+          <span class="fieldset-legend font-semibold mb-2">
             {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Description")}
           </span>
           <textarea
             name={"#{@form_prefix}[description]"}
-            class="textarea textarea-bordered w-full transition-colors focus:textarea-primary"
+            class="textarea w-full transition-colors focus:textarea-primary"
             rows="2"
           >{Ecto.Changeset.get_field(@changeset, :description) || ""}</textarea>
         </div>
 
-        <div class="form-control">
-          <span class="label-text font-semibold mb-2">
+        <div class="fieldset">
+          <span class="fieldset-legend font-semibold mb-2">
             {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Website")}
           </span>
           <input
@@ -1472,7 +1472,7 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
             name={"#{@form_prefix}[website]"}
             value={Ecto.Changeset.get_field(@changeset, :website) || ""}
             placeholder="https://..."
-            class="input input-bordered w-full transition-colors focus:input-primary"
+            class="input w-full transition-colors focus:input-primary"
           />
         </div>
       </div>
@@ -1571,18 +1571,18 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
         />
       </.multilang_fields_wrapper>
 
-      <div class="form-control mt-6">
-        <span class="label-text font-semibold mb-2">
+      <div class="fieldset mt-6">
+        <span class="fieldset-legend font-semibold mb-2">
           {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Position")}
         </span>
         <input
           type="number"
           name="category[position]"
           value={Ecto.Changeset.get_field(@changeset, :position)}
-          class="input input-bordered w-28 transition-colors focus:input-primary"
+          class="input w-28 transition-colors focus:input-primary"
           min="0"
         />
-        <span class="label-text-alt text-base-content/50 mt-1">
+        <span class="fieldset-label text-base-content/50 mt-1">
           {Gettext.gettext(
             PhoenixKitCatalogue.Gettext,
             "Lower numbers appear first."
@@ -1634,7 +1634,7 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
         <%!-- Upload form (catalogue + file in one form) --%>
         <form id="upload-form" phx-submit="parse_file" phx-change="validate_upload" class="space-y-6">
           <%!-- Catalogue selector --%>
-          <div class="form-control w-full max-w-md">
+          <div class="fieldset w-full max-w-md">
             <span class="block mb-2 text-sm font-medium">
               {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Target Catalogue")}
             </span>
@@ -1659,7 +1659,7 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
           </div>
 
           <%!-- Source selector --%>
-          <div class="form-control w-full max-w-md">
+          <div class="fieldset w-full max-w-md">
             <span class="block mb-2 text-sm font-medium">
               {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Source")}
             </span>
@@ -1673,7 +1673,7 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
 
           <%!-- Format selector (only shown when the source has multiple formats) --%>
           <% source_mod = Import.source_by_key(@selected_source) %>
-          <div :if={source_mod && length(source_mod.formats()) > 1} class="form-control w-full max-w-md">
+          <div :if={source_mod && length(source_mod.formats()) > 1} class="fieldset w-full max-w-md">
             <span class="block mb-2 text-sm font-medium">
               {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Format")}
             </span>
@@ -1705,7 +1705,7 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
           </div>
 
           <%!-- File upload with drag-and-drop (only when no file parsed yet) --%>
-          <div :if={@filename == nil} class="form-control">
+          <div :if={@filename == nil} class="fieldset">
             <label class="block mb-2 text-sm font-medium">
               {Gettext.gettext(PhoenixKitCatalogue.Gettext, "File")}
             </label>
@@ -1845,7 +1845,7 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
         </div>
 
         <%!-- Category selector --%>
-        <div class="form-control w-full max-w-md">
+        <div class="fieldset w-full max-w-md">
           <span class="block mb-2 text-sm font-medium">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Import Into Category")}</span>
           <form id="category-form" phx-change="select_import_category" class="space-y-3">
             <.select
@@ -2376,7 +2376,7 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
               checked={@create_unmatched}
               phx-click="toggle_create_unmatched"
             />
-            <span class="label-text font-semibold">
+            <span class="fieldset-legend font-semibold">
               {Gettext.ngettext(
                 PhoenixKitCatalogue.Gettext,
                 "Create %{count} unmatched position",

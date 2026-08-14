@@ -332,7 +332,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
       <%!-- Tab strip — each panel stays in the DOM (toggled by `hidden`)
            so the multilang wrapper + any user input don't lose state
            when flipping tabs. --%>
-      <div role="tablist" class="tabs tabs-bordered">
+      <div role="tablist" class="tabs tabs-border">
         <button
           type="button"
           phx-click="switch_tab"
@@ -388,14 +388,14 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
           >
             <:skeleton>
               <%!-- Name --%>
-              <div class="form-control">
+              <div class="fieldset">
                 <div class="label">
                   <div class="skeleton h-4 w-14"></div>
                 </div>
                 <div class="skeleton h-12 w-full rounded-lg"></div>
               </div>
               <%!-- Description --%>
-              <div class="form-control">
+              <div class="fieldset">
                 <div class="label">
                   <div class="skeleton h-4 w-24"></div>
                 </div>
@@ -438,7 +438,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
           <div class="card-body flex flex-col gap-5 pt-0">
             <div class="divider my-0"></div>
 
-            <div class="form-control">
+            <div class="fieldset">
               <.select
                 field={@form[:kind]}
                 label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Kind")}
@@ -448,7 +448,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
                   {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Smart — items reference other catalogues"), "smart"}
                 ]}
               />
-              <span class="label-text-alt text-base-content/50 mt-1">
+              <span class="fieldset-label text-base-content/50 mt-1">
                 <%= if Ecto.Changeset.get_field(@changeset, :kind) == "smart" do %>
                   {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Smart catalogues hold items like \"Delivery\" whose cost is a per-catalogue %/flat rule picked from other catalogues. Items here reference other catalogues instead of carrying a base price of their own.")}
                 <% else %>
@@ -457,7 +457,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
               </span>
             </div>
 
-            <div class="form-control">
+            <div class="fieldset">
               <.input
                 field={@form[:markup_percentage]}
                 type="number"
@@ -466,12 +466,12 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
                 min="0"
                 placeholder={Gettext.gettext(PhoenixKitCatalogue.Gettext, "e.g., 15.0")}
               />
-              <span class="label-text-alt text-base-content/50 mt-1">
+              <span class="fieldset-label text-base-content/50 mt-1">
                 {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Applied to all item base prices to calculate sale prices. Leave blank for no markup.")}
               </span>
             </div>
 
-            <div class="form-control">
+            <div class="fieldset">
               <.input
                 field={@form[:discount_percentage]}
                 type="number"
@@ -481,12 +481,12 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
                 max="100"
                 placeholder={Gettext.gettext(PhoenixKitCatalogue.Gettext, "e.g., 10.0")}
               />
-              <span class="label-text-alt text-base-content/50 mt-1">
+              <span class="fieldset-label text-base-content/50 mt-1">
                 {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Applied on top of the sale price to compute the final price. 0..100. Individual items can override this.")}
               </span>
             </div>
 
-            <div class="form-control">
+            <div class="fieldset">
               <.select
                 field={@form[:status]}
                 label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Status")}
@@ -496,7 +496,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
                   {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Archived"), "archived"}
                 ]}
               />
-              <span class="label-text-alt text-base-content/50 mt-1">
+              <span class="fieldset-label text-base-content/50 mt-1">
                 {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Archived catalogues are hidden from active views.")}
               </span>
             </div>

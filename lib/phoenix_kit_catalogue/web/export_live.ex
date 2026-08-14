@@ -56,7 +56,7 @@ defmodule PhoenixKitCatalogue.Web.ExportLive do
 
           <form id="export-form" phx-change="change_form" class="flex flex-col gap-5">
             <%!-- Catalogues checkbox list --%>
-            <div class="form-control w-full max-w-lg">
+            <div class="fieldset w-full max-w-lg">
               <div class="flex items-center justify-between mb-2">
                 <span class="text-sm font-medium">
                   {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Catalogues")}
@@ -82,7 +82,7 @@ defmodule PhoenixKitCatalogue.Web.ExportLive do
             </div>
 
             <%!-- Destination select --%>
-            <div class="form-control w-full max-w-lg">
+            <div class="fieldset w-full max-w-lg">
               <span class="block mb-2 text-sm font-medium">
                 {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Destination")}
               </span>
@@ -95,7 +95,7 @@ defmodule PhoenixKitCatalogue.Web.ExportLive do
             </div>
 
             <%!-- Format select --%>
-            <div class="form-control w-full max-w-lg">
+            <div class="fieldset w-full max-w-lg">
               <span class="block mb-2 text-sm font-medium">
                 {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Format")}
               </span>
@@ -119,7 +119,7 @@ defmodule PhoenixKitCatalogue.Web.ExportLive do
             <%!-- PRO100 option: prefix each item name with its catalogue name --%>
             <div
               :if={@selected_destination && @selected_destination.key() == :pro100}
-              class="form-control w-full max-w-lg"
+              class="fieldset w-full max-w-lg"
             >
               <.checkbox
                 name="prefix_catalogue"

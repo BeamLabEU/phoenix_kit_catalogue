@@ -460,7 +460,7 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
           <div class="card-body flex flex-col gap-5 pt-0">
             <div class="divider my-0"></div>
 
-            <div :if={@action == :new} class="form-control">
+            <div :if={@action == :new} class="fieldset">
               <.select
                 field={@form[:parent_uuid]}
                 label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Parent category")}
@@ -468,10 +468,10 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
                 options={@parent_options}
                 class="transition-colors focus-within:select-primary"
               />
-              <span class="label-text-alt text-base-content/50 mt-1">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Pick a parent to nest this category inside, or leave blank to keep it at the top level. You can move it later.")}</span>
+              <span class="fieldset-label text-base-content/50 mt-1">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Pick a parent to nest this category inside, or leave blank to keep it at the top level. You can move it later.")}</span>
             </div>
 
-            <div class="form-control">
+            <div class="fieldset">
               <.input
                 field={@form[:position]}
                 type="number"
@@ -479,7 +479,7 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
                 class="w-28"
                 min="0"
               />
-              <span class="label-text-alt text-base-content/50 mt-1">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Lower numbers appear first. You can also reorder from the catalogue detail page.")}</span>
+              <span class="fieldset-label text-base-content/50 mt-1">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Lower numbers appear first. You can also reorder from the catalogue detail page.")}</span>
             </div>
 
             <%!-- Actions --%>
@@ -519,7 +519,7 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
               <p class="text-xs text-base-content/60">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Reparent this category within its catalogue. Its subtree comes along.")}</p>
             </div>
             <div class="flex items-end gap-3">
-              <div class="form-control flex-1">
+              <div class="fieldset flex-1">
                 <.select
                   name="parent_uuid"
                   id="category-parent-move-target"
@@ -549,7 +549,7 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
               <p class="text-xs text-base-content/60">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Move this category and all its items to a different catalogue.")}</p>
             </div>
             <div class="flex items-end gap-3">
-              <div class="form-control flex-1">
+              <div class="fieldset flex-1">
                 <.select
                   name="catalogue_uuid"
                   id="category-move-target"

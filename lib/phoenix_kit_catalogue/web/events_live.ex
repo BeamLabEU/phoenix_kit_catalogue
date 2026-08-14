@@ -280,7 +280,7 @@ defmodule PhoenixKitCatalogue.Web.EventsLive do
       <%!-- Filters --%>
       <div class="bg-base-200 rounded-lg p-3">
         <.form for={%{}} phx-change="filter" class="flex flex-wrap gap-3 items-end">
-          <div class="form-control">
+          <div class="fieldset">
             <.select
               name="filter[action]"
               id="events-filter-action"
@@ -292,7 +292,7 @@ defmodule PhoenixKitCatalogue.Web.EventsLive do
             />
           </div>
 
-          <div class="form-control">
+          <div class="fieldset">
             <.select
               name="filter[resource_type]"
               id="events-filter-resource"
