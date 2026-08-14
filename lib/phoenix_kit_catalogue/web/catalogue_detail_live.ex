@@ -142,10 +142,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         card_open: false,
         card_name: nil,
         card_images: [],
-        card_current: nil,
         card_fields: [],
         card_files: [],
-        card_file: nil,
         confirm_delete: nil,
         trash_modal: nil,
         bulk_move_modal: nil,
@@ -481,25 +479,15 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   def handle_event("show_product_card", %{"uuid" => uuid}, socket) do
     case Catalogue.get_item(uuid) do
       %Item{} = item ->
-        images = ProductCard.resolve_images(item)
-
-        current =
-          case images do
-            [%{uuid: first} | _] -> first
-            _ -> nil
-          end
-
         locale = socket.assigns[:current_locale] || "en"
 
         {:noreply,
          assign(socket,
            card_open: true,
            card_name: ProductCard.resolve_name(item, locale),
-           card_images: images,
-           card_current: current,
+           card_images: ProductCard.resolve_images(item),
            card_fields: ProductCard.build_fields(item, locale),
-           card_files: ProductCard.resolve_files(item),
-           card_file: nil
+           card_files: ProductCard.resolve_files(item)
          )}
 
       _ ->
@@ -509,33 +497,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
   def handle_event("show_product_card", _params, socket), do: {:noreply, socket}
 
-  def handle_event("card_select_image", %{"uuid" => uuid}, socket) do
-    if Enum.any?(socket.assigns.card_images, &(&1.uuid == uuid)) do
-      {:noreply, assign(socket, :card_current, uuid)}
-    else
-      {:noreply, socket}
-    end
-  end
-
-  def handle_event("card_select_image", _params, socket), do: {:noreply, socket}
-
-  def handle_event("card_view_file", %{"uuid" => uuid}, socket) do
-    cond do
-      socket.assigns.card_file == uuid ->
-        {:noreply, assign(socket, :card_file, nil)}
-
-      Enum.any?(socket.assigns.card_files, &(&1.uuid == uuid)) ->
-        {:noreply, assign(socket, :card_file, uuid)}
-
-      true ->
-        {:noreply, socket}
-    end
-  end
-
-  def handle_event("card_view_file", _params, socket), do: {:noreply, socket}
-
   def handle_event("card_close", _params, socket) do
-    {:noreply, assign(socket, card_open: false, card_file: nil)}
+    {:noreply, assign(socket, :card_open, false)}
   end
 
   def handle_event("show_pdf_search", %{"uuid" => uuid}, socket) do
@@ -2602,10 +2565,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         show={@card_open}
         item_name={@card_name}
         images={@card_images}
-        current_image={@card_current}
         fields={@card_fields}
         files={@card_files}
-        current_file={@card_file}
         target={nil}
         on_close="card_close"
       />

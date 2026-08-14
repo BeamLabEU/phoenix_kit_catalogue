@@ -1065,3 +1065,12 @@ msgstr "Open"
 
 msgid "Hide"
 msgstr "Hide"
+
+msgid "Previous"
+msgstr "Previous"
+
+msgid "Next"
+msgstr "Next"
+
+msgid "Show image %{number}"
+msgstr "Show image %{number}"

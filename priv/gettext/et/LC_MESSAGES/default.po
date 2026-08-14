@@ -1065,3 +1065,12 @@ msgstr "Ava"
 
 msgid "Hide"
 msgstr "Peida"
+
+msgid "Previous"
+msgstr "Eelmine"
+
+msgid "Next"
+msgstr "Järgmine"
+
+msgid "Show image %{number}"
+msgstr "Näita pilti %{number}"

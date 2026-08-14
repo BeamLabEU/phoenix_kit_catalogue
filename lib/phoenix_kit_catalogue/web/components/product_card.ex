@@ -1,32 +1,32 @@
 defmodule PhoenixKitCatalogue.Web.Components.ProductCard do
   @moduledoc """
-  A read-only product card for a catalogue `%Item{}`, opened from the
-  `ItemPicker` thumbnail (the `{:item_picker_photo_click, …}` hook).
+  A read-only product card for a catalogue `%Item{}` — opened from the
+  `ItemPicker` thumbnail or a list's featured-image thumb, and potentially
+  shown to a CLIENT, not just admins, so it has to stand on its own.
 
-  It is a **pure function component** — `product_card/1` renders a
-  `<.modal>` containing a "one expanded" image gallery (the main image
-  large, a thumbnail strip of the item's other images below it,
-  switching on click) plus the item's filled scalar fields (SKU, price,
-  unit, description, metadata); empty fields are omitted.
+  `product_card/1` renders a `<.modal>` whose media area is ONE continuous
+  swipeable carousel: the item's photos first, then its attached files (a
+  PDF renders inline, any other file as a tile with an Open action) — swipe
+  through the photos and just keep going into the files. Below it: the
+  item's filled scalar fields (SKU, price, unit, description, metadata) and
+  a compact file list for saving. Slide switching is entirely client-side
+  (scroll-snap); the only server event left is the close.
 
-  Image resolution and field extraction (the DB-backed work) live in the
-  public helpers `resolve_images/1`, `resolve_name/2`, and `build_fields/2`
-  so the component itself stays render-only and testable without a
-  database. The owning `ItemPicker` calls the helpers when the thumbnail
-  is clicked, stashes the results, and renders the component; all of the
-  card's events (`card_select_image`, close) target the picker via
-  `@target`, so the whole card lives inside the picker with no host
-  wiring.
+  Image/file resolution and field extraction (the DB-backed work) live in
+  the public helpers `resolve_images/1`, `resolve_files/1`, `resolve_name/2`,
+  and `build_fields/2` so the component itself stays render-only and
+  testable without a database. `product_card_body/1` is the same content
+  without the modal shell (the "notpopup" form).
 
-  ## Usage (from a LiveComponent that owns the state)
+  ## Usage (from a LiveComponent or LiveView that owns the state)
 
       <ProductCard.product_card
         id={@id}
         show={@card_open}
         item_name={@card_name}
         images={@card_images}
-        current_image={@card_current}
         fields={@card_fields}
+        files={@card_files}
         target={@myself}
         on_close="card_close"
       />
@@ -69,10 +69,17 @@ defmodule PhoenixKitCatalogue.Web.Components.ProductCard do
   attr(:target, :any, required: true)
   attr(:item_name, :string, default: nil)
   attr(:images, :list, default: [])
-  attr(:current_image, :string, default: nil)
+
+  attr(:current_image, :string,
+    default: nil,
+    doc:
+      "Accepted for API compatibility; the carousel starts at the first slide " <>
+        "(the featured image is already first) and slides are switched " <>
+        "client-side, so this no longer drives the render."
+  )
+
   attr(:fields, :list, default: [])
   attr(:files, :list, default: [])
-  attr(:current_file, :string, default: nil)
   attr(:on_close, :string, default: "card_close")
 
   def product_card(assigns) do
@@ -84,10 +91,8 @@ defmodule PhoenixKitCatalogue.Web.Components.ProductCard do
         target={@target}
         item_name={@item_name}
         images={@images}
-        current_image={@current_image}
         fields={@fields}
         files={@files}
-        current_file={@current_file}
       />
 
       <:actions>
@@ -102,49 +107,139 @@ defmodule PhoenixKitCatalogue.Web.Components.ProductCard do
   @doc """
   The card's content without the modal shell — the "notpopup" form, for
   embedding the same product view inline (a detail pane, a future product
-  page). Same attrs as `product_card/1` minus the modal ones; the host
-  still owns the state and handles `card_select_image` / `card_view_file`.
+  page). Same attrs as `product_card/1` minus the modal ones.
+
+  The media area is ONE continuous swipeable carousel: photos first, then
+  the attached files (a PDF renders inline, any other file as a tile) — the
+  client swipes through the photos and just keeps going into the files.
+  Scroll-snap (daisyUI `carousel`) drives it entirely client-side: native
+  swipe on touch, arrow buttons on desktop, no server round-trip per slide.
   """
   attr(:target, :any, required: true)
   attr(:item_name, :string, default: nil)
   attr(:images, :list, default: [])
-  attr(:current_image, :string, default: nil)
+  attr(:current_image, :string, default: nil, doc: "accepted for API compatibility; unused")
   attr(:fields, :list, default: [])
   attr(:files, :list, default: [])
-  attr(:current_file, :string, default: nil)
 
   def product_card_body(assigns) do
-    ~H"""
-    <div class="flex flex-col gap-4">
-      <%!-- Main (expanded) image --%>
-      <img
-        :if={@current_image}
-        src={URLSigner.signed_url(@current_image, "medium")}
-        alt={@item_name}
-        class="w-full max-h-[50vh] object-contain rounded-lg bg-base-200"
-      />
+    assigns = assign(assigns, :slide_count, length(assigns.images) + length(assigns.files))
 
-      <%!-- Thumbnail strip — only when there is more than one image.
-           Scrolls horizontally on narrow screens. --%>
-      <div :if={length(@images) > 1} class="flex gap-2 overflow-x-auto pb-1">
+    ~H"""
+    <div class="flex flex-col gap-4" data-pc-root>
+      <%!-- Unified media carousel — photos, then files, one swipe track.
+           All client-side. The track's onscroll keeps the jump strip's
+           active tile in sync (debounced; inline JS like the arrows, so the
+           card stays dependency-free wherever it is embedded). --%>
+      <div :if={@slide_count > 0} class="relative">
+        <div
+          class="carousel w-full rounded-lg bg-base-200"
+          data-pc-track
+          role="region"
+          aria-label={@item_name || Gettext.gettext(PhoenixKitCatalogue.Gettext, "Item")}
+          onscroll="clearTimeout(this._pc);this._pc=setTimeout(()=>{const i=Math.round(this.scrollLeft/this.clientWidth);const s=this.closest('[data-pc-root]').querySelector('[data-pc-strip]');if(s)Array.from(s.children).forEach((el,j)=>{el.classList.toggle('border-primary',j===i);el.classList.toggle('border-base-300',j!==i);if(j===i){el.setAttribute('aria-current','true')}else{el.removeAttribute('aria-current')}})},80)"
+        >
+          <div
+            :for={{img, idx} <- Enum.with_index(@images)}
+            class="carousel-item w-full justify-center items-center"
+          >
+            <img
+              src={URLSigner.signed_url(img.uuid, "medium")}
+              alt={img.name || @item_name || ""}
+              loading={(idx == 0 && "eager") || "lazy"}
+              class="w-full h-[50vh] object-contain"
+            />
+          </div>
+          <div :for={file <- @files} class="carousel-item w-full justify-center items-center">
+            <%!-- Inline PDF only from `sm` up: iOS Safari renders iframe
+                 PDFs as a broken single page AND the iframe swallows the
+                 swipe gesture, stranding the carousel. Small screens get
+                 the file tile; the strip and Open still work. --%>
+            <iframe
+              :if={file.pdf?}
+              src={URLSigner.signed_url(file.uuid, "original")}
+              loading="lazy"
+              title={file.name}
+              class="w-full h-[50vh] hidden sm:block"
+            >
+            </iframe>
+            <div
+              :if={!file.pdf?}
+              class="w-full h-[50vh] flex flex-col items-center justify-center gap-3"
+            >
+              <.file_slide_tile file={file} />
+            </div>
+            <div
+              :if={file.pdf?}
+              class="w-full h-[50vh] flex flex-col items-center justify-center gap-3 sm:hidden"
+            >
+              <.file_slide_tile file={file} />
+            </div>
+          </div>
+        </div>
+        <%!-- Arrows: desktop/pointer only — on touch the swipe IS the
+             navigation and the buttons just crowd the photo edge. --%>
         <button
-          :for={img <- @images}
+          :if={@slide_count > 1}
           type="button"
-          phx-click="card_select_image"
-          phx-value-uuid={img.uuid}
-          phx-target={@target}
-          class="shrink-0"
-          aria-label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Show this image")}
-          aria-pressed={to_string(img.uuid == @current_image)}
+          aria-label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Previous")}
+          class="btn btn-circle btn-sm bg-base-100/80 border-0 shadow absolute left-2 top-1/2 -translate-y-1/2 hidden sm:inline-flex"
+          onclick="const t=this.closest('[data-pc-root]').querySelector('[data-pc-track]');t.scrollBy({left:-t.clientWidth,behavior:'smooth'})"
+        >
+          <.icon name="hero-chevron-left" class="w-4 h-4" />
+        </button>
+        <button
+          :if={@slide_count > 1}
+          type="button"
+          aria-label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Next")}
+          class="btn btn-circle btn-sm bg-base-100/80 border-0 shadow absolute right-2 top-1/2 -translate-y-1/2 hidden sm:inline-flex"
+          onclick="const t=this.closest('[data-pc-root]').querySelector('[data-pc-track]');t.scrollBy({left:t.clientWidth,behavior:'smooth'})"
+        >
+          <.icon name="hero-chevron-right" class="w-4 h-4" />
+        </button>
+      </div>
+
+      <%!-- Jump strip: a tile per slide (image thumbs, then file tiles).
+           The border marks the current slide; the track's onscroll moves
+           it as the user swipes. Tile 0 starts active server-side. --%>
+      <div :if={@slide_count > 1} class="flex gap-2 overflow-x-auto pb-1" data-pc-strip>
+        <button
+          :for={{img, idx} <- Enum.with_index(@images)}
+          type="button"
+          class={[
+            "shrink-0 rounded border-2 overflow-hidden transition-colors hover:border-primary",
+            (idx == 0 && "border-primary") || "border-base-300"
+          ]}
+          aria-label={
+            Gettext.gettext(PhoenixKitCatalogue.Gettext, "Show image %{number}",
+              number: idx + 1
+            )
+          }
+          aria-current={idx == 0 && "true"}
+          onclick={jump_js(idx)}
         >
           <img
             src={URLSigner.signed_url(img.uuid, "thumbnail")}
-            alt={img.name || ""}
-            class={[
-              "w-16 h-16 object-cover rounded border-2",
-              (img.uuid == @current_image && "border-primary") || "border-base-300"
-            ]}
+            alt=""
+            loading="lazy"
+            class="w-16 h-16 object-cover"
           />
+        </button>
+        <button
+          :for={{file, idx} <- Enum.with_index(@files, length(@images))}
+          type="button"
+          class="shrink-0 w-[68px] h-[68px] rounded border-2 border-base-300 hover:border-primary transition-colors flex flex-col items-center justify-center gap-0.5 bg-base-200"
+          aria-label={file.name}
+          title={file.name}
+          onclick={jump_js(idx)}
+        >
+          <.icon
+            name={(file.pdf? && "hero-document-text") || "hero-document"}
+            class="w-5 h-5 text-base-content/50"
+          />
+          <span class="text-[9px] leading-tight text-base-content/50 uppercase">
+            {(file.pdf? && "pdf") || file_ext(file.name)}
+          </span>
         </button>
       </div>
 
@@ -159,59 +254,74 @@ defmodule PhoenixKitCatalogue.Web.Components.ProductCard do
         </div>
       </dl>
 
-      <%!-- Attached (non-image) files. PDFs expand into an inline viewer;
-           everything opens via its signed URL in a new tab. --%>
+      <%!-- Compact file list — names, sizes, and a direct Open for saving;
+           the slides above are the viewing surface. --%>
       <div :if={@files != []} class="border-t border-base-200 pt-4">
         <h4 class="text-xs font-medium text-base-content/50 mb-2">
           {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Files")}
         </h4>
         <ul class="flex flex-col gap-1.5">
-          <li :for={file <- @files} class="rounded-lg border border-base-200 overflow-hidden">
-            <div class="flex items-center gap-3 px-3 py-2">
-              <.icon
-                name={(file.pdf? && "hero-document-text") || "hero-document"}
-                class="w-4 h-4 shrink-0 text-base-content/40"
-              />
-              <span class="text-sm truncate flex-1 min-w-0">{file.name}</span>
-              <span class="text-xs text-base-content/50 tabular-nums shrink-0">
-                {format_size(file.size)}
-              </span>
-              <button
-                :if={file.pdf?}
-                type="button"
-                phx-click="card_view_file"
-                phx-value-uuid={file.uuid}
-                phx-target={@target}
-                class="btn btn-ghost btn-xs"
-              >
-                <%= if @current_file == file.uuid do %>
-                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Hide")}
-                <% else %>
-                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "View")}
-                <% end %>
-              </button>
-              <a
-                href={URLSigner.signed_url(file.uuid, "original")}
-                target="_blank"
-                rel="noopener"
-                class="btn btn-ghost btn-xs"
-              >
-                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Open")}
-              </a>
-            </div>
-            <iframe
-              :if={file.pdf? and @current_file == file.uuid}
-              src={URLSigner.signed_url(file.uuid, "original")}
-              class="w-full h-[60vh] bg-base-200 border-t border-base-200"
-              title={file.name}
+          <li
+            :for={file <- @files}
+            class="flex items-center gap-3 px-3 py-2 rounded-lg border border-base-200"
+          >
+            <.icon
+              name={(file.pdf? && "hero-document-text") || "hero-document"}
+              class="w-4 h-4 shrink-0 text-base-content/40"
+            />
+            <span class="text-sm truncate flex-1 min-w-0">{file.name}</span>
+            <span class="text-xs text-base-content/50 tabular-nums shrink-0">
+              {format_size(file.size)}
+            </span>
+            <a
+              href={URLSigner.signed_url(file.uuid, "original")}
+              target="_blank"
+              rel="noopener"
+              class="btn btn-ghost btn-xs"
             >
-            </iframe>
+              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Open")}
+            </a>
           </li>
         </ul>
       </div>
     </div>
     """
   end
+
+  # A non-viewable file as a slide: icon, name, size, and an Open action.
+  attr(:file, :map, required: true)
+
+  defp file_slide_tile(assigns) do
+    ~H"""
+    <.icon name="hero-document" class="w-16 h-16 text-base-content/30" />
+    <p class="text-sm font-medium text-center px-6 break-words max-w-full">{@file.name}</p>
+    <p class="text-xs text-base-content/50 tabular-nums">{format_size(@file.size)}</p>
+    <a
+      href={URLSigner.signed_url(@file.uuid, "original")}
+      target="_blank"
+      rel="noopener"
+      class="btn btn-sm btn-outline"
+    >
+      {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Open")}
+    </a>
+    """
+  end
+
+  # Scrolls the slide at `idx` into view inside this card's own snap track.
+  # `block: "nearest"` keeps the vertical position of the modal untouched.
+  defp jump_js(idx) do
+    "const t=this.closest('[data-pc-root]').querySelector('[data-pc-track]');" <>
+      "t.children[#{idx}].scrollIntoView({behavior:'smooth',block:'nearest',inline:'start'})"
+  end
+
+  defp file_ext(name) when is_binary(name) do
+    case Path.extname(name) do
+      "." <> ext when byte_size(ext) in 1..4 -> ext
+      _ -> "file"
+    end
+  end
+
+  defp file_ext(_), do: "file"
 
   # ── Resolution helpers (DB-backed; called by the picker on click) ─
 

@@ -1070,3 +1070,12 @@ msgstr ""
 
 msgid "Hide"
 msgstr ""
+
+msgid "Previous"
+msgstr ""
+
+msgid "Next"
+msgstr ""
+
+msgid "Show image %{number}"
+msgstr ""

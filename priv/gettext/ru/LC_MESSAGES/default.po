@@ -1074,3 +1074,12 @@ msgstr "Открыть"
 
 msgid "Hide"
 msgstr "Скрыть"
+
+msgid "Previous"
+msgstr "Назад"
+
+msgid "Next"
+msgstr "Вперёд"
+
+msgid "Show image %{number}"
+msgstr "Показать изображение %{number}"

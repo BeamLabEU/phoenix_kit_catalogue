@@ -226,6 +226,33 @@ defmodule PhoenixKitCatalogue.GettextTest do
       assert gettext_in("et", "Hide") == "Peida"
       assert gettext_in("ru", "Hide") == "Скрыть"
     end
+
+    test "Previous" do
+      assert po_msgstr("en", "Previous") == "Previous"
+      assert gettext_in("et", "Previous") == "Eelmine"
+      assert gettext_in("ru", "Previous") == "Назад"
+    end
+
+    test "Next" do
+      assert po_msgstr("en", "Next") == "Next"
+      assert gettext_in("et", "Next") == "Järgmine"
+      assert gettext_in("ru", "Next") == "Вперёд"
+    end
+
+    test "Show image %{number}" do
+      msgid = "Show image %{number}"
+      assert po_msgstr("en", msgid) == msgid
+
+      assert Gettext.gettext(PhoenixKitCatalogue.Gettext, msgid, number: 2) =~ "2"
+
+      Gettext.put_locale(PhoenixKitCatalogue.Gettext, "et")
+      assert Gettext.gettext(PhoenixKitCatalogue.Gettext, msgid, number: 2) == "Näita pilti 2"
+
+      Gettext.put_locale(PhoenixKitCatalogue.Gettext, "ru")
+
+      assert Gettext.gettext(PhoenixKitCatalogue.Gettext, msgid, number: 2) ==
+               "Показать изображение 2"
+    end
   end
 
   describe "ngettext plural selection" do
