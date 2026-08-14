@@ -57,7 +57,12 @@ defmodule PhoenixKitCatalogue.Catalogue.ItemSupplierInfos do
   def history_for_pair(item_uuid, supplier_uuid) do
     from(i in ItemSupplierInfo,
       where: i.item_uuid == ^item_uuid and i.supplier_uuid == ^supplier_uuid,
-      order_by: [desc_nulls_last: :valid_from, desc: :inserted_at]
+      # `:uuid` is the final tiebreaker so the order is TOTAL. Revisions made
+      # in the same second tie on both valid_from and inserted_at, and the
+      # rows then came back in whatever order Postgres chose -- so the
+      # "current" row was not reliably first. UUIDv7 is time-ordered, so
+      # desc: :uuid resolves the tie newest-first.
+      order_by: [desc_nulls_last: :valid_from, desc: :inserted_at, desc: :uuid]
     )
     |> repo().all()
   end

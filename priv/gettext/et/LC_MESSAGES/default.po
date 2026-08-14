@@ -1048,3 +1048,14 @@ msgstr "Rida %{row}: kuulub kataloogi „%{group}“, mitte sellesse kataloogi"
 
 msgid "Select Featured Image"
 msgstr "Vali põhipilt"
+
+## Product card
+
+msgid "View item details"
+msgstr "Vaata toote kaarti"
+
+msgid "Show this image"
+msgstr "Näita seda pilti"
+
+msgid "Close"
+msgstr "Sulge"

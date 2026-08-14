@@ -1,3 +1,51 @@
+## 0.15.0 - 2026-08-14
+
+### Added
+
+- **Item photo preview in the item picker.** When a picked catalogue item has
+  a featured (main) image, `<.item_picker>` now renders its thumbnail to the
+  left of the input — the per-position preview for the sub-order positions
+  list. Items without a photo render as before. The thumbnail is an opt-in
+  navigation hook via the new `photo_clickable` attr (default `false`).
+- **Product card opened from the preview.** Clicking the thumbnail opens a
+  read-only product card entirely inside the picker (opt in with
+  `photo_clickable={true}`; the host must also handle the upward
+  `{:item_picker_photo_click, …}` message with a `handle_info/2` clause or a
+  catch-all, or the click crashes its LiveView): a core `<.modal>` with a
+  "one expanded" image
+  gallery (main image large, a thumbnail strip of the item's other images,
+  switching on click) and the item's filled fields (SKU, price, unit,
+  description, metadata); empty fields are hidden. Exposed as the function
+  component `PhoenixKitCatalogue.Web.Components.ProductCard.product_card/1`
+  with public `resolve_images/1`, `resolve_name/2`, `build_fields/2` helpers.
+
+### Fixed
+
+- **PRO100 re-import could clobber a photo attached mid-flight.** The Apply
+  step wrote the item's `data` from the plan snapshot taken at preview time, so
+  a `featured_image_uuid` (or `files_folder_uuid`) attached between preview and
+  Apply was lost. Apply now re-reads the item and merges only the plan's own
+  `data` changes onto its current `data`, matching the merge-under-`"pro100"`
+  pattern already used by the PRO100 template loader.
+
+- **A `photo_click` with nothing selected sent `{:item_picker_photo_click, id,
+  nil}` upward.** The handler guarded on `photo_clickable` but not on there
+  being an item, and the message fired before the card-opening path (which was
+  already nil-safe) could ignore it — so a host matching the documented
+  `%Item{}` shape crashed. The event is now inert unless both hold, which makes
+  the message's third element the `%Item{}` the moduledoc promises.
+
+- Removed two clauses dialyzer reported as unreachable (`open_card/2`'s nil
+  fallback, made dead by the fix above, and `read_uuid/2`'s non-map fallback,
+  already dead since both call sites sit under an `is_map/1` guard). `mix
+  precommit` now exits 0.
+
+### Changed
+
+- **Minimum `phoenix_kit` raised to `~> 2.3`** — the product card uses
+  `Core.Modal`/`PkDialog` and `Storage.list_files_in_scope/2`, which ship in
+  2.3.
+
 ## 0.14.1 - 2026-08-12
 
 ### Fixed

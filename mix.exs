@@ -1,7 +1,7 @@
 defmodule PhoenixKitCatalogue.MixProject do
   use Mix.Project
 
-  @version "0.14.1"
+  @version "0.15.0"
   @source_url "https://github.com/BeamLabEU/phoenix_kit_catalogue"
 
   def project do
@@ -86,11 +86,12 @@ defmodule PhoenixKitCatalogue.MixProject do
 
   defp deps do
     [
-      # 1.7.231 is the floor: that release ships
-      # `PhoenixKitWeb.Live.UrlState`, which 3 LiveView files in this
-      # module `use`. Anything below it resolves a core with no such
-      # module, and the failure surfaces in the consumer's build.
-      pk_dep(:phoenix_kit, "~> 2.0"),
+      # 2.3 is the floor: the product card relies on APIs that ship in it —
+      # `PhoenixKitWeb.Components.Core.Modal` + its `PkDialog` hook and
+      # `PhoenixKit.Modules.Storage.list_files_in_scope/2`. (`UrlState`, used
+      # by 3 LiveViews here, has been present since well before.) A `~> 2.0`
+      # core compiles but crashes at runtime when the card opens.
+      pk_dep(:phoenix_kit, "~> 2.3"),
       pk_dep(:phoenix_kit_ai, "~> 0.18"),
       {:phoenix_live_view, "~> 1.1"},
       {:xlsx_reader, "~> 0.8"},

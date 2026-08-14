@@ -930,7 +930,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
       <%!-- Tab strip — persists across tab switches; each panel stays in
            the DOM (toggled by `hidden`) so the multilang wrapper and
            any user input don't lose state when flipping tabs. --%>
-      <div role="tablist" class="tabs tabs-bordered">
+      <div role="tablist" class="tabs tabs-border">
         <button
           type="button"
           phx-click="switch_tab"
@@ -1093,7 +1093,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                   class="font-mono"
                   placeholder={Gettext.gettext(PhoenixKitCatalogue.Gettext, "e.g., KF-001")}
                 />
-                <div class="form-control">
+                <div class="fieldset">
                   <.input
                     field={@form[:base_price]}
                     type="number"
@@ -1102,7 +1102,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                     min="0"
                     placeholder={Gettext.gettext(PhoenixKitCatalogue.Gettext, "0.00")}
                   />
-                  <span class="label-text-alt text-base-content/50 mt-1">
+                  <span class="fieldset-label text-base-content/50 mt-1">
                     {Gettext.gettext(
                       PhoenixKitCatalogue.Gettext,
                       "Cost/purchase price before catalogue markup."
@@ -1119,7 +1119,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                     {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Running meter"), "running_meter"}
                   ]}
                 />
-                <div class="form-control">
+                <div class="fieldset">
                   <.input
                     field={@form[:markup_percentage]}
                     type="number"
@@ -1135,14 +1135,14 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                         else: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Inherit catalogue markup")
                     }
                   />
-                  <span class="label-text-alt text-base-content/50 mt-1">
+                  <span class="fieldset-label text-base-content/50 mt-1">
                     {Gettext.gettext(
                       PhoenixKitCatalogue.Gettext,
                       "Leave blank to inherit the catalogue's markup. Set (including 0) to override just this item."
                     )}
                   </span>
                 </div>
-                <div class="form-control">
+                <div class="fieldset">
                   <.input
                     field={@form[:discount_percentage]}
                     type="number"
@@ -1159,7 +1159,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                         else: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Inherit catalogue discount")
                     }
                   />
-                  <span class="label-text-alt text-base-content/50 mt-1">
+                  <span class="fieldset-label text-base-content/50 mt-1">
                     {Gettext.gettext(
                       PhoenixKitCatalogue.Gettext,
                       "Leave blank to inherit the catalogue's discount. Set (including 0) to override just this item."
@@ -1184,7 +1184,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
               </p>
 
               <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div class="form-control">
+                <div class="fieldset">
                   <.input
                     field={@form[:default_value]}
                     type="number"
@@ -1193,14 +1193,14 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                     min="0"
                     placeholder={Gettext.gettext(PhoenixKitCatalogue.Gettext, "e.g., 5")}
                   />
-                  <span class="label-text-alt text-base-content/50 mt-1">
+                  <span class="fieldset-label text-base-content/50 mt-1">
                     {Gettext.gettext(
                       PhoenixKitCatalogue.Gettext,
                       "Used for any selected catalogue that doesn't have its own value. If no catalogues are selected, this is the item's standalone fee (e.g. $50 flat)."
                     )}
                   </span>
                 </div>
-                <div class="form-control">
+                <div class="fieldset">
                   <.select
                     field={@form[:default_unit]}
                     label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Default Unit")}
@@ -1210,7 +1210,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                       {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Flat amount"), "flat"}
                     ]}
                   />
-                  <span class="label-text-alt text-base-content/50 mt-1">
+                  <span class="fieldset-label text-base-content/50 mt-1">
                     {Gettext.gettext(
                       PhoenixKitCatalogue.Gettext,
                       "Used for any selected catalogue that doesn't have its own unit."
@@ -1291,16 +1291,16 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
               <%!-- Add/edit supplier-info inline form --%>
               <div :if={@supplier_form_open} class="card bg-base-200 p-4">
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <div class="form-control md:col-span-2">
+                  <div class="fieldset md:col-span-2">
                     <label class="label">
-                      <span class="label-text font-medium">
+                      <span class="fieldset-legend font-medium">
                         {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Supplier")}
                       </span>
                     </label>
                     <select
                       name="supplier_info[supplier_uuid]"
                       phx-change="supplier_info_field_change"
-                      class="select select-bordered w-full"
+                      class="select w-full"
                     >
                       <option value="">
                         {Gettext.gettext(PhoenixKitCatalogue.Gettext, "-- Select supplier --")}
@@ -1312,22 +1312,22 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                       <% end %>
                     </select>
                   </div>
-                  <div class="form-control">
+                  <div class="fieldset">
                     <label class="label">
-                      <span class="label-text">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Supplier SKU")}</span>
+                      <span class="fieldset-legend">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Supplier SKU")}</span>
                     </label>
                     <input
                       type="text"
                       name="supplier_info[supplier_sku]"
                       value={@supplier_info_draft["supplier_sku"]}
                       phx-change="supplier_info_field_change"
-                      class="input input-bordered w-full font-mono"
+                      class="input w-full font-mono"
                       placeholder={Gettext.gettext(PhoenixKitCatalogue.Gettext, "e.g., ABC-001")}
                     />
                   </div>
-                  <div class="form-control">
+                  <div class="fieldset">
                     <label class="label">
-                      <span class="label-text">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Unit Cost")}</span>
+                      <span class="fieldset-legend">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Unit Cost")}</span>
                     </label>
                     <div class="join">
                       <input
@@ -1337,7 +1337,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                         phx-change="supplier_info_field_change"
                         step="0.0001"
                         min="0"
-                        class="input input-bordered join-item flex-1"
+                        class="input join-item flex-1"
                         placeholder="0.00"
                       />
                       <input
@@ -1345,15 +1345,15 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                         name="supplier_info[currency]"
                         value={@supplier_info_draft["currency"]}
                         phx-change="supplier_info_field_change"
-                        class="input input-bordered join-item w-16 font-mono uppercase"
+                        class="input join-item w-16 font-mono uppercase"
                         placeholder="EUR"
                         maxlength="3"
                       />
                     </div>
                   </div>
-                  <div class="form-control">
+                  <div class="fieldset">
                     <label class="label">
-                      <span class="label-text">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Lead Time (days)")}</span>
+                      <span class="fieldset-legend">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Lead Time (days)")}</span>
                     </label>
                     <input
                       type="number"
@@ -1361,12 +1361,12 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                       value={@supplier_info_draft["lead_time_days"]}
                       phx-change="supplier_info_field_change"
                       min="0"
-                      class="input input-bordered w-full"
+                      class="input w-full"
                     />
                   </div>
-                  <div class="form-control">
+                  <div class="fieldset">
                     <label class="label">
-                      <span class="label-text">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Min. Order Qty")}</span>
+                      <span class="fieldset-legend">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Min. Order Qty")}</span>
                     </label>
                     <input
                       type="number"
@@ -1375,7 +1375,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                       phx-change="supplier_info_field_change"
                       step="0.0001"
                       min="0"
-                      class="input input-bordered w-full"
+                      class="input w-full"
                     />
                   </div>
                 </div>
@@ -1531,7 +1531,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
               <div class="modal-backdrop" phx-click="close_supplier_history"></div>
             </dialog>
 
-            <div class="form-control">
+            <div class="fieldset">
               <.select
                 field={@form[:status]}
                 label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Status")}
@@ -1542,7 +1542,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                   {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Discontinued"), "discontinued"}
                 ]}
               />
-              <span class="label-text-alt text-base-content/50 mt-1">
+              <span class="fieldset-label text-base-content/50 mt-1">
                 {Gettext.gettext(
                   PhoenixKitCatalogue.Gettext,
                   "Discontinued items are kept for reference but hidden from active listings."
@@ -1787,7 +1787,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
               </p>
             </div>
             <div class="flex items-end gap-3">
-              <div class="form-control flex-1">
+              <div class="fieldset flex-1">
                 <.select
                   name="category_uuid"
                   id="item-move-category"
@@ -1822,7 +1822,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
               </p>
             </div>
             <div class="flex items-end gap-3">
-              <div class="form-control flex-1">
+              <div class="fieldset flex-1">
                 <.select
                   name="catalogue_uuid"
                   id="item-move-smart-catalogue"
