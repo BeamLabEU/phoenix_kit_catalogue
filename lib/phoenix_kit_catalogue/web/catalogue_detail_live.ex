@@ -2199,15 +2199,19 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
             </button>
           </.bulk_actions_bar>
 
-          <%!-- Card/table view toggle — deleted list only (it still
-               renders via `item_table` with a card view). The active
-               list falls back to its own card layout under the `md`
-               breakpoint automatically (table_default's responsive
-               default) but has no manual desktop toggle — its card
-               body has no select-all / drag-reorder affordance, so
-               offering it as a desktop opt-in would silently drop
-               those features (see `show_toggle={false}` below). --%>
-          <div :if={@view_mode == "deleted" and @show_items_section and @items != []} class="flex justify-end">
+          <%!-- Card/table view toggle. One toggle, one storage key
+               ("catalogue-detail-items") — it drives every item table on
+               this page live (search results, active level items, deleted
+               list) via the TableCardView sync event. It used to render
+               for the deleted list only, on the grounds that the active
+               list's cards lack select-all / drag-reorder; that caution
+               was overridden by a deliberate product call (2026-08-14):
+               card view is wanted everywhere, and card-side reorder is
+               tracked as its own follow-up. --%>
+          <div
+            :if={@show_items_section and (@items != [] or @search_results not in [nil, []])}
+            class="flex justify-end"
+          >
             <.view_mode_toggle storage_key="catalogue-detail-items" />
           </div>
 
@@ -2742,7 +2746,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
           toggleable={true}
           show_toggle={false}
           items={@items}
-          storage_key="catalogue-detail-items-active"
+          storage_key="catalogue-detail-items"
         >
           <%!-- Mobile card view: name + checkbox header, key-value body,
                icon-only action footer. Checkbox uses data-bulk-role so
