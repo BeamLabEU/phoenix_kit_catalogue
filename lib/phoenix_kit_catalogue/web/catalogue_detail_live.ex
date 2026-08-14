@@ -2821,7 +2821,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               <%!-- Featured images get their own slim column (inline-left
                    of the name made rows jagged); only when some row on
                    this level actually has one. --%>
-              <.table_default_header_cell :if={any_featured_thumb?(@items)} class="w-12"></.table_default_header_cell>
+              <.table_default_header_cell :if={any_featured_thumb?(@items)} class="w-10 !pr-0"></.table_default_header_cell>
               <.sort_header_cell field={:name} sort={%{by: @items_sort_by, dir: @items_sort_dir}} event="toggle_sort_items">
                 {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Name")}
               </.sort_header_cell>
@@ -2853,7 +2853,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                    doesn't jump when a delete drops the list to one row. --%>
               <td :if={@draggable? and not @reorderable?} class="w-8"></td>
               <.bulk_select_cell value={item.uuid} />
-              <.table_default_cell :if={any_featured_thumb?(@items)} class="w-12">
+              <.table_default_cell :if={any_featured_thumb?(@items)} class="w-10 !pr-0">
                 <.featured_thumb resource={item} />
               </.table_default_cell>
               <.item_pricing_cell item={item} edit_path={&Paths.item_edit/1} />
