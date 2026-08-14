@@ -1243,15 +1243,15 @@ defmodule PhoenixKitCatalogue.Web.Components do
           }
           data-id={item.uuid}
         >
-          <%!-- Combined checkbox + drag handle column. Checkbox is
-               always visible when selectable; drag handle hover-reveals
-               via group-hover so it doesn't compete visually with the
-               checkbox or the row content. --%>
+          <%!-- Combined checkbox + drag handle column. Both always
+               visible — the handle used to hover-reveal, but an
+               affordance you cannot see is one nobody discovers
+               (deliberate product call, 2026-08-14). --%>
           <.table_default_cell :if={!is_nil(@on_reorder) or @selectable} class="w-10">
             <div class="flex items-center gap-1.5">
               <span
                 :if={@on_reorder}
-                class="pk-drag-handle cursor-grab active:cursor-grabbing text-base-content/40 opacity-0 group-hover:opacity-100 transition-opacity"
+                class="pk-drag-handle cursor-grab active:cursor-grabbing text-base-content/40 hover:text-base-content/70 transition-colors"
                 title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Drag to reorder")}
               >
                 <.icon name="hero-bars-3" class="w-4 h-4" />

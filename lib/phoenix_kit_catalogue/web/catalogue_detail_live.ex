@@ -2549,7 +2549,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
           <div :if={@view_mode == "active" and @category.status == "active"} class="flex items-center gap-1.5 shrink-0">
             <span
               :if={@sibling_count > 1}
-              class="pk-drag-handle cursor-grab active:cursor-grabbing text-base-content/30 opacity-0 group-hover:opacity-100 transition-opacity"
+              class="pk-drag-handle cursor-grab active:cursor-grabbing text-base-content/40 hover:text-base-content/70 transition-colors"
               title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Drag to reorder (among siblings)")}
             >
               <.icon name="hero-bars-3" class="w-4 h-4" />
