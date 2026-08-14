@@ -299,6 +299,11 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
     end
   end
 
+  # phx-target'ed events are client-forgeable: a payload without "uuid" must
+  # not FunctionClauseError out of the component and crash the HOST LiveView
+  # (same hardening photo_click already got in the 0.15.0 gate pass).
+  def handle_event("card_select_image", _params, socket), do: {:noreply, socket}
+
   def handle_event("card_close", _params, socket) do
     {:noreply, assign(socket, :card_open, false)}
   end
@@ -522,6 +527,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
           <img
             src={URLSigner.signed_url(@selected_photo_uuid, "thumbnail")}
             alt=""
+            onerror="this.style.display='none'"
             class="w-8 h-8 shrink-0 rounded object-cover bg-base-200 border border-base-300"
           />
         </button>
@@ -529,6 +535,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
           :if={@selected_photo_uuid && !@photo_clickable}
           src={URLSigner.signed_url(@selected_photo_uuid, "thumbnail")}
           alt=""
+          onerror="this.style.display='none'"
           class="w-8 h-8 shrink-0 rounded object-cover bg-base-200 border border-base-300"
         />
         <div class="relative flex-1">
