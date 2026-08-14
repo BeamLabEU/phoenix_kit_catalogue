@@ -273,13 +273,20 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
     # on, but a client can push the event regardless, and firing the upward
     # message at a host that never opted in (and so has no matching
     # handle_info) would crash that LiveView.
-    if socket.assigns.photo_clickable do
-      item = socket.assigns.selected_item
-      send(self(), {:item_picker_photo_click, socket.assigns.id, item})
+    # The item must also actually BE one. `open_card/2` already ignores a nil,
+    # but the upward message fired first and unconditionally — so a forged
+    # event with nothing selected delivered `{:item_picker_photo_click, id,
+    # nil}` to a host whose handle_info matches `%Item{}`, crashing it. The
+    # message's third element is now guaranteed to be an `%Item{}`, which is
+    # what the moduledoc promises.
+    case {socket.assigns.photo_clickable, socket.assigns.selected_item} do
+      {true, %Item{} = item} ->
+        send(self(), {:item_picker_photo_click, socket.assigns.id, item})
 
-      {:noreply, open_card(socket, item)}
-    else
-      {:noreply, socket}
+        {:noreply, open_card(socket, item)}
+
+      _ ->
+        {:noreply, socket}
     end
   end
 
@@ -370,7 +377,9 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
 
   # Resolves the product card's images + filled fields for `item` and
   # opens the modal. The main (featured) image is the first one, shown
-  # expanded. Called from `photo_click`.
+  # expanded. Called from `photo_click`, which now matches `%Item{}` itself —
+  # so the nil fallback this used to carry is unreachable and was removed
+  # rather than left as a clause dialyzer reports can never match.
   defp open_card(socket, %Item{} = item) do
     images = ProductCard.resolve_images(item)
 
@@ -388,8 +397,6 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
       card_fields: ProductCard.build_fields(item, socket.assigns.locale)
     )
   end
-
-  defp open_card(socket, _), do: socket
 
   defp item_display_name(nil, _locale), do: nil
 

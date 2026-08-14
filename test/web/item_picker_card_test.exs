@@ -70,4 +70,24 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPickerCardTest do
     view |> element(~s(button[phx-click="card_close"])) |> render_click()
     refute render(view) =~ ~s(phx-click="card_close")
   end
+
+  test "a forged photo_click with nothing selected is inert", %{conn: conn} do
+    # No item in the session, so `selected_item` is nil and the thumbnail
+    # button is never rendered — but a client can push the event anyway.
+    #
+    # The handler used to fire `{:item_picker_photo_click, id, nil}` upward
+    # before `open_card/2` ignored the nil, so a host matching on `%Item{}`
+    # (the shape the moduledoc promises) crashed. Nothing should happen at all.
+    {:ok, view, _html} = live_isolated(conn, HostLive, session: %{})
+
+    refute has_element?(view, ~s(button[phx-click="photo_click"]))
+
+    # Targeted at the LiveComponent, not the host — the handler under test is
+    # the component's, and that is also where a forged client event would go.
+    view |> with_target("#host-picker") |> render_click("photo_click", %{})
+
+    assert has_element?(view, "#photo-clicks", "0")
+    refute render(view) =~ ~s(phx-click="card_close")
+    assert Process.alive?(view.pid)
+  end
 end

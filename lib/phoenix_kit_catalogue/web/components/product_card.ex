@@ -274,14 +274,16 @@ defmodule PhoenixKitCatalogue.Web.Components.ProductCard do
     _ -> %{}
   end
 
+  # Both call sites sit inside `resolve_images(%Item{data: data}) when
+  # is_map(data)`, so the non-map fallback this used to carry was unreachable —
+  # dialyzer reports it as a clause that can never match. The guard stays as
+  # documentation of what the function expects.
   defp read_uuid(data, key) when is_map(data) do
     case Map.get(data, key) do
       uuid when is_binary(uuid) and uuid != "" -> uuid
       _ -> nil
     end
   end
-
-  defp read_uuid(_, _), do: nil
 
   defp blank?(nil), do: true
   defp blank?(value) when is_binary(value), do: String.trim(value) == ""
