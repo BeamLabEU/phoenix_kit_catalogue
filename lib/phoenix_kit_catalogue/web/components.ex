@@ -469,7 +469,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
           name="query"
           value={@query}
           placeholder={@placeholder}
-          class="input input-bordered input-sm w-full pr-8"
+          class="input input-sm w-full pr-8"
           phx-debounce={@debounce}
           autocomplete="off"
         />
@@ -685,7 +685,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
         <div class="grid gap-4 md:grid-cols-2">
           <section :if={@has_catalogues}>
             <div class="flex items-center justify-between mb-2">
-              <span class="label-text font-medium">
+              <span class="fieldset-legend font-medium">
                 {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Catalogues")}
               </span>
               <button
@@ -707,14 +707,14 @@ defmodule PhoenixKitCatalogue.Web.Components do
                     phx-click={@on_toggle_catalogue}
                     phx-value-uuid={cat.uuid}
                   />
-                  <span class="label-text truncate" title={cat.name}>{cat.name}</span>
+                  <span class="fieldset-legend truncate" title={cat.name}>{cat.name}</span>
                 </label>
               </li>
             </ul>
           </section>
           <section :if={@has_categories}>
             <div class="flex items-center justify-between mb-2">
-              <span class="label-text font-medium">
+              <span class="fieldset-legend font-medium">
                 {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Categories")}
               </span>
               <button
@@ -736,7 +736,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
                     phx-click={@on_toggle_category}
                     phx-value-uuid={cat.uuid}
                   />
-                  <span class="label-text truncate" title={cat.name}>{cat.name}</span>
+                  <span class="fieldset-legend truncate" title={cat.name}>{cat.name}</span>
                 </label>
               </li>
             </ul>
@@ -957,7 +957,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
       <div class="flex items-center gap-2 shrink-0">
         <input
           type="number"
-          class="input input-bordered input-sm w-24"
+          class="input input-sm w-24"
           value={@rule_value}
           step="0.0001"
           min="0"
