@@ -95,6 +95,45 @@ defmodule PhoenixKitCatalogue.Import.ExecutorTest do
       assert result.errors == []
     end
 
+    test "reimport leaves an already-photographed item's data intact (L026 invariant)" do
+      cat = create_catalogue()
+
+      # Simulates: file imported, then operator attached a main image +
+      # files folder to the created item.
+      {:ok, existing} =
+        Catalogue.create_item(%{
+          name: "Oak Panel",
+          sku: "OAK-1",
+          base_price: Decimal.new("4.88"),
+          catalogue_uuid: cat.uuid,
+          data: %{"featured_image_uuid" => "photo-uuid-1", "files_folder_uuid" => "folder-uuid-1"}
+        })
+
+      # Reimport of the same row. The universal executor is insert-only —
+      # it never revisits existing rows — so the operator's photo pointers
+      # on the original item must be untouched afterwards.
+      plan = %{
+        items: [%{name: "Oak Panel", sku: "OAK-1", base_price: Decimal.new("4.88")}],
+        categories_to_create: [],
+        custom_fields: [],
+        errors: [],
+        stats: %{total: 1, valid: 1, invalid: 0}
+      }
+
+      result = Executor.execute(plan, cat.uuid, nil)
+
+      # The executor actually ran (guards against a silent no-op if execute/4
+      # ever starts returning early): one row created, none errored, and the
+      # SKU now has two rows (the original + the reimported duplicate).
+      assert result.created == 1
+      assert result.errors == []
+      assert Enum.count(Catalogue.list_items(), &(&1.sku == "OAK-1")) == 2
+
+      reloaded = Catalogue.get_item(existing.uuid)
+      assert reloaded.data["featured_image_uuid"] == "photo-uuid-1"
+      assert reloaded.data["files_folder_uuid"] == "folder-uuid-1"
+    end
+
     test "applies language to imported items" do
       cat = create_catalogue()
 

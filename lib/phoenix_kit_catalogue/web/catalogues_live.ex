@@ -1422,7 +1422,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
             {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Move to folder")}
           </h3>
           <p class="text-sm text-base-content/60">{move_dialog_label(@move_dialog)}</p>
-          <select name="folder_uuid" class="select select-bordered w-full">
+          <select name="folder_uuid" class="select w-full">
             <option :for={{value, label} <- @folder_options} value={value}>{label}</option>
           </select>
           <div class="flex justify-end gap-2">
@@ -1517,7 +1517,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
                       phx-mounted={Phoenix.LiveView.JS.focus()}
                       phx-blur="rename_folder"
                       phx-value-uuid={folder.uuid}
-                      class="input input-bordered input-xs w-full"
+                      class="input input-xs w-full"
                     />
                   </form>
                 <% else %>

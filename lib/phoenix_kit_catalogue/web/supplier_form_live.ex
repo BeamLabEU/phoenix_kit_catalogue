@@ -246,7 +246,7 @@ defmodule PhoenixKitCatalogue.Web.SupplierFormLive do
 
             <div class="divider my-0"></div>
 
-            <div class="form-control">
+            <div class="fieldset">
               <.select
                 field={@form[:status]}
                 label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Status")}
@@ -256,7 +256,7 @@ defmodule PhoenixKitCatalogue.Web.SupplierFormLive do
                   {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Inactive"), "inactive"}
                 ]}
               />
-              <span class="label-text-alt text-base-content/50 mt-1">
+              <span class="fieldset-label text-base-content/50 mt-1">
                 {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Inactive suppliers won't appear in manufacturer linking.")}
               </span>
             </div>

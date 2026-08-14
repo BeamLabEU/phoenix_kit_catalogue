@@ -1053,4 +1053,14 @@ msgstr ""
 ## Media picker
 
 msgid "Select Featured Image"
+
+## Product card
+
+msgid "View item details"
+msgstr ""
+
+msgid "Show this image"
+msgstr ""
+
+msgid "Close"
 msgstr ""

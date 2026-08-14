@@ -196,6 +196,26 @@ defmodule PhoenixKitCatalogue.GettextTest do
     end
   end
 
+  describe "product card strings are present in every locale" do
+    test "View item details" do
+      assert po_msgstr("en", "View item details") == "View item details"
+      assert gettext_in("et", "View item details") == "Vaata toote kaarti"
+      assert gettext_in("ru", "View item details") == "Показать карточку товара"
+    end
+
+    test "Show this image" do
+      assert po_msgstr("en", "Show this image") == "Show this image"
+      assert gettext_in("et", "Show this image") == "Näita seda pilti"
+      assert gettext_in("ru", "Show this image") == "Показать это изображение"
+    end
+
+    test "Close" do
+      assert po_msgstr("en", "Close") == "Close"
+      assert gettext_in("et", "Close") == "Sulge"
+      assert gettext_in("ru", "Close") == "Закрыть"
+    end
+  end
+
   describe "ngettext plural selection" do
     test "Russian 3-form rules pick the right msgstr for 1 / 2 / 5 / 21 / 22" do
       Gettext.put_locale(PhoenixKitCatalogue.Gettext, "ru")

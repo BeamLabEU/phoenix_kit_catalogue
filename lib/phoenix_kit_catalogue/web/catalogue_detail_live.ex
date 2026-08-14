@@ -2354,7 +2354,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                   name="category_uuid"
                   phx-change="select_trash_target"
                   disabled={@trash_modal[:disposition] != :move_to}
-                  class="select select-sm select-bordered w-full"
+                  class="select select-sm w-full"
                 >
                   <option value="">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "-- Select category --")}</option>
                   <%= for {cat, depth} <- @trash_modal[:targets] do %>
@@ -2498,7 +2498,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                   name="category_uuid"
                   phx-change="select_bulk_move_target"
                   disabled={@bulk_move_modal[:disposition] != :move_to}
-                  class="select select-sm select-bordered w-full mt-2"
+                  class="select select-sm w-full mt-2"
                 >
                   <option value="">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "-- Select category --")}</option>
                   <%= for {cat, depth} <- @bulk_move_modal[:targets] do %>

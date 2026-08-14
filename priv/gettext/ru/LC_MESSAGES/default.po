@@ -1057,3 +1057,14 @@ msgstr "Строка %{row}: относится к «%{group}», а не к эт
 
 msgid "Select Featured Image"
 msgstr "Выбрать главное изображение"
+
+## Product card
+
+msgid "View item details"
+msgstr "Показать карточку товара"
+
+msgid "Show this image"
+msgstr "Показать это изображение"
+
+msgid "Close"
+msgstr "Закрыть"

@@ -1048,3 +1048,14 @@ msgstr "Row %{row}: belongs to %{group}, not to this catalogue"
 
 msgid "Select Featured Image"
 msgstr "Select Featured Image"
+
+## Product card
+
+msgid "View item details"
+msgstr "View item details"
+
+msgid "Show this image"
+msgstr "Show this image"
+
+msgid "Close"
+msgstr "Close"
