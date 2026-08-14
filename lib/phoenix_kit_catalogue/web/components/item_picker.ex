@@ -158,10 +158,8 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
        card_open: false,
        card_name: nil,
        card_images: [],
-       card_current: nil,
        card_fields: [],
        card_files: [],
-       card_file: nil,
        locale: "en"
      )}
   end
@@ -292,36 +290,6 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
     end
   end
 
-  def handle_event("card_select_image", %{"uuid" => uuid}, socket) do
-    # Switch the expanded image; ignore a uuid that isn't in this card's set.
-    if Enum.any?(socket.assigns.card_images, &(&1.uuid == uuid)) do
-      {:noreply, assign(socket, :card_current, uuid)}
-    else
-      {:noreply, socket}
-    end
-  end
-
-  # phx-target'ed events are client-forgeable: a payload without "uuid" must
-  # not FunctionClauseError out of the component and crash the HOST LiveView
-  # (same hardening photo_click already got in the 0.15.0 gate pass).
-  def handle_event("card_select_image", _params, socket), do: {:noreply, socket}
-
-  def handle_event("card_view_file", %{"uuid" => uuid}, socket) do
-    # Toggle the inline PDF viewer; ignore a uuid outside this card's files.
-    cond do
-      socket.assigns.card_file == uuid ->
-        {:noreply, assign(socket, :card_file, nil)}
-
-      Enum.any?(socket.assigns.card_files, &(&1.uuid == uuid)) ->
-        {:noreply, assign(socket, :card_file, uuid)}
-
-      true ->
-        {:noreply, socket}
-    end
-  end
-
-  def handle_event("card_view_file", _params, socket), do: {:noreply, socket}
-
   def handle_event("card_close", _params, socket) do
     {:noreply, assign(socket, :card_open, false)}
   end
@@ -404,22 +372,12 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
   # so the nil fallback this used to carry is unreachable and was removed
   # rather than left as a clause dialyzer reports can never match.
   defp open_card(socket, %Item{} = item) do
-    images = ProductCard.resolve_images(item)
-
-    current =
-      case images do
-        [%{uuid: uuid} | _] -> uuid
-        _ -> nil
-      end
-
     assign(socket,
       card_open: true,
       card_name: ProductCard.resolve_name(item, socket.assigns.locale),
-      card_images: images,
-      card_current: current,
+      card_images: ProductCard.resolve_images(item),
       card_fields: ProductCard.build_fields(item, socket.assigns.locale),
-      card_files: ProductCard.resolve_files(item),
-      card_file: nil
+      card_files: ProductCard.resolve_files(item)
     )
   end
 
@@ -661,10 +619,8 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
         show={@card_open}
         item_name={@card_name}
         images={@card_images}
-        current_image={@card_current}
         fields={@card_fields}
         files={@card_files}
-        current_file={@card_file}
         target={@myself}
         on_close="card_close"
       />
