@@ -120,7 +120,14 @@ defmodule PhoenixKitCatalogue.Import.ExecutorTest do
         stats: %{total: 1, valid: 1, invalid: 0}
       }
 
-      Executor.execute(plan, cat.uuid, nil)
+      result = Executor.execute(plan, cat.uuid, nil)
+
+      # The executor actually ran (guards against a silent no-op if execute/4
+      # ever starts returning early): one row created, none errored, and the
+      # SKU now has two rows (the original + the reimported duplicate).
+      assert result.created == 1
+      assert result.errors == []
+      assert Enum.count(Catalogue.list_items(), &(&1.sku == "OAK-1")) == 2
 
       reloaded = Catalogue.get_item(existing.uuid)
       assert reloaded.data["featured_image_uuid"] == "photo-uuid-1"

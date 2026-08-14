@@ -16,6 +16,13 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
 
       {:item_picker_photo_click, id, %Item{}}  # user clicked the thumbnail
 
+  Clicking the thumbnail ALSO opens a self-contained product card
+  (`ProductCard`) — no host wiring is needed for that. The
+  `:item_picker_photo_click` message is only an extra hook for a host that
+  wants to react (analytics, its own navigation). A host that sets
+  `photo_clickable` MUST provide a matching `handle_info/2` clause (or a
+  catch-all), or the message crashes its LiveView.
+
   ### API
 
       <.item_picker
@@ -261,10 +268,19 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
     # gallery images + filled fields and show the modal. Still echo the
     # item upward so a host that wants to react (analytics, its own
     # navigation) can — the card opening is self-contained either way.
-    item = socket.assigns.selected_item
-    send(self(), {:item_picker_photo_click, socket.assigns.id, item})
+    #
+    # Guard on `photo_clickable`: the thumbnail button only renders when it's
+    # on, but a client can push the event regardless, and firing the upward
+    # message at a host that never opted in (and so has no matching
+    # handle_info) would crash that LiveView.
+    if socket.assigns.photo_clickable do
+      item = socket.assigns.selected_item
+      send(self(), {:item_picker_photo_click, socket.assigns.id, item})
 
-    {:noreply, open_card(socket, item)}
+      {:noreply, open_card(socket, item)}
+    else
+      {:noreply, socket}
+    end
   end
 
   def handle_event("card_select_image", %{"uuid" => uuid}, socket) do
@@ -606,6 +622,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
       </div>
 
       <ProductCard.product_card
+        :if={@photo_clickable}
         id={@id}
         show={@card_open}
         item_name={@card_name}

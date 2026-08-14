@@ -2,8 +2,9 @@ defmodule PhoenixKitCatalogue.Web.Components.ProductCardTest do
   @moduledoc """
   Render-shape tests for the `product_card/1` function component and unit
   tests for its DB-free field extraction (`build_fields/2`). The DB-backed
-  `resolve_images/1` folder listing is covered indirectly by the picker
-  integration test; here we pin the pure gallery render + hide-empty logic.
+  `resolve_images/1` folder listing + broken-featured filtering are covered
+  in `product_card_db_test.exs`; here we pin the pure gallery render +
+  hide-empty logic.
   """
   use ExUnit.Case, async: true
 
@@ -127,6 +128,28 @@ defmodule PhoenixKitCatalogue.Web.Components.ProductCardTest do
       assert {"Description", "Solid oak"} in fields
       assert {"Color", "Natural"} in fields
       assert {"Material", "Oak"} in fields
+    end
+
+    test "does not crash on a non-scalar metadata value (drops the bad metadata)" do
+      # A malformed/legacy meta value that is itself a map makes
+      # `Metadata.build_state/2` raise (it `to_string`s each value). build_fields
+      # must swallow that and still return the scalar fields, never crash.
+      item = %Item{
+        name: "X",
+        sku: "KF-1",
+        unit: nil,
+        description: nil,
+        catalogue: nil,
+        base_price: nil,
+        data: %{"meta" => %{"color" => %{"nested" => "map"}}}
+      }
+
+      fields = ProductCard.build_fields(item, "en")
+
+      assert is_list(fields)
+      # The scalar SKU field still comes through; the bad metadata is dropped.
+      assert {"SKU", "KF-1"} in fields
+      refute Enum.any?(fields, fn {label, _value} -> label == "Color" end)
     end
 
     test "drops empty fields entirely" do

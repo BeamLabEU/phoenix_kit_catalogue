@@ -141,10 +141,12 @@ defmodule PhoenixKitCatalogue.Web.Components.ProductCard do
   """
   @spec resolve_images(Item.t() | term()) :: [%{uuid: String.t(), name: String.t() | nil}]
   def resolve_images(%Item{data: data}) when is_map(data) do
-    featured = read_uuid(data, "featured_image_uuid")
     folder_images = list_folder_images(read_uuid(data, "files_folder_uuid"))
 
-    case featured do
+    # The featured pointer can dangle (file trashed/deleted after it was set),
+    # which would render a broken <img>. Only keep it when it still resolves to
+    # a live image — the same bar the folder listing already applies.
+    case valid_featured(read_uuid(data, "featured_image_uuid")) do
       nil -> folder_images
       uuid -> [%{uuid: uuid, name: nil} | Enum.reject(folder_images, &(&1.uuid == uuid))]
     end
@@ -178,6 +180,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ProductCard do
       {gettext("Description"), resolve_description(item, locale)}
     ]
     |> Enum.concat(metadata_fields(item))
+    |> Enum.map(fn {label, value} -> {label, to_display(value)} end)
     |> Enum.reject(fn {_label, value} -> blank?(value) end)
   end
 
@@ -191,10 +194,35 @@ defmodule PhoenixKitCatalogue.Web.Components.ProductCard do
     {files, _total} =
       Storage.list_files_in_scope(nil, folder_uuid: folder_uuid, file_type: "image", per_page: 50)
 
-    Enum.map(files, &%{uuid: &1.uuid, name: &1.original_file_name})
+    files
+    |> Enum.reject(&(&1.status == "trashed"))
+    |> Enum.map(&%{uuid: &1.uuid, name: &1.original_file_name})
   rescue
     _ -> []
   end
+
+  # Keeps the featured pointer only when it still resolves to a live image —
+  # a trashed or deleted file would otherwise render a broken thumbnail.
+  defp valid_featured(nil), do: nil
+
+  defp valid_featured(uuid) do
+    case Storage.get_file(uuid) do
+      %{file_type: "image", status: status} when status != "trashed" -> uuid
+      _ -> nil
+    end
+  rescue
+    _ -> nil
+  end
+
+  # Field values reach the template via `{value}`, which calls `to_string/1`.
+  # Metadata values come from a free-form JSONB map and could be a nested
+  # map/list (malformed or legacy data) that has no String.Chars — coerce
+  # non-scalars with `inspect/1` so a stray value can never crash the card.
+  defp to_display(nil), do: nil
+  defp to_display(value) when is_binary(value), do: value
+  defp to_display(%Decimal{} = value), do: Decimal.to_string(value, :normal)
+  defp to_display(value) when is_number(value) or is_boolean(value), do: to_string(value)
+  defp to_display(value), do: inspect(value)
 
   defp format_price(%Item{} = item) do
     case Catalogue.item_pricing(item).final_price do
@@ -232,6 +260,12 @@ defmodule PhoenixKitCatalogue.Web.Components.ProductCard do
 
       {label, Map.get(state.values, key)}
     end)
+  rescue
+    # `Metadata.build_state/2` stringifies each meta value with `to_string/1`,
+    # which raises on a non-scalar (a map/list left by malformed or legacy
+    # data). Dropping the metadata block is far better than crashing the card;
+    # the scalar fields still render.
+    _ -> []
   end
 
   defp safe_translation(record, locale) do
