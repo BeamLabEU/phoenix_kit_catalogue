@@ -10,6 +10,19 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
       {:item_picker_select, id, %Item{}}  # user chose an item
       {:item_picker_clear,  id}           # user cleared the selection
 
+  A third message fires only when the caller opts into a clickable photo
+  thumbnail (`photo_clickable`), so consumers that don't set it never
+  receive it:
+
+      {:item_picker_photo_click, id, %Item{}}  # user clicked the thumbnail
+
+  Clicking the thumbnail ALSO opens a self-contained product card
+  (`ProductCard`) — no host wiring is needed for that. The
+  `:item_picker_photo_click` message is only an extra hook for a host that
+  wants to react (analytics, its own navigation). A host that sets
+  `photo_clickable` MUST provide a matching `handle_info/2` clause (or a
+  catch-all), or the message crashes its LiveView.
+
   ### API
 
       <.item_picker
@@ -39,7 +52,10 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
       `Catalogue.search_items/2`'s `:only` opt.
     * `:selected_item` — the `%Item{}` currently chosen (or `nil`).
       Drives the input text and the `aria-selected` / primary-border
-      styling in the dropdown.
+      styling in the dropdown. When the chosen item carries a featured
+      photo (`data["featured_image_uuid"]`), a small thumbnail of it is
+      rendered to the left of the input; items without a photo render as
+      before (input only).
     * `:excluded_uuids` — items in this list are rendered dim +
       `aria-disabled` and cannot be clicked. Use for "already picked in
       another row" state.
@@ -71,6 +87,12 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
     * `:highlight_selected` — when `true` (default), the input gets the
       `input-primary` border while an item is selected. Pass `false` to
       suppress that highlight. Default preserves existing behaviour.
+    * `:photo_clickable` — when `true`, the main-image thumbnail rendered
+      to the left of the input becomes a button that echoes
+      `{:item_picker_photo_click, id, %Item{}}` upward (the navigation
+      hook the product-card feature builds on). Defaults to `false`: the
+      thumbnail still renders when the item has a photo, but as an inert
+      image, so consumers without a handler are unaffected.
     * `:initial_query` — optional seed string for the search input. When
       provided (and nothing is selected and the user hasn't typed), the
       input is prefilled with this string and the dropdown opens with
@@ -99,8 +121,10 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
   import PhoenixKitWeb.Components.Core.Icon, only: [icon: 1]
 
   alias Phoenix.LiveView.JS
+  alias PhoenixKit.Modules.Storage.URLSigner
   alias PhoenixKitCatalogue.Catalogue
   alias PhoenixKitCatalogue.Schemas.Item
+  alias PhoenixKitCatalogue.Web.Components.ProductCard
 
   @default_empty_query_limit 10
   @default_page_size 20
@@ -130,6 +154,12 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
        highlight_selected: true,
        initial_query: nil,
        seeded_initial_query: false,
+       photo_clickable: false,
+       card_open: false,
+       card_name: nil,
+       card_images: [],
+       card_current: nil,
+       card_fields: [],
        locale: "en"
      )}
   end
@@ -152,8 +182,15 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
       if prior_uuid == incoming_uuid do
         socket
       else
+        # Selection changed under us — mirror the new name and dismiss any
+        # open product card so it can't show stale images/fields for the
+        # previous item on a parent-driven reassignment.
         locale = socket.assigns.locale
-        assign(socket, :query, item_display_name(assigns[:selected_item], locale) || "")
+
+        assign(socket,
+          query: item_display_name(assigns[:selected_item], locale) || "",
+          card_open: false
+        )
       end
 
     {:ok, maybe_seed_initial_query(socket, incoming_uuid)}
@@ -226,6 +263,39 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
     end
   end
 
+  def handle_event("photo_click", _params, socket) do
+    # Open the product card for the chosen item (L026.1): resolve its
+    # gallery images + filled fields and show the modal. Still echo the
+    # item upward so a host that wants to react (analytics, its own
+    # navigation) can — the card opening is self-contained either way.
+    #
+    # Guard on `photo_clickable`: the thumbnail button only renders when it's
+    # on, but a client can push the event regardless, and firing the upward
+    # message at a host that never opted in (and so has no matching
+    # handle_info) would crash that LiveView.
+    if socket.assigns.photo_clickable do
+      item = socket.assigns.selected_item
+      send(self(), {:item_picker_photo_click, socket.assigns.id, item})
+
+      {:noreply, open_card(socket, item)}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_event("card_select_image", %{"uuid" => uuid}, socket) do
+    # Switch the expanded image; ignore a uuid that isn't in this card's set.
+    if Enum.any?(socket.assigns.card_images, &(&1.uuid == uuid)) do
+      {:noreply, assign(socket, :card_current, uuid)}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_event("card_close", _params, socket) do
+    {:noreply, assign(socket, :card_open, false)}
+  end
+
   def handle_event("clear", _params, socket) do
     send(self(), {:item_picker_clear, socket.assigns.id})
 
@@ -284,6 +354,42 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
   # ─────────────────────────────────────────────────────────────────
   # Display helpers
   # ─────────────────────────────────────────────────────────────────
+
+  # The selected item's featured photo UUID (from the JSONB `data` map)
+  # or nil. Drives the optional thumbnail rendered to the left of the
+  # input; a blank or missing pointer renders no thumbnail, leaving the
+  # layout unchanged for items without a photo.
+  defp selected_photo_uuid(%Item{data: data}) when is_map(data) do
+    case Map.get(data, "featured_image_uuid") do
+      uuid when is_binary(uuid) and uuid != "" -> uuid
+      _ -> nil
+    end
+  end
+
+  defp selected_photo_uuid(_), do: nil
+
+  # Resolves the product card's images + filled fields for `item` and
+  # opens the modal. The main (featured) image is the first one, shown
+  # expanded. Called from `photo_click`.
+  defp open_card(socket, %Item{} = item) do
+    images = ProductCard.resolve_images(item)
+
+    current =
+      case images do
+        [%{uuid: uuid} | _] -> uuid
+        _ -> nil
+      end
+
+    assign(socket,
+      card_open: true,
+      card_name: ProductCard.resolve_name(item, socket.assigns.locale),
+      card_images: images,
+      card_current: current,
+      card_fields: ProductCard.build_fields(item, socket.assigns.locale)
+    )
+  end
+
+  defp open_card(socket, _), do: socket
 
   defp item_display_name(nil, _locale), do: nil
 
@@ -376,6 +482,10 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
         :unit_fun,
         assigns[:format_unit] || (&Item.unit_label/1)
       )
+      |> assign(
+        :selected_photo_uuid,
+        selected_photo_uuid(assigns[:selected_item])
+      )
 
     ~H"""
     <div
@@ -384,6 +494,37 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
       phx-hook=".ItemPicker"
       phx-click-away={JS.push("close", target: @myself)}
     >
+      <div class="flex items-center gap-2">
+        <%!--
+        Main-image thumbnail, rendered before (to the left of) the position
+        field when the chosen item carries a featured photo. When
+        `photo_clickable` is on, it becomes a button that echoes
+        `{:item_picker_photo_click, id, item}` upward — the navigation hook the
+        product-card feature (L026.1) wires up. Off by default so existing
+        consumers (no handler yet) render a plain, inert thumbnail.
+        --%>
+        <button
+          :if={@selected_photo_uuid && @photo_clickable}
+          type="button"
+          phx-click="photo_click"
+          phx-target={@myself}
+          class="shrink-0"
+          aria-label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "View item details")}
+          title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "View item details")}
+        >
+          <img
+            src={URLSigner.signed_url(@selected_photo_uuid, "thumbnail")}
+            alt=""
+            class="w-8 h-8 shrink-0 rounded object-cover bg-base-200 border border-base-300"
+          />
+        </button>
+        <img
+          :if={@selected_photo_uuid && !@photo_clickable}
+          src={URLSigner.signed_url(@selected_photo_uuid, "thumbnail")}
+          alt=""
+          class="w-8 h-8 shrink-0 rounded object-cover bg-base-200 border border-base-300"
+        />
+        <div class="relative flex-1">
       <input
         id={"#{@id}-input"}
         type="text"
@@ -477,6 +618,20 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
       >
         {Gettext.gettext(PhoenixKitCatalogue.Gettext, "No items found")}
       </div>
+        </div>
+      </div>
+
+      <ProductCard.product_card
+        :if={@photo_clickable}
+        id={@id}
+        show={@card_open}
+        item_name={@card_name}
+        images={@card_images}
+        current_image={@card_current}
+        fields={@card_fields}
+        target={@myself}
+        on_close="card_close"
+      />
 
       <script :type={Phoenix.LiveView.ColocatedHook} name=".ItemPicker">
         export default {
