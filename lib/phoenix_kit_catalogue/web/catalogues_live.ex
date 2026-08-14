@@ -1819,8 +1819,11 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     assigns = %{row: row}
 
     ~H"""
-    <.link :if={@row.status != "deleted"} navigate={Paths.catalogue_detail(@row.uuid)} class="link link-hover font-medium">{@row.name}</.link>
-    <span :if={@row.status == "deleted"} class="font-medium text-base-content/50">{@row.name}</span>
+    <div class="flex items-center gap-2 min-w-0">
+      <.featured_thumb resource={@row} />
+      <.link :if={@row.status != "deleted"} navigate={Paths.catalogue_detail(@row.uuid)} class="link link-hover font-medium">{@row.name}</.link>
+      <span :if={@row.status == "deleted"} class="font-medium text-base-content/50">{@row.name}</span>
+    </div>
     """
   end
 
