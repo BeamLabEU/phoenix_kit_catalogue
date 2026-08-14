@@ -1043,3 +1043,14 @@ msgstr "Praegune"
 
 msgid "Row %{row}: belongs to %{group}, not to this catalogue"
 msgstr "Rida %{row}: kuulub kataloogi „%{group}“, mitte sellesse kataloogi"
+
+## Product card
+
+msgid "View item details"
+msgstr "Vaata toote kaarti"
+
+msgid "Show this image"
+msgstr "Näita seda pilti"
+
+msgid "Close"
+msgstr "Sulge"

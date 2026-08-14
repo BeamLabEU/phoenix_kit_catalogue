@@ -1783,6 +1783,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
   attr(:show_unit, :boolean, default: false)
   attr(:highlight_selected, :boolean, default: true)
   attr(:initial_query, :string, default: nil)
+  attr(:photo_clickable, :boolean, default: false)
 
   def item_picker(assigns) do
     ~H"""
@@ -1805,6 +1806,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
       show_unit={@show_unit}
       highlight_selected={@highlight_selected}
       initial_query={@initial_query}
+      photo_clickable={@photo_clickable}
     />
     """
   end

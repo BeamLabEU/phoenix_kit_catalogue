@@ -1052,3 +1052,14 @@ msgstr "Текущая"
 
 msgid "Row %{row}: belongs to %{group}, not to this catalogue"
 msgstr "Строка %{row}: относится к «%{group}», а не к этому каталогу"
+
+## Product card
+
+msgid "View item details"
+msgstr "Показать карточку товара"
+
+msgid "Show this image"
+msgstr "Показать это изображение"
+
+msgid "Close"
+msgstr "Закрыть"
