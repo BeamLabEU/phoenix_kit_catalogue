@@ -184,6 +184,18 @@ defmodule PhoenixKitCatalogue.GettextTest do
     end
   end
 
+  # The featured-image picker names its purpose in the modal heading instead
+  # of core's generic "Select Media"; the msgid lives in all three form
+  # LiveViews' MediaSelectorModal embeds (catalogue / category / item).
+  describe "Media picker strings are present in every locale" do
+    test "Select Featured Image" do
+      msgid = "Select Featured Image"
+      assert po_msgstr("en", msgid) == msgid
+      assert gettext_in("et", msgid) == "Vali põhipilt"
+      assert gettext_in("ru", msgid) == "Выбрать главное изображение"
+    end
+  end
+
   describe "ngettext plural selection" do
     test "Russian 3-form rules pick the right msgstr for 1 / 2 / 5 / 21 / 22" do
       Gettext.put_locale(PhoenixKitCatalogue.Gettext, "ru")

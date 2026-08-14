@@ -1043,3 +1043,8 @@ msgstr "Praegune"
 
 msgid "Row %{row}: belongs to %{group}, not to this catalogue"
 msgstr "Rida %{row}: kuulub kataloogi „%{group}“, mitte sellesse kataloogi"
+
+## Media picker
+
+msgid "Select Featured Image"
+msgstr "Vali põhipilt"
