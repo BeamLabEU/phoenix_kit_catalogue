@@ -1252,7 +1252,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
       <.table_default_header>
         <.table_default_row>
           <.table_default_header_cell :if={!is_nil(@on_reorder) or @selectable} class="w-10"></.table_default_header_cell>
-          <.table_default_header_cell :if={@photo_col?} class="w-12"></.table_default_header_cell>
+          <.table_default_header_cell :if={@photo_col?} class="w-10 !pr-0"></.table_default_header_cell>
           <.table_default_header_cell :for={col <- @columns}>
             {column_label(col)}
           </.table_default_header_cell>
@@ -1314,7 +1314,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
               />
             </div>
           </.table_default_cell>
-          <.table_default_cell :if={@photo_col?} class="w-12">
+          <.table_default_cell :if={@photo_col?} class="w-10 !pr-0">
             <.featured_thumb resource={item} />
           </.table_default_cell>
           <.item_cell
