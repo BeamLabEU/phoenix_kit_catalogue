@@ -62,7 +62,17 @@ defmodule PhoenixKitCatalogue.ItemSupplierInfosTest do
       errors = Ecto.Changeset.traverse_errors(cs, fn {m, _} -> m end)
       assert errors[:item_uuid]
       assert errors[:supplier_uuid]
-      assert errors[:supplier_source]
+
+      # `supplier_source` is in @required_fields but the field declares
+      # `default: "local"`, so a fresh struct already satisfies
+      # validate_required/2 and an empty-attrs changeset can never produce
+      # this error. The requirement only bites when a caller blanks it
+      # explicitly, which is what is asserted here instead.
+      refute errors[:supplier_source]
+
+      blanked = ItemSupplierInfo.changeset(%ItemSupplierInfo{}, %{supplier_source: nil})
+      blanked_errors = Ecto.Changeset.traverse_errors(blanked, fn {m, _} -> m end)
+      assert blanked_errors[:supplier_source]
     end
 
     test "rejects invalid supplier_source" do
