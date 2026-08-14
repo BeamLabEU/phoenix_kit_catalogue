@@ -1145,7 +1145,9 @@ defmodule PhoenixKitCatalogue.Web.Components do
   """
   attr(:items, :list, required: true)
   attr(:columns, :list, default: [:name, :sku, :base_price, :status])
-  attr(:cards, :boolean, default: false)
+  # Card view on by default (deliberate product call, 2026-08-14) — a new
+  # item table gets the card/table toggle without having to ask for it.
+  attr(:cards, :boolean, default: true)
   attr(:show_toggle, :boolean, default: true)
   attr(:id, :string, default: nil)
   attr(:storage_key, :string, default: nil)
