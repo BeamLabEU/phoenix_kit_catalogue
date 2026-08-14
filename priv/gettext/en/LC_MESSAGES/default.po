@@ -1043,3 +1043,14 @@ msgstr "Current"
 
 msgid "Row %{row}: belongs to %{group}, not to this catalogue"
 msgstr "Row %{row}: belongs to %{group}, not to this catalogue"
+
+## Product card
+
+msgid "View item details"
+msgstr "View item details"
+
+msgid "Show this image"
+msgstr "Show this image"
+
+msgid "Close"
+msgstr "Close"

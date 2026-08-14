@@ -166,6 +166,45 @@ defmodule PhoenixKitCatalogue.Web.ImportLivePro100Test do
       updated_item = Catalogue.get_item!(item.uuid)
       assert Decimal.equal?(updated_item.base_price, Decimal.new("250.00"))
     end
+
+    test "apply_pro100 preserves a photo attached between plan build and Apply",
+         %{conn: conn, catalogue: cat, item: item} do
+      {:ok, view, _html} = live(conn, @import_url)
+
+      render_change(view, "validate_upload", %{
+        "catalogue" => cat.uuid,
+        "source" => "pro100",
+        "format" => "furniture"
+      })
+
+      txt = furniture_file([{item.name, "9", "250.00"}])
+      file = build_file_input(view, "export.txt", "text/plain", txt)
+      render_upload(file, "export.txt")
+
+      render_submit(view, "parse_file", %{
+        "catalogue" => cat.uuid,
+        "source" => "pro100",
+        "format" => "furniture"
+      })
+
+      # The plan is now built from the item's snapshot (no photo). Simulate an
+      # operator attaching a main image AFTER the preview but BEFORE Apply — the
+      # exact race the whole-`data` snapshot write used to lose.
+      {:ok, _} =
+        Catalogue.update_item(Catalogue.get_item!(item.uuid), %{
+          data: %{"featured_image_uuid" => "photo-race-uuid"}
+        })
+
+      render_click(view, "apply_pro100", %{})
+
+      updated = Catalogue.get_item!(item.uuid)
+      # Price update still applied…
+      assert Decimal.equal?(updated.base_price, Decimal.new("250.00"))
+      # …the pro100 blob was still written…
+      assert updated.data["pro100"]["format"] == "furniture"
+      # …and the photo attached mid-flight survived.
+      assert updated.data["featured_image_uuid"] == "photo-race-uuid"
+    end
   end
 
   describe "PRO100 sync flow — guard branches" do
