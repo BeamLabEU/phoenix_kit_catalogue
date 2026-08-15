@@ -447,6 +447,11 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   end
 
   defp walk_catalogue_level(parent, depth, folders_by_parent, cats, with_children, expanded) do
+    # `parent_key` identifies the sibling group for drag-reorder ("root"
+    # at the top level). Both folders and the catalogues filed here share
+    # this level's parent.
+    parent_key = parent || "root"
+
     folder_rows =
       folders_by_parent
       |> Map.get(parent, [])
@@ -456,7 +461,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         expanded? = MapSet.member?(expanded, folder.uuid)
 
         meta = %{expanded: expanded?, has_children: has_children, count: count}
-        row = {:folder, folder, depth, meta}
+        row = {:folder, folder, depth, meta, parent_key}
 
         if expanded? do
           [
@@ -475,7 +480,8 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         end
       end)
 
-    folder_rows ++ (cats |> Map.get(parent, []) |> Enum.map(&{:catalogue, &1, depth}))
+    folder_rows ++
+      (cats |> Map.get(parent, []) |> Enum.map(&{:catalogue, &1, depth, parent_key}))
   end
 
   attr(:rows, :list, required: true)
@@ -518,10 +524,27 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         </p>
       </div>
     </div>
-    <div :if={@rows != []} id="catalogues-tree-table">
+    <div
+      :if={@rows != []}
+      id="catalogues-tree-table"
+      phx-hook="CatalogueTreeDnD"
+      class="relative overflow-x-auto"
+    >
+      <%!-- "Move to root" target — hidden until a drag starts, overlaid
+           absolutely over the header area so revealing it never shifts
+           the rows under the cursor mid-drag. --%>
+      <div
+        data-tree-rootzone="1"
+        data-tree-drop="root"
+        class="hidden absolute top-0 left-0 right-0 z-10 rounded-lg border-2 border-dashed border-primary/50 bg-base-100/95 py-2.5 text-center text-sm text-base-content/60"
+      >
+        <.icon name="hero-arrow-up-tray" class="w-4 h-4 inline-block mr-1 align-text-bottom" />
+        {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Drop here to move to root (unfiled)")}
+      </div>
       <.table_default variant="zebra" size="sm">
         <.table_default_header>
           <.table_default_row>
+            <.table_default_header_cell class="w-8"></.table_default_header_cell>
             <.table_default_header_cell>
               {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Name")}
             </.table_default_header_cell>
@@ -536,11 +559,20 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         <.table_default_body>
           <%= for row <- @rows do %>
             <%= case row do %>
-              <% {:folder, folder, depth, meta} -> %>
+              <% {:folder, folder, depth, meta, parent_key} -> %>
                 <.table_default_row
-                  data-drop-folder={folder.uuid}
-                  data-draggable-folder={folder.uuid}
+                  data-tree-uuid={folder.uuid}
+                  data-tree-type="folder"
+                  data-tree-parent={parent_key}
+                  data-tree-drop={folder.uuid}
                 >
+                  <td
+                    data-tree-item={"folder:" <> folder.uuid}
+                    class="w-8 cursor-grab active:cursor-grabbing text-base-content/40"
+                    title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Drag to reorder or move into a folder")}
+                  >
+                    <.icon name="hero-bars-3" class="w-4 h-4" />
+                  </td>
                   <.tree_name_cell
                     depth={depth}
                     expandable={meta.has_children}
@@ -571,6 +603,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
                     <% else %>
                       <button
                         type="button"
+                        draggable="false"
                         phx-click="navigate_folder"
                         phx-value-uuid={folder.uuid}
                         class="font-medium text-left truncate cursor-pointer hover:text-primary transition-colors"
@@ -626,8 +659,19 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
                     </.table_row_menu>
                   </.table_default_cell>
                 </.table_default_row>
-              <% {:catalogue, c_row, depth} -> %>
-                <.table_default_row data-draggable-file={c_row.uuid}>
+              <% {:catalogue, c_row, depth, parent_key} -> %>
+                <.table_default_row
+                  data-tree-uuid={c_row.uuid}
+                  data-tree-type="catalogue"
+                  data-tree-parent={parent_key}
+                >
+                  <td
+                    data-tree-item={"catalogue:" <> c_row.uuid}
+                    class="w-8 cursor-grab active:cursor-grabbing text-base-content/40"
+                    title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Drag to reorder or move into a folder")}
+                  >
+                    <.icon name="hero-bars-3" class="w-4 h-4" />
+                  </td>
                   <.tree_name_cell
                     depth={depth}
                     icon="hero-document-text"
@@ -635,6 +679,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
                   >
                     <.link
                       navigate={Paths.catalogue_detail(c_row.uuid)}
+                      draggable="false"
                       class="link link-hover font-medium truncate"
                     >
                       {c_row.name}
@@ -681,6 +726,154 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         </.table_default_body>
       </.table_default>
     </div>
+    <%!-- Native HTML5 DnD for the tree — one system, no SortableJS, so
+         nothing collides. Registered from the template (executes during
+         the dead render, before LiveSocket spreads PhoenixKitHooks) —
+         same pattern the April tree shipped with. Grab a row's grip:
+           • folder MIDDLE → file into that folder
+           • row TOP/BOTTOM edge → reorder among same-parent siblings
+           • root zone (revealed while dragging) → unfile to root
+         The context enforces cycle / trashed-target guards server-side. --%>
+    <script>
+      window.PhoenixKitHooks = window.PhoenixKitHooks || {};
+      window.PhoenixKitHooks.CatalogueTreeDnD = window.PhoenixKitHooks.CatalogueTreeDnD || {
+        mounted() { this.setupTreeDnD(); },
+        updated() { this.setupTreeDnD(); },
+        setupTreeDnD() {
+          var hook = this;
+
+          // Drag sources: the grip handles only — never the row or the
+          // name link (anchors hijack dragstart; <tr> ghosts are broken).
+          this.el.querySelectorAll("[data-tree-item]").forEach(function(handle) {
+            handle.setAttribute("draggable", "true");
+            handle.ondragstart = function(e) {
+              var row = handle.closest("tr");
+              hook._drag = row && {
+                uuid: row.dataset.treeUuid,
+                type: row.dataset.treeType,
+                parent: row.dataset.treeParent
+              };
+              e.dataTransfer.setData("text/plain", handle.dataset.treeItem);
+              e.dataTransfer.effectAllowed = "move";
+              if (row) {
+                try { e.dataTransfer.setDragImage(row, 12, 12); } catch (err) {}
+                row.classList.add("opacity-50");
+                hook._dragRowEl = row;
+              }
+              hook.el.querySelectorAll("[data-tree-rootzone]").forEach(function(z) {
+                z.classList.remove("hidden");
+              });
+            };
+            handle.ondragend = function() { hook.endDrag(); };
+          });
+
+          // Row targets: file-into (folder middle) or reorder (top/bottom edge).
+          this.el.querySelectorAll("[data-tree-uuid]").forEach(function(row) {
+            row.ondragover = function(e) {
+              var intent = hook.dropIntent(row, e);
+              if (!intent) return;
+              e.preventDefault();
+              e.dataTransfer.dropEffect = "move";
+              hook.showIndicator(row, intent);
+            };
+            row.ondragleave = function() { hook.clearRow(row); };
+            row.ondrop = function(e) {
+              var intent = hook.dropIntent(row, e);
+              hook.clearRow(row);
+              if (!intent || !hook._drag) return;
+              e.preventDefault();
+              var drag = hook._drag;
+              if (intent === "into") {
+                hook.pushEvent("move_to_folder", { type: drag.type, uuid: drag.uuid, target: row.dataset.treeDrop });
+              } else {
+                hook.reorder(drag, row, intent);
+              }
+            };
+          });
+
+          this.el.querySelectorAll("[data-tree-rootzone]").forEach(function(zone) {
+            zone.ondragover = function(e) {
+              if (!hook._drag) return;
+              e.preventDefault();
+              e.dataTransfer.dropEffect = "move";
+              zone.classList.add("bg-primary/10");
+            };
+            zone.ondragleave = function() { zone.classList.remove("bg-primary/10"); };
+            zone.ondrop = function(e) {
+              e.preventDefault();
+              zone.classList.remove("bg-primary/10");
+              if (hook._drag) {
+                hook.pushEvent("move_to_folder", { type: hook._drag.type, uuid: hook._drag.uuid, target: "root" });
+              }
+            };
+          });
+        },
+
+        // "into" | "before" | "after" | null for the pointer over `row`.
+        dropIntent(row, e) {
+          var drag = this._drag;
+          if (!drag || drag.uuid === row.dataset.treeUuid) return null;
+          var rect = row.getBoundingClientRect();
+          var ratio = (e.clientY - rect.top) / rect.height;
+          var isFolder = row.hasAttribute("data-tree-drop");
+          if (isFolder && ratio > 0.25 && ratio < 0.75) return "into";
+          if (drag.parent === row.dataset.treeParent && drag.type === row.dataset.treeType) {
+            return ratio < 0.5 ? "before" : "after";
+          }
+          // Over a folder but not a sibling → fall back to filing into it.
+          return isFolder ? "into" : null;
+        },
+
+        reorder(drag, row, intent) {
+          // Same-parent, same-type siblings in current DOM order.
+          var order = [];
+          this.el.querySelectorAll("[data-tree-uuid]").forEach(function(r) {
+            if (r.dataset.treeParent === drag.parent &&
+                r.dataset.treeType === drag.type &&
+                r.dataset.treeUuid !== drag.uuid) {
+              order.push(r.dataset.treeUuid);
+            }
+          });
+          var idx = order.indexOf(row.dataset.treeUuid);
+          if (idx < 0) return;
+          order.splice(intent === "before" ? idx : idx + 1, 0, drag.uuid);
+          this.pushEvent(drag.type === "folder" ? "reorder_folders" : "reorder_catalogues", { ordered_ids: order });
+        },
+
+        showIndicator(row, intent) {
+          this.clearAll();
+          if (intent === "into") {
+            // Inline style (not a class) so the highlight wins over the
+            // table-zebra row background, which otherwise hides it.
+            row.style.backgroundColor = "rgba(59, 130, 246, 0.18)";
+          } else {
+            row.style.boxShadow = intent === "before"
+              ? "inset 0 3px 0 0 rgb(59 130 246)"
+              : "inset 0 -3px 0 0 rgb(59 130 246)";
+          }
+        },
+
+        clearRow(row) {
+          row.style.backgroundColor = "";
+          row.style.boxShadow = "";
+        },
+
+        clearAll() {
+          var self = this;
+          this.el.querySelectorAll("[data-tree-uuid]").forEach(function(r) { self.clearRow(r); });
+        },
+
+        endDrag() {
+          if (this._dragRowEl) { this._dragRowEl.classList.remove("opacity-50"); this._dragRowEl = null; }
+          this._drag = null;
+          this.el.querySelectorAll("[data-tree-rootzone]").forEach(function(z) {
+            z.classList.add("hidden");
+            z.classList.remove("bg-primary/10");
+          });
+          this.clearAll();
+        }
+      };
+    </script>
     """
   end
 
@@ -995,7 +1188,14 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
 
   def handle_event("reorder_catalogues", %{"ordered_ids" => ordered_ids}, socket)
       when is_list(ordered_ids) do
-    if manual_order_draggable?(socket.assigns.catalogue_view_mode, current_cfg(socket.assigns)) do
+    cfg = current_cfg(socket.assigns)
+
+    if manual_order_draggable?(socket.assigns.catalogue_view_mode, cfg) or
+         catalogues_tree_mode?(
+           cfg,
+           socket.assigns.catalogue_view_mode,
+           socket.assigns.folder_lookup
+         ) do
       case Catalogue.reorder_catalogues(ordered_ids, actor_opts(socket)) do
         :ok ->
           {:noreply, load_data(socket, :index)}
@@ -1450,52 +1650,50 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     end
   end
 
-  # ── MediaDragDrop drops (core hook, shared with the media library) ──
-  # "file" is the hook's generic draggable-item type — here a catalogue
-  # row. An empty folder_uuid means the root target; the context
-  # normalizes it to nil and validates real targets against active
-  # folders.
-  def handle_event("move_file_to_folder", %{"file_uuid" => uuid, "folder_uuid" => target}, socket) do
-    with %{} = catalogue <- Catalogue.get_catalogue(uuid),
-         {:ok, _} <- Catalogue.move_catalogue_to_folder(catalogue, target, actor_opts(socket)) do
-      {:noreply,
-       socket
-       |> put_flash(:info, Gettext.gettext(PhoenixKitCatalogue.Gettext, "Catalogue moved."))
-       |> load_data(:index)}
-    else
-      {:error, reason} ->
-        {:noreply, put_flash(socket, :error, move_error_message(reason))}
-
-      _ ->
-        {:noreply, socket}
-    end
-  end
-
+  # Native drag-to-file (CatalogueTreeDnD hook): a row dropped onto a
+  # folder row's middle, or the root zone. `target` is the destination
+  # folder uuid (or "root"); do_move_* validate + flash.
   def handle_event(
-        "move_folder_to_folder",
-        %{"folder_uuid" => uuid, "target_uuid" => target},
+        "move_to_folder",
+        %{"type" => type, "uuid" => uuid, "target" => target},
         socket
-      ) do
-    with %{} = folder <- Catalogue.get_folder(uuid),
-         {:ok, _} <- Catalogue.move_folder(folder, target, actor_opts(socket)) do
-      {:noreply,
-       socket
-       |> put_flash(:info, Gettext.gettext(PhoenixKitCatalogue.Gettext, "Folder moved."))
-       |> load_data(:index)}
-    else
-      {:error, reason} ->
-        {:noreply, put_flash(socket, :error, move_error_message(reason))}
+      )
+      when type in ~w(folder catalogue) do
+    target = if target == "root", do: nil, else: target
 
-      _ ->
-        {:noreply, socket}
-    end
+    socket =
+      case type do
+        "catalogue" -> do_move_catalogue(socket, uuid, target)
+        "folder" -> do_move_folder(socket, uuid, target)
+      end
+
+    {:noreply, load_data(socket, :index)}
   end
 
-  # The hook's touch multi-select gesture; no drag-selection model on
-  # this index, so a deliberate no-op (it fires on any draggable row).
-  def handle_event("long_press_select", _params, socket), do: {:noreply, socket}
+  # Sibling reorder from the tree hook — a same-parent subset in the new
+  # order; the context writes positions for just those uuids, which is
+  # sufficient since ordering only ever compares siblings.
+  def handle_event("reorder_folders", %{"ordered_ids" => ordered_ids}, socket)
+      when is_list(ordered_ids) do
+    cfg = current_cfg(socket.assigns)
 
-  def handle_event("move_selected_to_folder", _params, socket), do: {:noreply, socket}
+    if catalogues_tree_mode?(
+         cfg,
+         socket.assigns.catalogue_view_mode,
+         socket.assigns.folder_lookup
+       ) do
+      case Catalogue.reorder_folders(ordered_ids, actor_opts(socket)) do
+        :ok ->
+          {:noreply, load_data(socket, :index)}
+
+        {:error, reason} ->
+          log_operation_error(socket, "reorder_folders", %{reason: reason})
+          {:noreply, put_flash(socket, :error, gettext("Failed to save the new order."))}
+      end
+    else
+      {:noreply, socket}
+    end
+  end
 
   def handle_event("set_filter", %{"column_id" => id, "value" => val}, socket) do
     scope = active_scope(socket.assigns)
@@ -1688,16 +1886,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     >
       <div class="flex flex-col w-full px-4 py-6 gap-6">
         <%!-- Catalogue tab content --%>
-        <%!-- MediaDragDrop (core hook, shared with the media library) scans
-             for data-draggable-file / data-drop-folder and pushes
-             move_file_to_folder / move_folder_to_folder to this LV — tree
-             rows drag onto folder rows to file and nest. --%>
-        <div
-          :if={@active_tab == :index}
-          id="catalogue-dnd"
-          phx-hook="MediaDragDrop"
-          class="flex flex-col gap-4"
-        >
+        <div :if={@active_tab == :index} class="flex flex-col gap-4">
           <% cfg = @view_configs.catalogues %>
           <%!-- Active/Deleted sub-tabs — shown only when there are deleted items. --%>
           <div :if={@deleted_catalogue_count > 0} class="flex items-center gap-0.5 border-b border-base-200">

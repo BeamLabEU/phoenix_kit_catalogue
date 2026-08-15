@@ -113,8 +113,9 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
       assert html =~ "Tree parent"
       refute html =~ "Tree child"
       assert html =~ "Root level catalogue"
-      # Drag contract: folder rows are drop targets, catalogue rows draggable.
-      assert html =~ ~s(data-drop-folder="#{folder.uuid}")
+      # Drag contract: folder rows are drop targets with grip handles.
+      assert html =~ ~s(data-tree-drop="#{folder.uuid}")
+      assert html =~ ~s(data-tree-item="folder:#{folder.uuid}")
 
       # Chevron expands the folder: nested folder + filed catalogue appear.
       expanded =
@@ -168,40 +169,61 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
       assert html =~ "Searchable catalogue"
     end
 
-    test "drag-drop events file catalogues and nest folders", %{conn: conn} do
+    test "tree drag events file, unfile, nest, and reorder", %{conn: conn} do
       {:ok, folder_a} = Catalogue.create_folder(%{name: "Drop target"})
       {:ok, folder_b} = Catalogue.create_folder(%{name: "Will nest"})
       cat = fixture_catalogue(%{name: "Dragged catalogue"})
 
-      {:ok, view, _html} = live(conn, @base)
+      {:ok, view, html} = live(conn, @base)
 
-      render_click(view, "move_file_to_folder", %{
-        "file_uuid" => cat.uuid,
-        "folder_uuid" => folder_a.uuid
+      # Grip handles render on every row (the drag affordance).
+      assert html =~ ~s(data-tree-item="folder:#{folder_a.uuid}")
+      assert html =~ ~s(data-tree-item="catalogue:#{cat.uuid}")
+
+      # Folder middle drop files the catalogue; root zone unfiles it.
+      render_click(view, "move_to_folder", %{
+        "type" => "catalogue",
+        "uuid" => cat.uuid,
+        "target" => folder_a.uuid
       })
 
       assert Catalogue.get_catalogue(cat.uuid).folder_uuid == folder_a.uuid
 
-      render_click(view, "move_file_to_folder", %{"file_uuid" => cat.uuid, "folder_uuid" => ""})
+      render_click(view, "move_to_folder", %{
+        "type" => "catalogue",
+        "uuid" => cat.uuid,
+        "target" => "root"
+      })
+
       assert Catalogue.get_catalogue(cat.uuid).folder_uuid == nil
 
-      render_click(view, "move_folder_to_folder", %{
-        "folder_uuid" => folder_b.uuid,
-        "target_uuid" => folder_a.uuid
+      # Folder onto folder nests; nesting under a descendant is refused.
+      render_click(view, "move_to_folder", %{
+        "type" => "folder",
+        "uuid" => folder_b.uuid,
+        "target" => folder_a.uuid
       })
 
       assert Catalogue.get_folder(folder_b.uuid).parent_uuid == folder_a.uuid
 
-      # Nesting a folder under its own descendant is refused (cycle guard).
-      render_click(view, "move_folder_to_folder", %{
-        "folder_uuid" => folder_a.uuid,
-        "target_uuid" => folder_b.uuid
+      render_click(view, "move_to_folder", %{
+        "type" => "folder",
+        "uuid" => folder_a.uuid,
+        "target" => folder_b.uuid
       })
 
       assert Catalogue.get_folder(folder_a.uuid).parent_uuid == nil
 
-      # The hook's touch-select gesture is a no-op here, never a crash.
-      render_click(view, "long_press_select", %{"type" => "file", "uuid" => cat.uuid})
+      # Edge drop reorders same-parent siblings (subset write).
+      {:ok, folder_c} = Catalogue.create_folder(%{name: "Second root"})
+      render_click(view, "reorder_folders", %{"ordered_ids" => [folder_c.uuid, folder_a.uuid]})
+
+      root_order =
+        for {f, 0} <- Catalogue.list_folder_tree(),
+            f.uuid in [folder_a.uuid, folder_c.uuid],
+            do: f.name
+
+      assert root_order == ["Second root", "Drop target"]
     end
 
     test "new_folder honors a validated parent from the drill level", %{conn: conn} do

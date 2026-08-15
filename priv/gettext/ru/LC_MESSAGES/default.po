@@ -118,6 +118,12 @@ msgstr "Очистите поиск и фильтры, чтобы увидеть
 msgid "Up"
 msgstr "Вверх"
 
+msgid "Drop here to move to root (unfiled)"
+msgstr "Перетащите сюда, чтобы переместить в корень (без папки)"
+
+msgid "Drag to reorder or move into a folder"
+msgstr "Перетащите, чтобы изменить порядок или переместить в папку"
+
 msgid "Unknown"
 msgstr "Неизвестно"
 
