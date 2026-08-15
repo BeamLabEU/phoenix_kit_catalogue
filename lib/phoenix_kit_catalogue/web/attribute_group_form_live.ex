@@ -17,16 +17,23 @@ defmodule PhoenixKitCatalogue.Web.AttributeGroupFormLive do
   """
 
   use Phoenix.LiveView
+  use PhoenixKitAI.Components.AITranslate.Embed
 
   require Logger
 
   import PhoenixKitWeb.Components.MultilangForm
   import PhoenixKitWeb.Components.Core.Icon, only: [icon: 1]
   import PhoenixKitWeb.Components.Core.Modal, only: [confirm_modal: 1]
-  import PhoenixKitCatalogue.Web.Helpers, only: [actor_opts: 1]
+
+  import PhoenixKitCatalogue.Web.Helpers,
+    only: [actor_opts: 1, actor_uuid: 1, assign_ai_translation: 3, ai_translate_config: 1]
+
+  import PhoenixKitAI.Components.AITranslate,
+    only: [ai_multilang_tabs: 1, ai_translate_modal: 1]
 
   alias PhoenixKit.Utils.Multilang
   alias PhoenixKit.Utils.Routes
+  alias PhoenixKitAI.Translations
   alias PhoenixKitCatalogue.Catalogue
   alias PhoenixKitCatalogue.Paths
   alias PhoenixKitCatalogue.Schemas.AttributeGroup
@@ -72,7 +79,11 @@ defmodule PhoenixKitCatalogue.Web.AttributeGroupFormLive do
          return_to: safe_return_to(params["return_to"])
        )
        |> assign_changeset(Catalogue.change_attribute_group(group))
-       |> mount_multilang()}
+       |> mount_multilang()
+       |> assign_ai_translation(
+         "catalogue_attribute_group",
+         if(action == :edit, do: group, else: nil)
+       )}
     end
   end
 
@@ -268,10 +279,48 @@ defmodule PhoenixKitCatalogue.Web.AttributeGroupFormLive do
 
   def handle_event("reorder_values", _params, socket), do: {:noreply, socket}
 
+  # AI-translate every attribute name and value text that is still missing
+  # a language. The standard modal (Embed) covers only the bound resource —
+  # the group's own name — so this supplements it: one enqueue per child
+  # resource for its missing languages, then a few delayed reloads to pull
+  # the results in as the background jobs land. (Their completions are not
+  # PubSub-delivered here on purpose: the Embed halts every
+  # {:ai_translation, ...} message and would misapply child fields to the
+  # group changeset, so this LV only subscribes to the group's own topic.)
+  def handle_event("ai_translate_children", _params, socket) do
+    endpoint = socket.assigns[:ai_selected_endpoint] || Translations.default_endpoint_uuid()
+    prompt = socket.assigns[:ai_selected_prompt] || Translations.default_prompt_uuid()
+    targets = for tab <- socket.assigns.language_tabs, not tab.is_primary, do: tab.code
+
+    cond do
+      endpoint in [nil, ""] or prompt in [nil, ""] ->
+        {:noreply,
+         put_flash(
+           socket,
+           :error,
+           Gettext.gettext(
+             PhoenixKitCatalogue.Gettext,
+             "Select an AI endpoint and prompt in the translate dialog first."
+           )
+         )}
+
+      targets == [] ->
+        {:noreply, socket}
+
+      true ->
+        {:noreply, enqueue_child_translations(socket, endpoint, prompt, targets)}
+    end
+  end
+
   # "switch_language" is handled by the core `mount_multilang/1` auto hook.
+  # The ai_* modal events are handled by the AITranslate.Embed hook.
+
+  @impl true
+  def handle_info(:reload_attribute_group, socket) do
+    {:noreply, reload_group(socket)}
+  end
 
   # Catch-all so stray PubSub traffic can't crash the editor mid-session.
-  @impl true
   def handle_info(msg, socket) do
     Logger.debug("AttributeGroupFormLive ignored unhandled message: #{inspect(msg)}")
     {:noreply, socket}
@@ -329,6 +378,89 @@ defmodule PhoenixKitCatalogue.Web.AttributeGroupFormLive do
       {:error, changeset} ->
         {:noreply, assign_changeset(socket, changeset)}
     end
+  end
+
+  # One enqueue_all_missing per attribute (name) and per value (text),
+  # each scoped to the languages that resource is actually missing so
+  # hand-written translations are never overwritten.
+  defp enqueue_child_translations(socket, endpoint, prompt, targets) do
+    group = socket.assigns.group
+
+    children =
+      Enum.flat_map(group.attributes, fn attribute ->
+        [
+          {"catalogue_attribute", attribute}
+          | Enum.map(attribute.values, &{"catalogue_attribute_value", &1})
+        ]
+      end)
+
+    actor = actor_uuid(socket)
+
+    queued =
+      Enum.reduce(children, 0, fn {type, record}, acc ->
+        missing = targets -- translated_langs(record.data)
+        acc + enqueue_child(type, record, missing, endpoint, prompt, actor)
+      end)
+
+    if queued == 0 do
+      put_flash(
+        socket,
+        :info,
+        Gettext.gettext(PhoenixKitCatalogue.Gettext, "Nothing to translate.")
+      )
+    else
+      # The jobs land in the background; pull their results in as they do.
+      Enum.each([4_000, 9_000, 16_000], &Process.send_after(self(), :reload_attribute_group, &1))
+
+      put_flash(
+        socket,
+        :info,
+        Gettext.gettext(
+          PhoenixKitCatalogue.Gettext,
+          "Queued %{count} AI translations for attributes and values.",
+          count: queued
+        )
+      )
+    end
+  end
+
+  defp enqueue_child(_type, _record, [], _endpoint, _prompt, _actor), do: 0
+
+  defp enqueue_child(type, record, missing, endpoint, prompt, actor) do
+    base = %{
+      resource_type: type,
+      resource_uuid: record.uuid,
+      endpoint_uuid: endpoint,
+      prompt_uuid: prompt,
+      source_lang: Multilang.primary_language(),
+      actor_uuid: actor
+    }
+
+    case Translations.enqueue_all_missing(base, missing) do
+      {:ok, %{enqueued: n}} -> n
+      _ -> 0
+    end
+  end
+
+  # A language counts as translated when its subtree holds at least one
+  # non-empty "_"-prefixed override (the multilang key shape).
+  defp translated_langs(data) do
+    (data || %{})
+    |> Map.drop(["_primary_language"])
+    |> Enum.filter(fn
+      {k, v} when is_binary(k) and is_map(v) ->
+        Enum.any?(v, fn
+          {fk, fv} when is_binary(fk) and is_binary(fv) ->
+            String.starts_with?(fk, "_") and String.trim(fv) != ""
+
+          _ ->
+            false
+        end)
+
+      _ ->
+        false
+    end)
+    |> Enum.map(&elem(&1, 0))
   end
 
   defp reload_group(socket, opts \\ []) do
@@ -441,24 +573,27 @@ defmodule PhoenixKitCatalogue.Web.AttributeGroupFormLive do
       current_locale={assigns[:current_locale]}
     >
       <div class="flex flex-col mx-auto max-w-3xl px-4 py-8 gap-6">
-        <%!-- One page-level language switch — group name, attribute names,
-             and value texts all follow it. --%>
-        <.form for={@form} action="#" phx-change="validate" phx-submit="save">
+        <%!-- One page-level language switch + AI row — the group name AND
+             every attribute/value input below all follow the active
+             language. The form holds only the name; the Save buttons live
+             in the page-bottom action bar via form= (external submitters). --%>
+        <.form id="attribute-group-form" for={@form} action="#" phx-change="validate" phx-submit="save">
           <div class="card bg-base-100 shadow-lg">
-            <.multilang_tabs
+            <.ai_multilang_tabs
               multilang_enabled={@multilang_enabled}
               language_tabs={@language_tabs}
               current_lang={@current_lang}
+              ai_translate={ai_translate_config(assigns)}
             />
 
-            <.multilang_fields_wrapper multilang_enabled={@multilang_enabled} current_lang={@current_lang} skeleton_class="card-body flex flex-col gap-5 pb-0">
+            <.multilang_fields_wrapper multilang_enabled={@multilang_enabled} current_lang={@current_lang} skeleton_class="card-body flex flex-col gap-5">
               <:skeleton>
                 <div class="space-y-2">
                   <div class="skeleton h-4 w-20"></div>
                   <div class="skeleton h-12 w-full"></div>
                 </div>
               </:skeleton>
-              <div class="card-body flex flex-col gap-5 pb-0">
+              <div class="card-body flex flex-col gap-5">
                 <.translatable_field
                   field_name="name" form_prefix="attribute_group" changeset={@changeset}
                   schema_field={:name} multilang_enabled={@multilang_enabled}
@@ -469,39 +604,13 @@ defmodule PhoenixKitCatalogue.Web.AttributeGroupFormLive do
                 />
               </div>
             </.multilang_fields_wrapper>
-
-            <div class="card-body flex flex-col gap-4 pt-4">
-              <%!-- "Save" keeps you here (Enter-key submitter); "Save &
-                   Exit" returns to the groups list. --%>
-              <div class="flex justify-end gap-3">
-                <.link navigate={exit_target(assigns)} class="btn btn-ghost">
-                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Cancel")}
-                </.link>
-                <button
-                  type="submit"
-                  name="save_action"
-                  value="stay"
-                  class="btn btn-outline btn-primary phx-submit-loading:opacity-75"
-                  phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Saving...")}
-                >
-                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Save")}
-                </button>
-                <button
-                  type="submit"
-                  name="save_action"
-                  value="exit"
-                  class="btn btn-primary phx-submit-loading:opacity-75"
-                  phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Saving...")}
-                >
-                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Save & Exit")}
-                </button>
-              </div>
-            </div>
           </div>
         </.form>
 
         <%!-- Attributes editor — :edit only (the group must exist first).
-             Discrete events, immediate persistence; no nested form. --%>
+             Discrete events, immediate persistence; no nested form. The
+             inputs follow @current_lang: on a secondary language they edit
+             that language's overrides (primary text as placeholder). --%>
         <div :if={@action == :edit} class="card bg-base-100 shadow-lg">
           <div class="card-body flex flex-col gap-4">
             <div class="flex items-center gap-2">
@@ -509,6 +618,16 @@ defmodule PhoenixKitCatalogue.Web.AttributeGroupFormLive do
               <h3 class="font-semibold text-base">
                 {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Attributes")}
               </h3>
+              <button
+                :if={@multilang_enabled and @group.attributes != []}
+                type="button"
+                phx-click="ai_translate_children"
+                class="btn btn-ghost btn-xs ml-auto"
+                title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "AI-translate all attribute names and values that are missing a language.")}
+              >
+                <.icon name="hero-language" class="w-4 h-4" />
+                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "AI translate names & values")}
+              </button>
             </div>
 
             <p :if={@group.attributes == []} class="text-sm text-base-content/60">
@@ -530,7 +649,7 @@ defmodule PhoenixKitCatalogue.Web.AttributeGroupFormLive do
             >
               <div
                 :for={attribute <- @group.attributes}
-                class="sortable-item border border-base-300 rounded-lg p-3 flex flex-col gap-3"
+                class="sortable-item rounded-lg border border-base-300 bg-base-200/40 p-3 flex flex-col gap-3"
                 data-id={attribute.uuid}
               >
                 <div class="flex items-center gap-2">
@@ -544,11 +663,11 @@ defmodule PhoenixKitCatalogue.Web.AttributeGroupFormLive do
                     placeholder={attribute.name}
                     phx-blur="rename_attribute"
                     phx-value-uuid={attribute.uuid}
-                    class="input input-sm input-bordered font-medium flex-1 min-w-0"
+                    class="input input-sm input-bordered bg-base-100 font-medium flex-1 min-w-0"
                   />
                   <form id={"attr-kind-form-#{attribute.uuid}"} phx-change="set_attribute_kind" class="contents">
                     <input type="hidden" name="uuid" value={attribute.uuid} />
-                    <select name="kind" class="select select-sm select-bordered w-36 shrink-0">
+                    <select name="kind" class="select select-sm select-bordered bg-base-100 w-36 shrink-0">
                       <option :for={{label, v} <- kind_options()} value={v} selected={attribute.kind == v}>
                         {label}
                       </option>
@@ -578,7 +697,7 @@ defmodule PhoenixKitCatalogue.Web.AttributeGroupFormLive do
                 >
                   <div
                     :for={value <- attribute.values}
-                    class="sortable-item flex items-center gap-1 border border-base-300 rounded-full pl-1 pr-1 py-0.5 bg-base-200/50"
+                    class="sortable-item flex items-center gap-1 rounded-full border border-base-300 bg-base-100 pl-1 pr-1 py-0.5 shadow-sm"
                     data-id={value.uuid}
                   >
                     <span class="pk-value-handle cursor-grab text-base-content/30 hover:text-base-content/60">
@@ -625,7 +744,7 @@ defmodule PhoenixKitCatalogue.Web.AttributeGroupFormLive do
                       name="value"
                       value=""
                       placeholder={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Add value...")}
-                      class="input input-xs input-bordered w-28"
+                      class="input input-xs input-bordered bg-base-100 w-28"
                     />
                   </form>
                 </div>
@@ -658,6 +777,39 @@ defmodule PhoenixKitCatalogue.Web.AttributeGroupFormLive do
             </p>
           </div>
         </div>
+
+        <%!-- Bottom action bar — outside the form (the attribute editor's
+             mini-forms cannot nest inside it), wired back via form=. "Save"
+             stays; "Save & Exit" returns to the groups list. --%>
+        <div class="flex justify-end gap-3">
+          <.link navigate={exit_target(assigns)} class="btn btn-ghost">
+            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Cancel")}
+          </.link>
+          <button
+            form="attribute-group-form"
+            type="submit"
+            name="save_action"
+            value="stay"
+            class="btn btn-outline btn-primary phx-submit-loading:opacity-75"
+            phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Saving...")}
+          >
+            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Save")}
+          </button>
+          <button
+            form="attribute-group-form"
+            type="submit"
+            name="save_action"
+            value="exit"
+            class="btn btn-primary phx-submit-loading:opacity-75"
+            phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Saving...")}
+          >
+            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Save & Exit")}
+          </button>
+        </div>
+
+        <%!-- AI translate modal — outside the form (its selectors are
+             their own <form>; nested forms are invalid). --%>
+        <.ai_translate_modal ai_translate={ai_translate_config(assigns)} />
 
         <.confirm_modal
           show={@confirm_delete_attribute != nil}
