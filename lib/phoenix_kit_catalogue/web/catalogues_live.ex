@@ -391,6 +391,14 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     |> load_data(:index)
   end
 
+  defp clear_folder_filter(socket) do
+    cfg = Map.fetch!(socket.assigns.view_configs, :catalogues)
+
+    if Map.has_key?(cfg.filters, "folder"),
+      do: put_cfg(socket, :catalogues, %{cfg | filters: Map.delete(cfg.filters, "folder")}),
+      else: socket
+  end
+
   defp to_active_view(socket) do
     socket
     |> assign(:catalogue_view_mode, "active")
@@ -498,6 +506,11 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   @impl true
   def handle_event("switch_catalogue_view", %{"mode" => mode}, socket)
       when mode in ~w(active deleted) do
+    # Deleted view: drop the folder filter — trash is global, and a stale
+    # folder filter (deleted catalogues rebuild the options from their own
+    # rows) silently empties the list with the select showing "All folders".
+    socket = if mode == "deleted", do: clear_folder_filter(socket), else: socket
+
     {:noreply,
      socket
      |> assign(:catalogue_view_mode, mode)
