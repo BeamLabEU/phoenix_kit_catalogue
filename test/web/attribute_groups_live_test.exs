@@ -127,7 +127,10 @@ defmodule PhoenixKitCatalogue.Web.AttributeGroupsLiveTest do
       {:ok, view, _html} = live(conn, "#{@base}/attributes/#{group.uuid}/edit")
 
       view
-      |> form("#add-attribute-form", %{"attr_name" => "Color", "attr_kind" => "multi"})
+      |> form(~s(form[id^="add-attribute-form"]), %{
+        "attr_name" => "Color",
+        "attr_kind" => "multi"
+      })
       |> render_submit()
 
       full = Catalogue.get_attribute_group_full(group.uuid)
@@ -135,12 +138,12 @@ defmodule PhoenixKitCatalogue.Web.AttributeGroupsLiveTest do
       [attribute] = full.attributes
 
       view
-      |> form("#add-value-form-#{attribute.uuid}", %{"value" => "White"})
+      |> form(~s(form[id^="add-value-form-#{attribute.uuid}"]), %{"value" => "White"})
       |> render_submit()
 
       html =
         view
-        |> form("#add-value-form-#{attribute.uuid}", %{"value" => "Oak"})
+        |> form(~s(form[id^="add-value-form-#{attribute.uuid}"]), %{"value" => "Oak"})
         |> render_submit()
 
       assert html =~ "White"
