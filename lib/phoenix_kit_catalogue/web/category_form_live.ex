@@ -106,6 +106,8 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
        action: action,
        category: category,
        catalogue_uuid: catalogue_uuid,
+       parent_catalogue_name:
+         catalogue_uuid && (Catalogue.get_catalogue(catalogue_uuid) || %{name: nil}).name,
        confirm_delete_all: false,
        other_catalogues: other_catalogues,
        parent_options: parent_options,
@@ -383,6 +385,8 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
       flash={@flash}
       phoenix_kit_current_scope={assigns[:phoenix_kit_current_scope]}
       page_title={@page_title}
+      page_section={@parent_catalogue_name}
+      page_section_path={@catalogue_uuid && Paths.catalogue_detail(@catalogue_uuid)}
       page_subtitle={if @action == :new, do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Add a new category to organize items within this catalogue."), else: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Update category details and ordering.")}
       current_path={assigns[:url_path] || Paths.catalogue_detail(@catalogue_uuid)}
       current_locale={assigns[:current_locale]}
