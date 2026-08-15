@@ -678,8 +678,18 @@ defmodule PhoenixKitCatalogue.Catalogue do
         )
         |> repo().update_all(set: [status: "active", updated_at: now])
 
+        # Restore to where it came from — unless that home is gone. A
+        # hard-deleted folder already SET NULLed the reference (root);
+        # a legacy-trashed folder is merely hidden, so restoring into
+        # it would strand the catalogue — normalize that to root too.
+        attrs =
+          case restored_folder_home(catalogue.folder_uuid) do
+            :keep -> %{status: "active"}
+            :root -> %{status: "active", folder_uuid: nil}
+          end
+
         catalogue
-        |> Catalogue.changeset(%{status: "active"})
+        |> Catalogue.changeset(attrs)
         |> repo().update!()
       end)
 
@@ -2463,6 +2473,15 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
       error ->
         error
+    end
+  end
+
+  defp restored_folder_home(nil), do: :keep
+
+  defp restored_folder_home(folder_uuid) do
+    case repo().one(from(f in Folder, where: f.uuid == ^folder_uuid, select: f.status)) do
+      "active" -> :keep
+      _ -> :root
     end
   end
 
