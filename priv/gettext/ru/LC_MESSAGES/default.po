@@ -1116,3 +1116,9 @@ msgstr "Просторный вид"
 
 msgid "Compact view"
 msgstr "Компактный вид"
+
+msgid "Save"
+msgstr "Сохранить"
+
+msgid "Save & Exit"
+msgstr "Сохранить и выйти"

@@ -29,6 +29,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
 
   alias PhoenixKit.Modules.Storage.URLSigner
   alias PhoenixKit.Utils.Multilang
+  alias PhoenixKit.Utils.Routes
   alias PhoenixKitCatalogue.Attachments
   alias PhoenixKitCatalogue.Catalogue
   alias PhoenixKitCatalogue.Catalogue.Helpers
@@ -96,7 +97,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   # Only ever navigate to a caller-supplied path after the core local-path
   # guard — return_to is user-influenced input.
   defp safe_return_to(rt) when is_binary(rt) do
-    if PhoenixKit.Utils.Routes.local_path?(rt), do: rt
+    if Routes.local_path?(rt), do: rt
   end
 
   defp safe_return_to(_), do: nil
@@ -444,7 +445,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
       |> Metadata.inject_into_data(socket.assigns.meta_state, :item)
       |> Attachments.inject_attachment_data(socket)
 
-    save_item(socket, socket.assigns.action, item_params)
+    save_item(socket, socket.assigns.action, item_params, save_mode(params))
   end
 
   # ── Smart-catalogue rule picker events ──────────────────────────
@@ -752,16 +753,25 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
 
   # actor_opts/1 imported from PhoenixKitCatalogue.Web.Helpers
 
-  defp save_item(socket, :new, params) do
+  defp save_item(socket, :new, params, mode) do
     params = Map.put_new(params, "catalogue_uuid", socket.assigns.catalogue_uuid)
 
     with {:ok, item} <- Catalogue.create_item(params, actor_opts(socket)),
          {:ok, _rules} <- maybe_put_rules(socket, item),
          :ok <- Attachments.maybe_rename_pending_folder(socket, item) do
+      # "Save" (stay) on a new item lands on its edit form — the record
+      # exists now, so staying means continuing to edit it. The original
+      # return_to rides along so the eventual exit still goes home.
+      target =
+        case mode do
+          :stay -> Paths.item_edit(item.uuid) <> return_to_suffix(socket)
+          :exit -> redirect_target(socket, item)
+        end
+
       {:noreply,
        socket
        |> put_flash(:info, Gettext.gettext(PhoenixKitCatalogue.Gettext, "Item created."))
-       |> push_navigate(to: redirect_target(socket, item))}
+       |> push_navigate(to: target)}
     else
       {:error, %Ecto.Changeset{} = changeset} ->
         {:noreply, assign_changeset(socket, changeset)}
@@ -779,7 +789,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
     end
   end
 
-  defp save_item(socket, :edit, params) do
+  defp save_item(socket, :edit, params, mode) do
     # If item had a different primary language, rekey data to global primary on save
     params =
       if socket.assigns[:needs_primary_translation] && params["data"] do
@@ -792,10 +802,13 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
 
     with {:ok, item} <- Catalogue.update_item(socket.assigns.item, params, actor_opts(socket)),
          {:ok, _rules} <- maybe_put_rules(socket, item) do
-      {:noreply,
-       socket
-       |> put_flash(:info, Gettext.gettext(PhoenixKitCatalogue.Gettext, "Item updated."))
-       |> push_navigate(to: redirect_target(socket, item))}
+      socket =
+        put_flash(socket, :info, Gettext.gettext(PhoenixKitCatalogue.Gettext, "Item updated."))
+
+      case mode do
+        :stay -> {:noreply, refresh_after_edit(socket, item)}
+        :exit -> {:noreply, push_navigate(socket, to: redirect_target(socket, item))}
+      end
     else
       {:error, %Ecto.Changeset{} = changeset} ->
         {:noreply, assign_changeset(socket, changeset)}
@@ -867,6 +880,41 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
       {decimal, _rest} -> decimal
       :error -> nil
     end
+  end
+
+  # The clicked submit button ships its name/value with the form params.
+  # Anything other than the explicit "stay" (absent, forged, or stale)
+  # falls back to the exit behavior — same as before the split.
+  defp save_mode(%{"save_action" => "stay"}), do: :stay
+  defp save_mode(_params), do: :exit
+
+  defp return_to_suffix(socket) do
+    case socket.assigns[:return_to] do
+      nil -> ""
+      rt -> "?" <> URI.encode_query([{"return_to", rt}])
+    end
+  end
+
+  # In-place refresh after a stay-save: no remount, so the current tab,
+  # language, scroll position, and live attachment state all survive.
+  # meta_state and working_rules were just persisted verbatim, so they
+  # stay as-is; only the item-derived assigns need re-deriving. A
+  # successful save keys data to the global primary, so the imported-
+  # language warning clears.
+  defp refresh_after_edit(socket, item) do
+    item =
+      item
+      |> PhoenixKit.RepoHelper.repo().preload([:category, :manufacturer])
+      |> normalize_display_decimals()
+
+    socket
+    |> assign(:item, item)
+    |> assign(
+      :page_title,
+      Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit %{name}", name: item.name)
+    )
+    |> assign(:needs_primary_translation, false)
+    |> assign_changeset(Catalogue.change_item(item))
   end
 
   defp redirect_target(socket, item) do
@@ -1757,11 +1805,13 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
         </div>
 
         <%!-- Actions — sit outside the tab panels so Save works from
-             any tab; the form element wraps them all. Save is
+             any tab; the form element wraps them all. Both saves are
              disabled while uploads are mid-flight so we don't race
              the post-upload `handle_progress` write against the save
              path (would drop the just-uploaded file from the
-             resource). --%>
+             resource). "Save" keeps you on the form (it's also the
+             Enter-key submitter, being first in the DOM); "Save &
+             Exit" returns to where the form was opened from. --%>
         <div class="flex justify-end gap-3 pt-2">
           <.link
             navigate={
@@ -1774,20 +1824,25 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
           </.link>
           <button
             type="submit"
+            name="save_action"
+            value="stay"
+            class="btn btn-outline btn-primary phx-submit-loading:opacity-75"
+            disabled={@uploads.attachment_files.entries != []}
+            phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Saving...")}
+          >
+            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Save")}
+          </button>
+          <button
+            type="submit"
+            name="save_action"
+            value="exit"
             class="btn btn-primary phx-submit-loading:opacity-75"
             disabled={@uploads.attachment_files.entries != []}
             phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Saving...")}
           >
-            {cond do
-              @uploads.attachment_files.entries != [] ->
-                Gettext.gettext(PhoenixKitCatalogue.Gettext, "Waiting for uploads...")
-
-              @action == :new ->
-                Gettext.gettext(PhoenixKitCatalogue.Gettext, "Create Item")
-
-              true ->
-                Gettext.gettext(PhoenixKitCatalogue.Gettext, "Save Changes")
-            end}
+            {if @uploads.attachment_files.entries != [],
+              do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Waiting for uploads..."),
+              else: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Save & Exit")}
           </button>
         </div>
       </.form>

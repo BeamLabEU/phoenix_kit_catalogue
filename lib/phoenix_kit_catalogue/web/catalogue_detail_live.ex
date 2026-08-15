@@ -65,8 +65,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   alias PhoenixKitCatalogue.Paths
   alias PhoenixKitCatalogue.Schemas.Category
   alias PhoenixKitCatalogue.Schemas.Item
-  alias PhoenixKitCatalogue.Web.Components.ProductCard
   alias PhoenixKitCatalogue.Web.Components.PdfSearchModal
+  alias PhoenixKitCatalogue.Web.Components.ProductCard
 
   @per_page 100
   # Cross-tab bulk-change red-flash → state-refresh delay. Long enough

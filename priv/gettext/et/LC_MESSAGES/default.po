@@ -1107,3 +1107,9 @@ msgstr "Avar vaade"
 
 msgid "Compact view"
 msgstr "Kompaktne vaade"
+
+msgid "Save"
+msgstr "Salvesta"
+
+msgid "Save & Exit"
+msgstr "Salvesta ja välju"

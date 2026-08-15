@@ -478,4 +478,62 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLiveTest do
       refute html =~ "evil.example"
     end
   end
+
+  # ─────────────────────────────────────────────────────────────────
+  # Save vs Save & Exit
+  # ─────────────────────────────────────────────────────────────────
+
+  describe "save modes" do
+    test "Save on :new lands on the created item's edit form, keeping return_to", %{conn: conn} do
+      catalogue = fixture_catalogue()
+      rt = catalogue_detail_url(catalogue.uuid)
+
+      {:ok, view, _html} =
+        live(conn, new_item_url(catalogue.uuid) <> "?" <> URI.encode_query(return_to: rt))
+
+      {:error, {:live_redirect, %{to: to}}} =
+        view
+        |> form("form[action=\"#\"][phx-submit=save]", %{"item" => base_item_params()})
+        |> put_submitter(~s(button[name=save_action][value=stay]))
+        |> render_submit()
+
+      [item] = TestRepo.all(Item)
+      assert to == edit_item_url(item.uuid) <> "?" <> URI.encode_query(return_to: rt)
+    end
+
+    test "Save on :edit stays on the form with the saved values", %{conn: conn} do
+      catalogue = fixture_catalogue()
+      item = fixture_item(%{name: "Before", catalogue_uuid: catalogue.uuid})
+
+      {:ok, view, _html} = live(conn, edit_item_url(item.uuid))
+
+      html =
+        view
+        |> form("form[action=\"#\"][phx-submit=save]", %{
+          "item" => base_item_params(%{"name" => "After"})
+        })
+        |> put_submitter(~s(button[name=save_action][value=stay]))
+        |> render_submit()
+
+      # No redirect — still on the edit form, retitled to the new name.
+      assert html =~ "After"
+      assert Catalogue.get_item(item.uuid).name == "After"
+    end
+
+    test "Save & Exit on :edit navigates back out", %{conn: conn} do
+      catalogue = fixture_catalogue()
+      item = fixture_item(%{name: "Exiting", catalogue_uuid: catalogue.uuid})
+
+      {:error, {:live_redirect, %{to: to}}} =
+        live(conn, edit_item_url(item.uuid))
+        |> elem(1)
+        |> form("form[action=\"#\"][phx-submit=save]", %{
+          "item" => base_item_params(%{"name" => "Exiting"})
+        })
+        |> put_submitter(~s(button[name=save_action][value=exit]))
+        |> render_submit()
+
+      assert to == catalogue_detail_url(catalogue.uuid)
+    end
+  end
 end

@@ -1107,3 +1107,9 @@ msgstr "Comfortable view"
 
 msgid "Compact view"
 msgstr "Compact view"
+
+msgid "Save"
+msgstr "Save"
+
+msgid "Save & Exit"
+msgstr "Save & Exit"
