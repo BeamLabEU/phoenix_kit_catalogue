@@ -27,10 +27,22 @@ Without a clause the click crashes that LiveView. With `photo_clickable: false`
 (the default) the thumbnail still renders, just inert, and the event is guarded —
 nothing is sent, so existing consumers are unaffected.
 
+> **On ticket ids.** Earlier revisions of this document referenced internal ids
+> (`L026`–`L029`) from our task queue, which are not resolvable outside it. They
+> have been replaced with self-contained descriptions; the queue itself is not a
+> public system, so there is nothing to link to.
+
 ## 2. Not done — designed but not implemented
 
-**Product attributes / characteristics (our L028).** Design is complete and
-validated with the product owner; implementation was not started.
+**Product attributes / characteristics.** Design is complete and validated with
+the product owner; implementation was not started at handover time.
+
+> **Update (2026-08-15):** this has since been implemented and merged upstream as
+> the attribute-group system (catalogue PR #64 + phoenix_kit PR #718, migration
+> V173). The section below is kept as the original design record; where the
+> shipped feature deviates deliberately (global groups selected by an item rather
+> than per-card definitions; one group per item for now; order-line value picking
+> left to the parent app), the shipped behaviour wins.
 - Build on the **existing item metadata** (the "Metadata" tab of a catalogue
   item: Weight/Width/Height/Depth/Material/Finish, one string value each, blanks
   dropped on save). This is an evolution of that system, not a replacement —
@@ -50,7 +62,7 @@ validated with the product owner; implementation was not started.
   by hand. Migrating that legacy data into characteristics is a **separate** task,
   deliberately out of scope of the first implementation.
 
-**Bring the module's forms up to PhoenixKit component standards (our L029).**
+**Bring the module's forms up to PhoenixKit component standards.**
 Draft only. Use the `phoenixkit-components` skill; prefer the kit's components
 over raw daisyUI classes (they wire `phx-feedback`, gettext, prefix-safe links).
 
@@ -63,9 +75,11 @@ over raw daisyUI classes (they wire `phx-feedback`, gettext, prefix-safe links).
 - **Locale sourcing**: display strings mix the `locale` parameter (name and
   description translations) with process `Gettext` (field labels). Consistent in
   practice, but two sources of truth.
-- **Template indentation**: the L026 flex wrapper left the input block
+- **Template indentation**: the flex wrapper added with the photo-preview work
+  left the input block
   under-indented (HEEX-insignificant, formatter-accepted).
-- **Pre-existing test failures on `main`** (3, unrelated to the above): two URL
+- **Pre-existing test failures on `main`** (tracked as issue #65; one of the
+  three — DnD reorder persistence — has since been fixed): two URL
   state tests in `CatalogueDetailLiveTest` (`?q=` / empty `?category=`) and the
   DnD reorder persistence test in `CataloguesLiveTest`.
 
