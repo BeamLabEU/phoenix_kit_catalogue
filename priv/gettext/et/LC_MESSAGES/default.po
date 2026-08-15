@@ -854,9 +854,6 @@ msgstr "Käsitsi järjestus"
 msgid "Folders"
 msgstr "Kaustad"
 
-msgid "Folders…"
-msgstr "Kaustad…"
-
 msgid "All folders"
 msgstr "Kõik kaustad"
 
@@ -867,9 +864,6 @@ msgid "Clear search and filters to drag-and-drop reorder."
 msgstr "Tühjenda otsing ja filtrid, et lohistades ümber järjestada."
 
 ## Folder management modal
-msgid "No folders yet."
-msgstr "Kaustu pole veel."
-
 msgid "Nothing in the trash."
 msgstr "Prügikast on tühi."
 
