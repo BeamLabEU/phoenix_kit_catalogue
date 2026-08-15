@@ -2038,8 +2038,8 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
             </span>
           </button>
         </div>
-        <div :if={@actions != []} class="w-px h-6 bg-base-300 mx-1 hidden sm:block"></div>
-        <div :if={@actions != []} class="flex flex-wrap items-center gap-2">
+        <div :if={@actions != []} class="w-px h-6 bg-base-300 mx-1 hidden md:block"></div>
+        <div :if={@actions != []} class="flex flex-wrap items-center gap-2 w-full md:w-auto">
           {render_slot(@actions)}
         </div>
       </div>
