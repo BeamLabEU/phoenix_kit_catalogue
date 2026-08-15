@@ -1,3 +1,32 @@
+## 0.15.1 - 2026-08-15
+
+### Fixed
+
+- **Reopening the item picker for an already-loaded item showed an empty
+  list** (#63 / L027). `handle_event("open", …)` only re-ran search when both
+  `options` and `query` were empty. After a page reload `update/2` mirrors the
+  selected item's name into `:query`, so the guard never fired and focus
+  opened "No items found" instead of a list. Search now re-runs whenever
+  `options == []`. A live pick in the same process was unaffected (`options`
+  still held the search that led to the selection). After reload the list is
+  a name-search (typically the current item); edit or clear the input to
+  browse replacements.
+
+- **Price-less option rows crashed with `BadBooleanError`.** The row's
+  `:if` used `price && price != ""` as the left operand of `or`; a `nil`
+  price is not a strict boolean. Unreachable while reopen left `options`
+  empty; reachable for any item without a `base_price` once that path
+  filled the list. The guard is now `(price != nil and price != "")`.
+
+### Documentation
+
+- **`HANDOVER.md`** (#62). Status of the LAISK-loop work, the consumer
+  contract for `photo_clickable` (a host that opts in must handle
+  `{:item_picker_photo_click, …}` or the click crashes its LiveView), and
+  what was designed but not built: product attributes / characteristics
+  (L028) and a PhoenixKit form-component pass (L029). Those stay for a
+  later version.
+
 ## 0.15.0 - 2026-08-14
 
 ### Added
