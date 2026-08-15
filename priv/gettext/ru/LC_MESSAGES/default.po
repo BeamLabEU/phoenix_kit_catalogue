@@ -109,12 +109,6 @@ msgstr "Удалён"
 msgid "Discontinued"
 msgstr "Снят с производства"
 
-msgid "Toggle folder"
-msgstr "Развернуть/свернуть папку"
-
-msgid "Clear search and filters to see the folder tree."
-msgstr "Очистите поиск и фильтры, чтобы увидеть дерево папок."
-
 msgid "Unknown"
 msgstr "Неизвестно"
 
