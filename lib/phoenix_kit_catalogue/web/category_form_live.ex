@@ -26,6 +26,7 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
       ai_translate_modal: 1
     ]
 
+  alias PhoenixKit.Utils.Routes
   alias PhoenixKit.Utils.Values
   alias PhoenixKitCatalogue.Attachments
   alias PhoenixKitCatalogue.Catalogue
@@ -80,7 +81,9 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
        |> put_flash(:error, Gettext.gettext(PhoenixKitCatalogue.Gettext, "Category not found."))
        |> push_navigate(to: Paths.index())}
     else
-      mount_category_form(socket, action, category, changeset, catalogue_uuid)
+      socket
+      |> assign(:return_to, safe_return_to(params["return_to"]))
+      |> mount_category_form(action, category, changeset, catalogue_uuid)
     end
   end
 
@@ -106,6 +109,8 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
        action: action,
        category: category,
        catalogue_uuid: catalogue_uuid,
+       parent_catalogue_name:
+         catalogue_uuid && (Catalogue.get_catalogue(catalogue_uuid) || %{name: nil}).name,
        confirm_delete_all: false,
        other_catalogues: other_catalogues,
        parent_options: parent_options,
@@ -122,6 +127,12 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
   # then each category prefixed with indentation that matches its
   # depth. For edit mode, the category's own subtree is excluded so
   # the user can't pick itself or one of its descendants.
+  defp safe_return_to(rt) when is_binary(rt) do
+    if Routes.local_path?(rt), do: rt
+  end
+
+  defp safe_return_to(_), do: nil
+
   defp parent_options_for(:new, _category, catalogue_uuid) do
     Catalogue.list_category_tree(catalogue_uuid)
     |> format_parent_options()
@@ -170,9 +181,10 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
     {:noreply, assign_changeset(socket, changeset)}
   end
 
-  def handle_event("save", %{"category" => params}, socket) do
-    params =
+  def handle_event("save", params, socket) do
+    category_params =
       params
+      |> Map.get("category", %{})
       |> Map.put_new("catalogue_uuid", socket.assigns.catalogue_uuid)
       |> normalize_parent_uuid()
       |> merge_translatable_params(socket, @translatable_fields,
@@ -180,7 +192,7 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
       )
       |> Attachments.inject_attachment_data(socket)
 
-    save_category(socket, socket.assigns.action, params)
+    save_category(socket, socket.assigns.action, category_params, save_mode(params))
   end
 
   # ── Attachments (featured image modal only) ──────────────────────
@@ -212,7 +224,9 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
              "Category and all its items permanently deleted."
            )
          )
-         |> push_navigate(to: Paths.catalogue_detail(socket.assigns.catalogue_uuid))}
+         |> push_navigate(
+           to: socket.assigns[:return_to] || Paths.catalogue_detail(socket.assigns.catalogue_uuid)
+         )}
 
       {:error, _} ->
         {:noreply,
@@ -340,32 +354,81 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
 
   # actor_opts/1 imported from PhoenixKitCatalogue.Web.Helpers
 
-  defp save_category(socket, :new, params) do
+  defp save_category(socket, :new, params, mode) do
     case Catalogue.create_category(params, actor_opts(socket)) do
       {:ok, category} ->
         _ = Attachments.maybe_rename_pending_folder(socket, category)
 
+        # "Save" (stay) continues on the new category's edit form; the
+        # original return_to rides along so the eventual exit still goes
+        # home. Exit honors return_to too (it used to fall straight back
+        # to the catalogue root even when the form was opened deeper).
+        target =
+          case mode do
+            :stay -> Paths.category_edit(category.uuid) <> return_to_suffix(socket)
+            :exit -> exit_target(socket)
+          end
+
         {:noreply,
          socket
          |> put_flash(:info, Gettext.gettext(PhoenixKitCatalogue.Gettext, "Category created."))
-         |> push_navigate(to: Paths.catalogue_detail(socket.assigns.catalogue_uuid))}
+         |> push_navigate(to: target)}
 
       {:error, changeset} ->
         {:noreply, assign_changeset(socket, changeset)}
     end
   end
 
-  defp save_category(socket, :edit, params) do
+  defp save_category(socket, :edit, params, mode) do
     case Catalogue.update_category(socket.assigns.category, params, actor_opts(socket)) do
-      {:ok, _} ->
-        {:noreply,
-         socket
-         |> put_flash(:info, Gettext.gettext(PhoenixKitCatalogue.Gettext, "Category updated."))
-         |> push_navigate(to: Paths.catalogue_detail(socket.assigns.catalogue_uuid))}
+      {:ok, category} ->
+        socket =
+          put_flash(
+            socket,
+            :info,
+            Gettext.gettext(PhoenixKitCatalogue.Gettext, "Category updated.")
+          )
+
+        case mode do
+          :stay -> {:noreply, refresh_after_edit(socket, category)}
+          :exit -> {:noreply, push_navigate(socket, to: exit_target(socket))}
+        end
 
       {:error, changeset} ->
         {:noreply, assign_changeset(socket, changeset)}
     end
+  end
+
+  # The clicked submit button ships its name/value with the form params.
+  # Anything other than the explicit "stay" (absent, forged, or stale)
+  # falls back to the exit behavior — same as before the split.
+  defp save_mode(%{"save_action" => "stay"}), do: :stay
+  defp save_mode(_params), do: :exit
+
+  defp exit_target(socket) do
+    socket.assigns[:return_to] || Paths.catalogue_detail(socket.assigns.catalogue_uuid)
+  end
+
+  defp return_to_suffix(socket) do
+    case socket.assigns[:return_to] do
+      nil -> ""
+      rt -> "?" <> URI.encode_query([{"return_to", rt}])
+    end
+  end
+
+  # In-place refresh after a stay-save: no remount, so the current
+  # language tab and scroll position survive. Only category-derived
+  # assigns need re-deriving; parent_options is rebuilt in case the
+  # save renamed categories shown in the Move panel's picker.
+  defp refresh_after_edit(socket, category) do
+    socket
+    |> assign(:category, category)
+    |> assign(
+      :page_title,
+      Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit %{name}", name: category.name)
+    )
+    |> assign(:parent_options, parent_options_for(:edit, category, category.catalogue_uuid))
+    |> assign_changeset(Catalogue.change_category(category))
   end
 
   @impl true
@@ -383,6 +446,8 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
       flash={@flash}
       phoenix_kit_current_scope={assigns[:phoenix_kit_current_scope]}
       page_title={@page_title}
+      page_section={@parent_catalogue_name}
+      page_section_path={@catalogue_uuid && Paths.catalogue_detail(@catalogue_uuid)}
       page_subtitle={if @action == :new, do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Add a new category to organize items within this catalogue."), else: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Update category details and ordering.")}
       current_path={assigns[:url_path] || Paths.catalogue_detail(@catalogue_uuid)}
       current_locale={assigns[:current_locale]}
@@ -396,6 +461,8 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
         show={@show_media_selector}
         mode={@media_selection_mode}
         file_type_filter={@media_filter}
+        lock_file_type
+        title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Select Featured Image")}
         selected_uuids={@media_selected_uuids}
         scope_folder_id={@files_folder_uuid}
         phoenix_kit_current_user={assigns[:phoenix_kit_current_user]}
@@ -485,13 +552,25 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
             <%!-- Actions --%>
             <div class="divider my-0"></div>
 
+            <%!-- "Save" keeps you on the form (also the Enter-key
+                 submitter, being first in the DOM); "Save & Exit"
+                 returns to where the form was opened from. --%>
             <div class="flex justify-end gap-3">
-              <.link navigate={Paths.catalogue_detail(@catalogue_uuid)} class="btn btn-ghost">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Cancel")}</.link>
+              <.link navigate={@return_to || Paths.catalogue_detail(@catalogue_uuid)} class="btn btn-ghost">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Cancel")}</.link>
               <button
                 type="submit"
+                name="save_action"
+                value="stay"
+                class="btn btn-outline btn-primary phx-submit-loading:opacity-75"
+                phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Saving...")}
+              >{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Save")}</button>
+              <button
+                type="submit"
+                name="save_action"
+                value="exit"
                 class="btn btn-primary phx-submit-loading:opacity-75"
                 phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Saving...")}
-              >{if @action == :new, do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Create Category"), else: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Save Changes")}</button>
+              >{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Save & Exit")}</button>
             </div>
           </div>
         </div>

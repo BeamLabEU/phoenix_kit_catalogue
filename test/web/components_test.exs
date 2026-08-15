@@ -443,4 +443,88 @@ defmodule PhoenixKitCatalogue.Web.ComponentsTest do
       refute html =~ ~s(<option value="color">)
     end
   end
+
+  # ─────────────────────────────────────────────────────────────────
+  # featured_thumb — list-row thumbnail left of the name
+  # ─────────────────────────────────────────────────────────────────
+
+  describe "featured_thumb/1" do
+    @uuid "01890000-0000-7000-8000-000000000001"
+
+    test "renders a signed thumbnail img when the resource carries an image" do
+      html =
+        render_component(&featured_thumb/1,
+          resource: %Item{data: %{"featured_image_uuid" => @uuid}}
+        )
+
+      assert html =~ "<img"
+      assert html =~ @uuid
+      assert html =~ "thumbnail"
+      # A dangling pointer must hide itself, not show a broken-image glyph.
+      assert html =~ "onerror"
+    end
+
+    test "works on the catalogues index's plain row maps too" do
+      html =
+        render_component(&featured_thumb/1, resource: %{data: %{"featured_image_uuid" => @uuid}})
+
+      assert html =~ "<img"
+    end
+
+    test "on_click wraps the thumb in a button pushing the event with the uuid" do
+      item = %Item{uuid: "item-1", data: %{"featured_image_uuid" => @uuid}}
+      html = render_component(&featured_thumb/1, resource: item, on_click: "show_product_card")
+
+      assert html =~ "<button"
+      assert html =~ ~s(phx-click="show_product_card")
+      assert html =~ ~s(phx-value-uuid="item-1")
+      # Without on_click the thumb stays a bare, inert img.
+      inert = render_component(&featured_thumb/1, resource: item)
+      refute inert =~ "<button"
+    end
+
+    test "has_files adds the corner paperclip emblem to a thumb" do
+      item = %Item{uuid: "item-1", data: %{"featured_image_uuid" => @uuid}}
+      html = render_component(&featured_thumb/1, resource: item, has_files: true)
+
+      assert html =~ "<img"
+      assert html =~ "hero-paper-clip"
+
+      # Without files: thumb only, no clip.
+      plain = render_component(&featured_thumb/1, resource: item)
+      refute plain =~ "hero-paper-clip"
+    end
+
+    test "has_files with no image renders the paperclip tile in the same slot" do
+      item = %Item{uuid: "item-2", data: %{}}
+      html = render_component(&featured_thumb/1, resource: item, has_files: true)
+
+      refute html =~ "<img"
+      assert html =~ "hero-paper-clip"
+
+      # And it stays clickable through to the product card.
+      clickable =
+        render_component(&featured_thumb/1,
+          resource: item,
+          has_files: true,
+          on_click: "show_product_card"
+        )
+
+      assert clickable =~ ~s(phx-click="show_product_card")
+      assert clickable =~ ~s(phx-value-uuid="item-2")
+    end
+
+    test "renders nothing without an image" do
+      for resource <- [
+            %Item{data: %{}},
+            %Item{data: nil},
+            %Catalogue{},
+            %{data: %{"featured_image_uuid" => ""}},
+            %{name: "row map without data key"}
+          ] do
+        html = render_component(&featured_thumb/1, resource: resource)
+        refute html =~ "<img", "expected no img for #{inspect(resource)}"
+      end
+    end
+  end
 end

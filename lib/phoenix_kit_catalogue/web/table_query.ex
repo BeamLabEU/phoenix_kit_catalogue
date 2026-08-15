@@ -3,6 +3,7 @@ defmodule PhoenixKitCatalogue.Web.TableQuery do
   Pure, in-memory search → filter → sort pipeline over a list of row maps
   (catalogues/suppliers/manufacturers already loaded by the LiveView).
   """
+  alias PhoenixKitCatalogue.Web.Helpers
   alias PhoenixKitCatalogue.Web.TableConfig
 
   # Sentinel filter value for "folder is nil" — distinct from `to_string(nil)`
@@ -60,16 +61,31 @@ defmodule PhoenixKitCatalogue.Web.TableQuery do
 
   def sort(rows, _scope, _sort_by, _dir), do: rows
 
+  # Tuples are `{label, value}` — the order Phoenix's `options_for_select`
+  # expects. The submitted value must be the uuid: `filter_match?/4` above
+  # compares it to `row[:folder_uuid]`.
   @spec enum_options([map()], TableConfig.scope(), String.t()) :: [{String.t(), String.t()}]
   def enum_options(rows, _scope, "folder") do
     rows
-    |> Enum.map(&{to_string(&1[:folder_uuid]), &1[:folder_name]})
-    |> Enum.reject(fn {uuid, _} -> uuid in ["", "nil"] end)
+    |> Enum.map(&{&1[:folder_name], to_string(&1[:folder_uuid])})
+    |> Enum.reject(fn {_, uuid} -> uuid in ["", "nil"] end)
     |> Enum.uniq()
-    |> Enum.sort_by(fn {_u, name} -> String.downcase(name || "") end)
+    |> Enum.sort_by(fn {name, _u} -> String.downcase(name || "") end)
   end
 
-  def enum_options(rows, _scope, id) do
+  # Status options get the same translated label as the rest of the UI
+  # (Helpers.status_label/1) instead of the raw DB value.
+  def enum_options(rows, scope, "status") do
+    rows
+    |> raw_enum_values(scope, "status")
+    |> Enum.map(&{Helpers.status_label(&1), &1})
+  end
+
+  def enum_options(rows, scope, id) do
+    Enum.map(raw_enum_values(rows, scope, id), &{&1, &1})
+  end
+
+  defp raw_enum_values(rows, _scope, id) do
     key = String.to_existing_atom(id)
 
     rows
@@ -77,7 +93,6 @@ defmodule PhoenixKitCatalogue.Web.TableQuery do
     |> Enum.reject(&(&1 in ["", "nil"]))
     |> Enum.uniq()
     |> Enum.sort()
-    |> Enum.map(&{&1, &1})
   rescue
     ArgumentError -> []
   end

@@ -33,19 +33,27 @@ defmodule PhoenixKitCatalogue.AITranslatable do
   alias PhoenixKit.RepoHelper
   alias PhoenixKit.Utils.Multilang
   alias PhoenixKitCatalogue.Catalogue
+  alias PhoenixKitCatalogue.Schemas.{Attribute, AttributeGroup, AttributeValue, Category, Item}
   alias PhoenixKitCatalogue.Schemas.Catalogue, as: CatalogueSchema
-  alias PhoenixKitCatalogue.Schemas.{Category, Item}
 
-  # Engine-facing field names (plain strings) ↔ their schema columns. The AI
-  # engine speaks the string keys; `column_value/2` maps back to the atom
-  # column. Keeping them in one map avoids the two lists drifting apart.
-  @field_columns %{"name" => :name, "description" => :description}
-  @translatable_fields Map.keys(@field_columns)
+  # Engine-facing field names (plain strings) ↔ their schema columns, per
+  # resource shape. The AI engine speaks the string keys; `column_value/2`
+  # maps back to the atom column. Attribute values translate their `value`
+  # display text; groups and attributes only a `name`. (The attribute rows
+  # have no in-form AI button yet — registration serves the programmatic /
+  # bulk enqueue paths.)
+  defp field_columns(%AttributeValue{}), do: %{"value" => :value}
+  defp field_columns(%Attribute{}), do: %{"name" => :name}
+  defp field_columns(%AttributeGroup{}), do: %{"name" => :name}
+  defp field_columns(_resource), do: %{"name" => :name, "description" => :description}
 
   @impl true
   def fetch("catalogue", uuid), do: wrap(Catalogue.get_catalogue(uuid))
   def fetch("catalogue_category", uuid), do: wrap(Catalogue.get_category(uuid))
   def fetch("catalogue_item", uuid), do: wrap(Catalogue.get_item(uuid))
+  def fetch("catalogue_attribute_group", uuid), do: wrap(Catalogue.get_attribute_group(uuid))
+  def fetch("catalogue_attribute", uuid), do: wrap(Catalogue.get_attribute(uuid))
+  def fetch("catalogue_attribute_value", uuid), do: wrap(Catalogue.get_attribute_value(uuid))
   def fetch(other, _uuid), do: {:error, {:unknown_resource_type, other}}
 
   defp wrap(nil), do: {:error, :resource_not_found}
@@ -55,7 +63,7 @@ defmodule PhoenixKitCatalogue.AITranslatable do
   def source_fields(resource, source_lang) do
     lang_data = Multilang.get_language_data(resource.data || %{}, source_lang)
 
-    for field <- @translatable_fields,
+    for field <- Map.keys(field_columns(resource)),
         value = field_value(resource, field, lang_data),
         is_binary(value) and String.trim(value) != "",
         into: %{},
@@ -77,7 +85,7 @@ defmodule PhoenixKitCatalogue.AITranslatable do
   defp nonempty(_), do: false
 
   defp column_value(resource, field) do
-    Map.get(resource, Map.fetch!(@field_columns, field))
+    Map.get(resource, Map.fetch!(field_columns(resource), field))
   end
 
   @impl true
@@ -158,4 +166,29 @@ defmodule PhoenixKitCatalogue.AITranslatable do
   defp persist_target(%CatalogueSchema{}), do: {CatalogueSchema, &Catalogue.update_catalogue/3}
   defp persist_target(%Category{}), do: {Category, &Catalogue.update_category/3}
   defp persist_target(%Item{}), do: {Item, &Catalogue.update_item/3}
+
+  # Attribute resources persist through a bare changeset update — no
+  # activity-log entry and no PubSub from inside the FOR UPDATE
+  # transaction (the same intent `broadcast: false` carries for the
+  # three resources above).
+  defp persist_target(%AttributeGroup{}) do
+    {AttributeGroup,
+     fn fresh, attrs, _opts ->
+       fresh |> AttributeGroup.changeset(attrs) |> RepoHelper.repo().update()
+     end}
+  end
+
+  defp persist_target(%Attribute{}) do
+    {Attribute,
+     fn fresh, attrs, _opts ->
+       fresh |> Attribute.update_changeset(attrs) |> RepoHelper.repo().update()
+     end}
+  end
+
+  defp persist_target(%AttributeValue{}) do
+    {AttributeValue,
+     fn fresh, attrs, _opts ->
+       fresh |> AttributeValue.update_changeset(attrs) |> RepoHelper.repo().update()
+     end}
+  end
 end
