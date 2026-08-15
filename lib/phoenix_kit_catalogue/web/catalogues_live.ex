@@ -339,13 +339,16 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   # `:folder_name` from the lookup, `:item_count` from item_counts.
   defp build_catalogue_rows(catalogues, folder_lookup, item_counts) do
     Enum.map(catalogues, fn c ->
+      folder = c.folder_uuid && folder_lookup[c.folder_uuid]
+
       c
       |> Map.from_struct()
-      |> Map.put(:folder_uuid, c.folder_uuid)
-      |> Map.put(
-        :folder_name,
-        c.folder_uuid && folder_lookup[c.folder_uuid] && folder_lookup[c.folder_uuid].name
-      )
+      # A lookup miss means the folder is trashed — orphan-promote the row
+      # so it reads as unfiled everywhere: dash in the Folder column,
+      # matched by "Unfiled (root)", and no ghost entry (a nameless option
+      # holding a trashed folder's uuid) in the filter dropdown.
+      |> Map.put(:folder_uuid, folder && c.folder_uuid)
+      |> Map.put(:folder_name, folder && folder.name)
       |> Map.put(:item_count, Map.get(item_counts, c.uuid, 0))
     end)
   end
