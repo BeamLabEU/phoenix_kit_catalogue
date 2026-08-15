@@ -681,7 +681,7 @@ defmodule PhoenixKitCatalogue.Web.AttributeGroupFormLive do
                   data-id={attribute.uuid}
                 >
                   <div class="flex items-center gap-2">
-                    <span class="pk-drag-handle cursor-grab text-base-content/40 hover:text-base-content/70">
+                    <span class="pk-drag-handle cursor-grab inline-flex items-center text-base-content/40 hover:text-base-content/70">
                       <.icon name="hero-bars-3" class="w-4 h-4" />
                     </span>
                     <input
@@ -728,7 +728,7 @@ defmodule PhoenixKitCatalogue.Web.AttributeGroupFormLive do
                       class="sortable-item flex items-center gap-1 rounded-full border border-base-300 bg-base-100 pl-1 pr-1 py-0.5 shadow-sm"
                       data-id={value.uuid}
                     >
-                      <span class="pk-value-handle cursor-grab text-base-content/30 hover:text-base-content/60">
+                      <span class="pk-value-handle cursor-grab inline-flex items-center text-base-content/30 hover:text-base-content/60">
                         <.icon name="hero-bars-2" class="w-3 h-3" />
                       </span>
                       <input
@@ -792,7 +792,11 @@ defmodule PhoenixKitCatalogue.Web.AttributeGroupFormLive do
                         title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Add value")}
                         aria-label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Add value")}
                       >
-                        <.icon name="hero-plus" class="w-3.5 h-3.5" />
+                        <%!-- literal span, NOT <.icon>: component subtrees
+                             inside this phx-update="ignore" form arrive as
+                             data-phx-skip stubs when the id-bump replaces
+                             it, leaving an empty button. --%>
+                        <span class="hero-plus w-3.5 h-3.5"></span>
                       </button>
                     </form>
                   </div>
@@ -818,7 +822,8 @@ defmodule PhoenixKitCatalogue.Web.AttributeGroupFormLive do
                   <option :for={{label, v} <- kind_options()} value={v}>{label}</option>
                 </select>
                 <button type="submit" class="btn btn-outline btn-sm shrink-0">
-                  <.icon name="hero-plus" class="w-4 h-4" />
+                  <%!-- literal span — see the add-value button. --%>
+                  <span class="hero-plus w-4 h-4"></span>
                   {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Add")}
                 </button>
               </form>
