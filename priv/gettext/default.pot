@@ -114,9 +114,6 @@ msgstr ""
 msgid "Discontinued"
 msgstr ""
 
-msgid "Up"
-msgstr ""
-
 msgid "Unknown"
 msgstr ""
 
