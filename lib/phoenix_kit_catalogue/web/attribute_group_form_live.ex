@@ -765,9 +765,16 @@ defmodule PhoenixKitCatalogue.Web.AttributeGroupFormLive do
                       </button>
                     </div>
 
+                    <%!-- phx-update="ignore": unrelated patches must never
+                         touch someone's in-progress draft (LiveView re-syncs
+                         input values on every node patch). Clearing after a
+                         successful add replaces the WHOLE form via the
+                         generation-bumped id, which mounts fresh and
+                         refocuses. --%>
                     <form
-                      id={"add-value-form-#{attribute.uuid}"}
+                      id={"add-value-form-#{attribute.uuid}-g#{draft_gen(@draft_generation, attribute.uuid)}"}
                       phx-submit="add_value"
+                      phx-update="ignore"
                       class="flex items-center gap-1"
                     >
                       <input type="hidden" name="attribute_uuid" value={attribute.uuid} />
@@ -793,7 +800,12 @@ defmodule PhoenixKitCatalogue.Web.AttributeGroupFormLive do
               </div>
 
               <%!-- Add attribute — its own form so Enter adds. --%>
-              <form id="add-attribute-form" phx-submit="add_attribute" class="flex items-center gap-2 pt-1">
+              <form
+                id={"add-attribute-form-g#{draft_gen(@draft_generation, "attr")}"}
+                phx-submit="add_attribute"
+                phx-update="ignore"
+                class="flex items-center gap-2 pt-1"
+              >
                 <input
                   id={"add-attribute-input-g#{draft_gen(@draft_generation, "attr")}"}
                   type="text"
