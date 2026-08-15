@@ -31,6 +31,7 @@ defmodule PhoenixKitCatalogue.Web.AttributeGroupFormLive do
   import PhoenixKitAI.Components.AITranslate,
     only: [ai_multilang_tabs: 1, ai_translate_modal: 1]
 
+  alias Phoenix.LiveView.JS
   alias PhoenixKit.Utils.Multilang
   alias PhoenixKit.Utils.Routes
   alias PhoenixKitAI.Translations
@@ -76,6 +77,8 @@ defmodule PhoenixKitCatalogue.Web.AttributeGroupFormLive do
          action: action,
          group: group,
          confirm_delete_attribute: nil,
+         draft_generation: %{},
+         refocus_key: nil,
          return_to: safe_return_to(params["return_to"])
        )
        |> assign_changeset(Catalogue.change_attribute_group(group))
@@ -139,7 +142,7 @@ defmodule PhoenixKitCatalogue.Web.AttributeGroupFormLive do
 
       case Catalogue.create_attribute(socket.assigns.group, attrs, actor_opts(socket)) do
         {:ok, _} ->
-          {:noreply, reload_group(socket)}
+          {:noreply, socket |> clear_draft("attr") |> reload_group()}
 
         {:error, _changeset} ->
           {:noreply,
@@ -215,7 +218,7 @@ defmodule PhoenixKitCatalogue.Web.AttributeGroupFormLive do
     with true <- text != "",
          %{} = attribute <- owned_attribute(socket, uuid),
          {:ok, _} <- Catalogue.create_attribute_value(attribute, %{"value" => text}) do
-      {:noreply, reload_group(socket)}
+      {:noreply, socket |> clear_draft(attribute.uuid) |> reload_group()}
     else
       false ->
         {:noreply, socket}
@@ -462,6 +465,22 @@ defmodule PhoenixKitCatalogue.Web.AttributeGroupFormLive do
     end)
     |> Enum.map(&elem(&1, 0))
   end
+
+  # The add-attribute / add-value inputs are UNCONTROLLED (no server
+  # value), so unrelated re-renders never wipe a draft someone is still
+  # typing in another row. Clearing the one form that DID submit works by
+  # bumping its generation — the input's id changes, morphdom mounts a
+  # fresh empty node, and phx-mounted refocuses it for rapid entry.
+  defp clear_draft(socket, key) do
+    socket
+    |> assign(
+      :draft_generation,
+      Map.update(socket.assigns.draft_generation, key, 1, &(&1 + 1))
+    )
+    |> assign(:refocus_key, key)
+  end
+
+  defp draft_gen(draft_generation, key), do: Map.get(draft_generation, key, 0)
 
   defp reload_group(socket, opts \\ []) do
     group = Catalogue.get_attribute_group_full(socket.assigns.group.uuid)
@@ -753,11 +772,12 @@ defmodule PhoenixKitCatalogue.Web.AttributeGroupFormLive do
                     >
                       <input type="hidden" name="attribute_uuid" value={attribute.uuid} />
                       <input
+                        id={"add-value-input-#{attribute.uuid}-g#{draft_gen(@draft_generation, attribute.uuid)}"}
                         type="text"
                         name="value"
-                        value=""
                         placeholder={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Add value...")}
                         class="input input-xs input-bordered bg-base-100 w-28"
+                        phx-mounted={@refocus_key == attribute.uuid && JS.focus()}
                       />
                       <button
                         type="submit"
@@ -775,11 +795,12 @@ defmodule PhoenixKitCatalogue.Web.AttributeGroupFormLive do
               <%!-- Add attribute — its own form so Enter adds. --%>
               <form id="add-attribute-form" phx-submit="add_attribute" class="flex items-center gap-2 pt-1">
                 <input
+                  id={"add-attribute-input-g#{draft_gen(@draft_generation, "attr")}"}
                   type="text"
                   name="attr_name"
-                  value=""
                   placeholder={Gettext.gettext(PhoenixKitCatalogue.Gettext, "New attribute name...")}
                   class="input input-sm input-bordered flex-1 min-w-0"
+                  phx-mounted={@refocus_key == "attr" && JS.focus()}
                 />
                 <select name="attr_kind" class="select select-sm select-bordered w-36 shrink-0">
                   <option :for={{label, v} <- kind_options()} value={v}>{label}</option>
