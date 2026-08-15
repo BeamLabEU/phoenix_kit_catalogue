@@ -980,18 +980,6 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
       />
 
       <.form for={@form} action="#" phx-change="validate" phx-submit="save">
-        <%!-- Featured image: opens the scoped picker in single+image
-             mode. The picker both browses this item's images and
-             accepts new uploads (which get dropped into the item's
-             folder automatically). --%>
-        <div class={"mb-4 #{if @current_tab != :details, do: "hidden"}"}>
-          <.featured_image_card
-            featured_image_uuid={@featured_image_uuid}
-            featured_image_file={@featured_image_file}
-            subtitle={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Shown in lists and detail views.")}
-          />
-        </div>
-
         <div class={"card bg-base-100 shadow-lg #{if @current_tab != :details, do: "hidden"}"}>
           <%!-- Bundled tabs + AI row (phoenix_kit_ai's canonical placement). --%>
           <.ai_multilang_tabs
@@ -1568,6 +1556,19 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                 "Attach any metadata fields that apply to this item. Blank values are dropped on save."
               )
             }
+          />
+        </div>
+
+        <%!-- Featured image — on the Files tab, matching the catalogue
+             form (deliberate consistency call, 2026-08-15). Opens the
+             scoped picker in single+image mode; the picker both browses
+             this item's images and accepts new uploads (which get
+             dropped into the item's folder automatically). --%>
+        <div class={"mb-4 #{if @current_tab != :files, do: "hidden"}"}>
+          <.featured_image_card
+            featured_image_uuid={@featured_image_uuid}
+            featured_image_file={@featured_image_file}
+            subtitle={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Shown in lists and detail views.")}
           />
         </div>
 
