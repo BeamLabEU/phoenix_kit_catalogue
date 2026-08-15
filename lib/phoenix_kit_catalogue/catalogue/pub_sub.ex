@@ -39,6 +39,7 @@ defmodule PhoenixKitCatalogue.Catalogue.PubSub do
           | :links
           | :pdf
           | :item_supplier_info
+          | :attribute_group
 
   @typedoc "Event message format for `handle_info/2`."
   @type event ::
