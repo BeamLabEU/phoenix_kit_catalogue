@@ -109,6 +109,12 @@ msgstr "Kustutatud"
 msgid "Discontinued"
 msgstr "Tootmine lõpetatud"
 
+msgid "Toggle folder"
+msgstr "Ava/sule kaust"
+
+msgid "Clear search and filters to see the folder tree."
+msgstr "Puhasta otsing ja filtrid, et näha kaustapuud."
+
 msgid "Unknown"
 msgstr "Teadmata"
 

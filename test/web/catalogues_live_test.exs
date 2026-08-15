@@ -117,7 +117,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
       drilled =
         view
         |> element(
-          ~s{button[phx-click="navigate_folder"][phx-value-folder-uuid="#{folder.uuid}"]}
+          ~s{#catalogue-folder-explorer button[phx-click="navigate_folder"][phx-value-folder-uuid="#{folder.uuid}"]}
         )
         |> render_click()
 
@@ -232,6 +232,54 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
       render_click(view, "new_folder", %{"parent" => Ecto.UUID.generate()})
       roots = for {f, 0} <- Catalogue.list_folder_tree(), do: f
       assert length(roots) >= 2
+    end
+  end
+
+  describe "catalogues tree table" do
+    test "manual order shows collapsible folder rows; other sorts flatten", %{conn: conn} do
+      {:ok, folder} = Catalogue.create_folder(%{name: "Tree parent"})
+      {:ok, _child} = Catalogue.create_folder(%{name: "Tree child", parent_uuid: folder.uuid})
+      filed = fixture_catalogue(%{name: "Filed in tree"})
+      {:ok, _} = Catalogue.move_catalogue_to_folder(filed, folder.uuid)
+      fixture_catalogue(%{name: "Root level catalogue"})
+
+      {:ok, view, html} = live(conn, @base)
+
+      # Manual order default: the tree table renders, folder row collapsed
+      # (children hidden), unfiled catalogue at the root level.
+      assert html =~ "catalogues-tree-table"
+      assert html =~ "Tree parent"
+      refute html =~ "Tree child"
+      assert html =~ "Root level catalogue"
+      # Drag contract: folder rows are drop targets, catalogue rows draggable.
+      assert html =~ ~s(data-drop-folder="#{folder.uuid}")
+
+      # Chevron expands the folder: nested folder + filed catalogue appear.
+      expanded =
+        view
+        |> element(
+          ~s{#catalogues-tree-table button[phx-click="toggle_folder_expand"][phx-value-uuid="#{folder.uuid}"]}
+        )
+        |> render_click()
+
+      assert expanded =~ "Tree child"
+      assert expanded =~ "Filed in tree"
+
+      # Switching to a real sort falls back to the flat sortable table.
+      flat = render_click(view, "set_sort", %{"sort_by" => "name"})
+      refute flat =~ "catalogues-tree-table"
+      assert flat =~ "Filed in tree"
+    end
+
+    test "searching flattens the tree", %{conn: conn} do
+      {:ok, _folder} = Catalogue.create_folder(%{name: "Hidden while searching"})
+      fixture_catalogue(%{name: "Searchable catalogue"})
+
+      {:ok, _view, _html} = live(conn, @base)
+      {:ok, _view2, html} = live(conn, "#{@base}?q=searchable")
+
+      refute html =~ "catalogues-tree-table"
+      assert html =~ "Searchable catalogue"
     end
   end
 
@@ -482,18 +530,18 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
 
     test "a second open index follows a sort change live", %{conn: conn} do
       # Positions invert the alphabetical order, so which name renders first
-      # tells us which sort is active.
+      # tells us which sort is active. Default is Manual order (position).
       fixture_catalogue(%{name: "Alpha", position: 1})
       fixture_catalogue(%{name: "Zed", position: 0})
 
       {:ok, viewer, viewer_html} = live(conn, @base)
       {:ok, changer, _html} = live(conn, @base)
 
-      assert appears_before?(viewer_html, "Alpha", "Zed")
+      assert appears_before?(viewer_html, "Zed", "Alpha")
 
-      render_click(changer, "set_sort", %{"sort_by" => "position"})
+      render_click(changer, "set_sort", %{"sort_by" => "name"})
 
-      assert appears_before?(render(viewer), "Zed", "Alpha")
+      assert appears_before?(render(viewer), "Alpha", "Zed")
     end
 
     test "a fresh mount reads the shared sort", %{conn: conn} do
@@ -513,7 +561,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
         "catalogue"
       )
 
-      assert ViewConfig.load_global_sort(:catalogues) == {"name", :asc}
+      assert ViewConfig.load_global_sort(:catalogues) == {"position", :asc}
     end
 
     test "manufacturers sort stays per-user", %{conn: conn} do

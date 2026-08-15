@@ -109,6 +109,12 @@ msgstr "Deleted"
 msgid "Discontinued"
 msgstr "Discontinued"
 
+msgid "Toggle folder"
+msgstr "Toggle folder"
+
+msgid "Clear search and filters to see the folder tree."
+msgstr "Clear search and filters to see the folder tree."
+
 msgid "Unknown"
 msgstr "Unknown"
 
