@@ -1249,16 +1249,19 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
           >
             <:row_actions :let={c}>
               <.table_row_menu :if={@catalogue_view_mode == "active"} mode="auto" id={"cat-menu-#{c.uuid}"}>
-                <.table_row_menu_link
-                  navigate={Paths.catalogue_detail(c.uuid)}
-                  icon="hero-eye"
-                  label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "View")}
-                />
+                <%!-- Edit leads: it is what most people open this menu
+                     for (product call, 2026-08-15). Entries stay neutral —
+                     the daisyUI "secondary" tint made routine actions look
+                     flagged; only destructive actions keep a color. --%>
                 <.table_row_menu_link
                   navigate={Paths.catalogue_edit(c.uuid)}
                   icon="hero-pencil"
                   label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")}
-                  variant="secondary"
+                />
+                <.table_row_menu_link
+                  navigate={Paths.catalogue_detail(c.uuid)}
+                  icon="hero-eye"
+                  label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "View")}
                 />
                 <.table_row_menu_button
                   phx-click="open_move"
@@ -1266,7 +1269,6 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
                   phx-value-uuid={c.uuid}
                   icon="hero-folder-arrow-down"
                   label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Move to folder")}
-                  variant="secondary"
                 />
                 <.table_row_menu_divider />
                 <.table_row_menu_button
@@ -1426,7 +1428,6 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
                 navigate={Paths.supplier_edit(s.uuid)}
                 icon="hero-pencil"
                 label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")}
-                variant="secondary"
               />
               <.table_row_menu_divider />
               <.table_row_menu_button
