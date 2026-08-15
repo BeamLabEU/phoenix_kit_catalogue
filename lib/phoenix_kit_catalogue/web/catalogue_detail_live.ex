@@ -164,6 +164,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         items_sort_by: :position,
         items_sort_dir: :asc,
         show_items_reorder: false,
+        show_categories_reorder: false,
         reorder_captured_uuids: [],
         view_mode: "active",
         search_results: nil,
@@ -1027,6 +1028,63 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   # Open the strategy-reorder modal. Captures the client-side selection
   # (via the BulkSelectScope hook payload). A 0–1 selection collapses to
   # "reorder all" (stored as `[]`) — a single-row reorder is a no-op.
+  def handle_event("open_categories_reorder_modal", _params, socket) do
+    {:noreply, assign(socket, :show_categories_reorder, true)}
+  end
+
+  def handle_event("close_categories_reorder_modal", _params, socket) do
+    {:noreply, assign(socket, :show_categories_reorder, false)}
+  end
+
+  # Strategy reorder for the current level's sibling categories ("Reorder
+  # all" next to the category list). `@child_categories` is the full,
+  # unpaginated sibling set, so re-indexing it can't collide with unseen
+  # rows; `Catalogue.reorder_categories/4` re-asserts siblinghood anyway.
+  def handle_event("apply_categories_reorder", %{"strategy" => strategy_str}, socket)
+      when is_map_key(@items_reorder_strategy_map, strategy_str) do
+    strategy = Map.fetch!(@items_reorder_strategy_map, strategy_str)
+
+    ordered =
+      socket.assigns.child_categories
+      |> order_categories_for_strategy(strategy)
+      |> Enum.map(& &1.uuid)
+
+    parent_uuid =
+      case socket.assigns.current_category do
+        %Category{uuid: uuid} -> uuid
+        _ -> nil
+      end
+
+    case Catalogue.reorder_categories(
+           socket.assigns.catalogue_uuid,
+           parent_uuid,
+           ordered,
+           actor_opts(socket)
+         ) do
+      :ok ->
+        {:noreply,
+         socket
+         |> assign(:show_categories_reorder, false)
+         |> put_flash(
+           :info,
+           Gettext.gettext(PhoenixKitCatalogue.Gettext, "Categories reordered.")
+         )
+         |> reset_and_load()}
+
+      {:error, reason} ->
+        log_operation_error(socket, "apply_categories_reorder", %{reason: reason})
+
+        {:noreply,
+         put_flash(
+           socket,
+           :error,
+           Gettext.gettext(PhoenixKitCatalogue.Gettext, "Failed to reorder.")
+         )}
+    end
+  end
+
+  def handle_event("apply_categories_reorder", _params, socket), do: {:noreply, socket}
+
   def handle_event("open_items_reorder_modal", params, socket) do
     captured =
       case sanitize_uuids(params) do
@@ -2200,38 +2258,111 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
             </button>
           </.bulk_actions_bar>
 
-          <%!-- Subcategory rows (+ Uncategorized row at root/active),
-               one per line. Sibling reorder via SortableGrid in active mode. --%>
+          <%!-- Category "Reorder all" — manual (drag) order is the only
+               category order, so the strategy shortcut is always offered
+               when there is more than one sibling to arrange. --%>
+          <div :if={@view_mode == "active" and length(@child_categories) > 1} class="flex justify-end">
+            <button
+              type="button"
+              phx-click="open_categories_reorder_modal"
+              class="btn btn-outline btn-sm"
+            >
+              <.icon name="hero-arrows-up-down" class="w-4 h-4" />
+              <span class="hidden sm:inline">
+                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Reorder all")}
+              </span>
+            </button>
+          </div>
+
+          <.reorder_modal
+            id="categories-reorder-modal"
+            show={@show_categories_reorder}
+            on_close="close_categories_reorder_modal"
+            on_apply="apply_categories_reorder"
+            selected_count={0}
+            total_count={length(@child_categories)}
+            strategies={item_reorder_strategies()}
+            noun_singular={Gettext.gettext(PhoenixKitCatalogue.Gettext, "category")}
+            noun_plural={Gettext.gettext(PhoenixKitCatalogue.Gettext, "categories")}
+          />
+
+          <%!-- Categories in the level's chosen view. The page-level
+               card/table toggle drives this via the shared TableCardView
+               storage key: "table" = the one-per-line rows, "card" = the
+               tile grid. Deleted mode renders rows only (no card branch),
+               and the hook no-ops when a branch is missing, so nothing can
+               toggle itself invisible. Both branches carry their own
+               SortableGrid on the same reorder event. --%>
           <div
             :if={@child_categories != [] or show_uncat_card}
-            id="catalogue-child-categories"
-            class="flex flex-col gap-2"
-            data-sortable="true"
-            data-sortable-event="reorder_categories"
-            data-sortable-items=".sortable-item"
-            data-sortable-hide-source="false"
-            data-sortable-group="catalogue-child-categories"
-            data-sortable-handle=".pk-drag-handle"
-            phx-hook={if @view_mode == "active", do: "SortableGrid"}
+            id="catalogue-categories-views"
+            phx-hook="TableCardView"
+            data-storage-key="catalogue-detail-items"
           >
-            <%= for cat <- @child_categories do %>
-              <.category_drill_card
-                catalogue_uuid={@catalogue.uuid}
-                category={cat}
-                count={Map.get(@child_counts, cat.uuid, 0)}
-                has_subs={MapSet.member?(@children_with_subs, cat.uuid)}
-                view_mode={@view_mode}
-                sibling_count={length(@child_categories)}
-                selected={MapSet.member?(@selected_categories, cat.uuid)}
-                has_files={Map.get(@file_counts, cat.uuid, 0) > 0}
-              />
-            <% end %>
-            <.uncategorized_drill_card
-              :if={show_uncat_card}
-              catalogue_uuid={@catalogue.uuid}
-              count={@uncategorized_active_count}
-              sibling_count={length(@child_categories)}
-            />
+            <div data-table-view class={@view_mode == "active" && "hidden md:block"}>
+              <div
+                id="catalogue-child-categories"
+                class="flex flex-col gap-2"
+                data-sortable="true"
+                data-sortable-event="reorder_categories"
+                data-sortable-items=".sortable-item"
+                data-sortable-hide-source="false"
+                data-sortable-group="catalogue-child-categories"
+                data-sortable-handle=".pk-drag-handle"
+                phx-hook={if @view_mode == "active", do: "SortableGrid"}
+              >
+                <%= for cat <- @child_categories do %>
+                  <.category_drill_card
+                    catalogue_uuid={@catalogue.uuid}
+                    category={cat}
+                    count={Map.get(@child_counts, cat.uuid, 0)}
+                    has_subs={MapSet.member?(@children_with_subs, cat.uuid)}
+                    view_mode={@view_mode}
+                    sibling_count={length(@child_categories)}
+                    selected={MapSet.member?(@selected_categories, cat.uuid)}
+                    has_files={Map.get(@file_counts, cat.uuid, 0) > 0}
+                  />
+                <% end %>
+                <.uncategorized_drill_card
+                  :if={show_uncat_card}
+                  catalogue_uuid={@catalogue.uuid}
+                  count={@uncategorized_active_count}
+                  sibling_count={length(@child_categories)}
+                />
+              </div>
+            </div>
+
+            <div :if={@view_mode == "active"} data-card-view class="md:hidden">
+              <div
+                id="catalogue-child-categories-tiles"
+                class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3"
+                data-sortable="true"
+                data-sortable-event="reorder_categories"
+                data-sortable-items=".sortable-item"
+                data-sortable-hide-source="false"
+                data-sortable-group="catalogue-child-categories-tiles"
+                data-sortable-handle=".pk-drag-handle"
+                phx-hook="SortableGrid"
+              >
+                <%= for cat <- @child_categories do %>
+                  <.category_tile
+                    catalogue_uuid={@catalogue.uuid}
+                    category={cat}
+                    count={Map.get(@child_counts, cat.uuid, 0)}
+                    has_subs={MapSet.member?(@children_with_subs, cat.uuid)}
+                    view_mode={@view_mode}
+                    sibling_count={length(@child_categories)}
+                    selected={MapSet.member?(@selected_categories, cat.uuid)}
+                    has_files={Map.get(@file_counts, cat.uuid, 0) > 0}
+                  />
+                <% end %>
+                <.uncategorized_tile
+                  :if={show_uncat_card}
+                  catalogue_uuid={@catalogue.uuid}
+                  count={@uncategorized_active_count}
+                />
+              </div>
+            </div>
           </div>
 
           <%!-- Deleted-list bulk-action bar (server-side select). The
@@ -2263,7 +2394,10 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                card view is wanted everywhere, and card-side reorder is
                tracked as its own follow-up. --%>
           <div
-            :if={@show_items_section and (@items != [] or @search_results not in [nil, []])}
+            :if={
+              @child_categories != [] or
+                (@show_items_section and (@items != [] or @search_results not in [nil, []]))
+            }
             class="flex justify-end"
           >
             <.view_mode_toggle storage_key="catalogue-detail-items" />
@@ -2698,6 +2832,118 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     """
   end
 
+  # Tile form of the category card — the "card view" branch of the level's
+  # categories. Same affordances as the row (drill, select, drag among
+  # siblings, edit); the file indicator moves into the badge row because a
+  # corner emblem would clip against the tile's figure.
+  attr(:catalogue_uuid, :string, required: true)
+  attr(:category, :map, required: true)
+  attr(:count, :integer, required: true)
+  attr(:has_subs, :boolean, default: false)
+  attr(:view_mode, :string, required: true)
+  attr(:sibling_count, :integer, required: true)
+  attr(:selected, :boolean, default: false)
+  attr(:has_files, :boolean, default: false)
+
+  defp category_tile(assigns) do
+    ~H"""
+    <div
+      class={[
+        "group card card-sm bg-base-100 shadow hover:shadow-md transition-shadow overflow-hidden",
+        @view_mode == "active" and @category.status == "active" && "sortable-item"
+      ]}
+      data-id={@view_mode == "active" and @category.status == "active" && @category.uuid}
+    >
+      <figure class="relative h-24 bg-base-200">
+        <.featured_thumb resource={@category} class="w-full h-full" />
+        <.icon
+          :if={!featured_image_uuid(@category)}
+          name="hero-folder"
+          class="w-10 h-10 text-base-content/20 absolute inset-0 m-auto"
+        />
+        <input
+          :if={@view_mode == "active" and @category.status == "active"}
+          type="checkbox"
+          class="checkbox checkbox-xs absolute top-1.5 left-1.5 bg-base-100/80"
+          checked={@selected}
+          phx-click="toggle_select_category"
+          phx-value-uuid={@category.uuid}
+        />
+        <span
+          :if={@view_mode == "active" and @category.status == "active" and @sibling_count > 1}
+          class="pk-drag-handle cursor-grab active:cursor-grabbing absolute top-1.5 right-1.5 rounded bg-base-100/80 p-0.5 text-base-content/50 hover:text-base-content/80"
+          title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Drag to reorder (among siblings)")}
+        >
+          <.icon name="hero-bars-3" class="w-4 h-4" />
+        </span>
+      </figure>
+      <div class="card-body p-3 gap-1.5">
+        <.link
+          patch={Paths.category_browse(@catalogue_uuid, @category.uuid)}
+          class="font-medium truncate hover:text-primary"
+        >
+          {@category.name}
+        </.link>
+        <div class="flex items-center gap-1.5">
+          <span class="badge badge-ghost badge-sm">
+            {@count} {Gettext.gettext(PhoenixKitCatalogue.Gettext, "items")}
+          </span>
+          <span
+            :if={@has_subs}
+            class="badge badge-ghost badge-xs"
+            title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Has subcategories")}
+          >
+            <.icon name="hero-rectangle-stack" class="w-3 h-3" />
+          </span>
+          <span
+            :if={@has_files}
+            class="badge badge-ghost badge-xs"
+            title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Files")}
+          >
+            <.icon name="hero-paper-clip" class="w-3 h-3 rotate-45" />
+          </span>
+          <div class="flex-1"></div>
+          <.link
+            navigate={Paths.category_edit(@category.uuid)}
+            class="text-base-content/40 hover:text-primary"
+            title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit category")}
+          >
+            <.icon name="hero-pencil" class="w-4 h-4" />
+          </.link>
+        </div>
+      </div>
+    </div>
+    """
+  end
+
+  # Tile form of the Uncategorized drill (root, active mode).
+  attr(:catalogue_uuid, :string, required: true)
+  attr(:count, :integer, required: true)
+
+  defp uncategorized_tile(assigns) do
+    ~H"""
+    <.link
+      patch={Paths.uncategorized_browse(@catalogue_uuid)}
+      class="card card-sm bg-base-100 shadow hover:shadow-md transition-shadow overflow-hidden"
+    >
+      <figure class="relative h-24 bg-base-200">
+        <.icon
+          name="hero-folder-open"
+          class="w-10 h-10 text-base-content/20 absolute inset-0 m-auto"
+        />
+      </figure>
+      <div class="card-body p-3 gap-1.5">
+        <span class="font-medium truncate">
+          {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Uncategorized")}
+        </span>
+        <span class="badge badge-ghost badge-sm w-fit">
+          {@count} {Gettext.gettext(PhoenixKitCatalogue.Gettext, "items")}
+        </span>
+      </div>
+    </.link>
+    """
+  end
+
   # The root-level "Uncategorized" drill card (Active mode only). The
   # whole card drills into the uncategorized bucket.
   attr(:catalogue_uuid, :string, required: true)
@@ -3001,6 +3247,26 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       />
     </div>
     """
+  end
+
+  # Orders sibling categories for a reorder strategy; "reverse" reverses
+  # the manual order (position, name-tiebroken), matching the drag order.
+  defp order_categories_for_strategy(cats, :name_asc),
+    do: Enum.sort_by(cats, &String.downcase(&1.name || ""))
+
+  defp order_categories_for_strategy(cats, :name_desc),
+    do: Enum.sort_by(cats, &String.downcase(&1.name || ""), :desc)
+
+  defp order_categories_for_strategy(cats, :created_desc),
+    do: Enum.sort_by(cats, & &1.inserted_at, {:desc, DateTime})
+
+  defp order_categories_for_strategy(cats, :created_asc),
+    do: Enum.sort_by(cats, & &1.inserted_at, {:asc, DateTime})
+
+  defp order_categories_for_strategy(cats, :reverse) do
+    cats
+    |> Enum.sort_by(&{&1.position, String.downcase(&1.name || "")})
+    |> Enum.reverse()
   end
 
   # Active-list sort dropdown options. `:position` is "Manual" (the DnD

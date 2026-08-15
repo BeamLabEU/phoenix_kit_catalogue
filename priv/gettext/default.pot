@@ -1079,3 +1079,27 @@ msgstr ""
 
 msgid "Show image %{number}"
 msgstr ""
+
+msgid "Reorder all"
+msgstr ""
+
+msgid "catalogue"
+msgstr ""
+
+msgid "catalogues"
+msgstr ""
+
+msgid "category"
+msgstr ""
+
+msgid "categories"
+msgstr ""
+
+msgid "Catalogues reordered."
+msgstr ""
+
+msgid "Categories reordered."
+msgstr ""
+
+msgid "Failed to reorder."
+msgstr ""

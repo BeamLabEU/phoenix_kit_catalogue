@@ -1083,3 +1083,27 @@ msgstr "Вперёд"
 
 msgid "Show image %{number}"
 msgstr "Показать изображение %{number}"
+
+msgid "Reorder all"
+msgstr "Переупорядочить все"
+
+msgid "catalogue"
+msgstr "каталог"
+
+msgid "catalogues"
+msgstr "каталоги"
+
+msgid "category"
+msgstr "категория"
+
+msgid "categories"
+msgstr "категории"
+
+msgid "Catalogues reordered."
+msgstr "Каталоги переупорядочены."
+
+msgid "Categories reordered."
+msgstr "Категории переупорядочены."
+
+msgid "Failed to reorder."
+msgstr "Не удалось изменить порядок."

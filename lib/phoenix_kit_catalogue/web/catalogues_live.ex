@@ -21,6 +21,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
 
   import PhoenixKitWeb.Components.Core.Icon, only: [icon: 1]
   import PhoenixKitWeb.Components.Core.Modal, only: [confirm_modal: 1, modal: 1]
+  import PhoenixKitWeb.Components.Core.ReorderModal, only: [reorder_modal: 1]
   import PhoenixKitWeb.Components.Core.TableDefault
   import PhoenixKitWeb.Components.Core.TableRowMenu
   import PhoenixKitWeb.Components.Core.Sortable, only: [sortable_tbody: 1, sortable_row: 1]
@@ -45,6 +46,17 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     {:cont, put_in(socket.private[:live_layout], {PhoenixKitWeb.Layouts, :app})}
   end
 
+  # Hardcoded string→atom whitelist for the catalogues reorder-modal
+  # strategies — NEVER String.to_existing_atom on the submitted value
+  # (same rule as the detail page's items map).
+  @catalogues_reorder_strategy_map %{
+    "name_asc" => :name_asc,
+    "name_desc" => :name_desc,
+    "created_desc" => :created_desc,
+    "created_asc" => :created_asc,
+    "reverse" => :reverse
+  }
+
   @impl true
   def mount(_params, _session, socket) do
     if connected?(socket), do: PubSub.subscribe()
@@ -68,6 +80,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
        folders_modal_view: "active",
        view_configs: load_view_configs(socket),
        catalogue_file_counts: %{},
+       show_catalogues_reorder: false,
        show_column_modal: false,
        temp_columns: nil
      )}
@@ -555,6 +568,42 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   # outside the view. That is the duplicate-`position` corruption this
   # feature's own comments describe as how the column got into that state the
   # first time; gating only the handles would have left the same door open.
+  def handle_event("open_catalogues_reorder_modal", _params, socket) do
+    {:noreply, assign(socket, :show_catalogues_reorder, true)}
+  end
+
+  def handle_event("close_catalogues_reorder_modal", _params, socket) do
+    {:noreply, assign(socket, :show_catalogues_reorder, false)}
+  end
+
+  # Strategy reorder for the whole catalogues list ("Reorder all" in manual
+  # mode). Operates on the FULL loaded set — the index isn't paginated — so
+  # re-indexing into 1..N can't collide with unseen rows.
+  def handle_event("apply_catalogues_reorder", %{"strategy" => strategy_str}, socket)
+      when is_map_key(@catalogues_reorder_strategy_map, strategy_str) do
+    strategy = Map.fetch!(@catalogues_reorder_strategy_map, strategy_str)
+
+    ordered =
+      socket.assigns.catalogue_rows
+      |> order_rows_for_strategy(strategy)
+      |> Enum.map(& &1.uuid)
+
+    case Catalogue.reorder_catalogues(ordered, actor_opts(socket)) do
+      :ok ->
+        {:noreply,
+         socket
+         |> assign(:show_catalogues_reorder, false)
+         |> put_flash(:info, gettext("Catalogues reordered."))
+         |> load_data(:index)}
+
+      {:error, reason} ->
+        log_operation_error(socket, "apply_catalogues_reorder", %{reason: reason})
+        {:noreply, put_flash(socket, :error, gettext("Failed to reorder."))}
+    end
+  end
+
+  def handle_event("apply_catalogues_reorder", _params, socket), do: {:noreply, socket}
+
   def handle_event("reorder_catalogues", %{"ordered_ids" => ordered_ids}, socket)
       when is_list(ordered_ids) do
     if manual_order_draggable?(socket.assigns.catalogue_view_mode, current_cfg(socket.assigns)) do
@@ -975,6 +1024,37 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       sort_by: cfg.sort_by,
       sort_dir: cfg.sort_dir
     })
+  end
+
+  defp catalogue_reorder_strategies do
+    [
+      {"name_asc", gettext("A → Z by name")},
+      {"name_desc", gettext("Z → A by name")},
+      {"created_desc", gettext("Newest first")},
+      {"created_asc", gettext("Oldest first")},
+      {"reverse", gettext("Reverse current order")}
+    ]
+  end
+
+  # Orders the full row set for a reorder strategy. "Reverse current order"
+  # reverses the MANUAL order (position, name-tiebroken — the order the
+  # strategies overwrite), not whatever transient sort the viewer has.
+  defp order_rows_for_strategy(rows, :name_asc),
+    do: Enum.sort_by(rows, &String.downcase(&1.name || ""))
+
+  defp order_rows_for_strategy(rows, :name_desc),
+    do: Enum.sort_by(rows, &String.downcase(&1.name || ""), :desc)
+
+  defp order_rows_for_strategy(rows, :created_desc),
+    do: Enum.sort_by(rows, & &1.inserted_at, {:desc, DateTime})
+
+  defp order_rows_for_strategy(rows, :created_asc),
+    do: Enum.sort_by(rows, & &1.inserted_at, {:asc, DateTime})
+
+  defp order_rows_for_strategy(rows, :reverse) do
+    rows
+    |> Enum.sort_by(&{&1.position, String.downcase(&1.name || "")})
+    |> Enum.reverse()
   end
 
   defp flip(:asc), do: :desc
@@ -1617,6 +1697,19 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         </div>
       </.modal>
 
+
+      <.reorder_modal
+        :if={@active_tab == :index}
+        id="catalogues-reorder-modal"
+        show={@show_catalogues_reorder}
+        on_close="close_catalogues_reorder_modal"
+        on_apply="apply_catalogues_reorder"
+        selected_count={0}
+        total_count={length(@catalogue_rows)}
+        strategies={catalogue_reorder_strategies()}
+        noun_singular={gettext("catalogue")}
+        noun_plural={gettext("catalogues")}
+      />
       <.column_settings_modal
         show={@show_column_modal}
         scope={active_scope(assigns)}
@@ -1674,6 +1767,15 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         sort_dir={@cfg.sort_dir}
         manual_value="position"
       />
+      <button
+        :if={@scope == :catalogues and @cfg.sort_by == "position"}
+        type="button"
+        phx-click="open_catalogues_reorder_modal"
+        class="btn btn-outline btn-sm"
+      >
+        <.icon name="hero-arrows-up-down" class="w-4 h-4" />
+        <span class="hidden sm:inline">{gettext("Reorder all")}</span>
+      </button>
       <button type="button" phx-click="show_column_modal" class="btn btn-outline btn-sm">
         <.icon name="hero-adjustments-horizontal" class="w-4 h-4" />
         <span class="hidden sm:inline">

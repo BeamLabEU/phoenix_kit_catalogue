@@ -1074,3 +1074,27 @@ msgstr "Järgmine"
 
 msgid "Show image %{number}"
 msgstr "Näita pilti %{number}"
+
+msgid "Reorder all"
+msgstr "Järjesta kõik ümber"
+
+msgid "catalogue"
+msgstr "kataloog"
+
+msgid "catalogues"
+msgstr "kataloogid"
+
+msgid "category"
+msgstr "kategooria"
+
+msgid "categories"
+msgstr "kategooriad"
+
+msgid "Catalogues reordered."
+msgstr "Kataloogid järjestati ümber."
+
+msgid "Categories reordered."
+msgstr "Kategooriad järjestati ümber."
+
+msgid "Failed to reorder."
+msgstr "Ümberjärjestamine ebaõnnestus."
