@@ -578,6 +578,62 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   # drives the existing "folder" filter, so the sidebar, the filter
   # select, and the table always agree on location.
 
+  # MediaDragDrop drops. "file" is the hook's generic draggable-item
+  # type — here it is a catalogue row. An empty folder_uuid means the
+  # root drop target; move_catalogue_to_folder normalizes it to nil and
+  # validates real targets against active folders.
+  def handle_event("move_file_to_folder", %{"file_uuid" => uuid, "folder_uuid" => target}, socket) do
+    with %{} = catalogue <- Catalogue.get_catalogue(uuid),
+         {:ok, _} <- Catalogue.move_catalogue_to_folder(catalogue, target, actor_opts(socket)) do
+      {:noreply,
+       socket
+       |> put_flash(:info, Gettext.gettext(PhoenixKitCatalogue.Gettext, "Catalogue moved."))
+       |> load_data(:index)}
+    else
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, move_error_message(reason))}
+
+      _ ->
+        {:noreply, socket}
+    end
+  end
+
+  def handle_event(
+        "move_folder_to_folder",
+        %{"folder_uuid" => uuid, "target_folder_uuid" => target},
+        socket
+      ) do
+    with %{} = folder <- Catalogue.get_folder(uuid),
+         {:ok, _} <- Catalogue.move_folder(folder, target, actor_opts(socket)) do
+      {:noreply,
+       socket
+       |> put_flash(:info, Gettext.gettext(PhoenixKitCatalogue.Gettext, "Folder moved."))
+       |> load_data(:index)}
+    else
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, move_error_message(reason))}
+
+      _ ->
+        {:noreply, socket}
+    end
+  end
+
+  # Trash drops (the sidebar Trash button carries data-drop-trash).
+  def handle_event("trash_file", %{"file_uuid" => uuid}, socket) do
+    handle_event("trash_catalogue", %{"uuid" => uuid}, socket)
+  end
+
+  def handle_event("trash_folder", %{"folder_uuid" => uuid}, socket) do
+    handle_event("trash_folder", %{"uuid" => uuid}, socket)
+  end
+
+  # Long-press is the hook's touch multi-select gesture; the catalogues
+  # index has no drag-selection model, so it is a deliberate no-op (the
+  # hook fires it unconditionally on draggable rows).
+  def handle_event("long_press_select", _params, socket), do: {:noreply, socket}
+
+  def handle_event("move_selected_to_folder", _params, socket), do: {:noreply, socket}
+
   def handle_event("navigate_folder", %{"folder-uuid" => uuid}, socket) do
     if Map.has_key?(socket.assigns.folder_lookup, uuid) do
       socket =
@@ -1498,7 +1554,17 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     >
       <div class="flex flex-col w-full px-4 py-6 gap-6">
         <%!-- Catalogue tab content --%>
-        <div :if={@active_tab == :index} class="flex items-stretch">
+        <%!-- MediaDragDrop (core hook, shared with the media library) scans
+             for data-draggable-file / data-drop-folder / data-drop-trash and
+             pushes move_file_to_folder / move_folder_to_folder / trash_* to
+             this LV — catalogue rows drag onto sidebar folders to file them,
+             folders drag onto folders to nest, anything onto Trash. --%>
+        <div
+          :if={@active_tab == :index}
+          id="catalogue-dnd"
+          phx-hook="MediaDragDrop"
+          class="flex items-stretch"
+        >
           <% cfg = @view_configs.catalogues %>
           <.folder_explorer
             id="catalogue-folder-explorer"
@@ -1602,6 +1668,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
           <.simple_table
             scope={:catalogues}
             cfg={cfg}
+            drag_to_folders={@catalogue_view_mode == "active"}
             file_counts={@catalogue_file_counts}
             rows={derive_rows(@catalogue_rows, :catalogues, cfg)}
             total={length(@catalogue_rows)}
@@ -2326,6 +2393,8 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   slot(:row_actions, required: true)
   slot(:card_actions, required: true)
 
+  attr(:drag_to_folders, :boolean, default: false)
+
   defp simple_table(assigns) do
     assigns =
       assigns
@@ -2394,7 +2463,11 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         </.table_default_row>
       </.table_default_header>
       <.sortable_tbody :if={@draggable} id={"#{@scope}-table-body"} enabled={@reorderable?} event="reorder_catalogues">
-        <.sortable_row :for={row <- @rows} item_id={row.uuid}>
+        <.sortable_row
+          :for={row <- @rows}
+          item_id={row.uuid}
+          data-draggable-file={@drag_to_folders && row.uuid}
+        >
           <.drag_handle_cell :if={@reorderable?} />
           <td :if={!@reorderable?} class="w-8"></td>
           <.table_default_cell :if={@photo_col?} class="w-12 !pr-0 !py-1 [.pk-comfy_&]:w-22 [.pk-comfy_&]:!py-1.5">
@@ -2409,7 +2482,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         </.sortable_row>
       </.sortable_tbody>
       <.table_default_body :if={!@draggable}>
-        <.table_default_row :for={row <- @rows}>
+        <.table_default_row :for={row <- @rows} data-draggable-file={@drag_to_folders && row.uuid}>
           <.table_default_cell :if={@photo_col?} class="w-12 !pr-0 !py-1 [.pk-comfy_&]:w-22 [.pk-comfy_&]:!py-1.5">
             <.featured_thumb resource={row} has_files={Map.get(@file_counts, row.uuid, 0) > 0} />
           </.table_default_cell>

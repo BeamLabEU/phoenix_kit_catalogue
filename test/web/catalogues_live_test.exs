@@ -173,6 +173,52 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
       assert Catalogue.get_folder(new_folder.uuid).name == "Named via sidebar"
     end
 
+    test "drag-drop events file catalogues and nest folders", %{conn: conn} do
+      {:ok, folder_a} = Catalogue.create_folder(%{name: "Drop target"})
+      {:ok, folder_b} = Catalogue.create_folder(%{name: "Will nest"})
+      cat = fixture_catalogue(%{name: "Dragged catalogue"})
+
+      {:ok, view, _html} = live(conn, @base)
+
+      # Catalogue dropped on a folder files it there.
+      render_click(view, "move_file_to_folder", %{
+        "file_uuid" => cat.uuid,
+        "folder_uuid" => folder_a.uuid
+      })
+
+      assert Catalogue.get_catalogue(cat.uuid).folder_uuid == folder_a.uuid
+
+      # Catalogue dropped on the root target unfiles it.
+      render_click(view, "move_file_to_folder", %{"file_uuid" => cat.uuid, "folder_uuid" => ""})
+      assert Catalogue.get_catalogue(cat.uuid).folder_uuid == nil
+
+      # Folder dropped on a folder nests it.
+      render_click(view, "move_folder_to_folder", %{
+        "folder_uuid" => folder_b.uuid,
+        "target_folder_uuid" => folder_a.uuid
+      })
+
+      assert Catalogue.get_folder(folder_b.uuid).parent_uuid == folder_a.uuid
+
+      # Nesting a folder under its own descendant is refused (cycle guard).
+      render_click(view, "move_folder_to_folder", %{
+        "folder_uuid" => folder_a.uuid,
+        "target_folder_uuid" => folder_b.uuid
+      })
+
+      assert Catalogue.get_folder(folder_a.uuid).parent_uuid == nil
+
+      # Trash drops route to the existing trash flows.
+      render_click(view, "trash_file", %{"file_uuid" => cat.uuid})
+      assert Catalogue.get_catalogue(cat.uuid).status == "deleted"
+
+      render_click(view, "trash_folder", %{"folder_uuid" => folder_b.uuid})
+      assert Catalogue.get_folder(folder_b.uuid).status == "deleted"
+
+      # The hook's touch-select gesture is a no-op here, never a crash.
+      render_click(view, "long_press_select", %{"type" => "file", "uuid" => cat.uuid})
+    end
+
     test "new_folder honors a validated parent from the drill level", %{conn: conn} do
       {:ok, folder} = Catalogue.create_folder(%{name: "Parent here"})
 
