@@ -2273,6 +2273,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
           <.level_items
             :if={@show_items_section}
             items={@items}
+            file_counts={@file_counts}
             view_mode={@view_mode}
             catalogue={@catalogue}
             current_category={@current_category}
@@ -2749,6 +2750,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   attr(:items_sort_dir, :atom, required: true)
   attr(:show_items_reorder, :boolean, required: true)
   attr(:reorder_captured_uuids, :list, required: true)
+  attr(:file_counts, :map, default: %{})
 
   defp level_items(assigns) do
     # `draggable?` controls the handle *column* (manual sort, not the deleted
