@@ -72,7 +72,19 @@ defmodule PhoenixKitCatalogue.Web.TableQuery do
     |> Enum.sort_by(fn {name, _u} -> String.downcase(name || "") end)
   end
 
-  def enum_options(rows, _scope, id) do
+  # Status options get the same translated label as the rest of the UI
+  # (Helpers.status_label/1) instead of the raw DB value.
+  def enum_options(rows, scope, "status") do
+    rows
+    |> raw_enum_values(scope, "status")
+    |> Enum.map(&{PhoenixKitCatalogue.Web.Helpers.status_label(&1), &1})
+  end
+
+  def enum_options(rows, scope, id) do
+    Enum.map(raw_enum_values(rows, scope, id), &{&1, &1})
+  end
+
+  defp raw_enum_values(rows, _scope, id) do
     key = String.to_existing_atom(id)
 
     rows
@@ -80,7 +92,6 @@ defmodule PhoenixKitCatalogue.Web.TableQuery do
     |> Enum.reject(&(&1 in ["", "nil"]))
     |> Enum.uniq()
     |> Enum.sort()
-    |> Enum.map(&{&1, &1})
   rescue
     ArgumentError -> []
   end
