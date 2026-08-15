@@ -109,6 +109,9 @@ msgstr "Kustutatud"
 msgid "Discontinued"
 msgstr "Tootmine lõpetatud"
 
+msgid "Up"
+msgstr "Üles"
+
 msgid "Unknown"
 msgstr "Teadmata"
 

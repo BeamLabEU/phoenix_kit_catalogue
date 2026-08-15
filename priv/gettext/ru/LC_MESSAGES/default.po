@@ -109,6 +109,9 @@ msgstr "Удалён"
 msgid "Discontinued"
 msgstr "Снят с производства"
 
+msgid "Up"
+msgstr "Вверх"
+
 msgid "Unknown"
 msgstr "Неизвестно"
 

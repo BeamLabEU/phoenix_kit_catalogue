@@ -109,6 +109,9 @@ msgstr "Deleted"
 msgid "Discontinued"
 msgstr "Discontinued"
 
+msgid "Up"
+msgstr "Up"
+
 msgid "Unknown"
 msgstr "Unknown"
 

@@ -97,6 +97,50 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
   # Active / Deleted toggle
   # ─────────────────────────────────────────────────────────────────
 
+  describe "folders panel" do
+    test "root folders render inline and drill-down narrows the list", %{conn: conn} do
+      {:ok, folder} = Catalogue.create_folder(%{name: "Showcase"})
+      {:ok, _child} = Catalogue.create_folder(%{name: "Nested", parent_uuid: folder.uuid})
+      filed = fixture_catalogue(%{name: "Filed catalogue"})
+      {:ok, _} = Catalogue.move_catalogue_to_folder(filed, folder.uuid)
+      fixture_catalogue(%{name: "Loose catalogue"})
+
+      {:ok, view, html} = live(conn, @base)
+
+      # Root folder appears inline; its child does not (it lives one level down).
+      assert html =~ "Showcase"
+      refute html =~ ">Nested<"
+
+      # Drill in: the panel shows the child folder + Up, the table narrows.
+      drilled =
+        render_click(view, "set_filter", %{"column_id" => "folder", "value" => folder.uuid})
+
+      assert drilled =~ "Nested"
+      assert drilled =~ "Up"
+      assert drilled =~ "Filed catalogue"
+      refute drilled =~ "Loose catalogue"
+
+      # Up returns to root.
+      root = render_click(view, "set_filter", %{"column_id" => "folder", "value" => ""})
+      assert root =~ "Loose catalogue"
+    end
+
+    test "new_folder honors a validated parent from the drill level", %{conn: conn} do
+      {:ok, folder} = Catalogue.create_folder(%{name: "Parent here"})
+
+      {:ok, view, _html} = live(conn, @base)
+      render_click(view, "new_folder", %{"parent" => folder.uuid})
+
+      tree = Catalogue.list_folder_tree()
+      assert Enum.any?(tree, fn {f, depth} -> f.parent_uuid == folder.uuid and depth == 1 end)
+
+      # A forged/unknown parent falls back to a root folder instead of erroring.
+      render_click(view, "new_folder", %{"parent" => Ecto.UUID.generate()})
+      roots = for {f, 0} <- Catalogue.list_folder_tree(), do: f
+      assert length(roots) >= 2
+    end
+  end
+
   describe "catalogue view toggle" do
     test "deleted toggle only appears when there are deleted catalogues", %{conn: conn} do
       fixture_catalogue(%{name: "Active"})
