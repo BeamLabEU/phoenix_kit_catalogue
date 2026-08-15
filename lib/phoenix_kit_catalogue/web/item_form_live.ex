@@ -969,7 +969,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
            actor_opts(socket)
          ) do
       {:error, reason} ->
-        Logger.debug("ItemFormLive attribute assignment skipped: #{inspect(reason)}")
+        Logger.warning("ItemFormLive attribute assignment skipped: #{inspect(reason)}")
         :ok
 
       _ ->

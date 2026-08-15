@@ -236,6 +236,83 @@ defmodule PhoenixKitCatalogue.AttributesTest do
     end
   end
 
+  describe "panel-review hardening" do
+    test "is_default is not castable — a forged payload cannot claim the default" do
+      g = create_group()
+      a = create_attribute(g)
+      _v1 = create_value(a, "White")
+
+      {:ok, v2} = Catalogue.create_attribute_value(a, %{"value" => "Oak", "is_default" => true})
+      refute v2.is_default
+
+      {:ok, updated} = Catalogue.update_attribute_value(v2, %{"is_default" => true})
+      refute updated.is_default
+    end
+
+    test "positions append past the max, not the count, after a mid-list delete" do
+      g = create_group()
+      a1 = create_attribute(g, %{"name" => "Color"})
+      _a2 = create_attribute(g, %{"name" => "Trim"})
+      a3 = create_attribute(g, %{"name" => "Surface"})
+
+      {:ok, _} = Catalogue.delete_attribute(a1)
+      a4 = create_attribute(g, %{"name" => "Edge"})
+
+      # COUNT would have reused position 2 (a3's slot); MAX+1 appends.
+      assert a4.position == a3.position + 1
+    end
+
+    test "reorder drops forged, junk, and duplicated uuids before writing" do
+      g = create_group()
+      a1 = create_attribute(g, %{"name" => "Color"})
+      a2 = create_attribute(g, %{"name" => "Trim"})
+      other = create_group(%{name: "Other"})
+      foreign = create_attribute(other, %{"name" => "Sneak"})
+
+      :ok =
+        Catalogue.reorder_attributes(g, [
+          a2.uuid,
+          a2.uuid,
+          "not-a-uuid",
+          foreign.uuid,
+          nil,
+          a1.uuid
+        ])
+
+      full = Catalogue.get_attribute_group_full(g.uuid)
+      assert Enum.map(full.attributes, & &1.name) == ["Trim", "Color"]
+      # the foreign attribute's position is untouched
+      assert Catalogue.get_attribute(foreign.uuid).position == 0
+    end
+
+    test "clearing an already-cleared assignment twice is safe" do
+      g = create_group()
+      item = create_item()
+      {:ok, :assigned} = Catalogue.set_item_attribute_group(item, g.uuid)
+      {:ok, :cleared} = Catalogue.set_item_attribute_group(item, nil)
+      assert {:ok, :unchanged} = Catalogue.set_item_attribute_group(item, nil)
+    end
+
+    test "a malformed group uuid is a domain error, not a query crash" do
+      item = create_item()
+      assert {:error, :invalid_group} = Catalogue.set_item_attribute_group(item, "attributes")
+    end
+
+    test "set_default_value on a vanished value reports not_found" do
+      g = create_group()
+      a = create_attribute(g)
+      v1 = create_value(a, "White")
+      v2 = create_value(a, "Oak")
+      {:ok, _} = Catalogue.delete_attribute_value(v2)
+
+      assert {:error, :not_found} = Catalogue.set_default_value(v2)
+      # and the surviving default was not silently cleared
+      resolved = Catalogue.resolved_group(g.uuid, "en")
+      [%{values: [%{default?: true}]}] = resolved.attributes
+      assert Catalogue.get_attribute_value(v1.uuid).is_default
+    end
+  end
+
   describe "counts" do
     test "attribute_counts and assignment_counts batch per group" do
       g1 = create_group()

@@ -232,6 +232,11 @@ defmodule PhoenixKitCatalogue.Catalogue.Attributes do
         repo().delete!(group)
       end
     end)
+  rescue
+    # TOCTOU: an assignment (or new child) can land between the gate and
+    # the delete; the RESTRICT FK then raises. Same domain answer as the
+    # gate, not a crash (panel finding).
+    _e in [Ecto.ConstraintError, Postgrex.Error] -> {:error, :in_use}
   end
 
   # ── Attributes ─────────────────────────────────────────────────────
@@ -257,8 +262,15 @@ defmodule PhoenixKitCatalogue.Catalogue.Attributes do
     taken =
       repo().all(from(a in Attribute, where: a.group_uuid == ^group.uuid, select: a.key))
 
+    # MAX+1, not COUNT: after a mid-list delete, COUNT would hand out a
+    # position an existing row still holds (panel finding).
     next_pos =
-      repo().one(from(a in Attribute, where: a.group_uuid == ^group.uuid, select: count(a.uuid)))
+      repo().one(
+        from(a in Attribute,
+          where: a.group_uuid == ^group.uuid,
+          select: coalesce(max(a.position), -1) + 1
+        )
+      )
 
     attrs =
       attrs
@@ -306,13 +318,20 @@ defmodule PhoenixKitCatalogue.Catalogue.Attributes do
     result =
       ActivityLog.with_log(
         fn ->
-          repo().transaction(fn ->
-            repo().delete_all(
-              from(v in AttributeValue, where: v.attribute_uuid == ^attribute.uuid)
-            )
+          # RESTRICT can still fire if a value lands concurrently between
+          # the delete_all and the attribute delete — domain error, not a
+          # crash.
+          try do
+            repo().transaction(fn ->
+              repo().delete_all(
+                from(v in AttributeValue, where: v.attribute_uuid == ^attribute.uuid)
+              )
 
-            repo().delete!(attribute)
-          end)
+              repo().delete!(attribute)
+            end)
+          rescue
+            _e in [Ecto.ConstraintError, Postgrex.Error] -> {:error, :in_use}
+          end
         end,
         fn _ ->
           %{
@@ -334,16 +353,23 @@ defmodule PhoenixKitCatalogue.Catalogue.Attributes do
 
   @doc """
   Persists a manual ordering of a group's attributes. UUIDs not in the
-  list keep their position; unknown UUIDs are ignored (stale client).
+  list keep their position; unknown UUIDs are dropped BEFORE any writes —
+  the client list is forgeable, so the write count is bounded by the
+  group's real row count, never by payload length (panel finding).
   """
   @spec reorder_attributes(AttributeGroup.t(), [Ecto.UUID.t()]) :: :ok
   def reorder_attributes(%AttributeGroup{} = group, uuids) when is_list(uuids) do
+    known =
+      repo().all(from(a in Attribute, where: a.group_uuid == ^group.uuid, select: a.uuid))
+
+    ordered = sanitize_reorder(uuids, known)
+
     repo().transaction(fn ->
-      uuids
+      ordered
       |> Enum.with_index()
       |> Enum.each(fn {uuid, idx} ->
         repo().update_all(
-          from(a in Attribute, where: a.uuid == ^uuid and a.group_uuid == ^group.uuid),
+          from(a in Attribute, where: a.uuid == ^uuid),
           set: [position: idx, updated_at: DateTime.utc_now(:second)]
         )
       end)
@@ -379,11 +405,11 @@ defmodule PhoenixKitCatalogue.Catalogue.Attributes do
         from(v in AttributeValue, where: v.attribute_uuid == ^attribute.uuid, select: v.key)
       )
 
-    count =
+    next_pos =
       repo().one(
         from(v in AttributeValue,
           where: v.attribute_uuid == ^attribute.uuid,
-          select: count(v.uuid)
+          select: coalesce(max(v.position), -1) + 1
         )
       )
 
@@ -392,13 +418,32 @@ defmodule PhoenixKitCatalogue.Catalogue.Attributes do
       |> Map.new(fn {k, v} -> {to_string(k), v} end)
       |> Map.put("attribute_uuid", attribute.uuid)
       |> Map.put("key", generate_key(text, taken, "value"))
-      |> Map.put_new("position", count)
-      |> Map.put_new("is_default", count == 0)
+      |> Map.put_new("position", next_pos)
 
-    with {:ok, value} <-
-           %AttributeValue{} |> AttributeValue.create_changeset(attrs) |> repo().insert() do
-      PubSub.broadcast(:attribute_group, attribute.group_uuid)
-      {:ok, value}
+    # Insert non-default, then atomically promote when the attribute has no
+    # default — the read-count-then-flag version let two concurrent "first
+    # value" inserts both claim the default and trip the partial unique
+    # index (panel finding). `promote_when_none/1` is one guarded UPDATE,
+    # so the race resolves inside Postgres instead.
+    result =
+      repo().transaction(fn ->
+        case %AttributeValue{} |> AttributeValue.create_changeset(attrs) |> repo().insert() do
+          {:ok, value} ->
+            promote_when_none(attribute.uuid)
+            repo().get!(AttributeValue, value.uuid)
+
+          {:error, changeset} ->
+            repo().rollback(changeset)
+        end
+      end)
+
+    case result do
+      {:ok, value} ->
+        PubSub.broadcast(:attribute_group, attribute.group_uuid)
+        {:ok, value}
+
+      {:error, %Ecto.Changeset{} = changeset} ->
+        {:error, changeset}
     end
   end
 
@@ -423,12 +468,10 @@ defmodule PhoenixKitCatalogue.Catalogue.Attributes do
   def delete_attribute_value(%AttributeValue{} = value) do
     result =
       repo().transaction(fn ->
-        repo().delete!(value)
-
-        if value.is_default do
-          promote_first_value(value.attribute_uuid)
-        end
-
+        # delete_all by uuid: a concurrent delete of the same row is a
+        # no-op here, not an Ecto.StaleEntryError crash.
+        repo().delete_all(from(v in AttributeValue, where: v.uuid == ^value.uuid))
+        promote_when_none(value.attribute_uuid)
         value
       end)
 
@@ -436,11 +479,17 @@ defmodule PhoenixKitCatalogue.Catalogue.Attributes do
       broadcast_for_attribute(value.attribute_uuid)
       {:ok, deleted}
     end
+  rescue
+    # A concurrent default flip can still trip the partial unique index at
+    # commit; surface a domain error instead of crashing the LiveView.
+    _e in [Ecto.ConstraintError, Postgrex.Error] -> {:error, :conflict}
   end
 
   @doc """
   Makes a value its attribute's default. Unset-then-set inside one
-  transaction (the partial unique index allows at most one default).
+  transaction (the partial unique index allows at most one default);
+  fails with `{:error, :not_found}` when the value vanished concurrently
+  and `{:error, :conflict}` when two flips race on the index.
   """
   @spec set_default_value(AttributeValue.t()) :: {:ok, AttributeValue.t()} | {:error, term()}
   def set_default_value(%AttributeValue{} = value) do
@@ -453,48 +502,65 @@ defmodule PhoenixKitCatalogue.Catalogue.Attributes do
           set: [is_default: false, updated_at: DateTime.utc_now(:second)]
         )
 
-        repo().update_all(from(v in AttributeValue, where: v.uuid == ^value.uuid),
-          set: [is_default: true, updated_at: DateTime.utc_now(:second)]
-        )
-
-        %{value | is_default: true}
+        # Row-count check: a concurrently deleted target must not commit a
+        # cleared-defaults state while reporting success (panel finding).
+        case repo().update_all(from(v in AttributeValue, where: v.uuid == ^value.uuid),
+               set: [is_default: true, updated_at: DateTime.utc_now(:second)]
+             ) do
+          {1, _} -> %{value | is_default: true}
+          _ -> repo().rollback(:not_found)
+        end
       end)
 
     with {:ok, updated} <- result do
       broadcast_for_attribute(value.attribute_uuid)
       {:ok, updated}
     end
+  rescue
+    _e in [Ecto.ConstraintError, Postgrex.Error] -> {:error, :conflict}
   end
 
-  defp promote_first_value(attribute_uuid) do
-    first =
-      repo().one(
-        from(v in AttributeValue,
-          where: v.attribute_uuid == ^attribute_uuid and v.status == "active",
-          order_by: [asc: v.position, asc: v.uuid],
-          limit: 1,
-          select: v.uuid
-        )
+  # One guarded UPDATE: crown the lowest-position active value, but only
+  # when the attribute currently has NO default — atomic under the partial
+  # unique index, so concurrent callers can't double-promote.
+  defp promote_when_none(attribute_uuid) do
+    target =
+      from(v in AttributeValue,
+        where: v.attribute_uuid == ^attribute_uuid and v.status == "active",
+        order_by: [asc: v.position, asc: v.uuid],
+        limit: 1,
+        select: v.uuid
       )
 
-    if first do
-      repo().update_all(from(v in AttributeValue, where: v.uuid == ^first),
-        set: [is_default: true, updated_at: DateTime.utc_now(:second)]
+    none_default =
+      from(v in AttributeValue,
+        where: v.attribute_uuid == ^attribute_uuid and v.is_default
       )
-    end
+
+    repo().update_all(
+      from(v in AttributeValue,
+        where: v.uuid in subquery(target) and not exists(none_default)
+      ),
+      set: [is_default: true, updated_at: DateTime.utc_now(:second)]
+    )
   end
 
   @doc "Persists a manual ordering of an attribute's values (same contract as `reorder_attributes/2`)."
   @spec reorder_attribute_values(Attribute.t(), [Ecto.UUID.t()]) :: :ok
   def reorder_attribute_values(%Attribute{} = attribute, uuids) when is_list(uuids) do
+    known =
+      repo().all(
+        from(v in AttributeValue, where: v.attribute_uuid == ^attribute.uuid, select: v.uuid)
+      )
+
+    ordered = sanitize_reorder(uuids, known)
+
     repo().transaction(fn ->
-      uuids
+      ordered
       |> Enum.with_index()
       |> Enum.each(fn {uuid, idx} ->
         repo().update_all(
-          from(v in AttributeValue,
-            where: v.uuid == ^uuid and v.attribute_uuid == ^attribute.uuid
-          ),
+          from(v in AttributeValue, where: v.uuid == ^uuid),
           set: [position: idx, updated_at: DateTime.utc_now(:second)]
         )
       end)
@@ -502,6 +568,17 @@ defmodule PhoenixKitCatalogue.Catalogue.Attributes do
 
     PubSub.broadcast(:attribute_group, attribute.group_uuid)
     :ok
+  end
+
+  # Dedupe + intersect the forgeable client list with the real child set;
+  # only rows the parent actually owns get an index.
+  defp sanitize_reorder(uuids, known) do
+    known_set = MapSet.new(known)
+
+    uuids
+    |> Enum.filter(&is_binary/1)
+    |> Enum.uniq()
+    |> Enum.filter(&MapSet.member?(known_set, &1))
   end
 
   defp broadcast_for_attribute(attribute_uuid) do
@@ -532,7 +609,9 @@ defmodule PhoenixKitCatalogue.Catalogue.Attributes do
         {:ok, :unchanged}
 
       assignment ->
-        repo().delete!(assignment)
+        # delete_all by uuid: a concurrent clear (double-click, second tab)
+        # is a no-op, not an Ecto.StaleEntryError crash.
+        repo().delete_all(from(iag in ItemAttributeGroup, where: iag.uuid == ^assignment.uuid))
         log_assignment(item, nil, opts)
         PubSub.broadcast(:item, item.uuid, item.catalogue_uuid)
         {:ok, :cleared}
@@ -540,6 +619,15 @@ defmodule PhoenixKitCatalogue.Catalogue.Attributes do
   end
 
   def set_item_attribute_group(%Item{} = item, group_uuid, opts) when is_binary(group_uuid) do
+    # Events are client-forgeable: a malformed uuid must be a domain error,
+    # not an Ecto.Query.CastError crash further down.
+    case Ecto.UUID.cast(group_uuid) do
+      {:ok, _} -> do_set_item_attribute_group(item, group_uuid, opts)
+      :error -> {:error, :invalid_group}
+    end
+  end
+
+  defp do_set_item_attribute_group(%Item{} = item, group_uuid, opts) do
     current = repo().get_by(ItemAttributeGroup, item_uuid: item.uuid)
 
     cond do
@@ -718,6 +806,10 @@ defmodule PhoenixKitCatalogue.Catalogue.Attributes do
   # underscored, deduped with -2/-3… within the parent scope. Names that
   # slugify to nothing (emoji, punctuation) fall back to the given base.
   defp generate_key(nil, _taken, base), do: base
+
+  # Forged non-string names (maps, lists) must not reach to_string/1 —
+  # fall back to the base; the changeset then rejects the junk name.
+  defp generate_key(text, _taken, base) when not is_binary(text), do: base
 
   defp generate_key(text, taken, base) do
     slug =
