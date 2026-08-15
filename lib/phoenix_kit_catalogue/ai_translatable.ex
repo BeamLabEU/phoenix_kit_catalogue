@@ -33,8 +33,8 @@ defmodule PhoenixKitCatalogue.AITranslatable do
   alias PhoenixKit.RepoHelper
   alias PhoenixKit.Utils.Multilang
   alias PhoenixKitCatalogue.Catalogue
-  alias PhoenixKitCatalogue.Schemas.Catalogue, as: CatalogueSchema
   alias PhoenixKitCatalogue.Schemas.{Attribute, AttributeGroup, AttributeValue, Category, Item}
+  alias PhoenixKitCatalogue.Schemas.Catalogue, as: CatalogueSchema
 
   # Engine-facing field names (plain strings) ↔ their schema columns, per
   # resource shape. The AI engine speaks the string keys; `column_value/2`
