@@ -2467,6 +2467,40 @@ defmodule PhoenixKitCatalogue.Catalogue do
   end
 
   @doc """
+  Hard-deletes an EMPTY folder — no trash step, no restore. Folders are
+  organizational titles; deleting one is only allowed once nothing
+  references it: no subfolders and no catalogues filed in it (any
+  status — a trashed catalogue still points at its folder). Returns
+  `{:error, :not_empty}` otherwise.
+  """
+  @spec delete_empty_folder(Folder.t(), keyword()) ::
+          {:ok, Folder.t()} | {:error, :not_empty | term()}
+  def delete_empty_folder(%Folder{} = folder, opts \\ []) do
+    has_subfolders? =
+      repo().exists?(from(f in Folder, where: f.parent_uuid == ^folder.uuid))
+
+    has_catalogues? =
+      repo().exists?(from(c in Catalogue, where: c.folder_uuid == ^folder.uuid))
+
+    if has_subfolders? or has_catalogues? do
+      {:error, :not_empty}
+    else
+      with {:ok, deleted} <- repo().delete(folder) do
+        log_activity(%{
+          action: "folder.deleted",
+          mode: "manual",
+          actor_uuid: opts[:actor_uuid],
+          resource_type: "folder",
+          resource_uuid: folder.uuid,
+          metadata: %{"name" => folder.name}
+        })
+
+        {:ok, deleted}
+      end
+    end
+  end
+
+  @doc """
   Permanently deletes a folder from the database. Non-cascading, matching
   the trash/orphan-promotion semantics: direct child folders are promoted
   to root (their `parent_uuid` is NULLed) and catalogues filed here are

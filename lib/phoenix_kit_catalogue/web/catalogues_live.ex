@@ -656,11 +656,9 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
                       />
                       <.table_row_menu_divider />
                       <.table_row_menu_button
-                        phx-click="trash_folder"
+                        phx-click="show_delete_confirm"
                         phx-value-uuid={folder.uuid}
-                        phx-disable-with={
-                          Gettext.gettext(PhoenixKitCatalogue.Gettext, "Deleting...")
-                        }
+                        phx-value-type="folder"
                         icon="hero-trash"
                         label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")}
                         variant="error"
@@ -906,10 +904,11 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
 
   attr(:tree, :list, required: true)
 
-  # Trashed folders in the Deleted view (their previous home, the Folders
-  # modal, was removed with its toolbar button). Restore and Delete
-  # Forever reuse the existing events; a restored folder rejoins the
-  # tree, a hard delete goes through the shared confirm modal.
+  # LEGACY-only: folders trashed before the folder-trash flow was
+  # removed. There is no restore (folders are just titles) — the one
+  # exit is Delete Forever with the old promote-contents semantics.
+  # Nothing feeds this list anymore, so it retires itself once the
+  # last legacy row is purged.
   defp deleted_folders_list(assigns) do
     ~H"""
     <div class="bg-base-100 border border-base-200 rounded-lg divide-y divide-base-200">
@@ -920,19 +919,9 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         </span>
         <button
           type="button"
-          phx-click="restore_folder"
-          phx-value-uuid={folder.uuid}
-          phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Restoring...")}
-          class="btn btn-ghost btn-xs text-success gap-1"
-        >
-          <.icon name="hero-arrow-path" class="w-3.5 h-3.5" />
-          {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Restore")}
-        </button>
-        <button
-          type="button"
           phx-click="show_delete_confirm"
           phx-value-uuid={folder.uuid}
-          phx-value-type="folder"
+          phx-value-type="legacy_folder"
           class="btn btn-ghost btn-xs text-error gap-1"
         >
           <.icon name="hero-trash" class="w-3.5 h-3.5" />
@@ -1162,49 +1151,6 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       end
 
     {:noreply, socket |> assign(:renaming_folder, nil) |> load_data(:index)}
-  end
-
-  def handle_event("trash_folder", %{"uuid" => uuid}, socket) do
-    with %{} = folder <- Catalogue.get_folder(uuid),
-         {:ok, _} <- Catalogue.trash_folder(folder, actor_opts(socket)) do
-      {:noreply,
-       socket
-       |> put_flash(
-         :info,
-         Gettext.gettext(PhoenixKitCatalogue.Gettext, "Folder moved to deleted.")
-       )
-       |> load_data(:index)}
-    else
-      _ ->
-        {:noreply,
-         socket
-         |> put_flash(
-           :error,
-           Gettext.gettext(PhoenixKitCatalogue.Gettext, "Failed to delete folder.")
-         )
-         |> load_data(:index)}
-    end
-  end
-
-  def handle_event("restore_folder", %{"uuid" => uuid}, socket) do
-    with %{} = folder <- Catalogue.get_folder(uuid),
-         {:ok, _} <- Catalogue.restore_folder(folder, actor_opts(socket)) do
-      socket =
-        socket
-        |> put_flash(:info, Gettext.gettext(PhoenixKitCatalogue.Gettext, "Folder restored."))
-        |> load_data(:index)
-
-      {:noreply, socket}
-    else
-      _ ->
-        {:noreply,
-         socket
-         |> put_flash(
-           :error,
-           Gettext.gettext(PhoenixKitCatalogue.Gettext, "Failed to restore folder.")
-         )
-         |> load_data(:index)}
-    end
   end
 
   def handle_event("open_move", %{"type" => type, "uuid" => uuid}, socket)
@@ -1458,7 +1404,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     case socket.assigns.confirm_delete do
       {"folder", uuid} ->
         with %{} = folder <- Catalogue.get_folder(uuid),
-             {:ok, _} <- Catalogue.permanently_delete_folder(folder, actor_opts(socket)) do
+             {:ok, _} <- Catalogue.delete_empty_folder(folder, actor_opts(socket)) do
           {:noreply,
            socket
            |> put_flash(
@@ -1468,23 +1414,19 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
            |> assign(:confirm_delete, nil)
            |> load_data(:index)}
         else
-          nil ->
+          {:error, :not_empty} ->
             {:noreply,
              socket
              |> assign(:confirm_delete, nil)
              |> put_flash(
                :error,
-               Gettext.gettext(PhoenixKitCatalogue.Gettext, "Folder not found.")
-             )
-             |> load_data(:index)}
+               Gettext.gettext(
+                 PhoenixKitCatalogue.Gettext,
+                 "Only empty folders can be deleted — move its contents out first."
+               )
+             )}
 
-          {:error, reason} ->
-            log_operation_error(socket, "permanently_delete_folder", %{
-              entity_type: "folder",
-              entity_uuid: uuid,
-              reason: reason
-            })
-
+          _ ->
             {:noreply,
              socket
              |> assign(:confirm_delete, nil)
@@ -1496,7 +1438,42 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         end
 
       _ ->
-        unexpected_confirm_event(socket, "permanently_delete_folder")
+        {:noreply, socket}
+    end
+  end
+
+  # Legacy escape hatch: folders trashed before the trash flow was
+  # removed may be NON-empty (their catalogues orphan-display at root),
+  # so their delete keeps the old promote-contents semantics. Never
+  # reachable for newly-deleted folders — nothing enters the folder
+  # trash anymore.
+  def handle_event("permanently_delete_legacy_folder", _params, socket) do
+    case socket.assigns.confirm_delete do
+      {"legacy_folder", uuid} ->
+        with %{} = folder <- Catalogue.get_folder(uuid),
+             {:ok, _} <- Catalogue.permanently_delete_folder(folder, actor_opts(socket)) do
+          {:noreply,
+           socket
+           |> put_flash(
+             :info,
+             Gettext.gettext(PhoenixKitCatalogue.Gettext, "Folder permanently deleted.")
+           )
+           |> assign(:confirm_delete, nil)
+           |> load_data(:index)}
+        else
+          _ ->
+            {:noreply,
+             socket
+             |> assign(:confirm_delete, nil)
+             |> put_flash(
+               :error,
+               Gettext.gettext(PhoenixKitCatalogue.Gettext, "Failed to delete folder.")
+             )
+             |> load_data(:index)}
+        end
+
+      _ ->
+        {:noreply, socket}
     end
   end
 
@@ -2478,6 +2455,17 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       <.confirm_modal
         show={match?({"folder", _}, @confirm_delete)}
         on_confirm="permanently_delete_folder"
+        on_cancel="cancel_delete"
+        title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Permanently Delete Folder")}
+        title_icon="hero-trash"
+        messages={[{:warning, Gettext.gettext(PhoenixKitCatalogue.Gettext, "This will permanently delete this folder. Only empty folders can be deleted. This cannot be undone.")}]}
+        confirm_text={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete Forever")}
+        danger={true}
+      />
+
+      <.confirm_modal
+        show={match?({"legacy_folder", _}, @confirm_delete)}
+        on_confirm="permanently_delete_legacy_folder"
         on_cancel="cancel_delete"
         title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Permanently Delete Folder")}
         title_icon="hero-trash"

@@ -277,6 +277,18 @@ defmodule PhoenixKitCatalogue.GettextTest do
       end
     end
 
+    test "empty-only folder delete strings" do
+      for {msgid, et, ru} <- [
+            {"Only empty folders can be deleted — move its contents out first.",
+             "Kustutada saab ainult tühje kaustu — vii sisu enne välja.",
+             "Удалять можно только пустые папки — сначала переместите содержимое."}
+          ] do
+        assert po_msgstr("en", msgid) == msgid
+        assert gettext_in("et", msgid) == et
+        assert gettext_in("ru", msgid) == ru
+      end
+    end
+
     test "save button strings" do
       for {msgid, et, ru} <- [
             {"Save", "Salvesta", "Сохранить"},
