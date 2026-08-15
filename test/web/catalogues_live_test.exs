@@ -242,7 +242,11 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
         "type" => "catalogue",
         "uuid" => loose.uuid,
         "parent" => folder.uuid,
-        "ordered_ids" => [inside_a.uuid, loose.uuid, inside_b.uuid]
+        "entries" => [
+          "catalogue:#{inside_a.uuid}",
+          "catalogue:#{loose.uuid}",
+          "catalogue:#{inside_b.uuid}"
+        ]
       })
 
       assert Catalogue.get_catalogue(loose.uuid).folder_uuid == folder.uuid
@@ -255,7 +259,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
       assert names == ["Inside A", "Loose one", "Inside B"]
 
       # A folder edge-dropped under its own descendant is refused whole —
-      # no reparent AND no reorder applied.
+      # no reparent AND no placement applied.
       {:ok, child} = Catalogue.create_folder(%{name: "Child level", parent_uuid: folder.uuid})
 
       html =
@@ -263,11 +267,50 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
           "type" => "folder",
           "uuid" => folder.uuid,
           "parent" => child.uuid,
-          "ordered_ids" => [folder.uuid]
+          "entries" => ["folder:#{folder.uuid}"]
         })
 
       assert Catalogue.get_folder(folder.uuid).parent_uuid == nil
       assert html =~ "into itself or one of its subfolders"
+    end
+
+    test "levels interleave folders and catalogues by manual placement", %{conn: conn} do
+      {:ok, folder_a} = Catalogue.create_folder(%{name: "First folder"})
+      {:ok, folder_b} = Catalogue.create_folder(%{name: "Second folder"})
+      cat = fixture_catalogue(%{name: "Between them"})
+
+      {:ok, view, _html} = live(conn, @base)
+
+      # Place the catalogue BETWEEN the two root folders.
+      html =
+        render_click(view, "drop_row", %{
+          "type" => "catalogue",
+          "uuid" => cat.uuid,
+          "parent" => "root",
+          "entries" => [
+            "folder:#{folder_a.uuid}",
+            "catalogue:#{cat.uuid}",
+            "folder:#{folder_b.uuid}"
+          ]
+        })
+
+      # The rendered tree keeps the mixed order — no folders-first regrouping.
+      first = :binary.match(html, "First folder") |> elem(0)
+      between = :binary.match(html, "Between them") |> elem(0)
+      second = :binary.match(html, "Second folder") |> elem(0)
+      assert first < between and between < second
+
+      # A malformed entry rejects the whole payload (forgeable input).
+      before = Catalogue.get_catalogue(cat.uuid).position
+
+      render_click(view, "drop_row", %{
+        "type" => "catalogue",
+        "uuid" => cat.uuid,
+        "parent" => "root",
+        "entries" => ["catalogue:#{cat.uuid}", "bogus"]
+      })
+
+      assert Catalogue.get_catalogue(cat.uuid).position == before
     end
 
     test "new_folder honors a validated parent from the drill level", %{conn: conn} do

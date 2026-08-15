@@ -220,6 +220,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
   defp reorder_action_for(:category), do: "category.reordered"
   defp reorder_action_for(:item), do: "item.reordered"
   defp reorder_action_for(:folder), do: "folder.reordered"
+  defp reorder_action_for(:level), do: "catalogue.level_reordered"
 
   defp maybe_put_metadata(map, _key, nil), do: map
   defp maybe_put_metadata(map, key, value), do: Map.put(map, key, value)
@@ -2544,6 +2545,61 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
       {:error, reason} ->
         log_reorder_db_error(:folder, unique_uuids, nil, opts)
+        {:error, reason}
+    end
+  end
+
+  @doc """
+  Writes one merged manual order for a single level of the folder tree.
+
+  `entries` is the level's full display order as `{"folder" | "catalogue",
+  uuid}` tuples; each row's `position` is set to its index in the merged
+  sequence, so folders and catalogues interleave exactly where the user
+  dropped them (a level's display order sorts both types together by
+  `position`). Rows the caller omits keep their old positions — callers
+  send a complete level, so this only matters for concurrent edits.
+  """
+  @spec place_level_rows([{String.t(), Ecto.UUID.t()}], keyword()) ::
+          :ok | {:error, term()}
+  def place_level_rows(entries, opts \\ [])
+
+  def place_level_rows(entries, opts)
+      when is_list(entries) and length(entries) > @reorder_max_uuids do
+    log_reorder_rejected(:level, :too_many_uuids, length(entries), nil, opts)
+    {:error, :too_many_uuids}
+  end
+
+  def place_level_rows(entries, opts) when is_list(entries) do
+    unique = Enum.uniq_by(entries, fn {_type, uuid} -> uuid end)
+
+    result =
+      repo().transaction(fn ->
+        unique
+        |> Enum.with_index(1)
+        |> Enum.each(fn
+          {{"folder", uuid}, idx} ->
+            from(f in Folder, where: f.uuid == ^uuid) |> repo().update_all(set: [position: idx])
+
+          {{"catalogue", uuid}, idx} ->
+            from(c in Catalogue, where: c.uuid == ^uuid)
+            |> repo().update_all(set: [position: idx])
+        end)
+      end)
+
+    case result do
+      {:ok, _} ->
+        log_activity(%{
+          action: "catalogue.level_reordered",
+          mode: "manual",
+          actor_uuid: opts[:actor_uuid],
+          resource_type: "catalogue",
+          resource_uuid: unique |> List.first() |> elem(1),
+          metadata: %{"count" => length(unique)}
+        })
+
+        :ok
+
+      {:error, reason} ->
         {:error, reason}
     end
   end
