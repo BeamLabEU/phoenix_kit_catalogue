@@ -653,7 +653,8 @@ defmodule PhoenixKitCatalogue.Web.AttributeGroupFormLive do
                   class="btn btn-ghost btn-xs ml-auto"
                   title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "AI-translate all attribute names and values that are missing a language.")}
                 >
-                  <.icon name="hero-language" class="w-4 h-4" />
+                  <.icon name="hero-language" class="w-4 h-4 phx-click-loading:hidden" />
+                  <span class="loading loading-spinner w-4 h-4 hidden phx-click-loading:inline-block"></span>
                   {Gettext.gettext(PhoenixKitCatalogue.Gettext, "AI translate names & values")}
                 </button>
               </div>
@@ -695,7 +696,7 @@ defmodule PhoenixKitCatalogue.Web.AttributeGroupFormLive do
                     />
                     <form id={"attr-kind-form-#{attribute.uuid}"} phx-change="set_attribute_kind" class="contents">
                       <input type="hidden" name="uuid" value={attribute.uuid} />
-                      <select name="kind" class="select select-sm select-bordered bg-base-100 w-36 shrink-0">
+                      <select name="kind" class="select select-sm select-bordered bg-base-100 w-36 shrink-0 phx-change-loading:opacity-50 phx-change-loading:animate-pulse">
                         <option :for={{label, v} <- kind_options()} value={v} selected={attribute.kind == v}>
                           {label}
                         </option>
@@ -708,7 +709,8 @@ defmodule PhoenixKitCatalogue.Web.AttributeGroupFormLive do
                       class="btn btn-ghost btn-xs text-error shrink-0"
                       title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete attribute")}
                     >
-                      <.icon name="hero-trash" class="w-4 h-4" />
+                      <.icon name="hero-trash" class="w-4 h-4 phx-click-loading:hidden" />
+                      <span class="loading loading-spinner w-4 h-4 hidden phx-click-loading:inline-block"></span>
                     </button>
                   </div>
 
@@ -752,7 +754,11 @@ defmodule PhoenixKitCatalogue.Web.AttributeGroupFormLive do
                             else: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Make default")
                         }
                       >
-                        <.icon name={if value.is_default, do: "hero-star-solid", else: "hero-star"} class="w-3.5 h-3.5" />
+                        <.icon
+                          name={if value.is_default, do: "hero-star-solid", else: "hero-star"}
+                          class="w-3.5 h-3.5 phx-click-loading:hidden"
+                        />
+                        <span class="loading loading-spinner w-3.5 h-3.5 hidden phx-click-loading:inline-block"></span>
                       </button>
                       <button
                         type="button"
@@ -761,7 +767,8 @@ defmodule PhoenixKitCatalogue.Web.AttributeGroupFormLive do
                         class="btn btn-ghost btn-xs px-1 text-base-content/40 hover:text-error"
                         title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Remove value")}
                       >
-                        <.icon name="hero-x-mark" class="w-3.5 h-3.5" />
+                        <.icon name="hero-x-mark" class="w-3.5 h-3.5 phx-click-loading:hidden" />
+                        <span class="loading loading-spinner w-3.5 h-3.5 hidden phx-click-loading:inline-block"></span>
                       </button>
                     </div>
 
@@ -792,11 +799,12 @@ defmodule PhoenixKitCatalogue.Web.AttributeGroupFormLive do
                         title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Add value")}
                         aria-label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Add value")}
                       >
-                        <%!-- literal span, NOT <.icon>: component subtrees
+                        <%!-- literal spans, NOT <.icon>: component subtrees
                              inside this phx-update="ignore" form arrive as
                              data-phx-skip stubs when the id-bump replaces
                              it, leaving an empty button. --%>
-                        <span class="hero-plus w-3.5 h-3.5"></span>
+                        <span class="hero-plus w-3.5 h-3.5 phx-submit-loading:hidden"></span>
+                        <span class="loading loading-spinner w-3.5 h-3.5 hidden phx-submit-loading:inline-block"></span>
                       </button>
                     </form>
                   </div>
@@ -822,8 +830,9 @@ defmodule PhoenixKitCatalogue.Web.AttributeGroupFormLive do
                   <option :for={{label, v} <- kind_options()} value={v}>{label}</option>
                 </select>
                 <button type="submit" class="btn btn-outline btn-sm shrink-0">
-                  <%!-- literal span — see the add-value button. --%>
-                  <span class="hero-plus w-4 h-4"></span>
+                  <%!-- literal spans — see the add-value button. --%>
+                  <span class="hero-plus w-4 h-4 phx-submit-loading:hidden"></span>
+                  <span class="loading loading-spinner w-4 h-4 hidden phx-submit-loading:inline-block"></span>
                   {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Add")}
                 </button>
               </form>
