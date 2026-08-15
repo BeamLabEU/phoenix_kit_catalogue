@@ -80,7 +80,9 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
        |> put_flash(:error, Gettext.gettext(PhoenixKitCatalogue.Gettext, "Category not found."))
        |> push_navigate(to: Paths.index())}
     else
-      mount_category_form(socket, action, category, changeset, catalogue_uuid)
+      socket
+      |> assign(:return_to, safe_return_to(params["return_to"]))
+      |> mount_category_form(action, category, changeset, catalogue_uuid)
     end
   end
 
@@ -124,6 +126,12 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
   # then each category prefixed with indentation that matches its
   # depth. For edit mode, the category's own subtree is excluded so
   # the user can't pick itself or one of its descendants.
+  defp safe_return_to(rt) when is_binary(rt) do
+    if PhoenixKit.Utils.Routes.local_path?(rt), do: rt
+  end
+
+  defp safe_return_to(_), do: nil
+
   defp parent_options_for(:new, _category, catalogue_uuid) do
     Catalogue.list_category_tree(catalogue_uuid)
     |> format_parent_options()
@@ -214,7 +222,9 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
              "Category and all its items permanently deleted."
            )
          )
-         |> push_navigate(to: Paths.catalogue_detail(socket.assigns.catalogue_uuid))}
+         |> push_navigate(
+           to: socket.assigns[:return_to] || Paths.catalogue_detail(socket.assigns.catalogue_uuid)
+         )}
 
       {:error, _} ->
         {:noreply,
@@ -492,7 +502,7 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
             <div class="divider my-0"></div>
 
             <div class="flex justify-end gap-3">
-              <.link navigate={Paths.catalogue_detail(@catalogue_uuid)} class="btn btn-ghost">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Cancel")}</.link>
+              <.link navigate={@return_to || Paths.catalogue_detail(@catalogue_uuid)} class="btn btn-ghost">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Cancel")}</.link>
               <button
                 type="submit"
                 class="btn btn-primary phx-submit-loading:opacity-75"
