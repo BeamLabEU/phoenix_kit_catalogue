@@ -158,8 +158,8 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
        card_open: false,
        card_name: nil,
        card_images: [],
-       card_current: nil,
        card_fields: [],
+       card_files: [],
        locale: "en"
      )}
   end
@@ -297,15 +297,6 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
     end
   end
 
-  def handle_event("card_select_image", %{"uuid" => uuid}, socket) do
-    # Switch the expanded image; ignore a uuid that isn't in this card's set.
-    if Enum.any?(socket.assigns.card_images, &(&1.uuid == uuid)) do
-      {:noreply, assign(socket, :card_current, uuid)}
-    else
-      {:noreply, socket}
-    end
-  end
-
   def handle_event("card_close", _params, socket) do
     {:noreply, assign(socket, :card_open, false)}
   end
@@ -388,20 +379,12 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
   # so the nil fallback this used to carry is unreachable and was removed
   # rather than left as a clause dialyzer reports can never match.
   defp open_card(socket, %Item{} = item) do
-    images = ProductCard.resolve_images(item)
-
-    current =
-      case images do
-        [%{uuid: uuid} | _] -> uuid
-        _ -> nil
-      end
-
     assign(socket,
       card_open: true,
       card_name: ProductCard.resolve_name(item, socket.assigns.locale),
-      card_images: images,
-      card_current: current,
-      card_fields: ProductCard.build_fields(item, socket.assigns.locale)
+      card_images: ProductCard.resolve_images(item),
+      card_fields: ProductCard.build_fields(item, socket.assigns.locale),
+      card_files: ProductCard.resolve_files(item)
     )
   end
 
@@ -529,6 +512,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
           <img
             src={URLSigner.signed_url(@selected_photo_uuid, "thumbnail")}
             alt=""
+            onerror="this.style.display='none'"
             class="w-8 h-8 shrink-0 rounded object-cover bg-base-200 border border-base-300"
           />
         </button>
@@ -536,6 +520,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
           :if={@selected_photo_uuid && !@photo_clickable}
           src={URLSigner.signed_url(@selected_photo_uuid, "thumbnail")}
           alt=""
+          onerror="this.style.display='none'"
           class="w-8 h-8 shrink-0 rounded object-cover bg-base-200 border border-base-300"
         />
         <div class="relative flex-1">
@@ -641,8 +626,8 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
         show={@card_open}
         item_name={@card_name}
         images={@card_images}
-        current_image={@card_current}
         fields={@card_fields}
+        files={@card_files}
         target={@myself}
         on_close="card_close"
       />

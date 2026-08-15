@@ -85,6 +85,46 @@ defmodule PhoenixKitCatalogue.Web.FormLivesTest do
     end
   end
 
+  describe "CatalogueFormLive save modes" do
+    test "Save on :new lands on the new catalogue's edit form", %{conn: conn} do
+      {:ok, view, _html} = live(conn, "#{@base}/new")
+
+      {:error, {:live_redirect, %{to: to}}} =
+        view
+        |> form(form_selector(), %{
+          "catalogue" => %{"name" => "Stay here", "description" => "", "status" => "active"}
+        })
+        |> put_submitter(~s(button[name=save_action][value=stay]))
+        |> render_submit()
+
+      assert [%{uuid: uuid}] = Catalogue.list_catalogues()
+      assert to == "#{@base}/#{uuid}/edit"
+    end
+
+    test "Save on :edit stays on the form with the saved values", %{conn: conn} do
+      catalogue = fixture_catalogue(%{name: "Old"})
+
+      {:ok, view, _html} = live(conn, "#{@base}/#{catalogue.uuid}/edit")
+
+      html =
+        view
+        |> form(form_selector(), %{
+          "catalogue" => %{
+            "name" => "Still here",
+            "description" => "",
+            "markup_percentage" => "10",
+            "status" => "active"
+          }
+        })
+        |> put_submitter(~s(button[name=save_action][value=stay]))
+        |> render_submit()
+
+      # No redirect — still on the edit form, retitled to the new name.
+      assert html =~ "Still here"
+      assert Catalogue.get_catalogue(catalogue.uuid).name == "Still here"
+    end
+  end
+
   describe "CatalogueFormLive :edit" do
     test "prefills the form with existing values", %{conn: conn} do
       catalogue = fixture_catalogue(%{name: "Existing", description: "desc"})
@@ -157,6 +197,75 @@ defmodule PhoenixKitCatalogue.Web.FormLivesTest do
       |> render_submit()
 
       assert Catalogue.get_category(category.uuid).name == "Renamed"
+    end
+  end
+
+  describe "CategoryFormLive save modes" do
+    test "Save on :new lands on the created category's edit form, keeping return_to",
+         %{conn: conn} do
+      catalogue = fixture_catalogue()
+      rt = "#{@base}/#{catalogue.uuid}"
+
+      {:ok, view, _html} =
+        live(
+          conn,
+          "#{@base}/#{catalogue.uuid}/categories/new?" <> URI.encode_query(return_to: rt)
+        )
+
+      {:error, {:live_redirect, %{to: to}}} =
+        view
+        |> form(form_selector(), %{
+          "category" => %{"name" => "Stayed", "description" => "", "position" => "0"}
+        })
+        |> put_submitter(~s(button[name=save_action][value=stay]))
+        |> render_submit()
+
+      [category] =
+        Catalogue.list_categories_metadata_for_catalogue(catalogue.uuid)
+        |> Enum.filter(&(&1.name == "Stayed"))
+
+      assert to == "#{@base}/categories/#{category.uuid}/edit?" <> URI.encode_query(return_to: rt)
+    end
+
+    test "Save & Exit on :new honors return_to instead of the catalogue root", %{conn: conn} do
+      catalogue = fixture_catalogue()
+      parent = fixture_category(catalogue, %{name: "Parent"})
+      rt = "#{@base}/#{catalogue.uuid}?category=#{parent.uuid}"
+
+      {:ok, view, _html} =
+        live(
+          conn,
+          "#{@base}/#{catalogue.uuid}/categories/new?" <> URI.encode_query(return_to: rt)
+        )
+
+      {:error, {:live_redirect, %{to: to}}} =
+        view
+        |> form(form_selector(), %{
+          "category" => %{"name" => "Exited", "description" => "", "position" => "0"}
+        })
+        |> put_submitter(~s(button[name=save_action][value=exit]))
+        |> render_submit()
+
+      assert to == rt
+    end
+
+    test "Save on :edit stays on the form with the saved values", %{conn: conn} do
+      catalogue = fixture_catalogue()
+      category = fixture_category(catalogue, %{name: "Old"})
+
+      {:ok, view, _html} = live(conn, "#{@base}/categories/#{category.uuid}/edit")
+
+      html =
+        view
+        |> form(form_selector(), %{
+          "category" => %{"name" => "Stayed put", "description" => "", "position" => "0"}
+        })
+        |> put_submitter(~s(button[name=save_action][value=stay]))
+        |> render_submit()
+
+      # No redirect — still on the edit form, retitled to the new name.
+      assert html =~ "Stayed put"
+      assert Catalogue.get_category(category.uuid).name == "Stayed put"
     end
   end
 

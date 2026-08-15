@@ -39,6 +39,7 @@ defmodule PhoenixKitCatalogue.Catalogue.PubSub do
           | :links
           | :pdf
           | :item_supplier_info
+          | :attribute_group
 
   @typedoc "Event message format for `handle_info/2`."
   @type event ::
@@ -114,6 +115,25 @@ defmodule PhoenixKitCatalogue.Catalogue.PubSub do
       PhoenixKit.PubSubHelper.broadcast(
         @topic,
         {:catalogue_card_refresh, catalogue_uuid, scope, flash_uuid, flash_status, from}
+      )
+    end
+
+    :ok
+  end
+
+  @doc """
+  Broadcasts a shared-sort change for a global-sort table scope (see
+  `PhoenixKitCatalogue.Web.ViewConfig.global_sort?/1`), so every open
+  catalogues index switches to the new ordering live. `from` rides in the
+  message — the originating LV already applied the change locally and
+  skips its own event.
+  """
+  @spec broadcast_view_sort_changed(atom(), String.t(), :asc | :desc, pid()) :: :ok
+  def broadcast_view_sort_changed(scope, sort_by, sort_dir, from \\ self()) do
+    if Code.ensure_loaded?(PhoenixKit.PubSubHelper) do
+      PhoenixKit.PubSubHelper.broadcast(
+        @topic,
+        {:catalogue_view_sort_changed, scope, sort_by, sort_dir, from}
       )
     end
 

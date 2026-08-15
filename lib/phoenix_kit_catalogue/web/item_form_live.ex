@@ -29,6 +29,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
 
   alias PhoenixKit.Modules.Storage.URLSigner
   alias PhoenixKit.Utils.Multilang
+  alias PhoenixKit.Utils.Routes
   alias PhoenixKitCatalogue.Attachments
   alias PhoenixKitCatalogue.Catalogue
   alias PhoenixKitCatalogue.Catalogue.Helpers
@@ -74,13 +75,44 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
          |> push_navigate(to: Paths.index())}
 
       {item, changeset, catalogue_uuid} ->
-        {:ok, mount_form(socket, action, item, changeset, catalogue_uuid)}
+        {:ok,
+         socket
+         |> assign(:return_to, safe_return_to(params["return_to"]))
+         |> mount_form(action, item, changeset, catalogue_uuid)}
     end
   end
 
+  defp valid_origin_category(uuid, catalogue_uuid) when is_binary(uuid) and uuid != "" do
+    case Catalogue.get_category(uuid) do
+      %PhoenixKitCatalogue.Schemas.Category{catalogue_uuid: ^catalogue_uuid, status: "active"} ->
+        uuid
+
+      _ ->
+        nil
+    end
+  end
+
+  defp valid_origin_category(_, _), do: nil
+
+  # Only ever navigate to a caller-supplied path after the core local-path
+  # guard — return_to is user-influenced input.
+  defp safe_return_to(rt) when is_binary(rt) do
+    if Routes.local_path?(rt), do: rt
+  end
+
+  defp safe_return_to(_), do: nil
+
   defp load_item(:new, params) do
     catalogue_uuid = params["catalogue_uuid"]
-    item = %Item{catalogue_uuid: catalogue_uuid}
+
+    # "Add Item" carries the level it was clicked from (?category=...) so the
+    # form opens with that category already selected. Validated — a forged or
+    # stale uuid must not seed a category from another catalogue.
+    item = %Item{
+      catalogue_uuid: catalogue_uuid,
+      category_uuid: valid_origin_category(params["category"], catalogue_uuid)
+    }
+
     {item, Catalogue.change_item(item), catalogue_uuid}
   end
 
@@ -141,6 +173,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
       action: action,
       item: item,
       catalogue_uuid: catalogue_uuid,
+      parent_catalogue_name: parent_catalogue && parent_catalogue.name,
       catalogue_kind: kind,
       catalogue_markup: markup_from_catalogue(parent_catalogue),
       catalogue_discount: discount_from_catalogue(parent_catalogue),
@@ -167,6 +200,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
     |> assign_rule_state(item, kind, catalogue_uuid)
     |> mount_multilang()
     |> adjust_multilang_for_item(item)
+    |> assign_attribute_state(item, action)
     |> assign_ai_translation("catalogue_item", if(action == :edit, do: item, else: nil))
   end
 
@@ -382,7 +416,11 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
     do: {:noreply, assign(socket, :show_pdf_search, true)}
 
   def handle_event("validate", params, socket) do
-    socket = absorb_meta_params(socket, params)
+    socket =
+      socket
+      |> absorb_meta_params(params)
+      |> absorb_attribute_selection(params)
+
     item_params = Map.get(params, "item", %{})
 
     item_params =
@@ -400,7 +438,11 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   end
 
   def handle_event("save", params, socket) do
-    socket = absorb_meta_params(socket, params)
+    socket =
+      socket
+      |> absorb_meta_params(params)
+      |> absorb_attribute_selection(params)
+
     item_params = Map.get(params, "item", %{})
 
     item_params =
@@ -412,7 +454,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
       |> Metadata.inject_into_data(socket.assigns.meta_state, :item)
       |> Attachments.inject_attachment_data(socket)
 
-    save_item(socket, socket.assigns.action, item_params)
+    save_item(socket, socket.assigns.action, item_params, save_mode(params))
   end
 
   # ── Smart-catalogue rule picker events ──────────────────────────
@@ -720,16 +762,27 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
 
   # actor_opts/1 imported from PhoenixKitCatalogue.Web.Helpers
 
-  defp save_item(socket, :new, params) do
+  defp save_item(socket, :new, params, mode) do
     params = Map.put_new(params, "catalogue_uuid", socket.assigns.catalogue_uuid)
 
     with {:ok, item} <- Catalogue.create_item(params, actor_opts(socket)),
          {:ok, _rules} <- maybe_put_rules(socket, item),
          :ok <- Attachments.maybe_rename_pending_folder(socket, item) do
+      apply_attribute_assignment(socket, item)
+
+      # "Save" (stay) on a new item lands on its edit form — the record
+      # exists now, so staying means continuing to edit it. The original
+      # return_to rides along so the eventual exit still goes home.
+      target =
+        case mode do
+          :stay -> Paths.item_edit(item.uuid) <> return_to_suffix(socket)
+          :exit -> redirect_target(socket, item)
+        end
+
       {:noreply,
        socket
        |> put_flash(:info, Gettext.gettext(PhoenixKitCatalogue.Gettext, "Item created."))
-       |> push_navigate(to: redirect_target(socket, item))}
+       |> push_navigate(to: target)}
     else
       {:error, %Ecto.Changeset{} = changeset} ->
         {:noreply, assign_changeset(socket, changeset)}
@@ -747,7 +800,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
     end
   end
 
-  defp save_item(socket, :edit, params) do
+  defp save_item(socket, :edit, params, mode) do
     # If item had a different primary language, rekey data to global primary on save
     params =
       if socket.assigns[:needs_primary_translation] && params["data"] do
@@ -760,10 +813,15 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
 
     with {:ok, item} <- Catalogue.update_item(socket.assigns.item, params, actor_opts(socket)),
          {:ok, _rules} <- maybe_put_rules(socket, item) do
-      {:noreply,
-       socket
-       |> put_flash(:info, Gettext.gettext(PhoenixKitCatalogue.Gettext, "Item updated."))
-       |> push_navigate(to: redirect_target(socket, item))}
+      apply_attribute_assignment(socket, item)
+
+      socket =
+        put_flash(socket, :info, Gettext.gettext(PhoenixKitCatalogue.Gettext, "Item updated."))
+
+      case mode do
+        :stay -> {:noreply, refresh_after_edit(socket, item)}
+        :exit -> {:noreply, push_navigate(socket, to: redirect_target(socket, item))}
+      end
     else
       {:error, %Ecto.Changeset{} = changeset} ->
         {:noreply, assign_changeset(socket, changeset)}
@@ -837,8 +895,122 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
     end
   end
 
+  # The clicked submit button ships its name/value with the form params.
+  # Anything other than the explicit "stay" (absent, forged, or stale)
+  # falls back to the exit behavior — same as before the split.
+  defp save_mode(%{"save_action" => "stay"}), do: :stay
+  defp save_mode(_params), do: :exit
+
+  # ── Attribute group selection ───────────────────────────────────
+
+  # The Attributes tab's group select submits with the main form (name
+  # "attribute_group_uuid", outside the item[...] namespace). Track the
+  # selection in assigns so the read-only preview follows it live.
+  defp absorb_attribute_selection(socket, params) do
+    case Map.fetch(params, "attribute_group_uuid") do
+      {:ok, raw} ->
+        selected = if raw in [nil, ""], do: nil, else: raw
+
+        if selected != socket.assigns.selected_attribute_group_uuid do
+          socket
+          |> assign(:selected_attribute_group_uuid, selected)
+          |> assign_attribute_preview(selected)
+        else
+          socket
+        end
+
+      :error ->
+        socket
+    end
+  end
+
+  defp assign_attribute_state(socket, item, action) do
+    selected =
+      if action == :edit and item.uuid,
+        do: Catalogue.get_item_attribute_group_uuid(item.uuid),
+        else: nil
+
+    groups = Catalogue.list_attribute_groups(status: "active")
+
+    # The stale-select rule: an archived group the item already holds
+    # stays in the options (and keeps rendering) — it just can't be
+    # newly chosen once deselected.
+    groups =
+      if selected && not Enum.any?(groups, &(&1.uuid == selected)) do
+        case Catalogue.get_attribute_group(selected) do
+          nil -> groups
+          archived -> groups ++ [archived]
+        end
+      else
+        groups
+      end
+
+    socket
+    |> assign(:selected_attribute_group_uuid, selected)
+    |> assign(:attribute_group_options, groups)
+    |> assign_attribute_preview(selected)
+  end
+
+  defp assign_attribute_preview(socket, selected) do
+    assign(socket, :attribute_preview, Catalogue.resolved_group(selected, preview_lang(socket)))
+  end
+
+  defp preview_lang(socket) do
+    socket.assigns[:current_locale] || socket.assigns[:primary_language] || "en"
+  end
+
+  # Persisting the assignment is best-effort alongside the item save:
+  # the select only offers valid groups, so a rejected value can only be
+  # a forged payload — skip it rather than fail the save.
+  defp apply_attribute_assignment(socket, item) do
+    case Catalogue.set_item_attribute_group(
+           item,
+           socket.assigns.selected_attribute_group_uuid,
+           actor_opts(socket)
+         ) do
+      {:error, reason} ->
+        Logger.warning("ItemFormLive attribute assignment skipped: #{inspect(reason)}")
+        :ok
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp return_to_suffix(socket) do
+    case socket.assigns[:return_to] do
+      nil -> ""
+      rt -> "?" <> URI.encode_query([{"return_to", rt}])
+    end
+  end
+
+  # In-place refresh after a stay-save: no remount, so the current tab,
+  # language, scroll position, and live attachment state all survive.
+  # meta_state and working_rules were just persisted verbatim, so they
+  # stay as-is; only the item-derived assigns need re-deriving. A
+  # successful save keys data to the global primary, so the imported-
+  # language warning clears.
+  defp refresh_after_edit(socket, item) do
+    item =
+      item
+      |> PhoenixKit.RepoHelper.repo().preload([:category, :manufacturer])
+      |> normalize_display_decimals()
+
+    socket
+    |> assign(:item, item)
+    |> assign(
+      :page_title,
+      Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit %{name}", name: item.name)
+    )
+    |> assign(:needs_primary_translation, false)
+    |> assign_changeset(Catalogue.change_item(item))
+  end
+
   defp redirect_target(socket, item) do
     cond do
+      socket.assigns[:return_to] ->
+        socket.assigns.return_to
+
       item.catalogue_uuid ->
         Paths.catalogue_detail(item.catalogue_uuid)
 
@@ -865,6 +1037,8 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
       flash={@flash}
       phoenix_kit_current_scope={assigns[:phoenix_kit_current_scope]}
       page_title={@page_title}
+      page_section={@parent_catalogue_name}
+      page_section_path={@catalogue_uuid && Paths.catalogue_detail(@catalogue_uuid)}
       page_subtitle={
         if @action == :new,
           do:
@@ -946,10 +1120,10 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
           phx-value-tab="metadata"
           class={"tab #{if @current_tab == :metadata, do: "tab-active"}"}
         >
-          <.icon name="hero-tag" class="w-4 h-4 mr-1" />
-          {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Metadata")}
-          <span :if={@meta_state.attached != []} class="badge badge-sm badge-ghost ml-2">
-            {length(@meta_state.attached)}
+          <.icon name="hero-swatch" class="w-4 h-4 mr-1" />
+          {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Attributes")}
+          <span :if={@attribute_preview} class="badge badge-sm badge-ghost ml-2">
+            {length(@attribute_preview.attributes)}
           </span>
         </button>
         <button
@@ -959,7 +1133,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
           class={"tab #{if @current_tab == :files, do: "tab-active"}"}
         >
           <.icon name="hero-paper-clip" class="w-4 h-4 mr-1" />
-          {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Files")}
+          {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Photos and Files")}
         </button>
       </div>
 
@@ -972,24 +1146,14 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
         show={@show_media_selector}
         mode={@media_selection_mode}
         file_type_filter={@media_filter}
+        lock_file_type
+        title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Select Featured Image")}
         selected_uuids={@media_selected_uuids}
         scope_folder_id={@files_folder_uuid}
         phoenix_kit_current_user={assigns[:phoenix_kit_current_user]}
       />
 
       <.form for={@form} action="#" phx-change="validate" phx-submit="save">
-        <%!-- Featured image: opens the scoped picker in single+image
-             mode. The picker both browses this item's images and
-             accepts new uploads (which get dropped into the item's
-             folder automatically). --%>
-        <div class={"mb-4 #{if @current_tab != :details, do: "hidden"}"}>
-          <.featured_image_card
-            featured_image_uuid={@featured_image_uuid}
-            featured_image_file={@featured_image_file}
-            subtitle={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Shown in lists and detail views.")}
-          />
-        </div>
-
         <div class={"card bg-base-100 shadow-lg #{if @current_tab != :details, do: "hidden"}"}>
           <%!-- Bundled tabs + AI row (phoenix_kit_ai's canonical placement). --%>
           <.ai_multilang_tabs
@@ -1550,22 +1714,138 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
           </div>
         </div>
 
-        <%!-- Metadata tab — global field list, user opts in per item.
-             Values live in `item.data["meta"]`; legacy keys (stored
-             but no longer in Metadata.definitions(:item)) render with a
-             "Legacy" pill and a remove-only action so data isn't lost
-             silently. --%>
-        <div class={"card bg-base-100 shadow-lg #{if @current_tab != :metadata, do: "hidden"}"}>
-          <.metadata_editor
-            resource_type={:item}
-            state={@meta_state}
-            id_prefix="item"
-            description={
-              Gettext.gettext(
-                PhoenixKitCatalogue.Gettext,
-                "Attach any metadata fields that apply to this item. Blank values are dropped on save."
-              )
-            }
+        <%!-- Attributes tab — the reusable attribute-group system. The
+             select submits with the main form (assignment persists on
+             save); the preview follows the selection live via validate.
+             The legacy hand-typed metadata survives underneath in a
+             collapsed editor, rendered ONLY when this item actually has
+             old values — never deleted, so a host's AI (or a human) can
+             read them, build groups, and clear them at their own pace. --%>
+        <div class={"flex flex-col gap-4 #{if @current_tab != :metadata, do: "hidden"}"}>
+          <div class="card bg-base-100 shadow-lg">
+            <div class="card-body flex flex-col gap-4">
+              <div class="flex items-center justify-between gap-4">
+                <div class="flex flex-col gap-0.5 min-w-0">
+                  <h2 class="text-base font-semibold text-base-content/80 flex items-center gap-2">
+                    <.icon name="hero-swatch" class="w-4 h-4" />
+                    {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Attribute group")}
+                  </h2>
+                  <p class="text-xs text-base-content/50">
+                    {Gettext.gettext(
+                      PhoenixKitCatalogue.Gettext,
+                      "Pick a group to give this item its options — colors, trims, surfaces. Applied when you save."
+                    )}
+                  </p>
+                </div>
+                <.link
+                  navigate={Paths.attribute_groups()}
+                  class="btn btn-ghost btn-xs shrink-0"
+                >
+                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Manage groups")}
+                </.link>
+              </div>
+
+              <select
+                name="attribute_group_uuid"
+                class="select select-bordered w-full transition-colors focus-within:select-primary"
+              >
+                <option value="">
+                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "— No attribute group —")}
+                </option>
+                <option
+                  :for={group <- @attribute_group_options}
+                  value={group.uuid}
+                  selected={group.uuid == @selected_attribute_group_uuid}
+                >
+                  {group.name}{if group.status == "archived",
+                    do: " (#{Gettext.gettext(PhoenixKitCatalogue.Gettext, "archived")})"}
+                </option>
+              </select>
+
+              <%!-- Read-only preview of what the item inherits. Label in
+                   its own fixed column so long value lists wrap under the
+                   chips, not under the label; the default is marked with
+                   the same star the group editor uses. --%>
+              <%!-- Two-column grid: the label column is `auto`, sized by the
+                   LONGEST attribute name — no fixed-width void after short
+                   names, and every row stays aligned. --%>
+              <div
+                :if={@attribute_preview}
+                class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-3 items-start"
+              >
+                <%= for attribute <- @attribute_preview.attributes do %>
+                  <span class="text-sm font-medium pt-0.5 max-w-48 truncate" title={attribute.name}>{attribute.name}</span>
+                  <div class="flex flex-wrap items-center gap-1.5 min-w-0">
+                    <span
+                      :for={value <- attribute.values}
+                      class="badge badge-sm badge-ghost gap-1"
+                    >
+                      <.icon
+                        :if={value.default?}
+                        name="hero-star-solid"
+                        class="w-3 h-3 text-warning shrink-0"
+                      />
+                      {value.value}
+                    </span>
+                    <span
+                      :if={attribute.values == []}
+                      class="text-xs text-base-content/40"
+                    >
+                      {Gettext.gettext(PhoenixKitCatalogue.Gettext, "No values defined yet.")}
+                    </span>
+                  </div>
+                <% end %>
+                <p
+                  :if={@attribute_preview.attributes == []}
+                  class="text-sm text-base-content/50 col-span-2"
+                >
+                  {Gettext.gettext(
+                    PhoenixKitCatalogue.Gettext,
+                    "This group has no attributes yet."
+                  )}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <%!-- Legacy metadata — global field list, values in
+               `item.data["meta"]`. Collapsed and only rendered when old
+               values exist; the inputs stay inside the main form so
+               editing and clearing them still works exactly as before. --%>
+          <details :if={@meta_state.attached != []} class="card bg-base-100 shadow-lg">
+            <summary class="card-body py-3 cursor-pointer flex-row items-center gap-2 select-none">
+              <.icon name="hero-tag" class="w-4 h-4 text-base-content/60" />
+              <h3 class="font-semibold text-base">
+                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "View old values (%{count})",
+                  count: length(@meta_state.attached)
+                )}
+              </h3>
+              <.icon name="hero-chevron-down" class="w-4 h-4 ml-auto text-base-content/40" />
+            </summary>
+            <.metadata_editor
+              resource_type={:item}
+              state={@meta_state}
+              id_prefix="item"
+              description={
+                Gettext.gettext(
+                  PhoenixKitCatalogue.Gettext,
+                  "Hand-typed metadata from before attribute groups. Kept so nothing is lost — move what matters into a group, then clear these."
+                )
+              }
+            />
+          </details>
+        </div>
+
+        <%!-- Featured image — on the Files tab, matching the catalogue
+             form (deliberate consistency call, 2026-08-15). Opens the
+             scoped picker in single+image mode; the picker both browses
+             this item's images and accepts new uploads (which get
+             dropped into the item's folder automatically). --%>
+        <div class={"mb-4 #{if @current_tab != :files, do: "hidden"}"}>
+          <.featured_image_card
+            featured_image_uuid={@featured_image_uuid}
+            featured_image_file={@featured_image_file}
+            subtitle={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Shown in lists and detail views.")}
           />
         </div>
 
@@ -1717,15 +1997,18 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
         </div>
 
         <%!-- Actions — sit outside the tab panels so Save works from
-             any tab; the form element wraps them all. Save is
+             any tab; the form element wraps them all. Both saves are
              disabled while uploads are mid-flight so we don't race
              the post-upload `handle_progress` write against the save
              path (would drop the just-uploaded file from the
-             resource). --%>
+             resource). "Save" keeps you on the form (it's also the
+             Enter-key submitter, being first in the DOM); "Save &
+             Exit" returns to where the form was opened from. --%>
         <div class="flex justify-end gap-3 pt-2">
           <.link
             navigate={
-              if @catalogue_uuid, do: Paths.catalogue_detail(@catalogue_uuid), else: Paths.index()
+              @return_to ||
+                if @catalogue_uuid, do: Paths.catalogue_detail(@catalogue_uuid), else: Paths.index()
             }
             class="btn btn-ghost"
           >
@@ -1733,20 +2016,25 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
           </.link>
           <button
             type="submit"
+            name="save_action"
+            value="stay"
+            class="btn btn-outline btn-primary phx-submit-loading:opacity-75"
+            disabled={@uploads.attachment_files.entries != []}
+            phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Saving...")}
+          >
+            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Save")}
+          </button>
+          <button
+            type="submit"
+            name="save_action"
+            value="exit"
             class="btn btn-primary phx-submit-loading:opacity-75"
             disabled={@uploads.attachment_files.entries != []}
             phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Saving...")}
           >
-            {cond do
-              @uploads.attachment_files.entries != [] ->
-                Gettext.gettext(PhoenixKitCatalogue.Gettext, "Waiting for uploads...")
-
-              @action == :new ->
-                Gettext.gettext(PhoenixKitCatalogue.Gettext, "Create Item")
-
-              true ->
-                Gettext.gettext(PhoenixKitCatalogue.Gettext, "Save Changes")
-            end}
+            {if @uploads.attachment_files.entries != [],
+              do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Waiting for uploads..."),
+              else: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Save & Exit")}
           </button>
         </div>
       </.form>

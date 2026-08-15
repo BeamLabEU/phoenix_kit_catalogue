@@ -41,44 +41,48 @@ defmodule PhoenixKitCatalogue.Web.Components.ProductCardTest do
     render_component(&ProductCard.product_card/1, base_assigns(overrides))
   end
 
-  describe "gallery" do
-    test "shows the current image large (medium variant) and the item name as title" do
+  describe "carousel" do
+    test "renders every image as a slide (medium variant) and the item name as title" do
       html = render_card()
 
       assert html =~ "Oak Panel"
-      # Main <img> resolves the current uuid at the medium variant.
-      assert html =~ "img-1"
+      assert html =~ "carousel-item"
+      for uuid <- ["img-1", "img-2", "img-3"], do: assert(html =~ uuid)
       assert html =~ "medium"
     end
 
-    test "renders a thumbnail strip with a switch hook per image" do
+    test "slides are switched client-side: jump strip + arrows, no server events" do
       html = render_card()
 
-      assert html =~ ~s(phx-click="card_select_image")
-      assert html =~ ~s(phx-value-uuid="img-1")
-      assert html =~ ~s(phx-value-uuid="img-2")
-      assert html =~ ~s(phx-value-uuid="img-3")
+      # The strip and arrows scroll the snap track locally…
+      assert html =~ "data-pc-track"
+      assert html =~ "scrollIntoView"
+      assert html =~ "scrollBy"
+      assert html =~ "Previous"
+      assert html =~ "Next"
+      # …and no slide event ever reaches the server.
+      refute html =~ "card_select_image"
     end
 
-    test "highlights the current thumbnail" do
-      # img-2 is current → its thumbnail gets the primary border.
-      html = render_card(%{current_image: "img-2"})
-
-      assert html =~ "border-primary"
-      # The main image now resolves img-2.
-      assert html =~ "img-2"
-    end
-
-    test "switching current_image changes the expanded image" do
-      assert render_card(%{current_image: "img-1"}) =~ "img-1"
-      assert render_card(%{current_image: "img-3"}) =~ "img-3"
-    end
-
-    test "a single image renders no thumbnail strip (nothing to switch to)" do
-      html = render_card(%{images: [%{uuid: "only", name: "x.jpg"}], current_image: "only"})
+    test "a single image renders no strip and no arrows (nothing to switch to)" do
+      html = render_card(%{images: [%{uuid: "only", name: "x.jpg"}]})
 
       assert html =~ "only"
-      refute html =~ ~s(phx-click="card_select_image")
+      refute html =~ "scrollIntoView"
+      refute html =~ "scrollBy"
+    end
+
+    test "files continue the same swipe track after the photos" do
+      html = render_card(%{files: files()})
+
+      # PDF slide: lazy inline viewer inside the carousel.
+      assert html =~ "<iframe"
+      assert html =~ ~s[loading="lazy"]
+      # Non-PDF slide: a tile with the name and an Open action.
+      assert html =~ "notes.txt"
+      # The jump strip gets a tile per file too (extension label).
+      assert html =~ "pdf"
+      assert html =~ "txt"
     end
   end
 
@@ -168,6 +172,46 @@ defmodule PhoenixKitCatalogue.Web.Components.ProductCardTest do
       refute "SKU" in labels
       refute "Description" in labels
       refute "Unit" in labels
+    end
+  end
+
+  # ── Files section (pdf viewer / file list) ────────────────────────
+
+  defp files do
+    [
+      %{uuid: "pdf-1", name: "spec-sheet.pdf", size: 120_000, pdf?: true},
+      %{uuid: "doc-1", name: "notes.txt", size: 900, pdf?: false}
+    ]
+  end
+
+  describe "files list" do
+    test "lists files with size and an Open link, no server events" do
+      html = render_card(%{files: files()})
+
+      assert html =~ "spec-sheet.pdf"
+      assert html =~ "notes.txt"
+      assert html =~ "120.0 KB"
+      assert html =~ ~s(target="_blank")
+      refute html =~ "card_view_file"
+    end
+
+    test "no files renders no Files heading" do
+      refute render_card() =~ ">Files<"
+    end
+  end
+
+  describe "product_card_body/1 (notpopup form)" do
+    test "renders the same content without the modal shell" do
+      html =
+        render_component(
+          &ProductCard.product_card_body/1,
+          base_assigns(%{files: files()}) |> Map.drop([:id, :show, :on_close])
+        )
+
+      assert html =~ "img-1"
+      assert html =~ "spec-sheet.pdf"
+      assert html =~ "carousel"
+      refute html =~ "<dialog"
     end
   end
 end

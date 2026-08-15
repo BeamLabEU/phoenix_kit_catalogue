@@ -1044,6 +1044,11 @@ msgstr "Current"
 msgid "Row %{row}: belongs to %{group}, not to this catalogue"
 msgstr "Row %{row}: belongs to %{group}, not to this catalogue"
 
+## Media picker
+
+msgid "Select Featured Image"
+msgstr "Select Featured Image"
+
 ## Product card
 
 msgid "View item details"
@@ -1054,3 +1059,198 @@ msgstr "Show this image"
 
 msgid "Close"
 msgstr "Close"
+
+msgid "Open"
+msgstr "Open"
+
+msgid "Hide"
+msgstr "Hide"
+
+msgid "Previous"
+msgstr "Previous"
+
+msgid "Next"
+msgstr "Next"
+
+msgid "Show image %{number}"
+msgstr "Show image %{number}"
+
+msgid "Reorder all"
+msgstr "Reorder all"
+
+msgid "catalogue"
+msgstr "catalogue"
+
+msgid "catalogues"
+msgstr "catalogues"
+
+msgid "category"
+msgstr "category"
+
+msgid "categories"
+msgstr "categories"
+
+msgid "Catalogues reordered."
+msgstr "Catalogues reordered."
+
+msgid "Categories reordered."
+msgstr "Categories reordered."
+
+msgid "Failed to reorder."
+msgstr "Failed to reorder."
+
+msgid "Photos and Files"
+msgstr "Photos and Files"
+
+msgid "Comfortable view"
+msgstr "Comfortable view"
+
+msgid "Compact view"
+msgstr "Compact view"
+
+msgid "Save"
+msgstr "Save"
+
+msgid "Save & Exit"
+msgstr "Save & Exit"
+
+msgid "Attributes"
+msgstr "Attributes"
+
+msgid "Archive"
+msgstr "Archive"
+
+msgid "Add"
+msgstr "Add"
+
+msgid "New Attribute Group"
+msgstr "New Attribute Group"
+
+msgid "Edit Attribute Group"
+msgstr "Edit Attribute Group"
+
+msgid "Delete Attribute Group"
+msgstr "Delete Attribute Group"
+
+msgid "Attribute group not found."
+msgstr "Attribute group not found."
+
+msgid "Attribute group created."
+msgstr "Attribute group created."
+
+msgid "Attribute group updated."
+msgstr "Attribute group updated."
+
+msgid "Attribute group deleted."
+msgstr "Attribute group deleted."
+
+msgid "Failed to delete attribute group."
+msgstr "Failed to delete attribute group."
+
+msgid "Failed to update attribute group."
+msgstr "Failed to update attribute group."
+
+msgid "This group is used by items — archive it instead."
+msgstr "This group is used by items — archive it instead."
+
+msgid "No attribute groups yet. Create one to define reusable options like colors and finishes."
+msgstr "No attribute groups yet. Create one to define reusable options like colors and finishes."
+
+msgid "This will permanently delete this group with all its attributes and values. Groups used by items cannot be deleted — archive them instead."
+msgstr "This will permanently delete this group with all its attributes and values. Groups used by items cannot be deleted — archive them instead."
+
+msgid "e.g., Idea doors"
+msgstr "e.g., Idea doors"
+
+msgid "Define a reusable set of options — colors, trims, surfaces — that items can inherit."
+msgstr "Define a reusable set of options — colors, trims, surfaces — that items can inherit."
+
+msgid "Manage this group's attributes, values, and translations."
+msgstr "Manage this group's attributes, values, and translations."
+
+msgid "No attributes yet. Add one below — e.g. Color, Trim, Surface."
+msgstr "No attributes yet. Add one below — e.g. Color, Trim, Surface."
+
+msgid "Multiple values"
+msgstr "Multiple values"
+
+msgid "Fixed value"
+msgstr "Fixed value"
+
+msgid "Failed to add attribute."
+msgstr "Failed to add attribute."
+
+msgid "Failed to add value."
+msgstr "Failed to add value."
+
+msgid "Delete attribute"
+msgstr "Delete attribute"
+
+msgid "This removes the attribute and all its values from the group."
+msgstr "This removes the attribute and all its values from the group."
+
+msgid "Add value..."
+msgstr "Add value..."
+
+msgid "New attribute name..."
+msgstr "New attribute name..."
+
+msgid "Default value"
+msgstr "Default value"
+
+msgid "Make default"
+msgstr "Make default"
+
+msgid "Remove value"
+msgstr "Remove value"
+
+msgid "You are editing translations. Empty fields fall back to the primary language; new attributes and values are always created in the primary language."
+msgstr "You are editing translations. Empty fields fall back to the primary language; new attributes and values are always created in the primary language."
+
+msgid "Attribute group"
+msgstr "Attribute group"
+
+msgid "Pick a group to give this item its options — colors, trims, surfaces. Applied when you save."
+msgstr "Pick a group to give this item its options — colors, trims, surfaces. Applied when you save."
+
+msgid "Manage groups"
+msgstr "Manage groups"
+
+msgid "— No attribute group —"
+msgstr "— No attribute group —"
+
+msgid "archived"
+msgstr "archived"
+
+msgid "No values defined yet."
+msgstr "No values defined yet."
+
+msgid "This group has no attributes yet."
+msgstr "This group has no attributes yet."
+
+msgid "View old values (%{count})"
+msgstr "View old values (%{count})"
+
+msgid "Hand-typed metadata from before attribute groups. Kept so nothing is lost — move what matters into a group, then clear these."
+msgstr "Hand-typed metadata from before attribute groups. Kept so nothing is lost — move what matters into a group, then clear these."
+
+msgid "Has attribute group"
+msgstr "Has attribute group"
+
+msgid "AI translate names & values"
+msgstr "AI translate names & values"
+
+msgid "AI-translate all attribute names and values that are missing a language."
+msgstr "AI-translate all attribute names and values that are missing a language."
+
+msgid "Queued %{count} AI translations for attributes and values."
+msgstr "Queued %{count} AI translations for attributes and values."
+
+msgid "Nothing to translate."
+msgstr "Nothing to translate."
+
+msgid "Select an AI endpoint and prompt in the translate dialog first."
+msgstr "Select an AI endpoint and prompt in the translate dialog first."
+
+msgid "Add value"
+msgstr "Add value"

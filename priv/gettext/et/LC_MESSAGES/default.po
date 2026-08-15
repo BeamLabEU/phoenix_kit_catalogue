@@ -1044,6 +1044,11 @@ msgstr "Praegune"
 msgid "Row %{row}: belongs to %{group}, not to this catalogue"
 msgstr "Rida %{row}: kuulub kataloogi „%{group}“, mitte sellesse kataloogi"
 
+## Media picker
+
+msgid "Select Featured Image"
+msgstr "Vali põhipilt"
+
 ## Product card
 
 msgid "View item details"
@@ -1054,3 +1059,198 @@ msgstr "Näita seda pilti"
 
 msgid "Close"
 msgstr "Sulge"
+
+msgid "Open"
+msgstr "Ava"
+
+msgid "Hide"
+msgstr "Peida"
+
+msgid "Previous"
+msgstr "Eelmine"
+
+msgid "Next"
+msgstr "Järgmine"
+
+msgid "Show image %{number}"
+msgstr "Näita pilti %{number}"
+
+msgid "Reorder all"
+msgstr "Järjesta kõik ümber"
+
+msgid "catalogue"
+msgstr "kataloog"
+
+msgid "catalogues"
+msgstr "kataloogid"
+
+msgid "category"
+msgstr "kategooria"
+
+msgid "categories"
+msgstr "kategooriad"
+
+msgid "Catalogues reordered."
+msgstr "Kataloogid järjestati ümber."
+
+msgid "Categories reordered."
+msgstr "Kategooriad järjestati ümber."
+
+msgid "Failed to reorder."
+msgstr "Ümberjärjestamine ebaõnnestus."
+
+msgid "Photos and Files"
+msgstr "Fotod ja failid"
+
+msgid "Comfortable view"
+msgstr "Avar vaade"
+
+msgid "Compact view"
+msgstr "Kompaktne vaade"
+
+msgid "Save"
+msgstr "Salvesta"
+
+msgid "Save & Exit"
+msgstr "Salvesta ja välju"
+
+msgid "Attributes"
+msgstr "Atribuudid"
+
+msgid "Archive"
+msgstr "Arhiveeri"
+
+msgid "Add"
+msgstr "Lisa"
+
+msgid "New Attribute Group"
+msgstr "Uus atribuudirühm"
+
+msgid "Edit Attribute Group"
+msgstr "Muuda atribuudirühma"
+
+msgid "Delete Attribute Group"
+msgstr "Kustuta atribuudirühm"
+
+msgid "Attribute group not found."
+msgstr "Atribuudirühma ei leitud."
+
+msgid "Attribute group created."
+msgstr "Atribuudirühm loodud."
+
+msgid "Attribute group updated."
+msgstr "Atribuudirühm uuendatud."
+
+msgid "Attribute group deleted."
+msgstr "Atribuudirühm kustutatud."
+
+msgid "Failed to delete attribute group."
+msgstr "Atribuudirühma kustutamine ebaõnnestus."
+
+msgid "Failed to update attribute group."
+msgstr "Atribuudirühma uuendamine ebaõnnestus."
+
+msgid "This group is used by items — archive it instead."
+msgstr "See rühm on toodetel kasutusel — arhiveeri see kustutamise asemel."
+
+msgid "No attribute groups yet. Create one to define reusable options like colors and finishes."
+msgstr "Atribuudirühmi pole veel. Loo rühm, et määrata korduvkasutatavad valikud nagu värvid ja viimistlused."
+
+msgid "This will permanently delete this group with all its attributes and values. Groups used by items cannot be deleted — archive them instead."
+msgstr "See kustutab rühma koos kõigi atribuutide ja väärtustega jäädavalt. Toodetel kasutusel olevaid rühmi ei saa kustutada — arhiveeri need."
+
+msgid "e.g., Idea doors"
+msgstr "nt Idea uksed"
+
+msgid "Define a reusable set of options — colors, trims, surfaces — that items can inherit."
+msgstr "Määra korduvkasutatav valikute komplekt — värvid, kandid, pinnad — mida tooted saavad pärida."
+
+msgid "Manage this group's attributes, values, and translations."
+msgstr "Halda selle rühma atribuute, väärtusi ja tõlkeid."
+
+msgid "No attributes yet. Add one below — e.g. Color, Trim, Surface."
+msgstr "Atribuute pole veel. Lisa mõni allpool — nt Värv, Kant, Pind."
+
+msgid "Multiple values"
+msgstr "Mitu väärtust"
+
+msgid "Fixed value"
+msgstr "Fikseeritud väärtus"
+
+msgid "Failed to add attribute."
+msgstr "Atribuudi lisamine ebaõnnestus."
+
+msgid "Failed to add value."
+msgstr "Väärtuse lisamine ebaõnnestus."
+
+msgid "Delete attribute"
+msgstr "Kustuta atribuut"
+
+msgid "This removes the attribute and all its values from the group."
+msgstr "See eemaldab atribuudi ja kõik selle väärtused rühmast."
+
+msgid "Add value..."
+msgstr "Lisa väärtus..."
+
+msgid "New attribute name..."
+msgstr "Uue atribuudi nimi..."
+
+msgid "Default value"
+msgstr "Vaikeväärtus"
+
+msgid "Make default"
+msgstr "Määra vaikeväärtuseks"
+
+msgid "Remove value"
+msgstr "Eemalda väärtus"
+
+msgid "You are editing translations. Empty fields fall back to the primary language; new attributes and values are always created in the primary language."
+msgstr "Muudad tõlkeid. Tühjad väljad kasutavad põhikeelt; uued atribuudid ja väärtused luuakse alati põhikeeles."
+
+msgid "Attribute group"
+msgstr "Atribuudirühm"
+
+msgid "Pick a group to give this item its options — colors, trims, surfaces. Applied when you save."
+msgstr "Vali rühm, mis annab tootele valikud — värvid, kandid, pinnad. Rakendub salvestamisel."
+
+msgid "Manage groups"
+msgstr "Halda rühmi"
+
+msgid "— No attribute group —"
+msgstr "— Atribuudirühm puudub —"
+
+msgid "archived"
+msgstr "arhiveeritud"
+
+msgid "No values defined yet."
+msgstr "Väärtusi pole veel määratud."
+
+msgid "This group has no attributes yet."
+msgstr "Sellel rühmal pole veel atribuute."
+
+msgid "View old values (%{count})"
+msgstr "Vaata vanu väärtusi (%{count})"
+
+msgid "Hand-typed metadata from before attribute groups. Kept so nothing is lost — move what matters into a group, then clear these."
+msgstr "Käsitsi sisestatud metaandmed atribuudirühmade eelsest ajast. Alles hoitud, et midagi ei kaoks — vii oluline rühma ja tühjenda need."
+
+msgid "Has attribute group"
+msgstr "Atribuudirühmaga"
+
+msgid "AI translate names & values"
+msgstr "Tõlgi nimed ja väärtused AI-ga"
+
+msgid "AI-translate all attribute names and values that are missing a language."
+msgstr "Tõlgi AI-ga kõik atribuutide nimed ja väärtused, millel keel puudub."
+
+msgid "Queued %{count} AI translations for attributes and values."
+msgstr "Järjekorda pandi %{count} AI tõlget atribuutidele ja väärtustele."
+
+msgid "Nothing to translate."
+msgstr "Pole midagi tõlkida."
+
+msgid "Select an AI endpoint and prompt in the translate dialog first."
+msgstr "Vali kõigepealt tõlkedialoogis AI lõpp-punkt ja viip."
+
+msgid "Add value"
+msgstr "Lisa väärtus"
