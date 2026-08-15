@@ -1747,7 +1747,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
 
               <select
                 name="attribute_group_uuid"
-                class="select select-bordered w-full max-w-md transition-colors focus-within:select-primary"
+                class="select select-bordered w-full transition-colors focus-within:select-primary"
               >
                 <option value="">
                   {Gettext.gettext(PhoenixKitCatalogue.Gettext, "— No attribute group —")}
