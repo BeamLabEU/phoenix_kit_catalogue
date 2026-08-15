@@ -1251,3 +1251,6 @@ msgstr "Pole midagi tõlkida."
 
 msgid "Select an AI endpoint and prompt in the translate dialog first."
 msgstr "Vali kõigepealt tõlkedialoogis AI lõpp-punkt ja viip."
+
+msgid "Add value"
+msgstr "Lisa väärtus"

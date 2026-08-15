@@ -1260,3 +1260,6 @@ msgstr "Нечего переводить."
 
 msgid "Select an AI endpoint and prompt in the translate dialog first."
 msgstr "Сначала выберите ИИ-эндпоинт и промпт в диалоге перевода."
+
+msgid "Add value"
+msgstr "Добавить значение"
