@@ -196,6 +196,125 @@ defmodule PhoenixKitCatalogue.Web.Components do
     """
   end
 
+  @doc """
+  Featured-image thumbnail for list rows, rendered to the left of the name.
+  Renders nothing when the resource carries no attached image. Works on
+  anything with a `data` map holding `"featured_image_uuid"` — catalogue /
+  category / item structs and the index's `Map.from_struct/1` row maps alike.
+
+  The URL is signed straight off the stored uuid (no per-row file lookup, so
+  lists stay query-free); a dangling pointer — the file was deleted after
+  being attached — 404s and removes itself via `onerror` instead of showing
+  the browser's broken-image glyph.
+  """
+  attr(:resource, :any, required: true)
+  attr(:class, :any, default: "w-10 h-10")
+
+  attr(:has_files, :boolean,
+    default: false,
+    doc:
+      "The file-attached indicator: with an image, a small paperclip emblem in " <>
+        "the thumb's top-right corner; with no image, a muted paperclip tile in " <>
+        "the same slot. Feed it from `Catalogue.attached_file_counts/1` — it " <>
+        "means \"has attached documents\" (the non-image files the product " <>
+        "card's Files section lists)."
+  )
+
+  attr(:on_click, :string,
+    default: nil,
+    doc:
+      "When set, the thumb becomes a button pushing this event with the resource's " <>
+        "uuid — the product-view hook (\"pressing on the featured image\"). nil keeps " <>
+        "the thumb inert."
+  )
+
+  def featured_thumb(assigns) do
+    assigns = assign(assigns, :uuid, featured_image_uuid(assigns.resource))
+
+    ~H"""
+    <button
+      :if={(@uuid || @has_files) && @on_click}
+      type="button"
+      phx-click={@on_click}
+      phx-value-uuid={@resource.uuid}
+      class="shrink-0 cursor-pointer"
+      title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "View item details")}
+    >
+      <.thumb_visual uuid={@uuid} has_files={@has_files} class={@class} />
+    </button>
+    <.thumb_visual
+      :if={(@uuid || @has_files) && !@on_click}
+      uuid={@uuid}
+      has_files={@has_files}
+      class={@class}
+    />
+    """
+  end
+
+  # The thumb slot's visual: image (with an optional corner paperclip emblem)
+  # or, with no image, the paperclip tile filling the same footprint so names
+  # stay aligned across rows either way.
+  attr(:uuid, :string, default: nil)
+  attr(:has_files, :boolean, required: true)
+  attr(:class, :any, required: true)
+
+  defp thumb_visual(assigns) do
+    ~H"""
+    <span class={[
+      "relative block shrink-0 [.pk-comfy_&]:w-18 [.pk-comfy_&]:h-18",
+      @class
+    ]}>
+      <img
+        :if={@uuid}
+        src={URLSigner.signed_url(@uuid, "thumbnail")}
+        alt=""
+        loading="lazy"
+        onerror="this.style.display='none'"
+        class="w-full h-full rounded object-cover bg-base-200"
+      />
+      <span
+        :if={!@uuid}
+        class="w-full h-full rounded bg-base-200 flex items-center justify-center"
+        title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Files")}
+      >
+        <.icon name="hero-paper-clip" class="w-4 h-4 rotate-45 text-base-content/50" />
+      </span>
+      <span
+        :if={@uuid && @has_files}
+        class="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-base-100 border border-base-300 shadow-sm flex items-center justify-center"
+        title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Files")}
+      >
+        <.icon name="hero-paper-clip" class="w-2.5 h-2.5 rotate-45 text-base-content/70" />
+      </span>
+    </span>
+    """
+  end
+
+  @doc false
+  def featured_image_uuid(%{data: %{"featured_image_uuid" => uuid}})
+      when is_binary(uuid) and uuid != "",
+      do: uuid
+
+  def featured_image_uuid(_), do: nil
+
+  @doc """
+  Whether any row in a list carries a featured image — gates the photo
+  column in table views, so a table with no images at all doesn't spend a
+  permanently empty column on them.
+  """
+  def any_featured_thumb?(rows), do: Enum.any?(rows, &(featured_image_uuid(&1) != nil))
+
+  @doc """
+  Like `any_featured_thumb?/1`, but also counts the paperclip indicator:
+  the media column earns its place when some row has an image OR attached
+  documents (per the `counts` map from `Catalogue.attached_file_counts/1`).
+  """
+  def any_media_thumb?(rows, counts) do
+    Enum.any?(rows, fn row ->
+      featured_image_uuid(row) != nil or Map.get(counts, row.uuid, 0) > 0
+    end)
+  end
+
   # ═══════════════════════════════════════════════════════════════════
   # Metadata editor
   # ═══════════════════════════════════════════════════════════════════
@@ -574,11 +693,19 @@ defmodule PhoenixKitCatalogue.Web.Components do
         </button>
         <button
           type="button"
+          data-view-action="comfy"
+          class="btn btn-sm join-item"
+          title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Comfortable view")}
+        >
+          <.icon name="hero-bars-3" class="w-4 h-4" />
+        </button>
+        <button
+          type="button"
           data-view-action="table"
           class="btn btn-sm join-item"
-          title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Table view")}
+          title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Compact view")}
         >
-          <.icon name="hero-bars-3-bottom-left" class="w-4 h-4" />
+          <.icon name="hero-bars-4" class="w-4 h-4" />
         </button>
       </div>
     </div>
@@ -1102,7 +1229,35 @@ defmodule PhoenixKitCatalogue.Web.Components do
   """
   attr(:items, :list, required: true)
   attr(:columns, :list, default: [:name, :sku, :base_price, :status])
-  attr(:cards, :boolean, default: false)
+  # Card view on by default (deliberate product call, 2026-08-14) — a new
+  # item table gets the card/table toggle without having to ask for it.
+  attr(:cards, :boolean, default: true)
+
+  attr(:photo_click, :string,
+    default: nil,
+    doc:
+      "Event pushed (with the item's uuid) when a featured-image thumb is " <>
+        "clicked — the host renders the ProductCard modal and handles its " <>
+        "events. nil keeps thumbs inert."
+  )
+
+  attr(:file_counts, :map,
+    default: %{},
+    doc:
+      "%{item_uuid => attached-document count} from " <>
+        "Catalogue.attached_file_counts/1 — drives the paperclip indicator " <>
+        "in the photo column. Computed by the caller (function components " <>
+        "must not query)."
+  )
+
+  attr(:attribute_map, :map,
+    default: %{},
+    doc:
+      "%{item_uuid => attribute_group_uuid} from " <>
+        "Catalogue.item_attribute_group_map/1 — drives the swatch indicator " <>
+        "beside the name. Computed by the caller."
+  )
+
   attr(:show_toggle, :boolean, default: true)
   attr(:id, :string, default: nil)
   attr(:storage_key, :string, default: nil)
@@ -1161,6 +1316,12 @@ defmodule PhoenixKitCatalogue.Web.Components do
       |> assign(:has_actions, has_actions?(assigns))
       |> assign(:card_columns, Enum.reject(assigns.columns, &(&1 == :name)))
       |> assign(:reorder_scope_attrs, build_reorder_scope_attrs(assigns[:reorder_scope] || %{}))
+      # Featured images / file indicators get their own slim column
+      # (inline-left of the name made rows jagged); it only exists when at
+      # least one row would render a thumb or a paperclip.
+      |> then(
+        &assign(&1, :photo_col?, any_featured_thumb?(&1.items) or map_size(&1.file_counts) > 0)
+      )
 
     ~H"""
     <.table_default
@@ -1192,6 +1353,12 @@ defmodule PhoenixKitCatalogue.Web.Components do
             phx-click={@on_toggle_select}
             phx-value-uuid={item.uuid}
           />
+          <.featured_thumb
+            resource={item}
+            class="w-12 h-12"
+            on_click={@photo_click}
+            has_files={Map.get(@file_counts, item.uuid, 0) > 0}
+          />
           <.link
             :if={@edit_path && item.uuid}
             navigate={safe_call(@edit_path, item.uuid)}
@@ -1200,11 +1367,19 @@ defmodule PhoenixKitCatalogue.Web.Components do
             {item.name || "—"}
           </.link>
           <span :if={!@edit_path || !item.uuid} class="font-medium text-sm">{item.name || "—"}</span>
+          <span
+            :if={Map.has_key?(@attribute_map, item.uuid)}
+            class="shrink-0"
+            title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Has attribute group")}
+          >
+            <.icon name="hero-swatch" class="w-3.5 h-3.5 text-primary/60" />
+          </span>
         </div>
       </:card_header>
       <.table_default_header>
         <.table_default_row>
           <.table_default_header_cell :if={!is_nil(@on_reorder) or @selectable} class="w-10"></.table_default_header_cell>
+          <.table_default_header_cell :if={@photo_col?} class="w-12 !pr-0 !py-1 [.pk-comfy_&]:w-22 [.pk-comfy_&]:!py-1.5"></.table_default_header_cell>
           <.table_default_header_cell :for={col <- @columns}>
             {column_label(col)}
           </.table_default_header_cell>
@@ -1243,15 +1418,15 @@ defmodule PhoenixKitCatalogue.Web.Components do
           }
           data-id={item.uuid}
         >
-          <%!-- Combined checkbox + drag handle column. Checkbox is
-               always visible when selectable; drag handle hover-reveals
-               via group-hover so it doesn't compete visually with the
-               checkbox or the row content. --%>
+          <%!-- Combined checkbox + drag handle column. Both always
+               visible — the handle used to hover-reveal, but an
+               affordance you cannot see is one nobody discovers
+               (deliberate product call, 2026-08-14). --%>
           <.table_default_cell :if={!is_nil(@on_reorder) or @selectable} class="w-10">
             <div class="flex items-center gap-1.5">
               <span
                 :if={@on_reorder}
-                class="pk-drag-handle cursor-grab active:cursor-grabbing text-base-content/40 opacity-0 group-hover:opacity-100 transition-opacity"
+                class="pk-drag-handle cursor-grab active:cursor-grabbing text-base-content/40 hover:text-base-content/70 transition-colors"
                 title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Drag to reorder")}
               >
                 <.icon name="hero-bars-3" class="w-4 h-4" />
@@ -1266,6 +1441,13 @@ defmodule PhoenixKitCatalogue.Web.Components do
               />
             </div>
           </.table_default_cell>
+          <.table_default_cell :if={@photo_col?} class="w-12 !pr-0 !py-1 [.pk-comfy_&]:w-22 [.pk-comfy_&]:!py-1.5">
+            <.featured_thumb
+              resource={item}
+              on_click={@photo_click}
+              has_files={Map.get(@file_counts, item.uuid, 0) > 0}
+            />
+          </.table_default_cell>
           <.item_cell
             :for={col <- @columns}
             column={col}
@@ -1274,6 +1456,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
             discount_percentage={@discount_percentage}
             catalogue_path={@catalogue_path}
             edit_path={@edit_path}
+            has_attributes={Map.has_key?(@attribute_map, item.uuid)}
           />
           <.item_actions
             :if={@has_actions}
@@ -1317,6 +1500,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
   """
   attr(:item, :any, required: true)
   attr(:edit_path, :any, default: nil)
+  attr(:has_attributes, :boolean, default: false)
 
   def item_pricing_cell(assigns) do
     pricing = Catalogue.item_pricing(assigns.item)
@@ -1332,6 +1516,13 @@ defmodule PhoenixKitCatalogue.Web.Components do
         {@item.name || "—"}
       </.link>
       <span :if={!@edit_path || !@item.uuid}>{@item.name || "—"}</span>
+      <span
+        :if={assigns[:has_attributes]}
+        class="inline-block ml-1.5 align-[-2px]"
+        title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Has attribute group")}
+      >
+        <.icon name="hero-swatch" class="w-3.5 h-3.5 text-primary/60" />
+      </span>
     </.table_default_cell>
     <.table_default_cell class="text-sm font-mono text-base-content/60">
       {@item.sku || "—"}
@@ -1359,34 +1550,57 @@ defmodule PhoenixKitCatalogue.Web.Components do
   def item_row_menu(assigns) do
     ~H"""
     <.table_default_cell class="text-right whitespace-nowrap">
-      <.table_row_menu id={"item-row-menu-#{@item.uuid}"}>
-        <.table_row_menu_link
-          :if={@edit_path}
-          navigate={safe_call(@edit_path, @item.uuid)}
-          icon="hero-pencil"
-          label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")}
-        />
-        <.table_row_menu_button
-          :if={@pdf_search_event}
-          phx-click={@pdf_search_event}
-          phx-value-uuid={@item.uuid}
-          icon="hero-document-magnifying-glass"
-          label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search PDFs")}
-        />
-        <.table_row_menu_divider :if={
-          (@edit_path || @pdf_search_event) && @on_delete
-        } />
-        <.table_row_menu_button
-          :if={@on_delete}
-          phx-click={@on_delete}
-          phx-value-uuid={@item.uuid}
-          phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Deleting...")}
-          icon="hero-trash"
-          label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")}
-          variant="error"
-        />
-      </.table_row_menu>
+      <.item_card_menu
+        item={@item}
+        id_prefix="item-row-menu"
+        edit_path={@edit_path}
+        on_delete={@on_delete}
+        pdf_search_event={@pdf_search_event}
+      />
     </.table_default_cell>
+    """
+  end
+
+  @doc """
+  The same Edit / Search PDFs / Delete menu WITHOUT the table cell —
+  for card footers, where the boss standard is the ⋮ menu, not a row of
+  icon buttons.
+  """
+  attr(:item, :any, required: true)
+  attr(:id_prefix, :string, default: "item-card-menu")
+  attr(:edit_path, :any, default: nil)
+  attr(:on_delete, :string, default: nil)
+  attr(:pdf_search_event, :string, default: nil)
+
+  def item_card_menu(assigns) do
+    ~H"""
+    <.table_row_menu mode="auto" id={"#{@id_prefix}-#{@item.uuid}"}>
+      <.table_row_menu_link
+        :if={@edit_path}
+        navigate={safe_call(@edit_path, @item.uuid)}
+        icon="hero-pencil"
+        label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")}
+      />
+      <.table_row_menu_button
+        :if={@pdf_search_event}
+        phx-click={@pdf_search_event}
+        phx-value-uuid={@item.uuid}
+        icon="hero-document-magnifying-glass"
+        label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search PDFs")}
+      />
+      <.table_row_menu_divider :if={
+        (@edit_path || @pdf_search_event) && @on_delete
+      } />
+      <.table_row_menu_button
+        :if={@on_delete}
+        phx-click={@on_delete}
+        phx-value-uuid={@item.uuid}
+        phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Deleting...")}
+        icon="hero-trash"
+        label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")}
+        variant="error"
+      />
+    </.table_row_menu>
     """
   end
 
@@ -1467,64 +1681,52 @@ defmodule PhoenixKitCatalogue.Web.Components do
 
   defp card_action_buttons(assigns) do
     ~H"""
-    <%!-- Mobile card view: icon-only buttons (text labels would overflow
-         a 390px card row). `title` carries the label as a native browser
-         tooltip + accessibility name. The card view is desktop-hidden
-         (`md:hidden`) so we don't worry about labelled-button parity. --%>
-    <.link
-      :if={@edit_path && @item.uuid}
-      navigate={safe_call(@edit_path, @item.uuid)}
-      class="btn btn-ghost btn-xs btn-square"
-      title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")}
-      aria-label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")}
-    >
-      <.icon name="hero-pencil" class="w-4 h-4" />
-    </.link>
-    <button
-      :if={@pdf_search_event && @item.uuid}
-      type="button"
-      phx-click={@pdf_search_event}
-      phx-value-uuid={@item.uuid}
-      class="btn btn-ghost btn-xs btn-square"
-      title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search PDFs")}
-      aria-label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search PDFs")}
-    >
-      <.icon name="hero-document-magnifying-glass" class="w-4 h-4" />
-    </button>
-    <button
-      :if={@on_delete}
-      phx-click={@on_delete}
-      phx-value-uuid={@item.uuid}
-      phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Deleting...")}
-      class="btn btn-ghost btn-xs btn-square text-error"
-      title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")}
-      aria-label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")}
-    >
-      <.icon name="hero-trash" class="w-4 h-4" />
-    </button>
-    <button
-      :if={@on_restore}
-      phx-click={@on_restore}
-      phx-value-uuid={@item.uuid}
-      phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Restoring...")}
-      class="btn btn-ghost btn-xs btn-square text-success"
-      title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Restore")}
-      aria-label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Restore")}
-    >
-      <.icon name="hero-arrow-path" class="w-4 h-4" />
-    </button>
-    <button
-      :if={@on_permanent_delete}
-      phx-click={@on_permanent_delete}
-      phx-value-uuid={@item.uuid}
-      phx-value-type={@permanent_delete_type}
-      phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Deleting...")}
-      class="btn btn-ghost btn-xs btn-square text-error"
-      title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete Forever")}
-      aria-label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete Forever")}
-    >
-      <.icon name="hero-trash" class="w-4 h-4" />
-    </button>
+    <%!-- Card footers use the same ⋮ menu as table rows (boss standard) —
+         one compact trigger instead of a row of icon buttons. --%>
+    <.table_row_menu mode="auto" id={"item-table-card-menu-#{@item.uuid}"}>
+      <.table_row_menu_link
+        :if={@edit_path && @item.uuid}
+        navigate={safe_call(@edit_path, @item.uuid)}
+        icon="hero-pencil"
+        label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")}
+      />
+      <.table_row_menu_button
+        :if={@pdf_search_event && @item.uuid}
+        phx-click={@pdf_search_event}
+        phx-value-uuid={@item.uuid}
+        icon="hero-document-magnifying-glass"
+        label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search PDFs")}
+      />
+      <.table_row_menu_button
+        :if={@on_restore}
+        phx-click={@on_restore}
+        phx-value-uuid={@item.uuid}
+        phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Restoring...")}
+        icon="hero-arrow-path"
+        label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Restore")}
+        variant="success"
+      />
+      <.table_row_menu_divider :if={@on_delete || @on_permanent_delete} />
+      <.table_row_menu_button
+        :if={@on_delete}
+        phx-click={@on_delete}
+        phx-value-uuid={@item.uuid}
+        phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Deleting...")}
+        icon="hero-trash"
+        label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")}
+        variant="error"
+      />
+      <.table_row_menu_button
+        :if={@on_permanent_delete}
+        phx-click={@on_permanent_delete}
+        phx-value-uuid={@item.uuid}
+        phx-value-type={@permanent_delete_type}
+        phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Deleting...")}
+        icon="hero-trash"
+        label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete Forever")}
+        variant="error"
+      />
+    </.table_row_menu>
     """
   end
 
@@ -1536,6 +1738,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
   attr(:discount_percentage, :any, default: nil)
   attr(:catalogue_path, :any, default: nil)
   attr(:edit_path, :any, default: nil)
+  attr(:has_attributes, :boolean, default: false)
 
   defp item_cell(%{column: :name} = assigns) do
     ~H"""
@@ -1548,6 +1751,13 @@ defmodule PhoenixKitCatalogue.Web.Components do
         {@item.name || "—"}
       </.link>
       <span :if={!@edit_path || !@item.uuid}>{@item.name || "—"}</span>
+      <span
+        :if={assigns[:has_attributes]}
+        class="inline-block ml-1.5 align-[-2px]"
+        title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Has attribute group")}
+      >
+        <.icon name="hero-swatch" class="w-3.5 h-3.5 text-primary/60" />
+      </span>
     </.table_default_cell>
     """
   end

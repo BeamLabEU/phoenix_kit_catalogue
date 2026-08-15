@@ -184,6 +184,18 @@ defmodule PhoenixKitCatalogue.GettextTest do
     end
   end
 
+  # The featured-image picker names its purpose in the modal heading instead
+  # of core's generic "Select Media"; the msgid lives in all three form
+  # LiveViews' MediaSelectorModal embeds (catalogue / category / item).
+  describe "Media picker strings are present in every locale" do
+    test "Select Featured Image" do
+      msgid = "Select Featured Image"
+      assert po_msgstr("en", msgid) == msgid
+      assert gettext_in("et", msgid) == "Vali põhipilt"
+      assert gettext_in("ru", msgid) == "Выбрать главное изображение"
+    end
+  end
+
   describe "product card strings are present in every locale" do
     test "View item details" do
       assert po_msgstr("en", "View item details") == "View item details"
@@ -201,6 +213,127 @@ defmodule PhoenixKitCatalogue.GettextTest do
       assert po_msgstr("en", "Close") == "Close"
       assert gettext_in("et", "Close") == "Sulge"
       assert gettext_in("ru", "Close") == "Закрыть"
+    end
+
+    test "Open" do
+      assert po_msgstr("en", "Open") == "Open"
+      assert gettext_in("et", "Open") == "Ava"
+      assert gettext_in("ru", "Open") == "Открыть"
+    end
+
+    test "Hide" do
+      assert po_msgstr("en", "Hide") == "Hide"
+      assert gettext_in("et", "Hide") == "Peida"
+      assert gettext_in("ru", "Hide") == "Скрыть"
+    end
+
+    test "Previous" do
+      assert po_msgstr("en", "Previous") == "Previous"
+      assert gettext_in("et", "Previous") == "Eelmine"
+      assert gettext_in("ru", "Previous") == "Назад"
+    end
+
+    test "Next" do
+      assert po_msgstr("en", "Next") == "Next"
+      assert gettext_in("et", "Next") == "Järgmine"
+      assert gettext_in("ru", "Next") == "Вперёд"
+    end
+
+    test "view mode strings" do
+      for {msgid, et, ru} <- [
+            {"Comfortable view", "Avar vaade", "Просторный вид"},
+            {"Compact view", "Kompaktne vaade", "Компактный вид"}
+          ] do
+        assert po_msgstr("en", msgid) == msgid
+        assert gettext_in("et", msgid) == et
+        assert gettext_in("ru", msgid) == ru
+      end
+    end
+
+    test "Photos and Files" do
+      msgid = "Photos and Files"
+      assert po_msgstr("en", msgid) == msgid
+      assert gettext_in("et", msgid) == "Fotod ja failid"
+      assert gettext_in("ru", msgid) == "Фото и файлы"
+    end
+
+    test "save button strings" do
+      for {msgid, et, ru} <- [
+            {"Save", "Salvesta", "Сохранить"},
+            {"Save & Exit", "Salvesta ja välju", "Сохранить и выйти"}
+          ] do
+        assert po_msgstr("en", msgid) == msgid
+        assert gettext_in("et", msgid) == et
+        assert gettext_in("ru", msgid) == ru
+      end
+    end
+
+    test "attribute group strings" do
+      for {msgid, et, ru} <- [
+            {"Attributes", "Atribuudid", "Атрибуты"},
+            {"Archive", "Arhiveeri", "Архивировать"},
+            {"Add", "Lisa", "Добавить"},
+            {"New Attribute Group", "Uus atribuudirühm", "Новая группа атрибутов"},
+            {"Attribute group created.", "Atribuudirühm loodud.", "Группа атрибутов создана."},
+            {"Multiple values", "Mitu väärtust", "Несколько значений"},
+            {"Fixed value", "Fikseeritud väärtus", "Фиксированное значение"},
+            {"Make default", "Määra vaikeväärtuseks", "Сделать по умолчанию"},
+            {"This group is used by items — archive it instead.",
+             "See rühm on toodetel kasutusel — arhiveeri see kustutamise asemel.",
+             "Эта группа используется товарами — вместо удаления заархивируйте её."},
+            {"Attribute group", "Atribuudirühm", "Группа атрибутов"},
+            {"— No attribute group —", "— Atribuudirühm puudub —", "— Без группы атрибутов —"},
+            {"Manage groups", "Halda rühmi", "Управлять группами"}
+          ] do
+        assert po_msgstr("en", msgid) == msgid
+        assert gettext_in("et", msgid) == et
+        assert gettext_in("ru", msgid) == ru
+      end
+    end
+
+    test "View old values interpolates the count" do
+      assert po_msgstr("en", "View old values (%{count})") == "View old values (%{count})"
+
+      assert Gettext.with_locale(PhoenixKitCatalogue.Gettext, "ru", fn ->
+               Gettext.gettext(PhoenixKitCatalogue.Gettext, "View old values (%{count})",
+                 count: 3
+               )
+             end) == "Старые значения (3)"
+    end
+
+    test "reorder-all strings" do
+      for {msgid, et, ru} <- [
+            {"Reorder all", "Järjesta kõik ümber", "Переупорядочить все"},
+            {"Catalogues reordered.", "Kataloogid järjestati ümber.",
+             "Каталоги переупорядочены."},
+            {"Categories reordered.", "Kategooriad järjestati ümber.",
+             "Категории переупорядочены."},
+            {"Failed to reorder.", "Ümberjärjestamine ebaõnnestus.",
+             "Не удалось изменить порядок."},
+            {"catalogue", "kataloog", "каталог"},
+            {"catalogues", "kataloogid", "каталоги"},
+            {"category", "kategooria", "категория"},
+            {"categories", "kategooriad", "категории"}
+          ] do
+        assert po_msgstr("en", msgid) == msgid
+        assert gettext_in("et", msgid) == et
+        assert gettext_in("ru", msgid) == ru
+      end
+    end
+
+    test "Show image %{number}" do
+      msgid = "Show image %{number}"
+      assert po_msgstr("en", msgid) == msgid
+
+      assert Gettext.gettext(PhoenixKitCatalogue.Gettext, msgid, number: 2) =~ "2"
+
+      Gettext.put_locale(PhoenixKitCatalogue.Gettext, "et")
+      assert Gettext.gettext(PhoenixKitCatalogue.Gettext, msgid, number: 2) == "Näita pilti 2"
+
+      Gettext.put_locale(PhoenixKitCatalogue.Gettext, "ru")
+
+      assert Gettext.gettext(PhoenixKitCatalogue.Gettext, msgid, number: 2) ==
+               "Показать изображение 2"
     end
   end
 

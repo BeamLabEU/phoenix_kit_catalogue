@@ -1053,6 +1053,11 @@ msgstr "Текущая"
 msgid "Row %{row}: belongs to %{group}, not to this catalogue"
 msgstr "Строка %{row}: относится к «%{group}», а не к этому каталогу"
 
+## Media picker
+
+msgid "Select Featured Image"
+msgstr "Выбрать главное изображение"
+
 ## Product card
 
 msgid "View item details"
@@ -1063,3 +1068,198 @@ msgstr "Показать это изображение"
 
 msgid "Close"
 msgstr "Закрыть"
+
+msgid "Open"
+msgstr "Открыть"
+
+msgid "Hide"
+msgstr "Скрыть"
+
+msgid "Previous"
+msgstr "Назад"
+
+msgid "Next"
+msgstr "Вперёд"
+
+msgid "Show image %{number}"
+msgstr "Показать изображение %{number}"
+
+msgid "Reorder all"
+msgstr "Переупорядочить все"
+
+msgid "catalogue"
+msgstr "каталог"
+
+msgid "catalogues"
+msgstr "каталоги"
+
+msgid "category"
+msgstr "категория"
+
+msgid "categories"
+msgstr "категории"
+
+msgid "Catalogues reordered."
+msgstr "Каталоги переупорядочены."
+
+msgid "Categories reordered."
+msgstr "Категории переупорядочены."
+
+msgid "Failed to reorder."
+msgstr "Не удалось изменить порядок."
+
+msgid "Photos and Files"
+msgstr "Фото и файлы"
+
+msgid "Comfortable view"
+msgstr "Просторный вид"
+
+msgid "Compact view"
+msgstr "Компактный вид"
+
+msgid "Save"
+msgstr "Сохранить"
+
+msgid "Save & Exit"
+msgstr "Сохранить и выйти"
+
+msgid "Attributes"
+msgstr "Атрибуты"
+
+msgid "Archive"
+msgstr "Архивировать"
+
+msgid "Add"
+msgstr "Добавить"
+
+msgid "New Attribute Group"
+msgstr "Новая группа атрибутов"
+
+msgid "Edit Attribute Group"
+msgstr "Изменить группу атрибутов"
+
+msgid "Delete Attribute Group"
+msgstr "Удалить группу атрибутов"
+
+msgid "Attribute group not found."
+msgstr "Группа атрибутов не найдена."
+
+msgid "Attribute group created."
+msgstr "Группа атрибутов создана."
+
+msgid "Attribute group updated."
+msgstr "Группа атрибутов обновлена."
+
+msgid "Attribute group deleted."
+msgstr "Группа атрибутов удалена."
+
+msgid "Failed to delete attribute group."
+msgstr "Не удалось удалить группу атрибутов."
+
+msgid "Failed to update attribute group."
+msgstr "Не удалось обновить группу атрибутов."
+
+msgid "This group is used by items — archive it instead."
+msgstr "Эта группа используется товарами — вместо удаления заархивируйте её."
+
+msgid "No attribute groups yet. Create one to define reusable options like colors and finishes."
+msgstr "Групп атрибутов пока нет. Создайте группу, чтобы задать многоразовые опции — цвета, отделки и т.д."
+
+msgid "This will permanently delete this group with all its attributes and values. Groups used by items cannot be deleted — archive them instead."
+msgstr "Это навсегда удалит группу со всеми атрибутами и значениями. Группы, используемые товарами, удалить нельзя — заархивируйте их."
+
+msgid "e.g., Idea doors"
+msgstr "напр., Двери Idea"
+
+msgid "Define a reusable set of options — colors, trims, surfaces — that items can inherit."
+msgstr "Задайте многоразовый набор опций — цвета, канты, поверхности — которые товары могут наследовать."
+
+msgid "Manage this group's attributes, values, and translations."
+msgstr "Управляйте атрибутами, значениями и переводами этой группы."
+
+msgid "No attributes yet. Add one below — e.g. Color, Trim, Surface."
+msgstr "Атрибутов пока нет. Добавьте ниже — напр. Цвет, Кант, Поверхность."
+
+msgid "Multiple values"
+msgstr "Несколько значений"
+
+msgid "Fixed value"
+msgstr "Фиксированное значение"
+
+msgid "Failed to add attribute."
+msgstr "Не удалось добавить атрибут."
+
+msgid "Failed to add value."
+msgstr "Не удалось добавить значение."
+
+msgid "Delete attribute"
+msgstr "Удалить атрибут"
+
+msgid "This removes the attribute and all its values from the group."
+msgstr "Это удалит атрибут и все его значения из группы."
+
+msgid "Add value..."
+msgstr "Добавить значение..."
+
+msgid "New attribute name..."
+msgstr "Название нового атрибута..."
+
+msgid "Default value"
+msgstr "Значение по умолчанию"
+
+msgid "Make default"
+msgstr "Сделать по умолчанию"
+
+msgid "Remove value"
+msgstr "Убрать значение"
+
+msgid "You are editing translations. Empty fields fall back to the primary language; new attributes and values are always created in the primary language."
+msgstr "Вы редактируете переводы. Пустые поля используют основной язык; новые атрибуты и значения всегда создаются на основном языке."
+
+msgid "Attribute group"
+msgstr "Группа атрибутов"
+
+msgid "Pick a group to give this item its options — colors, trims, surfaces. Applied when you save."
+msgstr "Выберите группу, чтобы задать товару опции — цвета, канты, поверхности. Применяется при сохранении."
+
+msgid "Manage groups"
+msgstr "Управлять группами"
+
+msgid "— No attribute group —"
+msgstr "— Без группы атрибутов —"
+
+msgid "archived"
+msgstr "в архиве"
+
+msgid "No values defined yet."
+msgstr "Значения ещё не заданы."
+
+msgid "This group has no attributes yet."
+msgstr "У этой группы пока нет атрибутов."
+
+msgid "View old values (%{count})"
+msgstr "Старые значения (%{count})"
+
+msgid "Hand-typed metadata from before attribute groups. Kept so nothing is lost — move what matters into a group, then clear these."
+msgstr "Введённые вручную метаданные из времён до групп атрибутов. Сохранены, чтобы ничего не потерялось — перенесите нужное в группу и очистите их."
+
+msgid "Has attribute group"
+msgstr "Есть группа атрибутов"
+
+msgid "AI translate names & values"
+msgstr "Перевести названия и значения ИИ"
+
+msgid "AI-translate all attribute names and values that are missing a language."
+msgstr "Перевести ИИ все названия атрибутов и значения, у которых нет языка."
+
+msgid "Queued %{count} AI translations for attributes and values."
+msgstr "В очередь поставлено %{count} ИИ-переводов атрибутов и значений."
+
+msgid "Nothing to translate."
+msgstr "Нечего переводить."
+
+msgid "Select an AI endpoint and prompt in the translate dialog first."
+msgstr "Сначала выберите ИИ-эндпоинт и промпт в диалоге перевода."
+
+msgid "Add value"
+msgstr "Добавить значение"

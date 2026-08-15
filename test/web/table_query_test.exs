@@ -66,7 +66,9 @@ defmodule PhoenixKitCatalogue.Web.TableQueryTest do
   end
 
   test "enum_options for folder skips unfiled and dedups" do
-    assert Q.enum_options(rows(), :catalogues, "folder") == [{"f1", "Kitchen"}]
+    # {label, value} — the order options_for_select expects; the uuid is
+    # the submitted value, matched against row[:folder_uuid] by filter/2.
+    assert Q.enum_options(rows(), :catalogues, "folder") == [{"Kitchen", "f1"}]
   end
 
   # Regression: `to_string(nil) == ""`, which `filter/2` already reserves to

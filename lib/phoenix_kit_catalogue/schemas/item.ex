@@ -95,6 +95,15 @@ defmodule PhoenixKitCatalogue.Schemas.Item do
       references: :uuid
     )
 
+    # One assignment per item today (DB-unique on item_uuid); modeled as a
+    # join row so multi-group later is an index swap, not a data migration.
+    has_one(:attribute_group_assignment, PhoenixKitCatalogue.Schemas.ItemAttributeGroup,
+      foreign_key: :item_uuid,
+      references: :uuid
+    )
+
+    has_one(:attribute_group, through: [:attribute_group_assignment, :attribute_group])
+
     timestamps(type: :utc_datetime)
   end
 

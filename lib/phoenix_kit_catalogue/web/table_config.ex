@@ -9,7 +9,7 @@ defmodule PhoenixKitCatalogue.Web.TableConfig do
 
   alias PhoenixKitCatalogue.Gettext, as: G
 
-  @type scope :: :catalogues | :suppliers | :manufacturers
+  @type scope :: :catalogues | :suppliers | :manufacturers | :attribute_groups
   @type column :: %{
           id: String.t(),
           label: (-> String.t()),
@@ -132,6 +132,41 @@ defmodule PhoenixKitCatalogue.Web.TableConfig do
         sort_key: &down(&1.contact_info)
       ),
       col("updated", fn -> g("Updated") end, sortable?: true, sort_key: & &1.updated_at)
+    ]
+  end
+
+  def columns(:attribute_groups) do
+    [
+      col("name", fn -> g("Name") end,
+        default?: true,
+        managed?: false,
+        sortable?: true,
+        sort_key: &down(&1.name)
+      ),
+      col("attributes", fn -> g("Attributes") end,
+        default?: true,
+        sortable?: true,
+        align: :right,
+        sort_key: &(&1[:attribute_count] || 0)
+      ),
+      col("items", fn -> g("Items") end,
+        default?: true,
+        sortable?: true,
+        align: :right,
+        sort_key: &(&1[:item_count] || 0)
+      ),
+      col("status", fn -> g("Status") end,
+        default?: true,
+        sortable?: true,
+        sort_key: &down(&1.status),
+        filterable?: true,
+        filter_type: :enum
+      ),
+      col("updated", fn -> g("Updated") end,
+        default?: true,
+        sortable?: true,
+        sort_key: & &1.updated_at
+      )
     ]
   end
 
