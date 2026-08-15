@@ -1771,7 +1771,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                   :for={attribute <- @attribute_preview.attributes}
                   class="flex items-start gap-3"
                 >
-                  <span class="text-sm font-medium w-28 shrink-0 pt-0.5 truncate" title={attribute.name}>{attribute.name}</span>
+                  <span class="text-sm font-medium w-20 shrink-0 pt-0.5 truncate" title={attribute.name}>{attribute.name}</span>
                   <div class="flex flex-wrap items-center gap-1.5 min-w-0">
                     <span
                       :for={value <- attribute.values}
