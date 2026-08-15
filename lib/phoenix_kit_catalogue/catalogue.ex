@@ -2194,7 +2194,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
     query =
       case mode do
         :active -> where(base, [f], f.status != "deleted")
-        :deleted -> base
+        :deleted -> where(base, [f], f.status == "deleted")
       end
 
     folders =
@@ -2228,7 +2228,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
     query =
       case mode do
         :active -> where(base, [f], f.status != "deleted")
-        :deleted -> base
+        :deleted -> where(base, [f], f.status == "deleted")
       end
 
     query |> repo().all() |> MapSet.new()

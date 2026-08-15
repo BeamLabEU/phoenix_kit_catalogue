@@ -49,6 +49,17 @@ defmodule PhoenixKitCatalogue.FoldersTest do
       assert tree_uuids(mode: :active) == []
     end
 
+    test ":deleted mode returns only trashed folders, orphan-promoted" do
+      a = create_folder(%{name: "A"})
+      a1 = create_folder(%{name: "A1", parent_uuid: a.uuid})
+      _b = create_folder(%{name: "B"})
+      {:ok, _} = Catalogue.trash_folder(a1)
+
+      # Only the trashed folder shows; its active parent is not in the
+      # set, so it orphan-promotes to depth 0.
+      assert tree_uuids(mode: :deleted) == [{a1.uuid, 0}]
+    end
+
     test "child of a trashed parent orphan-promotes to root in active mode" do
       parent = create_folder(%{name: "Parent"})
       child = create_folder(%{name: "Child", parent_uuid: parent.uuid})
