@@ -2057,7 +2057,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       <.table_default_header>
         <.table_default_row>
           <.drag_handle_header_cell :if={@draggable} />
-          <.table_default_header_cell :if={@photo_col?} class="w-10 !pr-0 [.pk-comfy_&]:w-16"></.table_default_header_cell>
+          <.table_default_header_cell :if={@photo_col?} class="w-12 !pr-0 !py-1 [.pk-comfy_&]:w-24 [.pk-comfy_&]:!py-1.5"></.table_default_header_cell>
           <.table_default_header_cell
             :for={c <- @cols}
             class={c.align == :right && "text-right"}
@@ -2081,7 +2081,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         <.sortable_row :for={row <- @rows} item_id={row.uuid}>
           <.drag_handle_cell :if={@reorderable?} />
           <td :if={!@reorderable?} class="w-8"></td>
-          <.table_default_cell :if={@photo_col?} class="w-10 !pr-0 [.pk-comfy_&]:w-16">
+          <.table_default_cell :if={@photo_col?} class="w-12 !pr-0 !py-1 [.pk-comfy_&]:w-24 [.pk-comfy_&]:!py-1.5">
             <.featured_thumb resource={row} has_files={Map.get(@file_counts, row.uuid, 0) > 0} />
           </.table_default_cell>
           <.table_default_cell :for={c <- @cols} class={c.align == :right && "text-right"}>
@@ -2094,7 +2094,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       </.sortable_tbody>
       <.table_default_body :if={!@draggable}>
         <.table_default_row :for={row <- @rows}>
-          <.table_default_cell :if={@photo_col?} class="w-10 !pr-0 [.pk-comfy_&]:w-16">
+          <.table_default_cell :if={@photo_col?} class="w-12 !pr-0 !py-1 [.pk-comfy_&]:w-24 [.pk-comfy_&]:!py-1.5">
             <.featured_thumb resource={row} has_files={Map.get(@file_counts, row.uuid, 0) > 0} />
           </.table_default_cell>
           <.table_default_cell :for={c <- @cols} class={c.align == :right && "text-right"}>
@@ -2110,6 +2110,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
           <.featured_thumb
             :if={@scope == :catalogues}
             resource={row}
+            class="w-12 h-12"
             has_files={Map.get(@file_counts, row.uuid, 0) > 0}
           />
           {render_cell(@scope, "name", row)}

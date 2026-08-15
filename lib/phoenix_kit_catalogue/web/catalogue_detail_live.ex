@@ -2794,7 +2794,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         <.table_default_row>
           <.drag_handle_header_cell :if={@draggable?} />
           <.table_default_header_cell class="w-8"></.table_default_header_cell>
-          <.table_default_header_cell :if={@photo_col?} class="w-10 !pr-0 [.pk-comfy_&]:w-16"></.table_default_header_cell>
+          <.table_default_header_cell :if={@photo_col?} class="w-12 !pr-0 !py-1 [.pk-comfy_&]:w-24 [.pk-comfy_&]:!py-1.5"></.table_default_header_cell>
           <.table_default_header_cell>
             {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Name")}
           </.table_default_header_cell>
@@ -2824,7 +2824,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               phx-value-uuid={cat.uuid}
             />
           </.table_default_cell>
-          <.table_default_cell :if={@photo_col?} class="w-10 !pr-0 [.pk-comfy_&]:w-16">
+          <.table_default_cell :if={@photo_col?} class="w-12 !pr-0 !py-1 [.pk-comfy_&]:w-24 [.pk-comfy_&]:!py-1.5">
             <.featured_thumb resource={cat} has_files={Map.get(@file_counts, cat.uuid, 0) > 0} />
           </.table_default_cell>
           <.table_default_cell class="font-medium">
@@ -2887,7 +2887,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         <tr :if={@show_uncat}>
           <td :if={@draggable?} class="w-8"></td>
           <td class="w-8"></td>
-          <td :if={@photo_col?} class="w-10 !pr-0 [.pk-comfy_&]:w-16">
+          <td :if={@photo_col?} class="w-12 !pr-0 !py-1 [.pk-comfy_&]:w-24 [.pk-comfy_&]:!py-1.5">
             <span class="w-8 h-8 rounded bg-base-200 flex items-center justify-center">
               <.icon name="hero-folder-open" class="w-4 h-4 text-base-content/40" />
             </span>
@@ -3125,7 +3125,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               />
               <.featured_thumb
                 resource={item}
-                class="w-7 h-7"
+                class="w-12 h-12"
                 on_click="show_product_card"
                 has_files={Map.get(@file_counts, item.uuid, 0) > 0}
               />
@@ -3201,7 +3201,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               <%!-- Featured images get their own slim column (inline-left
                    of the name made rows jagged); only when some row on
                    this level actually has one. --%>
-              <.table_default_header_cell :if={any_media_thumb?(@items, @file_counts)} class="w-10 !pr-0 [.pk-comfy_&]:w-16"></.table_default_header_cell>
+              <.table_default_header_cell :if={any_media_thumb?(@items, @file_counts)} class="w-12 !pr-0 !py-1 [.pk-comfy_&]:w-24 [.pk-comfy_&]:!py-1.5"></.table_default_header_cell>
               <.sort_header_cell field={:name} sort={%{by: @items_sort_by, dir: @items_sort_dir}} event="toggle_sort_items">
                 {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Name")}
               </.sort_header_cell>
@@ -3233,7 +3233,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                    doesn't jump when a delete drops the list to one row. --%>
               <td :if={@draggable? and not @reorderable?} class="w-8"></td>
               <.bulk_select_cell value={item.uuid} />
-              <.table_default_cell :if={any_media_thumb?(@items, @file_counts)} class="w-10 !pr-0 [.pk-comfy_&]:w-16">
+              <.table_default_cell :if={any_media_thumb?(@items, @file_counts)} class="w-12 !pr-0 !py-1 [.pk-comfy_&]:w-24 [.pk-comfy_&]:!py-1.5">
                 <.featured_thumb
                   resource={item}
                   on_click="show_product_card"
