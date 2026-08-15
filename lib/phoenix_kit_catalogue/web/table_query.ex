@@ -60,13 +60,16 @@ defmodule PhoenixKitCatalogue.Web.TableQuery do
 
   def sort(rows, _scope, _sort_by, _dir), do: rows
 
+  # Tuples are `{label, value}` — the order Phoenix's `options_for_select`
+  # expects. The submitted value must be the uuid: `filter_match?/4` above
+  # compares it to `row[:folder_uuid]`.
   @spec enum_options([map()], TableConfig.scope(), String.t()) :: [{String.t(), String.t()}]
   def enum_options(rows, _scope, "folder") do
     rows
-    |> Enum.map(&{to_string(&1[:folder_uuid]), &1[:folder_name]})
-    |> Enum.reject(fn {uuid, _} -> uuid in ["", "nil"] end)
+    |> Enum.map(&{&1[:folder_name], to_string(&1[:folder_uuid])})
+    |> Enum.reject(fn {_, uuid} -> uuid in ["", "nil"] end)
     |> Enum.uniq()
-    |> Enum.sort_by(fn {_u, name} -> String.downcase(name || "") end)
+    |> Enum.sort_by(fn {name, _u} -> String.downcase(name || "") end)
   end
 
   def enum_options(rows, _scope, id) do
