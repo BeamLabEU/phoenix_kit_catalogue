@@ -702,16 +702,13 @@ defmodule PhoenixKitCatalogue.Catalogue.Attributes do
   # Multilang stores per-language sub-maps with "_"-prefixed field keys
   # ("_name"); primary-language text lives in the schema column. Fall back
   # to the column whenever the requested language has no override.
+  # (`get_language_data/2` always returns a map, so no other shape to match.)
   defp translated(data, lang, field, fallback) do
-    case Multilang.get_language_data(data || %{}, lang) do
-      %{} = lang_data ->
-        case lang_data["_" <> field] do
-          text when is_binary(text) and text != "" -> text
-          _ -> fallback
-        end
+    lang_data = Multilang.get_language_data(data || %{}, lang)
 
-      _ ->
-        fallback
+    case lang_data["_" <> field] do
+      text when is_binary(text) and text != "" -> text
+      _ -> fallback
     end
   end
 
@@ -729,13 +726,13 @@ defmodule PhoenixKitCatalogue.Catalogue.Attributes do
         s -> String.slice(s, 0, 90)
       end
 
-    if slug in taken do
-      Enum.find_value(2..1000, fn n ->
-        candidate = "#{slug}-#{n}"
-        if candidate not in taken, do: candidate
-      end)
-    else
-      slug
-    end
+    if slug in taken, do: dedupe_key(slug, taken), else: slug
+  end
+
+  defp dedupe_key(slug, taken) do
+    Enum.find_value(2..1000, fn n ->
+      candidate = "#{slug}-#{n}"
+      if candidate not in taken, do: candidate
+    end)
   end
 end

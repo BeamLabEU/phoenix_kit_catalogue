@@ -142,17 +142,19 @@ defmodule PhoenixKitCatalogue.Web.AttributeGroupFormLive do
   end
 
   def handle_event("rename_attribute", %{"uuid" => uuid, "value" => raw}, socket) do
-    with %{} = attribute <- owned_attribute(socket, uuid) do
-      apply_rename(
-        socket,
-        attribute,
-        raw,
-        "_name",
-        &Catalogue.update_attribute/2,
-        %{"name" => String.trim(raw)}
-      )
-    else
-      _ -> {:noreply, socket}
+    case owned_attribute(socket, uuid) do
+      %{} = attribute ->
+        apply_rename(
+          socket,
+          attribute,
+          raw,
+          "_name",
+          &Catalogue.update_attribute/2,
+          %{"name" => String.trim(raw)}
+        )
+
+      _ ->
+        {:noreply, socket}
     end
   end
 
@@ -218,17 +220,19 @@ defmodule PhoenixKitCatalogue.Web.AttributeGroupFormLive do
   end
 
   def handle_event("rename_value", %{"uuid" => uuid, "value" => raw}, socket) do
-    with %{} = value <- owned_value(socket, uuid) do
-      apply_rename(
-        socket,
-        value,
-        raw,
-        "_value",
-        &Catalogue.update_attribute_value/2,
-        %{"value" => String.trim(raw)}
-      )
-    else
-      _ -> {:noreply, socket}
+    case owned_value(socket, uuid) do
+      %{} = value ->
+        apply_rename(
+          socket,
+          value,
+          raw,
+          "_value",
+          &Catalogue.update_attribute_value/2,
+          %{"value" => String.trim(raw)}
+        )
+
+      _ ->
+        {:noreply, socket}
     end
   end
 
@@ -252,11 +256,13 @@ defmodule PhoenixKitCatalogue.Web.AttributeGroupFormLive do
 
   def handle_event("reorder_values", %{"ordered_ids" => ids, "attributeUuid" => uuid}, socket)
       when is_list(ids) do
-    with %{} = attribute <- owned_attribute(socket, uuid) do
-      :ok = Catalogue.reorder_attribute_values(attribute, Enum.filter(ids, &is_binary/1))
-      {:noreply, reload_group(socket)}
-    else
-      _ -> {:noreply, socket}
+    case owned_attribute(socket, uuid) do
+      %{} = attribute ->
+        :ok = Catalogue.reorder_attribute_values(attribute, Enum.filter(ids, &is_binary/1))
+        {:noreply, reload_group(socket)}
+
+      _ ->
+        {:noreply, socket}
     end
   end
 

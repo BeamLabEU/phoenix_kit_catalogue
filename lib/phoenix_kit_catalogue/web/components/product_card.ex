@@ -405,7 +405,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ProductCard do
            Catalogue.get_item_attribute_group_uuid(uuid),
          %{attributes: attributes} <- Catalogue.resolved_group(group_uuid, locale) do
       for a <- attributes do
-        {a.name, a.values |> Enum.map(& &1.value) |> Enum.join(", ")}
+        {a.name, Enum.map_join(a.values, ", ", & &1.value)}
       end
     else
       _ -> []

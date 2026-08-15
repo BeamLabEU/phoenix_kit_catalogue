@@ -93,23 +93,12 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   # care about for the current tab.
   @impl true
   def handle_info({:catalogue_data_changed, kind, _uuid, _parent}, socket) do
-    cond do
-      socket.assigns.active_tab == :index and kind in [:catalogue, :item, :category, :folder] ->
-        {:noreply, load_data(socket, :index)}
+    tab = socket.assigns.active_tab
 
-      socket.assigns.active_tab == :manufacturers and kind in [:manufacturer, :links] ->
-        {:noreply, load_data(socket, :manufacturers)}
-
-      socket.assigns.active_tab == :suppliers and kind in [:supplier, :links] ->
-        {:noreply, load_data(socket, :suppliers)}
-
-      # :item matters too — assignment changes ride the :item kind and
-      # move the "Items" usage counts.
-      socket.assigns.active_tab == :attribute_groups and kind in [:attribute_group, :item] ->
-        {:noreply, load_data(socket, :attribute_groups)}
-
-      true ->
-        {:noreply, socket}
+    if reload_on?(tab, kind) do
+      {:noreply, load_data(socket, tab)}
+    else
+      {:noreply, socket}
     end
   end
 
@@ -137,6 +126,15 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     Logger.debug("CataloguesLive ignored unhandled message: #{inspect(msg)}")
     {:noreply, socket}
   end
+
+  # Which mutation kinds warrant a reload for each tab. :item matters to
+  # the attributes tab too — assignment changes ride the :item kind and
+  # move the "Items" usage counts.
+  defp reload_on?(:index, kind), do: kind in [:catalogue, :item, :category, :folder]
+  defp reload_on?(:manufacturers, kind), do: kind in [:manufacturer, :links]
+  defp reload_on?(:suppliers, kind), do: kind in [:supplier, :links]
+  defp reload_on?(:attribute_groups, kind), do: kind in [:attribute_group, :item]
+  defp reload_on?(_tab, _kind), do: false
 
   @impl true
   def handle_params(_params, _uri, socket), do: {:noreply, socket}
