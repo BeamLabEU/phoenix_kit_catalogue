@@ -1250,6 +1250,14 @@ defmodule PhoenixKitCatalogue.Web.Components do
         "must not query)."
   )
 
+  attr(:attribute_map, :map,
+    default: %{},
+    doc:
+      "%{item_uuid => attribute_group_uuid} from " <>
+        "Catalogue.item_attribute_group_map/1 — drives the swatch indicator " <>
+        "beside the name. Computed by the caller."
+  )
+
   attr(:show_toggle, :boolean, default: true)
   attr(:id, :string, default: nil)
   attr(:storage_key, :string, default: nil)
@@ -1358,6 +1366,13 @@ defmodule PhoenixKitCatalogue.Web.Components do
             {item.name || "—"}
           </.link>
           <span :if={!@edit_path || !item.uuid} class="font-medium text-sm">{item.name || "—"}</span>
+          <span
+            :if={Map.has_key?(@attribute_map, item.uuid)}
+            class="shrink-0"
+            title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Has attribute group")}
+          >
+            <.icon name="hero-swatch" class="w-3.5 h-3.5 text-primary/60" />
+          </span>
         </div>
       </:card_header>
       <.table_default_header>
@@ -1440,6 +1455,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
             discount_percentage={@discount_percentage}
             catalogue_path={@catalogue_path}
             edit_path={@edit_path}
+            has_attributes={Map.has_key?(@attribute_map, item.uuid)}
           />
           <.item_actions
             :if={@has_actions}
@@ -1483,6 +1499,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
   """
   attr(:item, :any, required: true)
   attr(:edit_path, :any, default: nil)
+  attr(:has_attributes, :boolean, default: false)
 
   def item_pricing_cell(assigns) do
     pricing = Catalogue.item_pricing(assigns.item)
@@ -1498,6 +1515,13 @@ defmodule PhoenixKitCatalogue.Web.Components do
         {@item.name || "—"}
       </.link>
       <span :if={!@edit_path || !@item.uuid}>{@item.name || "—"}</span>
+      <span
+        :if={assigns[:has_attributes]}
+        class="inline-block ml-1.5 align-[-2px]"
+        title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Has attribute group")}
+      >
+        <.icon name="hero-swatch" class="w-3.5 h-3.5 text-primary/60" />
+      </span>
     </.table_default_cell>
     <.table_default_cell class="text-sm font-mono text-base-content/60">
       {@item.sku || "—"}
@@ -1702,6 +1726,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
   attr(:discount_percentage, :any, default: nil)
   attr(:catalogue_path, :any, default: nil)
   attr(:edit_path, :any, default: nil)
+  attr(:has_attributes, :boolean, default: false)
 
   defp item_cell(%{column: :name} = assigns) do
     ~H"""
@@ -1714,6 +1739,13 @@ defmodule PhoenixKitCatalogue.Web.Components do
         {@item.name || "—"}
       </.link>
       <span :if={!@edit_path || !@item.uuid}>{@item.name || "—"}</span>
+      <span
+        :if={assigns[:has_attributes]}
+        class="inline-block ml-1.5 align-[-2px]"
+        title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Has attribute group")}
+      >
+        <.icon name="hero-swatch" class="w-3.5 h-3.5 text-primary/60" />
+      </span>
     </.table_default_cell>
     """
   end

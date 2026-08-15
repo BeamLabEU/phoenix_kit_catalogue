@@ -101,7 +101,10 @@ defmodule PhoenixKitCatalogue do
     [
       {"catalogue", PhoenixKitCatalogue.AITranslatable},
       {"catalogue_category", PhoenixKitCatalogue.AITranslatable},
-      {"catalogue_item", PhoenixKitCatalogue.AITranslatable}
+      {"catalogue_item", PhoenixKitCatalogue.AITranslatable},
+      {"catalogue_attribute_group", PhoenixKitCatalogue.AITranslatable},
+      {"catalogue_attribute", PhoenixKitCatalogue.AITranslatable},
+      {"catalogue_attribute_value", PhoenixKitCatalogue.AITranslatable}
     ]
   end
 

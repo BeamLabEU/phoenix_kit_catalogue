@@ -10,6 +10,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ProductCardDBTest do
   alias Ecto.Adapters.SQL
   alias PhoenixKit.Modules.Storage
   alias PhoenixKit.Modules.Storage.File, as: StorageFile
+  alias PhoenixKitCatalogue.Catalogue
   alias PhoenixKitCatalogue.Schemas.Item
   alias PhoenixKitCatalogue.Web.Components.ProductCard
 
@@ -148,5 +149,49 @@ defmodule PhoenixKitCatalogue.Web.Components.ProductCardDBTest do
     assert Catalogue.attached_file_counts([row])[item_a.uuid] == 2
 
     assert Catalogue.attached_file_counts([]) == %{}
+  end
+
+  describe "build_fields/2 attribute rows" do
+    defp item_with_group do
+      {:ok, cat} =
+        Catalogue.create_catalogue(%{name: "Cat #{System.unique_integer([:positive])}"})
+
+      {:ok, item} = Catalogue.create_item(%{name: "Door", catalogue_uuid: cat.uuid})
+      {:ok, group} = Catalogue.create_attribute_group(%{name: "Idea doors"})
+      {:ok, attribute} = Catalogue.create_attribute(group, %{"name" => "Color"})
+      {:ok, _} = Catalogue.create_attribute_value(attribute, %{"value" => "White"})
+      {:ok, _} = Catalogue.create_attribute_value(attribute, %{"value" => "Oak"})
+      {item, group, attribute}
+    end
+
+    test "appends one row per attribute with comma-joined values" do
+      {item, group, _attribute} = item_with_group()
+      {:ok, :assigned} = Catalogue.set_item_attribute_group(item, group.uuid)
+
+      fields = ProductCard.build_fields(item, "en")
+      assert {"Color", "White, Oak"} in fields
+    end
+
+    test "no assignment, no attribute rows" do
+      {item, _group, _attribute} = item_with_group()
+      fields = ProductCard.build_fields(item, "en")
+      refute Enum.any?(fields, fn {label, _} -> label == "Color" end)
+    end
+
+    test "rows come back translated for the card's locale" do
+      {item, group, attribute} = item_with_group()
+      {:ok, :assigned} = Catalogue.set_item_attribute_group(item, group.uuid)
+
+      {:ok, _} =
+        Catalogue.set_translation(
+          attribute,
+          "ru",
+          %{"_name" => "Цвет"},
+          &Catalogue.update_attribute/2
+        )
+
+      fields = ProductCard.build_fields(item, "ru")
+      assert Enum.any?(fields, fn {label, _} -> label == "Цвет" end)
+    end
   end
 end
