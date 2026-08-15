@@ -1211,3 +1211,30 @@ msgstr ""
 
 msgid "You are editing translations. Empty fields fall back to the primary language; new attributes and values are always created in the primary language."
 msgstr ""
+
+msgid "Attribute group"
+msgstr ""
+
+msgid "Pick a group to give this item its options — colors, trims, surfaces. Applied when you save."
+msgstr ""
+
+msgid "Manage groups"
+msgstr ""
+
+msgid "— No attribute group —"
+msgstr ""
+
+msgid "archived"
+msgstr ""
+
+msgid "No values defined yet."
+msgstr ""
+
+msgid "This group has no attributes yet."
+msgstr ""
+
+msgid "View old values (%{count})"
+msgstr ""
+
+msgid "Hand-typed metadata from before attribute groups. Kept so nothing is lost — move what matters into a group, then clear these."
+msgstr ""

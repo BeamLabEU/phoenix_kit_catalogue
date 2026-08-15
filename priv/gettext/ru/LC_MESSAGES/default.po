@@ -1215,3 +1215,30 @@ msgstr "Убрать значение"
 
 msgid "You are editing translations. Empty fields fall back to the primary language; new attributes and values are always created in the primary language."
 msgstr "Вы редактируете переводы. Пустые поля используют основной язык; новые атрибуты и значения всегда создаются на основном языке."
+
+msgid "Attribute group"
+msgstr "Группа атрибутов"
+
+msgid "Pick a group to give this item its options — colors, trims, surfaces. Applied when you save."
+msgstr "Выберите группу, чтобы задать товару опции — цвета, канты, поверхности. Применяется при сохранении."
+
+msgid "Manage groups"
+msgstr "Управлять группами"
+
+msgid "— No attribute group —"
+msgstr "— Без группы атрибутов —"
+
+msgid "archived"
+msgstr "в архиве"
+
+msgid "No values defined yet."
+msgstr "Значения ещё не заданы."
+
+msgid "This group has no attributes yet."
+msgstr "У этой группы пока нет атрибутов."
+
+msgid "View old values (%{count})"
+msgstr "Старые значения (%{count})"
+
+msgid "Hand-typed metadata from before attribute groups. Kept so nothing is lost — move what matters into a group, then clear these."
+msgstr "Введённые вручную метаданные из времён до групп атрибутов. Сохранены, чтобы ничего не потерялось — перенесите нужное в группу и очистите их."

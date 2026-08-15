@@ -1206,3 +1206,30 @@ msgstr "Remove value"
 
 msgid "You are editing translations. Empty fields fall back to the primary language; new attributes and values are always created in the primary language."
 msgstr "You are editing translations. Empty fields fall back to the primary language; new attributes and values are always created in the primary language."
+
+msgid "Attribute group"
+msgstr "Attribute group"
+
+msgid "Pick a group to give this item its options — colors, trims, surfaces. Applied when you save."
+msgstr "Pick a group to give this item its options — colors, trims, surfaces. Applied when you save."
+
+msgid "Manage groups"
+msgstr "Manage groups"
+
+msgid "— No attribute group —"
+msgstr "— No attribute group —"
+
+msgid "archived"
+msgstr "archived"
+
+msgid "No values defined yet."
+msgstr "No values defined yet."
+
+msgid "This group has no attributes yet."
+msgstr "This group has no attributes yet."
+
+msgid "View old values (%{count})"
+msgstr "View old values (%{count})"
+
+msgid "Hand-typed metadata from before attribute groups. Kept so nothing is lost — move what matters into a group, then clear these."
+msgstr "Hand-typed metadata from before attribute groups. Kept so nothing is lost — move what matters into a group, then clear these."

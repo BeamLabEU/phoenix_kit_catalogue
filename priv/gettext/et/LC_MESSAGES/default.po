@@ -1206,3 +1206,30 @@ msgstr "Eemalda väärtus"
 
 msgid "You are editing translations. Empty fields fall back to the primary language; new attributes and values are always created in the primary language."
 msgstr "Muudad tõlkeid. Tühjad väljad kasutavad põhikeelt; uued atribuudid ja väärtused luuakse alati põhikeeles."
+
+msgid "Attribute group"
+msgstr "Atribuudirühm"
+
+msgid "Pick a group to give this item its options — colors, trims, surfaces. Applied when you save."
+msgstr "Vali rühm, mis annab tootele valikud — värvid, kandid, pinnad. Rakendub salvestamisel."
+
+msgid "Manage groups"
+msgstr "Halda rühmi"
+
+msgid "— No attribute group —"
+msgstr "— Atribuudirühm puudub —"
+
+msgid "archived"
+msgstr "arhiveeritud"
+
+msgid "No values defined yet."
+msgstr "Väärtusi pole veel määratud."
+
+msgid "This group has no attributes yet."
+msgstr "Sellel rühmal pole veel atribuute."
+
+msgid "View old values (%{count})"
+msgstr "Vaata vanu väärtusi (%{count})"
+
+msgid "Hand-typed metadata from before attribute groups. Kept so nothing is lost — move what matters into a group, then clear these."
+msgstr "Käsitsi sisestatud metaandmed atribuudirühmade eelsest ajast. Alles hoitud, et midagi ei kaoks — vii oluline rühma ja tühjenda need."

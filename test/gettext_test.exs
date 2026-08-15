@@ -280,12 +280,25 @@ defmodule PhoenixKitCatalogue.GettextTest do
             {"Make default", "Määra vaikeväärtuseks", "Сделать по умолчанию"},
             {"This group is used by items — archive it instead.",
              "See rühm on toodetel kasutusel — arhiveeri see kustutamise asemel.",
-             "Эта группа используется товарами — вместо удаления заархивируйте её."}
+             "Эта группа используется товарами — вместо удаления заархивируйте её."},
+            {"Attribute group", "Atribuudirühm", "Группа атрибутов"},
+            {"— No attribute group —", "— Atribuudirühm puudub —", "— Без группы атрибутов —"},
+            {"Manage groups", "Halda rühmi", "Управлять группами"}
           ] do
         assert po_msgstr("en", msgid) == msgid
         assert gettext_in("et", msgid) == et
         assert gettext_in("ru", msgid) == ru
       end
+    end
+
+    test "View old values interpolates the count" do
+      assert po_msgstr("en", "View old values (%{count})") == "View old values (%{count})"
+
+      assert Gettext.with_locale(PhoenixKitCatalogue.Gettext, "ru", fn ->
+               Gettext.gettext(PhoenixKitCatalogue.Gettext, "View old values (%{count})",
+                 count: 3
+               )
+             end) == "Старые значения (3)"
     end
 
     test "reorder-all strings" do
