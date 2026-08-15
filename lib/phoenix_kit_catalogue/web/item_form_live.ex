@@ -200,6 +200,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
     |> assign_rule_state(item, kind, catalogue_uuid)
     |> mount_multilang()
     |> adjust_multilang_for_item(item)
+    |> assign_attribute_state(item, action)
     |> assign_ai_translation("catalogue_item", if(action == :edit, do: item, else: nil))
   end
 
@@ -415,7 +416,11 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
     do: {:noreply, assign(socket, :show_pdf_search, true)}
 
   def handle_event("validate", params, socket) do
-    socket = absorb_meta_params(socket, params)
+    socket =
+      socket
+      |> absorb_meta_params(params)
+      |> absorb_attribute_selection(params)
+
     item_params = Map.get(params, "item", %{})
 
     item_params =
@@ -433,7 +438,11 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   end
 
   def handle_event("save", params, socket) do
-    socket = absorb_meta_params(socket, params)
+    socket =
+      socket
+      |> absorb_meta_params(params)
+      |> absorb_attribute_selection(params)
+
     item_params = Map.get(params, "item", %{})
 
     item_params =
@@ -759,6 +768,8 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
     with {:ok, item} <- Catalogue.create_item(params, actor_opts(socket)),
          {:ok, _rules} <- maybe_put_rules(socket, item),
          :ok <- Attachments.maybe_rename_pending_folder(socket, item) do
+      apply_attribute_assignment(socket, item)
+
       # "Save" (stay) on a new item lands on its edit form — the record
       # exists now, so staying means continuing to edit it. The original
       # return_to rides along so the eventual exit still goes home.
@@ -802,6 +813,8 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
 
     with {:ok, item} <- Catalogue.update_item(socket.assigns.item, params, actor_opts(socket)),
          {:ok, _rules} <- maybe_put_rules(socket, item) do
+      apply_attribute_assignment(socket, item)
+
       socket =
         put_flash(socket, :info, Gettext.gettext(PhoenixKitCatalogue.Gettext, "Item updated."))
 
@@ -887,6 +900,82 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   # falls back to the exit behavior — same as before the split.
   defp save_mode(%{"save_action" => "stay"}), do: :stay
   defp save_mode(_params), do: :exit
+
+  # ── Attribute group selection ───────────────────────────────────
+
+  # The Attributes tab's group select submits with the main form (name
+  # "attribute_group_uuid", outside the item[...] namespace). Track the
+  # selection in assigns so the read-only preview follows it live.
+  defp absorb_attribute_selection(socket, params) do
+    case Map.fetch(params, "attribute_group_uuid") do
+      {:ok, raw} ->
+        selected = if raw in [nil, ""], do: nil, else: raw
+
+        if selected != socket.assigns.selected_attribute_group_uuid do
+          socket
+          |> assign(:selected_attribute_group_uuid, selected)
+          |> assign_attribute_preview(selected)
+        else
+          socket
+        end
+
+      :error ->
+        socket
+    end
+  end
+
+  defp assign_attribute_state(socket, item, action) do
+    selected =
+      if action == :edit and item.uuid,
+        do: Catalogue.get_item_attribute_group_uuid(item.uuid),
+        else: nil
+
+    groups = Catalogue.list_attribute_groups(status: "active")
+
+    # The stale-select rule: an archived group the item already holds
+    # stays in the options (and keeps rendering) — it just can't be
+    # newly chosen once deselected.
+    groups =
+      if selected && not Enum.any?(groups, &(&1.uuid == selected)) do
+        case Catalogue.get_attribute_group(selected) do
+          nil -> groups
+          archived -> groups ++ [archived]
+        end
+      else
+        groups
+      end
+
+    socket
+    |> assign(:selected_attribute_group_uuid, selected)
+    |> assign(:attribute_group_options, groups)
+    |> assign_attribute_preview(selected)
+  end
+
+  defp assign_attribute_preview(socket, selected) do
+    assign(socket, :attribute_preview, Catalogue.resolved_group(selected, preview_lang(socket)))
+  end
+
+  defp preview_lang(socket) do
+    socket.assigns[:current_locale] || socket.assigns[:primary_language] || "en"
+  end
+
+  # Persisting the assignment is best-effort alongside the item save:
+  # the select only offers valid groups, so a rejected value can only be
+  # a forged payload — skip it rather than fail the save.
+  defp apply_attribute_assignment(socket, item) do
+    case Catalogue.set_item_attribute_group(
+           item,
+           socket.assigns.selected_attribute_group_uuid,
+           actor_opts(socket)
+         ) do
+      {:error, reason} ->
+        Logger.debug("ItemFormLive attribute assignment skipped: #{inspect(reason)}")
+        :ok
+
+      _ ->
+        :ok
+    end
+  end
 
   defp return_to_suffix(socket) do
     case socket.assigns[:return_to] do
@@ -1031,10 +1120,10 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
           phx-value-tab="metadata"
           class={"tab #{if @current_tab == :metadata, do: "tab-active"}"}
         >
-          <.icon name="hero-tag" class="w-4 h-4 mr-1" />
-          {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Metadata")}
-          <span :if={@meta_state.attached != []} class="badge badge-sm badge-ghost ml-2">
-            {length(@meta_state.attached)}
+          <.icon name="hero-swatch" class="w-4 h-4 mr-1" />
+          {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Attributes")}
+          <span :if={@attribute_preview} class="badge badge-sm badge-ghost ml-2">
+            {length(@attribute_preview.attributes)}
           </span>
         </button>
         <button
@@ -1625,23 +1714,116 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
           </div>
         </div>
 
-        <%!-- Metadata tab — global field list, user opts in per item.
-             Values live in `item.data["meta"]`; legacy keys (stored
-             but no longer in Metadata.definitions(:item)) render with a
-             "Legacy" pill and a remove-only action so data isn't lost
-             silently. --%>
-        <div class={"card bg-base-100 shadow-lg #{if @current_tab != :metadata, do: "hidden"}"}>
-          <.metadata_editor
-            resource_type={:item}
-            state={@meta_state}
-            id_prefix="item"
-            description={
-              Gettext.gettext(
-                PhoenixKitCatalogue.Gettext,
-                "Attach any metadata fields that apply to this item. Blank values are dropped on save."
-              )
-            }
-          />
+        <%!-- Attributes tab — the reusable attribute-group system. The
+             select submits with the main form (assignment persists on
+             save); the preview follows the selection live via validate.
+             The legacy hand-typed metadata survives underneath in a
+             collapsed editor, rendered ONLY when this item actually has
+             old values — never deleted, so a host's AI (or a human) can
+             read them, build groups, and clear them at their own pace. --%>
+        <div class={"flex flex-col gap-4 #{if @current_tab != :metadata, do: "hidden"}"}>
+          <div class="card bg-base-100 shadow-lg">
+            <div class="card-body flex flex-col gap-4">
+              <div class="flex items-center justify-between gap-4">
+                <div class="flex flex-col gap-0.5 min-w-0">
+                  <h2 class="text-base font-semibold text-base-content/80 flex items-center gap-2">
+                    <.icon name="hero-swatch" class="w-4 h-4" />
+                    {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Attribute group")}
+                  </h2>
+                  <p class="text-xs text-base-content/50">
+                    {Gettext.gettext(
+                      PhoenixKitCatalogue.Gettext,
+                      "Pick a group to give this item its options — colors, trims, surfaces. Applied when you save."
+                    )}
+                  </p>
+                </div>
+                <.link
+                  navigate={Paths.attribute_groups()}
+                  class="btn btn-ghost btn-xs shrink-0"
+                >
+                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Manage groups")}
+                </.link>
+              </div>
+
+              <select
+                name="attribute_group_uuid"
+                class="select select-bordered w-full max-w-md transition-colors focus-within:select-primary"
+              >
+                <option value="">
+                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "— No attribute group —")}
+                </option>
+                <option
+                  :for={group <- @attribute_group_options}
+                  value={group.uuid}
+                  selected={group.uuid == @selected_attribute_group_uuid}
+                >
+                  {group.name}{if group.status == "archived",
+                    do: " (#{Gettext.gettext(PhoenixKitCatalogue.Gettext, "archived")})"}
+                </option>
+              </select>
+
+              <%!-- Read-only preview of what the item inherits. --%>
+              <div :if={@attribute_preview} class="flex flex-col gap-3">
+                <div
+                  :for={attribute <- @attribute_preview.attributes}
+                  class="flex flex-wrap items-baseline gap-2"
+                >
+                  <span class="text-sm font-medium min-w-24">{attribute.name}</span>
+                  <span
+                    :for={value <- attribute.values}
+                    class={[
+                      "badge badge-sm",
+                      (value.default? && "badge-primary badge-outline") || "badge-ghost"
+                    ]}
+                  >
+                    {value.value}
+                  </span>
+                  <span
+                    :if={attribute.values == []}
+                    class="text-xs text-base-content/40"
+                  >
+                    {Gettext.gettext(PhoenixKitCatalogue.Gettext, "No values defined yet.")}
+                  </span>
+                </div>
+                <p
+                  :if={@attribute_preview.attributes == []}
+                  class="text-sm text-base-content/50"
+                >
+                  {Gettext.gettext(
+                    PhoenixKitCatalogue.Gettext,
+                    "This group has no attributes yet."
+                  )}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <%!-- Legacy metadata — global field list, values in
+               `item.data["meta"]`. Collapsed and only rendered when old
+               values exist; the inputs stay inside the main form so
+               editing and clearing them still works exactly as before. --%>
+          <details :if={@meta_state.attached != []} class="card bg-base-100 shadow-lg">
+            <summary class="card-body py-3 cursor-pointer flex-row items-center gap-2 select-none">
+              <.icon name="hero-tag" class="w-4 h-4 text-base-content/60" />
+              <h3 class="font-semibold text-base">
+                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "View old values (%{count})",
+                  count: length(@meta_state.attached)
+                )}
+              </h3>
+              <.icon name="hero-chevron-down" class="w-4 h-4 ml-auto text-base-content/40" />
+            </summary>
+            <.metadata_editor
+              resource_type={:item}
+              state={@meta_state}
+              id_prefix="item"
+              description={
+                Gettext.gettext(
+                  PhoenixKitCatalogue.Gettext,
+                  "Hand-typed metadata from before attribute groups. Kept so nothing is lost — move what matters into a group, then clear these."
+                )
+              }
+            />
+          </details>
         </div>
 
         <%!-- Featured image — on the Files tab, matching the catalogue

@@ -480,6 +480,64 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLiveTest do
   end
 
   # ─────────────────────────────────────────────────────────────────
+  # Attributes tab
+  # ─────────────────────────────────────────────────────────────────
+
+  describe "attributes tab" do
+    test "saving with a selected group assigns it; clearing removes it", %{conn: conn} do
+      {:ok, group} = Catalogue.create_attribute_group(%{name: "Idea doors"})
+      catalogue = fixture_catalogue()
+
+      {:ok, view, html} = live(conn, new_item_url(catalogue.uuid))
+      assert html =~ "Idea doors"
+
+      {:error, {:live_redirect, _}} =
+        view
+        |> form("form[action=\"#\"][phx-submit=save]", %{
+          "item" => base_item_params(),
+          "attribute_group_uuid" => group.uuid
+        })
+        |> render_submit()
+
+      [item] = TestRepo.all(Item)
+      assert Catalogue.get_item_attribute_group_uuid(item.uuid) == group.uuid
+
+      # Re-open for edit: preselected; clearing the select detaches on save.
+      # (Raw <option> renders attrs in source order: value, then selected.)
+      {:ok, view, html} = live(conn, edit_item_url(item.uuid))
+      assert html =~ ~s(value="#{group.uuid}" selected)
+
+      view
+      |> form("form[action=\"#\"][phx-submit=save]", %{
+        "item" => base_item_params(),
+        "attribute_group_uuid" => ""
+      })
+      |> render_submit()
+
+      assert Catalogue.get_item_attribute_group_uuid(item.uuid) == nil
+    end
+
+    test "legacy metadata collapse renders only when old values exist", %{conn: conn} do
+      catalogue = fixture_catalogue()
+
+      plain = fixture_item(%{name: "No meta", catalogue_uuid: catalogue.uuid})
+      {:ok, _view, html} = live(conn, edit_item_url(plain.uuid))
+      refute html =~ "View old values"
+
+      legacy =
+        fixture_item(%{
+          name: "Has meta",
+          catalogue_uuid: catalogue.uuid,
+          data: %{"meta" => %{"color" => "red", "weight" => "5kg"}}
+        })
+
+      {:ok, _view, html} = live(conn, edit_item_url(legacy.uuid))
+      assert html =~ "View old values (2)"
+      assert html =~ "red"
+    end
+  end
+
+  # ─────────────────────────────────────────────────────────────────
   # Save vs Save & Exit
   # ─────────────────────────────────────────────────────────────────
 
