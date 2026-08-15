@@ -1225,8 +1225,8 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
 
     if Enum.any?(rows, &is_nil(&1[:folder_uuid])) do
       [
-        {TableQuery.unfiled_folder_value(),
-         Gettext.gettext(PhoenixKitCatalogue.Gettext, "Unfiled (root)")}
+        {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Unfiled (root)"),
+         TableQuery.unfiled_folder_value()}
         | base
       ]
     else
