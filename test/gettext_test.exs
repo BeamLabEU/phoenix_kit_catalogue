@@ -268,6 +268,26 @@ defmodule PhoenixKitCatalogue.GettextTest do
       end
     end
 
+    test "attribute group strings" do
+      for {msgid, et, ru} <- [
+            {"Attributes", "Atribuudid", "Атрибуты"},
+            {"Archive", "Arhiveeri", "Архивировать"},
+            {"Add", "Lisa", "Добавить"},
+            {"New Attribute Group", "Uus atribuudirühm", "Новая группа атрибутов"},
+            {"Attribute group created.", "Atribuudirühm loodud.", "Группа атрибутов создана."},
+            {"Multiple values", "Mitu väärtust", "Несколько значений"},
+            {"Fixed value", "Fikseeritud väärtus", "Фиксированное значение"},
+            {"Make default", "Määra vaikeväärtuseks", "Сделать по умолчанию"},
+            {"This group is used by items — archive it instead.",
+             "See rühm on toodetel kasutusel — arhiveeri see kustutamise asemel.",
+             "Эта группа используется товарами — вместо удаления заархивируйте её."}
+          ] do
+        assert po_msgstr("en", msgid) == msgid
+        assert gettext_in("et", msgid) == et
+        assert gettext_in("ru", msgid) == ru
+      end
+    end
+
     test "reorder-all strings" do
       for {msgid, et, ru} <- [
             {"Reorder all", "Järjesta kõik ümber", "Переупорядочить все"},

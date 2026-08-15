@@ -67,6 +67,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
        catalogue_rows: [],
        manufacturers: [],
        suppliers: [],
+       attribute_group_rows: [],
        confirm_delete: nil,
        catalogue_view_mode: "active",
        deleted_catalogue_count: 0,
@@ -101,6 +102,11 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
 
       socket.assigns.active_tab == :suppliers and kind in [:supplier, :links] ->
         {:noreply, load_data(socket, :suppliers)}
+
+      # :item matters too — assignment changes ride the :item kind and
+      # move the "Items" usage counts.
+      socket.assigns.active_tab == :attribute_groups and kind in [:attribute_group, :item] ->
+        {:noreply, load_data(socket, :attribute_groups)}
 
       true ->
         {:noreply, socket}
@@ -179,11 +185,12 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   defp active_scope(%{active_tab: :index}), do: :catalogues
   defp active_scope(%{active_tab: :manufacturers}), do: :manufacturers
   defp active_scope(%{active_tab: :suppliers}), do: :suppliers
+  defp active_scope(%{active_tab: :attribute_groups}), do: :attribute_groups
 
   defp load_view_configs(socket) do
     user = socket.assigns[:phoenix_kit_current_user]
 
-    Map.new([:catalogues, :suppliers, :manufacturers], fn scope ->
+    Map.new([:catalogues, :suppliers, :manufacturers, :attribute_groups], fn scope ->
       {scope, ViewConfig.load(user, scope)}
     end)
   end
@@ -227,9 +234,13 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
 
   defp tab_title(:suppliers), do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Suppliers")
 
+  defp tab_title(:attribute_groups),
+    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Attributes")
+
   defp tab_path(:index), do: Paths.index()
   defp tab_path(:manufacturers), do: Paths.manufacturers()
   defp tab_path(:suppliers), do: Paths.suppliers()
+  defp tab_path(:attribute_groups), do: Paths.attribute_groups()
 
   # Graceful handler for a delete event that fires while `confirm_delete`
   # is nil (e.g. someone pushed the event without first opening the
@@ -303,6 +314,27 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     if connected?(socket),
       do: assign(socket, :suppliers, Catalogue.list_suppliers()),
       else: socket
+  end
+
+  defp load_data(socket, :attribute_groups) do
+    if connected?(socket) do
+      groups = Catalogue.list_attribute_groups()
+      uuids = Enum.map(groups, & &1.uuid)
+      attr_counts = Catalogue.attribute_counts(uuids)
+      item_counts = Catalogue.assignment_counts(uuids)
+
+      rows =
+        Enum.map(groups, fn g ->
+          g
+          |> Map.from_struct()
+          |> Map.put(:attribute_count, Map.get(attr_counts, g.uuid, 0))
+          |> Map.put(:item_count, Map.get(item_counts, g.uuid, 0))
+        end)
+
+      assign(socket, :attribute_group_rows, rows)
+    else
+      socket
+    end
   end
 
   # Each catalogue enriched into a plain atom-key map for the flat table:
@@ -860,6 +892,77 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         unexpected_confirm_event(socket, "delete_supplier")
     end
   end
+
+  def handle_event("delete_attribute_group", _params, socket) do
+    case socket.assigns.confirm_delete do
+      {"attribute_group", uuid} ->
+        with %{} = group <- Catalogue.get_attribute_group(uuid),
+             {:ok, _} <- Catalogue.delete_attribute_group(group, actor_opts(socket)) do
+          {:noreply,
+           socket
+           |> put_flash(
+             :info,
+             Gettext.gettext(PhoenixKitCatalogue.Gettext, "Attribute group deleted.")
+           )
+           |> assign(:confirm_delete, nil)
+           |> load_data(:attribute_groups)}
+        else
+          nil ->
+            {:noreply, assign(socket, :confirm_delete, nil)}
+
+          {:error, :in_use} ->
+            {:noreply,
+             socket
+             |> put_flash(
+               :error,
+               Gettext.gettext(
+                 PhoenixKitCatalogue.Gettext,
+                 "This group is used by items — archive it instead."
+               )
+             )
+             |> assign(:confirm_delete, nil)}
+
+          {:error, reason} ->
+            log_operation_error(socket, "delete_attribute_group", %{
+              entity_type: "attribute_group",
+              entity_uuid: uuid,
+              reason: reason
+            })
+
+            {:noreply,
+             socket
+             |> put_flash(
+               :error,
+               Gettext.gettext(PhoenixKitCatalogue.Gettext, "Failed to delete attribute group.")
+             )
+             |> assign(:confirm_delete, nil)}
+        end
+
+      _ ->
+        unexpected_confirm_event(socket, "delete_attribute_group")
+    end
+  end
+
+  # Archive / restore straight from the row menu — reversible, no confirm.
+  def handle_event("set_attribute_group_status", %{"uuid" => uuid, "status" => status}, socket)
+      when status in ["active", "archived"] do
+    with %{} = group <- Catalogue.get_attribute_group(uuid),
+         {:ok, _} <-
+           Catalogue.update_attribute_group(group, %{status: status}, actor_opts(socket)) do
+      {:noreply, load_data(socket, :attribute_groups)}
+    else
+      _ ->
+        {:noreply,
+         put_flash(
+           socket,
+           :error,
+           Gettext.gettext(PhoenixKitCatalogue.Gettext, "Failed to update attribute group.")
+         )}
+    end
+  end
+
+  # Forged/stale payloads: ignore rather than crash.
+  def handle_event("set_attribute_group_status", _params, socket), do: {:noreply, socket}
 
   def handle_event("cancel_delete", _params, socket) do
     {:noreply, assign(socket, :confirm_delete, nil)}
@@ -1456,6 +1559,87 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         </.simple_table>
       </div>
 
+      <div :if={@active_tab == :attribute_groups} class="flex flex-col gap-4">
+        <% cfg = @view_configs.attribute_groups %>
+        <.table_toolbar scope={:attribute_groups} cfg={cfg}>
+          <:filters>
+            <.enum_filter
+              id="status"
+              label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Status")}
+              value={cfg.filters["status"]}
+              prompt={Gettext.gettext(PhoenixKitCatalogue.Gettext, "All statuses")}
+              options={TableQuery.enum_options(@attribute_group_rows, :attribute_groups, "status")}
+            />
+          </:filters>
+          <:actions>
+            <.link navigate={Paths.attribute_group_new()} class="btn btn-primary btn-sm">
+              <.icon name="hero-plus" class="w-4 h-4" />
+              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "New Attribute Group")}
+            </.link>
+          </:actions>
+        </.table_toolbar>
+        <.simple_table
+          scope={:attribute_groups}
+          cfg={cfg}
+          rows={derive_rows(@attribute_group_rows, :attribute_groups, cfg)}
+          total={length(@attribute_group_rows)}
+          empty={
+            Gettext.gettext(
+              PhoenixKitCatalogue.Gettext,
+              "No attribute groups yet. Create one to define reusable options like colors and finishes."
+            )
+          }
+        >
+          <:row_actions :let={g}>
+            <.table_row_menu mode="auto" id={"attr-group-menu-#{g.uuid}"}>
+              <.table_row_menu_link
+                navigate={Paths.attribute_group_edit(g.uuid)}
+                icon="hero-pencil"
+                label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")}
+              />
+              <.table_row_menu_button
+                :if={g.status == "active"}
+                phx-click="set_attribute_group_status"
+                phx-value-uuid={g.uuid}
+                phx-value-status="archived"
+                icon="hero-archive-box"
+                label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Archive")}
+              />
+              <.table_row_menu_button
+                :if={g.status == "archived"}
+                phx-click="set_attribute_group_status"
+                phx-value-uuid={g.uuid}
+                phx-value-status="active"
+                icon="hero-arrow-uturn-left"
+                label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Restore")}
+              />
+              <.table_row_menu_divider />
+              <.table_row_menu_button
+                phx-click="show_delete_confirm"
+                phx-value-uuid={g.uuid}
+                phx-value-type="attribute_group"
+                icon="hero-trash"
+                label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")}
+                variant="error"
+              />
+            </.table_row_menu>
+          </:row_actions>
+          <:card_actions :let={g}>
+            <.link navigate={Paths.attribute_group_edit(g.uuid)} class="btn btn-ghost btn-xs">
+              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")}
+            </.link>
+            <button
+              phx-click="show_delete_confirm"
+              phx-value-uuid={g.uuid}
+              phx-value-type="attribute_group"
+              class="btn btn-ghost btn-xs text-error"
+            >
+              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")}
+            </button>
+          </:card_actions>
+        </.simple_table>
+      </div>
+
       <.confirm_modal
         show={match?({"catalogue", _}, @confirm_delete)}
         on_confirm="permanently_delete_catalogue"
@@ -1496,6 +1680,17 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete Supplier")}
         title_icon="hero-trash"
         messages={[{:warning, Gettext.gettext(PhoenixKitCatalogue.Gettext, "This will permanently delete this supplier. Manufacturer links will be removed.")}]}
+        confirm_text={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")}
+        danger={true}
+      />
+
+      <.confirm_modal
+        show={match?({"attribute_group", _}, @confirm_delete)}
+        on_confirm="delete_attribute_group"
+        on_cancel="cancel_delete"
+        title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete Attribute Group")}
+        title_icon="hero-trash"
+        messages={[{:warning, Gettext.gettext(PhoenixKitCatalogue.Gettext, "This will permanently delete this group with all its attributes and values. Groups used by items cannot be deleted — archive them instead.")}]}
         confirm_text={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")}
         danger={true}
       />
@@ -1981,6 +2176,24 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   defp render_cell(:catalogues, "discount", row), do: pct(row[:discount_percentage])
   defp render_cell(:catalogues, "created", row), do: ts(row[:inserted_at])
 
+  defp render_cell(:attribute_groups, "name", row) do
+    assigns = %{row: row}
+
+    ~H"""
+    <.link navigate={Paths.attribute_group_edit(@row.uuid)} class="link link-hover font-medium">{@row.name}</.link>
+    """
+  end
+
+  defp render_cell(:attribute_groups, "attributes", row) do
+    assigns = %{n: row[:attribute_count] || 0}
+    ~H"<span class='tabular-nums'>{@n}</span>"
+  end
+
+  defp render_cell(:attribute_groups, "items", row) do
+    assigns = %{n: row[:item_count] || 0}
+    ~H"<span class='tabular-nums'>{@n}</span>"
+  end
+
   defp render_cell(scope, "name", row) when scope in [:suppliers, :manufacturers] do
     path =
       if scope == :suppliers,
@@ -2005,6 +2218,11 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   defp render_card_value(:catalogues, "markup", row), do: pct_str(row[:markup_percentage])
   defp render_card_value(:catalogues, "discount", row), do: pct_str(row[:discount_percentage])
   defp render_card_value(:catalogues, "created", row), do: ts_str(row[:inserted_at])
+
+  defp render_card_value(:attribute_groups, "attributes", row),
+    do: to_string(row[:attribute_count] || 0)
+
+  defp render_card_value(:attribute_groups, "items", row), do: to_string(row[:item_count] || 0)
   defp render_card_value(_scope, "website", row), do: row.website || "—"
   defp render_card_value(_scope, "status", row), do: status_label(row.status)
   defp render_card_value(_scope, "contact_info", row), do: row.contact_info || "—"
