@@ -2010,30 +2010,38 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       </div>
 
       <div class="flex flex-wrap items-center gap-2">
-        <.sort_controls
-          scope={@scope}
-          selected={["position", "name" | @cfg.columns]}
-          sort_by={@cfg.sort_by}
-          sort_dir={@cfg.sort_dir}
-          manual_value="position"
-        />
-        <button
-          :if={@scope == :catalogues and @cfg.sort_by == "position"}
-          type="button"
-          phx-click="open_catalogues_reorder_modal"
-          class="btn btn-outline btn-sm"
-        >
-          <.icon name="hero-arrows-up-down" class="w-4 h-4" />
-          <span class="hidden sm:inline">{gettext("Reorder all")}</span>
-        </button>
-        <button type="button" phx-click="show_column_modal" class="btn btn-outline btn-sm">
-          <.icon name="hero-adjustments-horizontal" class="w-4 h-4" />
-          <span class="hidden sm:inline">
-            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Columns")}
-          </span>
-        </button>
+        <%!-- Two wrap-as-a-unit clusters: view tools and create/folder
+             actions. At widths where both can't share a row, the actions
+             cluster drops to its OWN row instead of its buttons scattering
+             between rows. The inner flex-wrap is the ultra-narrow fallback. --%>
+        <div class="flex items-center gap-2">
+          <.sort_controls
+            scope={@scope}
+            selected={["position", "name" | @cfg.columns]}
+            sort_by={@cfg.sort_by}
+            sort_dir={@cfg.sort_dir}
+            manual_value="position"
+          />
+          <button
+            :if={@scope == :catalogues and @cfg.sort_by == "position"}
+            type="button"
+            phx-click="open_catalogues_reorder_modal"
+            class="btn btn-outline btn-sm"
+          >
+            <.icon name="hero-arrows-up-down" class="w-4 h-4" />
+            <span class="hidden sm:inline">{gettext("Reorder all")}</span>
+          </button>
+          <button type="button" phx-click="show_column_modal" class="btn btn-outline btn-sm">
+            <.icon name="hero-adjustments-horizontal" class="w-4 h-4" />
+            <span class="hidden sm:inline">
+              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Columns")}
+            </span>
+          </button>
+        </div>
         <div :if={@actions != []} class="w-px h-6 bg-base-300 mx-1 hidden sm:block"></div>
-        {render_slot(@actions)}
+        <div :if={@actions != []} class="flex flex-wrap items-center gap-2">
+          {render_slot(@actions)}
+        </div>
       </div>
     </div>
     """
