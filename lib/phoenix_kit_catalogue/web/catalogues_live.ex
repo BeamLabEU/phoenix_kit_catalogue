@@ -1744,45 +1744,56 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
 
   defp table_toolbar(assigns) do
     ~H"""
-    <div class="flex flex-wrap items-center gap-2 mb-3">
-      <form phx-change="table_search" phx-submit="table_search" class="contents">
-        <label class="input input-sm w-full sm:w-64">
-          <.icon name="hero-magnifying-glass" class="h-4 w-4 opacity-50" />
-          <input
-            type="search"
-            name="query"
-            value={@cfg[:search] || ""}
-            phx-debounce="300"
-            placeholder={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search...")}
-            class="grow"
-          />
-        </label>
-      </form>
-      {render_slot(@filters)}
-      <div class="flex-1"></div>
-      <.sort_controls
-        scope={@scope}
-        selected={["position", "name" | @cfg.columns]}
-        sort_by={@cfg.sort_by}
-        sort_dir={@cfg.sort_dir}
-        manual_value="position"
-      />
-      <button
-        :if={@scope == :catalogues and @cfg.sort_by == "position"}
-        type="button"
-        phx-click="open_catalogues_reorder_modal"
-        class="btn btn-outline btn-sm"
-      >
-        <.icon name="hero-arrows-up-down" class="w-4 h-4" />
-        <span class="hidden sm:inline">{gettext("Reorder all")}</span>
-      </button>
-      <button type="button" phx-click="show_column_modal" class="btn btn-outline btn-sm">
-        <.icon name="hero-adjustments-horizontal" class="w-4 h-4" />
-        <span class="hidden sm:inline">
-          {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Columns")}
-        </span>
-      </button>
-      {render_slot(@actions)}
+    <%!-- Two coherent groups instead of one flat flex-wrap: search+filters
+         left, view tools + create actions right. A flat wrap broke lines
+         between arbitrary neighbors (a stray "New Folder" alone on row 1,
+         the primary action stranded bottom-left…); grouped, a narrow
+         screen drops the whole right group under the left one as a unit,
+         so every width renders an intentional-looking toolbar. --%>
+    <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 mb-3">
+      <div class="flex flex-wrap items-center gap-2">
+        <form phx-change="table_search" phx-submit="table_search" class="contents">
+          <label class="input input-sm w-full sm:w-64">
+            <.icon name="hero-magnifying-glass" class="h-4 w-4 opacity-50" />
+            <input
+              type="search"
+              name="query"
+              value={@cfg[:search] || ""}
+              phx-debounce="300"
+              placeholder={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search...")}
+              class="grow"
+            />
+          </label>
+        </form>
+        {render_slot(@filters)}
+      </div>
+
+      <div class="flex flex-wrap items-center gap-2">
+        <.sort_controls
+          scope={@scope}
+          selected={["position", "name" | @cfg.columns]}
+          sort_by={@cfg.sort_by}
+          sort_dir={@cfg.sort_dir}
+          manual_value="position"
+        />
+        <button
+          :if={@scope == :catalogues and @cfg.sort_by == "position"}
+          type="button"
+          phx-click="open_catalogues_reorder_modal"
+          class="btn btn-outline btn-sm"
+        >
+          <.icon name="hero-arrows-up-down" class="w-4 h-4" />
+          <span class="hidden sm:inline">{gettext("Reorder all")}</span>
+        </button>
+        <button type="button" phx-click="show_column_modal" class="btn btn-outline btn-sm">
+          <.icon name="hero-adjustments-horizontal" class="w-4 h-4" />
+          <span class="hidden sm:inline">
+            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Columns")}
+          </span>
+        </button>
+        <div :if={@actions != []} class="w-px h-6 bg-base-300 mx-1 hidden sm:block"></div>
+        {render_slot(@actions)}
+      </div>
     </div>
     """
   end
