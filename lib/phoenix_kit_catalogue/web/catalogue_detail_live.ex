@@ -2313,36 +2313,17 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
             data-storage-key="catalogue-detail-items"
           >
             <div data-table-view class={@view_mode == "active" && "hidden md:block"}>
-              <div
-                id="catalogue-child-categories"
-                class="flex flex-col gap-2"
-                data-sortable="true"
-                data-sortable-event="reorder_categories"
-                data-sortable-items=".sortable-item"
-                data-sortable-hide-source="false"
-                data-sortable-group="catalogue-child-categories"
-                data-sortable-handle=".pk-drag-handle"
-                phx-hook={if @view_mode == "active", do: "SortableGrid"}
-              >
-                <%= for cat <- @child_categories do %>
-                  <.category_drill_card
-                    catalogue_uuid={@catalogue.uuid}
-                    category={cat}
-                    count={Map.get(@child_counts, cat.uuid, 0)}
-                    has_subs={MapSet.member?(@children_with_subs, cat.uuid)}
-                    view_mode={@view_mode}
-                    sibling_count={length(@child_categories)}
-                    selected={MapSet.member?(@selected_categories, cat.uuid)}
-                    has_files={Map.get(@file_counts, cat.uuid, 0) > 0}
-                  />
-                <% end %>
-                <.uncategorized_drill_card
-                  :if={show_uncat_card}
-                  catalogue_uuid={@catalogue.uuid}
-                  count={@uncategorized_active_count}
-                  sibling_count={length(@child_categories)}
-                />
-              </div>
+              <.categories_table
+                catalogue={@catalogue}
+                child_categories={@child_categories}
+                child_counts={@child_counts}
+                children_with_subs={@children_with_subs}
+                selected_categories={@selected_categories}
+                view_mode={@view_mode}
+                file_counts={@file_counts}
+                show_uncat={show_uncat_card}
+                uncategorized_active_count={@uncategorized_active_count}
+              />
             </div>
 
             <div :if={@view_mode == "active"} data-card-view class="md:hidden">
@@ -2731,108 +2712,160 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
   # ── Drill-down level components ──────────────────────────────────
 
-  # A subcategory shown at the current level. The name + chevron are the
-  # drill link into the category; checkbox + drag handle + edit pencil are
-  # separate controls so they don't fire the drill. Deleted mode swaps in
-  # Restore / Delete-forever (the name still drills, to inspect the
-  # deleted subtree). A folder badge marks categories with subcategories.
-  attr(:catalogue_uuid, :string, required: true)
-  attr(:category, :map, required: true)
-  attr(:count, :integer, required: true)
-  attr(:has_subs, :boolean, default: false)
+  # The level's categories as a REAL table — same anatomy as the item and
+  # catalogue tables (drag column, checkbox, photo column, Name, count,
+  # Actions) so the three levels read as one product ("uniform experience",
+  # boss call 2026-08-15). This is the table branch of the level's
+  # card/table toggle; the tile grid below is the card branch.
+  attr(:catalogue, :map, required: true)
+  attr(:child_categories, :list, required: true)
+  attr(:child_counts, :map, required: true)
+  attr(:children_with_subs, :any, required: true)
+  attr(:selected_categories, :any, required: true)
   attr(:view_mode, :string, required: true)
-  attr(:sibling_count, :integer, required: true)
-  attr(:selected, :boolean, default: false)
-  attr(:has_files, :boolean, default: false)
+  attr(:file_counts, :map, required: true)
+  attr(:show_uncat, :boolean, default: false)
+  attr(:uncategorized_active_count, :integer, default: 0)
 
-  defp category_drill_card(assigns) do
+  defp categories_table(assigns) do
+    assigns =
+      assigns
+      |> assign(
+        :draggable?,
+        assigns.view_mode == "active" and length(assigns.child_categories) > 1
+      )
+      |> assign(
+        :photo_col?,
+        any_media_thumb?(assigns.child_categories, assigns.file_counts)
+      )
+
     ~H"""
-    <div
-      class={[
-        "group card card-sm bg-base-100 shadow",
-        @view_mode == "active" and @category.status == "active" && "sortable-item"
-      ]}
-      data-id={@view_mode == "active" and @category.status == "active" && @category.uuid}
+    <.table_default
+      id="catalogue-categories-table"
+      size="sm"
+      wrapper_class="overflow-x-auto shadow-none rounded-none"
+      items={@child_categories}
     >
-      <div class="card-body py-3 flex-row items-center justify-between gap-3">
-        <div class="flex items-center gap-2 min-w-0">
-          <div :if={@view_mode == "active" and @category.status == "active"} class="flex items-center gap-1.5 shrink-0">
-            <span
-              :if={@sibling_count > 1}
-              class="pk-drag-handle cursor-grab active:cursor-grabbing text-base-content/40 hover:text-base-content/70 transition-colors"
-              title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Drag to reorder (among siblings)")}
-            >
-              <.icon name="hero-bars-3" class="w-4 h-4" />
-            </span>
+      <.table_default_header>
+        <.table_default_row>
+          <.drag_handle_header_cell :if={@draggable?} />
+          <.table_default_header_cell class="w-8"></.table_default_header_cell>
+          <.table_default_header_cell :if={@photo_col?} class="w-10 !pr-0"></.table_default_header_cell>
+          <.table_default_header_cell>
+            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Name")}
+          </.table_default_header_cell>
+          <.table_default_header_cell class="text-right">
+            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Items")}
+          </.table_default_header_cell>
+          <.table_default_header_cell class="text-right">
+            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Actions")}
+          </.table_default_header_cell>
+        </.table_default_row>
+      </.table_default_header>
+      <.sortable_tbody
+        id="catalogue-child-categories"
+        enabled={@draggable?}
+        event="reorder_categories"
+      >
+        <.sortable_row :for={cat <- @child_categories} item_id={cat.uuid}>
+          <.drag_handle_cell :if={@draggable? and cat.status == "active"} />
+          <td :if={@draggable? and cat.status != "active"} class="w-8"></td>
+          <.table_default_cell class="w-8">
             <input
+              :if={@view_mode == "active" and cat.status == "active"}
               type="checkbox"
               class="checkbox checkbox-xs"
-              checked={@selected}
+              checked={MapSet.member?(@selected_categories, cat.uuid)}
               phx-click="toggle_select_category"
-              phx-value-uuid={@category.uuid}
+              phx-value-uuid={cat.uuid}
             />
-          </div>
-
-          <.featured_thumb resource={@category} has_files={@has_files} />
-          <.link
-            patch={Paths.category_browse(@catalogue_uuid, @category.uuid)}
-            class={["font-medium truncate hover:text-primary", @category.status == "deleted" && "text-error/70"]}
-          >
-            {@category.name}
-          </.link>
-
-          <span
-            :if={@has_subs}
-            class="badge badge-ghost badge-xs"
-            title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Has subcategories")}
-          >
-            <.icon name="hero-rectangle-stack" class="w-3 h-3" />
-          </span>
-          <span :if={@category.status == "deleted"} class="badge badge-error badge-xs">deleted</span>
-          <span :if={@category.status == "active"} class="badge badge-ghost badge-sm shrink-0">
-            {@count} {Gettext.gettext(PhoenixKitCatalogue.Gettext, "items")}
-          </span>
-        </div>
-
-        <div class="flex items-center gap-1 shrink-0">
-          <.link
-            :if={@view_mode == "active" and @category.status == "active"}
-            navigate={Paths.category_edit(@category.uuid)}
-            class="text-base-content/40 hover:text-primary"
-            title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit category")}
-          >
-            <.icon name="hero-pencil" class="w-4 h-4" />
-          </.link>
-
-          <button
-            :if={@view_mode == "deleted" and @category.status == "deleted"}
-            phx-click="restore_category"
-            phx-value-uuid={@category.uuid}
-            phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Restoring...")}
-            class="inline-flex items-center gap-1.5 px-2.5 h-[2.5em] rounded-lg border border-success/30 bg-success/10 hover:bg-success/20 text-success text-xs font-medium transition-colors cursor-pointer"
-          >
-            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Restore")}
-          </button>
-          <button
-            :if={@view_mode == "deleted" and @category.status == "deleted"}
-            phx-click="show_delete_confirm"
-            phx-value-uuid={@category.uuid}
-            phx-value-type="category"
-            class="inline-flex items-center gap-1.5 px-2.5 h-[2.5em] rounded-lg border border-error/30 bg-error/10 hover:bg-error/20 text-error text-xs font-medium transition-colors cursor-pointer"
-          >
-            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete Forever")}
-          </button>
-
-          <.link
-            patch={Paths.category_browse(@catalogue_uuid, @category.uuid)}
-            class="text-base-content/30 group-hover:text-base-content/60"
-            title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Open")}
-          >
-            <.icon name="hero-chevron-right" class="w-4 h-4" />
-          </.link>
-        </div>
-      </div>
-    </div>
+          </.table_default_cell>
+          <.table_default_cell :if={@photo_col?} class="w-10 !pr-0">
+            <.featured_thumb resource={cat} has_files={Map.get(@file_counts, cat.uuid, 0) > 0} />
+          </.table_default_cell>
+          <.table_default_cell class="font-medium">
+            <div class="flex items-center gap-2 min-w-0">
+              <.link
+                patch={Paths.category_browse(@catalogue.uuid, cat.uuid)}
+                class={["link link-hover font-medium", cat.status == "deleted" && "text-error/70"]}
+              >
+                {cat.name}
+              </.link>
+              <span
+                :if={MapSet.member?(@children_with_subs, cat.uuid)}
+                class="badge badge-ghost badge-xs"
+                title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Has subcategories")}
+              >
+                <.icon name="hero-rectangle-stack" class="w-3 h-3" />
+              </span>
+              <span :if={cat.status == "deleted"} class="badge badge-error badge-xs">deleted</span>
+            </div>
+          </.table_default_cell>
+          <.table_default_cell class="text-right tabular-nums">
+            {Map.get(@child_counts, cat.uuid, 0)}
+          </.table_default_cell>
+          <.table_default_cell class="text-right whitespace-nowrap">
+            <.link
+              :if={@view_mode == "active" and cat.status == "active"}
+              navigate={Paths.category_edit(cat.uuid)}
+              class="btn btn-ghost btn-xs btn-square text-base-content/40 hover:text-primary"
+              title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit category")}
+            >
+              <.icon name="hero-pencil" class="w-4 h-4" />
+            </.link>
+            <button
+              :if={@view_mode == "deleted" and cat.status == "deleted"}
+              phx-click="restore_category"
+              phx-value-uuid={cat.uuid}
+              phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Restoring...")}
+              class="btn btn-outline btn-success btn-xs"
+            >
+              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Restore")}
+            </button>
+            <button
+              :if={@view_mode == "deleted" and cat.status == "deleted"}
+              phx-click="show_delete_confirm"
+              phx-value-uuid={cat.uuid}
+              phx-value-type="category"
+              class="btn btn-outline btn-error btn-xs"
+            >
+              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete Forever")}
+            </button>
+            <.link
+              patch={Paths.category_browse(@catalogue.uuid, cat.uuid)}
+              class="btn btn-ghost btn-xs btn-square text-base-content/30 hover:text-base-content/60"
+              title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Open")}
+            >
+              <.icon name="hero-chevron-right" class="w-4 h-4" />
+            </.link>
+          </.table_default_cell>
+        </.sortable_row>
+        <tr :if={@show_uncat}>
+          <td :if={@draggable?} class="w-8"></td>
+          <td class="w-8"></td>
+          <td :if={@photo_col?} class="w-10 !pr-0">
+            <span class="w-8 h-8 rounded bg-base-200 flex items-center justify-center">
+              <.icon name="hero-folder-open" class="w-4 h-4 text-base-content/40" />
+            </span>
+          </td>
+          <td class="font-medium">
+            <.link patch={Paths.uncategorized_browse(@catalogue.uuid)} class="link link-hover">
+              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Uncategorized")}
+            </.link>
+          </td>
+          <td class="text-right tabular-nums">{@uncategorized_active_count}</td>
+          <td class="text-right">
+            <.link
+              patch={Paths.uncategorized_browse(@catalogue.uuid)}
+              class="btn btn-ghost btn-xs btn-square text-base-content/30 hover:text-base-content/60"
+              title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Open")}
+            >
+              <.icon name="hero-chevron-right" class="w-4 h-4" />
+            </.link>
+          </td>
+        </tr>
+      </.sortable_tbody>
+    </.table_default>
     """
   end
 
@@ -2943,39 +2976,6 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         <span class="badge badge-ghost badge-sm w-fit">
           {@count} {Gettext.gettext(PhoenixKitCatalogue.Gettext, "items")}
         </span>
-      </div>
-    </.link>
-    """
-  end
-
-  # The root-level "Uncategorized" drill card (Active mode only). The
-  # whole card drills into the uncategorized bucket.
-  attr(:catalogue_uuid, :string, required: true)
-  attr(:count, :integer, required: true)
-  attr(:sibling_count, :integer, default: 0)
-
-  defp uncategorized_drill_card(assigns) do
-    ~H"""
-    <.link
-      patch={Paths.uncategorized_browse(@catalogue_uuid)}
-      class="card card-sm bg-base-100 shadow hover:shadow-md transition-shadow"
-    >
-      <div class="card-body py-3 flex-row items-center justify-between gap-2">
-        <div class="flex items-center gap-2 min-w-0">
-          <%!-- Mirror the category cards' handle + checkbox cluster so the
-               "Uncategorized" name lines up with the category names. The
-               inbox sits in the (always-present) checkbox slot; the drag
-               handle slot is an invisible spacer, gated the same way. --%>
-          <div class="flex items-center gap-1.5 shrink-0">
-            <span :if={@sibling_count > 1} class="w-4 h-4" aria-hidden="true"></span>
-            <.icon name="hero-inbox" class="w-4 h-4 text-base-content/40" />
-          </div>
-          <span class="font-medium truncate text-base-content/70">
-            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Uncategorized")}
-          </span>
-          <span class="badge badge-ghost badge-sm shrink-0">{@count}</span>
-        </div>
-        <.icon name="hero-chevron-right" class="w-4 h-4 text-base-content/30" />
       </div>
     </.link>
     """
