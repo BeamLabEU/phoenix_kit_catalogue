@@ -497,6 +497,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   attr(:cfg, :map, required: true)
   attr(:current, :any, default: nil)
   attr(:renaming_folder, :any, default: nil)
+  attr(:file_counts, :map, default: %{})
 
   defp catalogues_tree_table(assigns) do
     assigns =
@@ -505,6 +506,11 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         :cols,
         for(c <- visible_columns(:catalogues, assigns.cfg), c.id not in ["name", "folder"], do: c)
       )
+
+    catalogue_rows = for {:catalogue, c_row, _depth, _parent} <- assigns.rows, do: c_row
+
+    assigns =
+      assign(assigns, :photo_col?, any_media_thumb?(catalogue_rows, assigns.file_counts))
 
     ~H"""
     <%!-- Location row: Up + current folder name, only when drilled in.
@@ -549,10 +555,21 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         <.icon name="hero-arrow-up-tray" class="w-4 h-4 inline-block mr-1 align-text-bottom" />
         {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Drop here to move to root (unfiled)")}
       </div>
-      <.table_default variant="zebra" size="sm">
+      <.table_default
+        variant="zebra"
+        size="sm"
+        toggleable
+        view_mode={@cfg.view}
+        view_event="set_view"
+      >
         <.table_default_header>
           <.table_default_row>
             <.table_default_header_cell class="w-8"></.table_default_header_cell>
+            <.table_default_header_cell
+              :if={@photo_col?}
+              class="w-12 !pr-0 !py-1 [.pk-comfy_&]:w-22 [.pk-comfy_&]:!py-1.5"
+            >
+            </.table_default_header_cell>
             <.table_default_header_cell>
               {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Name")}
             </.table_default_header_cell>
@@ -581,6 +598,11 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
                   >
                     <.icon name="hero-bars-3" class="w-4 h-4" />
                   </td>
+                  <.table_default_cell
+                    :if={@photo_col?}
+                    class="w-12 !pr-0 !py-1 [.pk-comfy_&]:w-22 [.pk-comfy_&]:!py-1.5"
+                  >
+                  </.table_default_cell>
                   <.tree_name_cell
                     depth={depth}
                     indent="1rem"
@@ -679,6 +701,15 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
                   >
                     <.icon name="hero-bars-3" class="w-4 h-4" />
                   </td>
+                  <.table_default_cell
+                    :if={@photo_col?}
+                    class="w-12 !pr-0 !py-1 [.pk-comfy_&]:w-22 [.pk-comfy_&]:!py-1.5"
+                  >
+                    <.featured_thumb
+                      resource={c_row}
+                      has_files={Map.get(@file_counts, c_row.uuid, 0) > 0}
+                    />
+                  </.table_default_cell>
                   <.tree_name_cell
                     depth={depth}
                     indent="1rem"
@@ -2082,6 +2113,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
           />
           <.catalogues_tree_table
             :if={tree?}
+            file_counts={@catalogue_file_counts}
             rows={
               build_catalogue_tree_rows(
                 @folder_tree,
