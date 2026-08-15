@@ -436,4 +436,46 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLiveTest do
       refute other_smart.uuid in uuids
     end
   end
+
+  describe "origin-aware Add Item" do
+    test "?category= prefills the category select on the new form", %{conn: conn} do
+      catalogue = fixture_catalogue()
+      category = fixture_category(catalogue)
+
+      {:ok, _view, html} =
+        live(conn, new_item_url(catalogue.uuid) <> "?category=#{category.uuid}")
+
+      assert html =~ ~s(<option selected="" value="#{category.uuid}")
+    end
+
+    test "a category from another catalogue is ignored", %{conn: conn} do
+      catalogue = fixture_catalogue()
+      other = fixture_catalogue(%{name: "Other"})
+      foreign = fixture_category(other)
+
+      {:ok, _view, html} =
+        live(conn, new_item_url(catalogue.uuid) <> "?category=#{foreign.uuid}")
+
+      refute html =~ ~s(<option selected="" value="#{foreign.uuid}")
+    end
+
+    test "a valid return_to drives the Cancel link; an external one is dropped", %{conn: conn} do
+      catalogue = fixture_catalogue()
+      rt = "/en/admin/catalogue/#{catalogue.uuid}?category=uncategorized"
+
+      {:ok, _view, html} =
+        live(conn, new_item_url(catalogue.uuid) <> "?" <> URI.encode_query(return_to: rt))
+
+      assert html =~ ~s(href="#{Phoenix.HTML.html_escape(rt) |> Phoenix.HTML.safe_to_string()}")
+
+      {:ok, _view, html} =
+        live(
+          conn,
+          new_item_url(catalogue.uuid) <>
+            "?" <> URI.encode_query(return_to: "https://evil.example")
+        )
+
+      refute html =~ "evil.example"
+    end
+  end
 end

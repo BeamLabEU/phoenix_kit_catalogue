@@ -166,8 +166,20 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
 
       {:ok, _view, html} = live(conn, cat_url(catalogue.uuid, category.uuid))
 
-      assert html =~ ~s(href="/en/admin/catalogue/items/#{item.uuid}/edit")
+      # The edit link carries the level it was clicked from, so save/cancel
+      # can land back here instead of the catalogue root.
+      assert html =~ ~s(href="/en/admin/catalogue/items/#{item.uuid}/edit?return_to=)
       assert html =~ "Clickable item"
+    end
+
+    test "Add Item from a category level carries the category and return path", %{conn: conn} do
+      catalogue = fixture_catalogue()
+      category = fixture_category(catalogue)
+
+      {:ok, _view, html} = live(conn, cat_url(catalogue.uuid, category.uuid))
+
+      assert html =~ ~s(category=#{category.uuid})
+      assert html =~ "return_to="
     end
 
     test "a missing / foreign category bounces back to the root level", %{conn: conn} do

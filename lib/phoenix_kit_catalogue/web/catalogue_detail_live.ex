@@ -143,6 +143,9 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         # drives the paperclip indicator. Merged per page load; per-uuid
         # entries are overwritten on reload, so staleness is bounded.
         file_counts: %{},
+        # Edit links carry the current level as return_to; recomputed on
+        # every level load. The bare path fn is only the pre-load default.
+        edit_path_fn: &Paths.item_edit/1,
         # ── Product-view card (opened by clicking a featured thumb) ──
         card_open: false,
         card_name: nil,
@@ -1572,6 +1575,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       children_with_subs: children_with_subs,
       uncategorized_active_count: uncat_active,
       items: items,
+      edit_path_fn:
+        item_edit_with_return(%{current_category: current, catalogue_uuid: catalogue.uuid}),
       file_counts:
         socket.assigns.file_counts
         |> Map.merge(Catalogue.attached_file_counts(items))
@@ -2131,10 +2136,10 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               </h1>
             </div>
             <div :if={@view_mode == "active"} class="flex flex-wrap items-center gap-2 sm:flex-shrink-0">
-              <.link navigate={Paths.category_new(@catalogue.uuid)} class="btn btn-outline btn-sm">
+              <.link navigate={new_category_path(assigns)} class="btn btn-outline btn-sm">
                 <.icon name="hero-folder-plus" class="w-4 h-4" /> {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Add Category")}
               </.link>
-              <.link navigate={Paths.item_new(@catalogue.uuid)} class="btn btn-primary btn-sm">
+              <.link navigate={new_item_path(assigns)} class="btn btn-primary btn-sm">
                 <.icon name="hero-plus" class="w-4 h-4" /> {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Add Item")}
               </.link>
               <.link navigate={Paths.catalogue_edit(@catalogue.uuid)} class="btn btn-ghost btn-sm">
@@ -2219,7 +2224,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               items={@search_results}
               columns={[:name, :sku, :price, :unit, :status]}
               markup_percentage={@catalogue.markup_percentage}
-              edit_path={&Paths.item_edit/1}
+              edit_path={@edit_path_fn}
               pdf_search_event="show_pdf_search"
               cards={true}
               show_toggle={false}
@@ -2405,6 +2410,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
             :if={@show_items_section}
             items={@items}
             file_counts={@file_counts}
+            edit_path_fn={@edit_path_fn}
             view_mode={@view_mode}
             catalogue={@catalogue}
             current_category={@current_category}
@@ -3016,6 +3022,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   attr(:show_items_reorder, :boolean, required: true)
   attr(:reorder_captured_uuids, :list, required: true)
   attr(:file_counts, :map, default: %{})
+  attr(:edit_path_fn, :any, required: true)
 
   defp level_items(assigns) do
     # `draggable?` controls the handle *column* (manual sort, not the deleted
@@ -3100,7 +3107,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               />
               <.link
                 :if={item.uuid}
-                navigate={Paths.item_edit(item.uuid)}
+                navigate={@edit_path_fn.(item.uuid)}
                 class="link link-hover min-w-0 truncate"
               >
                 {item.name || "—"}
@@ -3124,7 +3131,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
           <:card_actions :let={item}>
             <.link
               :if={item.uuid}
-              navigate={Paths.item_edit(item.uuid)}
+              navigate={@edit_path_fn.(item.uuid)}
               class="btn btn-ghost btn-xs btn-square"
               title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")}
               aria-label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")}
@@ -3202,10 +3209,10 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                   has_files={Map.get(@file_counts, item.uuid, 0) > 0}
                 />
               </.table_default_cell>
-              <.item_pricing_cell item={item} edit_path={&Paths.item_edit/1} />
+              <.item_pricing_cell item={item} edit_path={@edit_path_fn} />
               <.item_row_menu
                 item={item}
-                edit_path={&Paths.item_edit/1}
+                edit_path={@edit_path_fn}
                 on_delete="delete_item"
                 pdf_search_event="show_pdf_search"
               />
@@ -3313,6 +3320,47 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   end
 
   # ── Drill-level label helpers ────────────────────────────────────
+
+  # ── Origin-aware navigation ──────────────────────────────────────
+  # "Add Item should be aware where it's clicked": the level you're on
+  # travels with you — the new-item/new-category forms prefill the
+  # category/parent, and return_to brings save/cancel back HERE instead
+  # of dumping everyone at the catalogue root.
+
+  defp current_level_path(assigns) do
+    case assigns.current_category do
+      %Category{uuid: uuid} -> Paths.category_browse(assigns.catalogue_uuid, uuid)
+      :uncategorized -> Paths.uncategorized_browse(assigns.catalogue_uuid)
+      _ -> Paths.catalogue_detail(assigns.catalogue_uuid)
+    end
+  end
+
+  defp new_item_path(assigns) do
+    query =
+      case assigns.current_category do
+        %Category{uuid: uuid} -> [{"category", uuid}]
+        _ -> []
+      end ++ [{"return_to", current_level_path(assigns)}]
+
+    Paths.item_new(assigns.catalogue_uuid) <> "?" <> URI.encode_query(query)
+  end
+
+  defp new_category_path(assigns) do
+    query =
+      case assigns.current_category do
+        %Category{uuid: uuid} -> [{"parent_uuid", uuid}]
+        _ -> []
+      end ++ [{"return_to", current_level_path(assigns)}]
+
+    Paths.category_new(assigns.catalogue_uuid) <> "?" <> URI.encode_query(query)
+  end
+
+  # 1-arity closure for the item tables' edit_path attrs — every edit
+  # link from this page carries the level to return to.
+  defp item_edit_with_return(assigns) do
+    query = "?" <> URI.encode_query([{"return_to", current_level_path(assigns)}])
+    fn uuid -> Paths.item_edit(uuid) <> query end
+  end
 
   defp current_node_label(:uncategorized),
     do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Uncategorized")

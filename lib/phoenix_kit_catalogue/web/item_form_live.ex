@@ -74,13 +74,44 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
          |> push_navigate(to: Paths.index())}
 
       {item, changeset, catalogue_uuid} ->
-        {:ok, mount_form(socket, action, item, changeset, catalogue_uuid)}
+        {:ok,
+         socket
+         |> assign(:return_to, safe_return_to(params["return_to"]))
+         |> mount_form(action, item, changeset, catalogue_uuid)}
     end
   end
 
+  defp valid_origin_category(uuid, catalogue_uuid) when is_binary(uuid) and uuid != "" do
+    case Catalogue.get_category(uuid) do
+      %PhoenixKitCatalogue.Schemas.Category{catalogue_uuid: ^catalogue_uuid, status: "active"} ->
+        uuid
+
+      _ ->
+        nil
+    end
+  end
+
+  defp valid_origin_category(_, _), do: nil
+
+  # Only ever navigate to a caller-supplied path after the core local-path
+  # guard — return_to is user-influenced input.
+  defp safe_return_to(rt) when is_binary(rt) do
+    if PhoenixKit.Utils.Routes.local_path?(rt), do: rt
+  end
+
+  defp safe_return_to(_), do: nil
+
   defp load_item(:new, params) do
     catalogue_uuid = params["catalogue_uuid"]
-    item = %Item{catalogue_uuid: catalogue_uuid}
+
+    # "Add Item" carries the level it was clicked from (?category=...) so the
+    # form opens with that category already selected. Validated — a forged or
+    # stale uuid must not seed a category from another catalogue.
+    item = %Item{
+      catalogue_uuid: catalogue_uuid,
+      category_uuid: valid_origin_category(params["category"], catalogue_uuid)
+    }
+
     {item, Catalogue.change_item(item), catalogue_uuid}
   end
 
@@ -840,6 +871,9 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
 
   defp redirect_target(socket, item) do
     cond do
+      socket.assigns[:return_to] ->
+        socket.assigns.return_to
+
       item.catalogue_uuid ->
         Paths.catalogue_detail(item.catalogue_uuid)
 
@@ -1731,7 +1765,8 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
         <div class="flex justify-end gap-3 pt-2">
           <.link
             navigate={
-              if @catalogue_uuid, do: Paths.catalogue_detail(@catalogue_uuid), else: Paths.index()
+              @return_to ||
+                if @catalogue_uuid, do: Paths.catalogue_detail(@catalogue_uuid), else: Paths.index()
             }
             class="btn btn-ghost"
           >
