@@ -261,7 +261,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
   defp thumb_visual(assigns) do
     ~H"""
     <span class={[
-      "relative block shrink-0 [.pk-comfy_&]:w-20 [.pk-comfy_&]:h-20",
+      "relative block shrink-0 [.pk-comfy_&]:w-18 [.pk-comfy_&]:h-18",
       @class
     ]}>
       <img
@@ -1379,7 +1379,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
       <.table_default_header>
         <.table_default_row>
           <.table_default_header_cell :if={!is_nil(@on_reorder) or @selectable} class="w-10"></.table_default_header_cell>
-          <.table_default_header_cell :if={@photo_col?} class="w-12 !pr-0 !py-1 [.pk-comfy_&]:w-24 [.pk-comfy_&]:!py-1.5"></.table_default_header_cell>
+          <.table_default_header_cell :if={@photo_col?} class="w-12 !pr-0 !py-1 [.pk-comfy_&]:w-22 [.pk-comfy_&]:!py-1.5"></.table_default_header_cell>
           <.table_default_header_cell :for={col <- @columns}>
             {column_label(col)}
           </.table_default_header_cell>
@@ -1441,7 +1441,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
               />
             </div>
           </.table_default_cell>
-          <.table_default_cell :if={@photo_col?} class="w-12 !pr-0 !py-1 [.pk-comfy_&]:w-24 [.pk-comfy_&]:!py-1.5">
+          <.table_default_cell :if={@photo_col?} class="w-12 !pr-0 !py-1 [.pk-comfy_&]:w-22 [.pk-comfy_&]:!py-1.5">
             <.featured_thumb
               resource={item}
               on_click={@photo_click}
