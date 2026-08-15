@@ -2268,13 +2268,28 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
         <%!-- ── Browse view (no active search) ──────────────────────── --%>
         <div :if={is_nil(@search_results) and not @search_loading} class="flex flex-col gap-6">
+          <%!-- One control row: category Reorder-all (manual/drag order is
+               the only category order, so the shortcut is always offered
+               with >1 sibling) next to the view toggle — not two stacked
+               right-aligned rows. --%>
           <div
             :if={
               @child_categories != [] or
                 (@show_items_section and (@items != [] or @search_results not in [nil, []]))
             }
-            class="flex justify-end"
+            class="flex items-center justify-end gap-2"
           >
+            <button
+              :if={@view_mode == "active" and length(@child_categories) > 1}
+              type="button"
+              phx-click="open_categories_reorder_modal"
+              class="btn btn-outline btn-sm"
+            >
+              <.icon name="hero-arrows-up-down" class="w-4 h-4" />
+              <span class="hidden sm:inline">
+                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Reorder all")}
+              </span>
+            </button>
             <.view_mode_toggle storage_key="catalogue-detail-items" />
           </div>
           <%!-- The Uncategorized drill card only appears when there are
@@ -2309,22 +2324,6 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Restore")}
             </button>
           </.bulk_actions_bar>
-
-          <%!-- Category "Reorder all" — manual (drag) order is the only
-               category order, so the strategy shortcut is always offered
-               when there is more than one sibling to arrange. --%>
-          <div :if={@view_mode == "active" and length(@child_categories) > 1} class="flex justify-end">
-            <button
-              type="button"
-              phx-click="open_categories_reorder_modal"
-              class="btn btn-outline btn-sm"
-            >
-              <.icon name="hero-arrows-up-down" class="w-4 h-4" />
-              <span class="hidden sm:inline">
-                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Reorder all")}
-              </span>
-            </button>
-          </div>
 
           <.reorder_modal
             id="categories-reorder-modal"
