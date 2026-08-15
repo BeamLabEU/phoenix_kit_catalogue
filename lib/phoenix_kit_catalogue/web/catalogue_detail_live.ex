@@ -3160,35 +3160,13 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
             </div>
           </:card_body>
           <:card_actions :let={item}>
-            <.link
+            <.item_card_menu
               :if={item.uuid}
-              navigate={@edit_path_fn.(item.uuid)}
-              class="btn btn-ghost btn-xs btn-square"
-              title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")}
-              aria-label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")}
-            >
-              <.icon name="hero-pencil" class="w-4 h-4" />
-            </.link>
-            <button
-              type="button"
-              phx-click="show_pdf_search"
-              phx-value-uuid={item.uuid}
-              class="btn btn-ghost btn-xs btn-square"
-              title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search PDFs")}
-              aria-label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search PDFs")}
-            >
-              <.icon name="hero-document-magnifying-glass" class="w-4 h-4" />
-            </button>
-            <button
-              phx-click="delete_item"
-              phx-value-uuid={item.uuid}
-              phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Deleting...")}
-              class="btn btn-ghost btn-xs btn-square text-error"
-              title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")}
-              aria-label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")}
-            >
-              <.icon name="hero-trash" class="w-4 h-4" />
-            </button>
+              item={item}
+              edit_path={@edit_path_fn}
+              on_delete="delete_item"
+              pdf_search_event="show_pdf_search"
+            />
           </:card_actions>
           <%!-- Desktop table view: sort headers, bulk-select, DnD unchanged --%>
           <.table_default_header>
