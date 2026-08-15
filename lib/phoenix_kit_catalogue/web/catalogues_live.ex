@@ -600,7 +600,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
 
   def handle_event(
         "move_folder_to_folder",
-        %{"folder_uuid" => uuid, "target_folder_uuid" => target},
+        %{"folder_uuid" => uuid, "target_uuid" => target},
         socket
       ) do
     with %{} = folder <- Catalogue.get_folder(uuid),

@@ -195,7 +195,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
       # Folder dropped on a folder nests it.
       render_click(view, "move_folder_to_folder", %{
         "folder_uuid" => folder_b.uuid,
-        "target_folder_uuid" => folder_a.uuid
+        "target_uuid" => folder_a.uuid
       })
 
       assert Catalogue.get_folder(folder_b.uuid).parent_uuid == folder_a.uuid
@@ -203,7 +203,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
       # Nesting a folder under its own descendant is refused (cycle guard).
       render_click(view, "move_folder_to_folder", %{
         "folder_uuid" => folder_a.uuid,
-        "target_folder_uuid" => folder_b.uuid
+        "target_uuid" => folder_b.uuid
       })
 
       assert Catalogue.get_folder(folder_a.uuid).parent_uuid == nil
