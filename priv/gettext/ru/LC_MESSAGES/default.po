@@ -124,6 +124,12 @@ msgstr "Перетащите сюда, чтобы переместить в ко
 msgid "Drag to reorder or move into a folder"
 msgstr "Перетащите, чтобы изменить порядок или переместить в папку"
 
+msgid "This will permanently delete this folder. Only empty folders can be deleted. This cannot be undone."
+msgstr "Это навсегда удалит папку. Удалять можно только пустые папки. Это действие нельзя отменить."
+
+msgid "Only empty folders can be deleted — move its contents out first."
+msgstr "Удалять можно только пустые папки — сначала переместите содержимое."
+
 msgid "Unknown"
 msgstr "Неизвестно"
 
@@ -926,12 +932,6 @@ msgstr "Это навсегда удалит папку. Подпапки пер
 
 msgid "Folder moved."
 msgstr "Папка перемещена."
-
-msgid "Folder restored."
-msgstr "Папка восстановлена."
-
-msgid "Folder moved to deleted."
-msgstr "Папка перемещена в корзину."
 
 msgid "Folder not found."
 msgstr "Папка не найдена."

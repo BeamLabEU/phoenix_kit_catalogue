@@ -124,6 +124,12 @@ msgstr "Lohista siia, et viia juurtasandile (kaustata)"
 msgid "Drag to reorder or move into a folder"
 msgstr "Lohista järjestamiseks või kausta viimiseks"
 
+msgid "This will permanently delete this folder. Only empty folders can be deleted. This cannot be undone."
+msgstr "See kustutab kausta jäädavalt. Kustutada saab ainult tühje kaustu. Seda ei saa tagasi võtta."
+
+msgid "Only empty folders can be deleted — move its contents out first."
+msgstr "Kustutada saab ainult tühje kaustu — vii sisu enne välja."
+
 msgid "Unknown"
 msgstr "Teadmata"
 
@@ -917,12 +923,6 @@ msgstr "See kustutab kausta jäädavalt. Alamkaustad teisaldatakse juure ja siin
 
 msgid "Folder moved."
 msgstr "Kaust teisaldati."
-
-msgid "Folder restored."
-msgstr "Kaust taastati."
-
-msgid "Folder moved to deleted."
-msgstr "Kaust teisaldati kustututesse."
 
 msgid "Folder not found."
 msgstr "Kausta ei leitud."

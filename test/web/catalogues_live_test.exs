@@ -330,22 +330,51 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
   end
 
   describe "catalogue view toggle" do
-    test "deleted folders surface in the Deleted view with restore", %{conn: conn} do
+    test "folder delete is permanent and refused unless empty", %{conn: conn} do
+      {:ok, folder} = Catalogue.create_folder(%{name: "Holds things"})
+      filed = fixture_catalogue(%{name: "Blocker"})
+      {:ok, _} = Catalogue.move_catalogue_to_folder(filed, folder.uuid)
+
+      {:ok, view, _html} = live(conn, @base)
+
+      # Non-empty: the confirmed delete is refused with the empty-first flash.
+      render_click(view, "show_delete_confirm", %{"uuid" => folder.uuid, "type" => "folder"})
+      refused = render_click(view, "permanently_delete_folder", %{})
+      assert refused =~ "Only empty folders can be deleted"
+      assert Catalogue.get_folder(folder.uuid)
+
+      # Emptied: the same flow hard-deletes — no trash, no restore.
+      # (Refetch — the local struct predates the move into the folder.)
+      {:ok, _} =
+        filed.uuid |> Catalogue.get_catalogue() |> Catalogue.move_catalogue_to_folder(nil)
+
+      render_click(view, "show_delete_confirm", %{"uuid" => folder.uuid, "type" => "folder"})
+      render_click(view, "permanently_delete_folder", %{})
+      assert Catalogue.get_folder(folder.uuid) == nil
+    end
+
+    test "legacy trashed folders keep a Delete Forever exit (no restore)", %{conn: conn} do
       {:ok, folder} = Catalogue.create_folder(%{name: "Binned folder"})
+      inside = fixture_catalogue(%{name: "Was inside"})
+      {:ok, _} = Catalogue.move_catalogue_to_folder(inside, folder.uuid)
       {:ok, _} = Catalogue.trash_folder(folder)
 
-      {:ok, view, html} = live(conn, @base)
-
-      # A trashed folder alone is enough to show the Deleted tab (count
-      # combines catalogues + folders).
-      assert html =~ "Deleted"
+      {:ok, view, _html} = live(conn, @base)
 
       deleted = render_click(view, "switch_catalogue_view", %{"mode" => "deleted"})
       assert deleted =~ "Binned folder"
-      assert deleted =~ "Restore"
+      refute deleted =~ "Restore"
 
-      render_click(view, "restore_folder", %{"uuid" => folder.uuid})
-      assert Catalogue.get_folder(folder.uuid).status == "active"
+      # Legacy delete keeps promote-contents semantics: the filed
+      # catalogue is unfiled, not destroyed.
+      render_click(view, "show_delete_confirm", %{
+        "uuid" => folder.uuid,
+        "type" => "legacy_folder"
+      })
+
+      render_click(view, "permanently_delete_legacy_folder", %{})
+      assert Catalogue.get_folder(folder.uuid) == nil
+      assert Catalogue.get_catalogue(inside.uuid).folder_uuid == nil
     end
 
     test "entering the deleted view clears a stale folder filter", %{conn: conn} do

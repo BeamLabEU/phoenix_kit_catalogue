@@ -124,6 +124,12 @@ msgstr "Drop here to move to root (unfiled)"
 msgid "Drag to reorder or move into a folder"
 msgstr "Drag to reorder or move into a folder"
 
+msgid "This will permanently delete this folder. Only empty folders can be deleted. This cannot be undone."
+msgstr "This will permanently delete this folder. Only empty folders can be deleted. This cannot be undone."
+
+msgid "Only empty folders can be deleted — move its contents out first."
+msgstr "Only empty folders can be deleted — move its contents out first."
+
 msgid "Unknown"
 msgstr "Unknown"
 
@@ -917,12 +923,6 @@ msgstr "This will permanently delete this folder. Subfolders are moved to root a
 
 msgid "Folder moved."
 msgstr "Folder moved."
-
-msgid "Folder restored."
-msgstr "Folder restored."
-
-msgid "Folder moved to deleted."
-msgstr "Folder moved to deleted."
 
 msgid "Folder not found."
 msgstr "Folder not found."
