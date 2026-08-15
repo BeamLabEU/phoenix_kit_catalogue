@@ -678,7 +678,7 @@ defmodule PhoenixKitCatalogue.Web.AttributeGroupFormLive do
               >
                 <div
                   :for={attribute <- @group.attributes}
-                  class="sortable-item rounded-lg border border-base-300 bg-base-200/40 p-3 flex flex-col gap-3"
+                  class="sortable-item rounded-lg border border-base-content/10 bg-base-content/5 p-3 flex flex-col gap-3"
                   data-id={attribute.uuid}
                 >
                   <div class="flex items-center gap-2">
@@ -727,7 +727,7 @@ defmodule PhoenixKitCatalogue.Web.AttributeGroupFormLive do
                   >
                     <div
                       :for={value <- attribute.values}
-                      class="sortable-item flex items-center gap-1 rounded-full border border-base-300 bg-base-100 pl-1 pr-1 py-0.5 shadow-sm"
+                      class="sortable-item flex items-center gap-1 rounded-full border border-base-content/20 bg-base-100 pl-1 pr-1 py-0.5 shadow-sm"
                       data-id={value.uuid}
                     >
                       <span class="pk-value-handle cursor-grab inline-flex items-center text-base-content/30 hover:text-base-content/60">
