@@ -746,7 +746,11 @@ defmodule PhoenixKitCatalogue.Web.AttributeGroupFormLive do
                       </button>
                     </div>
 
-                    <form id={"add-value-form-#{attribute.uuid}"} phx-submit="add_value" class="contents">
+                    <form
+                      id={"add-value-form-#{attribute.uuid}"}
+                      phx-submit="add_value"
+                      class="flex items-center gap-1"
+                    >
                       <input type="hidden" name="attribute_uuid" value={attribute.uuid} />
                       <input
                         type="text"
@@ -755,6 +759,14 @@ defmodule PhoenixKitCatalogue.Web.AttributeGroupFormLive do
                         placeholder={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Add value...")}
                         class="input input-xs input-bordered bg-base-100 w-28"
                       />
+                      <button
+                        type="submit"
+                        class="btn btn-outline btn-xs btn-square shrink-0"
+                        title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Add value")}
+                        aria-label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Add value")}
+                      >
+                        <.icon name="hero-plus" class="w-3.5 h-3.5" />
+                      </button>
                     </form>
                   </div>
                 </div>

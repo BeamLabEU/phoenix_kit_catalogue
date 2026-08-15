@@ -1251,3 +1251,6 @@ msgstr "Nothing to translate."
 
 msgid "Select an AI endpoint and prompt in the translate dialog first."
 msgstr "Select an AI endpoint and prompt in the translate dialog first."
+
+msgid "Add value"
+msgstr "Add value"
