@@ -1766,12 +1766,15 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                    its own fixed column so long value lists wrap under the
                    chips, not under the label; the default is marked with
                    the same star the group editor uses. --%>
-              <div :if={@attribute_preview} class="flex flex-col gap-3">
-                <div
-                  :for={attribute <- @attribute_preview.attributes}
-                  class="flex items-start gap-3"
-                >
-                  <span class="text-sm font-medium w-20 shrink-0 pt-0.5 truncate" title={attribute.name}>{attribute.name}</span>
+              <%!-- Two-column grid: the label column is `auto`, sized by the
+                   LONGEST attribute name — no fixed-width void after short
+                   names, and every row stays aligned. --%>
+              <div
+                :if={@attribute_preview}
+                class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-3 items-start"
+              >
+                <%= for attribute <- @attribute_preview.attributes do %>
+                  <span class="text-sm font-medium pt-0.5 max-w-48 truncate" title={attribute.name}>{attribute.name}</span>
                   <div class="flex flex-wrap items-center gap-1.5 min-w-0">
                     <span
                       :for={value <- attribute.values}
@@ -1791,10 +1794,10 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                       {Gettext.gettext(PhoenixKitCatalogue.Gettext, "No values defined yet.")}
                     </span>
                   </div>
-                </div>
+                <% end %>
                 <p
                   :if={@attribute_preview.attributes == []}
-                  class="text-sm text-base-content/50"
+                  class="text-sm text-base-content/50 col-span-2"
                 >
                   {Gettext.gettext(
                     PhoenixKitCatalogue.Gettext,
