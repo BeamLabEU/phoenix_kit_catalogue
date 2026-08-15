@@ -2196,6 +2196,10 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
           <.empty_state :if={@search_results == [] and not @search_loading} variant="card" title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "No items match your search.")} />
 
+          <div :if={@search_results not in [nil, []]} class="flex justify-end">
+            <.view_mode_toggle storage_key="catalogue-detail-items" />
+          </div>
+
           <div :if={@search_results not in [nil, []]} class={["transition-opacity", @search_loading && "opacity-50"]}>
             <.item_table
               photo_click="show_product_card"
@@ -2225,6 +2229,15 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
         <%!-- ── Browse view (no active search) ──────────────────────── --%>
         <div :if={is_nil(@search_results) and not @search_loading} class="flex flex-col gap-6">
+          <div
+            :if={
+              @child_categories != [] or
+                (@show_items_section and (@items != [] or @search_results not in [nil, []]))
+            }
+            class="flex justify-end"
+          >
+            <.view_mode_toggle storage_key="catalogue-detail-items" />
+          </div>
           <%!-- The Uncategorized drill card only appears when there are
                categories to drill past. With no categories, the items
                render inline (see `show_items_section`), so the card would
@@ -2393,15 +2406,6 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                was overridden by a deliberate product call (2026-08-14):
                card view is wanted everywhere, and card-side reorder is
                tracked as its own follow-up. --%>
-          <div
-            :if={
-              @child_categories != [] or
-                (@show_items_section and (@items != [] or @search_results not in [nil, []]))
-            }
-            class="flex justify-end"
-          >
-            <.view_mode_toggle storage_key="catalogue-detail-items" />
-          </div>
 
           <%!-- The current node's own direct items --%>
           <.level_items
