@@ -17,7 +17,6 @@ defmodule PhoenixKitCatalogue.Web.AttributeGroupFormLive do
   """
 
   use Phoenix.LiveView
-  use PhoenixKitAI.Components.AITranslate.Embed
 
   require Logger
 
@@ -26,7 +25,19 @@ defmodule PhoenixKitCatalogue.Web.AttributeGroupFormLive do
   import PhoenixKitWeb.Components.Core.Modal, only: [confirm_modal: 1]
 
   import PhoenixKitCatalogue.Web.Helpers,
-    only: [actor_opts: 1, actor_uuid: 1, assign_ai_translation: 3, ai_translate_config: 1]
+    only: [
+      actor_opts: 1,
+      actor_uuid: 1,
+      assign_ai_translation: 3,
+      ai_translate_config: 1,
+      toggle_ai_modal: 1,
+      select_ai_endpoint: 2,
+      select_ai_prompt: 2,
+      select_ai_scope: 2,
+      generate_ai_prompt: 1,
+      dispatch_ai_translate: 2,
+      handle_ai_translation_event: 4
+    ]
 
   import PhoenixKitAI.Components.AITranslate,
     only: [ai_multilang_tabs: 1, ai_translate_modal: 1]
@@ -282,43 +293,42 @@ defmodule PhoenixKitCatalogue.Web.AttributeGroupFormLive do
 
   def handle_event("reorder_values", _params, socket), do: {:noreply, socket}
 
-  # AI-translate every attribute name and value text that is still missing
-  # a language. The standard modal (Embed) covers only the bound resource —
-  # the group's own name — so this supplements it: one enqueue per child
-  # resource for its missing languages, then a few delayed reloads to pull
-  # the results in as the background jobs land. (Their completions are not
-  # PubSub-delivered here on purpose: the Embed halts every
-  # {:ai_translation, ...} message and would misapply child fields to the
-  # group changeset, so this LV only subscribes to the group's own topic.)
-  def handle_event("ai_translate_children", _params, socket) do
-    endpoint = socket.assigns[:ai_selected_endpoint] || Translations.default_endpoint_uuid()
-    prompt = socket.assigns[:ai_selected_prompt] || Translations.default_prompt_uuid()
-    targets = for tab <- socket.assigns.language_tabs, not tab.is_primary, do: tab.code
+  # ── AI translate (modal events, handled here instead of the Embed) ─
+  #
+  # One entry point: the standard AI row + modal. The Embed would bind the
+  # Translate action to the group name only, so this LV owns the six modal
+  # events itself and fans the dispatch out — group name through the
+  # standard machinery, every attribute name and value text as background
+  # jobs for the same scope.
 
-    cond do
-      endpoint in [nil, ""] or prompt in [nil, ""] ->
-        {:noreply,
-         put_flash(
-           socket,
-           :error,
-           Gettext.gettext(
-             PhoenixKitCatalogue.Gettext,
-             "Select an AI endpoint and prompt in the translate dialog first."
-           )
-         )}
+  def handle_event("ai_toggle_modal", _params, socket),
+    do: {:noreply, toggle_ai_modal(socket)}
 
-      targets == [] ->
-        {:noreply, socket}
+  def handle_event("ai_select_endpoint", %{"endpoint_uuid" => uuid}, socket),
+    do: {:noreply, select_ai_endpoint(socket, uuid)}
 
-      true ->
-        {:noreply, enqueue_child_translations(socket, endpoint, prompt, targets)}
-    end
+  def handle_event("ai_select_prompt", %{"prompt_uuid" => uuid}, socket),
+    do: {:noreply, select_ai_prompt(socket, uuid)}
+
+  def handle_event("ai_select_scope", %{"scope" => scope}, socket),
+    do: {:noreply, select_ai_scope(socket, scope)}
+
+  def handle_event("ai_generate_prompt", _params, socket),
+    do: {:noreply, generate_ai_prompt(socket)}
+
+  def handle_event("ai_translate_lang", %{"lang" => lang}, socket) do
+    socket = dispatch_ai_translate(socket, lang)
+    {:noreply, maybe_enqueue_children(socket, lang)}
   end
 
   # "switch_language" is handled by the core `mount_multilang/1` auto hook.
   # The ai_* modal events are handled by the AITranslate.Embed hook.
 
   @impl true
+  def handle_info({:ai_translation, event, payload}, socket) do
+    {:noreply, handle_ai_translation_event(socket, event, payload, &resync_changeset/2)}
+  end
+
   def handle_info(:reload_attribute_group, socket) do
     {:noreply, reload_group(socket)}
   end
@@ -383,11 +393,27 @@ defmodule PhoenixKitCatalogue.Web.AttributeGroupFormLive do
     end
   end
 
-  # One enqueue_all_missing per attribute (name) and per value (text),
-  # each scoped to the languages that resource is actually missing so
-  # hand-written translations are never overwritten.
-  defp enqueue_child_translations(socket, endpoint, prompt, targets) do
+  # Fan the modal's Translate action out to the children. Scope follows
+  # the modal exactly: "*" fills only missing languages per child, "**"
+  # re-translates all non-primary, a concrete code targets that language.
+  # Skips silently when the dispatch already flashed an endpoint/prompt
+  # error, or on :new (no children yet).
+  defp maybe_enqueue_children(socket, scope) do
+    endpoint = socket.assigns[:ai_selected_endpoint] || Translations.default_endpoint_uuid()
+    prompt = socket.assigns[:ai_selected_prompt] || Translations.default_prompt_uuid()
+    all_targets = for tab <- socket.assigns.language_tabs, not tab.is_primary, do: tab.code
+
+    cond do
+      socket.assigns.action != :edit -> socket
+      endpoint in [nil, ""] or prompt in [nil, ""] -> socket
+      scope in [nil, "", socket.assigns.primary_language] -> socket
+      true -> enqueue_children(socket, scope, all_targets, endpoint, prompt)
+    end
+  end
+
+  defp enqueue_children(socket, scope, all_targets, endpoint, prompt) do
     group = socket.assigns.group
+    actor = actor_uuid(socket)
 
     children =
       Enum.flat_map(group.attributes, fn attribute ->
@@ -397,39 +423,35 @@ defmodule PhoenixKitCatalogue.Web.AttributeGroupFormLive do
         ]
       end)
 
-    actor = actor_uuid(socket)
-
     queued =
       Enum.reduce(children, 0, fn {type, record}, acc ->
-        missing = targets -- translated_langs(record.data)
-        acc + enqueue_child(type, record, missing, endpoint, prompt, actor)
+        targets =
+          case scope do
+            "*" -> all_targets -- translated_langs(record.data)
+            "**" -> all_targets
+            lang -> Enum.filter(all_targets, &(&1 == lang))
+          end
+
+        acc + enqueue_child(type, record, targets, endpoint, prompt, actor)
       end)
 
-    if queued == 0 do
-      put_flash(
-        socket,
-        :info,
-        Gettext.gettext(PhoenixKitCatalogue.Gettext, "Nothing to translate.")
-      )
-    else
-      # The jobs land in the background; pull their results in as they do.
-      Enum.each([4_000, 9_000, 16_000], &Process.send_after(self(), :reload_attribute_group, &1))
-
-      put_flash(
-        socket,
-        :info,
-        Gettext.gettext(
-          PhoenixKitCatalogue.Gettext,
-          "Queued %{count} AI translations for attributes and values.",
-          count: queued
-        )
+    # The jobs land in the background; pull their results in as they do.
+    if queued > 0 do
+      Enum.each(
+        [4_000, 9_000, 16_000],
+        &Process.send_after(self(), :reload_attribute_group, &1)
       )
     end
+
+    socket
   end
+
+  # Applies the group's own translation results to the name form.
+  defp resync_changeset(socket, changeset), do: assign_changeset(socket, changeset)
 
   defp enqueue_child(_type, _record, [], _endpoint, _prompt, _actor), do: 0
 
-  defp enqueue_child(type, record, missing, endpoint, prompt, actor) do
+  defp enqueue_child(type, record, targets, endpoint, prompt, actor) do
     base = %{
       resource_type: type,
       resource_uuid: record.uuid,
@@ -439,7 +461,7 @@ defmodule PhoenixKitCatalogue.Web.AttributeGroupFormLive do
       actor_uuid: actor
     }
 
-    case Translations.enqueue_all_missing(base, missing) do
+    case Translations.enqueue_all_missing(base, targets) do
       {:ok, %{enqueued: n}} -> n
       _ -> 0
     end
@@ -646,17 +668,6 @@ defmodule PhoenixKitCatalogue.Web.AttributeGroupFormLive do
                 <h3 class="font-semibold text-base">
                   {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Attributes")}
                 </h3>
-                <button
-                  :if={@multilang_enabled and @group.attributes != []}
-                  type="button"
-                  phx-click="ai_translate_children"
-                  class="btn btn-ghost btn-xs ml-auto"
-                  title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "AI-translate all attribute names and values that are missing a language.")}
-                >
-                  <.icon name="hero-language" class="w-4 h-4 phx-click-loading:hidden" />
-                  <span class="loading loading-spinner w-4 h-4 hidden phx-click-loading:inline-block"></span>
-                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "AI translate names & values")}
-                </button>
               </div>
 
               <p :if={@group.attributes == []} class="text-sm text-base-content/60">
@@ -741,7 +752,7 @@ defmodule PhoenixKitCatalogue.Web.AttributeGroupFormLive do
                         phx-blur="rename_value"
                         phx-value-uuid={value.uuid}
                         size={max(String.length(lang_text(value, :value, assigns) || value.value), 4)}
-                        class="input input-xs bg-transparent border-0 focus:outline-none px-1"
+                        class="input input-xs bg-transparent border-0 focus:outline-none px-1 field-sizing-content min-w-10 max-w-56"
                       />
                       <button
                         type="button"
@@ -836,13 +847,6 @@ defmodule PhoenixKitCatalogue.Web.AttributeGroupFormLive do
                   {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Add")}
                 </button>
               </form>
-
-              <p :if={@multilang_enabled and @current_lang != @primary_language} class="text-xs text-base-content/50">
-                {Gettext.gettext(
-                  PhoenixKitCatalogue.Gettext,
-                  "You are editing translations. Empty fields fall back to the primary language; new attributes and values are always created in the primary language."
-                )}
-              </p>
             </div>
           </.multilang_fields_wrapper>
         </div>
