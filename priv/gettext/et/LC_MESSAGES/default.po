@@ -130,6 +130,9 @@ msgstr "See kustutab kausta jäädavalt. Kustutada saab ainult tühje kaustu. Se
 msgid "Only empty folders can be deleted — move its contents out first."
 msgstr "Kustutada saab ainult tühje kaustu — vii sisu enne välja."
 
+msgid "Empty folder"
+msgstr "Tühi kaust"
+
 msgid "Unknown"
 msgstr "Teadmata"
 

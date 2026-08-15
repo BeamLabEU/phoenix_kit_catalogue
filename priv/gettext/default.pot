@@ -135,6 +135,9 @@ msgstr ""
 msgid "Only empty folders can be deleted — move its contents out first."
 msgstr ""
 
+msgid "Empty folder"
+msgstr ""
+
 msgid "Unknown"
 msgstr ""
 

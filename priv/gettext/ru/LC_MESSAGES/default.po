@@ -130,6 +130,9 @@ msgstr "Это навсегда удалит папку. Удалять можн
 msgid "Only empty folders can be deleted — move its contents out first."
 msgstr "Удалять можно только пустые папки — сначала переместите содержимое."
 
+msgid "Empty folder"
+msgstr "Пустая папка"
+
 msgid "Unknown"
 msgstr "Неизвестно"
 
