@@ -1490,6 +1490,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
           <.folder_explorer
             id="catalogue-folder-explorer"
             myself={nil}
+            class="hidden md:block"
             folder_tree={folder_nodes(@folder_tree)}
             current_folder={current_panel_folder(cfg, @folder_lookup)}
             expanded_folders={@expanded_folders}
