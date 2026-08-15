@@ -159,8 +159,9 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
       assert root =~ "Loose catalogue"
     end
 
-    test "card view shows the level as folder + catalogue cards", %{conn: conn} do
+    test "card view groups cards inside visible folder boxes", %{conn: conn} do
       {:ok, folder} = Catalogue.create_folder(%{name: "Card folder"})
+      {:ok, nested} = Catalogue.create_folder(%{name: "Nested box", parent_uuid: folder.uuid})
       filed = fixture_catalogue(%{name: "Filed card"})
       {:ok, _} = Catalogue.move_catalogue_to_folder(filed, folder.uuid)
       fixture_catalogue(%{name: "Loose card"})
@@ -168,14 +169,16 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
       {:ok, view, _html} = live(conn, @base)
       html = render_click(view, "set_view", %{"mode" => "card"})
 
-      # The level grid renders folder cards with the drag/drill contract;
-      # the filed catalogue is one level down, so not visible at root.
+      # Folder boxes render with their contents VISIBLE at the top level:
+      # the filed card and the nested (empty) box both show inside.
       assert html =~ "catalogues-card-level"
       assert html =~ ~s(data-tree-drop="#{folder.uuid}")
+      assert html =~ "Filed card"
+      assert html =~ "Nested box"
+      assert html =~ "Empty folder"
       assert html =~ "Loose card"
-      refute html =~ "Filed card"
 
-      # Drilling via a folder card re-roots the grid.
+      # Drilling via the folder name re-roots to just that box's contents.
       drilled =
         view
         |> element(
@@ -186,9 +189,13 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
       assert drilled =~ "Filed card"
       refute drilled =~ "Loose card"
 
-      # Searching falls back to the flat card table view.
-      searched = render_click(view, "navigate_folder", %{"uuid" => ""})
-      assert searched =~ "catalogues-card-level"
+      # The nested box still carries the drag contract inside its parent.
+      assert drilled =~ ~s(data-tree-parent="#{folder.uuid}")
+      assert drilled =~ ~s(data-tree-uuid="#{nested.uuid}")
+
+      # Up returns to the full grouped view.
+      root = render_click(view, "navigate_folder", %{"uuid" => ""})
+      assert root =~ "Loose card"
     end
 
     test "searching flattens the tree", %{conn: conn} do

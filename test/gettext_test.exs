@@ -279,6 +279,7 @@ defmodule PhoenixKitCatalogue.GettextTest do
 
     test "empty-only folder delete strings" do
       for {msgid, et, ru} <- [
+            {"Empty folder", "Tühi kaust", "Пустая папка"},
             {"Only empty folders can be deleted — move its contents out first.",
              "Kustutada saab ainult tühje kaustu — vii sisu enne välja.",
              "Удалять можно только пустые папки — сначала переместите содержимое."}
