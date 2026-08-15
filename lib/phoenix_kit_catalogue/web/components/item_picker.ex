@@ -234,8 +234,15 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
   end
 
   def handle_event("open", _params, socket) do
+    # `options == []` alone (not also requiring an empty query) covers a
+    # picker mounted with a `selected_item` that was never searched in this
+    # process — `update/2` mirrors the item's name into `:query` on mount,
+    # so a query-based guard here never re-triggers and focusing the input
+    # opens an empty "No items found" dropdown instead of a replacement
+    # list. A live selection doesn't hit this: `options` already holds the
+    # results from the search that led to the pick.
     socket =
-      if socket.assigns.options == [] and socket.assigns.query == "" do
+      if socket.assigns.options == [] do
         run_search(assign(socket, :open, true))
       else
         assign(socket, :open, true)
@@ -585,7 +592,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
               {item_breadcrumb(item, @locale)}
             </div>
           </div>
-          <div :if={(price && price != "") or unit != ""} class="text-right ml-4 shrink-0">
+          <div :if={(price != nil and price != "") or unit != ""} class="text-right ml-4 shrink-0">
             <div :if={price && price != ""} class="text-sm font-medium">
               {price}
             </div>
