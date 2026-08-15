@@ -21,6 +21,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
 
   import PhoenixKitWeb.Components.Core.Icon, only: [icon: 1]
   import PhoenixKitWeb.Components.Core.Modal, only: [confirm_modal: 1, modal: 1]
+  import PhoenixKitWeb.Components.Core.ReorderModal, only: [reorder_modal: 1]
   import PhoenixKitWeb.Components.Core.TableDefault
   import PhoenixKitWeb.Components.Core.TableRowMenu
   import PhoenixKitWeb.Components.Core.Sortable, only: [sortable_tbody: 1, sortable_row: 1]
@@ -45,6 +46,17 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     {:cont, put_in(socket.private[:live_layout], {PhoenixKitWeb.Layouts, :app})}
   end
 
+  # Hardcoded string→atom whitelist for the catalogues reorder-modal
+  # strategies — NEVER String.to_existing_atom on the submitted value
+  # (same rule as the detail page's items map).
+  @catalogues_reorder_strategy_map %{
+    "name_asc" => :name_asc,
+    "name_desc" => :name_desc,
+    "created_desc" => :created_desc,
+    "created_asc" => :created_asc,
+    "reverse" => :reverse
+  }
+
   @impl true
   def mount(_params, _session, socket) do
     if connected?(socket), do: PubSub.subscribe()
@@ -55,6 +67,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
        catalogue_rows: [],
        manufacturers: [],
        suppliers: [],
+       attribute_group_rows: [],
        confirm_delete: nil,
        catalogue_view_mode: "active",
        deleted_catalogue_count: 0,
@@ -67,6 +80,8 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
        show_folders_modal: false,
        folders_modal_view: "active",
        view_configs: load_view_configs(socket),
+       catalogue_file_counts: %{},
+       show_catalogues_reorder: false,
        show_column_modal: false,
        temp_columns: nil
      )}
@@ -78,18 +93,32 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   # care about for the current tab.
   @impl true
   def handle_info({:catalogue_data_changed, kind, _uuid, _parent}, socket) do
-    cond do
-      socket.assigns.active_tab == :index and kind in [:catalogue, :item, :category, :folder] ->
-        {:noreply, load_data(socket, :index)}
+    tab = socket.assigns.active_tab
 
-      socket.assigns.active_tab == :manufacturers and kind in [:manufacturer, :links] ->
-        {:noreply, load_data(socket, :manufacturers)}
+    if reload_on?(tab, kind) do
+      {:noreply, load_data(socket, tab)}
+    else
+      {:noreply, socket}
+    end
+  end
 
-      socket.assigns.active_tab == :suppliers and kind in [:supplier, :links] ->
-        {:noreply, load_data(socket, :suppliers)}
+  # Another admin changed the shared sort for a global-sort scope (see
+  # ViewConfig.global_sort?/1). Apply it to assigns only — the setting was
+  # already written by the originator, and writing the per-user copy here
+  # would trample this user's OTHER per-user prefs mid-render. Rows re-sort
+  # at render time (derive_rows), so no data reload is needed; when the sort
+  # lands on "position" the drag handles appear on the next render the same
+  # way they do for the admin who switched.
+  def handle_info({:catalogue_view_sort_changed, scope, sort_by, sort_dir, from}, socket) do
+    cfg = socket.assigns.view_configs[scope]
 
-      true ->
-        {:noreply, socket}
+    if from == self() or is_nil(cfg) do
+      {:noreply, socket}
+    else
+      updated = %{cfg | sort_by: sort_by, sort_dir: sort_dir}
+
+      {:noreply,
+       assign(socket, :view_configs, Map.put(socket.assigns.view_configs, scope, updated))}
     end
   end
 
@@ -97,6 +126,15 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     Logger.debug("CataloguesLive ignored unhandled message: #{inspect(msg)}")
     {:noreply, socket}
   end
+
+  # Which mutation kinds warrant a reload for each tab. :item matters to
+  # the attributes tab too — assignment changes ride the :item kind and
+  # move the "Items" usage counts.
+  defp reload_on?(:index, kind), do: kind in [:catalogue, :item, :category, :folder]
+  defp reload_on?(:manufacturers, kind), do: kind in [:manufacturer, :links]
+  defp reload_on?(:suppliers, kind), do: kind in [:supplier, :links]
+  defp reload_on?(:attribute_groups, kind), do: kind in [:attribute_group, :item]
+  defp reload_on?(_tab, _kind), do: false
 
   @impl true
   def handle_params(_params, _uri, socket), do: {:noreply, socket}
@@ -145,11 +183,12 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   defp active_scope(%{active_tab: :index}), do: :catalogues
   defp active_scope(%{active_tab: :manufacturers}), do: :manufacturers
   defp active_scope(%{active_tab: :suppliers}), do: :suppliers
+  defp active_scope(%{active_tab: :attribute_groups}), do: :attribute_groups
 
   defp load_view_configs(socket) do
     user = socket.assigns[:phoenix_kit_current_user]
 
-    Map.new([:catalogues, :suppliers, :manufacturers], fn scope ->
+    Map.new([:catalogues, :suppliers, :manufacturers, :attribute_groups], fn scope ->
       {scope, ViewConfig.load(user, scope)}
     end)
   end
@@ -165,12 +204,23 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   # from the stale pre-save snapshot and silently revert this save.
   defp put_cfg(socket, scope, cfg) do
     user = socket.assigns[:phoenix_kit_current_user]
+    prev = Map.fetch!(socket.assigns.view_configs, scope)
 
     socket =
       case ViewConfig.save(user, scope, cfg) do
         {:ok, updated_user} -> assign(socket, :phoenix_kit_current_user, updated_user)
         _ -> socket
       end
+
+    # Global-sort scopes share their ordering: persist the new sort as a
+    # module setting and tell every other open index to switch live. Keyed
+    # off an actual sort change so column/filter/view edits (which also
+    # travel through put_cfg) don't rewrite the setting or spam the topic.
+    if ViewConfig.global_sort?(scope) and
+         {cfg.sort_by, cfg.sort_dir} != {prev.sort_by, prev.sort_dir} do
+      ViewConfig.save_global_sort(scope, cfg.sort_by, cfg.sort_dir)
+      PubSub.broadcast_view_sort_changed(scope, cfg.sort_by, cfg.sort_dir)
+    end
 
     assign(socket, :view_configs, Map.put(socket.assigns.view_configs, scope, cfg))
   end
@@ -182,9 +232,13 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
 
   defp tab_title(:suppliers), do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Suppliers")
 
+  defp tab_title(:attribute_groups),
+    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Attributes")
+
   defp tab_path(:index), do: Paths.index()
   defp tab_path(:manufacturers), do: Paths.manufacturers()
   defp tab_path(:suppliers), do: Paths.suppliers()
+  defp tab_path(:attribute_groups), do: Paths.attribute_groups()
 
   # Graceful handler for a delete event that fires while `confirm_delete`
   # is nil (e.g. someone pushed the event without first opening the
@@ -235,6 +289,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
 
       assign(socket,
         catalogue_rows: catalogue_rows,
+        catalogue_file_counts: Catalogue.attached_file_counts(catalogue_rows),
         deleted_catalogue_count: deleted_cat_count,
         deleted_folder_count: deleted_folder_count,
         catalogue_view_mode: mode,
@@ -259,17 +314,41 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       else: socket
   end
 
+  defp load_data(socket, :attribute_groups) do
+    if connected?(socket) do
+      groups = Catalogue.list_attribute_groups()
+      uuids = Enum.map(groups, & &1.uuid)
+      attr_counts = Catalogue.attribute_counts(uuids)
+      item_counts = Catalogue.assignment_counts(uuids)
+
+      rows =
+        Enum.map(groups, fn g ->
+          g
+          |> Map.from_struct()
+          |> Map.put(:attribute_count, Map.get(attr_counts, g.uuid, 0))
+          |> Map.put(:item_count, Map.get(item_counts, g.uuid, 0))
+        end)
+
+      assign(socket, :attribute_group_rows, rows)
+    else
+      socket
+    end
+  end
+
   # Each catalogue enriched into a plain atom-key map for the flat table:
   # `:folder_name` from the lookup, `:item_count` from item_counts.
   defp build_catalogue_rows(catalogues, folder_lookup, item_counts) do
     Enum.map(catalogues, fn c ->
+      folder = c.folder_uuid && folder_lookup[c.folder_uuid]
+
       c
       |> Map.from_struct()
-      |> Map.put(:folder_uuid, c.folder_uuid)
-      |> Map.put(
-        :folder_name,
-        c.folder_uuid && folder_lookup[c.folder_uuid] && folder_lookup[c.folder_uuid].name
-      )
+      # A lookup miss means the folder is trashed — orphan-promote the row
+      # so it reads as unfiled everywhere: dash in the Folder column,
+      # matched by "Unfiled (root)", and no ghost entry (a nameless option
+      # holding a trashed folder's uuid) in the filter dropdown.
+      |> Map.put(:folder_uuid, folder && c.folder_uuid)
+      |> Map.put(:folder_name, folder && folder.name)
       |> Map.put(:item_count, Map.get(item_counts, c.uuid, 0))
     end)
   end
@@ -283,6 +362,14 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       end)
 
     [{"", Gettext.gettext(PhoenixKitCatalogue.Gettext, "— Root (unfiled) —")} | nested]
+  end
+
+  defp clear_folder_filter(socket) do
+    cfg = Map.fetch!(socket.assigns.view_configs, :catalogues)
+
+    if Map.has_key?(cfg.filters, "folder"),
+      do: put_cfg(socket, :catalogues, %{cfg | filters: Map.delete(cfg.filters, "folder")}),
+      else: socket
   end
 
   defp default_folder_name, do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "New folder")
@@ -341,6 +428,11 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   @impl true
   def handle_event("switch_catalogue_view", %{"mode" => mode}, socket)
       when mode in ~w(active deleted) do
+    # Deleted view: drop the folder filter — trash is global, and a stale
+    # folder filter (deleted catalogues rebuild the options from their own
+    # rows) silently empties the list with the select showing "All folders".
+    socket = if mode == "deleted", do: clear_folder_filter(socket), else: socket
+
     {:noreply,
      socket
      |> assign(:catalogue_view_mode, mode)
@@ -522,6 +614,42 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   # outside the view. That is the duplicate-`position` corruption this
   # feature's own comments describe as how the column got into that state the
   # first time; gating only the handles would have left the same door open.
+  def handle_event("open_catalogues_reorder_modal", _params, socket) do
+    {:noreply, assign(socket, :show_catalogues_reorder, true)}
+  end
+
+  def handle_event("close_catalogues_reorder_modal", _params, socket) do
+    {:noreply, assign(socket, :show_catalogues_reorder, false)}
+  end
+
+  # Strategy reorder for the whole catalogues list ("Reorder all" in manual
+  # mode). Operates on the FULL loaded set — the index isn't paginated — so
+  # re-indexing into 1..N can't collide with unseen rows.
+  def handle_event("apply_catalogues_reorder", %{"strategy" => strategy_str}, socket)
+      when is_map_key(@catalogues_reorder_strategy_map, strategy_str) do
+    strategy = Map.fetch!(@catalogues_reorder_strategy_map, strategy_str)
+
+    ordered =
+      socket.assigns.catalogue_rows
+      |> order_rows_for_strategy(strategy)
+      |> Enum.map(& &1.uuid)
+
+    case Catalogue.reorder_catalogues(ordered, actor_opts(socket)) do
+      :ok ->
+        {:noreply,
+         socket
+         |> assign(:show_catalogues_reorder, false)
+         |> put_flash(:info, gettext("Catalogues reordered."))
+         |> load_data(:index)}
+
+      {:error, reason} ->
+        log_operation_error(socket, "apply_catalogues_reorder", %{reason: reason})
+        {:noreply, put_flash(socket, :error, gettext("Failed to reorder."))}
+    end
+  end
+
+  def handle_event("apply_catalogues_reorder", _params, socket), do: {:noreply, socket}
+
   def handle_event("reorder_catalogues", %{"ordered_ids" => ordered_ids}, socket)
       when is_list(ordered_ids) do
     if manual_order_draggable?(socket.assigns.catalogue_view_mode, current_cfg(socket.assigns)) do
@@ -779,6 +907,77 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     end
   end
 
+  def handle_event("delete_attribute_group", _params, socket) do
+    case socket.assigns.confirm_delete do
+      {"attribute_group", uuid} ->
+        with %{} = group <- Catalogue.get_attribute_group(uuid),
+             {:ok, _} <- Catalogue.delete_attribute_group(group, actor_opts(socket)) do
+          {:noreply,
+           socket
+           |> put_flash(
+             :info,
+             Gettext.gettext(PhoenixKitCatalogue.Gettext, "Attribute group deleted.")
+           )
+           |> assign(:confirm_delete, nil)
+           |> load_data(:attribute_groups)}
+        else
+          nil ->
+            {:noreply, assign(socket, :confirm_delete, nil)}
+
+          {:error, :in_use} ->
+            {:noreply,
+             socket
+             |> put_flash(
+               :error,
+               Gettext.gettext(
+                 PhoenixKitCatalogue.Gettext,
+                 "This group is used by items — archive it instead."
+               )
+             )
+             |> assign(:confirm_delete, nil)}
+
+          {:error, reason} ->
+            log_operation_error(socket, "delete_attribute_group", %{
+              entity_type: "attribute_group",
+              entity_uuid: uuid,
+              reason: reason
+            })
+
+            {:noreply,
+             socket
+             |> put_flash(
+               :error,
+               Gettext.gettext(PhoenixKitCatalogue.Gettext, "Failed to delete attribute group.")
+             )
+             |> assign(:confirm_delete, nil)}
+        end
+
+      _ ->
+        unexpected_confirm_event(socket, "delete_attribute_group")
+    end
+  end
+
+  # Archive / restore straight from the row menu — reversible, no confirm.
+  def handle_event("set_attribute_group_status", %{"uuid" => uuid, "status" => status}, socket)
+      when status in ["active", "archived"] do
+    with %{} = group <- Catalogue.get_attribute_group(uuid),
+         {:ok, _} <-
+           Catalogue.update_attribute_group(group, %{status: status}, actor_opts(socket)) do
+      {:noreply, load_data(socket, :attribute_groups)}
+    else
+      _ ->
+        {:noreply,
+         put_flash(
+           socket,
+           :error,
+           Gettext.gettext(PhoenixKitCatalogue.Gettext, "Failed to update attribute group.")
+         )}
+    end
+  end
+
+  # Forged/stale payloads: ignore rather than crash.
+  def handle_event("set_attribute_group_status", _params, socket), do: {:noreply, socket}
+
   def handle_event("cancel_delete", _params, socket) do
     {:noreply, assign(socket, :confirm_delete, nil)}
   end
@@ -912,7 +1111,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     end
   end
 
-  def handle_event("set_view", %{"mode" => v}, socket) when v in ["table", "card"] do
+  def handle_event("set_view", %{"mode" => v}, socket) when v in ["table", "card", "comfy"] do
     scope = active_scope(socket.assigns)
     {:noreply, put_cfg(socket, scope, %{current_cfg(socket.assigns) | view: v})}
   end
@@ -942,6 +1141,37 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       sort_by: cfg.sort_by,
       sort_dir: cfg.sort_dir
     })
+  end
+
+  defp catalogue_reorder_strategies do
+    [
+      {"name_asc", gettext("A → Z by name")},
+      {"name_desc", gettext("Z → A by name")},
+      {"created_desc", gettext("Newest first")},
+      {"created_asc", gettext("Oldest first")},
+      {"reverse", gettext("Reverse current order")}
+    ]
+  end
+
+  # Orders the full row set for a reorder strategy. "Reverse current order"
+  # reverses the MANUAL order (position, name-tiebroken — the order the
+  # strategies overwrite), not whatever transient sort the viewer has.
+  defp order_rows_for_strategy(rows, :name_asc),
+    do: Enum.sort_by(rows, &String.downcase(&1.name || ""))
+
+  defp order_rows_for_strategy(rows, :name_desc),
+    do: Enum.sort_by(rows, &String.downcase(&1.name || ""), :desc)
+
+  defp order_rows_for_strategy(rows, :created_desc),
+    do: Enum.sort_by(rows, & &1.inserted_at, {:desc, DateTime})
+
+  defp order_rows_for_strategy(rows, :created_asc),
+    do: Enum.sort_by(rows, & &1.inserted_at, {:asc, DateTime})
+
+  defp order_rows_for_strategy(rows, :reverse) do
+    rows
+    |> Enum.sort_by(&{&1.position, String.downcase(&1.name || "")})
+    |> Enum.reverse()
   end
 
   defp flip(:asc), do: :desc
@@ -1011,8 +1241,8 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
 
     if Enum.any?(rows, &is_nil(&1[:folder_uuid])) do
       [
-        {TableQuery.unfiled_folder_value(),
-         Gettext.gettext(PhoenixKitCatalogue.Gettext, "Unfiled (root)")}
+        {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Unfiled (root)"),
+         TableQuery.unfiled_folder_value()}
         | base
       ]
     else
@@ -1128,6 +1358,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
           <.simple_table
             scope={:catalogues}
             cfg={cfg}
+            file_counts={@catalogue_file_counts}
             rows={derive_rows(@catalogue_rows, :catalogues, cfg)}
             total={length(@catalogue_rows)}
             empty={Gettext.gettext(PhoenixKitCatalogue.Gettext, "No catalogues yet.")}
@@ -1135,16 +1366,19 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
           >
             <:row_actions :let={c}>
               <.table_row_menu :if={@catalogue_view_mode == "active"} mode="auto" id={"cat-menu-#{c.uuid}"}>
-                <.table_row_menu_link
-                  navigate={Paths.catalogue_detail(c.uuid)}
-                  icon="hero-eye"
-                  label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "View")}
-                />
+                <%!-- Edit leads: it is what most people open this menu
+                     for (product call, 2026-08-15). Entries stay neutral —
+                     the daisyUI "secondary" tint made routine actions look
+                     flagged; only destructive actions keep a color. --%>
                 <.table_row_menu_link
                   navigate={Paths.catalogue_edit(c.uuid)}
                   icon="hero-pencil"
                   label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")}
-                  variant="secondary"
+                />
+                <.table_row_menu_link
+                  navigate={Paths.catalogue_detail(c.uuid)}
+                  icon="hero-eye"
+                  label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "View")}
                 />
                 <.table_row_menu_button
                   phx-click="open_move"
@@ -1152,7 +1386,6 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
                   phx-value-uuid={c.uuid}
                   icon="hero-folder-arrow-down"
                   label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Move to folder")}
-                  variant="secondary"
                 />
                 <.table_row_menu_divider />
                 <.table_row_menu_button
@@ -1185,37 +1418,53 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
               </.table_row_menu>
             </:row_actions>
             <:card_actions :let={c}>
-              <.link
-                :if={@catalogue_view_mode == "active"}
-                navigate={Paths.catalogue_detail(c.uuid)}
-                class="btn btn-ghost btn-xs"
-              >
-                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "View")}
-              </.link>
-              <.link
-                :if={@catalogue_view_mode == "active"}
-                navigate={Paths.catalogue_edit(c.uuid)}
-                class="btn btn-ghost btn-xs"
-              >
-                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")}
-              </.link>
-              <button
-                :if={@catalogue_view_mode == "deleted"}
-                phx-click="restore_catalogue"
-                phx-value-uuid={c.uuid}
-                class="btn btn-ghost btn-xs text-success"
-              >
-                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Restore")}
-              </button>
-              <button
-                :if={@catalogue_view_mode == "deleted"}
-                phx-click="show_delete_confirm"
-                phx-value-uuid={c.uuid}
-                phx-value-type="catalogue"
-                class="btn btn-ghost btn-xs text-error"
-              >
-                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete Forever")}
-              </button>
+              <.table_row_menu :if={@catalogue_view_mode == "active"} mode="auto" id={"card-cat-menu-#{c.uuid}"}>
+                <.table_row_menu_link
+                  navigate={Paths.catalogue_edit(c.uuid)}
+                  icon="hero-pencil"
+                  label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")}
+                />
+                <.table_row_menu_link
+                  navigate={Paths.catalogue_detail(c.uuid)}
+                  icon="hero-eye"
+                  label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "View")}
+                />
+                <.table_row_menu_button
+                  phx-click="open_move"
+                  phx-value-type="catalogue"
+                  phx-value-uuid={c.uuid}
+                  icon="hero-folder-arrow-down"
+                  label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Move to folder")}
+                />
+                <.table_row_menu_divider />
+                <.table_row_menu_button
+                  phx-click="trash_catalogue"
+                  phx-value-uuid={c.uuid}
+                  phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Deleting...")}
+                  icon="hero-trash"
+                  label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")}
+                  variant="error"
+                />
+              </.table_row_menu>
+              <.table_row_menu :if={@catalogue_view_mode == "deleted"} mode="auto" id={"card-cat-del-menu-#{c.uuid}"}>
+                <.table_row_menu_button
+                  phx-click="restore_catalogue"
+                  phx-value-uuid={c.uuid}
+                  phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Restoring...")}
+                  icon="hero-arrow-path"
+                  label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Restore")}
+                  variant="success"
+                />
+                <.table_row_menu_divider />
+                <.table_row_menu_button
+                  phx-click="show_delete_confirm"
+                  phx-value-uuid={c.uuid}
+                  phx-value-type="catalogue"
+                  icon="hero-trash"
+                  label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete Forever")}
+                  variant="error"
+                />
+              </.table_row_menu>
             </:card_actions>
           </.simple_table>
         </div>
@@ -1265,17 +1514,22 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
             </.table_row_menu>
           </:row_actions>
           <:card_actions :let={m}>
-            <.link navigate={Paths.manufacturer_edit(m.uuid)} class="btn btn-ghost btn-xs">
-              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")}
-            </.link>
-            <button
-              phx-click="show_delete_confirm"
-              phx-value-uuid={m.uuid}
-              phx-value-type="manufacturer"
-              class="btn btn-ghost btn-xs text-error"
-            >
-              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")}
-            </button>
+            <.table_row_menu mode="auto" id={"card-mfg-menu-#{m.uuid}"}>
+              <.table_row_menu_link
+                navigate={Paths.manufacturer_edit(m.uuid)}
+                icon="hero-pencil"
+                label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")}
+              />
+              <.table_row_menu_divider />
+              <.table_row_menu_button
+                phx-click="show_delete_confirm"
+                phx-value-uuid={m.uuid}
+                phx-value-type="manufacturer"
+                icon="hero-trash"
+                label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")}
+                variant="error"
+              />
+            </.table_row_menu>
           </:card_actions>
         </.simple_table>
       </div>
@@ -1312,7 +1566,6 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
                 navigate={Paths.supplier_edit(s.uuid)}
                 icon="hero-pencil"
                 label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")}
-                variant="secondary"
               />
               <.table_row_menu_divider />
               <.table_row_menu_button
@@ -1326,17 +1579,124 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
             </.table_row_menu>
           </:row_actions>
           <:card_actions :let={s}>
-            <.link navigate={Paths.supplier_edit(s.uuid)} class="btn btn-ghost btn-xs">
-              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")}
+            <.table_row_menu mode="auto" id={"card-supplier-menu-#{s.uuid}"}>
+              <.table_row_menu_link
+                navigate={Paths.supplier_edit(s.uuid)}
+                icon="hero-pencil"
+                label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")}
+              />
+              <.table_row_menu_divider />
+              <.table_row_menu_button
+                phx-click="show_delete_confirm"
+                phx-value-uuid={s.uuid}
+                phx-value-type="supplier"
+                icon="hero-trash"
+                label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")}
+                variant="error"
+              />
+            </.table_row_menu>
+          </:card_actions>
+        </.simple_table>
+      </div>
+
+      <div :if={@active_tab == :attribute_groups} class="flex flex-col gap-4">
+        <% cfg = @view_configs.attribute_groups %>
+        <.table_toolbar scope={:attribute_groups} cfg={cfg}>
+          <:filters>
+            <.enum_filter
+              id="status"
+              label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Status")}
+              value={cfg.filters["status"]}
+              prompt={Gettext.gettext(PhoenixKitCatalogue.Gettext, "All statuses")}
+              options={TableQuery.enum_options(@attribute_group_rows, :attribute_groups, "status")}
+            />
+          </:filters>
+          <:actions>
+            <.link navigate={Paths.attribute_group_new()} class="btn btn-primary btn-sm">
+              <.icon name="hero-plus" class="w-4 h-4" />
+              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "New Attribute Group")}
             </.link>
-            <button
-              phx-click="show_delete_confirm"
-              phx-value-uuid={s.uuid}
-              phx-value-type="supplier"
-              class="btn btn-ghost btn-xs text-error"
-            >
-              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")}
-            </button>
+          </:actions>
+        </.table_toolbar>
+        <.simple_table
+          scope={:attribute_groups}
+          cfg={cfg}
+          rows={derive_rows(@attribute_group_rows, :attribute_groups, cfg)}
+          total={length(@attribute_group_rows)}
+          empty={
+            Gettext.gettext(
+              PhoenixKitCatalogue.Gettext,
+              "No attribute groups yet. Create one to define reusable options like colors and finishes."
+            )
+          }
+        >
+          <:row_actions :let={g}>
+            <.table_row_menu mode="auto" id={"attr-group-menu-#{g.uuid}"}>
+              <.table_row_menu_link
+                navigate={Paths.attribute_group_edit(g.uuid)}
+                icon="hero-pencil"
+                label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")}
+              />
+              <.table_row_menu_button
+                :if={g.status == "active"}
+                phx-click="set_attribute_group_status"
+                phx-value-uuid={g.uuid}
+                phx-value-status="archived"
+                icon="hero-archive-box"
+                label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Archive")}
+              />
+              <.table_row_menu_button
+                :if={g.status == "archived"}
+                phx-click="set_attribute_group_status"
+                phx-value-uuid={g.uuid}
+                phx-value-status="active"
+                icon="hero-arrow-uturn-left"
+                label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Restore")}
+              />
+              <.table_row_menu_divider />
+              <.table_row_menu_button
+                phx-click="show_delete_confirm"
+                phx-value-uuid={g.uuid}
+                phx-value-type="attribute_group"
+                icon="hero-trash"
+                label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")}
+                variant="error"
+              />
+            </.table_row_menu>
+          </:row_actions>
+          <:card_actions :let={g}>
+            <.table_row_menu mode="auto" id={"card-attr-group-menu-#{g.uuid}"}>
+              <.table_row_menu_link
+                navigate={Paths.attribute_group_edit(g.uuid)}
+                icon="hero-pencil"
+                label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")}
+              />
+              <.table_row_menu_button
+                :if={g.status == "active"}
+                phx-click="set_attribute_group_status"
+                phx-value-uuid={g.uuid}
+                phx-value-status="archived"
+                icon="hero-archive-box"
+                label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Archive")}
+              />
+              <.table_row_menu_button
+                :if={g.status == "archived"}
+                phx-click="set_attribute_group_status"
+                phx-value-uuid={g.uuid}
+                phx-value-status="active"
+                icon="hero-arrow-uturn-left"
+                label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Restore")}
+              />
+              <.table_row_menu_divider />
+              <.table_row_menu_button
+                phx-click="show_delete_confirm"
+                phx-value-uuid={g.uuid}
+                phx-value-type="attribute_group"
+                icon="hero-trash"
+                label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")}
+                variant="error"
+              />
+            </.table_row_menu>
           </:card_actions>
         </.simple_table>
       </div>
@@ -1381,6 +1741,17 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete Supplier")}
         title_icon="hero-trash"
         messages={[{:warning, Gettext.gettext(PhoenixKitCatalogue.Gettext, "This will permanently delete this supplier. Manufacturer links will be removed.")}]}
+        confirm_text={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")}
+        danger={true}
+      />
+
+      <.confirm_modal
+        show={match?({"attribute_group", _}, @confirm_delete)}
+        on_confirm="delete_attribute_group"
+        on_cancel="cancel_delete"
+        title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete Attribute Group")}
+        title_icon="hero-trash"
+        messages={[{:warning, Gettext.gettext(PhoenixKitCatalogue.Gettext, "This will permanently delete this group with all its attributes and values. Groups used by items cannot be deleted — archive them instead.")}]}
         confirm_text={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")}
         danger={true}
       />
@@ -1583,6 +1954,19 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         </div>
       </.modal>
 
+
+      <.reorder_modal
+        :if={@active_tab == :index}
+        id="catalogues-reorder-modal"
+        show={@show_catalogues_reorder}
+        on_close="close_catalogues_reorder_modal"
+        on_apply="apply_catalogues_reorder"
+        selected_count={0}
+        total_count={length(@catalogue_rows)}
+        strategies={catalogue_reorder_strategies()}
+        noun_singular={gettext("catalogue")}
+        noun_plural={gettext("catalogues")}
+      />
       <.column_settings_modal
         show={@show_column_modal}
         scope={active_scope(assigns)}
@@ -1617,36 +2001,64 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
 
   defp table_toolbar(assigns) do
     ~H"""
-    <div class="flex flex-wrap items-center gap-2 mb-3">
-      <form phx-change="table_search" phx-submit="table_search" class="contents">
-        <label class="input input-sm w-full sm:w-64">
-          <.icon name="hero-magnifying-glass" class="h-4 w-4 opacity-50" />
-          <input
-            type="search"
-            name="query"
-            value={@cfg[:search] || ""}
-            phx-debounce="300"
-            placeholder={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search...")}
-            class="grow"
+    <%!-- Two coherent groups instead of one flat flex-wrap: search+filters
+         left, view tools + create actions right. A flat wrap broke lines
+         between arbitrary neighbors (a stray "New Folder" alone on row 1,
+         the primary action stranded bottom-left…); grouped, a narrow
+         screen drops the whole right group under the left one as a unit,
+         so every width renders an intentional-looking toolbar. --%>
+    <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 mb-3">
+      <div class="flex flex-wrap items-center gap-2">
+        <form phx-change="table_search" phx-submit="table_search" class="contents">
+          <label class="input input-sm w-full sm:w-64">
+            <.icon name="hero-magnifying-glass" class="h-4 w-4 opacity-50" />
+            <input
+              type="search"
+              name="query"
+              value={@cfg[:search] || ""}
+              phx-debounce="300"
+              placeholder={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search...")}
+              class="grow"
+            />
+          </label>
+        </form>
+        {render_slot(@filters)}
+      </div>
+
+      <div class="flex flex-wrap items-center gap-2">
+        <%!-- Two wrap-as-a-unit clusters: view tools and create/folder
+             actions. At widths where both can't share a row, the actions
+             cluster drops to its OWN row instead of its buttons scattering
+             between rows. The inner flex-wrap is the ultra-narrow fallback. --%>
+        <div class="flex items-center gap-2">
+          <.sort_controls
+            scope={@scope}
+            selected={["position", "name" | @cfg.columns]}
+            sort_by={@cfg.sort_by}
+            sort_dir={@cfg.sort_dir}
+            manual_value="position"
           />
-        </label>
-      </form>
-      {render_slot(@filters)}
-      <div class="flex-1"></div>
-      <.sort_controls
-        scope={@scope}
-        selected={["position", "name" | @cfg.columns]}
-        sort_by={@cfg.sort_by}
-        sort_dir={@cfg.sort_dir}
-        manual_value="position"
-      />
-      <button type="button" phx-click="show_column_modal" class="btn btn-outline btn-sm">
-        <.icon name="hero-adjustments-horizontal" class="w-4 h-4" />
-        <span class="hidden sm:inline">
-          {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Columns")}
-        </span>
-      </button>
-      {render_slot(@actions)}
+          <button
+            :if={@scope == :catalogues and @cfg.sort_by == "position"}
+            type="button"
+            phx-click="open_catalogues_reorder_modal"
+            class="btn btn-outline btn-sm"
+          >
+            <.icon name="hero-arrows-up-down" class="w-4 h-4" />
+            <span class="hidden sm:inline">{gettext("Reorder all")}</span>
+          </button>
+          <button type="button" phx-click="show_column_modal" class="btn btn-outline btn-sm">
+            <.icon name="hero-adjustments-horizontal" class="w-4 h-4" />
+            <span class="hidden sm:inline">
+              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Columns")}
+            </span>
+          </button>
+        </div>
+        <div :if={@actions != []} class="w-px h-6 bg-base-300 mx-1 hidden md:block"></div>
+        <div :if={@actions != []} class="flex flex-wrap items-center gap-2 w-full md:w-auto">
+          {render_slot(@actions)}
+        </div>
+      </div>
     </div>
     """
   end
@@ -1664,6 +2076,8 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     doc: "Manual-order mode: render drag handles and DnD-enable the table body."
   )
 
+  attr(:file_counts, :map, default: %{})
+
   slot(:row_actions, required: true)
   slot(:card_actions, required: true)
 
@@ -1672,6 +2086,16 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       assigns
       |> assign(:cols, visible_columns(assigns.scope, assigns.cfg))
       |> assign(:reorderable?, assigns.draggable and length(assigns.rows) > 1)
+      # Featured images get their own slim column (inline-left of the name
+      # made rows jagged). Catalogues only — manufacturers/suppliers don't
+      # carry featured images — and only when some visible row has one.
+      |> then(
+        &assign(
+          &1,
+          :photo_col?,
+          &1.scope == :catalogues and any_media_thumb?(&1.rows, &1.file_counts)
+        )
+      )
 
     ~H"""
     <div :if={@rows == []} class="card bg-base-100 shadow">
@@ -1704,6 +2128,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       <.table_default_header>
         <.table_default_row>
           <.drag_handle_header_cell :if={@draggable} />
+          <.table_default_header_cell :if={@photo_col?} class="w-12 !pr-0 !py-1 [.pk-comfy_&]:w-22 [.pk-comfy_&]:!py-1.5"></.table_default_header_cell>
           <.table_default_header_cell
             :for={c <- @cols}
             class={c.align == :right && "text-right"}
@@ -1727,6 +2152,9 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         <.sortable_row :for={row <- @rows} item_id={row.uuid}>
           <.drag_handle_cell :if={@reorderable?} />
           <td :if={!@reorderable?} class="w-8"></td>
+          <.table_default_cell :if={@photo_col?} class="w-12 !pr-0 !py-1 [.pk-comfy_&]:w-22 [.pk-comfy_&]:!py-1.5">
+            <.featured_thumb resource={row} has_files={Map.get(@file_counts, row.uuid, 0) > 0} />
+          </.table_default_cell>
           <.table_default_cell :for={c <- @cols} class={c.align == :right && "text-right"}>
             {render_cell(@scope, c.id, row)}
           </.table_default_cell>
@@ -1737,6 +2165,9 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       </.sortable_tbody>
       <.table_default_body :if={!@draggable}>
         <.table_default_row :for={row <- @rows}>
+          <.table_default_cell :if={@photo_col?} class="w-12 !pr-0 !py-1 [.pk-comfy_&]:w-22 [.pk-comfy_&]:!py-1.5">
+            <.featured_thumb resource={row} has_files={Map.get(@file_counts, row.uuid, 0) > 0} />
+          </.table_default_cell>
           <.table_default_cell :for={c <- @cols} class={c.align == :right && "text-right"}>
             {render_cell(@scope, c.id, row)}
           </.table_default_cell>
@@ -1745,7 +2176,17 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
           </.table_default_cell>
         </.table_default_row>
       </.table_default_body>
-      <:card_header :let={row}>{render_cell(@scope, "name", row)}</:card_header>
+      <:card_header :let={row}>
+        <div class="flex items-center gap-2 min-w-0">
+          <.featured_thumb
+            :if={@scope == :catalogues}
+            resource={row}
+            class="w-12 h-12"
+            has_files={Map.get(@file_counts, row.uuid, 0) > 0}
+          />
+          {render_cell(@scope, "name", row)}
+        </div>
+      </:card_header>
       <:card_actions :let={row}>{render_slot(@card_actions, row)}</:card_actions>
     </.table_default>
     """
@@ -1805,6 +2246,24 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   defp render_cell(:catalogues, "discount", row), do: pct(row[:discount_percentage])
   defp render_cell(:catalogues, "created", row), do: ts(row[:inserted_at])
 
+  defp render_cell(:attribute_groups, "name", row) do
+    assigns = %{row: row}
+
+    ~H"""
+    <.link navigate={Paths.attribute_group_edit(@row.uuid)} class="link link-hover font-medium">{@row.name}</.link>
+    """
+  end
+
+  defp render_cell(:attribute_groups, "attributes", row) do
+    assigns = %{n: row[:attribute_count] || 0}
+    ~H"<span class='tabular-nums'>{@n}</span>"
+  end
+
+  defp render_cell(:attribute_groups, "items", row) do
+    assigns = %{n: row[:item_count] || 0}
+    ~H"<span class='tabular-nums'>{@n}</span>"
+  end
+
   defp render_cell(scope, "name", row) when scope in [:suppliers, :manufacturers] do
     path =
       if scope == :suppliers,
@@ -1829,6 +2288,11 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   defp render_card_value(:catalogues, "markup", row), do: pct_str(row[:markup_percentage])
   defp render_card_value(:catalogues, "discount", row), do: pct_str(row[:discount_percentage])
   defp render_card_value(:catalogues, "created", row), do: ts_str(row[:inserted_at])
+
+  defp render_card_value(:attribute_groups, "attributes", row),
+    do: to_string(row[:attribute_count] || 0)
+
+  defp render_card_value(:attribute_groups, "items", row), do: to_string(row[:item_count] || 0)
   defp render_card_value(_scope, "website", row), do: row.website || "—"
   defp render_card_value(_scope, "status", row), do: status_label(row.status)
   defp render_card_value(_scope, "contact_info", row), do: row.contact_info || "—"

@@ -155,4 +155,46 @@ defmodule PhoenixKitCatalogue.AITranslatableTest do
       assert Map.has_key?(merged, "_primary_language")
     end
   end
+
+  describe "attribute resources" do
+    setup do
+      {:ok, group} = Catalogue.create_attribute_group(%{name: "Idea doors"})
+      {:ok, attribute} = Catalogue.create_attribute(group, %{"name" => "Color"})
+      {:ok, value} = Catalogue.create_attribute_value(attribute, %{"value" => "Oak"})
+      %{group: group, attribute: attribute, value: value}
+    end
+
+    test "fetch resolves all three types", ctx do
+      assert {:ok, %{uuid: g}} = AITranslatable.fetch("catalogue_attribute_group", ctx.group.uuid)
+      assert g == ctx.group.uuid
+      assert {:ok, _} = AITranslatable.fetch("catalogue_attribute", ctx.attribute.uuid)
+      assert {:ok, _} = AITranslatable.fetch("catalogue_attribute_value", ctx.value.uuid)
+    end
+
+    test "source_fields speak name for group/attribute and value for values", ctx do
+      assert AITranslatable.source_fields(ctx.group, primary()) == %{"name" => "Idea doors"}
+      assert AITranslatable.source_fields(ctx.attribute, primary()) == %{"name" => "Color"}
+      assert AITranslatable.source_fields(ctx.value, primary()) == %{"value" => "Oak"}
+    end
+
+    test "put_translation persists per-language overrides for a value", ctx do
+      assert {:ok, _} =
+               AITranslatable.put_translation(ctx.value, "ru", %{"value" => "Дуб"}, [])
+
+      reloaded = Catalogue.get_attribute_value(ctx.value.uuid)
+      assert reloaded.data["ru"]["_value"] == "Дуб"
+      # key untouched — identity survives translation
+      assert reloaded.key == ctx.value.key
+
+      resolved = Catalogue.resolved_group(ctx.group.uuid, "ru")
+      assert [%{values: [%{value: "Дуб"}]}] = resolved.attributes
+    end
+
+    test "put_translation persists a group name override", ctx do
+      assert {:ok, _} =
+               AITranslatable.put_translation(ctx.group, "et", %{"name" => "Idea uksed"}, [])
+
+      assert Catalogue.get_attribute_group(ctx.group.uuid).data["et"]["_name"] == "Idea uksed"
+    end
+  end
 end
