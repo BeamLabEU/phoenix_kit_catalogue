@@ -134,6 +134,25 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
       refute root =~ "Filed catalogue"
     end
 
+    test "entering the trash clears a stale folder filter", %{conn: conn} do
+      {:ok, folder} = Catalogue.create_folder(%{name: "Live folder"})
+      filed = fixture_catalogue(%{name: "Filed catalogue"})
+      {:ok, _} = Catalogue.move_catalogue_to_folder(filed, folder.uuid)
+      trashed = fixture_catalogue(%{name: "Binned catalogue"})
+      Catalogue.trash_catalogue(trashed)
+
+      {:ok, view, _html} = live(conn, @base)
+      render_click(view, "navigate_folder", %{"folder-uuid" => folder.uuid})
+
+      # The unfiled trashed catalogue must be visible despite the drill.
+      trash = render_click(view, "toggle_trash_filter", %{})
+      assert trash =~ "Binned catalogue"
+
+      # Toggling back out returns to the unfiltered active list.
+      active = render_click(view, "toggle_trash_filter", %{})
+      assert active =~ "Filed catalogue"
+    end
+
     test "sidebar + creates at the drilled level with inline rename open", %{conn: conn} do
       {:ok, folder} = Catalogue.create_folder(%{name: "Parent here"})
 
