@@ -111,9 +111,14 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
       assert html =~ "Showcase"
       refute html =~ ">Nested<"
 
-      # Drill in: the panel shows the child folder + Up, the table narrows.
+      # Drill in by clicking the rendered folder button (not a bare
+      # render_click on the view): LV sends a button's own `value`
+      # attribute as the "value" param, so the DOM path is what proves
+      # the uuid actually arrives.
       drilled =
-        render_click(view, "set_filter", %{"column_id" => "folder", "value" => folder.uuid})
+        view
+        |> element("#folder-drill-#{folder.uuid}")
+        |> render_click()
 
       assert drilled =~ "Nested"
       assert drilled =~ "Up"

@@ -413,9 +413,8 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       <div :if={@current} class="flex items-center gap-2">
         <button
           type="button"
-          phx-click="set_filter"
-          phx-value-column_id="folder"
-          phx-value-value={@current.parent_uuid || ""}
+          phx-click="open_folder"
+          phx-value-uuid={@current.parent_uuid || ""}
           class="btn btn-ghost btn-sm gap-1"
         >
           <.icon name="hero-arrow-uturn-left" class="w-4 h-4" />
@@ -482,9 +481,9 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     ~H"""
     <button
       type="button"
-      phx-click="set_filter"
-      phx-value-column_id="folder"
-      phx-value-value={@folder.uuid}
+      id={"folder-drill-#{@folder.uuid}"}
+      phx-click="open_folder"
+      phx-value-uuid={@folder.uuid}
       class="flex items-center gap-2 flex-1 min-w-0 text-left cursor-pointer hover:text-primary transition-colors"
     >
       <.icon name="hero-folder" class="w-4 h-4 text-warning shrink-0" />
@@ -527,9 +526,8 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     ~H"""
     <.table_row_menu mode="auto" id={"#{@id_prefix}-#{@folder.uuid}"}>
       <.table_row_menu_button
-        phx-click="set_filter"
-        phx-value-column_id="folder"
-        phx-value-value={@folder.uuid}
+        phx-click="open_folder"
+        phx-value-uuid={@folder.uuid}
         icon="hero-folder-open"
         label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Open")}
       />
@@ -1284,6 +1282,14 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     else
       {:noreply, socket}
     end
+  end
+
+  # Folders-panel drill: same effect as picking the folder in the filter
+  # select. A dedicated event (with the uuid in phx-value-uuid) because a
+  # button's own `value` attribute overrides a phx-value-value param, and
+  # the core menu-button component doesn't accept a raw value attr.
+  def handle_event("open_folder", %{"uuid" => uuid}, socket) do
+    handle_event("set_filter", %{"column_id" => "folder", "value" => uuid}, socket)
   end
 
   def handle_event("set_filter", %{"column_id" => id, "value" => val}, socket) do
