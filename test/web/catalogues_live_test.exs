@@ -97,8 +97,8 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
   # Active / Deleted toggle
   # ─────────────────────────────────────────────────────────────────
 
-  describe "folders panel" do
-    test "root folders render inline and drill-down narrows the list", %{conn: conn} do
+  describe "folder explorer sidebar" do
+    test "tree renders and navigate_folder narrows the list", %{conn: conn} do
       {:ok, folder} = Catalogue.create_folder(%{name: "Showcase"})
       {:ok, _child} = Catalogue.create_folder(%{name: "Nested", parent_uuid: folder.uuid})
       filed = fixture_catalogue(%{name: "Filed catalogue"})
@@ -107,27 +107,51 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
 
       {:ok, view, html} = live(conn, @base)
 
-      # Root folder appears inline; its child does not (it lives one level down).
+      # Both folders live in the sidebar tree (Nested is collapsed but
+      # rendered — expansion is client-side state, DOM carries the tree).
       assert html =~ "Showcase"
-      refute html =~ ">Nested<"
+      assert html =~ "catalogue-folder-explorer"
 
-      # Drill in by clicking the rendered folder button (not a bare
-      # render_click on the view): LV sends a button's own `value`
-      # attribute as the "value" param, so the DOM path is what proves
-      # the uuid actually arrives.
+      # Drill in by clicking the rendered tree button — the DOM path is
+      # what proves the params (folder-uuid) actually arrive.
       drilled =
         view
-        |> element("#folder-drill-#{folder.uuid}")
+        |> element(
+          ~s{button[phx-click="navigate_folder"][phx-value-folder-uuid="#{folder.uuid}"]}
+        )
         |> render_click()
 
-      assert drilled =~ "Nested"
-      assert drilled =~ "Up"
       assert drilled =~ "Filed catalogue"
       refute drilled =~ "Loose catalogue"
 
-      # Up returns to root.
-      root = render_click(view, "set_filter", %{"column_id" => "folder", "value" => ""})
+      # All Files returns to the unfiltered list.
+      all = render_click(view, "navigate_view_all", %{})
+      assert all =~ "Loose catalogue"
+
+      # Root shows only unfiled catalogues.
+      root = render_click(view, "navigate_root", %{})
       assert root =~ "Loose catalogue"
+      refute root =~ "Filed catalogue"
+    end
+
+    test "sidebar + creates at the drilled level with inline rename open", %{conn: conn} do
+      {:ok, folder} = Catalogue.create_folder(%{name: "Parent here"})
+
+      {:ok, view, _html} = live(conn, @base)
+      render_click(view, "navigate_folder", %{"folder-uuid" => folder.uuid})
+      html = render_click(view, "open_new_folder_modal", %{})
+
+      tree = Catalogue.list_folder_tree()
+      assert {new_folder, 1} = Enum.find(tree, fn {f, _d} -> f.parent_uuid == folder.uuid end)
+      # The tree opens the inline rename form for the new folder.
+      assert html =~ "folder-tree-rename-form-#{new_folder.uuid}"
+
+      # Committing the sidebar rename form persists the name.
+      view
+      |> element("#folder-tree-rename-form-#{new_folder.uuid}")
+      |> render_submit(%{"folder_uuid" => new_folder.uuid, "name" => "Named via sidebar"})
+
+      assert Catalogue.get_folder(new_folder.uuid).name == "Named via sidebar"
     end
 
     test "new_folder honors a validated parent from the drill level", %{conn: conn} do

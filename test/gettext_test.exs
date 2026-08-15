@@ -257,16 +257,6 @@ defmodule PhoenixKitCatalogue.GettextTest do
       assert gettext_in("ru", msgid) == "Фото и файлы"
     end
 
-    test "folders panel strings" do
-      for {msgid, et, ru} <- [
-            {"Up", "Üles", "Вверх"}
-          ] do
-        assert po_msgstr("en", msgid) == msgid
-        assert gettext_in("et", msgid) == et
-        assert gettext_in("ru", msgid) == ru
-      end
-    end
-
     test "save button strings" do
       for {msgid, et, ru} <- [
             {"Save", "Salvesta", "Сохранить"},

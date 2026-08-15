@@ -25,6 +25,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   import PhoenixKitWeb.Components.Core.TableDefault
   import PhoenixKitWeb.Components.Core.TableRowMenu
   import PhoenixKitWeb.Components.Core.Sortable, only: [sortable_tbody: 1, sortable_row: 1]
+  import PhoenixKitWeb.Components.FolderExplorer, only: [folder_explorer: 1]
   import PhoenixKitCatalogue.Web.Components
   import PhoenixKitCatalogue.Web.TableToolbar
 
@@ -75,6 +76,10 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
        folder_tree: [],
        folder_tree_deleted: [],
        folder_lookup: %{},
+       expanded_folders: MapSet.new(),
+       folders_sidebar_collapsed: false,
+       renaming_source: nil,
+       renaming_text: "",
        renaming_folder: nil,
        move_dialog: nil,
        folder_options: [],
@@ -366,201 +371,75 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     [{"", Gettext.gettext(PhoenixKitCatalogue.Gettext, "— Root (unfiled) —")} | nested]
   end
 
-  # ── Folders panel ───────────────────────────────────────────────
-  #
-  # Inline folder browser above the catalogues list — the uniform
-  # counterpart of the detail page's categories-above-items layout.
-  # Drilling into a folder drives the existing "folder" filter (the
-  # catalogues list below narrows to that folder's direct catalogues),
-  # so the select, the panel, and the table always agree on location.
+  # ── FolderExplorer sidebar plumbing ─────────────────────────────
 
-  # The folder struct for the panel's current drill level, or nil at root
+  # The folder struct for the sidebar's current level, or nil at root
   # (no filter / "Unfiled (root)" — the sentinel is not in the lookup).
   defp current_panel_folder(cfg, lookup), do: lookup[cfg.filters["folder"]]
 
-  # Child folders at the current level, in tree (position, name) order.
-  defp folders_at_level(tree, nil), do: for({f, _d} <- tree, is_nil(f.parent_uuid), do: f)
+  defp sidebar_folder_created(socket, folder, parent) do
+    expanded = socket.assigns.expanded_folders
+    expanded = if parent, do: MapSet.put(expanded, parent.uuid), else: expanded
 
-  defp folders_at_level(tree, %{uuid: parent}),
-    do: for({f, _d} <- tree, f.parent_uuid == parent, do: f)
-
-  attr(:cfg, :map, required: true)
-  attr(:folder_tree, :list, required: true)
-  attr(:folder_lookup, :map, required: true)
-  attr(:catalogue_rows, :list, required: true)
-  attr(:renaming_folder, :any, default: nil)
-
-  defp folders_panel(assigns) do
-    current = current_panel_folder(assigns.cfg, assigns.folder_lookup)
-    folders = folders_at_level(assigns.folder_tree, current)
-
-    assigns =
-      assigns
-      |> assign(:current, current)
-      |> assign(:folders, folders)
-      |> assign(:cat_counts, Enum.frequencies_by(assigns.catalogue_rows, & &1[:folder_uuid]))
-      |> assign(
-        :sub_counts,
-        assigns.folder_tree
-        |> Enum.map(fn {f, _d} -> f.parent_uuid end)
-        |> Enum.reject(&is_nil/1)
-        |> Enum.frequencies()
-      )
-
-    ~H"""
-    <div :if={@current != nil or @folders != []} class="flex flex-col gap-2">
-      <%!-- Location row: Up + current folder name, only when drilled in. --%>
-      <div :if={@current} class="flex items-center gap-2">
-        <button
-          type="button"
-          phx-click="open_folder"
-          phx-value-uuid={@current.parent_uuid || ""}
-          class="btn btn-ghost btn-sm gap-1"
-        >
-          <.icon name="hero-arrow-uturn-left" class="w-4 h-4" />
-          {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Up")}
-        </button>
-        <span class="flex items-center gap-1.5 text-sm font-medium min-w-0">
-          <.icon name="hero-folder-open" class="w-4 h-4 text-warning shrink-0" />
-          <span class="truncate">{@current.name}</span>
-        </span>
-      </div>
-
-      <%!-- Card view: folder tiles; table views: folder rows. --%>
-      <div :if={@folders != [] and @cfg.view == "card"} class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3">
-        <div
-          :for={f <- @folders}
-          class="card bg-base-100 border border-base-200 shadow-sm p-3 flex flex-row items-center gap-2 min-w-0"
-        >
-          <.folder_name_or_rename folder={f} renaming_folder={@renaming_folder} />
-          <span class="text-xs text-base-content/50 tabular-nums shrink-0">
-            {folder_count_text(@cat_counts, @sub_counts, f.uuid)}
-          </span>
-          <.folder_row_menu folder={f} id_prefix="folder-card-menu" />
-        </div>
-      </div>
-
-      <div
-        :if={@folders != [] and @cfg.view != "card"}
-        class="bg-base-100 border border-base-200 rounded-lg divide-y divide-base-200"
-      >
-        <div :for={f <- @folders} class="flex items-center gap-2 px-3 py-2 min-w-0">
-          <.folder_name_or_rename folder={f} renaming_folder={@renaming_folder} />
-          <span class="text-xs text-base-content/50 tabular-nums shrink-0">
-            {folder_count_text(@cat_counts, @sub_counts, f.uuid)}
-          </span>
-          <.folder_row_menu folder={f} id_prefix="folder-row-menu" />
-        </div>
-      </div>
-    </div>
-    """
+    socket
+    |> assign(
+      renaming_folder: folder.uuid,
+      renaming_source: "sidebar",
+      renaming_text: folder.name,
+      expanded_folders: expanded
+    )
+    |> load_data(:index)
   end
 
-  attr(:folder, :any, required: true)
-  attr(:renaming_folder, :any, required: true)
-
-  defp folder_name_or_rename(%{folder: f, renaming_folder: r} = assigns)
-       when r == f.uuid do
-    ~H"""
-    <.icon name="hero-folder" class="w-4 h-4 text-warning shrink-0" />
-    <form phx-submit="rename_folder" phx-value-uuid={@folder.uuid} class="flex-1 min-w-0">
-      <input
-        type="text"
-        name="name"
-        value={@folder.name}
-        phx-mounted={Phoenix.LiveView.JS.focus()}
-        phx-blur="rename_folder"
-        phx-value-uuid={@folder.uuid}
-        class="input input-sm w-full"
-      />
-    </form>
-    """
+  defp to_active_view(socket) do
+    socket
+    |> assign(:catalogue_view_mode, "active")
+    |> load_data(:index)
   end
 
-  defp folder_name_or_rename(assigns) do
-    ~H"""
-    <button
-      type="button"
-      id={"folder-drill-#{@folder.uuid}"}
-      phx-click="open_folder"
-      phx-value-uuid={@folder.uuid}
-      class="flex items-center gap-2 flex-1 min-w-0 text-left cursor-pointer hover:text-primary transition-colors"
-    >
-      <.icon name="hero-folder" class="w-4 h-4 text-warning shrink-0" />
-      <span class="truncate text-sm font-medium">{@folder.name}</span>
-    </button>
-    """
+  # Keep the branch to the current folder visibly open in the sidebar,
+  # whichever control changed the filter (sidebar click or the select).
+  defp expand_folder_path(socket, uuid) do
+    case socket.assigns.folder_lookup[uuid] do
+      nil ->
+        socket
+
+      folder ->
+        update(socket, :expanded_folders, fn expanded ->
+          MapSet.union(
+            expanded,
+            MapSet.new(folder_ancestor_chain(socket.assigns.folder_lookup, folder, []))
+          )
+        end)
+    end
   end
 
-  # "3 · 1" reads poorly bare; icons carry the meaning with existing
-  # msgids as tooltips, so no new plural strings are needed.
-  defp folder_count_text(cat_counts, sub_counts, uuid) do
-    cats = Map.get(cat_counts, uuid, 0)
-    subs = Map.get(sub_counts, uuid, 0)
+  defp folder_ancestor_chain(_lookup, nil, acc), do: acc
 
-    assigns = %{cats: cats, subs: subs}
-
-    ~H"""
-    <span class="inline-flex items-center gap-2">
-      <span
-        :if={@subs > 0}
-        class="inline-flex items-center gap-0.5"
-        title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Folders")}
-      >
-        <.icon name="hero-folder" class="w-3.5 h-3.5 opacity-60" /> {@subs}
-      </span>
-      <span
-        class="inline-flex items-center gap-0.5"
-        title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Catalogues")}
-      >
-        <.icon name="hero-book-open" class="w-3.5 h-3.5 opacity-60" /> {@cats}
-      </span>
-    </span>
-    """
+  defp folder_ancestor_chain(lookup, folder, acc) do
+    # Parent chains are acyclic (context cycle guard); the accumulator
+    # check is a defensive stop all the same.
+    if folder.uuid in acc,
+      do: acc,
+      else: folder_ancestor_chain(lookup, lookup[folder.parent_uuid], [folder.uuid | acc])
   end
 
-  attr(:folder, :any, required: true)
-  attr(:id_prefix, :string, required: true)
+  # FolderExplorer wants nested nodes (%{folder: %{uuid, name, color},
+  # children: [...]}); rebuild them from the flat DFS tree. Plain maps,
+  # not Folder structs — the component reads a `color` key our schema
+  # doesn't have.
+  defp folder_nodes(tree) do
+    by_parent = Enum.group_by(tree, fn {f, _depth} -> f.parent_uuid end)
+    build_folder_nodes(by_parent, nil)
+  end
 
-  defp folder_row_menu(assigns) do
-    ~H"""
-    <.table_row_menu mode="auto" id={"#{@id_prefix}-#{@folder.uuid}"}>
-      <.table_row_menu_button
-        phx-click="open_folder"
-        phx-value-uuid={@folder.uuid}
-        icon="hero-folder-open"
-        label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Open")}
-      />
-      <.table_row_menu_button
-        phx-click="start_rename_folder"
-        phx-value-uuid={@folder.uuid}
-        icon="hero-pencil"
-        label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Rename")}
-      />
-      <.table_row_menu_button
-        phx-click="new_subfolder"
-        phx-value-uuid={@folder.uuid}
-        icon="hero-folder-plus"
-        label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "New subfolder")}
-      />
-      <.table_row_menu_button
-        phx-click="open_move"
-        phx-value-type="folder"
-        phx-value-uuid={@folder.uuid}
-        icon="hero-folder-arrow-down"
-        label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Move to folder")}
-      />
-      <.table_row_menu_divider />
-      <.table_row_menu_button
-        phx-click="trash_folder"
-        phx-value-uuid={@folder.uuid}
-        phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Deleting...")}
-        icon="hero-trash"
-        label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")}
-        variant="error"
-      />
-    </.table_row_menu>
-    """
+  defp build_folder_nodes(by_parent, parent_uuid) do
+    for {f, _depth} <- Map.get(by_parent, parent_uuid, []) do
+      %{
+        folder: %{uuid: f.uuid, name: f.name, color: nil},
+        children: build_folder_nodes(by_parent, f.uuid)
+      }
+    end
   end
 
   defp default_folder_name, do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "New folder")
@@ -680,12 +559,135 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     end
   end
 
+  # ── FolderExplorer sidebar events ─────────────────────────────
+  # The core sidebar (PhoenixKitWeb.Components.FolderExplorer) is pure
+  # presentation; these clauses implement its event contract. Navigation
+  # drives the existing "folder" filter, so the sidebar, the filter
+  # select, and the table always agree on location.
+
+  def handle_event("navigate_folder", %{"folder-uuid" => uuid}, socket) do
+    if Map.has_key?(socket.assigns.folder_lookup, uuid) do
+      socket =
+        if socket.assigns.catalogue_view_mode == "deleted",
+          do: to_active_view(socket),
+          else: socket
+
+      handle_event("set_filter", %{"column_id" => "folder", "value" => uuid}, socket)
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_event("navigate_root", _params, socket) do
+    socket =
+      if socket.assigns.catalogue_view_mode == "deleted", do: to_active_view(socket), else: socket
+
+    handle_event(
+      "set_filter",
+      %{"column_id" => "folder", "value" => TableQuery.unfiled_folder_value()},
+      socket
+    )
+  end
+
+  def handle_event("navigate_view_all", _params, socket) do
+    socket =
+      if socket.assigns.catalogue_view_mode == "deleted", do: to_active_view(socket), else: socket
+
+    handle_event("set_filter", %{"column_id" => "folder", "value" => ""}, socket)
+  end
+
+  def handle_event("toggle_folder_expand", %{"folder-uuid" => uuid}, socket) do
+    expanded = socket.assigns.expanded_folders
+
+    expanded =
+      if MapSet.member?(expanded, uuid),
+        do: MapSet.delete(expanded, uuid),
+        else: MapSet.put(expanded, uuid)
+
+    {:noreply, assign(socket, :expanded_folders, expanded)}
+  end
+
+  def handle_event("toggle_sidebar", _params, socket) do
+    {:noreply, update(socket, :folders_sidebar_collapsed, &(!&1))}
+  end
+
+  # Sidebar `+`: create at the sidebar's current level and open the
+  # inline rename right in the tree (no modal despite the event name —
+  # the name is fixed by the component contract).
+  def handle_event("open_new_folder_modal", _params, socket) do
+    parent = current_panel_folder(current_cfg(socket.assigns), socket.assigns.folder_lookup)
+
+    attrs =
+      if parent,
+        do: %{name: default_folder_name(), parent_uuid: parent.uuid},
+        else: %{name: default_folder_name()}
+
+    case Catalogue.create_folder(attrs, actor_opts(socket)) do
+      {:ok, folder} ->
+        {:noreply, sidebar_folder_created(socket, folder, parent)}
+
+      {:error, _} ->
+        {:noreply,
+         put_flash(
+           socket,
+           :error,
+           Gettext.gettext(PhoenixKitCatalogue.Gettext, "Failed to create folder.")
+         )}
+    end
+  end
+
+  def handle_event("start_rename_folder", %{"folder-uuid" => uuid} = params, socket) do
+    folder = socket.assigns.folder_lookup[uuid]
+
+    if folder do
+      {:noreply,
+       assign(socket,
+         renaming_folder: uuid,
+         renaming_source: params["source"] || "sidebar",
+         renaming_text: folder.name
+       )}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_event("rename_folder_input", %{"name" => name}, socket) do
+    {:noreply, assign(socket, :renaming_text, name)}
+  end
+
+  def handle_event("cancel_rename_folder", _params, socket) do
+    {:noreply, assign(socket, renaming_folder: nil, renaming_source: nil, renaming_text: "")}
+  end
+
+  def handle_event("toggle_trash_filter", _params, socket) do
+    mode = if socket.assigns.catalogue_view_mode == "deleted", do: "active", else: "deleted"
+    handle_event("switch_catalogue_view", %{"mode" => mode}, socket)
+  end
+
   def handle_event("start_rename_folder", %{"uuid" => uuid}, socket) do
     {:noreply, assign(socket, :renaming_folder, uuid)}
   end
 
   def handle_event("cancel_rename", _params, socket) do
     {:noreply, assign(socket, :renaming_folder, nil)}
+  end
+
+  # Sidebar rename form (Enter submit): hidden input carries folder_uuid.
+  def handle_event("rename_folder", %{"folder_uuid" => uuid, "name" => name}, socket) do
+    socket =
+      with true <- String.trim(name) != "",
+           %{} = folder <- Catalogue.get_folder(uuid),
+           {:ok, _} <-
+             Catalogue.update_folder(folder, %{name: String.trim(name)}, actor_opts(socket)) do
+        socket
+      else
+        _ -> socket
+      end
+
+    {:noreply,
+     socket
+     |> assign(renaming_folder: nil, renaming_source: nil, renaming_text: "")
+     |> load_data(:index)}
   end
 
   # Commits the inline rename and closes the field. Fired by Enter
@@ -1303,6 +1305,8 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
           do: Map.delete(cfg.filters, id),
           else: Map.put(cfg.filters, id, val)
 
+      socket = if id == "folder", do: expand_folder_path(socket, val), else: socket
+
       {:noreply, put_cfg(socket, scope, %{cfg | filters: filters})}
     else
       {:noreply, socket}
@@ -1481,8 +1485,24 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     >
       <div class="flex flex-col w-full px-4 py-6 gap-6">
         <%!-- Catalogue tab content --%>
-        <div :if={@active_tab == :index} class="flex flex-col gap-4">
+        <div :if={@active_tab == :index} class="flex items-stretch">
           <% cfg = @view_configs.catalogues %>
+          <.folder_explorer
+            id="catalogue-folder-explorer"
+            myself={nil}
+            folder_tree={folder_nodes(@folder_tree)}
+            current_folder={current_panel_folder(cfg, @folder_lookup)}
+            expanded_folders={@expanded_folders}
+            scope_folder_name={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Unfiled (root)")}
+            renaming_folder={@renaming_folder}
+            renaming_source={@renaming_source}
+            renaming_text={@renaming_text}
+            filter_trash={@catalogue_view_mode == "deleted"}
+            file_view={if cfg.filters["folder"] in [nil, ""], do: "all"}
+            sidebar_collapsed={@folders_sidebar_collapsed}
+            trash_count={@deleted_catalogue_count}
+          />
+          <div class="flex flex-col gap-4 flex-1 min-w-0">
           <%!-- Active/Deleted sub-tabs — shown only when there are deleted items. --%>
           <div :if={@deleted_catalogue_count > 0} class="flex items-center gap-0.5 border-b border-base-200">
             <button
@@ -1565,14 +1585,6 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
           >
             {gettext("Clear search and filters to drag-and-drop reorder.")}
           </p>
-          <.folders_panel
-            :if={@catalogue_view_mode == "active" and (cfg[:search] || "") == ""}
-            cfg={cfg}
-            folder_tree={@folder_tree}
-            folder_lookup={@folder_lookup}
-            catalogue_rows={@catalogue_rows}
-            renaming_folder={@renaming_folder}
-          />
           <.simple_table
             scope={:catalogues}
             cfg={cfg}
@@ -1685,6 +1697,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
               </.table_row_menu>
             </:card_actions>
           </.simple_table>
+          </div>
         </div>
 
         <div :if={@active_tab == :manufacturers} class="flex flex-col gap-4">
