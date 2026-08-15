@@ -210,6 +210,16 @@ defmodule PhoenixKitCatalogue.Web.Components do
   attr(:resource, :any, required: true)
   attr(:class, :any, default: "w-8 h-8")
 
+  attr(:has_files, :boolean,
+    default: false,
+    doc:
+      "The file-attached indicator: with an image, a small paperclip emblem in " <>
+        "the thumb's top-right corner; with no image, a muted paperclip tile in " <>
+        "the same slot. Feed it from `Catalogue.attached_file_counts/1` — it " <>
+        "means \"has attached documents\" (the non-image files the product " <>
+        "card's Files section lists)."
+  )
+
   attr(:on_click, :string,
     default: nil,
     doc:
@@ -223,29 +233,57 @@ defmodule PhoenixKitCatalogue.Web.Components do
 
     ~H"""
     <button
-      :if={@uuid && @on_click}
+      :if={(@uuid || @has_files) && @on_click}
       type="button"
       phx-click={@on_click}
       phx-value-uuid={@resource.uuid}
       class="shrink-0 cursor-pointer"
       title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "View item details")}
     >
+      <.thumb_visual uuid={@uuid} has_files={@has_files} class={@class} />
+    </button>
+    <.thumb_visual
+      :if={(@uuid || @has_files) && !@on_click}
+      uuid={@uuid}
+      has_files={@has_files}
+      class={@class}
+    />
+    """
+  end
+
+  # The thumb slot's visual: image (with an optional corner paperclip emblem)
+  # or, with no image, the paperclip tile filling the same footprint so names
+  # stay aligned across rows either way.
+  attr(:uuid, :string, default: nil)
+  attr(:has_files, :boolean, required: true)
+  attr(:class, :any, required: true)
+
+  defp thumb_visual(assigns) do
+    ~H"""
+    <span class={["relative block shrink-0", @class]}>
       <img
+        :if={@uuid}
         src={URLSigner.signed_url(@uuid, "thumbnail")}
         alt=""
         loading="lazy"
         onerror="this.style.display='none'"
-        class={["rounded object-cover shrink-0 bg-base-200", @class]}
+        class="w-full h-full rounded object-cover bg-base-200"
       />
-    </button>
-    <img
-      :if={@uuid && !@on_click}
-      src={URLSigner.signed_url(@uuid, "thumbnail")}
-      alt=""
-      loading="lazy"
-      onerror="this.style.display='none'"
-      class={["rounded object-cover shrink-0 bg-base-200", @class]}
-    />
+      <span
+        :if={!@uuid}
+        class="w-full h-full rounded bg-base-200 flex items-center justify-center"
+        title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Files")}
+      >
+        <.icon name="hero-paper-clip" class="w-4 h-4 rotate-45 text-base-content/50" />
+      </span>
+      <span
+        :if={@uuid && @has_files}
+        class="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-base-100 border border-base-300 shadow-sm flex items-center justify-center"
+        title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Files")}
+      >
+        <.icon name="hero-paper-clip" class="w-2.5 h-2.5 rotate-45 text-base-content/70" />
+      </span>
+    </span>
     """
   end
 
@@ -262,6 +300,17 @@ defmodule PhoenixKitCatalogue.Web.Components do
   permanently empty column on them.
   """
   def any_featured_thumb?(rows), do: Enum.any?(rows, &(featured_image_uuid(&1) != nil))
+
+  @doc """
+  Like `any_featured_thumb?/1`, but also counts the paperclip indicator:
+  the media column earns its place when some row has an image OR attached
+  documents (per the `counts` map from `Catalogue.attached_file_counts/1`).
+  """
+  def any_media_thumb?(rows, counts) do
+    Enum.any?(rows, fn row ->
+      featured_image_uuid(row) != nil or Map.get(counts, row.uuid, 0) > 0
+    end)
+  end
 
   # ═══════════════════════════════════════════════════════════════════
   # Metadata editor
@@ -1181,6 +1230,15 @@ defmodule PhoenixKitCatalogue.Web.Components do
         "events. nil keeps thumbs inert."
   )
 
+  attr(:file_counts, :map,
+    default: %{},
+    doc:
+      "%{item_uuid => attached-document count} from " <>
+        "Catalogue.attached_file_counts/1 — drives the paperclip indicator " <>
+        "in the photo column. Computed by the caller (function components " <>
+        "must not query)."
+  )
+
   attr(:show_toggle, :boolean, default: true)
   attr(:id, :string, default: nil)
   attr(:storage_key, :string, default: nil)
@@ -1239,9 +1297,12 @@ defmodule PhoenixKitCatalogue.Web.Components do
       |> assign(:has_actions, has_actions?(assigns))
       |> assign(:card_columns, Enum.reject(assigns.columns, &(&1 == :name)))
       |> assign(:reorder_scope_attrs, build_reorder_scope_attrs(assigns[:reorder_scope] || %{}))
-      # Featured images get their own slim column (inline-left of the name
-      # made rows jagged); it only exists when at least one row has one.
-      |> assign(:photo_col?, any_featured_thumb?(assigns.items))
+      # Featured images / file indicators get their own slim column
+      # (inline-left of the name made rows jagged); it only exists when at
+      # least one row would render a thumb or a paperclip.
+      |> then(
+        &assign(&1, :photo_col?, any_featured_thumb?(&1.items) or map_size(&1.file_counts) > 0)
+      )
 
     ~H"""
     <.table_default
@@ -1273,7 +1334,11 @@ defmodule PhoenixKitCatalogue.Web.Components do
             phx-click={@on_toggle_select}
             phx-value-uuid={item.uuid}
           />
-          <.featured_thumb resource={item} on_click={@photo_click} />
+          <.featured_thumb
+            resource={item}
+            on_click={@photo_click}
+            has_files={Map.get(@file_counts, item.uuid, 0) > 0}
+          />
           <.link
             :if={@edit_path && item.uuid}
             navigate={safe_call(@edit_path, item.uuid)}
@@ -1350,7 +1415,11 @@ defmodule PhoenixKitCatalogue.Web.Components do
             </div>
           </.table_default_cell>
           <.table_default_cell :if={@photo_col?} class="w-10 !pr-0">
-            <.featured_thumb resource={item} on_click={@photo_click} />
+            <.featured_thumb
+              resource={item}
+              on_click={@photo_click}
+              has_files={Map.get(@file_counts, item.uuid, 0) > 0}
+            />
           </.table_default_cell>
           <.item_cell
             :for={col <- @columns}

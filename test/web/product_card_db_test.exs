@@ -52,9 +52,9 @@ defmodule PhoenixKitCatalogue.Web.Components.ProductCardDBTest do
       uuid: uuid,
       original_file_name: name,
       file_name: name,
-      mime_type: "image/jpeg",
+      mime_type: Keyword.get(opts, :mime_type, "image/jpeg"),
       file_type: Keyword.get(opts, :file_type, "image"),
-      ext: "jpg",
+      ext: Keyword.get(opts, :ext, "jpg"),
       file_checksum: "chk-#{uuid}",
       user_file_checksum: "uchk-#{uuid}",
       size: 1,
@@ -103,5 +103,50 @@ defmodule PhoenixKitCatalogue.Web.Components.ProductCardDBTest do
     item = %Item{data: %{"featured_image_uuid" => featured}}
 
     assert ProductCard.resolve_images(item) == []
+  end
+
+  test "resolve_files lists live non-image files with the pdf flag", %{user_uuid: user} do
+    folder = create_folder(user)
+    _image = insert_image(user, folder, "photo.jpg", [])
+    pdf = insert_image(user, folder, "spec.pdf", file_type: "document", ext: "pdf")
+    doc = insert_image(user, folder, "notes.txt", file_type: "document", ext: "txt")
+    _trashed = insert_image(user, folder, "old.pdf", file_type: "document", status: "trashed")
+
+    item = %Item{data: %{"files_folder_uuid" => folder}}
+
+    files = ProductCard.resolve_files(item)
+    by_uuid = Map.new(files, &{&1.uuid, &1})
+
+    assert map_size(by_uuid) == 2
+    assert by_uuid[pdf].pdf?
+    refute by_uuid[doc].pdf?
+  end
+
+  test "attached_file_counts batches per-resource document counts", %{user_uuid: user} do
+    alias PhoenixKitCatalogue.Catalogue
+
+    folder_a = create_folder(user)
+    folder_b = create_folder(user)
+    _pdf1 = insert_image(user, folder_a, "a1.pdf", file_type: "document", ext: "pdf")
+    _pdf2 = insert_image(user, folder_a, "a2.pdf", file_type: "document", ext: "pdf")
+    # Images and trashed files must not count as attached documents.
+    _image = insert_image(user, folder_b, "b.jpg", [])
+    _gone = insert_image(user, folder_b, "b.pdf", file_type: "document", status: "trashed")
+
+    item_a = %Item{uuid: UUIDv7.generate(), data: %{"files_folder_uuid" => folder_a}}
+    item_b = %Item{uuid: UUIDv7.generate(), data: %{"files_folder_uuid" => folder_b}}
+    item_c = %Item{uuid: UUIDv7.generate(), data: %{}}
+
+    counts = Catalogue.attached_file_counts([item_a, item_b, item_c])
+
+    assert counts[item_a.uuid] == 2
+    refute Map.has_key?(counts, item_b.uuid)
+    refute Map.has_key?(counts, item_c.uuid)
+
+    # Row maps (the catalogues index shape) work the same way.
+    row = %{uuid: item_a.uuid, data: %{"files_folder_uuid" => folder_a}}
+    assert Catalogue.attached_file_counts([row])[item_a.uuid] == 2
+
+    assert Catalogue.attached_file_counts([]) == %{}
   end
 end

@@ -483,6 +483,37 @@ defmodule PhoenixKitCatalogue.Web.ComponentsTest do
       refute inert =~ "<button"
     end
 
+    test "has_files adds the corner paperclip emblem to a thumb" do
+      item = %Item{uuid: "item-1", data: %{"featured_image_uuid" => @uuid}}
+      html = render_component(&featured_thumb/1, resource: item, has_files: true)
+
+      assert html =~ "<img"
+      assert html =~ "hero-paper-clip"
+
+      # Without files: thumb only, no clip.
+      plain = render_component(&featured_thumb/1, resource: item)
+      refute plain =~ "hero-paper-clip"
+    end
+
+    test "has_files with no image renders the paperclip tile in the same slot" do
+      item = %Item{uuid: "item-2", data: %{}}
+      html = render_component(&featured_thumb/1, resource: item, has_files: true)
+
+      refute html =~ "<img"
+      assert html =~ "hero-paper-clip"
+
+      # And it stays clickable through to the product card.
+      clickable =
+        render_component(&featured_thumb/1,
+          resource: item,
+          has_files: true,
+          on_click: "show_product_card"
+        )
+
+      assert clickable =~ ~s(phx-click="show_product_card")
+      assert clickable =~ ~s(phx-value-uuid="item-2")
+    end
+
     test "renders nothing without an image" do
       for resource <- [
             %Item{data: %{}},

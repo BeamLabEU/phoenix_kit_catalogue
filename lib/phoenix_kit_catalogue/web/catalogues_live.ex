@@ -67,6 +67,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
        show_folders_modal: false,
        folders_modal_view: "active",
        view_configs: load_view_configs(socket),
+       catalogue_file_counts: %{},
        show_column_modal: false,
        temp_columns: nil
      )}
@@ -266,6 +267,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
 
       assign(socket,
         catalogue_rows: catalogue_rows,
+        catalogue_file_counts: Catalogue.attached_file_counts(catalogue_rows),
         deleted_catalogue_count: deleted_cat_count,
         deleted_folder_count: deleted_folder_count,
         catalogue_view_mode: mode,
@@ -1159,6 +1161,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
           <.simple_table
             scope={:catalogues}
             cfg={cfg}
+            file_counts={@catalogue_file_counts}
             rows={derive_rows(@catalogue_rows, :catalogues, cfg)}
             total={length(@catalogue_rows)}
             empty={Gettext.gettext(PhoenixKitCatalogue.Gettext, "No catalogues yet.")}
@@ -1695,6 +1698,8 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     doc: "Manual-order mode: render drag handles and DnD-enable the table body."
   )
 
+  attr(:file_counts, :map, default: %{})
+
   slot(:row_actions, required: true)
   slot(:card_actions, required: true)
 
@@ -1706,7 +1711,13 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       # Featured images get their own slim column (inline-left of the name
       # made rows jagged). Catalogues only — manufacturers/suppliers don't
       # carry featured images — and only when some visible row has one.
-      |> then(&assign(&1, :photo_col?, &1.scope == :catalogues and any_featured_thumb?(&1.rows)))
+      |> then(
+        &assign(
+          &1,
+          :photo_col?,
+          &1.scope == :catalogues and any_media_thumb?(&1.rows, &1.file_counts)
+        )
+      )
 
     ~H"""
     <div :if={@rows == []} class="card bg-base-100 shadow">
@@ -1764,7 +1775,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
           <.drag_handle_cell :if={@reorderable?} />
           <td :if={!@reorderable?} class="w-8"></td>
           <.table_default_cell :if={@photo_col?} class="w-10 !pr-0">
-            <.featured_thumb resource={row} />
+            <.featured_thumb resource={row} has_files={Map.get(@file_counts, row.uuid, 0) > 0} />
           </.table_default_cell>
           <.table_default_cell :for={c <- @cols} class={c.align == :right && "text-right"}>
             {render_cell(@scope, c.id, row)}
@@ -1777,7 +1788,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       <.table_default_body :if={!@draggable}>
         <.table_default_row :for={row <- @rows}>
           <.table_default_cell :if={@photo_col?} class="w-10 !pr-0">
-            <.featured_thumb resource={row} />
+            <.featured_thumb resource={row} has_files={Map.get(@file_counts, row.uuid, 0) > 0} />
           </.table_default_cell>
           <.table_default_cell :for={c <- @cols} class={c.align == :right && "text-right"}>
             {render_cell(@scope, c.id, row)}
@@ -1789,7 +1800,11 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       </.table_default_body>
       <:card_header :let={row}>
         <div class="flex items-center gap-2 min-w-0">
-          <.featured_thumb :if={@scope == :catalogues} resource={row} />
+          <.featured_thumb
+            :if={@scope == :catalogues}
+            resource={row}
+            has_files={Map.get(@file_counts, row.uuid, 0) > 0}
+          />
           {render_cell(@scope, "name", row)}
         </div>
       </:card_header>

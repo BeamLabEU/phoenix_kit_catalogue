@@ -138,6 +138,11 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         # `[{status, label, count}]` for the tabs to actually render — only
         # populated statuses; the strip hides itself when there's ≤1.
         status_tabs: [],
+        # %{resource_uuid => attached-document count} for every row this LV
+        # has loaded (level items, search results, child categories) —
+        # drives the paperclip indicator. Merged per page load; per-uuid
+        # entries are overwritten on reload, so staleness is bounded.
+        file_counts: %{},
         # ── Product-view card (opened by clicking a featured thumb) ──
         card_open: false,
         card_name: nil,
@@ -1509,6 +1514,10 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       children_with_subs: children_with_subs,
       uncategorized_active_count: uncat_active,
       items: items,
+      file_counts:
+        socket.assigns.file_counts
+        |> Map.merge(Catalogue.attached_file_counts(items))
+        |> Map.merge(Catalogue.attached_file_counts(child_categories)),
       items_total: node_total,
       items_offset: length(items),
       items_has_more: length(items) < node_total,
@@ -1565,6 +1574,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
     assign(socket,
       items: socket.assigns.items ++ page,
+      file_counts: Map.merge(socket.assigns.file_counts, Catalogue.attached_file_counts(page)),
       items_offset: new_offset,
       items_has_more: page != [] and new_offset < socket.assigns.items_total
     )
@@ -1690,6 +1700,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       {:noreply,
        assign(socket,
          search_results: results,
+         file_counts:
+           Map.merge(socket.assigns.file_counts, Catalogue.attached_file_counts(results)),
          search_offset: length(results),
          search_total: total,
          search_has_more: length(results) < total,
@@ -1744,6 +1756,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       {:noreply,
        assign(socket,
          search_results: (socket.assigns.search_results || []) ++ page,
+         file_counts: Map.merge(socket.assigns.file_counts, Catalogue.attached_file_counts(page)),
          search_offset: new_offset,
          search_has_more: has_more,
          search_loading: false
@@ -2128,6 +2141,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
           <div :if={@search_results not in [nil, []]} class={["transition-opacity", @search_loading && "opacity-50"]}>
             <.item_table
               photo_click="show_product_card"
+              file_counts={@file_counts}
               items={@search_results}
               columns={[:name, :sku, :price, :unit, :status]}
               markup_percentage={@catalogue.markup_percentage}
@@ -2209,6 +2223,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                 view_mode={@view_mode}
                 sibling_count={length(@child_categories)}
                 selected={MapSet.member?(@selected_categories, cat.uuid)}
+                has_files={Map.get(@file_counts, cat.uuid, 0) > 0}
               />
             <% end %>
             <.uncategorized_drill_card
@@ -2589,6 +2604,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   attr(:view_mode, :string, required: true)
   attr(:sibling_count, :integer, required: true)
   attr(:selected, :boolean, default: false)
+  attr(:has_files, :boolean, default: false)
 
   defp category_drill_card(assigns) do
     ~H"""
@@ -2618,7 +2634,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
             />
           </div>
 
-          <.featured_thumb resource={@category} />
+          <.featured_thumb resource={@category} has_files={@has_files} />
           <.link
             patch={Paths.category_browse(@catalogue_uuid, @category.uuid)}
             class={["font-medium truncate hover:text-primary", @category.status == "deleted" && "text-error/70"]}
@@ -2809,7 +2825,12 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                 data-bulk-role="row"
                 data-uuid={item.uuid}
               />
-              <.featured_thumb resource={item} class="w-7 h-7" on_click="show_product_card" />
+              <.featured_thumb
+                resource={item}
+                class="w-7 h-7"
+                on_click="show_product_card"
+                has_files={Map.get(@file_counts, item.uuid, 0) > 0}
+              />
               <.link
                 :if={item.uuid}
                 navigate={Paths.item_edit(item.uuid)}
@@ -2875,7 +2896,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               <%!-- Featured images get their own slim column (inline-left
                    of the name made rows jagged); only when some row on
                    this level actually has one. --%>
-              <.table_default_header_cell :if={any_featured_thumb?(@items)} class="w-10 !pr-0"></.table_default_header_cell>
+              <.table_default_header_cell :if={any_media_thumb?(@items, @file_counts)} class="w-10 !pr-0"></.table_default_header_cell>
               <.sort_header_cell field={:name} sort={%{by: @items_sort_by, dir: @items_sort_dir}} event="toggle_sort_items">
                 {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Name")}
               </.sort_header_cell>
@@ -2907,8 +2928,12 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                    doesn't jump when a delete drops the list to one row. --%>
               <td :if={@draggable? and not @reorderable?} class="w-8"></td>
               <.bulk_select_cell value={item.uuid} />
-              <.table_default_cell :if={any_featured_thumb?(@items)} class="w-10 !pr-0">
-                <.featured_thumb resource={item} on_click="show_product_card" />
+              <.table_default_cell :if={any_media_thumb?(@items, @file_counts)} class="w-10 !pr-0">
+                <.featured_thumb
+                  resource={item}
+                  on_click="show_product_card"
+                  has_files={Map.get(@file_counts, item.uuid, 0) > 0}
+                />
               </.table_default_cell>
               <.item_pricing_cell item={item} edit_path={&Paths.item_edit/1} />
               <.item_row_menu
@@ -2925,6 +2950,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       <%!-- ── Deleted list: existing item_table (read-only-ish) ── --%>
       <.item_table
         :if={@items != [] and @view_mode == "deleted"}
+        file_counts={@file_counts}
         items={@items}
         columns={[:name, :sku, :unit, :status]}
         on_restore="restore_item"

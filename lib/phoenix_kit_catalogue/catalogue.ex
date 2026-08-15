@@ -4693,6 +4693,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
   defdelegate item_count_for_catalogue(catalogue_uuid), to: Counts
   defdelegate item_counts_by_catalogue(), to: Counts
+  defdelegate attached_file_counts(resources), to: Counts
   defdelegate active_item_count_in_subtree(category_uuid), to: Counts
   defdelegate category_count_for_catalogue(catalogue_uuid), to: Counts
   defdelegate category_counts_by_catalogue(), to: Counts
