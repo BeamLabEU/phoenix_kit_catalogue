@@ -1245,3 +1245,18 @@ msgstr "Введённые вручную метаданные из времён
 
 msgid "Has attribute group"
 msgstr "Есть группа атрибутов"
+
+msgid "AI translate names & values"
+msgstr "Перевести названия и значения ИИ"
+
+msgid "AI-translate all attribute names and values that are missing a language."
+msgstr "Перевести ИИ все названия атрибутов и значения, у которых нет языка."
+
+msgid "Queued %{count} AI translations for attributes and values."
+msgstr "В очередь поставлено %{count} ИИ-переводов атрибутов и значений."
+
+msgid "Nothing to translate."
+msgstr "Нечего переводить."
+
+msgid "Select an AI endpoint and prompt in the translate dialog first."
+msgstr "Сначала выберите ИИ-эндпоинт и промпт в диалоге перевода."

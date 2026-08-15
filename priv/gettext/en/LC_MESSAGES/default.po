@@ -1236,3 +1236,18 @@ msgstr "Hand-typed metadata from before attribute groups. Kept so nothing is los
 
 msgid "Has attribute group"
 msgstr "Has attribute group"
+
+msgid "AI translate names & values"
+msgstr "AI translate names & values"
+
+msgid "AI-translate all attribute names and values that are missing a language."
+msgstr "AI-translate all attribute names and values that are missing a language."
+
+msgid "Queued %{count} AI translations for attributes and values."
+msgstr "Queued %{count} AI translations for attributes and values."
+
+msgid "Nothing to translate."
+msgstr "Nothing to translate."
+
+msgid "Select an AI endpoint and prompt in the translate dialog first."
+msgstr "Select an AI endpoint and prompt in the translate dialog first."

@@ -1236,3 +1236,18 @@ msgstr "Käsitsi sisestatud metaandmed atribuudirühmade eelsest ajast. Alles ho
 
 msgid "Has attribute group"
 msgstr "Atribuudirühmaga"
+
+msgid "AI translate names & values"
+msgstr "Tõlgi nimed ja väärtused AI-ga"
+
+msgid "AI-translate all attribute names and values that are missing a language."
+msgstr "Tõlgi AI-ga kõik atribuutide nimed ja väärtused, millel keel puudub."
+
+msgid "Queued %{count} AI translations for attributes and values."
+msgstr "Järjekorda pandi %{count} AI tõlget atribuutidele ja väärtustele."
+
+msgid "Nothing to translate."
+msgstr "Pole midagi tõlkida."
+
+msgid "Select an AI endpoint and prompt in the translate dialog first."
+msgstr "Vali kõigepealt tõlkedialoogis AI lõpp-punkt ja viip."

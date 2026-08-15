@@ -1241,3 +1241,18 @@ msgstr ""
 
 msgid "Has attribute group"
 msgstr ""
+
+msgid "AI translate names & values"
+msgstr ""
+
+msgid "AI-translate all attribute names and values that are missing a language."
+msgstr ""
+
+msgid "Queued %{count} AI translations for attributes and values."
+msgstr ""
+
+msgid "Nothing to translate."
+msgstr ""
+
+msgid "Select an AI endpoint and prompt in the translate dialog first."
+msgstr ""
