@@ -1112,3 +1112,9 @@ msgstr ""
 
 msgid "Compact view"
 msgstr ""
+
+msgid "Save"
+msgstr ""
+
+msgid "Save & Exit"
+msgstr ""

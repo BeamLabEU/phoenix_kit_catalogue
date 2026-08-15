@@ -189,7 +189,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
       |> Metadata.inject_into_data(socket.assigns.meta_state, :catalogue)
       |> Attachments.inject_attachment_data(socket)
 
-    save_catalogue(socket, socket.assigns.action, catalogue_params)
+    save_catalogue(socket, socket.assigns.action, catalogue_params, save_mode(params))
   end
 
   # ── Attachments (featured image modal + inline files dropzone) ──
@@ -267,32 +267,66 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
 
   # actor_opts/1 imported from PhoenixKitCatalogue.Web.Helpers
 
-  defp save_catalogue(socket, :new, params) do
+  defp save_catalogue(socket, :new, params, mode) do
     case Catalogue.create_catalogue(params, actor_opts(socket)) do
       {:ok, catalogue} ->
         _ = Attachments.maybe_rename_pending_folder(socket, catalogue)
 
+        # "Save" (stay) continues on the new catalogue's edit form; exit
+        # goes to its detail page as before.
+        target =
+          case mode do
+            :stay -> Paths.catalogue_edit(catalogue.uuid)
+            :exit -> Paths.catalogue_detail(catalogue.uuid)
+          end
+
         {:noreply,
          socket
          |> put_flash(:info, Gettext.gettext(PhoenixKitCatalogue.Gettext, "Catalogue created."))
-         |> push_navigate(to: Paths.catalogue_detail(catalogue.uuid))}
+         |> push_navigate(to: target)}
 
       {:error, changeset} ->
         {:noreply, assign_changeset(socket, changeset)}
     end
   end
 
-  defp save_catalogue(socket, :edit, params) do
+  defp save_catalogue(socket, :edit, params, mode) do
     case Catalogue.update_catalogue(socket.assigns.catalogue, params, actor_opts(socket)) do
       {:ok, catalogue} ->
-        {:noreply,
-         socket
-         |> put_flash(:info, Gettext.gettext(PhoenixKitCatalogue.Gettext, "Catalogue updated."))
-         |> push_navigate(to: Paths.catalogue_detail(catalogue.uuid))}
+        socket =
+          put_flash(
+            socket,
+            :info,
+            Gettext.gettext(PhoenixKitCatalogue.Gettext, "Catalogue updated.")
+          )
+
+        case mode do
+          :stay -> {:noreply, refresh_after_edit(socket, catalogue)}
+          :exit -> {:noreply, push_navigate(socket, to: Paths.catalogue_detail(catalogue.uuid))}
+        end
 
       {:error, changeset} ->
         {:noreply, assign_changeset(socket, changeset)}
     end
+  end
+
+  # The clicked submit button ships its name/value with the form params.
+  # Anything other than the explicit "stay" (absent, forged, or stale)
+  # falls back to the exit behavior — same as before the split.
+  defp save_mode(%{"save_action" => "stay"}), do: :stay
+  defp save_mode(_params), do: :exit
+
+  # In-place refresh after a stay-save: no remount, so the current tab,
+  # language, scroll position, and live attachment state all survive.
+  # meta_state was just persisted verbatim, so it stays as-is.
+  defp refresh_after_edit(socket, catalogue) do
+    socket
+    |> assign(:catalogue, catalogue)
+    |> assign(
+      :page_title,
+      Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit %{name}", name: catalogue.name)
+    )
+    |> assign_changeset(Catalogue.change_catalogue(catalogue))
   end
 
   @impl true
@@ -655,29 +689,36 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
         </div>
 
         <%!-- Actions — sit outside the tab panels so Save works from any
-             tab. Save is disabled while uploads are mid-flight so we
-             don't race the post-upload handle_progress write against
-             the save path. --%>
+             tab. Both saves are disabled while uploads are mid-flight so
+             we don't race the post-upload handle_progress write against
+             the save path. "Save" keeps you on the form (also the
+             Enter-key submitter, being first in the DOM); "Save & Exit"
+             goes to the catalogue's detail page. --%>
         <div class="flex justify-end gap-3 pt-2">
           <.link navigate={Paths.index()} class="btn btn-ghost">
             {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Cancel")}
           </.link>
           <button
             type="submit"
+            name="save_action"
+            value="stay"
+            class="btn btn-outline btn-primary phx-submit-loading:opacity-75"
+            disabled={@uploads.attachment_files.entries != []}
+            phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Saving...")}
+          >
+            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Save")}
+          </button>
+          <button
+            type="submit"
+            name="save_action"
+            value="exit"
             class="btn btn-primary phx-submit-loading:opacity-75"
             disabled={@uploads.attachment_files.entries != []}
             phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Saving...")}
           >
-            {cond do
-              @uploads.attachment_files.entries != [] ->
-                Gettext.gettext(PhoenixKitCatalogue.Gettext, "Waiting for uploads...")
-
-              @action == :new ->
-                Gettext.gettext(PhoenixKitCatalogue.Gettext, "Create Catalogue")
-
-              true ->
-                Gettext.gettext(PhoenixKitCatalogue.Gettext, "Save Changes")
-            end}
+            {if @uploads.attachment_files.entries != [],
+              do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Waiting for uploads..."),
+              else: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Save & Exit")}
           </button>
         </div>
       </.form>
