@@ -40,9 +40,13 @@ defmodule PhoenixKitCatalogue.Schemas.AttributeValue do
     timestamps(type: :utc_datetime)
   end
 
+  # `is_default` is deliberately NOT castable in either changeset: a forged
+  # payload could otherwise bypass the unset-then-set transaction in
+  # `Attributes.set_default_value/1` and trip the partial unique index.
+  # Default flips go through that context function only.
   def create_changeset(value, attrs) do
     value
-    |> cast(attrs, [:attribute_uuid, :key, :value, :data, :is_default, :status, :position])
+    |> cast(attrs, [:attribute_uuid, :key, :value, :data, :status, :position])
     |> validate_required([:attribute_uuid, :key, :value])
     |> shared_validations()
     |> validate_format(:key, ~r/^[a-z0-9][a-z0-9_-]*$/)
@@ -54,7 +58,7 @@ defmodule PhoenixKitCatalogue.Schemas.AttributeValue do
   # `key` is deliberately not castable after creation.
   def update_changeset(value, attrs) do
     value
-    |> cast(attrs, [:value, :data, :is_default, :status, :position])
+    |> cast(attrs, [:value, :data, :status, :position])
     |> validate_required([:value])
     |> shared_validations()
   end
