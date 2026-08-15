@@ -239,6 +239,13 @@ defmodule PhoenixKitCatalogue.GettextTest do
       assert gettext_in("ru", "Next") == "Вперёд"
     end
 
+    test "Photos and Files" do
+      msgid = "Photos and Files"
+      assert po_msgstr("en", msgid) == msgid
+      assert gettext_in("et", msgid) == "Fotod ja failid"
+      assert gettext_in("ru", msgid) == "Фото и файлы"
+    end
+
     test "reorder-all strings" do
       for {msgid, et, ru} <- [
             {"Reorder all", "Järjesta kõik ümber", "Переупорядочить все"},

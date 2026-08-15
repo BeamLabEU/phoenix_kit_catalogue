@@ -959,7 +959,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
           class={"tab #{if @current_tab == :files, do: "tab-active"}"}
         >
           <.icon name="hero-paper-clip" class="w-4 h-4 mr-1" />
-          {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Files")}
+          {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Photos and Files")}
         </button>
       </div>
 

@@ -1098,3 +1098,6 @@ msgstr "Categories reordered."
 
 msgid "Failed to reorder."
 msgstr "Failed to reorder."
+
+msgid "Photos and Files"
+msgstr "Photos and Files"

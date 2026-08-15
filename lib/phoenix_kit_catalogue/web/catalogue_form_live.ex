@@ -363,7 +363,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
           class={"tab #{if @current_tab == :files, do: "tab-active"}"}
         >
           <.icon name="hero-paper-clip" class="w-4 h-4 mr-1" />
-          {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Files")}
+          {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Photos and Files")}
           <span :if={@files_state.files != []} class="badge badge-sm badge-ghost ml-2">
             {length(@files_state.files)}
           </span>

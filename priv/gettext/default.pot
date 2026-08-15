@@ -1103,3 +1103,6 @@ msgstr ""
 
 msgid "Failed to reorder."
 msgstr ""
+
+msgid "Photos and Files"
+msgstr ""
