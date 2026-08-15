@@ -330,6 +330,24 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
   end
 
   describe "catalogue view toggle" do
+    test "deleted folders surface in the Deleted view with restore", %{conn: conn} do
+      {:ok, folder} = Catalogue.create_folder(%{name: "Binned folder"})
+      {:ok, _} = Catalogue.trash_folder(folder)
+
+      {:ok, view, html} = live(conn, @base)
+
+      # A trashed folder alone is enough to show the Deleted tab (count
+      # combines catalogues + folders).
+      assert html =~ "Deleted"
+
+      deleted = render_click(view, "switch_catalogue_view", %{"mode" => "deleted"})
+      assert deleted =~ "Binned folder"
+      assert deleted =~ "Restore"
+
+      render_click(view, "restore_folder", %{"uuid" => folder.uuid})
+      assert Catalogue.get_folder(folder.uuid).status == "active"
+    end
+
     test "entering the deleted view clears a stale folder filter", %{conn: conn} do
       {:ok, folder} = Catalogue.create_folder(%{name: "Live folder"})
       filed = fixture_catalogue(%{name: "Filed catalogue"})

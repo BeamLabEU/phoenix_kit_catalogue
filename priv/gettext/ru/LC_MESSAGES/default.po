@@ -863,9 +863,6 @@ msgstr "Ручной порядок"
 msgid "Folders"
 msgstr "Папки"
 
-msgid "Folders…"
-msgstr "Папки…"
-
 msgid "All folders"
 msgstr "Все папки"
 
@@ -876,9 +873,6 @@ msgid "Clear search and filters to drag-and-drop reorder."
 msgstr "Очистите поиск и фильтры, чтобы менять порядок перетаскиванием."
 
 ## Folder management modal
-msgid "No folders yet."
-msgstr "Папок ещё нет."
-
 msgid "Nothing in the trash."
 msgstr "В корзине ничего нет."
 

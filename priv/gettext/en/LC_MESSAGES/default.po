@@ -854,9 +854,6 @@ msgstr "Manual order"
 msgid "Folders"
 msgstr "Folders"
 
-msgid "Folders…"
-msgstr "Folders…"
-
 msgid "All folders"
 msgstr "All folders"
 
@@ -867,9 +864,6 @@ msgid "Clear search and filters to drag-and-drop reorder."
 msgstr "Clear search and filters to drag-and-drop reorder."
 
 ## Folder management modal
-msgid "No folders yet."
-msgstr "No folders yet."
-
 msgid "Nothing in the trash."
 msgstr "Nothing in the trash."
 

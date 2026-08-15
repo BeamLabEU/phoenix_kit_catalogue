@@ -80,8 +80,6 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
        renaming_folder: nil,
        move_dialog: nil,
        folder_options: [],
-       show_folders_modal: false,
-       folders_modal_view: "active",
        view_configs: load_view_configs(socket),
        catalogue_file_counts: %{},
        show_catalogues_reorder: false,
@@ -499,7 +497,6 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   attr(:cfg, :map, required: true)
   attr(:current, :any, default: nil)
   attr(:renaming_folder, :any, default: nil)
-  attr(:show_folders_modal, :boolean, default: false)
 
   defp catalogues_tree_table(assigns) do
     assigns =
@@ -595,7 +592,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
                     icon_class="w-4 h-4 text-warning shrink-0"
                     toggle_label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Toggle folder")}
                   >
-                    <%= if @renaming_folder == folder.uuid and not @show_folders_modal do %>
+                    <%= if @renaming_folder == folder.uuid do %>
                       <form
                         id={"tree-rename-#{folder.uuid}"}
                         phx-submit="rename_folder"
@@ -907,6 +904,45 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     """
   end
 
+  attr(:tree, :list, required: true)
+
+  # Trashed folders in the Deleted view (their previous home, the Folders
+  # modal, was removed with its toolbar button). Restore and Delete
+  # Forever reuse the existing events; a restored folder rejoins the
+  # tree, a hard delete goes through the shared confirm modal.
+  defp deleted_folders_list(assigns) do
+    ~H"""
+    <div class="bg-base-100 border border-base-200 rounded-lg divide-y divide-base-200">
+      <div :for={{folder, _depth} <- @tree} class="flex items-center gap-2 px-3 py-2 min-w-0">
+        <.icon name="hero-folder" class="w-4 h-4 text-warning shrink-0" />
+        <span class="flex-1 min-w-0 truncate text-sm font-medium text-base-content/50">
+          {folder.name}
+        </span>
+        <button
+          type="button"
+          phx-click="restore_folder"
+          phx-value-uuid={folder.uuid}
+          phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Restoring...")}
+          class="btn btn-ghost btn-xs text-success gap-1"
+        >
+          <.icon name="hero-arrow-path" class="w-3.5 h-3.5" />
+          {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Restore")}
+        </button>
+        <button
+          type="button"
+          phx-click="show_delete_confirm"
+          phx-value-uuid={folder.uuid}
+          phx-value-type="folder"
+          class="btn btn-ghost btn-xs text-error gap-1"
+        >
+          <.icon name="hero-trash" class="w-3.5 h-3.5" />
+          {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete Forever")}
+        </button>
+      </div>
+    </div>
+    """
+  end
+
   # Folder rows reuse the configured catalogue columns: values that make
   # sense for a folder render (count / status / updated), the rest dash.
   defp render_folder_cell("items", _folder, meta) do
@@ -1158,13 +1194,6 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         |> put_flash(:info, Gettext.gettext(PhoenixKitCatalogue.Gettext, "Folder restored."))
         |> load_data(:index)
 
-      # If no deleted folders remain, return to the active view so the user
-      # isn't stranded on an empty "Deleted" list with no way to switch back.
-      socket =
-        if socket.assigns.deleted_folder_count == 0,
-          do: assign(socket, :folders_modal_view, "active"),
-          else: socket
-
       {:noreply, socket}
     else
       _ ->
@@ -1181,8 +1210,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   def handle_event("open_move", %{"type" => type, "uuid" => uuid}, socket)
       when type in ~w(folder catalogue) do
     target_type = if type == "folder", do: :folder, else: :catalogue
-    # Close the folders modal when opening the move dialog so dialogs don't stack.
-    {:noreply, assign(socket, move_dialog: {target_type, uuid}, show_folders_modal: false)}
+    {:noreply, assign(socket, move_dialog: {target_type, uuid})}
   end
 
   def handle_event("cancel_move", _params, socket) do
@@ -1376,9 +1404,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   end
 
   def handle_event("show_delete_confirm", %{"uuid" => uuid, "type" => type}, socket) do
-    # Close the folders modal when confirming folder deletion so dialogs don't stack.
-    show_folders = if type == "folder", do: false, else: socket.assigns.show_folders_modal
-    {:noreply, assign(socket, confirm_delete: {type, uuid}, show_folders_modal: show_folders)}
+    {:noreply, assign(socket, confirm_delete: {type, uuid})}
   end
 
   def handle_event("permanently_delete_catalogue", _params, socket) do
@@ -1611,16 +1637,6 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   def handle_event("cancel_delete", _params, socket) do
     {:noreply, assign(socket, :confirm_delete, nil)}
   end
-
-  def handle_event("show_folders_modal", _p, socket),
-    do: {:noreply, assign(socket, show_folders_modal: true, folders_modal_view: "active")}
-
-  def handle_event("hide_folders_modal", _p, socket),
-    do: {:noreply, assign(socket, :show_folders_modal, false)}
-
-  def handle_event("set_folders_modal_view", %{"mode" => mode}, socket)
-      when mode in ~w(active deleted),
-      do: {:noreply, assign(socket, :folders_modal_view, mode)}
 
   # ── Column / sort / filter / view handlers ──────────────────────
 
@@ -2002,7 +2018,10 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         <div :if={@active_tab == :index} class="flex flex-col gap-4">
           <% cfg = @view_configs.catalogues %>
           <%!-- Active/Deleted sub-tabs — shown only when there are deleted items. --%>
-          <div :if={@deleted_catalogue_count > 0} class="flex items-center gap-0.5 border-b border-base-200">
+          <div
+            :if={@deleted_catalogue_count + @deleted_folder_count > 0}
+            class="flex items-center gap-0.5 border-b border-base-200"
+          >
             <button
               type="button"
               phx-click="switch_catalogue_view"
@@ -2029,7 +2048,8 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
                 )
               ]}
             >
-              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Deleted")} ({@deleted_catalogue_count})
+              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Deleted")} ({@deleted_catalogue_count +
+                @deleted_folder_count})
             </button>
           </div>
           <.table_toolbar scope={:catalogues} cfg={cfg}>
@@ -2064,14 +2084,6 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
                 <.icon name="hero-folder-plus" class="w-4 h-4" />
                 {Gettext.gettext(PhoenixKitCatalogue.Gettext, "New Folder")}
               </button>
-              <button
-                type="button"
-                phx-click="show_folders_modal"
-                class="btn btn-ghost btn-sm gap-1"
-              >
-                <.icon name="hero-folder-open" class="w-4 h-4" />
-                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Folders…")}
-              </button>
               <.link :if={@catalogue_view_mode == "active"} navigate={Paths.catalogue_new()} class="btn btn-primary btn-sm">
                 {Gettext.gettext(PhoenixKitCatalogue.Gettext, "New Catalogue")}
               </.link>
@@ -2087,6 +2099,10 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
           >
             {gettext("Clear search and filters to see the folder tree.")}
           </p>
+          <.deleted_folders_list
+            :if={@catalogue_view_mode == "deleted" and @folder_tree_deleted != []}
+            tree={@folder_tree_deleted}
+          />
           <.catalogues_tree_table
             :if={tree?}
             rows={
@@ -2100,7 +2116,6 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
             cfg={cfg}
             current={current_tree_folder(cfg, @folder_lookup)}
             renaming_folder={@renaming_folder}
-            show_folders_modal={@show_folders_modal}
           />
           <.simple_table
             :if={!tree?}
@@ -2522,184 +2537,6 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
             </button>
           </div>
         </form>
-      </.modal>
-
-      <%!-- Folders management modal — create, rename, move, trash, restore, delete-forever. --%>
-      <.modal
-        :if={@show_folders_modal}
-        id="catalogue-folders-modal"
-        show
-        on_close="hide_folders_modal"
-      >
-        <div class="flex flex-col gap-4 min-w-72">
-          <h3 class="text-lg font-semibold">
-            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Folders")}
-          </h3>
-
-          <%!-- Active / Deleted toggle — only when there are deleted folders. --%>
-          <div
-            :if={@deleted_folder_count > 0}
-            class="flex items-center gap-0.5 border-b border-base-200"
-          >
-            <button
-              type="button"
-              phx-click="set_folders_modal_view"
-              phx-value-mode="active"
-              class={[
-                "px-3 py-1.5 text-xs font-medium border-b-2 transition-colors cursor-pointer",
-                if(@folders_modal_view == "active",
-                  do: "border-primary text-primary",
-                  else: "border-transparent text-base-content/50 hover:text-base-content"
-                )
-              ]}
-            >
-              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Active")}
-            </button>
-            <button
-              type="button"
-              phx-click="set_folders_modal_view"
-              phx-value-mode="deleted"
-              class={[
-                "px-3 py-1.5 text-xs font-medium border-b-2 transition-colors cursor-pointer",
-                if(@folders_modal_view == "deleted",
-                  do: "border-error text-error",
-                  else: "border-transparent text-base-content/50 hover:text-base-content"
-                )
-              ]}
-            >
-              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Deleted")} ({@deleted_folder_count})
-            </button>
-          </div>
-
-          <%!-- Empty states --%>
-          <p
-            :if={@folders_modal_view == "active" and @folder_tree == []}
-            class="text-sm text-base-content/60 py-2"
-          >
-            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "No folders yet.")}
-          </p>
-          <p
-            :if={@folders_modal_view == "deleted" and @folder_tree_deleted == []}
-            class="text-sm text-base-content/60 py-2"
-          >
-            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Nothing in the trash.")}
-          </p>
-
-          <%!-- Folder list --%>
-          <% tree = if @folders_modal_view == "deleted", do: @folder_tree_deleted, else: @folder_tree %>
-          <div :if={tree != []} class="flex flex-col divide-y divide-base-200 max-h-96 overflow-y-auto">
-            <%= for {folder, depth} <- tree do %>
-              <div
-                class="flex items-center gap-2 py-1.5 group/row"
-                style={"padding-left: #{depth * 1.25 + 0.5}rem"}
-              >
-                <.icon name="hero-folder" class="w-4 h-4 text-warning shrink-0" />
-
-                <%!-- Inline rename input or display name --%>
-                <%= if @renaming_folder == folder.uuid do %>
-                  <form phx-submit="rename_folder" phx-value-uuid={folder.uuid} class="flex-1 min-w-0">
-                    <input
-                      type="text"
-                      name="name"
-                      value={folder.name}
-                      phx-mounted={Phoenix.LiveView.JS.focus()}
-                      phx-blur="rename_folder"
-                      phx-value-uuid={folder.uuid}
-                      class="input input-xs w-full"
-                    />
-                  </form>
-                <% else %>
-                  <span class={[
-                    "flex-1 min-w-0 truncate text-sm",
-                    @folders_modal_view == "deleted" && "text-base-content/50"
-                  ]}>
-                    {folder.name}
-                  </span>
-                <% end %>
-
-                <%!-- Active row actions (hidden until hover) --%>
-                <div
-                  :if={@folders_modal_view == "active" and @renaming_folder != folder.uuid}
-                  class="flex items-center gap-0.5 opacity-0 group-hover/row:opacity-100 transition-opacity shrink-0"
-                >
-                  <button
-                    type="button"
-                    phx-click="start_rename_folder"
-                    phx-value-uuid={folder.uuid}
-                    class="btn btn-ghost btn-xs"
-                    title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Rename")}
-                  >
-                    <.icon name="hero-pencil" class="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    phx-click="new_subfolder"
-                    phx-value-uuid={folder.uuid}
-                    class="btn btn-ghost btn-xs"
-                    title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "New subfolder")}
-                  >
-                    <.icon name="hero-folder-plus" class="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    phx-click="open_move"
-                    phx-value-type="folder"
-                    phx-value-uuid={folder.uuid}
-                    class="btn btn-ghost btn-xs"
-                    title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Move to folder")}
-                  >
-                    <.icon name="hero-folder-arrow-down" class="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    phx-click="trash_folder"
-                    phx-value-uuid={folder.uuid}
-                    class="btn btn-ghost btn-xs text-error"
-                    title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")}
-                  >
-                    <.icon name="hero-trash" class="w-3.5 h-3.5" />
-                  </button>
-                </div>
-
-                <%!-- Deleted row actions --%>
-                <div :if={@folders_modal_view == "deleted"} class="flex items-center gap-0.5 shrink-0">
-                  <button
-                    type="button"
-                    phx-click="restore_folder"
-                    phx-value-uuid={folder.uuid}
-                    class="btn btn-ghost btn-xs text-success"
-                    title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Restore")}
-                  >
-                    <.icon name="hero-arrow-path" class="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    phx-click="show_delete_confirm"
-                    phx-value-uuid={folder.uuid}
-                    phx-value-type="folder"
-                    class="btn btn-ghost btn-xs text-error"
-                    title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete Forever")}
-                  >
-                    <.icon name="hero-trash" class="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              </div>
-            <% end %>
-          </div>
-
-          <%!-- Footer: New Folder button (active view only) --%>
-          <div :if={@folders_modal_view == "active"} class="flex justify-start pt-1 border-t border-base-200">
-            <button
-              type="button"
-              phx-click="new_folder"
-              phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Creating...")}
-              class="btn btn-ghost btn-sm gap-1"
-            >
-              <.icon name="hero-folder-plus" class="w-4 h-4" />
-              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "New Folder")}
-            </button>
-          </div>
-        </div>
       </.modal>
 
 
