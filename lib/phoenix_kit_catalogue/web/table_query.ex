@@ -3,6 +3,7 @@ defmodule PhoenixKitCatalogue.Web.TableQuery do
   Pure, in-memory search → filter → sort pipeline over a list of row maps
   (catalogues/suppliers/manufacturers already loaded by the LiveView).
   """
+  alias PhoenixKitCatalogue.Web.Helpers
   alias PhoenixKitCatalogue.Web.TableConfig
 
   # Sentinel filter value for "folder is nil" — distinct from `to_string(nil)`
@@ -77,7 +78,7 @@ defmodule PhoenixKitCatalogue.Web.TableQuery do
   def enum_options(rows, scope, "status") do
     rows
     |> raw_enum_values(scope, "status")
-    |> Enum.map(&{PhoenixKitCatalogue.Web.Helpers.status_label(&1), &1})
+    |> Enum.map(&{Helpers.status_label(&1), &1})
   end
 
   def enum_options(rows, scope, id) do
