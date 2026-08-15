@@ -48,6 +48,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
   alias PhoenixKitCatalogue.Catalogue.{
     ActivityLog,
+    Attributes,
     Counts,
     Helpers,
     ItemSupplierInfos,
@@ -4731,4 +4732,32 @@ defmodule PhoenixKitCatalogue.Catalogue do
   defdelegate prune_orphan_pdf_page_contents(), to: PdfLibrary, as: :prune_orphan_page_contents
   defdelegate retry_extraction(pdf, opts \\ []), to: PdfLibrary
   defdelegate requeue_stuck_extractions(opts \\ []), to: PdfLibrary
+
+  # ═══════════════════════════════════════════════════════════════════
+  # Attribute groups — see PhoenixKitCatalogue.Catalogue.Attributes
+  # ═══════════════════════════════════════════════════════════════════
+
+  defdelegate list_attribute_groups(opts \\ []), to: Attributes
+  defdelegate get_attribute_group(uuid), to: Attributes
+  defdelegate get_attribute_group_full(uuid), to: Attributes
+  defdelegate attribute_counts(group_uuids), to: Attributes
+  defdelegate assignment_counts(group_uuids), to: Attributes
+  defdelegate create_attribute_group(attrs, opts \\ []), to: Attributes
+  defdelegate update_attribute_group(group, attrs, opts \\ []), to: Attributes
+  defdelegate delete_attribute_group(group, opts \\ []), to: Attributes
+  defdelegate get_attribute(uuid), to: Attributes
+  defdelegate create_attribute(group, attrs, opts \\ []), to: Attributes
+  defdelegate update_attribute(attribute, attrs), to: Attributes
+  defdelegate delete_attribute(attribute, opts \\ []), to: Attributes
+  defdelegate reorder_attributes(group, uuids), to: Attributes
+  defdelegate get_attribute_value(uuid), to: Attributes
+  defdelegate create_attribute_value(attribute, attrs), to: Attributes
+  defdelegate update_attribute_value(value, attrs), to: Attributes
+  defdelegate delete_attribute_value(value), to: Attributes
+  defdelegate set_default_value(value), to: Attributes
+  defdelegate reorder_attribute_values(attribute, uuids), to: Attributes
+  defdelegate set_item_attribute_group(item, group_uuid, opts \\ []), to: Attributes
+  defdelegate get_item_attribute_group_uuid(item_uuid), to: Attributes
+  defdelegate item_attribute_group_map(item_uuids), to: Attributes
+  defdelegate resolved_group(group_uuid, lang), to: Attributes
 end
