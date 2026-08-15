@@ -1762,28 +1762,35 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                 </option>
               </select>
 
-              <%!-- Read-only preview of what the item inherits. --%>
+              <%!-- Read-only preview of what the item inherits. Label in
+                   its own fixed column so long value lists wrap under the
+                   chips, not under the label; the default is marked with
+                   the same star the group editor uses. --%>
               <div :if={@attribute_preview} class="flex flex-col gap-3">
                 <div
                   :for={attribute <- @attribute_preview.attributes}
-                  class="flex flex-wrap items-baseline gap-2"
+                  class="flex items-start gap-3"
                 >
-                  <span class="text-sm font-medium min-w-24">{attribute.name}</span>
-                  <span
-                    :for={value <- attribute.values}
-                    class={[
-                      "badge badge-sm",
-                      (value.default? && "badge-primary badge-outline") || "badge-ghost"
-                    ]}
-                  >
-                    {value.value}
-                  </span>
-                  <span
-                    :if={attribute.values == []}
-                    class="text-xs text-base-content/40"
-                  >
-                    {Gettext.gettext(PhoenixKitCatalogue.Gettext, "No values defined yet.")}
-                  </span>
+                  <span class="text-sm font-medium w-28 shrink-0 pt-0.5 truncate" title={attribute.name}>{attribute.name}</span>
+                  <div class="flex flex-wrap items-center gap-1.5 min-w-0">
+                    <span
+                      :for={value <- attribute.values}
+                      class="badge badge-sm badge-ghost gap-1"
+                    >
+                      <.icon
+                        :if={value.default?}
+                        name="hero-star-solid"
+                        class="w-3 h-3 text-warning shrink-0"
+                      />
+                      {value.value}
+                    </span>
+                    <span
+                      :if={attribute.values == []}
+                      class="text-xs text-base-content/40"
+                    >
+                      {Gettext.gettext(PhoenixKitCatalogue.Gettext, "No values defined yet.")}
+                    </span>
+                  </div>
                 </div>
                 <p
                   :if={@attribute_preview.attributes == []}
