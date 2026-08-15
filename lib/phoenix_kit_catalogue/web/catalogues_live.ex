@@ -452,10 +452,21 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     # this level's parent.
     parent_key = parent || "root"
 
-    folder_rows =
-      folders_by_parent
-      |> Map.get(parent, [])
-      |> Enum.flat_map(fn folder ->
+    # One merged manual order per level: both types sort together by
+    # `position` (drop_row writes one interleaved sequence), so a
+    # catalogue dropped between two folders STAYS between them. Ties
+    # (e.g. legacy per-type sequences) put folders first, then name.
+    level =
+      (Map.get(folders_by_parent, parent, []) |> Enum.map(&{:folder, &1})) ++
+        (Map.get(cats, parent, []) |> Enum.map(&{:catalogue, &1}))
+
+    level
+    |> Enum.sort_by(fn
+      {:folder, f} -> {f.position, 0, String.downcase(f.name || "")}
+      {:catalogue, c} -> {c[:position], 1, String.downcase(c[:name] || "")}
+    end)
+    |> Enum.flat_map(fn
+      {:folder, folder} ->
         count = length(Map.get(cats, folder.uuid, []))
         has_children = MapSet.member?(with_children, folder.uuid) or count > 0
         expanded? = MapSet.member?(expanded, folder.uuid)
@@ -478,10 +489,10 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         else
           [row]
         end
-      end)
 
-    folder_rows ++
-      (cats |> Map.get(parent, []) |> Enum.map(&{:catalogue, &1, depth, parent_key}))
+      {:catalogue, c_row} ->
+        [{:catalogue, c_row, depth, parent_key}]
+    end)
   end
 
   attr(:rows, :list, required: true)
@@ -827,11 +838,12 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
           return ratio < 0.5 ? "before" : "after";
         },
 
-        // Insert `drag` before/after `row` WITHIN row's level. Levels render
-        // folders first, then catalogues, so the dragged item's position is
-        // computed against its own type group: count same-type rows above
-        // the insertion point. One event carries reparent + new order; the
-        // server validates (cycle guard for folders) and writes both.
+        // Insert `drag` before/after `row` WITHIN row's level. The whole
+        // level's MERGED order (folders and catalogues interleaved, in DOM
+        // order, with the dragged row spliced at the drop point) rides in
+        // one event — the server reparents (cycle guard for folders) and
+        // writes one position sequence, so where you drop it is where it
+        // stays.
         dropAt(drag, row, intent) {
           var targetParent = row.dataset.treeParent;
           var level = [];
@@ -844,18 +856,15 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
           if (anchorIdx < 0) return;
           var insertAt = intent === "before" ? anchorIdx : anchorIdx + 1;
 
-          var sameType = level.filter(function(r) { return r.dataset.treeType === drag.type; });
-          var typeIdx = level.slice(0, insertAt).filter(function(r) {
-            return r.dataset.treeType === drag.type;
-          }).length;
-
-          var order = sameType.map(function(r) { return r.dataset.treeUuid; });
-          order.splice(typeIdx, 0, drag.uuid);
+          var order = level.map(function(r) {
+            return r.dataset.treeType + ":" + r.dataset.treeUuid;
+          });
+          order.splice(insertAt, 0, drag.type + ":" + drag.uuid);
           this.pushEvent("drop_row", {
             type: drag.type,
             uuid: drag.uuid,
             parent: targetParent,
-            ordered_ids: order
+            entries: order
           });
         },
 
@@ -916,10 +925,28 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   # Move (no-op when the parent is unchanged) then write the level's
   # same-type order. A failed move skips the reorder — the flash carries
   # the reason (cycle, trashed target, ...).
-  defp apply_drop_row(socket, "catalogue", uuid, target, ordered_ids) do
+  # "type:uuid" strings from the hook → validated tuples. Any malformed
+  # entry rejects the whole payload (it is forgeable client input).
+  defp parse_level_entries(entries) do
+    parsed =
+      Enum.map(entries, fn entry ->
+        with true <- is_binary(entry),
+             [type, uuid] when type in ~w(folder catalogue) <-
+               String.split(entry, ":", parts: 2),
+             {:ok, _} <- Ecto.UUID.cast(uuid) do
+          {type, uuid}
+        else
+          _ -> :invalid
+        end
+      end)
+
+    if :invalid in parsed, do: :error, else: {:ok, parsed}
+  end
+
+  defp apply_drop_row(socket, "catalogue", uuid, target, entries) do
     with %{} = catalogue <- Catalogue.get_catalogue(uuid),
          {:ok, _} <- Catalogue.move_catalogue_to_folder(catalogue, target, actor_opts(socket)),
-         :ok <- Catalogue.reorder_catalogues(ordered_ids, actor_opts(socket)) do
+         :ok <- Catalogue.place_level_rows(entries, actor_opts(socket)) do
       put_flash(socket, :info, Gettext.gettext(PhoenixKitCatalogue.Gettext, "Catalogue moved."))
     else
       {:error, reason} ->
@@ -934,10 +961,10 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     end
   end
 
-  defp apply_drop_row(socket, "folder", uuid, target, ordered_ids) do
+  defp apply_drop_row(socket, "folder", uuid, target, entries) do
     with %{} = folder <- Catalogue.get_folder(uuid),
          {:ok, _} <- Catalogue.move_folder(folder, target, actor_opts(socket)),
-         :ok <- Catalogue.reorder_folders(ordered_ids, actor_opts(socket)) do
+         :ok <- Catalogue.place_level_rows(entries, actor_opts(socket)) do
       put_flash(socket, :info, Gettext.gettext(PhoenixKitCatalogue.Gettext, "Folder moved."))
     else
       {:error, reason} ->
@@ -1729,25 +1756,28 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   end
 
   # Edge drop anywhere in the tree: insert the dragged row at the target
-  # row's level — reparent (validated: cycle/trashed guards) plus the new
-  # same-type sibling order for that level, in one event.
+  # row's level — reparent (validated: cycle/trashed guards) plus the
+  # level's full MERGED order ("type:uuid" strings, folders and
+  # catalogues interleaved), in one event.
   def handle_event(
         "drop_row",
-        %{"type" => type, "uuid" => uuid, "parent" => parent, "ordered_ids" => ordered_ids},
+        %{"type" => type, "uuid" => uuid, "parent" => parent, "entries" => entries},
         socket
       )
-      when type in ~w(folder catalogue) and is_list(ordered_ids) do
+      when type in ~w(folder catalogue) and is_list(entries) do
     cfg = current_cfg(socket.assigns)
     target = if parent == "root", do: nil, else: parent
 
-    if catalogues_tree_mode?(
-         cfg,
-         socket.assigns.catalogue_view_mode,
-         socket.assigns.folder_lookup
-       ) do
-      {:noreply, socket |> apply_drop_row(type, uuid, target, ordered_ids) |> load_data(:index)}
+    with true <-
+           catalogues_tree_mode?(
+             cfg,
+             socket.assigns.catalogue_view_mode,
+             socket.assigns.folder_lookup
+           ),
+         {:ok, parsed} <- parse_level_entries(entries) do
+      {:noreply, socket |> apply_drop_row(type, uuid, target, parsed) |> load_data(:index)}
     else
-      {:noreply, socket}
+      _ -> {:noreply, socket}
     end
   end
 
