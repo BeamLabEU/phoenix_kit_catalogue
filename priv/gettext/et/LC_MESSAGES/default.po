@@ -1101,3 +1101,9 @@ msgstr "Ümberjärjestamine ebaõnnestus."
 
 msgid "Photos and Files"
 msgstr "Fotod ja failid"
+
+msgid "Comfortable view"
+msgstr "Avar vaade"
+
+msgid "Compact view"
+msgstr "Kompaktne vaade"

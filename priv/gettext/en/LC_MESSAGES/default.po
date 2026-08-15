@@ -1101,3 +1101,9 @@ msgstr "Failed to reorder."
 
 msgid "Photos and Files"
 msgstr "Photos and Files"
+
+msgid "Comfortable view"
+msgstr "Comfortable view"
+
+msgid "Compact view"
+msgstr "Compact view"

@@ -239,6 +239,17 @@ defmodule PhoenixKitCatalogue.GettextTest do
       assert gettext_in("ru", "Next") == "Вперёд"
     end
 
+    test "view mode strings" do
+      for {msgid, et, ru} <- [
+            {"Comfortable view", "Avar vaade", "Просторный вид"},
+            {"Compact view", "Kompaktne vaade", "Компактный вид"}
+          ] do
+        assert po_msgstr("en", msgid) == msgid
+        assert gettext_in("et", msgid) == et
+        assert gettext_in("ru", msgid) == ru
+      end
+    end
+
     test "Photos and Files" do
       msgid = "Photos and Files"
       assert po_msgstr("en", msgid) == msgid

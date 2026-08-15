@@ -40,7 +40,7 @@ defmodule PhoenixKitCatalogue.Web.ViewConfig do
       sort_by: sort_by,
       sort_dir: sort_dir,
       filters: %{},
-      view: "table"
+      view: "comfy"
     }
   end
 
@@ -134,7 +134,7 @@ defmodule PhoenixKitCatalogue.Web.ViewConfig do
       sort_by: raw["sort_by"] || d.sort_by,
       sort_dir: dir(raw["sort_dir"], d.sort_dir),
       filters: filters,
-      view: (raw["view"] in ["table", "card"] && raw["view"]) || "table"
+      view: (raw["view"] in ["table", "card", "comfy"] && raw["view"]) || "comfy"
     }
   end
 
