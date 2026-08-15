@@ -118,6 +118,12 @@ msgstr "Clear search and filters to see the folder tree."
 msgid "Up"
 msgstr "Up"
 
+msgid "Drop here to move to root (unfiled)"
+msgstr "Drop here to move to root (unfiled)"
+
+msgid "Drag to reorder or move into a folder"
+msgstr "Drag to reorder or move into a folder"
+
 msgid "Unknown"
 msgstr "Unknown"
 

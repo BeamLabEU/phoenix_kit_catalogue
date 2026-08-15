@@ -118,6 +118,12 @@ msgstr "Puhasta otsing ja filtrid, et näha kaustapuud."
 msgid "Up"
 msgstr "Üles"
 
+msgid "Drop here to move to root (unfiled)"
+msgstr "Lohista siia, et viia juurtasandile (kaustata)"
+
+msgid "Drag to reorder or move into a folder"
+msgstr "Lohista järjestamiseks või kausta viimiseks"
+
 msgid "Unknown"
 msgstr "Teadmata"
 

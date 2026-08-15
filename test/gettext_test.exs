@@ -261,6 +261,12 @@ defmodule PhoenixKitCatalogue.GettextTest do
       for {msgid, et, ru} <- [
             {"Toggle folder", "Ava/sule kaust", "Развернуть/свернуть папку"},
             {"Up", "Üles", "Вверх"},
+            {"Drop here to move to root (unfiled)",
+             "Lohista siia, et viia juurtasandile (kaustata)",
+             "Перетащите сюда, чтобы переместить в корень (без папки)"},
+            {"Drag to reorder or move into a folder",
+             "Lohista järjestamiseks või kausta viimiseks",
+             "Перетащите, чтобы изменить порядок или переместить в папку"},
             {"Clear search and filters to see the folder tree.",
              "Puhasta otsing ja filtrid, et näha kaustapuud.",
              "Очистите поиск и фильтры, чтобы увидеть дерево папок."}
