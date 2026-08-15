@@ -114,12 +114,6 @@ msgstr ""
 msgid "Discontinued"
 msgstr ""
 
-msgid "Toggle folder"
-msgstr ""
-
-msgid "Clear search and filters to see the folder tree."
-msgstr ""
-
 msgid "Unknown"
 msgstr ""
 

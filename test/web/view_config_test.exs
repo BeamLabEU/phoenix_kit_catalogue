@@ -5,7 +5,7 @@ defmodule PhoenixKitCatalogue.Web.ViewConfigTest do
   test "defaults shape" do
     assert %{
              columns: ["name", "folder", "items", "status", "updated"],
-             sort_by: "position",
+             sort_by: "name",
              sort_dir: :asc,
              filters: %{},
              view: "comfy"

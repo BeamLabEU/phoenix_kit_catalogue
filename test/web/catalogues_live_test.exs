@@ -97,44 +97,8 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
   # Active / Deleted toggle
   # ─────────────────────────────────────────────────────────────────
 
-  describe "folder explorer sidebar" do
-    test "tree renders and navigate_folder narrows the list", %{conn: conn} do
-      {:ok, folder} = Catalogue.create_folder(%{name: "Showcase"})
-      {:ok, _child} = Catalogue.create_folder(%{name: "Nested", parent_uuid: folder.uuid})
-      filed = fixture_catalogue(%{name: "Filed catalogue"})
-      {:ok, _} = Catalogue.move_catalogue_to_folder(filed, folder.uuid)
-      fixture_catalogue(%{name: "Loose catalogue"})
-
-      {:ok, view, html} = live(conn, @base)
-
-      # Both folders live in the sidebar tree (Nested is collapsed but
-      # rendered — expansion is client-side state, DOM carries the tree).
-      assert html =~ "Showcase"
-      assert html =~ "catalogue-folder-explorer"
-
-      # Drill in by clicking the rendered tree button — the DOM path is
-      # what proves the params (folder-uuid) actually arrive.
-      drilled =
-        view
-        |> element(
-          ~s{#catalogue-folder-explorer button[phx-click="navigate_folder"][phx-value-folder-uuid="#{folder.uuid}"]}
-        )
-        |> render_click()
-
-      assert drilled =~ "Filed catalogue"
-      refute drilled =~ "Loose catalogue"
-
-      # All Files returns to the unfiltered list.
-      all = render_click(view, "navigate_view_all", %{})
-      assert all =~ "Loose catalogue"
-
-      # Root shows only unfiled catalogues.
-      root = render_click(view, "navigate_root", %{})
-      assert root =~ "Loose catalogue"
-      refute root =~ "Filed catalogue"
-    end
-
-    test "entering the trash clears a stale folder filter", %{conn: conn} do
+  describe "catalogue view toggle" do
+    test "entering the deleted view clears a stale folder filter", %{conn: conn} do
       {:ok, folder} = Catalogue.create_folder(%{name: "Live folder"})
       filed = fixture_catalogue(%{name: "Filed catalogue"})
       {:ok, _} = Catalogue.move_catalogue_to_folder(filed, folder.uuid)
@@ -142,148 +106,17 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
       Catalogue.trash_catalogue(trashed)
 
       {:ok, view, _html} = live(conn, @base)
-      render_click(view, "navigate_folder", %{"folder-uuid" => folder.uuid})
+      render_click(view, "set_filter", %{"column_id" => "folder", "value" => folder.uuid})
 
-      # The unfiled trashed catalogue must be visible despite the drill.
-      trash = render_click(view, "toggle_trash_filter", %{})
-      assert trash =~ "Binned catalogue"
+      # The unfiled trashed catalogue must be visible despite the filter.
+      deleted = render_click(view, "switch_catalogue_view", %{"mode" => "deleted"})
+      assert deleted =~ "Binned catalogue"
 
-      # Toggling back out returns to the unfiltered active list.
-      active = render_click(view, "toggle_trash_filter", %{})
+      # Back to active: the folder filter was dropped, everything shows.
+      active = render_click(view, "switch_catalogue_view", %{"mode" => "active"})
       assert active =~ "Filed catalogue"
     end
 
-    test "sidebar + creates at the drilled level with inline rename open", %{conn: conn} do
-      {:ok, folder} = Catalogue.create_folder(%{name: "Parent here"})
-
-      {:ok, view, _html} = live(conn, @base)
-      render_click(view, "navigate_folder", %{"folder-uuid" => folder.uuid})
-      html = render_click(view, "open_new_folder_modal", %{})
-
-      tree = Catalogue.list_folder_tree()
-      assert {new_folder, 1} = Enum.find(tree, fn {f, _d} -> f.parent_uuid == folder.uuid end)
-      # The tree opens the inline rename form for the new folder.
-      assert html =~ "folder-tree-rename-form-#{new_folder.uuid}"
-
-      # Committing the sidebar rename form persists the name.
-      view
-      |> element("#folder-tree-rename-form-#{new_folder.uuid}")
-      |> render_submit(%{"folder_uuid" => new_folder.uuid, "name" => "Named via sidebar"})
-
-      assert Catalogue.get_folder(new_folder.uuid).name == "Named via sidebar"
-    end
-
-    test "drag-drop events file catalogues and nest folders", %{conn: conn} do
-      {:ok, folder_a} = Catalogue.create_folder(%{name: "Drop target"})
-      {:ok, folder_b} = Catalogue.create_folder(%{name: "Will nest"})
-      cat = fixture_catalogue(%{name: "Dragged catalogue"})
-
-      {:ok, view, _html} = live(conn, @base)
-
-      # Catalogue dropped on a folder files it there.
-      render_click(view, "move_file_to_folder", %{
-        "file_uuid" => cat.uuid,
-        "folder_uuid" => folder_a.uuid
-      })
-
-      assert Catalogue.get_catalogue(cat.uuid).folder_uuid == folder_a.uuid
-
-      # Catalogue dropped on the root target unfiles it.
-      render_click(view, "move_file_to_folder", %{"file_uuid" => cat.uuid, "folder_uuid" => ""})
-      assert Catalogue.get_catalogue(cat.uuid).folder_uuid == nil
-
-      # Folder dropped on a folder nests it.
-      render_click(view, "move_folder_to_folder", %{
-        "folder_uuid" => folder_b.uuid,
-        "target_uuid" => folder_a.uuid
-      })
-
-      assert Catalogue.get_folder(folder_b.uuid).parent_uuid == folder_a.uuid
-
-      # Nesting a folder under its own descendant is refused (cycle guard).
-      render_click(view, "move_folder_to_folder", %{
-        "folder_uuid" => folder_a.uuid,
-        "target_uuid" => folder_b.uuid
-      })
-
-      assert Catalogue.get_folder(folder_a.uuid).parent_uuid == nil
-
-      # Trash drops route to the existing trash flows.
-      render_click(view, "trash_file", %{"file_uuid" => cat.uuid})
-      assert Catalogue.get_catalogue(cat.uuid).status == "deleted"
-
-      render_click(view, "trash_folder", %{"folder_uuid" => folder_b.uuid})
-      assert Catalogue.get_folder(folder_b.uuid).status == "deleted"
-
-      # The hook's touch-select gesture is a no-op here, never a crash.
-      render_click(view, "long_press_select", %{"type" => "file", "uuid" => cat.uuid})
-    end
-
-    test "new_folder honors a validated parent from the drill level", %{conn: conn} do
-      {:ok, folder} = Catalogue.create_folder(%{name: "Parent here"})
-
-      {:ok, view, _html} = live(conn, @base)
-      render_click(view, "new_folder", %{"parent" => folder.uuid})
-
-      tree = Catalogue.list_folder_tree()
-      assert Enum.any?(tree, fn {f, depth} -> f.parent_uuid == folder.uuid and depth == 1 end)
-
-      # A forged/unknown parent falls back to a root folder instead of erroring.
-      render_click(view, "new_folder", %{"parent" => Ecto.UUID.generate()})
-      roots = for {f, 0} <- Catalogue.list_folder_tree(), do: f
-      assert length(roots) >= 2
-    end
-  end
-
-  describe "catalogues tree table" do
-    test "manual order shows collapsible folder rows; other sorts flatten", %{conn: conn} do
-      {:ok, folder} = Catalogue.create_folder(%{name: "Tree parent"})
-      {:ok, _child} = Catalogue.create_folder(%{name: "Tree child", parent_uuid: folder.uuid})
-      filed = fixture_catalogue(%{name: "Filed in tree"})
-      {:ok, _} = Catalogue.move_catalogue_to_folder(filed, folder.uuid)
-      fixture_catalogue(%{name: "Root level catalogue"})
-
-      {:ok, view, html} = live(conn, @base)
-
-      # Manual order default: the tree table renders, folder row collapsed
-      # (children hidden), unfiled catalogue at the root level.
-      assert html =~ "catalogues-tree-table"
-      assert html =~ "Tree parent"
-      refute html =~ "Tree child"
-      assert html =~ "Root level catalogue"
-      # Drag contract: folder rows are drop targets, catalogue rows draggable.
-      assert html =~ ~s(data-drop-folder="#{folder.uuid}")
-
-      # Chevron expands the folder: nested folder + filed catalogue appear.
-      expanded =
-        view
-        |> element(
-          ~s{#catalogues-tree-table button[phx-click="toggle_folder_expand"][phx-value-uuid="#{folder.uuid}"]}
-        )
-        |> render_click()
-
-      assert expanded =~ "Tree child"
-      assert expanded =~ "Filed in tree"
-
-      # Switching to a real sort falls back to the flat sortable table.
-      flat = render_click(view, "set_sort", %{"sort_by" => "name"})
-      refute flat =~ "catalogues-tree-table"
-      assert flat =~ "Filed in tree"
-    end
-
-    test "searching flattens the tree", %{conn: conn} do
-      {:ok, _folder} = Catalogue.create_folder(%{name: "Hidden while searching"})
-      fixture_catalogue(%{name: "Searchable catalogue"})
-
-      {:ok, _view, _html} = live(conn, @base)
-      {:ok, _view2, html} = live(conn, "#{@base}?q=searchable")
-
-      refute html =~ "catalogues-tree-table"
-      assert html =~ "Searchable catalogue"
-    end
-  end
-
-  describe "catalogue view toggle" do
     test "deleted toggle only appears when there are deleted catalogues", %{conn: conn} do
       fixture_catalogue(%{name: "Active"})
 
@@ -530,18 +363,18 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
 
     test "a second open index follows a sort change live", %{conn: conn} do
       # Positions invert the alphabetical order, so which name renders first
-      # tells us which sort is active. Default is Manual order (position).
+      # tells us which sort is active.
       fixture_catalogue(%{name: "Alpha", position: 1})
       fixture_catalogue(%{name: "Zed", position: 0})
 
       {:ok, viewer, viewer_html} = live(conn, @base)
       {:ok, changer, _html} = live(conn, @base)
 
-      assert appears_before?(viewer_html, "Zed", "Alpha")
+      assert appears_before?(viewer_html, "Alpha", "Zed")
 
-      render_click(changer, "set_sort", %{"sort_by" => "name"})
+      render_click(changer, "set_sort", %{"sort_by" => "position"})
 
-      assert appears_before?(render(viewer), "Alpha", "Zed")
+      assert appears_before?(render(viewer), "Zed", "Alpha")
     end
 
     test "a fresh mount reads the shared sort", %{conn: conn} do
@@ -561,7 +394,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
         "catalogue"
       )
 
-      assert ViewConfig.load_global_sort(:catalogues) == {"position", :asc}
+      assert ViewConfig.load_global_sort(:catalogues) == {"name", :asc}
     end
 
     test "manufacturers sort stays per-user", %{conn: conn} do

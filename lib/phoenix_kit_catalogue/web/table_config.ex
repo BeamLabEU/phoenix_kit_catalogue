@@ -196,10 +196,7 @@ defmodule PhoenixKitCatalogue.Web.TableConfig do
   end
 
   @spec default_sort(scope()) :: {String.t(), :asc | :desc}
-  # Catalogues default to Manual order: that is the tree (file-explorer)
-  # view — folders with their catalogues in positional order. Sorting by
-  # any column flattens to the sortable table.
-  def default_sort(:catalogues), do: {"position", :asc}
+  def default_sort(:catalogues), do: {"name", :asc}
   def default_sort(_), do: {"name", :asc}
 
   # sort helpers: case-insensitive for strings, Decimal→float, nil-safe.
