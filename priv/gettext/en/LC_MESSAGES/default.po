@@ -1233,3 +1233,6 @@ msgstr "View old values (%{count})"
 
 msgid "Hand-typed metadata from before attribute groups. Kept so nothing is lost — move what matters into a group, then clear these."
 msgstr "Hand-typed metadata from before attribute groups. Kept so nothing is lost — move what matters into a group, then clear these."
+
+msgid "Has attribute group"
+msgstr "Has attribute group"

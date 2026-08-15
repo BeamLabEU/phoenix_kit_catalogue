@@ -390,11 +390,29 @@ defmodule PhoenixKitCatalogue.Web.Components.ProductCard do
       {gettext("Description"), resolve_description(item, locale)}
     ]
     |> Enum.concat(metadata_fields(item))
+    |> Enum.concat(attribute_fields(item, locale))
     |> Enum.map(fn {label, value} -> {label, to_display(value)} end)
     |> Enum.reject(fn {_label, value} -> blank?(value) end)
   end
 
   def build_fields(_, _), do: []
+
+  # The item's attribute group resolved for the card's locale — one row
+  # per attribute, values comma-joined in display order. Runs on card
+  # open only (this function is caller-side), so no per-row list cost.
+  defp attribute_fields(%Item{uuid: uuid}, locale) when is_binary(uuid) do
+    with group_uuid when is_binary(group_uuid) <-
+           Catalogue.get_item_attribute_group_uuid(uuid),
+         %{attributes: attributes} <- Catalogue.resolved_group(group_uuid, locale) do
+      for a <- attributes do
+        {a.name, a.values |> Enum.map(& &1.value) |> Enum.join(", ")}
+      end
+    else
+      _ -> []
+    end
+  end
+
+  defp attribute_fields(_, _), do: []
 
   # ── Internals ─────────────────────────────────────────────────────
 

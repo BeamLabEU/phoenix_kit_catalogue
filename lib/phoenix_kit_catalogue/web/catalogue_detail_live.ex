@@ -157,6 +157,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         bulk_move_modal: nil,
         bulk_confirm: nil,
         selected_items: MapSet.new(),
+        attribute_map: %{},
         selected_categories: MapSet.new(),
         # ── Active item list sort + strategy reorder ──
         # The active list uses the core List-UI toolkit: a sort dropdown,
@@ -1581,6 +1582,11 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         socket.assigns.file_counts
         |> Map.merge(Catalogue.attached_file_counts(items))
         |> Map.merge(Catalogue.attached_file_counts(child_categories)),
+      attribute_map:
+        Map.merge(
+          socket.assigns.attribute_map,
+          Catalogue.item_attribute_group_map(Enum.map(items, & &1.uuid))
+        ),
       items_total: node_total,
       items_offset: length(items),
       items_has_more: length(items) < node_total,
@@ -1638,6 +1644,11 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     assign(socket,
       items: socket.assigns.items ++ page,
       file_counts: Map.merge(socket.assigns.file_counts, Catalogue.attached_file_counts(page)),
+      attribute_map:
+        Map.merge(
+          socket.assigns.attribute_map,
+          Catalogue.item_attribute_group_map(Enum.map(page, & &1.uuid))
+        ),
       items_offset: new_offset,
       items_has_more: page != [] and new_offset < socket.assigns.items_total
     )
@@ -1765,6 +1776,11 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
          search_results: results,
          file_counts:
            Map.merge(socket.assigns.file_counts, Catalogue.attached_file_counts(results)),
+         attribute_map:
+           Map.merge(
+             socket.assigns.attribute_map,
+             Catalogue.item_attribute_group_map(Enum.map(results, & &1.uuid))
+           ),
          search_offset: length(results),
          search_total: total,
          search_has_more: length(results) < total,
@@ -1820,6 +1836,11 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
        assign(socket,
          search_results: (socket.assigns.search_results || []) ++ page,
          file_counts: Map.merge(socket.assigns.file_counts, Catalogue.attached_file_counts(page)),
+         attribute_map:
+           Map.merge(
+             socket.assigns.attribute_map,
+             Catalogue.item_attribute_group_map(Enum.map(page, & &1.uuid))
+           ),
          search_offset: new_offset,
          search_has_more: has_more,
          search_loading: false
@@ -2221,6 +2242,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
             <.item_table
               photo_click="show_product_card"
               file_counts={@file_counts}
+              attribute_map={@attribute_map}
               items={@search_results}
               columns={[:name, :sku, :price, :unit, :status]}
               markup_percentage={@catalogue.markup_percentage}
@@ -2407,6 +2429,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
           <%!-- The current node's own direct items --%>
           <.level_items
+            attribute_map={@attribute_map}
             :if={@show_items_section}
             items={@items}
             file_counts={@file_counts}
@@ -3022,6 +3045,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   attr(:show_items_reorder, :boolean, required: true)
   attr(:reorder_captured_uuids, :list, required: true)
   attr(:file_counts, :map, default: %{})
+  attr(:attribute_map, :map, default: %{})
   attr(:edit_path_fn, :any, required: true)
 
   defp level_items(assigns) do
@@ -3112,6 +3136,13 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               >
                 {item.name || "—"}
               </.link>
+              <span
+                :if={Map.has_key?(@attribute_map, item.uuid)}
+                class="shrink-0"
+                title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Has attribute group")}
+              >
+                <.icon name="hero-swatch" class="w-3.5 h-3.5 text-primary/60" />
+              </span>
             </div>
             <div class="grid grid-cols-2 gap-x-4 gap-y-1 text-sm flex-1">
               <div class="text-base-content/60">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "SKU")}</div>
@@ -3209,7 +3240,11 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                   has_files={Map.get(@file_counts, item.uuid, 0) > 0}
                 />
               </.table_default_cell>
-              <.item_pricing_cell item={item} edit_path={@edit_path_fn} />
+              <.item_pricing_cell
+                item={item}
+                edit_path={@edit_path_fn}
+                has_attributes={Map.has_key?(@attribute_map, item.uuid)}
+              />
               <.item_row_menu
                 item={item}
                 edit_path={@edit_path_fn}
@@ -3225,6 +3260,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       <.item_table
         :if={@items != [] and @view_mode == "deleted"}
         file_counts={@file_counts}
+        attribute_map={@attribute_map}
         items={@items}
         columns={[:name, :sku, :unit, :status]}
         on_restore="restore_item"
