@@ -2080,6 +2080,9 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       flash={@flash}
       phoenix_kit_current_scope={assigns[:phoenix_kit_current_scope]}
       page_title={@page_title}
+      page_section={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Catalogues")}
+      page_section_path={Paths.index()}
+      page_subtitle={@current_category && current_node_label(@current_category)}
       current_path={assigns[:url_path] || Paths.index()}
       current_locale={assigns[:current_locale]}
     >
@@ -2097,25 +2100,34 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
             :if={@view_mode == "active" or @current_category != nil}
             class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-3"
           >
-            <div :if={@current_category != nil} class="min-w-0">
+            <%!-- Drill trail — ALWAYS rendered (media-browser principle: the
+                 row keeps its place so drilling doesn't jump the layout, and
+                 "where am I" reads the same way on every level). At root the
+                 catalogue name is the current node; drilled it links back and
+                 the ancestor chain + current node follow. --%>
+            <div class="min-w-0">
               <h1 class="text-xl sm:text-2xl lg:text-3xl font-bold text-base-content flex flex-wrap items-center gap-x-2 gap-y-1">
-                <.link
-                  patch={Paths.catalogue_detail(@catalogue.uuid)}
-                  class="font-normal text-base-content/50 hover:text-primary"
-                >
-                  {@catalogue.name}
-                </.link>
-                <%= for cat <- @breadcrumb do %>
-                  <.icon name="hero-chevron-right" class="w-5 h-5 text-base-content/30 shrink-0" />
+                <%= if @current_category != nil do %>
                   <.link
-                    patch={Paths.category_browse(@catalogue.uuid, cat.uuid)}
+                    patch={Paths.catalogue_detail(@catalogue.uuid)}
                     class="font-normal text-base-content/50 hover:text-primary"
                   >
-                    {cat.name}
+                    {@catalogue.name}
                   </.link>
+                  <%= for cat <- @breadcrumb do %>
+                    <.icon name="hero-chevron-right" class="w-5 h-5 text-base-content/30 shrink-0" />
+                    <.link
+                      patch={Paths.category_browse(@catalogue.uuid, cat.uuid)}
+                      class="font-normal text-base-content/50 hover:text-primary"
+                    >
+                      {cat.name}
+                    </.link>
+                  <% end %>
+                  <.icon name="hero-chevron-right" class="w-5 h-5 text-base-content/30 shrink-0" />
+                  <span class="truncate">{current_node_label(@current_category)}</span>
+                <% else %>
+                  <span class="truncate">{@catalogue.name}</span>
                 <% end %>
-                <.icon name="hero-chevron-right" class="w-5 h-5 text-base-content/30 shrink-0" />
-                <span class="truncate">{current_node_label(@current_category)}</span>
               </h1>
             </div>
             <div :if={@view_mode == "active"} class="flex flex-wrap items-center gap-2 sm:flex-shrink-0">

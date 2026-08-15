@@ -141,6 +141,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
       action: action,
       item: item,
       catalogue_uuid: catalogue_uuid,
+      parent_catalogue_name: parent_catalogue && parent_catalogue.name,
       catalogue_kind: kind,
       catalogue_markup: markup_from_catalogue(parent_catalogue),
       catalogue_discount: discount_from_catalogue(parent_catalogue),
@@ -865,6 +866,8 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
       flash={@flash}
       phoenix_kit_current_scope={assigns[:phoenix_kit_current_scope]}
       page_title={@page_title}
+      page_section={@parent_catalogue_name}
+      page_section_path={@catalogue_uuid && Paths.catalogue_detail(@catalogue_uuid)}
       page_subtitle={
         if @action == :new,
           do:

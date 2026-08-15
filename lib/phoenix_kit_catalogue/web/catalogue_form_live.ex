@@ -310,6 +310,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
       flash={@flash}
       phoenix_kit_current_scope={assigns[:phoenix_kit_current_scope]}
       page_title={@page_title}
+      page_section={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Catalogues")}
+      page_section_path={Paths.index()}
       page_subtitle={if @action == :new, do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Create a new product catalogue to organize categories and items."), else: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Update catalogue details and settings.")}
       current_path={assigns[:url_path] || Paths.index()}
       current_locale={assigns[:current_locale]}
