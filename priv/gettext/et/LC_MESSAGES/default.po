@@ -1098,3 +1098,6 @@ msgstr "Kategooriad järjestati ümber."
 
 msgid "Failed to reorder."
 msgstr "Ümberjärjestamine ebaõnnestus."
+
+msgid "Photos and Files"
+msgstr "Fotod ja failid"

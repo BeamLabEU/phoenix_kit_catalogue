@@ -1107,3 +1107,6 @@ msgstr "Категории переупорядочены."
 
 msgid "Failed to reorder."
 msgstr "Не удалось изменить порядок."
+
+msgid "Photos and Files"
+msgstr "Фото и файлы"
