@@ -208,7 +208,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
   the browser's broken-image glyph.
   """
   attr(:resource, :any, required: true)
-  attr(:class, :any, default: "w-8 h-8")
+  attr(:class, :any, default: "w-10 h-10")
 
   attr(:has_files, :boolean,
     default: false,
@@ -261,7 +261,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
   defp thumb_visual(assigns) do
     ~H"""
     <span class={[
-      "relative block shrink-0 [.pk-comfy_&]:w-14 [.pk-comfy_&]:h-14",
+      "relative block shrink-0 [.pk-comfy_&]:w-20 [.pk-comfy_&]:h-20",
       @class
     ]}>
       <img
@@ -1355,6 +1355,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
           />
           <.featured_thumb
             resource={item}
+            class="w-12 h-12"
             on_click={@photo_click}
             has_files={Map.get(@file_counts, item.uuid, 0) > 0}
           />
@@ -1378,7 +1379,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
       <.table_default_header>
         <.table_default_row>
           <.table_default_header_cell :if={!is_nil(@on_reorder) or @selectable} class="w-10"></.table_default_header_cell>
-          <.table_default_header_cell :if={@photo_col?} class="w-10 !pr-0 [.pk-comfy_&]:w-16"></.table_default_header_cell>
+          <.table_default_header_cell :if={@photo_col?} class="w-12 !pr-0 !py-1 [.pk-comfy_&]:w-24 [.pk-comfy_&]:!py-1.5"></.table_default_header_cell>
           <.table_default_header_cell :for={col <- @columns}>
             {column_label(col)}
           </.table_default_header_cell>
@@ -1440,7 +1441,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
               />
             </div>
           </.table_default_cell>
-          <.table_default_cell :if={@photo_col?} class="w-10 !pr-0 [.pk-comfy_&]:w-16">
+          <.table_default_cell :if={@photo_col?} class="w-12 !pr-0 !py-1 [.pk-comfy_&]:w-24 [.pk-comfy_&]:!py-1.5">
             <.featured_thumb
               resource={item}
               on_click={@photo_click}
