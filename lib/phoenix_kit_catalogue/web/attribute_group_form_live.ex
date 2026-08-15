@@ -573,27 +573,37 @@ defmodule PhoenixKitCatalogue.Web.AttributeGroupFormLive do
       current_locale={assigns[:current_locale]}
     >
       <div class="flex flex-col mx-auto max-w-3xl px-4 py-8 gap-6">
-        <%!-- One page-level language switch + AI row — the group name AND
-             every attribute/value input below all follow the active
-             language. The form holds only the name; the Save buttons live
-             in the page-bottom action bar via form= (external submitters). --%>
-        <.form id="attribute-group-form" for={@form} action="#" phx-change="validate" phx-submit="save">
-          <div class="card bg-base-100 shadow-lg">
-            <.ai_multilang_tabs
-              multilang_enabled={@multilang_enabled}
-              language_tabs={@language_tabs}
-              current_lang={@current_lang}
-              ai_translate={ai_translate_config(assigns)}
-            />
+        <%!-- ONE card: language tabs + AI row on top, then the name form
+             and the attributes editor as connected sections. The multilang
+             wrapper spans BOTH sections, so a language switch skeletons
+             and re-mounts the whole editor together (name, attribute
+             names, value chips) — one region, one loading state. The
+             <.form> holds only the name; the attribute editor's
+             mini-forms are its siblings inside the wrapper, and the
+             page-bottom Save buttons reach the form via form=. --%>
+        <div class="card bg-base-100 shadow-lg">
+          <.ai_multilang_tabs
+            multilang_enabled={@multilang_enabled}
+            language_tabs={@language_tabs}
+            current_lang={@current_lang}
+            ai_translate={ai_translate_config(assigns)}
+          />
 
-            <.multilang_fields_wrapper multilang_enabled={@multilang_enabled} current_lang={@current_lang} skeleton_class="card-body flex flex-col gap-5">
-              <:skeleton>
-                <div class="space-y-2">
-                  <div class="skeleton h-4 w-20"></div>
-                  <div class="skeleton h-12 w-full"></div>
-                </div>
-              </:skeleton>
-              <div class="card-body flex flex-col gap-5">
+          <.multilang_fields_wrapper multilang_enabled={@multilang_enabled} current_lang={@current_lang} skeleton_class="card-body flex flex-col gap-6">
+            <:skeleton>
+              <div class="space-y-2">
+                <div class="bg-base-content/15 rounded h-4 w-20 animate-pulse"></div>
+                <div class="bg-base-content/15 rounded h-12 w-full animate-pulse"></div>
+              </div>
+              <div :if={@action == :edit} class="space-y-3">
+                <div class="bg-base-content/15 rounded h-4 w-28 animate-pulse"></div>
+                <div class="bg-base-content/15 rounded-lg h-20 w-full animate-pulse"></div>
+                <div class="bg-base-content/15 rounded-lg h-20 w-full animate-pulse"></div>
+              </div>
+            </:skeleton>
+
+            <.form id="attribute-group-form" for={@form} action="#" phx-change="validate" phx-submit="save">
+              <div class={["card-body flex flex-col gap-5", @action == :edit && "pb-0"]}>
                 <.translatable_field
                   field_name="name" form_prefix="attribute_group" changeset={@changeset}
                   schema_field={:name} multilang_enabled={@multilang_enabled}
@@ -603,184 +613,183 @@ defmodule PhoenixKitCatalogue.Web.AttributeGroupFormLive do
                   required class="w-full"
                 />
               </div>
-            </.multilang_fields_wrapper>
-          </div>
-        </.form>
+            </.form>
 
-        <%!-- Attributes editor — :edit only (the group must exist first).
-             Discrete events, immediate persistence; no nested form. The
-             inputs follow @current_lang: on a secondary language they edit
-             that language's overrides (primary text as placeholder). --%>
-        <div :if={@action == :edit} class="card bg-base-100 shadow-lg">
-          <div class="card-body flex flex-col gap-4">
-            <div class="flex items-center gap-2">
-              <.icon name="hero-swatch" class="w-5 h-5 text-base-content/60" />
-              <h3 class="font-semibold text-base">
-                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Attributes")}
-              </h3>
-              <button
-                :if={@multilang_enabled and @group.attributes != []}
-                type="button"
-                phx-click="ai_translate_children"
-                class="btn btn-ghost btn-xs ml-auto"
-                title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "AI-translate all attribute names and values that are missing a language.")}
-              >
-                <.icon name="hero-language" class="w-4 h-4" />
-                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "AI translate names & values")}
-              </button>
-            </div>
+            <%!-- Attributes — :edit only (the group must exist first).
+                 Discrete events, immediate persistence; no nested form.
+                 Inputs follow @current_lang: a secondary language edits
+                 that language's overrides (primary text as placeholder). --%>
+            <div :if={@action == :edit} class="card-body flex flex-col gap-4 pt-4">
+              <div class="divider my-0"></div>
 
-            <p :if={@group.attributes == []} class="text-sm text-base-content/60">
-              {Gettext.gettext(
-                PhoenixKitCatalogue.Gettext,
-                "No attributes yet. Add one below — e.g. Color, Trim, Surface."
-              )}
-            </p>
-
-            <div
-              :if={@group.attributes != []}
-              id="attribute-rows"
-              phx-hook="SortableGrid"
-              data-sortable="true"
-              data-sortable-event="reorder_attributes"
-              data-sortable-items=".sortable-item"
-              data-sortable-handle=".pk-drag-handle"
-              class="flex flex-col gap-3"
-            >
-              <div
-                :for={attribute <- @group.attributes}
-                class="sortable-item rounded-lg border border-base-300 bg-base-200/40 p-3 flex flex-col gap-3"
-                data-id={attribute.uuid}
-              >
-                <div class="flex items-center gap-2">
-                  <span class="pk-drag-handle cursor-grab text-base-content/40 hover:text-base-content/70">
-                    <.icon name="hero-bars-3" class="w-4 h-4" />
-                  </span>
-                  <input
-                    id={"attr-name-#{attribute.uuid}-#{@current_lang}"}
-                    type="text"
-                    value={lang_text(attribute, :name, assigns)}
-                    placeholder={attribute.name}
-                    phx-blur="rename_attribute"
-                    phx-value-uuid={attribute.uuid}
-                    class="input input-sm input-bordered bg-base-100 font-medium flex-1 min-w-0"
-                  />
-                  <form id={"attr-kind-form-#{attribute.uuid}"} phx-change="set_attribute_kind" class="contents">
-                    <input type="hidden" name="uuid" value={attribute.uuid} />
-                    <select name="kind" class="select select-sm select-bordered bg-base-100 w-36 shrink-0">
-                      <option :for={{label, v} <- kind_options()} value={v} selected={attribute.kind == v}>
-                        {label}
-                      </option>
-                    </select>
-                  </form>
-                  <button
-                    type="button"
-                    phx-click="request_delete_attribute"
-                    phx-value-uuid={attribute.uuid}
-                    class="btn btn-ghost btn-xs text-error shrink-0"
-                    title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete attribute")}
-                  >
-                    <.icon name="hero-trash" class="w-4 h-4" />
-                  </button>
-                </div>
-
-                <%!-- Values: draggable chips; star = default. --%>
-                <div
-                  id={"value-chips-#{attribute.uuid}"}
-                  phx-hook="SortableGrid"
-                  data-sortable="true"
-                  data-sortable-event="reorder_values"
-                  data-sortable-items=".sortable-item"
-                  data-sortable-handle=".pk-value-handle"
-                  data-sortable-scope-attribute-uuid={attribute.uuid}
-                  class="flex flex-wrap items-center gap-2 pl-6"
+              <div class="flex items-center gap-2">
+                <.icon name="hero-swatch" class="w-5 h-5 text-base-content/60" />
+                <h3 class="font-semibold text-base">
+                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Attributes")}
+                </h3>
+                <button
+                  :if={@multilang_enabled and @group.attributes != []}
+                  type="button"
+                  phx-click="ai_translate_children"
+                  class="btn btn-ghost btn-xs ml-auto"
+                  title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "AI-translate all attribute names and values that are missing a language.")}
                 >
-                  <div
-                    :for={value <- attribute.values}
-                    class="sortable-item flex items-center gap-1 rounded-full border border-base-300 bg-base-100 pl-1 pr-1 py-0.5 shadow-sm"
-                    data-id={value.uuid}
-                  >
-                    <span class="pk-value-handle cursor-grab text-base-content/30 hover:text-base-content/60">
-                      <.icon name="hero-bars-2" class="w-3 h-3" />
+                  <.icon name="hero-language" class="w-4 h-4" />
+                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "AI translate names & values")}
+                </button>
+              </div>
+
+              <p :if={@group.attributes == []} class="text-sm text-base-content/60">
+                {Gettext.gettext(
+                  PhoenixKitCatalogue.Gettext,
+                  "No attributes yet. Add one below — e.g. Color, Trim, Surface."
+                )}
+              </p>
+
+              <div
+                :if={@group.attributes != []}
+                id="attribute-rows"
+                phx-hook="SortableGrid"
+                data-sortable="true"
+                data-sortable-event="reorder_attributes"
+                data-sortable-items=".sortable-item"
+                data-sortable-handle=".pk-drag-handle"
+                class="flex flex-col gap-3"
+              >
+                <div
+                  :for={attribute <- @group.attributes}
+                  class="sortable-item rounded-lg border border-base-300 bg-base-200/40 p-3 flex flex-col gap-3"
+                  data-id={attribute.uuid}
+                >
+                  <div class="flex items-center gap-2">
+                    <span class="pk-drag-handle cursor-grab text-base-content/40 hover:text-base-content/70">
+                      <.icon name="hero-bars-3" class="w-4 h-4" />
                     </span>
                     <input
-                      id={"value-text-#{value.uuid}-#{@current_lang}"}
+                      id={"attr-name-#{attribute.uuid}-#{@current_lang}"}
                       type="text"
-                      value={lang_text(value, :value, assigns)}
-                      placeholder={value.value}
-                      phx-blur="rename_value"
-                      phx-value-uuid={value.uuid}
-                      size={max(String.length(lang_text(value, :value, assigns) || value.value), 4)}
-                      class="input input-xs bg-transparent border-0 focus:outline-none px-1"
+                      value={lang_text(attribute, :name, assigns)}
+                      placeholder={attribute.name}
+                      phx-blur="rename_attribute"
+                      phx-value-uuid={attribute.uuid}
+                      class="input input-sm input-bordered bg-base-100 font-medium flex-1 min-w-0"
                     />
+                    <form id={"attr-kind-form-#{attribute.uuid}"} phx-change="set_attribute_kind" class="contents">
+                      <input type="hidden" name="uuid" value={attribute.uuid} />
+                      <select name="kind" class="select select-sm select-bordered bg-base-100 w-36 shrink-0">
+                        <option :for={{label, v} <- kind_options()} value={v} selected={attribute.kind == v}>
+                          {label}
+                        </option>
+                      </select>
+                    </form>
                     <button
                       type="button"
-                      phx-click="make_default"
-                      phx-value-uuid={value.uuid}
-                      class={["btn btn-ghost btn-xs px-1", value.is_default && "text-warning"]}
-                      title={
-                        if value.is_default,
-                          do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Default value"),
-                          else: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Make default")
-                      }
+                      phx-click="request_delete_attribute"
+                      phx-value-uuid={attribute.uuid}
+                      class="btn btn-ghost btn-xs text-error shrink-0"
+                      title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete attribute")}
                     >
-                      <.icon name={if value.is_default, do: "hero-star-solid", else: "hero-star"} class="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      type="button"
-                      phx-click="delete_value"
-                      phx-value-uuid={value.uuid}
-                      class="btn btn-ghost btn-xs px-1 text-base-content/40 hover:text-error"
-                      title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Remove value")}
-                    >
-                      <.icon name="hero-x-mark" class="w-3.5 h-3.5" />
+                      <.icon name="hero-trash" class="w-4 h-4" />
                     </button>
                   </div>
 
-                  <form id={"add-value-form-#{attribute.uuid}"} phx-submit="add_value" class="contents">
-                    <input type="hidden" name="attribute_uuid" value={attribute.uuid} />
-                    <input
-                      type="text"
-                      name="value"
-                      value=""
-                      placeholder={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Add value...")}
-                      class="input input-xs input-bordered bg-base-100 w-28"
-                    />
-                  </form>
+                  <%!-- Values: draggable chips; star = default. --%>
+                  <div
+                    id={"value-chips-#{attribute.uuid}"}
+                    phx-hook="SortableGrid"
+                    data-sortable="true"
+                    data-sortable-event="reorder_values"
+                    data-sortable-items=".sortable-item"
+                    data-sortable-handle=".pk-value-handle"
+                    data-sortable-scope-attribute-uuid={attribute.uuid}
+                    class="flex flex-wrap items-center gap-2 pl-6"
+                  >
+                    <div
+                      :for={value <- attribute.values}
+                      class="sortable-item flex items-center gap-1 rounded-full border border-base-300 bg-base-100 pl-1 pr-1 py-0.5 shadow-sm"
+                      data-id={value.uuid}
+                    >
+                      <span class="pk-value-handle cursor-grab text-base-content/30 hover:text-base-content/60">
+                        <.icon name="hero-bars-2" class="w-3 h-3" />
+                      </span>
+                      <input
+                        id={"value-text-#{value.uuid}-#{@current_lang}"}
+                        type="text"
+                        value={lang_text(value, :value, assigns)}
+                        placeholder={value.value}
+                        phx-blur="rename_value"
+                        phx-value-uuid={value.uuid}
+                        size={max(String.length(lang_text(value, :value, assigns) || value.value), 4)}
+                        class="input input-xs bg-transparent border-0 focus:outline-none px-1"
+                      />
+                      <button
+                        type="button"
+                        phx-click="make_default"
+                        phx-value-uuid={value.uuid}
+                        class={["btn btn-ghost btn-xs px-1", value.is_default && "text-warning"]}
+                        title={
+                          if value.is_default,
+                            do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Default value"),
+                            else: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Make default")
+                        }
+                      >
+                        <.icon name={if value.is_default, do: "hero-star-solid", else: "hero-star"} class="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        phx-click="delete_value"
+                        phx-value-uuid={value.uuid}
+                        class="btn btn-ghost btn-xs px-1 text-base-content/40 hover:text-error"
+                        title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Remove value")}
+                      >
+                        <.icon name="hero-x-mark" class="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+
+                    <form id={"add-value-form-#{attribute.uuid}"} phx-submit="add_value" class="contents">
+                      <input type="hidden" name="attribute_uuid" value={attribute.uuid} />
+                      <input
+                        type="text"
+                        name="value"
+                        value=""
+                        placeholder={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Add value...")}
+                        class="input input-xs input-bordered bg-base-100 w-28"
+                      />
+                    </form>
+                  </div>
                 </div>
               </div>
+
+              <%!-- Add attribute — its own form so Enter adds. --%>
+              <form id="add-attribute-form" phx-submit="add_attribute" class="flex items-center gap-2 pt-1">
+                <input
+                  type="text"
+                  name="attr_name"
+                  value=""
+                  placeholder={Gettext.gettext(PhoenixKitCatalogue.Gettext, "New attribute name...")}
+                  class="input input-sm input-bordered flex-1 min-w-0"
+                />
+                <select name="attr_kind" class="select select-sm select-bordered w-36 shrink-0">
+                  <option :for={{label, v} <- kind_options()} value={v}>{label}</option>
+                </select>
+                <button type="submit" class="btn btn-outline btn-sm shrink-0">
+                  <.icon name="hero-plus" class="w-4 h-4" />
+                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Add")}
+                </button>
+              </form>
+
+              <p :if={@multilang_enabled and @current_lang != @primary_language} class="text-xs text-base-content/50">
+                {Gettext.gettext(
+                  PhoenixKitCatalogue.Gettext,
+                  "You are editing translations. Empty fields fall back to the primary language; new attributes and values are always created in the primary language."
+                )}
+              </p>
             </div>
-
-            <%!-- Add attribute — its own form so Enter adds. --%>
-            <form id="add-attribute-form" phx-submit="add_attribute" class="flex items-center gap-2 pt-1">
-              <input
-                type="text"
-                name="attr_name"
-                value=""
-                placeholder={Gettext.gettext(PhoenixKitCatalogue.Gettext, "New attribute name...")}
-                class="input input-sm input-bordered flex-1 min-w-0"
-              />
-              <select name="attr_kind" class="select select-sm select-bordered w-36 shrink-0">
-                <option :for={{label, v} <- kind_options()} value={v}>{label}</option>
-              </select>
-              <button type="submit" class="btn btn-outline btn-sm shrink-0">
-                <.icon name="hero-plus" class="w-4 h-4" />
-                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Add")}
-              </button>
-            </form>
-
-            <p :if={@multilang_enabled and @current_lang != @primary_language} class="text-xs text-base-content/50">
-              {Gettext.gettext(
-                PhoenixKitCatalogue.Gettext,
-                "You are editing translations. Empty fields fall back to the primary language; new attributes and values are always created in the primary language."
-              )}
-            </p>
-          </div>
+          </.multilang_fields_wrapper>
         </div>
 
-        <%!-- Bottom action bar — outside the form (the attribute editor's
-             mini-forms cannot nest inside it), wired back via form=. "Save"
-             stays; "Save & Exit" returns to the groups list. --%>
+        <%!-- Bottom action bar — outside the card, wired back via form=.
+             "Save" stays; "Save & Exit" returns to the groups list. --%>
         <div class="flex justify-end gap-3">
           <.link navigate={exit_target(assigns)} class="btn btn-ghost">
             {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Cancel")}
