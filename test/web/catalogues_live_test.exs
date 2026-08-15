@@ -159,6 +159,38 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
       assert root =~ "Loose catalogue"
     end
 
+    test "card view shows the level as folder + catalogue cards", %{conn: conn} do
+      {:ok, folder} = Catalogue.create_folder(%{name: "Card folder"})
+      filed = fixture_catalogue(%{name: "Filed card"})
+      {:ok, _} = Catalogue.move_catalogue_to_folder(filed, folder.uuid)
+      fixture_catalogue(%{name: "Loose card"})
+
+      {:ok, view, _html} = live(conn, @base)
+      html = render_click(view, "set_view", %{"mode" => "card"})
+
+      # The level grid renders folder cards with the drag/drill contract;
+      # the filed catalogue is one level down, so not visible at root.
+      assert html =~ "catalogues-card-level"
+      assert html =~ ~s(data-tree-drop="#{folder.uuid}")
+      assert html =~ "Loose card"
+      refute html =~ "Filed card"
+
+      # Drilling via a folder card re-roots the grid.
+      drilled =
+        view
+        |> element(
+          ~s{#catalogues-card-level button[phx-click="navigate_folder"][phx-value-uuid="#{folder.uuid}"]:not([role="menuitem"])}
+        )
+        |> render_click()
+
+      assert drilled =~ "Filed card"
+      refute drilled =~ "Loose card"
+
+      # Searching falls back to the flat card table view.
+      searched = render_click(view, "navigate_folder", %{"uuid" => ""})
+      assert searched =~ "catalogues-card-level"
+    end
+
     test "searching flattens the tree", %{conn: conn} do
       {:ok, _folder} = Catalogue.create_folder(%{name: "Hidden while searching"})
       fixture_catalogue(%{name: "Searchable catalogue"})
