@@ -165,6 +165,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         # strategy "Reorder" modal. `reorder_captured_uuids` holds the
         # uuids the BulkSelectScope hook captured for the open modal
         # (empty == "reorder all").
+        categories_sort_by: :position,
+        categories_sort_dir: :asc,
         items_sort_by: :position,
         items_sort_dir: :asc,
         show_items_reorder: false,
@@ -1011,6 +1013,36 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     {:noreply, apply_items_sort(socket, field, dir)}
   end
 
+  # Categories sort — same SortSelector contract as items/catalogues
+  # (select sends only sort_by, the arrow only sort_dir). Hardcoded
+  # whitelist; drag + Reorder-all only make sense in manual mode.
+  def handle_event("sort_categories", params, socket) do
+    field =
+      case params["sort_by"] do
+        "position" -> :position
+        "name" -> :name
+        "items" -> :items
+        "updated" -> :updated
+        _ -> socket.assigns.categories_sort_by
+      end
+
+    dir =
+      case params["sort_dir"] do
+        "desc" -> :desc
+        "asc" -> :asc
+        _ -> socket.assigns.categories_sort_dir
+      end
+
+    socket = assign(socket, categories_sort_by: field, categories_sort_dir: dir)
+
+    {:noreply,
+     assign(
+       socket,
+       :child_categories,
+       sort_categories(socket.assigns.child_categories, socket.assigns.child_counts, field, dir)
+     )}
+  end
+
   # Sortable column header click — toggles direction on the active field,
   # otherwise switches field (ascending).
   def handle_event("toggle_sort_items", %{"by" => field_str}, socket)
@@ -1571,7 +1603,13 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       page_title: catalogue.name,
       catalogue: catalogue,
       breadcrumb: build_breadcrumb(current, cat_mode),
-      child_categories: child_categories,
+      child_categories:
+        sort_categories(
+          child_categories,
+          counts_map,
+          socket.assigns.categories_sort_by,
+          socket.assigns.categories_sort_dir
+        ),
       child_counts: counts_map,
       children_with_subs: children_with_subs,
       uncategorized_active_count: uncat_active,
@@ -2277,10 +2315,52 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               @child_categories != [] or
                 (@show_items_section and (@items != [] or @search_results not in [nil, []]))
             }
-            class="flex items-center justify-end gap-2"
+            class="flex flex-wrap items-center justify-end gap-2"
           >
+            <.sort_selector
+              :if={@child_categories != []}
+              sort_by={@categories_sort_by}
+              sort_dir={@categories_sort_dir}
+              options={category_sort_options()}
+              manual_field={:position}
+              event="sort_categories"
+              id="categories-sort-selector"
+            />
+            <%!-- Item-only levels put the items sort here too — same row,
+                 same order as the catalogues index. Mixed levels keep the
+                 items controls in their own section to avoid two identical
+                 unlabeled sort dropdowns side by side. --%>
+            <.sort_selector
+              :if={
+                @child_categories == [] and @show_items_section and @items != [] and
+                  @view_mode == "active"
+              }
+              sort_by={@items_sort_by}
+              sort_dir={@items_sort_dir}
+              options={item_sort_options()}
+              manual_field={:position}
+              event="sort_items"
+              id="items-header-sort-selector"
+            />
             <button
-              :if={@view_mode == "active" and length(@child_categories) > 1}
+              :if={
+                @child_categories == [] and @show_items_section and @items_total > 1 and
+                  @items_sort_by == :position and @view_mode == "active"
+              }
+              type="button"
+              phx-click="open_items_reorder_modal"
+              class="btn btn-outline btn-sm"
+            >
+              <.icon name="hero-arrows-up-down" class="w-4 h-4" />
+              <span class="hidden sm:inline">
+                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Reorder all")}
+              </span>
+            </button>
+            <button
+              :if={
+                @view_mode == "active" and length(@child_categories) > 1 and
+                  @categories_sort_by == :position
+              }
               type="button"
               phx-click="open_categories_reorder_modal"
               class="btn btn-outline btn-sm"
@@ -2352,6 +2432,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
           >
             <div data-table-view class={@view_mode == "active" && "hidden md:block"}>
               <.categories_table
+                categories_sort_by={@categories_sort_by}
                 catalogue={@catalogue}
                 child_categories={@child_categories}
                 child_counts={@child_counts}
@@ -2429,6 +2510,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
           <%!-- The current node's own direct items --%>
           <.level_items
             attribute_map={@attribute_map}
+            controls_in_page_header={@child_categories == []}
             :if={@show_items_section}
             items={@items}
             file_counts={@file_counts}
@@ -2763,6 +2845,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   attr(:children_with_subs, :any, required: true)
   attr(:selected_categories, :any, required: true)
   attr(:view_mode, :string, required: true)
+  attr(:categories_sort_by, :atom, default: :position)
   attr(:file_counts, :map, required: true)
   attr(:show_uncat, :boolean, default: false)
   attr(:uncategorized_active_count, :integer, default: 0)
@@ -2772,7 +2855,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       assigns
       |> assign(
         :draggable?,
-        assigns.view_mode == "active" and length(assigns.child_categories) > 1
+        assigns.view_mode == "active" and length(assigns.child_categories) > 1 and
+          assigns.categories_sort_by == :position
       )
       |> assign(
         :photo_col?,
@@ -3047,6 +3131,14 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   attr(:attribute_map, :map, default: %{})
   attr(:edit_path_fn, :any, required: true)
 
+  attr(:controls_in_page_header, :boolean,
+    default: false,
+    doc:
+      "Item-only levels render the sort selector + Reorder-all in the page " <>
+        "control row; the in-section toolbar then only offers selection-scoped " <>
+        "reorder and bulk actions."
+  )
+
   defp level_items(assigns) do
     # `draggable?` controls the handle *column* (manual sort, not the deleted
     # list); `reorderable?` controls the actual grip + DnD, which needs ≥2
@@ -3071,13 +3163,19 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         <.bulk_actions_toolbar
           on_open_reorder="open_items_reorder_modal"
           reorder_dialog_id="items-reorder-modal"
-          reorder_gate={if @items_total > 1 and @items_sort_by == :position, do: :always, else: :multi}
+          reorder_gate={
+            if not @controls_in_page_header and @items_total > 1 and
+                 @items_sort_by == :position,
+               do: :always,
+               else: :multi
+          }
           on_bulk_delete="request_bulk_delete_items"
           noun_singular={Gettext.gettext(PhoenixKitCatalogue.Gettext, "item")}
           noun_plural={Gettext.gettext(PhoenixKitCatalogue.Gettext, "items")}
         >
           <:leading>
             <.sort_selector
+              :if={!@controls_in_page_header}
               sort_by={@items_sort_by}
               sort_dir={@items_sort_dir}
               options={item_sort_options()}
@@ -3310,6 +3408,29 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
   # Active-list sort dropdown options. `:position` is "Manual" (the DnD
   # mode). gettext via the module backend so labels localize.
+  # In-memory categories sort — the list is small and already loaded.
+  # Manual (:position) mirrors the DB order and is what enables drag.
+  defp sort_categories(categories, counts, sort_by, dir) do
+    sorted =
+      case sort_by do
+        :position -> Enum.sort_by(categories, &{&1.position, String.downcase(&1.name || "")})
+        :name -> Enum.sort_by(categories, &String.downcase(&1.name || ""))
+        :items -> Enum.sort_by(categories, &Map.get(counts, &1.uuid, 0))
+        :updated -> Enum.sort_by(categories, & &1.updated_at)
+      end
+
+    if sort_by != :position and dir == :desc, do: Enum.reverse(sorted), else: sorted
+  end
+
+  defp category_sort_options do
+    [
+      {:position, Gettext.gettext(PhoenixKitCatalogue.Gettext, "Manual")},
+      {:name, Gettext.gettext(PhoenixKitCatalogue.Gettext, "Name")},
+      {:items, Gettext.gettext(PhoenixKitCatalogue.Gettext, "Items")},
+      {:updated, Gettext.gettext(PhoenixKitCatalogue.Gettext, "Updated")}
+    ]
+  end
+
   defp item_sort_options do
     [
       {:position, Gettext.gettext(PhoenixKitCatalogue.Gettext, "Manual")},
