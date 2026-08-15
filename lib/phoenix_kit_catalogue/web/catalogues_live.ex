@@ -1402,37 +1402,53 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
               </.table_row_menu>
             </:row_actions>
             <:card_actions :let={c}>
-              <.link
-                :if={@catalogue_view_mode == "active"}
-                navigate={Paths.catalogue_detail(c.uuid)}
-                class="btn btn-ghost btn-xs"
-              >
-                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "View")}
-              </.link>
-              <.link
-                :if={@catalogue_view_mode == "active"}
-                navigate={Paths.catalogue_edit(c.uuid)}
-                class="btn btn-ghost btn-xs"
-              >
-                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")}
-              </.link>
-              <button
-                :if={@catalogue_view_mode == "deleted"}
-                phx-click="restore_catalogue"
-                phx-value-uuid={c.uuid}
-                class="btn btn-ghost btn-xs text-success"
-              >
-                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Restore")}
-              </button>
-              <button
-                :if={@catalogue_view_mode == "deleted"}
-                phx-click="show_delete_confirm"
-                phx-value-uuid={c.uuid}
-                phx-value-type="catalogue"
-                class="btn btn-ghost btn-xs text-error"
-              >
-                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete Forever")}
-              </button>
+              <.table_row_menu :if={@catalogue_view_mode == "active"} mode="auto" id={"card-cat-menu-#{c.uuid}"}>
+                <.table_row_menu_link
+                  navigate={Paths.catalogue_edit(c.uuid)}
+                  icon="hero-pencil"
+                  label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")}
+                />
+                <.table_row_menu_link
+                  navigate={Paths.catalogue_detail(c.uuid)}
+                  icon="hero-eye"
+                  label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "View")}
+                />
+                <.table_row_menu_button
+                  phx-click="open_move"
+                  phx-value-type="catalogue"
+                  phx-value-uuid={c.uuid}
+                  icon="hero-folder-arrow-down"
+                  label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Move to folder")}
+                />
+                <.table_row_menu_divider />
+                <.table_row_menu_button
+                  phx-click="trash_catalogue"
+                  phx-value-uuid={c.uuid}
+                  phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Deleting...")}
+                  icon="hero-trash"
+                  label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")}
+                  variant="error"
+                />
+              </.table_row_menu>
+              <.table_row_menu :if={@catalogue_view_mode == "deleted"} mode="auto" id={"card-cat-del-menu-#{c.uuid}"}>
+                <.table_row_menu_button
+                  phx-click="restore_catalogue"
+                  phx-value-uuid={c.uuid}
+                  phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Restoring...")}
+                  icon="hero-arrow-path"
+                  label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Restore")}
+                  variant="success"
+                />
+                <.table_row_menu_divider />
+                <.table_row_menu_button
+                  phx-click="show_delete_confirm"
+                  phx-value-uuid={c.uuid}
+                  phx-value-type="catalogue"
+                  icon="hero-trash"
+                  label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete Forever")}
+                  variant="error"
+                />
+              </.table_row_menu>
             </:card_actions>
           </.simple_table>
         </div>
@@ -1482,17 +1498,22 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
             </.table_row_menu>
           </:row_actions>
           <:card_actions :let={m}>
-            <.link navigate={Paths.manufacturer_edit(m.uuid)} class="btn btn-ghost btn-xs">
-              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")}
-            </.link>
-            <button
-              phx-click="show_delete_confirm"
-              phx-value-uuid={m.uuid}
-              phx-value-type="manufacturer"
-              class="btn btn-ghost btn-xs text-error"
-            >
-              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")}
-            </button>
+            <.table_row_menu mode="auto" id={"card-mfg-menu-#{m.uuid}"}>
+              <.table_row_menu_link
+                navigate={Paths.manufacturer_edit(m.uuid)}
+                icon="hero-pencil"
+                label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")}
+              />
+              <.table_row_menu_divider />
+              <.table_row_menu_button
+                phx-click="show_delete_confirm"
+                phx-value-uuid={m.uuid}
+                phx-value-type="manufacturer"
+                icon="hero-trash"
+                label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")}
+                variant="error"
+              />
+            </.table_row_menu>
           </:card_actions>
         </.simple_table>
       </div>
@@ -1542,17 +1563,22 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
             </.table_row_menu>
           </:row_actions>
           <:card_actions :let={s}>
-            <.link navigate={Paths.supplier_edit(s.uuid)} class="btn btn-ghost btn-xs">
-              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")}
-            </.link>
-            <button
-              phx-click="show_delete_confirm"
-              phx-value-uuid={s.uuid}
-              phx-value-type="supplier"
-              class="btn btn-ghost btn-xs text-error"
-            >
-              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")}
-            </button>
+            <.table_row_menu mode="auto" id={"card-supplier-menu-#{s.uuid}"}>
+              <.table_row_menu_link
+                navigate={Paths.supplier_edit(s.uuid)}
+                icon="hero-pencil"
+                label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")}
+              />
+              <.table_row_menu_divider />
+              <.table_row_menu_button
+                phx-click="show_delete_confirm"
+                phx-value-uuid={s.uuid}
+                phx-value-type="supplier"
+                icon="hero-trash"
+                label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")}
+                variant="error"
+              />
+            </.table_row_menu>
           </:card_actions>
         </.simple_table>
       </div>
@@ -1623,17 +1649,38 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
             </.table_row_menu>
           </:row_actions>
           <:card_actions :let={g}>
-            <.link navigate={Paths.attribute_group_edit(g.uuid)} class="btn btn-ghost btn-xs">
-              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")}
-            </.link>
-            <button
-              phx-click="show_delete_confirm"
-              phx-value-uuid={g.uuid}
-              phx-value-type="attribute_group"
-              class="btn btn-ghost btn-xs text-error"
-            >
-              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")}
-            </button>
+            <.table_row_menu mode="auto" id={"card-attr-group-menu-#{g.uuid}"}>
+              <.table_row_menu_link
+                navigate={Paths.attribute_group_edit(g.uuid)}
+                icon="hero-pencil"
+                label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")}
+              />
+              <.table_row_menu_button
+                :if={g.status == "active"}
+                phx-click="set_attribute_group_status"
+                phx-value-uuid={g.uuid}
+                phx-value-status="archived"
+                icon="hero-archive-box"
+                label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Archive")}
+              />
+              <.table_row_menu_button
+                :if={g.status == "archived"}
+                phx-click="set_attribute_group_status"
+                phx-value-uuid={g.uuid}
+                phx-value-status="active"
+                icon="hero-arrow-uturn-left"
+                label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Restore")}
+              />
+              <.table_row_menu_divider />
+              <.table_row_menu_button
+                phx-click="show_delete_confirm"
+                phx-value-uuid={g.uuid}
+                phx-value-type="attribute_group"
+                icon="hero-trash"
+                label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")}
+                variant="error"
+              />
+            </.table_row_menu>
           </:card_actions>
         </.simple_table>
       </div>

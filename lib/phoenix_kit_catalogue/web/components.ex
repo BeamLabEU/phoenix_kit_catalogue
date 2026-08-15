@@ -1550,34 +1550,57 @@ defmodule PhoenixKitCatalogue.Web.Components do
   def item_row_menu(assigns) do
     ~H"""
     <.table_default_cell class="text-right whitespace-nowrap">
-      <.table_row_menu id={"item-row-menu-#{@item.uuid}"}>
-        <.table_row_menu_link
-          :if={@edit_path}
-          navigate={safe_call(@edit_path, @item.uuid)}
-          icon="hero-pencil"
-          label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")}
-        />
-        <.table_row_menu_button
-          :if={@pdf_search_event}
-          phx-click={@pdf_search_event}
-          phx-value-uuid={@item.uuid}
-          icon="hero-document-magnifying-glass"
-          label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search PDFs")}
-        />
-        <.table_row_menu_divider :if={
-          (@edit_path || @pdf_search_event) && @on_delete
-        } />
-        <.table_row_menu_button
-          :if={@on_delete}
-          phx-click={@on_delete}
-          phx-value-uuid={@item.uuid}
-          phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Deleting...")}
-          icon="hero-trash"
-          label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")}
-          variant="error"
-        />
-      </.table_row_menu>
+      <.item_card_menu
+        item={@item}
+        id_prefix="item-row-menu"
+        edit_path={@edit_path}
+        on_delete={@on_delete}
+        pdf_search_event={@pdf_search_event}
+      />
     </.table_default_cell>
+    """
+  end
+
+  @doc """
+  The same Edit / Search PDFs / Delete menu WITHOUT the table cell —
+  for card footers, where the boss standard is the ⋮ menu, not a row of
+  icon buttons.
+  """
+  attr(:item, :any, required: true)
+  attr(:id_prefix, :string, default: "item-card-menu")
+  attr(:edit_path, :any, default: nil)
+  attr(:on_delete, :string, default: nil)
+  attr(:pdf_search_event, :string, default: nil)
+
+  def item_card_menu(assigns) do
+    ~H"""
+    <.table_row_menu mode="auto" id={"#{@id_prefix}-#{@item.uuid}"}>
+      <.table_row_menu_link
+        :if={@edit_path}
+        navigate={safe_call(@edit_path, @item.uuid)}
+        icon="hero-pencil"
+        label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")}
+      />
+      <.table_row_menu_button
+        :if={@pdf_search_event}
+        phx-click={@pdf_search_event}
+        phx-value-uuid={@item.uuid}
+        icon="hero-document-magnifying-glass"
+        label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search PDFs")}
+      />
+      <.table_row_menu_divider :if={
+        (@edit_path || @pdf_search_event) && @on_delete
+      } />
+      <.table_row_menu_button
+        :if={@on_delete}
+        phx-click={@on_delete}
+        phx-value-uuid={@item.uuid}
+        phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Deleting...")}
+        icon="hero-trash"
+        label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")}
+        variant="error"
+      />
+    </.table_row_menu>
     """
   end
 
@@ -1658,64 +1681,52 @@ defmodule PhoenixKitCatalogue.Web.Components do
 
   defp card_action_buttons(assigns) do
     ~H"""
-    <%!-- Mobile card view: icon-only buttons (text labels would overflow
-         a 390px card row). `title` carries the label as a native browser
-         tooltip + accessibility name. The card view is desktop-hidden
-         (`md:hidden`) so we don't worry about labelled-button parity. --%>
-    <.link
-      :if={@edit_path && @item.uuid}
-      navigate={safe_call(@edit_path, @item.uuid)}
-      class="btn btn-ghost btn-xs btn-square"
-      title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")}
-      aria-label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")}
-    >
-      <.icon name="hero-pencil" class="w-4 h-4" />
-    </.link>
-    <button
-      :if={@pdf_search_event && @item.uuid}
-      type="button"
-      phx-click={@pdf_search_event}
-      phx-value-uuid={@item.uuid}
-      class="btn btn-ghost btn-xs btn-square"
-      title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search PDFs")}
-      aria-label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search PDFs")}
-    >
-      <.icon name="hero-document-magnifying-glass" class="w-4 h-4" />
-    </button>
-    <button
-      :if={@on_delete}
-      phx-click={@on_delete}
-      phx-value-uuid={@item.uuid}
-      phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Deleting...")}
-      class="btn btn-ghost btn-xs btn-square text-error"
-      title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")}
-      aria-label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")}
-    >
-      <.icon name="hero-trash" class="w-4 h-4" />
-    </button>
-    <button
-      :if={@on_restore}
-      phx-click={@on_restore}
-      phx-value-uuid={@item.uuid}
-      phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Restoring...")}
-      class="btn btn-ghost btn-xs btn-square text-success"
-      title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Restore")}
-      aria-label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Restore")}
-    >
-      <.icon name="hero-arrow-path" class="w-4 h-4" />
-    </button>
-    <button
-      :if={@on_permanent_delete}
-      phx-click={@on_permanent_delete}
-      phx-value-uuid={@item.uuid}
-      phx-value-type={@permanent_delete_type}
-      phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Deleting...")}
-      class="btn btn-ghost btn-xs btn-square text-error"
-      title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete Forever")}
-      aria-label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete Forever")}
-    >
-      <.icon name="hero-trash" class="w-4 h-4" />
-    </button>
+    <%!-- Card footers use the same ⋮ menu as table rows (boss standard) —
+         one compact trigger instead of a row of icon buttons. --%>
+    <.table_row_menu mode="auto" id={"item-table-card-menu-#{@item.uuid}"}>
+      <.table_row_menu_link
+        :if={@edit_path && @item.uuid}
+        navigate={safe_call(@edit_path, @item.uuid)}
+        icon="hero-pencil"
+        label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")}
+      />
+      <.table_row_menu_button
+        :if={@pdf_search_event && @item.uuid}
+        phx-click={@pdf_search_event}
+        phx-value-uuid={@item.uuid}
+        icon="hero-document-magnifying-glass"
+        label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search PDFs")}
+      />
+      <.table_row_menu_button
+        :if={@on_restore}
+        phx-click={@on_restore}
+        phx-value-uuid={@item.uuid}
+        phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Restoring...")}
+        icon="hero-arrow-path"
+        label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Restore")}
+        variant="success"
+      />
+      <.table_row_menu_divider :if={@on_delete || @on_permanent_delete} />
+      <.table_row_menu_button
+        :if={@on_delete}
+        phx-click={@on_delete}
+        phx-value-uuid={@item.uuid}
+        phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Deleting...")}
+        icon="hero-trash"
+        label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")}
+        variant="error"
+      />
+      <.table_row_menu_button
+        :if={@on_permanent_delete}
+        phx-click={@on_permanent_delete}
+        phx-value-uuid={@item.uuid}
+        phx-value-type={@permanent_delete_type}
+        phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Deleting...")}
+        icon="hero-trash"
+        label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete Forever")}
+        variant="error"
+      />
+    </.table_row_menu>
     """
   end
 
