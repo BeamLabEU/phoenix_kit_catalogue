@@ -260,7 +260,10 @@ defmodule PhoenixKitCatalogue.Web.Components do
 
   defp thumb_visual(assigns) do
     ~H"""
-    <span class={["relative block shrink-0", @class]}>
+    <span class={[
+      "relative block shrink-0 [.pk-comfy_&]:w-14 [.pk-comfy_&]:h-14",
+      @class
+    ]}>
       <img
         :if={@uuid}
         src={URLSigner.signed_url(@uuid, "thumbnail")}
@@ -690,11 +693,19 @@ defmodule PhoenixKitCatalogue.Web.Components do
         </button>
         <button
           type="button"
+          data-view-action="comfy"
+          class="btn btn-sm join-item"
+          title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Comfortable view")}
+        >
+          <.icon name="hero-bars-3" class="w-4 h-4" />
+        </button>
+        <button
+          type="button"
           data-view-action="table"
           class="btn btn-sm join-item"
-          title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Table view")}
+          title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Compact view")}
         >
-          <.icon name="hero-bars-3-bottom-left" class="w-4 h-4" />
+          <.icon name="hero-bars-4" class="w-4 h-4" />
         </button>
       </div>
     </div>
@@ -1352,7 +1363,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
       <.table_default_header>
         <.table_default_row>
           <.table_default_header_cell :if={!is_nil(@on_reorder) or @selectable} class="w-10"></.table_default_header_cell>
-          <.table_default_header_cell :if={@photo_col?} class="w-10 !pr-0"></.table_default_header_cell>
+          <.table_default_header_cell :if={@photo_col?} class="w-10 !pr-0 [.pk-comfy_&]:w-16"></.table_default_header_cell>
           <.table_default_header_cell :for={col <- @columns}>
             {column_label(col)}
           </.table_default_header_cell>
@@ -1414,7 +1425,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
               />
             </div>
           </.table_default_cell>
-          <.table_default_cell :if={@photo_col?} class="w-10 !pr-0">
+          <.table_default_cell :if={@photo_col?} class="w-10 !pr-0 [.pk-comfy_&]:w-16">
             <.featured_thumb
               resource={item}
               on_click={@photo_click}

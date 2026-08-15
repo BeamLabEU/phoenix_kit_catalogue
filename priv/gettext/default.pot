@@ -1106,3 +1106,9 @@ msgstr ""
 
 msgid "Photos and Files"
 msgstr ""
+
+msgid "Comfortable view"
+msgstr ""
+
+msgid "Compact view"
+msgstr ""

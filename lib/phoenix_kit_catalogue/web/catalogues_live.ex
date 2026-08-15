@@ -994,7 +994,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     end
   end
 
-  def handle_event("set_view", %{"mode" => v}, socket) when v in ["table", "card"] do
+  def handle_event("set_view", %{"mode" => v}, socket) when v in ["table", "card", "comfy"] do
     scope = active_scope(socket.assigns)
     {:noreply, put_cfg(socket, scope, %{current_cfg(socket.assigns) | view: v})}
   end
@@ -1864,7 +1864,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       <.table_default_header>
         <.table_default_row>
           <.drag_handle_header_cell :if={@draggable} />
-          <.table_default_header_cell :if={@photo_col?} class="w-10 !pr-0"></.table_default_header_cell>
+          <.table_default_header_cell :if={@photo_col?} class="w-10 !pr-0 [.pk-comfy_&]:w-16"></.table_default_header_cell>
           <.table_default_header_cell
             :for={c <- @cols}
             class={c.align == :right && "text-right"}
@@ -1888,7 +1888,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         <.sortable_row :for={row <- @rows} item_id={row.uuid}>
           <.drag_handle_cell :if={@reorderable?} />
           <td :if={!@reorderable?} class="w-8"></td>
-          <.table_default_cell :if={@photo_col?} class="w-10 !pr-0">
+          <.table_default_cell :if={@photo_col?} class="w-10 !pr-0 [.pk-comfy_&]:w-16">
             <.featured_thumb resource={row} has_files={Map.get(@file_counts, row.uuid, 0) > 0} />
           </.table_default_cell>
           <.table_default_cell :for={c <- @cols} class={c.align == :right && "text-right"}>
@@ -1901,7 +1901,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       </.sortable_tbody>
       <.table_default_body :if={!@draggable}>
         <.table_default_row :for={row <- @rows}>
-          <.table_default_cell :if={@photo_col?} class="w-10 !pr-0">
+          <.table_default_cell :if={@photo_col?} class="w-10 !pr-0 [.pk-comfy_&]:w-16">
             <.featured_thumb resource={row} has_files={Map.get(@file_counts, row.uuid, 0) > 0} />
           </.table_default_cell>
           <.table_default_cell :for={c <- @cols} class={c.align == :right && "text-right"}>

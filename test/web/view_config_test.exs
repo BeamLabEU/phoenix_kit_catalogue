@@ -8,7 +8,7 @@ defmodule PhoenixKitCatalogue.Web.ViewConfigTest do
              sort_by: "name",
              sort_dir: :asc,
              filters: %{},
-             view: "table"
+             view: "comfy"
            } = VC.defaults(:catalogues)
   end
 
