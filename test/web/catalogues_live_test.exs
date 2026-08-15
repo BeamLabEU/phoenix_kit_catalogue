@@ -226,6 +226,50 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
       assert root_order == ["Second root", "Drop target"]
     end
 
+    test "drop_row reparents and positions in one gesture", %{conn: conn} do
+      {:ok, folder} = Catalogue.create_folder(%{name: "Level target"})
+      inside_a = fixture_catalogue(%{name: "Inside A"})
+      inside_b = fixture_catalogue(%{name: "Inside B"})
+      {:ok, _} = Catalogue.move_catalogue_to_folder(inside_a, folder.uuid)
+      {:ok, _} = Catalogue.move_catalogue_to_folder(inside_b, folder.uuid)
+      loose = fixture_catalogue(%{name: "Loose one"})
+
+      {:ok, view, _html} = live(conn, @base)
+
+      # A root-level catalogue edge-dropped between the folder's two
+      # children lands in that folder AND between them.
+      render_click(view, "drop_row", %{
+        "type" => "catalogue",
+        "uuid" => loose.uuid,
+        "parent" => folder.uuid,
+        "ordered_ids" => [inside_a.uuid, loose.uuid, inside_b.uuid]
+      })
+
+      assert Catalogue.get_catalogue(loose.uuid).folder_uuid == folder.uuid
+
+      names =
+        Catalogue.catalogues_by_folder()
+        |> Map.get(folder.uuid, [])
+        |> Enum.map(& &1.name)
+
+      assert names == ["Inside A", "Loose one", "Inside B"]
+
+      # A folder edge-dropped under its own descendant is refused whole —
+      # no reparent AND no reorder applied.
+      {:ok, child} = Catalogue.create_folder(%{name: "Child level", parent_uuid: folder.uuid})
+
+      html =
+        render_click(view, "drop_row", %{
+          "type" => "folder",
+          "uuid" => folder.uuid,
+          "parent" => child.uuid,
+          "ordered_ids" => [folder.uuid]
+        })
+
+      assert Catalogue.get_folder(folder.uuid).parent_uuid == nil
+      assert html =~ "into itself or one of its subfolders"
+    end
+
     test "new_folder honors a validated parent from the drill level", %{conn: conn} do
       {:ok, folder} = Catalogue.create_folder(%{name: "Parent here"})
 

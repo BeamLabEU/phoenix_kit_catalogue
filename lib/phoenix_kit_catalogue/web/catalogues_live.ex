@@ -536,7 +536,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       <div
         data-tree-rootzone="1"
         data-tree-drop="root"
-        class="hidden absolute top-0 left-0 right-0 z-10 rounded-lg border-2 border-dashed border-primary/50 bg-base-100/95 py-2.5 text-center text-sm text-base-content/60"
+        class="hidden absolute top-0 left-0 right-0 z-10 rounded-lg border-2 border-dashed border-primary/50 bg-base-100 py-2.5 text-center text-sm text-base-content/60"
       >
         <.icon name="hero-arrow-up-tray" class="w-4 h-4 inline-block mr-1 align-text-bottom" />
         {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Drop here to move to root (unfiled)")}
@@ -731,7 +731,8 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
          the dead render, before LiveSocket spreads PhoenixKitHooks) —
          same pattern the April tree shipped with. Grab a row's grip:
            • folder MIDDLE → file into that folder
-           • row TOP/BOTTOM edge → reorder among same-parent siblings
+           • ANY row's TOP/BOTTOM edge → insert at that row's level
+             (reparent + position in one drop)
            • root zone (revealed while dragging) → unfile to root
          The context enforces cycle / trashed-target guards server-side. --%>
     <script>
@@ -786,7 +787,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
               if (intent === "into") {
                 hook.pushEvent("move_to_folder", { type: drag.type, uuid: drag.uuid, target: row.dataset.treeDrop });
               } else {
-                hook.reorder(drag, row, intent);
+                hook.dropAt(drag, row, intent);
               }
             };
           });
@@ -796,12 +797,16 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
               if (!hook._drag) return;
               e.preventDefault();
               e.dataTransfer.dropEffect = "move";
-              zone.classList.add("bg-primary/10");
+              // Inline + opaque: a bg-primary/10 utility would REPLACE the
+              // zone's base background (same CSS property), turning it
+              // translucent so the header bleeds through on hover.
+              zone.style.backgroundColor =
+                "color-mix(in oklab, var(--color-primary) 12%, var(--color-base-100))";
             };
-            zone.ondragleave = function() { zone.classList.remove("bg-primary/10"); };
+            zone.ondragleave = function() { zone.style.backgroundColor = ""; };
             zone.ondrop = function(e) {
               e.preventDefault();
-              zone.classList.remove("bg-primary/10");
+              zone.style.backgroundColor = "";
               if (hook._drag) {
                 hook.pushEvent("move_to_folder", { type: hook._drag.type, uuid: hook._drag.uuid, target: "root" });
               }
@@ -810,6 +815,8 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         },
 
         // "into" | "before" | "after" | null for the pointer over `row`.
+        // Edges are valid on ANY row: the drop inserts at that row's level
+        // (reparenting if needed), not just among original siblings.
         dropIntent(row, e) {
           var drag = this._drag;
           if (!drag || drag.uuid === row.dataset.treeUuid) return null;
@@ -817,27 +824,39 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
           var ratio = (e.clientY - rect.top) / rect.height;
           var isFolder = row.hasAttribute("data-tree-drop");
           if (isFolder && ratio > 0.25 && ratio < 0.75) return "into";
-          if (drag.parent === row.dataset.treeParent && drag.type === row.dataset.treeType) {
-            return ratio < 0.5 ? "before" : "after";
-          }
-          // Over a folder but not a sibling → fall back to filing into it.
-          return isFolder ? "into" : null;
+          return ratio < 0.5 ? "before" : "after";
         },
 
-        reorder(drag, row, intent) {
-          // Same-parent, same-type siblings in current DOM order.
-          var order = [];
+        // Insert `drag` before/after `row` WITHIN row's level. Levels render
+        // folders first, then catalogues, so the dragged item's position is
+        // computed against its own type group: count same-type rows above
+        // the insertion point. One event carries reparent + new order; the
+        // server validates (cycle guard for folders) and writes both.
+        dropAt(drag, row, intent) {
+          var targetParent = row.dataset.treeParent;
+          var level = [];
           this.el.querySelectorAll("[data-tree-uuid]").forEach(function(r) {
-            if (r.dataset.treeParent === drag.parent &&
-                r.dataset.treeType === drag.type &&
-                r.dataset.treeUuid !== drag.uuid) {
-              order.push(r.dataset.treeUuid);
+            if (r.dataset.treeParent === targetParent && r.dataset.treeUuid !== drag.uuid) {
+              level.push(r);
             }
           });
-          var idx = order.indexOf(row.dataset.treeUuid);
-          if (idx < 0) return;
-          order.splice(intent === "before" ? idx : idx + 1, 0, drag.uuid);
-          this.pushEvent(drag.type === "folder" ? "reorder_folders" : "reorder_catalogues", { ordered_ids: order });
+          var anchorIdx = level.indexOf(row);
+          if (anchorIdx < 0) return;
+          var insertAt = intent === "before" ? anchorIdx : anchorIdx + 1;
+
+          var sameType = level.filter(function(r) { return r.dataset.treeType === drag.type; });
+          var typeIdx = level.slice(0, insertAt).filter(function(r) {
+            return r.dataset.treeType === drag.type;
+          }).length;
+
+          var order = sameType.map(function(r) { return r.dataset.treeUuid; });
+          order.splice(typeIdx, 0, drag.uuid);
+          this.pushEvent("drop_row", {
+            type: drag.type,
+            uuid: drag.uuid,
+            parent: targetParent,
+            ordered_ids: order
+          });
         },
 
         showIndicator(row, intent) {
@@ -868,7 +887,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
           this._drag = null;
           this.el.querySelectorAll("[data-tree-rootzone]").forEach(function(z) {
             z.classList.add("hidden");
-            z.classList.remove("bg-primary/10");
+            z.style.backgroundColor = "";
           });
           this.clearAll();
         }
@@ -893,6 +912,45 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   end
 
   defp default_folder_name, do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "New folder")
+
+  # Move (no-op when the parent is unchanged) then write the level's
+  # same-type order. A failed move skips the reorder — the flash carries
+  # the reason (cycle, trashed target, ...).
+  defp apply_drop_row(socket, "catalogue", uuid, target, ordered_ids) do
+    with %{} = catalogue <- Catalogue.get_catalogue(uuid),
+         {:ok, _} <- Catalogue.move_catalogue_to_folder(catalogue, target, actor_opts(socket)),
+         :ok <- Catalogue.reorder_catalogues(ordered_ids, actor_opts(socket)) do
+      put_flash(socket, :info, Gettext.gettext(PhoenixKitCatalogue.Gettext, "Catalogue moved."))
+    else
+      {:error, reason} ->
+        put_flash(socket, :error, move_error_message(reason))
+
+      _ ->
+        put_flash(
+          socket,
+          :error,
+          Gettext.gettext(PhoenixKitCatalogue.Gettext, "Failed to move catalogue.")
+        )
+    end
+  end
+
+  defp apply_drop_row(socket, "folder", uuid, target, ordered_ids) do
+    with %{} = folder <- Catalogue.get_folder(uuid),
+         {:ok, _} <- Catalogue.move_folder(folder, target, actor_opts(socket)),
+         :ok <- Catalogue.reorder_folders(ordered_ids, actor_opts(socket)) do
+      put_flash(socket, :info, Gettext.gettext(PhoenixKitCatalogue.Gettext, "Folder moved."))
+    else
+      {:error, reason} ->
+        put_flash(socket, :error, move_error_message(reason))
+
+      _ ->
+        put_flash(
+          socket,
+          :error,
+          Gettext.gettext(PhoenixKitCatalogue.Gettext, "Failed to move folder.")
+        )
+    end
+  end
 
   defp do_move_catalogue(socket, uuid, target) do
     with %{} = catalogue <- Catalogue.get_catalogue(uuid),
@@ -1668,6 +1726,29 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       end
 
     {:noreply, load_data(socket, :index)}
+  end
+
+  # Edge drop anywhere in the tree: insert the dragged row at the target
+  # row's level — reparent (validated: cycle/trashed guards) plus the new
+  # same-type sibling order for that level, in one event.
+  def handle_event(
+        "drop_row",
+        %{"type" => type, "uuid" => uuid, "parent" => parent, "ordered_ids" => ordered_ids},
+        socket
+      )
+      when type in ~w(folder catalogue) and is_list(ordered_ids) do
+    cfg = current_cfg(socket.assigns)
+    target = if parent == "root", do: nil, else: parent
+
+    if catalogues_tree_mode?(
+         cfg,
+         socket.assigns.catalogue_view_mode,
+         socket.assigns.folder_lookup
+       ) do
+      {:noreply, socket |> apply_drop_row(type, uuid, target, ordered_ids) |> load_data(:index)}
+    else
+      {:noreply, socket}
+    end
   end
 
   # Sibling reorder from the tree hook — a same-parent subset in the new
