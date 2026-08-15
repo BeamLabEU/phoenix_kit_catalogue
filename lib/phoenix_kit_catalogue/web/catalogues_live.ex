@@ -526,7 +526,6 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
                     >
                       {folder.name}
                     </button>
-                    <span class="text-xs text-base-content/40 tabular-nums">{meta.count}</span>
                   <% end %>
                 </.tree_name_cell>
                 <.table_default_cell :for={c <- @cols} class={c.align == :right && "text-right"}>
