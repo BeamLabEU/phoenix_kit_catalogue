@@ -586,6 +586,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
                   </td>
                   <.tree_name_cell
                     depth={depth}
+                    indent="1rem"
                     expandable={meta.has_children}
                     expanded={meta.expanded}
                     toggle_event="toggle_folder_expand"
@@ -685,6 +686,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
                   </td>
                   <.tree_name_cell
                     depth={depth}
+                    indent="1rem"
                     icon="hero-document-text"
                     icon_class="w-4 h-4 text-base-content/40 shrink-0"
                   >
