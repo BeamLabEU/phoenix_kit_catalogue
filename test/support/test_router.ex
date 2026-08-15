@@ -35,6 +35,12 @@ defmodule PhoenixKitCatalogue.Test.Router do
       live("/", CataloguesLive, :index)
       live("/manufacturers", CataloguesLive, :manufacturers)
       live("/suppliers", CataloguesLive, :suppliers)
+      live("/attributes", CataloguesLive, :attribute_groups)
+
+      # Attribute group CRUD (literal "/attributes" prefix; declared before
+      # the "/:uuid" catch-all)
+      live("/attributes/new", AttributeGroupFormLive, :new)
+      live("/attributes/:uuid/edit", AttributeGroupFormLive, :edit)
 
       # Catalogue CRUD
       live("/new", CatalogueFormLive, :new)

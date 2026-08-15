@@ -1122,3 +1122,96 @@ msgstr "Сохранить"
 
 msgid "Save & Exit"
 msgstr "Сохранить и выйти"
+
+msgid "Attributes"
+msgstr "Атрибуты"
+
+msgid "Archive"
+msgstr "Архивировать"
+
+msgid "Add"
+msgstr "Добавить"
+
+msgid "New Attribute Group"
+msgstr "Новая группа атрибутов"
+
+msgid "Edit Attribute Group"
+msgstr "Изменить группу атрибутов"
+
+msgid "Delete Attribute Group"
+msgstr "Удалить группу атрибутов"
+
+msgid "Attribute group not found."
+msgstr "Группа атрибутов не найдена."
+
+msgid "Attribute group created."
+msgstr "Группа атрибутов создана."
+
+msgid "Attribute group updated."
+msgstr "Группа атрибутов обновлена."
+
+msgid "Attribute group deleted."
+msgstr "Группа атрибутов удалена."
+
+msgid "Failed to delete attribute group."
+msgstr "Не удалось удалить группу атрибутов."
+
+msgid "Failed to update attribute group."
+msgstr "Не удалось обновить группу атрибутов."
+
+msgid "This group is used by items — archive it instead."
+msgstr "Эта группа используется товарами — вместо удаления заархивируйте её."
+
+msgid "No attribute groups yet. Create one to define reusable options like colors and finishes."
+msgstr "Групп атрибутов пока нет. Создайте группу, чтобы задать многоразовые опции — цвета, отделки и т.д."
+
+msgid "This will permanently delete this group with all its attributes and values. Groups used by items cannot be deleted — archive them instead."
+msgstr "Это навсегда удалит группу со всеми атрибутами и значениями. Группы, используемые товарами, удалить нельзя — заархивируйте их."
+
+msgid "e.g., Idea doors"
+msgstr "напр., Двери Idea"
+
+msgid "Define a reusable set of options — colors, trims, surfaces — that items can inherit."
+msgstr "Задайте многоразовый набор опций — цвета, канты, поверхности — которые товары могут наследовать."
+
+msgid "Manage this group's attributes, values, and translations."
+msgstr "Управляйте атрибутами, значениями и переводами этой группы."
+
+msgid "No attributes yet. Add one below — e.g. Color, Trim, Surface."
+msgstr "Атрибутов пока нет. Добавьте ниже — напр. Цвет, Кант, Поверхность."
+
+msgid "Multiple values"
+msgstr "Несколько значений"
+
+msgid "Fixed value"
+msgstr "Фиксированное значение"
+
+msgid "Failed to add attribute."
+msgstr "Не удалось добавить атрибут."
+
+msgid "Failed to add value."
+msgstr "Не удалось добавить значение."
+
+msgid "Delete attribute"
+msgstr "Удалить атрибут"
+
+msgid "This removes the attribute and all its values from the group."
+msgstr "Это удалит атрибут и все его значения из группы."
+
+msgid "Add value..."
+msgstr "Добавить значение..."
+
+msgid "New attribute name..."
+msgstr "Название нового атрибута..."
+
+msgid "Default value"
+msgstr "Значение по умолчанию"
+
+msgid "Make default"
+msgstr "Сделать по умолчанию"
+
+msgid "Remove value"
+msgstr "Убрать значение"
+
+msgid "You are editing translations. Empty fields fall back to the primary language; new attributes and values are always created in the primary language."
+msgstr "Вы редактируете переводы. Пустые поля используют основной язык; новые атрибуты и значения всегда создаются на основном языке."

@@ -1113,3 +1113,96 @@ msgstr "Save"
 
 msgid "Save & Exit"
 msgstr "Save & Exit"
+
+msgid "Attributes"
+msgstr "Attributes"
+
+msgid "Archive"
+msgstr "Archive"
+
+msgid "Add"
+msgstr "Add"
+
+msgid "New Attribute Group"
+msgstr "New Attribute Group"
+
+msgid "Edit Attribute Group"
+msgstr "Edit Attribute Group"
+
+msgid "Delete Attribute Group"
+msgstr "Delete Attribute Group"
+
+msgid "Attribute group not found."
+msgstr "Attribute group not found."
+
+msgid "Attribute group created."
+msgstr "Attribute group created."
+
+msgid "Attribute group updated."
+msgstr "Attribute group updated."
+
+msgid "Attribute group deleted."
+msgstr "Attribute group deleted."
+
+msgid "Failed to delete attribute group."
+msgstr "Failed to delete attribute group."
+
+msgid "Failed to update attribute group."
+msgstr "Failed to update attribute group."
+
+msgid "This group is used by items — archive it instead."
+msgstr "This group is used by items — archive it instead."
+
+msgid "No attribute groups yet. Create one to define reusable options like colors and finishes."
+msgstr "No attribute groups yet. Create one to define reusable options like colors and finishes."
+
+msgid "This will permanently delete this group with all its attributes and values. Groups used by items cannot be deleted — archive them instead."
+msgstr "This will permanently delete this group with all its attributes and values. Groups used by items cannot be deleted — archive them instead."
+
+msgid "e.g., Idea doors"
+msgstr "e.g., Idea doors"
+
+msgid "Define a reusable set of options — colors, trims, surfaces — that items can inherit."
+msgstr "Define a reusable set of options — colors, trims, surfaces — that items can inherit."
+
+msgid "Manage this group's attributes, values, and translations."
+msgstr "Manage this group's attributes, values, and translations."
+
+msgid "No attributes yet. Add one below — e.g. Color, Trim, Surface."
+msgstr "No attributes yet. Add one below — e.g. Color, Trim, Surface."
+
+msgid "Multiple values"
+msgstr "Multiple values"
+
+msgid "Fixed value"
+msgstr "Fixed value"
+
+msgid "Failed to add attribute."
+msgstr "Failed to add attribute."
+
+msgid "Failed to add value."
+msgstr "Failed to add value."
+
+msgid "Delete attribute"
+msgstr "Delete attribute"
+
+msgid "This removes the attribute and all its values from the group."
+msgstr "This removes the attribute and all its values from the group."
+
+msgid "Add value..."
+msgstr "Add value..."
+
+msgid "New attribute name..."
+msgstr "New attribute name..."
+
+msgid "Default value"
+msgstr "Default value"
+
+msgid "Make default"
+msgstr "Make default"
+
+msgid "Remove value"
+msgstr "Remove value"
+
+msgid "You are editing translations. Empty fields fall back to the primary language; new attributes and values are always created in the primary language."
+msgstr "You are editing translations. Empty fields fall back to the primary language; new attributes and values are always created in the primary language."

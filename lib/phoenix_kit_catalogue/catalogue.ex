@@ -4738,6 +4738,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
   # ═══════════════════════════════════════════════════════════════════
 
   defdelegate list_attribute_groups(opts \\ []), to: Attributes
+  defdelegate change_attribute_group(group, attrs \\ %{}), to: Attributes
   defdelegate get_attribute_group(uuid), to: Attributes
   defdelegate get_attribute_group_full(uuid), to: Attributes
   defdelegate attribute_counts(group_uuids), to: Attributes

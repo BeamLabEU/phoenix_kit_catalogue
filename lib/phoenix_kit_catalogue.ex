@@ -162,7 +162,7 @@ defmodule PhoenixKitCatalogue do
         # detail/form pages — which looks wrong in the sidebar.
         match:
           {:regex,
-           ~r"^/admin/catalogue(/(?!manufacturers|suppliers|import|export|events|pdfs).*)?$"},
+           ~r"^/admin/catalogue(/(?!manufacturers|suppliers|attributes|import|export|events|pdfs).*)?$"},
         parent: :admin_catalogue,
         live_view: {PhoenixKitCatalogue.Web.CataloguesLive, :index}
       },
@@ -192,6 +192,53 @@ defmodule PhoenixKitCatalogue do
         parent: :admin_catalogue,
         live_view: {PhoenixKitCatalogue.Web.CataloguesLive, :suppliers}
       },
+      # Attributes tab — reusable attribute groups. `match: :prefix` keeps
+      # it lit on the hidden new/edit subpages below.
+      %Tab{
+        id: :admin_catalogue_attributes,
+        label: "Attributes",
+        gettext_backend: PhoenixKitCatalogue.Gettext,
+        gettext_domain: "default",
+        icon: "hero-swatch",
+        path: "catalogue/attributes",
+        priority: 664,
+        level: :admin,
+        permission: module_key(),
+        match: :prefix,
+        parent: :admin_catalogue,
+        live_view: {PhoenixKitCatalogue.Web.CataloguesLive, :attribute_groups}
+      },
+      # Attribute group forms — hidden; declared here (long before the
+      # `catalogue/:uuid` wildcard) so the literal "attributes" segment
+      # wins the route match.
+      %Tab{
+        id: :admin_catalogue_attribute_group_new,
+        label: "New Attribute Group",
+        gettext_backend: PhoenixKitCatalogue.Gettext,
+        gettext_domain: "default",
+        icon: "hero-plus",
+        path: "catalogue/attributes/new",
+        priority: 668,
+        level: :admin,
+        permission: module_key(),
+        parent: :admin_catalogue,
+        visible: false,
+        live_view: {PhoenixKitCatalogue.Web.AttributeGroupFormLive, :new}
+      },
+      %Tab{
+        id: :admin_catalogue_attribute_group_edit,
+        label: "Edit Attribute Group",
+        gettext_backend: PhoenixKitCatalogue.Gettext,
+        gettext_domain: "default",
+        icon: "hero-pencil-square",
+        path: "catalogue/attributes/:uuid/edit",
+        priority: 669,
+        level: :admin,
+        permission: module_key(),
+        parent: :admin_catalogue,
+        visible: false,
+        live_view: {PhoenixKitCatalogue.Web.AttributeGroupFormLive, :edit}
+      },
       # Import tab
       %Tab{
         id: :admin_catalogue_import,
@@ -200,7 +247,7 @@ defmodule PhoenixKitCatalogue do
         gettext_domain: "default",
         icon: "hero-arrow-down-tray",
         path: "catalogue/import",
-        priority: 664,
+        priority: 665,
         level: :admin,
         permission: module_key(),
         parent: :admin_catalogue,
@@ -214,7 +261,7 @@ defmodule PhoenixKitCatalogue do
         gettext_domain: "default",
         icon: "hero-arrow-up-tray",
         path: "catalogue/export",
-        priority: 665,
+        priority: 666,
         level: :admin,
         permission: module_key(),
         parent: :admin_catalogue,
@@ -228,7 +275,7 @@ defmodule PhoenixKitCatalogue do
         gettext_domain: "default",
         icon: "hero-clock",
         path: "catalogue/events",
-        priority: 666,
+        priority: 667,
         level: :admin,
         permission: module_key(),
         parent: :admin_catalogue,

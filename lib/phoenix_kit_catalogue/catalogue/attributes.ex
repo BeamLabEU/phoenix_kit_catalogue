@@ -125,6 +125,12 @@ defmodule PhoenixKitCatalogue.Catalogue.Attributes do
     |> Map.new()
   end
 
+  @doc "Returns a changeset for tracking attribute-group form changes."
+  @spec change_attribute_group(AttributeGroup.t(), map()) :: Ecto.Changeset.t()
+  def change_attribute_group(%AttributeGroup{} = group, attrs \\ %{}) do
+    AttributeGroup.changeset(group, attrs)
+  end
+
   @doc "Creates an attribute group."
   @spec create_attribute_group(map(), keyword()) ::
           {:ok, AttributeGroup.t()} | {:error, Ecto.Changeset.t()}
