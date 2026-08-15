@@ -3160,8 +3160,15 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         total_count={@items_total}
         class="flex flex-col gap-2"
       >
-        <.bulk_actions_toolbar
-          on_open_reorder="open_items_reorder_modal"
+        <%!-- With the sort selector + Reorder-all promoted to the page
+             control row, the toolbar has nothing to show until rows are
+             selected — hide the empty bar (hook re-shows it on selection). --%>
+        <div
+          data-bulk-show={if @controls_in_page_header, do: "has-selection"}
+          style={if @controls_in_page_header, do: "display: none;"}
+        >
+          <.bulk_actions_toolbar
+            on_open_reorder="open_items_reorder_modal"
           reorder_dialog_id="items-reorder-modal"
           reorder_gate={
             if not @controls_in_page_header and @items_total > 1 and
@@ -3198,7 +3205,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Move")}
             </button>
           </:leading>
-        </.bulk_actions_toolbar>
+          </.bulk_actions_toolbar>
+        </div>
 
         <.table_default
           id="level-items-active"
