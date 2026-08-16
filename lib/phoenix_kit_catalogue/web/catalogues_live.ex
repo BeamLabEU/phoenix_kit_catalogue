@@ -2264,21 +2264,6 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
             :if={@catalogue_view_mode == "deleted" and @folder_tree_deleted != []}
             tree={@folder_tree_deleted}
           />
-          <.catalogues_tree_table
-            :if={tree?}
-            file_counts={@catalogue_file_counts}
-            rows={
-              build_catalogue_tree_rows(
-                @folder_tree,
-                @catalogue_rows,
-                @expanded_folders,
-                current_tree_folder(cfg, @folder_lookup)
-              )
-            }
-            cfg={cfg}
-            current={current_tree_folder(cfg, @folder_lookup)}
-            renaming_folder={@renaming_folder}
-          />
           <%!-- One shared row: Active/Deleted tabs (only when the trash
                holds anything) + the view-mode toggle. Both are "how am I
                looking at this list" controls — no separate rows. --%>
@@ -2319,6 +2304,21 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
             </div>
             <.catalogues_view_toggle view={cfg.view} class="ml-auto" />
           </div>
+          <.catalogues_tree_table
+            :if={tree?}
+            file_counts={@catalogue_file_counts}
+            rows={
+              build_catalogue_tree_rows(
+                @folder_tree,
+                @catalogue_rows,
+                @expanded_folders,
+                current_tree_folder(cfg, @folder_lookup)
+              )
+            }
+            cfg={cfg}
+            current={current_tree_folder(cfg, @folder_lookup)}
+            renaming_folder={@renaming_folder}
+          />
           <.catalogues_card_level
             :if={card_level?}
             folder_tree={@folder_tree}
