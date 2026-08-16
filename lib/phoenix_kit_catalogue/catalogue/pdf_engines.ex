@@ -112,16 +112,39 @@ defmodule PhoenixKitCatalogue.Catalogue.PdfEngines do
   # exotic platform where the precompiled artifact failed to load from
   # crashing the worker — it degrades to poppler with a clear reason.
   defp open_pdfium(path) do
-    with true <- Code.ensure_loaded?(ExPdfium),
-         {:ok, doc} <- ExPdfium.open(path),
-         {:ok, n} <- ExPdfium.page_count(doc) do
-      {:ok, %{name: "pdfium", page_count: n, state: doc}}
+    if Code.ensure_loaded?(ExPdfium) do
+      case ExPdfium.open(path) do
+        {:ok, doc} -> finish_pdfium_open(doc)
+        {:error, reason} -> {:error, "pdfium", reason}
+      end
     else
-      false -> {:error, "pdfium", :not_loaded}
-      {:error, reason} -> {:error, "pdfium", reason}
+      {:error, "pdfium", :not_loaded}
     end
   rescue
     e -> {:error, "pdfium", Exception.message(e)}
+  end
+
+  # `page_count == 0` is an open failure (try poppler), not a successful
+  # empty document — committing here would mark the extraction extracted
+  # with no pages and refuse retry. Close the handle on every reject so
+  # a page_count error does not leak the NIF resource until GC.
+  defp finish_pdfium_open(doc) do
+    case ExPdfium.page_count(doc) do
+      {:ok, n} when is_integer(n) and n > 0 ->
+        {:ok, %{name: "pdfium", page_count: n, state: doc}}
+
+      {:ok, n} ->
+        _ = ExPdfium.close(doc)
+        {:error, "pdfium", {:empty_document, n}}
+
+      {:error, reason} ->
+        _ = ExPdfium.close(doc)
+        {:error, "pdfium", reason}
+    end
+  rescue
+    e ->
+      _ = ExPdfium.close(doc)
+      {:error, "pdfium", Exception.message(e)}
   end
 
   # ── poppler ─────────────────────────────────────────────────────────
@@ -129,8 +152,14 @@ defmodule PhoenixKitCatalogue.Catalogue.PdfEngines do
   defp open_poppler(path) do
     if System.find_executable("pdftotext") && System.find_executable("pdfinfo") do
       case pdfinfo_page_count(path) do
-        {:ok, n} -> {:ok, %{name: "poppler", page_count: n, state: path}}
-        {:error, reason} -> {:error, "poppler", reason}
+        {:ok, n} when is_integer(n) and n > 0 ->
+          {:ok, %{name: "poppler", page_count: n, state: path}}
+
+        {:ok, n} ->
+          {:error, "poppler", {:empty_document, n}}
+
+        {:error, reason} ->
+          {:error, "poppler", reason}
       end
     else
       {:error, "poppler", :not_installed}

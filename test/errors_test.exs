@@ -65,6 +65,28 @@ defmodule PhoenixKitCatalogue.ErrorsTest do
                "Cannot restore — the parent catalogue is deleted. Restore the catalogue first."
     end
 
+    test "cycle" do
+      assert Errors.message(:cycle) ==
+               "Can't move a folder into itself or one of its subfolders."
+    end
+
+    test "folder_not_found" do
+      assert Errors.message(:folder_not_found) == "That folder no longer exists."
+    end
+
+    test "folder_trashed" do
+      assert Errors.message(:folder_trashed) == "That folder is in the trash."
+    end
+
+    test "not_empty" do
+      assert Errors.message(:not_empty) ==
+               "Only empty folders can be deleted — move its contents out first."
+    end
+
+    test "invalid_entry" do
+      assert Errors.message(:invalid_entry) == "Failed to save the new order."
+    end
+
     # `:pdf_invalid_format` and `:pdf_extraction_failed` removed
     # 2026-05-06 (Phase 2 sweep) — neither had a caller. The PDF
     # library upload pipeline rejects non-PDF MIME at the LV's

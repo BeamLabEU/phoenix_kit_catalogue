@@ -25,7 +25,7 @@ defmodule PhoenixKitCatalogue.FoldersTest do
 
   describe "list_folder_tree/1" do
     test "returns folders depth-first, newest-first within each level" do
-      # `create_folder` front-inserts (see `front_folder_position/1`): a
+      # `create_folder` front-inserts (see `front_level_position/1`): a
       # new folder sorts to the top of its level so it's immediately
       # visible. So at the root, b (created after a) comes first; then the
       # DFS descends a's subtree.
@@ -306,10 +306,57 @@ defmodule PhoenixKitCatalogue.FoldersTest do
     test "restores to root when the folder is legacy-trashed (hidden)" do
       folder = create_folder(%{name: "Hidden"})
       cat = trashed_catalogue_in(folder.uuid)
+      assert cat.folder_uuid == folder.uuid
       {:ok, _} = Catalogue.trash_folder(folder)
 
       {:ok, restored} = cat.uuid |> Catalogue.get_catalogue() |> Catalogue.restore_catalogue()
       assert restored.folder_uuid == nil
+    end
+  end
+
+  describe "interleaved level positions" do
+    test "a new folder at a catalogue-only level lands in front of the catalogues" do
+      cat = create_catalogue(%{name: "Already here"})
+      {:ok, folder} = Catalogue.create_folder(%{name: "New title"})
+
+      assert folder.position < cat.position
+    end
+
+    test "filing a catalogue into a folder-only level appends after the folders" do
+      parent = create_folder(%{name: "Parent"})
+      child = create_folder(%{name: "Child", parent_uuid: parent.uuid})
+      cat = create_catalogue(%{name: "Filed late"})
+
+      {:ok, moved} = Catalogue.move_catalogue_to_folder(cat, parent.uuid)
+      assert moved.position > child.position
+    end
+  end
+
+  describe "delete_empty_folder/2" do
+    test "hard-deletes an empty folder" do
+      folder = create_folder(%{name: "Empty"})
+      assert {:ok, _} = Catalogue.delete_empty_folder(folder)
+      assert is_nil(Catalogue.get_folder(folder.uuid))
+    end
+
+    test "refuses a folder that still has a subfolder" do
+      parent = create_folder(%{name: "Parent"})
+      _child = create_folder(%{name: "Child", parent_uuid: parent.uuid})
+
+      assert {:error, :not_empty} = Catalogue.delete_empty_folder(parent)
+      assert Catalogue.get_folder(parent.uuid)
+    end
+
+    test "refuses a folder that still has a catalogue, including a trashed one" do
+      folder = create_folder(%{name: "Occupied"})
+      cat = create_catalogue(%{name: "Inside"})
+      {:ok, cat} = Catalogue.move_catalogue_to_folder(cat, folder.uuid)
+
+      assert {:error, :not_empty} = Catalogue.delete_empty_folder(folder)
+
+      {:ok, _} = Catalogue.trash_catalogue(cat)
+      assert {:error, :not_empty} = Catalogue.delete_empty_folder(folder)
+      assert Catalogue.get_folder(folder.uuid)
     end
   end
 end

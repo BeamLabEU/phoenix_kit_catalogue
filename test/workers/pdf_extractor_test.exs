@@ -22,6 +22,10 @@ defmodule PhoenixKitCatalogue.Workers.PdfExtractorTest do
       assert PdfExtractor.normalize("Pre-\nmium") == "Premium"
     end
 
+    test "undoes Windows line-break hyphenation: 'Pre-\\r\\nmium' → 'Premium'" do
+      assert PdfExtractor.normalize("Pre-\r\nmium") == "Premium"
+    end
+
     test "unfolds the five common ligatures (ﬁ ﬂ ﬀ ﬃ ﬄ)" do
       input = "oﬃce, ﬁt, ﬂow, oﬀ, ﬄuent"
       assert PdfExtractor.normalize(input) == "office, fit, flow, off, ffluent"
@@ -105,6 +109,21 @@ defmodule PhoenixKitCatalogue.Workers.PdfExtractorTest do
     test "falls back to inspect/1 for unknown shapes" do
       assert PdfExtractor.inspect_reason({:something_else, 1, 2}) =~ "{:something_else, 1, 2}"
       assert PdfExtractor.inspect_reason(:bare_atom) == ":bare_atom"
+    end
+
+    test "formats {:all_pages_failed, summary}" do
+      assert PdfExtractor.inspect_reason({:all_pages_failed, "p1: :boom"}) ==
+               "all pages failed (p1: :boom)"
+    end
+  end
+
+  describe "retry contract" do
+    test "failed is not a success terminal — Oban retries must re-run" do
+      refute PdfExtractor.success_terminal?("failed")
+      refute PdfExtractor.success_terminal?("pending")
+      refute PdfExtractor.success_terminal?("extracting")
+      assert PdfExtractor.success_terminal?("extracted")
+      assert PdfExtractor.success_terminal?("scanned_no_text")
     end
   end
 

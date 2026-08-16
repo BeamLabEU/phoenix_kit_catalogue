@@ -388,6 +388,38 @@ defmodule PhoenixKitCatalogue.CatalogueTest do
       assert :ok = Catalogue.place_level_rows([])
     end
 
+    test "place_level_rows/2 writes one interleaved 1..N sequence" do
+      a = create_catalogue(%{name: "Order A"})
+      b = create_catalogue(%{name: "Order B"})
+      {:ok, folder} = Catalogue.create_folder(%{name: "Order F"})
+
+      assert :ok =
+               Catalogue.place_level_rows([
+                 {"folder", folder.uuid},
+                 {"catalogue", b.uuid},
+                 {"catalogue", a.uuid}
+               ])
+
+      assert Catalogue.get_folder(folder.uuid).position == 1
+      assert Catalogue.get_catalogue(b.uuid).position == 2
+      assert Catalogue.get_catalogue(a.uuid).position == 3
+    end
+
+    test "place_level_rows/2 rejects mixed levels and unknown types" do
+      {:ok, parent} = Catalogue.create_folder(%{name: "Parent level"})
+      {:ok, child} = Catalogue.create_folder(%{name: "Child level", parent_uuid: parent.uuid})
+      a = create_catalogue(%{name: "Root cat"})
+
+      assert {:error, :not_siblings} =
+               Catalogue.place_level_rows([
+                 {"folder", parent.uuid},
+                 {"folder", child.uuid}
+               ])
+
+      assert {:error, :invalid_entry} =
+               Catalogue.place_level_rows([{"item", a.uuid}])
+    end
+
     test "reorder writers broadcast so other tabs redraw (issue #56)" do
       a = create_catalogue(%{name: "Order A"})
       b = create_catalogue(%{name: "Order B"})
@@ -437,6 +469,20 @@ defmodule PhoenixKitCatalogue.CatalogueTest do
 
       assert Catalogue.category_children_counts(cat.uuid, mode: :active) ==
                %{parent.uuid => 1}
+
+      assert MapSet.member?(
+               Catalogue.category_uuids_with_children(cat.uuid, mode: :deleted),
+               parent.uuid
+             )
+
+      # A parent with only an active child must not light the deleted chevron.
+      {:ok, _} =
+        deleted_child.uuid |> Catalogue.get_category() |> Catalogue.restore_category()
+
+      refute MapSet.member?(
+               Catalogue.category_uuids_with_children(cat.uuid, mode: :deleted),
+               parent.uuid
+             )
     end
 
     test "create_category/1 requires name and catalogue_uuid" do

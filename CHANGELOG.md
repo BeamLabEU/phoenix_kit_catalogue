@@ -1,3 +1,59 @@
+## 0.16.0 - 2026-08-16
+
+### Added
+
+- **Folders as a file explorer** on the catalogues index (#67). Inline
+  tree with drill, chevrons, Up row, and drop-anywhere drag-and-drop;
+  card view mirrors the tree as folder group boxes. Folders and
+  catalogues share one interleaved manual order per level
+  (`place_level_rows/2`). New folders sort to the front of their level;
+  empty folders delete permanently (`delete_empty_folder/2`).
+- **In-app PDF text extraction** via pdfium (`ex_pdfium` precompiled
+  NIF) with poppler as a fallback when installed. Hosts no longer need
+  system packages for PDF search. The winning engine is recorded on the
+  `pdf.extracted` activity.
+
+### Changed
+
+- **Admin headers** use the core breadcrumb (`page_crumbs`). The detail
+  page trail lives in the header; the in-page slot is the level
+  description. Add Category is root-only; categories append at creation;
+  columns editors are live (no Apply).
+- **Item picker reopen** browses the empty-query first page when the
+  input still holds the selected item's name (#63 follow-up).
+- Catalogue/folder position writers share one `pg_advisory_xact_lock`
+  (issue #56), including create/move/delete — not only the three
+  reorder functions.
+- **Minimum `phoenix_kit` raised to `~> 2.8`** — headers, live columns,
+  and UrlState (#719) live there. 2.3–2.7 fail `warnings-as-errors`.
+
+### Fixed
+
+- **Oban PDF retries were a no-op.** `fail/2` marked the row `failed`
+  and the next attempt short-circuited as success, so `max_attempts: 3`
+  never re-ran. Failed rows stay retryable until the last attempt;
+  `mark_extracted` / `mark_scanned_no_text` errors now propagate.
+- **`page_count == 0` was stored as a successful extraction**, which
+  blocked retry. pdfium/poppler now treat an empty document as an open
+  failure and continue the chain.
+- **New folders/catalogues ignored the other type** when picking a
+  position, so a catalogue filed into a folder-only level (or a folder
+  created on a catalogue-only level) landed in the middle of the
+  interleaved order.
+- **`category_uuids_with_children(:deleted)` counted active children**,
+  lighting a chevron whose deleted-view child list was empty.
+- **`place_level_rows/2`** rejected nothing: mixed-level payloads
+  rewrote another level's positions, and an unknown type crashed the
+  LiveView inside the transaction.
+- **“Reorder all” in the folder tree** rewrote a global catalogue
+  `1..N` and undid the interleaved per-level order. The button and
+  handler are flat-list only now.
+- **Detail-page column editor** overwrote the other table's columns on
+  the next save (`custom_fields` is a whole-column write; the user
+  snapshot was stale).
+- **A stale folder filter** after deleting or watching another tab
+  hide the tree and empty the flat list.
+
 ## 0.15.1 - 2026-08-15
 
 ### Fixed
