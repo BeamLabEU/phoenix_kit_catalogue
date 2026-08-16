@@ -439,12 +439,6 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLive do
             max_size_description="200MB"
           />
 
-          <div class="text-xs text-base-content/60 mt-2 italic">
-            {Gettext.gettext(
-              PhoenixKitCatalogue.Gettext,
-              "The progress bar shows the browser → server upload only. Don't refresh until it completes — interrupted uploads are not resumed."
-            )}
-          </div>
 
           <%= for entry <- @uploads.pdf.entries do %>
             <%= for err <- upload_errors(@uploads.pdf, entry) do %>
