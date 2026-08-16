@@ -34,6 +34,12 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
 
   @translatable_fields ["name", "description"]
 
+  # Primary-language columns survive validates/saves fired from a
+  # secondary language tab (same shape as the attribute-group fix —
+  # without this, filling all languages before the first save loses the
+  # primary text on :new).
+  @preserve_fields %{"name" => :name, "description" => :description}
+
   # PhoenixKit auto-applies its admin chrome layout to external module admin
   # views via socket.private[:live_layout]. Opt out here so this view can
   # self-wrap with LayoutWrapper.app_layout and push its title/subtitle into
@@ -171,7 +177,8 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
       |> Map.put_new("catalogue_uuid", socket.assigns.catalogue_uuid)
       |> normalize_parent_uuid()
       |> merge_translatable_params(socket, @translatable_fields,
-        changeset: socket.assigns.changeset
+        changeset: socket.assigns.changeset,
+        preserve_fields: @preserve_fields
       )
 
     changeset =
@@ -189,7 +196,8 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
       |> Map.put_new("catalogue_uuid", socket.assigns.catalogue_uuid)
       |> normalize_parent_uuid()
       |> merge_translatable_params(socket, @translatable_fields,
-        changeset: socket.assigns.changeset
+        changeset: socket.assigns.changeset,
+        preserve_fields: @preserve_fields
       )
       |> Attachments.inject_attachment_data(socket)
 

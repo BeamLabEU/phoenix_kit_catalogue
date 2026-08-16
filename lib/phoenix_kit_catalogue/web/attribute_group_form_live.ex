@@ -52,6 +52,13 @@ defmodule PhoenixKitCatalogue.Web.AttributeGroupFormLive do
 
   @translatable_fields ["name"]
 
+  # The primary-language NAME must survive a validate/save fired from a
+  # secondary language tab: there the form submits only `lang_name`, and
+  # rebuilding the changeset from the pristine struct would drop the
+  # name typed earlier — on :new that loses it entirely ("name it in all
+  # languages right away" bug, 2026-08-16 user report).
+  @preserve_fields %{"name" => :name}
+
   on_mount({__MODULE__, :self_wrapped_layout})
 
   def on_mount(:self_wrapped_layout, _params, _session, socket) do
@@ -119,7 +126,8 @@ defmodule PhoenixKitCatalogue.Web.AttributeGroupFormLive do
   def handle_event("validate", %{"attribute_group" => params}, socket) do
     params =
       merge_translatable_params(params, socket, @translatable_fields,
-        changeset: socket.assigns.changeset
+        changeset: socket.assigns.changeset,
+        preserve_fields: @preserve_fields
       )
 
     changeset =
@@ -135,7 +143,8 @@ defmodule PhoenixKitCatalogue.Web.AttributeGroupFormLive do
       params
       |> Map.get("attribute_group", %{})
       |> merge_translatable_params(socket, @translatable_fields,
-        changeset: socket.assigns.changeset
+        changeset: socket.assigns.changeset,
+        preserve_fields: @preserve_fields
       )
 
     save_group(socket, socket.assigns.action, group_params, save_mode(params))
