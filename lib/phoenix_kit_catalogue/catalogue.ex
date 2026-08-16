@@ -1238,7 +1238,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
   def create_category(attrs, opts \\ []) do
     changeset =
       %Category{}
-      |> Category.changeset(attrs)
+      |> Category.changeset(put_default_category_position(attrs))
       |> validate_parent_in_same_catalogue()
 
     case repo().insert(changeset) do
@@ -2137,7 +2137,11 @@ defmodule PhoenixKitCatalogue.Catalogue do
     query =
       case mode do
         :active -> where(query, [c], c.status != "deleted")
-        :deleted -> query
+        # The deleted view lists only deleted children, so its
+        # Subcategories count must match — unfiltered it counted the
+        # active children too (restore is non-cascading, so mixed
+        # levels are normal).
+        :deleted -> where(query, [c], c.status == "deleted")
       end
 
     query |> repo().all() |> Map.new()
@@ -2522,26 +2526,43 @@ defmodule PhoenixKitCatalogue.Catalogue do
   @spec delete_empty_folder(Folder.t(), keyword()) ::
           {:ok, Folder.t()} | {:error, :not_empty | term()}
   def delete_empty_folder(%Folder{} = folder, opts \\ []) do
-    has_subfolders? =
-      repo().exists?(from(f in Folder, where: f.parent_uuid == ^folder.uuid))
+    # One atomic DELETE whose emptiness conditions are evaluated in the
+    # same statement — a separate check-then-delete had a window where a
+    # concurrent "file into this folder" landing between the two would
+    # be silently unfiled by the FK's ON DELETE SET NULL.
+    {count, _} =
+      repo().delete_all(
+        from(f in Folder,
+          as: :folder,
+          where: f.uuid == ^folder.uuid,
+          where: not exists(from(sf in Folder, where: sf.parent_uuid == parent_as(:folder).uuid)),
+          where: not exists(from(c in Catalogue, where: c.folder_uuid == parent_as(:folder).uuid))
+        )
+      )
 
-    has_catalogues? =
-      repo().exists?(from(c in Catalogue, where: c.folder_uuid == ^folder.uuid))
+    if count == 1 do
+      log_activity(%{
+        action: "folder.deleted",
+        mode: "manual",
+        actor_uuid: opts[:actor_uuid],
+        resource_type: "folder",
+        resource_uuid: folder.uuid,
+        metadata: %{"name" => folder.name}
+      })
 
-    if has_subfolders? or has_catalogues? do
-      {:error, :not_empty}
+      {:ok, folder}
     else
-      with {:ok, deleted} <- repo().delete(folder) do
-        log_activity(%{
-          action: "folder.deleted",
-          mode: "manual",
-          actor_uuid: opts[:actor_uuid],
-          resource_type: "folder",
-          resource_uuid: folder.uuid,
-          metadata: %{"name" => folder.name}
-        })
+      # Not deleted: either the folder is non-empty, or it's already
+      # gone. Report :not_empty when contents explain it; otherwise the
+      # row vanished under us and the delete is effectively done.
+      not_empty? =
+        repo().exists?(from(f in Folder, where: f.parent_uuid == ^folder.uuid)) or
+          repo().exists?(from(c in Catalogue, where: c.folder_uuid == ^folder.uuid))
 
-        {:ok, deleted}
+      cond do
+        not_empty? -> {:error, :not_empty}
+        repo().exists?(from(f in Folder, where: f.uuid == ^folder.uuid)) -> {:error, :not_empty}
+        true -> {:ok, folder}
       end
     end
   end
@@ -2642,6 +2663,12 @@ defmodule PhoenixKitCatalogue.Catalogue do
   @spec place_level_rows([{String.t(), Ecto.UUID.t()}], keyword()) ::
           :ok | {:error, term()}
   def place_level_rows(entries, opts \\ [])
+
+  # An empty payload is a no-op, not a write: the body's activity log
+  # reads `List.first/1` of the deduped list, which would crash on []
+  # after committing a pointless transaction. Reachable from a forged
+  # or degenerate `drop_row` push whose `entries` list is empty.
+  def place_level_rows([], _opts), do: :ok
 
   def place_level_rows(entries, opts)
       when is_list(entries) and length(entries) > @reorder_max_uuids do
@@ -2818,6 +2845,31 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
   defp changed?(before, after_, fields) do
     Enum.any?(fields, fn f -> Map.get(before, f) != Map.get(after_, f) end)
+  end
+
+  # New categories append to their level: when the caller supplies no
+  # position (the form dropped its Position field), compute max+1 for
+  # the (catalogue, parent) level. Without this every new category
+  # lands on the schema default 0 and collides with the manual order.
+  # Handles string- and atom-keyed attrs without mixing key types
+  # (mixed keys make Ecto.Changeset.cast/4 raise).
+  defp put_default_category_position(attrs) do
+    given = Map.get(attrs, :position) || Map.get(attrs, "position")
+    catalogue_uuid = Map.get(attrs, :catalogue_uuid) || Map.get(attrs, "catalogue_uuid")
+
+    if given in [nil, ""] and is_binary(catalogue_uuid) do
+      parent_uuid =
+        case Map.get(attrs, :parent_uuid) || Map.get(attrs, "parent_uuid") do
+          "" -> nil
+          parent -> parent
+        end
+
+      position = next_category_position(catalogue_uuid, parent_uuid)
+      key = if Enum.any?(Map.keys(attrs), &is_binary/1), do: "position", else: :position
+      Map.put(attrs, key, position)
+    else
+      attrs
+    end
   end
 
   @doc """

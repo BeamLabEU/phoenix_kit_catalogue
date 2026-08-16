@@ -67,7 +67,7 @@ defmodule PhoenixKitCatalogue.Web.ViewConfig do
   defp parse_global_sort(scope, value, fallback) do
     with [by, dir_s] <- String.split(value, ":", parts: 2),
          true <- sortable_id?(scope, by),
-         dir when is_atom(dir) <- (dir_s == "asc" && :asc) || (dir_s == "desc" && :desc) do
+         dir when dir in [:asc, :desc] <- (dir_s == "asc" && :asc) || (dir_s == "desc" && :desc) do
       {by, dir}
     else
       _ -> fallback

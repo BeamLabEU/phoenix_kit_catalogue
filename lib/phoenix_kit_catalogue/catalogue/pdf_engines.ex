@@ -18,8 +18,6 @@ defmodule PhoenixKitCatalogue.Catalogue.PdfEngines do
   together so the stored error message names them all.
   """
 
-  require Logger
-
   @typedoc "An opened document, bound to the engine that opened it."
   @type engine :: %{name: String.t(), page_count: non_neg_integer(), state: term()}
 
@@ -68,17 +66,44 @@ defmodule PhoenixKitCatalogue.Catalogue.PdfEngines do
       "-"
     ]
 
+    # `stderr_to_stdout: false` on the success path — stdout IS the page
+    # text, so warnings must not leak into it. `pdftotext` writes its
+    # failure reasons to stderr only, so on the (rare) failure path we
+    # rerun the page with stderr merged purely to harvest the message.
     case System.cmd("pdftotext", args, stderr_to_stdout: false) do
       {raw, 0} ->
         {:ok, raw}
 
-      {raw, code} ->
-        {:error, {:pdftotext_failed, page_number, code, String.slice(raw || "", 0, 200)}}
+      {_raw, code} ->
+        {:error, {:pdftotext_failed, page_number, code, pdftotext_error_detail(args)}}
     end
   rescue
     e in ErlangError ->
       {:error,
        {:pdftotext_failed, page_number, :enoent, "pdftotext not on PATH: #{Exception.message(e)}"}}
+  end
+
+  @doc """
+  Releases engine resources: the pdfium document handle is closed
+  eagerly instead of waiting for BEAM GC to collect the NIF resource.
+  No-op for poppler.
+  """
+  @spec close(engine()) :: :ok
+  def close(%{name: "pdfium", state: doc}) do
+    _ = ExPdfium.close(doc)
+    :ok
+  rescue
+    _ -> :ok
+  end
+
+  def close(_engine), do: :ok
+
+  defp pdftotext_error_detail(args) do
+    case System.cmd("pdftotext", args, stderr_to_stdout: true) do
+      {raw, _code} -> String.slice(raw || "", 0, 200)
+    end
+  rescue
+    _ -> ""
   end
 
   # ── pdfium ──────────────────────────────────────────────────────────

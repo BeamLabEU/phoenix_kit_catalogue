@@ -265,6 +265,30 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
       assert root_order == ["Second root", "Drop target"]
     end
 
+    test "drop_row works from card view too — the guard is view-independent", %{conn: conn} do
+      # Regression pin: drop_row/reorder_folders used to require TREE
+      # mode, so the card view rendered the same drop targets but every
+      # edge drop silently no-opped. Structure mode (active + manual
+      # order + no search/filter) is what data safety needs; the
+      # card/tree split is a rendering concern only.
+      {:ok, folder} = Catalogue.create_folder(%{name: "Card target"})
+      inside = fixture_catalogue(%{name: "Card inside"})
+      {:ok, _} = Catalogue.move_catalogue_to_folder(inside, folder.uuid)
+      loose = fixture_catalogue(%{name: "Card loose"})
+
+      {:ok, view, _html} = live(conn, @base)
+      render_click(view, "set_view", %{"mode" => "card"})
+
+      render_click(view, "drop_row", %{
+        "type" => "catalogue",
+        "uuid" => loose.uuid,
+        "parent" => folder.uuid,
+        "entries" => ["catalogue:#{loose.uuid}", "catalogue:#{inside.uuid}"]
+      })
+
+      assert Catalogue.get_catalogue(loose.uuid).folder_uuid == folder.uuid
+    end
+
     test "drop_row reparents and positions in one gesture", %{conn: conn} do
       {:ok, folder} = Catalogue.create_folder(%{name: "Level target"})
       inside_a = fixture_catalogue(%{name: "Inside A"})
