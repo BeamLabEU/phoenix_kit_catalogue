@@ -109,6 +109,10 @@ defmodule PhoenixKitCatalogue.LiveCase do
         :phoenix_kit_current_scope,
         Scope.for_user(nil)
       )
+      # Production's locale scope assigns :current_locale from the /en/
+      # path segment; the test routes live under /en/ too, so mirror it —
+      # content localization (Catalogue.localize/2) keys off this.
+      |> Phoenix.Component.assign(:current_locale, "en")
 
     case session do
       %{"pk_current_user_uuid" => uuid} when is_binary(uuid) ->

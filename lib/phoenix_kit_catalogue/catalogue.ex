@@ -5053,6 +5053,10 @@ defmodule PhoenixKitCatalogue.Catalogue do
   # ═══════════════════════════════════════════════════════════════════
 
   defdelegate get_translation(record, lang_code), to: Translations
+  defdelegate translated_name(record, locale), to: Translations
+  defdelegate translated_description(record, locale), to: Translations
+  defdelegate localize(records, locale), to: Translations
+  defdelegate localize_one(record, locale), to: Translations
 
   defdelegate set_translation(record, lang_code, field_data, update_fn, opts \\ []),
     to: Translations
@@ -5074,6 +5078,8 @@ defmodule PhoenixKitCatalogue.Catalogue do
   defdelegate restore_pdf(pdf, opts \\ []), to: PdfLibrary
   defdelegate permanently_delete_pdf(pdf, opts \\ []), to: PdfLibrary
   defdelegate search_pdfs_for_item(item, opts \\ []), to: PdfLibrary
+  defdelegate search_pdf_contents(query, opts \\ []), to: PdfLibrary
+  defdelegate more_pdf_content_matches(query, pdf_uuid, opts \\ []), to: PdfLibrary
   defdelegate more_pdf_matches_for_item(item, pdf_uuid, opts \\ []), to: PdfLibrary
   defdelegate prune_orphan_pdf_page_contents(), to: PdfLibrary, as: :prune_orphan_page_contents
   defdelegate retry_extraction(pdf, opts \\ []), to: PdfLibrary

@@ -97,6 +97,17 @@ defmodule PhoenixKitCatalogue do
   @impl PhoenixKit.Module
   def css_sources, do: [:phoenix_kit_catalogue]
 
+  @impl PhoenixKit.Module
+  def js_sources do
+    [
+      %{
+        app: :phoenix_kit_catalogue,
+        file: "static/assets/phoenix_kit_catalogue.js",
+        global: "PhoenixKitCatalogueHooks"
+      }
+    ]
+  end
+
   def ai_translatables do
     [
       {"catalogue", PhoenixKitCatalogue.AITranslatable},

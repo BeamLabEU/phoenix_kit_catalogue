@@ -39,4 +39,88 @@ defmodule PhoenixKitCatalogue.Catalogue.Translations do
       update_fn.(record, %{data: new_data}, opts)
     end
   end
+
+  @doc """
+  The display name for `locale`: the locale's translation override
+  (either the `"_name"` shape the shared multilang helper writes or the
+  legacy bare `"name"`), falling back to the primary-language column.
+  Safe on records without translations and on plain maps.
+  """
+  @spec translated_name(map() | nil, String.t() | nil) :: String.t() | nil
+  def translated_name(nil, _locale), do: nil
+  def translated_name(record, nil), do: Map.get(record, :name)
+
+  def translated_name(record, locale) do
+    translation = safe_translation(record, locale)
+
+    presence(Map.get(translation, "_name")) ||
+      presence(Map.get(translation, "name")) ||
+      Map.get(record, :name)
+  end
+
+  @doc "Same contract as `translated_name/2`, for `:description`."
+  @spec translated_description(map() | nil, String.t() | nil) :: String.t() | nil
+  def translated_description(nil, _locale), do: nil
+  def translated_description(record, nil), do: Map.get(record, :description)
+
+  def translated_description(record, locale) do
+    translation = safe_translation(record, locale)
+
+    presence(Map.get(translation, "_description")) ||
+      presence(Map.get(translation, "description")) ||
+      Map.get(record, :description)
+  end
+
+  @doc """
+  Replaces `:name` (and `:description` where present) on each record
+  with the `locale`-resolved display text, so list/detail surfaces can
+  render `record.name` untouched and still honor the viewer's locale.
+
+  Resolve-early by design (the same shape as `resolved_group/2`): the
+  alternative — threading a `locale` attr through every table/tile/cell
+  component — spreads the concern across dozens of render sites.
+  Records without a `:data` map (folders) pass through unchanged, as
+  does everything when `locale` is nil. Struct identity is preserved
+  (`%{record | ...}`), and mutations are unaffected: status/move/
+  reorder writes never take `:name` from these list structs.
+  """
+  @spec localize(list(), String.t() | nil) :: list()
+  def localize(records, locale) when is_list(records) do
+    Enum.map(records, &localize_one(&1, locale))
+  end
+
+  @doc "Single-record `localize/2`."
+  @spec localize_one(map() | nil, String.t() | nil) :: map() | nil
+  def localize_one(nil, _locale), do: nil
+  def localize_one(record, nil), do: record
+
+  def localize_one(record, locale) do
+    if is_map(record) and is_map(Map.get(record, :data)) do
+      record
+      |> maybe_put_localized(:name, translated_name(record, locale))
+      |> maybe_put_localized(:description, translated_description(record, locale))
+    else
+      record
+    end
+  end
+
+  defp maybe_put_localized(record, key, value) do
+    if Map.has_key?(record, key) and is_binary(value) and value != "" do
+      Map.put(record, key, value)
+    else
+      record
+    end
+  end
+
+  defp safe_translation(record, locale) do
+    get_translation(record, locale)
+  rescue
+    _ -> %{}
+  end
+
+  defp presence(value) when is_binary(value) do
+    if String.trim(value) == "", do: nil, else: value
+  end
+
+  defp presence(_), do: nil
 end
