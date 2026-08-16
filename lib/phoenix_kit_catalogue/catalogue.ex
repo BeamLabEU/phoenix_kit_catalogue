@@ -4921,6 +4921,10 @@ defmodule PhoenixKitCatalogue.Catalogue do
   # ═══════════════════════════════════════════════════════════════════
 
   defdelegate get_translation(record, lang_code), to: Translations
+  defdelegate translated_name(record, locale), to: Translations
+  defdelegate translated_description(record, locale), to: Translations
+  defdelegate localize(records, locale), to: Translations
+  defdelegate localize_one(record, locale), to: Translations
 
   defdelegate set_translation(record, lang_code, field_data, update_fn, opts \\ []),
     to: Translations

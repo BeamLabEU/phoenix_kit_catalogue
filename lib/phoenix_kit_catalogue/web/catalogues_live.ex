@@ -307,6 +307,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         else
           Catalogue.catalogues_by_folder() |> Map.values() |> List.flatten()
         end
+        |> Catalogue.localize(socket.assigns[:current_locale])
 
       catalogue_rows = build_catalogue_rows(catalogues, folder_lookup, item_counts)
 
@@ -340,7 +341,10 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
 
   defp load_data(socket, :attribute_groups) do
     if connected?(socket) do
-      groups = Catalogue.list_attribute_groups()
+      groups =
+        Catalogue.list_attribute_groups()
+        |> Catalogue.localize(socket.assigns[:current_locale])
+
       uuids = Enum.map(groups, & &1.uuid)
       attr_counts = Catalogue.attribute_counts(uuids)
       item_counts = Catalogue.assignment_counts(uuids)
