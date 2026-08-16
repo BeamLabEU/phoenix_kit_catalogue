@@ -2325,10 +2325,15 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                node whose Active tab is empty lands in the Deleted view
                with results rendered — hiding it would leave no way to
                clear. The level's DESCRIPTION (the catalogue's at root, the
-               category's when drilled) is a muted line below. --%>
+               category's when drilled) is a small muted line at the very
+               top, clamped to ONE line so its cost is fixed no matter how
+               long the field is — the full text is in the hover tooltip. --%>
           <% level_desc = level_description(@current_category, @catalogue) %>
           <% show_search_input = @view_mode == "active" or @search_results != nil or @search_loading %>
           <div :if={show_search_input or level_desc} class="flex flex-col gap-3 mb-3">
+            <p :if={level_desc} class="text-sm text-base-content/60 truncate" title={level_desc}>
+              {level_desc}
+            </p>
             <%!-- flex-wrap, not flex-col: on narrow screens the search takes
                  the line (grow + wide basis) and the actions wrap under it,
                  still right-aligned via ml-auto — same edge the controls row
@@ -2359,9 +2364,6 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                 </.link>
               </div>
             </div>
-            <p :if={level_desc} class="text-base-content/60">
-              {level_desc}
-            </p>
           </div>
 
         <%!-- Search results (Active mode; unchanged machinery) --%>
