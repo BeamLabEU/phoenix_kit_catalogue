@@ -9,7 +9,13 @@ defmodule PhoenixKitCatalogue.Web.TableConfig do
 
   alias PhoenixKitCatalogue.Gettext, as: G
 
-  @type scope :: :catalogues | :suppliers | :manufacturers | :attribute_groups
+  @type scope ::
+          :catalogues
+          | :suppliers
+          | :manufacturers
+          | :attribute_groups
+          | :detail_items
+          | :detail_categories
   @type column :: %{
           id: String.t(),
           label: (-> String.t()),
@@ -135,6 +141,48 @@ defmodule PhoenixKitCatalogue.Web.TableConfig do
     ]
   end
 
+  # The catalogue detail page's items table. Name is always visible
+  # (managed?: false); the rest toggle/reorder via the Columns modal.
+  # Header sorting goes through the page's own sort selector /
+  # toggle_sort_items — the `sortable?` flags here exist so the GLOBAL
+  # sort setting (ViewConfig.load_global_sort) can validate stored ids.
+  # "position" and "base_price" are sort-only pseudo ids (managed?:
+  # false keeps them out of the Columns modal; "price" is the display
+  # column, :base_price the sort field).
+  def columns(:detail_items) do
+    [
+      col("name", fn -> g("Name") end, default?: true, managed?: false, sortable?: true),
+      col("position", fn -> gettext("Manual order") end, managed?: false, sortable?: true),
+      col("base_price", fn -> g("Price") end, managed?: false, sortable?: true),
+      col("sku", fn -> g("SKU") end, default?: true, sortable?: true),
+      col("price", fn -> g("Price") end, default?: true),
+      col("unit", fn -> g("Unit") end, default?: true),
+      col("status", fn -> g("Status") end, default?: true, sortable?: true),
+      col("attributes", fn -> g("Attributes") end, []),
+      col("files", fn -> g("Files") end, []),
+      col("description", fn -> g("Description") end, []),
+      col("updated", fn -> g("Updated") end, []),
+      col("created", fn -> g("Created") end, [])
+    ]
+  end
+
+  # The detail page's categories table (Name is unmanaged; the rest
+  # toggle via the Columns modal; the `sortable?` ids back the global
+  # categories sort — the extra display columns are not sort options).
+  def columns(:detail_categories) do
+    [
+      col("name", fn -> g("Name") end, default?: true, managed?: false, sortable?: true),
+      col("position", fn -> gettext("Manual order") end, managed?: false, sortable?: true),
+      col("items", fn -> g("Items") end, default?: true, sortable?: true),
+      col("subcategories", fn -> g("Subcategories") end, default?: true),
+      col("description", fn -> g("Description") end, []),
+      col("files", fn -> g("Files") end, []),
+      col("status", fn -> g("Status") end, []),
+      col("updated", fn -> g("Updated") end, sortable?: true),
+      col("created", fn -> g("Created") end, [])
+    ]
+  end
+
   def columns(:attribute_groups) do
     [
       col("name", fn -> g("Name") end,
@@ -196,7 +244,13 @@ defmodule PhoenixKitCatalogue.Web.TableConfig do
   end
 
   @spec default_sort(scope()) :: {String.t(), :asc | :desc}
-  def default_sort(:catalogues), do: {"name", :asc}
+  # Catalogues default to Manual order: that is the tree (file-explorer)
+  # view — folders with their catalogues in positional order. Sorting by
+  # any column flattens to the sortable table. The detail page's two
+  # lists default to Manual too — section order is document order.
+  def default_sort(:catalogues), do: {"position", :asc}
+  def default_sort(:detail_items), do: {"position", :asc}
+  def default_sort(:detail_categories), do: {"position", :asc}
   def default_sort(_), do: {"name", :asc}
 
   # sort helpers: case-insensitive for strings, Decimal→float, nil-safe.

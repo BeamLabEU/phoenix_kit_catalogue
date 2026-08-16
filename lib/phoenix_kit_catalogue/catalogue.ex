@@ -220,6 +220,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
   defp reorder_action_for(:category), do: "category.reordered"
   defp reorder_action_for(:item), do: "item.reordered"
   defp reorder_action_for(:folder), do: "folder.reordered"
+  defp reorder_action_for(:level), do: "catalogue.level_reordered"
 
   defp maybe_put_metadata(map, _key, nil), do: map
   defp maybe_put_metadata(map, key, value), do: Map.put(map, key, value)
@@ -677,8 +678,18 @@ defmodule PhoenixKitCatalogue.Catalogue do
         )
         |> repo().update_all(set: [status: "active", updated_at: now])
 
+        # Restore to where it came from — unless that home is gone. A
+        # hard-deleted folder already SET NULLed the reference (root);
+        # a legacy-trashed folder is merely hidden, so restoring into
+        # it would strand the catalogue — normalize that to root too.
+        attrs =
+          case restored_folder_home(catalogue.folder_uuid) do
+            :keep -> %{status: "active"}
+            :root -> %{status: "active", folder_uuid: nil}
+          end
+
         catalogue
-        |> Catalogue.changeset(%{status: "active"})
+        |> Catalogue.changeset(attrs)
         |> repo().update!()
       end)
 
@@ -1227,7 +1238,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
   def create_category(attrs, opts \\ []) do
     changeset =
       %Category{}
-      |> Category.changeset(attrs)
+      |> Category.changeset(put_default_category_position(attrs))
       |> validate_parent_in_same_catalogue()
 
     case repo().insert(changeset) do
@@ -2106,6 +2117,37 @@ defmodule PhoenixKitCatalogue.Catalogue do
   end
 
   @doc """
+  `%{parent_uuid => n}` of direct child categories per parent within a
+  catalogue — the count form of `category_uuids_with_children/2`, for
+  the detail table's optional Subcategories column.
+  """
+  @spec category_children_counts(Ecto.UUID.t(), keyword()) :: %{
+          Ecto.UUID.t() => non_neg_integer()
+        }
+  def category_children_counts(catalogue_uuid, opts \\ []) do
+    mode = Keyword.get(opts, :mode, :active)
+
+    query =
+      from(c in Category,
+        where: c.catalogue_uuid == ^catalogue_uuid and not is_nil(c.parent_uuid),
+        group_by: c.parent_uuid,
+        select: {c.parent_uuid, count(c.uuid)}
+      )
+
+    query =
+      case mode do
+        :active -> where(query, [c], c.status != "deleted")
+        # The deleted view lists only deleted children, so its
+        # Subcategories count must match — unfiltered it counted the
+        # active children too (restore is non-cascading, so mixed
+        # levels are normal).
+        :deleted -> where(query, [c], c.status == "deleted")
+      end
+
+    query |> repo().all() |> Map.new()
+  end
+
+  @doc """
   Returns the set of category UUIDs (within the catalogue, in the given
   `:mode`) that have at least one child category — lets drill cards show
   a "has subcategories" affordance without an N+1 per card.
@@ -2465,6 +2507,66 @@ defmodule PhoenixKitCatalogue.Catalogue do
     end
   end
 
+  defp restored_folder_home(nil), do: :keep
+
+  defp restored_folder_home(folder_uuid) do
+    case repo().one(from(f in Folder, where: f.uuid == ^folder_uuid, select: f.status)) do
+      "active" -> :keep
+      _ -> :root
+    end
+  end
+
+  @doc """
+  Hard-deletes an EMPTY folder — no trash step, no restore. Folders are
+  organizational titles; deleting one is only allowed once nothing
+  references it: no subfolders and no catalogues filed in it (any
+  status — a trashed catalogue still points at its folder). Returns
+  `{:error, :not_empty}` otherwise.
+  """
+  @spec delete_empty_folder(Folder.t(), keyword()) ::
+          {:ok, Folder.t()} | {:error, :not_empty | term()}
+  def delete_empty_folder(%Folder{} = folder, opts \\ []) do
+    # One atomic DELETE whose emptiness conditions are evaluated in the
+    # same statement — a separate check-then-delete had a window where a
+    # concurrent "file into this folder" landing between the two would
+    # be silently unfiled by the FK's ON DELETE SET NULL.
+    {count, _} =
+      repo().delete_all(
+        from(f in Folder,
+          as: :folder,
+          where: f.uuid == ^folder.uuid,
+          where: not exists(from(sf in Folder, where: sf.parent_uuid == parent_as(:folder).uuid)),
+          where: not exists(from(c in Catalogue, where: c.folder_uuid == parent_as(:folder).uuid))
+        )
+      )
+
+    if count == 1 do
+      log_activity(%{
+        action: "folder.deleted",
+        mode: "manual",
+        actor_uuid: opts[:actor_uuid],
+        resource_type: "folder",
+        resource_uuid: folder.uuid,
+        metadata: %{"name" => folder.name}
+      })
+
+      {:ok, folder}
+    else
+      # Not deleted: either the folder is non-empty, or it's already
+      # gone. Report :not_empty when contents explain it; otherwise the
+      # row vanished under us and the delete is effectively done.
+      not_empty? =
+        repo().exists?(from(f in Folder, where: f.parent_uuid == ^folder.uuid)) or
+          repo().exists?(from(c in Catalogue, where: c.folder_uuid == ^folder.uuid))
+
+      cond do
+        not_empty? -> {:error, :not_empty}
+        repo().exists?(from(f in Folder, where: f.uuid == ^folder.uuid)) -> {:error, :not_empty}
+        true -> {:ok, folder}
+      end
+    end
+  end
+
   @doc """
   Permanently deletes a folder from the database. Non-cascading, matching
   the trash/orphan-promotion semantics: direct child folders are promoted
@@ -2522,6 +2624,8 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
     result =
       repo().transaction(fn ->
+        lock_catalogues_order!()
+
         unique_uuids
         |> Enum.with_index(1)
         |> Enum.each(fn {uuid, idx} ->
@@ -2540,10 +2644,78 @@ defmodule PhoenixKitCatalogue.Catalogue do
           metadata: %{"count" => length(unique_uuids)}
         })
 
+        PubSub.broadcast(:folder, List.first(unique_uuids))
+
         :ok
 
       {:error, reason} ->
         log_reorder_db_error(:folder, unique_uuids, nil, opts)
+        {:error, reason}
+    end
+  end
+
+  @doc """
+  Writes one merged manual order for a single level of the folder tree.
+
+  `entries` is the level's full display order as `{"folder" | "catalogue",
+  uuid}` tuples; each row's `position` is set to its index in the merged
+  sequence, so folders and catalogues interleave exactly where the user
+  dropped them (a level's display order sorts both types together by
+  `position`). Rows the caller omits keep their old positions — callers
+  send a complete level, so this only matters for concurrent edits.
+  """
+  @spec place_level_rows([{String.t(), Ecto.UUID.t()}], keyword()) ::
+          :ok | {:error, term()}
+  def place_level_rows(entries, opts \\ [])
+
+  # An empty payload is a no-op, not a write: the body's activity log
+  # reads `List.first/1` of the deduped list, which would crash on []
+  # after committing a pointless transaction. Reachable from a forged
+  # or degenerate `drop_row` push whose `entries` list is empty.
+  def place_level_rows([], _opts), do: :ok
+
+  def place_level_rows(entries, opts)
+      when is_list(entries) and length(entries) > @reorder_max_uuids do
+    log_reorder_rejected(:level, :too_many_uuids, length(entries), nil, opts)
+    {:error, :too_many_uuids}
+  end
+
+  def place_level_rows(entries, opts) when is_list(entries) do
+    unique = Enum.uniq_by(entries, fn {_type, uuid} -> uuid end)
+
+    result =
+      repo().transaction(fn ->
+        lock_catalogues_order!()
+
+        unique
+        |> Enum.with_index(1)
+        |> Enum.each(fn
+          {{"folder", uuid}, idx} ->
+            from(f in Folder, where: f.uuid == ^uuid) |> repo().update_all(set: [position: idx])
+
+          {{"catalogue", uuid}, idx} ->
+            from(c in Catalogue, where: c.uuid == ^uuid)
+            |> repo().update_all(set: [position: idx])
+        end)
+      end)
+
+    case result do
+      {:ok, _} ->
+        log_activity(%{
+          action: "catalogue.level_reordered",
+          mode: "manual",
+          actor_uuid: opts[:actor_uuid],
+          resource_type: "catalogue",
+          resource_uuid: unique |> List.first() |> elem(1),
+          metadata: %{"count" => length(unique)}
+        })
+
+        {first_type, first_uuid} = List.first(unique)
+        PubSub.broadcast(if(first_type == "folder", do: :folder, else: :catalogue), first_uuid)
+
+        :ok
+
+      {:error, reason} ->
         {:error, reason}
     end
   end
@@ -2682,6 +2854,31 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
   defp changed?(before, after_, fields) do
     Enum.any?(fields, fn f -> Map.get(before, f) != Map.get(after_, f) end)
+  end
+
+  # New categories append to their level: when the caller supplies no
+  # position (the form dropped its Position field), compute max+1 for
+  # the (catalogue, parent) level. Without this every new category
+  # lands on the schema default 0 and collides with the manual order.
+  # Handles string- and atom-keyed attrs without mixing key types
+  # (mixed keys make Ecto.Changeset.cast/4 raise).
+  defp put_default_category_position(attrs) do
+    given = Map.get(attrs, :position) || Map.get(attrs, "position")
+    catalogue_uuid = Map.get(attrs, :catalogue_uuid) || Map.get(attrs, "catalogue_uuid")
+
+    if given in [nil, ""] and is_binary(catalogue_uuid) do
+      parent_uuid =
+        case Map.get(attrs, :parent_uuid) || Map.get(attrs, "parent_uuid") do
+          "" -> nil
+          parent -> parent
+        end
+
+      position = next_category_position(catalogue_uuid, parent_uuid)
+      key = if Enum.any?(Map.keys(attrs), &is_binary/1), do: "position", else: :position
+      Map.put(attrs, key, position)
+    else
+      attrs
+    end
   end
 
   @doc """
@@ -2993,6 +3190,9 @@ defmodule PhoenixKitCatalogue.Catalogue do
           metadata: %{"count" => length(unique_uuids)}
         })
 
+        # Other tabs watching the index redraw the new order (issue #56).
+        PubSub.broadcast(:catalogue, List.first(unique_uuids))
+
         :ok
 
       {:error, reason} ->
@@ -3010,11 +3210,25 @@ defmodule PhoenixKitCatalogue.Catalogue do
     pairs = Enum.with_index(unique_uuids, 1)
 
     repo().transaction(fn ->
+      lock_catalogues_order!()
+
       Enum.each(pairs, fn {uuid, idx} ->
         from(c in Catalogue, where: c.uuid == ^uuid)
         |> repo().update_all(set: [position: idx])
       end)
     end)
+  end
+
+  # Shared advisory-lock key for the catalogues/folders position domain
+  # (issue #56): every writer of that order — flat catalogue reorder,
+  # folder reorder, and the interleaved level placement — takes the same
+  # transaction-scoped lock, so two simultaneous drags serialise instead
+  # of interleaving their per-row updates into a mixed order with
+  # duplicate positions. Released automatically at transaction end.
+  @catalogues_order_lock_key 727_401_119
+
+  defp lock_catalogues_order! do
+    repo().query!("SELECT pg_advisory_xact_lock($1)", [@catalogues_order_lock_key])
   end
 
   @doc """

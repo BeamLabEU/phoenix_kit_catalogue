@@ -109,6 +109,33 @@ msgstr "Kustutatud"
 msgid "Discontinued"
 msgstr "Tootmine lõpetatud"
 
+msgid "Toggle folder"
+msgstr "Ava/sule kaust"
+
+msgid "Clear search and filters to see the folder tree."
+msgstr "Puhasta otsing ja filtrid, et näha kaustapuud."
+
+msgid "Up"
+msgstr "Üles"
+
+msgid "Drop here to move to root (unfiled)"
+msgstr "Lohista siia, et viia juurtasandile (kaustata)"
+
+msgid "Drag to reorder or move into a folder"
+msgstr "Lohista järjestamiseks või kausta viimiseks"
+
+msgid "This will permanently delete this folder. Only empty folders can be deleted. This cannot be undone."
+msgstr "See kustutab kausta jäädavalt. Kustutada saab ainult tühje kaustu. Seda ei saa tagasi võtta."
+
+msgid "Only empty folders can be deleted — move its contents out first."
+msgstr "Kustutada saab ainult tühje kaustu — vii sisu enne välja."
+
+msgid "Empty folder"
+msgstr "Tühi kaust"
+
+msgid "Subcategories"
+msgstr "Alamkategooriad"
+
 msgid "Unknown"
 msgstr "Teadmata"
 
@@ -839,9 +866,6 @@ msgstr "Käsitsi järjestus"
 msgid "Folders"
 msgstr "Kaustad"
 
-msgid "Folders…"
-msgstr "Kaustad…"
-
 msgid "All folders"
 msgstr "Kõik kaustad"
 
@@ -852,9 +876,6 @@ msgid "Clear search and filters to drag-and-drop reorder."
 msgstr "Tühjenda otsing ja filtrid, et lohistades ümber järjestada."
 
 ## Folder management modal
-msgid "No folders yet."
-msgstr "Kaustu pole veel."
-
 msgid "Nothing in the trash."
 msgstr "Prügikast on tühi."
 
@@ -908,12 +929,6 @@ msgstr "See kustutab kausta jäädavalt. Alamkaustad teisaldatakse juure ja siin
 
 msgid "Folder moved."
 msgstr "Kaust teisaldati."
-
-msgid "Folder restored."
-msgstr "Kaust taastati."
-
-msgid "Folder moved to deleted."
-msgstr "Kaust teisaldati kustututesse."
 
 msgid "Folder not found."
 msgstr "Kausta ei leitud."

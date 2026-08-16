@@ -277,4 +277,39 @@ defmodule PhoenixKitCatalogue.FoldersTest do
       assert cs.valid?
     end
   end
+
+  describe "restore_catalogue folder home" do
+    defp trashed_catalogue_in(folder_uuid) do
+      {:ok, cat} = Catalogue.create_catalogue(%{name: "Boxed"})
+      {:ok, cat} = Catalogue.move_catalogue_to_folder(cat, folder_uuid)
+      {:ok, _} = Catalogue.trash_catalogue(cat)
+      Catalogue.get_catalogue(cat.uuid)
+    end
+
+    test "restores back into a still-active folder" do
+      folder = create_folder(%{name: "Alive"})
+      cat = trashed_catalogue_in(folder.uuid)
+
+      {:ok, restored} = Catalogue.restore_catalogue(cat)
+      assert restored.folder_uuid == folder.uuid
+    end
+
+    test "restores to root when the folder was hard-deleted" do
+      folder = create_folder(%{name: "Purged"})
+      cat = trashed_catalogue_in(folder.uuid)
+      {:ok, _} = Catalogue.permanently_delete_folder(folder)
+
+      {:ok, restored} = cat.uuid |> Catalogue.get_catalogue() |> Catalogue.restore_catalogue()
+      assert restored.folder_uuid == nil
+    end
+
+    test "restores to root when the folder is legacy-trashed (hidden)" do
+      folder = create_folder(%{name: "Hidden"})
+      cat = trashed_catalogue_in(folder.uuid)
+      {:ok, _} = Catalogue.trash_folder(folder)
+
+      {:ok, restored} = cat.uuid |> Catalogue.get_catalogue() |> Catalogue.restore_catalogue()
+      assert restored.folder_uuid == nil
+    end
+  end
 end

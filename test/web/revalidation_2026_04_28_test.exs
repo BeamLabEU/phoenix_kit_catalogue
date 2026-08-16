@@ -114,8 +114,11 @@ defmodule PhoenixKitCatalogue.Web.Revalidation20260428Test do
   end
 
   describe "Batch 2 — phx-disable-with on destructive remove/clear buttons" do
-    test "catalogue_form_live source has phx-disable-with on remove_file button" do
-      source = File.read!("lib/phoenix_kit_catalogue/web/catalogue_form_live.ex")
+    # The remove_file button moved into the shared attachments panel
+    # (Components.attachments_files_panel) that all three forms render,
+    # so one scan covers catalogue, category, and item alike.
+    test "shared attachments panel has phx-disable-with on remove_file button" do
+      source = File.read!("lib/phoenix_kit_catalogue/web/components.ex")
 
       [block] =
         Regex.run(
@@ -124,21 +127,7 @@ defmodule PhoenixKitCatalogue.Web.Revalidation20260428Test do
           capture: :all
         ) || [nil]
 
-      assert block, "Expected a remove_file button in catalogue_form_live.ex"
-      assert block =~ "phx-disable-with"
-    end
-
-    test "item_form_live source has phx-disable-with on remove_file button" do
-      source = File.read!("lib/phoenix_kit_catalogue/web/item_form_live.ex")
-
-      [block] =
-        Regex.run(
-          ~r/<button[^>]*?phx-click="remove_file"[^>]*?>/s,
-          source,
-          capture: :all
-        ) || [nil]
-
-      assert block, "Expected a remove_file button in item_form_live.ex"
+      assert block, "Expected a remove_file button in components.ex"
       assert block =~ "phx-disable-with"
     end
 

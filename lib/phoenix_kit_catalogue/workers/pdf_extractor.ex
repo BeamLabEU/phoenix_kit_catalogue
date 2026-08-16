@@ -1,7 +1,9 @@
 defmodule PhoenixKitCatalogue.Workers.PdfExtractor do
   @moduledoc """
-  Oban worker that extracts text page-by-page from a PDF using
-  `pdfinfo` (page count) + `pdftotext` (per-page text).
+  Oban worker that extracts text page-by-page from a PDF through the
+  `PdfEngines` chain: pdfium (in-app precompiled NIF — no system
+  packages needed) first, poppler (`pdfinfo`/`pdftotext`) as the
+  fallback when installed.
 
   Keyed by `file_uuid` (core's `phoenix_kit_files.uuid`), not the
   per-upload `phoenix_kit_cat_pdfs.uuid` — so two uploads of identical
@@ -17,9 +19,11 @@ defmodule PhoenixKitCatalogue.Workers.PdfExtractor do
      temp path. Works whether the file lives on local disk, S3, or
      anything core supports.
   3. Mark `"extracting"`.
-  4. `pdfinfo` for page count. Treat parse failures as fatal.
-  5. For each page, `pdftotext -layout`, normalize, hash, upsert into
-     the per-page content cache, insert a `pdf_pages` row.
+  4. `PdfEngines.open_best/1` picks the engine and reports the page
+     count. If every engine refuses, that's fatal (the stored message
+     lists each engine's reason).
+  5. For each page, extract with the chosen engine, normalize, hash,
+     upsert into the per-page content cache, insert a `pdf_pages` row.
   6. Transition to `extracted` (or `scanned_no_text` if all pages
      came back empty). Failures mid-loop transition to `failed`.
 
@@ -55,6 +59,7 @@ defmodule PhoenixKitCatalogue.Workers.PdfExtractor do
   require Logger
 
   alias PhoenixKit.Modules.Storage
+  alias PhoenixKitCatalogue.Catalogue.PdfEngines
   alias PhoenixKitCatalogue.Catalogue.PdfLibrary
   alias PhoenixKitCatalogue.Schemas.{PdfExtraction, PdfPage}
 
@@ -110,20 +115,28 @@ defmodule PhoenixKitCatalogue.Workers.PdfExtractor do
   end
 
   defp run_extraction(file_uuid, file_path) do
-    case pdfinfo_page_count(file_path) do
-      {:ok, page_count} ->
-        {ok_count, failed} = extract_pages(file_uuid, file_path, page_count)
-        finalize_with_failures(file_uuid, page_count, ok_count, Enum.reverse(failed))
+    case PdfEngines.open_best(file_path) do
+      {:ok, engine} ->
+        Logger.info(
+          "PdfExtractor: extracting #{inspect(file_uuid)} with #{engine.name} " <>
+            "(#{engine.page_count} pages)"
+        )
 
-      {:error, reason} ->
-        fail(file_uuid, reason)
+        try do
+          {ok_count, failed} = extract_pages(file_uuid, engine)
+          finalize_with_failures(file_uuid, engine, ok_count, Enum.reverse(failed))
+        after
+          PdfEngines.close(engine)
+        end
+
+      {:error, attempts} ->
+        fail(file_uuid, {:no_engine, attempts})
     end
   end
 
-  # Every page failed (e.g. `pdftotext` missing, or a wholly unreadable
-  # file): fail the job so Oban retries — don't mark an empty document as
-  # successfully extracted.
-  defp finalize_with_failures(file_uuid, _page_count, 0, [_ | _] = failed) do
+  # Every page failed (a wholly unreadable file): fail the job so Oban
+  # retries — don't mark an empty document as successfully extracted.
+  defp finalize_with_failures(file_uuid, _engine, 0, [_ | _] = failed) do
     fail(file_uuid, {:all_pages_failed, summarize_failures(failed)})
   end
 
@@ -131,7 +144,7 @@ defmodule PhoenixKitCatalogue.Workers.PdfExtractor do
   # corrupt page (or a transient per-page hiccup) no longer discards the
   # whole document and burns all retries — we log the unreadable pages and
   # finalize on what we got.
-  defp finalize_with_failures(file_uuid, page_count, _ok_count, failed) do
+  defp finalize_with_failures(file_uuid, engine, _ok_count, failed) do
     if failed != [] do
       Logger.warning(
         "PdfExtractor: #{length(failed)} page(s) failed for #{inspect(file_uuid)}; " <>
@@ -139,7 +152,7 @@ defmodule PhoenixKitCatalogue.Workers.PdfExtractor do
       )
     end
 
-    finalize(file_uuid, page_count)
+    finalize(file_uuid, engine)
   end
 
   defp summarize_failures(failed) do
@@ -154,12 +167,14 @@ defmodule PhoenixKitCatalogue.Workers.PdfExtractor do
     {:error, message}
   end
 
-  defp finalize(file_uuid, page_count) do
+  defp finalize(file_uuid, engine) do
+    extra = %{"engine" => engine.name}
+
     if all_pages_empty?(file_uuid) do
-      _ = PdfLibrary.mark_scanned_no_text(file_uuid, page_count)
+      _ = PdfLibrary.mark_scanned_no_text(file_uuid, engine.page_count, extra)
       :ok
     else
-      _ = PdfLibrary.mark_extracted(file_uuid, page_count)
+      _ = PdfLibrary.mark_extracted(file_uuid, engine.page_count, extra)
       :ok
     end
   end
@@ -183,66 +198,23 @@ defmodule PhoenixKitCatalogue.Workers.PdfExtractor do
     any_page? and not any_text?
   end
 
-  defp pdfinfo_page_count(path) do
-    case System.cmd("pdfinfo", [path], stderr_to_stdout: true) do
-      {output, 0} ->
-        parse_page_count(output)
-
-      {raw, _code} ->
-        {:error, {:pdfinfo_failed, String.slice(raw || "", 0, 300)}}
-    end
-  rescue
-    e in ErlangError ->
-      {:error, {:pdfinfo_failed, "pdfinfo not on PATH: #{Exception.message(e)}"}}
-  end
-
-  @doc false
-  # Public for testability — internal pure function over `pdfinfo`'s
-  # text output. Returns `{:ok, n}` or `{:error, {:pdfinfo_failed, msg}}`.
-  def parse_page_count(output) when is_binary(output) do
-    Regex.scan(~r/^Pages:\s+(\d+)/m, output)
-    |> List.first()
-    |> case do
-      [_, count_str] ->
-        case Integer.parse(count_str) do
-          {n, _} when n >= 0 -> {:ok, n}
-          _ -> {:error, {:pdfinfo_failed, "couldn't parse page count: #{output}"}}
-        end
-
-      _ ->
-        {:error, {:pdfinfo_failed, "no Pages: line in pdfinfo output"}}
-    end
-  end
-
   # Returns `{succeeded_count, failed}` where `failed` is a list of
   # `{page_number, reason}` in reverse page order. Continues past a failed
   # page instead of halting, so one bad page doesn't discard the rest.
-  defp extract_pages(_file_uuid, _path, 0), do: {0, []}
+  defp extract_pages(_file_uuid, %{page_count: 0}), do: {0, []}
 
-  defp extract_pages(file_uuid, file_path, page_count) do
-    Enum.reduce(1..page_count, {0, []}, fn page_number, {ok_count, failed} ->
-      case extract_page(file_uuid, file_path, page_number) do
+  defp extract_pages(file_uuid, engine) do
+    Enum.reduce(1..engine.page_count, {0, []}, fn page_number, {ok_count, failed} ->
+      case extract_page(file_uuid, engine, page_number) do
         :ok -> {ok_count + 1, failed}
         {:error, reason} -> {ok_count, [{page_number, reason} | failed]}
       end
     end)
   end
 
-  defp extract_page(file_uuid, file_path, page_number) do
-    args = [
-      "-layout",
-      "-enc",
-      "UTF-8",
-      "-f",
-      Integer.to_string(page_number),
-      "-l",
-      Integer.to_string(page_number),
-      file_path,
-      "-"
-    ]
-
-    case System.cmd("pdftotext", args, stderr_to_stdout: false) do
-      {raw, 0} ->
+  defp extract_page(file_uuid, engine, page_number) do
+    case PdfEngines.extract_page(engine, page_number) do
+      {:ok, raw} ->
         text = normalize(raw)
 
         case PdfLibrary.insert_page(file_uuid, page_number, text) do
@@ -250,16 +222,15 @@ defmodule PhoenixKitCatalogue.Workers.PdfExtractor do
           {:error, cs} -> {:error, {:insert_page_failed, page_number, cs}}
         end
 
-      {raw, code} ->
-        {:error, {:pdftotext_failed, page_number, code, String.slice(raw || "", 0, 200)}}
+      {:error, reason} ->
+        {:error, reason}
     end
-  rescue
-    e in ErlangError ->
-      {:error,
-       {:pdftotext_failed, page_number, :enoent, "pdftotext not on PATH: #{Exception.message(e)}"}}
   end
 
   # Normalize page text:
+  # - Drop invalid UTF-8 bytes and NUL codepoints (NUL is valid UTF-8
+  #   but Postgres `text` rejects it — one NUL from an engine would
+  #   otherwise crash the page insert and burn the job's retries)
   # - Strip soft-hyphens
   # - Undo line-break hyphenation: "Pre-\nmium" → "Premium"
   # - Replace common ligatures (ﬁ, ﬂ, ﬀ, ﬃ, ﬄ)
@@ -267,9 +238,11 @@ defmodule PhoenixKitCatalogue.Workers.PdfExtractor do
   # - Trim
   @doc false
   # Public for testability — pure-function text normalizer applied to
-  # every page's `pdftotext` output before storage.
+  # every page's engine output before storage.
   def normalize(text) when is_binary(text) do
     text
+    |> scrub_utf8()
+    |> String.replace(<<0>>, "")
     |> String.replace("­", "")
     |> ligatures()
     |> then(&Regex.replace(~r/-\n(\w)/u, &1, "\\1"))
@@ -278,6 +251,21 @@ defmodule PhoenixKitCatalogue.Workers.PdfExtractor do
   end
 
   def normalize(_), do: ""
+
+  # Rebuilds the binary from its valid UTF-8 codepoints, skipping any
+  # invalid bytes (possible from `pdftotext` on damaged font data;
+  # Rust-backed engines always emit valid UTF-8, so this usually no-ops
+  # on the fast full-binary validity check). A recursive walk, not a
+  # bitstring comprehension — a `<<cp::utf8 <- text>>` generator HALTS
+  # at the first non-matching byte, which would silently drop the whole
+  # rest of the page.
+  defp scrub_utf8(text) do
+    if String.valid?(text), do: text, else: do_scrub(text, <<>>)
+  end
+
+  defp do_scrub(<<cp::utf8, rest::binary>>, acc), do: do_scrub(rest, <<acc::binary, cp::utf8>>)
+  defp do_scrub(<<_bad, rest::binary>>, acc), do: do_scrub(rest, acc)
+  defp do_scrub(<<>>, acc), do: acc
 
   defp ligatures(text) do
     text
@@ -293,6 +281,14 @@ defmodule PhoenixKitCatalogue.Workers.PdfExtractor do
   # into the human-readable string stored in `extractions.error_message`
   # and surfaced by the LV's "Extraction failed" alert.
   def inspect_reason({:pdfinfo_failed, msg}), do: "pdfinfo: #{msg}"
+
+  def inspect_reason({:no_engine, attempts}) do
+    detail = Enum.map_join(attempts, "; ", fn {name, reason} -> "#{name}: #{inspect(reason)}" end)
+    "no PDF engine could open the file (#{String.slice(detail, 0, 400)})"
+  end
+
+  def inspect_reason({:pdfium_page_failed, page, reason}),
+    do: "pdfium failed on page #{page}: #{inspect(reason)}"
 
   def inspect_reason({:pdftotext_failed, page, code, msg}),
     do: "pdftotext failed on page #{page} (exit #{inspect(code)}): #{msg}"

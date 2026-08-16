@@ -13,7 +13,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
   import PhoenixKitWeb.Components.Core.Select, only: [select: 1]
 
   import PhoenixKitCatalogue.Web.Components,
-    only: [featured_image_card: 1, metadata_editor: 1]
+    only: [attachments_files_panel: 1, metadata_editor: 1]
 
   import PhoenixKitCatalogue.Web.Helpers,
     only: [
@@ -28,7 +28,6 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
       ai_translate_modal: 1
     ]
 
-  alias PhoenixKit.Modules.Storage.URLSigner
   alias PhoenixKitCatalogue.Attachments
   alias PhoenixKitCatalogue.Catalogue
   alias PhoenixKitCatalogue.Metadata
@@ -556,136 +555,31 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
 
         <%!-- Files tab — featured image + inline files dropzone. --%>
         <div class={"flex flex-col gap-6 #{if @current_tab != :files, do: "hidden"}"}>
-          <.featured_image_card
+          <.attachments_files_panel
+            uploads={@uploads}
+            files_state={@files_state}
             featured_image_uuid={@featured_image_uuid}
             featured_image_file={@featured_image_file}
-            subtitle={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Shown on catalogue listings and detail views.")}
+            featured_subtitle={
+              Gettext.gettext(
+                PhoenixKitCatalogue.Gettext,
+                "Shown on catalogue listings and detail views."
+              )
+            }
+            files_hint={
+              Gettext.gettext(
+                PhoenixKitCatalogue.Gettext,
+                "Brochures, spec sheets, datasheets. Any file type is accepted."
+              )
+            }
+            remove_confirm={
+              Gettext.gettext(
+                PhoenixKitCatalogue.Gettext,
+                "Remove this file from the catalogue? If it's not attached to any other resource, it will be moved to trash (admins can restore)."
+              )
+            }
+            remove_title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Remove from catalogue")}
           />
-
-          <div class="card bg-base-100 shadow-lg">
-            <div class="card-body flex flex-col gap-4">
-              <div class="flex flex-col gap-0.5">
-                <h2 class="text-base font-semibold text-base-content/80 flex items-center gap-2">
-                  <.icon name="hero-paper-clip" class="w-4 h-4" />
-                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Attached Files")}
-                  <span :if={@files_state.files != []} class="badge badge-sm badge-ghost ml-1">
-                    {length(@files_state.files)}
-                  </span>
-                </h2>
-                <p class="text-xs text-base-content/50">
-                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Brochures, spec sheets, datasheets. Any file type is accepted.")}
-                </p>
-              </div>
-
-              <label
-                for={@uploads.attachment_files.ref}
-                class="flex flex-col items-center justify-center gap-2 py-6 border-2 border-dashed border-base-300 rounded-md bg-base-200/20 hover:bg-base-200/40 transition-colors cursor-pointer"
-                phx-drop-target={@uploads.attachment_files.ref}
-              >
-                <.icon name="hero-cloud-arrow-up" class="w-8 h-8 text-base-content/40" />
-                <div class="text-sm text-base-content/60">
-                  <span class="font-medium text-primary">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Click to upload")}</span>
-                  <span>{Gettext.gettext(PhoenixKitCatalogue.Gettext, " or drag & drop")}</span>
-                </div>
-                <.live_file_input upload={@uploads.attachment_files} class="hidden" />
-              </label>
-
-              <div :if={@uploads.attachment_files.entries != []} class="flex flex-col gap-2">
-                <div
-                  :for={entry <- @uploads.attachment_files.entries}
-                  class="flex items-center gap-3 rounded-md border border-base-300 bg-base-100 p-2"
-                >
-                  <.icon name="hero-cloud-arrow-up" class="w-4 h-4 text-base-content/60 shrink-0" />
-                  <div class="flex-1 min-w-0">
-                    <p class="text-sm truncate">{entry.client_name}</p>
-                    <progress
-                      class="progress progress-primary w-full h-1 mt-1"
-                      value={entry.progress}
-                      max="100"
-                    >
-                    </progress>
-                  </div>
-                  <span class="text-xs text-base-content/50 tabular-nums">{entry.progress}%</span>
-                  <button
-                    type="button"
-                    phx-click="cancel_upload"
-                    phx-value-ref={entry.ref}
-                    class="btn btn-ghost btn-xs btn-square"
-                    title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Cancel")}
-                  >
-                    <.icon name="hero-x-mark" class="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-
-              <p
-                :for={err <- upload_errors(@uploads.attachment_files)}
-                class="text-xs text-error"
-              >
-                {Attachments.upload_error_message(err)}
-              </p>
-
-              <%= if @files_state.files == [] do %>
-                <div class="flex flex-col items-center gap-2 py-10 text-center border border-dashed border-base-300 rounded-md">
-                  <.icon name="hero-paper-clip" class="w-8 h-8 text-base-content/30" />
-                  <p class="text-sm text-base-content/50">
-                    {Gettext.gettext(PhoenixKitCatalogue.Gettext, "No files attached yet.")}
-                  </p>
-                </div>
-              <% else %>
-                <ul class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <li
-                    :for={file <- @files_state.files}
-                    class="flex items-center gap-3 rounded-md border border-base-300 bg-base-200/30 p-3"
-                  >
-                    <%= if file.file_type == "image" do %>
-                      <a
-                        href={URLSigner.signed_url(file.uuid, "original")}
-                        target="_blank"
-                        rel="noopener"
-                        class="shrink-0"
-                      >
-                        <img
-                          src={URLSigner.signed_url(file.uuid, "thumbnail")}
-                          alt={file.original_file_name}
-                          class="w-14 h-14 rounded object-cover bg-base-200 border border-base-300"
-                        />
-                      </a>
-                    <% else %>
-                      <a
-                        href={URLSigner.signed_url(file.uuid, "original")}
-                        target="_blank"
-                        rel="noopener"
-                        class="shrink-0 flex items-center justify-center w-14 h-14 rounded bg-base-200 border border-base-300 text-base-content/60"
-                        title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Download")}
-                      >
-                        <.icon name={Attachments.file_icon(file)} class="w-6 h-6" />
-                      </a>
-                    <% end %>
-                    <div class="flex-1 min-w-0">
-                      <p class="text-sm font-medium truncate" title={file.original_file_name}>
-                        {file.original_file_name}
-                      </p>
-                      <p class="text-xs text-base-content/50">
-                        {Attachments.format_file_size(file.size)} · {file.file_type}
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      phx-click="remove_file"
-                      phx-value-uuid={file.uuid}
-                      phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Removing...")}
-                      data-confirm={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Remove this file from the catalogue? If it's not attached to any other resource, it will be moved to trash (admins can restore).")}
-                      class="btn btn-ghost btn-xs btn-square"
-                      title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Remove from catalogue")}
-                    >
-                      <.icon name="hero-x-mark" class="w-4 h-4" />
-                    </button>
-                  </li>
-                </ul>
-              <% end %>
-            </div>
-          </div>
         </div>
 
         <%!-- Actions — sit outside the tab panels so Save works from any

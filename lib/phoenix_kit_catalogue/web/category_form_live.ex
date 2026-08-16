@@ -9,9 +9,8 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
   import PhoenixKitWeb.Components.MultilangForm
   import PhoenixKitWeb.Components.Core.Icon, only: [icon: 1]
   import PhoenixKitWeb.Components.Core.Modal, only: [confirm_modal: 1]
-  import PhoenixKitWeb.Components.Core.Input, only: [input: 1]
   import PhoenixKitWeb.Components.Core.Select, only: [select: 1]
-  import PhoenixKitCatalogue.Web.Components, only: [featured_image_card: 1]
+  import PhoenixKitCatalogue.Web.Components, only: [attachments_files_panel: 1]
 
   import PhoenixKitCatalogue.Web.Helpers,
     only: [
@@ -117,7 +116,9 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
        parent_move_target: category && category.parent_uuid,
        move_target: nil
      )
-     |> Attachments.mount_attachments(category, files_grid: false)
+     |> assign(current_tab: :details)
+     |> Attachments.mount_attachments(category)
+     |> Attachments.allow_attachment_upload()
      |> assign_changeset(changeset)
      |> mount_multilang()
      |> assign_ai_translation("catalogue_category", if(action == :edit, do: category, else: nil))}
@@ -198,6 +199,16 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
   # ── Attachments (featured image modal only) ──────────────────────
   # Category has a featured image but no inline files grid — the
   # lightweight treatment my AGENTS.md comparison landed on.
+
+  def handle_event("switch_tab", %{"tab" => tab}, socket) do
+    {:noreply, assign(socket, :current_tab, parse_tab(tab))}
+  end
+
+  def handle_event("cancel_upload", %{"ref" => ref}, socket),
+    do: Attachments.cancel_attachment_upload(socket, ref)
+
+  def handle_event("remove_file", %{"uuid" => uuid}, socket),
+    do: Attachments.trash_file(socket, uuid)
 
   def handle_event("open_featured_image_picker", _params, socket),
     do: Attachments.open_featured_image_picker(socket)
@@ -402,6 +413,9 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
   # The clicked submit button ships its name/value with the form params.
   # Anything other than the explicit "stay" (absent, forged, or stale)
   # falls back to the exit behavior — same as before the split.
+  defp parse_tab("files"), do: :files
+  defp parse_tab(_), do: :details
+
   defp save_mode(%{"save_action" => "stay"}), do: :stay
   defp save_mode(_params), do: :exit
 
@@ -453,8 +467,7 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
       current_locale={assigns[:current_locale]}
     >
       <div class="flex flex-col mx-auto max-w-2xl px-4 py-8 gap-6">
-      <%!-- Media selector — folder-scoped featured-image picker.
-           No inline files grid on Category forms; featured image only. --%>
+      <%!-- Media selector — folder-scoped featured-image picker. --%>
       <.live_component
         module={PhoenixKitWeb.Live.Components.MediaSelectorModal}
         id="category-form-media-selector"
@@ -468,18 +481,35 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
         phoenix_kit_current_user={assigns[:phoenix_kit_current_user]}
       />
 
-      <%!-- Featured image — opens the scoped picker. Uuid stored on
-           `category.data["featured_image_uuid"]`. The folder is lazily
-           created on first open, so categories without a featured image
-           never materialize one. --%>
-      <.featured_image_card
-        featured_image_uuid={@featured_image_uuid}
-        featured_image_file={@featured_image_file}
-        subtitle={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Shown on catalogue listings and category landing pages.")}
-      />
+      <%!-- Tab strip — same structure as the catalogue and item forms;
+           each panel stays in the DOM (toggled by `hidden`) so the
+           multilang wrapper and any user input survive tab flips. --%>
+      <div role="tablist" class="tabs tabs-border">
+        <button
+          type="button"
+          phx-click="switch_tab"
+          phx-value-tab="details"
+          class={"tab #{if @current_tab == :details, do: "tab-active"}"}
+        >
+          <.icon name="hero-document-text" class="w-4 h-4 mr-1" />
+          {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Details")}
+        </button>
+        <button
+          type="button"
+          phx-click="switch_tab"
+          phx-value-tab="files"
+          class={"tab #{if @current_tab == :files, do: "tab-active"}"}
+        >
+          <.icon name="hero-paper-clip" class="w-4 h-4 mr-1" />
+          {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Photos and Files")}
+          <span :if={@files_state.files != []} class="badge badge-sm badge-ghost ml-2">
+            {length(@files_state.files)}
+          </span>
+        </button>
+      </div>
 
       <.form for={@form} action="#" phx-change="validate" phx-submit="save">
-        <div class="card bg-base-100 shadow-lg">
+        <div class={"card bg-base-100 shadow-lg #{if @current_tab != :details, do: "hidden"}"}>
           <%!-- Bundled tabs + AI row (phoenix_kit_ai's canonical placement). --%>
           <.ai_multilang_tabs
             multilang_enabled={@multilang_enabled}
@@ -538,41 +568,71 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
               <span class="fieldset-label text-base-content/50 mt-1">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Pick a parent to nest this category inside, or leave blank to keep it at the top level. You can move it later.")}</span>
             </div>
 
-            <div class="fieldset">
-              <.input
-                field={@form[:position]}
-                type="number"
-                label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Position")}
-                class="w-28"
-                min="0"
-              />
-              <span class="fieldset-label text-base-content/50 mt-1">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Lower numbers appear first. You can also reorder from the catalogue detail page.")}</span>
-            </div>
+            <%!-- No manual Position field: a new category appends to its
+                 level (next_category_position at mount) and ordering is
+                 drag-managed on the catalogue detail page — same as
+                 catalogues and items. --%>
 
             <%!-- Actions --%>
             <div class="divider my-0"></div>
 
-            <%!-- "Save" keeps you on the form (also the Enter-key
-                 submitter, being first in the DOM); "Save & Exit"
-                 returns to where the form was opened from. --%>
-            <div class="flex justify-end gap-3">
-              <.link navigate={@return_to || Paths.catalogue_detail(@catalogue_uuid)} class="btn btn-ghost">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Cancel")}</.link>
-              <button
-                type="submit"
-                name="save_action"
-                value="stay"
-                class="btn btn-outline btn-primary phx-submit-loading:opacity-75"
-                phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Saving...")}
-              >{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Save")}</button>
-              <button
-                type="submit"
-                name="save_action"
-                value="exit"
-                class="btn btn-primary phx-submit-loading:opacity-75"
-                phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Saving...")}
-              >{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Save & Exit")}</button>
-            </div>
           </div>
+        </div>
+
+        <%!-- Files tab — featured image + inline files dropzone, the
+             same shared panel the catalogue and item forms use. --%>
+        <div class={"flex flex-col gap-6 mt-6 #{if @current_tab != :files, do: "hidden"}"}>
+          <.attachments_files_panel
+            uploads={@uploads}
+            files_state={@files_state}
+            featured_image_uuid={@featured_image_uuid}
+            featured_image_file={@featured_image_file}
+            featured_subtitle={
+              Gettext.gettext(
+                PhoenixKitCatalogue.Gettext,
+                "Shown on catalogue listings and category landing pages."
+              )
+            }
+            files_hint={
+              Gettext.gettext(
+                PhoenixKitCatalogue.Gettext,
+                "Brochures, spec sheets, datasheets. Any file type is accepted."
+              )
+            }
+            remove_confirm={
+              Gettext.gettext(
+                PhoenixKitCatalogue.Gettext,
+                "Remove this file from the category? If it's not attached to any other resource, it will be moved to trash (admins can restore)."
+              )
+            }
+            remove_title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Remove from category")}
+          />
+        </div>
+
+        <%!-- Actions — outside the tab panels so Save works from any
+             tab; disabled while uploads are mid-flight so the save
+             can't race the post-upload write. "Save" keeps you on the
+             form (also the Enter-key submitter, being first in the
+             DOM); "Save & Exit" returns to where the form was opened
+             from. --%>
+        <div class="flex justify-end gap-3 pt-6">
+          <.link navigate={@return_to || Paths.catalogue_detail(@catalogue_uuid)} class="btn btn-ghost">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Cancel")}</.link>
+          <button
+            type="submit"
+            name="save_action"
+            value="stay"
+            class="btn btn-outline btn-primary phx-submit-loading:opacity-75"
+            disabled={@uploads.attachment_files.entries != []}
+            phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Saving...")}
+          >{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Save")}</button>
+          <button
+            type="submit"
+            name="save_action"
+            value="exit"
+            class="btn btn-primary phx-submit-loading:opacity-75"
+            disabled={@uploads.attachment_files.entries != []}
+            phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Saving...")}
+          >{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Save & Exit")}</button>
         </div>
       </.form>
 

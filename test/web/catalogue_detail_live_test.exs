@@ -145,6 +145,62 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
       assert html =~ "Search within this category"
     end
 
+    test "the trail lives in the admin header and the level shows its description", %{conn: conn} do
+      catalogue = fixture_catalogue(%{name: "Catalogue X", description: "Root blurb"})
+      parent = fixture_category(catalogue, %{name: "Hardware"})
+
+      child =
+        fixture_category(catalogue, %{
+          name: "Hinges",
+          parent_uuid: parent.uuid,
+          description: "Hinge blurb"
+        })
+
+      {:ok, _view, html} = live(conn, cat_url(catalogue.uuid, child.uuid))
+
+      # Header crumbs: catalogue root + ancestor, both as links; the current
+      # category is the page title, not a crumb.
+      assert html =~ ~s(href="#{url(catalogue.uuid)}")
+      assert html =~ ~s(href="#{cat_url(catalogue.uuid, parent.uuid)}")
+      # No in-page drill trail (the old "name › name" h1 is gone) — the
+      # level's own description renders in its place, not the root's.
+      refute html =~ "Root blurb"
+      assert html =~ "Hinge blurb"
+    end
+
+    test "manual mode wires the card view for drag reorder too", %{conn: conn} do
+      catalogue = fixture_catalogue()
+      category = fixture_category(catalogue)
+      fixture_item(%{name: "Item A", category_uuid: category.uuid})
+      fixture_item(%{name: "Item B", category_uuid: category.uuid})
+
+      {:ok, _view, html} = live(conn, cat_url(catalogue.uuid, category.uuid))
+
+      # The card container only gets its -cards id (and the SortableGrid
+      # hook + per-card grips with it) when on_reorder is wired.
+      assert html =~ ~s(id="level-items-active-cards")
+    end
+
+    test "a single item is not drag-reorderable in card view", %{conn: conn} do
+      catalogue = fixture_catalogue()
+      category = fixture_category(catalogue)
+      fixture_item(%{name: "Only item", category_uuid: category.uuid})
+
+      {:ok, _view, html} = live(conn, cat_url(catalogue.uuid, category.uuid))
+
+      refute html =~ ~s(id="level-items-active-cards")
+    end
+
+    test "Add Category is a root-level action — hidden inside a category", %{conn: conn} do
+      catalogue = fixture_catalogue()
+      category = fixture_category(catalogue)
+
+      {:ok, _view, html} = live(conn, cat_url(catalogue.uuid, category.uuid))
+
+      refute html =~ "Add Category"
+      assert html =~ "Add Item"
+    end
+
     test "shows subcategories as drill cards alongside the category's own items", %{conn: conn} do
       catalogue = fixture_catalogue()
       parent = fixture_category(catalogue, %{name: "Parent"})
@@ -249,6 +305,77 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
   # ─────────────────────────────────────────────────────────────────
   # Item mutations (inside a category)
   # ─────────────────────────────────────────────────────────────────
+
+  describe "items table columns + category menus" do
+    test "columns modal narrows and reorders the items table", %{conn: conn} do
+      catalogue = fixture_catalogue(%{name: "Cols catalogue"})
+      fixture_item(%{name: "Col item", sku: "COL-1", catalogue_uuid: catalogue.uuid})
+
+      {:ok, view, html} = live(conn, url(catalogue.uuid))
+
+      # Default columns render; the Columns button is present.
+      assert html =~ "COL-1"
+      assert html =~ "Columns"
+
+      render_click(view, "show_column_modal", %{"scope" => "detail_items"})
+      # Drop the SKU column — the editor is live, no Apply step.
+      updated = render_click(view, "remove_column", %{"column_id" => "sku"})
+
+      refute updated =~ "COL-1"
+      assert updated =~ "Col item"
+    end
+
+    test "categories table has its own Columns editor", %{conn: conn} do
+      catalogue = fixture_catalogue(%{name: "Cat cols"})
+      fixture_category(catalogue, %{name: "Configurable"})
+
+      {:ok, view, html} = live(conn, url(catalogue.uuid))
+      assert html =~ "Items"
+
+      render_click(view, "show_column_modal", %{"scope" => "detail_categories"})
+      updated = render_click(view, "add_column", %{"column_id" => "updated"})
+
+      assert updated =~ "Updated"
+    end
+
+    test "detail sorts are shared across users and follow live", %{conn: conn} do
+      catalogue = fixture_catalogue(%{name: "Global sort cat"})
+      fixture_item(%{name: "Alpha item", catalogue_uuid: catalogue.uuid, position: 1})
+      fixture_item(%{name: "Zed item", catalogue_uuid: catalogue.uuid, position: 0})
+
+      {:ok, changer, _} = live(conn, url(catalogue.uuid))
+      {:ok, viewer, _} = live(conn, url(catalogue.uuid))
+
+      render_click(changer, "sort_items", %{"sort_by" => "name"})
+
+      # Persisted globally: the setting is written...
+      assert PhoenixKit.Settings.get_setting("catalogue_sort_detail_items", nil) ==
+               "name:asc"
+
+      # ...a fresh session opens with it...
+      {:ok, _fresh, fresh_html} = live(conn, url(catalogue.uuid))
+
+      assert :binary.match(fresh_html, "Alpha item") |> elem(0) <
+               :binary.match(fresh_html, "Zed item") |> elem(0)
+
+      # ...and the already-open viewer followed the broadcast.
+      viewer_html = render(viewer)
+
+      assert :binary.match(viewer_html, "Alpha item") |> elem(0) <
+               :binary.match(viewer_html, "Zed item") |> elem(0)
+    end
+
+    test "category rows use the standardized row menu", %{conn: conn} do
+      catalogue = fixture_catalogue(%{name: "Menu catalogue"})
+      category = fixture_category(catalogue, %{name: "Menu category"})
+
+      {:ok, _view, html} = live(conn, url(catalogue.uuid))
+
+      assert html =~ "category-menu-#{category.uuid}"
+      # Old inline pencil affordance is gone from category rows.
+      refute html =~ "Edit category"
+    end
+  end
 
   describe "item mutations" do
     test "delete_item removes the item and trashes it in the DB", %{conn: conn} do

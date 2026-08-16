@@ -257,6 +257,40 @@ defmodule PhoenixKitCatalogue.GettextTest do
       assert gettext_in("ru", msgid) == "Фото и файлы"
     end
 
+    test "folder tree strings" do
+      for {msgid, et, ru} <- [
+            {"Toggle folder", "Ava/sule kaust", "Развернуть/свернуть папку"},
+            {"Up", "Üles", "Вверх"},
+            {"Drop here to move to root (unfiled)",
+             "Lohista siia, et viia juurtasandile (kaustata)",
+             "Перетащите сюда, чтобы переместить в корень (без папки)"},
+            {"Drag to reorder or move into a folder",
+             "Lohista järjestamiseks või kausta viimiseks",
+             "Перетащите, чтобы изменить порядок или переместить в папку"},
+            {"Clear search and filters to see the folder tree.",
+             "Puhasta otsing ja filtrid, et näha kaustapuud.",
+             "Очистите поиск и фильтры, чтобы увидеть дерево папок."}
+          ] do
+        assert po_msgstr("en", msgid) == msgid
+        assert gettext_in("et", msgid) == et
+        assert gettext_in("ru", msgid) == ru
+      end
+    end
+
+    test "empty-only folder delete strings" do
+      for {msgid, et, ru} <- [
+            {"Empty folder", "Tühi kaust", "Пустая папка"},
+            {"Subcategories", "Alamkategooriad", "Подкатегории"},
+            {"Only empty folders can be deleted — move its contents out first.",
+             "Kustutada saab ainult tühje kaustu — vii sisu enne välja.",
+             "Удалять можно только пустые папки — сначала переместите содержимое."}
+          ] do
+        assert po_msgstr("en", msgid) == msgid
+        assert gettext_in("et", msgid) == et
+        assert gettext_in("ru", msgid) == ru
+      end
+    end
+
     test "save button strings" do
       for {msgid, et, ru} <- [
             {"Save", "Salvesta", "Сохранить"},

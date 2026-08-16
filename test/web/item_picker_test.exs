@@ -120,6 +120,28 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPickerTest do
       assert html =~ "€123"
     end
 
+    test "a nil price renders the option row without crashing (BadBooleanError pin)" do
+      # PR #63 fixed `price && …` vs `price != nil and …` in the option
+      # row after a nil price crashed it; every other render test uses a
+      # constant string price, so this is the only case that would
+      # regress if the boolean guard ever reverts to `or`/`and` on a
+      # possibly-nil value.
+      html =
+        render_component(
+          ItemPicker,
+          base_assigns(%{
+            open: true,
+            options: [fake_item("item-nil-price", "Priceless Plank")],
+            has_more: false,
+            show_unit: false,
+            format_price: fn _ -> nil end
+          })
+        )
+
+      assert html =~ "Priceless Plank"
+      refute html =~ "€123"
+    end
+
     test "excluded items get aria-disabled=true and are not clickable" do
       html =
         render_component(

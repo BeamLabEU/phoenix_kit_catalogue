@@ -109,6 +109,33 @@ msgstr "Удалён"
 msgid "Discontinued"
 msgstr "Снят с производства"
 
+msgid "Toggle folder"
+msgstr "Развернуть/свернуть папку"
+
+msgid "Clear search and filters to see the folder tree."
+msgstr "Очистите поиск и фильтры, чтобы увидеть дерево папок."
+
+msgid "Up"
+msgstr "Вверх"
+
+msgid "Drop here to move to root (unfiled)"
+msgstr "Перетащите сюда, чтобы переместить в корень (без папки)"
+
+msgid "Drag to reorder or move into a folder"
+msgstr "Перетащите, чтобы изменить порядок или переместить в папку"
+
+msgid "This will permanently delete this folder. Only empty folders can be deleted. This cannot be undone."
+msgstr "Это навсегда удалит папку. Удалять можно только пустые папки. Это действие нельзя отменить."
+
+msgid "Only empty folders can be deleted — move its contents out first."
+msgstr "Удалять можно только пустые папки — сначала переместите содержимое."
+
+msgid "Empty folder"
+msgstr "Пустая папка"
+
+msgid "Subcategories"
+msgstr "Подкатегории"
+
 msgid "Unknown"
 msgstr "Неизвестно"
 
@@ -848,9 +875,6 @@ msgstr "Ручной порядок"
 msgid "Folders"
 msgstr "Папки"
 
-msgid "Folders…"
-msgstr "Папки…"
-
 msgid "All folders"
 msgstr "Все папки"
 
@@ -861,9 +885,6 @@ msgid "Clear search and filters to drag-and-drop reorder."
 msgstr "Очистите поиск и фильтры, чтобы менять порядок перетаскиванием."
 
 ## Folder management modal
-msgid "No folders yet."
-msgstr "Папок ещё нет."
-
 msgid "Nothing in the trash."
 msgstr "В корзине ничего нет."
 
@@ -917,12 +938,6 @@ msgstr "Это навсегда удалит папку. Подпапки пер
 
 msgid "Folder moved."
 msgstr "Папка перемещена."
-
-msgid "Folder restored."
-msgstr "Папка восстановлена."
-
-msgid "Folder moved to deleted."
-msgstr "Папка перемещена в корзину."
 
 msgid "Folder not found."
 msgstr "Папка не найдена."
