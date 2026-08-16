@@ -27,6 +27,27 @@ Without a clause the click crashes that LiveView. With `photo_clickable: false`
 (the default) the thumbnail still renders, just inert, and the event is guarded —
 nothing is sent, so existing consumers are unaffected.
 
+## Status update (2026-08-16, Max's team)
+
+Everything in §2 and the fixable parts of §3 are now DONE:
+
+- **L028**: implemented as the attribute-groups system (fixed/multi
+  kinds, stable keys, translatable names/values, per-item assignment,
+  product-card display; order-line value picking stays with the parent
+  app as designed). Shipped in PR #64 / #67.
+- **L029**: kit-component pass done — changeset/draft-backed labeled
+  fields use the PhoenixKit primitives; the inline per-row editors stay
+  deliberately raw (feedback-wrapper vs compact flex rows; documented
+  in the attribute-group form template).
+- **§3 indent (L026)**: fixed.
+- **§3 pre-existing test failures**: the two URL-state failures were a
+  core UrlState bug (path params leaking into patched query strings) —
+  fixed in phoenix_kit PR #719; the DnD reorder persistence failure was
+  fixed earlier. Suite fully green.
+- **§3 spectator-host staleness + locale dual-sourcing**: still carried
+  as P2 by design — no behavior change was warranted without a concrete
+  consumer hitting them.
+
 ## 2. Not done — designed but not implemented
 
 **Product attributes / characteristics (our L028).** Design is complete and
