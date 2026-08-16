@@ -1,3 +1,28 @@
+## 0.16.1 - 2026-08-16
+
+### Changed
+
+- **Form action buttons use core's `<.button>`** (#69/#68) in the
+  manufacturer, supplier, catalogue, and category forms, replacing
+  hand-written `class="btn …"` markup so sizing, disabled state, and the
+  focus ring track the component. `item_form_live` and
+  `attribute_group_form_live` are deliberately untouched — both tune
+  styling per place. Requires core `phoenix_kit` `~> 2.8`, where
+  `<.button>`'s `navigate` / `variant` / `size` attrs and the status
+  variants live (already the pinned floor).
+
+### Fixed
+
+- **The "Delete Forever" buttons rendered `btn-primary` and `btn-error`
+  together** on the catalogue and category danger zones. `variant`
+  replaces the base colour rather than being suppressed by `class`, so
+  `class="btn-error"` left both colour classes on the element and the
+  compiled stylesheet's ordering — not the markup — decided which won.
+  Both now pass `variant="error"`. Pinned in
+  `test/web/form_lives_test.exs`, alongside a check that the core
+  button's `:rest` global keeps forwarding the submits'
+  `name="save_action"` / `value`.
+
 ## 0.16.0 - 2026-08-16
 
 ### Added
