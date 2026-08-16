@@ -1749,7 +1749,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         else: []
 
     assign(socket,
-      page_title: catalogue.name,
+      page_title: if(current, do: current_node_label(current), else: catalogue.name),
       catalogue: catalogue,
       breadcrumb: build_breadcrumb(current, cat_mode),
       child_categories:
@@ -2306,7 +2306,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       page_title={@page_title}
       page_section={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Catalogues")}
       page_section_path={Paths.index()}
-      page_subtitle={@current_category && current_node_label(@current_category)}
+      page_crumbs={header_crumbs(@catalogue, @current_category, @breadcrumb)}
       current_path={assigns[:url_path] || Paths.index()}
       current_locale={assigns[:current_locale]}
     >
@@ -2317,44 +2317,20 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         </div>
 
         <div :if={@catalogue} class="flex flex-col gap-6">
-          <%!-- In-body header: breadcrumb when drilled into a category
-               (catalogue name now lives in the global admin header); action
-               buttons whenever the view is active. --%>
+          <%!-- In-body header: the full trail (catalogue and every ancestor,
+               each clickable) lives in the global admin header via
+               page_crumbs, so nothing here repeats it. This slot carries
+               the level's DESCRIPTION — the catalogue's at root, the
+               current category's when drilled. --%>
+          <% level_desc = level_description(@current_category, @catalogue) %>
           <div
-            :if={@view_mode == "active" or @current_category != nil}
+            :if={@view_mode == "active" or level_desc}
             class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-3"
           >
-            <%!-- The admin header already names the page, so the big title
-                 is not repeated here. At root this slot carries the
-                 catalogue DESCRIPTION instead; drilled, it carries the
-                 drill trail — that one is navigation (each ancestor links
-                 back), not repetition. --%>
             <div class="min-w-0">
-              <%= if @current_category != nil do %>
-                <h1 class="text-lg sm:text-xl font-semibold text-base-content flex flex-wrap items-center gap-x-2 gap-y-1">
-                  <.link
-                    patch={Paths.catalogue_detail(@catalogue.uuid)}
-                    class="font-normal text-base-content/50 hover:text-primary"
-                  >
-                    {@catalogue.name}
-                  </.link>
-                  <%= for cat <- @breadcrumb do %>
-                    <.icon name="hero-chevron-right" class="w-4 h-4 text-base-content/30 shrink-0" />
-                    <.link
-                      patch={Paths.category_browse(@catalogue.uuid, cat.uuid)}
-                      class="font-normal text-base-content/50 hover:text-primary"
-                    >
-                      {cat.name}
-                    </.link>
-                  <% end %>
-                  <.icon name="hero-chevron-right" class="w-4 h-4 text-base-content/30 shrink-0" />
-                  <span class="truncate">{current_node_label(@current_category)}</span>
-                </h1>
-              <% else %>
-                <p :if={@catalogue.description} class="text-base-content/60">
-                  {@catalogue.description}
-                </p>
-              <% end %>
+              <p :if={level_desc} class="text-base-content/60">
+                {level_desc}
+              </p>
             </div>
             <div :if={@view_mode == "active"} class="flex flex-wrap items-center gap-2 sm:flex-shrink-0">
               <.link navigate={new_category_path(assigns)} class="btn btn-outline btn-sm">
@@ -3920,6 +3896,29 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
   defp current_node_label(%Category{} = cat), do: cat.name
   defp current_node_label(_), do: ""
+
+  # Admin-header crumbs for the drill trail: the catalogue root plus every
+  # ancestor of the current node, each clickable. Empty at the root — there
+  # the catalogue itself is the page title.
+  defp header_crumbs(nil, _current, _trail), do: []
+  defp header_crumbs(_catalogue, nil, _trail), do: []
+
+  defp header_crumbs(catalogue, _current, trail) do
+    [
+      %{label: catalogue.name, path: Paths.catalogue_detail(catalogue.uuid)}
+      | Enum.map(trail, &%{label: &1.name, path: Paths.category_browse(catalogue.uuid, &1.uuid)})
+    ]
+  end
+
+  # Shown under the admin header: the catalogue's description at root, the
+  # current category's when drilled. The :uncategorized pseudo node has none;
+  # blank strings count as absent.
+  defp level_description(%Category{description: desc}, _catalogue), do: presence(desc)
+  defp level_description(nil, catalogue), do: presence(catalogue.description)
+  defp level_description(_uncategorized, _catalogue), do: nil
+
+  defp presence(nil), do: nil
+  defp presence(desc), do: if(String.trim(desc) == "", do: nil, else: desc)
 
   defp search_placeholder(nil),
     do:
