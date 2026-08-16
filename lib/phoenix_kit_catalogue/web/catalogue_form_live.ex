@@ -588,7 +588,11 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
              we don't race the post-upload handle_progress write against
              the save path. "Save" keeps you on the form (also the
              Enter-key submitter, being first in the DOM); "Save & Exit"
-             goes to the catalogue's detail page. --%>
+             goes to the catalogue's detail page. "Save" carries
+             `class="btn-outline"` on purpose — btn-outline is a style
+             modifier, not a colour, so it composes with the component's
+             default btn-primary; `variant="outline"` would REPLACE the
+             colour and leave the button uncoloured. --%>
         <div class="flex justify-end gap-3 pt-2">
           <.button navigate={Paths.index()} variant="ghost">
             {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Cancel")}
@@ -638,7 +642,16 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
                 {Gettext.gettext(PhoenixKitCatalogue.Gettext, "This will permanently delete this catalogue, all its categories, and all items within them. This cannot be undone.")}
               </p>
             </div>
-            <.button phx-click="show_delete_confirm" size="sm" class="btn-outline btn-error shrink-0">
+            <%!-- `variant="error"` rather than `class="btn-error"`: variant
+                 REPLACES the base colour, so the class form would leave both
+                 btn-primary and btn-error on the element and let stylesheet
+                 order pick the winner. --%>
+            <.button
+              phx-click="show_delete_confirm"
+              variant="error"
+              size="sm"
+              class="btn-outline shrink-0"
+            >
               <.icon name="hero-trash" class="w-4 h-4" />
               {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete Forever")}
             </.button>

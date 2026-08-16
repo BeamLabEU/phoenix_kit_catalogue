@@ -615,7 +615,9 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
              can't race the post-upload write. "Save" keeps you on the
              form (also the Enter-key submitter, being first in the
              DOM); "Save & Exit" returns to where the form was opened
-             from. --%>
+             from. "Save" keeps `class="btn-outline"` — a style modifier
+             that composes with the component's default btn-primary,
+             where `variant="outline"` would replace the colour. --%>
         <div class="flex justify-end gap-3 pt-6">
           <.button navigate={@return_to || Paths.catalogue_detail(@catalogue_uuid)} variant="ghost">
             {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Cancel")}
@@ -733,7 +735,14 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
               <p class="font-medium text-sm">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Permanently Delete Category")}</p>
               <p class="text-xs text-base-content/60">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "This will permanently delete this category and all its items. This cannot be undone.")}</p>
             </div>
-            <.button phx-click="show_delete_confirm" size="sm" class="btn-outline btn-error shrink-0">
+            <%!-- `variant="error"`, not `class="btn-error"` — the class form
+                 leaves the default btn-primary on the element next to it. --%>
+            <.button
+              phx-click="show_delete_confirm"
+              variant="error"
+              size="sm"
+              class="btn-outline shrink-0"
+            >
               <.icon name="hero-trash" class="w-4 h-4" />
               {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete Forever")}
             </.button>
