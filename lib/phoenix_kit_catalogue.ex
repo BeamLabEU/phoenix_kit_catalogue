@@ -89,7 +89,7 @@ defmodule PhoenixKitCatalogue do
   # ===========================================================================
 
   @impl PhoenixKit.Module
-  def version, do: "0.16.1"
+  def version, do: "0.16.2"
 
   @impl PhoenixKit.Module
   def route_module, do: PhoenixKitCatalogue.Web.Routes
