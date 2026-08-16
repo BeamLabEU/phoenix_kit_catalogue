@@ -2333,7 +2333,14 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               </p>
             </div>
             <div :if={@view_mode == "active"} class="flex flex-wrap items-center gap-2 sm:flex-shrink-0">
-              <.link navigate={new_category_path(assigns)} class="btn btn-outline btn-sm">
+              <%!-- Root only — inside a category "Add Category" reads as
+                   ambiguous (sibling or subcategory?). Nesting is done via
+                   the parent picker on the category form instead. --%>
+              <.link
+                :if={@current_category == nil}
+                navigate={new_category_path(assigns)}
+                class="btn btn-outline btn-sm"
+              >
                 <.icon name="hero-folder-plus" class="w-4 h-4" /> {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Add Category")}
               </.link>
               <.link navigate={new_item_path(assigns)} class="btn btn-primary btn-sm">

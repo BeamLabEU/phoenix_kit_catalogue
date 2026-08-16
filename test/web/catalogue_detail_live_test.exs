@@ -168,6 +168,16 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
       assert html =~ "Hinge blurb"
     end
 
+    test "Add Category is a root-level action — hidden inside a category", %{conn: conn} do
+      catalogue = fixture_catalogue()
+      category = fixture_category(catalogue)
+
+      {:ok, _view, html} = live(conn, cat_url(catalogue.uuid, category.uuid))
+
+      refute html =~ "Add Category"
+      assert html =~ "Add Item"
+    end
+
     test "shows subcategories as drill cards alongside the category's own items", %{conn: conn} do
       catalogue = fixture_catalogue()
       parent = fixture_category(catalogue, %{name: "Parent"})
