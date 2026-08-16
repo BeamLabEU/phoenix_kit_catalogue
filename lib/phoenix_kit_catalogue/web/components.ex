@@ -1654,6 +1654,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
   attr(:item, :any, required: true)
   attr(:edit_path, :any, default: nil)
   attr(:has_attributes, :boolean, default: false)
+  attr(:file_count, :integer, default: 0)
   attr(:columns, :list, default: ["sku", "price", "unit", "status"])
 
   def item_pricing_cell(assigns) do
@@ -1693,6 +1694,36 @@ defmodule PhoenixKitCatalogue.Web.Components do
         <% "status" -> %>
           <.table_default_cell>
             <.status_badge status={@item.status || "unknown"} size={:xs} />
+          </.table_default_cell>
+        <% "attributes" -> %>
+          <.table_default_cell>
+            <span
+              :if={@has_attributes}
+              title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Has attribute group")}
+            >
+              <.icon name="hero-swatch" class="w-4 h-4 text-primary/60" />
+            </span>
+            <span :if={!@has_attributes} class="text-base-content/30">—</span>
+          </.table_default_cell>
+        <% "files" -> %>
+          <.table_default_cell class="text-sm tabular-nums text-base-content/60">
+            <span :if={@file_count > 0} class="inline-flex items-center gap-1">
+              <.icon name="hero-paper-clip" class="w-3.5 h-3.5 rotate-45 opacity-60" />
+              {@file_count}
+            </span>
+            <span :if={@file_count == 0} class="text-base-content/30">—</span>
+          </.table_default_cell>
+        <% "description" -> %>
+          <.table_default_cell class="text-sm text-base-content/60 max-w-64">
+            <span class="line-clamp-2">{@item.description || "—"}</span>
+          </.table_default_cell>
+        <% "updated" -> %>
+          <.table_default_cell class="text-sm text-base-content/60 whitespace-nowrap">
+            {Calendar.strftime(@item.updated_at, "%Y-%m-%d %H:%M")}
+          </.table_default_cell>
+        <% "created" -> %>
+          <.table_default_cell class="text-sm text-base-content/60 whitespace-nowrap">
+            {Calendar.strftime(@item.inserted_at, "%Y-%m-%d %H:%M")}
           </.table_default_cell>
         <% _ -> %>
       <% end %>

@@ -2117,6 +2117,33 @@ defmodule PhoenixKitCatalogue.Catalogue do
   end
 
   @doc """
+  `%{parent_uuid => n}` of direct child categories per parent within a
+  catalogue — the count form of `category_uuids_with_children/2`, for
+  the detail table's optional Subcategories column.
+  """
+  @spec category_children_counts(Ecto.UUID.t(), keyword()) :: %{
+          Ecto.UUID.t() => non_neg_integer()
+        }
+  def category_children_counts(catalogue_uuid, opts \\ []) do
+    mode = Keyword.get(opts, :mode, :active)
+
+    query =
+      from(c in Category,
+        where: c.catalogue_uuid == ^catalogue_uuid and not is_nil(c.parent_uuid),
+        group_by: c.parent_uuid,
+        select: {c.parent_uuid, count(c.uuid)}
+      )
+
+    query =
+      case mode do
+        :active -> where(query, [c], c.status != "deleted")
+        :deleted -> query
+      end
+
+    query |> repo().all() |> Map.new()
+  end
+
+  @doc """
   Returns the set of category UUIDs (within the catalogue, in the given
   `:mode`) that have at least one child category — lets drill cards show
   a "has subcategories" affordance without an N+1 per card.

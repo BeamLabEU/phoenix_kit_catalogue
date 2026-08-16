@@ -133,6 +133,9 @@ msgstr "Kustutada saab ainult tühje kaustu — vii sisu enne välja."
 msgid "Empty folder"
 msgstr "Tühi kaust"
 
+msgid "Subcategories"
+msgstr "Alamkategooriad"
+
 msgid "Unknown"
 msgstr "Teadmata"
 
