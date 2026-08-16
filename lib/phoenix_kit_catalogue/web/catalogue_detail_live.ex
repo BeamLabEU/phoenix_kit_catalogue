@@ -2648,6 +2648,9 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                     catalogue_uuid={@catalogue.uuid}
                     category={cat}
                     count={Map.get(@child_counts, cat.uuid, 0)}
+                    categories_columns={@categories_columns}
+                    subcat_count={Map.get(@child_subcat_counts, cat.uuid, 0)}
+                    file_count={Map.get(@file_counts, cat.uuid, 0)}
                     has_subs={MapSet.member?(@children_with_subs, cat.uuid)}
                     view_mode={@view_mode}
                     sibling_count={length(@child_categories)}
@@ -3296,6 +3299,9 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   attr(:sibling_count, :integer, required: true)
   attr(:selected, :boolean, default: false)
   attr(:has_files, :boolean, default: false)
+  attr(:categories_columns, :list, default: ["items"])
+  attr(:subcat_count, :integer, default: 0)
+  attr(:file_count, :integer, default: 0)
 
   defp category_tile(assigns) do
     ~H"""
@@ -3336,10 +3342,54 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         >
           {@category.name}
         </.link>
+        <%!-- Configured columns add their data to the card, mirroring the
+             table (Columns modal drives both). --%>
+        <div
+          :if={@categories_columns != []}
+          class="grid grid-cols-2 gap-x-3 gap-y-0.5 text-xs mt-1"
+        >
+          <%= for col <- @categories_columns do %>
+            <%= case col do %>
+              <% "items" -> %>
+                <div class="text-base-content/50">
+                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Items")}
+                </div>
+                <div class="tabular-nums">{@count}</div>
+              <% "subcategories" -> %>
+                <div class="text-base-content/50">
+                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Subcategories")}
+                </div>
+                <div class="tabular-nums">{@subcat_count}</div>
+              <% "description" -> %>
+                <div class="text-base-content/50">
+                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Description")}
+                </div>
+                <div class="line-clamp-2">{@category.description || "—"}</div>
+              <% "files" -> %>
+                <div class="text-base-content/50">
+                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Files")}
+                </div>
+                <div class="tabular-nums">{@file_count}</div>
+              <% "status" -> %>
+                <div class="text-base-content/50">
+                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Status")}
+                </div>
+                <div><.status_badge status={@category.status} size={:xs} /></div>
+              <% "updated" -> %>
+                <div class="text-base-content/50">
+                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Updated")}
+                </div>
+                <div>{Calendar.strftime(@category.updated_at, "%Y-%m-%d %H:%M")}</div>
+              <% "created" -> %>
+                <div class="text-base-content/50">
+                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Created")}
+                </div>
+                <div>{Calendar.strftime(@category.inserted_at, "%Y-%m-%d %H:%M")}</div>
+              <% _ -> %>
+            <% end %>
+          <% end %>
+        </div>
         <div class="flex items-center gap-1.5">
-          <span class="badge badge-ghost badge-sm">
-            {@count} {Gettext.gettext(PhoenixKitCatalogue.Gettext, "items")}
-          </span>
           <span
             :if={@has_subs}
             class="badge badge-ghost badge-xs"
