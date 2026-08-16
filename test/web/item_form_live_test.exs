@@ -503,9 +503,14 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLiveTest do
       assert Catalogue.get_item_attribute_group_uuid(item.uuid) == group.uuid
 
       # Re-open for edit: preselected; clearing the select detaches on save.
-      # (Raw <option> renders attrs in source order: value, then selected.)
-      {:ok, view, html} = live(conn, edit_item_url(item.uuid))
-      assert html =~ ~s(value="#{group.uuid}" selected)
+      # (The kit <.select> renders via options_for_select, which emits
+      # `selected` BEFORE `value` — assert order-agnostically.)
+      {:ok, view, _html} = live(conn, edit_item_url(item.uuid))
+
+      assert has_element?(
+               view,
+               "select[name='attribute_group_uuid'] option[value='#{group.uuid}'][selected]"
+             )
 
       view
       |> form("form[action=\"#\"][phx-submit=save]", %{
@@ -515,6 +520,24 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLiveTest do
       |> render_submit()
 
       assert Catalogue.get_item_attribute_group_uuid(item.uuid) == nil
+    end
+
+    test "the group dropdown shows the viewer's locale, not the primary language", %{
+      conn: conn
+    } do
+      {:ok, group} = Catalogue.create_attribute_group(%{name: "Ideedeuksed"})
+
+      {:ok, _} =
+        Catalogue.set_translation(group, "en", %{"_name" => "Idea doors"}, fn g, a ->
+          Catalogue.update_attribute_group(g, a)
+        end)
+
+      catalogue = fixture_catalogue()
+
+      {:ok, _view, html} = live(conn, new_item_url(catalogue.uuid))
+
+      assert html =~ "Idea doors"
+      refute html =~ "Ideedeuksed"
     end
 
     test "legacy metadata collapse renders only when old values exist", %{conn: conn} do

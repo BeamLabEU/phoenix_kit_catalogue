@@ -1278,3 +1278,22 @@ msgstr "Сначала выберите ИИ-эндпоинт и промпт в
 
 msgid "Add value"
 msgstr "Добавить значение"
+
+
+
+
+
+msgid "Search PDF contents"
+msgstr "Поиск по содержимому PDF"
+
+msgid "Search inside every PDF…"
+msgstr "Искать внутри всех PDF…"
+
+msgid "Type at least 2 characters to search the text of every PDF."
+msgstr "Введите не менее 2 символов для поиска по тексту всех PDF."
+
+msgid "No pages match your search."
+msgstr "Ни одна страница не соответствует запросу."
+
+msgid "Search by filename…"
+msgstr "Поиск по имени файла…"

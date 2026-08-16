@@ -37,6 +37,10 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
 
   @translatable_fields ["name", "description"]
   @preserve_fields %{
+    # Translatable primaries: submitted only on the primary tab, so a
+    # secondary-tab validate/save must re-inject them or :new loses them.
+    "name" => :name,
+    "description" => :description,
     "status" => :status,
     "kind" => :kind,
     "markup_percentage" => :markup_percentage,

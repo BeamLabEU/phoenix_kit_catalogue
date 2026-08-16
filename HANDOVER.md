@@ -32,6 +32,29 @@ nothing is sent, so existing consumers are unaffected.
 > have been replaced with self-contained descriptions; the queue itself is not a
 > public system, so there is nothing to link to.
 
+## Status update (2026-08-16, Max's team)
+
+Everything in §2 and the fixable parts of §3 are now DONE:
+
+- **Product characteristics**: implemented as the attribute-groups
+  system (fixed/multi kinds, stable keys, translatable names/values,
+  per-item assignment, product-card display; order-line value picking
+  stays with the parent app as designed). Shipped in PR #64 / #67.
+- **Form-component pass**: done — changeset/draft-backed labeled
+  fields use the PhoenixKit primitives; the inline per-row editors stay
+  deliberately raw (feedback-wrapper vs compact flex rows; documented
+  in the attribute-group form template).
+- **§3 picker-input indent**: fixed.
+- **§3 pre-existing test failures**: the two URL-state failures were a
+  core UrlState bug (path params leaking into patched query strings) —
+  fixed in phoenix_kit PR #719; the DnD reorder persistence failure was
+  fixed earlier. Suite fully green.
+- **§3 spectator-host staleness + locale dual-sourcing**: the locale
+  half is resolved by locale-resolved content (`Catalogue.localize/2`);
+  spectator-host staleness stays carried as P2 by design.
+
+## 2. Not done — designed but not implemented
+
 ## 2. Designed at handover — now mostly shipped (original record kept)
 
 **Product attributes / characteristics.** Shipped as the attribute-group

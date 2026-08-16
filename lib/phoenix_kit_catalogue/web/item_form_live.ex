@@ -44,6 +44,10 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
 
   @translatable_fields ["name", "description"]
   @preserve_fields %{
+    # Translatable primaries: submitted only on the primary tab, so a
+    # secondary-tab validate/save must re-inject them or :new loses them.
+    "name" => :name,
+    "description" => :description,
     "sku" => :sku,
     "base_price" => :base_price,
     "markup_percentage" => :markup_percentage,
@@ -906,6 +910,30 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
 
   # ── Attribute group selection ───────────────────────────────────
 
+  # {label, value} pairs for the kit <.select> (L029 conversion): the
+  # dynamic suffixes ("(CRM)" for external suppliers, "(archived)" for
+  # groups kept readable on items that hold them) move out of option
+  # markup into the label strings.
+  defp supplier_options(suppliers) do
+    Enum.map(suppliers, fn s ->
+      label = if s.source != :local, do: "#{s.name} (CRM)", else: s.name
+      {label, s.uuid}
+    end)
+  end
+
+  defp attribute_group_options_for_select(groups) do
+    Enum.map(groups, fn group ->
+      label =
+        if group.status == "archived" do
+          "#{group.name} (#{Gettext.gettext(PhoenixKitCatalogue.Gettext, "archived")})"
+        else
+          group.name
+        end
+
+      {label, group.uuid}
+    end)
+  end
+
   # The Attributes tab's group select submits with the main form (name
   # "attribute_group_uuid", outside the item[...] namespace). Track the
   # selection in assigns so the read-only preview follows it live.
@@ -950,7 +978,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
 
     socket
     |> assign(:selected_attribute_group_uuid, selected)
-    |> assign(:attribute_group_options, groups)
+    |> assign(:attribute_group_options, Catalogue.localize(groups, preview_lang(socket)))
     |> assign_attribute_preview(selected)
   end
 
@@ -1457,43 +1485,32 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
               <div :if={@supplier_form_open} class="card bg-base-200 p-4">
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <div class="fieldset md:col-span-2">
-                    <label class="label">
-                      <span class="fieldset-legend font-medium">
-                        {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Supplier")}
-                      </span>
-                    </label>
-                    <select
+                    <.select
                       name="supplier_info[supplier_uuid]"
+                      value={@supplier_info_draft["supplier_uuid"]}
+                      label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Supplier")}
+                      prompt={Gettext.gettext(PhoenixKitCatalogue.Gettext, "-- Select supplier --")}
+                      options={supplier_options(@all_suppliers)}
                       phx-change="supplier_info_field_change"
-                      class="select w-full"
-                    >
-                      <option value="">
-                        {Gettext.gettext(PhoenixKitCatalogue.Gettext, "-- Select supplier --")}
-                      </option>
-                      <%= for s <- @all_suppliers do %>
-                        <option value={s.uuid} selected={s.uuid == @supplier_info_draft["supplier_uuid"]}>
-                          {s.name} {if s.source != :local, do: "(CRM)", else: ""}
-                        </option>
-                      <% end %>
-                    </select>
-                  </div>
-                  <div class="fieldset">
-                    <label class="label">
-                      <span class="fieldset-legend">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Supplier SKU")}</span>
-                    </label>
-                    <input
-                      type="text"
-                      name="supplier_info[supplier_sku]"
-                      value={@supplier_info_draft["supplier_sku"]}
-                      phx-change="supplier_info_field_change"
-                      class="input w-full font-mono"
-                      placeholder={Gettext.gettext(PhoenixKitCatalogue.Gettext, "e.g., ABC-001")}
+                      class="w-full"
                     />
                   </div>
+                  <.input
+                    type="text"
+                    name="supplier_info[supplier_sku]"
+                    value={@supplier_info_draft["supplier_sku"]}
+                    label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Supplier SKU")}
+                    phx-change="supplier_info_field_change"
+                    class="w-full font-mono"
+                    placeholder={Gettext.gettext(PhoenixKitCatalogue.Gettext, "e.g., ABC-001")}
+                  />
                   <div class="fieldset">
                     <label class="label">
                       <span class="fieldset-legend">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Unit Cost")}</span>
                     </label>
+                    <%!-- Deliberately raw (L029): the kit input wraps each
+                         field in its own feedback div, which would break the
+                         daisyUI join grouping of these two inputs. --%>
                     <div class="join">
                       <input
                         type="number"
@@ -1516,33 +1533,25 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                       />
                     </div>
                   </div>
-                  <div class="fieldset">
-                    <label class="label">
-                      <span class="fieldset-legend">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Lead Time (days)")}</span>
-                    </label>
-                    <input
-                      type="number"
-                      name="supplier_info[lead_time_days]"
-                      value={@supplier_info_draft["lead_time_days"]}
-                      phx-change="supplier_info_field_change"
-                      min="0"
-                      class="input w-full"
-                    />
-                  </div>
-                  <div class="fieldset">
-                    <label class="label">
-                      <span class="fieldset-legend">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Min. Order Qty")}</span>
-                    </label>
-                    <input
-                      type="number"
-                      name="supplier_info[min_order_qty]"
-                      value={@supplier_info_draft["min_order_qty"]}
-                      phx-change="supplier_info_field_change"
-                      step="0.0001"
-                      min="0"
-                      class="input w-full"
-                    />
-                  </div>
+                  <.input
+                    type="number"
+                    name="supplier_info[lead_time_days]"
+                    value={@supplier_info_draft["lead_time_days"]}
+                    label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Lead Time (days)")}
+                    phx-change="supplier_info_field_change"
+                    min="0"
+                    class="w-full"
+                  />
+                  <.input
+                    type="number"
+                    name="supplier_info[min_order_qty]"
+                    value={@supplier_info_draft["min_order_qty"]}
+                    label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Min. Order Qty")}
+                    phx-change="supplier_info_field_change"
+                    step="0.0001"
+                    min="0"
+                    class="w-full"
+                  />
                 </div>
                 <div class="flex gap-2 mt-3 justify-end">
                   <button type="button" phx-click="cancel_add_supplier" class="btn btn-sm btn-ghost">
@@ -1748,22 +1757,13 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                 </.link>
               </div>
 
-              <select
+              <.select
                 name="attribute_group_uuid"
-                class="select select-bordered w-full transition-colors focus-within:select-primary"
-              >
-                <option value="">
-                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "— No attribute group —")}
-                </option>
-                <option
-                  :for={group <- @attribute_group_options}
-                  value={group.uuid}
-                  selected={group.uuid == @selected_attribute_group_uuid}
-                >
-                  {group.name}{if group.status == "archived",
-                    do: " (#{Gettext.gettext(PhoenixKitCatalogue.Gettext, "archived")})"}
-                </option>
-              </select>
+                value={@selected_attribute_group_uuid}
+                prompt={Gettext.gettext(PhoenixKitCatalogue.Gettext, "— No attribute group —")}
+                options={attribute_group_options_for_select(@attribute_group_options)}
+                class="w-full transition-colors focus-within:select-primary"
+              />
 
               <%!-- Read-only preview of what the item inherits. Label in
                    its own fixed column so long value lists wrap under the
