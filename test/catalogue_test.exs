@@ -2918,6 +2918,33 @@ defmodule PhoenixKitCatalogue.CatalogueTest do
       assert data["_name"] == "キッチン"
     end
 
+    test "localize/2 swaps names for the locale and falls back to primary" do
+      cat = create_catalogue(%{name: "Kataloog"})
+
+      {:ok, cat} =
+        Catalogue.set_translation(cat, "en", %{"_name" => "Catalogue EN"}, fn c, a ->
+          Catalogue.update_catalogue(c, a)
+        end)
+
+      plain = create_catalogue(%{name: "Plain"})
+
+      [localized, untouched] = Catalogue.localize([cat, plain], "en")
+      assert localized.name == "Catalogue EN"
+      assert untouched.name == "Plain"
+
+      # nil locale and records without :data pass through unchanged.
+      assert Catalogue.localize([cat], nil) == [cat]
+      assert Catalogue.localize_one(%{no_data: true}, "en") == %{no_data: true}
+
+      # Blank overrides fall back to the primary column.
+      {:ok, blank} =
+        Catalogue.set_translation(plain, "en", %{"_name" => "  "}, fn c, a ->
+          Catalogue.update_catalogue(c, a)
+        end)
+
+      assert Catalogue.localize_one(blank, "en").name == "Plain"
+    end
+
     test "get_translation/2 returns empty map for missing language" do
       cat = create_catalogue(%{name: "Kitchen"})
       data = Catalogue.get_translation(cat, "ja")
