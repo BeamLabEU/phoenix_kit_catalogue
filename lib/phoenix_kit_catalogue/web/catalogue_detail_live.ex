@@ -2317,58 +2317,49 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         </div>
 
         <div :if={@catalogue} class="flex flex-col gap-6">
-          <%!-- In-body header: the full trail (catalogue and every ancestor,
-               each clickable) lives in the global admin header via
-               page_crumbs, so nothing here repeats it. This slot carries
-               the level's DESCRIPTION — the catalogue's at root, the
-               current category's when drilled. --%>
+          <%!-- In-body header, one row: the scoped search sits top-left
+               (where the old in-page breadcrumb was — the trail now lives
+               in the admin header), the level actions right. The search
+               input stays up whenever a search is on screen even outside
+               Active: `?q=` survives the level load, so a deep link into a
+               node whose Active tab is empty lands in the Deleted view
+               with results rendered — hiding it would leave no way to
+               clear. The level's DESCRIPTION (the catalogue's at root, the
+               category's when drilled) is a muted line below. --%>
           <% level_desc = level_description(@current_category, @catalogue) %>
-          <div
-            :if={@view_mode == "active" or level_desc}
-            class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-3"
-          >
-            <div class="min-w-0">
-              <p :if={level_desc} class="text-base-content/60">
-                {level_desc}
-              </p>
+          <% show_search_input = @view_mode == "active" or @search_results != nil or @search_loading %>
+          <div :if={show_search_input or level_desc} class="flex flex-col gap-3 mb-3">
+            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <.search_input
+                :if={show_search_input}
+                class="grow sm:max-w-xl"
+                query={@search_query}
+                placeholder={search_placeholder(@current_category)}
+              />
+              <div :if={not show_search_input} class="grow"></div>
+              <div :if={@view_mode == "active"} class="flex flex-wrap items-center gap-2 sm:flex-shrink-0">
+                <%!-- Root only — inside a category "Add Category" reads as
+                     ambiguous (sibling or subcategory?). Nesting is done via
+                     the parent picker on the category form instead. --%>
+                <.link
+                  :if={@current_category == nil}
+                  navigate={new_category_path(assigns)}
+                  class="btn btn-outline btn-sm"
+                >
+                  <.icon name="hero-folder-plus" class="w-4 h-4" /> {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Add Category")}
+                </.link>
+                <.link navigate={new_item_path(assigns)} class="btn btn-primary btn-sm">
+                  <.icon name="hero-plus" class="w-4 h-4" /> {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Add Item")}
+                </.link>
+                <.link navigate={Paths.catalogue_edit(@catalogue.uuid)} class="btn btn-ghost btn-sm">
+                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")}
+                </.link>
+              </div>
             </div>
-            <div :if={@view_mode == "active"} class="flex flex-wrap items-center gap-2 sm:flex-shrink-0">
-              <%!-- Root only — inside a category "Add Category" reads as
-                   ambiguous (sibling or subcategory?). Nesting is done via
-                   the parent picker on the category form instead. --%>
-              <.link
-                :if={@current_category == nil}
-                navigate={new_category_path(assigns)}
-                class="btn btn-outline btn-sm"
-              >
-                <.icon name="hero-folder-plus" class="w-4 h-4" /> {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Add Category")}
-              </.link>
-              <.link navigate={new_item_path(assigns)} class="btn btn-primary btn-sm">
-                <.icon name="hero-plus" class="w-4 h-4" /> {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Add Item")}
-              </.link>
-              <.link navigate={Paths.catalogue_edit(@catalogue.uuid)} class="btn btn-ghost btn-sm">
-                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")}
-              </.link>
-            </div>
+            <p :if={level_desc} class="text-base-content/60">
+              {level_desc}
+            </p>
           </div>
-
-        <%!-- Toolbar: scoped search (Active mode only — context search
-             excludes deleted rows) + per-level Active/Deleted toggle.
-             The input also stays up whenever a search is on screen: `?q=` now
-             survives the level load, so a deep link into a node whose Active
-             tab is empty lands in the Deleted view with results rendered —
-             hiding the input there would leave them with no way to clear. --%>
-        <% show_search_input = @view_mode == "active" or @search_results != nil or @search_loading %>
-        <div class="flex items-end justify-between gap-4 flex-wrap border-b border-base-200 pb-2">
-          <.search_input
-            :if={show_search_input}
-            class="grow"
-            query={@search_query}
-            placeholder={search_placeholder(@current_category)}
-          />
-          <div :if={not show_search_input}></div>
-
-        </div>
 
         <%!-- Search results (Active mode; unchanged machinery) --%>
         <div :if={@search_results != nil or @search_loading} class="flex flex-col gap-4">
