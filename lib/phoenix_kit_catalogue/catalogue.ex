@@ -232,7 +232,12 @@ defmodule PhoenixKitCatalogue.Catalogue do
     if Helpers.has_attr?(attrs, :position) do
       attrs
     else
-      Helpers.put_attr(attrs, :position, next_catalogue_position())
+      # Append on the *level* the catalogue will land on (root unless
+      # `folder_uuid` is set). Positions are one interleaved sequence
+      # per folder level — a global catalogue-only max would collide
+      # with folders already occupying those slots.
+      folder = attrs |> Helpers.fetch_attr(:folder_uuid) |> normalize_folder_uuid()
+      Helpers.put_attr(attrs, :position, next_level_position(folder))
     end
   end
 
@@ -539,9 +544,18 @@ defmodule PhoenixKitCatalogue.Catalogue do
   @spec create_catalogue(map(), keyword()) ::
           {:ok, Catalogue.t()} | {:error, Ecto.Changeset.t(Catalogue.t())}
   def create_catalogue(attrs, opts \\ []) do
-    attrs = maybe_put_catalogue_position(attrs)
+    result =
+      repo().transaction(fn ->
+        lock_catalogues_order!()
+        attrs = maybe_put_catalogue_position(attrs)
 
-    case %Catalogue{} |> Catalogue.changeset(attrs) |> repo().insert() do
+        case %Catalogue{} |> Catalogue.changeset(attrs) |> repo().insert() do
+          {:ok, catalogue} -> catalogue
+          {:error, changeset} -> repo().rollback(changeset)
+        end
+      end)
+
+    case result do
       {:ok, catalogue} = ok ->
         log_activity(%{
           action: "catalogue.created",
@@ -666,8 +680,21 @@ defmodule PhoenixKitCatalogue.Catalogue do
   @spec restore_catalogue(Catalogue.t(), keyword()) ::
           {:ok, Catalogue.t()} | {:error, term()}
   def restore_catalogue(%Catalogue{} = catalogue, opts \\ []) do
+    # Callers often pass the pre-trash struct (status still "active" in
+    # memory). Decide no-op from the row, not the argument.
+    catalogue = repo().get(Catalogue, catalogue.uuid) || catalogue
+
+    if catalogue.status != "deleted" do
+      {:ok, catalogue}
+    else
+      do_restore_catalogue(catalogue, opts)
+    end
+  end
+
+  defp do_restore_catalogue(catalogue, opts) do
     result =
       repo().transaction(fn ->
+        lock_catalogues_order!()
         now = DateTime.utc_now()
 
         from(c in Category, where: c.catalogue_uuid == ^catalogue.uuid and c.status == "deleted")
@@ -685,7 +712,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
         attrs =
           case restored_folder_home(catalogue.folder_uuid) do
             :keep -> %{status: "active"}
-            :root -> %{status: "active", folder_uuid: nil}
+            :root -> %{status: "active", folder_uuid: nil, position: next_level_position(nil)}
           end
 
         catalogue
@@ -2166,7 +2193,10 @@ defmodule PhoenixKitCatalogue.Catalogue do
     query =
       case mode do
         :active -> where(query, [c], c.status != "deleted")
-        :deleted -> query
+        # Match `category_children_counts/2`: restore is non-cascading,
+        # so a deleted parent can have only-active children. The deleted
+        # view's chevron must not light up for a child list that is empty.
+        :deleted -> where(query, [c], c.status == "deleted")
       end
 
     query |> repo().all() |> MapSet.new()
@@ -2314,21 +2344,29 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
   @doc """
   Creates a folder. `:parent_uuid` (optional) nests it; a new folder is
-  appended (max sibling position + 1) within its parent level.
+  inserted at the front of its parent level (one below the current min
+  interleaved position) so it is immediately visible.
   """
   @spec create_folder(map(), keyword()) ::
           {:ok, Folder.t()} | {:error, Ecto.Changeset.t(Folder.t())}
   def create_folder(attrs, opts \\ []) do
-    parent_uuid = normalize_folder_uuid(Map.get(attrs, :parent_uuid))
+    result =
+      repo().transaction(fn ->
+        lock_catalogues_order!()
+        parent_uuid = normalize_folder_uuid(Helpers.fetch_attr(attrs, :parent_uuid))
 
-    attrs =
-      attrs
-      |> Map.put(:parent_uuid, parent_uuid)
-      # New folders sort to the FRONT of their level so they're immediately
-      # visible (not buried after an expanded sibling's children).
-      |> Map.put(:position, front_folder_position(parent_uuid))
+        attrs =
+          attrs
+          |> Helpers.put_attr(:parent_uuid, parent_uuid)
+          |> Helpers.put_attr(:position, front_level_position(parent_uuid))
 
-    case %Folder{} |> Folder.changeset(attrs) |> repo().insert() do
+        case %Folder{} |> Folder.changeset(attrs) |> repo().insert() do
+          {:ok, folder} -> folder
+          {:error, changeset} -> repo().rollback(changeset)
+        end
+      end)
+
+    case result do
       {:ok, folder} = ok ->
         log_activity(%{
           action: "folder.created",
@@ -2403,6 +2441,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
   defp do_move_folder(folder, new_parent, opts) do
     result =
       repo().transaction(fn ->
+        lock_catalogues_order!()
         repo().one!(from(f in Folder, where: f.uuid == ^folder.uuid, lock: "FOR UPDATE"))
         run_locked_folder_move(folder, new_parent)
       end)
@@ -2430,7 +2469,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
   # Any error rolls the transaction back with the reason so the outer
   # `{:ok, _} <- result` short-circuits without logging.
   defp run_locked_folder_move(folder, new_parent) do
-    attrs = %{parent_uuid: new_parent, position: next_folder_position(new_parent)}
+    attrs = %{parent_uuid: new_parent, position: next_level_position(new_parent)}
 
     with :ok <- folder_cycle_guard(folder, new_parent),
          :ok <- validate_target_folder(new_parent),
@@ -2481,23 +2520,33 @@ defmodule PhoenixKitCatalogue.Catalogue do
   @spec restore_folder(Folder.t(), keyword()) ::
           {:ok, Folder.t()} | {:error, Ecto.Changeset.t(Folder.t())}
   def restore_folder(%Folder{} = folder, opts \\ []) do
-    parent =
-      case validate_target_folder(folder.parent_uuid) do
-        :ok -> folder.parent_uuid
-        _ -> nil
-      end
+    result =
+      repo().transaction(fn ->
+        lock_catalogues_order!()
 
-    attrs = %{status: "active", parent_uuid: parent, position: next_folder_position(parent)}
+        parent =
+          case validate_target_folder(folder.parent_uuid) do
+            :ok -> folder.parent_uuid
+            _ -> nil
+          end
 
-    case folder |> Folder.changeset(attrs) |> repo().update() do
-      {:ok, _updated} = ok ->
+        attrs = %{status: "active", parent_uuid: parent, position: next_level_position(parent)}
+
+        case folder |> Folder.changeset(attrs) |> repo().update() do
+          {:ok, updated} -> updated
+          {:error, changeset} -> repo().rollback(changeset)
+        end
+      end)
+
+    case result do
+      {:ok, updated} = ok ->
         log_activity(%{
           action: "folder.restored",
           mode: "manual",
           actor_uuid: opts[:actor_uuid],
           resource_type: "folder",
           resource_uuid: folder.uuid,
-          metadata: %{"name" => folder.name, "parent_uuid" => parent}
+          metadata: %{"name" => folder.name, "parent_uuid" => updated.parent_uuid}
         })
 
         ok
@@ -2526,19 +2575,32 @@ defmodule PhoenixKitCatalogue.Catalogue do
   @spec delete_empty_folder(Folder.t(), keyword()) ::
           {:ok, Folder.t()} | {:error, :not_empty | term()}
   def delete_empty_folder(%Folder{} = folder, opts \\ []) do
-    # One atomic DELETE whose emptiness conditions are evaluated in the
-    # same statement — a separate check-then-delete had a window where a
-    # concurrent "file into this folder" landing between the two would
-    # be silently unfiled by the FK's ON DELETE SET NULL.
+    # Membership writers (create/move/file) take the same catalogues-order
+    # lock, so a concurrent insert cannot sneak in under READ COMMITTED
+    # after NOT EXISTS is evaluated — that would otherwise trip
+    # `ON DELETE SET NULL` and silently unfile the new occupant.
     {count, _} =
-      repo().delete_all(
-        from(f in Folder,
-          as: :folder,
-          where: f.uuid == ^folder.uuid,
-          where: not exists(from(sf in Folder, where: sf.parent_uuid == parent_as(:folder).uuid)),
-          where: not exists(from(c in Catalogue, where: c.folder_uuid == parent_as(:folder).uuid))
-        )
-      )
+      repo().transaction(fn ->
+        lock_catalogues_order!()
+
+        {n, _} =
+          repo().delete_all(
+            from(f in Folder,
+              as: :folder,
+              where: f.uuid == ^folder.uuid,
+              where:
+                not exists(from(sf in Folder, where: sf.parent_uuid == parent_as(:folder).uuid)),
+              where:
+                not exists(from(c in Catalogue, where: c.folder_uuid == parent_as(:folder).uuid))
+            )
+          )
+
+        n
+      end)
+      |> case do
+        {:ok, n} -> {n, nil}
+        {:error, reason} -> {0, reason}
+      end
 
     if count == 1 do
       log_activity(%{
@@ -2580,6 +2642,8 @@ defmodule PhoenixKitCatalogue.Catalogue do
   def permanently_delete_folder(%Folder{} = folder, opts \\ []) do
     result =
       repo().transaction(fn ->
+        lock_catalogues_order!()
+
         from(f in Folder, where: f.parent_uuid == ^folder.uuid)
         |> repo().update_all(set: [parent_uuid: nil])
 
@@ -2613,6 +2677,8 @@ defmodule PhoenixKitCatalogue.Catalogue do
           :ok | {:error, :too_many_uuids | term()}
   def reorder_folders(ordered_uuids, opts \\ [])
 
+  def reorder_folders([], _opts), do: :ok
+
   def reorder_folders(ordered_uuids, opts)
       when is_list(ordered_uuids) and length(ordered_uuids) > @reorder_max_uuids do
     log_reorder_rejected(:folder, :too_many_uuids, length(ordered_uuids), nil, opts)
@@ -2643,8 +2709,6 @@ defmodule PhoenixKitCatalogue.Catalogue do
           resource_uuid: List.first(unique_uuids),
           metadata: %{"count" => length(unique_uuids)}
         })
-
-        PubSub.broadcast(:folder, List.first(unique_uuids))
 
         :ok
 
@@ -2681,8 +2745,47 @@ defmodule PhoenixKitCatalogue.Catalogue do
   end
 
   def place_level_rows(entries, opts) when is_list(entries) do
-    unique = Enum.uniq_by(entries, fn {_type, uuid} -> uuid end)
+    with {:ok, unique} <- normalize_level_entries(entries),
+         :ok <- validate_level_siblings(unique) do
+      write_level_positions(unique, opts)
+    end
+  end
 
+  defp normalize_level_entries(entries) do
+    if Enum.any?(entries, fn
+         {type, uuid} when type in ~w(folder catalogue) and is_binary(uuid) -> false
+         _ -> true
+       end) do
+      {:error, :invalid_entry}
+    else
+      {:ok, Enum.uniq_by(entries, fn {_type, uuid} -> uuid end)}
+    end
+  end
+
+  # Every named row must already live on the same folder level. A forged
+  # payload that mixes two parents would rewrite positions on both, which
+  # corrupts the untouched level's interleaved order.
+  defp validate_level_siblings([]), do: :ok
+
+  defp validate_level_siblings(entries) do
+    folder_uuids = for {"folder", uuid} <- entries, do: uuid
+    catalogue_uuids = for {"catalogue", uuid} <- entries, do: uuid
+
+    folder_levels =
+      from(f in Folder, where: f.uuid in ^folder_uuids, select: f.parent_uuid) |> repo().all()
+
+    catalogue_levels =
+      from(c in Catalogue, where: c.uuid in ^catalogue_uuids, select: c.folder_uuid)
+      |> repo().all()
+
+    case Enum.uniq(folder_levels ++ catalogue_levels) do
+      [] -> :ok
+      [_level] -> :ok
+      _ -> {:error, :not_siblings}
+    end
+  end
+
+  defp write_level_positions(unique, opts) do
     result =
       repo().transaction(fn ->
         lock_catalogues_order!()
@@ -2701,21 +2804,22 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
     case result do
       {:ok, _} ->
+        {first_type, first_uuid} = List.first(unique)
+        resource_type = if first_type == "folder", do: "folder", else: "catalogue"
+
         log_activity(%{
           action: "catalogue.level_reordered",
           mode: "manual",
           actor_uuid: opts[:actor_uuid],
-          resource_type: "catalogue",
-          resource_uuid: unique |> List.first() |> elem(1),
+          resource_type: resource_type,
+          resource_uuid: first_uuid,
           metadata: %{"count" => length(unique)}
         })
-
-        {first_type, first_uuid} = List.first(unique)
-        PubSub.broadcast(if(first_type == "folder", do: :folder, else: :catalogue), first_uuid)
 
         :ok
 
       {:error, reason} ->
+        log_reorder_db_error(:level, Enum.map(unique, &elem(&1, 1)), nil, opts)
         {:error, reason}
     end
   end
@@ -2738,10 +2842,20 @@ defmodule PhoenixKitCatalogue.Catalogue do
   end
 
   defp do_move_catalogue_to_folder(catalogue, target, opts) do
-    attrs = %{folder_uuid: target, position: next_catalogue_position_in_folder(target)}
+    result =
+      repo().transaction(fn ->
+        lock_catalogues_order!()
 
-    with :ok <- validate_target_folder(target),
-         {:ok, updated} <- catalogue |> Catalogue.changeset(attrs) |> repo().update() do
+        with :ok <- validate_target_folder(target),
+             attrs = %{folder_uuid: target, position: next_level_position(target)},
+             {:ok, updated} <- catalogue |> Catalogue.changeset(attrs) |> repo().update() do
+          updated
+        else
+          {:error, reason} -> repo().rollback(reason)
+        end
+      end)
+
+    with {:ok, updated} <- result do
       log_activity(%{
         action: "catalogue.moved_to_folder",
         mode: "manual",
@@ -2798,51 +2912,70 @@ defmodule PhoenixKitCatalogue.Catalogue do
     end
   end
 
-  defp next_folder_position(parent_uuid) do
-    base = from(f in Folder, select: max(f.position))
-
-    query =
-      case parent_uuid do
-        nil -> where(base, [f], is_nil(f.parent_uuid))
-        uuid -> where(base, [f], f.parent_uuid == ^uuid)
-      end
-
-    case repo().one(query) do
+  # Next free slot in the interleaved folder+catalogue sequence at this
+  # level (`nil` = root). Folders and catalogues share one `position`
+  # number line; a type-specific max would land a new row on top of the
+  # other type.
+  defp next_level_position(level_uuid) do
+    case level_position_bound(:max, level_uuid) do
       nil -> 1
       n -> n + 1
     end
   end
 
-  # One below the smallest sibling position, so a freshly created folder
-  # sorts first within its level. (Manual reorder later normalizes to 1..N.)
-  defp front_folder_position(parent_uuid) do
-    base = from(f in Folder, select: min(f.position))
-
-    query =
-      case parent_uuid do
-        nil -> where(base, [f], is_nil(f.parent_uuid))
-        uuid -> where(base, [f], f.parent_uuid == ^uuid)
-      end
-
-    case repo().one(query) do
+  # One below the smallest occupied slot so a freshly created folder
+  # sorts first. (Manual reorder later normalizes to 1..N.)
+  defp front_level_position(level_uuid) do
+    case level_position_bound(:min, level_uuid) do
       nil -> 1
       n -> n - 1
     end
   end
 
-  defp next_catalogue_position_in_folder(folder_uuid) do
-    base = from(c in Catalogue, where: c.status != "deleted", select: max(c.position))
+  defp level_position_bound(agg, level_uuid) do
+    combine_bound(
+      agg,
+      folder_position_bound(agg, level_uuid),
+      catalogue_position_bound(agg, level_uuid)
+    )
+  end
 
-    query =
-      case folder_uuid do
-        nil -> where(base, [c], is_nil(c.folder_uuid))
-        uuid -> where(base, [c], c.folder_uuid == ^uuid)
+  defp combine_bound(_agg, nil, nil), do: nil
+  defp combine_bound(_agg, a, nil), do: a
+  defp combine_bound(_agg, nil, b), do: b
+  defp combine_bound(:max, a, b), do: max(a, b)
+  defp combine_bound(:min, a, b), do: min(a, b)
+
+  defp folder_position_bound(agg, level_uuid) do
+    scoped =
+      case level_uuid do
+        nil -> from(f in Folder, where: f.status != "deleted" and is_nil(f.parent_uuid))
+        uuid -> from(f in Folder, where: f.status != "deleted" and f.parent_uuid == ^uuid)
       end
 
-    case repo().one(query) do
-      nil -> 1
-      n -> n + 1
-    end
+    query =
+      case agg do
+        :max -> from(f in scoped, select: max(f.position))
+        :min -> from(f in scoped, select: min(f.position))
+      end
+
+    repo().one(query)
+  end
+
+  defp catalogue_position_bound(agg, level_uuid) do
+    scoped =
+      case level_uuid do
+        nil -> from(c in Catalogue, where: c.status != "deleted" and is_nil(c.folder_uuid))
+        uuid -> from(c in Catalogue, where: c.status != "deleted" and c.folder_uuid == ^uuid)
+      end
+
+    query =
+      case agg do
+        :max -> from(c in scoped, select: max(c.position))
+        :min -> from(c in scoped, select: min(c.position))
+      end
+
+    repo().one(query)
   end
 
   # Folder uuid normalization: "", "unfiled", :unfiled, nil all mean root.
@@ -3170,6 +3303,8 @@ defmodule PhoenixKitCatalogue.Catalogue do
           :ok | {:error, :too_many_uuids | term()}
   def reorder_catalogues(ordered_uuids, opts \\ [])
 
+  def reorder_catalogues([], _opts), do: :ok
+
   def reorder_catalogues(ordered_uuids, opts)
       when is_list(ordered_uuids) and length(ordered_uuids) > @reorder_max_uuids do
     log_reorder_rejected(:catalogue, :too_many_uuids, length(ordered_uuids), nil, opts)
@@ -3189,9 +3324,6 @@ defmodule PhoenixKitCatalogue.Catalogue do
           resource_uuid: List.first(unique_uuids),
           metadata: %{"count" => length(unique_uuids)}
         })
-
-        # Other tabs watching the index redraw the new order (issue #56).
-        PubSub.broadcast(:catalogue, List.first(unique_uuids))
 
         :ok
 

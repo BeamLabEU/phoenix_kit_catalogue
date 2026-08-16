@@ -42,7 +42,7 @@ Implemented via `pk_dep/3` in `mix.exs` — **never hand-edit a `phoenix_kit*` d
 Schemas (all use `@primary_key {:uuid, UUIDv7, autogenerate: true}`):
 
 - `Catalogue` — top-level grouping. `kind: "standard" | "smart"`, catalogue-wide `markup_percentage` / `discount_percentage`, status active/archived/deleted. Optional `folder_uuid` files it under a `Folder`.
-- `Folder` — module-global, self-nesting tree for organizing catalogues on the admin index (unrelated to media folders). Soft-delete only, no permanent delete.
+- `Folder` — module-global, self-nesting tree for organizing catalogues on the admin index (unrelated to media folders). New deletes are empty-only and permanent (`delete_empty_folder/2`); `trash_folder/2` remains for legacy rows and `permanently_delete_folder/2` is the promote-contents escape hatch for those.
 - `Category` — belongs to a catalogue; self-nests via nullable `parent_uuid`; position scoped to siblings `(catalogue_uuid, parent_uuid)`.
 - `Item` — belongs **directly to a catalogue** (`catalogue_uuid` required) with optional `category_uuid`. Nullable per-item markup/discount overrides: `NULL` inherits the catalogue value, any Decimal (**including `0`**) overrides.
 - `ItemSupplierInfo` — per-item supplier purchase info (cost, currency, lead time, primary flag). `supplier_uuid` is a soft reference (no FK) so suppliers can come from other PhoenixKit modules.

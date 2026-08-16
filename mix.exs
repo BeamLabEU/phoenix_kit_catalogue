@@ -1,7 +1,7 @@
 defmodule PhoenixKitCatalogue.MixProject do
   use Mix.Project
 
-  @version "0.15.1"
+  @version "0.16.0"
   @source_url "https://github.com/BeamLabEU/phoenix_kit_catalogue"
 
   def project do
@@ -86,12 +86,12 @@ defmodule PhoenixKitCatalogue.MixProject do
 
   defp deps do
     [
-      # 2.3 is the floor: the product card relies on APIs that ship in it —
-      # `PhoenixKitWeb.Components.Core.Modal` + its `PkDialog` hook and
-      # `PhoenixKit.Modules.Storage.list_files_in_scope/2`. (`UrlState`, used
-      # by 3 LiveViews here, has been present since well before.) A `~> 2.0`
-      # core compiles but crashes at runtime when the card opens.
-      pk_dep(:phoenix_kit, "~> 2.3"),
+      # 2.8 is the floor: the folder-explorer / header work needs
+      # `page_crumbs` on `app_layout`, `Core.ColumnSettings`, and
+      # `table_row_menu_link`'s `patch` attr, plus the UrlState path-param
+      # leak fix (phoenix_kit #719). 2.3–2.7 compile this package with
+      # warnings-as-errors failures.
+      pk_dep(:phoenix_kit, "~> 2.8"),
       pk_dep(:phoenix_kit_ai, "~> 0.18"),
       {:phoenix_live_view, "~> 1.1"},
       {:xlsx_reader, "~> 0.8"},

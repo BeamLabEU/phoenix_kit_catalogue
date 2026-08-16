@@ -23,9 +23,8 @@ defmodule PhoenixKitCatalogue.Web.ViewConfig do
 
   @root "catalogue_view_configs"
 
-  # Only the catalogues index for now — deliberately not manufacturers /
-  # suppliers, and not a per-scope TableConfig flag: the boss wants exactly
-  # this one table shared. Widen the list when that changes.
+  # Shared sort for every admin: the catalogues index plus the detail
+  # page's items/categories tables. Manufacturers/suppliers stay per-user.
   @global_sort_scopes [:catalogues, :detail_items, :detail_categories]
 
   @spec scope_key(TableConfig.scope()) :: String.t()

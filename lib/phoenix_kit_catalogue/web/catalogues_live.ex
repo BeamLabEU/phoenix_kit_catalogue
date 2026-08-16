@@ -34,6 +34,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
 
   alias PhoenixKitCatalogue.Catalogue
   alias PhoenixKitCatalogue.Catalogue.PubSub
+  alias PhoenixKitCatalogue.Errors
   alias PhoenixKitCatalogue.Paths
   alias PhoenixKitCatalogue.Web.{TableConfig, TableQuery, ViewConfig}
 
@@ -310,7 +311,8 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
 
       catalogue_rows = build_catalogue_rows(catalogues, folder_lookup, item_counts)
 
-      assign(socket,
+      socket
+      |> assign(
         catalogue_rows: catalogue_rows,
         catalogue_file_counts: Catalogue.attached_file_counts(catalogue_rows),
         deleted_catalogue_count: deleted_cat_count,
@@ -321,6 +323,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         folder_lookup: folder_lookup,
         folder_options: folder_options(active_tree)
       )
+      |> drop_stale_folder_filter(folder_lookup)
     else
       socket
     end
@@ -394,6 +397,19 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     if Map.has_key?(cfg.filters, "folder"),
       do: put_cfg(socket, :catalogues, %{cfg | filters: Map.delete(cfg.filters, "folder")}),
       else: socket
+  end
+
+  # A PubSub reload or empty-folder delete can leave `filters["folder"]`
+  # pointing at a uuid that is no longer in the active tree — the
+  # structure view then hides and the flat filter matches nothing.
+  defp drop_stale_folder_filter(socket, folder_lookup) do
+    folder = get_in(socket.assigns.view_configs, [:catalogues, :filters, "folder"])
+
+    if is_binary(folder) and folder != "" and not Map.has_key?(folder_lookup, folder) do
+      clear_folder_filter(socket)
+    else
+      socket
+    end
   end
 
   # ── Inline catalogues folder tree ───────────────────────────────
@@ -853,7 +869,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         phx-click="set_view"
         phx-value-mode="card"
         class={["btn btn-sm join-item", @view == "card" && "btn-active"]}
-        title="Card view"
+        title={gettext("Card view")}
       >
         <.icon name="hero-squares-2x2" class="w-4 h-4" />
       </button>
@@ -862,7 +878,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         phx-click="set_view"
         phx-value-mode="comfy"
         class={["btn btn-sm join-item", @view == "comfy" && "btn-active"]}
-        title="Comfortable view"
+        title={gettext("Comfortable view")}
       >
         <.icon name="hero-bars-3" class="w-4 h-4" />
       </button>
@@ -871,7 +887,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         phx-click="set_view"
         phx-value-mode="table"
         class={["btn btn-sm join-item", @view == "table" && "btn-active"]}
-        title="Compact view"
+        title={gettext("Compact view")}
       >
         <.icon name="hero-bars-4" class="w-4 h-4" />
       </button>
@@ -1287,18 +1303,9 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     end
   end
 
-  defp move_error_message(:cycle),
-    do:
-      Gettext.gettext(
-        PhoenixKitCatalogue.Gettext,
-        "Can't move a folder into itself or one of its subfolders."
-      )
-
-  defp move_error_message(:folder_trashed),
-    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "That folder is in the trash.")
-
-  defp move_error_message(:folder_not_found),
-    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "That folder no longer exists.")
+  defp move_error_message(reason)
+       when reason in [:cycle, :folder_trashed, :folder_not_found, :not_empty, :not_siblings],
+       do: Errors.message(reason)
 
   defp move_error_message(_), do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Failed to move.")
 
@@ -1353,24 +1360,35 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   end
 
   def handle_event("new_subfolder", %{"uuid" => parent_uuid}, socket) do
-    case Catalogue.create_folder(
-           %{name: default_folder_name(), parent_uuid: parent_uuid},
-           actor_opts(socket)
-         ) do
-      {:ok, folder} ->
-        {:noreply,
-         socket
-         |> assign(:renaming_folder, folder.uuid)
-         |> update(:expanded_folders, &MapSet.put(&1, parent_uuid))
-         |> load_data(:index)}
+    # Same lookup guard as `new_folder`: a forged uuid must not parent
+    # under a missing/trashed folder.
+    if Map.has_key?(socket.assigns.folder_lookup, parent_uuid) do
+      case Catalogue.create_folder(
+             %{name: default_folder_name(), parent_uuid: parent_uuid},
+             actor_opts(socket)
+           ) do
+        {:ok, folder} ->
+          {:noreply,
+           socket
+           |> assign(:renaming_folder, folder.uuid)
+           |> update(:expanded_folders, &MapSet.put(&1, parent_uuid))
+           |> load_data(:index)}
 
-      {:error, _} ->
-        {:noreply,
-         put_flash(
-           socket,
-           :error,
-           Gettext.gettext(PhoenixKitCatalogue.Gettext, "Failed to create folder.")
-         )}
+        {:error, _} ->
+          {:noreply,
+           put_flash(
+             socket,
+             :error,
+             Gettext.gettext(PhoenixKitCatalogue.Gettext, "Failed to create folder.")
+           )}
+      end
+    else
+      {:noreply,
+       put_flash(
+         socket,
+         :error,
+         Gettext.gettext(PhoenixKitCatalogue.Gettext, "Failed to create folder.")
+       )}
     end
   end
 
@@ -1459,7 +1477,11 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   # feature's own comments describe as how the column got into that state the
   # first time; gating only the handles would have left the same door open.
   def handle_event("open_catalogues_reorder_modal", _params, socket) do
-    {:noreply, assign(socket, :show_catalogues_reorder, true)}
+    if socket.assigns.folder_tree == [] do
+      {:noreply, assign(socket, :show_catalogues_reorder, true)}
+    else
+      {:noreply, socket}
+    end
   end
 
   def handle_event("close_catalogues_reorder_modal", _params, socket) do
@@ -1471,24 +1493,28 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   # re-indexing into 1..N can't collide with unseen rows.
   def handle_event("apply_catalogues_reorder", %{"strategy" => strategy_str}, socket)
       when is_map_key(@catalogues_reorder_strategy_map, strategy_str) do
-    strategy = Map.fetch!(@catalogues_reorder_strategy_map, strategy_str)
+    if socket.assigns.folder_tree != [] do
+      {:noreply, socket}
+    else
+      strategy = Map.fetch!(@catalogues_reorder_strategy_map, strategy_str)
 
-    ordered =
-      socket.assigns.catalogue_rows
-      |> order_rows_for_strategy(strategy)
-      |> Enum.map(& &1.uuid)
+      ordered =
+        socket.assigns.catalogue_rows
+        |> order_rows_for_strategy(strategy)
+        |> Enum.map(& &1.uuid)
 
-    case Catalogue.reorder_catalogues(ordered, actor_opts(socket)) do
-      :ok ->
-        {:noreply,
-         socket
-         |> assign(:show_catalogues_reorder, false)
-         |> put_flash(:info, gettext("Catalogues reordered."))
-         |> load_data(:index)}
+      case Catalogue.reorder_catalogues(ordered, actor_opts(socket)) do
+        :ok ->
+          {:noreply,
+           socket
+           |> assign(:show_catalogues_reorder, false)
+           |> put_flash(:info, gettext("Catalogues reordered."))
+           |> load_data(:index)}
 
-      {:error, reason} ->
-        log_operation_error(socket, "apply_catalogues_reorder", %{reason: reason})
-        {:noreply, put_flash(socket, :error, gettext("Failed to reorder."))}
+        {:error, reason} ->
+          log_operation_error(socket, "apply_catalogues_reorder", %{reason: reason})
+          {:noreply, put_flash(socket, :error, gettext("Failed to reorder."))}
+      end
     end
   end
 
@@ -1498,12 +1524,12 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       when is_list(ordered_ids) do
     cfg = current_cfg(socket.assigns)
 
-    if manual_order_draggable?(socket.assigns.catalogue_view_mode, cfg) or
-         catalogues_structure_mode?(
-           cfg,
-           socket.assigns.catalogue_view_mode,
-           socket.assigns.folder_lookup
-         ) do
+    # `reorder_catalogues` writes a global 1..N. That is only safe when
+    # there are no folders — otherwise it smashes the interleaved
+    # per-level order. Structure mode with an empty tree is the same
+    # as a flat catalogue list.
+    if manual_order_draggable?(socket.assigns.catalogue_view_mode, cfg) and
+         socket.assigns.folder_tree == [] do
       case Catalogue.reorder_catalogues(ordered_ids, actor_opts(socket)) do
         :ok ->
           {:noreply, load_data(socket, :index)}
@@ -1665,13 +1691,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
             {:noreply,
              socket
              |> assign(:confirm_delete, nil)
-             |> put_flash(
-               :error,
-               Gettext.gettext(
-                 PhoenixKitCatalogue.Gettext,
-                 "Only empty folders can be deleted — move its contents out first."
-               )
-             )}
+             |> put_flash(:error, Errors.message(:not_empty))}
 
           _ ->
             {:noreply,
@@ -1979,9 +1999,16 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       )
       when type in ~w(folder catalogue) and is_list(entries) do
     cfg = current_cfg(socket.assigns)
-    target = if parent == "root", do: nil, else: parent
 
-    with true <-
+    target =
+      cond do
+        parent == "root" -> {:ok, nil}
+        match?({:ok, _}, Ecto.UUID.cast(parent)) -> {:ok, parent}
+        true -> :error
+      end
+
+    with {:ok, target} <- target,
+         true <-
            catalogues_structure_mode?(
              cfg,
              socket.assigns.catalogue_view_mode,
@@ -2212,7 +2239,11 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         <%!-- Catalogue tab content --%>
         <div :if={@active_tab == :index} class="flex flex-col gap-4">
           <% cfg = @view_configs.catalogues %>
-          <.table_toolbar scope={:catalogues} cfg={cfg}>
+          <.table_toolbar
+            scope={:catalogues}
+            cfg={cfg}
+            allow_flat_reorder={@folder_tree == []}
+          >
             <:filters>
               <.enum_filter
                 id="folder"
@@ -2977,6 +3008,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
 
   attr(:scope, :atom, required: true)
   attr(:cfg, :map, required: true)
+  attr(:allow_flat_reorder, :boolean, default: true)
   slot(:filters)
   slot(:actions)
 
@@ -3020,7 +3052,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
             manual_value="position"
           />
           <button
-            :if={@scope == :catalogues and @cfg.sort_by == "position"}
+            :if={@scope == :catalogues and @cfg.sort_by == "position" and @allow_flat_reorder}
             type="button"
             phx-click="open_catalogues_reorder_modal"
             class="btn btn-outline btn-sm"

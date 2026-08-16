@@ -58,6 +58,11 @@ defmodule PhoenixKitCatalogue.Errors do
           | :file_too_large
           | :too_many_rows
           | :parent_catalogue_deleted
+          | :cycle
+          | :folder_not_found
+          | :folder_trashed
+          | :not_empty
+          | :invalid_entry
 
   @doc """
   Translates an error reason into a user-facing string via gettext.
@@ -151,6 +156,29 @@ defmodule PhoenixKitCatalogue.Errors do
         PhoenixKitCatalogue.Gettext,
         "Cannot restore — the parent catalogue is deleted. Restore the catalogue first."
       )
+
+  def message(:cycle),
+    do:
+      Gettext.gettext(
+        PhoenixKitCatalogue.Gettext,
+        "Can't move a folder into itself or one of its subfolders."
+      )
+
+  def message(:folder_not_found),
+    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "That folder no longer exists.")
+
+  def message(:folder_trashed),
+    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "That folder is in the trash.")
+
+  def message(:not_empty),
+    do:
+      Gettext.gettext(
+        PhoenixKitCatalogue.Gettext,
+        "Only empty folders can be deleted — move its contents out first."
+      )
+
+  def message(:invalid_entry),
+    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Failed to save the new order.")
 
   # Tagged tuples — atoms that carry a single parameter.
 

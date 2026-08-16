@@ -32,17 +32,18 @@ nothing is sent, so existing consumers are unaffected.
 > have been replaced with self-contained descriptions; the queue itself is not a
 > public system, so there is nothing to link to.
 
-## 2. Not done — designed but not implemented
+## 2. Designed at handover — now mostly shipped (original record kept)
 
-**Product attributes / characteristics.** Design is complete and validated with
-the product owner; implementation was not started at handover time.
+**Product attributes / characteristics.** Shipped as the attribute-group
+system (catalogue PR #64 + phoenix_kit PR #718, migration V173). The
+bullets below are the original design record; where the shipped feature
+deviates deliberately (global groups selected by an item rather than
+per-card definitions; one group per item for now; order-line value
+picking left to the parent app), the shipped behaviour wins.
 
-> **Update (2026-08-15):** this has since been implemented and merged upstream as
-> the attribute-group system (catalogue PR #64 + phoenix_kit PR #718, migration
-> V173). The section below is kept as the original design record; where the
-> shipped feature deviates deliberately (global groups selected by an item rather
-> than per-card definitions; one group per item for now; order-line value picking
-> left to the parent app), the shipped behaviour wins.
+The PhoenixKit form-component pass is still only a draft. Folders-as-
+file-explorer, header crumbs, pdfium extraction, and the item-picker
+browse-on-reopen follow-up shipped in #67.
 - Build on the **existing item metadata** (the "Metadata" tab of a catalogue
   item: Weight/Width/Height/Depth/Material/Finish, one string value each, blanks
   dropped on save). This is an evolution of that system, not a replacement —
@@ -78,10 +79,11 @@ over raw daisyUI classes (they wire `phx-feedback`, gettext, prefix-safe links).
 - **Template indentation**: the flex wrapper added with the photo-preview work
   left the input block
   under-indented (HEEX-insignificant, formatter-accepted).
-- **Pre-existing test failures on `main`** (tracked as issue #65; one of the
-  three — DnD reorder persistence — has since been fixed): two URL
-  state tests in `CatalogueDetailLiveTest` (`?q=` / empty `?category=`) and the
-  DnD reorder persistence test in `CataloguesLiveTest`.
+- **Issue #65 (URL-state tests)** is fixed. Core `UrlState` was leaking the
+  `/:uuid` path param into patched query strings; phoenix_kit #719
+  (`5771a261`) stopped that. The two `CatalogueDetailLive` cases
+  (`?q=` / empty `?category=`) are green. DnD reorder persistence was
+  already fixed earlier on this branch.
 
 ## 4. Notes on this repo's conventions we had to learn the hard way
 
