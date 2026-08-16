@@ -2389,37 +2389,11 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
           />
           <div :if={not show_search_input}></div>
 
-          <%!-- One tab per populated item status; each shows only that status's
-               items so e.g. discontinued isn't mixed in with active. The strip
-               renders only alongside an actual item list (`show_items_section`)
-               AND only when there's more than one status to choose between — the
-               root category step is pure navigation, and a node with a single
-               populated status just shows those items with no redundant tab. --%>
-          <div
-            :if={@show_items_section and length(@status_tabs) > 1 and is_nil(@search_results) and not @search_loading}
-            class="flex items-center gap-0.5 pb-1 flex-wrap"
-          >
-            <button
-              :for={{status, label, count} <- @status_tabs}
-              type="button"
-              phx-click="switch_view"
-              phx-value-mode={status}
-              class={[
-                "px-3 py-1.5 text-xs font-medium border-b-2 transition-colors cursor-pointer whitespace-nowrap",
-                if(@view_mode == status,
-                  do: status_tab_active_class(status),
-                  else: "border-transparent text-base-content/50 hover:text-base-content"
-                )
-              ]}
-            >
-              {label} ({count})
-            </button>
-          </div>
         </div>
 
         <%!-- Search results (Active mode; unchanged machinery) --%>
         <div :if={@search_results != nil or @search_loading} class="flex flex-col gap-4">
-          <div class="flex items-center gap-2">
+          <div class="flex flex-wrap items-center gap-2">
             <%= if @search_loading and is_nil(@search_results) do %>
               <span class="text-sm text-base-content/60">
                 {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Searching for \"%{query}\"...", query: @search_query)}
@@ -2428,13 +2402,12 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               <.search_results_summary :if={@search_results != nil} count={@search_total} query={@search_query} loaded={length(@search_results)} />
             <% end %>
             <span :if={@search_loading} class="loading loading-spinner loading-xs text-base-content/40"></span>
+            <div :if={@search_results not in [nil, []]} class="ml-auto">
+              <.view_mode_toggle storage_key="catalogue-detail-items" />
+            </div>
           </div>
 
           <.empty_state :if={@search_results == [] and not @search_loading} variant="card" title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "No items match your search.")} />
-
-          <div :if={@search_results not in [nil, []]} class="flex justify-end">
-            <.view_mode_toggle storage_key="catalogue-detail-items" />
-          </div>
 
           <div :if={@search_results not in [nil, []]} class={["transition-opacity", @search_loading && "opacity-50"]}>
             <.item_table
@@ -2473,10 +2446,37 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
           <div
             :if={
               @child_categories != [] or
-                (@show_items_section and (@items != [] or @search_results not in [nil, []]))
+                (@show_items_section and
+                   (@items != [] or length(@status_tabs) > 1 or
+                      @search_results not in [nil, []]))
             }
-            class="flex flex-wrap items-center justify-end gap-2"
+            class="flex flex-wrap items-center gap-2"
           >
+            <%!-- One tab per populated item status — sharing the row with
+                 the sort/columns/view controls (no dedicated tab row).
+                 Renders only alongside an actual item list and only when
+                 there's more than one status to choose between. --%>
+            <div
+              :if={@show_items_section and length(@status_tabs) > 1}
+              class="flex items-center gap-0.5 flex-wrap"
+            >
+              <button
+                :for={{status, label, count} <- @status_tabs}
+                type="button"
+                phx-click="switch_view"
+                phx-value-mode={status}
+                class={[
+                  "px-3 py-1.5 text-xs font-medium border-b-2 transition-colors cursor-pointer whitespace-nowrap",
+                  if(@view_mode == status,
+                    do: status_tab_active_class(status),
+                    else: "border-transparent text-base-content/50 hover:text-base-content"
+                  )
+                ]}
+              >
+                {label} ({count})
+              </button>
+            </div>
+            <div class="ml-auto flex flex-wrap items-center justify-end gap-2">
             <.sort_selector
               :if={@child_categories != []}
               sort_by={@categories_sort_by}
@@ -2554,7 +2554,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                 {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Columns")}
               </span>
             </button>
-            <.view_mode_toggle storage_key="catalogue-detail-items" />
+              <.view_mode_toggle storage_key="catalogue-detail-items" />
+            </div>
           </div>
           <%!-- The Uncategorized drill card only appears when there are
                categories to drill past. With no categories, the items
