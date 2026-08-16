@@ -2324,14 +2324,14 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
             :if={@view_mode == "active" or @current_category != nil}
             class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-3"
           >
-            <%!-- Drill trail — ALWAYS rendered (media-browser principle: the
-                 row keeps its place so drilling doesn't jump the layout, and
-                 "where am I" reads the same way on every level). At root the
-                 catalogue name is the current node; drilled it links back and
-                 the ancestor chain + current node follow. --%>
+            <%!-- The admin header already names the page, so the big title
+                 is not repeated here. At root this slot carries the
+                 catalogue DESCRIPTION instead; drilled, it carries the
+                 drill trail — that one is navigation (each ancestor links
+                 back), not repetition. --%>
             <div class="min-w-0">
-              <h1 class="text-xl sm:text-2xl lg:text-3xl font-bold text-base-content flex flex-wrap items-center gap-x-2 gap-y-1">
-                <%= if @current_category != nil do %>
+              <%= if @current_category != nil do %>
+                <h1 class="text-lg sm:text-xl font-semibold text-base-content flex flex-wrap items-center gap-x-2 gap-y-1">
                   <.link
                     patch={Paths.catalogue_detail(@catalogue.uuid)}
                     class="font-normal text-base-content/50 hover:text-primary"
@@ -2339,7 +2339,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                     {@catalogue.name}
                   </.link>
                   <%= for cat <- @breadcrumb do %>
-                    <.icon name="hero-chevron-right" class="w-5 h-5 text-base-content/30 shrink-0" />
+                    <.icon name="hero-chevron-right" class="w-4 h-4 text-base-content/30 shrink-0" />
                     <.link
                       patch={Paths.category_browse(@catalogue.uuid, cat.uuid)}
                       class="font-normal text-base-content/50 hover:text-primary"
@@ -2347,12 +2347,14 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                       {cat.name}
                     </.link>
                   <% end %>
-                  <.icon name="hero-chevron-right" class="w-5 h-5 text-base-content/30 shrink-0" />
+                  <.icon name="hero-chevron-right" class="w-4 h-4 text-base-content/30 shrink-0" />
                   <span class="truncate">{current_node_label(@current_category)}</span>
-                <% else %>
-                  <span class="truncate">{@catalogue.name}</span>
-                <% end %>
-              </h1>
+                </h1>
+              <% else %>
+                <p :if={@catalogue.description} class="text-base-content/60">
+                  {@catalogue.description}
+                </p>
+              <% end %>
             </div>
             <div :if={@view_mode == "active"} class="flex flex-wrap items-center gap-2 sm:flex-shrink-0">
               <.link navigate={new_category_path(assigns)} class="btn btn-outline btn-sm">
@@ -2366,12 +2368,6 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               </.link>
             </div>
           </div>
-
-          <div :if={@catalogue.description} class="-mt-4">
-          <p class="text-base-content/60">
-            {@catalogue.description}
-          </p>
-        </div>
 
         <%!-- Toolbar: scoped search (Active mode only — context search
              excludes deleted rows) + per-level Active/Deleted toggle.
