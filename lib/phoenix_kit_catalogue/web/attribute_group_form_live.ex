@@ -687,6 +687,13 @@ defmodule PhoenixKitCatalogue.Web.AttributeGroupFormLive do
                 data-sortable-handle=".pk-drag-handle"
                 class="flex flex-col gap-3"
               >
+                <%!-- The inline per-row editors below stay on RAW inputs/
+                     selects deliberately (L029 triage, AI-panel reviewed):
+                     the kit primitives wrap every field in a feedback div,
+                     which breaks these compact flex rows, and the rows are
+                     draft-map single-field forms with no changeset to wire
+                     feedback to. Labeled, changeset/draft-backed fields
+                     elsewhere in this module DO use the kit. --%>
                 <div
                   :for={attribute <- @group.attributes}
                   class="sortable-item rounded-lg border border-base-content/10 bg-base-content/5 p-3 flex flex-col gap-3"

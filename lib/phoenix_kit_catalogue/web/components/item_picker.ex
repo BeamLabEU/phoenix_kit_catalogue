@@ -550,99 +550,99 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
           class="w-8 h-8 shrink-0 rounded object-cover bg-base-200 border border-base-300"
         />
         <div class="relative flex-1">
-      <input
-        id={"#{@id}-input"}
-        type="text"
-        role="combobox"
-        aria-expanded={to_string(@open)}
-        aria-controls={"#{@id}-listbox"}
-        aria-autocomplete="list"
-        autocomplete="off"
-        value={@query}
-        placeholder={@placeholder_text}
-        disabled={@disabled}
-        phx-target={@myself}
-        phx-change="query_change"
-        phx-debounce="300"
-        phx-focus="open"
-        class={[
-          "input input-sm w-full pr-8",
-          @highlight_selected && @selected_item && "input-primary"
-        ]}
-      />
+          <input
+            id={"#{@id}-input"}
+            type="text"
+            role="combobox"
+            aria-expanded={to_string(@open)}
+            aria-controls={"#{@id}-listbox"}
+            aria-autocomplete="list"
+            autocomplete="off"
+            value={@query}
+            placeholder={@placeholder_text}
+            disabled={@disabled}
+            phx-target={@myself}
+            phx-change="query_change"
+            phx-debounce="300"
+            phx-focus="open"
+            class={[
+              "input input-sm w-full pr-8",
+              @highlight_selected && @selected_item && "input-primary"
+            ]}
+          />
 
-      <button
-        :if={@selected_item && !@disabled}
-        type="button"
-        phx-click="clear"
-        phx-target={@myself}
-        class="btn btn-xs btn-ghost absolute right-1 top-1/2 -translate-y-1/2"
-        aria-label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Clear")}
-      >
-        <.icon name="hero-x-mark" class="w-3 h-3" />
-      </button>
+          <button
+            :if={@selected_item && !@disabled}
+            type="button"
+            phx-click="clear"
+            phx-target={@myself}
+            class="btn btn-xs btn-ghost absolute right-1 top-1/2 -translate-y-1/2"
+            aria-label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Clear")}
+          >
+            <.icon name="hero-x-mark" class="w-3 h-3" />
+          </button>
 
-      <ul
-        :if={@open and @options != []}
-        id={"#{@id}-listbox"}
-        role="listbox"
-        class="absolute z-50 mt-1 w-full max-h-64 overflow-y-auto bg-base-100 border border-base-300 rounded-box shadow-lg"
-      >
-        <li
-          :for={{item, idx} <- Enum.with_index(@options)}
-          id={"#{@id}-option-#{idx}"}
-          role="option"
-          aria-selected={to_string(@selected_item && @selected_item.uuid == item.uuid)}
-          aria-disabled={to_string(item.uuid in @excluded_uuids)}
-          data-excluded={to_string(item.uuid in @excluded_uuids)}
-          class={[
-            "flex items-center justify-between px-3 py-2 cursor-pointer select-none",
-            "data-[focused=true]:bg-base-200 hover:bg-base-200",
-            "data-[excluded=true]:opacity-40 data-[excluded=true]:cursor-not-allowed",
-            "data-[excluded=true]:hover:bg-transparent"
-          ]}
-          phx-click={if item.uuid in @excluded_uuids, do: nil, else: "select"}
-          phx-value-uuid={item.uuid}
-          phx-target={@myself}
-        >
-          <% price = format_price_display(item, @price_fun) %>
-          <% unit = if @show_unit, do: @unit_fun.(item.unit), else: "" %>
-          <div class="min-w-0 flex-1">
-            <div class="font-medium text-sm truncate">
-              {item_display_name(item, @locale)}
-            </div>
-            <div
-              :if={item_breadcrumb(item, @locale) != ""}
-              class="text-xs text-base-content/50 truncate"
+          <ul
+            :if={@open and @options != []}
+            id={"#{@id}-listbox"}
+            role="listbox"
+            class="absolute z-50 mt-1 w-full max-h-64 overflow-y-auto bg-base-100 border border-base-300 rounded-box shadow-lg"
+          >
+            <li
+              :for={{item, idx} <- Enum.with_index(@options)}
+              id={"#{@id}-option-#{idx}"}
+              role="option"
+              aria-selected={to_string(@selected_item && @selected_item.uuid == item.uuid)}
+              aria-disabled={to_string(item.uuid in @excluded_uuids)}
+              data-excluded={to_string(item.uuid in @excluded_uuids)}
+              class={[
+                "flex items-center justify-between px-3 py-2 cursor-pointer select-none",
+                "data-[focused=true]:bg-base-200 hover:bg-base-200",
+                "data-[excluded=true]:opacity-40 data-[excluded=true]:cursor-not-allowed",
+                "data-[excluded=true]:hover:bg-transparent"
+              ]}
+              phx-click={if item.uuid in @excluded_uuids, do: nil, else: "select"}
+              phx-value-uuid={item.uuid}
+              phx-target={@myself}
             >
-              {item_breadcrumb(item, @locale)}
-            </div>
-          </div>
-          <div :if={(price != nil and price != "") or unit != ""} class="text-right ml-4 shrink-0">
-            <div :if={price != nil and price != ""} class="text-sm font-medium">
-              {price}
-            </div>
-            <div :if={unit != ""} class="text-xs text-base-content/50">
-              {unit}
-            </div>
-          </div>
-        </li>
-        <li
-          :if={@has_more}
-          role="option"
-          aria-disabled="true"
-          class="px-3 py-2 text-xs text-base-content/40 italic cursor-default select-none"
-        >
-          {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Type to refine search…")}
-        </li>
-      </ul>
+              <% price = format_price_display(item, @price_fun) %>
+              <% unit = if @show_unit, do: @unit_fun.(item.unit), else: "" %>
+              <div class="min-w-0 flex-1">
+                <div class="font-medium text-sm truncate">
+                  {item_display_name(item, @locale)}
+                </div>
+                <div
+                  :if={item_breadcrumb(item, @locale) != ""}
+                  class="text-xs text-base-content/50 truncate"
+                >
+                  {item_breadcrumb(item, @locale)}
+                </div>
+              </div>
+              <div :if={(price != nil and price != "") or unit != ""} class="text-right ml-4 shrink-0">
+                <div :if={price != nil and price != ""} class="text-sm font-medium">
+                  {price}
+                </div>
+                <div :if={unit != ""} class="text-xs text-base-content/50">
+                  {unit}
+                </div>
+              </div>
+            </li>
+            <li
+              :if={@has_more}
+              role="option"
+              aria-disabled="true"
+              class="px-3 py-2 text-xs text-base-content/40 italic cursor-default select-none"
+            >
+              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Type to refine search…")}
+            </li>
+          </ul>
 
-      <div
-        :if={@open and @options == [] and @query != ""}
-        class="absolute z-50 mt-1 w-full bg-base-100 border border-base-300 rounded-box shadow-lg px-3 py-2 text-sm text-base-content/50"
-      >
-        {Gettext.gettext(PhoenixKitCatalogue.Gettext, "No items found")}
-      </div>
+          <div
+            :if={@open and @options == [] and @query != ""}
+            class="absolute z-50 mt-1 w-full bg-base-100 border border-base-300 rounded-box shadow-lg px-3 py-2 text-sm text-base-content/50"
+          >
+            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "No items found")}
+          </div>
         </div>
       </div>
 
