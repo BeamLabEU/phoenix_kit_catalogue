@@ -1278,3 +1278,15 @@ msgstr "Сначала выберите ИИ-эндпоинт и промпт в
 
 msgid "Add value"
 msgstr "Добавить значение"
+
+msgid "Search by filename or content…"
+msgstr "Поиск по имени файла или содержимому…"
+
+msgid "Content matches"
+msgstr "Совпадения по содержимому"
+
+msgid "p. %{n}"
+msgstr "стр. %{n}"
+
+msgid "No content matches — the list below filters by filename."
+msgstr "Совпадений по содержимому нет — список ниже фильтруется по имени файла."

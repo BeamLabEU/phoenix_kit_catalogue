@@ -195,6 +195,29 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLiveTest do
     # keystroke may patch the URL but must not touch list_pdfs/1 — the guard
     # that makes that true is `state.filter == prior_filter` in
     # handle_url_state/2.
+    test "content matches render for full-text hits with page deep links", %{conn: conn} do
+      {pdf, file_uuid, _user} = fixture_pdf_with_extraction(filename: "manual.pdf")
+
+      {:ok, _} =
+        PhoenixKitCatalogue.Catalogue.PdfLibrary.insert_page(
+          file_uuid,
+          3,
+          "torque settings for the X-200 bracket"
+        )
+
+      {:ok, _view, html} = live(conn, @lib_path <> "?q=X-200")
+
+      # The panel groups by PDF and deep-links each hit to its page.
+      assert html =~ "Content matches"
+      assert html =~ "X-200"
+      assert html =~ ~s(href="/en/admin/catalogue/pdfs/#{pdf.uuid}?page=3")
+
+      # A filename-only query shows no content panel.
+      {:ok, _view, html} = live(conn, @lib_path <> "?q=manual")
+      refute html =~ "Content matches"
+      assert html =~ "manual.pdf"
+    end
+
     test "the search event patches ?q= and narrows the rendered rows", %{conn: conn} do
       fixture_pdf_with_extraction(filename: "kitchen.pdf")
       fixture_pdf_with_extraction(filename: "bathroom.pdf")

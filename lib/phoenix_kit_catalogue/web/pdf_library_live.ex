@@ -62,7 +62,9 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLive do
      |> assign(
        page_title: Gettext.gettext(PhoenixKitCatalogue.Gettext, "PDFs"),
        pdfs: [],
-       upload_error: nil
+       upload_error: nil,
+       content_query: nil,
+       content_results: []
      )
      |> allow_upload(:pdf,
        accept: ~w(.pdf application/pdf),
@@ -85,12 +87,27 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLive do
     # byte-identical result, so the query is confined to a real filter change.
     # `prior_filter` is nil only before the first call; the filter itself is
     # whitelisted to "active" or "trashed" and never nil.
+    socket = assign_content_results(socket, state.search)
+
     if state.filter == socket.assigns[:prior_filter] do
       socket
     else
       socket
       |> assign(:prior_filter, state.filter)
       |> assign_pdfs()
+    end
+  end
+
+  # Full-text search over the extracted page corpus, re-run only when
+  # the query actually changes (handle_url_state fires for filter
+  # changes too). Empty/short queries clear the section.
+  defp assign_content_results(socket, query) do
+    if socket.assigns[:content_query] == query do
+      socket
+    else
+      socket
+      |> Phoenix.Component.assign(:content_query, query)
+      |> Phoenix.Component.assign(:content_results, Catalogue.search_pdf_contents(query))
     end
   end
 
@@ -461,13 +478,55 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLive do
                 type="search"
                 name="query"
                 value={@search}
-                placeholder={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search by filename…")}
+                placeholder={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search by filename or content…")}
                 class="grow"
                 phx-debounce="300"
               />
             </label>
           </form>
           <.view_mode_toggle :if={visible_pdfs != []} storage_key="catalogue-pdf-library" class="ml-auto" />
+        </div>
+
+        <%!-- Content matches: full-text hits over the extracted page
+             corpus (active PDFs), grouped per PDF; each hit deep-links
+             into the viewer at its page. Filename filtering stays with
+             the table below. --%>
+        <div
+          :if={@search != "" and @content_results != []}
+          class="rounded-lg border border-base-300 bg-base-100 p-4 flex flex-col gap-3"
+        >
+          <div class="text-sm font-semibold text-base-content/70">
+            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Content matches")}
+          </div>
+          <div :for={group <- @content_results} class="flex flex-col gap-1.5">
+            <.link
+              navigate={Paths.pdf_detail(group.pdf.uuid)}
+              class="link link-hover font-medium text-sm flex items-center gap-2 min-w-0"
+            >
+              <.icon name="hero-document-text" class="w-4 h-4 shrink-0 text-base-content/50" />
+              <span class="truncate">{group.pdf.original_filename}</span>
+              <span class="badge badge-sm badge-ghost shrink-0">{group.total_matches}</span>
+            </.link>
+            <.link
+              :for={hit <- group.hits}
+              navigate={Paths.pdf_detail(hit.pdf.uuid, hit.page_number)}
+              class="flex items-baseline gap-2 pl-6 text-sm group"
+            >
+              <span class="badge badge-xs badge-outline shrink-0">
+                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "p. %{n}", n: hit.page_number)}
+              </span>
+              <span class="text-base-content/60 group-hover:text-base-content line-clamp-2">
+                {hit.snippet}
+              </span>
+            </.link>
+          </div>
+        </div>
+
+        <div
+          :if={@search != "" and @content_results == [] and String.length(String.trim(@search)) >= 2}
+          class="text-xs text-base-content/50"
+        >
+          {Gettext.gettext(PhoenixKitCatalogue.Gettext, "No content matches — the list below filters by filename.")}
         </div>
 
         <%!-- PDF list --%>
