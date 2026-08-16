@@ -262,9 +262,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
       assert html =~ "Columns"
 
       render_click(view, "show_column_modal", %{"scope" => "detail_items"})
-      # Drop the SKU column, keep the rest.
-      render_click(view, "remove_column", %{"column_id" => "sku"})
-      updated = render_click(view, "apply_columns", %{})
+      # Drop the SKU column — the editor is live, no Apply step.
+      updated = render_click(view, "remove_column", %{"column_id" => "sku"})
 
       refute updated =~ "COL-1"
       assert updated =~ "Col item"
@@ -278,8 +277,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
       assert html =~ "Items"
 
       render_click(view, "show_column_modal", %{"scope" => "detail_categories"})
-      render_click(view, "add_column", %{"column_id" => "updated"})
-      updated = render_click(view, "apply_columns", %{})
+      updated = render_click(view, "add_column", %{"column_id" => "updated"})
 
       assert updated =~ "Updated"
     end

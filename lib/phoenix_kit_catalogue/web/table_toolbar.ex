@@ -18,85 +18,77 @@ defmodule PhoenixKitCatalogue.Web.TableToolbar do
   attr(:show, :boolean, required: true)
   attr(:scope, :atom, required: true)
   attr(:selected, :list, required: true)
-  attr(:temp_selected, :list, default: nil)
 
+  # LIVE editor: add / remove / drag apply immediately (the table behind
+  # the modal updates as you work), so the footer is just Reset + Close.
   def column_settings_modal(assigns) do
     assigns =
       assigns
-      |> assign(:current, assigns.temp_selected || assigns.selected)
       |> assign(:map, TableConfig.column_map(assigns.scope))
       |> assign(:available, TableConfig.managed_columns(assigns.scope))
 
     assigns =
-      assign(assigns, :hidden, Enum.reject(assigns.available, &(&1.id in assigns.current)))
+      assign(assigns, :hidden, Enum.reject(assigns.available, &(&1.id in assigns.selected)))
 
     ~H"""
     <.modal :if={@show} id="catalogue-columns-modal" show on_close="hide_column_modal">
-      <form phx-submit="apply_columns">
-        <input type="hidden" name="column_order" value={Enum.join(@current, ",")} id="catalogue-columns-order" />
-        <h3 class="text-lg font-semibold mb-3">{g("Columns")}</h3>
-        <div class="grid grid-cols-2 gap-4">
-          <div>
-            <p class="text-xs uppercase text-base-content/50 mb-2">{g("Shown")}</p>
-            <ul
-              id="catalogue-columns-selected"
-              phx-hook="SortableGrid"
-              data-sortable="true"
-              data-sortable-event="reorder_columns"
-              data-sortable-items=".col-item"
-              class="space-y-1"
+      <h3 class="text-lg font-semibold mb-3">{g("Columns")}</h3>
+      <div class="grid grid-cols-2 gap-4">
+        <div>
+          <p class="text-xs uppercase text-base-content/50 mb-2">{g("Shown")}</p>
+          <ul
+            id="catalogue-columns-selected"
+            phx-hook="SortableGrid"
+            data-sortable="true"
+            data-sortable-event="reorder_columns"
+            data-sortable-items=".col-item"
+            class="space-y-1"
+          >
+            <li
+              :for={id <- @selected}
+              :if={@map[id] && @map[id].managed?}
+              data-id={id}
+              class="col-item flex items-center gap-2 px-2 py-1 rounded bg-base-200"
             >
-              <li
-                :for={id <- @current}
-                :if={@map[id] && @map[id].managed?}
-                data-id={id}
-                class="col-item flex items-center gap-2 px-2 py-1 rounded bg-base-200"
+              <.icon name="hero-bars-3" class="w-4 h-4 pk-drag-handle cursor-grab text-base-content/40" />
+              <span class="flex-1 text-sm">{@map[id].label.()}</span>
+              <button
+                type="button"
+                phx-click="remove_column"
+                phx-value-column_id={id}
+                class="btn btn-ghost btn-xs btn-square text-error cursor-pointer"
+                title={g("Remove")}
               >
-                <.icon name="hero-bars-3" class="w-4 h-4 pk-drag-handle cursor-grab text-base-content/40" />
-                <span class="flex-1 text-sm">{@map[id].label.()}</span>
-                <button
-                  type="button"
-                  phx-click="remove_column"
-                  phx-value-column_id={id}
-                  class="btn btn-ghost btn-xs btn-square text-error"
-                >
-                  <.icon name="hero-x-mark" class="w-4 h-4" />
-                </button>
-              </li>
-            </ul>
-          </div>
-          <div>
-            <p class="text-xs uppercase text-base-content/50 mb-2">{g("Available")}</p>
-            <ul class="space-y-1">
-              <li
-                :for={c <- @hidden}
-                class="flex items-center gap-2 px-2 py-1 rounded hover:bg-base-200"
+                <.icon name="hero-x-mark" class="w-4 h-4" />
+              </button>
+            </li>
+          </ul>
+        </div>
+        <div>
+          <p class="text-xs uppercase text-base-content/50 mb-2">{g("Available")}</p>
+          <ul class="space-y-1">
+            <li :for={c <- @hidden}>
+              <button
+                type="button"
+                phx-click="add_column"
+                phx-value-column_id={c.id}
+                class="flex items-center gap-2 w-full text-left text-sm px-2 py-1 rounded hover:bg-base-200 cursor-pointer transition-colors"
               >
-                <button
-                  type="button"
-                  phx-click="add_column"
-                  phx-value-column_id={c.id}
-                  class="flex items-center gap-2 w-full text-left text-sm"
-                >
-                  <.icon name="hero-plus" class="w-4 h-4 text-base-content/40" />
-                  <span>{c.label.()}</span>
-                </button>
-              </li>
-            </ul>
-          </div>
+                <.icon name="hero-plus" class="w-4 h-4 text-base-content/40" />
+                <span>{c.label.()}</span>
+              </button>
+            </li>
+          </ul>
         </div>
-        <div class="flex justify-between mt-4">
-          <button type="button" phx-click="reset_columns" class="btn btn-ghost btn-sm">
-            {g("Reset")}
-          </button>
-          <div class="flex gap-2">
-            <button type="button" phx-click="hide_column_modal" class="btn btn-ghost btn-sm">
-              {g("Cancel")}
-            </button>
-            <button type="submit" class="btn btn-primary btn-sm">{g("Apply")}</button>
-          </div>
-        </div>
-      </form>
+      </div>
+      <div class="flex justify-between mt-4">
+        <button type="button" phx-click="reset_columns" class="btn btn-ghost btn-sm">
+          {g("Reset")}
+        </button>
+        <button type="button" phx-click="hide_column_modal" class="btn btn-primary btn-sm">
+          {g("Close")}
+        </button>
+      </div>
     </.modal>
     """
   end
