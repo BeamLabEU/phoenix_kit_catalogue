@@ -859,9 +859,19 @@ defmodule PhoenixKitCatalogue.Web.AttributeGroupFormLive do
                   phx-mounted={@refocus_key == "attr" && JS.focus()}
                 />
                 <%!-- Width on the wrapper, not `<.select>`'s class — see the
-                     same note at the attr-kind mini-form above. --%>
+                     same note at the attr-kind mini-form above. `<.select>`
+                     requires a `value` (unlike the raw `<select>` this
+                     replaces, which had no `selected` and fell back to the
+                     browser's first-option default) — derived from
+                     `kind_options()` itself rather than hardcoded, so it
+                     can't drift if the list's order ever changes. --%>
                 <div class="w-36 shrink-0">
-                  <.select name="attr_kind" value="multi" options={kind_options()} class="select-sm" />
+                  <.select
+                    name="attr_kind"
+                    value={kind_options() |> List.first() |> elem(1)}
+                    options={kind_options()}
+                    class="select-sm"
+                  />
                 </div>
                 <.button type="submit" variant="outline" size="sm" class="shrink-0">
                   <%!-- literal spans — see the add-value button. --%>
