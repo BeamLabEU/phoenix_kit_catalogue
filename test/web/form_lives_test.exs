@@ -399,4 +399,52 @@ defmodule PhoenixKitCatalogue.Web.FormLivesTest do
       assert Catalogue.get_supplier(s.uuid).name == "New supplier"
     end
   end
+
+  # ─────────────────────────────────────────────────────────────────
+  # Action buttons (core `<.button>`)
+  # ─────────────────────────────────────────────────────────────────
+
+  describe "form action buttons" do
+    # The core button's `variant` REPLACES the base colour; `class` appends
+    # to it. Reaching for `class="btn-error"` therefore leaves the default
+    # btn-primary on the element too, and daisyUI's stylesheet order — not
+    # the markup — decides which colour the delete button ends up. These
+    # pin the variant form so that collision can't come back.
+    test "the catalogue danger-zone button is error-coloured, not primary", %{conn: conn} do
+      catalogue = fixture_catalogue()
+
+      {:ok, view, _html} = live(conn, "#{@base}/#{catalogue.uuid}/edit")
+      classes = view |> element("button[phx-click=show_delete_confirm]") |> render()
+
+      assert classes =~ "btn-error"
+      assert classes =~ "btn-outline"
+      refute classes =~ "btn-primary"
+    end
+
+    test "the category danger-zone button is error-coloured, not primary", %{conn: conn} do
+      catalogue = fixture_catalogue()
+      category = fixture_category(catalogue)
+
+      {:ok, view, _html} = live(conn, "#{@base}/categories/#{category.uuid}/edit")
+      classes = view |> element("button[phx-click=show_delete_confirm]") |> render()
+
+      assert classes =~ "btn-error"
+      assert classes =~ "btn-outline"
+      refute classes =~ "btn-primary"
+    end
+
+    # `name`/`value` reach the rendered element only because the core
+    # button's `:rest` global declares them in its `include:` list. The save
+    # modes above submit through these selectors, so a core change that
+    # dropped them would break both saves — pin them directly.
+    test "both catalogue submit buttons keep their save_action name/value", %{conn: conn} do
+      catalogue = fixture_catalogue()
+
+      {:ok, _view, html} = live(conn, "#{@base}/#{catalogue.uuid}/edit")
+
+      assert html =~ ~s(name="save_action")
+      assert html =~ ~s(value="stay")
+      assert html =~ ~s(value="exit")
+    end
+  end
 end

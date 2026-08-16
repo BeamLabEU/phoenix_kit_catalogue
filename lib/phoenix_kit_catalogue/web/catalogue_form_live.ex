@@ -7,6 +7,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
   require Logger
 
   import PhoenixKitWeb.Components.MultilangForm
+  import PhoenixKitWeb.Components.Core.Button, only: [button: 1]
   import PhoenixKitWeb.Components.Core.Icon, only: [icon: 1]
   import PhoenixKitWeb.Components.Core.Modal, only: [confirm_modal: 1]
   import PhoenixKitWeb.Components.Core.Input, only: [input: 1]
@@ -591,33 +592,36 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
              we don't race the post-upload handle_progress write against
              the save path. "Save" keeps you on the form (also the
              Enter-key submitter, being first in the DOM); "Save & Exit"
-             goes to the catalogue's detail page. --%>
+             goes to the catalogue's detail page. "Save" carries
+             `class="btn-outline"` on purpose — btn-outline is a style
+             modifier, not a colour, so it composes with the component's
+             default btn-primary; `variant="outline"` would REPLACE the
+             colour and leave the button uncoloured. --%>
         <div class="flex justify-end gap-3 pt-2">
-          <.link navigate={Paths.index()} class="btn btn-ghost">
+          <.button navigate={Paths.index()} variant="ghost">
             {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Cancel")}
-          </.link>
-          <button
+          </.button>
+          <.button
             type="submit"
             name="save_action"
             value="stay"
-            class="btn btn-outline btn-primary phx-submit-loading:opacity-75"
+            class="btn-outline"
             disabled={@uploads.attachment_files.entries != []}
             phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Saving...")}
           >
             {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Save")}
-          </button>
-          <button
+          </.button>
+          <.button
             type="submit"
             name="save_action"
             value="exit"
-            class="btn btn-primary phx-submit-loading:opacity-75"
             disabled={@uploads.attachment_files.entries != []}
             phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Saving...")}
           >
             {if @uploads.attachment_files.entries != [],
               do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Waiting for uploads..."),
               else: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Save & Exit")}
-          </button>
+          </.button>
         </div>
       </.form>
 
@@ -642,10 +646,19 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
                 {Gettext.gettext(PhoenixKitCatalogue.Gettext, "This will permanently delete this catalogue, all its categories, and all items within them. This cannot be undone.")}
               </p>
             </div>
-            <button phx-click="show_delete_confirm" class="btn btn-outline btn-error btn-sm shrink-0">
+            <%!-- `variant="error"` rather than `class="btn-error"`: variant
+                 REPLACES the base colour, so the class form would leave both
+                 btn-primary and btn-error on the element and let stylesheet
+                 order pick the winner. --%>
+            <.button
+              phx-click="show_delete_confirm"
+              variant="error"
+              size="sm"
+              class="btn-outline shrink-0"
+            >
               <.icon name="hero-trash" class="w-4 h-4" />
               {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete Forever")}
-            </button>
+            </.button>
           </div>
         </div>
       </details>

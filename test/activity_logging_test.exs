@@ -137,6 +137,36 @@ defmodule PhoenixKitCatalogue.ActivityLoggingTest do
       assert_activity_logged("folder.reordered", actor_uuid: @actor)
     end
 
+    test "delete_empty_folder logs folder.deleted" do
+      {:ok, folder} = Catalogue.create_folder(%{name: "Gone"}, actor_opts())
+      assert {:ok, _} = Catalogue.delete_empty_folder(folder, actor_opts())
+
+      assert_activity_logged("folder.deleted",
+        resource_uuid: folder.uuid,
+        actor_uuid: @actor
+      )
+    end
+
+    test "permanently_delete_folder logs folder.permanently_deleted" do
+      {:ok, folder} = Catalogue.create_folder(%{name: "Legacy purge"}, actor_opts())
+      assert {:ok, _} = Catalogue.permanently_delete_folder(folder, actor_opts())
+
+      assert_activity_logged("folder.permanently_deleted",
+        resource_uuid: folder.uuid,
+        actor_uuid: @actor
+      )
+    end
+
+    test "place_level_rows logs catalogue.level_reordered" do
+      {:ok, folder} = Catalogue.create_folder(%{name: "Level"}, actor_opts())
+      assert :ok = Catalogue.place_level_rows([{"folder", folder.uuid}], actor_opts())
+
+      assert_activity_logged("catalogue.level_reordered",
+        resource_uuid: folder.uuid,
+        actor_uuid: @actor
+      )
+    end
+
     test "move_catalogue_to_folder logs catalogue.moved_to_folder", %{catalogue: cat} do
       {:ok, folder} = Catalogue.create_folder(%{name: "Filed"}, actor_opts())
       {:ok, _} = Catalogue.move_catalogue_to_folder(cat, folder.uuid, actor_opts())

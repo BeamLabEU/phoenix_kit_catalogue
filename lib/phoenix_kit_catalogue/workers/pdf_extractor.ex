@@ -25,7 +25,9 @@ defmodule PhoenixKitCatalogue.Workers.PdfExtractor do
   5. For each page, extract with the chosen engine, normalize, hash,
      upsert into the per-page content cache, insert a `pdf_pages` row.
   6. Transition to `extracted` (or `scanned_no_text` if all pages
-     came back empty). Failures mid-loop transition to `failed`.
+     came back empty). Retryable failures leave the row `extracting`
+     and return `{:error, _}` so Oban retries; `failed` is written
+     only on the last attempt.
 
   ## Concurrency
 
@@ -63,58 +65,63 @@ defmodule PhoenixKitCatalogue.Workers.PdfExtractor do
   alias PhoenixKitCatalogue.Catalogue.PdfLibrary
   alias PhoenixKitCatalogue.Schemas.{PdfExtraction, PdfPage}
 
-  @terminal_statuses ~w(extracted scanned_no_text failed)
+  # Success terminals only. `"failed"` must stay retryable — marking the
+  # row failed and then treating that status as `:ok` on the next attempt
+  # made `max_attempts: 3` a no-op (attempt 1 writes failed, attempt 2
+  # short-circuits as success).
+  @success_terminals ~w(extracted scanned_no_text)
+
+  @doc false
+  def success_terminal?(status), do: status in @success_terminals
 
   @impl Oban.Worker
-  def perform(%Oban.Job{args: %{"file_uuid" => file_uuid}}) do
+  def perform(%Oban.Job{args: %{"file_uuid" => file_uuid}} = job) do
     repo = PhoenixKit.RepoHelper.repo()
 
     case repo.get(PdfExtraction, file_uuid) do
       nil ->
         {:cancel, :extraction_not_found}
 
-      %{extraction_status: status} when status in @terminal_statuses ->
+      %{extraction_status: status} when status in @success_terminals ->
         :ok
 
       %PdfExtraction{} = extraction ->
-        run(extraction)
+        run(extraction, job)
     end
   end
 
   def perform(_job), do: {:cancel, :missing_file_uuid}
 
-  defp run(%PdfExtraction{file_uuid: file_uuid}) do
+  defp run(%PdfExtraction{file_uuid: file_uuid}, job) do
     case Storage.retrieve_file(file_uuid) do
       {:ok, temp_path, _file} ->
         try do
-          do_extract(file_uuid, temp_path)
+          do_extract(file_uuid, temp_path, job)
         after
           _ = File.rm(temp_path)
         end
 
       {:error, reason} ->
-        message = "could not retrieve file: #{inspect(reason)}"
-        _ = PdfLibrary.mark_failed(file_uuid, message)
-        {:error, message}
+        fail(file_uuid, "could not retrieve file: #{inspect(reason)}", job)
     end
   end
 
-  defp do_extract(file_uuid, file_path) do
+  defp do_extract(file_uuid, file_path, job) do
     case PdfLibrary.mark_extracting(file_uuid) do
-      # A concurrent worker already reached a terminal state for this
+      # A concurrent worker already reached a SUCCESS terminal for this
       # file — nothing to do (and we must NOT pull it back to extracting).
       {:ok, :superseded} ->
         :ok
 
       {:ok, _extraction} ->
-        run_extraction(file_uuid, file_path)
+        run_extraction(file_uuid, file_path, job)
 
       {:error, reason} ->
-        fail(file_uuid, reason)
+        fail(file_uuid, reason, job)
     end
   end
 
-  defp run_extraction(file_uuid, file_path) do
+  defp run_extraction(file_uuid, file_path, job) do
     case PdfEngines.open_best(file_path) do
       {:ok, engine} ->
         Logger.info(
@@ -124,27 +131,27 @@ defmodule PhoenixKitCatalogue.Workers.PdfExtractor do
 
         try do
           {ok_count, failed} = extract_pages(file_uuid, engine)
-          finalize_with_failures(file_uuid, engine, ok_count, Enum.reverse(failed))
+          finalize_with_failures(file_uuid, engine, ok_count, Enum.reverse(failed), job)
         after
           PdfEngines.close(engine)
         end
 
       {:error, attempts} ->
-        fail(file_uuid, {:no_engine, attempts})
+        fail(file_uuid, {:no_engine, attempts}, job)
     end
   end
 
   # Every page failed (a wholly unreadable file): fail the job so Oban
   # retries — don't mark an empty document as successfully extracted.
-  defp finalize_with_failures(file_uuid, _engine, 0, [_ | _] = failed) do
-    fail(file_uuid, {:all_pages_failed, summarize_failures(failed)})
+  defp finalize_with_failures(file_uuid, _engine, 0, [_ | _] = failed, job) do
+    fail(file_uuid, {:all_pages_failed, summarize_failures(failed)}, job)
   end
 
   # At least one page extracted: keep the usable partial result. A single
   # corrupt page (or a transient per-page hiccup) no longer discards the
   # whole document and burns all retries — we log the unreadable pages and
   # finalize on what we got.
-  defp finalize_with_failures(file_uuid, engine, _ok_count, failed) do
+  defp finalize_with_failures(file_uuid, engine, _ok_count, failed, _job) do
     if failed != [] do
       Logger.warning(
         "PdfExtractor: #{length(failed)} page(s) failed for #{inspect(file_uuid)}; " <>
@@ -161,21 +168,31 @@ defmodule PhoenixKitCatalogue.Workers.PdfExtractor do
     |> String.slice(0, 500)
   end
 
-  defp fail(file_uuid, reason) do
+  # Persist `failed` only on the last Oban attempt so earlier tries leave
+  # the row `extracting` and the next attempt can actually run.
+  defp fail(file_uuid, reason, job) do
     message = inspect_reason(reason)
-    _ = PdfLibrary.mark_failed(file_uuid, message)
+
+    if job.attempt >= job.max_attempts do
+      _ = PdfLibrary.mark_failed(file_uuid, message)
+    end
+
     {:error, message}
   end
 
   defp finalize(file_uuid, engine) do
     extra = %{"engine" => engine.name}
 
-    if all_pages_empty?(file_uuid) do
-      _ = PdfLibrary.mark_scanned_no_text(file_uuid, engine.page_count, extra)
-      :ok
-    else
-      _ = PdfLibrary.mark_extracted(file_uuid, engine.page_count, extra)
-      :ok
+    result =
+      if all_pages_empty?(file_uuid) do
+        PdfLibrary.mark_scanned_no_text(file_uuid, engine.page_count, extra)
+      else
+        PdfLibrary.mark_extracted(file_uuid, engine.page_count, extra)
+      end
+
+    case result do
+      {:ok, _} -> :ok
+      {:error, reason} -> {:error, inspect_reason(reason)}
     end
   end
 
@@ -201,7 +218,7 @@ defmodule PhoenixKitCatalogue.Workers.PdfExtractor do
   # Returns `{succeeded_count, failed}` where `failed` is a list of
   # `{page_number, reason}` in reverse page order. Continues past a failed
   # page instead of halting, so one bad page doesn't discard the rest.
-  defp extract_pages(_file_uuid, %{page_count: 0}), do: {0, []}
+  defp extract_pages(_file_uuid, %{page_count: n}) when n <= 0, do: {0, [{0, :empty_document}]}
 
   defp extract_pages(file_uuid, engine) do
     Enum.reduce(1..engine.page_count, {0, []}, fn page_number, {ok_count, failed} ->
@@ -245,7 +262,7 @@ defmodule PhoenixKitCatalogue.Workers.PdfExtractor do
     |> String.replace(<<0>>, "")
     |> String.replace("­", "")
     |> ligatures()
-    |> then(&Regex.replace(~r/-\n(\w)/u, &1, "\\1"))
+    |> then(&Regex.replace(~r/-\r?\n(\w)/u, &1, "\\1"))
     |> then(&Regex.replace(~r/\s+/u, &1, " "))
     |> String.trim()
   end

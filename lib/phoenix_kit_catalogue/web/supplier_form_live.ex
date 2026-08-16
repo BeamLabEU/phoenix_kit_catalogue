@@ -5,6 +5,7 @@ defmodule PhoenixKitCatalogue.Web.SupplierFormLive do
 
   require Logger
 
+  import PhoenixKitWeb.Components.Core.Button, only: [button: 1]
   import PhoenixKitWeb.Components.Core.Icon, only: [icon: 1]
   import PhoenixKitWeb.Components.Core.Input, only: [input: 1]
   import PhoenixKitWeb.Components.Core.Select, only: [select: 1]
@@ -300,14 +301,15 @@ defmodule PhoenixKitCatalogue.Web.SupplierFormLive do
             <div class="divider my-0"></div>
 
             <div class="flex justify-end gap-3">
-              <.link navigate={Paths.suppliers()} class="btn btn-ghost">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Cancel")}</.link>
-              <button
+              <.button navigate={Paths.suppliers()} variant="ghost">
+                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Cancel")}
+              </.button>
+              <.button
                 type="submit"
-                class="btn btn-primary phx-submit-loading:opacity-75"
                 phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Saving...")}
               >
                 {if @action == :new, do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Create Supplier"), else: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Save Changes")}
-              </button>
+              </.button>
             </div>
           </div>
         </div>

@@ -631,7 +631,10 @@ defmodule PhoenixKitCatalogue.Catalogue.PdfLibrary do
     # worker already reached a terminal state, this returns
     # `{:ok, :superseded}` and the worker stops instead of pulling a
     # finished extraction back to `extracting`.
-    guarded_update_extraction(file_uuid, ["pending", "extracting"], %{
+    # `"failed"` is included so an Oban retry of a previous attempt can
+    # pull the row back to extracting. Success terminals are still
+    # refused (`:superseded`) so a good extraction is never clobbered.
+    guarded_update_extraction(file_uuid, ["pending", "extracting", "failed"], %{
       extraction_status: "extracting"
     })
   end
