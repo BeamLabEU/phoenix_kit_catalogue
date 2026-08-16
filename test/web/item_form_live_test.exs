@@ -503,9 +503,14 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLiveTest do
       assert Catalogue.get_item_attribute_group_uuid(item.uuid) == group.uuid
 
       # Re-open for edit: preselected; clearing the select detaches on save.
-      # (Raw <option> renders attrs in source order: value, then selected.)
-      {:ok, view, html} = live(conn, edit_item_url(item.uuid))
-      assert html =~ ~s(value="#{group.uuid}" selected)
+      # (The kit <.select> renders via options_for_select, which emits
+      # `selected` BEFORE `value` — assert order-agnostically.)
+      {:ok, view, _html} = live(conn, edit_item_url(item.uuid))
+
+      assert has_element?(
+               view,
+               "select[name='attribute_group_uuid'] option[value='#{group.uuid}'][selected]"
+             )
 
       view
       |> form("form[action=\"#\"][phx-submit=save]", %{
