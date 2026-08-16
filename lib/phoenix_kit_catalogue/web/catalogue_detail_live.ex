@@ -179,7 +179,6 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         categories_columns:
           ViewConfig.load(socket.assigns[:phoenix_kit_current_user], :detail_categories).columns,
         column_modal_scope: nil,
-        temp_columns: nil,
         show_items_reorder: false,
         show_categories_reorder: false,
         reorder_captured_uuids: [],
@@ -1091,33 +1090,29 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
   # Sortable column header click — toggles direction on the active field,
   # otherwise switches field (ascending).
-  # ── Columns configuration (per-user, ViewConfig) — one modal serving
-  # both detail scopes; `column_modal_scope` says which table it edits. ──
+  # ── Columns configuration (per-user, ViewConfig) — one LIVE modal
+  # serving both detail scopes; `column_modal_scope` says which table it
+  # edits, and every change applies + persists immediately (footer is
+  # Reset + Close). ──
 
   def handle_event("show_column_modal", %{"scope" => scope_str}, socket)
       when scope_str in ~w(detail_items detail_categories) do
-    scope = String.to_existing_atom(scope_str)
-
-    {:noreply,
-     assign(socket,
-       column_modal_scope: scope,
-       temp_columns: current_scope_columns(socket, scope)
-     )}
+    {:noreply, assign(socket, :column_modal_scope, String.to_existing_atom(scope_str))}
   end
 
   def handle_event("hide_column_modal", _p, socket),
-    do: {:noreply, assign(socket, column_modal_scope: nil, temp_columns: nil)}
+    do: {:noreply, assign(socket, :column_modal_scope, nil)}
 
   def handle_event("add_column", %{"column_id" => id}, socket) do
-    {:noreply, update(socket, :temp_columns, &((&1 || []) ++ [id]))}
+    {:noreply, live_update_detail_columns(socket, &(&1 ++ [id]))}
   end
 
   def handle_event("remove_column", %{"column_id" => id}, socket) do
-    {:noreply, update(socket, :temp_columns, &Enum.reject(&1 || [], fn c -> c == id end))}
+    {:noreply, live_update_detail_columns(socket, &Enum.reject(&1, fn c -> c == id end))}
   end
 
   def handle_event("reorder_columns", %{"ordered_ids" => ids}, socket) when is_list(ids) do
-    {:noreply, assign(socket, :temp_columns, ids)}
+    {:noreply, live_update_detail_columns(socket, fn _ -> ids end)}
   end
 
   def handle_event("reset_columns", _p, socket) do
@@ -1126,34 +1121,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         {:noreply, socket}
 
       scope ->
-        {:noreply, assign(socket, :temp_columns, TableConfig.default_columns(scope))}
-    end
-  end
-
-  def handle_event("apply_columns", params, socket) do
-    case socket.assigns.column_modal_scope do
-      nil ->
-        {:noreply, socket}
-
-      scope ->
-        ids =
-          TableConfig.validate_columns(
-            scope,
-            params["ordered_ids"] || socket.assigns.temp_columns || []
-          )
-
-        ids = if ids == [], do: TableConfig.default_columns(scope), else: ids
-
-        user = socket.assigns[:phoenix_kit_current_user]
-        cfg = %{ViewConfig.load(user, scope) | columns: ids}
-        ViewConfig.save(user, scope, cfg)
-
-        assigns_key = if scope == :detail_items, do: :items_columns, else: :categories_columns
-
         {:noreply,
-         socket
-         |> assign(assigns_key, ids)
-         |> assign(column_modal_scope: nil, temp_columns: nil)}
+         live_update_detail_columns(socket, fn _ -> TableConfig.default_columns(scope) end)}
     end
   end
 
@@ -1344,6 +1313,26 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   # ── Shared (all-user) detail sorts — same mechanism as the catalogues
   # index: the setting is the source of truth, changes broadcast so open
   # sessions follow live, and mount reads it back. ──────────────────
+
+  # Applies a columns transformation to the open modal's scope and
+  # persists it per-user. Invalid/empty results fall back to defaults.
+  defp live_update_detail_columns(socket, fun) do
+    case socket.assigns.column_modal_scope do
+      nil ->
+        socket
+
+      scope ->
+        ids = TableConfig.validate_columns(scope, fun.(current_scope_columns(socket, scope)))
+        ids = if ids == [], do: TableConfig.default_columns(scope), else: ids
+
+        user = socket.assigns[:phoenix_kit_current_user]
+        cfg = %{ViewConfig.load(user, scope) | columns: ids}
+        ViewConfig.save(user, scope, cfg)
+
+        assigns_key = if scope == :detail_items, do: :items_columns, else: :categories_columns
+        assign(socket, assigns_key, ids)
+    end
+  end
 
   # Accepts the socket (event handlers) or the assigns map (templates).
   defp current_scope_columns(%Phoenix.LiveView.Socket{} = socket, scope),
@@ -2742,7 +2731,6 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         show={@column_modal_scope != nil}
         scope={@column_modal_scope}
         selected={current_scope_columns(assigns, @column_modal_scope)}
-        temp_selected={@temp_columns}
       />
 
       <.confirm_modal

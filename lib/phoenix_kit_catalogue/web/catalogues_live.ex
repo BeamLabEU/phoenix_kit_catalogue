@@ -196,6 +196,28 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
 
   defp current_cfg(assigns), do: Map.fetch!(assigns.view_configs, active_scope(assigns))
 
+  # Applies a columns transformation to the active scope's cfg and
+  # persists it (put_cfg). Invalid/empty results fall back to defaults;
+  # the active sort survives whenever it is still a sortable column —
+  # "name" and "position" are managed?: false so never in `ids`, and
+  # sorting doesn't require the column to be displayed.
+  defp live_update_columns(socket, fun) do
+    scope = active_scope(socket.assigns)
+    cfg = current_cfg(socket.assigns)
+
+    ids = TableConfig.validate_columns(scope, fun.(cfg.columns))
+    ids = if ids == [], do: TableConfig.default_columns(scope), else: ids
+
+    cfg = %{cfg | columns: ids}
+
+    cfg =
+      if MapSet.member?(known_sortable_ids(scope), cfg.sort_by),
+        do: cfg,
+        else: %{cfg | sort_by: List.first(ids)}
+
+    put_cfg(socket, scope, cfg)
+  end
+
   # Update one scope's cfg in assigns AND persist to the user row.
   #
   # `ViewConfig.save/3` writes the WHOLE `custom_fields` column (Ecto cast,
@@ -1850,61 +1872,32 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   # ── Column / sort / filter / view handlers ──────────────────────
 
   def handle_event("show_column_modal", _p, socket) do
-    {:noreply,
-     assign(socket,
-       show_column_modal: true,
-       temp_columns: current_cfg(socket.assigns).columns
-     )}
+    {:noreply, assign(socket, :show_column_modal, true)}
   end
 
   def handle_event("hide_column_modal", _p, socket),
-    do: {:noreply, assign(socket, show_column_modal: false, temp_columns: nil)}
+    do: {:noreply, assign(socket, :show_column_modal, false)}
 
+  # LIVE columns editor: every change applies (and persists) immediately;
+  # the modal's footer is just Reset + Close.
   def handle_event("add_column", %{"column_id" => id}, socket) do
-    {:noreply, update(socket, :temp_columns, &((&1 || []) ++ [id]))}
+    {:noreply, live_update_columns(socket, &(&1 ++ [id]))}
   end
 
   def handle_event("remove_column", %{"column_id" => id}, socket) do
-    {:noreply, update(socket, :temp_columns, &Enum.reject(&1 || [], fn c -> c == id end))}
+    {:noreply, live_update_columns(socket, &Enum.reject(&1, fn c -> c == id end))}
   end
 
   def handle_event("reorder_columns", params, socket) do
-    {:noreply, assign(socket, :temp_columns, parse_order(params))}
+    case parse_order(params) do
+      ids when is_list(ids) -> {:noreply, live_update_columns(socket, fn _ -> ids end)}
+      _ -> {:noreply, socket}
+    end
   end
 
   def handle_event("reset_columns", _p, socket) do
     scope = active_scope(socket.assigns)
-
-    {:noreply, assign(socket, :temp_columns, TableConfig.default_columns(scope))}
-  end
-
-  def handle_event("apply_columns", params, socket) do
-    scope = active_scope(socket.assigns)
-
-    ids =
-      TableConfig.validate_columns(
-        scope,
-        parse_order(params) || socket.assigns.temp_columns || []
-      )
-
-    ids =
-      if ids == [], do: TableConfig.default_columns(scope), else: ids
-
-    cfg = %{current_cfg(socket.assigns) | columns: ids}
-    # Keep the active sort whenever it's still a real sortable column in this
-    # scope. "name" is always visible (managed?: false) but never in `ids`
-    # (validate_columns/2 only returns managed columns), and "position"
-    # (manual order) is a sort-only pseudo column that's never in `ids`
-    # either — see TableConfig.columns/1. Sorting doesn't require the column
-    # to be currently *displayed*, so only reset when Apply dropped a
-    # `sort_by` that isn't sortable at all anymore.
-    cfg =
-      if MapSet.member?(known_sortable_ids(scope), cfg.sort_by),
-        do: cfg,
-        else: %{cfg | sort_by: List.first(ids)}
-
-    {:noreply,
-     socket |> put_cfg(scope, cfg) |> assign(show_column_modal: false, temp_columns: nil)}
+    {:noreply, live_update_columns(socket, fn _ -> TableConfig.default_columns(scope) end)}
   end
 
   def handle_event("set_sort", %{"sort_by" => by}, socket) do
@@ -2961,7 +2954,6 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         show={@show_column_modal}
         scope={active_scope(assigns)}
         selected={current_cfg(assigns).columns}
-        temp_selected={@temp_columns}
       />
       </div>
 
