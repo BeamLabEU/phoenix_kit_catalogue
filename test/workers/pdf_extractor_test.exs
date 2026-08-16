@@ -51,42 +51,27 @@ defmodule PhoenixKitCatalogue.Workers.PdfExtractorTest do
     end
   end
 
-  describe "parse_page_count/1" do
-    test "extracts integer from a typical pdfinfo line" do
-      output = """
-      Title:          Helahinnasto 2026
-      Pages:          172
-      Encrypted:      no
-      """
-
-      assert PdfExtractor.parse_page_count(output) == {:ok, 172}
-    end
-
-    test "accepts page count of 1" do
-      assert PdfExtractor.parse_page_count("Pages:  1\n") == {:ok, 1}
-    end
-
-    test "accepts page count of 0 (degenerate but legal)" do
-      assert PdfExtractor.parse_page_count("Pages:  0\n") == {:ok, 0}
-    end
-
-    test "returns error when no Pages: line present" do
-      assert {:error, {:pdfinfo_failed, _}} = PdfExtractor.parse_page_count("garbage output")
-    end
-
-    test "returns error on empty pdfinfo output" do
-      assert {:error, {:pdfinfo_failed, _}} = PdfExtractor.parse_page_count("")
-    end
-
-    test "ignores Pages: hidden inside other lines" do
-      # Ensure the regex anchor (`^Pages:`) protects against false matches
-      # in lines that contain "Pages:" not at the start.
-      output = "Some Pages: 999 are mentioned in body\n"
-      assert {:error, {:pdfinfo_failed, _}} = PdfExtractor.parse_page_count(output)
-    end
-  end
+  # parse_page_count/1 moved to Catalogue.PdfEngines with the engine
+  # split — its tests (including the ^Pages: anchor pin) live in
+  # test/catalogue/pdf_engines_test.exs now.
 
   describe "inspect_reason/1" do
+    test "formats {:no_engine, attempts} with every engine's reason" do
+      msg =
+        PdfExtractor.inspect_reason(
+          {:no_engine, [{"pdfium", :invalid_format}, {"poppler", :not_installed}]}
+        )
+
+      assert msg =~ "no PDF engine could open the file"
+      assert msg =~ "pdfium: :invalid_format"
+      assert msg =~ "poppler: :not_installed"
+    end
+
+    test "formats {:pdfium_page_failed, page, reason}" do
+      assert PdfExtractor.inspect_reason({:pdfium_page_failed, 7, :render_error}) ==
+               "pdfium failed on page 7: :render_error"
+    end
+
     test "formats {:pdfinfo_failed, msg}" do
       assert PdfExtractor.inspect_reason({:pdfinfo_failed, "no Pages: line"}) ==
                "pdfinfo: no Pages: line"

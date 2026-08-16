@@ -106,6 +106,13 @@ defmodule PhoenixKitCatalogue.MixProject do
       # Saxy decodes UTF-8 natively and resolves no external entities, which
       # matters for a file that arrives from outside.
       {:saxy, "~> 1.6"},
+      # PDF text extraction engine (pdfium — Chrome's PDF core — as a
+      # precompiled NIF fetched during deps.get, so hosts need NO system
+      # packages for PDF search). Poppler, when installed, stays as the
+      # fallback engine — see Catalogue.PdfEngines and
+      # dev_docs/2026-08-16-pdf-extraction-engines.md for the benchmark
+      # that picked pdfium (98.4–100% word recall vs pdftotext).
+      {:ex_pdfium, "~> 0.6"},
       {:ex_doc, "~> 0.39", only: :dev, runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
