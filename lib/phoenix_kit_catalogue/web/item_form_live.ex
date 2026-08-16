@@ -978,7 +978,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
 
     socket
     |> assign(:selected_attribute_group_uuid, selected)
-    |> assign(:attribute_group_options, groups)
+    |> assign(:attribute_group_options, Catalogue.localize(groups, preview_lang(socket)))
     |> assign_attribute_preview(selected)
   end
 
