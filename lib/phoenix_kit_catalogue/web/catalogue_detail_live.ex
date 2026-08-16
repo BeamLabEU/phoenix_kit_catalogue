@@ -2329,15 +2329,18 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
           <% level_desc = level_description(@current_category, @catalogue) %>
           <% show_search_input = @view_mode == "active" or @search_results != nil or @search_loading %>
           <div :if={show_search_input or level_desc} class="flex flex-col gap-3 mb-3">
-            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <%!-- flex-wrap, not flex-col: on narrow screens the search takes
+                 the line (grow + wide basis) and the actions wrap under it,
+                 still right-aligned via ml-auto — same edge the controls row
+                 below aligns to. --%>
+            <div class="flex flex-wrap items-center gap-3">
               <.search_input
                 :if={show_search_input}
-                class="grow sm:max-w-xl"
+                class="grow basis-64 min-w-0 sm:max-w-xl"
                 query={@search_query}
                 placeholder={search_placeholder(@current_category)}
               />
-              <div :if={not show_search_input} class="grow"></div>
-              <div :if={@view_mode == "active"} class="flex flex-wrap items-center gap-2 sm:flex-shrink-0">
+              <div :if={@view_mode == "active"} class="ml-auto flex flex-wrap items-center gap-2">
                 <%!-- Root only — inside a category "Add Category" reads as
                      ambiguous (sibling or subcategory?). Nesting is done via
                      the parent picker on the category form instead. --%>
