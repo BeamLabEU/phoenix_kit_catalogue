@@ -4947,6 +4947,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
   defdelegate permanently_delete_pdf(pdf, opts \\ []), to: PdfLibrary
   defdelegate search_pdfs_for_item(item, opts \\ []), to: PdfLibrary
   defdelegate search_pdf_contents(query, opts \\ []), to: PdfLibrary
+  defdelegate more_pdf_content_matches(query, pdf_uuid, opts \\ []), to: PdfLibrary
   defdelegate more_pdf_matches_for_item(item, pdf_uuid, opts \\ []), to: PdfLibrary
   defdelegate prune_orphan_pdf_page_contents(), to: PdfLibrary, as: :prune_orphan_page_contents
   defdelegate retry_extraction(pdf, opts \\ []), to: PdfLibrary

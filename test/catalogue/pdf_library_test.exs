@@ -300,6 +300,28 @@ defmodule PhoenixKitCatalogue.Catalogue.PdfLibraryTest do
     end
   end
 
+  describe "PdfLibrary.more_pdf_content_matches/3" do
+    test "pages beyond the preview batch load with offset" do
+      file = insert_file!()
+      pdf = insert_pdf!(file)
+
+      for n <- 1..7 do
+        {:ok, _} = PdfLibrary.insert_page(file, n, "widget spec sheet page #{n}")
+      end
+
+      [%{pdf: found, total_matches: 7, hits: preview}] =
+        PdfLibrary.search_pdf_contents("widget", per_pdf: 5)
+
+      assert found.uuid == pdf.uuid
+      assert length(preview) == 5
+
+      more = PdfLibrary.more_pdf_content_matches("widget", pdf.uuid, offset: 5, limit: 50)
+      assert Enum.map(more, & &1.page_number) == [6, 7]
+
+      assert PdfLibrary.more_pdf_content_matches("w", pdf.uuid, offset: 0) == []
+    end
+  end
+
   describe "PdfLibrary.insert_page/3" do
     test "inserts a page row + content row on first call" do
       file = insert_file!()

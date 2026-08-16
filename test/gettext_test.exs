@@ -15,12 +15,17 @@ defmodule PhoenixKitCatalogue.GettextTest do
 
   test "PDF content-search strings are translated (pin for the 2026-08-16 additions)" do
     Gettext.put_locale(PhoenixKitCatalogue.Gettext, "ru")
-    assert Gettext.gettext(PhoenixKitCatalogue.Gettext, "Content matches") ==
-             "Совпадения по содержимому"
+
+    assert Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search PDF contents") ==
+             "Поиск по содержимому PDF"
 
     Gettext.put_locale(PhoenixKitCatalogue.Gettext, "et")
-    assert Gettext.gettext(PhoenixKitCatalogue.Gettext, "Content matches") == "Sisu vasted"
-    assert Gettext.gettext(PhoenixKitCatalogue.Gettext, "p. %{n}", n: 3) == "lk 3"
+
+    assert Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search PDF contents") ==
+             "Otsi PDF-ide sisust"
+
+    assert Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search by filename…") ==
+             "Otsi failinime järgi…"
   end
 
   test "Tab.localized_label/1 returns Russian translation for Catalogue" do
