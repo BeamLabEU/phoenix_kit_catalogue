@@ -195,7 +195,9 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLiveTest do
     # keystroke may patch the URL but must not touch list_pdfs/1 — the guard
     # that makes that true is `state.filter == prior_filter` in
     # handle_url_state/2.
-    test "content matches render for full-text hits with page deep links", %{conn: conn} do
+    test "the content-search modal searches every PDF's text with page deep links", %{
+      conn: conn
+    } do
       {pdf, file_uuid, _user} = fixture_pdf_with_extraction(filename: "manual.pdf")
 
       {:ok, _} =
@@ -205,17 +207,34 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLiveTest do
           "torque settings for the X-200 bracket"
         )
 
-      {:ok, _view, html} = live(conn, @lib_path <> "?q=X-200")
+      {:ok, view, html} = live(conn, @lib_path)
 
-      # The panel groups by PDF and deep-links each hit to its page.
-      assert html =~ "Content matches"
+      # Filename search is filename-only again — no content panel inline.
+      refute html =~ "Search inside every PDF"
+      assert html =~ "Search PDF contents"
+
+      # Open the modal; the hint shows before a query is typed.
+      html = render_click(view, "open_content_search", %{})
+      assert html =~ "Search inside every PDF"
+      assert html =~ "Type at least 2 characters"
+
+      # Type a query into the modal's own input (component-targeted).
+      html =
+        view
+        |> element("#pdf-content-search-query-form")
+        |> render_change(%{"q" => "X-200"})
+
+      assert html =~ "manual.pdf"
       assert html =~ "X-200"
       assert html =~ ~s(href="/en/admin/catalogue/pdfs/#{pdf.uuid}?page=3")
 
-      # A filename-only query shows no content panel.
-      {:ok, _view, html} = live(conn, @lib_path <> "?q=manual")
-      refute html =~ "Content matches"
-      assert html =~ "manual.pdf"
+      # No-results state for a miss.
+      html =
+        view
+        |> element("#pdf-content-search-query-form")
+        |> render_change(%{"q" => "zzznope"})
+
+      assert html =~ "No pages match your search."
     end
 
     test "the search event patches ?q= and narrows the rendered rows", %{conn: conn} do

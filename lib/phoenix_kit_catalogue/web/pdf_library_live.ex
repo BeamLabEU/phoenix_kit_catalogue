@@ -63,8 +63,7 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLive do
        page_title: Gettext.gettext(PhoenixKitCatalogue.Gettext, "PDFs"),
        pdfs: [],
        upload_error: nil,
-       content_query: nil,
-       content_results: []
+       show_content_search: false
      )
      |> allow_upload(:pdf,
        accept: ~w(.pdf application/pdf),
@@ -87,27 +86,12 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLive do
     # byte-identical result, so the query is confined to a real filter change.
     # `prior_filter` is nil only before the first call; the filter itself is
     # whitelisted to "active" or "trashed" and never nil.
-    socket = assign_content_results(socket, state.search)
-
     if state.filter == socket.assigns[:prior_filter] do
       socket
     else
       socket
       |> assign(:prior_filter, state.filter)
       |> assign_pdfs()
-    end
-  end
-
-  # Full-text search over the extracted page corpus, re-run only when
-  # the query actually changes (handle_url_state fires for filter
-  # changes too). Empty/short queries clear the section.
-  defp assign_content_results(socket, query) do
-    if socket.assigns[:content_query] == query do
-      socket
-    else
-      socket
-      |> Phoenix.Component.assign(:content_query, query)
-      |> Phoenix.Component.assign(:content_results, Catalogue.search_pdf_contents(query))
     end
   end
 
@@ -139,6 +123,10 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLive do
   @impl true
   def handle_event("search", %{"query" => q}, socket) do
     {:noreply, push_url_state(socket, [search: q], replace: true)}
+  end
+
+  def handle_event("open_content_search", _params, socket) do
+    {:noreply, assign(socket, :show_content_search, true)}
   end
 
   @impl true
@@ -268,6 +256,10 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLive do
   end
 
   @impl true
+  def handle_info({:pdf_search_modal_closed}, socket) do
+    {:noreply, assign(socket, :show_content_search, false)}
+  end
+
   def handle_info({:catalogue_data_changed, :pdf, _uuid, _parent}, socket) do
     {:noreply, assign_pdfs(socket)}
   end
@@ -440,6 +432,14 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLive do
           <div class="text-sm text-base-content/60">
             {Gettext.gettext(PhoenixKitCatalogue.Gettext, "%{count} PDFs", count: length(@pdfs))}
           </div>
+          <button
+            type="button"
+            phx-click="open_content_search"
+            class="btn btn-sm btn-outline ml-auto"
+          >
+            <.icon name="hero-document-magnifying-glass" class="w-4 h-4" />
+            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search PDF contents")}
+          </button>
         </div>
 
         <%!-- Upload zone (hidden in trash view) --%>
@@ -467,8 +467,9 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLive do
           <div :if={@upload_error} class="text-error text-xs mt-2">{@upload_error}</div>
         </div>
 
-        <%!-- Search shares its row with the table/card view toggle (the
-             table's built-in toggle is suppressed below). --%>
+        <%!-- Filename search shares its row with the table/card view
+             toggle (the table's built-in toggle is suppressed below).
+             Content search lives in the modal behind the header button. --%>
         <% visible_pdfs = filter_by_search(@pdfs, @search) %>
         <div class="flex flex-wrap items-center gap-3">
           <form phx-change="search" phx-submit="search" class="grow basis-64 sm:max-w-72">
@@ -478,7 +479,7 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLive do
                 type="search"
                 name="query"
                 value={@search}
-                placeholder={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search by filename or content…")}
+                placeholder={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search by filename…")}
                 class="grow"
                 phx-debounce="300"
               />
@@ -487,47 +488,12 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLive do
           <.view_mode_toggle :if={visible_pdfs != []} storage_key="catalogue-pdf-library" class="ml-auto" />
         </div>
 
-        <%!-- Content matches: full-text hits over the extracted page
-             corpus (active PDFs), grouped per PDF; each hit deep-links
-             into the viewer at its page. Filename filtering stays with
-             the table below. --%>
-        <div
-          :if={@search != "" and @content_results != []}
-          class="rounded-lg border border-base-300 bg-base-100 p-4 flex flex-col gap-3"
-        >
-          <div class="text-sm font-semibold text-base-content/70">
-            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Content matches")}
-          </div>
-          <div :for={group <- @content_results} class="flex flex-col gap-1.5">
-            <.link
-              navigate={Paths.pdf_detail(group.pdf.uuid)}
-              class="link link-hover font-medium text-sm flex items-center gap-2 min-w-0"
-            >
-              <.icon name="hero-document-text" class="w-4 h-4 shrink-0 text-base-content/50" />
-              <span class="truncate">{group.pdf.original_filename}</span>
-              <span class="badge badge-sm badge-ghost shrink-0">{group.total_matches}</span>
-            </.link>
-            <.link
-              :for={hit <- group.hits}
-              navigate={Paths.pdf_detail(hit.pdf.uuid, hit.page_number)}
-              class="flex items-baseline gap-2 pl-6 text-sm group"
-            >
-              <span class="badge badge-xs badge-outline shrink-0">
-                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "p. %{n}", n: hit.page_number)}
-              </span>
-              <span class="text-base-content/60 group-hover:text-base-content line-clamp-2">
-                {hit.snippet}
-              </span>
-            </.link>
-          </div>
-        </div>
-
-        <div
-          :if={@search != "" and @content_results == [] and String.length(String.trim(@search)) >= 2}
-          class="text-xs text-base-content/50"
-        >
-          {Gettext.gettext(PhoenixKitCatalogue.Gettext, "No content matches — the list below filters by filename.")}
-        </div>
+        <.live_component
+          module={PhoenixKitCatalogue.Web.Components.PdfSearchModal}
+          id="pdf-content-search"
+          mode={:library}
+          show={@show_content_search}
+        />
 
         <%!-- PDF list --%>
         <%= cond do %>

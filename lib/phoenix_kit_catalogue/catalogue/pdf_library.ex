@@ -957,6 +957,26 @@ defmodule PhoenixKitCatalogue.Catalogue.PdfLibrary do
   def search_pdf_contents(_query, _opts), do: []
 
   @doc """
+  Loads additional free-text hits within one PDF — the library-wide
+  counterpart of `more_pdf_matches_for_item/3`, driven by the
+  operator's query instead of an item's names. Same options
+  (`:offset`, `:limit`, `:trigram_query`) and ordering.
+  """
+  @spec more_pdf_content_matches(String.t(), Ecto.UUID.t(), keyword()) :: [hit()]
+  def more_pdf_content_matches(query, pdf_uuid, opts \\ []) when is_binary(query) do
+    offset = Keyword.get(opts, :offset, 0)
+    limit = Keyword.get(opts, :limit, 50)
+    trigram_query = Keyword.get(opts, :trigram_query)
+    query = query |> String.trim() |> collapse_ws()
+
+    cond do
+      String.length(query) < @min_content_query -> []
+      trigram_query -> trigram_more(pdf_uuid, trigram_query, [query], offset, limit)
+      true -> literal_more(pdf_uuid, [query], offset, limit)
+    end
+  end
+
+  @doc """
   Loads additional hits for one PDF beyond what the initial grouped
   search returned. Used by the modal's per-PDF "Show more matches"
   expand action.
