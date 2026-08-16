@@ -13,6 +13,7 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLiveTest do
 
   alias Ecto.Adapters.SQL
   alias PhoenixKitCatalogue.Catalogue
+  alias PhoenixKitCatalogue.Catalogue.PdfLibrary
   alias PhoenixKitCatalogue.Schemas.{Pdf, PdfExtraction}
   alias PhoenixKitCatalogue.Test.Repo
 
@@ -201,7 +202,7 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLiveTest do
       {pdf, file_uuid, _user} = fixture_pdf_with_extraction(filename: "manual.pdf")
 
       {:ok, _} =
-        PhoenixKitCatalogue.Catalogue.PdfLibrary.insert_page(
+        PdfLibrary.insert_page(
           file_uuid,
           3,
           "torque settings for the X-200 bracket"
