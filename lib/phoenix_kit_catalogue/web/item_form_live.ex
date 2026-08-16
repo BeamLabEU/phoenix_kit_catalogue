@@ -930,7 +930,6 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
     end)
   end
 
-
   # The Attributes tab's group select submits with the main form (name
   # "attribute_group_uuid", outside the item[...] namespace). Track the
   # selection in assigns so the read-only preview follows it live.
