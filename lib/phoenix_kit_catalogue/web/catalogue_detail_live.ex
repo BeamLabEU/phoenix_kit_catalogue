@@ -261,7 +261,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     case resolve_node(socket.assigns.catalogue_uuid, cat_key) do
       {:ok, current} ->
         socket
-        |> assign(:current_category, current)
+        |> assign(:current_category, Catalogue.localize_one(current, loc(socket)))
         |> handle_url_state_search(search_query)
         |> reset_and_load()
         |> maybe_auto_flip_to_active()
@@ -706,7 +706,12 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         if item_count == 0 do
           do_trash_category(socket, category, items: :cascade)
         else
-          {:noreply, assign(socket, :trash_modal, build_trash_modal_state(category, item_count))}
+          {:noreply,
+           assign(
+             socket,
+             :trash_modal,
+             build_trash_modal_state(category, item_count, loc(socket))
+           )}
         end
     end
   end
@@ -918,7 +923,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
            assign(socket, :trash_modal, %{
              category: category,
              item_count: bulk_subtree_item_count(uuids),
-             targets: Catalogue.list_move_target_categories(category),
+             targets:
+               localize_targets(Catalogue.list_move_target_categories(category), loc(socket)),
              disposition: :uncategorize,
              target_uuid: nil,
              bulk: true,
@@ -1577,11 +1583,11 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     end
   end
 
-  defp build_trash_modal_state(%Category{} = category, item_count) do
+  defp build_trash_modal_state(%Category{} = category, item_count, locale) do
     %{
       category: category,
       item_count: item_count,
-      targets: Catalogue.list_move_target_categories(category),
+      targets: localize_targets(Catalogue.list_move_target_categories(category), locale),
       disposition: :uncategorize,
       target_uuid: nil
     }
@@ -1759,13 +1765,17 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
             item_limit,
             0,
             items_sort_opts(socket)
-          ),
+          )
+          |> Catalogue.localize(loc(socket)),
         else: []
+
+    catalogue = Catalogue.localize_one(catalogue, loc(socket))
+    child_categories = Catalogue.localize(child_categories, loc(socket))
 
     assign(socket,
       page_title: if(current, do: current_node_label(current), else: catalogue.name),
       catalogue: catalogue,
-      breadcrumb: build_breadcrumb(current, cat_mode),
+      breadcrumb: build_breadcrumb(current, cat_mode) |> Catalogue.localize(loc(socket)),
       child_categories:
         sort_categories(
           child_categories,
@@ -1852,6 +1862,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       )
 
     new_offset = offset + length(page)
+    page = Catalogue.localize(page, loc(socket))
 
     assign(socket,
       items: socket.assigns.items ++ page,
@@ -1983,6 +1994,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     # Only apply if the user is still asking for this query. A late
     # response for a query the user has already superseded gets dropped.
     if socket.assigns.search_query == query do
+      results = Catalogue.localize(results, loc(socket))
+
       {:noreply,
        assign(socket,
          search_results: results,
@@ -2043,6 +2056,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       # `page == []` protects against stale `search_total` (items
       # concurrently deleted) keeping `search_has_more` true forever.
       has_more = page != [] and new_offset < socket.assigns.search_total
+
+      page = Catalogue.localize(page, loc(socket))
 
       {:noreply,
        assign(socket,
@@ -2131,7 +2146,11 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       catalogue_uuid = socket.assigns.catalogue_uuid
       status = socket.assigns.view_mode
       limit = max(socket.assigns.items_offset, @per_page)
-      fresh = fetch_card_items(scope, catalogue_uuid, status, limit, 0, items_sort_opts(socket))
+
+      fresh =
+        fetch_card_items(scope, catalogue_uuid, status, limit, 0, items_sort_opts(socket))
+        |> Catalogue.localize(loc(socket))
+
       total = card_total(scope, catalogue_uuid, status)
 
       assign(socket,
@@ -2306,6 +2325,15 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
          |> reset_and_load()
          |> flash_reorder(moved_id, :error)}
     end
+  end
+
+  # The viewer's locale for content localization (nil outside locale
+  # routes — then records pass through untouched).
+  defp loc(socket), do: socket.assigns[:current_locale]
+
+  # Move-target lists are {category, depth} tuples.
+  defp localize_targets(targets, locale) do
+    Enum.map(targets, fn {cat, depth} -> {Catalogue.localize_one(cat, locale), depth} end)
   end
 
   # ── Render ──────────────────────────────────────────────────────

@@ -1,3 +1,42 @@
+## 0.16.2 - 2026-08-16
+
+### Added
+
+- **PDF content search** (#70) — `Catalogue.PdfLibrary.search_pdf_contents/2`
+  searches the extracted text of every PDF, not just filenames, grouped by
+  PDF with match snippets; `more_pdf_content_matches/3` paginates within a
+  single PDF's pages. Reachable from a dedicated search modal on the PDF
+  library page, kept separate from the existing filename search.
+
+### Fixed
+
+- **Multilang forms dropped typed-but-unsaved primary-language text** when
+  `validate`/`save` fired from a secondary-language tab (#70) — primary
+  `name`/`description` fields are only submitted from the primary tab, so a
+  secondary-tab event was rebuilding the changeset without them. Fixed in
+  the attribute group, catalogue, and category forms via `@preserve_fields`
+  threaded into `merge_translatable_params/4`; locked in by a source-scan
+  conformance test asserting every call site passes it.
+- **PDF search snippets could be off-center on multi-byte text** (#70) — the
+  match offset from `:binary.match/2` is a byte offset, but the snippet
+  slice counted graphemes; for Cyrillic/accented text this centered the
+  window past the actual match. Snippet building now converts to a
+  grapheme offset first.
+- **The item form's Attributes-tab group dropdown always showed the
+  primary-language name**, not the viewer's locale, even after #70 fixed
+  the same class of bug for catalogue/category/item lists. Missed
+  `Catalogue.localize/2` pass in `assign_attribute_state/3`; see
+  [PR #70 review](dev_docs/pull_requests/2026/70-pdf-content-search-multilang-handover/CLAUDE_REVIEW.md).
+
+### Changed
+
+- Core `phoenix_kit` dependency bumped to `2.8.1` in `mix.lock`.
+- **Handover close-out** (#70) — `CatalogueTreeDnD`'s folder drag/drop moved
+  from an inline template `<script>` (which dies on LiveView navigation)
+  into `priv/static/assets/phoenix_kit_catalogue.js`, shipped via a new
+  `js_sources/0` under a `PhoenixKitCatalogueHooks` global. Combobox
+  template indentation cleaned up in `item_picker.ex`.
+
 ## 0.16.1 - 2026-08-16
 
 ### Changed

@@ -1269,3 +1269,22 @@ msgstr "Vali kõigepealt tõlkedialoogis AI lõpp-punkt ja viip."
 
 msgid "Add value"
 msgstr "Lisa väärtus"
+
+
+
+
+
+msgid "Search PDF contents"
+msgstr "Otsi PDF-ide sisust"
+
+msgid "Search inside every PDF…"
+msgstr "Otsi kõigi PDF-ide seest…"
+
+msgid "Type at least 2 characters to search the text of every PDF."
+msgstr "Sisesta vähemalt 2 tähemärki, et otsida kõigi PDF-ide tekstist."
+
+msgid "No pages match your search."
+msgstr "Ükski leht ei vasta otsingule."
+
+msgid "Search by filename…"
+msgstr "Otsi failinime järgi…"

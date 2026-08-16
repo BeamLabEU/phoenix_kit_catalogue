@@ -45,11 +45,20 @@ defmodule PhoenixKitCatalogue.Web.Components.PdfSearchModal do
        expanding: MapSet.new(),
        error: nil,
        last_item_uuid: nil,
-       per_pdf: @per_pdf
+       per_pdf: @per_pdf,
+       mode: :item,
+       query: "",
+       searched: false
      )}
   end
 
   @impl true
+  def update(%{mode: :library} = assigns, socket) do
+    # Library-wide free-text mode: no item, no auto-search — the modal
+    # owns a query input and searches as the operator types.
+    {:ok, assign(socket, Map.put_new(assigns, :item, nil))}
+  end
+
   def update(%{item: item, show: show} = assigns, socket) do
     socket = assign(socket, assigns)
 
@@ -118,6 +127,56 @@ defmodule PhoenixKitCatalogue.Web.Components.PdfSearchModal do
   defp longest_title(titles), do: Enum.max_by(titles, &String.length/1)
 
   @impl true
+  def handle_event("library_query", %{"q" => raw}, socket) do
+    query = String.trim(raw)
+
+    if String.length(query) < 2 do
+      {:noreply,
+       assign(socket,
+         query: raw,
+         groups: [],
+         titles: [],
+         trigram_query: nil,
+         searched: false,
+         error: nil,
+         expanding: MapSet.new()
+       )}
+    else
+      groups = Catalogue.search_pdf_contents(query, per_pdf: @per_pdf)
+
+      trigram_query =
+        case groups do
+          [%{hits: [%{score: score} | _]} | _] when score < 1.0 -> query
+          _ -> nil
+        end
+
+      {:noreply,
+       assign(socket,
+         query: raw,
+         groups: groups,
+         titles: [query],
+         trigram_query: trigram_query,
+         searched: true,
+         error: nil,
+         expanding: MapSet.new()
+       )}
+    end
+  rescue
+    e in [DBConnection.ConnectionError, Postgrex.Error, Ecto.QueryError, Ecto.Query.CastError] ->
+      Logger.warning("PdfSearchModal.library_query DB error: #{Exception.message(e)}")
+
+      {:noreply,
+       assign(socket,
+         groups: [],
+         searched: true,
+         error:
+           Gettext.gettext(
+             PhoenixKitCatalogue.Gettext,
+             "Search is temporarily unavailable. Please try again in a moment."
+           )
+       )}
+  end
+
   def handle_event("close", _params, socket) do
     send(self(), {:pdf_search_modal_closed})
     {:noreply, socket}
@@ -136,7 +195,18 @@ defmodule PhoenixKitCatalogue.Web.Components.PdfSearchModal do
           [offset: length(group.hits), limit: @more_batch_size] ++
             trigram_opt(socket.assigns.trigram_query)
 
-        more = Catalogue.more_pdf_matches_for_item(socket.assigns.item, pdf_uuid, opts)
+        more =
+          case socket.assigns.mode do
+            :library ->
+              Catalogue.more_pdf_content_matches(
+                String.trim(socket.assigns.query),
+                pdf_uuid,
+                opts
+              )
+
+            _ ->
+              Catalogue.more_pdf_matches_for_item(socket.assigns.item, pdf_uuid, opts)
+          end
 
         new_groups =
           Enum.map(socket.assigns.groups, fn g ->
@@ -229,13 +299,17 @@ defmodule PhoenixKitCatalogue.Web.Components.PdfSearchModal do
             <div class="flex items-start justify-between gap-3">
               <div>
                 <h3 class="font-semibold text-lg">
-                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "PDF search")}
+                  <%= if @mode == :library do %>
+                    {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search PDF contents")}
+                  <% else %>
+                    {Gettext.gettext(PhoenixKitCatalogue.Gettext, "PDF search")}
+                  <% end %>
                 </h3>
-                <p class="text-xs text-base-content/60 mt-1">
+                <p :if={@mode != :library} class="text-xs text-base-content/60 mt-1">
                   {Gettext.gettext(
                     PhoenixKitCatalogue.Gettext,
                     "Searched for: %{name}",
-                    name: @item.name
+                    name: @item && @item.name
                   )}
                 </p>
               </div>
@@ -250,6 +324,30 @@ defmodule PhoenixKitCatalogue.Web.Components.PdfSearchModal do
               </button>
             </div>
 
+            <form
+              :if={@mode == :library}
+              id={@id <> "-query-form"}
+              phx-change="library_query"
+              phx-submit="library_query"
+              phx-target={@myself}
+              class="mt-3"
+            >
+              <label class="input input-sm w-full">
+                <.icon name="hero-magnifying-glass" class="h-4 w-4 opacity-50" />
+                <input
+                  type="search"
+                  name="q"
+                  value={@query}
+                  placeholder={
+                    Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search inside every PDF…")
+                  }
+                  class="grow"
+                  phx-debounce="300"
+                  autocomplete="off"
+                />
+              </label>
+            </form>
+
             <div class="mt-4">
               <%= cond do %>
                 <% @loading -> %>
@@ -262,14 +360,28 @@ defmodule PhoenixKitCatalogue.Web.Components.PdfSearchModal do
                     <.icon name="hero-exclamation-triangle" class="w-4 h-4" />
                     <span>{@error}</span>
                   </div>
+                <% @mode == :library and not @searched -> %>
+                  <div class="text-center py-8 text-base-content/50">
+                    <.icon name="hero-document-magnifying-glass" class="w-10 h-10 mx-auto mb-2 opacity-50" />
+                    <p class="text-sm">
+                      {Gettext.gettext(
+                        PhoenixKitCatalogue.Gettext,
+                        "Type at least 2 characters to search the text of every PDF."
+                      )}
+                    </p>
+                  </div>
                 <% @groups == [] -> %>
                   <div class="text-center py-8 text-base-content/60">
                     <.icon name="hero-magnifying-glass" class="w-10 h-10 mx-auto mb-2 opacity-50" />
                     <p class="text-sm">
-                      {Gettext.gettext(
-                        PhoenixKitCatalogue.Gettext,
-                        "No PDF mentions this item by name."
-                      )}
+                      <%= if @mode == :library do %>
+                        {Gettext.gettext(PhoenixKitCatalogue.Gettext, "No pages match your search.")}
+                      <% else %>
+                        {Gettext.gettext(
+                          PhoenixKitCatalogue.Gettext,
+                          "No PDF mentions this item by name."
+                        )}
+                      <% end %>
                     </p>
                   </div>
                 <% true -> %>

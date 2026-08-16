@@ -145,6 +145,47 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
       assert html =~ "Search within this category"
     end
 
+    test "content renders in the viewer's locale, not the primary language", %{conn: conn} do
+      # 2026-08-16 report: interface in English, primary language
+      # Estonian — lists showed Estonian names even though English
+      # translations existed. Lists must render the locale-resolved
+      # name (Catalogue.localize/2 at load), falling back to primary.
+      catalogue = fixture_catalogue(%{name: "Primaarne kataloog"})
+      category = fixture_category(catalogue, %{name: "Uksed"})
+      item = fixture_item(%{name: "Tamm", category_uuid: category.uuid})
+      untranslated = fixture_category(catalogue, %{name: "Aknad"})
+      _keep = untranslated
+
+      {:ok, _} =
+        Catalogue.set_translation(catalogue, "en", %{"_name" => "Primary Catalogue"}, fn c, a ->
+          Catalogue.update_catalogue(c, a)
+        end)
+
+      {:ok, _} =
+        Catalogue.set_translation(category, "en", %{"_name" => "Doors"}, fn c, a ->
+          Catalogue.update_category(c, a)
+        end)
+
+      {:ok, _} =
+        Catalogue.set_translation(item, "en", %{"_name" => "Oak"}, fn i, a ->
+          Catalogue.update_item(i, a)
+        end)
+
+      # Root level: catalogue title + category names localized; the
+      # untranslated category falls back to its primary name.
+      {:ok, _view, html} = live(conn, url(catalogue.uuid))
+      assert html =~ "Primary Catalogue"
+      assert html =~ "Doors"
+      assert html =~ "Aknad"
+      refute html =~ "Uksed"
+
+      # Drilled: the page title/crumbs and the item list follow too.
+      {:ok, _view, html} = live(conn, cat_url(catalogue.uuid, category.uuid))
+      assert html =~ "Doors"
+      assert html =~ "Oak"
+      refute html =~ "Tamm"
+    end
+
     test "the trail lives in the admin header and the level shows its description", %{conn: conn} do
       catalogue = fixture_catalogue(%{name: "Catalogue X", description: "Root blurb"})
       parent = fixture_category(catalogue, %{name: "Hardware"})

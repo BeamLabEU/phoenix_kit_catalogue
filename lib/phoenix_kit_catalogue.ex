@@ -89,13 +89,24 @@ defmodule PhoenixKitCatalogue do
   # ===========================================================================
 
   @impl PhoenixKit.Module
-  def version, do: "0.16.1"
+  def version, do: "0.16.2"
 
   @impl PhoenixKit.Module
   def route_module, do: PhoenixKitCatalogue.Web.Routes
 
   @impl PhoenixKit.Module
   def css_sources, do: [:phoenix_kit_catalogue]
+
+  @impl PhoenixKit.Module
+  def js_sources do
+    [
+      %{
+        app: :phoenix_kit_catalogue,
+        file: "static/assets/phoenix_kit_catalogue.js",
+        global: "PhoenixKitCatalogueHooks"
+      }
+    ]
+  end
 
   def ai_translatables do
     [
