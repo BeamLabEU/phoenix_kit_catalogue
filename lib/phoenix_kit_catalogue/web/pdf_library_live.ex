@@ -23,6 +23,7 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLive do
   import PhoenixKitWeb.Components.Core.FileUpload, only: [file_upload: 1]
   import PhoenixKitWeb.Components.Core.TableDefault
   import PhoenixKitWeb.Components.Core.TableRowMenu
+  import PhoenixKitCatalogue.Web.Components, only: [view_mode_toggle: 1]
 
   alias PhoenixKitCatalogue.Catalogue
   alias PhoenixKitCatalogue.Catalogue.ActivityLog
@@ -449,23 +450,27 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLive do
           <div :if={@upload_error} class="text-error text-xs mt-2">{@upload_error}</div>
         </div>
 
-        <%!-- Search box --%>
-        <form phx-change="search" phx-submit="search" class="w-full sm:w-72">
-          <label class="input input-sm w-full">
-            <.icon name="hero-magnifying-glass" class="h-4 w-4 opacity-50" />
-            <input
-              type="search"
-              name="query"
-              value={@search}
-              placeholder={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search by filename…")}
-              class="grow"
-              phx-debounce="300"
-            />
-          </label>
-        </form>
+        <%!-- Search shares its row with the table/card view toggle (the
+             table's built-in toggle is suppressed below). --%>
+        <% visible_pdfs = filter_by_search(@pdfs, @search) %>
+        <div class="flex flex-wrap items-center gap-3">
+          <form phx-change="search" phx-submit="search" class="grow basis-64 sm:max-w-72">
+            <label class="input input-sm w-full">
+              <.icon name="hero-magnifying-glass" class="h-4 w-4 opacity-50" />
+              <input
+                type="search"
+                name="query"
+                value={@search}
+                placeholder={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search by filename…")}
+                class="grow"
+                phx-debounce="300"
+              />
+            </label>
+          </form>
+          <.view_mode_toggle :if={visible_pdfs != []} storage_key="catalogue-pdf-library" class="ml-auto" />
+        </div>
 
         <%!-- PDF list --%>
-        <% visible_pdfs = filter_by_search(@pdfs, @search) %>
         <%= cond do %>
           <% @pdfs == [] -> %>
             <div class="text-center py-12 text-base-content/60">
@@ -488,6 +493,8 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLive do
             id="pdf-library-table"
             size="sm"
             toggleable={true}
+            show_toggle={false}
+            storage_key="catalogue-pdf-library"
             items={visible_pdfs}
             card_title={fn pdf -> pdf.original_filename end}
             card_fields={fn pdf ->
