@@ -573,7 +573,6 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         <.icon name="hero-folder-open" class="w-4 h-4 text-warning shrink-0" />
         <span class="truncate">{@current.name}</span>
       </span>
-      <.catalogues_view_toggle view={@cfg.view} class="ml-auto" />
     </div>
 
     <div :if={@entries == []} class="card bg-base-100 shadow">
@@ -942,13 +941,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         <.icon name="hero-arrow-up-tray" class="w-4 h-4 inline-block mr-1 align-text-bottom" />
         {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Drop here to move to root (unfiled)")}
       </div>
-      <.table_default
-        variant="zebra"
-        size="sm"
-        toggleable
-        view_mode={@cfg.view}
-        view_event="set_view"
-      >
+      <.table_default variant="zebra" size="sm" view_mode={@cfg.view}>
         <.table_default_header>
           <.table_default_row>
             <.table_default_header_cell class="w-8"></.table_default_header_cell>
@@ -2219,41 +2212,6 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         <%!-- Catalogue tab content --%>
         <div :if={@active_tab == :index} class="flex flex-col gap-4">
           <% cfg = @view_configs.catalogues %>
-          <%!-- Active/Deleted sub-tabs — shown only when there are deleted items. --%>
-          <div
-            :if={@deleted_catalogue_count + @deleted_folder_count > 0}
-            class="flex items-center gap-0.5 border-b border-base-200"
-          >
-            <button
-              type="button"
-              phx-click="switch_catalogue_view"
-              phx-value-mode="active"
-              class={[
-                "px-3 py-1.5 text-xs font-medium border-b-2 transition-colors cursor-pointer",
-                if(@catalogue_view_mode == "active",
-                  do: "border-primary text-primary",
-                  else: "border-transparent text-base-content/50 hover:text-base-content"
-                )
-              ]}
-            >
-              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Active")}
-            </button>
-            <button
-              type="button"
-              phx-click="switch_catalogue_view"
-              phx-value-mode="deleted"
-              class={[
-                "px-3 py-1.5 text-xs font-medium border-b-2 transition-colors cursor-pointer",
-                if(@catalogue_view_mode == "deleted",
-                  do: "border-error text-error",
-                  else: "border-transparent text-base-content/50 hover:text-base-content"
-                )
-              ]}
-            >
-              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Deleted")} ({@deleted_catalogue_count +
-                @deleted_folder_count})
-            </button>
-          </div>
           <.table_toolbar scope={:catalogues} cfg={cfg}>
             <:filters>
               <.enum_filter
@@ -2321,6 +2279,46 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
             current={current_tree_folder(cfg, @folder_lookup)}
             renaming_folder={@renaming_folder}
           />
+          <%!-- One shared row: Active/Deleted tabs (only when the trash
+               holds anything) + the view-mode toggle. Both are "how am I
+               looking at this list" controls — no separate rows. --%>
+          <div class="flex flex-wrap items-center gap-2">
+            <div
+              :if={@deleted_catalogue_count + @deleted_folder_count > 0}
+              class="flex items-center gap-0.5"
+            >
+              <button
+                type="button"
+                phx-click="switch_catalogue_view"
+                phx-value-mode="active"
+                class={[
+                  "px-3 py-1.5 text-xs font-medium border-b-2 transition-colors cursor-pointer",
+                  if(@catalogue_view_mode == "active",
+                    do: "border-primary text-primary",
+                    else: "border-transparent text-base-content/50 hover:text-base-content"
+                  )
+                ]}
+              >
+                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Active")}
+              </button>
+              <button
+                type="button"
+                phx-click="switch_catalogue_view"
+                phx-value-mode="deleted"
+                class={[
+                  "px-3 py-1.5 text-xs font-medium border-b-2 transition-colors cursor-pointer",
+                  if(@catalogue_view_mode == "deleted",
+                    do: "border-error text-error",
+                    else: "border-transparent text-base-content/50 hover:text-base-content"
+                  )
+                ]}
+              >
+                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Deleted")} ({@deleted_catalogue_count +
+                  @deleted_folder_count})
+              </button>
+            </div>
+            <.catalogues_view_toggle view={cfg.view} class="ml-auto" />
+          </div>
           <.catalogues_card_level
             :if={card_level?}
             folder_tree={@folder_tree}
@@ -2334,6 +2332,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
             :if={!tree? and !card_level?}
             scope={:catalogues}
             cfg={cfg}
+            show_view_toggle={false}
             file_counts={@catalogue_file_counts}
             rows={derive_rows(@catalogue_rows, :catalogues, cfg)}
             total={length(@catalogue_rows)}
@@ -3059,6 +3058,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   )
 
   attr(:file_counts, :map, default: %{})
+  attr(:show_view_toggle, :boolean, default: true)
 
   slot(:row_actions, required: true)
   slot(:card_actions, required: true)
@@ -3098,6 +3098,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       variant="zebra"
       size="sm"
       toggleable
+      show_toggle={@show_view_toggle}
       view_mode={@cfg.view}
       view_event="set_view"
       items={@rows}
