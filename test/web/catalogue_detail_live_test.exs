@@ -145,6 +145,29 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
       assert html =~ "Search within this category"
     end
 
+    test "the trail lives in the admin header and the level shows its description", %{conn: conn} do
+      catalogue = fixture_catalogue(%{name: "Catalogue X", description: "Root blurb"})
+      parent = fixture_category(catalogue, %{name: "Hardware"})
+
+      child =
+        fixture_category(catalogue, %{
+          name: "Hinges",
+          parent_uuid: parent.uuid,
+          description: "Hinge blurb"
+        })
+
+      {:ok, _view, html} = live(conn, cat_url(catalogue.uuid, child.uuid))
+
+      # Header crumbs: catalogue root + ancestor, both as links; the current
+      # category is the page title, not a crumb.
+      assert html =~ ~s(href="#{url(catalogue.uuid)}")
+      assert html =~ ~s(href="#{cat_url(catalogue.uuid, parent.uuid)}")
+      # No in-page drill trail (the old "name › name" h1 is gone) — the
+      # level's own description renders in its place, not the root's.
+      refute html =~ "Root blurb"
+      assert html =~ "Hinge blurb"
+    end
+
     test "shows subcategories as drill cards alongside the category's own items", %{conn: conn} do
       catalogue = fixture_catalogue()
       parent = fixture_category(catalogue, %{name: "Parent"})
