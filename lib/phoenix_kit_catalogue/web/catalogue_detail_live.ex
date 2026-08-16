@@ -3544,6 +3544,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
           show_toggle={false}
           items={@items}
           storage_key="catalogue-detail-items"
+          on_reorder={if @reorderable?, do: "reorder_items"}
         >
           <%!-- Mobile card view: name + checkbox header, key-value body,
                icon-only action footer. Checkbox uses data-bulk-role so

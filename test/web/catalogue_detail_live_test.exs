@@ -168,6 +168,29 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
       assert html =~ "Hinge blurb"
     end
 
+    test "manual mode wires the card view for drag reorder too", %{conn: conn} do
+      catalogue = fixture_catalogue()
+      category = fixture_category(catalogue)
+      fixture_item(%{name: "Item A", category_uuid: category.uuid})
+      fixture_item(%{name: "Item B", category_uuid: category.uuid})
+
+      {:ok, _view, html} = live(conn, cat_url(catalogue.uuid, category.uuid))
+
+      # The card container only gets its -cards id (and the SortableGrid
+      # hook + per-card grips with it) when on_reorder is wired.
+      assert html =~ ~s(id="level-items-active-cards")
+    end
+
+    test "a single item is not drag-reorderable in card view", %{conn: conn} do
+      catalogue = fixture_catalogue()
+      category = fixture_category(catalogue)
+      fixture_item(%{name: "Only item", category_uuid: category.uuid})
+
+      {:ok, _view, html} = live(conn, cat_url(catalogue.uuid, category.uuid))
+
+      refute html =~ ~s(id="level-items-active-cards")
+    end
+
     test "Add Category is a root-level action — hidden inside a category", %{conn: conn} do
       catalogue = fixture_catalogue()
       category = fixture_category(catalogue)
