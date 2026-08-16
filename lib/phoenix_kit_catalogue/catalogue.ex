@@ -2624,6 +2624,8 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
     result =
       repo().transaction(fn ->
+        lock_catalogues_order!()
+
         unique_uuids
         |> Enum.with_index(1)
         |> Enum.each(fn {uuid, idx} ->
@@ -2641,6 +2643,8 @@ defmodule PhoenixKitCatalogue.Catalogue do
           resource_uuid: List.first(unique_uuids),
           metadata: %{"count" => length(unique_uuids)}
         })
+
+        PubSub.broadcast(:folder, List.first(unique_uuids))
 
         :ok
 
@@ -2681,6 +2685,8 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
     result =
       repo().transaction(fn ->
+        lock_catalogues_order!()
+
         unique
         |> Enum.with_index(1)
         |> Enum.each(fn
@@ -2703,6 +2709,9 @@ defmodule PhoenixKitCatalogue.Catalogue do
           resource_uuid: unique |> List.first() |> elem(1),
           metadata: %{"count" => length(unique)}
         })
+
+        {first_type, first_uuid} = List.first(unique)
+        PubSub.broadcast(if(first_type == "folder", do: :folder, else: :catalogue), first_uuid)
 
         :ok
 
@@ -3181,6 +3190,9 @@ defmodule PhoenixKitCatalogue.Catalogue do
           metadata: %{"count" => length(unique_uuids)}
         })
 
+        # Other tabs watching the index redraw the new order (issue #56).
+        PubSub.broadcast(:catalogue, List.first(unique_uuids))
+
         :ok
 
       {:error, reason} ->
@@ -3198,11 +3210,25 @@ defmodule PhoenixKitCatalogue.Catalogue do
     pairs = Enum.with_index(unique_uuids, 1)
 
     repo().transaction(fn ->
+      lock_catalogues_order!()
+
       Enum.each(pairs, fn {uuid, idx} ->
         from(c in Catalogue, where: c.uuid == ^uuid)
         |> repo().update_all(set: [position: idx])
       end)
     end)
+  end
+
+  # Shared advisory-lock key for the catalogues/folders position domain
+  # (issue #56): every writer of that order — flat catalogue reorder,
+  # folder reorder, and the interleaved level placement — takes the same
+  # transaction-scoped lock, so two simultaneous drags serialise instead
+  # of interleaving their per-row updates into a mixed order with
+  # duplicate positions. Released automatically at transaction end.
+  @catalogues_order_lock_key 727_401_119
+
+  defp lock_catalogues_order! do
+    repo().query!("SELECT pg_advisory_xact_lock($1)", [@catalogues_order_lock_key])
   end
 
   @doc """

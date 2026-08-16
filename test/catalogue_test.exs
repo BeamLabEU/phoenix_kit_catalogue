@@ -3,6 +3,7 @@ defmodule PhoenixKitCatalogue.CatalogueTest do
 
   alias Ecto.Adapters.SQL
   alias PhoenixKitCatalogue.Catalogue
+  alias PhoenixKitCatalogue.Catalogue.PubSub, as: CataloguePubSub
 
   # ── Helpers ──────────────────────────────────────────────────────
 
@@ -385,6 +386,29 @@ defmodule PhoenixKitCatalogue.CatalogueTest do
 
     test "place_level_rows/2 no-ops on an empty payload" do
       assert :ok = Catalogue.place_level_rows([])
+    end
+
+    test "reorder writers broadcast so other tabs redraw (issue #56)" do
+      a = create_catalogue(%{name: "Order A"})
+      b = create_catalogue(%{name: "Order B"})
+      {:ok, folder} = Catalogue.create_folder(%{name: "Order F"})
+
+      CataloguePubSub.subscribe()
+
+      assert :ok = Catalogue.reorder_catalogues([b.uuid, a.uuid])
+      assert_receive {:catalogue_data_changed, :catalogue, _, _}
+
+      assert :ok = Catalogue.reorder_folders([folder.uuid])
+      assert_receive {:catalogue_data_changed, :folder, _, _}
+
+      assert :ok =
+               Catalogue.place_level_rows([
+                 {"folder", folder.uuid},
+                 {"catalogue", a.uuid},
+                 {"catalogue", b.uuid}
+               ])
+
+      assert_receive {:catalogue_data_changed, :folder, _, _}
     end
 
     test "category_children_counts :deleted counts only deleted children" do
