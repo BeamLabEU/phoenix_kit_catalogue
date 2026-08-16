@@ -522,6 +522,24 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLiveTest do
       assert Catalogue.get_item_attribute_group_uuid(item.uuid) == nil
     end
 
+    test "the group dropdown shows the viewer's locale, not the primary language", %{
+      conn: conn
+    } do
+      {:ok, group} = Catalogue.create_attribute_group(%{name: "Ideedeuksed"})
+
+      {:ok, _} =
+        Catalogue.set_translation(group, "en", %{"_name" => "Idea doors"}, fn g, a ->
+          Catalogue.update_attribute_group(g, a)
+        end)
+
+      catalogue = fixture_catalogue()
+
+      {:ok, _view, html} = live(conn, new_item_url(catalogue.uuid))
+
+      assert html =~ "Idea doors"
+      refute html =~ "Ideedeuksed"
+    end
+
     test "legacy metadata collapse renders only when old values exist", %{conn: conn} do
       catalogue = fixture_catalogue()
 
