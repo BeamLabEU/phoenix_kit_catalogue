@@ -661,29 +661,38 @@ defmodule PhoenixKitCatalogue.Catalogue.PdfLibrary do
   end
 
   @doc false
-  @spec mark_extracted(Ecto.UUID.t(), pos_integer()) ::
+  @spec mark_extracted(Ecto.UUID.t(), pos_integer(), map()) ::
           {:ok, PdfExtraction.t()} | {:error, term()}
-  def mark_extracted(file_uuid, page_count) when is_integer(page_count) do
+  def mark_extracted(file_uuid, page_count, extra_metadata \\ %{}) when is_integer(page_count) do
     update_extraction(file_uuid, %{
       extraction_status: "extracted",
       page_count: page_count,
       extracted_at: DateTime.utc_now() |> DateTime.truncate(:second),
       error_message: nil
     })
-    |> tap_log_extraction("pdf.extracted", file_uuid, %{"page_count" => page_count})
+    |> tap_log_extraction(
+      "pdf.extracted",
+      file_uuid,
+      Map.merge(%{"page_count" => page_count}, extra_metadata)
+    )
   end
 
   @doc false
-  @spec mark_scanned_no_text(Ecto.UUID.t(), pos_integer()) ::
+  @spec mark_scanned_no_text(Ecto.UUID.t(), pos_integer(), map()) ::
           {:ok, PdfExtraction.t()} | {:error, term()}
-  def mark_scanned_no_text(file_uuid, page_count) when is_integer(page_count) do
+  def mark_scanned_no_text(file_uuid, page_count, extra_metadata \\ %{})
+      when is_integer(page_count) do
     update_extraction(file_uuid, %{
       extraction_status: "scanned_no_text",
       page_count: page_count,
       extracted_at: DateTime.utc_now() |> DateTime.truncate(:second),
       error_message: nil
     })
-    |> tap_log_extraction("pdf.scanned_no_text", file_uuid, %{"page_count" => page_count})
+    |> tap_log_extraction(
+      "pdf.scanned_no_text",
+      file_uuid,
+      Map.merge(%{"page_count" => page_count}, extra_metadata)
+    )
   end
 
   @doc false
