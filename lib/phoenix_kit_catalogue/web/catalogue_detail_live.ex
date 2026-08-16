@@ -38,6 +38,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   import PhoenixKitWeb.Components.Core.BulkActionsBar, only: [bulk_actions_bar: 1]
 
   import PhoenixKitWeb.Components.Core.Sortable, only: [sortable_tbody: 1, sortable_row: 1]
+  import PhoenixKitCatalogue.Web.TableToolbar, only: [column_settings_modal: 1]
+  import PhoenixKitWeb.Components.Core.TableRowMenu
   import PhoenixKitWeb.Components.Core.ReorderModal, only: [reorder_modal: 1]
   import PhoenixKitWeb.Components.Core.SortSelector, only: [sort_selector: 1]
 
@@ -67,6 +69,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   alias PhoenixKitCatalogue.Schemas.Item
   alias PhoenixKitCatalogue.Web.Components.PdfSearchModal
   alias PhoenixKitCatalogue.Web.Components.ProductCard
+  alias PhoenixKitCatalogue.Web.TableConfig
+  alias PhoenixKitCatalogue.Web.ViewConfig
 
   @per_page 100
   # Cross-tab bulk-change red-flash → state-refresh delay. Long enough
@@ -167,6 +171,10 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         # (empty == "reorder all").
         categories_sort_by: :position,
         categories_sort_dir: :asc,
+        items_columns:
+          ViewConfig.load(socket.assigns[:phoenix_kit_current_user], :detail_items).columns,
+        show_column_modal: false,
+        temp_columns: nil,
         items_sort_by: :position,
         items_sort_dir: :asc,
         show_items_reorder: false,
@@ -1045,6 +1053,48 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
   # Sortable column header click — toggles direction on the active field,
   # otherwise switches field (ascending).
+  # ── Items table Columns configuration (per-user, ViewConfig) ────
+
+  def handle_event("show_column_modal", _p, socket) do
+    {:noreply,
+     assign(socket, show_column_modal: true, temp_columns: socket.assigns.items_columns)}
+  end
+
+  def handle_event("hide_column_modal", _p, socket),
+    do: {:noreply, assign(socket, show_column_modal: false, temp_columns: nil)}
+
+  def handle_event("add_column", %{"column_id" => id}, socket) do
+    {:noreply, update(socket, :temp_columns, &((&1 || []) ++ [id]))}
+  end
+
+  def handle_event("remove_column", %{"column_id" => id}, socket) do
+    {:noreply, update(socket, :temp_columns, &Enum.reject(&1 || [], fn c -> c == id end))}
+  end
+
+  def handle_event("reorder_columns", %{"ordered_ids" => ids}, socket) when is_list(ids) do
+    {:noreply, assign(socket, :temp_columns, ids)}
+  end
+
+  def handle_event("reset_columns", _p, socket) do
+    {:noreply, assign(socket, :temp_columns, TableConfig.default_columns(:detail_items))}
+  end
+
+  def handle_event("apply_columns", params, socket) do
+    ids =
+      TableConfig.validate_columns(
+        :detail_items,
+        params["ordered_ids"] || socket.assigns.temp_columns || []
+      )
+
+    ids = if ids == [], do: TableConfig.default_columns(:detail_items), else: ids
+
+    user = socket.assigns[:phoenix_kit_current_user]
+    cfg = %{ViewConfig.load(user, :detail_items) | columns: ids}
+    ViewConfig.save(user, :detail_items, cfg)
+
+    {:noreply, assign(socket, items_columns: ids, show_column_modal: false, temp_columns: nil)}
+  end
+
   def handle_event("toggle_sort_items", %{"by" => field_str}, socket)
       when field_str in @items_sort_field_strs do
     field = String.to_existing_atom(field_str)
@@ -2370,6 +2420,17 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                 {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Reorder all")}
               </span>
             </button>
+            <button
+              :if={@show_items_section and @view_mode == "active"}
+              type="button"
+              phx-click="show_column_modal"
+              class="btn btn-outline btn-sm"
+            >
+              <.icon name="hero-adjustments-horizontal" class="w-4 h-4" />
+              <span class="hidden sm:inline">
+                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Columns")}
+              </span>
+            </button>
             <.view_mode_toggle storage_key="catalogue-detail-items" />
           </div>
           <%!-- The Uncategorized drill card only appears when there are
@@ -2510,6 +2571,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
           <%!-- The current node's own direct items --%>
           <.level_items
             attribute_map={@attribute_map}
+            items_columns={@items_columns}
             controls_in_page_header={@child_categories == []}
             :if={@show_items_section}
             items={@items}
@@ -2538,6 +2600,13 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
           />
         </div>
       </div>
+
+      <.column_settings_modal
+        show={@show_column_modal}
+        scope={:detail_items}
+        selected={@items_columns}
+        temp_selected={@temp_columns}
+      />
 
       <.confirm_modal
         show={match?({"item", _}, @confirm_delete)}
@@ -2932,39 +3001,53 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
             {Map.get(@child_counts, cat.uuid, 0)}
           </.table_default_cell>
           <.table_default_cell class="text-right whitespace-nowrap">
-            <.link
+            <.table_row_menu
               :if={@view_mode == "active" and cat.status == "active"}
-              navigate={Paths.category_edit(cat.uuid)}
-              class="btn btn-ghost btn-xs btn-square text-base-content/40 hover:text-primary"
-              title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit category")}
+              mode="auto"
+              id={"category-menu-#{cat.uuid}"}
             >
-              <.icon name="hero-pencil" class="w-4 h-4" />
-            </.link>
-            <button
+              <.table_row_menu_link
+                navigate={Paths.category_edit(cat.uuid)}
+                icon="hero-pencil"
+                label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")}
+              />
+              <.table_row_menu_link
+                patch={Paths.category_browse(@catalogue.uuid, cat.uuid)}
+                icon="hero-folder-open"
+                label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Open")}
+              />
+              <.table_row_menu_divider />
+              <.table_row_menu_button
+                phx-click="request_trash_category"
+                phx-value-uuid={cat.uuid}
+                icon="hero-trash"
+                label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")}
+                variant="error"
+              />
+            </.table_row_menu>
+            <.table_row_menu
               :if={@view_mode == "deleted" and cat.status == "deleted"}
-              phx-click="restore_category"
-              phx-value-uuid={cat.uuid}
-              phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Restoring...")}
-              class="btn btn-outline btn-success btn-xs"
+              mode="auto"
+              id={"category-del-menu-#{cat.uuid}"}
             >
-              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Restore")}
-            </button>
-            <button
-              :if={@view_mode == "deleted" and cat.status == "deleted"}
-              phx-click="show_delete_confirm"
-              phx-value-uuid={cat.uuid}
-              phx-value-type="category"
-              class="btn btn-outline btn-error btn-xs"
-            >
-              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete Forever")}
-            </button>
-            <.link
-              patch={Paths.category_browse(@catalogue.uuid, cat.uuid)}
-              class="btn btn-ghost btn-xs btn-square text-base-content/30 hover:text-base-content/60"
-              title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Open")}
-            >
-              <.icon name="hero-chevron-right" class="w-4 h-4" />
-            </.link>
+              <.table_row_menu_button
+                phx-click="restore_category"
+                phx-value-uuid={cat.uuid}
+                phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Restoring...")}
+                icon="hero-arrow-path"
+                label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Restore")}
+                variant="success"
+              />
+              <.table_row_menu_divider />
+              <.table_row_menu_button
+                phx-click="show_delete_confirm"
+                phx-value-uuid={cat.uuid}
+                phx-value-type="category"
+                icon="hero-trash"
+                label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete Forever")}
+                variant="error"
+              />
+            </.table_row_menu>
           </.table_default_cell>
         </.sortable_row>
         <tr :if={@show_uncat}>
@@ -2982,13 +3065,13 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
           </td>
           <td class="text-right tabular-nums">{@uncategorized_active_count}</td>
           <td class="text-right">
-            <.link
-              patch={Paths.uncategorized_browse(@catalogue.uuid)}
-              class="btn btn-ghost btn-xs btn-square text-base-content/30 hover:text-base-content/60"
-              title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Open")}
-            >
-              <.icon name="hero-chevron-right" class="w-4 h-4" />
-            </.link>
+            <.table_row_menu mode="auto" id="category-menu-uncategorized">
+              <.table_row_menu_link
+                patch={Paths.uncategorized_browse(@catalogue.uuid)}
+                icon="hero-folder-open"
+                label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Open")}
+              />
+            </.table_row_menu>
           </td>
         </tr>
       </.sortable_tbody>
@@ -3067,13 +3150,26 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
             <.icon name="hero-paper-clip" class="w-3 h-3 rotate-45" />
           </span>
           <div class="flex-1"></div>
-          <.link
-            navigate={Paths.category_edit(@category.uuid)}
-            class="text-base-content/40 hover:text-primary"
-            title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit category")}
-          >
-            <.icon name="hero-pencil" class="w-4 h-4" />
-          </.link>
+          <.table_row_menu mode="auto" id={"category-tile-menu-#{@category.uuid}"}>
+            <.table_row_menu_link
+              navigate={Paths.category_edit(@category.uuid)}
+              icon="hero-pencil"
+              label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")}
+            />
+            <.table_row_menu_link
+              patch={Paths.category_browse(@catalogue_uuid, @category.uuid)}
+              icon="hero-folder-open"
+              label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Open")}
+            />
+            <.table_row_menu_divider />
+            <.table_row_menu_button
+              phx-click="request_trash_category"
+              phx-value-uuid={@category.uuid}
+              icon="hero-trash"
+              label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")}
+              variant="error"
+            />
+          </.table_row_menu>
         </div>
       </div>
     </div>
@@ -3130,6 +3226,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   attr(:file_counts, :map, default: %{})
   attr(:attribute_map, :map, default: %{})
   attr(:edit_path_fn, :any, required: true)
+  attr(:items_columns, :list, default: ["sku", "price", "unit", "status"])
 
   attr(:controls_in_page_header, :boolean,
     default: false,
@@ -3250,18 +3347,27 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               </span>
             </div>
             <div class="grid grid-cols-2 gap-x-4 gap-y-1 text-sm flex-1">
-              <div class="text-base-content/60">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "SKU")}</div>
-              <div class="font-mono text-base-content/60">{item.sku || "—"}</div>
-              <div class="text-base-content/60">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Price")}</div>
-              <div class="font-semibold">
-                {if sale_price = Catalogue.item_pricing(item).sale_price,
-                  do: Decimal.to_string(sale_price, :normal),
-                  else: "—"}
-              </div>
-              <div class="text-base-content/60">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Unit")}</div>
-              <div>{Item.unit_label(item.unit)}</div>
-              <div class="text-base-content/60">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Status")}</div>
-              <div><.status_badge status={item.status || "unknown"} size={:xs} /></div>
+              <%= for col <- @items_columns do %>
+                <%= case col do %>
+                  <% "sku" -> %>
+                    <div class="text-base-content/60">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "SKU")}</div>
+                    <div class="font-mono text-base-content/60">{item.sku || "—"}</div>
+                  <% "price" -> %>
+                    <div class="text-base-content/60">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Price")}</div>
+                    <div class="font-semibold">
+                      {if sale_price = Catalogue.item_pricing(item).sale_price,
+                        do: Decimal.to_string(sale_price, :normal),
+                        else: "—"}
+                    </div>
+                  <% "unit" -> %>
+                    <div class="text-base-content/60">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Unit")}</div>
+                    <div>{Item.unit_label(item.unit)}</div>
+                  <% "status" -> %>
+                    <div class="text-base-content/60">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Status")}</div>
+                    <div><.status_badge status={item.status || "unknown"} size={:xs} /></div>
+                  <% _ -> %>
+                <% end %>
+              <% end %>
             </div>
           </:card_body>
           <:card_actions :let={item}>
@@ -3288,18 +3394,27 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               <.sort_header_cell field={:name} sort={%{by: @items_sort_by, dir: @items_sort_dir}} event="toggle_sort_items">
                 {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Name")}
               </.sort_header_cell>
-              <.sort_header_cell field={:sku} sort={%{by: @items_sort_by, dir: @items_sort_dir}} event="toggle_sort_items">
-                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "SKU")}
-              </.sort_header_cell>
-              <.sort_header_cell field={:base_price} sort={%{by: @items_sort_by, dir: @items_sort_dir}} event="toggle_sort_items">
-                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Price")}
-              </.sort_header_cell>
-              <.table_default_header_cell>
-                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Unit")}
-              </.table_default_header_cell>
-              <.sort_header_cell field={:status} sort={%{by: @items_sort_by, dir: @items_sort_dir}} event="toggle_sort_items">
-                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Status")}
-              </.sort_header_cell>
+              <%= for col <- @items_columns do %>
+                <%= case col do %>
+                  <% "sku" -> %>
+                    <.sort_header_cell field={:sku} sort={%{by: @items_sort_by, dir: @items_sort_dir}} event="toggle_sort_items">
+                      {Gettext.gettext(PhoenixKitCatalogue.Gettext, "SKU")}
+                    </.sort_header_cell>
+                  <% "price" -> %>
+                    <.sort_header_cell field={:base_price} sort={%{by: @items_sort_by, dir: @items_sort_dir}} event="toggle_sort_items">
+                      {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Price")}
+                    </.sort_header_cell>
+                  <% "unit" -> %>
+                    <.table_default_header_cell>
+                      {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Unit")}
+                    </.table_default_header_cell>
+                  <% "status" -> %>
+                    <.sort_header_cell field={:status} sort={%{by: @items_sort_by, dir: @items_sort_dir}} event="toggle_sort_items">
+                      {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Status")}
+                    </.sort_header_cell>
+                  <% _ -> %>
+                <% end %>
+              <% end %>
               <.table_default_header_cell class="text-right whitespace-nowrap">
                 {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Actions")}
               </.table_default_header_cell>
@@ -3327,6 +3442,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                 item={item}
                 edit_path={@edit_path_fn}
                 has_attributes={Map.has_key?(@attribute_map, item.uuid)}
+                columns={@items_columns}
               />
               <.item_row_menu
                 item={item}

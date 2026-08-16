@@ -9,7 +9,8 @@ defmodule PhoenixKitCatalogue.Web.TableConfig do
 
   alias PhoenixKitCatalogue.Gettext, as: G
 
-  @type scope :: :catalogues | :suppliers | :manufacturers | :attribute_groups
+  @type scope ::
+          :catalogues | :suppliers | :manufacturers | :attribute_groups | :detail_items
   @type column :: %{
           id: String.t(),
           label: (-> String.t()),
@@ -132,6 +133,20 @@ defmodule PhoenixKitCatalogue.Web.TableConfig do
         sort_key: &down(&1.contact_info)
       ),
       col("updated", fn -> g("Updated") end, sortable?: true, sort_key: & &1.updated_at)
+    ]
+  end
+
+  # The catalogue detail page's items table. Name is always visible
+  # (managed?: false); the rest toggle/reorder via the Columns modal.
+  # Header sorting there goes through the page's own sort selector /
+  # toggle_sort_items, not TableConfig sort keys.
+  def columns(:detail_items) do
+    [
+      col("name", fn -> g("Name") end, default?: true, managed?: false),
+      col("sku", fn -> g("SKU") end, default?: true),
+      col("price", fn -> g("Price") end, default?: true),
+      col("unit", fn -> g("Unit") end, default?: true),
+      col("status", fn -> g("Status") end, default?: true)
     ]
   end
 

@@ -250,6 +250,38 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
   # Item mutations (inside a category)
   # ─────────────────────────────────────────────────────────────────
 
+  describe "items table columns + category menus" do
+    test "columns modal narrows and reorders the items table", %{conn: conn} do
+      catalogue = fixture_catalogue(%{name: "Cols catalogue"})
+      fixture_item(%{name: "Col item", sku: "COL-1", catalogue_uuid: catalogue.uuid})
+
+      {:ok, view, html} = live(conn, url(catalogue.uuid))
+
+      # Default columns render; the Columns button is present.
+      assert html =~ "COL-1"
+      assert html =~ "Columns"
+
+      render_click(view, "show_column_modal", %{})
+      # Drop the SKU column, keep the rest.
+      render_click(view, "remove_column", %{"column_id" => "sku"})
+      updated = render_click(view, "apply_columns", %{})
+
+      refute updated =~ "COL-1"
+      assert updated =~ "Col item"
+    end
+
+    test "category rows use the standardized row menu", %{conn: conn} do
+      catalogue = fixture_catalogue(%{name: "Menu catalogue"})
+      category = fixture_category(catalogue, %{name: "Menu category"})
+
+      {:ok, _view, html} = live(conn, url(catalogue.uuid))
+
+      assert html =~ "category-menu-#{category.uuid}"
+      # Old inline pencil affordance is gone from category rows.
+      refute html =~ "Edit category"
+    end
+  end
+
   describe "item mutations" do
     test "delete_item removes the item and trashes it in the DB", %{conn: conn} do
       catalogue = fixture_catalogue()
