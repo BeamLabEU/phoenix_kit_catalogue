@@ -138,6 +138,9 @@ msgstr ""
 msgid "Empty folder"
 msgstr ""
 
+msgid "Subcategories"
+msgstr ""
+
 msgid "Unknown"
 msgstr ""
 

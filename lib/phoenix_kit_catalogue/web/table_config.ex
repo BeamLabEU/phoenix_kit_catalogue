@@ -157,19 +157,29 @@ defmodule PhoenixKitCatalogue.Web.TableConfig do
       col("sku", fn -> g("SKU") end, default?: true, sortable?: true),
       col("price", fn -> g("Price") end, default?: true),
       col("unit", fn -> g("Unit") end, default?: true),
-      col("status", fn -> g("Status") end, default?: true, sortable?: true)
+      col("status", fn -> g("Status") end, default?: true, sortable?: true),
+      col("attributes", fn -> g("Attributes") end, []),
+      col("files", fn -> g("Files") end, []),
+      col("description", fn -> g("Description") end, []),
+      col("updated", fn -> g("Updated") end, []),
+      col("created", fn -> g("Created") end, [])
     ]
   end
 
-  # The detail page's categories table (Name is unmanaged; Items and
-  # Updated toggle via the Columns modal; sortable ids back the global
-  # categories sort).
+  # The detail page's categories table (Name is unmanaged; the rest
+  # toggle via the Columns modal; the `sortable?` ids back the global
+  # categories sort — the extra display columns are not sort options).
   def columns(:detail_categories) do
     [
       col("name", fn -> g("Name") end, default?: true, managed?: false, sortable?: true),
       col("position", fn -> gettext("Manual order") end, managed?: false, sortable?: true),
       col("items", fn -> g("Items") end, default?: true, sortable?: true),
-      col("updated", fn -> g("Updated") end, sortable?: true)
+      col("subcategories", fn -> g("Subcategories") end, default?: true),
+      col("description", fn -> g("Description") end, []),
+      col("files", fn -> g("Files") end, []),
+      col("status", fn -> g("Status") end, []),
+      col("updated", fn -> g("Updated") end, sortable?: true),
+      col("created", fn -> g("Created") end, [])
     ]
   end
 

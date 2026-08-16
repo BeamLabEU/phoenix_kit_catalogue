@@ -128,6 +128,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         child_categories: [],
         child_counts: %{},
         children_with_subs: MapSet.new(),
+        child_subcat_counts: %{},
         # Root-active only: the Uncategorized drill card.
         uncategorized_active_count: 0,
         # ── Current node's own direct items (single paged list) ──
@@ -1731,13 +1732,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         do: load_level_children(uuid, current, cat_mode),
         else: {[], MapSet.new()}
 
-    # `@child_counts` is read only inside the `child_categories`
-    # comprehension, which is empty unless we're showing category cards —
-    # skip the whole-catalogue GROUP BY on the inactive/discontinued tabs.
-    counts_map =
-      if show_categories?,
-        do: Catalogue.item_counts_by_category_for_catalogue(uuid, mode: cat_mode),
-        else: %{}
+    {counts_map, subcat_counts} = level_count_maps(uuid, cat_mode, show_categories?)
 
     uncat_active = Catalogue.uncategorized_count_for_catalogue(uuid, mode: :active)
 
@@ -1777,6 +1772,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         ),
       child_counts: counts_map,
       children_with_subs: children_with_subs,
+      child_subcat_counts: subcat_counts,
       uncategorized_active_count: uncat_active,
       items: items,
       edit_path_fn:
@@ -1804,6 +1800,16 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   # bucket has none. `mode` is always `:active`/`:deleted` here (the caller
   # only loads children on those tabs). Active mode reuses orphan
   # promotion; deleted mode is strict (see `list_child_categories/3`).
+  # `@child_counts` / `@child_subcat_counts` are read only inside the
+  # category rows, which are empty unless categories show — skip both
+  # whole-catalogue GROUP BYs on the inactive/discontinued tabs.
+  defp level_count_maps(uuid, cat_mode, true) do
+    {Catalogue.item_counts_by_category_for_catalogue(uuid, mode: cat_mode),
+     Catalogue.category_children_counts(uuid, mode: cat_mode)}
+  end
+
+  defp level_count_maps(_uuid, _cat_mode, false), do: {%{}, %{}}
+
   defp load_level_children(_uuid, :uncategorized, _mode), do: {[], MapSet.new()}
 
   defp load_level_children(uuid, current, mode) do
@@ -2623,6 +2629,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               <.categories_table
                 categories_sort_by={@categories_sort_by}
                 categories_columns={@categories_columns}
+                child_subcat_counts={@child_subcat_counts}
                 catalogue={@catalogue}
                 child_categories={@child_categories}
                 child_counts={@child_counts}
@@ -3049,6 +3056,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   attr(:show_uncat, :boolean, default: false)
   attr(:uncategorized_active_count, :integer, default: 0)
   attr(:categories_columns, :list, default: ["items"])
+  attr(:child_subcat_counts, :map, default: %{})
 
   defp categories_table(assigns) do
     assigns =
@@ -3090,6 +3098,26 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               <% "updated" -> %>
                 <.table_default_header_cell>
                   {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Updated")}
+                </.table_default_header_cell>
+              <% "subcategories" -> %>
+                <.table_default_header_cell class="text-right">
+                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Subcategories")}
+                </.table_default_header_cell>
+              <% "description" -> %>
+                <.table_default_header_cell>
+                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Description")}
+                </.table_default_header_cell>
+              <% "files" -> %>
+                <.table_default_header_cell>
+                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Files")}
+                </.table_default_header_cell>
+              <% "status" -> %>
+                <.table_default_header_cell>
+                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Status")}
+                </.table_default_header_cell>
+              <% "created" -> %>
+                <.table_default_header_cell>
+                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Created")}
                 </.table_default_header_cell>
               <% _ -> %>
             <% end %>
@@ -3147,6 +3175,26 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               <% "updated" -> %>
                 <.table_default_cell class="text-sm text-base-content/60">
                   {Calendar.strftime(cat.updated_at, "%Y-%m-%d %H:%M")}
+                </.table_default_cell>
+              <% "subcategories" -> %>
+                <.table_default_cell class="text-right tabular-nums text-base-content/60">
+                  {Map.get(@child_subcat_counts, cat.uuid, 0)}
+                </.table_default_cell>
+              <% "description" -> %>
+                <.table_default_cell class="text-sm text-base-content/60 max-w-64">
+                  <span class="line-clamp-2">{cat.description || "—"}</span>
+                </.table_default_cell>
+              <% "files" -> %>
+                <.table_default_cell class="text-sm tabular-nums text-base-content/60">
+                  {Map.get(@file_counts, cat.uuid, 0)}
+                </.table_default_cell>
+              <% "status" -> %>
+                <.table_default_cell>
+                  <.status_badge status={cat.status} size={:xs} />
+                </.table_default_cell>
+              <% "created" -> %>
+                <.table_default_cell class="text-sm text-base-content/60">
+                  {Calendar.strftime(cat.inserted_at, "%Y-%m-%d %H:%M")}
                 </.table_default_cell>
               <% _ -> %>
             <% end %>
@@ -3219,6 +3267,16 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               <% "items" -> %>
                 <td class="text-right tabular-nums">{@uncategorized_active_count}</td>
               <% "updated" -> %>
+                <td></td>
+              <% "subcategories" -> %>
+                <td></td>
+              <% "description" -> %>
+                <td></td>
+              <% "files" -> %>
+                <td></td>
+              <% "status" -> %>
+                <td></td>
+              <% "created" -> %>
                 <td></td>
               <% _ -> %>
             <% end %>
@@ -3524,6 +3582,28 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                   <% "status" -> %>
                     <div class="text-base-content/60">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Status")}</div>
                     <div><.status_badge status={item.status || "unknown"} size={:xs} /></div>
+                  <% "attributes" -> %>
+                    <div class="text-base-content/60">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Attributes")}</div>
+                    <div>
+                      <.icon
+                        :if={Map.has_key?(@attribute_map, item.uuid)}
+                        name="hero-swatch"
+                        class="w-4 h-4 text-primary/60"
+                      />
+                      <span :if={!Map.has_key?(@attribute_map, item.uuid)}>—</span>
+                    </div>
+                  <% "files" -> %>
+                    <div class="text-base-content/60">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Files")}</div>
+                    <div class="tabular-nums">{Map.get(@file_counts, item.uuid, 0)}</div>
+                  <% "description" -> %>
+                    <div class="text-base-content/60">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Description")}</div>
+                    <div class="line-clamp-2">{item.description || "—"}</div>
+                  <% "updated" -> %>
+                    <div class="text-base-content/60">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Updated")}</div>
+                    <div>{Calendar.strftime(item.updated_at, "%Y-%m-%d %H:%M")}</div>
+                  <% "created" -> %>
+                    <div class="text-base-content/60">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Created")}</div>
+                    <div>{Calendar.strftime(item.inserted_at, "%Y-%m-%d %H:%M")}</div>
                   <% _ -> %>
                 <% end %>
               <% end %>
@@ -3571,6 +3651,26 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                     <.sort_header_cell field={:status} sort={%{by: @items_sort_by, dir: @items_sort_dir}} event="toggle_sort_items">
                       {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Status")}
                     </.sort_header_cell>
+                  <% "attributes" -> %>
+                    <.table_default_header_cell>
+                      {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Attributes")}
+                    </.table_default_header_cell>
+                  <% "files" -> %>
+                    <.table_default_header_cell>
+                      {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Files")}
+                    </.table_default_header_cell>
+                  <% "description" -> %>
+                    <.table_default_header_cell>
+                      {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Description")}
+                    </.table_default_header_cell>
+                  <% "updated" -> %>
+                    <.table_default_header_cell>
+                      {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Updated")}
+                    </.table_default_header_cell>
+                  <% "created" -> %>
+                    <.table_default_header_cell>
+                      {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Created")}
+                    </.table_default_header_cell>
                   <% _ -> %>
                 <% end %>
               <% end %>
@@ -3601,6 +3701,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                 item={item}
                 edit_path={@edit_path_fn}
                 has_attributes={Map.has_key?(@attribute_map, item.uuid)}
+                file_count={Map.get(@file_counts, item.uuid, 0)}
                 columns={@items_columns}
               />
               <.item_row_menu
