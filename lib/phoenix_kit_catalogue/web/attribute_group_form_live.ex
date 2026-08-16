@@ -23,6 +23,8 @@ defmodule PhoenixKitCatalogue.Web.AttributeGroupFormLive do
   import PhoenixKitWeb.Components.MultilangForm
   import PhoenixKitWeb.Components.Core.Icon, only: [icon: 1]
   import PhoenixKitWeb.Components.Core.Modal, only: [confirm_modal: 1]
+  import PhoenixKitWeb.Components.Core.Button, only: [button: 1]
+  import PhoenixKitWeb.Components.Core.Select, only: [select: 1]
 
   import PhoenixKitCatalogue.Web.Helpers,
     only: [
@@ -707,22 +709,35 @@ defmodule PhoenixKitCatalogue.Web.AttributeGroupFormLive do
                     />
                     <form id={"attr-kind-form-#{attribute.uuid}"} phx-change="set_attribute_kind" class="contents">
                       <input type="hidden" name="uuid" value={attribute.uuid} />
-                      <select name="kind" class="select select-sm select-bordered bg-base-100 w-36 shrink-0 phx-change-loading:opacity-50 phx-change-loading:animate-pulse">
-                        <option :for={{label, v} <- kind_options()} value={v} selected={attribute.kind == v}>
-                          {label}
-                        </option>
-                      </select>
+                      <%!-- Width lives on this wrapper, NOT on `<.select>`'s
+                           class: the component hardcodes `w-full` on its own
+                           label, which wins the Tailwind cascade over a
+                           narrower utility passed in via `class` (both are
+                           single-class selectors — whichever the compiled
+                           stylesheet emits later wins, and `w-full` sorts
+                           after `w-36`). Constraining the wrapper instead
+                           lets `w-full` just fill it. --%>
+                      <div class="w-36 shrink-0">
+                        <.select
+                          name="kind"
+                          value={attribute.kind}
+                          options={kind_options()}
+                          class="select-sm bg-base-100 phx-change-loading:opacity-50 phx-change-loading:animate-pulse"
+                        />
+                      </div>
                     </form>
-                    <button
+                    <.button
                       type="button"
                       phx-click="request_delete_attribute"
                       phx-value-uuid={attribute.uuid}
-                      class="btn btn-ghost btn-xs text-error shrink-0"
+                      variant="ghost"
+                      size="xs"
+                      class="text-error shrink-0"
                       title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete attribute")}
                     >
                       <.icon name="hero-trash" class="w-4 h-4 phx-click-loading:hidden" />
                       <span class="loading loading-spinner w-4 h-4 hidden phx-click-loading:inline-block"></span>
-                    </button>
+                    </.button>
                   </div>
 
                   <%!-- Values: draggable chips; star = default. --%>
@@ -754,11 +769,13 @@ defmodule PhoenixKitCatalogue.Web.AttributeGroupFormLive do
                         size={max(String.length(lang_text(value, :value, assigns) || value.value), 4)}
                         class="input input-xs bg-transparent border-0 focus:outline-none px-1 field-sizing-content min-w-10 max-w-56"
                       />
-                      <button
+                      <.button
                         type="button"
                         phx-click="make_default"
                         phx-value-uuid={value.uuid}
-                        class={["btn btn-ghost btn-xs px-1", value.is_default && "text-warning"]}
+                        variant="ghost"
+                        size="xs"
+                        class={["px-1", value.is_default && "text-warning"]}
                         title={
                           if value.is_default,
                             do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Default value"),
@@ -770,17 +787,19 @@ defmodule PhoenixKitCatalogue.Web.AttributeGroupFormLive do
                           class="w-3.5 h-3.5 phx-click-loading:hidden"
                         />
                         <span class="loading loading-spinner w-3.5 h-3.5 hidden phx-click-loading:inline-block"></span>
-                      </button>
-                      <button
+                      </.button>
+                      <.button
                         type="button"
                         phx-click="delete_value"
                         phx-value-uuid={value.uuid}
-                        class="btn btn-ghost btn-xs px-1 text-base-content/40 hover:text-error"
+                        variant="ghost"
+                        size="xs"
+                        class="px-1 text-base-content/40 hover:text-error"
                         title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Remove value")}
                       >
                         <.icon name="hero-x-mark" class="w-3.5 h-3.5 phx-click-loading:hidden" />
                         <span class="loading loading-spinner w-3.5 h-3.5 hidden phx-click-loading:inline-block"></span>
-                      </button>
+                      </.button>
                     </div>
 
                     <%!-- phx-update="ignore": unrelated patches must never
@@ -804,9 +823,11 @@ defmodule PhoenixKitCatalogue.Web.AttributeGroupFormLive do
                         class="input input-xs input-bordered bg-base-100 w-28"
                         phx-mounted={@refocus_key == attribute.uuid && JS.focus()}
                       />
-                      <button
+                      <.button
                         type="submit"
-                        class="btn btn-outline btn-xs btn-square shrink-0"
+                        variant="outline"
+                        size="xs"
+                        class="btn-square shrink-0"
                         title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Add value")}
                         aria-label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Add value")}
                       >
@@ -816,7 +837,7 @@ defmodule PhoenixKitCatalogue.Web.AttributeGroupFormLive do
                              it, leaving an empty button. --%>
                         <span class="hero-plus w-3.5 h-3.5 phx-submit-loading:hidden"></span>
                         <span class="loading loading-spinner w-3.5 h-3.5 hidden phx-submit-loading:inline-block"></span>
-                      </button>
+                      </.button>
                     </form>
                   </div>
                 </div>
@@ -837,15 +858,17 @@ defmodule PhoenixKitCatalogue.Web.AttributeGroupFormLive do
                   class="input input-sm input-bordered flex-1 min-w-0"
                   phx-mounted={@refocus_key == "attr" && JS.focus()}
                 />
-                <select name="attr_kind" class="select select-sm select-bordered w-36 shrink-0">
-                  <option :for={{label, v} <- kind_options()} value={v}>{label}</option>
-                </select>
-                <button type="submit" class="btn btn-outline btn-sm shrink-0">
+                <%!-- Width on the wrapper, not `<.select>`'s class — see the
+                     same note at the attr-kind mini-form above. --%>
+                <div class="w-36 shrink-0">
+                  <.select name="attr_kind" value="multi" options={kind_options()} class="select-sm" />
+                </div>
+                <.button type="submit" variant="outline" size="sm" class="shrink-0">
                   <%!-- literal spans — see the add-value button. --%>
                   <span class="hero-plus w-4 h-4 phx-submit-loading:hidden"></span>
                   <span class="loading loading-spinner w-4 h-4 hidden phx-submit-loading:inline-block"></span>
                   {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Add")}
-                </button>
+                </.button>
               </form>
             </div>
           </.multilang_fields_wrapper>
@@ -854,29 +877,32 @@ defmodule PhoenixKitCatalogue.Web.AttributeGroupFormLive do
         <%!-- Bottom action bar — outside the card, wired back via form=.
              "Save" stays; "Save & Exit" returns to the groups list. --%>
         <div class="flex justify-end gap-3">
-          <.link navigate={exit_target(assigns)} class="btn btn-ghost">
+          <.button navigate={exit_target(assigns)} variant="ghost">
             {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Cancel")}
-          </.link>
-          <button
+          </.button>
+          <%!-- "Save" keeps `class="btn-outline"` — a style modifier that
+               composes with the component's default btn-primary, where
+               `variant="outline"` would replace the colour (same trap
+               documented in category_form_live.ex). --%>
+          <.button
             form="attribute-group-form"
             type="submit"
             name="save_action"
             value="stay"
-            class="btn btn-outline btn-primary phx-submit-loading:opacity-75"
+            class="btn-outline"
             phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Saving...")}
           >
             {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Save")}
-          </button>
-          <button
+          </.button>
+          <.button
             form="attribute-group-form"
             type="submit"
             name="save_action"
             value="exit"
-            class="btn btn-primary phx-submit-loading:opacity-75"
             phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Saving...")}
           >
             {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Save & Exit")}
-          </button>
+          </.button>
         </div>
 
         <%!-- AI translate modal — outside the form (its selectors are
