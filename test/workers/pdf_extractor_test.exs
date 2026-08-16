@@ -49,6 +49,16 @@ defmodule PhoenixKitCatalogue.Workers.PdfExtractorTest do
     test "no-op on already-normalized text" do
       assert PdfExtractor.normalize("plain text") == "plain text"
     end
+
+    test "strips NUL codepoints (Postgres text rejects them)" do
+      assert PdfExtractor.normalize(<<"part", 0, "number">>) == "partnumber"
+    end
+
+    test "skips invalid UTF-8 bytes without dropping the rest of the page" do
+      # 0xFF can never start a UTF-8 sequence; the text AFTER it must
+      # survive (a bitstring-generator scrub would halt there).
+      assert PdfExtractor.normalize(<<"before ", 0xFF, "after">>) == "before after"
+    end
   end
 
   # parse_page_count/1 moved to Catalogue.PdfEngines with the engine

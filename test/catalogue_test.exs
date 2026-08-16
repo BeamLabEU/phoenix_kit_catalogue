@@ -343,6 +343,78 @@ defmodule PhoenixKitCatalogue.CatalogueTest do
       assert c.status == "active"
     end
 
+    test "create_category/1 appends to its level when no position is given" do
+      # Regression pin: the form dropped its Position field, and the
+      # mount-computed value never reached the insert — every new
+      # category landed on the schema default 0. The context now owns
+      # the append guarantee.
+      cat = create_catalogue()
+      {:ok, first} = Catalogue.create_category(%{name: "First", catalogue_uuid: cat.uuid})
+      {:ok, second} = Catalogue.create_category(%{name: "Second", catalogue_uuid: cat.uuid})
+      assert second.position > first.position
+
+      # String-keyed params (the LiveView path) get the same treatment.
+      {:ok, third} =
+        Catalogue.create_category(%{"name" => "Third", "catalogue_uuid" => cat.uuid})
+
+      assert third.position > second.position
+
+      # An explicit position is respected, not overwritten.
+      {:ok, pinned} =
+        Catalogue.create_category(%{name: "Pinned", catalogue_uuid: cat.uuid, position: 1})
+
+      assert pinned.position == 1
+
+      # Sub-levels append independently of the root level.
+      {:ok, child_a} =
+        Catalogue.create_category(%{
+          name: "Child A",
+          catalogue_uuid: cat.uuid,
+          parent_uuid: first.uuid
+        })
+
+      {:ok, child_b} =
+        Catalogue.create_category(%{
+          name: "Child B",
+          catalogue_uuid: cat.uuid,
+          parent_uuid: first.uuid
+        })
+
+      assert child_b.position > child_a.position
+    end
+
+    test "place_level_rows/2 no-ops on an empty payload" do
+      assert :ok = Catalogue.place_level_rows([])
+    end
+
+    test "category_children_counts :deleted counts only deleted children" do
+      cat = create_catalogue()
+      {:ok, parent} = Catalogue.create_category(%{name: "Parent", catalogue_uuid: cat.uuid})
+
+      {:ok, active_child} =
+        Catalogue.create_category(%{
+          name: "Stays",
+          catalogue_uuid: cat.uuid,
+          parent_uuid: parent.uuid
+        })
+
+      {:ok, deleted_child} =
+        Catalogue.create_category(%{
+          name: "Goes",
+          catalogue_uuid: cat.uuid,
+          parent_uuid: parent.uuid
+        })
+
+      {:ok, _} = Catalogue.trash_category(deleted_child)
+      _ = active_child
+
+      assert Catalogue.category_children_counts(cat.uuid, mode: :deleted) ==
+               %{parent.uuid => 1}
+
+      assert Catalogue.category_children_counts(cat.uuid, mode: :active) ==
+               %{parent.uuid => 1}
+    end
+
     test "create_category/1 requires name and catalogue_uuid" do
       assert {:error, changeset} = Catalogue.create_category(%{})
       assert errors_on(changeset).name

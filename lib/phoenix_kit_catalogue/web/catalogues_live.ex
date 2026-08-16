@@ -1499,7 +1499,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     cfg = current_cfg(socket.assigns)
 
     if manual_order_draggable?(socket.assigns.catalogue_view_mode, cfg) or
-         catalogues_tree_mode?(
+         catalogues_structure_mode?(
            cfg,
            socket.assigns.catalogue_view_mode,
            socket.assigns.folder_lookup
@@ -1982,7 +1982,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     target = if parent == "root", do: nil, else: parent
 
     with true <-
-           catalogues_tree_mode?(
+           catalogues_structure_mode?(
              cfg,
              socket.assigns.catalogue_view_mode,
              socket.assigns.folder_lookup
@@ -2001,7 +2001,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       when is_list(ordered_ids) do
     cfg = current_cfg(socket.assigns)
 
-    if catalogues_tree_mode?(
+    if catalogues_structure_mode?(
          cfg,
          socket.assigns.catalogue_view_mode,
          socket.assigns.folder_lookup

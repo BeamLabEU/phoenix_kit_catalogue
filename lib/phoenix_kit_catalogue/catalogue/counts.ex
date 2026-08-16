@@ -126,19 +126,23 @@ defmodule PhoenixKitCatalogue.Catalogue.Counts do
   """
   @spec attached_file_counts([map()]) :: %{optional(String.t()) => non_neg_integer()}
   def attached_file_counts(resources) when is_list(resources) do
-    folder_to_uuid =
+    # folder → [resource_uuid, ...]: normally 1:1 (folders are created
+    # per resource), but a cloned/imported resource that carries a
+    # copied `files_folder_uuid` must not silently swallow its twin's
+    # count — every resource pointing at a folder gets that count.
+    folder_to_uuids =
       resources
       |> Enum.reduce(%{}, fn resource, acc ->
         with %{data: data} when is_map(data) <- resource,
              folder when is_binary(folder) and folder != "" <-
                Map.get(data, "files_folder_uuid") do
-          Map.put(acc, folder, resource.uuid)
+          Map.update(acc, folder, [resource.uuid], &[resource.uuid | &1])
         else
           _ -> acc
         end
       end)
 
-    case Map.keys(folder_to_uuid) do
+    case Map.keys(folder_to_uuids) do
       [] ->
         %{}
 
@@ -152,7 +156,10 @@ defmodule PhoenixKitCatalogue.Catalogue.Counts do
           select: {f.folder_uuid, count(f.uuid)}
         )
         |> repo().all()
-        |> Map.new(fn {folder, count} -> {Map.fetch!(folder_to_uuid, folder), count} end)
+        |> Enum.flat_map(fn {folder, count} ->
+          folder_to_uuids |> Map.fetch!(folder) |> Enum.map(&{&1, count})
+        end)
+        |> Map.new()
     end
   rescue
     _ -> %{}

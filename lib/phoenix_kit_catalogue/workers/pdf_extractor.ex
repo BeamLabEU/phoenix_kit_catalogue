@@ -122,8 +122,12 @@ defmodule PhoenixKitCatalogue.Workers.PdfExtractor do
             "(#{engine.page_count} pages)"
         )
 
-        {ok_count, failed} = extract_pages(file_uuid, engine)
-        finalize_with_failures(file_uuid, engine, ok_count, Enum.reverse(failed))
+        try do
+          {ok_count, failed} = extract_pages(file_uuid, engine)
+          finalize_with_failures(file_uuid, engine, ok_count, Enum.reverse(failed))
+        after
+          PdfEngines.close(engine)
+        end
 
       {:error, attempts} ->
         fail(file_uuid, {:no_engine, attempts})
@@ -224,6 +228,9 @@ defmodule PhoenixKitCatalogue.Workers.PdfExtractor do
   end
 
   # Normalize page text:
+  # - Drop invalid UTF-8 bytes and NUL codepoints (NUL is valid UTF-8
+  #   but Postgres `text` rejects it — one NUL from an engine would
+  #   otherwise crash the page insert and burn the job's retries)
   # - Strip soft-hyphens
   # - Undo line-break hyphenation: "Pre-\nmium" → "Premium"
   # - Replace common ligatures (ﬁ, ﬂ, ﬀ, ﬃ, ﬄ)
@@ -231,9 +238,11 @@ defmodule PhoenixKitCatalogue.Workers.PdfExtractor do
   # - Trim
   @doc false
   # Public for testability — pure-function text normalizer applied to
-  # every page's `pdftotext` output before storage.
+  # every page's engine output before storage.
   def normalize(text) when is_binary(text) do
     text
+    |> scrub_utf8()
+    |> String.replace(<<0>>, "")
     |> String.replace("­", "")
     |> ligatures()
     |> then(&Regex.replace(~r/-\n(\w)/u, &1, "\\1"))
@@ -242,6 +251,21 @@ defmodule PhoenixKitCatalogue.Workers.PdfExtractor do
   end
 
   def normalize(_), do: ""
+
+  # Rebuilds the binary from its valid UTF-8 codepoints, skipping any
+  # invalid bytes (possible from `pdftotext` on damaged font data;
+  # Rust-backed engines always emit valid UTF-8, so this usually no-ops
+  # on the fast full-binary validity check). A recursive walk, not a
+  # bitstring comprehension — a `<<cp::utf8 <- text>>` generator HALTS
+  # at the first non-matching byte, which would silently drop the whole
+  # rest of the page.
+  defp scrub_utf8(text) do
+    if String.valid?(text), do: text, else: do_scrub(text, <<>>)
+  end
+
+  defp do_scrub(<<cp::utf8, rest::binary>>, acc), do: do_scrub(rest, <<acc::binary, cp::utf8>>)
+  defp do_scrub(<<_bad, rest::binary>>, acc), do: do_scrub(rest, acc)
+  defp do_scrub(<<>>, acc), do: acc
 
   defp ligatures(text) do
     text

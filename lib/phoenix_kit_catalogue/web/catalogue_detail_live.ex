@@ -1016,7 +1016,14 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
   def handle_event("reorder_categories", %{"ordered_ids" => ordered_ids} = params, socket)
       when is_list(ordered_ids) do
-    apply_category_reorder(socket, ordered_ids, params["moved_id"])
+    # Manual-order mode only. A hook push is a client message that can
+    # arrive under any sort (or be forged); applying the Name-sorted
+    # visual order would overwrite the stored manual positions.
+    if socket.assigns.categories_sort_by == :position do
+      apply_category_reorder(socket, ordered_ids, params["moved_id"])
+    else
+      {:noreply, socket}
+    end
   end
 
   # DnD reorder of the active item list. The drill view is always one
@@ -2608,21 +2615,24 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
             </div>
 
             <div :if={@view_mode == "active"} data-card-view class="md:hidden">
+              <%!-- DnD only in manual order — same gate as the table
+                   branch's @draggable?; the server guard re-asserts it. --%>
               <div
                 id="catalogue-child-categories-tiles"
                 class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3"
-                data-sortable="true"
+                data-sortable={to_string(@categories_sort_by == :position)}
                 data-sortable-event="reorder_categories"
                 data-sortable-items=".sortable-item"
                 data-sortable-hide-source="false"
                 data-sortable-group="catalogue-child-categories-tiles"
                 data-sortable-handle=".pk-drag-handle"
-                phx-hook="SortableGrid"
+                phx-hook={if @categories_sort_by == :position, do: "SortableGrid"}
               >
                 <%= for cat <- @child_categories do %>
                   <.category_tile
                     catalogue_uuid={@catalogue.uuid}
                     category={cat}
+                    reorderable={@categories_sort_by == :position}
                     count={Map.get(@child_counts, cat.uuid, 0)}
                     categories_columns={@categories_columns}
                     subcat_count={Map.get(@child_subcat_counts, cat.uuid, 0)}
@@ -3278,6 +3288,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   attr(:categories_columns, :list, default: ["items"])
   attr(:subcat_count, :integer, default: 0)
   attr(:file_count, :integer, default: 0)
+  attr(:reorderable, :boolean, default: true)
 
   defp category_tile(assigns) do
     ~H"""
@@ -3304,7 +3315,10 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
           phx-value-uuid={@category.uuid}
         />
         <span
-          :if={@view_mode == "active" and @category.status == "active" and @sibling_count > 1}
+          :if={
+            @view_mode == "active" and @category.status == "active" and @sibling_count > 1 and
+              @reorderable
+          }
           class="pk-drag-handle cursor-grab active:cursor-grabbing absolute top-1.5 right-1.5 rounded bg-base-100/80 p-0.5 text-base-content/50 hover:text-base-content/80"
           title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Drag to reorder (among siblings)")}
         >
