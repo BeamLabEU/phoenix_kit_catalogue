@@ -1496,11 +1496,14 @@ defmodule PhoenixKitCatalogue.Web.Components do
   module. Pass `edit_path` (a 1-arity `uuid -> path` fn) to make the
   name a link.
 
-  Renders four cells: name (link), SKU, sale price, unit.
+  Renders the name cell (link), then one cell per entry in `columns` —
+  `"sku"` / `"price"` / `"unit"` / `"status"` — in the given order, so
+  a Columns configuration controls both visibility and sequence.
   """
   attr(:item, :any, required: true)
   attr(:edit_path, :any, default: nil)
   attr(:has_attributes, :boolean, default: false)
+  attr(:columns, :list, default: ["sku", "price", "unit", "status"])
 
   def item_pricing_cell(assigns) do
     pricing = Catalogue.item_pricing(assigns.item)
@@ -1524,16 +1527,25 @@ defmodule PhoenixKitCatalogue.Web.Components do
         <.icon name="hero-swatch" class="w-3.5 h-3.5 text-primary/60" />
       </span>
     </.table_default_cell>
-    <.table_default_cell class="text-sm font-mono text-base-content/60">
-      {@item.sku || "—"}
-    </.table_default_cell>
-    <.table_default_cell class="text-sm font-semibold">
-      {format_price(@sale_price)}
-    </.table_default_cell>
-    <.table_default_cell class="text-sm">{format_unit(@item.unit)}</.table_default_cell>
-    <.table_default_cell>
-      <.status_badge status={@item.status || "unknown"} size={:xs} />
-    </.table_default_cell>
+    <%= for col <- @columns do %>
+      <%= case col do %>
+        <% "sku" -> %>
+          <.table_default_cell class="text-sm font-mono text-base-content/60">
+            {@item.sku || "—"}
+          </.table_default_cell>
+        <% "price" -> %>
+          <.table_default_cell class="text-sm font-semibold">
+            {format_price(@sale_price)}
+          </.table_default_cell>
+        <% "unit" -> %>
+          <.table_default_cell class="text-sm">{format_unit(@item.unit)}</.table_default_cell>
+        <% "status" -> %>
+          <.table_default_cell>
+            <.status_badge status={@item.status || "unknown"} size={:xs} />
+          </.table_default_cell>
+        <% _ -> %>
+      <% end %>
+    <% end %>
     """
   end
 
