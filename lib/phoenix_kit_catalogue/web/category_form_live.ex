@@ -9,7 +9,6 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
   import PhoenixKitWeb.Components.MultilangForm
   import PhoenixKitWeb.Components.Core.Icon, only: [icon: 1]
   import PhoenixKitWeb.Components.Core.Modal, only: [confirm_modal: 1]
-  import PhoenixKitWeb.Components.Core.Input, only: [input: 1]
   import PhoenixKitWeb.Components.Core.Select, only: [select: 1]
   import PhoenixKitCatalogue.Web.Components, only: [attachments_files_panel: 1]
 
@@ -569,16 +568,10 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
               <span class="fieldset-label text-base-content/50 mt-1">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Pick a parent to nest this category inside, or leave blank to keep it at the top level. You can move it later.")}</span>
             </div>
 
-            <div class="fieldset">
-              <.input
-                field={@form[:position]}
-                type="number"
-                label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Position")}
-                class="w-28"
-                min="0"
-              />
-              <span class="fieldset-label text-base-content/50 mt-1">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Lower numbers appear first. You can also reorder from the catalogue detail page.")}</span>
-            </div>
+            <%!-- No manual Position field: a new category appends to its
+                 level (next_category_position at mount) and ordering is
+                 drag-managed on the catalogue detail page — same as
+                 catalogues and items. --%>
 
             <%!-- Actions --%>
             <div class="divider my-0"></div>

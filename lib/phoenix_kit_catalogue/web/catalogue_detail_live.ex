@@ -171,12 +171,14 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         # (empty == "reorder all").
         categories_sort_by: :position,
         categories_sort_dir: :asc,
-        items_columns:
-          ViewConfig.load(socket.assigns[:phoenix_kit_current_user], :detail_items).columns,
-        show_column_modal: false,
-        temp_columns: nil,
         items_sort_by: :position,
         items_sort_dir: :asc,
+        items_columns:
+          ViewConfig.load(socket.assigns[:phoenix_kit_current_user], :detail_items).columns,
+        categories_columns:
+          ViewConfig.load(socket.assigns[:phoenix_kit_current_user], :detail_categories).columns,
+        column_modal_scope: nil,
+        temp_columns: nil,
         show_items_reorder: false,
         show_categories_reorder: false,
         reorder_captured_uuids: [],
@@ -195,6 +197,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     # in handle_params/3, which runs after mount and on every `?category=`
     # drill patch.
     if connected?(socket), do: PubSub.subscribe()
+
+    socket = apply_global_detail_sorts(socket)
 
     {:ok, socket}
   end
@@ -333,6 +337,36 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
              (parent == catalogue_uuid or is_nil(parent)) do
     handle_catalogue_data_changed(socket)
   end
+
+  # Another admin changed a shared detail sort (global-sort scopes) —
+  # apply it without re-persisting or re-broadcasting.
+  def handle_info({:catalogue_view_sort_changed, :detail_items, by, dir, from}, socket) do
+    if from == self() do
+      {:noreply, socket}
+    else
+      {:noreply, apply_items_sort(socket, detail_items_sort_field(by), dir)}
+    end
+  end
+
+  def handle_info({:catalogue_view_sort_changed, :detail_categories, by, dir, from}, socket) do
+    if from == self() do
+      {:noreply, socket}
+    else
+      field = detail_categories_sort_field(by)
+
+      socket = assign(socket, categories_sort_by: field, categories_sort_dir: dir)
+
+      {:noreply,
+       assign(
+         socket,
+         :child_categories,
+         sort_categories(socket.assigns.child_categories, socket.assigns.child_counts, field, dir)
+       )}
+    end
+  end
+
+  def handle_info({:catalogue_view_sort_changed, _scope, _by, _dir, _from}, socket),
+    do: {:noreply, socket}
 
   def handle_info({:pdf_search_modal_closed}, socket) do
     {:noreply, assign(socket, show_pdf_search: false, pdf_search_item: nil)}
@@ -1018,7 +1052,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         _ -> socket.assigns.items_sort_dir
       end
 
-    {:noreply, apply_items_sort(socket, field, dir)}
+    {:noreply, socket |> apply_items_sort(field, dir) |> persist_detail_sort(:detail_items)}
   end
 
   # Categories sort — same SortSelector contract as items/catalogues
@@ -1041,7 +1075,10 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         _ -> socket.assigns.categories_sort_dir
       end
 
-    socket = assign(socket, categories_sort_by: field, categories_sort_dir: dir)
+    socket =
+      socket
+      |> assign(categories_sort_by: field, categories_sort_dir: dir)
+      |> persist_detail_sort(:detail_categories)
 
     {:noreply,
      assign(
@@ -1053,15 +1090,22 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
   # Sortable column header click — toggles direction on the active field,
   # otherwise switches field (ascending).
-  # ── Items table Columns configuration (per-user, ViewConfig) ────
+  # ── Columns configuration (per-user, ViewConfig) — one modal serving
+  # both detail scopes; `column_modal_scope` says which table it edits. ──
 
-  def handle_event("show_column_modal", _p, socket) do
+  def handle_event("show_column_modal", %{"scope" => scope_str}, socket)
+      when scope_str in ~w(detail_items detail_categories) do
+    scope = String.to_existing_atom(scope_str)
+
     {:noreply,
-     assign(socket, show_column_modal: true, temp_columns: socket.assigns.items_columns)}
+     assign(socket,
+       column_modal_scope: scope,
+       temp_columns: current_scope_columns(socket, scope)
+     )}
   end
 
   def handle_event("hide_column_modal", _p, socket),
-    do: {:noreply, assign(socket, show_column_modal: false, temp_columns: nil)}
+    do: {:noreply, assign(socket, column_modal_scope: nil, temp_columns: nil)}
 
   def handle_event("add_column", %{"column_id" => id}, socket) do
     {:noreply, update(socket, :temp_columns, &((&1 || []) ++ [id]))}
@@ -1076,23 +1120,40 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   end
 
   def handle_event("reset_columns", _p, socket) do
-    {:noreply, assign(socket, :temp_columns, TableConfig.default_columns(:detail_items))}
+    case socket.assigns.column_modal_scope do
+      nil ->
+        {:noreply, socket}
+
+      scope ->
+        {:noreply, assign(socket, :temp_columns, TableConfig.default_columns(scope))}
+    end
   end
 
   def handle_event("apply_columns", params, socket) do
-    ids =
-      TableConfig.validate_columns(
-        :detail_items,
-        params["ordered_ids"] || socket.assigns.temp_columns || []
-      )
+    case socket.assigns.column_modal_scope do
+      nil ->
+        {:noreply, socket}
 
-    ids = if ids == [], do: TableConfig.default_columns(:detail_items), else: ids
+      scope ->
+        ids =
+          TableConfig.validate_columns(
+            scope,
+            params["ordered_ids"] || socket.assigns.temp_columns || []
+          )
 
-    user = socket.assigns[:phoenix_kit_current_user]
-    cfg = %{ViewConfig.load(user, :detail_items) | columns: ids}
-    ViewConfig.save(user, :detail_items, cfg)
+        ids = if ids == [], do: TableConfig.default_columns(scope), else: ids
 
-    {:noreply, assign(socket, items_columns: ids, show_column_modal: false, temp_columns: nil)}
+        user = socket.assigns[:phoenix_kit_current_user]
+        cfg = %{ViewConfig.load(user, scope) | columns: ids}
+        ViewConfig.save(user, scope, cfg)
+
+        assigns_key = if scope == :detail_items, do: :items_columns, else: :categories_columns
+
+        {:noreply,
+         socket
+         |> assign(assigns_key, ids)
+         |> assign(column_modal_scope: nil, temp_columns: nil)}
+    end
   end
 
   def handle_event("toggle_sort_items", %{"by" => field_str}, socket)
@@ -1106,7 +1167,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         :asc
       end
 
-    {:noreply, apply_items_sort(socket, field, dir)}
+    {:noreply, socket |> apply_items_sort(field, dir) |> persist_detail_sort(:detail_items)}
   end
 
   def handle_event("toggle_sort_items", _params, socket), do: {:noreply, socket}
@@ -1278,6 +1339,60 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     |> assign(items_sort_by: field, items_sort_dir: dir, items_offset: 0)
     |> reset_and_load()
   end
+
+  # ── Shared (all-user) detail sorts — same mechanism as the catalogues
+  # index: the setting is the source of truth, changes broadcast so open
+  # sessions follow live, and mount reads it back. ──────────────────
+
+  # Accepts the socket (event handlers) or the assigns map (templates).
+  defp current_scope_columns(%Phoenix.LiveView.Socket{} = socket, scope),
+    do: current_scope_columns(socket.assigns, scope)
+
+  defp current_scope_columns(assigns, :detail_items), do: assigns.items_columns
+  defp current_scope_columns(assigns, :detail_categories), do: assigns.categories_columns
+
+  defp persist_detail_sort(socket, :detail_items) do
+    by = Atom.to_string(socket.assigns.items_sort_by)
+    dir = socket.assigns.items_sort_dir
+    ViewConfig.save_global_sort(:detail_items, by, dir)
+    PubSub.broadcast_view_sort_changed(:detail_items, by, dir)
+    socket
+  end
+
+  defp persist_detail_sort(socket, :detail_categories) do
+    by = Atom.to_string(socket.assigns.categories_sort_by)
+    dir = socket.assigns.categories_sort_dir
+    ViewConfig.save_global_sort(:detail_categories, by, dir)
+    PubSub.broadcast_view_sort_changed(:detail_categories, by, dir)
+    socket
+  end
+
+  defp apply_global_detail_sorts(socket) do
+    {items_by, items_dir} = ViewConfig.load_global_sort(:detail_items)
+    {cats_by, cats_dir} = ViewConfig.load_global_sort(:detail_categories)
+
+    assign(socket,
+      items_sort_by: detail_items_sort_field(items_by),
+      items_sort_dir: items_dir,
+      categories_sort_by: detail_categories_sort_field(cats_by),
+      categories_sort_dir: cats_dir
+    )
+  end
+
+  # Stored ids are validated by ViewConfig against TableConfig's
+  # sortable columns for the scope, so these total maps only ever see
+  # known ids — the fallbacks are for defense, not routing.
+  defp detail_items_sort_field(by)
+       when by in ~w(position name sku base_price status),
+       do: String.to_existing_atom(by)
+
+  defp detail_items_sort_field(_), do: :position
+
+  defp detail_categories_sort_field(by)
+       when by in ~w(position name items updated),
+       do: String.to_existing_atom(by)
+
+  defp detail_categories_sort_field(_), do: :position
 
   defp disposition_to_items_opt(:uncategorize, _), do: :uncategorize
   defp disposition_to_items_opt(:cascade, _), do: :cascade
@@ -2421,9 +2536,22 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               </span>
             </button>
             <button
+              :if={@child_categories != [] and @view_mode == "active"}
+              type="button"
+              phx-click="show_column_modal"
+              phx-value-scope="detail_categories"
+              class="btn btn-outline btn-sm"
+            >
+              <.icon name="hero-adjustments-horizontal" class="w-4 h-4" />
+              <span class="hidden sm:inline">
+                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Columns")}
+              </span>
+            </button>
+            <button
               :if={@show_items_section and @view_mode == "active"}
               type="button"
               phx-click="show_column_modal"
+              phx-value-scope="detail_items"
               class="btn btn-outline btn-sm"
             >
               <.icon name="hero-adjustments-horizontal" class="w-4 h-4" />
@@ -2494,6 +2622,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
             <div data-table-view class={@view_mode == "active" && "hidden md:block"}>
               <.categories_table
                 categories_sort_by={@categories_sort_by}
+                categories_columns={@categories_columns}
                 catalogue={@catalogue}
                 child_categories={@child_categories}
                 child_counts={@child_counts}
@@ -2602,9 +2731,10 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       </div>
 
       <.column_settings_modal
-        show={@show_column_modal}
-        scope={:detail_items}
-        selected={@items_columns}
+        :if={@column_modal_scope}
+        show={@column_modal_scope != nil}
+        scope={@column_modal_scope}
+        selected={current_scope_columns(assigns, @column_modal_scope)}
         temp_selected={@temp_columns}
       />
 
@@ -2918,6 +3048,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   attr(:file_counts, :map, required: true)
   attr(:show_uncat, :boolean, default: false)
   attr(:uncategorized_active_count, :integer, default: 0)
+  attr(:categories_columns, :list, default: ["items"])
 
   defp categories_table(assigns) do
     assigns =
@@ -2950,9 +3081,19 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
           <.table_default_header_cell>
             {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Name")}
           </.table_default_header_cell>
-          <.table_default_header_cell class="text-right">
-            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Items")}
-          </.table_default_header_cell>
+          <%= for col <- @categories_columns do %>
+            <%= case col do %>
+              <% "items" -> %>
+                <.table_default_header_cell class="text-right">
+                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Items")}
+                </.table_default_header_cell>
+              <% "updated" -> %>
+                <.table_default_header_cell>
+                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Updated")}
+                </.table_default_header_cell>
+              <% _ -> %>
+            <% end %>
+          <% end %>
           <.table_default_header_cell class="text-right">
             {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Actions")}
           </.table_default_header_cell>
@@ -2997,9 +3138,19 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               <span :if={cat.status == "deleted"} class="badge badge-error badge-xs">deleted</span>
             </div>
           </.table_default_cell>
-          <.table_default_cell class="text-right tabular-nums">
-            {Map.get(@child_counts, cat.uuid, 0)}
-          </.table_default_cell>
+          <%= for col <- @categories_columns do %>
+            <%= case col do %>
+              <% "items" -> %>
+                <.table_default_cell class="text-right tabular-nums">
+                  {Map.get(@child_counts, cat.uuid, 0)}
+                </.table_default_cell>
+              <% "updated" -> %>
+                <.table_default_cell class="text-sm text-base-content/60">
+                  {Calendar.strftime(cat.updated_at, "%Y-%m-%d %H:%M")}
+                </.table_default_cell>
+              <% _ -> %>
+            <% end %>
+          <% end %>
           <.table_default_cell class="text-right whitespace-nowrap">
             <.table_row_menu
               :if={@view_mode == "active" and cat.status == "active"}
@@ -3063,7 +3214,15 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Uncategorized")}
             </.link>
           </td>
-          <td class="text-right tabular-nums">{@uncategorized_active_count}</td>
+          <%= for col <- @categories_columns do %>
+            <%= case col do %>
+              <% "items" -> %>
+                <td class="text-right tabular-nums">{@uncategorized_active_count}</td>
+              <% "updated" -> %>
+                <td></td>
+              <% _ -> %>
+            <% end %>
+          <% end %>
           <td class="text-right">
             <.table_row_menu mode="auto" id="category-menu-uncategorized">
               <.table_row_menu_link
