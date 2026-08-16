@@ -1269,3 +1269,22 @@ msgstr "Select an AI endpoint and prompt in the translate dialog first."
 
 msgid "Add value"
 msgstr "Add value"
+
+
+
+
+
+msgid "Search PDF contents"
+msgstr ""
+
+msgid "Search inside every PDF…"
+msgstr ""
+
+msgid "Type at least 2 characters to search the text of every PDF."
+msgstr ""
+
+msgid "No pages match your search."
+msgstr ""
+
+msgid "Search by filename…"
+msgstr ""
