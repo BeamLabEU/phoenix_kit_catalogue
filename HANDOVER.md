@@ -27,31 +27,46 @@ Without a clause the click crashes that LiveView. With `photo_clickable: false`
 (the default) the thumbnail still renders, just inert, and the event is guarded —
 nothing is sent, so existing consumers are unaffected.
 
+> **On ticket ids.** Earlier revisions of this document referenced internal ids
+> (`L026`–`L029`) from our task queue, which are not resolvable outside it. They
+> have been replaced with self-contained descriptions; the queue itself is not a
+> public system, so there is nothing to link to.
+
 ## Status update (2026-08-16, Max's team)
 
 Everything in §2 and the fixable parts of §3 are now DONE:
 
-- **L028**: implemented as the attribute-groups system (fixed/multi
-  kinds, stable keys, translatable names/values, per-item assignment,
-  product-card display; order-line value picking stays with the parent
-  app as designed). Shipped in PR #64 / #67.
-- **L029**: kit-component pass done — changeset/draft-backed labeled
+- **Product characteristics**: implemented as the attribute-groups
+  system (fixed/multi kinds, stable keys, translatable names/values,
+  per-item assignment, product-card display; order-line value picking
+  stays with the parent app as designed). Shipped in PR #64 / #67.
+- **Form-component pass**: done — changeset/draft-backed labeled
   fields use the PhoenixKit primitives; the inline per-row editors stay
   deliberately raw (feedback-wrapper vs compact flex rows; documented
   in the attribute-group form template).
-- **§3 indent (L026)**: fixed.
+- **§3 picker-input indent**: fixed.
 - **§3 pre-existing test failures**: the two URL-state failures were a
   core UrlState bug (path params leaking into patched query strings) —
   fixed in phoenix_kit PR #719; the DnD reorder persistence failure was
   fixed earlier. Suite fully green.
-- **§3 spectator-host staleness + locale dual-sourcing**: still carried
-  as P2 by design — no behavior change was warranted without a concrete
-  consumer hitting them.
+- **§3 spectator-host staleness + locale dual-sourcing**: the locale
+  half is resolved by locale-resolved content (`Catalogue.localize/2`);
+  spectator-host staleness stays carried as P2 by design.
 
 ## 2. Not done — designed but not implemented
 
-**Product attributes / characteristics (our L028).** Design is complete and
-validated with the product owner; implementation was not started.
+## 2. Designed at handover — now mostly shipped (original record kept)
+
+**Product attributes / characteristics.** Shipped as the attribute-group
+system (catalogue PR #64 + phoenix_kit PR #718, migration V173). The
+bullets below are the original design record; where the shipped feature
+deviates deliberately (global groups selected by an item rather than
+per-card definitions; one group per item for now; order-line value
+picking left to the parent app), the shipped behaviour wins.
+
+The PhoenixKit form-component pass is still only a draft. Folders-as-
+file-explorer, header crumbs, pdfium extraction, and the item-picker
+browse-on-reopen follow-up shipped in #67.
 - Build on the **existing item metadata** (the "Metadata" tab of a catalogue
   item: Weight/Width/Height/Depth/Material/Finish, one string value each, blanks
   dropped on save). This is an evolution of that system, not a replacement —
@@ -71,7 +86,7 @@ validated with the product owner; implementation was not started.
   by hand. Migrating that legacy data into characteristics is a **separate** task,
   deliberately out of scope of the first implementation.
 
-**Bring the module's forms up to PhoenixKit component standards (our L029).**
+**Bring the module's forms up to PhoenixKit component standards.**
 Draft only. Use the `phoenixkit-components` skill; prefer the kit's components
 over raw daisyUI classes (they wire `phx-feedback`, gettext, prefix-safe links).
 
@@ -84,11 +99,14 @@ over raw daisyUI classes (they wire `phx-feedback`, gettext, prefix-safe links).
 - **Locale sourcing**: display strings mix the `locale` parameter (name and
   description translations) with process `Gettext` (field labels). Consistent in
   practice, but two sources of truth.
-- **Template indentation**: the L026 flex wrapper left the input block
+- **Template indentation**: the flex wrapper added with the photo-preview work
+  left the input block
   under-indented (HEEX-insignificant, formatter-accepted).
-- **Pre-existing test failures on `main`** (3, unrelated to the above): two URL
-  state tests in `CatalogueDetailLiveTest` (`?q=` / empty `?category=`) and the
-  DnD reorder persistence test in `CataloguesLiveTest`.
+- **Issue #65 (URL-state tests)** is fixed. Core `UrlState` was leaking the
+  `/:uuid` path param into patched query strings; phoenix_kit #719
+  (`5771a261`) stopped that. The two `CatalogueDetailLive` cases
+  (`?q=` / empty `?category=`) are green. DnD reorder persistence was
+  already fixed earlier on this branch.
 
 ## 4. Notes on this repo's conventions we had to learn the hard way
 

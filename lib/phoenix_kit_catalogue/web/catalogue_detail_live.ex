@@ -344,6 +344,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     if from == self() do
       {:noreply, socket}
     else
+      dir = if dir == :desc, do: :desc, else: :asc
       {:noreply, apply_items_sort(socket, detail_items_sort_field(by), dir)}
     end
   end
@@ -352,6 +353,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     if from == self() do
       {:noreply, socket}
     else
+      dir = if dir == :desc, do: :desc, else: :asc
       field = detail_categories_sort_field(by)
 
       socket = assign(socket, categories_sort_by: field, categories_sort_dir: dir)
@@ -1340,7 +1342,12 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
         user = socket.assigns[:phoenix_kit_current_user]
         cfg = %{ViewConfig.load(user, scope) | columns: ids}
-        ViewConfig.save(user, scope, cfg)
+
+        socket =
+          case ViewConfig.save(user, scope, cfg) do
+            {:ok, updated_user} -> assign(socket, :phoenix_kit_current_user, updated_user)
+            _ -> socket
+          end
 
         assigns_key = if scope == :detail_items, do: :items_columns, else: :categories_columns
         assign(socket, assigns_key, ids)
@@ -3168,7 +3175,9 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               >
                 <.icon name="hero-rectangle-stack" class="w-3 h-3" />
               </span>
-              <span :if={cat.status == "deleted"} class="badge badge-error badge-xs">deleted</span>
+              <span :if={cat.status == "deleted"} class="badge badge-error badge-xs">
+                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Deleted")}
+              </span>
             </div>
           </.table_default_cell>
           <%= for col <- @categories_columns do %>

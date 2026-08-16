@@ -7,6 +7,7 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
   require Logger
 
   import PhoenixKitWeb.Components.MultilangForm
+  import PhoenixKitWeb.Components.Core.Button, only: [button: 1]
   import PhoenixKitWeb.Components.Core.Icon, only: [icon: 1]
   import PhoenixKitWeb.Components.Core.Modal, only: [confirm_modal: 1]
   import PhoenixKitWeb.Components.Core.Select, only: [select: 1]
@@ -622,25 +623,28 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
              can't race the post-upload write. "Save" keeps you on the
              form (also the Enter-key submitter, being first in the
              DOM); "Save & Exit" returns to where the form was opened
-             from. --%>
+             from. "Save" keeps `class="btn-outline"` — a style modifier
+             that composes with the component's default btn-primary,
+             where `variant="outline"` would replace the colour. --%>
         <div class="flex justify-end gap-3 pt-6">
-          <.link navigate={@return_to || Paths.catalogue_detail(@catalogue_uuid)} class="btn btn-ghost">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Cancel")}</.link>
-          <button
+          <.button navigate={@return_to || Paths.catalogue_detail(@catalogue_uuid)} variant="ghost">
+            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Cancel")}
+          </.button>
+          <.button
             type="submit"
             name="save_action"
             value="stay"
-            class="btn btn-outline btn-primary phx-submit-loading:opacity-75"
+            class="btn-outline"
             disabled={@uploads.attachment_files.entries != []}
             phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Saving...")}
-          >{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Save")}</button>
-          <button
+          >{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Save")}</.button>
+          <.button
             type="submit"
             name="save_action"
             value="exit"
-            class="btn btn-primary phx-submit-loading:opacity-75"
             disabled={@uploads.attachment_files.entries != []}
             phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Saving...")}
-          >{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Save & Exit")}</button>
+          >{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Save & Exit")}</.button>
         </div>
       </.form>
 
@@ -677,15 +681,16 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
                   phx-change="select_parent_move_target"
                 />
               </div>
-              <button
+              <.button
                 type="button"
                 phx-click="move_under_parent"
                 phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Moving...")}
                 disabled={@parent_move_target == @category.parent_uuid}
-                class="btn btn-sm btn-outline"
+                variant="outline"
+                size="sm"
               >
                 {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Move")}
-              </button>
+              </.button>
             </div>
           </div>
 
@@ -707,15 +712,16 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
                   phx-change="select_move_target"
                 />
               </div>
-              <button
+              <.button
                 type="button"
                 phx-click="move_category"
                 phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Moving...")}
                 disabled={is_nil(@move_target)}
-                class="btn btn-sm btn-outline"
+                variant="outline"
+                size="sm"
               >
                 {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Move")}
-              </button>
+              </.button>
             </div>
           </div>
         </div>
@@ -737,10 +743,17 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
               <p class="font-medium text-sm">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Permanently Delete Category")}</p>
               <p class="text-xs text-base-content/60">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "This will permanently delete this category and all its items. This cannot be undone.")}</p>
             </div>
-            <button phx-click="show_delete_confirm" class="btn btn-outline btn-error btn-sm shrink-0">
+            <%!-- `variant="error"`, not `class="btn-error"` — the class form
+                 leaves the default btn-primary on the element next to it. --%>
+            <.button
+              phx-click="show_delete_confirm"
+              variant="error"
+              size="sm"
+              class="btn-outline shrink-0"
+            >
               <.icon name="hero-trash" class="w-4 h-4" />
               {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete Forever")}
-            </button>
+            </.button>
           </div>
         </div>
       </details>

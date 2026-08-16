@@ -154,6 +154,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
        highlight_selected: true,
        initial_query: nil,
        seeded_initial_query: false,
+       searched?: false,
        photo_clickable: false,
        card_open: false,
        card_name: nil,
@@ -189,6 +190,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
 
         assign(socket,
           query: item_display_name(assigns[:selected_item], locale) || "",
+          searched?: false,
           card_open: false
         )
       end
@@ -213,6 +215,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
         socket
         |> assign(:query, initial_query)
         |> assign(:seeded_initial_query, true)
+        |> assign(:searched?, true)
         |> assign(:open, true)
         |> run_search()
 
@@ -230,7 +233,12 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
 
   @impl true
   def handle_event("query_change", %{"value" => value}, socket) do
-    {:noreply, socket |> assign(:query, value) |> assign(:open, true) |> run_search()}
+    {:noreply,
+     socket
+     |> assign(:query, value)
+     |> assign(:searched?, true)
+     |> assign(:open, true)
+     |> run_search()}
   end
 
   def handle_event("open", _params, socket) do
@@ -252,7 +260,8 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
     # want exactly that retry.
     socket =
       cond do
-        socket.assigns.options == [] and query_is_selection_name?(socket) ->
+        socket.assigns.options == [] and not socket.assigns.searched? and
+            query_is_selection_name?(socket) ->
           run_search(assign(socket, :open, true), "")
 
         socket.assigns.options == [] ->
