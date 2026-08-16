@@ -26,7 +26,7 @@ defmodule PhoenixKitCatalogue.Web.ViewConfig do
   # Only the catalogues index for now — deliberately not manufacturers /
   # suppliers, and not a per-scope TableConfig flag: the boss wants exactly
   # this one table shared. Widen the list when that changes.
-  @global_sort_scopes [:catalogues]
+  @global_sort_scopes [:catalogues, :detail_items, :detail_categories]
 
   @spec scope_key(TableConfig.scope()) :: String.t()
   def scope_key(scope), do: to_string(scope)

@@ -261,13 +261,54 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
       assert html =~ "COL-1"
       assert html =~ "Columns"
 
-      render_click(view, "show_column_modal", %{})
+      render_click(view, "show_column_modal", %{"scope" => "detail_items"})
       # Drop the SKU column, keep the rest.
       render_click(view, "remove_column", %{"column_id" => "sku"})
       updated = render_click(view, "apply_columns", %{})
 
       refute updated =~ "COL-1"
       assert updated =~ "Col item"
+    end
+
+    test "categories table has its own Columns editor", %{conn: conn} do
+      catalogue = fixture_catalogue(%{name: "Cat cols"})
+      fixture_category(catalogue, %{name: "Configurable"})
+
+      {:ok, view, html} = live(conn, url(catalogue.uuid))
+      assert html =~ "Items"
+
+      render_click(view, "show_column_modal", %{"scope" => "detail_categories"})
+      render_click(view, "add_column", %{"column_id" => "updated"})
+      updated = render_click(view, "apply_columns", %{})
+
+      assert updated =~ "Updated"
+    end
+
+    test "detail sorts are shared across users and follow live", %{conn: conn} do
+      catalogue = fixture_catalogue(%{name: "Global sort cat"})
+      fixture_item(%{name: "Alpha item", catalogue_uuid: catalogue.uuid, position: 1})
+      fixture_item(%{name: "Zed item", catalogue_uuid: catalogue.uuid, position: 0})
+
+      {:ok, changer, _} = live(conn, url(catalogue.uuid))
+      {:ok, viewer, _} = live(conn, url(catalogue.uuid))
+
+      render_click(changer, "sort_items", %{"sort_by" => "name"})
+
+      # Persisted globally: the setting is written...
+      assert PhoenixKit.Settings.get_setting("catalogue_sort_detail_items", nil) ==
+               "name:asc"
+
+      # ...a fresh session opens with it...
+      {:ok, _fresh, fresh_html} = live(conn, url(catalogue.uuid))
+
+      assert :binary.match(fresh_html, "Alpha item") |> elem(0) <
+               :binary.match(fresh_html, "Zed item") |> elem(0)
+
+      # ...and the already-open viewer followed the broadcast.
+      viewer_html = render(viewer)
+
+      assert :binary.match(viewer_html, "Alpha item") |> elem(0) <
+               :binary.match(viewer_html, "Zed item") |> elem(0)
     end
 
     test "category rows use the standardized row menu", %{conn: conn} do
