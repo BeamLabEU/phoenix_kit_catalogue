@@ -61,6 +61,10 @@ defmodule PhoenixKitCatalogue.Catalogue.PdfLibrary do
   # job could never run. Actionable on purpose.
   @queue_unavailable_message "PDF text extraction did not start: the :catalogue_pdf Oban queue is not running in this app. Add `catalogue_pdf` to your Oban `queues:` config (or run `mix phoenix_kit.update`), then re-upload."
 
+  # Content search ignores queries shorter than this (see
+  # `search_pdf_contents/2`).
+  @min_content_query 2
+
   # Upper bound on how many stuck rows one `requeue_stuck_extractions/1`
   # call will touch, so a tenant with thousands of pending rows can't
   # enqueue (or fail-mark) thousands of jobs from a single admin click.
@@ -919,6 +923,40 @@ defmodule PhoenixKitCatalogue.Catalogue.PdfLibrary do
   end
 
   @doc """
+  Free-text search across every active PDF's extracted page text — the
+  library page's "search all PDF contents". Same grouped shape as
+  `search_pdfs_for_item/2` (that one derives its patterns from an
+  item's translated names; this one takes the operator's query as-is):
+  literal `ILIKE` first, `pg_trgm` similarity fallback when literal
+  finds nothing. Queries shorter than #{@min_content_query} characters
+  return `[]` — one-letter scans are noise at corpus scale.
+
+  ## Options
+
+    * `:per_pdf` (default 5) — preview hits returned per PDF.
+    * `:similarity_threshold` (default 0.4) — trigram fallback threshold.
+  """
+  @spec search_pdf_contents(String.t(), keyword()) :: [group()]
+  def search_pdf_contents(query, opts \\ [])
+
+  def search_pdf_contents(query, opts) when is_binary(query) do
+    per_pdf = Keyword.get(opts, :per_pdf, 5)
+    threshold = Keyword.get(opts, :similarity_threshold, 0.4)
+    query = query |> String.trim() |> collapse_ws()
+
+    if String.length(query) < @min_content_query do
+      []
+    else
+      case literal_search_grouped([query], per_pdf) do
+        [] -> trigram_search_grouped(query, threshold, per_pdf)
+        groups -> groups
+      end
+    end
+  end
+
+  def search_pdf_contents(_query, _opts), do: []
+
+  @doc """
   Loads additional hits for one PDF beyond what the initial grouped
   search returned. Used by the modal's per-PDF "Show more matches"
   expand action.
@@ -1217,7 +1255,12 @@ defmodule PhoenixKitCatalogue.Catalogue.PdfLibrary do
       nil ->
         String.slice(text, 0, 200)
 
-      {start, _len} ->
+      {byte_start, _len} ->
+        # :binary.match returns a BYTE offset; String.slice counts
+        # graphemes. Convert via the prefix length, or Cyrillic /
+        # accented text (2 bytes per letter) puts the window past the
+        # match it should center on.
+        start = text |> binary_part(0, min(byte_start, byte_size(text))) |> String.length()
         from = max(start - 60, 0)
         len = min(200, String.length(text) - from)
         String.slice(text, from, len)

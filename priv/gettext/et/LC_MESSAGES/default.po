@@ -1269,3 +1269,15 @@ msgstr "Vali kõigepealt tõlkedialoogis AI lõpp-punkt ja viip."
 
 msgid "Add value"
 msgstr "Lisa väärtus"
+
+msgid "Search by filename or content…"
+msgstr "Otsi failinime või sisu järgi…"
+
+msgid "Content matches"
+msgstr "Sisu vasted"
+
+msgid "p. %{n}"
+msgstr "lk %{n}"
+
+msgid "No content matches — the list below filters by filename."
+msgstr "Sisu vasteid pole — allolev loend filtreerib failinime järgi."

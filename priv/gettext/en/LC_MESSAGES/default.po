@@ -1269,3 +1269,15 @@ msgstr "Select an AI endpoint and prompt in the translate dialog first."
 
 msgid "Add value"
 msgstr "Add value"
+
+msgid "Search by filename or content…"
+msgstr ""
+
+msgid "Content matches"
+msgstr ""
+
+msgid "p. %{n}"
+msgstr ""
+
+msgid "No content matches — the list below filters by filename."
+msgstr ""

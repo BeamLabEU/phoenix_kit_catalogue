@@ -1274,3 +1274,15 @@ msgstr ""
 
 msgid "Add value"
 msgstr ""
+
+msgid "Search by filename or content…"
+msgstr ""
+
+msgid "Content matches"
+msgstr ""
+
+msgid "p. %{n}"
+msgstr ""
+
+msgid "No content matches — the list below filters by filename."
+msgstr ""
