@@ -25,6 +25,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   import PhoenixKitWeb.Components.Core.TableDefault
   import PhoenixKitWeb.Components.Core.TableRowMenu
   import PhoenixKitWeb.Components.Core.Sortable, only: [sortable_tbody: 1, sortable_row: 1]
+  import PhoenixKitWeb.Components.Core.TreeTable, only: [tree_name_cell: 1]
   import PhoenixKitCatalogue.Web.Components
   import PhoenixKitCatalogue.Web.TableToolbar
 
@@ -74,11 +75,11 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
        deleted_folder_count: 0,
        folder_tree: [],
        folder_tree_deleted: [],
+       folder_lookup: %{},
+       expanded_folders: MapSet.new(),
        renaming_folder: nil,
        move_dialog: nil,
        folder_options: [],
-       show_folders_modal: false,
-       folders_modal_view: "active",
        view_configs: load_view_configs(socket),
        catalogue_file_counts: %{},
        show_catalogues_reorder: false,
@@ -195,6 +196,28 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
 
   defp current_cfg(assigns), do: Map.fetch!(assigns.view_configs, active_scope(assigns))
 
+  # Applies a columns transformation to the active scope's cfg and
+  # persists it (put_cfg). Invalid/empty results fall back to defaults;
+  # the active sort survives whenever it is still a sortable column —
+  # "name" and "position" are managed?: false so never in `ids`, and
+  # sorting doesn't require the column to be displayed.
+  defp live_update_columns(socket, fun) do
+    scope = active_scope(socket.assigns)
+    cfg = current_cfg(socket.assigns)
+
+    ids = TableConfig.validate_columns(scope, fun.(cfg.columns))
+    ids = if ids == [], do: TableConfig.default_columns(scope), else: ids
+
+    cfg = %{cfg | columns: ids}
+
+    cfg =
+      if MapSet.member?(known_sortable_ids(scope), cfg.sort_by),
+        do: cfg,
+        else: %{cfg | sort_by: List.first(ids)}
+
+    put_cfg(socket, scope, cfg)
+  end
+
   # Update one scope's cfg in assigns AND persist to the user row.
   #
   # `ViewConfig.save/3` writes the WHOLE `custom_fields` column (Ecto cast,
@@ -295,6 +318,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         catalogue_view_mode: mode,
         folder_tree: active_tree,
         folder_tree_deleted: deleted_folder_tree,
+        folder_lookup: folder_lookup,
         folder_options: folder_options(active_tree)
       )
     else
@@ -372,7 +396,862 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       else: socket
   end
 
+  # ── Inline catalogues folder tree ───────────────────────────────
+  #
+  # File-explorer view of the catalogues index: folders as collapsible
+  # rows with catalogues nested under them (Core.TreeTable name cells
+  # inside table_default). Shown in Manual order with no search/status
+  # filter — any other sort or an active filter falls back to the flat
+  # sortable table. The folder filter sets the tree's root; the
+  # "Unfiled (root)" sentinel stays a flat filtered list.
+
+  # The folder struct for the tree's current root, or nil at top level
+  # (no filter / the unfiled sentinel — not in the lookup).
+  defp current_tree_folder(cfg, lookup), do: lookup[cfg.filters["folder"]]
+
+  defp catalogues_tree_mode?(cfg, view_mode, lookup) do
+    cfg.view != "card" and catalogues_structure_mode?(cfg, view_mode, lookup)
+  end
+
+  # Card-view twin of the tree: same structure state, level-at-a-time grid.
+  defp catalogues_card_level_mode?(cfg, view_mode, lookup) do
+    cfg.view == "card" and catalogues_structure_mode?(cfg, view_mode, lookup)
+  end
+
+  defp catalogues_structure_mode?(cfg, view_mode, lookup) do
+    folder_filter = cfg.filters["folder"]
+
+    view_mode == "active" and cfg.sort_by == "position" and
+      (cfg[:search] || "") == "" and Map.delete(cfg.filters, "folder") == %{} and
+      (folder_filter == nil or Map.has_key?(lookup, folder_filter))
+  end
+
+  # Keep the branch to the drilled folder visibly open, whichever
+  # control changed the filter (tree click or the select).
+  defp expand_folder_path(socket, uuid) do
+    case socket.assigns.folder_lookup[uuid] do
+      nil ->
+        socket
+
+      folder ->
+        update(socket, :expanded_folders, fn expanded ->
+          MapSet.union(
+            expanded,
+            MapSet.new(folder_ancestor_chain(socket.assigns.folder_lookup, folder, []))
+          )
+        end)
+    end
+  end
+
+  defp folder_ancestor_chain(_lookup, nil, acc), do: acc
+
+  defp folder_ancestor_chain(lookup, folder, acc) do
+    # Parent chains are acyclic (context cycle guard); the accumulator
+    # check is a defensive stop all the same.
+    if folder.uuid in acc,
+      do: acc,
+      else: folder_ancestor_chain(lookup, lookup[folder.parent_uuid], [folder.uuid | acc])
+  end
+
+  # Depth-first display order, skipping children of collapsed folders:
+  # child folders first, then the catalogues filed at that level.
+  # `catalogue_rows` are the enriched (orphan-promoted) row maps, so a
+  # catalogue in a trashed folder surfaces at the root.
+  defp build_catalogue_tree_rows(folder_tree, catalogue_rows, expanded, current) do
+    folders = Enum.map(folder_tree, fn {f, _depth} -> f end)
+    folders_by_parent = Enum.group_by(folders, & &1.parent_uuid)
+    cats_by_folder = Enum.group_by(catalogue_rows, & &1[:folder_uuid])
+
+    with_children =
+      folders |> Enum.map(& &1.parent_uuid) |> Enum.reject(&is_nil/1) |> MapSet.new()
+
+    walk_catalogue_level(
+      current && current.uuid,
+      0,
+      folders_by_parent,
+      cats_by_folder,
+      with_children,
+      expanded
+    )
+  end
+
+  defp walk_catalogue_level(parent, depth, folders_by_parent, cats, with_children, expanded) do
+    # `parent_key` identifies the sibling group for drag-reorder ("root"
+    # at the top level). Both folders and the catalogues filed here share
+    # this level's parent.
+    parent_key = parent || "root"
+
+    # One merged manual order per level: both types sort together by
+    # `position` (drop_row writes one interleaved sequence), so a
+    # catalogue dropped between two folders STAYS between them. Ties
+    # (e.g. legacy per-type sequences) put folders first, then name.
+    level =
+      (Map.get(folders_by_parent, parent, []) |> Enum.map(&{:folder, &1})) ++
+        (Map.get(cats, parent, []) |> Enum.map(&{:catalogue, &1}))
+
+    level
+    |> Enum.sort_by(fn
+      {:folder, f} -> {f.position, 0, String.downcase(f.name || "")}
+      {:catalogue, c} -> {c[:position], 1, String.downcase(c[:name] || "")}
+    end)
+    |> Enum.flat_map(fn
+      {:folder, folder} ->
+        count = length(Map.get(cats, folder.uuid, []))
+        has_children = MapSet.member?(with_children, folder.uuid) or count > 0
+        expanded? = MapSet.member?(expanded, folder.uuid)
+
+        meta = %{expanded: expanded?, has_children: has_children, count: count}
+        row = {:folder, folder, depth, meta, parent_key}
+
+        if expanded? do
+          [
+            row
+            | walk_catalogue_level(
+                folder.uuid,
+                depth + 1,
+                folders_by_parent,
+                cats,
+                with_children,
+                expanded
+              )
+          ]
+        else
+          [row]
+        end
+
+      {:catalogue, c_row} ->
+        [{:catalogue, c_row, depth, parent_key}]
+    end)
+  end
+
+  attr(:folder_tree, :list, required: true)
+  attr(:catalogue_rows, :list, required: true)
+  attr(:cfg, :map, required: true)
+  attr(:current, :any, default: nil)
+  attr(:renaming_folder, :any, default: nil)
+  attr(:file_counts, :map, default: %{})
+
+  # Card-view counterpart of the tree table, as GROUPS: each folder is a
+  # visible box containing its catalogue cards (and nested folder boxes),
+  # so the whole structure reads at a glance without drilling. Sibling
+  # order is preserved by chunking — consecutive catalogue cards between
+  # folder boxes render as grid runs in the interleaved manual order.
+  # The same CatalogueTreeDnD hook drives drag: a folder box's own
+  # surface is its "into" target (children stopPropagation their drops),
+  # edges reorder among siblings, the root zone unfiles.
+  defp catalogues_card_level(assigns) do
+    folders = Enum.map(assigns.folder_tree, fn {f, _depth} -> f end)
+
+    ctx = %{
+      folders_by_parent: Enum.group_by(folders, & &1.parent_uuid),
+      cats_by_folder: Enum.group_by(assigns.catalogue_rows, & &1[:folder_uuid]),
+      cfg: assigns.cfg,
+      renaming_folder: assigns.renaming_folder,
+      file_counts: assigns.file_counts
+    }
+
+    root = assigns.current && assigns.current.uuid
+
+    assigns =
+      assigns
+      |> assign(:ctx, ctx)
+      |> assign(:entries, merged_level_entries(ctx, root))
+
+    ~H"""
+    <div class="flex items-center gap-2">
+      <button
+        :if={@current}
+        type="button"
+        phx-click="navigate_folder"
+        phx-value-uuid={@current.parent_uuid || ""}
+        class="btn btn-ghost btn-sm gap-1"
+      >
+        <.icon name="hero-arrow-uturn-left" class="w-4 h-4" />
+        {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Up")}
+      </button>
+      <span :if={@current} class="flex items-center gap-1.5 text-sm font-medium min-w-0">
+        <.icon name="hero-folder-open" class="w-4 h-4 text-warning shrink-0" />
+        <span class="truncate">{@current.name}</span>
+      </span>
+    </div>
+
+    <div :if={@entries == []} class="card bg-base-100 shadow">
+      <div class="card-body items-center text-center py-12">
+        <p class="text-base-content/60">
+          {Gettext.gettext(PhoenixKitCatalogue.Gettext, "No catalogues yet.")}
+        </p>
+      </div>
+    </div>
+    <div
+      :if={@entries != []}
+      id="catalogues-card-level"
+      phx-hook="CatalogueTreeDnD"
+      class="relative"
+    >
+      <div
+        data-tree-rootzone="1"
+        data-tree-drop="root"
+        class="hidden absolute -top-1 left-0 right-0 z-10 rounded-lg border-2 border-dashed border-primary/50 bg-base-100 py-2.5 text-center text-sm text-base-content/60"
+      >
+        <.icon name="hero-arrow-up-tray" class="w-4 h-4 inline-block mr-1 align-text-bottom" />
+        {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Drop here to move to root (unfiled)")}
+      </div>
+      <.card_entries entries={@entries} parent_key={(@current && @current.uuid) || "root"} ctx={@ctx} />
+    </div>
+    """
+  end
+
+  # One level's display order as {:folder, f} | {:catalogue, c} —
+  # the same merged-by-position sort the tree walk uses.
+  defp merged_level_entries(ctx, parent_uuid) do
+    level =
+      (Map.get(ctx.folders_by_parent, parent_uuid, []) |> Enum.map(&{:folder, &1})) ++
+        (Map.get(ctx.cats_by_folder, parent_uuid, []) |> Enum.map(&{:catalogue, &1}))
+
+    Enum.sort_by(level, fn
+      {:folder, f} -> {f.position, 0, String.downcase(f.name || "")}
+      {:catalogue, c} -> {c[:position], 1, String.downcase(c[:name] || "")}
+    end)
+  end
+
+  attr(:entries, :list, required: true)
+  attr(:parent_key, :string, required: true)
+  attr(:ctx, :map, required: true)
+
+  defp card_entries(assigns) do
+    chunks =
+      Enum.chunk_by(assigns.entries, fn
+        {:folder, _} -> :folder
+        {:catalogue, _} -> :catalogue
+      end)
+
+    assigns = assign(assigns, :chunks, chunks)
+
+    ~H"""
+    <div class="flex flex-col gap-4">
+      <%= for chunk <- @chunks do %>
+        <%= case chunk do %>
+          <% [{:catalogue, _} | _] = cards -> %>
+            <div class="grid gap-4 md:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+              <.catalogue_card
+                :for={{:catalogue, c_row} <- cards}
+                c_row={c_row}
+                parent_key={@parent_key}
+                ctx={@ctx}
+              />
+            </div>
+          <% folder_chunk -> %>
+            <.card_folder_group
+              :for={{:folder, folder} <- folder_chunk}
+              folder={folder}
+              parent_key={@parent_key}
+              ctx={@ctx}
+            />
+        <% end %>
+      <% end %>
+    </div>
+    """
+  end
+
+  attr(:folder, :any, required: true)
+  attr(:parent_key, :string, required: true)
+  attr(:ctx, :map, required: true)
+
+  defp card_folder_group(assigns) do
+    assigns =
+      assign(assigns, :children, merged_level_entries(assigns.ctx, assigns.folder.uuid))
+
+    ~H"""
+    <div
+      data-tree-uuid={@folder.uuid}
+      data-tree-type="folder"
+      data-tree-parent={@parent_key}
+      data-tree-drop={@folder.uuid}
+      class="rounded-lg border border-base-300 bg-base-100 p-3"
+    >
+      <div class="flex items-center gap-2 min-w-0">
+        <span
+          data-tree-item={"folder:" <> @folder.uuid}
+          class="cursor-grab active:cursor-grabbing text-base-content/40 shrink-0"
+          title={
+            Gettext.gettext(PhoenixKitCatalogue.Gettext, "Drag to reorder or move into a folder")
+          }
+        >
+          <.icon name="hero-bars-3" class="w-4 h-4" />
+        </span>
+        <.icon name="hero-folder-open" class="w-5 h-5 text-warning shrink-0" />
+        <%= if @ctx.renaming_folder == @folder.uuid do %>
+          <form
+            id={"card-rename-#{@folder.uuid}"}
+            phx-submit="rename_folder"
+            phx-value-uuid={@folder.uuid}
+            class="flex-1 min-w-0"
+          >
+            <input
+              type="text"
+              name="name"
+              value={@folder.name}
+              phx-mounted={Phoenix.LiveView.JS.focus()}
+              phx-blur="rename_folder"
+              phx-value-uuid={@folder.uuid}
+              class="input input-sm w-full max-w-60"
+            />
+          </form>
+        <% else %>
+          <button
+            type="button"
+            draggable="false"
+            phx-click="navigate_folder"
+            phx-value-uuid={@folder.uuid}
+            class="font-medium text-left truncate cursor-pointer hover:text-primary transition-colors"
+          >
+            {@folder.name}
+          </button>
+        <% end %>
+        <span class="text-xs text-base-content/40 tabular-nums">
+          {length(Map.get(@ctx.cats_by_folder, @folder.uuid, []))}
+        </span>
+        <div class="ml-auto">
+          <.table_row_menu mode="auto" id={"card-folder-menu-#{@folder.uuid}"}>
+            <.table_row_menu_button
+              phx-click="navigate_folder"
+              phx-value-uuid={@folder.uuid}
+              icon="hero-folder-open"
+              label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Open")}
+            />
+            <.table_row_menu_button
+              phx-click="start_rename_folder"
+              phx-value-uuid={@folder.uuid}
+              icon="hero-pencil"
+              label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Rename")}
+            />
+            <.table_row_menu_button
+              phx-click="new_subfolder"
+              phx-value-uuid={@folder.uuid}
+              phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Creating...")}
+              icon="hero-folder-plus"
+              label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "New subfolder")}
+            />
+            <.table_row_menu_button
+              phx-click="open_move"
+              phx-value-type="folder"
+              phx-value-uuid={@folder.uuid}
+              icon="hero-folder-arrow-down"
+              label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Move to folder")}
+            />
+            <.table_row_menu_divider />
+            <.table_row_menu_button
+              phx-click="show_delete_confirm"
+              phx-value-uuid={@folder.uuid}
+              phx-value-type="folder"
+              icon="hero-trash"
+              label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")}
+              variant="error"
+            />
+          </.table_row_menu>
+        </div>
+      </div>
+      <div
+        :if={@children != []}
+        class="mt-3 pl-3 border-l-2 border-warning/30"
+      >
+        <.card_entries entries={@children} parent_key={@folder.uuid} ctx={@ctx} />
+      </div>
+      <p :if={@children == []} class="mt-2 pl-8 text-xs text-base-content/40">
+        {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Empty folder")}
+      </p>
+    </div>
+    """
+  end
+
+  attr(:c_row, :map, required: true)
+  attr(:parent_key, :string, required: true)
+  attr(:ctx, :map, required: true)
+
+  defp catalogue_card(assigns) do
+    ~H"""
+    <div
+      data-tree-uuid={@c_row.uuid}
+      data-tree-type="catalogue"
+      data-tree-parent={@parent_key}
+      class="card card-sm bg-base-200 shadow-sm"
+    >
+      <div class="card-body gap-2">
+        <div class="flex items-center gap-2 min-w-0">
+          <span
+            data-tree-item={"catalogue:" <> @c_row.uuid}
+            class="cursor-grab active:cursor-grabbing text-base-content/40 shrink-0"
+            title={
+              Gettext.gettext(PhoenixKitCatalogue.Gettext, "Drag to reorder or move into a folder")
+            }
+          >
+            <.icon name="hero-bars-3" class="w-4 h-4" />
+          </span>
+          <.featured_thumb
+            resource={@c_row}
+            has_files={Map.get(@ctx.file_counts, @c_row.uuid, 0) > 0}
+          />
+          <.link
+            navigate={Paths.catalogue_detail(@c_row.uuid)}
+            draggable="false"
+            class="link link-hover font-medium truncate flex-1 min-w-0"
+          >
+            {@c_row.name}
+          </.link>
+        </div>
+        <div class="grid grid-cols-2 gap-x-4 gap-y-1 text-sm flex-1">
+          <%= for col <- visible_columns(:catalogues, @ctx.cfg), col.id not in ["name", "folder"] do %>
+            <div class="text-base-content/50">{col.label.()}</div>
+            <div>{render_card_value(:catalogues, col.id, @c_row)}</div>
+          <% end %>
+        </div>
+        <div class="flex justify-end">
+          <.table_row_menu mode="auto" id={"card-level-cat-menu-#{@c_row.uuid}"}>
+            <.table_row_menu_link
+              navigate={Paths.catalogue_edit(@c_row.uuid)}
+              icon="hero-pencil"
+              label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")}
+            />
+            <.table_row_menu_link
+              navigate={Paths.catalogue_detail(@c_row.uuid)}
+              icon="hero-eye"
+              label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "View")}
+            />
+            <.table_row_menu_button
+              phx-click="open_move"
+              phx-value-type="catalogue"
+              phx-value-uuid={@c_row.uuid}
+              icon="hero-folder-arrow-down"
+              label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Move to folder")}
+            />
+            <.table_row_menu_divider />
+            <.table_row_menu_button
+              phx-click="trash_catalogue"
+              phx-value-uuid={@c_row.uuid}
+              phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Deleting...")}
+              icon="hero-trash"
+              label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")}
+              variant="error"
+            />
+          </.table_row_menu>
+        </div>
+      </div>
+    </div>
+    """
+  end
+
+  attr(:view, :string, required: true)
+  attr(:class, :any, default: nil)
+
+  # Same three-way switcher table_default renders, for surfaces that
+  # aren't inside a table_default (the card-level grid).
+  defp catalogues_view_toggle(assigns) do
+    ~H"""
+    <div class={["join inline-flex", @class]}>
+      <button
+        type="button"
+        phx-click="set_view"
+        phx-value-mode="card"
+        class={["btn btn-sm join-item", @view == "card" && "btn-active"]}
+        title="Card view"
+      >
+        <.icon name="hero-squares-2x2" class="w-4 h-4" />
+      </button>
+      <button
+        type="button"
+        phx-click="set_view"
+        phx-value-mode="comfy"
+        class={["btn btn-sm join-item", @view == "comfy" && "btn-active"]}
+        title="Comfortable view"
+      >
+        <.icon name="hero-bars-3" class="w-4 h-4" />
+      </button>
+      <button
+        type="button"
+        phx-click="set_view"
+        phx-value-mode="table"
+        class={["btn btn-sm join-item", @view == "table" && "btn-active"]}
+        title="Compact view"
+      >
+        <.icon name="hero-bars-4" class="w-4 h-4" />
+      </button>
+    </div>
+    """
+  end
+
+  attr(:rows, :list, required: true)
+  attr(:cfg, :map, required: true)
+  attr(:current, :any, default: nil)
+  attr(:renaming_folder, :any, default: nil)
+  attr(:file_counts, :map, default: %{})
+
+  defp catalogues_tree_table(assigns) do
+    assigns =
+      assign(
+        assigns,
+        :cols,
+        for(c <- visible_columns(:catalogues, assigns.cfg), c.id not in ["name", "folder"], do: c)
+      )
+
+    catalogue_rows = for {:catalogue, c_row, _depth, _parent} <- assigns.rows, do: c_row
+
+    assigns =
+      assign(assigns, :photo_col?, any_media_thumb?(catalogue_rows, assigns.file_counts))
+
+    ~H"""
+    <%!-- Location row: Up + current folder name, only when drilled in.
+         Without a sidebar this is the way back out of a folder. --%>
+    <div :if={@current} class="flex items-center gap-2">
+      <button
+        type="button"
+        phx-click="navigate_folder"
+        phx-value-uuid={@current.parent_uuid || ""}
+        class="btn btn-ghost btn-sm gap-1"
+      >
+        <.icon name="hero-arrow-uturn-left" class="w-4 h-4" />
+        {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Up")}
+      </button>
+      <span class="flex items-center gap-1.5 text-sm font-medium min-w-0">
+        <.icon name="hero-folder-open" class="w-4 h-4 text-warning shrink-0" />
+        <span class="truncate">{@current.name}</span>
+      </span>
+    </div>
+
+    <div :if={@rows == []} class="card bg-base-100 shadow">
+      <div class="card-body items-center text-center py-12">
+        <p class="text-base-content/60">
+          {Gettext.gettext(PhoenixKitCatalogue.Gettext, "No catalogues yet.")}
+        </p>
+      </div>
+    </div>
+    <div
+      :if={@rows != []}
+      id="catalogues-tree-table"
+      phx-hook="CatalogueTreeDnD"
+      class="relative overflow-x-auto"
+    >
+      <%!-- "Move to root" target — hidden until a drag starts, overlaid
+           absolutely over the header area so revealing it never shifts
+           the rows under the cursor mid-drag. --%>
+      <div
+        data-tree-rootzone="1"
+        data-tree-drop="root"
+        class="hidden absolute top-0 left-0 right-0 z-10 rounded-lg border-2 border-dashed border-primary/50 bg-base-100 py-2.5 text-center text-sm text-base-content/60"
+      >
+        <.icon name="hero-arrow-up-tray" class="w-4 h-4 inline-block mr-1 align-text-bottom" />
+        {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Drop here to move to root (unfiled)")}
+      </div>
+      <.table_default variant="zebra" size="sm" view_mode={@cfg.view}>
+        <.table_default_header>
+          <.table_default_row>
+            <.table_default_header_cell class="w-8"></.table_default_header_cell>
+            <.table_default_header_cell
+              :if={@photo_col?}
+              class="w-12 !pr-0 !py-1 [.pk-comfy_&]:w-22 [.pk-comfy_&]:!py-1.5"
+            >
+            </.table_default_header_cell>
+            <.table_default_header_cell>
+              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Name")}
+            </.table_default_header_cell>
+            <.table_default_header_cell :for={c <- @cols} class={c.align == :right && "text-right"}>
+              {c.label.()}
+            </.table_default_header_cell>
+            <.table_default_header_cell class="text-right">
+              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Actions")}
+            </.table_default_header_cell>
+          </.table_default_row>
+        </.table_default_header>
+        <.table_default_body>
+          <%= for row <- @rows do %>
+            <%= case row do %>
+              <% {:folder, folder, depth, meta, parent_key} -> %>
+                <.table_default_row
+                  data-tree-uuid={folder.uuid}
+                  data-tree-type="folder"
+                  data-tree-parent={parent_key}
+                  data-tree-drop={folder.uuid}
+                >
+                  <td
+                    data-tree-item={"folder:" <> folder.uuid}
+                    class="w-8 cursor-grab active:cursor-grabbing text-base-content/40"
+                    title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Drag to reorder or move into a folder")}
+                  >
+                    <.icon name="hero-bars-3" class="w-4 h-4" />
+                  </td>
+                  <.table_default_cell
+                    :if={@photo_col?}
+                    class="w-12 !pr-0 !py-1 [.pk-comfy_&]:w-22 [.pk-comfy_&]:!py-1.5"
+                  >
+                  </.table_default_cell>
+                  <.tree_name_cell
+                    depth={depth}
+                    indent="1rem"
+                    expandable={meta.has_children}
+                    expanded={meta.expanded}
+                    toggle_event="toggle_folder_expand"
+                    value={folder.uuid}
+                    icon={if meta.expanded, do: "hero-folder-open", else: "hero-folder"}
+                    icon_class="w-4 h-4 text-warning shrink-0"
+                    toggle_label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Toggle folder")}
+                  >
+                    <%= if @renaming_folder == folder.uuid do %>
+                      <form
+                        id={"tree-rename-#{folder.uuid}"}
+                        phx-submit="rename_folder"
+                        phx-value-uuid={folder.uuid}
+                        class="flex-1 min-w-0"
+                      >
+                        <input
+                          type="text"
+                          name="name"
+                          value={folder.name}
+                          phx-mounted={Phoenix.LiveView.JS.focus()}
+                          phx-blur="rename_folder"
+                          phx-value-uuid={folder.uuid}
+                          class="input input-sm w-full max-w-60"
+                        />
+                      </form>
+                    <% else %>
+                      <button
+                        type="button"
+                        draggable="false"
+                        phx-click="navigate_folder"
+                        phx-value-uuid={folder.uuid}
+                        class="font-medium text-left truncate cursor-pointer hover:text-primary transition-colors"
+                      >
+                        {folder.name}
+                      </button>
+                    <% end %>
+                  </.tree_name_cell>
+                  <.table_default_cell :for={c <- @cols} class={c.align == :right && "text-right"}>
+                    {render_folder_cell(c.id, folder, meta)}
+                  </.table_default_cell>
+                  <.table_default_cell class="text-right whitespace-nowrap">
+                    <.table_row_menu mode="auto" id={"tree-folder-menu-#{folder.uuid}"}>
+                      <.table_row_menu_button
+                        phx-click="navigate_folder"
+                        phx-value-uuid={folder.uuid}
+                        icon="hero-folder-open"
+                        label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Open")}
+                      />
+                      <.table_row_menu_button
+                        phx-click="start_rename_folder"
+                        phx-value-uuid={folder.uuid}
+                        icon="hero-pencil"
+                        label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Rename")}
+                      />
+                      <.table_row_menu_button
+                        phx-click="new_subfolder"
+                        phx-value-uuid={folder.uuid}
+                        phx-disable-with={
+                          Gettext.gettext(PhoenixKitCatalogue.Gettext, "Creating...")
+                        }
+                        icon="hero-folder-plus"
+                        label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "New subfolder")}
+                      />
+                      <.table_row_menu_button
+                        phx-click="open_move"
+                        phx-value-type="folder"
+                        phx-value-uuid={folder.uuid}
+                        icon="hero-folder-arrow-down"
+                        label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Move to folder")}
+                      />
+                      <.table_row_menu_divider />
+                      <.table_row_menu_button
+                        phx-click="show_delete_confirm"
+                        phx-value-uuid={folder.uuid}
+                        phx-value-type="folder"
+                        icon="hero-trash"
+                        label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")}
+                        variant="error"
+                      />
+                    </.table_row_menu>
+                  </.table_default_cell>
+                </.table_default_row>
+              <% {:catalogue, c_row, depth, parent_key} -> %>
+                <.table_default_row
+                  data-tree-uuid={c_row.uuid}
+                  data-tree-type="catalogue"
+                  data-tree-parent={parent_key}
+                >
+                  <td
+                    data-tree-item={"catalogue:" <> c_row.uuid}
+                    class="w-8 cursor-grab active:cursor-grabbing text-base-content/40"
+                    title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Drag to reorder or move into a folder")}
+                  >
+                    <.icon name="hero-bars-3" class="w-4 h-4" />
+                  </td>
+                  <.table_default_cell
+                    :if={@photo_col?}
+                    class="w-12 !pr-0 !py-1 [.pk-comfy_&]:w-22 [.pk-comfy_&]:!py-1.5"
+                  >
+                    <.featured_thumb
+                      resource={c_row}
+                      has_files={Map.get(@file_counts, c_row.uuid, 0) > 0}
+                    />
+                  </.table_default_cell>
+                  <.tree_name_cell
+                    depth={depth}
+                    indent="1rem"
+                    icon="hero-document-text"
+                    icon_class="w-4 h-4 text-base-content/40 shrink-0"
+                  >
+                    <.link
+                      navigate={Paths.catalogue_detail(c_row.uuid)}
+                      draggable="false"
+                      class="link link-hover font-medium truncate"
+                    >
+                      {c_row.name}
+                    </.link>
+                  </.tree_name_cell>
+                  <.table_default_cell :for={c <- @cols} class={c.align == :right && "text-right"}>
+                    {render_cell(:catalogues, c.id, c_row)}
+                  </.table_default_cell>
+                  <.table_default_cell class="text-right whitespace-nowrap">
+                    <.table_row_menu mode="auto" id={"tree-cat-menu-#{c_row.uuid}"}>
+                      <.table_row_menu_link
+                        navigate={Paths.catalogue_edit(c_row.uuid)}
+                        icon="hero-pencil"
+                        label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")}
+                      />
+                      <.table_row_menu_link
+                        navigate={Paths.catalogue_detail(c_row.uuid)}
+                        icon="hero-eye"
+                        label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "View")}
+                      />
+                      <.table_row_menu_button
+                        phx-click="open_move"
+                        phx-value-type="catalogue"
+                        phx-value-uuid={c_row.uuid}
+                        icon="hero-folder-arrow-down"
+                        label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Move to folder")}
+                      />
+                      <.table_row_menu_divider />
+                      <.table_row_menu_button
+                        phx-click="trash_catalogue"
+                        phx-value-uuid={c_row.uuid}
+                        phx-disable-with={
+                          Gettext.gettext(PhoenixKitCatalogue.Gettext, "Deleting...")
+                        }
+                        icon="hero-trash"
+                        label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")}
+                        variant="error"
+                      />
+                    </.table_row_menu>
+                  </.table_default_cell>
+                </.table_default_row>
+            <% end %>
+          <% end %>
+        </.table_default_body>
+      </.table_default>
+    </div>
+
+    """
+  end
+
+  attr(:tree, :list, required: true)
+
+  # LEGACY-only: folders trashed before the folder-trash flow was
+  # removed. There is no restore (folders are just titles) — the one
+  # exit is Delete Forever with the old promote-contents semantics.
+  # Nothing feeds this list anymore, so it retires itself once the
+  # last legacy row is purged.
+  defp deleted_folders_list(assigns) do
+    ~H"""
+    <div class="bg-base-100 border border-base-200 rounded-lg divide-y divide-base-200">
+      <div :for={{folder, _depth} <- @tree} class="flex items-center gap-2 px-3 py-2 min-w-0">
+        <.icon name="hero-folder" class="w-4 h-4 text-warning shrink-0" />
+        <span class="flex-1 min-w-0 truncate text-sm font-medium text-base-content/50">
+          {folder.name}
+        </span>
+        <button
+          type="button"
+          phx-click="show_delete_confirm"
+          phx-value-uuid={folder.uuid}
+          phx-value-type="legacy_folder"
+          class="btn btn-ghost btn-xs text-error gap-1"
+        >
+          <.icon name="hero-trash" class="w-3.5 h-3.5" />
+          {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete Forever")}
+        </button>
+      </div>
+    </div>
+    """
+  end
+
+  # Folder rows reuse the configured catalogue columns: values that make
+  # sense for a folder render (count / status / updated), the rest dash.
+  defp render_folder_cell("items", _folder, meta) do
+    assigns = %{count: meta.count}
+    ~H"<span class='text-right tabular-nums text-base-content/60'>{@count}</span>"
+  end
+
+  defp render_folder_cell("status", folder, _meta), do: status_badge_cell(folder.status)
+  defp render_folder_cell("updated", folder, _meta), do: ts(folder.updated_at)
+
+  defp render_folder_cell(_id, _folder, _meta) do
+    assigns = %{}
+    ~H"<span class='text-base-content/40'>—</span>"
+  end
+
   defp default_folder_name, do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "New folder")
+
+  # Move (no-op when the parent is unchanged) then write the level's
+  # same-type order. A failed move skips the reorder — the flash carries
+  # the reason (cycle, trashed target, ...).
+  # "type:uuid" strings from the hook → validated tuples. Any malformed
+  # entry rejects the whole payload (it is forgeable client input).
+  defp parse_level_entries(entries) do
+    parsed =
+      Enum.map(entries, fn entry ->
+        with true <- is_binary(entry),
+             [type, uuid] when type in ~w(folder catalogue) <-
+               String.split(entry, ":", parts: 2),
+             {:ok, _} <- Ecto.UUID.cast(uuid) do
+          {type, uuid}
+        else
+          _ -> :invalid
+        end
+      end)
+
+    if :invalid in parsed, do: :error, else: {:ok, parsed}
+  end
+
+  defp apply_drop_row(socket, "catalogue", uuid, target, entries) do
+    with %{} = catalogue <- Catalogue.get_catalogue(uuid),
+         {:ok, _} <- Catalogue.move_catalogue_to_folder(catalogue, target, actor_opts(socket)),
+         :ok <- Catalogue.place_level_rows(entries, actor_opts(socket)) do
+      put_flash(socket, :info, Gettext.gettext(PhoenixKitCatalogue.Gettext, "Catalogue moved."))
+    else
+      {:error, reason} ->
+        put_flash(socket, :error, move_error_message(reason))
+
+      _ ->
+        put_flash(
+          socket,
+          :error,
+          Gettext.gettext(PhoenixKitCatalogue.Gettext, "Failed to move catalogue.")
+        )
+    end
+  end
+
+  defp apply_drop_row(socket, "folder", uuid, target, entries) do
+    with %{} = folder <- Catalogue.get_folder(uuid),
+         {:ok, _} <- Catalogue.move_folder(folder, target, actor_opts(socket)),
+         :ok <- Catalogue.place_level_rows(entries, actor_opts(socket)) do
+      put_flash(socket, :info, Gettext.gettext(PhoenixKitCatalogue.Gettext, "Folder moved."))
+    else
+      {:error, reason} ->
+        put_flash(socket, :error, move_error_message(reason))
+
+      _ ->
+        put_flash(
+          socket,
+          :error,
+          Gettext.gettext(PhoenixKitCatalogue.Gettext, "Failed to move folder.")
+        )
+    end
+  end
 
   defp do_move_catalogue(socket, uuid, target) do
     with %{} = catalogue <- Catalogue.get_catalogue(uuid),
@@ -443,8 +1322,23 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
 
   # ── Folder handlers ─────────────────────────────────────────────
 
-  def handle_event("new_folder", _params, socket) do
-    case Catalogue.create_folder(%{name: default_folder_name()}, actor_opts(socket)) do
+  # `parent` comes from the toolbar button when the tree is drilled into
+  # a folder — the new folder is created at the level the user is looking
+  # at. Validated against the active lookup so a forged value can't
+  # parent under an arbitrary/trashed uuid.
+  def handle_event("new_folder", params, socket) do
+    attrs =
+      case params["parent"] do
+        parent when is_binary(parent) and parent != "" ->
+          if Map.has_key?(socket.assigns.folder_lookup, parent),
+            do: %{name: default_folder_name(), parent_uuid: parent},
+            else: %{name: default_folder_name()}
+
+        _ ->
+          %{name: default_folder_name()}
+      end
+
+    case Catalogue.create_folder(attrs, actor_opts(socket)) do
       {:ok, folder} ->
         {:noreply, socket |> assign(:renaming_folder, folder.uuid) |> load_data(:index)}
 
@@ -467,6 +1361,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         {:noreply,
          socket
          |> assign(:renaming_folder, folder.uuid)
+         |> update(:expanded_folders, &MapSet.put(&1, parent_uuid))
          |> load_data(:index)}
 
       {:error, _} ->
@@ -505,61 +1400,10 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     {:noreply, socket |> assign(:renaming_folder, nil) |> load_data(:index)}
   end
 
-  def handle_event("trash_folder", %{"uuid" => uuid}, socket) do
-    with %{} = folder <- Catalogue.get_folder(uuid),
-         {:ok, _} <- Catalogue.trash_folder(folder, actor_opts(socket)) do
-      {:noreply,
-       socket
-       |> put_flash(
-         :info,
-         Gettext.gettext(PhoenixKitCatalogue.Gettext, "Folder moved to deleted.")
-       )
-       |> load_data(:index)}
-    else
-      _ ->
-        {:noreply,
-         socket
-         |> put_flash(
-           :error,
-           Gettext.gettext(PhoenixKitCatalogue.Gettext, "Failed to delete folder.")
-         )
-         |> load_data(:index)}
-    end
-  end
-
-  def handle_event("restore_folder", %{"uuid" => uuid}, socket) do
-    with %{} = folder <- Catalogue.get_folder(uuid),
-         {:ok, _} <- Catalogue.restore_folder(folder, actor_opts(socket)) do
-      socket =
-        socket
-        |> put_flash(:info, Gettext.gettext(PhoenixKitCatalogue.Gettext, "Folder restored."))
-        |> load_data(:index)
-
-      # If no deleted folders remain, return to the active view so the user
-      # isn't stranded on an empty "Deleted" list with no way to switch back.
-      socket =
-        if socket.assigns.deleted_folder_count == 0,
-          do: assign(socket, :folders_modal_view, "active"),
-          else: socket
-
-      {:noreply, socket}
-    else
-      _ ->
-        {:noreply,
-         socket
-         |> put_flash(
-           :error,
-           Gettext.gettext(PhoenixKitCatalogue.Gettext, "Failed to restore folder.")
-         )
-         |> load_data(:index)}
-    end
-  end
-
   def handle_event("open_move", %{"type" => type, "uuid" => uuid}, socket)
       when type in ~w(folder catalogue) do
     target_type = if type == "folder", do: :folder, else: :catalogue
-    # Close the folders modal when opening the move dialog so dialogs don't stack.
-    {:noreply, assign(socket, move_dialog: {target_type, uuid}, show_folders_modal: false)}
+    {:noreply, assign(socket, move_dialog: {target_type, uuid})}
   end
 
   def handle_event("cancel_move", _params, socket) do
@@ -652,7 +1496,14 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
 
   def handle_event("reorder_catalogues", %{"ordered_ids" => ordered_ids}, socket)
       when is_list(ordered_ids) do
-    if manual_order_draggable?(socket.assigns.catalogue_view_mode, current_cfg(socket.assigns)) do
+    cfg = current_cfg(socket.assigns)
+
+    if manual_order_draggable?(socket.assigns.catalogue_view_mode, cfg) or
+         catalogues_structure_mode?(
+           cfg,
+           socket.assigns.catalogue_view_mode,
+           socket.assigns.folder_lookup
+         ) do
       case Catalogue.reorder_catalogues(ordered_ids, actor_opts(socket)) do
         :ok ->
           {:noreply, load_data(socket, :index)}
@@ -746,9 +1597,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   end
 
   def handle_event("show_delete_confirm", %{"uuid" => uuid, "type" => type}, socket) do
-    # Close the folders modal when confirming folder deletion so dialogs don't stack.
-    show_folders = if type == "folder", do: false, else: socket.assigns.show_folders_modal
-    {:noreply, assign(socket, confirm_delete: {type, uuid}, show_folders_modal: show_folders)}
+    {:noreply, assign(socket, confirm_delete: {type, uuid})}
   end
 
   def handle_event("permanently_delete_catalogue", _params, socket) do
@@ -802,7 +1651,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     case socket.assigns.confirm_delete do
       {"folder", uuid} ->
         with %{} = folder <- Catalogue.get_folder(uuid),
-             {:ok, _} <- Catalogue.permanently_delete_folder(folder, actor_opts(socket)) do
+             {:ok, _} <- Catalogue.delete_empty_folder(folder, actor_opts(socket)) do
           {:noreply,
            socket
            |> put_flash(
@@ -812,23 +1661,19 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
            |> assign(:confirm_delete, nil)
            |> load_data(:index)}
         else
-          nil ->
+          {:error, :not_empty} ->
             {:noreply,
              socket
              |> assign(:confirm_delete, nil)
              |> put_flash(
                :error,
-               Gettext.gettext(PhoenixKitCatalogue.Gettext, "Folder not found.")
-             )
-             |> load_data(:index)}
+               Gettext.gettext(
+                 PhoenixKitCatalogue.Gettext,
+                 "Only empty folders can be deleted — move its contents out first."
+               )
+             )}
 
-          {:error, reason} ->
-            log_operation_error(socket, "permanently_delete_folder", %{
-              entity_type: "folder",
-              entity_uuid: uuid,
-              reason: reason
-            })
-
+          _ ->
             {:noreply,
              socket
              |> assign(:confirm_delete, nil)
@@ -840,7 +1685,42 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         end
 
       _ ->
-        unexpected_confirm_event(socket, "permanently_delete_folder")
+        {:noreply, socket}
+    end
+  end
+
+  # Legacy escape hatch: folders trashed before the trash flow was
+  # removed may be NON-empty (their catalogues orphan-display at root),
+  # so their delete keeps the old promote-contents semantics. Never
+  # reachable for newly-deleted folders — nothing enters the folder
+  # trash anymore.
+  def handle_event("permanently_delete_legacy_folder", _params, socket) do
+    case socket.assigns.confirm_delete do
+      {"legacy_folder", uuid} ->
+        with %{} = folder <- Catalogue.get_folder(uuid),
+             {:ok, _} <- Catalogue.permanently_delete_folder(folder, actor_opts(socket)) do
+          {:noreply,
+           socket
+           |> put_flash(
+             :info,
+             Gettext.gettext(PhoenixKitCatalogue.Gettext, "Folder permanently deleted.")
+           )
+           |> assign(:confirm_delete, nil)
+           |> load_data(:index)}
+        else
+          _ ->
+            {:noreply,
+             socket
+             |> assign(:confirm_delete, nil)
+             |> put_flash(
+               :error,
+               Gettext.gettext(PhoenixKitCatalogue.Gettext, "Failed to delete folder.")
+             )
+             |> load_data(:index)}
+        end
+
+      _ ->
+        {:noreply, socket}
     end
   end
 
@@ -982,74 +1862,35 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     {:noreply, assign(socket, :confirm_delete, nil)}
   end
 
-  def handle_event("show_folders_modal", _p, socket),
-    do: {:noreply, assign(socket, show_folders_modal: true, folders_modal_view: "active")}
-
-  def handle_event("hide_folders_modal", _p, socket),
-    do: {:noreply, assign(socket, :show_folders_modal, false)}
-
-  def handle_event("set_folders_modal_view", %{"mode" => mode}, socket)
-      when mode in ~w(active deleted),
-      do: {:noreply, assign(socket, :folders_modal_view, mode)}
-
   # ── Column / sort / filter / view handlers ──────────────────────
 
   def handle_event("show_column_modal", _p, socket) do
-    {:noreply,
-     assign(socket,
-       show_column_modal: true,
-       temp_columns: current_cfg(socket.assigns).columns
-     )}
+    {:noreply, assign(socket, :show_column_modal, true)}
   end
 
   def handle_event("hide_column_modal", _p, socket),
-    do: {:noreply, assign(socket, show_column_modal: false, temp_columns: nil)}
+    do: {:noreply, assign(socket, :show_column_modal, false)}
 
+  # LIVE columns editor: every change applies (and persists) immediately;
+  # the modal's footer is just Reset + Close.
   def handle_event("add_column", %{"column_id" => id}, socket) do
-    {:noreply, update(socket, :temp_columns, &((&1 || []) ++ [id]))}
+    {:noreply, live_update_columns(socket, &(&1 ++ [id]))}
   end
 
   def handle_event("remove_column", %{"column_id" => id}, socket) do
-    {:noreply, update(socket, :temp_columns, &Enum.reject(&1 || [], fn c -> c == id end))}
+    {:noreply, live_update_columns(socket, &Enum.reject(&1, fn c -> c == id end))}
   end
 
   def handle_event("reorder_columns", params, socket) do
-    {:noreply, assign(socket, :temp_columns, parse_order(params))}
+    case parse_order(params) do
+      ids when is_list(ids) -> {:noreply, live_update_columns(socket, fn _ -> ids end)}
+      _ -> {:noreply, socket}
+    end
   end
 
   def handle_event("reset_columns", _p, socket) do
     scope = active_scope(socket.assigns)
-
-    {:noreply, assign(socket, :temp_columns, TableConfig.default_columns(scope))}
-  end
-
-  def handle_event("apply_columns", params, socket) do
-    scope = active_scope(socket.assigns)
-
-    ids =
-      TableConfig.validate_columns(
-        scope,
-        parse_order(params) || socket.assigns.temp_columns || []
-      )
-
-    ids =
-      if ids == [], do: TableConfig.default_columns(scope), else: ids
-
-    cfg = %{current_cfg(socket.assigns) | columns: ids}
-    # Keep the active sort whenever it's still a real sortable column in this
-    # scope. "name" is always visible (managed?: false) but never in `ids`
-    # (validate_columns/2 only returns managed columns), and "position"
-    # (manual order) is a sort-only pseudo column that's never in `ids`
-    # either — see TableConfig.columns/1. Sorting doesn't require the column
-    # to be currently *displayed*, so only reset when Apply dropped a
-    # `sort_by` that isn't sortable at all anymore.
-    cfg =
-      if MapSet.member?(known_sortable_ids(scope), cfg.sort_by),
-        do: cfg,
-        else: %{cfg | sort_by: List.first(ids)}
-
-    {:noreply,
-     socket |> put_cfg(scope, cfg) |> assign(show_column_modal: false, temp_columns: nil)}
+    {:noreply, live_update_columns(socket, fn _ -> TableConfig.default_columns(scope) end)}
   end
 
   def handle_event("set_sort", %{"sort_by" => by}, socket) do
@@ -1083,6 +1924,101 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     end
   end
 
+  # ── Inline folder tree events ─────────────────────────────────
+
+  def handle_event("toggle_folder_expand", %{"uuid" => uuid}, socket) do
+    expanded = socket.assigns.expanded_folders
+
+    expanded =
+      if MapSet.member?(expanded, uuid),
+        do: MapSet.delete(expanded, uuid),
+        else: MapSet.put(expanded, uuid)
+
+    {:noreply, assign(socket, :expanded_folders, expanded)}
+  end
+
+  # Drill: clicking a folder name re-roots the tree there by driving the
+  # existing "folder" filter, so the tree, the filter select, and the
+  # table stay in agreement. "" walks back up to the root.
+  def handle_event("navigate_folder", %{"uuid" => uuid}, socket) do
+    if uuid == "" or Map.has_key?(socket.assigns.folder_lookup, uuid) do
+      handle_event("set_filter", %{"column_id" => "folder", "value" => uuid}, socket)
+    else
+      {:noreply, socket}
+    end
+  end
+
+  # Native drag-to-file (CatalogueTreeDnD hook): a row dropped onto a
+  # folder row's middle, or the root zone. `target` is the destination
+  # folder uuid (or "root"); do_move_* validate + flash.
+  def handle_event(
+        "move_to_folder",
+        %{"type" => type, "uuid" => uuid, "target" => target},
+        socket
+      )
+      when type in ~w(folder catalogue) do
+    target = if target == "root", do: nil, else: target
+
+    socket =
+      case type do
+        "catalogue" -> do_move_catalogue(socket, uuid, target)
+        "folder" -> do_move_folder(socket, uuid, target)
+      end
+
+    {:noreply, load_data(socket, :index)}
+  end
+
+  # Edge drop anywhere in the tree: insert the dragged row at the target
+  # row's level — reparent (validated: cycle/trashed guards) plus the
+  # level's full MERGED order ("type:uuid" strings, folders and
+  # catalogues interleaved), in one event.
+  def handle_event(
+        "drop_row",
+        %{"type" => type, "uuid" => uuid, "parent" => parent, "entries" => entries},
+        socket
+      )
+      when type in ~w(folder catalogue) and is_list(entries) do
+    cfg = current_cfg(socket.assigns)
+    target = if parent == "root", do: nil, else: parent
+
+    with true <-
+           catalogues_structure_mode?(
+             cfg,
+             socket.assigns.catalogue_view_mode,
+             socket.assigns.folder_lookup
+           ),
+         {:ok, parsed} <- parse_level_entries(entries) do
+      {:noreply, socket |> apply_drop_row(type, uuid, target, parsed) |> load_data(:index)}
+    else
+      _ -> {:noreply, socket}
+    end
+  end
+
+  # Sibling reorder from the tree hook — a same-parent subset in the new
+  # order; the context writes positions for just those uuids, which is
+  # sufficient since ordering only ever compares siblings.
+  def handle_event("reorder_folders", %{"ordered_ids" => ordered_ids}, socket)
+      when is_list(ordered_ids) do
+    cfg = current_cfg(socket.assigns)
+
+    if catalogues_structure_mode?(
+         cfg,
+         socket.assigns.catalogue_view_mode,
+         socket.assigns.folder_lookup
+       ) do
+      case Catalogue.reorder_folders(ordered_ids, actor_opts(socket)) do
+        :ok ->
+          {:noreply, load_data(socket, :index)}
+
+        {:error, reason} ->
+          log_operation_error(socket, "reorder_folders", %{reason: reason})
+          {:noreply, put_flash(socket, :error, gettext("Failed to save the new order."))}
+      end
+    else
+      {:noreply, socket}
+    end
+  end
+
   def handle_event("set_filter", %{"column_id" => id, "value" => val}, socket) do
     scope = active_scope(socket.assigns)
 
@@ -1093,6 +2029,8 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         if val in [nil, "", "all"],
           do: Map.delete(cfg.filters, id),
           else: Map.put(cfg.filters, id, val)
+
+      socket = if id == "folder", do: expand_folder_path(socket, val), else: socket
 
       {:noreply, put_cfg(socket, scope, %{cfg | filters: filters})}
     else
@@ -1274,37 +2212,6 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         <%!-- Catalogue tab content --%>
         <div :if={@active_tab == :index} class="flex flex-col gap-4">
           <% cfg = @view_configs.catalogues %>
-          <%!-- Active/Deleted sub-tabs — shown only when there are deleted items. --%>
-          <div :if={@deleted_catalogue_count > 0} class="flex items-center gap-0.5 border-b border-base-200">
-            <button
-              type="button"
-              phx-click="switch_catalogue_view"
-              phx-value-mode="active"
-              class={[
-                "px-3 py-1.5 text-xs font-medium border-b-2 transition-colors cursor-pointer",
-                if(@catalogue_view_mode == "active",
-                  do: "border-primary text-primary",
-                  else: "border-transparent text-base-content/50 hover:text-base-content"
-                )
-              ]}
-            >
-              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Active")}
-            </button>
-            <button
-              type="button"
-              phx-click="switch_catalogue_view"
-              phx-value-mode="deleted"
-              class={[
-                "px-3 py-1.5 text-xs font-medium border-b-2 transition-colors cursor-pointer",
-                if(@catalogue_view_mode == "deleted",
-                  do: "border-error text-error",
-                  else: "border-transparent text-base-content/50 hover:text-base-content"
-                )
-              ]}
-            >
-              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Deleted")} ({@deleted_catalogue_count})
-            </button>
-          </div>
           <.table_toolbar scope={:catalogues} cfg={cfg}>
             <:filters>
               <.enum_filter
@@ -1327,37 +2234,105 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
                 :if={@catalogue_view_mode == "active"}
                 type="button"
                 phx-click="new_folder"
+                phx-value-parent={
+                  current_tree_folder(cfg, @folder_lookup) &&
+                    current_tree_folder(cfg, @folder_lookup).uuid
+                }
                 phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Creating...")}
                 class="btn btn-ghost btn-sm gap-1"
               >
                 <.icon name="hero-folder-plus" class="w-4 h-4" />
                 {Gettext.gettext(PhoenixKitCatalogue.Gettext, "New Folder")}
               </button>
-              <button
-                type="button"
-                phx-click="show_folders_modal"
-                class="btn btn-ghost btn-sm gap-1"
-              >
-                <.icon name="hero-folder-open" class="w-4 h-4" />
-                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Folders…")}
-              </button>
               <.link :if={@catalogue_view_mode == "active"} navigate={Paths.catalogue_new()} class="btn btn-primary btn-sm">
                 {Gettext.gettext(PhoenixKitCatalogue.Gettext, "New Catalogue")}
               </.link>
             </:actions>
           </.table_toolbar>
+          <% tree? = catalogues_tree_mode?(cfg, @catalogue_view_mode, @folder_lookup) %>
+          <% card_level? = catalogues_card_level_mode?(cfg, @catalogue_view_mode, @folder_lookup) %>
           <p
             :if={
               @catalogue_view_mode == "active" and cfg.sort_by == "position" and
-                not manual_order_draggable?(@catalogue_view_mode, cfg)
+                cfg.view != "card" and not tree?
             }
             class="text-xs text-base-content/50"
           >
-            {gettext("Clear search and filters to drag-and-drop reorder.")}
+            {gettext("Clear search and filters to see the folder tree.")}
           </p>
+          <.deleted_folders_list
+            :if={@catalogue_view_mode == "deleted" and @folder_tree_deleted != []}
+            tree={@folder_tree_deleted}
+          />
+          <%!-- One shared row: Active/Deleted tabs (only when the trash
+               holds anything) + the view-mode toggle. Both are "how am I
+               looking at this list" controls — no separate rows. --%>
+          <div class="flex flex-wrap items-center gap-2">
+            <div
+              :if={@deleted_catalogue_count + @deleted_folder_count > 0}
+              class="flex items-center gap-0.5"
+            >
+              <button
+                type="button"
+                phx-click="switch_catalogue_view"
+                phx-value-mode="active"
+                class={[
+                  "px-3 py-1.5 text-xs font-medium border-b-2 transition-colors cursor-pointer",
+                  if(@catalogue_view_mode == "active",
+                    do: "border-primary text-primary",
+                    else: "border-transparent text-base-content/50 hover:text-base-content"
+                  )
+                ]}
+              >
+                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Active")}
+              </button>
+              <button
+                type="button"
+                phx-click="switch_catalogue_view"
+                phx-value-mode="deleted"
+                class={[
+                  "px-3 py-1.5 text-xs font-medium border-b-2 transition-colors cursor-pointer",
+                  if(@catalogue_view_mode == "deleted",
+                    do: "border-error text-error",
+                    else: "border-transparent text-base-content/50 hover:text-base-content"
+                  )
+                ]}
+              >
+                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Deleted")} ({@deleted_catalogue_count +
+                  @deleted_folder_count})
+              </button>
+            </div>
+            <.catalogues_view_toggle view={cfg.view} class="ml-auto" />
+          </div>
+          <.catalogues_tree_table
+            :if={tree?}
+            file_counts={@catalogue_file_counts}
+            rows={
+              build_catalogue_tree_rows(
+                @folder_tree,
+                @catalogue_rows,
+                @expanded_folders,
+                current_tree_folder(cfg, @folder_lookup)
+              )
+            }
+            cfg={cfg}
+            current={current_tree_folder(cfg, @folder_lookup)}
+            renaming_folder={@renaming_folder}
+          />
+          <.catalogues_card_level
+            :if={card_level?}
+            folder_tree={@folder_tree}
+            catalogue_rows={@catalogue_rows}
+            cfg={cfg}
+            current={current_tree_folder(cfg, @folder_lookup)}
+            renaming_folder={@renaming_folder}
+            file_counts={@catalogue_file_counts}
+          />
           <.simple_table
+            :if={!tree? and !card_level?}
             scope={:catalogues}
             cfg={cfg}
+            show_view_toggle={false}
             file_counts={@catalogue_file_counts}
             rows={derive_rows(@catalogue_rows, :catalogues, cfg)}
             total={length(@catalogue_rows)}
@@ -1467,6 +2442,180 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
               </.table_row_menu>
             </:card_actions>
           </.simple_table>
+
+    <%!-- Native HTML5 DnD for the tree — one system, no SortableJS, so
+         nothing collides. Registered from the template (executes during
+         the dead render, before LiveSocket spreads PhoenixKitHooks) —
+         same pattern the April tree shipped with. Grab a row's grip:
+           • folder MIDDLE → file into that folder
+           • ANY row's TOP/BOTTOM edge → insert at that row's level
+             (reparent + position in one drop)
+           • root zone (revealed while dragging) → unfile to root
+         The context enforces cycle / trashed-target guards server-side. --%>
+    <script>
+      window.PhoenixKitHooks = window.PhoenixKitHooks || {};
+      window.PhoenixKitHooks.CatalogueTreeDnD = window.PhoenixKitHooks.CatalogueTreeDnD || {
+        mounted() { this.setupTreeDnD(); },
+        updated() { this.setupTreeDnD(); },
+        setupTreeDnD() {
+          var hook = this;
+
+          // Drag sources: the grip handles only — never the row or the
+          // name link (anchors hijack dragstart; <tr> ghosts are broken).
+          this.el.querySelectorAll("[data-tree-item]").forEach(function(handle) {
+            handle.setAttribute("draggable", "true");
+            handle.ondragstart = function(e) {
+              var row = handle.closest("[data-tree-uuid]");
+              hook._drag = row && {
+                uuid: row.dataset.treeUuid,
+                type: row.dataset.treeType,
+                parent: row.dataset.treeParent
+              };
+              e.dataTransfer.setData("text/plain", handle.dataset.treeItem);
+              e.dataTransfer.effectAllowed = "move";
+              if (row) {
+                try { e.dataTransfer.setDragImage(row, 12, 12); } catch (err) {}
+                row.classList.add("opacity-50");
+                hook._dragRowEl = row;
+              }
+              hook.el.querySelectorAll("[data-tree-rootzone]").forEach(function(z) {
+                z.classList.remove("hidden");
+              });
+            };
+            handle.ondragend = function() { hook.endDrag(); };
+          });
+
+          // Row targets: file-into (folder middle) or reorder (top/bottom edge).
+          this.el.querySelectorAll("[data-tree-uuid]").forEach(function(row) {
+            row.ondragover = function(e) {
+              var intent = hook.dropIntent(row, e);
+              if (!intent) return;
+              e.preventDefault();
+              // Folder GROUPS nest their children's targets (card view):
+              // the innermost target wins and shields its ancestors.
+              e.stopPropagation();
+              e.dataTransfer.dropEffect = "move";
+              hook.showIndicator(row, intent);
+            };
+            row.ondragleave = function() { hook.clearRow(row); };
+            row.ondrop = function(e) {
+              var intent = hook.dropIntent(row, e);
+              hook.clearRow(row);
+              if (!intent || !hook._drag) return;
+              e.preventDefault();
+              e.stopPropagation();
+              var drag = hook._drag;
+              if (intent === "into") {
+                hook.pushEvent("move_to_folder", { type: drag.type, uuid: drag.uuid, target: row.dataset.treeDrop });
+              } else {
+                hook.dropAt(drag, row, intent);
+              }
+            };
+          });
+
+          this.el.querySelectorAll("[data-tree-rootzone]").forEach(function(zone) {
+            zone.ondragover = function(e) {
+              if (!hook._drag) return;
+              e.preventDefault();
+              e.dataTransfer.dropEffect = "move";
+              // Inline + opaque: a bg-primary/10 utility would REPLACE the
+              // zone's base background (same CSS property), turning it
+              // translucent so the header bleeds through on hover.
+              zone.style.backgroundColor =
+                "color-mix(in oklab, var(--color-primary) 12%, var(--color-base-100))";
+            };
+            zone.ondragleave = function() { zone.style.backgroundColor = ""; };
+            zone.ondrop = function(e) {
+              e.preventDefault();
+              zone.style.backgroundColor = "";
+              if (hook._drag) {
+                hook.pushEvent("move_to_folder", { type: hook._drag.type, uuid: hook._drag.uuid, target: "root" });
+              }
+            };
+          });
+        },
+
+        // "into" | "before" | "after" | null for the pointer over `row`.
+        // Edges are valid on ANY row: the drop inserts at that row's level
+        // (reparenting if needed), not just among original siblings.
+        dropIntent(row, e) {
+          var drag = this._drag;
+          if (!drag || drag.uuid === row.dataset.treeUuid) return null;
+          var rect = row.getBoundingClientRect();
+          var ratio = (e.clientY - rect.top) / rect.height;
+          var isFolder = row.hasAttribute("data-tree-drop");
+          // Card-view folder GROUPS are tall containers — shrink the
+          // reorder edges to slim strips so most of the box means
+          // "into"; table rows keep the 25% edges.
+          var edge = rect.height > 80 ? Math.min(12 / rect.height, 0.1) : 0.25;
+          if (isFolder && ratio > edge && ratio < 1 - edge) return "into";
+          return ratio < 0.5 ? "before" : "after";
+        },
+
+        // Insert `drag` before/after `row` WITHIN row's level. The whole
+        // level's MERGED order (folders and catalogues interleaved, in DOM
+        // order, with the dragged row spliced at the drop point) rides in
+        // one event — the server reparents (cycle guard for folders) and
+        // writes one position sequence, so where you drop it is where it
+        // stays.
+        dropAt(drag, row, intent) {
+          var targetParent = row.dataset.treeParent;
+          var level = [];
+          this.el.querySelectorAll("[data-tree-uuid]").forEach(function(r) {
+            if (r.dataset.treeParent === targetParent && r.dataset.treeUuid !== drag.uuid) {
+              level.push(r);
+            }
+          });
+          var anchorIdx = level.indexOf(row);
+          if (anchorIdx < 0) return;
+          var insertAt = intent === "before" ? anchorIdx : anchorIdx + 1;
+
+          var order = level.map(function(r) {
+            return r.dataset.treeType + ":" + r.dataset.treeUuid;
+          });
+          order.splice(insertAt, 0, drag.type + ":" + drag.uuid);
+          this.pushEvent("drop_row", {
+            type: drag.type,
+            uuid: drag.uuid,
+            parent: targetParent,
+            entries: order
+          });
+        },
+
+        showIndicator(row, intent) {
+          this.clearAll();
+          if (intent === "into") {
+            // Inline style (not a class) so the highlight wins over the
+            // table-zebra row background, which otherwise hides it.
+            row.style.backgroundColor = "rgba(59, 130, 246, 0.18)";
+          } else {
+            row.style.boxShadow = intent === "before"
+              ? "inset 0 3px 0 0 rgb(59 130 246)"
+              : "inset 0 -3px 0 0 rgb(59 130 246)";
+          }
+        },
+
+        clearRow(row) {
+          row.style.backgroundColor = "";
+          row.style.boxShadow = "";
+        },
+
+        clearAll() {
+          var self = this;
+          this.el.querySelectorAll("[data-tree-uuid]").forEach(function(r) { self.clearRow(r); });
+        },
+
+        endDrag() {
+          if (this._dragRowEl) { this._dragRowEl.classList.remove("opacity-50"); this._dragRowEl = null; }
+          this._drag = null;
+          this.el.querySelectorAll("[data-tree-rootzone]").forEach(function(z) {
+            z.classList.add("hidden");
+            z.style.backgroundColor = "";
+          });
+          this.clearAll();
+        }
+      };
+    </script>
         </div>
 
         <div :if={@active_tab == :manufacturers} class="flex flex-col gap-4">
@@ -1718,6 +2867,17 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         on_cancel="cancel_delete"
         title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Permanently Delete Folder")}
         title_icon="hero-trash"
+        messages={[{:warning, Gettext.gettext(PhoenixKitCatalogue.Gettext, "This will permanently delete this folder. Only empty folders can be deleted. This cannot be undone.")}]}
+        confirm_text={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete Forever")}
+        danger={true}
+      />
+
+      <.confirm_modal
+        show={match?({"legacy_folder", _}, @confirm_delete)}
+        on_confirm="permanently_delete_legacy_folder"
+        on_cancel="cancel_delete"
+        title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Permanently Delete Folder")}
+        title_icon="hero-trash"
         messages={[{:warning, Gettext.gettext(PhoenixKitCatalogue.Gettext, "This will permanently delete this folder. Subfolders are moved to root and catalogues filed here are unfiled — neither is deleted. This cannot be undone.")}]}
         confirm_text={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete Forever")}
         danger={true}
@@ -1776,184 +2936,6 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         </form>
       </.modal>
 
-      <%!-- Folders management modal — create, rename, move, trash, restore, delete-forever. --%>
-      <.modal
-        :if={@show_folders_modal}
-        id="catalogue-folders-modal"
-        show
-        on_close="hide_folders_modal"
-      >
-        <div class="flex flex-col gap-4 min-w-72">
-          <h3 class="text-lg font-semibold">
-            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Folders")}
-          </h3>
-
-          <%!-- Active / Deleted toggle — only when there are deleted folders. --%>
-          <div
-            :if={@deleted_folder_count > 0}
-            class="flex items-center gap-0.5 border-b border-base-200"
-          >
-            <button
-              type="button"
-              phx-click="set_folders_modal_view"
-              phx-value-mode="active"
-              class={[
-                "px-3 py-1.5 text-xs font-medium border-b-2 transition-colors cursor-pointer",
-                if(@folders_modal_view == "active",
-                  do: "border-primary text-primary",
-                  else: "border-transparent text-base-content/50 hover:text-base-content"
-                )
-              ]}
-            >
-              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Active")}
-            </button>
-            <button
-              type="button"
-              phx-click="set_folders_modal_view"
-              phx-value-mode="deleted"
-              class={[
-                "px-3 py-1.5 text-xs font-medium border-b-2 transition-colors cursor-pointer",
-                if(@folders_modal_view == "deleted",
-                  do: "border-error text-error",
-                  else: "border-transparent text-base-content/50 hover:text-base-content"
-                )
-              ]}
-            >
-              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Deleted")} ({@deleted_folder_count})
-            </button>
-          </div>
-
-          <%!-- Empty states --%>
-          <p
-            :if={@folders_modal_view == "active" and @folder_tree == []}
-            class="text-sm text-base-content/60 py-2"
-          >
-            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "No folders yet.")}
-          </p>
-          <p
-            :if={@folders_modal_view == "deleted" and @folder_tree_deleted == []}
-            class="text-sm text-base-content/60 py-2"
-          >
-            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Nothing in the trash.")}
-          </p>
-
-          <%!-- Folder list --%>
-          <% tree = if @folders_modal_view == "deleted", do: @folder_tree_deleted, else: @folder_tree %>
-          <div :if={tree != []} class="flex flex-col divide-y divide-base-200 max-h-96 overflow-y-auto">
-            <%= for {folder, depth} <- tree do %>
-              <div
-                class="flex items-center gap-2 py-1.5 group/row"
-                style={"padding-left: #{depth * 1.25 + 0.5}rem"}
-              >
-                <.icon name="hero-folder" class="w-4 h-4 text-warning shrink-0" />
-
-                <%!-- Inline rename input or display name --%>
-                <%= if @renaming_folder == folder.uuid do %>
-                  <form phx-submit="rename_folder" phx-value-uuid={folder.uuid} class="flex-1 min-w-0">
-                    <input
-                      type="text"
-                      name="name"
-                      value={folder.name}
-                      phx-mounted={Phoenix.LiveView.JS.focus()}
-                      phx-blur="rename_folder"
-                      phx-value-uuid={folder.uuid}
-                      class="input input-xs w-full"
-                    />
-                  </form>
-                <% else %>
-                  <span class={[
-                    "flex-1 min-w-0 truncate text-sm",
-                    @folders_modal_view == "deleted" && "text-base-content/50"
-                  ]}>
-                    {folder.name}
-                  </span>
-                <% end %>
-
-                <%!-- Active row actions (hidden until hover) --%>
-                <div
-                  :if={@folders_modal_view == "active" and @renaming_folder != folder.uuid}
-                  class="flex items-center gap-0.5 opacity-0 group-hover/row:opacity-100 transition-opacity shrink-0"
-                >
-                  <button
-                    type="button"
-                    phx-click="start_rename_folder"
-                    phx-value-uuid={folder.uuid}
-                    class="btn btn-ghost btn-xs"
-                    title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Rename")}
-                  >
-                    <.icon name="hero-pencil" class="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    phx-click="new_subfolder"
-                    phx-value-uuid={folder.uuid}
-                    class="btn btn-ghost btn-xs"
-                    title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "New subfolder")}
-                  >
-                    <.icon name="hero-folder-plus" class="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    phx-click="open_move"
-                    phx-value-type="folder"
-                    phx-value-uuid={folder.uuid}
-                    class="btn btn-ghost btn-xs"
-                    title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Move to folder")}
-                  >
-                    <.icon name="hero-folder-arrow-down" class="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    phx-click="trash_folder"
-                    phx-value-uuid={folder.uuid}
-                    class="btn btn-ghost btn-xs text-error"
-                    title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")}
-                  >
-                    <.icon name="hero-trash" class="w-3.5 h-3.5" />
-                  </button>
-                </div>
-
-                <%!-- Deleted row actions --%>
-                <div :if={@folders_modal_view == "deleted"} class="flex items-center gap-0.5 shrink-0">
-                  <button
-                    type="button"
-                    phx-click="restore_folder"
-                    phx-value-uuid={folder.uuid}
-                    class="btn btn-ghost btn-xs text-success"
-                    title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Restore")}
-                  >
-                    <.icon name="hero-arrow-path" class="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    phx-click="show_delete_confirm"
-                    phx-value-uuid={folder.uuid}
-                    phx-value-type="folder"
-                    class="btn btn-ghost btn-xs text-error"
-                    title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete Forever")}
-                  >
-                    <.icon name="hero-trash" class="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              </div>
-            <% end %>
-          </div>
-
-          <%!-- Footer: New Folder button (active view only) --%>
-          <div :if={@folders_modal_view == "active"} class="flex justify-start pt-1 border-t border-base-200">
-            <button
-              type="button"
-              phx-click="new_folder"
-              phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Creating...")}
-              class="btn btn-ghost btn-sm gap-1"
-            >
-              <.icon name="hero-folder-plus" class="w-4 h-4" />
-              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "New Folder")}
-            </button>
-          </div>
-        </div>
-      </.modal>
-
 
       <.reorder_modal
         :if={@active_tab == :index}
@@ -1971,7 +2953,6 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         show={@show_column_modal}
         scope={active_scope(assigns)}
         selected={current_cfg(assigns).columns}
-        temp_selected={@temp_columns}
       />
       </div>
 
@@ -2077,6 +3058,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   )
 
   attr(:file_counts, :map, default: %{})
+  attr(:show_view_toggle, :boolean, default: true)
 
   slot(:row_actions, required: true)
   slot(:card_actions, required: true)
@@ -2116,6 +3098,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       variant="zebra"
       size="sm"
       toggleable
+      show_toggle={@show_view_toggle}
       view_mode={@cfg.view}
       view_event="set_view"
       items={@rows}

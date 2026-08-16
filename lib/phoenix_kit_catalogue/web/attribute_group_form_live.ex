@@ -531,8 +531,8 @@ defmodule PhoenixKitCatalogue.Web.AttributeGroupFormLive do
   defp owned_attribute(_socket, _), do: nil
 
   defp owned_value(socket, uuid) when is_binary(uuid) do
-    socket.assigns.group.attributes
-    |> Enum.flat_map(& &1.values)
+    (socket.assigns.group.attributes || [])
+    |> Enum.flat_map(&(&1.values || []))
     |> Enum.find(&(&1.uuid == uuid))
   end
 

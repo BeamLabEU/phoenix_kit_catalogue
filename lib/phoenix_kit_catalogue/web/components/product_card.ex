@@ -432,8 +432,11 @@ defmodule PhoenixKitCatalogue.Web.Components.ProductCard do
   defp list_folder_files(folder_uuid) when is_binary(folder_uuid) do
     {files, _total} = Storage.list_files_in_scope(nil, folder_uuid: folder_uuid, per_page: 50)
 
+    # Same set as Counts.attached_file_counts/1 — its docstring promises
+    # the paperclip count and this list agree, so system-managed files
+    # are excluded here too.
     files
-    |> Enum.reject(&(&1.status == "trashed" or &1.file_type == "image"))
+    |> Enum.reject(&(&1.status == "trashed" or &1.file_type == "image" or &1.system_managed))
     |> Enum.map(
       &%{uuid: &1.uuid, name: &1.original_file_name, size: &1.size, pdf?: pdf_file?(&1)}
     )

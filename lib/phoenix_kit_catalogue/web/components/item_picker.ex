@@ -241,11 +241,25 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
     # opens an empty "No items found" dropdown instead of a replacement
     # list. A live selection doesn't hit this: `options` already holds the
     # results from the search that led to the pick.
+    #
+    # When that mount-mirrored name IS the query, searching it would return
+    # just the already-chosen row — useless as a replacement list. Browse
+    # instead: search the empty query (the first page) while leaving the
+    # input text showing the item's name.
+    #
+    # A re-focus after a typed search that returned [] deliberately re-runs
+    # the same query — an extra request, but the user who got nothing may
+    # want exactly that retry.
     socket =
-      if socket.assigns.options == [] do
-        run_search(assign(socket, :open, true))
-      else
-        assign(socket, :open, true)
+      cond do
+        socket.assigns.options == [] and query_is_selection_name?(socket) ->
+          run_search(assign(socket, :open, true), "")
+
+        socket.assigns.options == [] ->
+          run_search(assign(socket, :open, true))
+
+        true ->
+          assign(socket, :open, true)
       end
 
     {:noreply, socket}
@@ -316,9 +330,19 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
   # Search
   # ─────────────────────────────────────────────────────────────────
 
-  defp run_search(socket) do
+  # True when the current query is exactly the selected item's mirrored
+  # display name — the post-reload state where a name search would only
+  # find the item that's already chosen.
+  defp query_is_selection_name?(socket) do
+    name = item_display_name(socket.assigns.selected_item, socket.assigns.locale)
+    is_binary(name) and name != "" and socket.assigns.query == name
+  end
+
+  # `query_override` searches something other than the input text without
+  # touching the `:query` assign (the browse-on-reopen path).
+  defp run_search(socket, query_override \\ nil) do
     %{
-      query: query,
+      query: assigns_query,
       category_uuids: category_uuids,
       catalogue_uuids: catalogue_uuids,
       include_descendants: include_descendants,
@@ -326,6 +350,8 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
       page_size: page_size,
       empty_query_limit: empty_query_limit
     } = socket.assigns
+
+    query = query_override || assigns_query
 
     limit =
       case String.trim(query || "") do
@@ -593,7 +619,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
             </div>
           </div>
           <div :if={(price != nil and price != "") or unit != ""} class="text-right ml-4 shrink-0">
-            <div :if={price && price != ""} class="text-sm font-medium">
+            <div :if={price != nil and price != ""} class="text-sm font-medium">
               {price}
             </div>
             <div :if={unit != ""} class="text-xs text-base-content/50">

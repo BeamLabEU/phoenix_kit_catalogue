@@ -1,11 +1,14 @@
 defmodule PhoenixKitCatalogue.Web.Components.ItemPickerReopenTest do
   @moduledoc """
-  L027: reopening the picker for a *pre-selected* item must show the same
-  non-empty replacement list a freshly-selected item shows — not "No items
-  found". Uses a fresh LiveView mount (no prior query_change in this
-  process) to reproduce the post-reload state: `selected_item` set, but
-  `options` never searched yet.
+  L027: reopening the picker for a *pre-selected* item must show a
+  non-empty replacement list — not "No items found", and (per the PR #63
+  review follow-up) not a one-row name search for the item that's already
+  chosen: the reopen browses the empty-query first page while the input
+  keeps showing the item's name. Uses a fresh LiveView mount (no prior
+  query_change in this process) to reproduce the post-reload state:
+  `selected_item` set, but `options` never searched yet.
   """
+  # async: false — shares the Repo sandbox with the isolated host LV.
   use PhoenixKitCatalogue.LiveCase, async: false
 
   defmodule HostLive do
@@ -51,6 +54,15 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPickerReopenTest do
     html = render(view)
     refute html =~ "No items found"
     assert html =~ ~s(id="host-picker-listbox")
-    assert html =~ "Preselected Item"
+
+    # The reopen is a BROWSE, not a name search: the sibling must be in
+    # the list (a name search for "Preselected Item" would return only
+    # the already-chosen row). The input still shows the item's name.
+    assert html =~ "Sibling Item"
+    assert has_element?(view, "#host-picker-input[value='Preselected Item']")
+
+    # Option-level pin — the name appearing in the closed input's value
+    # alone must not satisfy this test.
+    assert has_element?(view, "#host-picker-listbox [id^='host-picker-option-']")
   end
 end

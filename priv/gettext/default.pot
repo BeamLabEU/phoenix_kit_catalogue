@@ -114,6 +114,33 @@ msgstr ""
 msgid "Discontinued"
 msgstr ""
 
+msgid "Toggle folder"
+msgstr ""
+
+msgid "Clear search and filters to see the folder tree."
+msgstr ""
+
+msgid "Up"
+msgstr ""
+
+msgid "Drop here to move to root (unfiled)"
+msgstr ""
+
+msgid "Drag to reorder or move into a folder"
+msgstr ""
+
+msgid "This will permanently delete this folder. Only empty folders can be deleted. This cannot be undone."
+msgstr ""
+
+msgid "Only empty folders can be deleted — move its contents out first."
+msgstr ""
+
+msgid "Empty folder"
+msgstr ""
+
+msgid "Subcategories"
+msgstr ""
+
 msgid "Unknown"
 msgstr ""
 
@@ -844,9 +871,6 @@ msgstr ""
 msgid "Folders"
 msgstr ""
 
-msgid "Folders…"
-msgstr ""
-
 msgid "All folders"
 msgstr ""
 
@@ -857,9 +881,6 @@ msgid "Clear search and filters to drag-and-drop reorder."
 msgstr ""
 
 ## Folder management modal
-msgid "No folders yet."
-msgstr ""
-
 msgid "Nothing in the trash."
 msgstr ""
 
@@ -912,12 +933,6 @@ msgid "This will permanently delete this folder. Subfolders are moved to root an
 msgstr ""
 
 msgid "Folder moved."
-msgstr ""
-
-msgid "Folder restored."
-msgstr ""
-
-msgid "Folder moved to deleted."
 msgstr ""
 
 msgid "Folder not found."
