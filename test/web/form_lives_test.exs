@@ -200,6 +200,24 @@ defmodule PhoenixKitCatalogue.Web.FormLivesTest do
     end
   end
 
+  describe "CategoryFormLive tabs" do
+    test "edit form has the Details / Photos and Files tab structure", %{conn: conn} do
+      catalogue = fixture_catalogue(%{name: "Tabbed cat"})
+      category = fixture_category(catalogue, %{name: "Tabbed category"})
+
+      {:ok, view, html} = live(conn, "/en/admin/catalogue/categories/#{category.uuid}/edit")
+
+      # Same strip as the catalogue/item forms; files tab carries the
+      # shared attachments panel (dropzone + featured image card).
+      assert html =~ "Photos and Files"
+      assert html =~ "Details"
+      assert html =~ "Attached Files"
+
+      files = render_click(view, "switch_tab", %{"tab" => "files"})
+      assert files =~ "Click to upload"
+    end
+  end
+
   describe "CategoryFormLive save modes" do
     test "Save on :new lands on the created category's edit form, keeping return_to",
          %{conn: conn} do
