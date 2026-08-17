@@ -119,11 +119,87 @@ unrelated, present on `main` already).
 
 ---
 
-## Item 3 — UX breakdown of folders (analysis only, no code)
+## Item 3 — UX breakdown of folders (analysis only, no code — owner decides)
 
-*(see below)*
+### What a folder is, and why
+
+Per `AGENTS.md` and the agreed design record (`dev_docs/2026-08-15-folders-categories-document-model.md`,
+2026-08-15, product owner via Max): a **catalogue is a document** (the long-term goal is
+catalogue → PDF). Folders are the **file explorer around those documents** — a module-global,
+self-nesting, **admin-only, untranslated, unexported** organizing shelf, deliberately the
+*opposite* of Categories (which are the document's own chapters: scoped to one catalogue,
+translated, and they drive export/page order). A folder is closer to a filesystem directory than
+to anything product-facing: it never appears in a PDF, never affects pricing or rules, and moving
+a catalogue between folders has zero consequence outside the admin's own organization of the list.
+That boundary is real and intentional, but it lives only in `dev_docs` — nothing in the UI itself
+tells an admin "this is just your shelf, it changes nothing downstream."
+
+### Where folders are actually managed today (full inventory, not just what's visible at a glance)
+
+The functional surface is considerably richer than "filtering, display, move to folder" — it's
+just not signaled well:
+
+- **Create**: toolbar "New Folder" (root or current drill level) + a per-folder "New subfolder"
+  in its row menu.
+- **Rename**: inline, opened from the row menu.
+- **Reparent/move** — three separate mechanisms: (a) native drag-and-drop onto a folder or the
+  root zone (`move_to_folder`), (b) an edge-drop that reparents *and* reorders siblings in one
+  gesture (`drop_row`), (c) an explicit "Move to folder" modal (plain `<select>`) reachable from
+  every row's menu — this last one is what the owner referred to.
+- **Delete**: row menu → confirm modal; new deletes are empty-only and permanent
+  (legacy trashed folders get a separate promote-contents escape hatch).
+- **Navigate**: clicking a folder's name (or "Open" in its row menu) drills the tree down into it
+  by driving the existing folder filter; the same toolbar filter dropdown can jump anywhere
+  directly.
+- **Organize**: expand/collapse tree nodes, drag-reorder siblings within a level.
+- **Two renderers**: an indented tree-table and a card-level grid (folders as visible boxes around
+  their catalogues) — both carry an *identical* row menu (Open / Rename / New subfolder / Move to
+  folder / Delete).
+
+So the owner's read ("weakly obvious... no other interaction visible") is accurate as a
+**discoverability** complaint, not a completeness one — almost everything above is real and
+tested, but hidden behind a row kebab-menu or a drag gesture with no persistent visual cue.
+
+### Concrete weak points found while reading the code
+
+1. **No breadcrumb when drilled in.** `navigate_folder` re-roots the tree by uuid with no path
+   trail rendered anywhere — the only sense of "where am I" is the folder name currently selected
+   in the filter dropdown. The file-explorer metaphor the design doc invokes usually implies a
+   "Root / Estonian stuff / Tables" trail; that piece was never built (the codebase already has a
+   *different* breadcrumb helper for category paths — `Catalogue.breadcrumb_categories_for_catalogue/2`
+   — that's prior art for the pattern, not directly reusable code).
+2. **The tree collapses under search/sort**, and a small caption explains it ("Clear search and
+   filters to see the folder tree.") — correct behavior, but it means the "spatial" file-manager
+   feel is fragile and disappears exactly when an admin is hunting for something, which is a
+   likely first-contact scenario.
+3. **The "Move to folder" dropdown may not visually show nesting.** `folder_options/1` indents
+   child names with `"  "` (plain spaces) per depth — HTML collapses leading whitespace inside
+   `<option>` text nodes by default, so the hierarchy the code intends probably renders as a flat,
+   same-looking list in most browsers. Worth a two-minute visual check; if confirmed, it undercuts
+   exactly the "Move to folder" path the owner already knows about.
+4. **All of the folder-specific verbs live behind a menu**, while catalogues get one visible,
+   labeled primary action next to them (folders don't have an equivalent one-click affordance
+   beyond drag). A first-time admin has no reason to open a folder row's "..." to discover
+   "New subfolder" exists at all.
+5. **Nothing in the UI states the folder/category boundary.** An admin moving a catalogue between
+   folders has no on-screen cue that this is purely organizational and touches nothing a customer
+   or export will ever see — that mental model currently only exists in `dev_docs`.
+
+### Suggestions (owner decides; not implemented)
+
+- Add a breadcrumb strip above the tree/card grid when drilled below root — cheapest single fix
+  for the "where am I" gap, and it directly extends the file-explorer metaphor already agreed on.
+- Verify (and if confirmed, fix) whitespace-collapse in the "Move to folder" `<select>` — either
+  `&nbsp;`-pad or switch to a proper indentation marker, so the one non-drag move path actually
+  shows structure.
+- Promote "New subfolder" to a small inline icon-button on hover/focus of a folder row (mirroring
+  how root-level "New Folder" is already a first-class toolbar button), rather than only living in
+  the row menu.
+- A short static caption near the folder filter/toolbar (or a tooltip on "New Folder") clarifying
+  "folders organize this list only — they don't affect what's exported" would close the "why does
+  this exist" gap cheaply, without new interaction surface.
 
 ---
 
-*Item 3 analysis follows; items 1 and 2 are code-complete in this worktree, not sent as a PR
-(that's the head-of-cycle's call).*
+*Items 1 and 2 are code-complete in this worktree (commits `f3050f9`, `57690ab`), not sent as a PR
+— that's the head-of-cycle's call. Item 3 is analysis only, no code, per instructions.*
