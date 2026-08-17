@@ -73,4 +73,57 @@ Button works, in the only mode it's shown, in both view layouts. It is not the d
 
 ---
 
-*Items 2 and 3 not started — reporting item 1 separately per instructions before proceeding.*
+---
+
+## Item 2 — filters/menu panel onto the same row as the view-mode toggle
+
+**Owner's note:** the filter/menu panel should be on the same row as the table-view-mode toggle
+(card/comfy/table icons); today they hang on separate rows.
+
+**Premise check result: still holds. The maintainer's recent index rework (a0d0051, 4210244,
+`d827a10` "Merge the Active/Deleted tabs into the view-toggle row", 2026-08-16) merged the view
+toggle with the Active/Deleted trash tabs — not with the filters/toolbar row. So the specific gap
+the owner flagged is still there today. Fixed.**
+
+### Before
+
+Two structurally separate rows in the `:index` tab:
+
+1. `table_toolbar` private component (search, folder/status filters, sort, "Reorder all",
+   "Columns", New Folder/New Catalogue actions) — lines 2246–2286.
+2. A row lower down pairing the Active/Deleted trash tabs with `catalogues_view_toggle`
+   (card/comfy/table icons), added by `d827a10` under the rationale "both are 'how am I looking at
+   this list' controls" — but that pairing is not what the owner asked to consolidate.
+
+### Change
+
+`table_toolbar` (lines ~2845–2917) already groups its right side into a "view tools" cluster
+(sort + "Reorder all" + "Columns") next to a separate "create actions" cluster (the existing
+`:actions` slot), per its own comment about wrap-as-a-unit clusters. Added a third, optional
+`slot(:view_toggle)`, rendered right after the "Columns" button inside that same view-tools
+cluster. The `:catalogues` scope's call site now fills it with
+`<.catalogues_view_toggle view={cfg.view} />` (dropped the `class="ml-auto"` — it doesn't need
+right-push in its new spot). The other three `table_toolbar` call sites (manufacturers, suppliers,
+attribute_groups) don't pass this slot, so they're unaffected — `render_slot` on an empty slot is
+a no-op.
+
+The Active/Deleted trash-tabs block keeps its own conditional row (unchanged content, just no
+longer paired with the view toggle) — the owner's ask was about the filters panel specifically,
+not the trash tabs, and that block only renders at all when there's something in the trash.
+
+### Verification
+
+`mix format` (clean diff, no unrelated churn) + `pk-test test/web/catalogues_live_test.exs`:
+**41 tests, 0 failures**, same pre-existing warnings as before the change (missing form ids —
+unrelated, present on `main` already).
+
+---
+
+## Item 3 — UX breakdown of folders (analysis only, no code)
+
+*(see below)*
+
+---
+
+*Item 3 analysis follows; items 1 and 2 are code-complete in this worktree, not sent as a PR
+(that's the head-of-cycle's call).*
