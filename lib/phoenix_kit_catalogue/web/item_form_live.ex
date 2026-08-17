@@ -10,6 +10,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   import PhoenixKitWeb.Components.Core.Icon, only: [icon: 1]
   import PhoenixKitWeb.Components.Core.Input, only: [input: 1]
   import PhoenixKitWeb.Components.Core.Select, only: [select: 1]
+  import PhoenixKitWeb.Components.Core.Button, only: [button: 1]
 
   import PhoenixKitCatalogue.Web.Components,
     only: [
@@ -1103,10 +1104,10 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
             )}
           </div>
         </div>
-        <button type="button" phx-click="open_pdf_search" class="btn btn-sm btn-primary">
+        <.button type="button" phx-click="open_pdf_search" size="sm">
           <.icon name="hero-magnifying-glass" class="w-4 h-4" />
           {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search PDFs")}
-        </button>
+        </.button>
       </div>
 
       <.live_component
@@ -1471,14 +1472,10 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                   <.icon name="hero-building-storefront" class="w-4 h-4" />
                   {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Suppliers")}
                 </h2>
-                <button
-                  type="button"
-                  phx-click="open_add_supplier"
-                  class="btn btn-sm btn-primary"
-                >
+                <.button type="button" phx-click="open_add_supplier" size="sm">
                   <.icon name="hero-plus" class="w-4 h-4" />
                   {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Add Supplier")}
-                </button>
+                </.button>
               </div>
 
               <%!-- Add/edit supplier-info inline form --%>
@@ -1554,12 +1551,12 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                   />
                 </div>
                 <div class="flex gap-2 mt-3 justify-end">
-                  <button type="button" phx-click="cancel_add_supplier" class="btn btn-sm btn-ghost">
+                  <.button type="button" phx-click="cancel_add_supplier" variant="ghost" size="sm">
                     {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Cancel")}
-                  </button>
-                  <button type="button" phx-click="save_supplier_info" class="btn btn-sm btn-primary">
+                  </.button>
+                  <.button type="button" phx-click="save_supplier_info" size="sm">
                     {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Save")}
-                  </button>
+                  </.button>
                 </div>
               </div>
 
@@ -1608,37 +1605,41 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                           <span :if={info.is_primary} class="badge badge-sm badge-primary">
                             {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Primary")}
                           </span>
-                          <button
+                          <.button
                             :if={not info.is_primary}
                             type="button"
                             phx-click="set_primary_supplier"
                             phx-value-uuid={info.uuid}
-                            class="btn btn-xs btn-ghost"
+                            variant="ghost"
+                            size="xs"
                           >
                             {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Make primary")}
-                          </button>
+                          </.button>
                         </td>
                         <td>
-                          <button
+                          <.button
                             type="button"
                             phx-click="open_supplier_history"
                             phx-value-uuid={info.uuid}
-                            class="btn btn-xs btn-ghost"
+                            variant="ghost"
+                            size="xs"
                             title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Price History")}
                           >
                             <.icon name="hero-chevron-down" class="w-3 h-3" />
-                          </button>
+                          </.button>
                         </td>
                         <td>
-                          <button
+                          <.button
                             type="button"
                             phx-click="delete_supplier_info"
                             phx-value-uuid={info.uuid}
                             data-confirm={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Remove this supplier link?")}
-                            class="btn btn-xs btn-ghost text-error"
+                            variant="ghost"
+                            size="xs"
+                            class="text-error"
                           >
                             <.icon name="hero-trash" class="w-3 h-3" />
-                          </button>
+                          </.button>
                         </td>
                       </tr>
                     <% end %>
@@ -1878,37 +1879,36 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
              Enter-key submitter, being first in the DOM); "Save &
              Exit" returns to where the form was opened from. --%>
         <div class="flex justify-end gap-3 pt-2">
-          <.link
+          <.button
             navigate={
               @return_to ||
                 if @catalogue_uuid, do: Paths.catalogue_detail(@catalogue_uuid), else: Paths.index()
             }
-            class="btn btn-ghost"
+            variant="ghost"
           >
             {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Cancel")}
-          </.link>
-          <button
+          </.button>
+          <.button
             type="submit"
             name="save_action"
             value="stay"
-            class="btn btn-outline btn-primary phx-submit-loading:opacity-75"
+            class="btn-outline"
             disabled={@uploads.attachment_files.entries != []}
             phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Saving...")}
           >
             {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Save")}
-          </button>
-          <button
+          </.button>
+          <.button
             type="submit"
             name="save_action"
             value="exit"
-            class="btn btn-primary phx-submit-loading:opacity-75"
             disabled={@uploads.attachment_files.entries != []}
             phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Saving...")}
           >
             {if @uploads.attachment_files.entries != [],
               do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Waiting for uploads..."),
               else: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Save & Exit")}
-          </button>
+          </.button>
         </div>
       </.form>
 
@@ -1957,15 +1957,16 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                   phx-change="select_move_target"
                 />
               </div>
-              <button
+              <.button
                 type="button"
                 phx-click="move_item"
                 phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Moving...")}
                 disabled={is_nil(@move_target)}
-                class="btn btn-sm btn-outline"
+                variant="outline"
+                size="sm"
               >
                 {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Move")}
-              </button>
+              </.button>
             </div>
           </div>
 
@@ -1992,15 +1993,16 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                   phx-change="select_move_target"
                 />
               </div>
-              <button
+              <.button
                 type="button"
                 phx-click="move_item"
                 phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Moving...")}
                 disabled={is_nil(@move_target)}
-                class="btn btn-sm btn-outline"
+                variant="outline"
+                size="sm"
               >
                 {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Move")}
-              </button>
+              </.button>
             </div>
           </div>
         </div>
