@@ -96,6 +96,9 @@ defmodule PhoenixKitCatalogue.Web.ViewConfig do
       end
 
     cfg = normalize(scope, raw)
+    # Legacy cleanup: configs saved before ?folder= became URL state may
+    # still carry the folder filter — ignore it so nobody stays stuck.
+    cfg = %{cfg | filters: Map.delete(cfg.filters, "folder")}
 
     if global_sort?(scope) do
       {sort_by, sort_dir} = load_global_sort(scope)
@@ -149,7 +152,11 @@ defmodule PhoenixKitCatalogue.Web.ViewConfig do
       "columns" => cfg.columns,
       "sort_by" => cfg.sort_by,
       "sort_dir" => to_string(cfg.sort_dir),
-      "filters" => cfg.filters,
+      # The current folder is LOCATION, not a preference: it lives in
+      # the URL (?folder=) like the detail page's ?category=, so it is
+      # never persisted — a stored value made the index "remember" a
+      # drill across sessions and devices with no link to share.
+      "filters" => Map.delete(cfg.filters, "folder"),
       "view" => cfg.view
     }
 

@@ -12,7 +12,11 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
 
   use PhoenixKitWeb.Live.UrlState,
     params: [
-      search_query: [default: "", url_key: "q"]
+      search_query: [default: "", url_key: "q"],
+      # The drilled folder is URL state (?folder=<uuid>), mirroring the
+      # detail page's ?category= — shareable, Back-friendly, reload-safe.
+      # "" (absent) = top level.
+      current_folder: [default: "", url_key: "folder"]
     ]
 
   use Gettext, backend: PhoenixKitCatalogue.Gettext
@@ -167,11 +171,29 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     scope = active_scope(%{active_tab: action})
     cfg = Map.put(Map.fetch!(socket.assigns.view_configs, scope), :search, state.search_query)
 
+    # The drilled folder rides the URL; thread it into the catalogues
+    # cfg (in-memory only — ViewConfig.save never persists it) so every
+    # existing read site (tree mode, walk, filter select) keeps working.
+    cfg =
+      if scope == :catalogues do
+        folder = state.current_folder
+
+        filters =
+          if folder in [nil, ""],
+            do: Map.delete(cfg.filters, "folder"),
+            else: Map.put(cfg.filters, "folder", folder)
+
+        %{cfg | filters: filters}
+      else
+        cfg
+      end
+
     socket =
       socket
       |> assign(:active_tab, action)
       |> assign(:page_title, tab_title(action))
       |> assign(:view_configs, Map.put(socket.assigns.view_configs, scope, cfg))
+      |> maybe_expand_url_folder(scope, state.current_folder)
 
     if tab_changed? do
       load_data(socket, action)
@@ -398,9 +420,21 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   defp clear_folder_filter(socket) do
     cfg = Map.fetch!(socket.assigns.view_configs, :catalogues)
 
-    if Map.has_key?(cfg.filters, "folder"),
-      do: put_cfg(socket, :catalogues, %{cfg | filters: Map.delete(cfg.filters, "folder")}),
-      else: socket
+    if Map.has_key?(cfg.filters, "folder") do
+      # In-memory clear for the current render + a replace-mode URL
+      # clear so a reload doesn't resurrect the dead location.
+      socket
+      |> assign(
+        :view_configs,
+        Map.put(socket.assigns.view_configs, :catalogues, %{
+          cfg
+          | filters: Map.delete(cfg.filters, "folder")
+        })
+      )
+      |> push_url_state([current_folder: ""], replace: true)
+    else
+      socket
+    end
   end
 
   # A PubSub reload or empty-folder delete can leave `filters["folder"]`
@@ -445,6 +479,15 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       (cfg[:search] || "") == "" and Map.delete(cfg.filters, "folder") == %{} and
       (folder_filter == nil or Map.has_key?(lookup, folder_filter))
   end
+
+  # URL-driven expansion: whenever ?folder= names a real folder, keep
+  # its branch visibly open (tree click, select, deep link — one path).
+  defp maybe_expand_url_folder(socket, :catalogues, folder)
+       when is_binary(folder) and folder != "" do
+    expand_folder_path(socket, folder)
+  end
+
+  defp maybe_expand_url_folder(socket, _scope, _folder), do: socket
 
   # Keep the branch to the drilled folder visibly open, whichever
   # control changed the filter (tree click or the select).
@@ -1966,7 +2009,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   # table stay in agreement. "" walks back up to the root.
   def handle_event("navigate_folder", %{"uuid" => uuid}, socket) do
     if uuid == "" or Map.has_key?(socket.assigns.folder_lookup, uuid) do
-      handle_event("set_filter", %{"column_id" => "folder", "value" => uuid}, socket)
+      {:noreply, push_url_state(socket, current_folder: uuid)}
     else
       {:noreply, socket}
     end
@@ -2061,9 +2104,14 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
           do: Map.delete(cfg.filters, id),
           else: Map.put(cfg.filters, id, val)
 
-      socket = if id == "folder", do: expand_folder_path(socket, val), else: socket
-
-      {:noreply, put_cfg(socket, scope, %{cfg | filters: filters})}
+      if id == "folder" and scope == :catalogues do
+        # Folder is URL state, not a persisted preference; "all"/"" and
+        # the unfiled sentinel clear it (same visible behavior as before).
+        value = if val in [nil, "", "all"], do: "", else: val
+        {:noreply, push_url_state(socket, current_folder: value)}
+      else
+        {:noreply, put_cfg(socket, scope, %{cfg | filters: filters})}
+      end
     else
       {:noreply, socket}
     end

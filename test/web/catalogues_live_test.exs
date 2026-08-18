@@ -14,6 +14,53 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
   # Tab switching
   # ─────────────────────────────────────────────────────────────────
 
+  describe "folder location is URL state (boss's call, 2026-08-18)" do
+    test "navigating a folder patches ?folder= and a reload restores it", %{conn: conn} do
+      {:ok, folder} = Catalogue.create_folder(%{name: "URL folder"})
+      inside = fixture_catalogue(%{name: "Inside cat"})
+      {:ok, _} = Catalogue.move_catalogue_to_folder(inside, folder.uuid)
+      _loose = fixture_catalogue(%{name: "Loose cat"})
+
+      {:ok, view, _html} = live(conn, @base)
+
+      render_click(view, "navigate_folder", %{"uuid" => folder.uuid})
+      assert_patch(view, @base <> "?folder=#{folder.uuid}")
+
+      # Up to root clears the param entirely.
+      render_click(view, "navigate_folder", %{"uuid" => ""})
+      assert_patch(view, @base)
+
+      # Deep link: a fresh mount from the URL lands inside the folder.
+      {:ok, _view, html} = live(conn, @base <> "?folder=#{folder.uuid}")
+      assert html =~ "Inside cat"
+      assert html =~ "URL folder"
+    end
+
+    test "the drilled folder is never persisted to the user's view config", %{conn: conn} do
+      {:ok, folder} = Catalogue.create_folder(%{name: "Unsaved folder"})
+
+      {:ok, view, _html} = live(conn, @base)
+      render_click(view, "navigate_folder", %{"uuid" => folder.uuid})
+
+      # Round-trip through ViewConfig: a save of the current cfg (any
+      # preference change triggers one) must not carry the folder, and
+      # a legacy stored folder is ignored on load.
+      user = %PhoenixKit.Users.Auth.User{
+        uuid: UUIDv7.generate(),
+        custom_fields: %{
+          "catalogue_view_configs" => %{
+            "catalogues" => %{"filters" => %{"folder" => folder.uuid, "status" => "active"}}
+          }
+        }
+      }
+
+      cfg = PhoenixKitCatalogue.Web.ViewConfig.load(user, :catalogues)
+      refute Map.has_key?(cfg.filters, "folder")
+      assert cfg.filters["status"] == "active"
+      _ = view
+    end
+  end
+
   describe "tabs" do
     test "index tab renders catalogues", %{conn: conn} do
       fixture_catalogue(%{name: "Kitchen"})
