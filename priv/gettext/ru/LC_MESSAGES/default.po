@@ -1570,3 +1570,9 @@ msgstr "Именно этот товар."
 
 msgid "Available in %{count} of %{total} options."
 msgstr "Доступен в %{count} из %{total} вариантов."
+
+msgid "Up one level"
+msgstr "На уровень вверх"
+
+msgid "All categories"
+msgstr "Все категории"

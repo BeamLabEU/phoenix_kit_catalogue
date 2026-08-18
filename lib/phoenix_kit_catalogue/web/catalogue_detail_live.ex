@@ -2745,6 +2745,28 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
             variant="card"
             title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "No categories or items yet. Add a category or item to get started.")}
           />
+
+          <%!-- Bottom navigation (client request 2026-08-19): on small
+               screens a long level means lots of scrolling, so the way
+               up lives at the bottom too. `navigate`, not `patch` — a
+               patch preserves scroll position, which would strand the
+               reader at the bottom of the level they just left; the
+               remount lands them at the top. "All categories" only when
+               it differs from one level up. Root shows nothing. --%>
+          <div :if={@current_category} class="flex flex-wrap justify-center gap-2 pt-2">
+            <.link navigate={up_level_path(assigns)} class="btn btn-outline btn-sm">
+              <.icon name="hero-arrow-up" class="w-4 h-4" />
+              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Up one level")}
+            </.link>
+            <.link
+              :if={@breadcrumb != []}
+              navigate={Paths.catalogue_detail(@catalogue.uuid)}
+              class="btn btn-outline btn-sm"
+            >
+              <.icon name="hero-squares-2x2" class="w-4 h-4" />
+              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "All categories")}
+            </.link>
+          </div>
         </div>
       </div>
 
@@ -3832,6 +3854,16 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       />
     </div>
     """
+  end
+
+  # One level up from the current category: its parent (the trail's
+  # last entry — @breadcrumb excludes the current node), or the
+  # catalogue root when the category is top-level.
+  defp up_level_path(assigns) do
+    case List.last(assigns.breadcrumb) do
+      %{uuid: uuid} -> Paths.category_browse(assigns.catalogue.uuid, uuid)
+      _ -> Paths.catalogue_detail(assigns.catalogue.uuid)
+    end
   end
 
   # Orders sibling categories for a reorder strategy; "reverse" reverses
