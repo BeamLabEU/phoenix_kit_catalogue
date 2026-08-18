@@ -749,7 +749,10 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   # set says about THIS item — one check is "this exact object", several
   # are "the options it comes in", none is "the whole set applies". The
   # count IS the mode; nothing else is tracked.
-  def handle_event("toggle_value_selection", %{"set" => set_uuid, "value" => key}, socket) do
+  # phx-value-key, NOT phx-value-value: a click payload on an input
+  # includes the element's own value attribute under "value" (a bare
+  # checkbox submits "on"), which would clobber the param.
+  def handle_event("toggle_value_selection", %{"set" => set_uuid, "key" => key}, socket) do
     with true <- set_uuid in socket.assigns.staged_set_uuids,
          %{values: values} <- socket.assigns.set_previews[set_uuid],
          true <- Enum.any?(values, &(&1.key == key)) do
@@ -2094,7 +2097,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                           checked={MapSet.member?(selection_for(assigns, uuid), value.key)}
                           phx-click="toggle_value_selection"
                           phx-value-set={uuid}
-                          phx-value-value={value.key}
+                          phx-value-key={value.key}
                           class="checkbox checkbox-xs"
                         />
                         <img
