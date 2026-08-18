@@ -349,6 +349,38 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSetsTest do
         assert %{sets: [%{selected: []}]} = AttributeSets.resolve_for_item(item.uuid)
       end
 
+      test "deleting a value sweeps it from selections; reads never echo ghosts" do
+        actor = Ecto.UUID.generate()
+        set = create_set!("Ikea trims")
+        {:ok, red} = AttributeSets.create_value(set, %{label: "Red"}, actor_uuid: actor)
+        {:ok, blue} = AttributeSets.create_value(set, %{label: "Blue"}, actor_uuid: actor)
+
+        item = fixture_item(%{name: "Door"})
+        {:ok, _} = AttributeSets.attach_set(item.uuid, set.uuid)
+        :ok = AttributeSets.set_attachment_selection(item.uuid, set.uuid, [red.slug, blue.slug])
+
+        # Deleting Red sweeps it from the stored selection (not just
+        # the read path) — the row itself is rewritten.
+        {:ok, _} = AttributeSets.delete_value(set, red)
+        [attachment] = AttributeSets.list_attachments(item.uuid)
+        assert attachment.data["selected_value_slugs"] == [blue.slug]
+        assert %{sets: [%{selected: [b]}]} = AttributeSets.resolve_for_item(item.uuid)
+        assert b == blue.slug
+
+        # Belt for out-of-band ghosts (writes that bypassed the sweep):
+        # the read path intersects with current values, degrading a
+        # fully-ghosted selection to [] — whole set applies, the set
+        # never vanishes and the mode never silently flips.
+        Repo.update_all(
+          from(a in PhoenixKitCatalogue.Schemas.ItemAttributeSet,
+            where: a.item_uuid == ^item.uuid
+          ),
+          set: [data: %{"selected_value_slugs" => ["ghost-slug"]}]
+        )
+
+        assert %{sets: [%{selected: []}]} = AttributeSets.resolve_for_item(item.uuid)
+      end
+
       test "attachment_counts and the single-set resolve (UI reads)" do
         set = create_set!("Ikea knobs")
         other = create_set!("Ikea rails")
