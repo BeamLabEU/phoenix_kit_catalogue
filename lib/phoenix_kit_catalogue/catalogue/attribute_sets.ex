@@ -80,7 +80,12 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
   @doc false
   def register_deletion_guard do
     if Code.ensure_loaded?(PhoenixKitEntities.Managed) do
-      PhoenixKitEntities.Managed.register_delete_guard(@owner, &deletion_guard/1)
+      # EXTERNAL capture, never `&deletion_guard/1`: a local fun pins the
+      # module version that registered it, and after a second code purge
+      # (dev reloads, hot upgrades) calling it from :persistent_term is a
+      # badfun crash. The external capture dispatches to the current
+      # module version at call time (panel finding, 2026-08-18 review).
+      PhoenixKitEntities.Managed.register_delete_guard(@owner, &__MODULE__.deletion_guard/1)
     end
 
     :ok
@@ -187,19 +192,31 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
   """
   @spec delete_set(struct(), keyword()) :: {:ok, struct()} | {:error, term()}
   def delete_set(set, opts \\ []) do
-    with :ok <- ensure_enabled(),
-         # Checked here AND via the registered entities-side guard:
-         # this path must be correct even on a host that never ran the
-         # supervision-tree registration (belt and suspenders).
-         false <- set_attached?(set.uuid) do
-      PhoenixKitEntities.delete_entity(set, on_behalf_of: @owner)
+    with :ok <- ensure_enabled() do
+      # The attachment check runs here AND via the registered
+      # entities-side guard (belt and suspenders), both under the same
+      # per-set advisory lock `attach_set/3` takes — closing the
+      # check-then-delete window a concurrent attach could slip through.
+      repo().transaction(fn -> locked_delete(set) end)
       |> tap_log("attribute_set.deleted", opts, fn s ->
         %{"name" => s.display_name, "slug" => s.name}
       end)
-    else
-      true -> {:error, :set_in_use}
-      {:error, reason} -> {:error, reason}
     end
+  end
+
+  defp locked_delete(set) do
+    lock_set(set.uuid)
+
+    with :ok <- ensure_not_attached(set.uuid),
+         {:ok, deleted} <- PhoenixKitEntities.delete_entity(set, on_behalf_of: @owner) do
+      deleted
+    else
+      {:error, reason} -> repo().rollback(reason)
+    end
+  end
+
+  defp ensure_not_attached(set_uuid) do
+    if set_attached?(set_uuid), do: {:error, :set_in_use}, else: :ok
   end
 
   # ── Values (entity data records) ───────────────────────────────────
@@ -331,6 +348,10 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
     label = String.trim(Map.get(attrs, :label, ""))
     type = Map.get(attrs, :type, "text")
     key = slugify_name(label)
+    # Re-read before append: the caller's struct may be stale, and a
+    # read-modify-write off it would silently drop a field another
+    # session added meanwhile.
+    set = get_set(set.uuid) || set
     fields = set.fields_definition || []
 
     with :ok <- ensure_enabled(),
@@ -397,34 +418,62 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
 
   # ── Attachments ────────────────────────────────────────────────────
 
-  @doc "Attaches a set to an item (appends; no-op when already attached)."
+  @doc """
+  Attaches a set to an item (appends; no-op when already attached).
+
+  Runs under the per-set advisory lock shared with `delete_set/2` —
+  without it, an attach racing a delete could commit after the guard's
+  `set_attached?` check read false, leaving an instant orphan row
+  (panel finding, 2026-08-18 review).
+  """
   @spec attach_set(Ecto.UUID.t(), Ecto.UUID.t(), keyword()) ::
           {:ok, ItemAttributeSet.t()} | {:error, term()}
   def attach_set(item_uuid, set_uuid, opts \\ []) do
-    with :ok <- ensure_enabled(),
-         %{} <- get_set(set_uuid) || {:error, :set_not_found} do
-      position =
-        repo().one(
-          from(a in ItemAttributeSet,
-            where: a.item_uuid == ^item_uuid,
-            select: coalesce(max(a.position), 0)
-          )
-        ) + 1
-
-      %ItemAttributeSet{}
-      |> ItemAttributeSet.changeset(%{
-        item_uuid: item_uuid,
-        set_uuid: set_uuid,
-        position: position
-      })
-      |> repo().insert(
-        on_conflict: :nothing,
-        conflict_target: [:item_uuid, :set_uuid]
-      )
+    with :ok <- ensure_enabled() do
+      repo().transaction(fn -> locked_attach(item_uuid, set_uuid) end)
       |> tap_log("attribute_set.attached", opts, fn _ ->
         %{"item_uuid" => item_uuid, "set_uuid" => set_uuid}
       end)
     end
+  end
+
+  defp locked_attach(item_uuid, set_uuid) do
+    lock_set(set_uuid)
+
+    with %{} <- get_set(set_uuid) || {:error, :set_not_found},
+         {:ok, row} <- insert_attachment(item_uuid, set_uuid) do
+      row
+    else
+      {:error, reason} -> repo().rollback(reason)
+    end
+  end
+
+  defp insert_attachment(item_uuid, set_uuid) do
+    position =
+      repo().one(
+        from(a in ItemAttributeSet,
+          where: a.item_uuid == ^item_uuid,
+          select: coalesce(max(a.position), 0)
+        )
+      ) + 1
+
+    %ItemAttributeSet{}
+    |> ItemAttributeSet.changeset(%{
+      item_uuid: item_uuid,
+      set_uuid: set_uuid,
+      position: position
+    })
+    |> repo().insert(
+      on_conflict: :nothing,
+      conflict_target: [:item_uuid, :set_uuid]
+    )
+  end
+
+  # Per-set advisory transaction lock serializing attach vs delete.
+  # hashtextextended folds the uuid to a bigint; xact locks release on
+  # commit/rollback, so there is nothing to clean up.
+  defp lock_set(set_uuid) do
+    repo().query!("SELECT pg_advisory_xact_lock(hashtextextended($1::text, 42))", [set_uuid])
   end
 
   @doc "Detaches a set from an item (no-op when not attached)."
@@ -495,16 +544,29 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
     |> Map.new()
   end
 
-  @doc "Removes attachments whose set blueprint no longer exists (PubSub cleanup)."
+  @doc """
+  Removes attachments whose set blueprint no longer exists (called by
+  `AttributeSets.OrphanPruner` off entities PubSub delete events).
+
+  Guarded on enablement: with entities disabled, `get_set/1` returns
+  nil for EVERY uuid — without the guard a stray call during a feature
+  toggle would read that as "blueprint deleted" and destroy valid
+  attachments (panel finding, 2026-08-18 review).
+  """
   @spec prune_orphan_attachments(Ecto.UUID.t()) :: non_neg_integer()
   def prune_orphan_attachments(set_uuid) do
-    if get_set(set_uuid) do
-      0
-    else
-      {count, _} =
-        repo().delete_all(from(a in ItemAttributeSet, where: a.set_uuid == ^set_uuid))
+    cond do
+      not entities_enabled?() ->
+        0
 
-      count
+      get_set(set_uuid) ->
+        0
+
+      true ->
+        {count, _} =
+          repo().delete_all(from(a in ItemAttributeSet, where: a.set_uuid == ^set_uuid))
+
+        count
     end
   end
 
@@ -638,9 +700,7 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
     full = PhoenixKitCatalogue.Catalogue.get_attribute_group_full(group.uuid)
 
     Enum.reduce(full.attributes, acc, fn attribute, {set_map, counts} ->
-      slug = slugify_name("#{group.name} #{attribute.key}")
-
-      {set, created?} = find_or_create_migrated_set(slug, group, attribute, opts)
+      {set, created?} = find_or_create_migrated_set(group, attribute, opts)
 
       value_count =
         Enum.count(attribute.values, fn value ->
@@ -649,7 +709,11 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
 
       default = Enum.find(attribute.values, & &1.is_default)
 
-      if created? and default do
+      # Top-up, not created-only: a crash between creating the set and
+      # writing its default must not lose the default forever — on
+      # re-run the set exists (created? false) but its default is still
+      # nil, so apply it then too (panel finding, 2026-08-18 review).
+      if default && is_nil(current_default(set)) do
         {:ok, _} = update_set(set, %{default_value_slug: default.key}, opts)
       end
 
@@ -664,26 +728,66 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
     end)
   end
 
-  defp find_or_create_migrated_set(slug, group, attribute, opts) do
+  # Two distinct (group, attribute) pairs can slugify to the same text —
+  # "A B"/"C" vs "A"/"B C", or non-Latin names that strip to "" — and a
+  # blind slug reuse would silently merge unrelated dimensions (panel
+  # finding, 2026-08-18 review). Each migrated set records which legacy
+  # attribute it came from (settings.catalogue.migrated_from); on a slug
+  # hit for a DIFFERENT attribute the slug is disambiguated with the
+  # attribute's stable short uuid, which also keeps re-runs idempotent.
+  # A hit without provenance is grandfathered as a match (sets migrated
+  # before provenance existed).
+  defp find_or_create_migrated_set(group, attribute, opts) do
+    base =
+      case slugify_name("#{group.name} #{attribute.key}") do
+        "" -> "attr_" <> short_uid(attribute)
+        slug -> slug
+      end
+
+    find_or_create_with_slug(base, group, attribute, opts)
+  end
+
+  defp find_or_create_with_slug(slug, group, attribute, opts) do
     full_slug = @slug_prefix <> slug
 
     case Enum.find(list_sets(), &(&1.name == full_slug)) do
-      %{} = existing ->
-        {existing, false}
-
       nil ->
-        {:ok, set} =
-          create_set(
-            %{
-              name: "#{group.name} — #{attribute.name}",
-              slug: slug,
-              kind: attribute.kind
-            },
-            opts
-          )
+        {create_migrated_set(slug, group, attribute, opts), true}
 
-        {set, true}
+      %{} = existing ->
+        provenance = get_in(existing.settings, ["catalogue", "migrated_from"])
+
+        if provenance in [nil, attribute.uuid] do
+          {existing, false}
+        else
+          find_or_create_with_slug(slug <> "_" <> short_uid(attribute), group, attribute, opts)
+        end
     end
+  end
+
+  defp create_migrated_set(slug, group, attribute, opts) do
+    {:ok, set} =
+      create_set(
+        %{
+          name: "#{group.name} — #{attribute.name}",
+          slug: slug,
+          kind: attribute.kind
+        },
+        opts
+      )
+
+    {:ok, set} =
+      PhoenixKitEntities.update_entity(
+        set,
+        %{settings: put_in(set.settings, ["catalogue", "migrated_from"], attribute.uuid)},
+        on_behalf_of: @owner
+      )
+
+    set
+  end
+
+  defp short_uid(%{uuid: uuid}) do
+    uuid |> String.replace("-", "") |> binary_part(0, 8)
   end
 
   defp ensure_migrated_value(set, value, opts) do

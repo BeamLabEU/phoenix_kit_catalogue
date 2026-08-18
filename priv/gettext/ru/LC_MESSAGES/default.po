@@ -1453,3 +1453,6 @@ msgstr "Группа атрибутов (устаревшая)"
 
 msgid "Unknown set"
 msgstr "Неизвестный набор"
+
+msgid "This set was deleted in another session."
+msgstr "Этот набор был удалён в другом сеансе."

@@ -223,14 +223,24 @@ defmodule PhoenixKitCatalogue.Web.AttributeSetFormLive do
       ) do
     with %{} = value <- owned_value(socket, uuid),
          %{} = field <- extra_field(socket.assigns.set, key) do
-      extras = %{key => cast_extra(field, raw)}
+      # Unparseable input never reaches the DB — casting failures and
+      # entities-side validation failures share one flash, and the
+      # reload snaps the input back to the stored value.
+      result =
+        case cast_extra(field, raw) do
+          {:ok, cast} ->
+            Catalogue.update_attribute_set_value(
+              socket.assigns.set,
+              value,
+              %{extras: %{key => cast}},
+              actor_opts(socket)
+            )
 
-      case Catalogue.update_attribute_set_value(
-             socket.assigns.set,
-             value,
-             %{extras: extras},
-             actor_opts(socket)
-           ) do
+          :error ->
+            {:error, :invalid_value}
+        end
+
+      case result do
         {:ok, _} ->
           {:noreply, reload_set(socket)}
 
@@ -362,9 +372,17 @@ defmodule PhoenixKitCatalogue.Web.AttributeSetFormLive do
     end
   end
 
-  defp save_set(socket, :edit, attrs, mode) do
-    attrs = if attrs.name == "", do: Map.delete(attrs, :name), else: attrs
+  # Same rule as :new — no silent partial save with a cleared name.
+  defp save_set(socket, :edit, %{name: ""}, _mode) do
+    {:noreply,
+     put_flash(
+       socket,
+       :error,
+       Gettext.gettext(PhoenixKitCatalogue.Gettext, "Name is required.")
+     )}
+  end
 
+  defp save_set(socket, :edit, attrs, mode) do
     case Catalogue.update_attribute_set(socket.assigns.set, attrs, actor_opts(socket)) do
       {:ok, _} ->
         socket =
@@ -396,12 +414,26 @@ defmodule PhoenixKitCatalogue.Web.AttributeSetFormLive do
     end
   end
 
+  # The set can vanish mid-edit (another admin deleted it) — bail to
+  # the listing instead of crashing on nil (panel finding).
   defp reload_set(socket) do
-    set = Catalogue.get_attribute_set(socket.assigns.set.uuid)
+    case Catalogue.get_attribute_set(socket.assigns.set.uuid) do
+      nil ->
+        socket
+        |> put_flash(
+          :error,
+          Gettext.gettext(
+            PhoenixKitCatalogue.Gettext,
+            "This set was deleted in another session."
+          )
+        )
+        |> push_navigate(to: Paths.attribute_groups())
 
-    socket
-    |> assign(:set, set)
-    |> assign(:values, Catalogue.list_attribute_set_values(set))
+      set ->
+        socket
+        |> assign(:set, set)
+        |> assign(:values, Catalogue.list_attribute_set_values(set))
+    end
   end
 
   # Events carry client-forgeable uuids — resolve only within this set.
@@ -417,17 +449,17 @@ defmodule PhoenixKitCatalogue.Web.AttributeSetFormLive do
 
   defp current_default(set), do: get_in(set.settings, ["catalogue", "default_value_slug"])
 
-  defp cast_extra(_field, ""), do: nil
+  defp cast_extra(_field, ""), do: {:ok, nil}
 
   defp cast_extra(%{"type" => "number"}, raw) do
     case Float.parse(raw) do
-      {num, ""} -> if num == trunc(num), do: trunc(num), else: num
-      _ -> raw
+      {num, ""} -> {:ok, if(num == trunc(num), do: trunc(num), else: num)}
+      _ -> :error
     end
   end
 
-  defp cast_extra(%{"type" => "boolean"}, raw), do: raw == "true"
-  defp cast_extra(_field, raw), do: raw
+  defp cast_extra(%{"type" => "boolean"}, raw), do: {:ok, raw == "true"}
+  defp cast_extra(_field, raw), do: {:ok, raw}
 
   # Same uncontrolled-draft machinery as the group editor: the add-value
   # and add-field forms carry a generation in their DOM id, so clearing

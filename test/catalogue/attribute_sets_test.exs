@@ -248,6 +248,13 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSetsTest do
         item = fixture_item(%{name: "Door"})
         {:ok, _} = AttributeSets.attach_set(item.uuid, set.uuid)
 
+        # With entities disabled EVERY set reads as missing — pruning
+        # then must be a no-op, not a purge (panel finding).
+        PhoenixKit.Settings.update_setting("entities_enabled", "false")
+        assert AttributeSets.prune_orphan_attachments(set.uuid) == 0
+        PhoenixKit.Settings.update_setting("entities_enabled", "true")
+        assert length(AttributeSets.list_attachments(item.uuid)) == 1
+
         # Simulate an out-of-band blueprint delete (repo-level, bypassing
         # the guard) — the PubSub cleanup path prunes the orphan row.
         Repo.delete!(set)
@@ -288,6 +295,48 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSetsTest do
         # Idempotent: nothing new on a re-run.
         assert {:ok, %{sets: 0, values: 0, attachments: 0}} =
                  AttributeSets.migrate_groups_to_sets(actor_uuid: actor)
+      end
+
+      test "colliding and non-sluggable names get distinct sets, defaults are topped up" do
+        actor = Ecto.UUID.generate()
+
+        # "A B"/"C" and "A"/"B C" both slugify to a_b_c; "Цвет" strips
+        # to "" — three distinct dimensions that must NOT merge.
+        {:ok, g1} = Catalogue.create_attribute_group(%{name: "A B"})
+        {:ok, a1} = Catalogue.create_attribute(g1, %{"name" => "C", "kind" => "multi"})
+        {:ok, v1} = Catalogue.create_attribute_value(a1, %{"value" => "One"})
+        {:ok, _} = Catalogue.set_default_value(v1)
+
+        {:ok, g2} = Catalogue.create_attribute_group(%{name: "A"})
+        {:ok, _a2} = Catalogue.create_attribute(g2, %{"name" => "B C", "kind" => "multi"})
+
+        {:ok, g3} = Catalogue.create_attribute_group(%{name: "Цвет"})
+        {:ok, _a3} = Catalogue.create_attribute(g3, %{"name" => "Размер", "kind" => "fixed"})
+
+        assert {:ok, %{sets: 3}} = AttributeSets.migrate_groups_to_sets(actor_uuid: actor)
+
+        assert {:ok, %{sets: 0, values: 0}} =
+                 AttributeSets.migrate_groups_to_sets(actor_uuid: actor)
+
+        slugs = AttributeSets.list_sets() |> Enum.map(& &1.name)
+        assert length(Enum.uniq(slugs)) == length(slugs)
+        assert length(slugs) == 3
+
+        # Default top-up: clear the migrated default to simulate a crash
+        # between set creation and the default write — a re-run heals it.
+        # The set is found by provenance (collision handling means its
+        # slug depends on group processing order).
+        with_default =
+          Enum.find(
+            AttributeSets.list_sets(),
+            &(get_in(&1.settings, ["catalogue", "migrated_from"]) == a1.uuid)
+          )
+
+        {:ok, _} = AttributeSets.update_set(with_default, %{default_value_slug: nil})
+        assert {:ok, %{sets: 0}} = AttributeSets.migrate_groups_to_sets(actor_uuid: actor)
+        healed = AttributeSets.get_set(with_default.uuid)
+        assert {:ok, %{default: default}} = AttributeSets.contract(healed)
+        assert default == v1.key
       end
     end
 
