@@ -1552,3 +1552,12 @@ msgstr "Iga väärtus saab meediakogust valitud pildi."
 
 msgid "Each value gets a video picked from the media library."
 msgstr "Iga väärtus saab meediakogust valitud video."
+
+msgid "Attach sets, then tick what applies: one tick — this exact item; several — the options it comes in; none — the whole set. Applied when you save."
+msgstr "Seo komplektid ja märgi, mis kehtib: üks linnuke — täpselt see toode; mitu — valikud, milles see saadaval on; mitte ükski — kogu komplekt. Rakendub salvestamisel."
+
+msgid "This exact item."
+msgstr "Täpselt see toode."
+
+msgid "Available in %{count} of %{total} options."
+msgstr "Saadaval %{count} valikus %{total}-st."

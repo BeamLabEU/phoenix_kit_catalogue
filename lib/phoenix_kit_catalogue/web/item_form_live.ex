@@ -32,6 +32,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
       ai_translate_modal: 1
     ]
 
+  alias PhoenixKit.Modules.Storage.URLSigner
   alias PhoenixKit.Utils.Multilang
   alias PhoenixKit.Utils.Routes
   alias PhoenixKitCatalogue.Attachments
@@ -744,6 +745,28 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
 
   def handle_event("reorder_staged_sets", _params, socket), do: {:noreply, socket}
 
+  # The boss's two modes (2026-08-19): checking values narrows what the
+  # set says about THIS item — one check is "this exact object", several
+  # are "the options it comes in", none is "the whole set applies". The
+  # count IS the mode; nothing else is tracked.
+  def handle_event("toggle_value_selection", %{"set" => set_uuid, "value" => key}, socket) do
+    with true <- set_uuid in socket.assigns.staged_set_uuids,
+         %{values: values} <- socket.assigns.set_previews[set_uuid],
+         true <- Enum.any?(values, &(&1.key == key)) do
+      selections = socket.assigns.staged_selections
+      current = Map.get(selections, set_uuid, MapSet.new())
+
+      current =
+        if MapSet.member?(current, key),
+          do: MapSet.delete(current, key),
+          else: MapSet.put(current, key)
+
+      {:noreply, assign(socket, :staged_selections, Map.put(selections, set_uuid, current))}
+    else
+      _ -> {:noreply, socket}
+    end
+  end
+
   defp parse_tab("metadata"), do: :metadata
   defp parse_tab("files"), do: :files
   defp parse_tab(_), do: :details
@@ -1052,21 +1075,28 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   # everything and :new items work identically.
   defp assign_attribute_sets_state(socket, item, action) do
     if Catalogue.attribute_sets_enabled?() do
-      staged =
+      attachments =
         if action == :edit and item.uuid,
-          do: Enum.map(Catalogue.list_attribute_set_attachments(item.uuid), & &1.set_uuid),
+          do: Catalogue.list_attribute_set_attachments(item.uuid),
           else: []
+
+      # Per-set value selection (boss's two modes, 2026-08-19): the
+      # checked value KEYS per set. Staged like everything else on this
+      # tab — applied on save.
+      selections = Map.new(attachments, &{&1.set_uuid, stored_selection(&1)})
 
       socket
       |> assign(:sets_enabled, true)
       |> assign(:available_sets, Catalogue.list_attribute_sets(lang: preview_lang(socket)))
-      |> assign(:staged_set_uuids, staged)
+      |> assign(:staged_set_uuids, Enum.map(attachments, & &1.set_uuid))
+      |> assign(:staged_selections, selections)
       |> assign_set_previews()
     else
       socket
       |> assign(:sets_enabled, false)
       |> assign(:available_sets, [])
       |> assign(:staged_set_uuids, [])
+      |> assign(:staged_selections, %{})
       |> assign(:set_previews, %{})
     end
   end
@@ -1078,6 +1108,71 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
       end)
 
     assign(socket, :set_previews, previews)
+  end
+
+  defp stored_selection(attachment) do
+    case attachment.data["selected_value_slugs"] do
+      list when is_list(list) -> list |> Enum.filter(&is_binary/1) |> MapSet.new()
+      _ -> MapSet.new()
+    end
+  end
+
+  defp selection_for(assigns, set_uuid) do
+    Map.get(assigns.staged_selections, set_uuid, MapSet.new())
+  end
+
+  # First image-type extra with a value — the chip's swatch thumbnail.
+  defp value_thumb(preview, value) do
+    preview[:fields]
+    |> List.wrap()
+    |> Enum.filter(&(&1.type == "image"))
+    |> Enum.find_value(fn field ->
+      case value.extras[field.key] do
+        uuid when is_binary(uuid) and uuid != "" -> uuid
+        _ -> nil
+      end
+    end)
+  end
+
+  # Non-media extras as a tooltip ("Price per liter: 12.5 · Finish:
+  # Gloss") — nil when the value carries none, so no empty title attr.
+  defp value_extras_summary(preview, value) do
+    summary =
+      preview[:fields]
+      |> List.wrap()
+      |> Enum.reject(&(&1.type in ["image", "video"]))
+      |> Enum.map(fn field ->
+        case value.extras[field.key] do
+          nil -> nil
+          "" -> nil
+          v -> "#{field.label}: #{v}"
+        end
+      end)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.join(" · ")
+
+    if summary == "", do: nil, else: summary
+  end
+
+  # The mode readout under each set — the count IS the mode.
+  defp selection_hint(assigns, set_uuid, preview) do
+    count = MapSet.size(selection_for(assigns, set_uuid))
+
+    cond do
+      count == 0 ->
+        nil
+
+      count == 1 ->
+        Gettext.gettext(PhoenixKitCatalogue.Gettext, "This exact item.")
+
+      true ->
+        Gettext.gettext(
+          PhoenixKitCatalogue.Gettext,
+          "Available in %{count} of %{total} options.",
+          count: count,
+          total: length(preview.values)
+        )
+    end
   end
 
   defp staged_set_name(assigns, uuid) do
@@ -1157,6 +1252,17 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
       Enum.each(staged -- current, &attach_staged_set(socket, item.uuid, &1))
 
       Catalogue.reorder_attribute_sets(item.uuid, staged, actor_opts(socket))
+
+      # Selections write AFTER attach so new attachments exist; the
+      # context validates keys against the set's current values.
+      Enum.each(staged, fn set_uuid ->
+        slugs =
+          socket.assigns.staged_selections
+          |> Map.get(set_uuid, MapSet.new())
+          |> MapSet.to_list()
+
+        Catalogue.set_attribute_set_selection(item.uuid, set_uuid, slugs, actor_opts(socket))
+      end)
     end
 
     :ok
@@ -1913,7 +2019,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                   <p class="text-xs text-base-content/50">
                     {Gettext.gettext(
                       PhoenixKitCatalogue.Gettext,
-                      "Attach any number of sets — Ikea colors, HomeDepot trims. Applied when you save."
+                      "Attach sets, then tick what applies: one tick — this exact item; several — the options it comes in; none — the whole set. Applied when you save."
                     )}
                   </p>
                 </div>
@@ -1963,18 +2069,57 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                       <.icon name="hero-x-mark" class="w-4 h-4" />
                     </button>
                   </div>
-                  <div :if={preview} class="flex flex-wrap items-center gap-1.5 pl-6">
-                    <span :for={value <- preview.values} class="badge badge-sm badge-ghost gap-1">
-                      <.icon
-                        :if={preview.default == value.key}
-                        name="hero-star-solid"
-                        class="w-3 h-3 text-warning shrink-0"
-                      />
-                      {value.label}
-                    </span>
-                    <span :if={preview.values == []} class="text-xs text-base-content/40">
-                      {Gettext.gettext(PhoenixKitCatalogue.Gettext, "No values defined yet.")}
-                    </span>
+                  <%!-- Value chips are CHECKBOXES (boss's two modes):
+                       tick one — this exact item; tick several — the
+                       options it comes in; tick none — the whole set
+                       applies. The checkboxes carry no name, so the
+                       main form never submits them; selection is
+                       staged and applied on save. Swatch thumbnails
+                       and an extras tooltip surface the set's data. --%>
+                  <div :if={preview} class="flex flex-col gap-1.5 pl-6">
+                    <div class="flex flex-wrap items-center gap-1.5">
+                      <label
+                        :for={value <- preview.values}
+                        class={[
+                          "flex items-center gap-1.5 rounded-full border pl-1.5 pr-2.5 py-0.5 cursor-pointer select-none transition-colors",
+                          if(MapSet.member?(selection_for(assigns, uuid), value.key),
+                            do: "border-primary bg-primary/10",
+                            else: "border-base-content/20 bg-base-100 hover:border-base-content/40"
+                          )
+                        ]}
+                        title={value_extras_summary(preview, value)}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={MapSet.member?(selection_for(assigns, uuid), value.key)}
+                          phx-click="toggle_value_selection"
+                          phx-value-set={uuid}
+                          phx-value-value={value.key}
+                          class="checkbox checkbox-xs"
+                        />
+                        <img
+                          :if={value_thumb(preview, value)}
+                          src={URLSigner.signed_url(value_thumb(preview, value), "thumbnail")}
+                          alt=""
+                          class="w-5 h-5 rounded object-cover"
+                        />
+                        <.icon
+                          :if={preview.default == value.key}
+                          name="hero-star-solid"
+                          class="w-3 h-3 text-warning shrink-0"
+                        />
+                        <span class="text-sm">{value.label}</span>
+                      </label>
+                      <span :if={preview.values == []} class="text-xs text-base-content/40">
+                        {Gettext.gettext(PhoenixKitCatalogue.Gettext, "No values defined yet.")}
+                      </span>
+                    </div>
+                    <p
+                      :if={selection_hint(assigns, uuid, preview)}
+                      class="text-xs text-base-content/60"
+                    >
+                      {selection_hint(assigns, uuid, preview)}
+                    </p>
                   </div>
                 </div>
               </div>
