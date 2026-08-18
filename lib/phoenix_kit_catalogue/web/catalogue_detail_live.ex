@@ -2388,14 +2388,12 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                 placeholder={search_placeholder(@current_category)}
               />
               <div :if={@view_mode == "active"} class="ml-auto flex flex-wrap items-center gap-2">
-                <%!-- Root only — inside a category "Add Category" reads as
-                     ambiguous (sibling or subcategory?). Nesting is done via
-                     the parent picker on the category form instead. --%>
-                <.link
-                  :if={@current_category == nil}
-                  navigate={new_category_path(assigns)}
-                  class="btn btn-outline btn-sm"
-                >
+                <%!-- On every level (boss's call, 2026-08-18 — subcategories
+                     are a first-class flow): at root it creates a root
+                     category, drilled it creates a SUBCATEGORY of the
+                     current one — new_category_path pre-seeds parent_uuid
+                     from @current_category, so there's no ambiguity. --%>
+                <.link navigate={new_category_path(assigns)} class="btn btn-outline btn-sm">
                   <.icon name="hero-folder-plus" class="w-4 h-4" /> {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Add Category")}
                 </.link>
                 <.link navigate={new_item_path(assigns)} class="btn btn-primary btn-sm">
