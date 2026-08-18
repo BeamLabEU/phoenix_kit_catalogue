@@ -397,10 +397,26 @@ defmodule PhoenixKitCatalogue.Web.Components.ProductCard do
 
   def build_fields(_, _), do: []
 
-  # The item's attribute group resolved for the card's locale — one row
-  # per attribute, values comma-joined in display order. Runs on card
+  # The item's attributes resolved for the card's locale — one row per
+  # set/attribute, values comma-joined in display order. Runs on card
   # open only (this function is caller-side), so no per-row list cost.
+  # SETS (the 2026-08-18 rework) render first when the item has any;
+  # otherwise the legacy group resolve still carries dual-run items.
   defp attribute_fields(%Item{uuid: uuid}, locale) when is_binary(uuid) do
+    case Catalogue.resolve_attribute_sets_for_item(uuid, lang: locale) do
+      %{sets: [_ | _] = sets} ->
+        for s <- sets do
+          {s.name, Enum.map_join(s.values, ", ", & &1.label)}
+        end
+
+      _ ->
+        legacy_attribute_fields(uuid, locale)
+    end
+  end
+
+  defp attribute_fields(_, _), do: []
+
+  defp legacy_attribute_fields(uuid, locale) do
     with group_uuid when is_binary(group_uuid) <-
            Catalogue.get_item_attribute_group_uuid(uuid),
          %{attributes: attributes} <- Catalogue.resolved_group(group_uuid, locale) do
@@ -411,8 +427,6 @@ defmodule PhoenixKitCatalogue.Web.Components.ProductCard do
       _ -> []
     end
   end
-
-  defp attribute_fields(_, _), do: []
 
   # ── Internals ─────────────────────────────────────────────────────
 

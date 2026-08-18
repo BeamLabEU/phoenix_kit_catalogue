@@ -1297,3 +1297,159 @@ msgstr "Ни одна страница не соответствует запр�
 
 msgid "Search by filename…"
 msgstr "Поиск по имени файла…"
+
+msgid "Attribute sets need the Entities module enabled."
+msgstr "Наборы атрибутов требуют включённого модуля Entities."
+
+msgid "Attribute set not found."
+msgstr "Набор атрибутов не найден."
+
+msgid "New Attribute Set"
+msgstr "Новый набор атрибутов"
+
+msgid "Invalid value for %{field}."
+msgstr "Недопустимое значение для %{field}."
+
+msgid "A field with this name already exists."
+msgstr "Поле с таким именем уже существует."
+
+msgid "Failed to add field."
+msgstr "Не удалось добавить поле."
+
+msgid "Name is required."
+msgstr "Название обязательно."
+
+msgid "Attribute set created."
+msgstr "Набор атрибутов создан."
+
+msgid "Failed to create the set — is the name unique?"
+msgstr "Не удалось создать набор — уникально ли название?"
+
+msgid "Attribute set updated."
+msgstr "Набор атрибутов обновлён."
+
+msgid "Failed to update the set."
+msgstr "Не удалось обновить набор."
+
+msgid "A set is one dimension from one vendor — Ikea colors, HomeDepot trims. Items attach any number of sets."
+msgstr "Набор — одно измерение от одного поставщика: цвета Ikea, планки HomeDepot. К товару можно прикрепить любое число наборов."
+
+msgid "Manage this set's values and extra fields."
+msgstr "Управляйте значениями и дополнительными полями этого набора."
+
+msgid "e.g., Ikea colors"
+msgstr "напр., цвета Ikea"
+
+msgid "Key: %{key} — stable, referenced by items and orders."
+msgstr "Ключ: %{key} — стабильный, на него ссылаются товары и заказы."
+
+msgid "Values"
+msgstr "Значения"
+
+msgid "No values yet. Add one below — e.g. Oak, White, Anthracite."
+msgstr "Значений пока нет. Добавьте ниже — напр. Дуб, Белый, Антрацит."
+
+msgid "Extra fields"
+msgstr "Дополнительные поля"
+
+msgid "Extra info every value carries — price per liter, drying time. Each value above gets an input per field."
+msgstr "Дополнительные данные каждого значения — цена за литр, время высыхания. У каждого значения выше появится поле ввода."
+
+msgid "Remove field"
+msgstr "Удалить поле"
+
+msgid "New field name..."
+msgstr "Название нового поля..."
+
+msgid "Text"
+msgstr "Текст"
+
+msgid "Number"
+msgstr "Число"
+
+msgid "Yes / No"
+msgstr "Да / Нет"
+
+msgid "Date"
+msgstr "Дата"
+
+msgid "Remove extra field"
+msgstr "Удалить дополнительное поле"
+
+msgid "The field disappears from every value. Data already entered is kept but hidden until a field with the same name is re-added."
+msgstr "Поле исчезнет у всех значений. Уже введённые данные сохранятся, но будут скрыты, пока поле с тем же именем не добавят снова."
+
+msgid "Attribute set deleted."
+msgstr "Набор атрибутов удалён."
+
+msgid "This set is attached to items — detach it everywhere first."
+msgstr "Этот набор прикреплён к товарам — сначала открепите его везде."
+
+msgid "Failed to delete attribute set."
+msgstr "Не удалось удалить набор атрибутов."
+
+msgid "Migrated: %{sets} sets, %{values} values, %{attachments} item attachments."
+msgstr "Перенесено: наборов — %{sets}, значений — %{values}, привязок к товарам — %{attachments}."
+
+msgid "Migration failed — nothing was lost; check the logs and re-run."
+msgstr "Миграция не удалась — ничего не потеряно; проверьте логи и запустите снова."
+
+msgid "Attribute sets"
+msgstr "Наборы атрибутов"
+
+msgid "One dimension from one vendor — Ikea colors, HomeDepot trims. Items attach any number of sets."
+msgstr "Одно измерение от одного поставщика: цвета Ikea, планки HomeDepot. К товару можно прикрепить любое число наборов."
+
+msgid "New Set"
+msgstr "Новый набор"
+
+msgid "No sets yet. Create one, or migrate your legacy groups below."
+msgstr "Наборов пока нет. Создайте новый или перенесите старые группы ниже."
+
+msgid "Legacy attribute groups"
+msgstr "Устаревшие группы атрибутов"
+
+msgid "The old system. Migration copies every group's attributes into sets and re-attaches items — nothing is deleted."
+msgstr "Старая система. Миграция копирует атрибуты каждой группы в наборы и заново привязывает товары — ничего не удаляется."
+
+msgid "Migrate to sets"
+msgstr "Перенести в наборы"
+
+msgid "Delete Attribute Set"
+msgstr "Удалить набор атрибутов"
+
+msgid "This deletes the set and all its values. Sets attached to items cannot be deleted."
+msgstr "Будет удалён набор и все его значения. Наборы, прикреплённые к товарам, удалить нельзя."
+
+msgid "Migrate groups to sets"
+msgstr "Перенести группы в наборы"
+
+msgid "Each group attribute becomes its own set, values keep their keys, and every item's group assignment is re-attached as sets. The old groups stay untouched and re-running is safe."
+msgstr "Каждый атрибут группы становится отдельным набором, значения сохраняют ключи, а привязка группы у каждого товара заново оформляется наборами. Старые группы не затрагиваются, повторный запуск безопасен."
+
+msgid "Migrate"
+msgstr "Перенести"
+
+msgid "Attach any number of sets — Ikea colors, HomeDepot trims. Applied when you save."
+msgstr "Прикрепите любое число наборов — цвета Ikea, планки HomeDepot. Применяется при сохранении."
+
+msgid "Manage sets"
+msgstr "Управление наборами"
+
+msgid "unavailable"
+msgstr "недоступен"
+
+msgid "Detach set"
+msgstr "Открепить набор"
+
+msgid "Attach a set..."
+msgstr "Прикрепить набор..."
+
+msgid "No sets exist yet — create one under Manage sets."
+msgstr "Наборов ещё нет — создайте в разделе «Управление наборами»."
+
+msgid "Attribute group (legacy)"
+msgstr "Группа атрибутов (устаревшая)"
+
+msgid "Unknown set"
+msgstr "Неизвестный набор"

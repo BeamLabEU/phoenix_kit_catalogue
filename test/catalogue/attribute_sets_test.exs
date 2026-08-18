@@ -116,6 +116,51 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSetsTest do
 
         assert red.data["price_per_liter"] == 12
       end
+
+      test "value management: rename keeps the slug, extras, reorder, delete clears default" do
+        actor = Ecto.UUID.generate()
+        set = create_set!("Ikea colors")
+
+        {:ok, _} =
+          AttributeSets.add_extra_field(set, %{label: "Price per liter", type: "number"})
+
+        set = AttributeSets.get_set(set.uuid)
+        assert [%{"key" => "price_per_liter", "type" => "number"}] = set.fields_definition
+
+        {:ok, oak} = AttributeSets.create_value(set, %{label: "Oak"}, actor_uuid: actor)
+        {:ok, ash} = AttributeSets.create_value(set, %{label: "Ash"}, actor_uuid: actor)
+        {:ok, _} = AttributeSets.update_set(set, %{default_value_slug: "oak"})
+        set = AttributeSets.get_set(set.uuid)
+
+        # Display text changes; the stable key never does.
+        {:ok, renamed} = AttributeSets.update_value(set, oak, %{label: "Golden Oak"})
+        assert renamed.slug == "oak"
+        assert renamed.title == "Golden Oak"
+
+        {:ok, priced} =
+          AttributeSets.update_value(set, renamed, %{extras: %{"price_per_liter" => 12}})
+
+        assert priced.data["price_per_liter"] == 12
+
+        :ok = AttributeSets.reorder_values(set, [ash.uuid, oak.uuid])
+        assert [%{slug: "ash"}, %{slug: "oak"}] = AttributeSets.list_values(set)
+
+        # Deleting the default value clears the contract default too.
+        {:ok, _} = AttributeSets.delete_value(set, priced)
+        set = AttributeSets.get_set(set.uuid)
+        assert {:ok, %{default: nil}} = AttributeSets.contract(set)
+        assert [%{slug: "ash"}] = AttributeSets.list_values(set)
+
+        # Field-management guards + removal (per-value data is kept).
+        assert {:error, :duplicate_key} =
+                 AttributeSets.add_extra_field(set, %{label: "Price per liter", type: "text"})
+
+        assert {:error, :invalid_type} =
+                 AttributeSets.add_extra_field(set, %{label: "X", type: "rich_text"})
+
+        {:ok, _} = AttributeSets.remove_extra_field(set, "price_per_liter")
+        assert AttributeSets.get_set(set.uuid).fields_definition == []
+      end
     end
 
     describe "attachments + resolve" do
@@ -177,6 +222,25 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSetsTest do
 
         assert {:error, :set_not_found} =
                  AttributeSets.attach_set(item.uuid, Ecto.UUID.generate())
+      end
+
+      test "attachment_counts and the single-set resolve (UI reads)" do
+        set = create_set!("Ikea knobs")
+        other = create_set!("Ikea rails")
+        item = fixture_item(%{name: "Door"})
+        item2 = fixture_item(%{name: "Panel"})
+
+        {:ok, _} = AttributeSets.attach_set(item.uuid, set.uuid)
+        {:ok, _} = AttributeSets.attach_set(item2.uuid, set.uuid)
+
+        counts = AttributeSets.attachment_counts([set.uuid, other.uuid])
+        assert counts[set.uuid] == 2
+        refute Map.has_key?(counts, other.uuid)
+
+        assert %{key: "catalogue_set_ikea_knobs", kind: :multi, values: []} =
+                 AttributeSets.resolve_set(set.uuid)
+
+        assert AttributeSets.resolve_set(Ecto.UUID.generate()) == nil
       end
 
       test "orphan pruning clears attachments to vanished blueprints" do

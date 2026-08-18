@@ -45,14 +45,21 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
 
   defp repo, do: PhoenixKit.RepoHelper.repo()
 
-  defp entities_enabled? do
-    # Requires the Managed API (entities > 0.4.0) — on an older entities
-    # package the whole feature reports :entities_disabled rather than
-    # crashing on missing functions.
+  @doc """
+  True when the sets feature is live: the entities module is enabled
+  AND its package carries the Managed API (entities > 0.4.0) — on an
+  older package the whole feature degrades to `:entities_disabled`
+  rather than crashing on missing functions. UI surfaces branch on
+  this to decide sets-vs-legacy rendering.
+  """
+  @spec enabled?() :: boolean()
+  def enabled? do
     Code.ensure_loaded?(PhoenixKitEntities) and
       Code.ensure_loaded?(PhoenixKitEntities.Managed) and
       PhoenixKitEntities.enabled?()
   end
+
+  defp entities_enabled?, do: enabled?()
 
   # ── Startup registration ───────────────────────────────────────────
 
@@ -236,6 +243,136 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
     end
   end
 
+  @doc "Fetches one value record, scoped to the set (nil when foreign/missing)."
+  @spec get_value(struct(), Ecto.UUID.t()) :: struct() | nil
+  def get_value(set, value_uuid) when is_binary(value_uuid) do
+    with true <- entities_enabled?(),
+         %{entity_uuid: entity_uuid} = record <- PhoenixKitEntities.EntityData.get(value_uuid),
+         true <- entity_uuid == set.uuid do
+      record
+    else
+      _ -> nil
+    end
+  end
+
+  def get_value(_set, _), do: nil
+
+  @doc """
+  Updates a value: `:label` rewrites the display text (the slug — the
+  stable key — never changes), `:extras` merges into the record data.
+  """
+  @spec update_value(struct(), struct(), map(), keyword()) :: {:ok, struct()} | {:error, term()}
+  def update_value(set, value, attrs, opts \\ []) do
+    with :ok <- ensure_enabled() do
+      entity_attrs =
+        %{}
+        |> maybe_put(:title, Map.get(attrs, :label))
+        |> maybe_put_extras(value, Map.get(attrs, :extras))
+
+      value
+      |> PhoenixKitEntities.EntityData.update(entity_attrs, activity_log: false)
+      |> tap_log("attribute_set.value_updated", opts, fn v ->
+        %{"set" => set.name, "value" => v.slug}
+      end)
+    end
+  end
+
+  @doc """
+  Deletes a value record. When the value is the set's default, the
+  default is cleared first so the contract never points at a ghost.
+  """
+  @spec delete_value(struct(), struct(), keyword()) :: {:ok, struct()} | {:error, term()}
+  def delete_value(set, value, opts \\ []) do
+    with :ok <- ensure_enabled(),
+         :ok <- maybe_clear_default(set, value, opts) do
+      value
+      |> PhoenixKitEntities.EntityData.delete(activity_log: false)
+      |> tap_log("attribute_set.value_deleted", opts, fn v ->
+        %{"set" => set.name, "value" => v.slug}
+      end)
+    end
+  end
+
+  defp maybe_clear_default(set, value, opts) do
+    if current_default(set) == value.slug do
+      case update_set(set, %{default_value_slug: nil}, opts) do
+        {:ok, _} -> :ok
+        {:error, reason} -> {:error, reason}
+      end
+    else
+      :ok
+    end
+  end
+
+  @doc "Reorders a set's values to the given record-uuid order."
+  @spec reorder_values(struct(), [Ecto.UUID.t()], keyword()) :: :ok | {:error, term()}
+  def reorder_values(set, ordered_uuids, _opts \\ []) when is_list(ordered_uuids) do
+    with :ok <- ensure_enabled() do
+      PhoenixKitEntities.EntityData.reorder(set.uuid, ordered_uuids, activity_log: false)
+      :ok
+    end
+  end
+
+  # ── Extras (blueprint fields — "price per liter" etc.) ─────────────
+
+  @extra_field_types ~w(text number boolean date)
+
+  @doc "Extra-field types the set editor offers (a curated entities subset)."
+  @spec extra_field_types() :: [String.t()]
+  def extra_field_types, do: @extra_field_types
+
+  @doc """
+  Adds an extra field to the set's blueprint (`:label` required,
+  `:type` one of `extra_field_types/0`). Every value can then carry
+  data for it. The key is derived from the label and is stable.
+  """
+  @spec add_extra_field(struct(), map(), keyword()) :: {:ok, struct()} | {:error, term()}
+  def add_extra_field(set, attrs, opts \\ []) do
+    label = String.trim(Map.get(attrs, :label, ""))
+    type = Map.get(attrs, :type, "text")
+    key = slugify_name(label)
+    fields = set.fields_definition || []
+
+    with :ok <- ensure_enabled(),
+         :ok <- validate_extra_field(label, type, key, fields) do
+      set
+      |> PhoenixKitEntities.update_entity(
+        %{fields_definition: fields ++ [%{"type" => type, "key" => key, "label" => label}]},
+        on_behalf_of: @owner
+      )
+      |> tap_log("attribute_set.field_added", opts, fn s ->
+        %{"set" => s.name, "field" => key, "type" => type}
+      end)
+    end
+  end
+
+  defp validate_extra_field(label, type, key, fields) do
+    cond do
+      label == "" -> {:error, :label_required}
+      type not in @extra_field_types -> {:error, :invalid_type}
+      Enum.any?(fields, &(&1["key"] == key)) -> {:error, :duplicate_key}
+      true -> :ok
+    end
+  end
+
+  @doc """
+  Removes an extra field from the blueprint. Existing per-value data
+  for the key is left in place (harmless, invisible) — same doctrine
+  as entities' own field removal.
+  """
+  @spec remove_extra_field(struct(), String.t(), keyword()) :: {:ok, struct()} | {:error, term()}
+  def remove_extra_field(set, key, opts \\ []) when is_binary(key) do
+    with :ok <- ensure_enabled() do
+      fields = Enum.reject(set.fields_definition || [], &(&1["key"] == key))
+
+      set
+      |> PhoenixKitEntities.update_entity(%{fields_definition: fields}, on_behalf_of: @owner)
+      |> tap_log("attribute_set.field_removed", opts, fn s ->
+        %{"set" => s.name, "field" => key}
+      end)
+    end
+  end
+
   # ── Contract ───────────────────────────────────────────────────────
 
   @doc """
@@ -343,6 +480,21 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
     repo().exists?(from(a in ItemAttributeSet, where: a.set_uuid == ^set_uuid))
   end
 
+  @doc "How many items attach each of the given sets: %{set_uuid => count}."
+  @spec attachment_counts([Ecto.UUID.t()]) :: %{optional(Ecto.UUID.t()) => non_neg_integer()}
+  def attachment_counts([]), do: %{}
+
+  def attachment_counts(set_uuids) when is_list(set_uuids) do
+    repo().all(
+      from(a in ItemAttributeSet,
+        where: a.set_uuid in ^set_uuids,
+        group_by: a.set_uuid,
+        select: {a.set_uuid, count(a.item_uuid)}
+      )
+    )
+    |> Map.new()
+  end
+
   @doc "Removes attachments whose set blueprint no longer exists (PubSub cleanup)."
   @spec prune_orphan_attachments(Ecto.UUID.t()) :: non_neg_integer()
   def prune_orphan_attachments(set_uuid) do
@@ -411,7 +563,15 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
     |> Map.get(item_uuid, %{schema_version: 2, sets: []})
   end
 
-  defp resolve_set(set_uuid, opts) do
+  @doc """
+  Resolves ONE set to the v2 per-set shape
+  (`%{uuid, key, name, kind, default, values}`), or `nil` when the set
+  is missing or its contract is broken. Powers the item form's
+  attach-preview; the batched item reads go through
+  `resolve_for_items/2`.
+  """
+  @spec resolve_set(Ecto.UUID.t(), keyword()) :: map() | nil
+  def resolve_set(set_uuid, opts \\ []) do
     with %{} = set <- get_set(set_uuid, opts),
          {:ok, %{kind: kind, default: default}} <- contract(set) do
       values =
@@ -608,6 +768,11 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
 
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
+
+  defp maybe_put_extras(attrs, value, extras) when is_map(extras),
+    do: Map.put(attrs, :data, Map.merge(value.data || %{}, extras))
+
+  defp maybe_put_extras(attrs, _value, _extras), do: attrs
 
   defp maybe_put_creator(attrs, opts) do
     case opts[:actor_uuid] do
