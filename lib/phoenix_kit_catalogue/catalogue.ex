@@ -5164,6 +5164,10 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
   defdelegate list_attribute_set_attachments(item_uuid), to: AttributeSets, as: :list_attachments
 
+  defdelegate set_attribute_set_selection(item_uuid, set_uuid, slugs, opts \\ []),
+    to: AttributeSets,
+    as: :set_attachment_selection
+
   defdelegate resolve_attribute_sets(item_uuids, opts \\ []),
     to: AttributeSets,
     as: :resolve_for_items

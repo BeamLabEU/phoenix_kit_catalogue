@@ -405,8 +405,11 @@ defmodule PhoenixKitCatalogue.Web.Components.ProductCard do
   defp attribute_fields(%Item{uuid: uuid}, locale) when is_binary(uuid) do
     case Catalogue.resolve_attribute_sets_for_item(uuid, lang: locale) do
       %{sets: [_ | _] = sets} ->
+        # A per-item selection narrows the set (boss's two modes): one
+        # checked value = this exact configuration, several = the
+        # options this item comes in, none = the whole set.
         for s <- sets do
-          {s.name, Enum.map_join(s.values, ", ", & &1.label)}
+          {s.name, Enum.map_join(selected_values(s), ", ", & &1.label)}
         end
 
       _ ->
@@ -415,6 +418,11 @@ defmodule PhoenixKitCatalogue.Web.Components.ProductCard do
   end
 
   defp attribute_fields(_, _), do: []
+
+  defp selected_values(%{selected: [_ | _] = selected, values: values}),
+    do: Enum.filter(values, &(&1.key in selected))
+
+  defp selected_values(%{values: values}), do: values
 
   defp legacy_attribute_fields(uuid, locale) do
     with group_uuid when is_binary(group_uuid) <-

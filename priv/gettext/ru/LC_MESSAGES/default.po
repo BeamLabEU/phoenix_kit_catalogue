@@ -1561,3 +1561,12 @@ msgstr "У каждого значения будет изображение и�
 
 msgid "Each value gets a video picked from the media library."
 msgstr "У каждого значения будет видео из медиатеки."
+
+msgid "Attach sets, then tick what applies: one tick — this exact item; several — the options it comes in; none — the whole set. Applied when you save."
+msgstr "Прикрепите наборы и отметьте, что применимо: одна галочка — именно этот товар; несколько — варианты, в которых он бывает; ни одной — весь набор. Применяется при сохранении."
+
+msgid "This exact item."
+msgstr "Именно этот товар."
+
+msgid "Available in %{count} of %{total} options."
+msgstr "Доступен в %{count} из %{total} вариантов."

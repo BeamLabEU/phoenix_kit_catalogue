@@ -745,11 +745,29 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
       attachments
       |> Enum.group_by(& &1.item_uuid)
       |> Map.new(fn {item_uuid, rows} ->
-        sets = rows |> Enum.map(&resolved_sets[&1.set_uuid]) |> Enum.reject(&is_nil/1)
+        sets =
+          rows
+          |> Enum.map(&attach_selection(resolved_sets[&1.set_uuid], &1))
+          |> Enum.reject(&is_nil/1)
+
         {item_uuid, %{schema_version: 2, sets: sets}}
       end)
     else
       %{}
+    end
+  end
+
+  defp attach_selection(nil, _row), do: nil
+  defp attach_selection(set, row), do: Map.put(set, :selected, selected_slugs(row))
+
+  # The per-ATTACHMENT selection (boss's two modes, 2026-08-19): one
+  # slug = "this exact object is Red", several = "this object comes in
+  # Red/Blue/Yellow", empty = no statement, the whole set applies. The
+  # count IS the mode — nothing else is tracked.
+  defp selected_slugs(%ItemAttributeSet{data: data}) do
+    case data["selected_value_slugs"] do
+      slugs when is_list(slugs) -> Enum.filter(slugs, &is_binary/1)
+      _ -> []
     end
   end
 
@@ -778,13 +796,19 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
           %{key: record.slug, label: record.title, extras: record.data || %{}}
         end)
 
+      fields =
+        Enum.map(set.fields_definition || [], fn f ->
+          %{key: f["key"], label: f["label"], type: f["type"]}
+        end)
+
       %{
         uuid: set_uuid,
         key: set.name,
         name: set.display_name,
         kind: kind,
         default: default,
-        values: values
+        values: values,
+        fields: fields
       }
     else
       nil ->
@@ -793,6 +817,49 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
       {:error, :contract_broken} ->
         Logger.warning("AttributeSets: contract broken for set #{inspect(set_uuid)} — skipped")
         nil
+    end
+  end
+
+  @doc """
+  Stores the per-attachment value selection (`selected_value_slugs` in
+  the join row's reserved `data`) — the boss's two modes: ONE slug says
+  "this exact object is Red", several say "this object comes in these
+  options", empty clears the statement. Unknown slugs are dropped
+  against the set's current values; `{:error, :not_attached}` when the
+  item doesn't attach the set.
+  """
+  @spec set_attachment_selection(Ecto.UUID.t(), Ecto.UUID.t(), [String.t()], keyword()) ::
+          :ok | {:error, term()}
+  def set_attachment_selection(item_uuid, set_uuid, slugs, opts \\ []) when is_list(slugs) do
+    with :ok <- ensure_enabled(),
+         %ItemAttributeSet{} = row <-
+           repo().one(
+             from(a in ItemAttributeSet,
+               where: a.item_uuid == ^item_uuid and a.set_uuid == ^set_uuid
+             )
+           ) || {:error, :not_attached} do
+      valid_keys =
+        case resolve_set(set_uuid) do
+          %{values: values} -> MapSet.new(values, & &1.key)
+          nil -> MapSet.new()
+        end
+
+      selection = slugs |> Enum.filter(&(is_binary(&1) and &1 in valid_keys)) |> Enum.uniq()
+
+      {:ok, _} =
+        row
+        |> ItemAttributeSet.changeset(%{
+          data: Map.put(row.data || %{}, "selected_value_slugs", selection)
+        })
+        |> repo().update()
+
+      log_activity("attribute_set.selection_changed", opts, %{
+        "item_uuid" => item_uuid,
+        "set_uuid" => set_uuid,
+        "selected" => selection
+      })
+
+      :ok
     end
   end
 

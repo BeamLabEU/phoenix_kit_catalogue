@@ -309,6 +309,46 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSetsTest do
                  AttributeSets.attach_set(item.uuid, Ecto.UUID.generate())
       end
 
+      test "per-attachment selection: count is the mode, junk dropped, resolve carries it" do
+        actor = Ecto.UUID.generate()
+        set = create_set!("Ikea colors")
+        {:ok, red} = AttributeSets.create_value(set, %{label: "Red"}, actor_uuid: actor)
+        {:ok, blue} = AttributeSets.create_value(set, %{label: "Blue"}, actor_uuid: actor)
+        {:ok, _} = AttributeSets.create_value(set, %{label: "Gold"}, actor_uuid: actor)
+
+        item = fixture_item(%{name: "Door"})
+
+        assert {:error, :not_attached} =
+                 AttributeSets.set_attachment_selection(item.uuid, set.uuid, [red.slug])
+
+        {:ok, _} = AttributeSets.attach_set(item.uuid, set.uuid)
+
+        # No selection → no statement, resolve shows the whole set.
+        assert %{sets: [%{selected: []}]} = AttributeSets.resolve_for_item(item.uuid)
+
+        # One checked = this exact object.
+        :ok = AttributeSets.set_attachment_selection(item.uuid, set.uuid, [red.slug])
+        assert %{sets: [%{selected: [sel]}]} = AttributeSets.resolve_for_item(item.uuid)
+        assert sel == red.slug
+
+        # Several checked = the options it comes in; unknown slugs and
+        # duplicates are dropped.
+        :ok =
+          AttributeSets.set_attachment_selection(item.uuid, set.uuid, [
+            blue.slug,
+            red.slug,
+            red.slug,
+            "not-a-value"
+          ])
+
+        assert %{sets: [%{selected: selected}]} = AttributeSets.resolve_for_item(item.uuid)
+        assert Enum.sort(selected) == Enum.sort([red.slug, blue.slug])
+
+        # Empty clears the statement.
+        :ok = AttributeSets.set_attachment_selection(item.uuid, set.uuid, [])
+        assert %{sets: [%{selected: []}]} = AttributeSets.resolve_for_item(item.uuid)
+      end
+
       test "attachment_counts and the single-set resolve (UI reads)" do
         set = create_set!("Ikea knobs")
         other = create_set!("Ikea rails")
