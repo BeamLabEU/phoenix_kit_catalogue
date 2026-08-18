@@ -1176,27 +1176,6 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
     if summary == "", do: nil, else: summary
   end
 
-  # The mode readout under each set — the count IS the mode.
-  defp selection_hint(assigns, set_uuid, preview) do
-    count = MapSet.size(selection_for(assigns, set_uuid))
-
-    cond do
-      count == 0 ->
-        nil
-
-      count == 1 ->
-        Gettext.gettext(PhoenixKitCatalogue.Gettext, "This exact item.")
-
-      true ->
-        Gettext.gettext(
-          PhoenixKitCatalogue.Gettext,
-          "Available in %{count} of %{total} options.",
-          count: count,
-          total: length(preview.values)
-        )
-    end
-  end
-
   defp staged_set_name(assigns, uuid) do
     case Enum.find(assigns.available_sets, &(&1.uuid == uuid)) do
       %{display_name: name} -> name
@@ -2041,7 +2020,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                   <p class="text-xs text-base-content/50">
                     {Gettext.gettext(
                       PhoenixKitCatalogue.Gettext,
-                      "Attach sets, then tick what applies: one tick — this exact item; several — the options it comes in; none — the whole set. Applied when you save."
+                      "Attach any number of sets — Ikea colors, HomeDepot trims. Applied when you save."
                     )}
                   </p>
                 </div>
@@ -2136,12 +2115,6 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                         {Gettext.gettext(PhoenixKitCatalogue.Gettext, "No values defined yet.")}
                       </span>
                     </div>
-                    <p
-                      :if={selection_hint(assigns, uuid, preview)}
-                      class="text-xs text-base-content/60"
-                    >
-                      {selection_hint(assigns, uuid, preview)}
-                    </p>
                   </div>
                 </div>
               </div>
