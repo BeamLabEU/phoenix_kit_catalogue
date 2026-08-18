@@ -7,6 +7,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
   use PhoenixKitCatalogue.LiveCase
 
   alias PhoenixKitCatalogue.Catalogue
+  alias PhoenixKitCatalogue.Web.ViewConfig
 
   @base "/en/admin/catalogue"
 
@@ -54,7 +55,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
         }
       }
 
-      cfg = PhoenixKitCatalogue.Web.ViewConfig.load(user, :catalogues)
+      cfg = ViewConfig.load(user, :catalogues)
       refute Map.has_key?(cfg.filters, "folder")
       assert cfg.filters["status"] == "active"
       _ = view
