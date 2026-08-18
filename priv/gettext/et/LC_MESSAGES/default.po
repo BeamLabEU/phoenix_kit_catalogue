@@ -1453,3 +1453,27 @@ msgstr "Komplekte pole veel. Loo üks, et määrata valikud, mida tooted saavad 
 
 msgid "Attribute groups have been replaced by sets — your groups were migrated automatically."
 msgstr "Atribuudigrupid on asendatud komplektidega — sinu grupid migreeriti automaatselt."
+
+msgid "Text area"
+msgstr "Tekstiala"
+
+msgid "Select"
+msgstr "Valik"
+
+msgid "Image"
+msgstr "Pilt"
+
+msgid "Video"
+msgstr "Video"
+
+msgid "Options, comma-separated (Select)"
+msgstr "Valikud, komadega eraldatud (Valik)"
+
+msgid "Select fields need options — list them comma-separated."
+msgstr "Valik-tüüpi väljad vajavad valikuid — loetle need komadega eraldatult."
+
+msgid "Select Image"
+msgstr "Vali pilt"
+
+msgid "Select Video"
+msgstr "Vali video"

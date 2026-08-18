@@ -162,6 +162,58 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSetsTest do
         {:ok, _} = AttributeSets.remove_extra_field(set, "price_per_liter")
         assert AttributeSets.get_set(set.uuid).fields_definition == []
       end
+
+      test "extras cast through the entities pipeline; select/image/video field types" do
+        actor = Ecto.UUID.generate()
+        set = create_set!("Ikea finishes")
+
+        {:ok, _} = AttributeSets.add_extra_field(set, %{label: "Price", type: "number"})
+
+        assert {:error, :options_required} =
+                 AttributeSets.add_extra_field(set, %{label: "Finish", type: "select"})
+
+        {:ok, _} =
+          AttributeSets.add_extra_field(set, %{
+            label: "Finish",
+            type: "select",
+            options: ["Matte", " Gloss ", ""]
+          })
+
+        {:ok, _} = AttributeSets.add_extra_field(set, %{label: "Swatch", type: "image"})
+        set = AttributeSets.get_set(set.uuid)
+
+        assert %{"options" => ["Matte", "Gloss"]} =
+                 Enum.find(set.fields_definition, &(&1["key"] == "finish"))
+
+        {:ok, oak} = AttributeSets.create_value(set, %{label: "Oak"}, actor_uuid: actor)
+
+        # Raw form strings coerce; junk is refused before the DB.
+        {:ok, v} = AttributeSets.update_value(set, oak, %{extras: %{"price" => "12.5"}})
+        assert v.data["price"] == 12.5
+
+        assert {:error, :invalid_value} =
+                 AttributeSets.update_value(set, v, %{extras: %{"price" => "12abc"}})
+
+        assert {:error, :invalid_value} =
+                 AttributeSets.update_value(set, v, %{extras: %{"finish" => "Satin"}})
+
+        {:ok, v} = AttributeSets.update_value(set, v, %{extras: %{"finish" => "Gloss"}})
+        assert v.data["finish"] == "Gloss"
+
+        assert {:error, :unknown_field} =
+                 AttributeSets.update_value(set, v, %{extras: %{"nope" => "x"}})
+
+        # Media reference: storage uuid in, junk refused, "" clears.
+        file_uuid = Ecto.UUID.generate()
+        {:ok, v} = AttributeSets.update_value(set, v, %{extras: %{"swatch" => file_uuid}})
+        assert v.data["swatch"] == file_uuid
+
+        assert {:error, :invalid_value} =
+                 AttributeSets.update_value(set, v, %{extras: %{"swatch" => "not-a-uuid"}})
+
+        {:ok, v} = AttributeSets.update_value(set, v, %{extras: %{"swatch" => ""}})
+        assert v.data["swatch"] == nil
+      end
     end
 
     describe "attachments + resolve" do

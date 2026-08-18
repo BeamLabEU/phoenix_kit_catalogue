@@ -1462,3 +1462,27 @@ msgstr "Наборов пока нет. Создайте один, чтобы з
 
 msgid "Attribute groups have been replaced by sets — your groups were migrated automatically."
 msgstr "Группы атрибутов заменены наборами — ваши группы были перенесены автоматически."
+
+msgid "Text area"
+msgstr "Текстовая область"
+
+msgid "Select"
+msgstr "Выбор"
+
+msgid "Image"
+msgstr "Изображение"
+
+msgid "Video"
+msgstr "Видео"
+
+msgid "Options, comma-separated (Select)"
+msgstr "Варианты через запятую (Выбор)"
+
+msgid "Select fields need options — list them comma-separated."
+msgstr "Полям типа «Выбор» нужны варианты — перечислите их через запятую."
+
+msgid "Select Image"
+msgstr "Выберите изображение"
+
+msgid "Select Video"
+msgstr "Выберите видео"
