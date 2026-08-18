@@ -1447,3 +1447,9 @@ msgstr "Tundmatu komplekt"
 
 msgid "This set was deleted in another session."
 msgstr "See komplekt kustutati teises seansis."
+
+msgid "No sets yet. Create one to define the options items can attach."
+msgstr "Komplekte pole veel. Loo üks, et määrata valikud, mida tooted saavad külge siduda."
+
+msgid "Attribute groups have been replaced by sets — your groups were migrated automatically."
+msgstr "Atribuudigrupid on asendatud komplektidega — sinu grupid migreeriti automaatselt."

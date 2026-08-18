@@ -10,6 +10,7 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSetsTest do
   alias PhoenixKitCatalogue.Catalogue
 
   import PhoenixKitCatalogue.LiveCase, only: [fixture_item: 1]
+  alias PhoenixKit.Users.Auth.User
   alias PhoenixKitCatalogue.Catalogue.AttributeSets
   alias PhoenixKitCatalogue.Test.Repo
 
@@ -337,6 +338,43 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSetsTest do
         healed = AttributeSets.get_set(with_default.uuid)
         assert {:ok, %{default: default}} = AttributeSets.contract(healed)
         assert default == v1.key
+      end
+    end
+
+    describe "auto migration" do
+      test "auto_migrate_legacy migrates silently, no-ops when clean or disabled" do
+        # Disabled → no-op, no crash.
+        PhoenixKit.Settings.update_setting("entities_enabled", "false")
+        assert :ok = AttributeSets.auto_migrate_legacy()
+        PhoenixKit.Settings.update_setting("entities_enabled", "true")
+
+        # Nothing legacy → no-op.
+        assert :ok = AttributeSets.auto_migrate_legacy()
+        assert AttributeSets.list_sets() == []
+
+        # Legacy present → migrated without any manual step. The
+        # auto-path carries no actor, so entities attributes creation
+        # to the first user — give the sandbox one, as production has
+        # (repo-level insert: register_user/1 needs the rate limiter's
+        # ETS table, which this suite doesn't boot).
+        {:ok, _user} =
+          %User{}
+          |> User.registration_changeset(%{
+            email: "auto-migrate-#{System.unique_integer([:positive])}@example.com",
+            password: "ValidPassword123!"
+          })
+          |> Repo.insert()
+
+        {:ok, group} = Catalogue.create_attribute_group(%{name: "Auto doors"})
+        {:ok, color} = Catalogue.create_attribute(group, %{"name" => "Color", "kind" => "multi"})
+        {:ok, _} = Catalogue.create_attribute_value(color, %{"value" => "Oak"})
+        item = fixture_item(%{name: "Door"})
+        {:ok, _} = Catalogue.set_item_attribute_group(item, group.uuid)
+
+        assert :ok = AttributeSets.auto_migrate_legacy()
+
+        assert [%{key: "catalogue_set_auto_doors_color"}] =
+                 AttributeSets.resolve_for_item(item.uuid).sets
       end
     end
 

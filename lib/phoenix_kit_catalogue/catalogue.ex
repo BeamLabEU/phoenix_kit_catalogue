@@ -5179,6 +5179,8 @@ defmodule PhoenixKitCatalogue.Catalogue do
     to: AttributeSets,
     as: :migrate_groups_to_sets
 
+  defdelegate auto_migrate_attribute_groups(), to: AttributeSets, as: :auto_migrate_legacy
+
   defdelegate set_item_attribute_group(item, group_uuid, opts \\ []), to: Attributes
   defdelegate get_item_attribute_group_uuid(item_uuid), to: Attributes
   defdelegate item_attribute_group_map(item_uuids), to: Attributes

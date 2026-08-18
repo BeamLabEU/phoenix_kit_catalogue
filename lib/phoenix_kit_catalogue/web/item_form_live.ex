@@ -1003,6 +1003,23 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   end
 
   defp assign_attribute_state(socket, item, action) do
+    socket = assign_attribute_sets_state(socket, item, action)
+
+    if socket.assigns.sets_enabled do
+      # Sets ARE the attribute system — the legacy group surface
+      # doesn't load or render at all ("we shouldn't have legacy",
+      # boss direction 2026-08-18). The stored assignment rows sit
+      # untouched until the cutover drop migration.
+      socket
+      |> assign(:selected_attribute_group_uuid, nil)
+      |> assign(:attribute_group_options, [])
+      |> assign(:attribute_preview, nil)
+    else
+      assign_legacy_attribute_state(socket, item, action)
+    end
+  end
+
+  defp assign_legacy_attribute_state(socket, item, action) do
     selected =
       if action == :edit and item.uuid,
         do: Catalogue.get_item_attribute_group_uuid(item.uuid),
@@ -1027,7 +1044,6 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
     |> assign(:selected_attribute_group_uuid, selected)
     |> assign(:attribute_group_options, Catalogue.localize(groups, preview_lang(socket)))
     |> assign_attribute_preview(selected)
-    |> assign_attribute_sets_state(item, action)
   end
 
   # SETS (2026-08-18 rework): the staged multi-set selection. Same
@@ -1104,17 +1120,22 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   # the select only offers valid groups, so a rejected value can only be
   # a forged payload — skip it rather than fail the save.
   defp apply_attribute_assignment(socket, item) do
-    case Catalogue.set_item_attribute_group(
-           item,
-           socket.assigns.selected_attribute_group_uuid,
-           actor_opts(socket)
-         ) do
-      {:error, reason} ->
-        Logger.warning("ItemFormLive attribute assignment skipped: #{inspect(reason)}")
-        :ok
+    # With sets live the legacy select never renders, so the loaded-nil
+    # selection must NOT be written back — it would clear the item's
+    # stored legacy assignment, which stays frozen until cutover.
+    unless socket.assigns[:sets_enabled] do
+      case Catalogue.set_item_attribute_group(
+             item,
+             socket.assigns.selected_attribute_group_uuid,
+             actor_opts(socket)
+           ) do
+        {:error, reason} ->
+          Logger.warning("ItemFormLive attribute assignment skipped: #{inspect(reason)}")
+          :ok
 
-      _ ->
-        :ok
+        _ ->
+          :ok
+      end
     end
 
     apply_attribute_sets(socket, item)
@@ -1983,25 +2004,16 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
             </div>
           </div>
 
-          <%!-- Legacy attribute group — during dual-run it renders only
-               while this item still holds an assignment; clearing it is
-               the per-item cutover. Without entities, unchanged. --%>
-          <div
-            :if={!@sets_enabled or @selected_attribute_group_uuid}
-            class="card bg-base-100 shadow-lg"
-          >
+          <%!-- Legacy attribute group — only on hosts WITHOUT the
+               entities module; with sets live the legacy surface is
+               gone entirely (assignments auto-migrated). --%>
+          <div :if={!@sets_enabled} class="card bg-base-100 shadow-lg">
             <div class="card-body flex flex-col gap-4">
               <div class="flex items-center justify-between gap-4">
                 <div class="flex flex-col gap-0.5 min-w-0">
                   <h2 class="text-base font-semibold text-base-content/80 flex items-center gap-2">
                     <.icon name="hero-swatch" class="w-4 h-4" />
-                    {if @sets_enabled,
-                      do:
-                        Gettext.gettext(
-                          PhoenixKitCatalogue.Gettext,
-                          "Attribute group (legacy)"
-                        ),
-                      else: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Attribute group")}
+                    {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Attribute group")}
                   </h2>
                   <p class="text-xs text-base-content/50">
                     {Gettext.gettext(
