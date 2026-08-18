@@ -188,6 +188,20 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         cfg
       end
 
+    # Back can restore a ?folder= entry recorded in the ACTIVE view while
+    # the deleted-view assign is still set (the deleted switch clears the
+    # folder with replace, but earlier history entries keep theirs). The
+    # history entry was created in active mode, so returning to it means
+    # returning to active mode — otherwise the trash list is silently
+    # filtered by a folder its select can't even show. (Panel finding.)
+    socket =
+      if scope == :catalogues and state.current_folder not in [nil, ""] and
+           socket.assigns[:catalogue_view_mode] == "deleted" do
+        assign(socket, :catalogue_view_mode, "active")
+      else
+        socket
+      end
+
     socket =
       socket
       |> assign(:active_tab, action)
