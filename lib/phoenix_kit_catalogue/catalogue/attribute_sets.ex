@@ -374,13 +374,43 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
   def delete_value(set, value, opts \\ []) do
     with :ok <- ensure_enabled(),
          :ok <- maybe_clear_default(set, value, opts) do
-      value
-      |> PhoenixKitEntities.EntityData.delete(activity_log: false)
-      |> tap_log("attribute_set.value_deleted", opts, fn v ->
-        %{"set" => set.name, "value" => v.slug}
-      end)
+      result =
+        value
+        |> PhoenixKitEntities.EntityData.delete(activity_log: false)
+        |> tap_log("attribute_set.value_deleted", opts, fn v ->
+          %{"set" => set.name, "value" => v.slug}
+        end)
+
+      # Sweep the slug out of every attachment's stored selection —
+      # same doctrine as clearing a ghost default above (panel
+      # finding: readers intersect defensively, but stored ghosts
+      # must not wait for the next incidental item save as GC).
+      with {:ok, _} <- result, do: prune_selection_slug(set.uuid, value.slug)
+
+      result
     end
   end
+
+  defp prune_selection_slug(set_uuid, slug) do
+    from(a in ItemAttributeSet, where: a.set_uuid == ^set_uuid)
+    |> repo().all()
+    |> Enum.each(&prune_row_selection(&1, slug))
+
+    :ok
+  end
+
+  defp prune_row_selection(%{data: %{"selected_value_slugs" => slugs}} = row, slug)
+       when is_list(slugs) do
+    if slug in slugs do
+      row
+      |> ItemAttributeSet.changeset(%{
+        data: Map.put(row.data, "selected_value_slugs", List.delete(slugs, slug))
+      })
+      |> repo().update()
+    end
+  end
+
+  defp prune_row_selection(_row, _slug), do: :ok
 
   defp maybe_clear_default(set, value, opts) do
     if current_default(set) == value.slug do
@@ -758,15 +788,24 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
   end
 
   defp attach_selection(nil, _row), do: nil
-  defp attach_selection(set, row), do: Map.put(set, :selected, selected_slugs(row))
+
+  defp attach_selection(set, row),
+    do: Map.put(set, :selected, selected_slugs(row, set.values))
 
   # The per-ATTACHMENT selection (boss's two modes, 2026-08-19): one
   # slug = "this exact object is Red", several = "this object comes in
   # Red/Blue/Yellow", empty = no statement, the whole set applies. The
   # count IS the mode — nothing else is tracked.
-  defp selected_slugs(%ItemAttributeSet{data: data}) do
+  #
+  # Stored slugs are intersected with the set's CURRENT values here, in
+  # ONE place (panel finding): a value deleted after being ticked must
+  # not ghost through reads — a fully-ghosted selection degrades to []
+  # ("whole set applies"), never to a vanished or mode-flipped set.
+  defp selected_slugs(%ItemAttributeSet{data: data}, values) do
+    valid = MapSet.new(values, & &1.key)
+
     case data["selected_value_slugs"] do
-      slugs when is_list(slugs) -> Enum.filter(slugs, &is_binary/1)
+      slugs when is_list(slugs) -> Enum.filter(slugs, &(is_binary(&1) and &1 in valid))
       _ -> []
     end
   end

@@ -728,6 +728,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
     {:noreply,
      socket
      |> assign(:staged_set_uuids, List.delete(socket.assigns.staged_set_uuids, set_uuid))
+     |> assign(:staged_selections, Map.delete(socket.assigns.staged_selections, set_uuid))
      |> assign_set_previews()}
   end
 
@@ -1083,17 +1084,26 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
           do: Catalogue.list_attribute_set_attachments(item.uuid),
           else: []
 
+      socket =
+        socket
+        |> assign(:sets_enabled, true)
+        |> assign(:available_sets, Catalogue.list_attribute_sets(lang: preview_lang(socket)))
+        |> assign(:staged_set_uuids, Enum.map(attachments, & &1.set_uuid))
+        |> assign_set_previews()
+
       # Per-set value selection (boss's two modes, 2026-08-19): the
-      # checked value KEYS per set. Staged like everything else on this
-      # tab — applied on save.
-      selections = Map.new(attachments, &{&1.set_uuid, stored_selection(&1)})
+      # checked value KEYS per set, staged like everything else on this
+      # tab. Hydrated AFTER previews so stored slugs intersect with the
+      # set's CURRENT values — a value deleted after being ticked must
+      # not ghost the mode hint into a state the user can't untick
+      # (panel finding).
+      selections =
+        Map.new(attachments, fn a ->
+          {a.set_uuid, stored_selection(a, socket.assigns.set_previews[a.set_uuid])}
+        end)
 
       socket
-      |> assign(:sets_enabled, true)
-      |> assign(:available_sets, Catalogue.list_attribute_sets(lang: preview_lang(socket)))
-      |> assign(:staged_set_uuids, Enum.map(attachments, & &1.set_uuid))
       |> assign(:staged_selections, selections)
-      |> assign_set_previews()
     else
       socket
       |> assign(:sets_enabled, false)
@@ -1113,10 +1123,19 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
     assign(socket, :set_previews, previews)
   end
 
-  defp stored_selection(attachment) do
+  defp stored_selection(attachment, preview) do
+    valid =
+      case preview do
+        %{values: values} -> MapSet.new(values, & &1.key)
+        _ -> MapSet.new()
+      end
+
     case attachment.data["selected_value_slugs"] do
-      list when is_list(list) -> list |> Enum.filter(&is_binary/1) |> MapSet.new()
-      _ -> MapSet.new()
+      list when is_list(list) ->
+        list |> Enum.filter(&(is_binary(&1) and &1 in valid)) |> MapSet.new()
+
+      _ ->
+        MapSet.new()
     end
   end
 
