@@ -1570,3 +1570,996 @@ msgstr "Kõik kategooriad"
 
 msgid "All catalogues"
 msgstr "Kõik kataloogid"
+
+msgid " or drag & drop"
+msgstr " või lohista siia"
+
+msgid "%b %d, %Y %H:%M"
+msgstr "%d.%m.%Y %H:%M"
+
+msgid "%{count} items already exist in this catalogue with identical data."
+msgstr "%{count} toodet on selles kataloogis juba identsete andmetega olemas."
+
+msgid "%{count} items will be moved to the Deleted view. They can be restored later."
+msgstr "%{count} toodet liigub vaatesse Kustutatud. Neid saab hiljem taastada."
+
+msgid "%{count} items will be permanently deleted. This cannot be undone."
+msgstr "%{count} toodet kustutatakse jäädavalt. Seda ei saa tagasi võtta."
+
+msgid "%{count} rows in your file are identical duplicates."
+msgstr "%{count} rida sinu failis on identsed duplikaadid."
+
+msgid "%{count}d ago"
+msgstr "%{count} p tagasi"
+
+msgid "%{count}h ago"
+msgstr "%{count} t tagasi"
+
+msgid "%{count}m ago"
+msgstr "%{count} min tagasi"
+
+msgid "%{total} catalogues available — none selected"
+msgstr "%{total} kataloogi saadaval — ühtegi pole valitud"
+
+msgid "-- No category --"
+msgstr "-- Kategooria puudub --"
+
+msgid "-- No manufacturer --"
+msgstr "-- Tootja puudub --"
+
+msgid "-- Select catalogue --"
+msgstr "-- Vali kataloog --"
+
+msgid "-- Select category --"
+msgstr "-- Vali kategooria --"
+
+msgid "0.00"
+msgstr "0.00"
+
+msgid "A → Z by name"
+msgstr "A → Ü nime järgi"
+
+msgid "Action"
+msgstr "Tegevus"
+
+msgid "Add a new product or material to the catalogue."
+msgstr "Lisa kataloogi uus toode või materjal."
+
+msgid "All Actions"
+msgstr "Kõik tegevused"
+
+msgid "All Types"
+msgstr "Kõik tüübid"
+
+msgid "All columns are already mapped. Free one up by setting it to '— Skip —' in the column mapping section below, or by switching another picker (Category, Manufacturer, or Supplier) out of 'Use a column' mode."
+msgstr "Kõik veerud on juba seotud. Vabasta mõni, määrates selle allpool veergude sidumise osas valikule '— Jäta vahele —', või lülita mõni teine valija (Kategooria, Tootja või Tarnija) välja režiimist 'Kasuta veergu'."
+
+msgid "Applied on top of the sale price to compute the final price. 0..100. Individual items can override this."
+msgstr "Rakendatakse müügihinnale lõpphinna arvutamiseks. 0..100. Üksikud tooted saavad seda üle kirjutada."
+
+msgid "Applied to all item base prices to calculate sale prices. Leave blank for no markup."
+msgstr "Rakendatakse kõigi toodete baashindadele müügihindade arvutamiseks. Jäta tühjaks, kui juurdehindlust pole."
+
+msgid "Applying..."
+msgstr "Rakendan..."
+
+msgid "Archived catalogues are hidden from active views."
+msgstr "Arhiveeritud kataloogid on aktiivsetest vaadetest peidetud."
+
+msgid "Article Code"
+msgstr "Artiklikood"
+
+msgid "Attach any metadata fields that apply to this catalogue. Blank values are dropped on save."
+msgstr "Lisa sellele kataloogile sobivad metaandmeväljad. Tühjad väärtused eemaldatakse salvestamisel."
+
+msgid "Attach any metadata fields that apply. Blank values are dropped on save."
+msgstr "Lisa sobivad metaandmeväljad. Tühjad väärtused eemaldatakse salvestamisel."
+
+msgid "Brief description of this manufacturer..."
+msgstr "Selle tootja lühikirjeldus..."
+
+msgid "Brief description of this supplier..."
+msgstr "Selle tarnija lühikirjeldus..."
+
+msgid "Brief description of what this catalogue contains..."
+msgstr "Lühikirjeldus selle kataloogi sisust..."
+
+msgid "Brochures, spec sheets, datasheets. Any file type is accepted."
+msgstr "Brošüürid, spetsifikatsioonid, andmelehed. Lubatud on iga failitüüp."
+
+msgid "By default the importer only matches existing categories by their name in the current import language. Turn this on to also match translations in any other language — useful for multilingual catalogues where the same category is named differently in each language."
+msgstr "Vaikimisi sobitab importija olemasolevaid kategooriaid ainult nime järgi praeguses impordikeeles. Lülita see sisse, et sobitada ka tõlkeid mistahes muus keeles — kasulik mitmekeelsetes kataloogides, kus sama kategooria kannab igas keeles eri nime."
+
+msgid "Catalogue and all its contents permanently deleted."
+msgstr "Kataloog ja kogu selle sisu on jäädavalt kustutatud."
+
+msgid "Categories that will be created:"
+msgstr "Loodavad kategooriad:"
+
+msgid "Categories to create:"
+msgstr "Loodavad kategooriad:"
+
+msgid "Category and all its items permanently deleted."
+msgstr "Kategooria ja kõik selle tooted on jäädavalt kustutatud."
+
+msgid "Changes"
+msgstr "Muudatused"
+
+msgid "Choose where each column should be imported to."
+msgstr "Vali, kuhu iga veerg imporditakse."
+
+msgid "Classification"
+msgstr "Klassifikatsioon"
+
+msgid "Clearing..."
+msgstr "Tühjendan..."
+
+msgid "Click to toggle manufacturer associations."
+msgstr "Klõpsa tootjaseoste lülitamiseks."
+
+msgid "Click to toggle supplier associations."
+msgstr "Klõpsa tarnijaseoste lülitamiseks."
+
+msgid "Close modal"
+msgstr "Sulge aken"
+
+msgid "Contact & Web"
+msgstr "Kontakt ja veeb"
+
+msgid "Continue"
+msgstr "Jätka"
+
+msgid "Continue to Confirm"
+msgstr "Jätka kinnitamisele"
+
+msgid "Cost/purchase price before catalogue markup."
+msgstr "Oma-/ostuhind enne kataloogi juurdehindlust."
+
+msgid "Could not create the new category. Please check the form and try again."
+msgstr "Uut kategooriat ei õnnestunud luua. Kontrolli vormi ja proovi uuesti."
+
+msgid "Could not create the new manufacturer. Please check the form and try again."
+msgstr "Uut tootjat ei õnnestunud luua. Kontrolli vormi ja proovi uuesti."
+
+msgid "Could not create the new supplier. Please check the form and try again."
+msgstr "Uut tarnijat ei õnnestunud luua. Kontrolli vormi ja proovi uuesti."
+
+msgid "Could not load more matches. Please try again."
+msgstr "Rohkem vasteid ei õnnestunud laadida. Proovi uuesti."
+
+msgid "Could not prepare the files folder."
+msgstr "Failikausta ei õnnestunud ette valmistada."
+
+msgid "Could not remove file."
+msgstr "Faili ei õnnestunud eemaldada."
+
+msgid "Could not save the uploaded file. Please try again or contact support if it persists."
+msgstr "Üleslaaditud faili ei õnnestunud salvestada. Proovi uuesti või pöördu toe poole, kui viga püsib."
+
+msgid "Could not start extraction. The :catalogue_pdf Oban queue may not be running."
+msgstr "Teksti eraldamist ei õnnestunud käivitada. :catalogue_pdf Oban-järjekord ei pruugi töötada."
+
+msgid "Create Categories"
+msgstr "Loo kategooriad"
+
+msgid "Create a new manufacturer — fill in the details below"
+msgstr "Loo uus tootja — täida allolevad andmed"
+
+msgid "Create a new supplier — link to all touched manufacturers"
+msgstr "Loo uus tarnija — seotakse kõigi puudutatud tootjatega"
+
+msgid "Create one first"
+msgstr "Loo esmalt üks"
+
+msgid "Default Unit"
+msgstr "Vaikeühik"
+
+msgid "Default Value"
+msgstr "Vaikeväärtus"
+
+msgid "Delete category and items"
+msgstr "Kustuta kategooria ja tooted"
+
+msgid "Delete category — what about the items?"
+msgstr "Kustuta kategooria — mis saab toodetest?"
+
+msgid "Delete forever"
+msgstr "Kustuta jäädavalt"
+
+msgid "Delete items along with the category"
+msgstr "Kustuta tooted koos kategooriaga"
+
+msgid "Delete selected items?"
+msgstr "Kustutada valitud tooted?"
+
+msgid "Deleting…"
+msgstr "Kustutan…"
+
+msgid "Discontinued items are kept for reference but hidden from active listings."
+msgstr "Tootmisest maas tooted säilivad viitena, kuid on aktiivsetest loenditest peidetud."
+
+msgid "Discount Override (%)"
+msgstr "Allahindluse ülekirjutus (%)"
+
+msgid "Discount Percentage"
+msgstr "Allahindlusprotsent"
+
+msgid "Drag to reorder"
+msgstr "Lohista järjestuse muutmiseks"
+
+msgid "Drag to reorder (among siblings)"
+msgstr "Lohista järjestuse muutmiseks (õdede-vendade seas)"
+
+msgid "Each catalogue can only appear once in the rules list."
+msgstr "Iga kataloog võib reeglite loendis esineda vaid korra."
+
+msgid "Email or phone"
+msgstr "E-post või telefon"
+
+msgid "Errors"
+msgstr "Vead"
+
+msgid "Extraction failed"
+msgstr "Teksti eraldamine ebaõnnestus"
+
+msgid "File"
+msgstr "Fail"
+
+msgid "File format does not match the selected format."
+msgstr "Faili formaat ei vasta valitud formaadile."
+
+msgid "File has too many rows to import. Please split it into smaller files."
+msgstr "Failis on importimiseks liiga palju ridu. Jaga see väiksemateks failideks."
+
+msgid "File is too large to import. Please split it into smaller files."
+msgstr "Fail on importimiseks liiga suur. Jaga see väiksemateks failideks."
+
+msgid "File is too large."
+msgstr "Fail on liiga suur."
+
+msgid "File type not supported. Use .xlsx or .csv"
+msgstr "Failitüüp pole toetatud. Kasuta .xlsx või .csv"
+
+msgid "Filename"
+msgstr "Failinimi"
+
+msgid "Flags"
+msgstr "Lipud"
+
+msgid "Flat"
+msgstr "Fikseeritud"
+
+msgid "Flat amount"
+msgstr "Fikseeritud summa"
+
+msgid "Has subcategories"
+msgstr "Sisaldab alamkategooriaid"
+
+msgid "Import %{count} Items"
+msgstr "Impordi %{count} toodet"
+
+msgid "Import Into Category"
+msgstr "Impordi kategooriasse"
+
+msgid "Import Language"
+msgstr "Impordi keel"
+
+msgid "Import all — create everything including duplicates"
+msgstr "Impordi kõik — loo kõik, ka duplikaadid"
+
+msgid "Import failed: %{reason}"
+msgstr "Import ebaõnnestus: %{reason}"
+
+msgid "Importing..."
+msgstr "Impordin..."
+
+msgid "Inactive manufacturers won't appear in item dropdowns."
+msgstr "Mitteaktiivsed tootjad ei ilmu toodete rippmenüüdes."
+
+msgid "Inactive suppliers won't appear in manufacturer linking."
+msgstr "Mitteaktiivsed tarnijad ei ilmu tootjate sidumisel."
+
+msgid "Inherit catalogue discount"
+msgstr "Päri kataloogi allahindlus"
+
+msgid "Inherit catalogue markup"
+msgstr "Päri kataloogi juurdehindlus"
+
+msgid "Inherit: %{discount}%"
+msgstr "Päritud: %{discount}%"
+
+msgid "Inherit: %{markup}%"
+msgstr "Päritud: %{markup}%"
+
+msgid "Inherit: %{value}"
+msgstr "Päritud: %{value}"
+
+msgid "Internal notes about this manufacturer..."
+msgstr "Sisemärkmed selle tootja kohta..."
+
+msgid "Internal notes about this supplier..."
+msgstr "Sisemärkmed selle tarnija kohta..."
+
+msgid "Item Name"
+msgstr "Toote nimi"
+
+msgid "Items can only be moved within this catalogue."
+msgstr "Tooteid saab liigutada ainult selle kataloogi sees."
+
+msgid "Items keep their catalogue but lose their category."
+msgstr "Tooted jäävad kataloogi, kuid kaotavad kategooria."
+
+msgid "Items move to the Deleted view alongside the category. Both can be restored later."
+msgstr "Tooted liiguvad koos kategooriaga vaatesse Kustutatud. Mõlemad saab hiljem taastada."
+
+msgid "Items reordered."
+msgstr "Tooted ümber järjestatud."
+
+msgid "Items stay in this catalogue but are no longer attached to any category."
+msgstr "Tooted jäävad sellesse kataloogi, kuid pole enam üheski kategoorias."
+
+msgid "Leave blank to inherit the catalogue's discount. Set (including 0) to override just this item."
+msgstr "Jäta tühjaks, et pärida kataloogi allahindlus. Määra (ka 0), et üle kirjutada ainult see toode."
+
+msgid "Leave blank to inherit the catalogue's markup. Set (including 0) to override just this item."
+msgstr "Jäta tühjaks, et pärida kataloogi juurdehindlus. Määra (ka 0), et üle kirjutada ainult see toode."
+
+msgid "Link to Supplier"
+msgstr "Seo tarnijaga"
+
+msgid "Loading…"
+msgstr "Laadin…"
+
+msgid "Logo URL"
+msgstr "Logo URL"
+
+msgid "Lower numbers appear first."
+msgstr "Väiksemad numbrid on eespool."
+
+msgid "Make items uncategorized"
+msgstr "Muuda tooted kategooriata"
+
+msgid "Manual"
+msgstr "Käsitsi"
+
+msgid "Manufacturer created but failed to link some suppliers."
+msgstr "Tootja loodud, kuid mõne tarnija sidumine ebaõnnestus."
+
+msgid "Manufacturer updated but failed to sync supplier links."
+msgstr "Tootja uuendatud, kuid tarnijaseoste sünkroonimine ebaõnnestus."
+
+msgid "Manufacturers that will be created or matched:"
+msgstr "Loodavad või sobitatavad tootjad:"
+
+msgid "Map"
+msgstr "Seo"
+
+msgid "Map each value to a system unit:"
+msgstr "Seo iga väärtus süsteemi ühikuga:"
+
+msgid "Markup Override (%)"
+msgstr "Juurdehindluse ülekirjutus (%)"
+
+msgid "Markup Percentage"
+msgstr "Juurdehindlusprotsent"
+
+msgid "Match across all languages"
+msgstr "Sobita kõigis keeltes"
+
+msgid "Move items"
+msgstr "Liiguta tooted"
+
+msgid "Move items and delete category"
+msgstr "Liiguta tooted ja kustuta kategooria"
+
+msgid "Move items to another category"
+msgstr "Liiguta tooted teise kategooriasse"
+
+msgid "Move selected items"
+msgstr "Liiguta valitud tooted"
+
+msgid "Move this PDF to trash?"
+msgstr "Viia see PDF prügikasti?"
+
+msgid "Move this category and all its items to a different catalogue."
+msgstr "Liiguta see kategooria ja kõik selle tooted teise kataloogi."
+
+msgid "Move this item into a different smart catalogue. Its catalogue rules stay attached."
+msgstr "Liiguta see toode teise nutikataloogi. Selle kataloogireeglid jäävad külge."
+
+msgid "Move this item to a category in any catalogue."
+msgstr "Liiguta see toode mistahes kataloogi kategooriasse."
+
+msgid "Move to Another Catalogue"
+msgstr "Liiguta teise kataloogi"
+
+msgid "Move to Another Category"
+msgstr "Liiguta teise kategooriasse"
+
+msgid "Move to Another Parent"
+msgstr "Liiguta teise ülemkategooria alla"
+
+msgid "Move to Another Smart Catalogue"
+msgstr "Liiguta teise nutikataloogi"
+
+msgid "Name *"
+msgstr "Nimi *"
+
+msgid "New Categories"
+msgstr "Uued kategooriad"
+
+msgid "Newest first"
+msgstr "Uusimad enne"
+
+msgid "No PDF mentions this item by name."
+msgstr "Ükski PDF ei maini seda toodet nimepidi."
+
+msgid "No PDFs matching your search."
+msgstr "Otsingule vastavaid PDF-e pole."
+
+msgid "No categories available — use Uncategorized instead."
+msgstr "Kategooriaid pole saadaval — kasuta valikut Kategoriseerimata."
+
+msgid "No categories or items yet. Add a category or item to get started."
+msgstr "Kategooriaid ega tooteid pole veel. Alusta kategooria või toote lisamisega."
+
+msgid "No category — import items without a category"
+msgstr "Kategooria puudub — impordi tooted ilma kategooriata"
+
+msgid "No discontinued items here."
+msgstr "Tootmisest maas tooteid pole."
+
+msgid "No extractable text"
+msgstr "Eraldatavat teksti pole"
+
+msgid "No inactive items here."
+msgstr "Mitteaktiivseid tooteid pole."
+
+msgid "No items in this category."
+msgstr "Selles kategoorias pole tooteid."
+
+msgid "No items match your search."
+msgstr "Otsingule vastavaid tooteid pole."
+
+msgid "No manufacturer — items imported without a maker"
+msgstr "Tootja puudub — tooted imporditakse ilma valmistajata"
+
+msgid "No metadata attached yet. Pick a field below to add one."
+msgstr "Metaandmeid pole veel lisatud. Vali allpool väli, et lisada."
+
+msgid "No other catalogues available to reference yet."
+msgstr "Viitamiseks pole veel teisi katalooge."
+
+msgid "No other categories available — use Uncategorized instead."
+msgstr "Teisi kategooriaid pole — kasuta valikut Kategoriseerimata."
+
+msgid "No stuck extractions to re-queue."
+msgstr "Kinnijäänud eraldamisi pole uuesti järjekorda panna."
+
+msgid "No supplier — leave manufacturers unlinked"
+msgstr "Tarnija puudub — jäta tootjad sidumata"
+
+msgid "No uncategorized items."
+msgstr "Kategoriseerimata tooteid pole."
+
+msgid "Nothing deleted here."
+msgstr "Siin pole midagi kustutatut."
+
+msgid "Oldest first"
+msgstr "Vanimad enne"
+
+msgid "Only one file allowed"
+msgstr "Lubatud on ainult üks fail"
+
+msgid "Open the PDF in a new tab"
+msgstr "Ava PDF uuel vahekaardil"
+
+msgid "PDF files only. Identical content is deduplicated; same file uploaded again under a new name shares one underlying file + extraction."
+msgstr "Ainult PDF-failid. Identne sisu dedubleeritakse; uue nimega uuesti üles laaditud sama fail jagab üht alusfaili ja eraldust."
+
+msgid "PRO100 Sync Preview"
+msgstr "PRO100 sünkroonimise eelvaade"
+
+msgid "Parent category"
+msgstr "Ülemkategooria"
+
+msgid "Parent must live in the same catalogue."
+msgstr "Ülemkategooria peab olema samas kataloogis."
+
+msgid "Percent (%)"
+msgstr "Protsent (%)"
+
+msgid "Permanently delete selected items?"
+msgstr "Kustutada valitud tooted jäädavalt?"
+
+msgid "Permanently delete this PDF? If no other library entry references the same file content, the underlying file will be queued for hard deletion."
+msgstr "Kustutada see PDF jäädavalt? Kui ükski teine kirje samale failisisule ei viita, pannakse alusfail lõplikuks kustutamiseks järjekorda."
+
+msgid "Pick a parent to nest this category inside, or leave blank to keep it at the top level. You can move it later."
+msgstr "Vali ülemkategooria, mille alla see paigutada, või jäta tühjaks, et hoida see tipptasemel. Saad seda hiljem liigutada."
+
+msgid "Pick a strategy before applying."
+msgstr "Vali enne rakendamist strateegia."
+
+msgid "Pick a target category in this catalogue. The category being deleted and its subtree are excluded."
+msgstr "Vali sihtkategooria selles kataloogis. Kustutatav kategooria ja selle alampuu on välistatud."
+
+msgid "Pick where %{count} items should go."
+msgstr "Vali, kuhu %{count} toodet liiguvad."
+
+msgid "Pick which catalogues this item applies to and set a value + unit per catalogue. Rows left blank inherit the defaults below."
+msgstr "Vali, millistele kataloogidele see toode kehtib, ning määra iga kataloogi kohta väärtus ja ühik. Tühjaks jäetud read pärivad allolevad vaikeväärtused."
+
+msgid "Piece"
+msgstr "Tükk"
+
+msgid "Please give the new category a name before continuing."
+msgstr "Anna uuele kategooriale enne jätkamist nimi."
+
+msgid "Please give the new manufacturer a name before continuing."
+msgstr "Anna uuele tootjale enne jätkamist nimi."
+
+msgid "Please give the new supplier a name before continuing."
+msgstr "Anna uuele tarnijale enne jätkamist nimi."
+
+msgid "Please select a catalogue first."
+msgstr "Vali esmalt kataloog."
+
+msgid "Please select a format."
+msgstr "Vali formaat."
+
+msgid "Please upload a file."
+msgstr "Laadi fail üles."
+
+msgid "Pricing & Identification"
+msgstr "Hinnad ja identifitseerimine"
+
+msgid "Product specifications, dimensions, materials..."
+msgstr "Toote spetsifikatsioonid, mõõdud, materjalid..."
+
+msgid "Re-queue any PDFs whose text extraction never ran or got stuck (e.g. after the job queue was down)."
+msgstr "Pane uuesti järjekorda PDF-id, mille teksti eraldamine ei käivitunud või jäi kinni (nt pärast tööjärjekorra seisakut)."
+
+msgid "Re-queued %{count} stuck extraction(s)."
+msgstr "Uuesti järjekorda pandud %{count} kinnijäänud eraldamist."
+
+msgid "Re-queued %{count} stuck extraction(s); %{skipped} already running."
+msgstr "Uuesti järjekorda pandud %{count} kinnijäänud eraldamist; %{skipped} juba töötab."
+
+msgid "Re-queued %{ok}; %{failed} could not be queued — the :catalogue_pdf queue may not be running."
+msgstr "Uuesti järjekorras %{ok}; %{failed} ei õnnestunud järjekorda panna — :catalogue_pdf järjekord ei pruugi töötada."
+
+msgid "Re-queued text extraction."
+msgstr "Teksti eraldamine uuesti järjekorda pandud."
+
+msgid "Re-queuing…"
+msgstr "Panen uuesti järjekorda…"
+
+msgid "Remove from catalogue"
+msgstr "Eemalda kataloogist"
+
+msgid "Remove from category"
+msgstr "Eemalda kategooriast"
+
+msgid "Remove from item"
+msgstr "Eemalda tootelt"
+
+msgid "Remove this file from the catalogue? If it's not attached to any other resource, it will be moved to trash (admins can restore)."
+msgstr "Eemaldada see fail kataloogist? Kui see pole seotud ühegi teise ressursiga, liigub see prügikasti (adminid saavad taastada)."
+
+msgid "Remove this file from the category? If it's not attached to any other resource, it will be moved to trash (admins can restore)."
+msgstr "Eemaldada see fail kategooriast? Kui see pole seotud ühegi teise ressursiga, liigub see prügikasti (adminid saavad taastada)."
+
+msgid "Remove this file from the item? If it's not attached to any other item, it will be moved to trash (admins can restore)."
+msgstr "Eemaldada see fail tootelt? Kui see pole seotud ühegi teise tootega, liigub see prügikasti (adminid saavad taastada)."
+
+msgid "Removing..."
+msgstr "Eemaldan..."
+
+msgid "Reparent this category within its catalogue. Its subtree comes along."
+msgstr "Paiguta see kategooria oma kataloogis teise ülemkategooria alla. Alampuu tuleb kaasa."
+
+msgid "Replace"
+msgstr "Asenda"
+
+msgid "Resource"
+msgstr "Ressurss"
+
+msgid "Restoring…"
+msgstr "Taastan…"
+
+msgid "Retry"
+msgstr "Proovi uuesti"
+
+msgid "Retry extraction"
+msgstr "Proovi eraldamist uuesti"
+
+msgid "Retry stuck"
+msgstr "Korda kinnijäänuid"
+
+msgid "Retrying…"
+msgstr "Proovin uuesti…"
+
+msgid "Reverse current order"
+msgstr "Pööra praegune järjestus"
+
+msgid "Row %{row}: %{msg}"
+msgstr "Rida %{row}: %{msg}"
+
+msgid "Row %{row}: %{reason}"
+msgstr "Rida %{row}: %{reason}"
+
+msgid "Row %{row}: multiple items match (%{matches})"
+msgstr "Rida %{row}: mitu toodet sobib (%{matches})"
+
+msgid "Row %{row}: no id, cannot be created"
+msgstr "Rida %{row}: id puudub, ei saa luua"
+
+msgid "Row %{row}: no matching item found"
+msgstr "Rida %{row}: sobivat toodet ei leitud"
+
+msgid "Row %{row}: no matching item, not created"
+msgstr "Rida %{row}: sobivat toodet pole, ei loodud"
+
+msgid "Row %{row}: no name, cannot be created"
+msgstr "Rida %{row}: nimi puudub, ei saa luua"
+
+msgid "Rows with errors (will be skipped):"
+msgstr "Vigadega read (jäetakse vahele):"
+
+msgid "Running meter"
+msgstr "Jooksev meeter"
+
+msgid "Sample Data (first 5 rows)"
+msgstr "Näidisandmed (esimesed 5 rida)"
+
+msgid "Search failed. Please try again."
+msgstr "Otsing ebaõnnestus. Proovi uuesti."
+
+msgid "Search is temporarily unavailable. Please try again in a moment."
+msgstr "Otsing pole ajutiselt saadaval. Proovi hetke pärast uuesti."
+
+msgid "Search items by name, description, or SKU..."
+msgstr "Otsi tooteid nime, kirjelduse või SKU järgi..."
+
+msgid "Search items…"
+msgstr "Otsi tooteid…"
+
+msgid "Search uncategorized items..."
+msgstr "Otsi kategoriseerimata tooteid..."
+
+msgid "Search within this category..."
+msgstr "Otsi selles kategoorias..."
+
+msgid "Searched for: %{name}"
+msgstr "Otsitud: %{name}"
+
+msgid "Searches the entire PDF library for the item's name across all enabled languages."
+msgstr "Otsib kogu PDF-kogust toote nime kõigis lubatud keeltes."
+
+msgid "Searching for \"%{query}\"..."
+msgstr "Otsin \"%{query}\"..."
+
+msgid "Searching…"
+msgstr "Otsin…"
+
+msgid "Select a catalogue..."
+msgstr "Vali kataloog..."
+
+msgid "Select a column..."
+msgstr "Vali veerg..."
+
+msgid "Select all items"
+msgstr "Vali kõik tooted"
+
+msgid "Selected image could not be loaded."
+msgstr "Valitud pilti ei õnnestunud laadida."
+
+msgid "Selected items share positions. Apply \"Reorder all\" first to normalise."
+msgstr "Valitud toodetel on kattuvad positsioonid. Normaliseerimiseks rakenda esmalt \"Järjesta kõik\"."
+
+msgid "Set Manufacturer"
+msgstr "Määra tootja"
+
+msgid "Sheet:"
+msgstr "Leht:"
+
+msgid "Show %{n} more"
+msgstr "Näita veel %{n}"
+
+msgid "Showing %{loaded} of %{count} results for \"%{query}\""
+msgstr "Kuvatud %{loaded} / %{count} tulemust päringule \"%{query}\""
+
+msgid "Showing first 20 of %{count} items."
+msgstr "Kuvatud esimesed 20 toodet %{count}-st."
+
+msgid "Shown in lists and detail views."
+msgstr "Kuvatakse loendites ja detailvaadetes."
+
+msgid "Shown on catalogue listings and category landing pages."
+msgstr "Kuvatakse kataloogiloendites ja kategooriate avalehtedel."
+
+msgid "Shown on catalogue listings and detail views."
+msgstr "Kuvatakse kataloogiloendites ja detailvaadetes."
+
+msgid "Shown on listings and detail views."
+msgstr "Kuvatakse loendites ja detailvaadetes."
+
+msgid "Size"
+msgstr "Suurus"
+
+msgid "Skip duplicates — only import new, unique items"
+msgstr "Jäta duplikaadid vahele — impordi ainult uued, unikaalsed tooted"
+
+msgid "Skipped"
+msgstr "Vahele jäetud"
+
+msgid "Smart catalogues hold items like \"Delivery\" whose cost is a per-catalogue %/flat rule picked from other catalogues. Items here reference other catalogues instead of carrying a base price of their own."
+msgstr "Nutikataloogid sisaldavad tooteid nagu \"Tarne\", mille hind on teiste kataloogide kaupa määratud %/fikseeritud reegel. Siinsed tooted viitavad teistele kataloogidele, mitte ei kanna oma baashinda."
+
+msgid "Smart rule"
+msgstr "Nutireegel"
+
+msgid "Some categories couldn't be restored. The catalogue may be deleted — restore it first."
+msgstr "Mõnda kategooriat ei õnnestunud taastada. Kataloog võib olla kustutatud — taasta esmalt see."
+
+msgid "Source"
+msgstr "Allikas"
+
+msgid "Spec sheets, drawings, photos. Any file type is accepted."
+msgstr "Spetsifikatsioonid, joonised, fotod. Lubatud on iga failitüüp."
+
+msgid "Standard catalogues hold items priced directly — each item has its own base price, markup, and discount. This is the normal flow for materials, products, or anything with a fixed price tag."
+msgstr "Tavakataloogid sisaldavad otse hinnastatud tooteid — igal tootel on oma baashind, juurdehindlus ja allahindlus. See on tavaline vool materjalide, toodete või mistahes fikseeritud hinnaga asjade jaoks."
+
+msgid "Starting import..."
+msgstr "Alustan importi..."
+
+msgid "Still uploading — please wait a moment."
+msgstr "Üleslaadimine kestab — palun oota hetk."
+
+msgid "Supplier created but failed to link some manufacturers."
+msgstr "Tarnija loodud, kuid mõne tootja sidumine ebaõnnestus."
+
+msgid "Supplier updated but failed to sync manufacturer links."
+msgstr "Tarnija uuendatud, kuid tootjaseoste sünkroonimine ebaõnnestus."
+
+msgid "Suppliers that will be created or matched:"
+msgstr "Loodavad või sobitatavad tarnijad:"
+
+msgid "Supports .xlsx, .csv, .txt, .json files (max 10MB)"
+msgstr "Toetatud on .xlsx, .csv, .txt, .json failid (max 10MB)"
+
+msgid "Sync Complete"
+msgstr "Sünkroonimine valmis"
+
+msgid "Target Catalogue"
+msgstr "Sihtkataloog"
+
+msgid "Target category not found."
+msgstr "Sihtkategooriat ei leitud."
+
+msgid "Text extraction in progress. This page will refresh automatically when it completes."
+msgstr "Teksti eraldamine käib. Leht värskeneb valmimisel automaatselt."
+
+msgid "The file is empty."
+msgstr "Fail on tühi."
+
+msgid "This PDF appears to be scanned. OCR support is planned for a future iteration."
+msgstr "See PDF näib olevat skaneeritud. OCR-tugi on plaanis tulevases versioonis."
+
+msgid "This catalogue was just deleted."
+msgstr "See kataloog just kustutati."
+
+msgid "This category and all its items will be permanently deleted. This cannot be undone."
+msgstr "See kategooria ja kõik selle tooted kustutatakse jäädavalt. Seda ei saa tagasi võtta."
+
+msgid "This item was imported in %{lang}. Please fill in the %{primary} translation and save to set it as the primary language."
+msgstr "See toode imporditi keeles %{lang}. Täida %{primary} tõlge ja salvesta, et määrata see põhikeeleks."
+
+msgid "This item will be permanently deleted. This cannot be undone."
+msgstr "See toode kustutatakse jäädavalt. Seda ei saa tagasi võtta."
+
+msgid "This will permanently delete this catalogue, all its categories, and all items within them."
+msgstr "See kustutab jäädavalt selle kataloogi, kõik selle kategooriad ja kõik nende tooted."
+
+msgid "This will permanently delete this catalogue, all its categories, and all items within them. This cannot be undone."
+msgstr "See kustutab jäädavalt selle kataloogi, kõik selle kategooriad ja kõik nende tooted. Seda ei saa tagasi võtta."
+
+msgid "This will permanently delete this category and all its items."
+msgstr "See kustutab jäädavalt selle kategooria ja kõik selle tooted."
+
+msgid "This will permanently delete this category and all its items. This cannot be undone."
+msgstr "See kustutab jäädavalt selle kategooria ja kõik selle tooted. Seda ei saa tagasi võtta."
+
+msgid "To create"
+msgstr "Luuakse"
+
+msgid "Too many files at once."
+msgstr "Korraga liiga palju faile."
+
+msgid "Too many files."
+msgstr "Liiga palju faile."
+
+msgid "Trashed"
+msgstr "Prügikastis"
+
+msgid "Trashing…"
+msgstr "Viin prügikasti…"
+
+msgid "Type to refine search…"
+msgstr "Kirjuta otsingu täpsustamiseks…"
+
+msgid "Unfiled (root)"
+msgstr "Sorteerimata (juur)"
+
+msgid "Update item details, pricing, and classification."
+msgstr "Uuenda toote andmeid, hindu ja klassifikatsiooni."
+
+msgid "Updates"
+msgstr "Uuendused"
+
+msgid "Upload & Parse"
+msgstr "Laadi üles ja analüüsi"
+
+msgid "Upload error: %{reason}"
+msgstr "Üleslaadimise viga: %{reason}"
+
+msgid "Upload failed for %{name}."
+msgstr "%{name} üleslaadimine ebaõnnestus."
+
+msgid "Upload failed for an unexpected reason. Please try again."
+msgstr "Üleslaadimine ebaõnnestus ootamatul põhjusel. Proovi uuesti."
+
+msgid "Uploaded"
+msgstr "Üles laaditud"
+
+msgid "Uploading..."
+msgstr "Laadin üles..."
+
+msgid "Use a column — create categories from column values"
+msgstr "Kasuta veergu — loo kategooriad veeru väärtustest"
+
+msgid "Use a column — create or match manufacturers from column values"
+msgstr "Kasuta veergu — loo või sobita tootjad veeru väärtustest"
+
+msgid "Use a column — link per-row supplier to row's manufacturer"
+msgstr "Kasuta veergu — seo rea tarnija rea tootjaga"
+
+msgid "Used for any selected catalogue that doesn't have its own unit."
+msgstr "Kasutatakse iga valitud kataloogi puhul, millel pole oma ühikut."
+
+msgid "Used for any selected catalogue that doesn't have its own value. If no catalogues are selected, this is the item's standalone fee (e.g. $50 flat)."
+msgstr "Kasutatakse iga valitud kataloogi puhul, millel pole oma väärtust. Kui ühtegi kataloogi pole valitud, on see toote iseseisev tasu (nt 50 € fikseeritult)."
+
+msgid "Validating..."
+msgstr "Kontrollin..."
+
+msgid "Waiting for uploads..."
+msgstr "Ootan üleslaadimisi..."
+
+msgid "What kinds of items belong in this category..."
+msgstr "Millised tooted sellesse kategooriasse kuuluvad..."
+
+msgid "Which column contains the category names?"
+msgstr "Milline veerg sisaldab kategooriate nimesid?"
+
+msgid "Which column contains the manufacturer names?"
+msgstr "Milline veerg sisaldab tootjate nimesid?"
+
+msgid "Which column contains the supplier names?"
+msgstr "Milline veerg sisaldab tarnijate nimesid?"
+
+msgid "You must map at least one column to 'Item Name'. Scroll down to the column mapping section and pick the column that holds item names."
+msgstr "Vähemalt üks veerg peab olema seotud valikuga 'Toote nimi'. Keri alla veergude sidumise osani ja vali veerg, mis sisaldab toodete nimesid."
+
+msgid "Z → A by name"
+msgstr "Ü → A nime järgi"
+
+msgid "all catalogues"
+msgstr "kõik kataloogid"
+
+msgid "all categories"
+msgstr "kõik kategooriad"
+
+msgid "and its subtree contain %{count} active items. Choose where they should go before the category is deleted."
+msgstr "ja selle alampuu sisaldavad %{count} aktiivset toodet. Vali enne kategooria kustutamist, kuhu need liiguvad."
+
+msgid "columns"
+msgstr "veergu"
+
+msgid "e.g., 10.0"
+msgstr "nt 10.0"
+
+msgid "e.g., 15.0"
+msgstr "nt 15.0"
+
+msgid "e.g., 5"
+msgstr "nt 5"
+
+msgid "e.g., ABC-001"
+msgstr "nt ABC-001"
+
+msgid "e.g., Acme Distributors"
+msgstr "nt Acme Distributors"
+
+msgid "e.g., Blum"
+msgstr "nt Blum"
+
+msgid "e.g., Blum, Hettich"
+msgstr "nt Blum, Hettich"
+
+msgid "e.g., Cabinet Frames"
+msgstr "nt Kapikorpused"
+
+msgid "e.g., KF-001"
+msgstr "nt KF-001"
+
+msgid "e.g., Kitchen Furniture"
+msgstr "nt Köögimööbel"
+
+msgid "e.g., Oak Panel 18mm"
+msgstr "nt Tammepaneel 18mm"
+
+msgid "e.g., Regional Distributors Inc."
+msgstr "nt Regional Distributors Inc."
+
+msgid "https://..."
+msgstr "https://..."
+
+msgid "item"
+msgstr "toode"
+
+msgid "items"
+msgstr "tooted"
+
+msgid "m²"
+msgstr "m²"
+
+msgid "m² (square meter)"
+msgstr "m² (ruutmeeter)"
+
+msgid "page %{n}"
+msgstr "lk %{n}"
+
+msgid "pair"
+msgstr "paar"
+
+msgid "pc"
+msgstr "tk"
+
+msgid "price?"
+msgstr "hind?"
+
+msgid "rm"
+msgstr "jm"
+
+msgid "rows"
+msgstr "rida"
+
+msgid "service data only"
+msgstr "ainult teenuse andmed"
+
+msgid "set"
+msgstr "komplekt"
+
+msgid "sheet"
+msgstr "leht"
+
+msgid "unit"
+msgstr "ühik"
+
+msgid "unit?"
+msgstr "ühik?"
+
+msgid "— Skip —"
+msgstr "— Jäta vahele —"
+
+msgid "— Top level (no parent) —"
+msgstr "— Tipptase (ülemkategooriata) —"
+
+msgid "— no category —"
+msgstr "— kategooriata —"
+
+msgid "…and %{count} more"
+msgstr "…ja veel %{count}"
