@@ -752,15 +752,15 @@ defmodule PhoenixKitCatalogue.Web.AttributeSetFormLive do
                 class="input input-sm input-bordered flex-1 min-w-0"
                 phx-mounted={@refocus_key == "value" && JS.focus()}
               />
-              <.button type="submit" variant="outline" size="sm" class="shrink-0">
-                <%!-- literal spans, NOT <.icon> — component subtrees
-                     inside phx-update="ignore" arrive as data-phx-skip
-                     stubs on the id-bump re-mount. --%>
+              <%!-- RAW button + literal spans, NOT the kit components —
+                   subtrees inside phx-update="ignore" arrive as
+                   data-phx-skip stubs on the id-bump re-mount. --%>
+              <button type="submit" class="btn btn-outline btn-sm shrink-0">
                 <span class="hero-plus w-4 h-4 phx-submit-loading:hidden"></span>
                 <span class="loading loading-spinner w-4 h-4 hidden phx-submit-loading:inline-block">
                 </span>
                 {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Add")}
-              </.button>
+              </button>
             </form>
 
             <div class="divider my-0"></div>
@@ -797,28 +797,30 @@ defmodule PhoenixKitCatalogue.Web.AttributeSetFormLive do
               </span>
             </div>
 
+            <%!-- RAW select/button, NOT the kit components: function-
+                 component subtrees inside this phx-update="ignore" form
+                 arrive as data-phx-skip stubs when the generation-bumped
+                 id replaces it, leaving holes (same trap as the literal
+                 icon spans in the add-value form above; bitten live on
+                 2026-08-18). flex-wrap keeps four controls usable on
+                 narrow widths. --%>
             <form
               id={"add-set-field-form-g#{draft_gen(@draft_generation, "field")}"}
               phx-submit="add_extra_field"
               phx-update="ignore"
-              class="flex items-center gap-2"
+              class="flex flex-wrap items-center gap-2"
             >
               <input
                 id={"add-set-field-input-g#{draft_gen(@draft_generation, "field")}"}
                 type="text"
                 name="field_label"
                 placeholder={Gettext.gettext(PhoenixKitCatalogue.Gettext, "New field name...")}
-                class="input input-sm input-bordered flex-1 min-w-0"
+                class="input input-sm input-bordered flex-1 min-w-40"
                 phx-mounted={@refocus_key == "field" && JS.focus()}
               />
-              <div class="w-36 shrink-0">
-                <.select
-                  name="field_type"
-                  value={field_type_options() |> List.first() |> elem(1)}
-                  options={field_type_options()}
-                  class="select-sm"
-                />
-              </div>
+              <select name="field_type" class="select select-sm select-bordered w-36 shrink-0">
+                <option :for={{label, val} <- field_type_options()} value={val}>{label}</option>
+              </select>
               <input
                 type="text"
                 name="field_options"
@@ -827,12 +829,12 @@ defmodule PhoenixKitCatalogue.Web.AttributeSetFormLive do
                 }
                 class="input input-sm input-bordered w-56 shrink-0"
               />
-              <.button type="submit" variant="outline" size="sm" class="shrink-0">
+              <button type="submit" class="btn btn-outline btn-sm shrink-0">
                 <span class="hero-plus w-4 h-4 phx-submit-loading:hidden"></span>
                 <span class="loading loading-spinner w-4 h-4 hidden phx-submit-loading:inline-block">
                 </span>
                 {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Add")}
-              </.button>
+              </button>
             </form>
           </div>
         </div>
