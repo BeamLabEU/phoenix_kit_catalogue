@@ -439,6 +439,139 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
     end
   end
 
+  # ── Migration from the group system (dual-run; design doc §Migration) ─
+
+  @doc """
+  Migrates the legacy group→attribute→value data into sets:
+
+    * each `(group, attribute)` pair → one set blueprint, slug
+      `catalogue_set_<group>_<attr-key>` (display "<Group> — <Attr>");
+    * attribute values → records, slug = the old value key (stable, so
+      existing order-line picks keep resolving), old `is_default` → the
+      set's `default_value_slug`;
+    * every item's single group assignment explodes into one attachment
+      per attribute of that group, in attribute order.
+
+  Idempotent: an existing blueprint with the target slug is reused (its
+  values/attachments are topped up, never duplicated), so re-running
+  after a partial failure is safe. Old tables are left untouched
+  (read-only by convention; dropped by a later core migration after
+  cutover). Returns `{:ok, %{sets: n, values: n, attachments: n}}`.
+  """
+  @spec migrate_groups_to_sets(keyword()) :: {:ok, map()} | {:error, term()}
+  def migrate_groups_to_sets(opts \\ []) do
+    with :ok <- ensure_enabled() do
+      groups = PhoenixKitCatalogue.Catalogue.list_attribute_groups()
+
+      {set_map, counts} =
+        Enum.reduce(groups, {%{}, %{sets: 0, values: 0}}, fn group, acc ->
+          migrate_group(group, opts, acc)
+        end)
+
+      attachment_count = migrate_assignments(set_map)
+
+      {:ok, %{sets: counts.sets, values: counts.values, attachments: attachment_count}}
+    end
+  end
+
+  defp migrate_group(group, opts, acc) do
+    full = PhoenixKitCatalogue.Catalogue.get_attribute_group_full(group.uuid)
+
+    Enum.reduce(full.attributes, acc, fn attribute, {set_map, counts} ->
+      slug = slugify_name("#{group.name} #{attribute.key}")
+
+      {set, created?} = find_or_create_migrated_set(slug, group, attribute, opts)
+
+      value_count =
+        Enum.count(attribute.values, fn value ->
+          ensure_migrated_value(set, value, opts)
+        end)
+
+      default = Enum.find(attribute.values, & &1.is_default)
+
+      if created? and default do
+        {:ok, _} = update_set(set, %{default_value_slug: default.key}, opts)
+      end
+
+      {
+        Map.put(set_map, {group.uuid, attribute.uuid}, set.uuid),
+        %{
+          counts
+          | sets: counts.sets + if(created?, do: 1, else: 0),
+            values: counts.values + value_count
+        }
+      }
+    end)
+  end
+
+  defp find_or_create_migrated_set(slug, group, attribute, opts) do
+    full_slug = @slug_prefix <> slug
+
+    case Enum.find(list_sets(), &(&1.name == full_slug)) do
+      %{} = existing ->
+        {existing, false}
+
+      nil ->
+        {:ok, set} =
+          create_set(
+            %{
+              name: "#{group.name} — #{attribute.name}",
+              slug: slug,
+              kind: attribute.kind
+            },
+            opts
+          )
+
+        {set, true}
+    end
+  end
+
+  defp ensure_migrated_value(set, value, opts) do
+    existing = list_values(set) |> Enum.any?(&(&1.slug == value.key))
+
+    if existing do
+      false
+    else
+      {:ok, _} = create_value(set, %{label: value.value, slug: value.key}, opts)
+      true
+    end
+  end
+
+  defp migrate_assignments(set_map) do
+    assignments =
+      repo().all(from(a in PhoenixKitCatalogue.Schemas.ItemAttributeGroup, select: a))
+
+    Enum.reduce(assignments, 0, fn assignment, count ->
+      set_uuids =
+        set_map
+        |> Enum.filter(fn {{group_uuid, _attr}, _set} ->
+          group_uuid == assignment.attribute_group_uuid
+        end)
+        |> Enum.map(fn {_key, set_uuid} -> set_uuid end)
+
+      count + attach_missing(assignment.item_uuid, set_uuids)
+    end)
+  end
+
+  # attach_set's on_conflict insert reports {:ok, _} for an
+  # already-attached pair too — count only genuinely new rows so the
+  # idempotency contract ({:ok, all-zeros} on re-run) holds.
+  defp attach_missing(item_uuid, set_uuids) do
+    existing =
+      item_uuid
+      |> list_attachments()
+      |> MapSet.new(& &1.set_uuid)
+
+    Enum.reduce(set_uuids, 0, fn set_uuid, acc ->
+      with false <- MapSet.member?(existing, set_uuid),
+           {:ok, _} <- attach_set(item_uuid, set_uuid) do
+        acc + 1
+      else
+        _ -> acc
+      end
+    end)
+  end
+
   # ── Helpers ────────────────────────────────────────────────────────
 
   defp ensure_enabled do
