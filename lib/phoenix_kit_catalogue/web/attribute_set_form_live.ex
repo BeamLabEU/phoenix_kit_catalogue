@@ -79,6 +79,7 @@ defmodule PhoenixKitCatalogue.Web.AttributeSetFormLive do
            show_media_selector: false,
            media_filter: :image,
            media_pick_target: nil,
+           media_pick_generation: 0,
            return_to: safe_return_to(params["return_to"])
          )
          |> assign_title()}
@@ -269,6 +270,11 @@ defmodule PhoenixKitCatalogue.Web.AttributeSetFormLive do
        socket
        |> assign(:media_pick_target, %{value_uuid: uuid, field: key})
        |> assign(:media_filter, if(type == "video", do: :video, else: :image))
+       # Generation in the modal id — each open remounts the component
+       # fresh, so search/page state from a previous open (possibly a
+       # DIFFERENT type lock) can't present a wrong-empty library
+       # (panel finding).
+       |> update(:media_pick_generation, &(&1 + 1))
        |> assign(:show_media_selector, true)}
     else
       _ -> {:noreply, socket}
@@ -669,9 +675,18 @@ defmodule PhoenixKitCatalogue.Web.AttributeSetFormLive do
                      ones fire immediately, media types push the pick
                      events. Every entities field type renders without
                      this page changing again. --%>
+                <%!-- phx-submit is load-bearing even though the change
+                     event does all the saving: phx-change WITHOUT
+                     phx-submit makes LiveView treat the form as
+                     external — Enter in any extras input would then
+                     native-submit (GET to the current URL), killing
+                     the socket and unsaved work (panel finding). The
+                     submit lands in the catch-all clause (no _target)
+                     and no-ops. --%>
                 <form
                   id={"value-extras-#{value.uuid}"}
                   phx-change="value_extras_changed"
+                  phx-submit="value_extras_changed"
                   class="contents"
                 >
                   <input type="hidden" name="uuid" value={value.uuid} />
@@ -889,7 +904,7 @@ defmodule PhoenixKitCatalogue.Web.AttributeSetFormLive do
         <.live_component
           :if={@action == :edit}
           module={PhoenixKitWeb.Live.Components.MediaSelectorModal}
-          id="set-form-media-selector"
+          id={"set-form-media-selector-#{@media_filter}-g#{@media_pick_generation}"}
           show={@show_media_selector}
           mode={:single}
           file_type_filter={@media_filter}
