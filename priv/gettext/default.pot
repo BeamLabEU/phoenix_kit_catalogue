@@ -1449,3 +1449,6 @@ msgstr ""
 
 msgid "Unknown set"
 msgstr ""
+
+msgid "This set was deleted in another session."
+msgstr ""

@@ -100,9 +100,13 @@ defmodule PhoenixKitCatalogue do
   @impl PhoenixKit.Module
   def children do
     # Registers the attribute-set deletion guard with entities at boot
-    # (a set with item attachments cannot be deleted). Temporary task —
-    # runs once, exits.
-    [PhoenixKitCatalogue.Catalogue.AttributeSets]
+    # (a set with item attachments cannot be deleted; temporary task —
+    # runs once, exits), plus the PubSub subscriber that prunes item
+    # attachments when a set blueprint is deleted out-of-band.
+    [
+      PhoenixKitCatalogue.Catalogue.AttributeSets,
+      PhoenixKitCatalogue.Catalogue.AttributeSets.OrphanPruner
+    ]
   end
 
   @impl PhoenixKit.Module

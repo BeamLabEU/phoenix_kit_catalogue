@@ -1444,3 +1444,6 @@ msgstr "Atribuudigrupp (vana)"
 
 msgid "Unknown set"
 msgstr "Tundmatu komplekt"
+
+msgid "This set was deleted in another session."
+msgstr "See komplekt kustutati teises seansis."
