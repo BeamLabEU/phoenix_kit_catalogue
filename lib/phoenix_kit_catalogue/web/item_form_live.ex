@@ -2110,11 +2110,6 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                           alt=""
                           class="w-5 h-5 rounded object-cover"
                         />
-                        <.icon
-                          :if={preview.default == value.key}
-                          name="hero-star-solid"
-                          class="w-3 h-3 text-warning shrink-0"
-                        />
                         <span class="text-sm">{value.label}</span>
                       </label>
                       <span :if={preview.values == []} class="text-xs text-base-content/40">

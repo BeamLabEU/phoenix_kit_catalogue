@@ -874,30 +874,12 @@ defmodule PhoenixKitCatalogue.Web.AttributeSetFormLive do
                       />
                     </td>
                     <td class="sticky right-0 z-10 bg-base-100 align-middle whitespace-nowrap text-right">
-                      <.button
-                        type="button"
-                        phx-click="make_default"
-                        phx-value-uuid={value.uuid}
-                        variant="ghost"
-                        size="xs"
-                        class={["px-1", current_default(@set) == value.slug && "text-warning"]}
-                        title={
-                          if current_default(@set) == value.slug,
-                            do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Default value"),
-                            else: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Make default")
-                        }
-                      >
-                        <.icon
-                          name={
-                            if current_default(@set) == value.slug,
-                              do: "hero-star-solid",
-                              else: "hero-star"
-                          }
-                          class="w-4 h-4 phx-click-loading:hidden"
-                        />
-                        <span class="loading loading-spinner w-4 h-4 hidden phx-click-loading:inline-block">
-                        </span>
-                      </.button>
+                      <%!-- The default-value star is HIDDEN for now (user
+                           call 2026-08-19: it only confused things). The
+                           backend contract (default_value_slug, the
+                           make_default handler, stored defaults) stays
+                           intact — restore by re-adding the star button
+                           here and the star icon on the item-form chips. --%>
                       <.button
                         type="button"
                         phx-click="delete_value"
