@@ -192,6 +192,41 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSetsTest do
       end
     end
 
+    describe "migration from groups" do
+      test "explodes groups into sets, preserves keys, is idempotent" do
+        actor = Ecto.UUID.generate()
+
+        {:ok, group} = Catalogue.create_attribute_group(%{name: "Ikea doors"})
+        {:ok, color} = Catalogue.create_attribute(group, %{"name" => "Color", "kind" => "multi"})
+        {:ok, oak} = Catalogue.create_attribute_value(color, %{"value" => "Oak"})
+        {:ok, _} = Catalogue.create_attribute_value(color, %{"value" => "White"})
+        {:ok, _} = Catalogue.set_default_value(oak)
+        {:ok, trim} = Catalogue.create_attribute(group, %{"name" => "Trim", "kind" => "fixed"})
+        {:ok, _} = Catalogue.create_attribute_value(trim, %{"value" => "Gold"})
+
+        item = fixture_item(%{name: "Door"})
+        {:ok, _} = Catalogue.set_item_attribute_group(item, group.uuid)
+
+        assert {:ok, %{sets: 2, values: 3, attachments: 2}} =
+                 AttributeSets.migrate_groups_to_sets(actor_uuid: actor)
+
+        # The item now resolves BOTH sets, keys preserved from the old
+        # attribute/value keys so order-line picks keep working.
+        %{sets: sets} = AttributeSets.resolve_for_item(item.uuid)
+        assert length(sets) == 2
+
+        color_set = Enum.find(sets, &(&1.kind == :multi))
+        assert color_set.default == oak.key
+
+        assert Enum.map(color_set.values, & &1.key) |> Enum.sort() ==
+                 Enum.sort([oak.key | ["white"]])
+
+        # Idempotent: nothing new on a re-run.
+        assert {:ok, %{sets: 0, values: 0, attachments: 0}} =
+                 AttributeSets.migrate_groups_to_sets(actor_uuid: actor)
+      end
+    end
+
     describe "disabled entities" do
       test "every entry point degrades loudly, none crash" do
         PhoenixKit.Settings.update_setting("entities_enabled", "false")
