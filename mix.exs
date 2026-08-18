@@ -93,6 +93,13 @@ defmodule PhoenixKitCatalogue.MixProject do
       # warnings-as-errors failures.
       pk_dep(:phoenix_kit, "~> 2.8"),
       pk_dep(:phoenix_kit_ai, "~> 0.18"),
+      # Attribute sets ride the entities engine as MANAGED blueprints
+      # (2026-08-18 rework). The Managed contract + on_behalf_of write
+      # path ship in entities > 0.4.0; on an older entities the feature
+      # cleanly reports :entities_disabled (AttributeSets checks for
+      # the Managed module, not just enabled?). Local dev/tests:
+      # PHOENIX_KIT_ENTITIES_PATH=../phoenix_kit_entities.
+      pk_dep(:phoenix_kit_entities, "~> 0.4"),
       {:phoenix_live_view, "~> 1.1"},
       {:xlsx_reader, "~> 0.8"},
       # Used directly by the CSV import parser (NimbleCSV.define/2). Declared

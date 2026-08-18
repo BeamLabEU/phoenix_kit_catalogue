@@ -98,6 +98,14 @@ defmodule PhoenixKitCatalogue do
   def css_sources, do: [:phoenix_kit_catalogue]
 
   @impl PhoenixKit.Module
+  def children do
+    # Registers the attribute-set deletion guard with entities at boot
+    # (a set with item attachments cannot be deleted). Temporary task —
+    # runs once, exits.
+    [PhoenixKitCatalogue.Catalogue.AttributeSets]
+  end
+
+  @impl PhoenixKit.Module
   def js_sources do
     [
       %{
