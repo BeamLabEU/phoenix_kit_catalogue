@@ -463,6 +463,55 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
   end
 
   @doc """
+  Updates an existing extra field: `:label` renames the display text
+  (the key — referenced by stored per-value data — never changes),
+  `:options` replaces a select field's option list (non-empty
+  required). The type is immutable after creation: stored values were
+  cast for it.
+  """
+  @spec update_extra_field(struct(), String.t(), map(), keyword()) ::
+          {:ok, struct()} | {:error, term()}
+  def update_extra_field(set, key, attrs, opts \\ []) when is_binary(key) do
+    set = get_set(set.uuid) || set
+    fields = set.fields_definition || []
+
+    with :ok <- ensure_enabled(),
+         %{} = field <- Enum.find(fields, &(&1["key"] == key)) || {:error, :unknown_field},
+         {:ok, updated_field} <- apply_field_update(field, attrs) do
+      updated = Enum.map(fields, &if(&1["key"] == key, do: updated_field, else: &1))
+
+      set
+      |> PhoenixKitEntities.update_entity(%{fields_definition: updated}, on_behalf_of: @owner)
+      |> tap_log("attribute_set.field_updated", opts, fn s ->
+        %{"set" => s.name, "field" => key}
+      end)
+    end
+  end
+
+  defp apply_field_update(field, attrs) do
+    label = attrs |> Map.get(:label, field["label"]) |> String.trim()
+
+    options =
+      case Map.get(attrs, :options) do
+        nil -> field["options"]
+        list -> list |> Enum.map(&String.trim/1) |> Enum.reject(&(&1 == ""))
+      end
+
+    cond do
+      label == "" -> {:error, :label_required}
+      field["type"] == "select" and options == [] -> {:error, :options_required}
+      true -> {:ok, field |> Map.put("label", label) |> maybe_put_options(options)}
+    end
+  end
+
+  defp maybe_put_options(field, nil), do: field
+
+  defp maybe_put_options(%{"type" => "select"} = field, options),
+    do: Map.put(field, "options", options)
+
+  defp maybe_put_options(field, _options), do: field
+
+  @doc """
   Removes an extra field from the blueprint. Existing per-value data
   for the key is left in place (harmless, invisible) — same doctrine
   as entities' own field removal.

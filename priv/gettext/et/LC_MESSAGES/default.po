@@ -1477,3 +1477,78 @@ msgstr "Vali pilt"
 
 msgid "Select Video"
 msgstr "Vali video"
+
+msgid "Value"
+msgstr "Väärtus"
+
+msgid "Type"
+msgstr "Tüüp"
+
+msgid "Add field"
+msgstr "Lisa väli"
+
+msgid "Edit field"
+msgstr "Muuda välja"
+
+msgid "Add extra field"
+msgstr "Lisa lisaväli"
+
+msgid "Edit extra field"
+msgstr "Muuda lisavälja"
+
+msgid "e.g. Price per liter"
+msgstr "nt Hind liitri kohta"
+
+msgid "Shown as a label on every value."
+msgstr "Kuvatakse sildina iga väärtuse juures."
+
+msgid "Key: %{key}"
+msgstr "Võti: %{key}"
+
+msgid "Type can't be changed. Remove the field and add a new one if you need a different type."
+msgstr "Tüüpi ei saa muuta. Kui vajad teist tüüpi, eemalda väli ja lisa uus."
+
+msgid "Choices"
+msgstr "Valikud"
+
+msgid "Each value picks one of these from a dropdown."
+msgstr "Iga väärtus valib rippmenüüst ühe neist."
+
+msgid "Remove choice"
+msgstr "Eemalda valik"
+
+msgid "Add choice"
+msgstr "Lisa valik"
+
+msgid "Renaming or removing a choice clears that pick on values that used it."
+msgstr "Valiku ümbernimetamine või eemaldamine tühjendab selle valiku väärtustel, mis seda kasutasid."
+
+msgid "Add at least one choice."
+msgstr "Lisa vähemalt üks valik."
+
+msgid "Failed to save the field."
+msgstr "Välja salvestamine ebaõnnestus."
+
+msgid "Save field"
+msgstr "Salvesta väli"
+
+msgid "Each value gets a text input."
+msgstr "Iga väärtus saab tekstivälja."
+
+msgid "Each value gets a multi-line text box."
+msgstr "Iga väärtus saab mitmerealise tekstikasti."
+
+msgid "Each value gets a number input."
+msgstr "Iga väärtus saab arvuvälja."
+
+msgid "Each value gets a yes/no toggle."
+msgstr "Iga väärtus saab jah/ei lüliti."
+
+msgid "Each value gets a date picker."
+msgstr "Iga väärtus saab kuupäevavalija."
+
+msgid "Each value gets an image picked from the media library."
+msgstr "Iga väärtus saab meediakogust valitud pildi."
+
+msgid "Each value gets a video picked from the media library."
+msgstr "Iga väärtus saab meediakogust valitud video."
