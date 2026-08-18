@@ -1482,3 +1482,78 @@ msgstr ""
 
 msgid "Select Video"
 msgstr ""
+
+msgid "Value"
+msgstr ""
+
+msgid "Type"
+msgstr ""
+
+msgid "Add field"
+msgstr ""
+
+msgid "Edit field"
+msgstr ""
+
+msgid "Add extra field"
+msgstr ""
+
+msgid "Edit extra field"
+msgstr ""
+
+msgid "e.g. Price per liter"
+msgstr ""
+
+msgid "Shown as a label on every value."
+msgstr ""
+
+msgid "Key: %{key}"
+msgstr ""
+
+msgid "Type can't be changed. Remove the field and add a new one if you need a different type."
+msgstr ""
+
+msgid "Choices"
+msgstr ""
+
+msgid "Each value picks one of these from a dropdown."
+msgstr ""
+
+msgid "Remove choice"
+msgstr ""
+
+msgid "Add choice"
+msgstr ""
+
+msgid "Renaming or removing a choice clears that pick on values that used it."
+msgstr ""
+
+msgid "Add at least one choice."
+msgstr ""
+
+msgid "Failed to save the field."
+msgstr ""
+
+msgid "Save field"
+msgstr ""
+
+msgid "Each value gets a text input."
+msgstr ""
+
+msgid "Each value gets a multi-line text box."
+msgstr ""
+
+msgid "Each value gets a number input."
+msgstr ""
+
+msgid "Each value gets a yes/no toggle."
+msgstr ""
+
+msgid "Each value gets a date picker."
+msgstr ""
+
+msgid "Each value gets an image picked from the media library."
+msgstr ""
+
+msgid "Each value gets a video picked from the media library."
+msgstr ""

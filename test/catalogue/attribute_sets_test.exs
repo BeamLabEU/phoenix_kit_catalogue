@@ -214,6 +214,38 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSetsTest do
         {:ok, v} = AttributeSets.update_value(set, v, %{extras: %{"swatch" => ""}})
         assert v.data["swatch"] == nil
       end
+
+      test "update_extra_field renames labels and edits select options, key immutable" do
+        set = create_set!("Ikea papers")
+
+        {:ok, _} =
+          AttributeSets.add_extra_field(set, %{
+            label: "Finish",
+            type: "select",
+            options: ["Matte", "Gloss"]
+          })
+
+        {:ok, _} =
+          AttributeSets.update_extra_field(set, "finish", %{
+            label: "Surface finish",
+            options: ["Matte", "Gloss", "Satin"]
+          })
+
+        set = AttributeSets.get_set(set.uuid)
+        [field] = set.fields_definition
+        assert field["key"] == "finish"
+        assert field["label"] == "Surface finish"
+        assert field["options"] == ["Matte", "Gloss", "Satin"]
+
+        assert {:error, :label_required} =
+                 AttributeSets.update_extra_field(set, "finish", %{label: "  "})
+
+        assert {:error, :options_required} =
+                 AttributeSets.update_extra_field(set, "finish", %{options: ["", " "]})
+
+        assert {:error, :unknown_field} =
+                 AttributeSets.update_extra_field(set, "nope", %{label: "X"})
+      end
     end
 
     describe "attachments + resolve" do

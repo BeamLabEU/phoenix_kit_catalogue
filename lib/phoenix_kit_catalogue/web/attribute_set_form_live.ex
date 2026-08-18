@@ -19,9 +19,12 @@ defmodule PhoenixKitCatalogue.Web.AttributeSetFormLive do
   use Phoenix.LiveView
 
   import PhoenixKitWeb.Components.Core.Icon, only: [icon: 1]
-  import PhoenixKitWeb.Components.Core.Modal, only: [confirm_modal: 1]
+  import PhoenixKitWeb.Components.Core.Modal, only: [confirm_modal: 1, modal: 1]
   import PhoenixKitWeb.Components.Core.Button, only: [button: 1]
   import PhoenixKitWeb.Components.Core.Select, only: [select: 1]
+
+  import PhoenixKitWeb.Components.Core.Sortable,
+    only: [sortable_tbody: 1, sortable_row: 1]
 
   import PhoenixKitCatalogue.Web.Helpers, only: [actor_opts: 1]
   import PhoenixKitEntities.Components.FieldInput, only: [field_input: 1]
@@ -76,6 +79,7 @@ defmodule PhoenixKitCatalogue.Web.AttributeSetFormLive do
            draft_generation: %{},
            refocus_key: nil,
            confirm_remove_field: nil,
+           field_editor: nil,
            show_media_selector: false,
            media_filter: :image,
            media_pick_target: nil,
@@ -302,47 +306,81 @@ defmodule PhoenixKitCatalogue.Web.AttributeSetFormLive do
   end
 
   # ── Extra fields (blueprint fields_definition) ─────────────────────
+  #
+  # One modal, two modes (panel design run A): the modal renders fresh
+  # per open — no phx-update="ignore" — so the server freely shows the
+  # type-specific block. Select choices are one-input-per-choice
+  # ("Choices", never a comma-separated box); type is locked on edit
+  # (stored values were cast for it); errors stay inside the modal.
 
-  def handle_event("add_extra_field", %{"field_label" => label} = params, socket) do
-    attrs = %{
-      label: String.trim(label),
-      type: Map.get(params, "field_type", "text"),
-      options: String.split(Map.get(params, "field_options", ""), ",")
-    }
+  def handle_event("open_field_editor", _params, socket) do
+    {:noreply,
+     assign(socket, :field_editor, %{
+       mode: :new,
+       key: nil,
+       label: "",
+       type: "text",
+       choices: [],
+       error: nil
+     })}
+  end
 
-    case Catalogue.add_attribute_set_field(socket.assigns.set, attrs, actor_opts(socket)) do
-      {:ok, _} ->
-        {:noreply, socket |> clear_draft("field") |> reload_set()}
+  def handle_event("edit_extra_field", %{"key" => key}, socket) do
+    case extra_field(socket.assigns.set, key) do
+      %{} = field ->
+        {:noreply,
+         assign(socket, :field_editor, %{
+           mode: :edit,
+           key: key,
+           label: field["label"],
+           type: field["type"],
+           choices: field["options"] || [],
+           error: nil
+         })}
 
-      {:error, :label_required} ->
+      _ ->
+        {:noreply, socket}
+    end
+  end
+
+  def handle_event("close_field_editor", _params, socket) do
+    {:noreply, assign(socket, :field_editor, nil)}
+  end
+
+  def handle_event("validate_field_editor", params, socket) do
+    case socket.assigns.field_editor do
+      nil ->
         {:noreply, socket}
 
-      {:error, :options_required} ->
-        {:noreply,
-         put_flash(
-           socket,
-           :error,
-           Gettext.gettext(
-             PhoenixKitCatalogue.Gettext,
-             "Select fields need options — list them comma-separated."
-           )
-         )}
+      editor ->
+        {:noreply, assign(socket, :field_editor, merge_editor_params(editor, params))}
+    end
+  end
 
-      {:error, :duplicate_key} ->
-        {:noreply,
-         put_flash(
-           socket,
-           :error,
-           Gettext.gettext(PhoenixKitCatalogue.Gettext, "A field with this name already exists.")
-         )}
+  def handle_event("add_field_choice", _params, socket) do
+    case socket.assigns.field_editor do
+      nil ->
+        {:noreply, socket}
 
-      {:error, _} ->
-        {:noreply,
-         put_flash(
-           socket,
-           :error,
-           Gettext.gettext(PhoenixKitCatalogue.Gettext, "Failed to add field.")
-         )}
+      editor ->
+        {:noreply, assign(socket, :field_editor, %{editor | choices: editor.choices ++ [""]})}
+    end
+  end
+
+  def handle_event("remove_field_choice", %{"index" => raw}, socket) do
+    with editor when not is_nil(editor) <- socket.assigns.field_editor,
+         {index, ""} <- Integer.parse(raw) do
+      {:noreply,
+       assign(socket, :field_editor, %{editor | choices: List.delete_at(editor.choices, index)})}
+    else
+      _ -> {:noreply, socket}
+    end
+  end
+
+  def handle_event("save_field_editor", params, socket) do
+    case socket.assigns.field_editor do
+      nil -> {:noreply, socket}
+      editor -> save_field_editor(socket, merge_editor_params(editor, params))
     end
   end
 
@@ -390,6 +428,81 @@ defmodule PhoenixKitCatalogue.Web.AttributeSetFormLive do
   end
 
   # ── Save / helpers ─────────────────────────────────────────────────
+
+  defp merge_editor_params(editor, params) do
+    type =
+      if editor.mode == :new,
+        do: validate_editor_type(Map.get(params, "type", editor.type), editor.type),
+        else: editor.type
+
+    choices =
+      cond do
+        type != "select" -> []
+        # Switching TO select seeds two empty inputs so the purpose is
+        # visible without another click.
+        editor.type != "select" -> ["", ""]
+        true -> params |> Map.get("choices", editor.choices) |> List.wrap()
+      end
+
+    %{
+      editor
+      | label: Map.get(params, "label", editor.label),
+        type: type,
+        choices: choices,
+        error: nil
+    }
+  end
+
+  defp validate_editor_type(candidate, fallback) do
+    if candidate in Catalogue.attribute_set_field_types(), do: candidate, else: fallback
+  end
+
+  defp save_field_editor(socket, editor) do
+    label = String.trim(editor.label)
+
+    result =
+      case editor.mode do
+        :new ->
+          Catalogue.add_attribute_set_field(
+            socket.assigns.set,
+            %{label: label, type: editor.type, options: editor.choices},
+            actor_opts(socket)
+          )
+
+        :edit ->
+          attrs =
+            if editor.type == "select",
+              do: %{label: label, options: editor.choices},
+              else: %{label: label}
+
+          Catalogue.update_attribute_set_field(
+            socket.assigns.set,
+            editor.key,
+            attrs,
+            actor_opts(socket)
+          )
+      end
+
+    case result do
+      {:ok, _} ->
+        {:noreply, socket |> assign(:field_editor, nil) |> reload_set()}
+
+      {:error, reason} ->
+        {:noreply, assign(socket, :field_editor, %{editor | error: editor_error(reason)})}
+    end
+  end
+
+  defp editor_error(:label_required),
+    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Name is required.")
+
+  defp editor_error(:options_required),
+    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Add at least one choice.")
+
+  defp editor_error(:duplicate_key),
+    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "A field with this name already exists.")
+
+  defp editor_error(_),
+    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Failed to save the field.")
 
   defp save_mode(%{"save_action" => "stay"}), do: :stay
   defp save_mode(_params), do: :exit
@@ -549,6 +662,53 @@ defmodule PhoenixKitCatalogue.Web.AttributeSetFormLive do
     ]
   end
 
+  defp field_type_label(type) do
+    case List.keyfind(field_type_options(), type, 1) do
+      {label, _} -> label
+      nil -> type
+    end
+  end
+
+  defp field_type_hint("text"),
+    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Each value gets a text input.")
+
+  defp field_type_hint("textarea"),
+    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Each value gets a multi-line text box.")
+
+  defp field_type_hint("number"),
+    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Each value gets a number input.")
+
+  defp field_type_hint("boolean"),
+    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Each value gets a yes/no toggle.")
+
+  defp field_type_hint("date"),
+    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Each value gets a date picker.")
+
+  defp field_type_hint("image"),
+    do:
+      Gettext.gettext(
+        PhoenixKitCatalogue.Gettext,
+        "Each value gets an image picked from the media library."
+      )
+
+  defp field_type_hint("video"),
+    do:
+      Gettext.gettext(
+        PhoenixKitCatalogue.Gettext,
+        "Each value gets a video picked from the media library."
+      )
+
+  defp field_type_hint(_), do: ""
+
+  # Per-type column widths for the values table — local sizing, not a
+  # design system.
+  defp extra_col_class("number"), do: "w-24"
+  defp extra_col_class("boolean"), do: "w-16"
+  defp extra_col_class("date"), do: "w-32"
+  defp extra_col_class("textarea"), do: "min-w-40"
+  defp extra_col_class(type) when type in ["image", "video"], do: "min-w-36"
+  defp extra_col_class(_), do: "min-w-32"
+
   defp extra_value(value, key), do: (value.data || %{})[key]
 
   @impl true
@@ -577,7 +737,7 @@ defmodule PhoenixKitCatalogue.Web.AttributeSetFormLive do
       current_path={assigns[:url_path] || Paths.attribute_groups()}
       current_locale={assigns[:current_locale]}
     >
-      <div class="flex flex-col mx-auto max-w-3xl px-4 py-8 gap-6">
+      <div class="flex flex-col mx-auto max-w-5xl px-4 py-8 gap-6">
         <div class="card bg-base-100 shadow-lg">
           <.form
             id="attribute-set-form"
@@ -639,116 +799,122 @@ defmodule PhoenixKitCatalogue.Web.AttributeSetFormLive do
               )}
             </p>
 
+            <%!-- Values as a real table (panel design run B): extras are
+                 the same keys on every value, so header labels render
+                 ONCE per field, extras scroll sideways while the Value
+                 and Actions columns stay pinned. One extras form per
+                 value renders inside the value cell holding only the
+                 hidden uuid — a <form> inside <tr> is foster-parented
+                 out by the HTML parser, so every control associates via
+                 the HTML form attribute instead. The textarea override
+                 keeps one multi-line field from puffing every row. --%>
             <div
               :if={@values != []}
-              id="set-value-rows"
-              phx-hook="SortableGrid"
-              data-sortable="true"
-              data-sortable-event="reorder_values"
-              data-sortable-items=".sortable-item"
-              data-sortable-handle=".pk-drag-handle"
-              class="flex flex-col gap-2"
+              class="overflow-x-auto rounded-lg border border-base-content/10 [&_textarea]:h-8 [&_textarea]:min-h-8"
             >
-              <%!-- Raw inputs deliberately, same L029 call as the group
-                   editor: compact flex rows, no changeset to wire the
-                   kit's feedback wrapper to. --%>
-              <div
-                :for={value <- @values}
-                class="sortable-item rounded-lg border border-base-content/10 bg-base-content/5 p-2 flex flex-wrap items-center gap-2"
-                data-id={value.uuid}
-              >
-                <span class="pk-drag-handle cursor-grab inline-flex items-center text-base-content/40 hover:text-base-content/70">
-                  <.icon name="hero-bars-3" class="w-4 h-4" />
-                </span>
-                <input
-                  id={"set-value-label-#{value.uuid}"}
-                  type="text"
-                  value={value.title}
-                  phx-blur="rename_value"
-                  phx-value-uuid={value.uuid}
-                  class="input input-sm input-bordered bg-base-100 font-medium flex-1 min-w-32"
-                />
-
-                <%!-- Extras through entities' FieldInput — one form per
-                     row (there is no outer form here, so this nests
-                     nothing); typed inputs debounce on blur, discrete
-                     ones fire immediately, media types push the pick
-                     events. Every entities field type renders without
-                     this page changing again. --%>
-                <%!-- phx-submit is load-bearing even though the change
-                     event does all the saving: phx-change WITHOUT
-                     phx-submit makes LiveView treat the form as
-                     external — Enter in any extras input would then
-                     native-submit (GET to the current URL), killing
-                     the socket and unsaved work (panel finding). The
-                     submit lands in the catch-all clause (no _target)
-                     and no-ops. --%>
-                <form
-                  id={"value-extras-#{value.uuid}"}
-                  phx-change="value_extras_changed"
-                  phx-submit="value_extras_changed"
-                  class="contents"
-                >
-                  <input type="hidden" name="uuid" value={value.uuid} />
-                  <label
-                    :for={field <- @set.fields_definition || []}
-                    class="flex items-center gap-1 text-xs text-base-content/60"
-                    title={field["label"]}
-                  >
-                    <span class="max-w-20 truncate">{field["label"]}</span>
-                    <span class="inline-block max-w-40">
+              <table class="table table-xs bg-base-100 w-max min-w-full">
+                <thead>
+                  <tr>
+                    <th class="sticky left-0 z-10 bg-base-100 min-w-44">
+                      {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Value")}
+                    </th>
+                    <th
+                      :for={field <- @set.fields_definition || []}
+                      class={extra_col_class(field["type"])}
+                    >
+                      <span class="block truncate max-w-40" title={field["label"]}>
+                        {field["label"]}
+                      </span>
+                    </th>
+                    <th class="sticky right-0 z-10 bg-base-100 w-20"></th>
+                  </tr>
+                </thead>
+                <.sortable_tbody id="set-value-rows" event="reorder_values">
+                  <.sortable_row :for={value <- @values} item_id={value.uuid}>
+                    <td class="sticky left-0 z-10 bg-base-100 align-middle min-w-44">
+                      <div class="flex items-center gap-2">
+                        <span class="pk-drag-handle cursor-grab inline-flex items-center text-base-content/40 hover:text-base-content/70">
+                          <.icon name="hero-bars-3" class="w-4 h-4" />
+                        </span>
+                        <input
+                          id={"set-value-label-#{value.uuid}"}
+                          type="text"
+                          value={value.title}
+                          phx-blur="rename_value"
+                          phx-value-uuid={value.uuid}
+                          class="input input-sm input-bordered bg-base-100 font-medium w-full min-w-32"
+                        />
+                      </div>
+                      <%!-- phx-submit stays load-bearing: without it the
+                           form is external and Enter native-navigates
+                           (earlier panel finding); the submit hits the
+                           no-_target catch-all. --%>
+                      <form
+                        id={"value-extras-#{value.uuid}"}
+                        phx-change="value_extras_changed"
+                        phx-submit="value_extras_changed"
+                      >
+                        <input type="hidden" name="uuid" value={value.uuid} />
+                      </form>
+                    </td>
+                    <td
+                      :for={field <- @set.fields_definition || []}
+                      class={["align-middle whitespace-nowrap py-1", extra_col_class(field["type"])]}
+                    >
                       <.field_input
                         field={field}
                         id={"extra-#{value.uuid}-#{field["key"]}"}
                         name={"extras[#{field["key"]}]"}
                         value={extra_value(value, field["key"])}
+                        form={"value-extras-#{value.uuid}"}
                         size="xs"
                         on_pick="pick_value_media"
                         on_clear="clear_value_media"
                         pick_params={%{"uuid" => value.uuid}}
                       />
-                    </span>
-                  </label>
-                </form>
-
-                <.button
-                  type="button"
-                  phx-click="make_default"
-                  phx-value-uuid={value.uuid}
-                  variant="ghost"
-                  size="xs"
-                  class={["px-1", current_default(@set) == value.slug && "text-warning"]}
-                  title={
-                    if current_default(@set) == value.slug,
-                      do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Default value"),
-                      else: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Make default")
-                  }
-                >
-                  <.icon
-                    name={
-                      if current_default(@set) == value.slug,
-                        do: "hero-star-solid",
-                        else: "hero-star"
-                    }
-                    class="w-4 h-4 phx-click-loading:hidden"
-                  />
-                  <span class="loading loading-spinner w-4 h-4 hidden phx-click-loading:inline-block">
-                  </span>
-                </.button>
-                <.button
-                  type="button"
-                  phx-click="delete_value"
-                  phx-value-uuid={value.uuid}
-                  variant="ghost"
-                  size="xs"
-                  class="px-1 text-base-content/40 hover:text-error"
-                  title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Remove value")}
-                >
-                  <.icon name="hero-x-mark" class="w-4 h-4 phx-click-loading:hidden" />
-                  <span class="loading loading-spinner w-4 h-4 hidden phx-click-loading:inline-block">
-                  </span>
-                </.button>
-              </div>
+                    </td>
+                    <td class="sticky right-0 z-10 bg-base-100 align-middle whitespace-nowrap text-right">
+                      <.button
+                        type="button"
+                        phx-click="make_default"
+                        phx-value-uuid={value.uuid}
+                        variant="ghost"
+                        size="xs"
+                        class={["px-1", current_default(@set) == value.slug && "text-warning"]}
+                        title={
+                          if current_default(@set) == value.slug,
+                            do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Default value"),
+                            else: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Make default")
+                        }
+                      >
+                        <.icon
+                          name={
+                            if current_default(@set) == value.slug,
+                              do: "hero-star-solid",
+                              else: "hero-star"
+                          }
+                          class="w-4 h-4 phx-click-loading:hidden"
+                        />
+                        <span class="loading loading-spinner w-4 h-4 hidden phx-click-loading:inline-block">
+                        </span>
+                      </.button>
+                      <.button
+                        type="button"
+                        phx-click="delete_value"
+                        phx-value-uuid={value.uuid}
+                        variant="ghost"
+                        size="xs"
+                        class="px-1 text-base-content/40 hover:text-error"
+                        title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Remove value")}
+                      >
+                        <.icon name="hero-x-mark" class="w-4 h-4 phx-click-loading:hidden" />
+                        <span class="loading loading-spinner w-4 h-4 hidden phx-click-loading:inline-block">
+                        </span>
+                      </.button>
+                    </td>
+                  </.sortable_row>
+                </.sortable_tbody>
+              </table>
             </div>
 
             <%!-- phx-update="ignore" + generation-bumped id — see the
@@ -793,64 +959,63 @@ defmodule PhoenixKitCatalogue.Web.AttributeSetFormLive do
               )}
             </p>
 
-            <div :if={(@set.fields_definition || []) != []} class="flex flex-wrap gap-2">
-              <span
+            <%!-- Compact rows, not badges (panel design run A): rows
+                 carry the edit affordance and a choices summary; the
+                 inline add form is gone — one modal handles add AND
+                 edit, fresh per open, so the server freely shows the
+                 type-specific block. --%>
+            <div :if={(@set.fields_definition || []) != []} class="flex flex-col gap-2">
+              <div
                 :for={field <- @set.fields_definition}
-                class="badge badge-ghost gap-1.5 py-3"
+                class="rounded-lg border border-base-content/10 bg-base-content/5 p-2 flex items-center gap-2"
               >
-                {field["label"]}
-                <span class="text-base-content/40 text-xs">({field["type"]})</span>
-                <button
+                <span class="font-medium text-sm shrink-0">{field["label"]}</span>
+                <span class="badge badge-sm badge-ghost shrink-0">
+                  {field_type_label(field["type"])}
+                </span>
+                <span
+                  :if={field["type"] == "select"}
+                  class="text-xs text-base-content/50 truncate flex-1 min-w-0"
+                  title={Enum.join(field["options"] || [], ", ")}
+                >
+                  {Enum.join(field["options"] || [], ", ")}
+                </span>
+                <span :if={field["type"] != "select"} class="flex-1"></span>
+                <.button
+                  type="button"
+                  phx-click="edit_extra_field"
+                  phx-value-key={field["key"]}
+                  variant="ghost"
+                  size="xs"
+                  class="px-1"
+                  title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit field")}
+                >
+                  <.icon name="hero-pencil" class="w-4 h-4" />
+                </.button>
+                <.button
                   type="button"
                   phx-click="request_remove_field"
                   phx-value-key={field["key"]}
-                  class="text-base-content/40 hover:text-error"
+                  variant="ghost"
+                  size="xs"
+                  class="px-1 text-base-content/40 hover:text-error"
                   title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Remove field")}
                 >
-                  <.icon name="hero-x-mark" class="w-3.5 h-3.5" />
-                </button>
-              </span>
+                  <.icon name="hero-trash" class="w-4 h-4" />
+                </.button>
+              </div>
             </div>
 
-            <%!-- RAW select/button, NOT the kit components: function-
-                 component subtrees inside this phx-update="ignore" form
-                 arrive as data-phx-skip stubs when the generation-bumped
-                 id replaces it, leaving holes (same trap as the literal
-                 icon spans in the add-value form above; bitten live on
-                 2026-08-18). flex-wrap keeps four controls usable on
-                 narrow widths. --%>
-            <form
-              id={"add-set-field-form-g#{draft_gen(@draft_generation, "field")}"}
-              phx-submit="add_extra_field"
-              phx-update="ignore"
-              class="flex flex-wrap items-center gap-2"
+            <.button
+              type="button"
+              phx-click="open_field_editor"
+              variant="outline"
+              size="sm"
+              class="self-start"
             >
-              <input
-                id={"add-set-field-input-g#{draft_gen(@draft_generation, "field")}"}
-                type="text"
-                name="field_label"
-                placeholder={Gettext.gettext(PhoenixKitCatalogue.Gettext, "New field name...")}
-                class="input input-sm input-bordered flex-1 min-w-40"
-                phx-mounted={@refocus_key == "field" && JS.focus()}
-              />
-              <select name="field_type" class="select select-sm select-bordered w-36 shrink-0">
-                <option :for={{label, val} <- field_type_options()} value={val}>{label}</option>
-              </select>
-              <input
-                type="text"
-                name="field_options"
-                placeholder={
-                  Gettext.gettext(PhoenixKitCatalogue.Gettext, "Options, comma-separated (Select)")
-                }
-                class="input input-sm input-bordered w-56 shrink-0"
-              />
-              <button type="submit" class="btn btn-outline btn-sm shrink-0">
-                <span class="hero-plus w-4 h-4 phx-submit-loading:hidden"></span>
-                <span class="loading loading-spinner w-4 h-4 hidden phx-submit-loading:inline-block">
-                </span>
-                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Add")}
-              </button>
-            </form>
+              <.icon name="hero-plus" class="w-4 h-4" />
+              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Add field")}
+            </.button>
           </div>
         </div>
 
@@ -897,6 +1062,152 @@ defmodule PhoenixKitCatalogue.Web.AttributeSetFormLive do
           confirm_text={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Remove")}
           danger={true}
         />
+
+        <%!-- Field editor — one modal, two modes; renders fresh per
+             open so the type-specific block is server-driven. Errors
+             stay inside the modal, never a page flash. --%>
+        <.modal
+          :if={@field_editor != nil}
+          id="field-editor-modal"
+          show
+          on_close="close_field_editor"
+          max_width="md"
+        >
+          <:title>
+            {if @field_editor.mode == :new,
+              do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Add extra field"),
+              else: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit extra field")}
+          </:title>
+
+          <form
+            id="field-editor-form"
+            phx-change="validate_field_editor"
+            phx-submit="save_field_editor"
+            class="flex flex-col gap-4"
+          >
+            <label class="form-control">
+              <span class="label-text font-medium pb-1">
+                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Name")}
+                <span class="text-error">*</span>
+              </span>
+              <input
+                type="text"
+                name="label"
+                value={@field_editor.label}
+                placeholder={Gettext.gettext(PhoenixKitCatalogue.Gettext, "e.g. Price per liter")}
+                class="input input-bordered w-full"
+              />
+              <span class="text-xs text-base-content/50 pt-1">
+                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Shown as a label on every value.")}
+              </span>
+            </label>
+            <p :if={@field_editor.mode == :edit} class="text-xs text-base-content/50 -mt-2">
+              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Key: %{key}", key: @field_editor.key)}
+            </p>
+
+            <%= if @field_editor.mode == :new do %>
+              <label class="form-control">
+                <span class="label-text font-medium pb-1">
+                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Type")}
+                </span>
+                <select name="type" class="select select-bordered w-full">
+                  <option
+                    :for={{label, val} <- field_type_options()}
+                    value={val}
+                    selected={@field_editor.type == val}
+                  >
+                    {label}
+                  </option>
+                </select>
+              </label>
+            <% else %>
+              <div class="flex flex-col gap-1">
+                <span class="label-text font-medium">
+                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Type")}
+                </span>
+                <p class="text-sm">{field_type_label(@field_editor.type)}</p>
+                <p class="text-xs text-base-content/50">
+                  {Gettext.gettext(
+                    PhoenixKitCatalogue.Gettext,
+                    "Type can't be changed. Remove the field and add a new one if you need a different type."
+                  )}
+                </p>
+              </div>
+            <% end %>
+
+            <%= if @field_editor.type == "select" do %>
+              <div class="flex flex-col gap-2">
+                <span class="label-text font-medium">
+                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Choices")}
+                </span>
+                <span class="text-xs text-base-content/50">
+                  {Gettext.gettext(
+                    PhoenixKitCatalogue.Gettext,
+                    "Each value picks one of these from a dropdown."
+                  )}
+                </span>
+                <div
+                  :for={{choice, index} <- Enum.with_index(@field_editor.choices)}
+                  class="flex items-center gap-2"
+                >
+                  <input
+                    type="text"
+                    name="choices[]"
+                    id={"field-choice-#{index}"}
+                    value={choice}
+                    class="input input-sm input-bordered flex-1"
+                  />
+                  <.button
+                    type="button"
+                    phx-click="remove_field_choice"
+                    phx-value-index={index}
+                    variant="ghost"
+                    size="xs"
+                    class="px-1 text-base-content/40 hover:text-error"
+                    title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Remove choice")}
+                  >
+                    <.icon name="hero-x-mark" class="w-4 h-4" />
+                  </.button>
+                </div>
+                <.button
+                  type="button"
+                  phx-click="add_field_choice"
+                  variant="outline"
+                  size="xs"
+                  class="self-start"
+                >
+                  <.icon name="hero-plus" class="w-3.5 h-3.5" />
+                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Add choice")}
+                </.button>
+                <p :if={@field_editor.mode == :edit} class="text-xs text-warning">
+                  {Gettext.gettext(
+                    PhoenixKitCatalogue.Gettext,
+                    "Renaming or removing a choice clears that pick on values that used it."
+                  )}
+                </p>
+              </div>
+            <% else %>
+              <p class="text-sm text-base-content/50">{field_type_hint(@field_editor.type)}</p>
+            <% end %>
+
+            <p :if={@field_editor.error} class="text-sm text-error">{@field_editor.error}</p>
+          </form>
+
+          <:actions>
+            <.button type="button" variant="ghost" phx-click="close_field_editor">
+              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Cancel")}
+            </.button>
+            <.button
+              form="field-editor-form"
+              type="submit"
+              phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Saving...")}
+            >
+              {if @field_editor.mode == :new,
+                do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Add field"),
+                else: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Save field")}
+            </.button>
+          </:actions>
+        </.modal>
 
         <%!-- ONE page-level picker shared by every image/video extra
              cell (per-cell pickers are the footgun, not per-cell

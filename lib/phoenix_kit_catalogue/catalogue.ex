@@ -5144,6 +5144,10 @@ defmodule PhoenixKitCatalogue.Catalogue do
     to: AttributeSets,
     as: :remove_extra_field
 
+  defdelegate update_attribute_set_field(set, key, attrs, opts \\ []),
+    to: AttributeSets,
+    as: :update_extra_field
+
   defdelegate attribute_set_field_types(), to: AttributeSets, as: :extra_field_types
 
   defdelegate attach_attribute_set(item_uuid, set_uuid, opts \\ []),

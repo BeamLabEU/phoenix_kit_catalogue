@@ -1486,3 +1486,78 @@ msgstr "Выберите изображение"
 
 msgid "Select Video"
 msgstr "Выберите видео"
+
+msgid "Value"
+msgstr "Значение"
+
+msgid "Type"
+msgstr "Тип"
+
+msgid "Add field"
+msgstr "Добавить поле"
+
+msgid "Edit field"
+msgstr "Изменить поле"
+
+msgid "Add extra field"
+msgstr "Добавить дополнительное поле"
+
+msgid "Edit extra field"
+msgstr "Изменить дополнительное поле"
+
+msgid "e.g. Price per liter"
+msgstr "напр. Цена за литр"
+
+msgid "Shown as a label on every value."
+msgstr "Отображается как подпись у каждого значения."
+
+msgid "Key: %{key}"
+msgstr "Ключ: %{key}"
+
+msgid "Type can't be changed. Remove the field and add a new one if you need a different type."
+msgstr "Тип нельзя изменить. Если нужен другой тип — удалите поле и добавьте новое."
+
+msgid "Choices"
+msgstr "Варианты"
+
+msgid "Each value picks one of these from a dropdown."
+msgstr "Каждое значение выбирает один из них из выпадающего списка."
+
+msgid "Remove choice"
+msgstr "Удалить вариант"
+
+msgid "Add choice"
+msgstr "Добавить вариант"
+
+msgid "Renaming or removing a choice clears that pick on values that used it."
+msgstr "Переименование или удаление варианта сбрасывает его у значений, которые его использовали."
+
+msgid "Add at least one choice."
+msgstr "Добавьте хотя бы один вариант."
+
+msgid "Failed to save the field."
+msgstr "Не удалось сохранить поле."
+
+msgid "Save field"
+msgstr "Сохранить поле"
+
+msgid "Each value gets a text input."
+msgstr "У каждого значения будет текстовое поле."
+
+msgid "Each value gets a multi-line text box."
+msgstr "У каждого значения будет многострочное текстовое поле."
+
+msgid "Each value gets a number input."
+msgstr "У каждого значения будет числовое поле."
+
+msgid "Each value gets a yes/no toggle."
+msgstr "У каждого значения будет переключатель да/нет."
+
+msgid "Each value gets a date picker."
+msgstr "У каждого значения будет выбор даты."
+
+msgid "Each value gets an image picked from the media library."
+msgstr "У каждого значения будет изображение из медиатеки."
+
+msgid "Each value gets a video picked from the media library."
+msgstr "У каждого значения будет видео из медиатеки."
