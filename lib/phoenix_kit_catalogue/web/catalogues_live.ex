@@ -76,7 +76,6 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
        attribute_group_rows: [],
        attribute_set_rows: [],
        sets_enabled: false,
-       confirm_migrate: false,
        confirm_delete: nil,
        catalogue_view_mode: "active",
        deleted_catalogue_count: 0,
@@ -417,11 +416,14 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   defp set_kind_label(_multi),
     do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Multiple values")
 
-  # The SETS half of the attributes tab (2026-08-18 rework) — rendered
-  # above the legacy groups while both systems coexist. A handful of
-  # sets on an admin page, so the per-set value listing is fine.
+  # The SETS half of the attributes tab (2026-08-18 rework). With sets
+  # live there is NO legacy UI — any remaining legacy groups are
+  # auto-migrated here (backstopping the boot-time run; idempotent and
+  # non-raising), then only sets render. A handful of sets on an admin
+  # page, so the per-set value listing is fine.
   defp load_attribute_sets(socket) do
     if Catalogue.attribute_sets_enabled?() do
+      socket = maybe_auto_migrate_legacy(socket)
       sets = Catalogue.list_attribute_sets(lang: socket.assigns[:current_locale])
       counts = Catalogue.attribute_set_attachment_counts(Enum.map(sets, & &1.uuid))
 
@@ -440,6 +442,16 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       assign(socket, sets_enabled: true, attribute_set_rows: rows)
     else
       assign(socket, sets_enabled: false, attribute_set_rows: [])
+    end
+  end
+
+  # Once per LV process — reloads (PubSub, tab switches) don't rescan.
+  defp maybe_auto_migrate_legacy(socket) do
+    if socket.assigns[:legacy_migration_ran] do
+      socket
+    else
+      Catalogue.auto_migrate_attribute_groups()
+      assign(socket, :legacy_migration_ran, true)
     end
   end
 
@@ -2021,54 +2033,6 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     end
   end
 
-  # ── Legacy-groups → sets migration (dual-run cutover helper) ───────
-
-  def handle_event("show_migrate_confirm", _params, socket) do
-    {:noreply, assign(socket, :confirm_migrate, true)}
-  end
-
-  def handle_event("cancel_migrate", _params, socket) do
-    {:noreply, assign(socket, :confirm_migrate, false)}
-  end
-
-  def handle_event("confirm_migrate", _params, socket) do
-    case Catalogue.migrate_attribute_groups_to_sets(actor_opts(socket)) do
-      {:ok, %{sets: sets, values: values, attachments: attachments}} ->
-        {:noreply,
-         socket
-         |> put_flash(
-           :info,
-           Gettext.gettext(
-             PhoenixKitCatalogue.Gettext,
-             "Migrated: %{sets} sets, %{values} values, %{attachments} item attachments.",
-             sets: sets,
-             values: values,
-             attachments: attachments
-           )
-         )
-         |> assign(:confirm_migrate, false)
-         |> load_data(:attribute_groups)}
-
-      {:error, reason} ->
-        log_operation_error(socket, "migrate_attribute_groups", %{
-          entity_type: "attribute_set",
-          entity_uuid: nil,
-          reason: reason
-        })
-
-        {:noreply,
-         socket
-         |> put_flash(
-           :error,
-           Gettext.gettext(
-             PhoenixKitCatalogue.Gettext,
-             "Migration failed — nothing was lost; check the logs and re-run."
-           )
-         )
-         |> assign(:confirm_migrate, false)}
-    end
-  end
-
   # Archive / restore straight from the row menu — reversible, no confirm.
   def handle_event("set_attribute_group_status", %{"uuid" => uuid, "status" => status}, socket)
       when status in ["active", "archived"] do
@@ -2847,7 +2811,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
           <p :if={@attribute_set_rows == []} class="text-sm text-base-content/60 py-4 text-center border border-dashed border-base-content/20 rounded-lg">
             {Gettext.gettext(
               PhoenixKitCatalogue.Gettext,
-              "No sets yet. Create one, or migrate your legacy groups below."
+              "No sets yet. Create one to define the options items can attach."
             )}
           </p>
 
@@ -2896,28 +2860,12 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
           </div>
         </div>
 
-        <%!-- LEGACY groups — dual-run: with sets live they render below
-             under their own header (with the one-click migration), and
-             the section disappears once no groups remain. Without
-             entities this stays the whole page, unchanged. --%>
-        <div :if={!@sets_enabled or @attribute_group_rows != []} class="flex flex-col gap-4">
-        <div :if={@sets_enabled} class="flex items-center justify-between gap-4 mt-4">
-          <div class="flex flex-col gap-0.5 min-w-0">
-            <h3 class="font-semibold text-base text-base-content/70">
-              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Legacy attribute groups")}
-            </h3>
-            <p class="text-xs text-base-content/50">
-              {Gettext.gettext(
-                PhoenixKitCatalogue.Gettext,
-                "The old system. Migration copies every group's attributes into sets and re-attaches items — nothing is deleted."
-              )}
-            </p>
-          </div>
-          <button type="button" phx-click="show_migrate_confirm" class="btn btn-outline btn-sm shrink-0">
-            <.icon name="hero-arrow-right-circle" class="w-4 h-4" />
-            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Migrate to sets")}
-          </button>
-        </div>
+        <%!-- LEGACY groups — only rendered on hosts WITHOUT the entities
+             module. With sets live there is no legacy UI at all: any
+             remaining groups auto-migrate on load ("it should just
+             migrate", boss direction 2026-08-18) and the old rows sit
+             untouched in the DB until the cutover drop migration. --%>
+        <div :if={!@sets_enabled} class="flex flex-col gap-4">
         <% cfg = @view_configs.attribute_groups %>
         <.table_toolbar scope={:attribute_groups} cfg={cfg}>
           <:filters>
@@ -2930,11 +2878,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
             />
           </:filters>
           <:actions>
-            <.link
-              :if={!@sets_enabled}
-              navigate={Paths.attribute_group_new()}
-              class="btn btn-primary btn-sm"
-            >
+            <.link navigate={Paths.attribute_group_new()} class="btn btn-primary btn-sm">
               <.icon name="hero-plus" class="w-4 h-4" />
               {Gettext.gettext(PhoenixKitCatalogue.Gettext, "New Attribute Group")}
             </.link>
@@ -3033,16 +2977,6 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         messages={[{:warning, Gettext.gettext(PhoenixKitCatalogue.Gettext, "This deletes the set and all its values. Sets attached to items cannot be deleted.")}]}
         confirm_text={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")}
         danger={true}
-      />
-
-      <.confirm_modal
-        show={@confirm_migrate}
-        on_confirm="confirm_migrate"
-        on_cancel="cancel_migrate"
-        title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Migrate groups to sets")}
-        title_icon="hero-arrow-right-circle"
-        messages={[{:info, Gettext.gettext(PhoenixKitCatalogue.Gettext, "Each group attribute becomes its own set, values keep their keys, and every item's group assignment is re-attached as sets. The old groups stay untouched and re-running is safe.")}]}
-        confirm_text={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Migrate")}
       />
 
       <.confirm_modal

@@ -1452,3 +1452,9 @@ msgstr ""
 
 msgid "This set was deleted in another session."
 msgstr ""
+
+msgid "No sets yet. Create one to define the options items can attach."
+msgstr ""
+
+msgid "Attribute groups have been replaced by sets — your groups were migrated automatically."
+msgstr ""

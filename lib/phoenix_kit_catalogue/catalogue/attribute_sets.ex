@@ -72,9 +72,52 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
   def child_spec(_opts) do
     %{
       id: __MODULE__.GuardRegistration,
-      start: {Task, :start_link, [&register_deletion_guard/0]},
+      start: {Task, :start_link, [&__MODULE__.startup/0]},
       restart: :temporary
     }
+  end
+
+  @doc false
+  def startup do
+    register_deletion_guard()
+    auto_migrate_legacy()
+  end
+
+  @doc """
+  Migrates any remaining legacy groups into sets, silently and safely —
+  there is no legacy UI once sets are live ("it should just migrate",
+  boss direction 2026-08-18), so this runs from the supervision-tree
+  startup task and again from the attributes page as a backstop (boot
+  can race the repo/settings, and entities can be enabled at runtime).
+
+  Never raises: any failure is logged and swallowed — a broken
+  migration must not take down boot or an admin page. Idempotent by
+  way of `migrate_groups_to_sets/1`.
+  """
+  @spec auto_migrate_legacy() :: :ok
+  def auto_migrate_legacy do
+    if enabled?() and PhoenixKitCatalogue.Catalogue.list_attribute_groups() != [] do
+      case migrate_groups_to_sets() do
+        {:ok, %{sets: 0, values: 0, attachments: 0}} ->
+          :ok
+
+        {:ok, counts} ->
+          Logger.info("AttributeSets: auto-migrated legacy groups — #{inspect(counts)}")
+
+        {:error, reason} ->
+          Logger.warning("AttributeSets: legacy auto-migration failed: #{inspect(reason)}")
+      end
+    end
+
+    :ok
+  rescue
+    error ->
+      Logger.warning("AttributeSets: legacy auto-migration crashed: #{inspect(error)}")
+      :ok
+  catch
+    :exit, reason ->
+      Logger.warning("AttributeSets: legacy auto-migration exited: #{inspect(reason)}")
+      :ok
   end
 
   @doc false

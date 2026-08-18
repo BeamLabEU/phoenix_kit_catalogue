@@ -1456,3 +1456,9 @@ msgstr "Неизвестный набор"
 
 msgid "This set was deleted in another session."
 msgstr "Этот набор был удалён в другом сеансе."
+
+msgid "No sets yet. Create one to define the options items can attach."
+msgstr "Наборов пока нет. Создайте один, чтобы задать опции, которые можно прикреплять к товарам."
+
+msgid "Attribute groups have been replaced by sets — your groups were migrated automatically."
+msgstr "Группы атрибутов заменены наборами — ваши группы были перенесены автоматически."
