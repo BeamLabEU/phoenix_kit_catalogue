@@ -1567,3 +1567,6 @@ msgstr "Tase üles"
 
 msgid "All categories"
 msgstr "Kõik kategooriad"
+
+msgid "All catalogues"
+msgstr "Kõik kataloogid"

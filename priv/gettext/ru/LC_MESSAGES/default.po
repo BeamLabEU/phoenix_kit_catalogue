@@ -1576,3 +1576,6 @@ msgstr "На уровень вверх"
 
 msgid "All categories"
 msgstr "Все категории"
+
+msgid "All catalogues"
+msgstr "Все каталоги"

@@ -2751,20 +2751,30 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                up lives at the bottom too. `navigate`, not `patch` — a
                patch preserves scroll position, which would strand the
                reader at the bottom of the level they just left; the
-               remount lands them at the top. "All categories" only when
-               it differs from one level up. Root shows nothing. --%>
-          <div :if={@current_category} class="flex flex-wrap justify-center gap-2 pt-2">
-            <.link navigate={up_level_path(assigns)} class="btn btn-outline btn-sm">
+               remount lands them at the top. Buttons render only when
+               they differ from the one before: a category shows Up (+
+               All categories when deeper) + All catalogues; the
+               catalogue root shows just All catalogues. --%>
+          <div class="flex flex-wrap justify-center gap-2 pt-2">
+            <.link
+              :if={@current_category}
+              navigate={up_level_path(assigns)}
+              class="btn btn-outline btn-sm"
+            >
               <.icon name="hero-arrow-up" class="w-4 h-4" />
               {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Up one level")}
             </.link>
             <.link
-              :if={@breadcrumb != []}
+              :if={@current_category && @breadcrumb != []}
               navigate={Paths.catalogue_detail(@catalogue.uuid)}
               class="btn btn-outline btn-sm"
             >
               <.icon name="hero-squares-2x2" class="w-4 h-4" />
               {Gettext.gettext(PhoenixKitCatalogue.Gettext, "All categories")}
+            </.link>
+            <.link navigate={Paths.index()} class="btn btn-outline btn-sm">
+              <.icon name="hero-rectangle-stack" class="w-4 h-4" />
+              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "All catalogues")}
             </.link>
           </div>
         </div>
