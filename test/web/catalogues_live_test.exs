@@ -37,6 +37,25 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
       assert html =~ "URL folder"
     end
 
+    test "Back into a ?folder= entry while in deleted view restores the active view", %{
+      conn: conn
+    } do
+      {:ok, folder} = Catalogue.create_folder(%{name: "History folder"})
+      trashed = fixture_catalogue(%{name: "Trashed cat"})
+      Catalogue.trash_catalogue(trashed)
+
+      {:ok, view, _html} = live(conn, @base)
+      render_click(view, "switch_catalogue_view", %{"mode" => "deleted"})
+
+      # Simulate Back restoring a history entry recorded while drilled
+      # in ACTIVE mode: a patch to ?folder= arrives with the deleted
+      # assign still set. The view must return to active — the deleted
+      # list must never be silently filtered by a folder.
+      html = render_patch(view, @base <> "?folder=#{folder.uuid}")
+      assert html =~ "History folder"
+      refute html =~ "Trashed cat"
+    end
+
     test "the drilled folder is never persisted to the user's view config", %{conn: conn} do
       {:ok, folder} = Catalogue.create_folder(%{name: "Unsaved folder"})
 
