@@ -2079,19 +2079,25 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                        and an extras tooltip surface the set's data. --%>
                   <div :if={preview} class="flex flex-col gap-1.5 pl-6">
                     <div class="flex flex-wrap items-center gap-1.5">
+                      <%!-- The highlight is PURE CSS off :checked (has-[]
+                           variant) so ticking feels instant — no server
+                           round trip gates the visual. The checkbox's
+                           form attribute points at a non-existent id,
+                           disassociating it from the surrounding item
+                           form: without that, every tick ALSO bubbled a
+                           change event into the form's phx-change and
+                           ran the full validate cycle (the actual lag).
+                           phx-click still stages the selection server-
+                           side for save; the patch re-asserts checked,
+                           so a rejected toggle snaps back. --%>
                       <label
                         :for={value <- preview.values}
-                        class={[
-                          "flex items-center gap-1.5 rounded-full border pl-1.5 pr-2.5 py-0.5 cursor-pointer select-none transition-colors",
-                          if(MapSet.member?(selection_for(assigns, uuid), value.key),
-                            do: "border-primary bg-primary/10",
-                            else: "border-base-content/20 bg-base-100 hover:border-base-content/40"
-                          )
-                        ]}
+                        class="flex items-center gap-1.5 rounded-full border border-base-content/20 bg-base-100 hover:border-base-content/40 has-[:checked]:border-primary has-[:checked]:bg-primary/10 pl-1.5 pr-2.5 py-0.5 cursor-pointer select-none transition-colors"
                         title={value_extras_summary(preview, value)}
                       >
                         <input
                           type="checkbox"
+                          form="__detached-from-item-form__"
                           checked={MapSet.member?(selection_for(assigns, uuid), value.key)}
                           phx-click="toggle_value_selection"
                           phx-value-set={uuid}
