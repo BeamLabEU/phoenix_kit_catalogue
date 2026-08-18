@@ -193,13 +193,18 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       |> assign(:active_tab, action)
       |> assign(:page_title, tab_title(action))
       |> assign(:view_configs, Map.put(socket.assigns.view_configs, scope, cfg))
-      |> maybe_expand_url_folder(scope, state.current_folder)
 
-    if tab_changed? do
-      load_data(socket, action)
-    else
-      socket
-    end
+    socket =
+      if tab_changed? do
+        load_data(socket, action)
+      else
+        socket
+      end
+
+    # Expansion AFTER load_data: on a deep link the first call is also
+    # the one that populates folder_lookup — expanding before it would
+    # no-op and leave the ancestor chain collapsed when the user goes Up.
+    maybe_expand_url_folder(socket, scope, state.current_folder)
   end
 
   # Maps the active UI tab to a TableConfig/ViewConfig scope.
