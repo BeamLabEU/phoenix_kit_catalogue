@@ -1566,3 +1566,9 @@ msgstr ""
 
 msgid "Available in %{count} of %{total} options."
 msgstr ""
+
+msgid "Up one level"
+msgstr ""
+
+msgid "All categories"
+msgstr ""

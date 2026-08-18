@@ -1561,3 +1561,9 @@ msgstr "Täpselt see toode."
 
 msgid "Available in %{count} of %{total} options."
 msgstr "Saadaval %{count} valikus %{total}-st."
+
+msgid "Up one level"
+msgstr "Tase üles"
+
+msgid "All categories"
+msgstr "Kõik kategooriad"
