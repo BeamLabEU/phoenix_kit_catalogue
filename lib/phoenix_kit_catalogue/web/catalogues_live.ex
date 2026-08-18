@@ -480,6 +480,18 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       (folder_filter == nil or Map.has_key?(lookup, folder_filter))
   end
 
+  # Folder is URL state, not a persisted preference; "all"/"" and the
+  # unfiled sentinel clear it (same visible behavior as before). Every
+  # other filter persists through the view config as usual.
+  defp apply_filter_change(socket, :catalogues, "folder", val, _cfg, _filters) do
+    value = if val in [nil, "", "all"], do: "", else: val
+    {:noreply, push_url_state(socket, current_folder: value)}
+  end
+
+  defp apply_filter_change(socket, scope, _id, _val, cfg, filters) do
+    {:noreply, put_cfg(socket, scope, %{cfg | filters: filters})}
+  end
+
   # URL-driven expansion: whenever ?folder= names a real folder, keep
   # its branch visibly open (tree click, select, deep link — one path).
   defp maybe_expand_url_folder(socket, :catalogues, folder)
@@ -2104,14 +2116,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
           do: Map.delete(cfg.filters, id),
           else: Map.put(cfg.filters, id, val)
 
-      if id == "folder" and scope == :catalogues do
-        # Folder is URL state, not a persisted preference; "all"/"" and
-        # the unfiled sentinel clear it (same visible behavior as before).
-        value = if val in [nil, "", "all"], do: "", else: val
-        {:noreply, push_url_state(socket, current_folder: value)}
-      else
-        {:noreply, put_cfg(socket, scope, %{cfg | filters: filters})}
-      end
+      apply_filter_change(socket, scope, id, val, cfg, filters)
     else
       {:noreply, socket}
     end
