@@ -5122,6 +5122,29 @@ defmodule PhoenixKitCatalogue.Catalogue do
     as: :create_value
 
   defdelegate list_attribute_set_values(set, opts \\ []), to: AttributeSets, as: :list_values
+  defdelegate get_attribute_set_value(set, value_uuid), to: AttributeSets, as: :get_value
+
+  defdelegate update_attribute_set_value(set, value, attrs, opts \\ []),
+    to: AttributeSets,
+    as: :update_value
+
+  defdelegate delete_attribute_set_value(set, value, opts \\ []),
+    to: AttributeSets,
+    as: :delete_value
+
+  defdelegate reorder_attribute_set_values(set, ordered_uuids, opts \\ []),
+    to: AttributeSets,
+    as: :reorder_values
+
+  defdelegate add_attribute_set_field(set, attrs, opts \\ []),
+    to: AttributeSets,
+    as: :add_extra_field
+
+  defdelegate remove_attribute_set_field(set, key, opts \\ []),
+    to: AttributeSets,
+    as: :remove_extra_field
+
+  defdelegate attribute_set_field_types(), to: AttributeSets, as: :extra_field_types
 
   defdelegate attach_attribute_set(item_uuid, set_uuid, opts \\ []),
     to: AttributeSets,
@@ -5144,6 +5167,17 @@ defmodule PhoenixKitCatalogue.Catalogue do
   defdelegate resolve_attribute_sets_for_item(item_uuid, opts \\ []),
     to: AttributeSets,
     as: :resolve_for_item
+
+  defdelegate resolve_attribute_set(set_uuid, opts \\ []), to: AttributeSets, as: :resolve_set
+  defdelegate attribute_sets_enabled?(), to: AttributeSets, as: :enabled?
+
+  defdelegate attribute_set_attachment_counts(set_uuids),
+    to: AttributeSets,
+    as: :attachment_counts
+
+  defdelegate migrate_attribute_groups_to_sets(opts \\ []),
+    to: AttributeSets,
+    as: :migrate_groups_to_sets
 
   defdelegate set_item_attribute_group(item, group_uuid, opts \\ []), to: Attributes
   defdelegate get_item_attribute_group_uuid(item_uuid), to: Attributes

@@ -1288,3 +1288,159 @@ msgstr ""
 
 msgid "Search by filename…"
 msgstr ""
+
+msgid "Attribute sets need the Entities module enabled."
+msgstr ""
+
+msgid "Attribute set not found."
+msgstr ""
+
+msgid "New Attribute Set"
+msgstr ""
+
+msgid "Invalid value for %{field}."
+msgstr ""
+
+msgid "A field with this name already exists."
+msgstr ""
+
+msgid "Failed to add field."
+msgstr ""
+
+msgid "Name is required."
+msgstr ""
+
+msgid "Attribute set created."
+msgstr ""
+
+msgid "Failed to create the set — is the name unique?"
+msgstr ""
+
+msgid "Attribute set updated."
+msgstr ""
+
+msgid "Failed to update the set."
+msgstr ""
+
+msgid "A set is one dimension from one vendor — Ikea colors, HomeDepot trims. Items attach any number of sets."
+msgstr ""
+
+msgid "Manage this set's values and extra fields."
+msgstr ""
+
+msgid "e.g., Ikea colors"
+msgstr ""
+
+msgid "Key: %{key} — stable, referenced by items and orders."
+msgstr ""
+
+msgid "Values"
+msgstr ""
+
+msgid "No values yet. Add one below — e.g. Oak, White, Anthracite."
+msgstr ""
+
+msgid "Extra fields"
+msgstr ""
+
+msgid "Extra info every value carries — price per liter, drying time. Each value above gets an input per field."
+msgstr ""
+
+msgid "Remove field"
+msgstr ""
+
+msgid "New field name..."
+msgstr ""
+
+msgid "Text"
+msgstr ""
+
+msgid "Number"
+msgstr ""
+
+msgid "Yes / No"
+msgstr ""
+
+msgid "Date"
+msgstr ""
+
+msgid "Remove extra field"
+msgstr ""
+
+msgid "The field disappears from every value. Data already entered is kept but hidden until a field with the same name is re-added."
+msgstr ""
+
+msgid "Attribute set deleted."
+msgstr ""
+
+msgid "This set is attached to items — detach it everywhere first."
+msgstr ""
+
+msgid "Failed to delete attribute set."
+msgstr ""
+
+msgid "Migrated: %{sets} sets, %{values} values, %{attachments} item attachments."
+msgstr ""
+
+msgid "Migration failed — nothing was lost; check the logs and re-run."
+msgstr ""
+
+msgid "Attribute sets"
+msgstr ""
+
+msgid "One dimension from one vendor — Ikea colors, HomeDepot trims. Items attach any number of sets."
+msgstr ""
+
+msgid "New Set"
+msgstr ""
+
+msgid "No sets yet. Create one, or migrate your legacy groups below."
+msgstr ""
+
+msgid "Legacy attribute groups"
+msgstr ""
+
+msgid "The old system. Migration copies every group's attributes into sets and re-attaches items — nothing is deleted."
+msgstr ""
+
+msgid "Migrate to sets"
+msgstr ""
+
+msgid "Delete Attribute Set"
+msgstr ""
+
+msgid "This deletes the set and all its values. Sets attached to items cannot be deleted."
+msgstr ""
+
+msgid "Migrate groups to sets"
+msgstr ""
+
+msgid "Each group attribute becomes its own set, values keep their keys, and every item's group assignment is re-attached as sets. The old groups stay untouched and re-running is safe."
+msgstr ""
+
+msgid "Migrate"
+msgstr ""
+
+msgid "Attach any number of sets — Ikea colors, HomeDepot trims. Applied when you save."
+msgstr ""
+
+msgid "Manage sets"
+msgstr ""
+
+msgid "unavailable"
+msgstr ""
+
+msgid "Detach set"
+msgstr ""
+
+msgid "Attach a set..."
+msgstr ""
+
+msgid "No sets exist yet — create one under Manage sets."
+msgstr ""
+
+msgid "Attribute group (legacy)"
+msgstr ""
+
+msgid "Unknown set"
+msgstr ""

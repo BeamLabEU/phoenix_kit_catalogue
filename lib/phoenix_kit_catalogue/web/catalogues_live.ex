@@ -74,6 +74,9 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
        manufacturers: [],
        suppliers: [],
        attribute_group_rows: [],
+       attribute_set_rows: [],
+       sets_enabled: false,
+       confirm_migrate: false,
        confirm_delete: nil,
        catalogue_view_mode: "active",
        deleted_catalogue_count: 0,
@@ -401,9 +404,42 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
           |> Map.put(:item_count, Map.get(item_counts, g.uuid, 0))
         end)
 
-      assign(socket, :attribute_group_rows, rows)
+      socket
+      |> assign(:attribute_group_rows, rows)
+      |> load_attribute_sets()
     else
       socket
+    end
+  end
+
+  defp set_kind_label("fixed"), do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Fixed value")
+
+  defp set_kind_label(_multi),
+    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Multiple values")
+
+  # The SETS half of the attributes tab (2026-08-18 rework) — rendered
+  # above the legacy groups while both systems coexist. A handful of
+  # sets on an admin page, so the per-set value listing is fine.
+  defp load_attribute_sets(socket) do
+    if Catalogue.attribute_sets_enabled?() do
+      sets = Catalogue.list_attribute_sets(lang: socket.assigns[:current_locale])
+      counts = Catalogue.attribute_set_attachment_counts(Enum.map(sets, & &1.uuid))
+
+      rows =
+        Enum.map(sets, fn s ->
+          %{
+            uuid: s.uuid,
+            name: s.display_name,
+            key: s.name,
+            kind: get_in(s.settings, ["catalogue", "kind"]) || "multi",
+            value_count: length(Catalogue.list_attribute_set_values(s)),
+            item_count: Map.get(counts, s.uuid, 0)
+          }
+        end)
+
+      assign(socket, sets_enabled: true, attribute_set_rows: rows)
+    else
+      assign(socket, sets_enabled: false, attribute_set_rows: [])
     end
   end
 
@@ -1935,6 +1971,104 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     end
   end
 
+  def handle_event("delete_attribute_set", _params, socket) do
+    case socket.assigns.confirm_delete do
+      {"attribute_set", uuid} ->
+        with %{} = set <- Catalogue.get_attribute_set(uuid),
+             {:ok, _} <- Catalogue.delete_attribute_set(set, actor_opts(socket)) do
+          {:noreply,
+           socket
+           |> put_flash(
+             :info,
+             Gettext.gettext(PhoenixKitCatalogue.Gettext, "Attribute set deleted.")
+           )
+           |> assign(:confirm_delete, nil)
+           |> load_data(:attribute_groups)}
+        else
+          nil ->
+            {:noreply, assign(socket, :confirm_delete, nil)}
+
+          {:error, :set_in_use} ->
+            {:noreply,
+             socket
+             |> put_flash(
+               :error,
+               Gettext.gettext(
+                 PhoenixKitCatalogue.Gettext,
+                 "This set is attached to items — detach it everywhere first."
+               )
+             )
+             |> assign(:confirm_delete, nil)}
+
+          {:error, reason} ->
+            log_operation_error(socket, "delete_attribute_set", %{
+              entity_type: "attribute_set",
+              entity_uuid: uuid,
+              reason: reason
+            })
+
+            {:noreply,
+             socket
+             |> put_flash(
+               :error,
+               Gettext.gettext(PhoenixKitCatalogue.Gettext, "Failed to delete attribute set.")
+             )
+             |> assign(:confirm_delete, nil)}
+        end
+
+      _ ->
+        unexpected_confirm_event(socket, "delete_attribute_set")
+    end
+  end
+
+  # ── Legacy-groups → sets migration (dual-run cutover helper) ───────
+
+  def handle_event("show_migrate_confirm", _params, socket) do
+    {:noreply, assign(socket, :confirm_migrate, true)}
+  end
+
+  def handle_event("cancel_migrate", _params, socket) do
+    {:noreply, assign(socket, :confirm_migrate, false)}
+  end
+
+  def handle_event("confirm_migrate", _params, socket) do
+    case Catalogue.migrate_attribute_groups_to_sets(actor_opts(socket)) do
+      {:ok, %{sets: sets, values: values, attachments: attachments}} ->
+        {:noreply,
+         socket
+         |> put_flash(
+           :info,
+           Gettext.gettext(
+             PhoenixKitCatalogue.Gettext,
+             "Migrated: %{sets} sets, %{values} values, %{attachments} item attachments.",
+             sets: sets,
+             values: values,
+             attachments: attachments
+           )
+         )
+         |> assign(:confirm_migrate, false)
+         |> load_data(:attribute_groups)}
+
+      {:error, reason} ->
+        log_operation_error(socket, "migrate_attribute_groups", %{
+          entity_type: "attribute_set",
+          entity_uuid: nil,
+          reason: reason
+        })
+
+        {:noreply,
+         socket
+         |> put_flash(
+           :error,
+           Gettext.gettext(
+             PhoenixKitCatalogue.Gettext,
+             "Migration failed — nothing was lost; check the logs and re-run."
+           )
+         )
+         |> assign(:confirm_migrate, false)}
+    end
+  end
+
   # Archive / restore straight from the row menu — reversible, no confirm.
   def handle_event("set_attribute_group_status", %{"uuid" => uuid, "status" => status}, socket)
       when status in ["active", "archived"] do
@@ -2687,6 +2821,103 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       </div>
 
       <div :if={@active_tab == :attribute_groups} class="flex flex-col gap-4">
+        <%!-- SETS (2026-08-18 rework) — the primary system once entities
+             is enabled. One dimension from one vendor per set; managed
+             blueprints under the hood. --%>
+        <div :if={@sets_enabled} class="flex flex-col gap-3">
+          <div class="flex items-center justify-between gap-4">
+            <div class="flex flex-col gap-0.5 min-w-0">
+              <h3 class="font-semibold text-base flex items-center gap-2">
+                <.icon name="hero-swatch" class="w-4 h-4 text-base-content/60" />
+                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Attribute sets")}
+              </h3>
+              <p class="text-xs text-base-content/50">
+                {Gettext.gettext(
+                  PhoenixKitCatalogue.Gettext,
+                  "One dimension from one vendor — Ikea colors, HomeDepot trims. Items attach any number of sets."
+                )}
+              </p>
+            </div>
+            <.link navigate={Paths.attribute_set_new()} class="btn btn-primary btn-sm shrink-0">
+              <.icon name="hero-plus" class="w-4 h-4" />
+              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "New Set")}
+            </.link>
+          </div>
+
+          <p :if={@attribute_set_rows == []} class="text-sm text-base-content/60 py-4 text-center border border-dashed border-base-content/20 rounded-lg">
+            {Gettext.gettext(
+              PhoenixKitCatalogue.Gettext,
+              "No sets yet. Create one, or migrate your legacy groups below."
+            )}
+          </p>
+
+          <div :if={@attribute_set_rows != []} class="overflow-x-auto rounded-lg border border-base-content/10">
+            <table class="table table-sm bg-base-100">
+              <thead>
+                <tr>
+                  <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Name")}</th>
+                  <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Kind")}</th>
+                  <th class="text-right">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Values")}</th>
+                  <th class="text-right">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Items")}</th>
+                  <th class="w-10"></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr :for={s <- @attribute_set_rows} class="hover">
+                  <td>
+                    <.link navigate={Paths.attribute_set_edit(s.uuid)} class="link link-hover font-medium">
+                      {s.name}
+                    </.link>
+                  </td>
+                  <td class="text-base-content/70">{set_kind_label(s.kind)}</td>
+                  <td class="text-right tabular-nums">{s.value_count}</td>
+                  <td class="text-right tabular-nums">{s.item_count}</td>
+                  <td>
+                    <.table_row_menu mode="auto" id={"attr-set-menu-#{s.uuid}"}>
+                      <.table_row_menu_link
+                        navigate={Paths.attribute_set_edit(s.uuid)}
+                        icon="hero-pencil"
+                        label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")}
+                      />
+                      <.table_row_menu_divider />
+                      <.table_row_menu_button
+                        phx-click="show_delete_confirm"
+                        phx-value-uuid={s.uuid}
+                        phx-value-type="attribute_set"
+                        icon="hero-trash"
+                        label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")}
+                        variant="error"
+                      />
+                    </.table_row_menu>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <%!-- LEGACY groups — dual-run: with sets live they render below
+             under their own header (with the one-click migration), and
+             the section disappears once no groups remain. Without
+             entities this stays the whole page, unchanged. --%>
+        <div :if={!@sets_enabled or @attribute_group_rows != []} class="flex flex-col gap-4">
+        <div :if={@sets_enabled} class="flex items-center justify-between gap-4 mt-4">
+          <div class="flex flex-col gap-0.5 min-w-0">
+            <h3 class="font-semibold text-base text-base-content/70">
+              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Legacy attribute groups")}
+            </h3>
+            <p class="text-xs text-base-content/50">
+              {Gettext.gettext(
+                PhoenixKitCatalogue.Gettext,
+                "The old system. Migration copies every group's attributes into sets and re-attaches items — nothing is deleted."
+              )}
+            </p>
+          </div>
+          <button type="button" phx-click="show_migrate_confirm" class="btn btn-outline btn-sm shrink-0">
+            <.icon name="hero-arrow-right-circle" class="w-4 h-4" />
+            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Migrate to sets")}
+          </button>
+        </div>
         <% cfg = @view_configs.attribute_groups %>
         <.table_toolbar scope={:attribute_groups} cfg={cfg}>
           <:filters>
@@ -2699,7 +2930,11 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
             />
           </:filters>
           <:actions>
-            <.link navigate={Paths.attribute_group_new()} class="btn btn-primary btn-sm">
+            <.link
+              :if={!@sets_enabled}
+              navigate={Paths.attribute_group_new()}
+              class="btn btn-primary btn-sm"
+            >
               <.icon name="hero-plus" class="w-4 h-4" />
               {Gettext.gettext(PhoenixKitCatalogue.Gettext, "New Attribute Group")}
             </.link>
@@ -2786,7 +3021,29 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
             </.table_row_menu>
           </:card_actions>
         </.simple_table>
+        </div>
       </div>
+
+      <.confirm_modal
+        show={match?({"attribute_set", _}, @confirm_delete)}
+        on_confirm="delete_attribute_set"
+        on_cancel="cancel_delete"
+        title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete Attribute Set")}
+        title_icon="hero-trash"
+        messages={[{:warning, Gettext.gettext(PhoenixKitCatalogue.Gettext, "This deletes the set and all its values. Sets attached to items cannot be deleted.")}]}
+        confirm_text={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")}
+        danger={true}
+      />
+
+      <.confirm_modal
+        show={@confirm_migrate}
+        on_confirm="confirm_migrate"
+        on_cancel="cancel_migrate"
+        title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Migrate groups to sets")}
+        title_icon="hero-arrow-right-circle"
+        messages={[{:info, Gettext.gettext(PhoenixKitCatalogue.Gettext, "Each group attribute becomes its own set, values keep their keys, and every item's group assignment is re-attached as sets. The old groups stay untouched and re-running is safe.")}]}
+        confirm_text={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Migrate")}
+      />
 
       <.confirm_modal
         show={match?({"catalogue", _}, @confirm_delete)}
