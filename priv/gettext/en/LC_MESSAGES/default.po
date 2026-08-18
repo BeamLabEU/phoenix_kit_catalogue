@@ -1453,3 +1453,27 @@ msgstr ""
 
 msgid "Attribute groups have been replaced by sets — your groups were migrated automatically."
 msgstr ""
+
+msgid "Text area"
+msgstr ""
+
+msgid "Select"
+msgstr ""
+
+msgid "Image"
+msgstr ""
+
+msgid "Video"
+msgstr ""
+
+msgid "Options, comma-separated (Select)"
+msgstr ""
+
+msgid "Select fields need options — list them comma-separated."
+msgstr ""
+
+msgid "Select Image"
+msgstr ""
+
+msgid "Select Video"
+msgstr ""

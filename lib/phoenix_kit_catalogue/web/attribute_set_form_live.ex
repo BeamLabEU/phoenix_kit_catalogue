@@ -24,6 +24,7 @@ defmodule PhoenixKitCatalogue.Web.AttributeSetFormLive do
   import PhoenixKitWeb.Components.Core.Select, only: [select: 1]
 
   import PhoenixKitCatalogue.Web.Helpers, only: [actor_opts: 1]
+  import PhoenixKitEntities.Components.FieldInput, only: [field_input: 1]
 
   alias Phoenix.LiveView.JS
   alias PhoenixKit.Utils.Routes
@@ -75,6 +76,9 @@ defmodule PhoenixKitCatalogue.Web.AttributeSetFormLive do
            draft_generation: %{},
            refocus_key: nil,
            confirm_remove_field: nil,
+           show_media_selector: false,
+           media_filter: :image,
+           media_pick_target: nil,
            return_to: safe_return_to(params["return_to"])
          )
          |> assign_title()}
@@ -214,37 +218,31 @@ defmodule PhoenixKitCatalogue.Web.AttributeSetFormLive do
 
   def handle_event("reorder_values", _params, socket), do: {:noreply, socket}
 
-  # ── Per-value extras (saved on blur / checkbox click) ──────────────
+  # ── Per-value extras ────────────────────────────────────────────────
+  #
+  # Each value row wraps its extras in one form; entities' FieldInput
+  # controls decide the firing discipline (typed inputs debounce on
+  # blur, toggles/selects fire immediately). Casting + validation live
+  # in the context (`update_value` runs everything through entities'
+  # `cast_field/2`), so this handler just routes the changed key.
 
-  def handle_event(
-        "update_value_extra",
-        %{"uuid" => uuid, "field" => key, "value" => raw},
-        socket
-      ) do
-    with %{} = value <- owned_value(socket, uuid),
+  def handle_event("value_extras_changed", %{"_target" => ["extras", key | _]} = params, socket) do
+    raw = get_in(params, ["extras", key])
+
+    with %{} = value <- owned_value(socket, params["uuid"]),
          %{} = field <- extra_field(socket.assigns.set, key) do
-      # Unparseable input never reaches the DB — casting failures and
-      # entities-side validation failures share one flash, and the
-      # reload snaps the input back to the stored value.
-      result =
-        case cast_extra(field, raw) do
-          {:ok, cast} ->
-            Catalogue.update_attribute_set_value(
-              socket.assigns.set,
-              value,
-              %{extras: %{key => cast}},
-              actor_opts(socket)
-            )
-
-          :error ->
-            {:error, :invalid_value}
-        end
-
-      case result do
+      case Catalogue.update_attribute_set_value(
+             socket.assigns.set,
+             value,
+             %{extras: %{key => raw}},
+             actor_opts(socket)
+           ) do
         {:ok, _} ->
           {:noreply, reload_set(socket)}
 
         {:error, _} ->
+          # Invalid input never reached the DB; the reload snaps the
+          # control back to the stored value.
           {:noreply,
            socket
            |> put_flash(
@@ -260,25 +258,51 @@ defmodule PhoenixKitCatalogue.Web.AttributeSetFormLive do
     end
   end
 
-  def handle_event("toggle_value_extra", %{"uuid" => uuid, "field" => key}, socket) do
-    with %{} = value <- owned_value(socket, uuid),
-         %{} <- extra_field(socket.assigns.set, key) do
-      current = (value.data || %{})[key] == true
+  def handle_event("value_extras_changed", _params, socket), do: {:noreply, socket}
 
-      handle_event(
-        "update_value_extra",
-        %{"uuid" => uuid, "field" => key, "value" => to_string(!current)},
-        socket
-      )
+  # ── Media extras (image/video — picker + uuid model) ───────────────
+
+  def handle_event("pick_value_media", %{"uuid" => uuid, "field" => key}, socket) do
+    with %{} = _value <- owned_value(socket, uuid),
+         %{"type" => type} <- extra_field(socket.assigns.set, key) do
+      {:noreply,
+       socket
+       |> assign(:media_pick_target, %{value_uuid: uuid, field: key})
+       |> assign(:media_filter, if(type == "video", do: :video, else: :image))
+       |> assign(:show_media_selector, true)}
     else
       _ -> {:noreply, socket}
     end
   end
 
+  def handle_event("clear_value_media", %{"uuid" => uuid, "field" => key}, socket) do
+    with %{} = value <- owned_value(socket, uuid),
+         %{} <- extra_field(socket.assigns.set, key),
+         {:ok, _} <-
+           Catalogue.update_attribute_set_value(
+             socket.assigns.set,
+             value,
+             %{extras: %{key => nil}},
+             actor_opts(socket)
+           ) do
+      {:noreply, reload_set(socket)}
+    else
+      _ -> {:noreply, socket}
+    end
+  end
+
+  def handle_event("close_media_selector", _params, socket) do
+    {:noreply, assign(socket, show_media_selector: false, media_pick_target: nil)}
+  end
+
   # ── Extra fields (blueprint fields_definition) ─────────────────────
 
   def handle_event("add_extra_field", %{"field_label" => label} = params, socket) do
-    attrs = %{label: String.trim(label), type: Map.get(params, "field_type", "text")}
+    attrs = %{
+      label: String.trim(label),
+      type: Map.get(params, "field_type", "text"),
+      options: String.split(Map.get(params, "field_options", ""), ",")
+    }
 
     case Catalogue.add_attribute_set_field(socket.assigns.set, attrs, actor_opts(socket)) do
       {:ok, _} ->
@@ -286,6 +310,17 @@ defmodule PhoenixKitCatalogue.Web.AttributeSetFormLive do
 
       {:error, :label_required} ->
         {:noreply, socket}
+
+      {:error, :options_required} ->
+        {:noreply,
+         put_flash(
+           socket,
+           :error,
+           Gettext.gettext(
+             PhoenixKitCatalogue.Gettext,
+             "Select fields need options — list them comma-separated."
+           )
+         )}
 
       {:error, :duplicate_key} ->
         {:noreply,
@@ -321,6 +356,31 @@ defmodule PhoenixKitCatalogue.Web.AttributeSetFormLive do
     else
       _ -> {:noreply, assign(socket, :confirm_remove_field, nil)}
     end
+  end
+
+  @impl true
+  def handle_info({:media_selected, [file_uuid | _]}, socket) do
+    socket = assign(socket, :show_media_selector, false)
+
+    with %{value_uuid: uuid, field: key} <- socket.assigns.media_pick_target,
+         %{} = value <- owned_value(socket, uuid),
+         {:ok, _} <-
+           Catalogue.update_attribute_set_value(
+             socket.assigns.set,
+             value,
+             %{extras: %{key => file_uuid}},
+             actor_opts(socket)
+           ) do
+      {:noreply, socket |> assign(:media_pick_target, nil) |> reload_set()}
+    else
+      _ -> {:noreply, assign(socket, :media_pick_target, nil)}
+    end
+  end
+
+  def handle_info({:media_selected, _}, socket), do: {:noreply, socket}
+
+  def handle_info({:media_selector_closed}, socket) do
+    {:noreply, assign(socket, show_media_selector: false, media_pick_target: nil)}
   end
 
   # ── Save / helpers ─────────────────────────────────────────────────
@@ -449,18 +509,6 @@ defmodule PhoenixKitCatalogue.Web.AttributeSetFormLive do
 
   defp current_default(set), do: get_in(set.settings, ["catalogue", "default_value_slug"])
 
-  defp cast_extra(_field, ""), do: {:ok, nil}
-
-  defp cast_extra(%{"type" => "number"}, raw) do
-    case Float.parse(raw) do
-      {num, ""} -> {:ok, if(num == trunc(num), do: trunc(num), else: num)}
-      _ -> :error
-    end
-  end
-
-  defp cast_extra(%{"type" => "boolean"}, raw), do: {:ok, raw == "true"}
-  defp cast_extra(_field, raw), do: {:ok, raw}
-
   # Same uncontrolled-draft machinery as the group editor: the add-value
   # and add-field forms carry a generation in their DOM id, so clearing
   # after submit re-mounts a fresh empty node and refocuses it.
@@ -485,9 +533,13 @@ defmodule PhoenixKitCatalogue.Web.AttributeSetFormLive do
   defp field_type_options do
     [
       {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Text"), "text"},
+      {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Text area"), "textarea"},
       {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Number"), "number"},
       {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Yes / No"), "boolean"},
-      {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Date"), "date"}
+      {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Date"), "date"},
+      {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Select"), "select"},
+      {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Image"), "image"},
+      {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Video"), "video"}
     ]
   end
 
@@ -611,41 +663,38 @@ defmodule PhoenixKitCatalogue.Web.AttributeSetFormLive do
                   class="input input-sm input-bordered bg-base-100 font-medium flex-1 min-w-32"
                 />
 
-                <%!-- One compact input per extra field, saved on blur;
-                     booleans are a toggle. --%>
-                <label
-                  :for={field <- @set.fields_definition || []}
-                  class="flex items-center gap-1 text-xs text-base-content/60"
-                  title={field["label"]}
+                <%!-- Extras through entities' FieldInput — one form per
+                     row (there is no outer form here, so this nests
+                     nothing); typed inputs debounce on blur, discrete
+                     ones fire immediately, media types push the pick
+                     events. Every entities field type renders without
+                     this page changing again. --%>
+                <form
+                  id={"value-extras-#{value.uuid}"}
+                  phx-change="value_extras_changed"
+                  class="contents"
                 >
-                  <span class="max-w-20 truncate">{field["label"]}</span>
-                  <input
-                    :if={field["type"] == "boolean"}
-                    type="checkbox"
-                    checked={extra_value(value, field["key"]) == true}
-                    phx-click="toggle_value_extra"
-                    phx-value-uuid={value.uuid}
-                    phx-value-field={field["key"]}
-                    class="toggle toggle-xs"
-                  />
-                  <input
-                    :if={field["type"] != "boolean"}
-                    id={"extra-#{value.uuid}-#{field["key"]}"}
-                    type={
-                      case field["type"] do
-                        "number" -> "number"
-                        "date" -> "date"
-                        _ -> "text"
-                      end
-                    }
-                    step={field["type"] == "number" && "any"}
-                    value={extra_value(value, field["key"])}
-                    phx-blur="update_value_extra"
-                    phx-value-uuid={value.uuid}
-                    phx-value-field={field["key"]}
-                    class="input input-xs input-bordered bg-base-100 w-24"
-                  />
-                </label>
+                  <input type="hidden" name="uuid" value={value.uuid} />
+                  <label
+                    :for={field <- @set.fields_definition || []}
+                    class="flex items-center gap-1 text-xs text-base-content/60"
+                    title={field["label"]}
+                  >
+                    <span class="max-w-20 truncate">{field["label"]}</span>
+                    <span class="inline-block max-w-40">
+                      <.field_input
+                        field={field}
+                        id={"extra-#{value.uuid}-#{field["key"]}"}
+                        name={"extras[#{field["key"]}]"}
+                        value={extra_value(value, field["key"])}
+                        size="xs"
+                        on_pick="pick_value_media"
+                        on_clear="clear_value_media"
+                        pick_params={%{"uuid" => value.uuid}}
+                      />
+                    </span>
+                  </label>
+                </form>
 
                 <.button
                   type="button"
@@ -770,6 +819,14 @@ defmodule PhoenixKitCatalogue.Web.AttributeSetFormLive do
                   class="select-sm"
                 />
               </div>
+              <input
+                type="text"
+                name="field_options"
+                placeholder={
+                  Gettext.gettext(PhoenixKitCatalogue.Gettext, "Options, comma-separated (Select)")
+                }
+                class="input input-sm input-bordered w-56 shrink-0"
+              />
               <.button type="submit" variant="outline" size="sm" class="shrink-0">
                 <span class="hero-plus w-4 h-4 phx-submit-loading:hidden"></span>
                 <span class="loading loading-spinner w-4 h-4 hidden phx-submit-loading:inline-block">
@@ -822,6 +879,26 @@ defmodule PhoenixKitCatalogue.Web.AttributeSetFormLive do
           ]}
           confirm_text={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Remove")}
           danger={true}
+        />
+
+        <%!-- ONE page-level picker shared by every image/video extra
+             cell (per-cell pickers are the footgun, not per-cell
+             inputs); reconfigured per click via @media_pick_target. --%>
+        <.live_component
+          :if={@action == :edit}
+          module={PhoenixKitWeb.Live.Components.MediaSelectorModal}
+          id="set-form-media-selector"
+          show={@show_media_selector}
+          mode={:single}
+          file_type_filter={@media_filter}
+          lock_file_type
+          title={
+            if @media_filter == :video,
+              do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Select Video"),
+              else: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Select Image")
+          }
+          selected_uuids={[]}
+          phoenix_kit_current_user={assigns[:phoenix_kit_current_user]}
         />
       </div>
     </PhoenixKitWeb.Components.LayoutWrapper.app_layout>

@@ -320,20 +320,49 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
   @doc """
   Updates a value: `:label` rewrites the display text (the slug — the
   stable key — never changes), `:extras` merges into the record data.
+
+  Extras are cast per field type through the entities pipeline
+  (`FormBuilder.cast_field/2`): raw form strings coerce ("12.5" →
+  12.5, "" clears), invalid content returns `{:error, :invalid_value}`
+  and unknown keys `{:error, :unknown_field}` — never a silent junk
+  write.
   """
   @spec update_value(struct(), struct(), map(), keyword()) :: {:ok, struct()} | {:error, term()}
   def update_value(set, value, attrs, opts \\ []) do
-    with :ok <- ensure_enabled() do
+    with :ok <- ensure_enabled(),
+         {:ok, extras} <- cast_extras(set, Map.get(attrs, :extras)) do
       entity_attrs =
         %{}
         |> maybe_put(:title, Map.get(attrs, :label))
-        |> maybe_put_extras(value, Map.get(attrs, :extras))
+        |> maybe_put_extras(value, extras)
 
       value
       |> PhoenixKitEntities.EntityData.update(entity_attrs, activity_log: false)
       |> tap_log("attribute_set.value_updated", opts, fn v ->
         %{"set" => set.name, "value" => v.slug}
       end)
+    end
+  end
+
+  defp cast_extras(_set, nil), do: {:ok, nil}
+
+  defp cast_extras(set, extras) when is_map(extras) do
+    fields = Map.new(set.fields_definition || [], &{&1["key"], &1})
+
+    Enum.reduce_while(extras, {:ok, %{}}, fn {key, raw}, {:ok, acc} ->
+      case cast_one_extra(fields[key], raw) do
+        {:ok, cast} -> {:cont, {:ok, Map.put(acc, key, cast)}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  defp cast_one_extra(nil, _raw), do: {:error, :unknown_field}
+
+  defp cast_one_extra(field, raw) do
+    case PhoenixKitEntities.FormBuilder.cast_field(field, raw) do
+      {:ok, cast} -> {:ok, cast}
+      {:error, _msgs} -> {:error, :invalid_value}
     end
   end
 
@@ -375,7 +404,7 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
 
   # ── Extras (blueprint fields — "price per liter" etc.) ─────────────
 
-  @extra_field_types ~w(text number boolean date)
+  @extra_field_types ~w(text textarea number boolean date select image video)
 
   @doc "Extra-field types the set editor offers (a curated entities subset)."
   @spec extra_field_types() :: [String.t()]
@@ -383,13 +412,18 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
 
   @doc """
   Adds an extra field to the set's blueprint (`:label` required,
-  `:type` one of `extra_field_types/0`). Every value can then carry
-  data for it. The key is derived from the label and is stable.
+  `:type` one of `extra_field_types/0`; `select` additionally needs
+  `:options`, a non-empty list). Every value can then carry data for
+  it. The key is derived from the label and is stable.
   """
   @spec add_extra_field(struct(), map(), keyword()) :: {:ok, struct()} | {:error, term()}
   def add_extra_field(set, attrs, opts \\ []) do
     label = String.trim(Map.get(attrs, :label, ""))
     type = Map.get(attrs, :type, "text")
+
+    options =
+      attrs |> Map.get(:options, []) |> Enum.map(&String.trim/1) |> Enum.reject(&(&1 == ""))
+
     key = slugify_name(label)
     # Re-read before append: the caller's struct may be stale, and a
     # read-modify-write off it would silently drop a field another
@@ -398,10 +432,12 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
     fields = set.fields_definition || []
 
     with :ok <- ensure_enabled(),
-         :ok <- validate_extra_field(label, type, key, fields) do
+         :ok <- validate_extra_field(label, type, key, options, fields) do
+      definition = build_field_definition(type, key, label, options)
+
       set
       |> PhoenixKitEntities.update_entity(
-        %{fields_definition: fields ++ [%{"type" => type, "key" => key, "label" => label}]},
+        %{fields_definition: fields ++ [definition]},
         on_behalf_of: @owner
       )
       |> tap_log("attribute_set.field_added", opts, fn s ->
@@ -410,10 +446,17 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
     end
   end
 
-  defp validate_extra_field(label, type, key, fields) do
+  defp build_field_definition("select", key, label, options),
+    do: %{"type" => "select", "key" => key, "label" => label, "options" => options}
+
+  defp build_field_definition(type, key, label, _options),
+    do: %{"type" => type, "key" => key, "label" => label}
+
+  defp validate_extra_field(label, type, key, options, fields) do
     cond do
       label == "" -> {:error, :label_required}
       type not in @extra_field_types -> {:error, :invalid_type}
+      type == "select" and options == [] -> {:error, :options_required}
       Enum.any?(fields, &(&1["key"] == key)) -> {:error, :duplicate_key}
       true -> :ok
     end
