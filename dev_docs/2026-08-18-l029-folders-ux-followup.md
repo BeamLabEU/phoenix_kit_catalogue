@@ -172,11 +172,17 @@ tested, but hidden behind a row kebab-menu or a drag gesture with no persistent 
    filters to see the folder tree.") — correct behavior, but it means the "spatial" file-manager
    feel is fragile and disappears exactly when an admin is hunting for something, which is a
    likely first-contact scenario.
-3. **The "Move to folder" dropdown may not visually show nesting.** `folder_options/1` indents
-   child names with `"  "` (plain spaces) per depth — HTML collapses leading whitespace inside
-   `<option>` text nodes by default, so the hierarchy the code intends probably renders as a flat,
-   same-looking list in most browsers. Worth a two-minute visual check; if confirmed, it undercuts
-   exactly the "Move to folder" path the owner already knows about.
+3. **CONFIRMED visually (2026-08-18): the "Move to folder" dropdown shows no nesting at all.**
+   `folder_options/1` indents child names with `"  "` (plain spaces) per depth. Reproduced the
+   exact option markup (`String.duplicate("  ", depth) <> name`, same values as a real 2-level
+   tree) in a standalone HTML file and rendered it in headless Chromium
+   (`ms-playwright/chromium-1228`, `--headless=new`, `<select size="8">` so every option paints
+   inline instead of inside a native closed-dropdown popup that headless Chrome can't screenshot —
+   same option text, same default whitespace rules). Screenshot: "Tables", "Round tables", and
+   "Chairs" render **flush-left, at the same indent as root-level "Estonian stuff" and
+   "Domestic"** — the leading spaces are fully collapsed, exactly as HTML's default whitespace
+   handling predicts. So today, the one non-drag move path presents every folder in the module as
+   a single flat, unordered-looking list — a real, user-visible defect, not a hypothetical one.
 4. **All of the folder-specific verbs live behind a menu**, while catalogues get one visible,
    labeled primary action next to them (folders don't have an equivalent one-click affordance
    beyond drag). A first-time admin has no reason to open a folder row's "..." to discover
@@ -189,9 +195,9 @@ tested, but hidden behind a row kebab-menu or a drag gesture with no persistent 
 
 - Add a breadcrumb strip above the tree/card grid when drilled below root — cheapest single fix
   for the "where am I" gap, and it directly extends the file-explorer metaphor already agreed on.
-- Verify (and if confirmed, fix) whitespace-collapse in the "Move to folder" `<select>` — either
-  `&nbsp;`-pad or switch to a proper indentation marker, so the one non-drag move path actually
-  shows structure.
+- Fix the confirmed whitespace-collapse in the "Move to folder" `<select>` — either `&nbsp;`-pad
+  or switch to a proper indentation marker (e.g. a `└─`/`—` prefix), so the one non-drag move path
+  actually shows structure instead of a flat list.
 - Promote "New subfolder" to a small inline icon-button on hover/focus of a folder row (mirroring
   how root-level "New Folder" is already a first-class toolbar button), rather than only living in
   the row menu.
