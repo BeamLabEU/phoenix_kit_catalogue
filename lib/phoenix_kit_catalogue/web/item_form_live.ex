@@ -32,6 +32,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
       ai_translate_modal: 1
     ]
 
+  alias PhoenixKit.Modules.Storage.URLSigner
   alias PhoenixKit.Utils.Multilang
   alias PhoenixKit.Utils.Routes
   alias PhoenixKitCatalogue.Attachments
@@ -698,6 +699,78 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
     end
   end
 
+  # ── Attribute sets (staged; applied on save) ─────────────────────────
+  #
+  # The picker select sits INSIDE the main form (nested forms are
+  # invalid), so it carries its own phx-change — which takes precedence
+  # over the form's "validate" for this input — and its name is ignored
+  # by the save params.
+
+  def handle_event("attach_set", %{"attach_set_uuid" => set_uuid}, socket) do
+    staged = socket.assigns.staged_set_uuids
+
+    valid? =
+      is_binary(set_uuid) and set_uuid != "" and
+        set_uuid not in staged and
+        Enum.any?(socket.assigns.available_sets, &(&1.uuid == set_uuid))
+
+    if valid? do
+      {:noreply,
+       socket
+       |> assign(:staged_set_uuids, staged ++ [set_uuid])
+       |> assign_set_previews()}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_event("detach_set", %{"uuid" => set_uuid}, socket) do
+    {:noreply,
+     socket
+     |> assign(:staged_set_uuids, List.delete(socket.assigns.staged_set_uuids, set_uuid))
+     |> assign(:staged_selections, Map.delete(socket.assigns.staged_selections, set_uuid))
+     |> assign_set_previews()}
+  end
+
+  def handle_event("reorder_staged_sets", %{"ordered_ids" => ids}, socket) when is_list(ids) do
+    staged = socket.assigns.staged_set_uuids
+    # Only reorder what is actually staged — the client list is forgeable.
+    reordered = Enum.filter(ids, &(&1 in staged))
+
+    if Enum.sort(reordered) == Enum.sort(staged) do
+      {:noreply, assign(socket, :staged_set_uuids, reordered)}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_event("reorder_staged_sets", _params, socket), do: {:noreply, socket}
+
+  # The boss's two modes (2026-08-19): checking values narrows what the
+  # set says about THIS item — one check is "this exact object", several
+  # are "the options it comes in", none is "the whole set applies". The
+  # count IS the mode; nothing else is tracked.
+  # phx-value-key, NOT phx-value-value: a click payload on an input
+  # includes the element's own value attribute under "value" (a bare
+  # checkbox submits "on"), which would clobber the param.
+  def handle_event("toggle_value_selection", %{"set" => set_uuid, "key" => key}, socket) do
+    with true <- set_uuid in socket.assigns.staged_set_uuids,
+         %{values: values} <- socket.assigns.set_previews[set_uuid],
+         true <- Enum.any?(values, &(&1.key == key)) do
+      selections = socket.assigns.staged_selections
+      current = Map.get(selections, set_uuid, MapSet.new())
+
+      current =
+        if MapSet.member?(current, key),
+          do: MapSet.delete(current, key),
+          else: MapSet.put(current, key)
+
+      {:noreply, assign(socket, :staged_selections, Map.put(selections, set_uuid, current))}
+    else
+      _ -> {:noreply, socket}
+    end
+  end
+
   defp parse_tab("metadata"), do: :metadata
   defp parse_tab("files"), do: :files
   defp parse_tab(_), do: :details
@@ -957,6 +1030,23 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   end
 
   defp assign_attribute_state(socket, item, action) do
+    socket = assign_attribute_sets_state(socket, item, action)
+
+    if socket.assigns.sets_enabled do
+      # Sets ARE the attribute system — the legacy group surface
+      # doesn't load or render at all ("we shouldn't have legacy",
+      # boss direction 2026-08-18). The stored assignment rows sit
+      # untouched until the cutover drop migration.
+      socket
+      |> assign(:selected_attribute_group_uuid, nil)
+      |> assign(:attribute_group_options, [])
+      |> assign(:attribute_preview, nil)
+    else
+      assign_legacy_attribute_state(socket, item, action)
+    end
+  end
+
+  defp assign_legacy_attribute_state(socket, item, action) do
     selected =
       if action == :edit and item.uuid,
         do: Catalogue.get_item_attribute_group_uuid(item.uuid),
@@ -983,6 +1073,147 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
     |> assign_attribute_preview(selected)
   end
 
+  # SETS (2026-08-18 rework): the staged multi-set selection. Same
+  # applied-on-save semantics as the legacy group select — attach/detach
+  # /reorder live in assigns until the item saves, so Cancel abandons
+  # everything and :new items work identically.
+  defp assign_attribute_sets_state(socket, item, action) do
+    if Catalogue.attribute_sets_enabled?() do
+      attachments =
+        if action == :edit and item.uuid,
+          do: Catalogue.list_attribute_set_attachments(item.uuid),
+          else: []
+
+      socket =
+        socket
+        |> assign(:sets_enabled, true)
+        |> assign(:available_sets, Catalogue.list_attribute_sets(lang: preview_lang(socket)))
+        |> assign(:staged_set_uuids, Enum.map(attachments, & &1.set_uuid))
+        |> assign_set_previews()
+
+      # Per-set value selection (boss's two modes, 2026-08-19): the
+      # checked value KEYS per set, staged like everything else on this
+      # tab. Hydrated AFTER previews so stored slugs intersect with the
+      # set's CURRENT values — a value deleted after being ticked must
+      # not ghost the mode hint into a state the user can't untick
+      # (panel finding).
+      selections =
+        Map.new(attachments, fn a ->
+          {a.set_uuid, stored_selection(a, socket.assigns.set_previews[a.set_uuid])}
+        end)
+
+      socket
+      |> assign(:staged_selections, selections)
+    else
+      socket
+      |> assign(:sets_enabled, false)
+      |> assign(:available_sets, [])
+      |> assign(:staged_set_uuids, [])
+      |> assign(:staged_selections, %{})
+      |> assign(:set_previews, %{})
+    end
+  end
+
+  defp assign_set_previews(socket) do
+    previews =
+      Map.new(socket.assigns.staged_set_uuids, fn uuid ->
+        preview = Catalogue.resolve_attribute_set(uuid, lang: preview_lang(socket))
+        {uuid, put_thumbs(preview)}
+      end)
+
+    assign(socket, :set_previews, previews)
+  end
+
+  # Precomputed once per preview build: the chip loop reads the thumb
+  # twice per value (`:if` + `src`), and value_thumb/2 walks the
+  # field list each call.
+  defp put_thumbs(nil), do: nil
+
+  defp put_thumbs(preview) do
+    Map.put(preview, :thumbs, Map.new(preview.values, &{&1.key, value_thumb(preview, &1)}))
+  end
+
+  # Ghost intersection lives in ONE place — the context's
+  # `valid_attribute_set_selection/2` — this just MapSets the result
+  # for the staging assigns.
+  defp stored_selection(attachment, preview) do
+    attachment.data["selected_value_slugs"]
+    |> Catalogue.valid_attribute_set_selection(preview)
+    |> MapSet.new()
+  end
+
+  defp selection_for(assigns, set_uuid) do
+    Map.get(assigns.staged_selections, set_uuid, MapSet.new())
+  end
+
+  # First image-type extra with a value — the chip's swatch thumbnail.
+  # UUID-guarded before URLSigner (same guard as entities' FieldInput):
+  # a type-swapped extra field can leave arbitrary text under an
+  # image-typed key, and that must degrade to no thumb, never reach the
+  # signed-URL path builder (panel finding, 2026-08-19 review).
+  defp value_thumb(preview, value) do
+    preview[:fields]
+    |> List.wrap()
+    |> Enum.filter(&(&1.type == "image"))
+    |> Enum.find_value(fn field ->
+      case value.extras[field.key] do
+        uuid when is_binary(uuid) ->
+          if match?({:ok, _}, Ecto.UUID.cast(uuid)), do: uuid, else: nil
+
+        _ ->
+          nil
+      end
+    end)
+  end
+
+  # Non-media extras as a tooltip ("Price per liter: 12.5 · Finish:
+  # Gloss") — nil when the value carries none, so no empty title attr.
+  defp value_extras_summary(preview, value) do
+    summary =
+      preview[:fields]
+      |> List.wrap()
+      |> Enum.reject(&(&1.type in ["image", "video"]))
+      |> Enum.map(fn field ->
+        case value.extras[field.key] do
+          nil -> nil
+          "" -> nil
+          v -> "#{field.label}: #{v}"
+        end
+      end)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.join(" · ")
+
+    if summary == "", do: nil, else: summary
+  end
+
+  defp staged_set_name(assigns, uuid) do
+    case Enum.find(assigns.available_sets, &(&1.uuid == uuid)) do
+      %{display_name: name} -> name
+      _ -> Gettext.gettext(PhoenixKitCatalogue.Gettext, "Unknown set")
+    end
+  end
+
+  defp attachable_set_options(assigns) do
+    assigns.available_sets
+    |> Enum.reject(&(&1.uuid in assigns.staged_set_uuids))
+    |> Enum.map(&{&1.display_name, &1.uuid})
+  end
+
+  # The Attributes tab badge: staged sets once the rework is live,
+  # falling back to the legacy group's attribute count.
+  defp attribute_tab_count(assigns) do
+    cond do
+      assigns.sets_enabled and assigns.staged_set_uuids != [] ->
+        length(assigns.staged_set_uuids)
+
+      match?(%{}, assigns.attribute_preview) ->
+        length(assigns.attribute_preview.attributes)
+
+      true ->
+        nil
+    end
+  end
+
   defp assign_attribute_preview(socket, selected) do
     assign(socket, :attribute_preview, Catalogue.resolved_group(selected, preview_lang(socket)))
   end
@@ -995,17 +1226,66 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   # the select only offers valid groups, so a rejected value can only be
   # a forged payload — skip it rather than fail the save.
   defp apply_attribute_assignment(socket, item) do
-    case Catalogue.set_item_attribute_group(
-           item,
-           socket.assigns.selected_attribute_group_uuid,
-           actor_opts(socket)
-         ) do
-      {:error, reason} ->
-        Logger.warning("ItemFormLive attribute assignment skipped: #{inspect(reason)}")
+    # With sets live the legacy select never renders, so the loaded-nil
+    # selection must NOT be written back — it would clear the item's
+    # stored legacy assignment, which stays frozen until cutover.
+    unless socket.assigns[:sets_enabled] do
+      case Catalogue.set_item_attribute_group(
+             item,
+             socket.assigns.selected_attribute_group_uuid,
+             actor_opts(socket)
+           ) do
+        {:error, reason} ->
+          Logger.warning("ItemFormLive attribute assignment skipped: #{inspect(reason)}")
+          :ok
+
+        _ ->
+          :ok
+      end
+    end
+
+    apply_attribute_sets(socket, item)
+  end
+
+  # Diffs the staged set selection against the stored attachments —
+  # same best-effort doctrine as the group assignment above: the picker
+  # only offers real sets, so a failure here (set deleted mid-edit) is
+  # logged and skipped, never fails the item save.
+  defp apply_attribute_sets(socket, item) do
+    if socket.assigns[:sets_enabled] do
+      staged = socket.assigns.staged_set_uuids
+      current = Enum.map(Catalogue.list_attribute_set_attachments(item.uuid), & &1.set_uuid)
+
+      Enum.each(current -- staged, fn uuid ->
+        Catalogue.detach_attribute_set(item.uuid, uuid, actor_opts(socket))
+      end)
+
+      Enum.each(staged -- current, &attach_staged_set(socket, item.uuid, &1))
+
+      Catalogue.reorder_attribute_sets(item.uuid, staged, actor_opts(socket))
+
+      # Selections write AFTER attach so new attachments exist; the
+      # context validates keys against the set's current values.
+      Enum.each(staged, fn set_uuid ->
+        slugs =
+          socket.assigns.staged_selections
+          |> Map.get(set_uuid, MapSet.new())
+          |> MapSet.to_list()
+
+        Catalogue.set_attribute_set_selection(item.uuid, set_uuid, slugs, actor_opts(socket))
+      end)
+    end
+
+    :ok
+  end
+
+  defp attach_staged_set(socket, item_uuid, set_uuid) do
+    case Catalogue.attach_attribute_set(item_uuid, set_uuid, actor_opts(socket)) do
+      {:ok, _} ->
         :ok
 
-      _ ->
-        :ok
+      {:error, reason} ->
+        Logger.warning("ItemFormLive set attach skipped: #{inspect(reason)}")
     end
   end
 
@@ -1154,8 +1434,8 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
         >
           <.icon name="hero-swatch" class="w-4 h-4 mr-1" />
           {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Attributes")}
-          <span :if={@attribute_preview} class="badge badge-sm badge-ghost ml-2">
-            {length(@attribute_preview.attributes)}
+          <span :if={attribute_tab_count(assigns)} class="badge badge-sm badge-ghost ml-2">
+            {attribute_tab_count(assigns)}
           </span>
         </button>
         <button
@@ -1735,7 +2015,150 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
              old values — never deleted, so a host's AI (or a human) can
              read them, build groups, and clear them at their own pace. --%>
         <div class={"flex flex-col gap-4 #{if @current_tab != :metadata, do: "hidden"}"}>
-          <div class="card bg-base-100 shadow-lg">
+          <%!-- Attribute SETS (2026-08-18 rework) — the primary picker
+               once entities is enabled. Staged in assigns, applied on
+               save; the select carries its own phx-change (nested forms
+               are invalid — this whole tab lives inside the main form). --%>
+          <div :if={@sets_enabled} class="card bg-base-100 shadow-lg">
+            <div class="card-body flex flex-col gap-4">
+              <div class="flex items-center justify-between gap-4">
+                <div class="flex flex-col gap-0.5 min-w-0">
+                  <h2 class="text-base font-semibold text-base-content/80 flex items-center gap-2">
+                    <.icon name="hero-swatch" class="w-4 h-4" />
+                    {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Attribute sets")}
+                  </h2>
+                  <p class="text-xs text-base-content/50">
+                    {Gettext.gettext(
+                      PhoenixKitCatalogue.Gettext,
+                      "Attach any number of sets — Ikea colors, HomeDepot trims. Applied when you save."
+                    )}
+                  </p>
+                </div>
+                <.link navigate={Paths.attribute_groups()} class="btn btn-ghost btn-xs shrink-0">
+                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Manage sets")}
+                </.link>
+              </div>
+
+              <div
+                :if={@staged_set_uuids != []}
+                id="staged-set-rows"
+                phx-hook="SortableGrid"
+                data-sortable="true"
+                data-sortable-event="reorder_staged_sets"
+                data-sortable-items=".sortable-item"
+                data-sortable-handle=".pk-drag-handle"
+                class="flex flex-col gap-2"
+              >
+                <div
+                  :for={uuid <- @staged_set_uuids}
+                  class="sortable-item rounded-lg border border-base-content/10 bg-base-content/5 p-3 flex flex-col gap-2"
+                  data-id={uuid}
+                >
+                  <% preview = @set_previews[uuid] %>
+                  <div class="flex items-center gap-2">
+                    <span class="pk-drag-handle cursor-grab inline-flex items-center text-base-content/40 hover:text-base-content/70">
+                      <.icon name="hero-bars-3" class="w-4 h-4" />
+                    </span>
+                    <span class="font-medium text-sm flex-1 min-w-0 truncate">
+                      {(preview && preview.name) || staged_set_name(assigns, uuid)}
+                    </span>
+                    <span :if={preview} class="badge badge-sm badge-ghost shrink-0">
+                      {if preview.kind == :fixed,
+                        do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Fixed value"),
+                        else: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Multiple values")}
+                    </span>
+                    <span :if={is_nil(preview)} class="badge badge-sm badge-warning shrink-0">
+                      {Gettext.gettext(PhoenixKitCatalogue.Gettext, "unavailable")}
+                    </span>
+                    <button
+                      type="button"
+                      phx-click="detach_set"
+                      phx-value-uuid={uuid}
+                      class="btn btn-ghost btn-xs px-1 text-base-content/40 hover:text-error shrink-0"
+                      title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Detach set")}
+                    >
+                      <.icon name="hero-x-mark" class="w-4 h-4" />
+                    </button>
+                  </div>
+                  <%!-- Value chips are CHECKBOXES (boss's two modes):
+                       tick one — this exact item; tick several — the
+                       options it comes in; tick none — the whole set
+                       applies. The checkboxes carry no name, so the
+                       main form never submits them; selection is
+                       staged and applied on save. Swatch thumbnails
+                       and an extras tooltip surface the set's data. --%>
+                  <div :if={preview} class="flex flex-col gap-1.5 pl-6">
+                    <div class="flex flex-wrap items-center gap-1.5">
+                      <%!-- The highlight is PURE CSS off :checked (has-[]
+                           variant) so ticking feels instant — no server
+                           round trip gates the visual. The checkbox's
+                           form attribute points at a non-existent id,
+                           disassociating it from the surrounding item
+                           form: without that, every tick ALSO bubbled a
+                           change event into the form's phx-change and
+                           ran the full validate cycle (the actual lag).
+                           phx-click still stages the selection server-
+                           side for save; the patch re-asserts checked,
+                           so a rejected toggle snaps back. --%>
+                      <label
+                        :for={value <- preview.values}
+                        class="flex items-center gap-1.5 rounded-full border border-base-content/20 bg-base-100 hover:border-base-content/40 has-[:checked]:border-primary has-[:checked]:bg-primary/10 pl-1.5 pr-2.5 py-0.5 cursor-pointer select-none transition-colors"
+                        title={value_extras_summary(preview, value)}
+                      >
+                        <input
+                          type="checkbox"
+                          form="__detached-from-item-form__"
+                          checked={MapSet.member?(selection_for(assigns, uuid), value.key)}
+                          phx-click="toggle_value_selection"
+                          phx-value-set={uuid}
+                          phx-value-key={value.key}
+                          class="checkbox checkbox-xs"
+                        />
+                        <img
+                          :if={preview.thumbs[value.key]}
+                          src={URLSigner.signed_url(preview.thumbs[value.key], "thumbnail")}
+                          alt=""
+                          class="w-5 h-5 rounded object-cover"
+                        />
+                        <span class="text-sm">{value.label}</span>
+                      </label>
+                      <span :if={preview.values == []} class="text-xs text-base-content/40">
+                        {Gettext.gettext(PhoenixKitCatalogue.Gettext, "No values defined yet.")}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <%!-- id carries the staged count: after a pick the select
+                   re-mounts fresh (a focused select is never patched, so
+                   without this it would keep showing the picked option). --%>
+              <.select
+                :if={attachable_set_options(assigns) != []}
+                id={"attach-set-select-#{length(@staged_set_uuids)}"}
+                name="attach_set_uuid"
+                value={nil}
+                phx-change="attach_set"
+                prompt={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Attach a set...")}
+                options={attachable_set_options(assigns)}
+                class="w-full"
+              />
+              <p
+                :if={@available_sets == []}
+                class="text-sm text-base-content/50"
+              >
+                {Gettext.gettext(
+                  PhoenixKitCatalogue.Gettext,
+                  "No sets exist yet — create one under Manage sets."
+                )}
+              </p>
+            </div>
+          </div>
+
+          <%!-- Legacy attribute group — only on hosts WITHOUT the
+               entities module; with sets live the legacy surface is
+               gone entirely (assignments auto-migrated). --%>
+          <div :if={!@sets_enabled} class="card bg-base-100 shadow-lg">
             <div class="card-body flex flex-col gap-4">
               <div class="flex items-center justify-between gap-4">
                 <div class="flex flex-col gap-0.5 min-w-0">

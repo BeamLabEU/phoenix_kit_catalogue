@@ -53,8 +53,6 @@ Everything in §2 and the fixable parts of §3 are now DONE:
   half is resolved by locale-resolved content (`Catalogue.localize/2`);
   spectator-host staleness stays carried as P2 by design.
 
-## 2. Not done — designed but not implemented
-
 ## 2. Designed at handover — now mostly shipped (original record kept)
 
 **Product attributes / characteristics.** Shipped as the attribute-group

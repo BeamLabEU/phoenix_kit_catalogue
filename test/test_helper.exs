@@ -123,6 +123,15 @@ exclude = if repo_available, do: [], else: [:integration]
 # catalogue's `Catalogue.PubSub.broadcast/3` calls (fired on every
 # mutation) don't crash with "unknown registry". The host app provides
 # this in production.
+# The entities module's write path broadcasts through
+# PhoenixKit.PubSub.Manager (:phoenix_kit_internal_pubsub) — the
+# attribute-sets tests drive that path, so start it like entities'
+# own suite does.
+case PhoenixKit.PubSub.Manager.start_link([]) do
+  {:ok, _} -> :ok
+  {:error, {:already_started, _}} -> :ok
+end
+
 case Phoenix.PubSub.Supervisor.start_link(name: PhoenixKit.PubSub) do
   {:ok, _} -> :ok
   {:error, {:already_started, _}} -> :ok

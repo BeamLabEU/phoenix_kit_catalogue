@@ -1297,3 +1297,1287 @@ msgstr "Ни одна страница не соответствует запр�
 
 msgid "Search by filename…"
 msgstr "Поиск по имени файла…"
+
+msgid "Attribute sets need the Entities module enabled."
+msgstr "Наборы атрибутов требуют включённого модуля Entities."
+
+msgid "Attribute set not found."
+msgstr "Набор атрибутов не найден."
+
+msgid "New Attribute Set"
+msgstr "Новый набор атрибутов"
+
+msgid "Invalid value for %{field}."
+msgstr "Недопустимое значение для %{field}."
+
+msgid "A field with this name already exists."
+msgstr "Поле с таким именем уже существует."
+
+msgid "Failed to add field."
+msgstr "Не удалось добавить поле."
+
+msgid "Name is required."
+msgstr "Название обязательно."
+
+msgid "Attribute set created."
+msgstr "Набор атрибутов создан."
+
+msgid "Failed to create the set — is the name unique?"
+msgstr "Не удалось создать набор — уникально ли название?"
+
+msgid "Attribute set updated."
+msgstr "Набор атрибутов обновлён."
+
+msgid "Failed to update the set."
+msgstr "Не удалось обновить набор."
+
+msgid "A set is one dimension from one vendor — Ikea colors, HomeDepot trims. Items attach any number of sets."
+msgstr "Набор — одно измерение от одного поставщика: цвета Ikea, планки HomeDepot. К товару можно прикрепить любое число наборов."
+
+msgid "Manage this set's values and extra fields."
+msgstr "Управляйте значениями и дополнительными полями этого набора."
+
+msgid "e.g., Ikea colors"
+msgstr "напр., цвета Ikea"
+
+msgid "Key: %{key} — stable, referenced by items and orders."
+msgstr "Ключ: %{key} — стабильный, на него ссылаются товары и заказы."
+
+msgid "Values"
+msgstr "Значения"
+
+msgid "No values yet. Add one below — e.g. Oak, White, Anthracite."
+msgstr "Значений пока нет. Добавьте ниже — напр. Дуб, Белый, Антрацит."
+
+msgid "Extra fields"
+msgstr "Дополнительные поля"
+
+msgid "Extra info every value carries — price per liter, drying time. Each value above gets an input per field."
+msgstr "Дополнительные данные каждого значения — цена за литр, время высыхания. У каждого значения выше появится поле ввода."
+
+msgid "Remove field"
+msgstr "Удалить поле"
+
+msgid "New field name..."
+msgstr "Название нового поля..."
+
+msgid "Text"
+msgstr "Текст"
+
+msgid "Number"
+msgstr "Число"
+
+msgid "Yes / No"
+msgstr "Да / Нет"
+
+msgid "Date"
+msgstr "Дата"
+
+msgid "Remove extra field"
+msgstr "Удалить дополнительное поле"
+
+msgid "The field disappears from every value. Data already entered is kept but hidden until a field with the same name is re-added."
+msgstr "Поле исчезнет у всех значений. Уже введённые данные сохранятся, но будут скрыты, пока поле с тем же именем не добавят снова."
+
+msgid "Attribute set deleted."
+msgstr "Набор атрибутов удалён."
+
+msgid "This set is attached to items — detach it everywhere first."
+msgstr "Этот набор прикреплён к товарам — сначала открепите его везде."
+
+msgid "Failed to delete attribute set."
+msgstr "Не удалось удалить набор атрибутов."
+
+msgid "Migrated: %{sets} sets, %{values} values, %{attachments} item attachments."
+msgstr "Перенесено: наборов — %{sets}, значений — %{values}, привязок к товарам — %{attachments}."
+
+msgid "Migration failed — nothing was lost; check the logs and re-run."
+msgstr "Миграция не удалась — ничего не потеряно; проверьте логи и запустите снова."
+
+msgid "Attribute sets"
+msgstr "Наборы атрибутов"
+
+msgid "One dimension from one vendor — Ikea colors, HomeDepot trims. Items attach any number of sets."
+msgstr "Одно измерение от одного поставщика: цвета Ikea, планки HomeDepot. К товару можно прикрепить любое число наборов."
+
+msgid "New Set"
+msgstr "Новый набор"
+
+msgid "No sets yet. Create one, or migrate your legacy groups below."
+msgstr "Наборов пока нет. Создайте новый или перенесите старые группы ниже."
+
+msgid "Legacy attribute groups"
+msgstr "Устаревшие группы атрибутов"
+
+msgid "The old system. Migration copies every group's attributes into sets and re-attaches items — nothing is deleted."
+msgstr "Старая система. Миграция копирует атрибуты каждой группы в наборы и заново привязывает товары — ничего не удаляется."
+
+msgid "Migrate to sets"
+msgstr "Перенести в наборы"
+
+msgid "Delete Attribute Set"
+msgstr "Удалить набор атрибутов"
+
+msgid "This deletes the set and all its values. Sets attached to items cannot be deleted."
+msgstr "Будет удалён набор и все его значения. Наборы, прикреплённые к товарам, удалить нельзя."
+
+msgid "Migrate groups to sets"
+msgstr "Перенести группы в наборы"
+
+msgid "Each group attribute becomes its own set, values keep their keys, and every item's group assignment is re-attached as sets. The old groups stay untouched and re-running is safe."
+msgstr "Каждый атрибут группы становится отдельным набором, значения сохраняют ключи, а привязка группы у каждого товара заново оформляется наборами. Старые группы не затрагиваются, повторный запуск безопасен."
+
+msgid "Migrate"
+msgstr "Перенести"
+
+msgid "Attach any number of sets — Ikea colors, HomeDepot trims. Applied when you save."
+msgstr "Прикрепите любое число наборов — цвета Ikea, планки HomeDepot. Применяется при сохранении."
+
+msgid "Manage sets"
+msgstr "Управление наборами"
+
+msgid "unavailable"
+msgstr "недоступен"
+
+msgid "Detach set"
+msgstr "Открепить набор"
+
+msgid "Attach a set..."
+msgstr "Прикрепить набор..."
+
+msgid "No sets exist yet — create one under Manage sets."
+msgstr "Наборов ещё нет — создайте в разделе «Управление наборами»."
+
+msgid "Attribute group (legacy)"
+msgstr "Группа атрибутов (устаревшая)"
+
+msgid "Unknown set"
+msgstr "Неизвестный набор"
+
+msgid "This set was deleted in another session."
+msgstr "Этот набор был удалён в другом сеансе."
+
+msgid "No sets yet. Create one to define the options items can attach."
+msgstr "Наборов пока нет. Создайте один, чтобы задать опции, которые можно прикреплять к товарам."
+
+msgid "Attribute groups have been replaced by sets — your groups were migrated automatically."
+msgstr "Группы атрибутов заменены наборами — ваши группы были перенесены автоматически."
+
+msgid "Text area"
+msgstr "Текстовая область"
+
+msgid "Select"
+msgstr "Выбор"
+
+msgid "Image"
+msgstr "Изображение"
+
+msgid "Video"
+msgstr "Видео"
+
+msgid "Options, comma-separated (Select)"
+msgstr "Варианты через запятую (Выбор)"
+
+msgid "Select fields need options — list them comma-separated."
+msgstr "Полям типа «Выбор» нужны варианты — перечислите их через запятую."
+
+msgid "Select Image"
+msgstr "Выберите изображение"
+
+msgid "Select Video"
+msgstr "Выберите видео"
+
+msgid "Value"
+msgstr "Значение"
+
+msgid "Type"
+msgstr "Тип"
+
+msgid "Add field"
+msgstr "Добавить поле"
+
+msgid "Edit field"
+msgstr "Изменить поле"
+
+msgid "Add extra field"
+msgstr "Добавить дополнительное поле"
+
+msgid "Edit extra field"
+msgstr "Изменить дополнительное поле"
+
+msgid "e.g. Price per liter"
+msgstr "напр. Цена за литр"
+
+msgid "Shown as a label on every value."
+msgstr "Отображается как подпись у каждого значения."
+
+msgid "Key: %{key}"
+msgstr "Ключ: %{key}"
+
+msgid "Type can't be changed. Remove the field and add a new one if you need a different type."
+msgstr "Тип нельзя изменить. Если нужен другой тип — удалите поле и добавьте новое."
+
+msgid "Choices"
+msgstr "Варианты"
+
+msgid "Each value picks one of these from a dropdown."
+msgstr "Каждое значение выбирает один из них из выпадающего списка."
+
+msgid "Remove choice"
+msgstr "Удалить вариант"
+
+msgid "Add choice"
+msgstr "Добавить вариант"
+
+msgid "Renaming or removing a choice clears that pick on values that used it."
+msgstr "Переименование или удаление варианта сбрасывает его у значений, которые его использовали."
+
+msgid "Add at least one choice."
+msgstr "Добавьте хотя бы один вариант."
+
+msgid "Failed to save the field."
+msgstr "Не удалось сохранить поле."
+
+msgid "Save field"
+msgstr "Сохранить поле"
+
+msgid "Each value gets a text input."
+msgstr "У каждого значения будет текстовое поле."
+
+msgid "Each value gets a multi-line text box."
+msgstr "У каждого значения будет многострочное текстовое поле."
+
+msgid "Each value gets a number input."
+msgstr "У каждого значения будет числовое поле."
+
+msgid "Each value gets a yes/no toggle."
+msgstr "У каждого значения будет переключатель да/нет."
+
+msgid "Each value gets a date picker."
+msgstr "У каждого значения будет выбор даты."
+
+msgid "Each value gets an image picked from the media library."
+msgstr "У каждого значения будет изображение из медиатеки."
+
+msgid "Each value gets a video picked from the media library."
+msgstr "У каждого значения будет видео из медиатеки."
+
+msgid "Attach sets, then tick what applies: one tick — this exact item; several — the options it comes in; none — the whole set. Applied when you save."
+msgstr "Прикрепите наборы и отметьте, что применимо: одна галочка — именно этот товар; несколько — варианты, в которых он бывает; ни одной — весь набор. Применяется при сохранении."
+
+msgid "This exact item."
+msgstr "Именно этот товар."
+
+msgid "Available in %{count} of %{total} options."
+msgstr "Доступен в %{count} из %{total} вариантов."
+
+msgid "Up one level"
+msgstr "На уровень вверх"
+
+msgid "All categories"
+msgstr "Все категории"
+
+msgid "All catalogues"
+msgstr "Все каталоги"
+
+msgid " or drag & drop"
+msgstr " или перетащите сюда"
+
+msgid "%b %d, %Y %H:%M"
+msgstr "%d.%m.%Y %H:%M"
+
+msgid "%{count} items already exist in this catalogue with identical data."
+msgstr "%{count} позиций с идентичными данными уже есть в этом каталоге."
+
+msgid "%{count} items will be moved to the Deleted view. They can be restored later."
+msgstr "%{count} позиций будут перемещены в раздел «Удалённые». Их можно восстановить позже."
+
+msgid "%{count} items will be permanently deleted. This cannot be undone."
+msgstr "%{count} позиций будут удалены навсегда. Это действие необратимо."
+
+msgid "%{count} rows in your file are identical duplicates."
+msgstr "%{count} строк в вашем файле — идентичные дубликаты."
+
+msgid "%{count}d ago"
+msgstr "%{count} дн. назад"
+
+msgid "%{count}h ago"
+msgstr "%{count} ч. назад"
+
+msgid "%{count}m ago"
+msgstr "%{count} мин. назад"
+
+msgid "%{total} catalogues available — none selected"
+msgstr "Доступно каталогов: %{total} — ни один не выбран"
+
+msgid "-- No category --"
+msgstr "-- Без категории --"
+
+msgid "-- No manufacturer --"
+msgstr "-- Без производителя --"
+
+msgid "-- Select catalogue --"
+msgstr "-- Выберите каталог --"
+
+msgid "-- Select category --"
+msgstr "-- Выберите категорию --"
+
+msgid "0.00"
+msgstr "0.00"
+
+msgid "A → Z by name"
+msgstr "А → Я по названию"
+
+msgid "Action"
+msgstr "Действие"
+
+msgid "Add a new product or material to the catalogue."
+msgstr "Добавьте в каталог новый товар или материал."
+
+msgid "All Actions"
+msgstr "Все действия"
+
+msgid "All Types"
+msgstr "Все типы"
+
+msgid "All columns are already mapped. Free one up by setting it to '— Skip —' in the column mapping section below, or by switching another picker (Category, Manufacturer, or Supplier) out of 'Use a column' mode."
+msgstr "Все столбцы уже сопоставлены. Освободите один, выбрав для него «— Пропустить —» в разделе сопоставления ниже, либо переключите другой селектор (Категория, Производитель или Поставщик) из режима «Использовать столбец»."
+
+msgid "Applied on top of the sale price to compute the final price. 0..100. Individual items can override this."
+msgstr "Применяется поверх продажной цены для расчёта итоговой. 0..100. Отдельные позиции могут переопределить это."
+
+msgid "Applied to all item base prices to calculate sale prices. Leave blank for no markup."
+msgstr "Применяется к базовым ценам всех позиций для расчёта продажных цен. Оставьте пустым, если наценки нет."
+
+msgid "Applying..."
+msgstr "Применение..."
+
+msgid "Archived catalogues are hidden from active views."
+msgstr "Архивные каталоги скрыты из активных представлений."
+
+msgid "Article Code"
+msgstr "Артикул"
+
+msgid "Attach any metadata fields that apply to this catalogue. Blank values are dropped on save."
+msgstr "Прикрепите подходящие для этого каталога поля метаданных. Пустые значения удаляются при сохранении."
+
+msgid "Attach any metadata fields that apply. Blank values are dropped on save."
+msgstr "Прикрепите подходящие поля метаданных. Пустые значения удаляются при сохранении."
+
+msgid "Brief description of this manufacturer..."
+msgstr "Краткое описание этого производителя..."
+
+msgid "Brief description of this supplier..."
+msgstr "Краткое описание этого поставщика..."
+
+msgid "Brief description of what this catalogue contains..."
+msgstr "Краткое описание содержимого этого каталога..."
+
+msgid "Brochures, spec sheets, datasheets. Any file type is accepted."
+msgstr "Брошюры, спецификации, даташиты. Принимается любой тип файлов."
+
+msgid "By default the importer only matches existing categories by their name in the current import language. Turn this on to also match translations in any other language — useful for multilingual catalogues where the same category is named differently in each language."
+msgstr "По умолчанию импортёр сопоставляет существующие категории только по названию на текущем языке импорта. Включите, чтобы сопоставлять и переводы на любом другом языке — полезно для многоязычных каталогов, где одна категория в каждом языке названа по-разному."
+
+msgid "Catalogue and all its contents permanently deleted."
+msgstr "Каталог и всё его содержимое удалены навсегда."
+
+msgid "Categories that will be created:"
+msgstr "Категории, которые будут созданы:"
+
+msgid "Categories to create:"
+msgstr "Категории к созданию:"
+
+msgid "Category and all its items permanently deleted."
+msgstr "Категория и все её позиции удалены навсегда."
+
+msgid "Changes"
+msgstr "Изменения"
+
+msgid "Choose where each column should be imported to."
+msgstr "Выберите, куда импортировать каждый столбец."
+
+msgid "Classification"
+msgstr "Классификация"
+
+msgid "Clearing..."
+msgstr "Очистка..."
+
+msgid "Click to toggle manufacturer associations."
+msgstr "Нажмите, чтобы переключить связи с производителями."
+
+msgid "Click to toggle supplier associations."
+msgstr "Нажмите, чтобы переключить связи с поставщиками."
+
+msgid "Close modal"
+msgstr "Закрыть окно"
+
+msgid "Contact & Web"
+msgstr "Контакты и веб"
+
+msgid "Continue"
+msgstr "Продолжить"
+
+msgid "Continue to Confirm"
+msgstr "Перейти к подтверждению"
+
+msgid "Cost/purchase price before catalogue markup."
+msgstr "Себестоимость/закупочная цена до наценки каталога."
+
+msgid "Could not create the new category. Please check the form and try again."
+msgstr "Не удалось создать новую категорию. Проверьте форму и попробуйте снова."
+
+msgid "Could not create the new manufacturer. Please check the form and try again."
+msgstr "Не удалось создать нового производителя. Проверьте форму и попробуйте снова."
+
+msgid "Could not create the new supplier. Please check the form and try again."
+msgstr "Не удалось создать нового поставщика. Проверьте форму и попробуйте снова."
+
+msgid "Could not load more matches. Please try again."
+msgstr "Не удалось загрузить больше результатов. Попробуйте снова."
+
+msgid "Could not prepare the files folder."
+msgstr "Не удалось подготовить папку файлов."
+
+msgid "Could not remove file."
+msgstr "Не удалось удалить файл."
+
+msgid "Could not save the uploaded file. Please try again or contact support if it persists."
+msgstr "Не удалось сохранить загруженный файл. Попробуйте снова или обратитесь в поддержку, если ошибка повторяется."
+
+msgid "Could not start extraction. The :catalogue_pdf Oban queue may not be running."
+msgstr "Не удалось запустить извлечение текста. Очередь Oban :catalogue_pdf может не работать."
+
+msgid "Create Categories"
+msgstr "Создать категории"
+
+msgid "Create a new manufacturer — fill in the details below"
+msgstr "Создайте нового производителя — заполните данные ниже"
+
+msgid "Create a new supplier — link to all touched manufacturers"
+msgstr "Создайте нового поставщика — будет связан со всеми затронутыми производителями"
+
+msgid "Create one first"
+msgstr "Сначала создайте его"
+
+msgid "Default Unit"
+msgstr "Единица по умолчанию"
+
+msgid "Default Value"
+msgstr "Значение по умолчанию"
+
+msgid "Delete category and items"
+msgstr "Удалить категорию и позиции"
+
+msgid "Delete category — what about the items?"
+msgstr "Удаление категории — что делать с позициями?"
+
+msgid "Delete forever"
+msgstr "Удалить навсегда"
+
+msgid "Delete items along with the category"
+msgstr "Удалить позиции вместе с категорией"
+
+msgid "Delete selected items?"
+msgstr "Удалить выбранные позиции?"
+
+msgid "Deleting…"
+msgstr "Удаление…"
+
+msgid "Discontinued items are kept for reference but hidden from active listings."
+msgstr "Снятые с производства позиции сохраняются для справки, но скрыты из активных списков."
+
+msgid "Discount Override (%)"
+msgstr "Переопределение скидки (%)"
+
+msgid "Discount Percentage"
+msgstr "Процент скидки"
+
+msgid "Drag to reorder"
+msgstr "Перетащите для изменения порядка"
+
+msgid "Drag to reorder (among siblings)"
+msgstr "Перетащите для изменения порядка (среди соседей)"
+
+msgid "Each catalogue can only appear once in the rules list."
+msgstr "Каждый каталог может встречаться в списке правил только один раз."
+
+msgid "Email or phone"
+msgstr "Эл. почта или телефон"
+
+msgid "Errors"
+msgstr "Ошибки"
+
+msgid "Extraction failed"
+msgstr "Извлечение текста не удалось"
+
+msgid "File"
+msgstr "Файл"
+
+msgid "File format does not match the selected format."
+msgstr "Формат файла не соответствует выбранному."
+
+msgid "File has too many rows to import. Please split it into smaller files."
+msgstr "В файле слишком много строк для импорта. Разбейте его на файлы поменьше."
+
+msgid "File is too large to import. Please split it into smaller files."
+msgstr "Файл слишком велик для импорта. Разбейте его на файлы поменьше."
+
+msgid "File is too large."
+msgstr "Файл слишком велик."
+
+msgid "File type not supported. Use .xlsx or .csv"
+msgstr "Тип файла не поддерживается. Используйте .xlsx или .csv"
+
+msgid "Filename"
+msgstr "Имя файла"
+
+msgid "Flags"
+msgstr "Флаги"
+
+msgid "Flat"
+msgstr "Фиксированная"
+
+msgid "Flat amount"
+msgstr "Фиксированная сумма"
+
+msgid "Has subcategories"
+msgstr "Содержит подкатегории"
+
+msgid "Import %{count} Items"
+msgstr "Импортировать позиций: %{count}"
+
+msgid "Import Into Category"
+msgstr "Импортировать в категорию"
+
+msgid "Import Language"
+msgstr "Язык импорта"
+
+msgid "Import all — create everything including duplicates"
+msgstr "Импортировать всё — создать всё, включая дубликаты"
+
+msgid "Import failed: %{reason}"
+msgstr "Импорт не удался: %{reason}"
+
+msgid "Importing..."
+msgstr "Импорт..."
+
+msgid "Inactive manufacturers won't appear in item dropdowns."
+msgstr "Неактивные производители не появляются в выпадающих списках позиций."
+
+msgid "Inactive suppliers won't appear in manufacturer linking."
+msgstr "Неактивные поставщики не появляются при связывании производителей."
+
+msgid "Inherit catalogue discount"
+msgstr "Наследовать скидку каталога"
+
+msgid "Inherit catalogue markup"
+msgstr "Наследовать наценку каталога"
+
+msgid "Inherit: %{discount}%"
+msgstr "Наследуется: %{discount}%"
+
+msgid "Inherit: %{markup}%"
+msgstr "Наследуется: %{markup}%"
+
+msgid "Inherit: %{value}"
+msgstr "Наследуется: %{value}"
+
+msgid "Internal notes about this manufacturer..."
+msgstr "Внутренние заметки об этом производителе..."
+
+msgid "Internal notes about this supplier..."
+msgstr "Внутренние заметки об этом поставщике..."
+
+msgid "Item Name"
+msgstr "Название позиции"
+
+msgid "Items can only be moved within this catalogue."
+msgstr "Позиции можно перемещать только внутри этого каталога."
+
+msgid "Items keep their catalogue but lose their category."
+msgstr "Позиции остаются в каталоге, но теряют категорию."
+
+msgid "Items move to the Deleted view alongside the category. Both can be restored later."
+msgstr "Позиции перемещаются в раздел «Удалённые» вместе с категорией. И то и другое можно восстановить позже."
+
+msgid "Items reordered."
+msgstr "Порядок позиций изменён."
+
+msgid "Items stay in this catalogue but are no longer attached to any category."
+msgstr "Позиции остаются в этом каталоге, но больше не привязаны ни к одной категории."
+
+msgid "Leave blank to inherit the catalogue's discount. Set (including 0) to override just this item."
+msgstr "Оставьте пустым, чтобы наследовать скидку каталога. Задайте (в т.ч. 0), чтобы переопределить только эту позицию."
+
+msgid "Leave blank to inherit the catalogue's markup. Set (including 0) to override just this item."
+msgstr "Оставьте пустым, чтобы наследовать наценку каталога. Задайте (в т.ч. 0), чтобы переопределить только эту позицию."
+
+msgid "Link to Supplier"
+msgstr "Связать с поставщиком"
+
+msgid "Loading…"
+msgstr "Загрузка…"
+
+msgid "Logo URL"
+msgstr "URL логотипа"
+
+msgid "Lower numbers appear first."
+msgstr "Меньшие числа идут первыми."
+
+msgid "Make items uncategorized"
+msgstr "Сделать позиции без категории"
+
+msgid "Manual"
+msgstr "Вручную"
+
+msgid "Manufacturer created but failed to link some suppliers."
+msgstr "Производитель создан, но связать некоторых поставщиков не удалось."
+
+msgid "Manufacturer updated but failed to sync supplier links."
+msgstr "Производитель обновлён, но синхронизировать связи с поставщиками не удалось."
+
+msgid "Manufacturers that will be created or matched:"
+msgstr "Производители, которые будут созданы или сопоставлены:"
+
+msgid "Map"
+msgstr "Сопоставить"
+
+msgid "Map each value to a system unit:"
+msgstr "Сопоставьте каждое значение с системной единицей:"
+
+msgid "Markup Override (%)"
+msgstr "Переопределение наценки (%)"
+
+msgid "Markup Percentage"
+msgstr "Процент наценки"
+
+msgid "Match across all languages"
+msgstr "Сопоставлять по всем языкам"
+
+msgid "Move items"
+msgstr "Переместить позиции"
+
+msgid "Move items and delete category"
+msgstr "Переместить позиции и удалить категорию"
+
+msgid "Move items to another category"
+msgstr "Переместить позиции в другую категорию"
+
+msgid "Move selected items"
+msgstr "Переместить выбранные позиции"
+
+msgid "Move this PDF to trash?"
+msgstr "Переместить этот PDF в корзину?"
+
+msgid "Move this category and all its items to a different catalogue."
+msgstr "Переместите эту категорию и все её позиции в другой каталог."
+
+msgid "Move this item into a different smart catalogue. Its catalogue rules stay attached."
+msgstr "Переместите эту позицию в другой умный каталог. Её правила каталогов остаются прикреплёнными."
+
+msgid "Move this item to a category in any catalogue."
+msgstr "Переместите эту позицию в категорию любого каталога."
+
+msgid "Move to Another Catalogue"
+msgstr "Переместить в другой каталог"
+
+msgid "Move to Another Category"
+msgstr "Переместить в другую категорию"
+
+msgid "Move to Another Parent"
+msgstr "Переместить под другого родителя"
+
+msgid "Move to Another Smart Catalogue"
+msgstr "Переместить в другой умный каталог"
+
+msgid "Name *"
+msgstr "Название *"
+
+msgid "New Categories"
+msgstr "Новые категории"
+
+msgid "Newest first"
+msgstr "Сначала новые"
+
+msgid "No PDF mentions this item by name."
+msgstr "Ни один PDF не упоминает эту позицию по названию."
+
+msgid "No PDFs matching your search."
+msgstr "Нет PDF, соответствующих вашему запросу."
+
+msgid "No categories available — use Uncategorized instead."
+msgstr "Категорий нет — используйте «Без категории»."
+
+msgid "No categories or items yet. Add a category or item to get started."
+msgstr "Пока нет ни категорий, ни позиций. Начните с добавления категории или позиции."
+
+msgid "No category — import items without a category"
+msgstr "Без категории — импортировать позиции без категории"
+
+msgid "No discontinued items here."
+msgstr "Снятых с производства позиций нет."
+
+msgid "No extractable text"
+msgstr "Нет извлекаемого текста"
+
+msgid "No inactive items here."
+msgstr "Неактивных позиций нет."
+
+msgid "No items in this category."
+msgstr "В этой категории нет позиций."
+
+msgid "No items match your search."
+msgstr "Нет позиций, соответствующих запросу."
+
+msgid "No manufacturer — items imported without a maker"
+msgstr "Без производителя — позиции импортируются без изготовителя"
+
+msgid "No metadata attached yet. Pick a field below to add one."
+msgstr "Метаданные ещё не прикреплены. Выберите поле ниже, чтобы добавить."
+
+msgid "No other catalogues available to reference yet."
+msgstr "Других каталогов для ссылки пока нет."
+
+msgid "No other categories available — use Uncategorized instead."
+msgstr "Других категорий нет — используйте «Без категории»."
+
+msgid "No stuck extractions to re-queue."
+msgstr "Нет зависших извлечений для повторной постановки в очередь."
+
+msgid "No supplier — leave manufacturers unlinked"
+msgstr "Без поставщика — оставить производителей несвязанными"
+
+msgid "No uncategorized items."
+msgstr "Позиций без категории нет."
+
+msgid "Nothing deleted here."
+msgstr "Здесь нет ничего удалённого."
+
+msgid "Oldest first"
+msgstr "Сначала старые"
+
+msgid "Only one file allowed"
+msgstr "Разрешён только один файл"
+
+msgid "Open the PDF in a new tab"
+msgstr "Открыть PDF в новой вкладке"
+
+msgid "PDF files only. Identical content is deduplicated; same file uploaded again under a new name shares one underlying file + extraction."
+msgstr "Только PDF-файлы. Идентичное содержимое дедуплицируется; тот же файл, загруженный снова под новым именем, использует один общий файл и извлечение."
+
+msgid "PRO100 Sync Preview"
+msgstr "Предпросмотр синхронизации PRO100"
+
+msgid "Parent category"
+msgstr "Родительская категория"
+
+msgid "Parent must live in the same catalogue."
+msgstr "Родитель должен находиться в том же каталоге."
+
+msgid "Percent (%)"
+msgstr "Процент (%)"
+
+msgid "Permanently delete selected items?"
+msgstr "Удалить выбранные позиции навсегда?"
+
+msgid "Permanently delete this PDF? If no other library entry references the same file content, the underlying file will be queued for hard deletion."
+msgstr "Удалить этот PDF навсегда? Если ни одна другая запись библиотеки не ссылается на то же содержимое, файл будет поставлен в очередь на окончательное удаление."
+
+msgid "Pick a parent to nest this category inside, or leave blank to keep it at the top level. You can move it later."
+msgstr "Выберите родителя, внутрь которого вложить эту категорию, или оставьте пустым, чтобы держать её на верхнем уровне. Позже её можно переместить."
+
+msgid "Pick a strategy before applying."
+msgstr "Выберите стратегию перед применением."
+
+msgid "Pick a target category in this catalogue. The category being deleted and its subtree are excluded."
+msgstr "Выберите целевую категорию в этом каталоге. Удаляемая категория и её поддерево исключены."
+
+msgid "Pick where %{count} items should go."
+msgstr "Выберите, куда переместить позиции: %{count}."
+
+msgid "Pick which catalogues this item applies to and set a value + unit per catalogue. Rows left blank inherit the defaults below."
+msgstr "Выберите, к каким каталогам относится эта позиция, и задайте значение + единицу для каждого. Пустые строки наследуют значения по умолчанию ниже."
+
+msgid "Piece"
+msgstr "Штука"
+
+msgid "Please give the new category a name before continuing."
+msgstr "Дайте новой категории название, прежде чем продолжить."
+
+msgid "Please give the new manufacturer a name before continuing."
+msgstr "Дайте новому производителю название, прежде чем продолжить."
+
+msgid "Please give the new supplier a name before continuing."
+msgstr "Дайте новому поставщику название, прежде чем продолжить."
+
+msgid "Please select a catalogue first."
+msgstr "Сначала выберите каталог."
+
+msgid "Please select a format."
+msgstr "Выберите формат."
+
+msgid "Please upload a file."
+msgstr "Загрузите файл."
+
+msgid "Pricing & Identification"
+msgstr "Цены и идентификация"
+
+msgid "Product specifications, dimensions, materials..."
+msgstr "Характеристики товара, размеры, материалы..."
+
+msgid "Re-queue any PDFs whose text extraction never ran or got stuck (e.g. after the job queue was down)."
+msgstr "Повторно поставьте в очередь PDF, у которых извлечение текста не запустилось или зависло (напр. после простоя очереди задач)."
+
+msgid "Re-queued %{count} stuck extraction(s)."
+msgstr "Повторно поставлено в очередь зависших извлечений: %{count}."
+
+msgid "Re-queued %{count} stuck extraction(s); %{skipped} already running."
+msgstr "Повторно поставлено в очередь зависших извлечений: %{count}; уже выполняется: %{skipped}."
+
+msgid "Re-queued %{ok}; %{failed} could not be queued — the :catalogue_pdf queue may not be running."
+msgstr "Поставлено в очередь: %{ok}; не удалось поставить: %{failed} — очередь :catalogue_pdf может не работать."
+
+msgid "Re-queued text extraction."
+msgstr "Извлечение текста повторно поставлено в очередь."
+
+msgid "Re-queuing…"
+msgstr "Постановка в очередь…"
+
+msgid "Remove from catalogue"
+msgstr "Убрать из каталога"
+
+msgid "Remove from category"
+msgstr "Убрать из категории"
+
+msgid "Remove from item"
+msgstr "Убрать у позиции"
+
+msgid "Remove this file from the catalogue? If it's not attached to any other resource, it will be moved to trash (admins can restore)."
+msgstr "Убрать этот файл из каталога? Если он не прикреплён ни к какому другому ресурсу, он попадёт в корзину (администраторы могут восстановить)."
+
+msgid "Remove this file from the category? If it's not attached to any other resource, it will be moved to trash (admins can restore)."
+msgstr "Убрать этот файл из категории? Если он не прикреплён ни к какому другому ресурсу, он попадёт в корзину (администраторы могут восстановить)."
+
+msgid "Remove this file from the item? If it's not attached to any other item, it will be moved to trash (admins can restore)."
+msgstr "Убрать этот файл у позиции? Если он не прикреплён ни к какой другой позиции, он попадёт в корзину (администраторы могут восстановить)."
+
+msgid "Removing..."
+msgstr "Удаление..."
+
+msgid "Reparent this category within its catalogue. Its subtree comes along."
+msgstr "Переместите эту категорию под другого родителя в её каталоге. Поддерево переносится вместе с ней."
+
+msgid "Replace"
+msgstr "Заменить"
+
+msgid "Resource"
+msgstr "Ресурс"
+
+msgid "Restoring…"
+msgstr "Восстановление…"
+
+msgid "Retry"
+msgstr "Повторить"
+
+msgid "Retry extraction"
+msgstr "Повторить извлечение"
+
+msgid "Retry stuck"
+msgstr "Повторить зависшие"
+
+msgid "Retrying…"
+msgstr "Повтор…"
+
+msgid "Reverse current order"
+msgstr "Обратить текущий порядок"
+
+msgid "Row %{row}: %{msg}"
+msgstr "Строка %{row}: %{msg}"
+
+msgid "Row %{row}: %{reason}"
+msgstr "Строка %{row}: %{reason}"
+
+msgid "Row %{row}: multiple items match (%{matches})"
+msgstr "Строка %{row}: подходит несколько позиций (%{matches})"
+
+msgid "Row %{row}: no id, cannot be created"
+msgstr "Строка %{row}: нет id, создать нельзя"
+
+msgid "Row %{row}: no matching item found"
+msgstr "Строка %{row}: подходящая позиция не найдена"
+
+msgid "Row %{row}: no matching item, not created"
+msgstr "Строка %{row}: подходящей позиции нет, не создано"
+
+msgid "Row %{row}: no name, cannot be created"
+msgstr "Строка %{row}: нет названия, создать нельзя"
+
+msgid "Rows with errors (will be skipped):"
+msgstr "Строки с ошибками (будут пропущены):"
+
+msgid "Running meter"
+msgstr "Погонный метр"
+
+msgid "Sample Data (first 5 rows)"
+msgstr "Пример данных (первые 5 строк)"
+
+msgid "Search failed. Please try again."
+msgstr "Поиск не удался. Попробуйте снова."
+
+msgid "Search is temporarily unavailable. Please try again in a moment."
+msgstr "Поиск временно недоступен. Попробуйте чуть позже."
+
+msgid "Search items by name, description, or SKU..."
+msgstr "Ищите позиции по названию, описанию или артикулу..."
+
+msgid "Search items…"
+msgstr "Поиск позиций…"
+
+msgid "Search uncategorized items..."
+msgstr "Поиск позиций без категории..."
+
+msgid "Search within this category..."
+msgstr "Поиск в этой категории..."
+
+msgid "Searched for: %{name}"
+msgstr "Искали: %{name}"
+
+msgid "Searches the entire PDF library for the item's name across all enabled languages."
+msgstr "Ищет название позиции по всей библиотеке PDF на всех включённых языках."
+
+msgid "Searching for \"%{query}\"..."
+msgstr "Поиск «%{query}»..."
+
+msgid "Searching…"
+msgstr "Поиск…"
+
+msgid "Select a catalogue..."
+msgstr "Выберите каталог..."
+
+msgid "Select a column..."
+msgstr "Выберите столбец..."
+
+msgid "Select all items"
+msgstr "Выбрать все позиции"
+
+msgid "Selected image could not be loaded."
+msgstr "Выбранное изображение не удалось загрузить."
+
+msgid "Selected items share positions. Apply \"Reorder all\" first to normalise."
+msgstr "У выбранных позиций совпадают позиции сортировки. Сначала примените «Переупорядочить все» для нормализации."
+
+msgid "Set Manufacturer"
+msgstr "Задать производителя"
+
+msgid "Sheet:"
+msgstr "Лист:"
+
+msgid "Show %{n} more"
+msgstr "Показать ещё %{n}"
+
+msgid "Showing %{loaded} of %{count} results for \"%{query}\""
+msgstr "Показано %{loaded} из %{count} результатов по запросу «%{query}»"
+
+msgid "Showing first 20 of %{count} items."
+msgstr "Показаны первые 20 из %{count} позиций."
+
+msgid "Shown in lists and detail views."
+msgstr "Отображается в списках и детальных представлениях."
+
+msgid "Shown on catalogue listings and category landing pages."
+msgstr "Отображается в списках каталогов и на страницах категорий."
+
+msgid "Shown on catalogue listings and detail views."
+msgstr "Отображается в списках каталогов и детальных представлениях."
+
+msgid "Shown on listings and detail views."
+msgstr "Отображается в списках и детальных представлениях."
+
+msgid "Size"
+msgstr "Размер"
+
+msgid "Skip duplicates — only import new, unique items"
+msgstr "Пропускать дубликаты — импортировать только новые, уникальные позиции"
+
+msgid "Skipped"
+msgstr "Пропущено"
+
+msgid "Smart catalogues hold items like \"Delivery\" whose cost is a per-catalogue %/flat rule picked from other catalogues. Items here reference other catalogues instead of carrying a base price of their own."
+msgstr "Умные каталоги содержат позиции вроде «Доставка», чья стоимость — правило (%/фикс.) на каталог, взятое из других каталогов. Позиции здесь ссылаются на другие каталоги вместо собственной базовой цены."
+
+msgid "Smart rule"
+msgstr "Умное правило"
+
+msgid "Some categories couldn't be restored. The catalogue may be deleted — restore it first."
+msgstr "Некоторые категории не удалось восстановить. Каталог может быть удалён — сначала восстановите его."
+
+msgid "Source"
+msgstr "Источник"
+
+msgid "Spec sheets, drawings, photos. Any file type is accepted."
+msgstr "Спецификации, чертежи, фото. Принимается любой тип файлов."
+
+msgid "Standard catalogues hold items priced directly — each item has its own base price, markup, and discount. This is the normal flow for materials, products, or anything with a fixed price tag."
+msgstr "Обычные каталоги содержат позиции с прямыми ценами — у каждой свои базовая цена, наценка и скидка. Это стандартный путь для материалов, товаров и всего с фиксированным ценником."
+
+msgid "Starting import..."
+msgstr "Запуск импорта..."
+
+msgid "Still uploading — please wait a moment."
+msgstr "Загрузка ещё идёт — подождите немного."
+
+msgid "Supplier created but failed to link some manufacturers."
+msgstr "Поставщик создан, но связать некоторых производителей не удалось."
+
+msgid "Supplier updated but failed to sync manufacturer links."
+msgstr "Поставщик обновлён, но синхронизировать связи с производителями не удалось."
+
+msgid "Suppliers that will be created or matched:"
+msgstr "Поставщики, которые будут созданы или сопоставлены:"
+
+msgid "Supports .xlsx, .csv, .txt, .json files (max 10MB)"
+msgstr "Поддерживаются файлы .xlsx, .csv, .txt, .json (макс. 10 МБ)"
+
+msgid "Sync Complete"
+msgstr "Синхронизация завершена"
+
+msgid "Target Catalogue"
+msgstr "Целевой каталог"
+
+msgid "Target category not found."
+msgstr "Целевая категория не найдена."
+
+msgid "Text extraction in progress. This page will refresh automatically when it completes."
+msgstr "Идёт извлечение текста. Страница обновится автоматически по завершении."
+
+msgid "The file is empty."
+msgstr "Файл пуст."
+
+msgid "This PDF appears to be scanned. OCR support is planned for a future iteration."
+msgstr "Похоже, этот PDF отсканирован. Поддержка OCR запланирована в будущей итерации."
+
+msgid "This catalogue was just deleted."
+msgstr "Этот каталог только что удалили."
+
+msgid "This category and all its items will be permanently deleted. This cannot be undone."
+msgstr "Эта категория и все её позиции будут удалены навсегда. Это действие необратимо."
+
+msgid "This item was imported in %{lang}. Please fill in the %{primary} translation and save to set it as the primary language."
+msgstr "Эта позиция была импортирована на языке %{lang}. Заполните перевод %{primary} и сохраните, чтобы сделать его основным языком."
+
+msgid "This item will be permanently deleted. This cannot be undone."
+msgstr "Эта позиция будет удалена навсегда. Это действие необратимо."
+
+msgid "This will permanently delete this catalogue, all its categories, and all items within them."
+msgstr "Это навсегда удалит этот каталог, все его категории и все позиции в них."
+
+msgid "This will permanently delete this catalogue, all its categories, and all items within them. This cannot be undone."
+msgstr "Это навсегда удалит этот каталог, все его категории и все позиции в них. Это действие необратимо."
+
+msgid "This will permanently delete this category and all its items."
+msgstr "Это навсегда удалит эту категорию и все её позиции."
+
+msgid "This will permanently delete this category and all its items. This cannot be undone."
+msgstr "Это навсегда удалит эту категорию и все её позиции. Это действие необратимо."
+
+msgid "To create"
+msgstr "К созданию"
+
+msgid "Too many files at once."
+msgstr "Слишком много файлов за раз."
+
+msgid "Too many files."
+msgstr "Слишком много файлов."
+
+msgid "Trashed"
+msgstr "В корзине"
+
+msgid "Trashing…"
+msgstr "Перемещение в корзину…"
+
+msgid "Type to refine search…"
+msgstr "Печатайте, чтобы уточнить поиск…"
+
+msgid "Unfiled (root)"
+msgstr "Без папки (корень)"
+
+msgid "Update item details, pricing, and classification."
+msgstr "Обновите данные позиции, цены и классификацию."
+
+msgid "Updates"
+msgstr "Обновления"
+
+msgid "Upload & Parse"
+msgstr "Загрузить и разобрать"
+
+msgid "Upload error: %{reason}"
+msgstr "Ошибка загрузки: %{reason}"
+
+msgid "Upload failed for %{name}."
+msgstr "Не удалось загрузить %{name}."
+
+msgid "Upload failed for an unexpected reason. Please try again."
+msgstr "Загрузка не удалась по неожиданной причине. Попробуйте снова."
+
+msgid "Uploaded"
+msgstr "Загружено"
+
+msgid "Uploading..."
+msgstr "Загрузка..."
+
+msgid "Use a column — create categories from column values"
+msgstr "Использовать столбец — создать категории из значений столбца"
+
+msgid "Use a column — create or match manufacturers from column values"
+msgstr "Использовать столбец — создать или сопоставить производителей из значений столбца"
+
+msgid "Use a column — link per-row supplier to row's manufacturer"
+msgstr "Использовать столбец — связать поставщика строки с её производителем"
+
+msgid "Used for any selected catalogue that doesn't have its own unit."
+msgstr "Используется для каждого выбранного каталога без собственной единицы."
+
+msgid "Used for any selected catalogue that doesn't have its own value. If no catalogues are selected, this is the item's standalone fee (e.g. $50 flat)."
+msgstr "Используется для каждого выбранного каталога без собственного значения. Если каталоги не выбраны, это самостоятельная плата позиции (напр. 50 фикс.)."
+
+msgid "Validating..."
+msgstr "Проверка..."
+
+msgid "Waiting for uploads..."
+msgstr "Ожидание загрузок..."
+
+msgid "What kinds of items belong in this category..."
+msgstr "Какие позиции относятся к этой категории..."
+
+msgid "Which column contains the category names?"
+msgstr "В каком столбце находятся названия категорий?"
+
+msgid "Which column contains the manufacturer names?"
+msgstr "В каком столбце находятся названия производителей?"
+
+msgid "Which column contains the supplier names?"
+msgstr "В каком столбце находятся названия поставщиков?"
+
+msgid "You must map at least one column to 'Item Name'. Scroll down to the column mapping section and pick the column that holds item names."
+msgstr "Нужно сопоставить хотя бы один столбец с «Название позиции». Прокрутите до раздела сопоставления столбцов и выберите столбец с названиями позиций."
+
+msgid "Z → A by name"
+msgstr "Я → А по названию"
+
+msgid "all catalogues"
+msgstr "все каталоги"
+
+msgid "all categories"
+msgstr "все категории"
+
+msgid "and its subtree contain %{count} active items. Choose where they should go before the category is deleted."
+msgstr "и её поддерево содержат активных позиций: %{count}. Выберите, куда они попадут, прежде чем категория будет удалена."
+
+msgid "columns"
+msgstr "столбцов"
+
+msgid "e.g., 10.0"
+msgstr "напр. 10.0"
+
+msgid "e.g., 15.0"
+msgstr "напр. 15.0"
+
+msgid "e.g., 5"
+msgstr "напр. 5"
+
+msgid "e.g., ABC-001"
+msgstr "напр. ABC-001"
+
+msgid "e.g., Acme Distributors"
+msgstr "напр. Acme Distributors"
+
+msgid "e.g., Blum"
+msgstr "напр. Blum"
+
+msgid "e.g., Blum, Hettich"
+msgstr "напр. Blum, Hettich"
+
+msgid "e.g., Cabinet Frames"
+msgstr "напр. Корпуса шкафов"
+
+msgid "e.g., KF-001"
+msgstr "напр. KF-001"
+
+msgid "e.g., Kitchen Furniture"
+msgstr "напр. Кухонная мебель"
+
+msgid "e.g., Oak Panel 18mm"
+msgstr "напр. Дубовая панель 18мм"
+
+msgid "e.g., Regional Distributors Inc."
+msgstr "напр. Regional Distributors Inc."
+
+msgid "https://..."
+msgstr "https://..."
+
+msgid "item"
+msgstr "позиция"
+
+msgid "items"
+msgstr "позиции"
+
+msgid "m²"
+msgstr "м²"
+
+msgid "m² (square meter)"
+msgstr "м² (квадратный метр)"
+
+msgid "page %{n}"
+msgstr "стр. %{n}"
+
+msgid "pair"
+msgstr "пара"
+
+msgid "pc"
+msgstr "шт"
+
+msgid "price?"
+msgstr "цена?"
+
+msgid "rm"
+msgstr "пог.м"
+
+msgid "rows"
+msgstr "строк"
+
+msgid "service data only"
+msgstr "только данные услуги"
+
+msgid "set"
+msgstr "комплект"
+
+msgid "sheet"
+msgstr "лист"
+
+msgid "unit"
+msgstr "ед."
+
+msgid "unit?"
+msgstr "ед.?"
+
+msgid "— Skip —"
+msgstr "— Пропустить —"
+
+msgid "— Top level (no parent) —"
+msgstr "— Верхний уровень (без родителя) —"
+
+msgid "— no category —"
+msgstr "— без категории —"
+
+msgid "…and %{count} more"
+msgstr "…и ещё %{count}"
+
+msgid "Edit Attribute Set"
+msgstr "Изменить набор атрибутов"
+
+msgid "Could not save the change."
+msgstr "Не удалось сохранить изменение."
+
+msgid "…"
+msgstr "…"

@@ -69,6 +69,26 @@ defmodule PhoenixKitCatalogue.Web.AttributeGroupFormLive do
 
   @impl true
   def mount(params, _session, socket) do
+    if Catalogue.attribute_sets_enabled?() do
+      # Groups are retired once sets are live — legacy data auto-migrates
+      # and this editor (multiple attributes per group) is the wrong
+      # mental model. Old bookmarks land on the sets listing instead.
+      {:ok,
+       socket
+       |> put_flash(
+         :info,
+         Gettext.gettext(
+           PhoenixKitCatalogue.Gettext,
+           "Attribute groups have been replaced by sets — your groups were migrated automatically."
+         )
+       )
+       |> push_navigate(to: Paths.attribute_groups())}
+    else
+      mount_legacy(params, socket)
+    end
+  end
+
+  defp mount_legacy(params, socket) do
     action = socket.assigns.live_action
 
     group =
