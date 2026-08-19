@@ -1,3 +1,64 @@
+## 0.17.0 - 2026-08-19
+
+### Added
+
+- **Attribute sets** (#74) — replaces the old group→attribute→value
+  hierarchy with **sets**: one dimension from one vendor ("Ikea colors"),
+  stored as managed `phoenix_kit_entities` blueprints. Items attach any
+  number of sets (a door can carry "Ikea colors" + "Ikea widths") through a
+  new catalogue-owned join table (`phoenix_kit_cat_item_attribute_sets`,
+  shipped in core `phoenix_kit`; this repo adds no migration). A per-value
+  extras mechanism (`fields_definition` on the blueprint — "price per
+  liter", "drying time", ...) lets admins add fields to a set without code
+  or a migration. New `Catalogue.AttributeSets` context, `AttributeSetFormLive`
+  editor, multi-set attach/detach/reorder UI in the item form, and a
+  product card that renders N sets instead of one group. Legacy groups
+  auto-migrate to sets on boot; the old group tables and UI stay in place,
+  read-only, as a fallback. Requires `phoenix_kit_entities ~> 0.4`
+  (`entities_enabled` setting must be turned on).
+- **Catalogues toolbar**: the card/comfy/table view-mode toggle moved from
+  the Active/Deleted trash-tabs row into the toolbar's view-tools cluster,
+  next to "Columns" (#73) — it's a "how am I viewing this list" control, not
+  a trash-visibility one, and previously only showed up paired with the
+  trash tabs.
+
+### Fixed
+
+- **Attribute-set mutations didn't broadcast PubSub** — every other context
+  module in this library fans out a `Catalogue.PubSub` event on every write;
+  `AttributeSets` shipped with none, so a second open admin session (or a
+  second tab) never saw live updates to sets, values, or item attachments
+  without a full page reload. Set/value/field CRUD now broadcasts
+  `:attribute_set`; item attach/detach/reorder/selection changes now
+  broadcast `:item` scoped to the item's catalogue, matching the legacy
+  group-assignment broadcast this replaces.
+- **`update_attribute_set/3` could persist a default value pointing at
+  nothing** — a stale form resubmit (or any future non-UI caller) could set
+  `default_value_slug` to a slug with no matching value record, and the
+  resolved read path would hand every consumer (product card, order-line
+  resolution) a ghost default with no error. The write now validates the
+  slug against the set's current values and returns
+  `{:error, :contract_broken}` instead.
+- **The set editor silently swallowed a failed value-reorder write** —
+  `reorder_values` now flashes an error like every other mutation in the
+  same LiveView, instead of just snapping the drag back to the stored order.
+- 12 new attribute-set error atoms (`:contract_broken`, `:set_in_use`,
+  `:not_attached`, etc.) now have central `Errors.message/1` translations
+  and test pins, per this library's error-atom convention — previously only
+  covered by ad hoc local flash text in the two call sites that happened to
+  handle them.
+
+### Changed
+
+- `phoenix_kit_entities` bumped `0.4.2` → `0.4.3` in `mix.lock` — `0.4.2`
+  doesn't ship `Components.FieldInput`, which the new set editor imports, so
+  a clean `mix deps.get` from Hex failed to compile. `mix.exs`'s `~> 0.4`
+  constraint already allowed it; this is a lock-file update only.
+
+See [PR #73](dev_docs/pull_requests/2026/73-view-toggle-toolbar/CLAUDE_REVIEW.md)
+and [PR #74](dev_docs/pull_requests/2026/74-attribute-sets-rework/CLAUDE_REVIEW.md)
+reviews for the full findings.
+
 ## 0.16.2 - 2026-08-16
 
 ### Added
