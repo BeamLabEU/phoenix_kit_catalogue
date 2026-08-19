@@ -87,6 +87,56 @@ defmodule PhoenixKitCatalogue.ErrorsTest do
       assert Errors.message(:invalid_entry) == "Failed to save the new order."
     end
 
+    test "contract_broken" do
+      assert Errors.message(:contract_broken) ==
+               "This set's configuration is invalid. Contact an administrator."
+    end
+
+    test "entities_disabled" do
+      assert Errors.message(:entities_disabled) == "The attribute sets module is not enabled."
+    end
+
+    test "invalid_kind" do
+      assert Errors.message(:invalid_kind) == "Invalid selection mode."
+    end
+
+    test "set_not_found" do
+      assert Errors.message(:set_not_found) == "Attribute set not found."
+    end
+
+    test "set_in_use" do
+      assert Errors.message(:set_in_use) ==
+               "This set is attached to items — detach it everywhere first."
+    end
+
+    test "not_attached" do
+      assert Errors.message(:not_attached) == "This set is not attached to the item."
+    end
+
+    test "label_required" do
+      assert Errors.message(:label_required) == "Name is required."
+    end
+
+    test "invalid_type" do
+      assert Errors.message(:invalid_type) == "Unsupported field type."
+    end
+
+    test "options_required" do
+      assert Errors.message(:options_required) == "Add at least one choice."
+    end
+
+    test "duplicate_key" do
+      assert Errors.message(:duplicate_key) == "A field with this name already exists."
+    end
+
+    test "unknown_field" do
+      assert Errors.message(:unknown_field) == "Unknown field."
+    end
+
+    test "invalid_value" do
+      assert Errors.message(:invalid_value) == "Invalid value."
+    end
+
     # `:pdf_invalid_format` and `:pdf_extraction_failed` removed
     # 2026-05-06 (Phase 2 sweep) — neither had a caller. The PDF
     # library upload pipeline rejects non-PDF MIME at the LV's

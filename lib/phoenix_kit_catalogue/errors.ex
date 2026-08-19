@@ -63,6 +63,18 @@ defmodule PhoenixKitCatalogue.Errors do
           | :folder_trashed
           | :not_empty
           | :invalid_entry
+          | :contract_broken
+          | :entities_disabled
+          | :invalid_kind
+          | :set_not_found
+          | :set_in_use
+          | :not_attached
+          | :label_required
+          | :invalid_type
+          | :options_required
+          | :duplicate_key
+          | :unknown_field
+          | :invalid_value
 
   @doc """
   Translates an error reason into a user-facing string via gettext.
@@ -179,6 +191,52 @@ defmodule PhoenixKitCatalogue.Errors do
 
   def message(:invalid_entry),
     do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Failed to save the new order.")
+
+  # Attribute sets (2026-08-18 rework) — `Catalogue.AttributeSets`.
+
+  def message(:contract_broken),
+    do:
+      Gettext.gettext(
+        PhoenixKitCatalogue.Gettext,
+        "This set's configuration is invalid. Contact an administrator."
+      )
+
+  def message(:entities_disabled),
+    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "The attribute sets module is not enabled.")
+
+  def message(:invalid_kind),
+    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Invalid selection mode.")
+
+  def message(:set_not_found),
+    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Attribute set not found.")
+
+  def message(:set_in_use),
+    do:
+      Gettext.gettext(
+        PhoenixKitCatalogue.Gettext,
+        "This set is attached to items — detach it everywhere first."
+      )
+
+  def message(:not_attached),
+    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "This set is not attached to the item.")
+
+  def message(:label_required),
+    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Name is required.")
+
+  def message(:invalid_type),
+    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Unsupported field type.")
+
+  def message(:options_required),
+    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Add at least one choice.")
+
+  def message(:duplicate_key),
+    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "A field with this name already exists.")
+
+  def message(:unknown_field),
+    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Unknown field.")
+
+  def message(:invalid_value),
+    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Invalid value.")
 
   # Tagged tuples — atoms that carry a single parameter.
 

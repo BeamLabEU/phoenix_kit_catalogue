@@ -2570,5 +2570,26 @@ msgstr "Muuda atribuudikomplekti"
 msgid "Could not save the change."
 msgstr "Muudatust ei õnnestunud salvestada."
 
+msgid "This set's configuration is invalid. Contact an administrator."
+msgstr "Selle komplekti seadistus on vigane. Võtke ühendust administraatoriga."
+
+msgid "The attribute sets module is not enabled."
+msgstr "Atribuudikomplektide moodul ei ole lubatud."
+
+msgid "Invalid selection mode."
+msgstr "Vigane valikurežiim."
+
+msgid "This set is not attached to the item."
+msgstr "See komplekt ei ole toote külge kinnitatud."
+
+msgid "Unsupported field type."
+msgstr "Toetamata välja tüüp."
+
+msgid "Unknown field."
+msgstr "Tundmatu väli."
+
+msgid "Invalid value."
+msgstr "Vigane väärtus."
+
 msgid "…"
 msgstr "…"

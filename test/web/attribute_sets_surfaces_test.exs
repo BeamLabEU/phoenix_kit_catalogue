@@ -10,6 +10,7 @@ defmodule PhoenixKitCatalogue.Web.AttributeSetsSurfacesTest do
   use PhoenixKitCatalogue.LiveCase, async: false
 
   alias PhoenixKitCatalogue.Catalogue
+  alias PhoenixKitCatalogue.Catalogue.AttributeSets
   alias PhoenixKitCatalogue.Catalogue.AttributeSets.OrphanPruner
   alias PhoenixKitCatalogue.Paths
   alias PhoenixKitCatalogue.Test.Repo
@@ -17,7 +18,7 @@ defmodule PhoenixKitCatalogue.Web.AttributeSetsSurfacesTest do
 
   if Code.ensure_loaded?(PhoenixKitEntities.Managed) do
     setup %{conn: conn, scope: scope} do
-      PhoenixKitCatalogue.Catalogue.AttributeSets.register_deletion_guard()
+      AttributeSets.register_deletion_guard()
       PhoenixKit.Settings.update_setting("entities_enabled", "true")
       on_exit(fn -> PhoenixKit.Settings.update_setting("entities_enabled", "false") end)
 

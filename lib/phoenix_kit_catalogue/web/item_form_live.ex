@@ -1155,16 +1155,14 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
     preview[:fields]
     |> List.wrap()
     |> Enum.filter(&(&1.type == "image"))
-    |> Enum.find_value(fn field ->
-      case value.extras[field.key] do
-        uuid when is_binary(uuid) ->
-          if match?({:ok, _}, Ecto.UUID.cast(uuid)), do: uuid, else: nil
-
-        _ ->
-          nil
-      end
-    end)
+    |> Enum.find_value(fn field -> valid_thumb_uuid(value.extras[field.key]) end)
   end
+
+  defp valid_thumb_uuid(uuid) when is_binary(uuid) do
+    if match?({:ok, _}, Ecto.UUID.cast(uuid)), do: uuid, else: nil
+  end
+
+  defp valid_thumb_uuid(_), do: nil
 
   # Non-media extras as a tooltip ("Price per liter: 12.5 · Finish:
   # Gloss") — nil when the value carries none, so no empty title attr.
