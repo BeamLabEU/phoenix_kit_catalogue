@@ -6,7 +6,7 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
   MANAGED entities blueprint (created only through this module, hidden
   from the generic entities admin); its data records are the values.
   Items attach any number of sets through the catalogue-owned
-  `phoenix_kit_cat_item_attribute_sets` join (V176).
+  `phoenix_kit_cat_item_attribute_sets` join (V177).
 
   ## The blueprint contract
 

@@ -7,7 +7,7 @@ defmodule PhoenixKitCatalogue.Schemas.ItemAttributeSet do
   `set_uuid` references `phoenix_kit_entities.uuid` with **no FK** — the
   entities delete path consults the catalogue's registered delete guard
   (`AttributeSets.deletion_guard/1`) and the catalogue cleans orphans off
-  entities PubSub events; see the V176 migration moduledoc for why a
+  entities PubSub events; see the V177 migration moduledoc for why a
   hard cross-module FK is wrong here.
 
   `data` is reserved per-attachment state (see the 2026-08-18 design
