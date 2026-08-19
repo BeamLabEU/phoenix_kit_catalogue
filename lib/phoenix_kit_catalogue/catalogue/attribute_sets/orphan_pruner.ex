@@ -11,7 +11,11 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets.OrphanPruner do
   Deliberately NOT a boot-time sweep: pruning consults `get_set/1`,
   and sweeping while entities is disabled or mid-migration would read
   every set as missing. `prune_orphan_attachments/1` guards on
-  enablement for the same reason.
+  enablement for the same reason. The trade-off: a blueprint deleted
+  while the catalogue app was DOWN is never pruned automatically —
+  the residue is invisible rows (`resolve_for_items/2` skips
+  unresolvable sets), recoverable by calling
+  `AttributeSets.prune_orphan_attachments/1` with the deleted uuid.
   """
 
   use GenServer
@@ -20,6 +24,7 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets.OrphanPruner do
 
   alias PhoenixKitCatalogue.Catalogue.AttributeSets
 
+  @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
   end

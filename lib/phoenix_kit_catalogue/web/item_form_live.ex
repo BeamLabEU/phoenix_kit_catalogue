@@ -1117,26 +1117,29 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   defp assign_set_previews(socket) do
     previews =
       Map.new(socket.assigns.staged_set_uuids, fn uuid ->
-        {uuid, Catalogue.resolve_attribute_set(uuid, lang: preview_lang(socket))}
+        preview = Catalogue.resolve_attribute_set(uuid, lang: preview_lang(socket))
+        {uuid, put_thumbs(preview)}
       end)
 
     assign(socket, :set_previews, previews)
   end
 
+  # Precomputed once per preview build: the chip loop reads the thumb
+  # twice per value (`:if` + `src`), and value_thumb/2 walks the
+  # field list each call.
+  defp put_thumbs(nil), do: nil
+
+  defp put_thumbs(preview) do
+    Map.put(preview, :thumbs, Map.new(preview.values, &{&1.key, value_thumb(preview, &1)}))
+  end
+
+  # Ghost intersection lives in ONE place — the context's
+  # `valid_attribute_set_selection/2` — this just MapSets the result
+  # for the staging assigns.
   defp stored_selection(attachment, preview) do
-    valid =
-      case preview do
-        %{values: values} -> MapSet.new(values, & &1.key)
-        _ -> MapSet.new()
-      end
-
-    case attachment.data["selected_value_slugs"] do
-      list when is_list(list) ->
-        list |> Enum.filter(&(is_binary(&1) and &1 in valid)) |> MapSet.new()
-
-      _ ->
-        MapSet.new()
-    end
+    attachment.data["selected_value_slugs"]
+    |> Catalogue.valid_attribute_set_selection(preview)
+    |> MapSet.new()
   end
 
   defp selection_for(assigns, set_uuid) do
@@ -1144,14 +1147,21 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   end
 
   # First image-type extra with a value — the chip's swatch thumbnail.
+  # UUID-guarded before URLSigner (same guard as entities' FieldInput):
+  # a type-swapped extra field can leave arbitrary text under an
+  # image-typed key, and that must degrade to no thumb, never reach the
+  # signed-URL path builder (panel finding, 2026-08-19 review).
   defp value_thumb(preview, value) do
     preview[:fields]
     |> List.wrap()
     |> Enum.filter(&(&1.type == "image"))
     |> Enum.find_value(fn field ->
       case value.extras[field.key] do
-        uuid when is_binary(uuid) and uuid != "" -> uuid
-        _ -> nil
+        uuid when is_binary(uuid) ->
+          if match?({:ok, _}, Ecto.UUID.cast(uuid)), do: uuid, else: nil
+
+        _ ->
+          nil
       end
     end)
   end
@@ -2105,8 +2115,8 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                           class="checkbox checkbox-xs"
                         />
                         <img
-                          :if={value_thumb(preview, value)}
-                          src={URLSigner.signed_url(value_thumb(preview, value), "thumbnail")}
+                          :if={preview.thumbs[value.key]}
+                          src={URLSigner.signed_url(preview.thumbs[value.key], "thumbnail")}
                           alt=""
                           class="w-5 h-5 rounded object-cover"
                         />

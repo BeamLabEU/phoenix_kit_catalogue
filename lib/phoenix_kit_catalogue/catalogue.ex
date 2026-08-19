@@ -5178,6 +5178,18 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
   defdelegate resolve_attribute_set(set_uuid, opts \\ []), to: AttributeSets, as: :resolve_set
   defdelegate attribute_sets_enabled?(), to: AttributeSets, as: :enabled?
+  defdelegate attribute_set_contract(set), to: AttributeSets, as: :contract
+  defdelegate attribute_set_kind(set), to: AttributeSets, as: :kind
+  defdelegate attribute_set_default_value_slug(set), to: AttributeSets, as: :default_value_slug
+  defdelegate attribute_set_attached?(set_uuid), to: AttributeSets, as: :set_attached?
+
+  defdelegate valid_attribute_set_selection(slugs, resolved_set),
+    to: AttributeSets,
+    as: :valid_selection
+
+  defdelegate prune_orphan_attribute_set_attachments(set_uuid),
+    to: AttributeSets,
+    as: :prune_orphan_attachments
 
   defdelegate attribute_set_attachment_counts(set_uuids),
     to: AttributeSets,

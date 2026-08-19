@@ -26,8 +26,10 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
   ## Enablement
 
   Requires the entities module (`PhoenixKitEntities.enabled?/0`). Every
-  public function returns `{:error, :entities_disabled}` when it is off
-  — same loud-failure doctrine as the `:catalogue_pdf` queue guard.
+  WRITE returns `{:error, :entities_disabled}` when it is off — same
+  loud-failure doctrine as the `:catalogue_pdf` queue guard. Reads
+  degrade quietly instead (`[]`, `nil`, `%{}`, `0`): UI callers render
+  empty rather than crash during a feature toggle.
 
   Public surface re-exported from `PhoenixKitCatalogue.Catalogue`.
   """
@@ -69,6 +71,7 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
   it runs once per boot; deleting a set with item attachments is
   refused at the entities write path.
   """
+  @spec child_spec(keyword()) :: Supervisor.child_spec()
   def child_spec(_opts) do
     %{
       id: __MODULE__.GuardRegistration,
@@ -78,6 +81,7 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
   end
 
   @doc false
+  @spec startup() :: :ok
   def startup do
     register_deletion_guard()
     auto_migrate_legacy()
@@ -111,16 +115,28 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
 
     :ok
   rescue
+    # Bounded inspect: a failed value write raises with the whole
+    # changeset (record titles + extras) in the term — log a truncated
+    # form, not an unbounded blob of business content.
     error ->
-      Logger.warning("AttributeSets: legacy auto-migration crashed: #{inspect(error)}")
+      Logger.warning(
+        "AttributeSets: legacy auto-migration crashed: " <>
+          inspect(error, limit: 10, printable_limit: 500)
+      )
+
       :ok
   catch
     :exit, reason ->
-      Logger.warning("AttributeSets: legacy auto-migration exited: #{inspect(reason)}")
+      Logger.warning(
+        "AttributeSets: legacy auto-migration exited: " <>
+          inspect(reason, limit: 10, printable_limit: 500)
+      )
+
       :ok
   end
 
   @doc false
+  @spec register_deletion_guard() :: :ok
   def register_deletion_guard do
     if Code.ensure_loaded?(PhoenixKitEntities.Managed) do
       # EXTERNAL capture, never `&deletion_guard/1`: a local fun pins the
@@ -134,7 +150,10 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
     :ok
   end
 
+  # The cross-module contract entities' Managed.run_delete_guard/2
+  # pattern-matches on — must stay public (invoked via :persistent_term).
   @doc false
+  @spec deletion_guard(struct()) :: :ok | {:error, :set_in_use}
   def deletion_guard(entity) do
     if set_attached?(entity.uuid), do: {:error, :set_in_use}, else: :ok
   end
@@ -171,7 +190,7 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
       }
       |> maybe_put_creator(opts)
       |> PhoenixKitEntities.create_entity(on_behalf_of: @owner)
-      |> tap_log("attribute_set.created", opts, fn set ->
+      |> tap_log("attribute_set.created", opts, & &1.uuid, fn set ->
         %{"name" => set.display_name, "slug" => set.name, "kind" => kind}
       end)
     end
@@ -207,6 +226,12 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
   """
   @spec update_set(struct(), map(), keyword()) :: {:ok, struct()} | {:error, term()}
   def update_set(set, attrs, opts \\ []) do
+    # Re-read before the settings read-modify-write: the WHOLE settings
+    # map is written back below, so a stale caller struct would clobber
+    # keys another writer changed meanwhile (managed markers, migration
+    # provenance) — same doctrine as the extra-field functions.
+    set = get_set(set.uuid) || set
+
     with :ok <- ensure_enabled(),
          {:ok, kind} <- validate_kind(Map.get(attrs, :kind, current_kind(set))) do
       catalogue_settings =
@@ -225,7 +250,9 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
 
       set
       |> PhoenixKitEntities.update_entity(entity_attrs, on_behalf_of: @owner)
-      |> tap_log("attribute_set.updated", opts, fn s -> %{"name" => s.display_name} end)
+      |> tap_log("attribute_set.updated", opts, & &1.uuid, fn s ->
+        %{"name" => s.display_name}
+      end)
     end
   end
 
@@ -241,7 +268,7 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
       # per-set advisory lock `attach_set/3` takes — closing the
       # check-then-delete window a concurrent attach could slip through.
       repo().transaction(fn -> locked_delete(set) end)
-      |> tap_log("attribute_set.deleted", opts, fn s ->
+      |> tap_log("attribute_set.deleted", opts, & &1.uuid, fn s ->
         %{"name" => s.display_name, "slug" => s.name}
       end)
     end
@@ -267,26 +294,52 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
   @doc """
   Adds a value to a set. `attrs`: `:label` (required), `:slug`
   (derived from label when absent), `:extras` (map merged into the
-  record's data — must match the blueprint's fields).
+  record's data — cast against the blueprint's fields the same way
+  `update_value/4` casts them).
   """
   @spec create_value(struct(), map(), keyword()) :: {:ok, struct()} | {:error, term()}
   def create_value(set, attrs, opts \\ []) do
-    with :ok <- ensure_enabled() do
+    with :ok <- ensure_enabled(),
+         {:ok, extras} <- cast_extras(set, Map.get(attrs, :extras)) do
       label = String.trim(Map.get(attrs, :label, ""))
 
       %{
         entity_uuid: set.uuid,
         title: label,
-        slug: Map.get(attrs, :slug) || slugify_value(label),
+        slug: value_slug(set, Map.get(attrs, :slug), label),
         status: "published",
-        data: Map.get(attrs, :extras, %{})
+        data: extras || %{}
       }
       |> maybe_put_creator(opts)
-      |> PhoenixKitEntities.EntityData.create()
-      |> tap_log("attribute_set.value_created", opts, fn v ->
+      # activity_log: false — this module writes its own richer
+      # attribute_set.value_created row below; without the flag every
+      # add double-logs (entities' entity_data.created + ours).
+      |> PhoenixKitEntities.EntityData.create(activity_log: false)
+      |> tap_log("attribute_set.value_created", opts, & &1.entity_uuid, fn v ->
         %{"set" => set.name, "value" => v.slug}
       end)
     end
+  end
+
+  # Value slugs are the stable per-value selection keys, so they must be
+  # non-empty and unique within the set. Both invariants break in the
+  # wild (panel finding, 2026-08-19 review): a non-Latin label
+  # ("Красный") slugifies to "", and a repeated label collides — either
+  # way every affected chip shares one key and ticks/unticks together.
+  # Mirror the migration's fallback: short random uid.
+  defp value_slug(set, explicit_slug, label) do
+    base =
+      case explicit_slug || slugify_value(label) do
+        "" -> "value-" <> random_uid()
+        slug -> slug
+      end
+
+    taken = set |> list_values() |> MapSet.new(& &1.slug)
+    if MapSet.member?(taken, base), do: base <> "-" <> random_uid(), else: base
+  end
+
+  defp random_uid do
+    Ecto.UUID.generate() |> String.replace("-", "") |> binary_part(0, 8)
   end
 
   @doc "Lists a set's values in display order, locale-resolved."
@@ -338,7 +391,7 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
 
       value
       |> PhoenixKitEntities.EntityData.update(entity_attrs, activity_log: false)
-      |> tap_log("attribute_set.value_updated", opts, fn v ->
+      |> tap_log("attribute_set.value_updated", opts, & &1.entity_uuid, fn v ->
         %{"set" => set.name, "value" => v.slug}
       end)
     end
@@ -377,7 +430,7 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
       result =
         value
         |> PhoenixKitEntities.EntityData.delete(activity_log: false)
-        |> tap_log("attribute_set.value_deleted", opts, fn v ->
+        |> tap_log("attribute_set.value_deleted", opts, & &1.entity_uuid, fn v ->
           %{"set" => set.name, "value" => v.slug}
         end)
 
@@ -391,26 +444,35 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
     end
   end
 
+  # One atomic UPDATE, not fetch-and-loop: jsonb's `- text` operator
+  # removes the string from the stored array in place, the WHERE `?`
+  # (exists) operator touches only rows that actually carry the slug,
+  # and there is no per-row changeset to raise StaleEntryError when an
+  # attachment is detached mid-sweep (panel finding, 2026-08-19 review).
   defp prune_selection_slug(set_uuid, slug) do
-    from(a in ItemAttributeSet, where: a.set_uuid == ^set_uuid)
-    |> repo().all()
-    |> Enum.each(&prune_row_selection(&1, slug))
+    from(a in ItemAttributeSet,
+      where: a.set_uuid == ^set_uuid,
+      where: fragment("jsonb_typeof(? -> 'selected_value_slugs') = 'array'", a.data),
+      where: fragment("? -> 'selected_value_slugs' \\? ?", a.data, ^slug),
+      update: [
+        set: [
+          data:
+            fragment(
+              "jsonb_set(?, '{selected_value_slugs}', (? -> 'selected_value_slugs') - ?)",
+              a.data,
+              a.data,
+              ^slug
+            ),
+          updated_at: ^now_utc()
+        ]
+      ]
+    )
+    |> repo().update_all([])
 
     :ok
   end
 
-  defp prune_row_selection(%{data: %{"selected_value_slugs" => slugs}} = row, slug)
-       when is_list(slugs) do
-    if slug in slugs do
-      row
-      |> ItemAttributeSet.changeset(%{
-        data: Map.put(row.data, "selected_value_slugs", List.delete(slugs, slug))
-      })
-      |> repo().update()
-    end
-  end
-
-  defp prune_row_selection(_row, _slug), do: :ok
+  defp now_utc, do: DateTime.utc_now() |> DateTime.truncate(:second)
 
   defp maybe_clear_default(set, value, opts) do
     if current_default(set) == value.slug do
@@ -425,9 +487,15 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
 
   @doc "Reorders a set's values to the given record-uuid order."
   @spec reorder_values(struct(), [Ecto.UUID.t()], keyword()) :: :ok | {:error, term()}
-  def reorder_values(set, ordered_uuids, _opts \\ []) when is_list(ordered_uuids) do
+  def reorder_values(set, ordered_uuids, opts \\ []) when is_list(ordered_uuids) do
     with :ok <- ensure_enabled() do
-      PhoenixKitEntities.EntityData.reorder(set.uuid, ordered_uuids, activity_log: false)
+      # Malformed uuids raise Ecto.Query.CastError out of the bulk
+      # position update — drop them so a buggy client payload can't
+      # crash the caller (foreign uuids already no-op: the update is
+      # scoped to this set's records).
+      ordered = Enum.filter(ordered_uuids, &match?({:ok, _}, Ecto.UUID.cast(&1)))
+      PhoenixKitEntities.EntityData.reorder(set.uuid, ordered, activity_log: false)
+      log_activity("attribute_set.values_reordered", opts, set.uuid, %{"set" => set.name})
       :ok
     end
   end
@@ -454,7 +522,17 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
     options =
       attrs |> Map.get(:options, []) |> Enum.map(&String.trim/1) |> Enum.reject(&(&1 == ""))
 
-    key = slugify_name(label)
+    key =
+      case slugify_name(label) do
+        # Non-Latin labels ("Цена") slugify to "" — an empty key breaks
+        # the extras form name (`extras[]` parses as a LIST, so the
+        # change payload never routes) and the field silently never
+        # persists (panel finding, 2026-08-19 review). Opaque fallback
+        # key; the label carries the display.
+        "" when label != "" -> "field_" <> random_uid()
+        slugified -> slugified
+      end
+
     # Re-read before append: the caller's struct may be stale, and a
     # read-modify-write off it would silently drop a field another
     # session added meanwhile.
@@ -470,7 +548,7 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
         %{fields_definition: fields ++ [definition]},
         on_behalf_of: @owner
       )
-      |> tap_log("attribute_set.field_added", opts, fn s ->
+      |> tap_log("attribute_set.field_added", opts, & &1.uuid, fn s ->
         %{"set" => s.name, "field" => key, "type" => type}
       end)
     end
@@ -512,7 +590,7 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
 
       set
       |> PhoenixKitEntities.update_entity(%{fields_definition: updated}, on_behalf_of: @owner)
-      |> tap_log("attribute_set.field_updated", opts, fn s ->
+      |> tap_log("attribute_set.field_updated", opts, & &1.uuid, fn s ->
         %{"set" => s.name, "field" => key}
       end)
     end
@@ -549,11 +627,16 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
   @spec remove_extra_field(struct(), String.t(), keyword()) :: {:ok, struct()} | {:error, term()}
   def remove_extra_field(set, key, opts \\ []) when is_binary(key) do
     with :ok <- ensure_enabled() do
+      # Re-read before reject — same stale-struct doctrine as
+      # add_extra_field/update_extra_field: rejecting from the caller's
+      # struct would resurrect fields another session deleted and drop
+      # ones it added.
+      set = get_set(set.uuid) || set
       fields = Enum.reject(set.fields_definition || [], &(&1["key"] == key))
 
       set
       |> PhoenixKitEntities.update_entity(%{fields_definition: fields}, on_behalf_of: @owner)
-      |> tap_log("attribute_set.field_removed", opts, fn s ->
+      |> tap_log("attribute_set.field_removed", opts, & &1.uuid, fn s ->
         %{"set" => s.name, "field" => key}
       end)
     end
@@ -595,21 +678,52 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
           {:ok, ItemAttributeSet.t()} | {:error, term()}
   def attach_set(item_uuid, set_uuid, opts \\ []) do
     with :ok <- ensure_enabled() do
-      repo().transaction(fn -> locked_attach(item_uuid, set_uuid) end)
-      |> tap_log("attribute_set.attached", opts, fn _ ->
-        %{"item_uuid" => item_uuid, "set_uuid" => set_uuid}
-      end)
+      case repo().transaction(fn -> locked_attach(item_uuid, set_uuid) end) do
+        # Already attached: return the PERSISTED row (an on_conflict
+        # insert would hand back the attempted, unstored position) and
+        # write no activity row for the no-op (panel finding,
+        # 2026-08-19 review).
+        {:ok, {:existing, row}} ->
+          {:ok, row}
+
+        {:ok, row} ->
+          log_activity("attribute_set.attached", opts, set_uuid, %{
+            "item_uuid" => item_uuid,
+            "set_uuid" => set_uuid
+          })
+
+          {:ok, row}
+
+        {:error, reason} ->
+          {:error, reason}
+      end
     end
   end
 
   defp locked_attach(item_uuid, set_uuid) do
     lock_set(set_uuid)
 
-    with %{} <- get_set(set_uuid) || {:error, :set_not_found},
-         {:ok, row} <- insert_attachment(item_uuid, set_uuid) do
-      row
-    else
-      {:error, reason} -> repo().rollback(reason)
+    existing =
+      repo().one(
+        from(a in ItemAttributeSet,
+          where: a.item_uuid == ^item_uuid and a.set_uuid == ^set_uuid
+        )
+      )
+
+    cond do
+      # Safe check-then-act: the advisory lock serializes every
+      # attach/delete for this set.
+      match?(%ItemAttributeSet{}, existing) ->
+        {:existing, existing}
+
+      is_nil(get_set(set_uuid)) ->
+        repo().rollback(:set_not_found)
+
+      true ->
+        case insert_attachment(item_uuid, set_uuid) do
+          {:ok, row} -> row
+          {:error, reason} -> repo().rollback(reason)
+        end
     end
   end
 
@@ -652,7 +766,7 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
       )
 
     if count > 0 do
-      log_activity("attribute_set.detached", opts, %{
+      log_activity("attribute_set.detached", opts, set_uuid, %{
         "item_uuid" => item_uuid,
         "set_uuid" => set_uuid
       })
@@ -661,20 +775,37 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
     :ok
   end
 
-  @doc "Reorders an item's attachments to the given set_uuid order."
+  @doc """
+  Reorders an item's attachments to the given set_uuid order. No-op
+  (no writes, no activity row) when the order already matches — this
+  runs on every item save.
+  """
   @spec reorder_attachments(Ecto.UUID.t(), [Ecto.UUID.t()], keyword()) :: :ok
-  def reorder_attachments(item_uuid, set_uuids, _opts \\ []) when is_list(set_uuids) do
-    set_uuids
-    |> Enum.uniq()
-    |> Enum.with_index(1)
-    |> Enum.each(fn {set_uuid, idx} ->
-      from(a in ItemAttributeSet,
-        where: a.item_uuid == ^item_uuid and a.set_uuid == ^set_uuid
-      )
-      |> repo().update_all(set: [position: idx])
-    end)
+  def reorder_attachments(item_uuid, set_uuids, opts \\ []) when is_list(set_uuids) do
+    ordered = Enum.uniq(set_uuids)
+    current = item_uuid |> list_attachments() |> Enum.map(& &1.set_uuid)
 
-    :ok
+    if ordered == current do
+      :ok
+    else
+      ordered
+      |> Enum.with_index(1)
+      |> Enum.each(fn {set_uuid, idx} ->
+        from(a in ItemAttributeSet,
+          where: a.item_uuid == ^item_uuid and a.set_uuid == ^set_uuid
+        )
+        |> repo().update_all(set: [position: idx])
+      end)
+
+      # No single set is "the" resource for a whole-item reorder — the
+      # row links through metadata.item_uuid instead.
+      log_activity("attribute_set.attachments_reordered", opts, nil, %{
+        "item_uuid" => item_uuid,
+        "order" => ordered
+      })
+
+      :ok
+    end
   end
 
   @doc "The item's attachments in order."
@@ -724,12 +855,26 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
       not entities_enabled?() ->
         0
 
+      # PubSub payloads are external input to this process — a
+      # malformed uuid must degrade, not raise out of the pruner.
+      not match?({:ok, _}, Ecto.UUID.cast(set_uuid)) ->
+        0
+
       get_set(set_uuid) ->
         0
 
       true ->
         {count, _} =
           repo().delete_all(from(a in ItemAttributeSet, where: a.set_uuid == ^set_uuid))
+
+        if count > 0 do
+          # Destructive machine-originated sweep — audit it like every
+          # other mutation in this module (no actor: PubSub-driven).
+          log_activity("attribute_set.orphans_pruned", [mode: "auto"], set_uuid, %{
+            "set_uuid" => set_uuid,
+            "count" => count
+          })
+        end
 
         count
     end
@@ -746,7 +891,16 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
 
       %{schema_version: 2,
         sets: [%{uuid, key, name, kind, default,
-                 values: [%{key, label, extras}]}]}
+                 values:   [%{key, label, extras}],
+                 fields:   [%{key, label, type}],
+                 selected: [slug]}]}
+
+  `:fields` mirrors the blueprint's extra-field definitions (what each
+  value's `extras` keys mean); `:selected` is the per-ATTACHMENT value
+  selection, already intersected against current values (ghost slugs
+  degrade out). `:selected` exists ONLY on this batched read —
+  `resolve_set/2` resolves a bare set with no attachment context and
+  carries no `:selected` key.
 
   Sets with a broken contract are skipped with a warning — a tampered
   blueprint must not take item pages down, but it must not render
@@ -789,26 +943,30 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
 
   defp attach_selection(nil, _row), do: nil
 
-  defp attach_selection(set, row),
-    do: Map.put(set, :selected, selected_slugs(row, set.values))
+  defp attach_selection(set, %ItemAttributeSet{data: data}),
+    do: Map.put(set, :selected, valid_selection(data["selected_value_slugs"], set))
 
-  # The per-ATTACHMENT selection (boss's two modes, 2026-08-19): one
-  # slug = "this exact object is Red", several = "this object comes in
-  # Red/Blue/Yellow", empty = no statement, the whole set applies. The
-  # count IS the mode — nothing else is tracked.
-  #
-  # Stored slugs are intersected with the set's CURRENT values here, in
-  # ONE place (panel finding): a value deleted after being ticked must
-  # not ghost through reads — a fully-ghosted selection degrades to []
-  # ("whole set applies"), never to a vanished or mode-flipped set.
-  defp selected_slugs(%ItemAttributeSet{data: data}, values) do
+  @doc """
+  Filters stored selection slugs against a resolved set's CURRENT
+  values — THE single implementation of the ghost rule, shared with
+  every hydration path (the item form stages selections off raw
+  attachment rows).
+
+  The per-attachment selection is the boss's two modes (2026-08-19):
+  one slug = "this exact object is Red", several = "this object comes
+  in Red/Blue/Yellow", empty = no statement, the whole set applies.
+  The count IS the mode — nothing else is tracked. A value deleted
+  after being ticked must not ghost through reads: unknown slugs drop
+  out, and a fully-ghosted selection degrades to `[]` ("whole set
+  applies"), never to a vanished or mode-flipped set.
+  """
+  @spec valid_selection(term(), map() | nil) :: [String.t()]
+  def valid_selection(slugs, %{values: values}) when is_list(slugs) do
     valid = MapSet.new(values, & &1.key)
-
-    case data["selected_value_slugs"] do
-      slugs when is_list(slugs) -> Enum.filter(slugs, &(is_binary(&1) and &1 in valid))
-      _ -> []
-    end
+    slugs |> Enum.filter(&(is_binary(&1) and &1 in valid)) |> Enum.uniq()
   end
+
+  def valid_selection(_slugs, _resolved_set), do: []
 
   @doc "Single-item convenience over `resolve_for_items/2`."
   @spec resolve_for_item(Ecto.UUID.t(), keyword()) :: map()
@@ -819,10 +977,11 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
 
   @doc """
   Resolves ONE set to the v2 per-set shape
-  (`%{uuid, key, name, kind, default, values}`), or `nil` when the set
-  is missing or its contract is broken. Powers the item form's
-  attach-preview; the batched item reads go through
-  `resolve_for_items/2`.
+  (`%{uuid, key, name, kind, default, values, fields}`), or `nil` when
+  the set is missing or its contract is broken. No attachment context,
+  so no `:selected` key — that exists only on `resolve_for_items/2`'s
+  per-item sets. Powers the item form's attach-preview; the batched
+  item reads go through `resolve_for_items/2`.
   """
   @spec resolve_set(Ecto.UUID.t(), keyword()) :: map() | nil
   def resolve_set(set_uuid, opts \\ []) do
@@ -877,28 +1036,55 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
                where: a.item_uuid == ^item_uuid and a.set_uuid == ^set_uuid
              )
            ) || {:error, :not_attached} do
-      valid_keys =
-        case resolve_set(set_uuid) do
-          %{values: values} -> MapSet.new(values, & &1.key)
-          nil -> MapSet.new()
-        end
+      selection = valid_selection(slugs, resolve_set(set_uuid))
 
-      selection = slugs |> Enum.filter(&(is_binary(&1) and &1 in valid_keys)) |> Enum.uniq()
+      if selection == List.wrap(row.data["selected_value_slugs"]) do
+        # Unchanged — no write, no activity row. This runs for every
+        # attached set on every item save (panel finding, 2026-08-19).
+        :ok
+      else
+        write_attachment_selection(item_uuid, set_uuid, selection, opts)
+      end
+    end
+  end
 
-      {:ok, _} =
-        row
-        |> ItemAttributeSet.changeset(%{
-          data: Map.put(row.data || %{}, "selected_value_slugs", selection)
-        })
-        |> repo().update()
+  # Atomic jsonb_set on ONLY this key: a read-modify-write of the whole
+  # data map off the fetched row would clobber concurrent writes to
+  # other reserved keys, and a per-row changeset update raises
+  # Ecto.StaleEntryError when the attachment is detached in the window —
+  # update_all instead reports {0, _}, which maps to :not_attached
+  # (panel finding, 2026-08-19 review).
+  defp write_attachment_selection(item_uuid, set_uuid, selection, opts) do
+    {count, _} =
+      from(a in ItemAttributeSet,
+        where: a.item_uuid == ^item_uuid and a.set_uuid == ^set_uuid,
+        update: [
+          set: [
+            data:
+              fragment(
+                # to_jsonb over a text[] param — NOT a JSON-encoded
+                # string param, which Ecto types as a jsonb STRING and
+                # stores the selection as one quoted blob.
+                "jsonb_set(coalesce(?, '{}'::jsonb), '{selected_value_slugs}', to_jsonb(?::text[]))",
+                a.data,
+                ^selection
+              ),
+            updated_at: ^now_utc()
+          ]
+        ]
+      )
+      |> repo().update_all([])
 
-      log_activity("attribute_set.selection_changed", opts, %{
+    if count > 0 do
+      log_activity("attribute_set.selection_changed", opts, set_uuid, %{
         "item_uuid" => item_uuid,
         "set_uuid" => set_uuid,
         "selected" => selection
       })
 
       :ok
+    else
+      {:error, :not_attached}
     end
   end
 
@@ -931,7 +1117,7 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
           migrate_group(group, opts, acc)
         end)
 
-      attachment_count = migrate_assignments(set_map)
+      attachment_count = migrate_assignments(set_map, opts)
 
       {:ok, %{sets: counts.sets, values: counts.values, attachments: attachment_count}}
     end
@@ -1042,7 +1228,7 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
     end
   end
 
-  defp migrate_assignments(set_map) do
+  defp migrate_assignments(set_map, opts) do
     assignments =
       repo().all(from(a in PhoenixKitCatalogue.Schemas.ItemAttributeGroup, select: a))
 
@@ -1054,14 +1240,15 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
         end)
         |> Enum.map(fn {_key, set_uuid} -> set_uuid end)
 
-      count + attach_missing(assignment.item_uuid, set_uuids)
+      count + attach_missing(assignment.item_uuid, set_uuids, opts)
     end)
   end
 
-  # attach_set's on_conflict insert reports {:ok, _} for an
-  # already-attached pair too — count only genuinely new rows so the
-  # idempotency contract ({:ok, all-zeros} on re-run) holds.
-  defp attach_missing(item_uuid, set_uuids) do
+  # attach_set reports {:ok, existing_row} for an already-attached pair
+  # too — count only genuinely new rows so the idempotency contract
+  # ({:ok, all-zeros} on re-run) holds. opts threads the migration
+  # actor into each attachment's activity row.
+  defp attach_missing(item_uuid, set_uuids, opts) do
     existing =
       item_uuid
       |> list_attachments()
@@ -1069,7 +1256,7 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
 
     Enum.reduce(set_uuids, 0, fn set_uuid, acc ->
       with false <- MapSet.member?(existing, set_uuid),
-           {:ok, _} <- attach_set(item_uuid, set_uuid) do
+           {:ok, _} <- attach_set(item_uuid, set_uuid, opts) do
         acc + 1
       else
         _ -> acc
@@ -1090,6 +1277,19 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
   defp validate_kind(kind) when kind in @kinds, do: {:ok, kind}
   defp validate_kind(kind) when kind in [:fixed, :multi], do: {:ok, Atom.to_string(kind)}
   defp validate_kind(_), do: {:error, :invalid_kind}
+
+  @doc """
+  The set's kind string (`"fixed"`/`"multi"`, tolerant default
+  `"multi"`). Public so UI layers read the contract through one
+  accessor instead of destructuring `settings["catalogue"]` — the
+  strict validating read stays `contract/1`.
+  """
+  @spec kind(struct()) :: String.t()
+  def kind(set), do: current_kind(set)
+
+  @doc "The set's default value slug, or nil. See `kind/1`."
+  @spec default_value_slug(struct()) :: String.t() | nil
+  def default_value_slug(set), do: current_default(set)
 
   defp current_kind(set), do: get_in(set.settings, ["catalogue", "kind"]) || "multi"
   defp current_default(set), do: get_in(set.settings, ["catalogue", "default_value_slug"])
@@ -1126,19 +1326,24 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
     end
   end
 
-  defp tap_log({:ok, resource} = result, action, opts, metadata_fn) do
-    log_activity(action, opts, metadata_fn.(resource))
+  defp tap_log({:ok, resource} = result, action, opts, uuid_fn, metadata_fn) do
+    log_activity(action, opts, uuid_fn.(resource), metadata_fn.(resource))
     result
   end
 
-  defp tap_log(other, _action, _opts, _metadata_fn), do: other
+  defp tap_log(other, _action, _opts, _uuid_fn, _metadata_fn), do: other
 
-  defp log_activity(action, opts, metadata) do
+  # resource_uuid is the SET's blueprint uuid (repo convention: every
+  # activity row links back to its resource); item-scoped context rides
+  # in metadata. mode defaults to "manual" — machine-originated sweeps
+  # (orphan pruning) pass mode: "auto" in opts.
+  defp log_activity(action, opts, resource_uuid, metadata) do
     ActivityLog.log(%{
       action: action,
-      mode: "manual",
+      mode: opts[:mode] || "manual",
       actor_uuid: opts[:actor_uuid],
       resource_type: "attribute_set",
+      resource_uuid: resource_uuid,
       metadata: metadata
     })
   end
