@@ -49,6 +49,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
   alias PhoenixKitCatalogue.Catalogue.{
     ActivityLog,
     Attributes,
+    AttributeSets,
     Counts,
     Helpers,
     ItemSupplierInfos,
@@ -5109,6 +5110,97 @@ defmodule PhoenixKitCatalogue.Catalogue do
   defdelegate delete_attribute_value(value), to: Attributes
   defdelegate set_default_value(value), to: Attributes
   defdelegate reorder_attribute_values(attribute, uuids), to: Attributes
+  # ── Attribute SETS (2026-08-18 rework; see AttributeSets moduledoc) ─
+  defdelegate create_attribute_set(attrs, opts \\ []), to: AttributeSets, as: :create_set
+  defdelegate list_attribute_sets(opts \\ []), to: AttributeSets, as: :list_sets
+  defdelegate get_attribute_set(uuid, opts \\ []), to: AttributeSets, as: :get_set
+  defdelegate update_attribute_set(set, attrs, opts \\ []), to: AttributeSets, as: :update_set
+  defdelegate delete_attribute_set(set, opts \\ []), to: AttributeSets, as: :delete_set
+
+  defdelegate create_attribute_set_value(set, attrs, opts \\ []),
+    to: AttributeSets,
+    as: :create_value
+
+  defdelegate list_attribute_set_values(set, opts \\ []), to: AttributeSets, as: :list_values
+  defdelegate get_attribute_set_value(set, value_uuid), to: AttributeSets, as: :get_value
+
+  defdelegate update_attribute_set_value(set, value, attrs, opts \\ []),
+    to: AttributeSets,
+    as: :update_value
+
+  defdelegate delete_attribute_set_value(set, value, opts \\ []),
+    to: AttributeSets,
+    as: :delete_value
+
+  defdelegate reorder_attribute_set_values(set, ordered_uuids, opts \\ []),
+    to: AttributeSets,
+    as: :reorder_values
+
+  defdelegate add_attribute_set_field(set, attrs, opts \\ []),
+    to: AttributeSets,
+    as: :add_extra_field
+
+  defdelegate remove_attribute_set_field(set, key, opts \\ []),
+    to: AttributeSets,
+    as: :remove_extra_field
+
+  defdelegate update_attribute_set_field(set, key, attrs, opts \\ []),
+    to: AttributeSets,
+    as: :update_extra_field
+
+  defdelegate attribute_set_field_types(), to: AttributeSets, as: :extra_field_types
+
+  defdelegate attach_attribute_set(item_uuid, set_uuid, opts \\ []),
+    to: AttributeSets,
+    as: :attach_set
+
+  defdelegate detach_attribute_set(item_uuid, set_uuid, opts \\ []),
+    to: AttributeSets,
+    as: :detach_set
+
+  defdelegate reorder_attribute_sets(item_uuid, set_uuids, opts \\ []),
+    to: AttributeSets,
+    as: :reorder_attachments
+
+  defdelegate list_attribute_set_attachments(item_uuid), to: AttributeSets, as: :list_attachments
+
+  defdelegate set_attribute_set_selection(item_uuid, set_uuid, slugs, opts \\ []),
+    to: AttributeSets,
+    as: :set_attachment_selection
+
+  defdelegate resolve_attribute_sets(item_uuids, opts \\ []),
+    to: AttributeSets,
+    as: :resolve_for_items
+
+  defdelegate resolve_attribute_sets_for_item(item_uuid, opts \\ []),
+    to: AttributeSets,
+    as: :resolve_for_item
+
+  defdelegate resolve_attribute_set(set_uuid, opts \\ []), to: AttributeSets, as: :resolve_set
+  defdelegate attribute_sets_enabled?(), to: AttributeSets, as: :enabled?
+  defdelegate attribute_set_contract(set), to: AttributeSets, as: :contract
+  defdelegate attribute_set_kind(set), to: AttributeSets, as: :kind
+  defdelegate attribute_set_default_value_slug(set), to: AttributeSets, as: :default_value_slug
+  defdelegate attribute_set_attached?(set_uuid), to: AttributeSets, as: :set_attached?
+
+  defdelegate valid_attribute_set_selection(slugs, resolved_set),
+    to: AttributeSets,
+    as: :valid_selection
+
+  defdelegate prune_orphan_attribute_set_attachments(set_uuid),
+    to: AttributeSets,
+    as: :prune_orphan_attachments
+
+  defdelegate attribute_set_attachment_counts(set_uuids),
+    to: AttributeSets,
+    as: :attachment_counts
+
+  defdelegate migrate_attribute_groups_to_sets(opts \\ []),
+    to: AttributeSets,
+    as: :migrate_groups_to_sets
+
+  defdelegate auto_migrate_attribute_groups(), to: AttributeSets, as: :auto_migrate_legacy
+
   defdelegate set_item_attribute_group(item, group_uuid, opts \\ []), to: Attributes
   defdelegate get_item_attribute_group_uuid(item_uuid), to: Attributes
   defdelegate item_attribute_group_map(item_uuids), to: Attributes

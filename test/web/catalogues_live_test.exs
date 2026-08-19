@@ -7,12 +7,79 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
   use PhoenixKitCatalogue.LiveCase
 
   alias PhoenixKitCatalogue.Catalogue
+  alias PhoenixKitCatalogue.Web.ViewConfig
 
   @base "/en/admin/catalogue"
 
   # ─────────────────────────────────────────────────────────────────
   # Tab switching
   # ─────────────────────────────────────────────────────────────────
+
+  describe "folder location is URL state (boss's call, 2026-08-18)" do
+    test "navigating a folder patches ?folder= and a reload restores it", %{conn: conn} do
+      {:ok, folder} = Catalogue.create_folder(%{name: "URL folder"})
+      inside = fixture_catalogue(%{name: "Inside cat"})
+      {:ok, _} = Catalogue.move_catalogue_to_folder(inside, folder.uuid)
+      _loose = fixture_catalogue(%{name: "Loose cat"})
+
+      {:ok, view, _html} = live(conn, @base)
+
+      render_click(view, "navigate_folder", %{"uuid" => folder.uuid})
+      assert_patch(view, @base <> "?folder=#{folder.uuid}")
+
+      # Up to root clears the param entirely.
+      render_click(view, "navigate_folder", %{"uuid" => ""})
+      assert_patch(view, @base)
+
+      # Deep link: a fresh mount from the URL lands inside the folder.
+      {:ok, _view, html} = live(conn, @base <> "?folder=#{folder.uuid}")
+      assert html =~ "Inside cat"
+      assert html =~ "URL folder"
+    end
+
+    test "Back into a ?folder= entry while in deleted view restores the active view", %{
+      conn: conn
+    } do
+      {:ok, folder} = Catalogue.create_folder(%{name: "History folder"})
+      trashed = fixture_catalogue(%{name: "Trashed cat"})
+      Catalogue.trash_catalogue(trashed)
+
+      {:ok, view, _html} = live(conn, @base)
+      render_click(view, "switch_catalogue_view", %{"mode" => "deleted"})
+
+      # Simulate Back restoring a history entry recorded while drilled
+      # in ACTIVE mode: a patch to ?folder= arrives with the deleted
+      # assign still set. The view must return to active — the deleted
+      # list must never be silently filtered by a folder.
+      html = render_patch(view, @base <> "?folder=#{folder.uuid}")
+      assert html =~ "History folder"
+      refute html =~ "Trashed cat"
+    end
+
+    test "the drilled folder is never persisted to the user's view config", %{conn: conn} do
+      {:ok, folder} = Catalogue.create_folder(%{name: "Unsaved folder"})
+
+      {:ok, view, _html} = live(conn, @base)
+      render_click(view, "navigate_folder", %{"uuid" => folder.uuid})
+
+      # Round-trip through ViewConfig: a save of the current cfg (any
+      # preference change triggers one) must not carry the folder, and
+      # a legacy stored folder is ignored on load.
+      user = %PhoenixKit.Users.Auth.User{
+        uuid: UUIDv7.generate(),
+        custom_fields: %{
+          "catalogue_view_configs" => %{
+            "catalogues" => %{"filters" => %{"folder" => folder.uuid, "status" => "active"}}
+          }
+        }
+      }
+
+      cfg = ViewConfig.load(user, :catalogues)
+      refute Map.has_key?(cfg.filters, "folder")
+      assert cfg.filters["status"] == "active"
+      _ = view
+    end
+  end
 
   describe "tabs" do
     test "index tab renders catalogues", %{conn: conn} do

@@ -12,7 +12,11 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
 
   use PhoenixKitWeb.Live.UrlState,
     params: [
-      search_query: [default: "", url_key: "q"]
+      search_query: [default: "", url_key: "q"],
+      # The drilled folder is URL state (?folder=<uuid>), mirroring the
+      # detail page's ?category= — shareable, Back-friendly, reload-safe.
+      # "" (absent) = top level.
+      current_folder: [default: "", url_key: "folder"]
     ]
 
   use Gettext, backend: PhoenixKitCatalogue.Gettext
@@ -70,6 +74,8 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
        manufacturers: [],
        suppliers: [],
        attribute_group_rows: [],
+       attribute_set_rows: [],
+       sets_enabled: false,
        confirm_delete: nil,
        catalogue_view_mode: "active",
        deleted_catalogue_count: 0,
@@ -124,6 +130,14 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     end
   end
 
+  # Backstop legacy migration, deferred off the render path by
+  # maybe_auto_migrate_legacy/1 (which has already flipped the
+  # once-per-process flag, so the reload below cannot loop).
+  def handle_info(:auto_migrate_legacy, socket) do
+    Catalogue.auto_migrate_attribute_groups()
+    {:noreply, load_data(socket, :attribute_groups)}
+  end
+
   def handle_info(msg, socket) do
     Logger.debug("CataloguesLive ignored unhandled message: #{inspect(msg)}")
     {:noreply, socket}
@@ -167,17 +181,54 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     scope = active_scope(%{active_tab: action})
     cfg = Map.put(Map.fetch!(socket.assigns.view_configs, scope), :search, state.search_query)
 
+    # The drilled folder rides the URL; thread it into the catalogues
+    # cfg (in-memory only — ViewConfig.save never persists it) so every
+    # existing read site (tree mode, walk, filter select) keeps working.
+    cfg =
+      if scope == :catalogues do
+        folder = state.current_folder
+
+        filters =
+          if folder in [nil, ""],
+            do: Map.delete(cfg.filters, "folder"),
+            else: Map.put(cfg.filters, "folder", folder)
+
+        %{cfg | filters: filters}
+      else
+        cfg
+      end
+
+    # Back can restore a ?folder= entry recorded in the ACTIVE view while
+    # the deleted-view assign is still set (the deleted switch clears the
+    # folder with replace, but earlier history entries keep theirs). The
+    # history entry was created in active mode, so returning to it means
+    # returning to active mode — otherwise the trash list is silently
+    # filtered by a folder its select can't even show. (Panel finding.)
+    socket =
+      if scope == :catalogues and state.current_folder not in [nil, ""] and
+           socket.assigns[:catalogue_view_mode] == "deleted" do
+        assign(socket, :catalogue_view_mode, "active")
+      else
+        socket
+      end
+
     socket =
       socket
       |> assign(:active_tab, action)
       |> assign(:page_title, tab_title(action))
       |> assign(:view_configs, Map.put(socket.assigns.view_configs, scope, cfg))
 
-    if tab_changed? do
-      load_data(socket, action)
-    else
-      socket
-    end
+    socket =
+      if tab_changed? do
+        load_data(socket, action)
+      else
+        socket
+      end
+
+    # Expansion AFTER load_data: on a deep link the first call is also
+    # the one that populates folder_lookup — expanding before it would
+    # no-op and leave the ancestor chain collapsed when the user goes Up.
+    maybe_expand_url_folder(socket, scope, state.current_folder)
   end
 
   # Maps the active UI tab to a TableConfig/ViewConfig scope.
@@ -360,9 +411,60 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
           |> Map.put(:item_count, Map.get(item_counts, g.uuid, 0))
         end)
 
-      assign(socket, :attribute_group_rows, rows)
+      socket
+      |> assign(:attribute_group_rows, rows)
+      |> load_attribute_sets()
     else
       socket
+    end
+  end
+
+  defp set_kind_label("fixed"), do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Fixed value")
+
+  defp set_kind_label(_multi),
+    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Multiple values")
+
+  # The SETS half of the attributes tab (2026-08-18 rework). With sets
+  # live there is NO legacy UI — any remaining legacy groups are
+  # auto-migrated here (backstopping the boot-time run; idempotent and
+  # non-raising), then only sets render. A handful of sets on an admin
+  # page, so the per-set value listing is fine.
+  defp load_attribute_sets(socket) do
+    if Catalogue.attribute_sets_enabled?() do
+      socket = maybe_auto_migrate_legacy(socket)
+      sets = Catalogue.list_attribute_sets(lang: socket.assigns[:current_locale])
+      counts = Catalogue.attribute_set_attachment_counts(Enum.map(sets, & &1.uuid))
+
+      rows =
+        Enum.map(sets, fn s ->
+          %{
+            uuid: s.uuid,
+            name: s.display_name,
+            key: s.name,
+            kind: Catalogue.attribute_set_kind(s),
+            value_count: length(Catalogue.list_attribute_set_values(s)),
+            item_count: Map.get(counts, s.uuid, 0)
+          }
+        end)
+
+      assign(socket, sets_enabled: true, attribute_set_rows: rows)
+    else
+      assign(socket, sets_enabled: false, attribute_set_rows: [])
+    end
+  end
+
+  # Once per LV process — reloads (PubSub, tab switches) don't rescan.
+  # The scan runs OFF the render path via send-to-self: a large legacy
+  # dataset migrating synchronously in the connected mount would blank
+  # the tab past the client's connect timeout, remount, and rescan in a
+  # loop (panel finding, 2026-08-19 review). The handler below reloads
+  # the tab once the backstop migration has run.
+  defp maybe_auto_migrate_legacy(socket) do
+    if socket.assigns[:legacy_migration_ran] do
+      socket
+    else
+      send(self(), :auto_migrate_legacy)
+      assign(socket, :legacy_migration_ran, true)
     end
   end
 
@@ -398,9 +500,21 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   defp clear_folder_filter(socket) do
     cfg = Map.fetch!(socket.assigns.view_configs, :catalogues)
 
-    if Map.has_key?(cfg.filters, "folder"),
-      do: put_cfg(socket, :catalogues, %{cfg | filters: Map.delete(cfg.filters, "folder")}),
-      else: socket
+    if Map.has_key?(cfg.filters, "folder") do
+      # In-memory clear for the current render + a replace-mode URL
+      # clear so a reload doesn't resurrect the dead location.
+      socket
+      |> assign(
+        :view_configs,
+        Map.put(socket.assigns.view_configs, :catalogues, %{
+          cfg
+          | filters: Map.delete(cfg.filters, "folder")
+        })
+      )
+      |> push_url_state([current_folder: ""], replace: true)
+    else
+      socket
+    end
   end
 
   # A PubSub reload or empty-folder delete can leave `filters["folder"]`
@@ -445,6 +559,27 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       (cfg[:search] || "") == "" and Map.delete(cfg.filters, "folder") == %{} and
       (folder_filter == nil or Map.has_key?(lookup, folder_filter))
   end
+
+  # Folder is URL state, not a persisted preference; "all"/"" and the
+  # unfiled sentinel clear it (same visible behavior as before). Every
+  # other filter persists through the view config as usual.
+  defp apply_filter_change(socket, :catalogues, "folder", val, _cfg, _filters) do
+    value = if val in [nil, "", "all"], do: "", else: val
+    {:noreply, push_url_state(socket, current_folder: value)}
+  end
+
+  defp apply_filter_change(socket, scope, _id, _val, cfg, filters) do
+    {:noreply, put_cfg(socket, scope, %{cfg | filters: filters})}
+  end
+
+  # URL-driven expansion: whenever ?folder= names a real folder, keep
+  # its branch visibly open (tree click, select, deep link — one path).
+  defp maybe_expand_url_folder(socket, :catalogues, folder)
+       when is_binary(folder) and folder != "" do
+    expand_folder_path(socket, folder)
+  end
+
+  defp maybe_expand_url_folder(socket, _scope, _folder), do: socket
 
   # Keep the branch to the drilled folder visibly open, whichever
   # control changed the filter (tree click or the select).
@@ -1861,6 +1996,56 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     end
   end
 
+  def handle_event("delete_attribute_set", _params, socket) do
+    case socket.assigns.confirm_delete do
+      {"attribute_set", uuid} ->
+        with %{} = set <- Catalogue.get_attribute_set(uuid),
+             {:ok, _} <- Catalogue.delete_attribute_set(set, actor_opts(socket)) do
+          {:noreply,
+           socket
+           |> put_flash(
+             :info,
+             Gettext.gettext(PhoenixKitCatalogue.Gettext, "Attribute set deleted.")
+           )
+           |> assign(:confirm_delete, nil)
+           |> load_data(:attribute_groups)}
+        else
+          nil ->
+            {:noreply, assign(socket, :confirm_delete, nil)}
+
+          {:error, :set_in_use} ->
+            {:noreply,
+             socket
+             |> put_flash(
+               :error,
+               Gettext.gettext(
+                 PhoenixKitCatalogue.Gettext,
+                 "This set is attached to items — detach it everywhere first."
+               )
+             )
+             |> assign(:confirm_delete, nil)}
+
+          {:error, reason} ->
+            log_operation_error(socket, "delete_attribute_set", %{
+              entity_type: "attribute_set",
+              entity_uuid: uuid,
+              reason: reason
+            })
+
+            {:noreply,
+             socket
+             |> put_flash(
+               :error,
+               Gettext.gettext(PhoenixKitCatalogue.Gettext, "Failed to delete attribute set.")
+             )
+             |> assign(:confirm_delete, nil)}
+        end
+
+      _ ->
+        unexpected_confirm_event(socket, "delete_attribute_set")
+    end
+  end
+
   # Archive / restore straight from the row menu — reversible, no confirm.
   def handle_event("set_attribute_group_status", %{"uuid" => uuid, "status" => status}, socket)
       when status in ["active", "archived"] do
@@ -1966,7 +2151,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   # table stay in agreement. "" walks back up to the root.
   def handle_event("navigate_folder", %{"uuid" => uuid}, socket) do
     if uuid == "" or Map.has_key?(socket.assigns.folder_lookup, uuid) do
-      handle_event("set_filter", %{"column_id" => "folder", "value" => uuid}, socket)
+      {:noreply, push_url_state(socket, current_folder: uuid)}
     else
       {:noreply, socket}
     end
@@ -2061,9 +2246,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
           do: Map.delete(cfg.filters, id),
           else: Map.put(cfg.filters, id, val)
 
-      socket = if id == "folder", do: expand_folder_path(socket, val), else: socket
-
-      {:noreply, put_cfg(socket, scope, %{cfg | filters: filters})}
+      apply_filter_change(socket, scope, id, val, cfg, filters)
     else
       {:noreply, socket}
     end
@@ -2616,6 +2799,87 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       </div>
 
       <div :if={@active_tab == :attribute_groups} class="flex flex-col gap-4">
+        <%!-- SETS (2026-08-18 rework) — the primary system once entities
+             is enabled. One dimension from one vendor per set; managed
+             blueprints under the hood. --%>
+        <div :if={@sets_enabled} class="flex flex-col gap-3">
+          <div class="flex items-center justify-between gap-4">
+            <div class="flex flex-col gap-0.5 min-w-0">
+              <h3 class="font-semibold text-base flex items-center gap-2">
+                <.icon name="hero-swatch" class="w-4 h-4 text-base-content/60" />
+                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Attribute sets")}
+              </h3>
+              <p class="text-xs text-base-content/50">
+                {Gettext.gettext(
+                  PhoenixKitCatalogue.Gettext,
+                  "One dimension from one vendor — Ikea colors, HomeDepot trims. Items attach any number of sets."
+                )}
+              </p>
+            </div>
+            <.link navigate={Paths.attribute_set_new()} class="btn btn-primary btn-sm shrink-0">
+              <.icon name="hero-plus" class="w-4 h-4" />
+              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "New Set")}
+            </.link>
+          </div>
+
+          <p :if={@attribute_set_rows == []} class="text-sm text-base-content/60 py-4 text-center border border-dashed border-base-content/20 rounded-lg">
+            {Gettext.gettext(
+              PhoenixKitCatalogue.Gettext,
+              "No sets yet. Create one to define the options items can attach."
+            )}
+          </p>
+
+          <div :if={@attribute_set_rows != []} class="overflow-x-auto rounded-lg border border-base-content/10">
+            <table class="table table-sm bg-base-100">
+              <thead>
+                <tr>
+                  <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Name")}</th>
+                  <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Kind")}</th>
+                  <th class="text-right">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Values")}</th>
+                  <th class="text-right">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Items")}</th>
+                  <th class="w-10"></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr :for={s <- @attribute_set_rows} class="hover">
+                  <td>
+                    <.link navigate={Paths.attribute_set_edit(s.uuid)} class="link link-hover font-medium">
+                      {s.name}
+                    </.link>
+                  </td>
+                  <td class="text-base-content/70">{set_kind_label(s.kind)}</td>
+                  <td class="text-right tabular-nums">{s.value_count}</td>
+                  <td class="text-right tabular-nums">{s.item_count}</td>
+                  <td>
+                    <.table_row_menu mode="auto" id={"attr-set-menu-#{s.uuid}"}>
+                      <.table_row_menu_link
+                        navigate={Paths.attribute_set_edit(s.uuid)}
+                        icon="hero-pencil"
+                        label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")}
+                      />
+                      <.table_row_menu_divider />
+                      <.table_row_menu_button
+                        phx-click="show_delete_confirm"
+                        phx-value-uuid={s.uuid}
+                        phx-value-type="attribute_set"
+                        icon="hero-trash"
+                        label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")}
+                        variant="error"
+                      />
+                    </.table_row_menu>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <%!-- LEGACY groups — only rendered on hosts WITHOUT the entities
+             module. With sets live there is no legacy UI at all: any
+             remaining groups auto-migrate on load ("it should just
+             migrate", boss direction 2026-08-18) and the old rows sit
+             untouched in the DB until the cutover drop migration. --%>
+        <div :if={!@sets_enabled} class="flex flex-col gap-4">
         <% cfg = @view_configs.attribute_groups %>
         <.table_toolbar scope={:attribute_groups} cfg={cfg}>
           <:filters>
@@ -2715,7 +2979,19 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
             </.table_row_menu>
           </:card_actions>
         </.simple_table>
+        </div>
       </div>
+
+      <.confirm_modal
+        show={match?({"attribute_set", _}, @confirm_delete)}
+        on_confirm="delete_attribute_set"
+        on_cancel="cancel_delete"
+        title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete Attribute Set")}
+        title_icon="hero-trash"
+        messages={[{:warning, Gettext.gettext(PhoenixKitCatalogue.Gettext, "This deletes the set and all its values. Sets attached to items cannot be deleted.")}]}
+        confirm_text={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")}
+        danger={true}
+      />
 
       <.confirm_modal
         show={match?({"catalogue", _}, @confirm_delete)}

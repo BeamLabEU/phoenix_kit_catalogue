@@ -239,8 +239,11 @@ defmodule PhoenixKitCatalogueTest do
       assert PhoenixKitCatalogue.user_dashboard_tabs() == []
     end
 
-    test "children/0 returns empty list" do
-      assert PhoenixKitCatalogue.children() == []
+    test "children/0 supervises the attribute-set guard registration and pruner" do
+      assert PhoenixKitCatalogue.children() == [
+               PhoenixKitCatalogue.Catalogue.AttributeSets,
+               PhoenixKitCatalogue.Catalogue.AttributeSets.OrphanPruner
+             ]
     end
 
     test "route_module/0 returns the module's route provider" do

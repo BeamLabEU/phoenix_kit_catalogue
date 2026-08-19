@@ -2388,14 +2388,12 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                 placeholder={search_placeholder(@current_category)}
               />
               <div :if={@view_mode == "active"} class="ml-auto flex flex-wrap items-center gap-2">
-                <%!-- Root only — inside a category "Add Category" reads as
-                     ambiguous (sibling or subcategory?). Nesting is done via
-                     the parent picker on the category form instead. --%>
-                <.link
-                  :if={@current_category == nil}
-                  navigate={new_category_path(assigns)}
-                  class="btn btn-outline btn-sm"
-                >
+                <%!-- On every level (boss's call, 2026-08-18 — subcategories
+                     are a first-class flow): at root it creates a root
+                     category, drilled it creates a SUBCATEGORY of the
+                     current one — new_category_path pre-seeds parent_uuid
+                     from @current_category, so there's no ambiguity. --%>
+                <.link navigate={new_category_path(assigns)} class="btn btn-outline btn-sm">
                   <.icon name="hero-folder-plus" class="w-4 h-4" /> {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Add Category")}
                 </.link>
                 <.link navigate={new_item_path(assigns)} class="btn btn-primary btn-sm">
@@ -2747,6 +2745,38 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
             variant="card"
             title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "No categories or items yet. Add a category or item to get started.")}
           />
+
+          <%!-- Bottom navigation (client request 2026-08-19): on small
+               screens a long level means lots of scrolling, so the way
+               up lives at the bottom too. `navigate`, not `patch` — a
+               patch preserves scroll position, which would strand the
+               reader at the bottom of the level they just left; the
+               remount lands them at the top. Buttons render only when
+               they differ from the one before: a category shows Up (+
+               All categories when deeper) + All catalogues; the
+               catalogue root shows just All catalogues. --%>
+          <div class="flex flex-wrap justify-center gap-2 pt-2">
+            <.link
+              :if={@current_category}
+              navigate={up_level_path(assigns)}
+              class="btn btn-outline btn-sm"
+            >
+              <.icon name="hero-arrow-up" class="w-4 h-4" />
+              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Up one level")}
+            </.link>
+            <.link
+              :if={@current_category && @breadcrumb != []}
+              navigate={Paths.catalogue_detail(@catalogue.uuid)}
+              class="btn btn-outline btn-sm"
+            >
+              <.icon name="hero-squares-2x2" class="w-4 h-4" />
+              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "All categories")}
+            </.link>
+            <.link navigate={Paths.index()} class="btn btn-outline btn-sm">
+              <.icon name="hero-rectangle-stack" class="w-4 h-4" />
+              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "All catalogues")}
+            </.link>
+          </div>
         </div>
       </div>
 
@@ -3834,6 +3864,16 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       />
     </div>
     """
+  end
+
+  # One level up from the current category: its parent (the trail's
+  # last entry — @breadcrumb excludes the current node), or the
+  # catalogue root when the category is top-level.
+  defp up_level_path(assigns) do
+    case List.last(assigns.breadcrumb) do
+      %{uuid: uuid} -> Paths.category_browse(assigns.catalogue.uuid, uuid)
+      _ -> Paths.catalogue_detail(assigns.catalogue.uuid)
+    end
   end
 
   # Orders sibling categories for a reorder strategy; "reverse" reverses

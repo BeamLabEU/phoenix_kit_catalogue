@@ -232,14 +232,24 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
       refute html =~ ~s(id="level-items-active-cards")
     end
 
-    test "Add Category is a root-level action — hidden inside a category", %{conn: conn} do
+    test "Add Category on a drilled level pre-seeds the current category as parent", %{
+      conn: conn
+    } do
+      # Boss's call (2026-08-18): subcategories are a first-class flow,
+      # so the button shows on every level — drilled, it creates a
+      # SUBCATEGORY (parent_uuid carried in the new-category link).
       catalogue = fixture_catalogue()
       category = fixture_category(catalogue)
 
       {:ok, _view, html} = live(conn, cat_url(catalogue.uuid, category.uuid))
 
-      refute html =~ "Add Category"
-      assert html =~ "Add Item"
+      assert html =~ "Add Category"
+      assert html =~ "parent_uuid=#{category.uuid}"
+
+      # At root the same button carries no parent.
+      {:ok, _view, html} = live(conn, url(catalogue.uuid))
+      assert html =~ "Add Category"
+      refute html =~ "parent_uuid="
     end
 
     test "shows subcategories as drill cards alongside the category's own items", %{conn: conn} do
