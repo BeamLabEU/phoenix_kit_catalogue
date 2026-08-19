@@ -534,6 +534,165 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSetsTest do
       end
     end
 
+    describe "quality-sweep pins (2026-08-19)" do
+      test "value slugs survive non-Latin labels and duplicate labels" do
+        actor = Ecto.UUID.generate()
+        set = create_set!("Ikea colors")
+
+        # Non-Latin labels slugify to "" — without the fallback every
+        # Cyrillic value shares slug "" and per-value selection
+        # collapses to one shared key.
+        {:ok, red_ru} = AttributeSets.create_value(set, %{label: "Красный"}, actor_uuid: actor)
+        {:ok, blue_ru} = AttributeSets.create_value(set, %{label: "Синий"}, actor_uuid: actor)
+        assert red_ru.slug != ""
+        assert blue_ru.slug != ""
+        assert red_ru.slug != blue_ru.slug
+
+        # Duplicate labels get disambiguated, not collided.
+        {:ok, a} = AttributeSets.create_value(set, %{label: "Red"}, actor_uuid: actor)
+        {:ok, b} = AttributeSets.create_value(set, %{label: "Red"}, actor_uuid: actor)
+        assert a.slug == "red"
+        assert b.slug != a.slug
+        assert String.starts_with?(b.slug, "red-")
+      end
+
+      test "extra fields survive non-Latin labels; create_value casts extras" do
+        set = create_set!("Ikea finishes")
+
+        {:ok, set} = AttributeSets.add_extra_field(set, %{label: "Цена", type: "number"})
+        [field] = set.fields_definition
+        assert field["label"] == "Цена"
+        assert String.starts_with?(field["key"], "field_")
+
+        # create_value runs the same extras cast as update_value: junk
+        # keys refuse instead of silently landing in record data.
+        assert {:error, :unknown_field} =
+                 AttributeSets.create_value(set, %{label: "Matte", extras: %{"nope" => 1}})
+
+        {:ok, v} =
+                 AttributeSets.create_value(set,
+                   %{label: "Matte", extras: %{field["key"] => "12.5"}})
+
+        assert v.data[field["key"]] == 12.5
+      end
+
+      test "get_value scopes to the set" do
+        set = create_set!("Ikea knobs")
+        other = create_set!("Ikea rails")
+        {:ok, v} = AttributeSets.create_value(set, %{label: "Brass"})
+
+        assert AttributeSets.get_value(set, v.uuid).uuid == v.uuid
+        assert AttributeSets.get_value(other, v.uuid) == nil
+        assert AttributeSets.get_value(set, "not-a-uuid") == nil
+      end
+
+      test "extra_field_types is the curated entities subset" do
+        assert AttributeSets.extra_field_types() ==
+                 ~w(text textarea number boolean date select image video)
+      end
+
+      test "entities-side delete path consults the registered guard" do
+        set = create_set!("Ikea hinges")
+        item = fixture_item(%{name: "Door"})
+        {:ok, _} = AttributeSets.attach_set(item.uuid, set.uuid)
+
+        # NOT delete_set — the entities write path itself must refuse
+        # through the registered deletion_guard/1 while attached.
+        assert {:error, :set_in_use} =
+                 PhoenixKitEntities.delete_entity(set, on_behalf_of: "catalogue")
+
+        :ok = AttributeSets.detach_set(item.uuid, set.uuid)
+        assert {:ok, _} = PhoenixKitEntities.delete_entity(set, on_behalf_of: "catalogue")
+      end
+
+      test "re-attach is a silent no-op: persisted row back, no second activity row" do
+        set = create_set!("Ikea trims")
+        item = fixture_item(%{name: "Door"})
+
+        {:ok, first} = AttributeSets.attach_set(item.uuid, set.uuid, actor_uuid: nil)
+        {:ok, again} = AttributeSets.attach_set(item.uuid, set.uuid, actor_uuid: nil)
+
+        # The persisted position, not the attempted one.
+        assert again.position == first.position
+
+        assert_activity_logged("attribute_set.attached",
+          resource_uuid: set.uuid,
+          metadata_has: %{"item_uuid" => item.uuid}
+        )
+      end
+
+      test "unchanged selection writes are no-ops (no duplicate activity rows)" do
+        set = create_set!("Ikea colors")
+        {:ok, red} = AttributeSets.create_value(set, %{label: "Red"})
+        item = fixture_item(%{name: "Door"})
+        {:ok, _} = AttributeSets.attach_set(item.uuid, set.uuid)
+
+        :ok = AttributeSets.set_attachment_selection(item.uuid, set.uuid, [red.slug])
+        :ok = AttributeSets.set_attachment_selection(item.uuid, set.uuid, [red.slug])
+
+        # assert_activity_logged flunks on more than one matching row.
+        assert_activity_logged("attribute_set.selection_changed", resource_uuid: set.uuid)
+      end
+
+      test "reorders and prunes land in the audit trail with resource links" do
+        actor = Ecto.UUID.generate()
+        set = create_set!("Ikea widths")
+        {:ok, _} = AttributeSets.create_value(set, %{label: "40cm"})
+        item = fixture_item(%{name: "Door"})
+        {:ok, _} = AttributeSets.attach_set(item.uuid, set.uuid)
+
+        assert_activity_logged("attribute_set.created", resource_uuid: set.uuid)
+        assert_activity_logged("attribute_set.value_created", resource_uuid: set.uuid)
+
+        # Junk uuids in a reorder are dropped, never a CastError crash.
+        :ok = AttributeSets.reorder_values(set, ["junk", "x"], actor_uuid: actor)
+        assert_activity_logged("attribute_set.values_reordered", resource_uuid: set.uuid)
+
+        # A genuinely reordered attachment list logs; re-asserting the
+        # same order does not add a second row.
+        :ok = AttributeSets.reorder_attachments(item.uuid, [set.uuid])
+        assert AttributeSets.list_attachments(item.uuid) |> length() == 1
+
+        # Orphan prune: junk uuid degrades to 0, a real orphan logs.
+        assert AttributeSets.prune_orphan_attachments("not-a-uuid") == 0
+        Repo.delete!(set)
+        assert AttributeSets.prune_orphan_attachments(set.uuid) == 1
+        assert_activity_logged("attribute_set.orphans_pruned", resource_uuid: set.uuid)
+      end
+
+      test "valid_selection/2 is the single ghost rule" do
+        resolved = %{values: [%{key: "red"}, %{key: "blue"}]}
+
+        assert AttributeSets.valid_selection(["red", "ghost", "red", nil], resolved) == ["red"]
+        assert AttributeSets.valid_selection("junk", resolved) == []
+        assert AttributeSets.valid_selection(["red"], nil) == []
+      end
+
+      test "stale caller structs cannot clobber settings or fields" do
+        stale = create_set!("Ikea panels")
+
+        # Another writer stamps provenance after our struct was loaded.
+        {:ok, _} =
+          PhoenixKitEntities.update_entity(
+            stale,
+            %{settings: put_in(stale.settings, ["catalogue", "migrated_from"], "prov-123")},
+            on_behalf_of: "catalogue"
+          )
+
+        # update_set re-reads: the whole-settings write keeps the key.
+        {:ok, _} = AttributeSets.update_set(stale, %{name: "Ikea panels 2"})
+        fresh = AttributeSets.get_set(stale.uuid)
+        assert get_in(fresh.settings, ["catalogue", "migrated_from"]) == "prov-123"
+
+        # remove_extra_field re-reads: removing B off a stale struct
+        # that never saw A must not resurrect the pre-A field list.
+        {:ok, with_a} = AttributeSets.add_extra_field(fresh, %{label: "Alpha", type: "text"})
+        {:ok, _} = AttributeSets.add_extra_field(with_a, %{label: "Beta", type: "text"})
+        {:ok, after_remove} = AttributeSets.remove_extra_field(fresh, "beta")
+        assert Enum.map(after_remove.fields_definition, & &1["key"]) == ["alpha"]
+      end
+    end
+
     describe "disabled entities" do
       test "every entry point degrades loudly, none crash" do
         PhoenixKit.Settings.update_setting("entities_enabled", "false")
