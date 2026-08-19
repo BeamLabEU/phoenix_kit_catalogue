@@ -10,10 +10,11 @@ defmodule PhoenixKitCatalogue.Web.ItemFormSetsTest do
   use PhoenixKitCatalogue.LiveCase, async: false
 
   alias PhoenixKitCatalogue.Catalogue
+  alias PhoenixKitCatalogue.Catalogue.AttributeSets
 
   if Code.ensure_loaded?(PhoenixKitEntities.Managed) do
     setup %{conn: conn, scope: scope} do
-      PhoenixKitCatalogue.Catalogue.AttributeSets.register_deletion_guard()
+      AttributeSets.register_deletion_guard()
       PhoenixKit.Settings.update_setting("entities_enabled", "true")
       on_exit(fn -> PhoenixKit.Settings.update_setting("entities_enabled", "false") end)
 

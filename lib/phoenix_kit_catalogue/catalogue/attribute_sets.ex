@@ -38,6 +38,8 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
   require Logger
 
   alias PhoenixKitCatalogue.Catalogue.ActivityLog
+  alias PhoenixKitCatalogue.Catalogue.Helpers
+  alias PhoenixKitCatalogue.Catalogue.PubSub
   alias PhoenixKitCatalogue.Schemas.ItemAttributeSet
 
   @owner "catalogue"
@@ -231,16 +233,15 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
     # keys another writer changed meanwhile (managed markers, migration
     # provenance) — same doctrine as the extra-field functions.
     set = get_set(set.uuid) || set
+    default_slug = Map.get(attrs, :default_value_slug, current_default(set))
 
     with :ok <- ensure_enabled(),
-         {:ok, kind} <- validate_kind(Map.get(attrs, :kind, current_kind(set))) do
+         {:ok, kind} <- validate_kind(Map.get(attrs, :kind, current_kind(set))),
+         :ok <- validate_default_slug(set, default_slug) do
       catalogue_settings =
         (set.settings["catalogue"] || %{})
         |> Map.put("kind", kind)
-        |> Map.put(
-          "default_value_slug",
-          Map.get(attrs, :default_value_slug, current_default(set))
-        )
+        |> Map.put("default_value_slug", default_slug)
 
       entity_attrs =
         %{settings: Map.put(set.settings, "catalogue", catalogue_settings)}
@@ -496,6 +497,7 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
       ordered = Enum.filter(ordered_uuids, &match?({:ok, _}, Ecto.UUID.cast(&1)))
       PhoenixKitEntities.EntityData.reorder(set.uuid, ordered, activity_log: false)
       log_activity("attribute_set.values_reordered", opts, set.uuid, %{"set" => set.name})
+      PubSub.broadcast(:attribute_set, set.uuid)
       :ok
     end
   end
@@ -678,27 +680,27 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
           {:ok, ItemAttributeSet.t()} | {:error, term()}
   def attach_set(item_uuid, set_uuid, opts \\ []) do
     with :ok <- ensure_enabled() do
-      case repo().transaction(fn -> locked_attach(item_uuid, set_uuid) end) do
-        # Already attached: return the PERSISTED row (an on_conflict
-        # insert would hand back the attempted, unstored position) and
-        # write no activity row for the no-op (panel finding,
-        # 2026-08-19 review).
-        {:ok, {:existing, row}} ->
-          {:ok, row}
-
-        {:ok, row} ->
-          log_activity("attribute_set.attached", opts, set_uuid, %{
-            "item_uuid" => item_uuid,
-            "set_uuid" => set_uuid
-          })
-
-          {:ok, row}
-
-        {:error, reason} ->
-          {:error, reason}
-      end
+      repo().transaction(fn -> locked_attach(item_uuid, set_uuid) end)
+      |> handle_attach_result(item_uuid, set_uuid, opts)
     end
   end
+
+  # Already attached: return the PERSISTED row (an on_conflict insert
+  # would hand back the attempted, unstored position) and write no
+  # activity row for the no-op (panel finding, 2026-08-19 review).
+  defp handle_attach_result({:ok, {:existing, row}}, _item_uuid, _set_uuid, _opts), do: {:ok, row}
+
+  defp handle_attach_result({:ok, row}, item_uuid, set_uuid, opts) do
+    log_activity("attribute_set.attached", opts, set_uuid, %{
+      "item_uuid" => item_uuid,
+      "set_uuid" => set_uuid
+    })
+
+    PubSub.broadcast(:item, item_uuid, Helpers.item_catalogue_uuid(item_uuid))
+    {:ok, row}
+  end
+
+  defp handle_attach_result({:error, reason}, _item_uuid, _set_uuid, _opts), do: {:error, reason}
 
   defp locked_attach(item_uuid, set_uuid) do
     lock_set(set_uuid)
@@ -770,6 +772,8 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
         "item_uuid" => item_uuid,
         "set_uuid" => set_uuid
       })
+
+      PubSub.broadcast(:item, item_uuid, Helpers.item_catalogue_uuid(item_uuid))
     end
 
     :ok
@@ -804,6 +808,7 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
         "order" => ordered
       })
 
+      PubSub.broadcast(:item, item_uuid, Helpers.item_catalogue_uuid(item_uuid))
       :ok
     end
   end
@@ -1082,6 +1087,7 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
         "selected" => selection
       })
 
+      PubSub.broadcast(:item, item_uuid, Helpers.item_catalogue_uuid(item_uuid))
       :ok
     else
       {:error, :not_attached}
@@ -1278,6 +1284,21 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
   defp validate_kind(kind) when kind in [:fixed, :multi], do: {:ok, Atom.to_string(kind)}
   defp validate_kind(_), do: {:error, :invalid_kind}
 
+  # The default slot is a structural "at most one default" pointer
+  # (design doc §Chosen architecture) — a write that points it at a
+  # slug with no matching value record would let `resolve_set/2` hand
+  # every consumer a ghost default, exactly the guessed fallback the
+  # contract doctrine forbids. nil (no default) is always valid.
+  defp validate_default_slug(_set, nil), do: :ok
+
+  defp validate_default_slug(set, slug) do
+    if slug in Enum.map(list_values(set), & &1.slug) do
+      :ok
+    else
+      {:error, :contract_broken}
+    end
+  end
+
   @doc """
   The set's kind string (`"fixed"`/`"multi"`, tolerant default
   `"multi"`). Public so UI layers read the contract through one
@@ -1327,7 +1348,9 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
   end
 
   defp tap_log({:ok, resource} = result, action, opts, uuid_fn, metadata_fn) do
-    log_activity(action, opts, uuid_fn.(resource), metadata_fn.(resource))
+    set_uuid = uuid_fn.(resource)
+    log_activity(action, opts, set_uuid, metadata_fn.(resource))
+    PubSub.broadcast(:attribute_set, set_uuid)
     result
   end
 

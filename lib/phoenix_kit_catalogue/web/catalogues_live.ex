@@ -149,7 +149,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   defp reload_on?(:index, kind), do: kind in [:catalogue, :item, :category, :folder]
   defp reload_on?(:manufacturers, kind), do: kind in [:manufacturer, :links]
   defp reload_on?(:suppliers, kind), do: kind in [:supplier, :links]
-  defp reload_on?(:attribute_groups, kind), do: kind in [:attribute_group, :item]
+  defp reload_on?(:attribute_groups, kind), do: kind in [:attribute_group, :attribute_set, :item]
   defp reload_on?(_tab, _kind), do: false
 
   @impl true

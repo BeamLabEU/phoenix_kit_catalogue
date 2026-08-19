@@ -338,6 +338,13 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     handle_catalogue_data_changed(socket)
   end
 
+  # Attribute sets are global (not catalogue-scoped, no `parent`) — a
+  # value rename/extra-field edit elsewhere must still refresh any open
+  # detail page resolving items that attach the set.
+  def handle_info({:catalogue_data_changed, :attribute_set, _uuid, _parent}, socket) do
+    handle_catalogue_data_changed(socket)
+  end
+
   # Another admin changed a shared detail sort (global-sort scopes) —
   # apply it without re-persisting or re-broadcasting.
   def handle_info({:catalogue_view_sort_changed, :detail_items, by, dir, from}, socket) do

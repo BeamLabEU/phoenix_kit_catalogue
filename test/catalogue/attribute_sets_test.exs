@@ -12,6 +12,7 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSetsTest do
   import PhoenixKitCatalogue.LiveCase, only: [fixture_item: 1]
   alias PhoenixKit.Users.Auth.User
   alias PhoenixKitCatalogue.Catalogue.AttributeSets
+  alias PhoenixKitCatalogue.Catalogue.PubSub
   alias PhoenixKitCatalogue.Test.Repo
 
   if Code.ensure_loaded?(PhoenixKitEntities.Managed) do
@@ -66,6 +67,16 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSetsTest do
                  PhoenixKitEntities.update_entity(updated, %{
                    "settings" => put_in(updated.settings, ["catalogue", "kind"], "fixed")
                  })
+      end
+
+      test "update_set refuses a default_value_slug with no matching value — never a guessed default" do
+        set = create_set!("Ikea trims", "fixed")
+
+        assert {:error, :contract_broken} =
+                 AttributeSets.update_set(set, %{default_value_slug: "no-such-slug"})
+
+        # Unwritten: the set still has no default, not a ghost one.
+        assert {:ok, %{default: nil}} = AttributeSets.contract(AttributeSets.get_set(set.uuid))
       end
 
       test "contract rejects tampered blueprints instead of guessing" do
@@ -420,6 +431,46 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSetsTest do
       end
     end
 
+    describe "PubSub broadcasts (every mutation must fan out — Catalogue.PubSub doctrine)" do
+      setup do
+        PubSub.subscribe()
+        :ok
+      end
+
+      test "set CRUD broadcasts :attribute_set with the blueprint uuid" do
+        {:ok, set} =
+          AttributeSets.create_set(%{name: "Ikea colors"}, actor_uuid: Ecto.UUID.generate())
+
+        assert_receive {:catalogue_data_changed, :attribute_set, uuid, nil}
+        assert uuid == set.uuid
+
+        {:ok, value} =
+          AttributeSets.create_value(set, %{label: "Oak"}, actor_uuid: Ecto.UUID.generate())
+
+        assert_receive {:catalogue_data_changed, :attribute_set, uuid, nil}
+        assert uuid == set.uuid
+
+        {:ok, _} = AttributeSets.update_set(set, %{default_value_slug: value.slug})
+        assert_receive {:catalogue_data_changed, :attribute_set, uuid, nil}
+        assert uuid == set.uuid
+      end
+
+      test "attach/detach/reorder broadcast :item scoped to the item's catalogue" do
+        set = create_set!("Ikea trims")
+        item = fixture_item(%{name: "Door"})
+
+        {:ok, _} = AttributeSets.attach_set(item.uuid, set.uuid)
+        assert_receive {:catalogue_data_changed, :item, uuid, parent}
+        assert uuid == item.uuid
+        assert parent == item.catalogue_uuid
+
+        :ok = AttributeSets.detach_set(item.uuid, set.uuid)
+        assert_receive {:catalogue_data_changed, :item, uuid, parent}
+        assert uuid == item.uuid
+        assert parent == item.catalogue_uuid
+      end
+    end
+
     describe "migration from groups" do
       test "explodes groups into sets, preserves keys, is idempotent" do
         actor = Ecto.UUID.generate()
@@ -570,8 +621,10 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSetsTest do
                  AttributeSets.create_value(set, %{label: "Matte", extras: %{"nope" => 1}})
 
         {:ok, v} =
-                 AttributeSets.create_value(set,
-                   %{label: "Matte", extras: %{field["key"] => "12.5"}})
+          AttributeSets.create_value(
+            set,
+            %{label: "Matte", extras: %{field["key"] => "12.5"}}
+          )
 
         assert v.data[field["key"]] == 12.5
       end

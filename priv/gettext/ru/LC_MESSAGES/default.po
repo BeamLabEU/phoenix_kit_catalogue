@@ -2579,5 +2579,26 @@ msgstr "Изменить набор атрибутов"
 msgid "Could not save the change."
 msgstr "Не удалось сохранить изменение."
 
+msgid "This set's configuration is invalid. Contact an administrator."
+msgstr "Конфигурация этого набора повреждена. Обратитесь к администратору."
+
+msgid "The attribute sets module is not enabled."
+msgstr "Модуль наборов атрибутов не включён."
+
+msgid "Invalid selection mode."
+msgstr "Неверный режим выбора."
+
+msgid "This set is not attached to the item."
+msgstr "Этот набор не прикреплён к товару."
+
+msgid "Unsupported field type."
+msgstr "Неподдерживаемый тип поля."
+
+msgid "Unknown field."
+msgstr "Неизвестное поле."
+
+msgid "Invalid value."
+msgstr "Неверное значение."
+
 msgid "…"
 msgstr "…"

@@ -2575,5 +2575,26 @@ msgstr ""
 msgid "Could not save the change."
 msgstr ""
 
+msgid "This set's configuration is invalid. Contact an administrator."
+msgstr ""
+
+msgid "The attribute sets module is not enabled."
+msgstr ""
+
+msgid "Invalid selection mode."
+msgstr ""
+
+msgid "This set is not attached to the item."
+msgstr ""
+
+msgid "Unsupported field type."
+msgstr ""
+
+msgid "Unknown field."
+msgstr ""
+
+msgid "Invalid value."
+msgstr ""
+
 msgid "…"
 msgstr ""

@@ -235,8 +235,11 @@ defmodule PhoenixKitCatalogue.Web.AttributeSetFormLive do
     # would raise CastError out of the bulk update — is dropped.
     owned = MapSet.new(socket.assigns.values, & &1.uuid)
     ids = Enum.filter(ids, &(is_binary(&1) and &1 in owned))
-    Catalogue.reorder_attribute_set_values(socket.assigns.set, ids, actor_opts(socket))
-    {:noreply, reload_set(socket)}
+
+    case Catalogue.reorder_attribute_set_values(socket.assigns.set, ids, actor_opts(socket)) do
+      :ok -> {:noreply, reload_set(socket)}
+      {:error, _} -> {:noreply, socket |> save_failed_flash() |> reload_set()}
+    end
   end
 
   def handle_event("reorder_values", _params, socket), do: {:noreply, socket}
