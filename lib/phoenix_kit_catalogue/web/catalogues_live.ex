@@ -130,6 +130,14 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     end
   end
 
+  # Backstop legacy migration, deferred off the render path by
+  # maybe_auto_migrate_legacy/1 (which has already flipped the
+  # once-per-process flag, so the reload below cannot loop).
+  def handle_info(:auto_migrate_legacy, socket) do
+    Catalogue.auto_migrate_attribute_groups()
+    {:noreply, load_data(socket, :attribute_groups)}
+  end
+
   def handle_info(msg, socket) do
     Logger.debug("CataloguesLive ignored unhandled message: #{inspect(msg)}")
     {:noreply, socket}
@@ -433,7 +441,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
             uuid: s.uuid,
             name: s.display_name,
             key: s.name,
-            kind: get_in(s.settings, ["catalogue", "kind"]) || "multi",
+            kind: Catalogue.attribute_set_kind(s),
             value_count: length(Catalogue.list_attribute_set_values(s)),
             item_count: Map.get(counts, s.uuid, 0)
           }
@@ -446,11 +454,16 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   end
 
   # Once per LV process — reloads (PubSub, tab switches) don't rescan.
+  # The scan runs OFF the render path via send-to-self: a large legacy
+  # dataset migrating synchronously in the connected mount would blank
+  # the tab past the client's connect timeout, remount, and rescan in a
+  # loop (panel finding, 2026-08-19 review). The handler below reloads
+  # the tab once the backstop migration has run.
   defp maybe_auto_migrate_legacy(socket) do
     if socket.assigns[:legacy_migration_ran] do
       socket
     else
-      Catalogue.auto_migrate_attribute_groups()
+      send(self(), :auto_migrate_legacy)
       assign(socket, :legacy_migration_ran, true)
     end
   end

@@ -2568,3 +2568,12 @@ msgstr ""
 
 msgid "…and %{count} more"
 msgstr ""
+
+msgid "Edit Attribute Set"
+msgstr ""
+
+msgid "Could not save the change."
+msgstr ""
+
+msgid "…"
+msgstr ""

@@ -2563,3 +2563,12 @@ msgstr "— kategooriata —"
 
 msgid "…and %{count} more"
 msgstr "…ja veel %{count}"
+
+msgid "Edit Attribute Set"
+msgstr "Muuda atribuudikomplekti"
+
+msgid "Could not save the change."
+msgstr "Muudatust ei õnnestunud salvestada."
+
+msgid "…"
+msgstr "…"

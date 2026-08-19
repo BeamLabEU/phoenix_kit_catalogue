@@ -2572,3 +2572,12 @@ msgstr "— без категории —"
 
 msgid "…and %{count} more"
 msgstr "…и ещё %{count}"
+
+msgid "Edit Attribute Set"
+msgstr "Изменить набор атрибутов"
+
+msgid "Could not save the change."
+msgstr "Не удалось сохранить изменение."
+
+msgid "…"
+msgstr "…"

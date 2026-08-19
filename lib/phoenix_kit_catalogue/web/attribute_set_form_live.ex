@@ -29,6 +29,8 @@ defmodule PhoenixKitCatalogue.Web.AttributeSetFormLive do
   import PhoenixKitCatalogue.Web.Helpers, only: [actor_opts: 1]
   import PhoenixKitEntities.Components.FieldInput, only: [field_input: 1]
 
+  require Logger
+
   alias Phoenix.LiveView.JS
   alias PhoenixKit.Utils.Routes
   alias PhoenixKitCatalogue.Catalogue
@@ -108,7 +110,7 @@ defmodule PhoenixKitCatalogue.Web.AttributeSetFormLive do
   defp form_data_from(set) do
     %{
       "name" => set.display_name,
-      "kind" => get_in(set.settings, ["catalogue", "kind"]) || "multi"
+      "kind" => Catalogue.attribute_set_kind(set)
     }
   end
 
@@ -170,32 +172,43 @@ defmodule PhoenixKitCatalogue.Web.AttributeSetFormLive do
     text = String.trim(raw)
 
     with %{} = value <- owned_value(socket, uuid),
-         true <- text != "" and text != value.title,
-         {:ok, _} <-
-           Catalogue.update_attribute_set_value(
+         true <- text != "" and text != value.title do
+      case Catalogue.update_attribute_set_value(
              socket.assigns.set,
              value,
              %{label: text},
              actor_opts(socket)
            ) do
-      {:noreply, reload_set(socket)}
+        {:ok, _} -> {:noreply, reload_set(socket)}
+        # A context refusal must not read as success — the reload also
+        # snaps the input back to the stored label (panel finding,
+        # 2026-08-19: silent no-ops made real failures undiscoverable).
+        {:error, _} -> {:noreply, socket |> save_failed_flash() |> reload_set()}
+      end
     else
       _ -> {:noreply, socket}
     end
   end
 
   def handle_event("delete_value", %{"uuid" => uuid}, socket) do
-    with %{} = value <- owned_value(socket, uuid),
-         {:ok, _} <-
-           Catalogue.delete_attribute_set_value(socket.assigns.set, value, actor_opts(socket)) do
-      {:noreply, reload_set(socket)}
-    else
-      _ -> {:noreply, socket}
+    case owned_value(socket, uuid) do
+      %{} = value ->
+        case Catalogue.delete_attribute_set_value(socket.assigns.set, value, actor_opts(socket)) do
+          {:ok, _} -> {:noreply, reload_set(socket)}
+          {:error, _} -> {:noreply, socket |> save_failed_flash() |> reload_set()}
+        end
+
+      _ ->
+        {:noreply, socket}
     end
   end
 
-  # Star click: sets the default; clicking the starred value again
-  # clears it (a set is allowed to have no default).
+  # ── PARKED: default-value star (hidden 2026-08-19, user call) ──────
+  # No phx-click="make_default" exists in render/1 anymore — see the
+  # restore-point comment above the value cell there. The handler (and
+  # its only helper, `current_default/1` below in the helper block)
+  # stays intact so restoring is just re-adding the star button; it
+  # remains safe against forged pushes via `owned_value/2`.
   def handle_event("make_default", %{"uuid" => uuid}, socket) do
     case owned_value(socket, uuid) do
       %{} = value ->
@@ -208,7 +221,7 @@ defmodule PhoenixKitCatalogue.Web.AttributeSetFormLive do
                actor_opts(socket)
              ) do
           {:ok, _} -> {:noreply, reload_set(socket)}
-          {:error, _} -> {:noreply, socket}
+          {:error, _} -> {:noreply, socket |> save_failed_flash() |> reload_set()}
         end
 
       _ ->
@@ -217,7 +230,12 @@ defmodule PhoenixKitCatalogue.Web.AttributeSetFormLive do
   end
 
   def handle_event("reorder_values", %{"ordered_ids" => ids}, socket) when is_list(ids) do
-    Catalogue.reorder_attribute_set_values(socket.assigns.set, Enum.filter(ids, &is_binary/1))
+    # Scope to this set's own value uuids (the owned_value/2 doctrine):
+    # anything else in the payload — junk binaries included, which
+    # would raise CastError out of the bulk update — is dropped.
+    owned = MapSet.new(socket.assigns.values, & &1.uuid)
+    ids = Enum.filter(ids, &(is_binary(&1) and &1 in owned))
+    Catalogue.reorder_attribute_set_values(socket.assigns.set, ids, actor_opts(socket))
     {:noreply, reload_set(socket)}
   end
 
@@ -287,15 +305,16 @@ defmodule PhoenixKitCatalogue.Web.AttributeSetFormLive do
 
   def handle_event("clear_value_media", %{"uuid" => uuid, "field" => key}, socket) do
     with %{} = value <- owned_value(socket, uuid),
-         %{} <- extra_field(socket.assigns.set, key),
-         {:ok, _} <-
-           Catalogue.update_attribute_set_value(
+         %{} <- extra_field(socket.assigns.set, key) do
+      case Catalogue.update_attribute_set_value(
              socket.assigns.set,
              value,
              %{extras: %{key => nil}},
              actor_opts(socket)
            ) do
-      {:noreply, reload_set(socket)}
+        {:ok, _} -> {:noreply, reload_set(socket)}
+        {:error, _} -> {:noreply, socket |> save_failed_flash() |> reload_set()}
+      end
     else
       _ -> {:noreply, socket}
     end
@@ -425,6 +444,18 @@ defmodule PhoenixKitCatalogue.Web.AttributeSetFormLive do
 
   def handle_info({:media_selector_closed}, socket) do
     {:noreply, assign(socket, show_media_selector: false, media_pick_target: nil)}
+  end
+
+  # Catch-all so stray traffic can't crash the editor mid-session: the
+  # admin live_session's on_mount hooks subscribe this process to
+  # module/scope/maintenance topics and `{:cont, socket}` unconsumed
+  # messages through to the LV — e.g. a maintenance-mode toggle sends
+  # {:maintenance_status_changed, _} to every admin LV, which without
+  # this clause is a FunctionClauseError that loses the open modal and
+  # draft (panel finding, 2026-08-19 review).
+  def handle_info(msg, socket) do
+    Logger.debug("AttributeSetFormLive ignored unhandled message: #{inspect(msg)}")
+    {:noreply, socket}
   end
 
   # ── Save / helpers ─────────────────────────────────────────────────
@@ -626,11 +657,23 @@ defmodule PhoenixKitCatalogue.Web.AttributeSetFormLive do
     Enum.find(set.fields_definition || [], &(&1["key"] == key))
   end
 
-  defp current_default(set), do: get_in(set.settings, ["catalogue", "default_value_slug"])
+  # PARKED with the hidden default-value star (see the make_default
+  # handler) — its only caller.
+  defp current_default(set), do: Catalogue.attribute_set_default_value_slug(set)
+
+  defp save_failed_flash(socket) do
+    put_flash(
+      socket,
+      :error,
+      Gettext.gettext(PhoenixKitCatalogue.Gettext, "Could not save the change.")
+    )
+  end
 
   # Same uncontrolled-draft machinery as the group editor: the add-value
-  # and add-field forms carry a generation in their DOM id, so clearing
-  # after submit re-mounts a fresh empty node and refocuses it.
+  # form carries a generation in its DOM id, so clearing after submit
+  # re-mounts a fresh empty node and refocuses it. (The add-FIELD form
+  # became the field-editor modal — "value" is the only generation key
+  # left, kept keyed for when another draft form appears.)
   defp clear_draft(socket, key) do
     socket
     |> assign(
@@ -649,25 +692,27 @@ defmodule PhoenixKitCatalogue.Web.AttributeSetFormLive do
     ]
   end
 
+  # ONE source of truth: the offered list IS the context's
+  # `attribute_set_field_types/0` — the same list `save_field_editor`'s
+  # add path validates against, so the <select> and the write path
+  # can't drift apart (panel finding, 2026-08-19 review). Labels stay
+  # literal gettext clauses below for the extractor.
   defp field_type_options do
-    [
-      {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Text"), "text"},
-      {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Text area"), "textarea"},
-      {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Number"), "number"},
-      {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Yes / No"), "boolean"},
-      {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Date"), "date"},
-      {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Select"), "select"},
-      {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Image"), "image"},
-      {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Video"), "video"}
-    ]
+    Enum.map(Catalogue.attribute_set_field_types(), &{field_type_label(&1), &1})
   end
 
-  defp field_type_label(type) do
-    case List.keyfind(field_type_options(), type, 1) do
-      {label, _} -> label
-      nil -> type
-    end
-  end
+  defp field_type_label("text"), do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Text")
+
+  defp field_type_label("textarea"),
+    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Text area")
+
+  defp field_type_label("number"), do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Number")
+  defp field_type_label("boolean"), do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Yes / No")
+  defp field_type_label("date"), do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Date")
+  defp field_type_label("select"), do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Select")
+  defp field_type_label("image"), do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Image")
+  defp field_type_label("video"), do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Video")
+  defp field_type_label(type), do: type
 
   defp field_type_hint("text"),
     do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Each value gets a text input.")
@@ -884,6 +929,7 @@ defmodule PhoenixKitCatalogue.Web.AttributeSetFormLive do
                         type="button"
                         phx-click="delete_value"
                         phx-value-uuid={value.uuid}
+                        phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "…")}
                         variant="ghost"
                         size="xs"
                         class="px-1 text-base-content/40 hover:text-error"
@@ -917,8 +963,15 @@ defmodule PhoenixKitCatalogue.Web.AttributeSetFormLive do
               />
               <%!-- RAW button + literal spans, NOT the kit components —
                    subtrees inside phx-update="ignore" arrive as
-                   data-phx-skip stubs on the id-bump re-mount. --%>
-              <button type="submit" class="btn btn-outline btn-sm shrink-0">
+                   data-phx-skip stubs on the id-bump re-mount.
+                   phx-disable-with is a plain attribute, so it works in
+                   here fine — without it a double-Enter on a slow round
+                   trip adds the value twice (panel finding, 2026-08-19). --%>
+              <button
+                type="submit"
+                phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "…")}
+                class="btn btn-outline btn-sm shrink-0"
+              >
                 <span class="hero-plus w-4 h-4 phx-submit-loading:hidden"></span>
                 <span class="loading loading-spinner w-4 h-4 hidden phx-submit-loading:inline-block">
                 </span>
