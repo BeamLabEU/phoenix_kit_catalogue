@@ -108,6 +108,36 @@ defmodule PhoenixKitCatalogue.Web.Components.CrmLinkPanel do
     """
   end
 
+  @doc """
+  Turns a `CrmLink` error into a flash message.
+
+  Lives here rather than in each form because both need the identical
+  mapping, and a copy per LiveView is how the two would quietly diverge.
+  """
+  @spec error_message(term()) :: String.t()
+  def error_message(:crm_unavailable),
+    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "The CRM module is not available.")
+
+  def error_message(reason) when reason in [:company_not_found, :party_not_found],
+    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "That CRM company no longer exists.")
+
+  def error_message(:not_linked),
+    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "This record is not linked to CRM.")
+
+  def error_message(%Ecto.Changeset{} = changeset) do
+    if Enum.any?(changeset.errors, fn {field, _} -> field == :crm_company_uuid end) do
+      Gettext.gettext(
+        PhoenixKitCatalogue.Gettext,
+        "That CRM company is already linked to another record."
+      )
+    else
+      Gettext.gettext(PhoenixKitCatalogue.Gettext, "Could not save the change.")
+    end
+  end
+
+  def error_message(_other),
+    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Could not save the change.")
+
   defp link_hint(:supplier) do
     Gettext.gettext(
       PhoenixKitCatalogue.Gettext,

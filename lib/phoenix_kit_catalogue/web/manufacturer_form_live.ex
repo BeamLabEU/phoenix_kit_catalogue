@@ -17,6 +17,7 @@ defmodule PhoenixKitCatalogue.Web.ManufacturerFormLive do
   alias PhoenixKitCatalogue.Catalogue
   alias PhoenixKitCatalogue.Paths
   alias PhoenixKitCatalogue.Schemas.Manufacturer
+  alias PhoenixKitCatalogue.Web.Components.CrmLinkPanel
 
   # PhoenixKit auto-applies its admin chrome layout to external module admin
   # views via socket.private[:live_layout]. Opt out here so this view can
@@ -177,31 +178,8 @@ defmodule PhoenixKitCatalogue.Web.ManufacturerFormLive do
   end
 
   defp handle_crm_result({:error, reason}, socket, _message) do
-    {:noreply, put_flash(socket, :error, crm_error_message(reason))}
+    {:noreply, put_flash(socket, :error, CrmLinkPanel.error_message(reason))}
   end
-
-  defp crm_error_message(:crm_unavailable),
-    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "The CRM module is not available.")
-
-  defp crm_error_message(reason) when reason in [:company_not_found, :party_not_found],
-    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "That CRM company no longer exists.")
-
-  defp crm_error_message(:not_linked),
-    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "This record is not linked to CRM.")
-
-  defp crm_error_message(%Ecto.Changeset{} = changeset) do
-    if Enum.any?(changeset.errors, fn {field, _} -> field == :crm_company_uuid end) do
-      Gettext.gettext(
-        PhoenixKitCatalogue.Gettext,
-        "That CRM company is already linked to another record."
-      )
-    else
-      Gettext.gettext(PhoenixKitCatalogue.Gettext, "Could not save the change.")
-    end
-  end
-
-  defp crm_error_message(_other),
-    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Could not save the change.")
 
   # actor_opts/1 imported from PhoenixKitCatalogue.Web.Helpers
 
