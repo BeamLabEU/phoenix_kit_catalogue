@@ -1219,9 +1219,19 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
       true -> Gettext.gettext(PhoenixKitCatalogue.Gettext, "Yes")
       false -> Gettext.gettext(PhoenixKitCatalogue.Gettext, "No")
       value when is_list(value) -> Enum.join(value, ", ")
-      value -> to_string(value)
+      value -> format_field_value(value)
     end
   end
+
+  # Entities' `number` type casts through Float.parse/1, so a whole number
+  # comes back as 24.0. Show it the way it was typed.
+  defp format_field_value(value) when is_float(value) do
+    if value == Float.round(value),
+      do: value |> trunc() |> Integer.to_string(),
+      else: Float.to_string(value)
+  end
+
+  defp format_field_value(value), do: to_string(value)
 
   # ── Attachments handle_info (delegated to Attachments module) ────
 
