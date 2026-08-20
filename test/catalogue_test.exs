@@ -1131,7 +1131,7 @@ defmodule PhoenixKitCatalogue.CatalogueTest do
       assert item.category_uuid == category.uuid
     end
 
-    test "get_item!/1 preloads category and manufacturer" do
+    test "get_item!/1 preloads category and hydrates the manufacturer name" do
       cat = create_catalogue()
       category = create_category(cat)
       m = create_manufacturer()
@@ -1139,7 +1139,8 @@ defmodule PhoenixKitCatalogue.CatalogueTest do
 
       loaded = Catalogue.get_item!(item.uuid)
       assert loaded.category.uuid == category.uuid
-      assert loaded.manufacturer.uuid == m.uuid
+      assert loaded.manufacturer_uuid == m.uuid
+      assert loaded.manufacturer_name == m.name
     end
   end
 
@@ -1608,7 +1609,7 @@ defmodule PhoenixKitCatalogue.CatalogueTest do
       assert Catalogue.search_items("oak") == []
     end
 
-    test "preloads category with catalogue and manufacturer" do
+    test "preloads category with catalogue and hydrates the manufacturer name" do
       cat = create_catalogue(%{name: "Kitchen"})
       category = create_category(cat, %{name: "Frames"})
       m = create_manufacturer(%{name: "Blum"})
@@ -1617,7 +1618,7 @@ defmodule PhoenixKitCatalogue.CatalogueTest do
       [item] = Catalogue.search_items("oak")
       assert item.category.name == "Frames"
       assert item.category.catalogue.name == "Kitchen"
-      assert item.manufacturer.name == "Blum"
+      assert item.manufacturer_name == "Blum"
     end
 
     test "respects limit option" do
@@ -2024,7 +2025,7 @@ defmodule PhoenixKitCatalogue.CatalogueTest do
       assert length(Catalogue.list_items(limit: 3)) == 3
     end
 
-    test "preloads category with catalogue and manufacturer" do
+    test "preloads category with catalogue and hydrates the manufacturer name" do
       cat = create_catalogue(%{name: "Kitchen"})
       category = create_category(cat, %{name: "Frames"})
       m = create_manufacturer(%{name: "Blum"})
@@ -2033,7 +2034,7 @@ defmodule PhoenixKitCatalogue.CatalogueTest do
       [item] = Catalogue.list_items()
       assert item.category.name == "Frames"
       assert item.category.catalogue.name == "Kitchen"
-      assert item.manufacturer.name == "Blum"
+      assert item.manufacturer_name == "Blum"
     end
   end
 
@@ -2321,7 +2322,7 @@ defmodule PhoenixKitCatalogue.CatalogueTest do
       assert Catalogue.list_items_by_uuids([]) == []
     end
 
-    test "default preloads include :catalogue, :category, :manufacturer" do
+    test "default preloads include :catalogue and :category" do
       cat = create_catalogue()
       category = create_category(cat)
       a = create_item(%{name: "A", category_uuid: category.uuid})

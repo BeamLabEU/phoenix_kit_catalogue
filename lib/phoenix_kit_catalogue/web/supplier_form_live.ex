@@ -155,15 +155,6 @@ defmodule PhoenixKitCatalogue.Web.SupplierFormLive do
     )
   end
 
-  def handle_event("crm_refresh", _params, socket) do
-    socket.assigns.supplier
-    |> Catalogue.refresh_supplier_from_crm(actor_opts(socket))
-    |> handle_crm_result(
-      socket,
-      Gettext.gettext(PhoenixKitCatalogue.Gettext, "Refreshed from CRM.")
-    )
-  end
-
   # Re-derives the form from the updated record: linking rewrites name,
   # website and contact_info, so the open form must not keep showing the
   # pre-link values.
@@ -278,7 +269,6 @@ defmodule PhoenixKitCatalogue.Web.SupplierFormLive do
               type="text"
               label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Name *")}
               placeholder={Gettext.gettext(PhoenixKitCatalogue.Gettext, "e.g., Regional Distributors Inc.")}
-              readonly={crm_linked?(@supplier)}
               required
             />
 
@@ -303,14 +293,12 @@ defmodule PhoenixKitCatalogue.Web.SupplierFormLive do
                 type="url"
                 label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Website")}
                 placeholder={Gettext.gettext(PhoenixKitCatalogue.Gettext, "https://...")}
-                readonly={crm_linked?(@supplier)}
               />
               <.input
                 field={@form[:contact_info]}
                 type="text"
                 label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Contact Info")}
                 placeholder={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Email or phone")}
-                readonly={crm_linked?(@supplier)}
               />
             </div>
 
@@ -409,7 +397,4 @@ defmodule PhoenixKitCatalogue.Web.SupplierFormLive do
     </PhoenixKitWeb.Components.LayoutWrapper.app_layout>
     """
   end
-
-  defp crm_linked?(%{crm_company_uuid: uuid}) when is_binary(uuid), do: true
-  defp crm_linked?(_), do: false
 end

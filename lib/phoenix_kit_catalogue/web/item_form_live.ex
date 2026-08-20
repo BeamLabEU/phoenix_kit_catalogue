@@ -134,7 +134,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
       item ->
         item =
           item
-          |> PhoenixKit.RepoHelper.repo().preload([:category, :manufacturer])
+          |> PhoenixKit.RepoHelper.repo().preload([:category])
           |> normalize_display_decimals()
 
         {item, Catalogue.change_item(item), item.catalogue_uuid}
@@ -187,7 +187,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
       catalogue_markup: markup_from_catalogue(parent_catalogue),
       catalogue_discount: discount_from_catalogue(parent_catalogue),
       categories: categories,
-      manufacturers: Catalogue.list_manufacturers(status: "active"),
+      manufacturers: Catalogue.list_all_manufacturers(status: "active"),
       suppliers: Catalogue.list_suppliers(status: "active"),
       all_suppliers: Suppliers.list_all(),
       supplier_infos: load_supplier_infos(action, item),
@@ -844,7 +844,10 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   # actor_opts/1 imported from PhoenixKitCatalogue.Web.Helpers
 
   defp save_item(socket, :new, params, mode) do
-    params = Map.put_new(params, "catalogue_uuid", socket.assigns.catalogue_uuid)
+    params =
+      params
+      |> Map.put_new("catalogue_uuid", socket.assigns.catalogue_uuid)
+      |> put_manufacturer_source(socket.assigns.manufacturers)
 
     with {:ok, item} <- Catalogue.create_item(params, actor_opts(socket)),
          {:ok, _rules} <- maybe_put_rules(socket, item),
@@ -891,6 +894,8 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
       else
         params
       end
+
+    params = put_manufacturer_source(params, socket.assigns.manufacturers)
 
     with {:ok, item} <- Catalogue.update_item(socket.assigns.item, params, actor_opts(socket)),
          {:ok, _rules} <- maybe_put_rules(socket, item) do
@@ -993,6 +998,41 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
       label = if s.source != :local, do: "#{s.name} (CRM)", else: s.name
       {label, s.uuid}
     end)
+  end
+
+  # Same shape for manufacturers since V179 made that reference federated too.
+  defp manufacturer_options(manufacturers) do
+    Enum.map(manufacturers, fn m ->
+      label = if m.source != :local, do: "#{m.name} (CRM)", else: m.name
+      {label, m.uuid}
+    end)
+  end
+
+  # The picked uuid alone does not say WHICH side it came from, and storing a
+  # CRM party under `manufacturer_source: "local"` would misroute the resolver
+  # exactly the way the supplier card's own comment warns about. Derive the tag
+  # from the entry the user actually chose, and stamp the tombstone name while
+  # we have it.
+  defp put_manufacturer_source(params, manufacturers) do
+    case Map.get(params, "manufacturer_uuid") do
+      uuid when is_binary(uuid) and uuid != "" ->
+        tag_picked_manufacturer(params, Enum.find(manufacturers, &(&1.uuid == uuid)))
+
+      _ ->
+        params
+        |> Map.put("manufacturer_source", "local")
+        |> Map.put("manufacturer_name_snapshot", nil)
+    end
+  end
+
+  defp tag_picked_manufacturer(params, nil), do: params
+
+  defp tag_picked_manufacturer(params, picked) do
+    source = if picked.source == :local, do: "local", else: "crm_company"
+
+    params
+    |> Map.put("manufacturer_source", source)
+    |> Map.put("manufacturer_name_snapshot", picked.name)
   end
 
   defp attribute_group_options_for_select(groups) do
@@ -1303,7 +1343,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   defp refresh_after_edit(socket, item) do
     item =
       item
-      |> PhoenixKit.RepoHelper.repo().preload([:category, :manufacturer])
+      |> PhoenixKit.RepoHelper.repo().preload([:category])
       |> normalize_display_decimals()
 
     socket
@@ -1736,7 +1776,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                   label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Manufacturer")}
                   class="transition-colors focus-within:select-primary"
                   prompt={Gettext.gettext(PhoenixKitCatalogue.Gettext, "-- No manufacturer --")}
-                  options={Enum.map(@manufacturers, &{&1.name, &1.uuid})}
+                  options={manufacturer_options(@manufacturers)}
                 />
               </div>
             </div>

@@ -1858,7 +1858,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
     do: safe_assoc_field(item, :catalogue, :name)
 
   defp card_field_value(item, :manufacturer, _, _, _),
-    do: safe_assoc_field(item, :manufacturer, :name)
+    do: manufacturer_display(item)
 
   defp card_field_value(_, col, _, _, _) do
     Logger.warning("item_table card: unknown column #{inspect(col)}, skipping")
@@ -2041,7 +2041,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
   defp item_cell(%{column: :manufacturer} = assigns) do
     ~H"""
     <.table_default_cell class="text-sm text-base-content/60">
-      {safe_assoc_field(@item, :manufacturer, :name)}
+      {manufacturer_display(@item)}
     </.table_default_cell>
     """
   end
@@ -2289,6 +2289,16 @@ defmodule PhoenixKitCatalogue.Web.Components do
   # Returns "—" if the association is nil or not loaded; otherwise the
   # named field. Used at template render time, where a bare `nil` would
   # be ugly. This is presentation, not error handling.
+  # The manufacturer is a federated {source, uuid} reference (V179), not an
+  # association, so there is nothing to preload and nothing to `safe_assoc_field`.
+  # `Manufacturers.hydrate/1` stamps `:manufacturer_name` at the query boundary;
+  # a nil here means the page forgot to hydrate, which shows as the same "—" an
+  # item with no manufacturer gets rather than crashing the render.
+  defp manufacturer_display(%{manufacturer_name: name}) when is_binary(name) and name != "",
+    do: name
+
+  defp manufacturer_display(_item), do: "—"
+
   defp safe_assoc_field(record, assoc, field) do
     case Map.get(record, assoc) do
       %{__struct__: Ecto.Association.NotLoaded} -> "—"

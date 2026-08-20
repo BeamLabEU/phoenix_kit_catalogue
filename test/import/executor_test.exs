@@ -366,7 +366,7 @@ defmodule PhoenixKitCatalogue.Import.ExecutorTest do
       assert result.created == 3
       assert result.manufacturers_created == 1
 
-      items = Catalogue.list_items() |> PhoenixKit.RepoHelper.repo().preload(:manufacturer)
+      items = Catalogue.list_items()
       blum = Enum.find(Catalogue.list_manufacturers(), &(&1.name == "Blum"))
       hettich = Enum.find(Catalogue.list_manufacturers(), &(&1.name == "Hettich"))
 

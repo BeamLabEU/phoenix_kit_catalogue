@@ -7,17 +7,17 @@ defmodule PhoenixKitCatalogue.Web.Components.CrmLinkPanel do
     * **CRM not installed** — nothing at all. The catalogue must look and
       behave exactly as it did on a standalone install.
     * **unlinked** — a company picker plus a Link button.
-    * **linked** — who it projects, a Refresh action, and an Unlink action,
-      with the identity fields upstairs turned read-only by the caller.
+    * **linked** — who it represents, and an Unlink action. There is no
+      "refresh": linking copies nothing, so the party's details are resolved
+      live wherever this row is referenced and can never be stale here.
 
   The panel only renders on an existing record: linking needs a persisted
   row to stamp, and offering the control while creating one would promise
   something the save path cannot keep.
 
-  Events are handled by the parent LiveView (`crm_link`, `crm_unlink`,
-  `crm_refresh`) because the actions differ per record type; the markup and
-  the rules for which state is shown live here so the two forms cannot
-  drift apart.
+  Events are handled by the parent LiveView (`crm_link`, `crm_unlink`)
+  because the actions differ per record type; the markup and the rules for
+  which state is shown live here so the two forms cannot drift apart.
   """
 
   use Phoenix.Component
@@ -47,7 +47,7 @@ defmodule PhoenixKitCatalogue.Web.Components.CrmLinkPanel do
           <span class="text-sm">
             {Gettext.gettext(
               PhoenixKitCatalogue.Gettext,
-              "Identity is managed in CRM. Name, website and contact info are read-only here."
+              "Details come from CRM wherever this is used. The fields above are no longer shown to anyone."
             )}
           </span>
         </div>
@@ -65,15 +65,6 @@ defmodule PhoenixKitCatalogue.Web.Components.CrmLinkPanel do
         </div>
 
         <div class="flex flex-wrap gap-2">
-          <.button
-            type="button"
-            variant="ghost"
-            phx-click="crm_refresh"
-            phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Refreshing...")}
-          >
-            <.icon name="hero-arrow-path" class="h-4 w-4" />
-            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Refresh from CRM")}
-          </.button>
           <.button type="button" variant="ghost" phx-click="crm_unlink">
             {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Unlink")}
           </.button>
@@ -124,6 +115,20 @@ defmodule PhoenixKitCatalogue.Web.Components.CrmLinkPanel do
   def error_message(:not_linked),
     do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "This record is not linked to CRM.")
 
+  def error_message(:role_grant_failed),
+    do:
+      Gettext.gettext(
+        PhoenixKitCatalogue.Gettext,
+        "Could not give that CRM company the role, so nothing was linked."
+      )
+
+  def error_message(:stale),
+    do:
+      Gettext.gettext(
+        PhoenixKitCatalogue.Gettext,
+        "Someone else changed this link first. Reload the page and try again."
+      )
+
   def error_message(%Ecto.Changeset{} = changeset) do
     if Enum.any?(changeset.errors, fn {field, _} -> field == :crm_company_uuid end) do
       Gettext.gettext(
@@ -141,7 +146,7 @@ defmodule PhoenixKitCatalogue.Web.Components.CrmLinkPanel do
   defp link_hint(:supplier) do
     Gettext.gettext(
       PhoenixKitCatalogue.Gettext,
-      "Link this supplier to the CRM company it represents. The company gains the supplier role and its details are copied here."
+      "Link this supplier to the CRM company it represents. The company gains the supplier role, and its details are then used everywhere this supplier appears."
     )
   end
 

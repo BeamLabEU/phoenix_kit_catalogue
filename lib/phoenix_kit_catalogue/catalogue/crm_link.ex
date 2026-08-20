@@ -1,45 +1,44 @@
 defmodule PhoenixKitCatalogue.Catalogue.CrmLink do
   @moduledoc """
-  The bridge between a catalogue directory row and the CRM party it projects.
+  Links a catalogue directory row to the CRM party it represents.
 
-  CRM is the party master: "supplier" and "manufacturer" are *roles* on a CRM
-  company (see the CRM v2 parties design doc). The catalogue's local
-  `phoenix_kit_cat_suppliers` / `phoenix_kit_cat_manufacturers` rows are not
-  deleted by that move — they stay as the catalogue-side **projection**, for
-  two concrete reasons:
+  CRM owns party identity: "supplier" and "manufacturer" are *roles* on a CRM
+  company or contact. The catalogue's local `phoenix_kit_cat_suppliers` /
+  `phoenix_kit_cat_manufacturers` rows are kept — catalogue-standalone installs
+  have no CRM, `phoenix_kit_cat_manufacturer_suppliers` carries hard FKs onto
+  the manufacturer row, and `logo_url`, notes and catalogue status have no home
+  in CRM — but once linked they stop being an identity of their own.
 
-    * catalogue-standalone installs have no CRM at all, and
-    * `phoenix_kit_cat_items.manufacturer_uuid` is still a hard FK onto the
-      local manufacturer row, so items keep pointing at the projection.
+  ## Linking copies nothing
 
-  `crm_company_uuid` (V149 for suppliers, V178 for manufacturers) is the
-  transition cross-reference, one-to-one both ways via a partial unique index.
+  A link writes exactly one column: `crm_company_uuid`. It does not copy the
+  party's name, website or contact details onto the local row, because
+  `Suppliers.resolve/1` and `Manufacturers.resolve/1` **resolve through the
+  xref**: a stored reference to the local uuid returns the party's CURRENT
+  identity. Every existing reference — junction rows, warehouse documents —
+  goes live the moment the row is linked, with no data rewritten and nothing
+  to keep in sync afterwards.
 
-  ## What linking does, precisely
+  That is why there is no "refresh" here. There is nothing to refresh.
 
-  1. grants the party role on the CRM company (idempotent), and
-  2. copies the party's identity DOWN onto the local row.
+  ## Ordering and atomicity
 
-  Step 2 is not redundant bookkeeping. Item lists, cards, search and every
-  export render the preloaded local row — nothing on those paths calls a
-  resolver — so a link that left the local name stale would show one name in
-  the CRM directory and a different one on every product page. After linking,
-  the local identity fields become read-only (enforced in the changesets, not
-  just the forms) and `refresh/1` is the only way to update them.
-
-  ## What linking does NOT do
-
-  It does not migrate references. Items still reference the local manufacturer
-  row, `phoenix_kit_cat_item_supplier_info.supplier_uuid` still holds whatever
-  uuid it held, and warehouse documents still carry their local supplier
-  uuids. Rewriting those to CRM uuids is a separate, guarded operation that is
-  deliberately not part of this module — `Catalogue.get_supplier/1`, which
-  warehouse calls, is a local primary-key lookup, so a rewrite would blank the
-  supplier on posted documents.
+  Granting the role and stamping the xref happen in ONE transaction, and a
+  failed grant fails the whole link. Both halves are load-bearing: the
+  resolvers key on the ACTIVE ROLE, not on the xref column, so an xref stamped
+  against a party that does not carry the role resolves to nothing — and the
+  row would then be hidden from the directory as "linked" while resolving to
+  nothing, i.e. silently disappear.
 
   Every CRM call is guarded with `Code.ensure_loaded?` + `function_exported?`
-  — CRM is an optional runtime dependency, and its absence is not an error.
+  and cannot raise out of this module: CRM is an optional runtime dependency.
   """
+
+  # CRM is an optional runtime dependency: these calls are guarded by
+  # `available?/0` and the module legitimately may not exist at compile time.
+  @compile {:no_warn_undefined, [PhoenixKitCRM.Companies, PhoenixKitCRM.PartyRoles]}
+
+  import Ecto.Query, warn: false
 
   alias PhoenixKitCatalogue.Catalogue.{ActivityLog, PubSub}
   alias PhoenixKitCatalogue.Schemas.{Manufacturer, Supplier}
@@ -56,21 +55,23 @@ defmodule PhoenixKitCatalogue.Catalogue.CrmLink do
   end
 
   @doc """
-  CRM companies offered as link targets, as `{name, uuid}` pairs.
+  CRM companies offered as link targets, as `{label, uuid}` pairs.
 
   Every company is a candidate, not only those already holding the role —
-  linking is how a company *acquires* the role. Returns `[]` when CRM is
-  absent.
+  linking is how a company *acquires* the role. Returns `[]` when CRM is absent.
   """
   @spec list_candidates() :: [{String.t(), Ecto.UUID.t()}]
   def list_candidates do
     if available?() and function_exported?(PhoenixKitCRM.Companies, :company_options, 0) do
-      # credo:disable-for-next-line Credo.Check.Refactor.Apply
-      apply(PhoenixKitCRM.Companies, :company_options, [])
+      PhoenixKitCRM.Companies.company_options()
       |> normalize_candidates()
     else
       []
     end
+  rescue
+    _ -> []
+  catch
+    :exit, _ -> []
   end
 
   @doc """
@@ -86,116 +87,144 @@ defmodule PhoenixKitCatalogue.Catalogue.CrmLink do
   def normalize_candidates(options) when is_list(options),
     do: Enum.flat_map(options, &normalize_candidate/1)
 
-  defp normalize_candidate(%{label: label, value: value}), do: [{label, value}]
-  defp normalize_candidate({label, value}) when is_binary(value), do: [{label, value}]
+  defp normalize_candidate(%{label: label, value: value})
+       when is_binary(label) and is_binary(value),
+       do: [{label, value}]
+
+  defp normalize_candidate({label, value}) when is_binary(label) and is_binary(value),
+    do: [{label, value}]
+
   defp normalize_candidate(_other), do: []
 
   @doc """
-  Links a supplier to a CRM company: grants the `supplier` role and copies
-  the party's identity onto the projection.
+  Links a supplier to a CRM company: grants the `supplier` role and stamps the
+  cross-reference, in one transaction.
 
-  Returns `{:error, :crm_unavailable}` when the CRM module is not installed,
-  `{:error, :company_not_found}` for an unknown uuid, and a changeset error
-  when the company is already linked to a different supplier (the partial
-  unique index).
+  Errors: `:crm_unavailable` (module absent), `:company_not_found`,
+  `:role_grant_failed` (the party could not be given the role — the link is
+  abandoned rather than left resolving to nothing), `:stale` (the row was
+  linked or relinked by someone else since it was loaded), or a changeset when
+  the company already projects a different supplier.
   """
   @spec link_supplier(Supplier.t(), Ecto.UUID.t(), keyword()) ::
-          {:ok, Supplier.t()}
-          | {:error, :crm_unavailable | :company_not_found | Ecto.Changeset.t()}
+          {:ok, Supplier.t()} | {:error, link_error()}
   def link_supplier(%Supplier{} = supplier, company_uuid, opts \\ []),
     do: link(supplier, company_uuid, "supplier", opts)
 
   @doc "Manufacturer counterpart of `link_supplier/3` — grants the `manufacturer` role."
   @spec link_manufacturer(Manufacturer.t(), Ecto.UUID.t(), keyword()) ::
-          {:ok, Manufacturer.t()}
-          | {:error, :crm_unavailable | :company_not_found | Ecto.Changeset.t()}
+          {:ok, Manufacturer.t()} | {:error, link_error()}
   def link_manufacturer(%Manufacturer{} = manufacturer, company_uuid, opts \\ []),
     do: link(manufacturer, company_uuid, "manufacturer", opts)
+
+  @typep link_error ::
+           :crm_unavailable
+           | :company_not_found
+           | :role_grant_failed
+           | :stale
+           | Ecto.Changeset.t()
 
   defp link(record, company_uuid, role, opts) do
     with :ok <- ensure_available(),
          {:ok, company} <- fetch_company(company_uuid) do
-      # Grant first: if the role grant fails we must not leave a projection
-      # pointing at a party that does not carry the role, because the
-      # resolvers key on the ACTIVE ROLE, not on the xref column.
-      _ = grant_role(company, role)
-
       record
-      |> link_changeset(%{
-        crm_company_uuid: company.uuid,
-        name: party_name(company),
-        website: Map.get(company, :website),
-        contact_info: contact_info_from(company)
-      })
-      |> repo().update()
-      |> broadcast_and_log("linked", role, opts)
+      |> transaction_link(company, role)
+      |> announce("linked", role, opts)
     end
   end
 
-  @doc """
-  Clears a supplier's CRM cross-reference, making its identity locally
-  editable again.
+  defp transaction_link(record, company, role) do
+    transaction(fn ->
+      with {:ok, _role_row} <- grant_role(company, role) do
+        stamp_xref(record, company.uuid)
+      end
+    end)
+  end
 
-  The party role is deliberately left in place: the company may be a supplier
-  independently of whether this catalogue row projects it, and revoking a role
-  from here would reach into CRM's own lifecycle.
+  @doc """
+  Clears a supplier's CRM cross-reference. Its own name and website become the
+  identity again — no data moves, because none was copied.
+
+  The party role is deliberately left in place: the role's lifecycle belongs to
+  CRM, the company may hold it independently of whether this row projects it,
+  and revoking it from here would reach across the boundary this design exists
+  to keep. It also means a re-link is a single stamp.
   """
   @spec unlink_supplier(Supplier.t(), keyword()) ::
-          {:ok, Supplier.t()} | {:error, Ecto.Changeset.t()}
+          {:ok, Supplier.t()} | {:error, :stale | Ecto.Changeset.t()}
   def unlink_supplier(%Supplier{} = supplier, opts \\ []), do: unlink(supplier, "supplier", opts)
 
   @doc "Manufacturer counterpart of `unlink_supplier/2`."
   @spec unlink_manufacturer(Manufacturer.t(), keyword()) ::
-          {:ok, Manufacturer.t()} | {:error, Ecto.Changeset.t()}
+          {:ok, Manufacturer.t()} | {:error, :stale | Ecto.Changeset.t()}
   def unlink_manufacturer(%Manufacturer{} = manufacturer, opts \\ []),
     do: unlink(manufacturer, "manufacturer", opts)
 
   defp unlink(record, role, opts) do
     record
-    |> link_changeset(%{crm_company_uuid: nil})
-    |> repo().update()
-    |> broadcast_and_log("unlinked", role, opts)
+    |> clear_xref()
+    |> announce("unlinked", role, opts)
   end
 
-  @doc """
-  Re-copies the linked party's identity onto a supplier projection.
+  # ── Writes, conditioned on the xref we believe we are changing ─────────────
+  # `update_all` with the expected value in the WHERE clause: a struct loaded
+  # before someone else linked/relinked/unlinked the row would otherwise
+  # overwrite their write with data derived from a state that no longer exists.
+  # 0 rows updated means our belief was wrong, and the caller must reload.
 
-  The catalogue does not observe CRM writes (that would need a dependency in
-  the wrong direction), so a party renamed in CRM leaves the projection —
-  and therefore every item page — showing the old name until someone runs
-  this. Returns `{:error, :not_linked}` for an unlinked row and
-  `{:error, :party_not_found}` when the CRM company has since been deleted.
-  """
-  @spec refresh_supplier(Supplier.t(), keyword()) ::
-          {:ok, Supplier.t()}
-          | {:error, :not_linked | :crm_unavailable | :party_not_found | Ecto.Changeset.t()}
-  def refresh_supplier(%Supplier{} = supplier, opts \\ []),
-    do: refresh(supplier, "supplier", opts)
-
-  @doc "Manufacturer counterpart of `refresh_supplier/2`."
-  @spec refresh_manufacturer(Manufacturer.t(), keyword()) ::
-          {:ok, Manufacturer.t()}
-          | {:error, :not_linked | :crm_unavailable | :party_not_found | Ecto.Changeset.t()}
-  def refresh_manufacturer(%Manufacturer{} = manufacturer, opts \\ []),
-    do: refresh(manufacturer, "manufacturer", opts)
-
-  defp refresh(%{crm_company_uuid: nil}, _role, _opts), do: {:error, :not_linked}
-
-  defp refresh(record, role, opts) do
-    with :ok <- ensure_available(),
-         {:ok, company} <- fetch_party(record.crm_company_uuid) do
+  defp stamp_xref(record, party_uuid) do
+    query =
       record
-      |> link_changeset(%{
-        name: party_name(company),
-        website: Map.get(company, :website),
-        contact_info: contact_info_from(company)
-      })
-      |> repo().update()
-      |> broadcast_and_log("refreshed", role, opts)
+      |> row_query()
+      |> where([r], is_nil(r.crm_company_uuid) or r.crm_company_uuid == ^party_uuid)
+
+    case repo().update_all(query, set: [crm_company_uuid: party_uuid, updated_at: now()]) do
+      {1, _} -> {:ok, %{record | crm_company_uuid: party_uuid}}
+      {0, _} -> {:error, :stale}
+    end
+  rescue
+    # The partial unique index refuses a second row claiming this party.
+    e in Postgrex.Error ->
+      if unique_violation?(e),
+        do: {:error, already_linked_changeset(record)},
+        else: reraise(e, __STACKTRACE__)
+  end
+
+  defp clear_xref(%{crm_company_uuid: nil} = record), do: {:ok, record}
+
+  defp clear_xref(record) do
+    query =
+      record
+      |> row_query()
+      |> where([r], r.crm_company_uuid == ^record.crm_company_uuid)
+
+    case repo().update_all(query, set: [crm_company_uuid: nil, updated_at: now()]) do
+      {1, _} -> {:ok, %{record | crm_company_uuid: nil}}
+      {0, _} -> {:error, :stale}
     end
   end
 
-  # ── CRM access (all guarded) ───────────────────────────────────────────────
+  defp row_query(%Supplier{uuid: uuid}), do: from(s in Supplier, where: s.uuid == ^uuid)
+  defp row_query(%Manufacturer{uuid: uuid}), do: from(m in Manufacturer, where: m.uuid == ^uuid)
+
+  defp now, do: DateTime.utc_now() |> DateTime.truncate(:second)
+
+  defp unique_violation?(%Postgrex.Error{postgres: %{code: :unique_violation}}), do: true
+  defp unique_violation?(_), do: false
+
+  defp already_linked_changeset(record) do
+    record
+    |> Ecto.Changeset.change()
+    |> Ecto.Changeset.add_error(
+      :crm_company_uuid,
+      "is already linked to another #{kind(record)}"
+    )
+  end
+
+  defp kind(%Supplier{}), do: "supplier"
+  defp kind(%Manufacturer{}), do: "manufacturer"
+
+  # ── CRM access (guarded; never raises out of this module) ──────────────────
 
   defp ensure_available do
     if available?(), do: :ok, else: {:error, :crm_unavailable}
@@ -207,68 +236,60 @@ defmodule PhoenixKitCatalogue.Catalogue.CrmLink do
       nil -> {:error, :company_not_found}
       company -> {:ok, company}
     end
+  rescue
+    _ -> {:error, :company_not_found}
+  catch
+    :exit, _ -> {:error, :company_not_found}
   end
 
-  defp fetch_party(uuid) do
-    case fetch_company(uuid) do
-      {:ok, company} -> {:ok, company}
-      {:error, :company_not_found} -> {:error, :party_not_found}
-    end
-  end
-
+  # A failed grant FAILS THE LINK. Swallowing it stamps an xref against a party
+  # with no active role: the resolvers find nothing, the directory hides the row
+  # as linked, and the supplier disappears from every picker with no error
+  # anywhere. Reported by three independent reviewers against the version that
+  # did `_ = grant_role(...)`.
   defp grant_role(company, role) do
     # credo:disable-for-next-line Credo.Check.Refactor.Apply
-    apply(PhoenixKitCRM.PartyRoles, :grant_role, [company, role, %{}, []])
-  rescue
-    # A role grant that blows up must not take the link with it — the xref is
-    # still correct and the role can be granted from the CRM side.
-    _ -> :error
-  catch
-    :exit, _ -> :error
-  end
-
-  # ── Shared plumbing ────────────────────────────────────────────────────────
-
-  defp link_changeset(%Supplier{} = supplier, attrs),
-    do: Supplier.crm_link_changeset(supplier, attrs)
-
-  defp link_changeset(%Manufacturer{} = manufacturer, attrs),
-    do: Manufacturer.crm_link_changeset(manufacturer, attrs)
-
-  # CRM companies carry structured email and phone; the catalogue projection
-  # has one free-text "email or phone" column. Prefer the email.
-  defp contact_info_from(company) do
-    Map.get(company, :email) || Map.get(company, :phone)
-  end
-
-  defp party_name(company) do
-    if Code.ensure_loaded?(PhoenixKitCRM.Schemas.Company) and
-         function_exported?(PhoenixKitCRM.Schemas.Company, :display_name, 1) do
-      # credo:disable-for-next-line Credo.Check.Refactor.Apply
-      apply(PhoenixKitCRM.Schemas.Company, :display_name, [company])
-    else
-      Map.get(company, :name)
+    case apply(PhoenixKitCRM.PartyRoles, :grant_role, [company, role, %{}, []]) do
+      {:ok, row} -> {:ok, row}
+      _other -> {:error, :role_grant_failed}
     end
+  rescue
+    _ -> {:error, :role_grant_failed}
+  catch
+    :exit, _ -> {:error, :role_grant_failed}
   end
 
-  defp broadcast_and_log({:ok, record} = ok, action, role, opts) do
+  # ── Transaction + effects ─────────────────────────────────────────────────
+
+  defp transaction(fun) do
+    repo().transaction(fn -> unwrap_or_rollback(fun.()) end)
+  end
+
+  defp unwrap_or_rollback({:ok, value}), do: value
+  defp unwrap_or_rollback({:error, reason}), do: repo().rollback(reason)
+
+  # Audit + PubSub run AFTER the transaction commits and are best-effort: the
+  # write is already durable, so a logging or broadcast failure must not be
+  # reported to the caller as a failed link.
+  defp announce({:ok, record} = ok, action, role, opts) do
     ActivityLog.log(%{
       action: "#{role}.crm_#{action}",
       mode: "manual",
       actor_uuid: opts[:actor_uuid],
       resource_type: role,
       resource_uuid: record.uuid,
-      metadata: %{
-        "name" => record.name,
-        "crm_company_uuid" => record.crm_company_uuid
-      }
+      metadata: %{"name" => record.name, "crm_company_uuid" => record.crm_company_uuid}
     })
 
     PubSub.broadcast(pubsub_kind(role), record.uuid)
     ok
+  rescue
+    _ -> ok
+  catch
+    :exit, _ -> ok
   end
 
-  defp broadcast_and_log(error, _action, _role, _opts), do: error
+  defp announce(error, _action, _role, _opts), do: error
 
   defp pubsub_kind("supplier"), do: :supplier
   defp pubsub_kind("manufacturer"), do: :manufacturer
