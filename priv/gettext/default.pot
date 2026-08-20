@@ -2659,3 +2659,9 @@ msgstr ""
 
 msgid "Someone else changed this link first. Reload the page and try again."
 msgstr ""
+
+msgid "Suppliers and Manufacturer"
+msgstr ""
+
+msgid "Who makes this item."
+msgstr ""

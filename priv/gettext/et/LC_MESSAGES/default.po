@@ -2654,3 +2654,9 @@ msgstr "Ei saanud sellele CRM ettevõttele rolli anda, seega midagi ei seotud."
 
 msgid "Someone else changed this link first. Reload the page and try again."
 msgstr "Keegi teine muutis seda seost enne. Laadi leht uuesti ja proovi uuesti."
+
+msgid "Suppliers and Manufacturer"
+msgstr "Tarnijad ja tootja"
+
+msgid "Who makes this item."
+msgstr "Kes selle toote valmistab."

@@ -771,6 +771,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   end
 
   defp parse_tab("metadata"), do: :metadata
+  defp parse_tab("sourcing"), do: :sourcing
   defp parse_tab("files"), do: :files
   defp parse_tab(_), do: :details
 
@@ -1478,6 +1479,18 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
         <button
           type="button"
           phx-click="switch_tab"
+          phx-value-tab="sourcing"
+          class={"tab #{if @current_tab == :sourcing, do: "tab-active"}"}
+        >
+          <.icon name="hero-building-storefront" class="w-4 h-4 mr-1" />
+          {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Suppliers and Manufacturer")}
+          <span :if={@action == :edit and @supplier_infos != []} class="badge badge-sm badge-ghost ml-2">
+            {length(@supplier_infos)}
+          </span>
+        </button>
+        <button
+          type="button"
+          phx-click="switch_tab"
           phx-value-tab="files"
           class={"tab #{if @current_tab == :files, do: "tab-active"}"}
         >
@@ -1762,7 +1775,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                 {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Classification")}
               </h2>
 
-              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div class="grid grid-cols-1 gap-4">
                 <.select
                   field={@form[:category_uuid]}
                   label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Category")}
@@ -1770,258 +1783,9 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                   prompt={Gettext.gettext(PhoenixKitCatalogue.Gettext, "-- No category --")}
                   options={Enum.map(@categories, &{&1.name, &1.uuid})}
                 />
-                <.select
-                  field={@form[:manufacturer_uuid]}
-                  label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Manufacturer")}
-                  class="transition-colors focus-within:select-primary"
-                  prompt={Gettext.gettext(PhoenixKitCatalogue.Gettext, "-- No manufacturer --")}
-                  options={manufacturer_options(@manufacturers)}
-                />
               </div>
             </div>
 
-            <%!-- Suppliers card — junction-based supplier-info table.
-                 Only rendered for existing items (new items need a UUID first). --%>
-            <div :if={@action == :edit} class="flex flex-col gap-4">
-              <div class="divider my-0"></div>
-              <div class="flex items-center justify-between gap-2">
-                <h2 class="text-base font-semibold text-base-content/80 flex items-center gap-2">
-                  <.icon name="hero-building-storefront" class="w-4 h-4" />
-                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Suppliers")}
-                </h2>
-                <.button type="button" phx-click="open_add_supplier" size="sm">
-                  <.icon name="hero-plus" class="w-4 h-4" />
-                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Add Supplier")}
-                </.button>
-              </div>
-
-              <%!-- Add/edit supplier-info inline form --%>
-              <div :if={@supplier_form_open} class="card bg-base-200 p-4">
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <div class="fieldset md:col-span-2">
-                    <.select
-                      name="supplier_info[supplier_uuid]"
-                      value={@supplier_info_draft["supplier_uuid"]}
-                      label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Supplier")}
-                      prompt={Gettext.gettext(PhoenixKitCatalogue.Gettext, "-- Select supplier --")}
-                      options={supplier_options(@all_suppliers)}
-                      phx-change="supplier_info_field_change"
-                      class="w-full"
-                    />
-                  </div>
-                  <.input
-                    type="text"
-                    name="supplier_info[supplier_sku]"
-                    value={@supplier_info_draft["supplier_sku"]}
-                    label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Supplier SKU")}
-                    phx-change="supplier_info_field_change"
-                    class="w-full font-mono"
-                    placeholder={Gettext.gettext(PhoenixKitCatalogue.Gettext, "e.g., ABC-001")}
-                  />
-                  <div class="fieldset">
-                    <label class="label">
-                      <span class="fieldset-legend">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Unit Cost")}</span>
-                    </label>
-                    <%!-- Deliberately raw (L029): the kit input wraps each
-                         field in its own feedback div, which would break the
-                         daisyUI join grouping of these two inputs. --%>
-                    <div class="join">
-                      <input
-                        type="number"
-                        name="supplier_info[unit_cost]"
-                        value={@supplier_info_draft["unit_cost"]}
-                        phx-change="supplier_info_field_change"
-                        step="0.0001"
-                        min="0"
-                        class="input join-item flex-1"
-                        placeholder="0.00"
-                      />
-                      <input
-                        type="text"
-                        name="supplier_info[currency]"
-                        value={@supplier_info_draft["currency"]}
-                        phx-change="supplier_info_field_change"
-                        class="input join-item w-16 font-mono uppercase"
-                        placeholder="EUR"
-                        maxlength="3"
-                      />
-                    </div>
-                  </div>
-                  <.input
-                    type="number"
-                    name="supplier_info[lead_time_days]"
-                    value={@supplier_info_draft["lead_time_days"]}
-                    label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Lead Time (days)")}
-                    phx-change="supplier_info_field_change"
-                    min="0"
-                    class="w-full"
-                  />
-                  <.input
-                    type="number"
-                    name="supplier_info[min_order_qty]"
-                    value={@supplier_info_draft["min_order_qty"]}
-                    label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Min. Order Qty")}
-                    phx-change="supplier_info_field_change"
-                    step="0.0001"
-                    min="0"
-                    class="w-full"
-                  />
-                </div>
-                <div class="flex gap-2 mt-3 justify-end">
-                  <.button type="button" phx-click="cancel_add_supplier" variant="ghost" size="sm">
-                    {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Cancel")}
-                  </.button>
-                  <.button type="button" phx-click="save_supplier_info" size="sm">
-                    {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Save")}
-                  </.button>
-                </div>
-              </div>
-
-              <%!-- Supplier-info rows --%>
-              <div :if={@supplier_infos == []} class="text-sm text-base-content/50 italic py-2">
-                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "No suppliers linked yet.")}
-              </div>
-
-              <div :if={@supplier_infos != []} class="overflow-x-auto">
-                <table class="table table-sm w-full">
-                  <thead>
-                    <tr>
-                      <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Supplier")}</th>
-                      <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "SKU")}</th>
-                      <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Unit Cost")}</th>
-                      <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Lead (d)")}</th>
-                      <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "MOQ")}</th>
-                      <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Primary")}</th>
-                      <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "History")}</th>
-                      <th></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <%= for info <- @supplier_infos do %>
-                      <tr class={if info.is_primary, do: "bg-primary/5", else: ""}>
-                        <td class="font-medium">
-                          {supplier_display_name(info, @all_suppliers)}
-                        </td>
-                        <td class="font-mono text-xs">{info.supplier_sku || "—"}</td>
-                        <td>
-                          <%= if info.unit_cost do %>
-                            {Decimal.to_string(info.unit_cost, :normal)} {info.currency || ""}
-                          <% else %>
-                            —
-                          <% end %>
-                        </td>
-                        <td>{info.lead_time_days || "—"}</td>
-                        <td>
-                          <%= if info.min_order_qty do %>
-                            {Decimal.to_string(info.min_order_qty, :normal)}
-                          <% else %>
-                            —
-                          <% end %>
-                        </td>
-                        <td>
-                          <span :if={info.is_primary} class="badge badge-sm badge-primary">
-                            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Primary")}
-                          </span>
-                          <.button
-                            :if={not info.is_primary}
-                            type="button"
-                            phx-click="set_primary_supplier"
-                            phx-value-uuid={info.uuid}
-                            variant="ghost"
-                            size="xs"
-                          >
-                            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Make primary")}
-                          </.button>
-                        </td>
-                        <td>
-                          <.button
-                            type="button"
-                            phx-click="open_supplier_history"
-                            phx-value-uuid={info.uuid}
-                            variant="ghost"
-                            size="xs"
-                            title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Price History")}
-                          >
-                            <.icon name="hero-chevron-down" class="w-3 h-3" />
-                          </.button>
-                        </td>
-                        <td>
-                          <.button
-                            type="button"
-                            phx-click="delete_supplier_info"
-                            phx-value-uuid={info.uuid}
-                            data-confirm={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Remove this supplier link?")}
-                            variant="ghost"
-                            size="xs"
-                            class="text-error"
-                          >
-                            <.icon name="hero-trash" class="w-3 h-3" />
-                          </.button>
-                        </td>
-                      </tr>
-                    <% end %>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            <%!-- Supplier price-history modal — read-only, compact. Shows closed
-                 revision rows for the selected item/supplier pair. --%>
-            <dialog :if={@supplier_history_open} open class="modal">
-              <div class="modal-box max-w-lg">
-                <h3 class="font-bold text-lg mb-4">
-                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Price History")}
-                  <span :if={@supplier_history_name} class="font-normal text-base-content/60 ml-1">
-                    — {@supplier_history_name}
-                  </span>
-                </h3>
-                <div :if={@supplier_history_rows == []} class="text-sm text-base-content/50 italic py-2">
-                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "No price history.")}
-                </div>
-                <div :if={@supplier_history_rows != []} class="overflow-x-auto">
-                  <table class="table table-xs w-full">
-                    <thead>
-                      <tr>
-                        <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Unit Cost")}</th>
-                        <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Currency")}</th>
-                        <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Valid From")}</th>
-                        <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Valid To")}</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <%= for row <- @supplier_history_rows do %>
-                        <tr class={if is_nil(row.valid_to), do: "font-medium", else: "text-base-content/60"}>
-                          <td class="tabular-nums">
-                            <%= if row.unit_cost do %>
-                              {Decimal.to_string(row.unit_cost, :normal)}
-                            <% else %>
-                              —
-                            <% end %>
-                          </td>
-                          <td>{row.currency || "—"}</td>
-                          <td>{if row.valid_from, do: Date.to_string(row.valid_from), else: "—"}</td>
-                          <td>
-                            <%= if is_nil(row.valid_to) do %>
-                              <span class="badge badge-xs badge-primary">
-                                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Current")}
-                              </span>
-                            <% else %>
-                              {Date.to_string(row.valid_to)}
-                            <% end %>
-                          </td>
-                        </tr>
-                      <% end %>
-                    </tbody>
-                  </table>
-                </div>
-                <div class="modal-action">
-                  <button type="button" phx-click="close_supplier_history" class="btn btn-sm">
-                    {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Close")}
-                  </button>
-                </div>
-              </div>
-              <div class="modal-backdrop" phx-click="close_supplier_history"></div>
-            </dialog>
 
             <div class="fieldset">
               <.select
@@ -2305,6 +2069,276 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
              scoped picker in single+image mode; the picker both browses
              this item's images and accepts new uploads (which get
              dropped into the item's folder automatically). --%>
+
+        <%!-- Suppliers and Manufacturer panel. Kept in the DOM and toggled by
+             `hidden` like the other panels, so the inline supplier draft form
+             does not lose what has been typed into it when tabs are flipped.
+             The price-history dialog lives in here too: left in the Details
+             panel it would be hidden along with it. --%>
+        <div class={"card bg-base-100 shadow-lg #{if @current_tab != :sourcing, do: "hidden"}"}>
+          <div class="card-body flex flex-col gap-5">
+            <div class="flex flex-col gap-4">
+              <h2 class="text-base font-semibold text-base-content/80 flex items-center gap-2">
+                <.icon name="hero-building-office" class="w-4 h-4" />
+                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Manufacturer")}
+              </h2>
+              <p class="text-sm text-base-content/50 -mt-2">
+                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Who makes this item.")}
+              </p>
+              <.select
+                field={@form[:manufacturer_uuid]}
+                label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Manufacturer")}
+                class="transition-colors focus-within:select-primary"
+                prompt={Gettext.gettext(PhoenixKitCatalogue.Gettext, "-- No manufacturer --")}
+                options={manufacturer_options(@manufacturers)}
+              />
+            </div>
+
+          <%!-- Suppliers card — junction-based supplier-info table.
+               Only rendered for existing items (new items need a UUID first). --%>
+          <div :if={@action == :edit} class="flex flex-col gap-4">
+            <div class="divider my-0"></div>
+            <div class="flex items-center justify-between gap-2">
+              <h2 class="text-base font-semibold text-base-content/80 flex items-center gap-2">
+                <.icon name="hero-building-storefront" class="w-4 h-4" />
+                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Suppliers")}
+              </h2>
+              <.button type="button" phx-click="open_add_supplier" size="sm">
+                <.icon name="hero-plus" class="w-4 h-4" />
+                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Add Supplier")}
+              </.button>
+            </div>
+
+            <%!-- Add/edit supplier-info inline form --%>
+            <div :if={@supplier_form_open} class="card bg-base-200 p-4">
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div class="fieldset md:col-span-2">
+                  <.select
+                    name="supplier_info[supplier_uuid]"
+                    value={@supplier_info_draft["supplier_uuid"]}
+                    label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Supplier")}
+                    prompt={Gettext.gettext(PhoenixKitCatalogue.Gettext, "-- Select supplier --")}
+                    options={supplier_options(@all_suppliers)}
+                    phx-change="supplier_info_field_change"
+                    class="w-full"
+                  />
+                </div>
+                <.input
+                  type="text"
+                  name="supplier_info[supplier_sku]"
+                  value={@supplier_info_draft["supplier_sku"]}
+                  label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Supplier SKU")}
+                  phx-change="supplier_info_field_change"
+                  class="w-full font-mono"
+                  placeholder={Gettext.gettext(PhoenixKitCatalogue.Gettext, "e.g., ABC-001")}
+                />
+                <div class="fieldset">
+                  <label class="label">
+                    <span class="fieldset-legend">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Unit Cost")}</span>
+                  </label>
+                  <%!-- Deliberately raw (L029): the kit input wraps each
+                       field in its own feedback div, which would break the
+                       daisyUI join grouping of these two inputs. --%>
+                  <div class="join">
+                    <input
+                      type="number"
+                      name="supplier_info[unit_cost]"
+                      value={@supplier_info_draft["unit_cost"]}
+                      phx-change="supplier_info_field_change"
+                      step="0.0001"
+                      min="0"
+                      class="input join-item flex-1"
+                      placeholder="0.00"
+                    />
+                    <input
+                      type="text"
+                      name="supplier_info[currency]"
+                      value={@supplier_info_draft["currency"]}
+                      phx-change="supplier_info_field_change"
+                      class="input join-item w-16 font-mono uppercase"
+                      placeholder="EUR"
+                      maxlength="3"
+                    />
+                  </div>
+                </div>
+                <.input
+                  type="number"
+                  name="supplier_info[lead_time_days]"
+                  value={@supplier_info_draft["lead_time_days"]}
+                  label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Lead Time (days)")}
+                  phx-change="supplier_info_field_change"
+                  min="0"
+                  class="w-full"
+                />
+                <.input
+                  type="number"
+                  name="supplier_info[min_order_qty]"
+                  value={@supplier_info_draft["min_order_qty"]}
+                  label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Min. Order Qty")}
+                  phx-change="supplier_info_field_change"
+                  step="0.0001"
+                  min="0"
+                  class="w-full"
+                />
+              </div>
+              <div class="flex gap-2 mt-3 justify-end">
+                <.button type="button" phx-click="cancel_add_supplier" variant="ghost" size="sm">
+                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Cancel")}
+                </.button>
+                <.button type="button" phx-click="save_supplier_info" size="sm">
+                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Save")}
+                </.button>
+              </div>
+            </div>
+
+            <%!-- Supplier-info rows --%>
+            <div :if={@supplier_infos == []} class="text-sm text-base-content/50 italic py-2">
+              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "No suppliers linked yet.")}
+            </div>
+
+            <div :if={@supplier_infos != []} class="overflow-x-auto">
+              <table class="table table-sm w-full">
+                <thead>
+                  <tr>
+                    <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Supplier")}</th>
+                    <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "SKU")}</th>
+                    <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Unit Cost")}</th>
+                    <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Lead (d)")}</th>
+                    <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "MOQ")}</th>
+                    <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Primary")}</th>
+                    <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "History")}</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <%= for info <- @supplier_infos do %>
+                    <tr class={if info.is_primary, do: "bg-primary/5", else: ""}>
+                      <td class="font-medium">
+                        {supplier_display_name(info, @all_suppliers)}
+                      </td>
+                      <td class="font-mono text-xs">{info.supplier_sku || "—"}</td>
+                      <td>
+                        <%= if info.unit_cost do %>
+                          {Decimal.to_string(info.unit_cost, :normal)} {info.currency || ""}
+                        <% else %>
+                          —
+                        <% end %>
+                      </td>
+                      <td>{info.lead_time_days || "—"}</td>
+                      <td>
+                        <%= if info.min_order_qty do %>
+                          {Decimal.to_string(info.min_order_qty, :normal)}
+                        <% else %>
+                          —
+                        <% end %>
+                      </td>
+                      <td>
+                        <span :if={info.is_primary} class="badge badge-sm badge-primary">
+                          {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Primary")}
+                        </span>
+                        <.button
+                          :if={not info.is_primary}
+                          type="button"
+                          phx-click="set_primary_supplier"
+                          phx-value-uuid={info.uuid}
+                          variant="ghost"
+                          size="xs"
+                        >
+                          {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Make primary")}
+                        </.button>
+                      </td>
+                      <td>
+                        <.button
+                          type="button"
+                          phx-click="open_supplier_history"
+                          phx-value-uuid={info.uuid}
+                          variant="ghost"
+                          size="xs"
+                          title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Price History")}
+                        >
+                          <.icon name="hero-chevron-down" class="w-3 h-3" />
+                        </.button>
+                      </td>
+                      <td>
+                        <.button
+                          type="button"
+                          phx-click="delete_supplier_info"
+                          phx-value-uuid={info.uuid}
+                          data-confirm={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Remove this supplier link?")}
+                          variant="ghost"
+                          size="xs"
+                          class="text-error"
+                        >
+                          <.icon name="hero-trash" class="w-3 h-3" />
+                        </.button>
+                      </td>
+                    </tr>
+                  <% end %>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <%!-- Supplier price-history modal — read-only, compact. Shows closed
+               revision rows for the selected item/supplier pair. --%>
+          <dialog :if={@supplier_history_open} open class="modal">
+            <div class="modal-box max-w-lg">
+              <h3 class="font-bold text-lg mb-4">
+                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Price History")}
+                <span :if={@supplier_history_name} class="font-normal text-base-content/60 ml-1">
+                  — {@supplier_history_name}
+                </span>
+              </h3>
+              <div :if={@supplier_history_rows == []} class="text-sm text-base-content/50 italic py-2">
+                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "No price history.")}
+              </div>
+              <div :if={@supplier_history_rows != []} class="overflow-x-auto">
+                <table class="table table-xs w-full">
+                  <thead>
+                    <tr>
+                      <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Unit Cost")}</th>
+                      <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Currency")}</th>
+                      <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Valid From")}</th>
+                      <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Valid To")}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <%= for row <- @supplier_history_rows do %>
+                      <tr class={if is_nil(row.valid_to), do: "font-medium", else: "text-base-content/60"}>
+                        <td class="tabular-nums">
+                          <%= if row.unit_cost do %>
+                            {Decimal.to_string(row.unit_cost, :normal)}
+                          <% else %>
+                            —
+                          <% end %>
+                        </td>
+                        <td>{row.currency || "—"}</td>
+                        <td>{if row.valid_from, do: Date.to_string(row.valid_from), else: "—"}</td>
+                        <td>
+                          <%= if is_nil(row.valid_to) do %>
+                            <span class="badge badge-xs badge-primary">
+                              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Current")}
+                            </span>
+                          <% else %>
+                            {Date.to_string(row.valid_to)}
+                          <% end %>
+                        </td>
+                      </tr>
+                    <% end %>
+                  </tbody>
+                </table>
+              </div>
+              <div class="modal-action">
+                <button type="button" phx-click="close_supplier_history" class="btn btn-sm">
+                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Close")}
+                </button>
+              </div>
+            </div>
+            <div class="modal-backdrop" phx-click="close_supplier_history"></div>
+          </dialog>
+          </div>
+        </div>
+
         <div class={"mb-4 #{if @current_tab != :files, do: "hidden"}"}>
           <.attachments_files_panel
             uploads={@uploads}
