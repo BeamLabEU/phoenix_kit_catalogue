@@ -10,6 +10,63 @@ it should be a popup"
 
 ---
 
+## Update — price restored, comments added (2026-08-21, later)
+
+**Price is back, as a BUILT-IN entities field.** `SupplierFields.builtin_fields/0`
+declares `unit_cost` in the entities field-definition format, so it renders and
+casts through entities' own machinery. Entities grew a **`decimal`** type for it
+(see below) — `number` casts through `Float.parse/1` and would have rounded
+money.
+
+Its VALUE still goes to the typed column. Warehouse reads `info.unit_cost`
+directly (`cost_proposals.ex` compares a goods-receipt value against it as
+Decimals) and it is `NUMERIC(14,4)`, so moving it into JSONB would break a live
+cross-module contract. **A built-in field key names a real column**; only
+admin-defined extras live in `metadata`.
+
+Built-ins live in code, not in the blueprint, so the hidden manager cannot
+delete or retype them and so they survive the entities module being toggled off
+— `cast_field/2` is pure. Money must not become uneditable because someone
+flipped a switch. The Unit Cost column and the Edit / History row actions came
+back with the price; SKU, lead time and MOQ stay behind
+`@supplier_terms_fields`.
+
+### The `decimal` type in entities
+
+`phoenix_kit_entities`, first consumer this. Cast returns a `%Decimal{}`; Jason
+encodes a Decimal as a **quoted string**, so the JSONB round trip is lossless
+and reads hand back the exact digits including trailing zeros. Unlike `number`,
+whose `min`/`max` are stored but never enforced, decimal enforces them. It
+accepts a comma decimal separator (the norm in et/ru, rejected by
+`Decimal.parse/1`). The control's `step` follows the declared `scale`
+(default 4) or the browser rejects the very places the type exists to preserve.
+`FieldInput` also gained a `class` attr so a host can place a field inside a
+daisyUI join.
+
+### Supplier comments live on the CRM company
+
+A supplier IS a CRM company, so a comment about one is a comment on that
+company. The supplier row opens the **same thread** the company page's Comments
+tab shows — same `{resource_type, resource_uuid}` pair (`"crm_company"` + the
+company uuid). Nothing is copied or synced; there is one store, which is the
+same rule the rest of this integration follows.
+
+`Suppliers.crm_company_uuid/1` is the join. A party reference is already the
+company uuid; a linked local row resolves through its xref; an unlinked local
+row returns `nil`. **A CONTACT returns `nil` deliberately** — a contact is not a
+company, and filing company-scoped records against one would attach them to the
+wrong party. The affordance only renders for rows that resolve, and the uuid is
+resolved server-side from the row rather than taken from the event payload.
+
+`phoenix_kit_comments` is a **soft** dependency of the catalogue (CRM declares
+it; the catalogue does not). That is why the composer's `{:leaf_changed, …}` hop
+is wired at runtime in `handle_info` instead of through
+`use PhoenixKitComments.Embed`, which needs a compile-time dep. Without that hop
+"Post comment" silently no-ops — it is the documented failure mode of embedding
+this component. ⚠️ The catalogue's own suite cannot cover it (comments is not a
+dep, so `comments_available?/0` is false in tests); only
+`Suppliers.crm_company_uuid/1` is pinned there.
+
 ## Where this is going (owner direction, 2026-08-21)
 
 **Eventually every supplier field moves into entities — including the built-in
