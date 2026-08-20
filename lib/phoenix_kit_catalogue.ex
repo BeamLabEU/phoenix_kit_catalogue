@@ -2,9 +2,14 @@ defmodule PhoenixKitCatalogue do
   @moduledoc """
   Catalogue module for PhoenixKit.
 
-  Manages product catalogues with manufacturers, suppliers, categories, and items.
+  Manages product catalogues with manufacturers, categories, and items.
   Designed for manufacturing companies (e.g., kitchen/furniture producers) that need
-  to organize materials and components from multiple manufacturers and suppliers.
+  to organize materials and components from multiple manufacturers.
+
+  Suppliers are NOT managed here: a supplier is a commercial relationship and
+  lives in the CRM module as a company holding the `supplier` role. This module
+  keeps only the per-item sourcing facts (cost, SKU, lead time) and resolves the
+  supplier's identity through `PhoenixKitCatalogue.Catalogue.Suppliers`.
 
   ## Installation
 
@@ -137,7 +142,7 @@ defmodule PhoenixKitCatalogue do
       key: module_key(),
       label: "Catalogue",
       icon: "hero-rectangle-stack",
-      description: "Product catalogue management for manufacturers and suppliers"
+      description: "Product catalogue management for items, categories and manufacturers"
     }
   end
 
@@ -180,7 +185,7 @@ defmodule PhoenixKitCatalogue do
         # that conceptually belongs to it — the catalogues list, the
         # catalogue detail/new/edit pages, the nested item/category
         # new/edit pages — while explicitly excluding the sibling
-        # subtab paths (manufacturers, suppliers, import, events).
+        # subtab paths (manufacturers, attributes, import, events).
         #
         # Without this, hidden subtabs with literal `:uuid` segments
         # (e.g. "catalogue/:uuid/edit") never match a real URL, so the
@@ -188,7 +193,7 @@ defmodule PhoenixKitCatalogue do
         # detail/form pages — which looks wrong in the sidebar.
         match:
           {:regex,
-           ~r"^/admin/catalogue(/(?!manufacturers|suppliers|attributes|import|export|events|pdfs).*)?$"},
+           ~r"^/admin/catalogue(/(?!manufacturers|attributes|import|export|events|pdfs).*)?$"},
         parent: :admin_catalogue,
         live_view: {PhoenixKitCatalogue.Web.CataloguesLive, :index}
       },
