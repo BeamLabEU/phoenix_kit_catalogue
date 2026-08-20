@@ -195,6 +195,30 @@ defmodule PhoenixKitCatalogue.Catalogue.Suppliers do
   end
 
   @doc """
+  The CRM **company** uuid a supplier reference points at — directly when
+  the reference is already a party, or through the xref when it is a local
+  row linked to one. `nil` when there is no company behind it.
+
+  This is the join anyone needs to address a supplier as a CRM company:
+  comments, activity, anything CRM stores per company. Contacts return
+  `nil` deliberately — a contact is not a company, and pointing
+  company-scoped records at one would file them against the wrong party.
+  """
+  @spec crm_company_uuid(map()) :: Ecto.UUID.t() | nil
+  def crm_company_uuid(%{supplier_source: "crm_company", supplier_uuid: uuid})
+      when is_binary(uuid),
+      do: uuid
+
+  def crm_company_uuid(%{supplier_source: "local", supplier_uuid: uuid}) when is_binary(uuid) do
+    case repo().get(Supplier, uuid) do
+      %Supplier{crm_company_uuid: company_uuid} when is_binary(company_uuid) -> company_uuid
+      _ -> nil
+    end
+  end
+
+  def crm_company_uuid(_reference), do: nil
+
+  @doc """
   Lists all suppliers from all available sources as normalized maps.
 
   Each entry has keys `:uuid`, `:name`, `:email`, `:phone`, `:website`,

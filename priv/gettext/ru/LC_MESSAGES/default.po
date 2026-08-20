@@ -2724,3 +2724,9 @@ msgstr "Да"
 
 msgid "e.g. Incoterm"
 msgstr "напр. Incoterm"
+
+msgid "Comments"
+msgstr "Комментарии"
+
+msgid "Shared with this supplier's company page in CRM."
+msgstr "Общие со страницей компании этого поставщика в CRM."

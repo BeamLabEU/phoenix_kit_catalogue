@@ -2715,3 +2715,9 @@ msgstr "Jah"
 
 msgid "e.g. Incoterm"
 msgstr "nt Incoterm"
+
+msgid "Comments"
+msgstr "Kommentaarid"
+
+msgid "Shared with this supplier's company page in CRM."
+msgstr "Jagatud selle tarnija ettevõtte lehega CRM-is."
