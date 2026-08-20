@@ -452,4 +452,53 @@ defmodule PhoenixKitCatalogue.CrmLinkTest do
       assert Catalogue.items_manufactured_by(nil) == []
     end
   end
+
+  # The join anyone needs to address a supplier as a CRM company —
+  # comments are the first consumer, but nothing about it is
+  # comments-specific.
+  describe "crm_company_uuid/1" do
+    test "a party reference is already the company uuid" do
+      company_uuid = Ecto.UUID.generate()
+
+      assert Suppliers.crm_company_uuid(%{
+               supplier_source: "crm_company",
+               supplier_uuid: company_uuid
+             }) == company_uuid
+    end
+
+    test "a linked local row resolves through its xref" do
+      company_uuid = Ecto.UUID.generate()
+      supplier = supplier_fixture() |> mark_linked!(company_uuid)
+
+      assert Suppliers.crm_company_uuid(%{
+               supplier_source: "local",
+               supplier_uuid: supplier.uuid
+             }) == company_uuid
+    end
+
+    test "an unlinked local row has no company behind it" do
+      supplier = supplier_fixture()
+
+      refute Suppliers.crm_company_uuid(%{
+               supplier_source: "local",
+               supplier_uuid: supplier.uuid
+             })
+    end
+
+    # A contact is not a company. Filing company-scoped records against
+    # one would attach them to the wrong party entirely.
+    test "a contact reference returns nil rather than guessing" do
+      refute Suppliers.crm_company_uuid(%{
+               supplier_source: "crm_contact",
+               supplier_uuid: Ecto.UUID.generate()
+             })
+    end
+
+    test "a dangling local uuid returns nil rather than raising" do
+      refute Suppliers.crm_company_uuid(%{
+               supplier_source: "local",
+               supplier_uuid: Ecto.UUID.generate()
+             })
+    end
+  end
 end

@@ -2714,3 +2714,9 @@ msgstr ""
 
 msgid "e.g. Incoterm"
 msgstr ""
+
+msgid "Comments"
+msgstr ""
+
+msgid "Shared with this supplier's company page in CRM."
+msgstr ""

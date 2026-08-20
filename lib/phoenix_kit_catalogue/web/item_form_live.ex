@@ -82,6 +82,20 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   # what it always read.
   @supplier_terms_fields false
 
+  # Comments on a supplier are comments on the CRM COMPANY — the very same
+  # rows the company page's Comments tab shows, addressed by the same
+  # `{resource_type, resource_uuid}` pair (`"crm_company"` + the company
+  # uuid). Nothing is copied or synced between the two views because there
+  # is only one store, which is the same rule the rest of this integration
+  # follows.
+  #
+  # `phoenix_kit_comments` is a SOFT dependency here: the catalogue does
+  # not declare it (CRM does), so every touchpoint is guarded and the
+  # affordance simply does not render when the package is absent or the
+  # module is switched off.
+  @compile {:no_warn_undefined, PhoenixKitComments}
+  @compile {:no_warn_undefined, PhoenixKitComments.Web.CommentsComponent}
+
   @translatable_fields ["name", "description"]
   @preserve_fields %{
     # Translatable primaries: submitted only on the primary tab, so a
@@ -228,6 +242,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
       manufacturers: Catalogue.list_all_manufacturers(status: "active"),
       all_suppliers: Suppliers.list_all(),
       supplier_infos: load_supplier_infos(action, item),
+      supplier_comment_targets: %{},
       # nil = closed. Open state carries its own mode/draft/error so the
       # modal reports failures inside itself rather than as a page flash
       # that lands behind it.
@@ -235,6 +250,8 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
       supplier_fields: load_supplier_fields(),
       supplier_fields_manageable: supplier_fields_manageable?(),
       supplier_terms_visible: supplier_terms_fields?(),
+      supplier_comments_available: comments_available?(),
+      supplier_comments: nil,
       supplier_field_manager: false,
       supplier_field_editor: nil,
       supplier_field_remove: nil,
@@ -248,6 +265,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
       meta_state: Metadata.build_state(:item, item),
       show_pdf_search: false
     )
+    |> mount_supplier_comment_targets(action, item)
     |> Attachments.mount_attachments(item)
     |> Attachments.allow_attachment_upload()
     |> assign_changeset(changeset)
@@ -675,7 +693,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
       info ->
         case ItemSupplierInfos.set_primary(info, actor_opts(socket)) do
           {:ok, _} ->
-            {:noreply, assign(socket, supplier_infos: ItemSupplierInfos.list_for_item(item.uuid))}
+            {:noreply, assign_supplier_infos(socket, item.uuid)}
 
           {:error, _} ->
             {:noreply,
@@ -706,6 +724,28 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
     end
   end
 
+  # Opens the CRM company's comment thread for this supplier. The uuid is
+  # resolved server-side from the row, never taken from the payload — a
+  # crafted uuid must not be able to address an arbitrary company's
+  # comments.
+  def handle_event("open_supplier_comments", %{"uuid" => uuid}, socket) do
+    with true <- socket.assigns.supplier_comments_available,
+         %{} = info <- owned_supplier_info(socket, uuid),
+         company_uuid when is_binary(company_uuid) <- Catalogue.supplier_crm_company_uuid(info) do
+      {:noreply,
+       assign(socket, :supplier_comments, %{
+         company_uuid: company_uuid,
+         name: supplier_display_name(info, socket.assigns.all_suppliers)
+       })}
+    else
+      _ -> {:noreply, socket}
+    end
+  end
+
+  def handle_event("close_supplier_comments", _params, socket) do
+    {:noreply, assign(socket, :supplier_comments, nil)}
+  end
+
   def handle_event("close_supplier_history", _params, socket) do
     {:noreply,
      assign(socket,
@@ -727,7 +767,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
           {:ok, _} ->
             {:noreply,
              socket
-             |> assign(supplier_infos: ItemSupplierInfos.list_for_item(item.uuid))
+             |> assign_supplier_infos(item.uuid)
              |> put_flash(
                :info,
                Gettext.gettext(PhoenixKitCatalogue.Gettext, "Supplier removed.")
@@ -983,6 +1023,42 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
 
   defp supplier_terms_fields?, do: @supplier_terms_fields
 
+  defp comments_available? do
+    Code.ensure_loaded?(PhoenixKitComments) and PhoenixKitComments.enabled?()
+  rescue
+    _ -> false
+  catch
+    # An unreachable DB raises on an unowned checkout but EXITS on a dead
+    # pool — the settings read behind enabled?/0 hits both.
+    :exit, _ -> false
+  end
+
+  # Rows plus their comment targets, together. Only a row that resolves to
+  # a CRM company can carry comments — a purely local supplier has no
+  # company to file them against — and resolving a local row costs a
+  # query, so the map is built once per reload rather than per render.
+  # Runs after the main assign block: comment targets need both the rows
+  # and the availability flag, and neither exists before it.
+  defp mount_supplier_comment_targets(socket, :edit, %Item{uuid: uuid}) when not is_nil(uuid),
+    do: assign_supplier_infos(socket, uuid)
+
+  defp mount_supplier_comment_targets(socket, _action, _item), do: socket
+
+  defp assign_supplier_infos(socket, item_uuid) do
+    infos = ItemSupplierInfos.list_for_item(item_uuid)
+
+    targets =
+      if socket.assigns[:supplier_comments_available] do
+        infos
+        |> Map.new(&{&1.uuid, Catalogue.supplier_crm_company_uuid(&1)})
+        |> Map.filter(fn {_uuid, company} -> is_binary(company) end)
+      else
+        %{}
+      end
+
+    assign(socket, supplier_infos: infos, supplier_comment_targets: targets)
+  end
+
   # Computed once at mount rather than inline in the template: with the
   # flag off the compiler folds the call to a constant and rejects the
   # `:if` as an always-false conditional.
@@ -1137,10 +1213,8 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
 
   defp close_supplier_form(socket, message) do
     socket
-    |> assign(
-      supplier_form: nil,
-      supplier_infos: ItemSupplierInfos.list_for_item(socket.assigns.item.uuid)
-    )
+    |> assign(:supplier_form, nil)
+    |> assign_supplier_infos(socket.assigns.item.uuid)
     |> put_flash(:info, Gettext.gettext(PhoenixKitCatalogue.Gettext, message))
   end
 
@@ -1316,6 +1390,26 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
 
   def handle_info({:media_selector_closed}, socket),
     do: {:noreply, Attachments.close_media_selector(socket)}
+
+  # The comment composer's rich-text editor reports its content to the
+  # HOST via a process message — a LiveComponent has no handle_info of its
+  # own — so without this hop "Post comment" silently no-ops. Resolved at
+  # runtime because comments is a soft dep here; `use …Comments.Embed`
+  # would need a compile-time dependency the catalogue does not declare.
+  def handle_info({:leaf_changed, _payload} = msg, socket) do
+    case Code.ensure_loaded(PhoenixKitComments.Web.CommentsComponent) do
+      {:module, module} ->
+        case module.forward_leaf_event(msg, socket) do
+          {:noreply, _socket} = handled -> handled
+          # Not a comments editor — this LV has no other Leaf editor, so
+          # there is nothing else to route it to.
+          :pass -> {:noreply, socket}
+        end
+
+      _ ->
+        {:noreply, socket}
+    end
+  end
 
   def handle_info({:pdf_search_modal_closed}, socket),
     do: {:noreply, assign(socket, :show_pdf_search, false)}
@@ -2727,6 +2821,20 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                         </.button>
                       </td>
                       <td class="whitespace-nowrap text-right">
+                        <%!-- Opens the CRM company's own comment thread —
+                             the same rows its Comments tab shows. Absent
+                             for a supplier with no company behind it. --%>
+                        <.button
+                          :if={Map.has_key?(@supplier_comment_targets, info.uuid)}
+                          type="button"
+                          phx-click="open_supplier_comments"
+                          phx-value-uuid={info.uuid}
+                          variant="ghost"
+                          size="xs"
+                          title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Comments")}
+                        >
+                          <.icon name="hero-chat-bubble-left-ellipsis" class="w-3 h-3" />
+                        </.button>
                         <.button
                           type="button"
                           phx-click="edit_supplier_info"
@@ -3054,6 +3162,46 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
             phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Saving...")}
           >
             {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Save")}
+          </.button>
+        </:actions>
+      </.modal>
+
+      <%!-- Supplier comments — the CRM company's thread, not a
+           catalogue-local one. Same `{resource_type, resource_uuid}` the
+           company page uses, so anything written here appears on its
+           Comments tab and vice versa; there is one store, not two. --%>
+      <.modal
+        :if={@supplier_comments != nil}
+        id="supplier-comments-modal"
+        show
+        on_close="close_supplier_comments"
+        max_width="2xl"
+      >
+        <:title>
+          {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Comments")}
+          <span :if={@supplier_comments.name} class="font-normal text-base-content/60 ml-1">
+            — {@supplier_comments.name}
+          </span>
+        </:title>
+
+        <p class="text-xs text-base-content/50 mb-3">
+          {Gettext.gettext(
+            PhoenixKitCatalogue.Gettext,
+            "Shared with this supplier's company page in CRM."
+          )}
+        </p>
+
+        <.live_component
+          module={PhoenixKitComments.Web.CommentsComponent}
+          id={"supplier-comments-#{@supplier_comments.company_uuid}"}
+          resource_type="crm_company"
+          resource_uuid={@supplier_comments.company_uuid}
+          current_user={assigns[:phoenix_kit_current_user]}
+        />
+
+        <:actions>
+          <.button type="button" phx-click="close_supplier_comments">
+            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Close")}
           </.button>
         </:actions>
       </.modal>
