@@ -44,14 +44,6 @@ defmodule PhoenixKitCatalogue.Catalogue.CrmLink do
   alias PhoenixKitCatalogue.Catalogue.{ActivityLog, PubSub}
   alias PhoenixKitCatalogue.Schemas.{Manufacturer, Supplier}
 
-  @type party :: %{
-          uuid: Ecto.UUID.t(),
-          name: String.t(),
-          email: String.t() | nil,
-          phone: String.t() | nil,
-          website: String.t() | nil
-        }
-
   defp repo, do: PhoenixKit.RepoHelper.repo()
 
   @doc "True when the CRM module is loaded and exposes the party API this bridge needs."
