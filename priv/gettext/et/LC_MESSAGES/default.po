@@ -2593,3 +2593,66 @@ msgstr "Vigane väärtus."
 
 msgid "…"
 msgstr "…"
+
+msgid "CRM Company"
+msgstr "CRM ettevõte"
+
+msgid "Identity is managed in CRM. Name, website and contact info are read-only here."
+msgstr "Andmeid hallatakse CRM-is. Nimi, veebileht ja kontaktinfo on siin ainult lugemiseks."
+
+msgid "Linked to"
+msgstr "Seotud ettevõttega"
+
+msgid "The linked CRM company could not be found. Unlink to edit locally again."
+msgstr "Seotud CRM ettevõtet ei leitud. Eemalda seos, et jälle kohapeal muuta."
+
+msgid "Refresh from CRM"
+msgstr "Värskenda CRM-ist"
+
+msgid "Refreshing..."
+msgstr "Värskendan..."
+
+msgid "Unlink"
+msgstr "Eemalda seos"
+
+msgid "No CRM companies yet."
+msgstr "CRM ettevõtteid veel ei ole."
+
+msgid "Select a CRM company..."
+msgstr "Vali CRM ettevõte..."
+
+msgid "Link"
+msgstr "Seo"
+
+msgid "Linking..."
+msgstr "Seon..."
+
+msgid "Link this supplier to the CRM company it represents. The company gains the supplier role and its details are copied here."
+msgstr "Seo see tarnija CRM ettevõttega, keda ta esindab. Ettevõte saab tarnija rolli ja tema andmed kopeeritakse siia."
+
+msgid "Link this manufacturer to the CRM company it represents. Link only a real company — a brand you never deal with belongs in the catalogue alone."
+msgstr "Seo see tootja CRM ettevõttega, keda ta esindab. Seo ainult päris ettevõte — bränd, kellega sa kunagi ei suhtle, kuulub ainult kataloogi."
+
+msgid "Choose a CRM company first."
+msgstr "Vali kõigepealt CRM ettevõte."
+
+msgid "Linked to CRM."
+msgstr "CRM-iga seotud."
+
+msgid "Unlinked from CRM."
+msgstr "CRM seos eemaldatud."
+
+msgid "Refreshed from CRM."
+msgstr "CRM-ist värskendatud."
+
+msgid "The CRM module is not available."
+msgstr "CRM moodul ei ole saadaval."
+
+msgid "That CRM company no longer exists."
+msgstr "Seda CRM ettevõtet enam ei ole."
+
+msgid "This record is not linked to CRM."
+msgstr "See kirje ei ole CRM-iga seotud."
+
+msgid "That CRM company is already linked to another record."
+msgstr "See CRM ettevõte on juba teise kirjega seotud."

@@ -11,6 +11,7 @@ defmodule PhoenixKitCatalogue.Web.ManufacturerFormLive do
   import PhoenixKitWeb.Components.Core.Select, only: [select: 1]
   import PhoenixKitWeb.Components.Core.Textarea, only: [textarea: 1]
 
+  import PhoenixKitCatalogue.Web.Components.CrmLinkPanel, only: [crm_link_panel: 1]
   import PhoenixKitCatalogue.Web.Helpers, only: [actor_opts: 1]
 
   alias PhoenixKitCatalogue.Catalogue
@@ -76,8 +77,30 @@ defmodule PhoenixKitCatalogue.Web.ManufacturerFormLive do
          all_suppliers: all_suppliers,
          linked_supplier_uuids: MapSet.new(linked_supplier_uuids)
        )
+       |> assign_crm(manufacturer)
        |> assign_changeset(changeset)}
     end
+  end
+
+  # See the twin in SupplierFormLive: the party is resolved live, never
+  # cached, so a rename in CRM is visible here at once.
+  defp assign_crm(socket, manufacturer) do
+    available = Catalogue.crm_link_available?()
+
+    party =
+      with true <- available,
+           %{crm_company_uuid: uuid} when is_binary(uuid) <- manufacturer,
+           {:ok, party} <- Catalogue.resolve_manufacturer(uuid) do
+        party
+      else
+        _ -> nil
+      end
+
+    assign(socket,
+      crm_available: available,
+      crm_candidates: if(available, do: Catalogue.crm_link_candidates(), else: []),
+      crm_party: party
+    )
   end
 
   defp assign_changeset(socket, changeset) do
@@ -110,6 +133,75 @@ defmodule PhoenixKitCatalogue.Web.ManufacturerFormLive do
   def handle_event("save", %{"manufacturer" => params}, socket) do
     save_manufacturer(socket, socket.assigns.action, params)
   end
+
+  def handle_event("crm_link", %{"company_uuid" => ""}, socket) do
+    {:noreply,
+     put_flash(
+       socket,
+       :error,
+       Gettext.gettext(PhoenixKitCatalogue.Gettext, "Choose a CRM company first.")
+     )}
+  end
+
+  def handle_event("crm_link", %{"company_uuid" => company_uuid}, socket) do
+    socket.assigns.manufacturer
+    |> Catalogue.link_manufacturer_to_crm(company_uuid, actor_opts(socket))
+    |> handle_crm_result(socket, Gettext.gettext(PhoenixKitCatalogue.Gettext, "Linked to CRM."))
+  end
+
+  def handle_event("crm_unlink", _params, socket) do
+    socket.assigns.manufacturer
+    |> Catalogue.unlink_manufacturer_from_crm(actor_opts(socket))
+    |> handle_crm_result(
+      socket,
+      Gettext.gettext(PhoenixKitCatalogue.Gettext, "Unlinked from CRM.")
+    )
+  end
+
+  def handle_event("crm_refresh", _params, socket) do
+    socket.assigns.manufacturer
+    |> Catalogue.refresh_manufacturer_from_crm(actor_opts(socket))
+    |> handle_crm_result(
+      socket,
+      Gettext.gettext(PhoenixKitCatalogue.Gettext, "Refreshed from CRM.")
+    )
+  end
+
+  defp handle_crm_result({:ok, manufacturer}, socket, message) do
+    {:noreply,
+     socket
+     |> assign(:manufacturer, manufacturer)
+     |> assign_crm(manufacturer)
+     |> assign_changeset(Catalogue.change_manufacturer(manufacturer))
+     |> put_flash(:info, message)}
+  end
+
+  defp handle_crm_result({:error, reason}, socket, _message) do
+    {:noreply, put_flash(socket, :error, crm_error_message(reason))}
+  end
+
+  defp crm_error_message(:crm_unavailable),
+    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "The CRM module is not available.")
+
+  defp crm_error_message(reason) when reason in [:company_not_found, :party_not_found],
+    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "That CRM company no longer exists.")
+
+  defp crm_error_message(:not_linked),
+    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "This record is not linked to CRM.")
+
+  defp crm_error_message(%Ecto.Changeset{} = changeset) do
+    if Enum.any?(changeset.errors, fn {field, _} -> field == :crm_company_uuid end) do
+      Gettext.gettext(
+        PhoenixKitCatalogue.Gettext,
+        "That CRM company is already linked to another record."
+      )
+    else
+      Gettext.gettext(PhoenixKitCatalogue.Gettext, "Could not save the change.")
+    end
+  end
+
+  defp crm_error_message(_other),
+    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Could not save the change.")
 
   # actor_opts/1 imported from PhoenixKitCatalogue.Web.Helpers
 
@@ -209,6 +301,7 @@ defmodule PhoenixKitCatalogue.Web.ManufacturerFormLive do
               type="text"
               label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Name *")}
               placeholder={Gettext.gettext(PhoenixKitCatalogue.Gettext, "e.g., Blum, Hettich")}
+              readonly={crm_linked?(@manufacturer)}
               required
             />
 
@@ -233,12 +326,14 @@ defmodule PhoenixKitCatalogue.Web.ManufacturerFormLive do
                 type="url"
                 label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Website")}
                 placeholder={Gettext.gettext(PhoenixKitCatalogue.Gettext, "https://...")}
+                readonly={crm_linked?(@manufacturer)}
               />
               <.input
                 field={@form[:contact_info]}
                 type="text"
                 label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Contact Info")}
                 placeholder={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Email or phone")}
+                readonly={crm_linked?(@manufacturer)}
               />
             </div>
 
@@ -326,8 +421,25 @@ defmodule PhoenixKitCatalogue.Web.ManufacturerFormLive do
           </div>
         </div>
       </.form>
+
+      <%!-- Outside the form above on purpose: the picker is itself a form,
+            and nesting one form inside another is invalid HTML. --%>
+      <div :if={@crm_available and @action == :edit} class="card bg-base-100 shadow-lg">
+        <div class="card-body">
+          <.crm_link_panel
+            record={@manufacturer}
+            kind={:manufacturer}
+            available={@crm_available}
+            candidates={@crm_candidates}
+            party={@crm_party}
+          />
+        </div>
+      </div>
       </div>
     </PhoenixKitWeb.Components.LayoutWrapper.app_layout>
     """
   end
+
+  defp crm_linked?(%{crm_company_uuid: uuid}) when is_binary(uuid), do: true
+  defp crm_linked?(_), do: false
 end

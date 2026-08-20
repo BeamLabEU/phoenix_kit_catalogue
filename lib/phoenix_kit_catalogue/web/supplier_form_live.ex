@@ -11,6 +11,7 @@ defmodule PhoenixKitCatalogue.Web.SupplierFormLive do
   import PhoenixKitWeb.Components.Core.Select, only: [select: 1]
   import PhoenixKitWeb.Components.Core.Textarea, only: [textarea: 1]
 
+  import PhoenixKitCatalogue.Web.Components.CrmLinkPanel, only: [crm_link_panel: 1]
   import PhoenixKitCatalogue.Web.Helpers, only: [actor_opts: 1]
 
   alias PhoenixKitCatalogue.Catalogue
@@ -71,8 +72,31 @@ defmodule PhoenixKitCatalogue.Web.SupplierFormLive do
          all_manufacturers: all_manufacturers,
          linked_manufacturer_uuids: MapSet.new(linked_manufacturer_uuids)
        )
+       |> assign_crm(supplier)
        |> assign_changeset(changeset)}
     end
+  end
+
+  # The CRM party a linked supplier projects, resolved live rather than cached
+  # — a name edited in CRM shows here immediately, and the panel can say so
+  # when the party has been deleted underneath us.
+  defp assign_crm(socket, supplier) do
+    available = Catalogue.crm_link_available?()
+
+    party =
+      with true <- available,
+           %{crm_company_uuid: uuid} when is_binary(uuid) <- supplier,
+           {:ok, party} <- Catalogue.resolve_supplier(uuid) do
+        party
+      else
+        _ -> nil
+      end
+
+    assign(socket,
+      crm_available: available,
+      crm_candidates: if(available, do: Catalogue.crm_link_candidates(), else: []),
+      crm_party: party
+    )
   end
 
   defp assign_changeset(socket, changeset) do
@@ -105,6 +129,81 @@ defmodule PhoenixKitCatalogue.Web.SupplierFormLive do
   def handle_event("save", %{"supplier" => params}, socket) do
     save_supplier(socket, socket.assigns.action, params)
   end
+
+  def handle_event("crm_link", %{"company_uuid" => ""}, socket) do
+    {:noreply,
+     put_flash(
+       socket,
+       :error,
+       Gettext.gettext(PhoenixKitCatalogue.Gettext, "Choose a CRM company first.")
+     )}
+  end
+
+  def handle_event("crm_link", %{"company_uuid" => company_uuid}, socket) do
+    socket.assigns.supplier
+    |> Catalogue.link_supplier_to_crm(company_uuid, actor_opts(socket))
+    |> handle_crm_result(socket, Gettext.gettext(PhoenixKitCatalogue.Gettext, "Linked to CRM."))
+  end
+
+  def handle_event("crm_unlink", _params, socket) do
+    socket.assigns.supplier
+    |> Catalogue.unlink_supplier_from_crm(actor_opts(socket))
+    |> handle_crm_result(
+      socket,
+      Gettext.gettext(PhoenixKitCatalogue.Gettext, "Unlinked from CRM.")
+    )
+  end
+
+  def handle_event("crm_refresh", _params, socket) do
+    socket.assigns.supplier
+    |> Catalogue.refresh_supplier_from_crm(actor_opts(socket))
+    |> handle_crm_result(
+      socket,
+      Gettext.gettext(PhoenixKitCatalogue.Gettext, "Refreshed from CRM.")
+    )
+  end
+
+  # Re-derives the form from the updated record: linking rewrites name,
+  # website and contact_info, so the open form must not keep showing the
+  # pre-link values.
+  defp handle_crm_result({:ok, supplier}, socket, message) do
+    {:noreply,
+     socket
+     |> assign(:supplier, supplier)
+     |> assign_crm(supplier)
+     |> assign_changeset(Catalogue.change_supplier(supplier))
+     |> put_flash(:info, message)}
+  end
+
+  defp handle_crm_result({:error, reason}, socket, _message) do
+    {:noreply, put_flash(socket, :error, crm_error_message(reason))}
+  end
+
+  defp crm_error_message(:crm_unavailable),
+    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "The CRM module is not available.")
+
+  defp crm_error_message(:company_not_found),
+    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "That CRM company no longer exists.")
+
+  defp crm_error_message(:party_not_found),
+    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "That CRM company no longer exists.")
+
+  defp crm_error_message(:not_linked),
+    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "This record is not linked to CRM.")
+
+  defp crm_error_message(%Ecto.Changeset{} = changeset) do
+    if Enum.any?(changeset.errors, fn {field, _} -> field == :crm_company_uuid end) do
+      Gettext.gettext(
+        PhoenixKitCatalogue.Gettext,
+        "That CRM company is already linked to another record."
+      )
+    else
+      Gettext.gettext(PhoenixKitCatalogue.Gettext, "Could not save the change.")
+    end
+  end
+
+  defp crm_error_message(_other),
+    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Could not save the change.")
 
   # actor_opts/1 imported from PhoenixKitCatalogue.Web.Helpers
 
@@ -204,6 +303,7 @@ defmodule PhoenixKitCatalogue.Web.SupplierFormLive do
               type="text"
               label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Name *")}
               placeholder={Gettext.gettext(PhoenixKitCatalogue.Gettext, "e.g., Regional Distributors Inc.")}
+              readonly={crm_linked?(@supplier)}
               required
             />
 
@@ -228,12 +328,14 @@ defmodule PhoenixKitCatalogue.Web.SupplierFormLive do
                 type="url"
                 label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Website")}
                 placeholder={Gettext.gettext(PhoenixKitCatalogue.Gettext, "https://...")}
+                readonly={crm_linked?(@supplier)}
               />
               <.input
                 field={@form[:contact_info]}
                 type="text"
                 label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Contact Info")}
                 placeholder={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Email or phone")}
+                readonly={crm_linked?(@supplier)}
               />
             </div>
 
@@ -314,8 +416,25 @@ defmodule PhoenixKitCatalogue.Web.SupplierFormLive do
           </div>
         </div>
       </.form>
+
+      <%!-- Outside the form above on purpose: the picker is itself a form,
+            and nesting one form inside another is invalid HTML. --%>
+      <div :if={@crm_available and @action == :edit} class="card bg-base-100 shadow-lg">
+        <div class="card-body">
+          <.crm_link_panel
+            record={@supplier}
+            kind={:supplier}
+            available={@crm_available}
+            candidates={@crm_candidates}
+            party={@crm_party}
+          />
+        </div>
+      </div>
       </div>
     </PhoenixKitWeb.Components.LayoutWrapper.app_layout>
     """
   end
+
+  defp crm_linked?(%{crm_company_uuid: uuid}) when is_binary(uuid), do: true
+  defp crm_linked?(_), do: false
 end

@@ -2593,3 +2593,65 @@ msgstr ""
 
 msgid "…"
 msgstr ""
+msgid "CRM Company"
+msgstr ""
+
+msgid "Identity is managed in CRM. Name, website and contact info are read-only here."
+msgstr ""
+
+msgid "Linked to"
+msgstr ""
+
+msgid "The linked CRM company could not be found. Unlink to edit locally again."
+msgstr ""
+
+msgid "Refresh from CRM"
+msgstr ""
+
+msgid "Refreshing..."
+msgstr ""
+
+msgid "Unlink"
+msgstr ""
+
+msgid "No CRM companies yet."
+msgstr ""
+
+msgid "Select a CRM company..."
+msgstr ""
+
+msgid "Link"
+msgstr ""
+
+msgid "Linking..."
+msgstr ""
+
+msgid "Link this supplier to the CRM company it represents. The company gains the supplier role and its details are copied here."
+msgstr ""
+
+msgid "Link this manufacturer to the CRM company it represents. Link only a real company — a brand you never deal with belongs in the catalogue alone."
+msgstr ""
+
+msgid "Choose a CRM company first."
+msgstr ""
+
+msgid "Linked to CRM."
+msgstr ""
+
+msgid "Unlinked from CRM."
+msgstr ""
+
+msgid "Refreshed from CRM."
+msgstr ""
+
+msgid "The CRM module is not available."
+msgstr ""
+
+msgid "That CRM company no longer exists."
+msgstr ""
+
+msgid "This record is not linked to CRM."
+msgstr ""
+
+msgid "That CRM company is already linked to another record."
+msgstr ""

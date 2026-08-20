@@ -2602,3 +2602,66 @@ msgstr "Неверное значение."
 
 msgid "…"
 msgstr "…"
+
+msgid "CRM Company"
+msgstr "Компания в CRM"
+
+msgid "Identity is managed in CRM. Name, website and contact info are read-only here."
+msgstr "Данные компании ведутся в CRM. Название, сайт и контакты здесь доступны только для чтения."
+
+msgid "Linked to"
+msgstr "Связано с"
+
+msgid "The linked CRM company could not be found. Unlink to edit locally again."
+msgstr "Связанная компания в CRM не найдена. Удалите связь, чтобы снова редактировать здесь."
+
+msgid "Refresh from CRM"
+msgstr "Обновить из CRM"
+
+msgid "Refreshing..."
+msgstr "Обновление..."
+
+msgid "Unlink"
+msgstr "Удалить связь"
+
+msgid "No CRM companies yet."
+msgstr "В CRM пока нет компаний."
+
+msgid "Select a CRM company..."
+msgstr "Выберите компанию из CRM..."
+
+msgid "Link"
+msgstr "Связать"
+
+msgid "Linking..."
+msgstr "Связывание..."
+
+msgid "Link this supplier to the CRM company it represents. The company gains the supplier role and its details are copied here."
+msgstr "Свяжите этого поставщика с компанией в CRM, которую он представляет. Компания получит роль поставщика, а её данные скопируются сюда."
+
+msgid "Link this manufacturer to the CRM company it represents. Link only a real company — a brand you never deal with belongs in the catalogue alone."
+msgstr "Свяжите этого производителя с компанией в CRM, которую он представляет. Связывайте только реальную компанию — бренд, с которым вы не работаете, остаётся только в каталоге."
+
+msgid "Choose a CRM company first."
+msgstr "Сначала выберите компанию из CRM."
+
+msgid "Linked to CRM."
+msgstr "Связано с CRM."
+
+msgid "Unlinked from CRM."
+msgstr "Связь с CRM удалена."
+
+msgid "Refreshed from CRM."
+msgstr "Обновлено из CRM."
+
+msgid "The CRM module is not available."
+msgstr "Модуль CRM недоступен."
+
+msgid "That CRM company no longer exists."
+msgstr "Этой компании в CRM больше нет."
+
+msgid "This record is not linked to CRM."
+msgstr "Эта запись не связана с CRM."
+
+msgid "That CRM company is already linked to another record."
+msgstr "Эта компания в CRM уже связана с другой записью."
