@@ -2667,5 +2667,3 @@ msgstr "Кто-то другой изменил эту связь раньше. 
 msgid "Suppliers and Manufacturer"
 msgstr "Поставщики и производитель"
 
-msgid "Who makes this item."
-msgstr "Кто производит этот товар."

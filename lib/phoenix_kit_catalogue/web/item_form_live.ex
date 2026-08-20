@@ -2077,17 +2077,14 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
              panel it would be hidden along with it. --%>
         <div class={"card bg-base-100 shadow-lg #{if @current_tab != :sourcing, do: "hidden"}"}>
           <div class="card-body flex flex-col gap-5">
-            <div class="flex flex-col gap-4">
+            <div class="flex flex-col gap-3">
               <h2 class="text-base font-semibold text-base-content/80 flex items-center gap-2">
                 <.icon name="hero-building-office" class="w-4 h-4" />
                 {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Manufacturer")}
               </h2>
-              <p class="text-sm text-base-content/50 -mt-2">
-                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Who makes this item.")}
-              </p>
+              <%!-- No field label: the section title above already says it. --%>
               <.select
                 field={@form[:manufacturer_uuid]}
-                label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Manufacturer")}
                 class="transition-colors focus-within:select-primary"
                 prompt={Gettext.gettext(PhoenixKitCatalogue.Gettext, "-- No manufacturer --")}
                 options={manufacturer_options(@manufacturers)}
