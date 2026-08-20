@@ -61,7 +61,7 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
     catalogue_item_counts = Catalogue.item_counts_by_catalogue()
     catalogue_category_counts = Catalogue.category_counts_by_catalogue()
     manufacturers = Catalogue.list_manufacturers(status: "active")
-    suppliers = Catalogue.list_suppliers(status: "active")
+    suppliers = Catalogue.list_all_suppliers()
 
     {:ok,
      socket

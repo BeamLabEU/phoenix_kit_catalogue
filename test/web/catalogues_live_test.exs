@@ -98,14 +98,6 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
       assert html =~ "New Manufacturer"
     end
 
-    test "suppliers tab renders suppliers", %{conn: conn} do
-      fixture_supplier(%{name: "DelCo"})
-
-      {:ok, _view, html} = live(conn, "#{@base}/suppliers")
-      assert html =~ "DelCo"
-      assert html =~ "New Supplier"
-    end
-
     test "empty catalogues state", %{conn: conn} do
       {:ok, _view, html} = live(conn, @base)
       assert html =~ "No catalogues yet"
@@ -114,11 +106,6 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
     test "empty manufacturers state", %{conn: conn} do
       {:ok, _view, html} = live(conn, "#{@base}/manufacturers")
       assert html =~ "No manufacturers yet"
-    end
-
-    test "empty suppliers state", %{conn: conn} do
-      {:ok, _view, html} = live(conn, "#{@base}/suppliers")
-      assert html =~ "No suppliers yet"
     end
   end
 
@@ -569,15 +556,6 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
       expected_href = "/en/admin/catalogue/manufacturers/#{m.uuid}/edit"
       assert html =~ ~s(href="#{expected_href}")
     end
-
-    test "supplier name in the table view is a link to its edit page", %{conn: conn} do
-      s = fixture_supplier(%{name: "Clickable sup"})
-
-      {:ok, _view, html} = live(conn, "#{@base}/suppliers")
-
-      expected_href = "/en/admin/catalogue/suppliers/#{s.uuid}/edit"
-      assert html =~ ~s(href="#{expected_href}")
-    end
   end
 
   describe "catalogue mutations" do
@@ -655,17 +633,6 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
       render_click(view, "delete_manufacturer", %{})
 
       assert Catalogue.get_manufacturer(m.uuid) == nil
-    end
-
-    test "delete_supplier removes it from the list", %{conn: conn} do
-      s = fixture_supplier(%{name: "Gone supplier"})
-
-      {:ok, view, _html} = live(conn, "#{@base}/suppliers")
-
-      render_click(view, "show_delete_confirm", %{"uuid" => s.uuid, "type" => "supplier"})
-      render_click(view, "delete_supplier", %{})
-
-      assert Catalogue.get_supplier(s.uuid) == nil
     end
   end
 

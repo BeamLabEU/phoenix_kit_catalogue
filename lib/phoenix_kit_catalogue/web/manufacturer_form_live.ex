@@ -60,7 +60,7 @@ defmodule PhoenixKitCatalogue.Web.ManufacturerFormLive do
        )
        |> push_navigate(to: Paths.manufacturers())}
     else
-      all_suppliers = Catalogue.list_suppliers(status: "active")
+      all_suppliers = Catalogue.list_suppliers()
 
       {:ok,
        socket

@@ -5,7 +5,6 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   Handles three actions via tabs:
   - `:index` — list of catalogues
   - `:manufacturers` — list of manufacturers
-  - `:suppliers` — list of suppliers
   """
 
   use Phoenix.LiveView
@@ -148,7 +147,6 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   # move the "Items" usage counts.
   defp reload_on?(:index, kind), do: kind in [:catalogue, :item, :category, :folder]
   defp reload_on?(:manufacturers, kind), do: kind in [:manufacturer, :links]
-  defp reload_on?(:suppliers, kind), do: kind in [:supplier, :links]
   defp reload_on?(:attribute_groups, kind), do: kind in [:attribute_group, :attribute_set, :item]
   defp reload_on?(_tab, _kind), do: false
 
@@ -235,13 +233,12 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   defp active_scope(%{assigns: a}), do: active_scope(a)
   defp active_scope(%{active_tab: :index}), do: :catalogues
   defp active_scope(%{active_tab: :manufacturers}), do: :manufacturers
-  defp active_scope(%{active_tab: :suppliers}), do: :suppliers
   defp active_scope(%{active_tab: :attribute_groups}), do: :attribute_groups
 
   defp load_view_configs(socket) do
     user = socket.assigns[:phoenix_kit_current_user]
 
-    Map.new([:catalogues, :suppliers, :manufacturers, :attribute_groups], fn scope ->
+    Map.new([:catalogues, :manufacturers, :attribute_groups], fn scope ->
       {scope, ViewConfig.load(user, scope)}
     end)
   end
@@ -305,14 +302,11 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   defp tab_title(:manufacturers),
     do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Manufacturers")
 
-  defp tab_title(:suppliers), do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Suppliers")
-
   defp tab_title(:attribute_groups),
     do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Attributes")
 
   defp tab_path(:index), do: Paths.index()
   defp tab_path(:manufacturers), do: Paths.manufacturers()
-  defp tab_path(:suppliers), do: Paths.suppliers()
   defp tab_path(:attribute_groups), do: Paths.attribute_groups()
 
   # Graceful handler for a delete event that fires while `confirm_delete`
@@ -384,12 +378,6 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   defp load_data(socket, :manufacturers) do
     if connected?(socket),
       do: assign(socket, :manufacturers, Catalogue.list_manufacturers()),
-      else: socket
-  end
-
-  defp load_data(socket, :suppliers) do
-    if connected?(socket),
-      do: assign(socket, :suppliers, Catalogue.list_suppliers()),
       else: socket
   end
 
@@ -2733,70 +2721,6 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         </.simple_table>
       </div>
 
-      <div :if={@active_tab == :suppliers} class="flex flex-col gap-4">
-        <% cfg = @view_configs.suppliers %>
-        <.table_toolbar scope={:suppliers} cfg={cfg}>
-          <:filters>
-            <.enum_filter
-              id="status"
-              label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Status")}
-              value={cfg.filters["status"]}
-              prompt={Gettext.gettext(PhoenixKitCatalogue.Gettext, "All statuses")}
-              options={TableQuery.enum_options(@suppliers, :suppliers, "status")}
-            />
-          </:filters>
-          <:actions>
-            <.link navigate={Paths.supplier_new()} class="btn btn-primary btn-sm">
-              <.icon name="hero-plus" class="w-4 h-4" />
-              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "New Supplier")}
-            </.link>
-          </:actions>
-        </.table_toolbar>
-        <.simple_table
-          scope={:suppliers}
-          cfg={cfg}
-          rows={derive_rows(@suppliers, :suppliers, cfg)}
-          total={length(@suppliers)}
-          empty={Gettext.gettext(PhoenixKitCatalogue.Gettext, "No suppliers yet.")}
-        >
-          <:row_actions :let={s}>
-            <.table_row_menu mode="auto" id={"supplier-menu-#{s.uuid}"}>
-              <.table_row_menu_link
-                navigate={Paths.supplier_edit(s.uuid)}
-                icon="hero-pencil"
-                label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")}
-              />
-              <.table_row_menu_divider />
-              <.table_row_menu_button
-                phx-click="show_delete_confirm"
-                phx-value-uuid={s.uuid}
-                phx-value-type="supplier"
-                icon="hero-trash"
-                label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")}
-                variant="error"
-              />
-            </.table_row_menu>
-          </:row_actions>
-          <:card_actions :let={s}>
-            <.table_row_menu mode="auto" id={"card-supplier-menu-#{s.uuid}"}>
-              <.table_row_menu_link
-                navigate={Paths.supplier_edit(s.uuid)}
-                icon="hero-pencil"
-                label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")}
-              />
-              <.table_row_menu_divider />
-              <.table_row_menu_button
-                phx-click="show_delete_confirm"
-                phx-value-uuid={s.uuid}
-                phx-value-type="supplier"
-                icon="hero-trash"
-                label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")}
-                variant="error"
-              />
-            </.table_row_menu>
-          </:card_actions>
-        </.simple_table>
-      </div>
 
       <div :if={@active_tab == :attribute_groups} class="flex flex-col gap-4">
         <%!-- SETS (2026-08-18 rework) — the primary system once entities
@@ -3393,13 +3317,8 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     ~H"<span class='tabular-nums'>{@n}</span>"
   end
 
-  defp render_cell(scope, "name", row) when scope in [:suppliers, :manufacturers] do
-    path =
-      if scope == :suppliers,
-        do: Paths.supplier_edit(row.uuid),
-        else: Paths.manufacturer_edit(row.uuid)
-
-    assigns = %{path: path, name: row.name}
+  defp render_cell(:manufacturers, "name", row) do
+    assigns = %{path: Paths.manufacturer_edit(row.uuid), name: row.name}
 
     ~H"""
     <.link navigate={@path} class="link link-hover font-medium">{@name}</.link>
