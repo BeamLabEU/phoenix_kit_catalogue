@@ -2449,7 +2449,10 @@ defmodule PhoenixKitCatalogue.Web.Components do
   def party_items_columns do
     [
       %{id: "sku", label: fn -> Gettext.gettext(PhoenixKitCatalogue.Gettext, "SKU") end},
-      %{id: "base_price", label: fn -> Gettext.gettext(PhoenixKitCatalogue.Gettext, "Price") end},
+      %{
+        id: "base_price",
+        label: fn -> Gettext.gettext(PhoenixKitCatalogue.Gettext, "Base Price") end
+      },
       %{id: "unit", label: fn -> Gettext.gettext(PhoenixKitCatalogue.Gettext, "Unit") end},
       %{id: "status", label: fn -> Gettext.gettext(PhoenixKitCatalogue.Gettext, "Status") end},
       %{
