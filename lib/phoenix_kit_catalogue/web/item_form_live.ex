@@ -13,6 +13,9 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   import PhoenixKitWeb.Components.Core.Button, only: [button: 1]
   import PhoenixKitWeb.Components.Core.Modal, only: [modal: 1]
 
+  import PhoenixKitWeb.Components.Core.TableRowMenu,
+    only: [table_row_menu: 1, table_row_menu_button: 1, table_row_menu_divider: 1]
+
   # `<.input label=...>` renders its label as a plain `font-semibold` span
   # while `<.select>` and this component use daisyUI's `fieldset-legend`,
   # so the two sizes disagree wherever they sit side by side. The supplier
@@ -44,6 +47,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
     ]
 
   alias PhoenixKit.Modules.Storage.URLSigner
+  alias PhoenixKit.Users.Auth.User
   alias PhoenixKit.Utils.Multilang
   alias PhoenixKit.Utils.Routes
   alias PhoenixKitCatalogue.Attachments
@@ -252,6 +256,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
       supplier_terms_visible: supplier_terms_fields?(),
       supplier_comments_available: comments_available?(),
       supplier_comments: nil,
+      supplier_comment_previews: %{},
       supplier_field_manager: false,
       supplier_field_editor: nil,
       supplier_field_remove: nil,
@@ -1056,7 +1061,124 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
         %{}
       end
 
-    assign(socket, supplier_infos: infos, supplier_comment_targets: targets)
+    socket
+    |> assign(supplier_infos: infos, supplier_comment_targets: targets)
+    |> assign(:supplier_comment_previews, comment_previews(targets))
+  end
+
+  # ── Inline comment previews ──────────────────────────────────────────
+
+  attr(:preview, :map, required: true)
+  attr(:uuid, :string, required: true)
+
+  defp supplier_comment_preview(assigns) do
+    ~H"""
+    <div class="rounded-lg bg-base-200/50 px-3 py-2 flex flex-col gap-2">
+      <div :if={@preview.latest == []} class="flex items-center justify-between gap-2">
+        <span class="text-xs text-base-content/50 italic">
+          {Gettext.gettext(PhoenixKitCatalogue.Gettext, "No comments yet.")}
+        </span>
+        <.button
+          type="button"
+          phx-click="open_supplier_comments"
+          phx-value-uuid={@uuid}
+          variant="ghost"
+          size="xs"
+        >
+          <.icon name="hero-chat-bubble-left-ellipsis" class="w-3.5 h-3.5" />
+          {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Add a comment")}
+        </.button>
+      </div>
+
+      <div :for={comment <- @preview.latest} class="flex flex-col gap-0.5">
+        <div class="flex items-baseline gap-2">
+          <span class="text-xs font-medium">{comment_author(comment)}</span>
+          <span class="text-[0.65rem] text-base-content/40">
+            {Calendar.strftime(comment.inserted_at, "%Y-%m-%d")}
+          </span>
+        </div>
+        <p class="text-xs text-base-content/70 leading-snug">{comment_excerpt(comment)}</p>
+      </div>
+
+      <.button
+        :if={@preview.latest != []}
+        type="button"
+        phx-click="open_supplier_comments"
+        phx-value-uuid={@uuid}
+        variant="ghost"
+        size="xs"
+        class="self-start"
+      >
+        {if @preview.count > length(@preview.latest),
+          do:
+            Gettext.gettext(PhoenixKitCatalogue.Gettext, "Show all %{count} comments",
+              count: @preview.count
+            ),
+          else: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Open comments")}
+      </.button>
+    </div>
+    """
+  end
+
+  @comment_preview_count 2
+
+  # One grouped count query for every supplier on the item, then a list
+  # only for the ones that actually have comments — so an item whose
+  # suppliers have none costs a single query.
+  defp comment_previews(targets) when map_size(targets) == 0, do: %{}
+
+  defp comment_previews(targets) do
+    counts =
+      PhoenixKitComments.count_comments("crm_company", Map.values(targets) |> Enum.uniq())
+
+    Map.new(targets, fn {info_uuid, company_uuid} ->
+      count = Map.get(counts, company_uuid, 0)
+
+      {info_uuid, %{count: count, latest: latest_comments(company_uuid, count)}}
+    end)
+  rescue
+    # A preview is decoration; it must never take the sourcing tab down.
+    error ->
+      Logger.warning("supplier comment previews unavailable: #{inspect(error)}")
+      %{}
+  end
+
+  defp latest_comments(_company_uuid, 0), do: []
+
+  defp latest_comments(company_uuid, _count) do
+    "crm_company"
+    |> PhoenixKitComments.list_comments(company_uuid, preload: [:user])
+    |> Enum.take(-@comment_preview_count)
+    |> Enum.reverse()
+  end
+
+  # Comment bodies are rich text. The preview strips markup and truncates;
+  # HEEx escapes the result on the way out, so nothing a commenter wrote
+  # can render as markup here.
+  defp comment_excerpt(%{content: content}) when is_binary(content) do
+    content
+    |> String.replace(~r/<[^>]*>/, " ")
+    |> String.replace(~r/\s+/, " ")
+    |> String.trim()
+    |> String.slice(0, 140)
+  end
+
+  defp comment_excerpt(_comment), do: ""
+
+  # `author_display_name` is frozen on the row at write time — re-deriving
+  # it would re-sign old comments when someone is renamed.
+  defp comment_author(%{author_display_name: name}) when is_binary(name) and name != "", do: name
+
+  defp comment_author(%{user: %User{} = user}), do: User.display_name(user)
+
+  defp comment_author(_comment),
+    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Unknown")
+
+  # Header count must match the cells rendered per row, or the preview row
+  # under each supplier misaligns the table.
+  defp supplier_table_colspan(assigns) do
+    # Supplier + Unit Cost + Primary + actions
+    4 + if(assigns.supplier_terms_visible, do: 3, else: 0) + length(assigns.supplier_fields)
   end
 
   # Computed once at mount rather than inline in the template: with the
@@ -2759,7 +2881,6 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                     </th>
                     <th :for={field <- @supplier_fields}>{field["label"]}</th>
                     <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Primary")}</th>
-                    <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "History")}</th>
                     <th></th>
                   </tr>
                 </thead>
@@ -2791,71 +2912,74 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                         {supplier_field_display(info, field)}
                       </td>
                       <td>
+                        <%!-- Primary is a STATUS here; promoting is an
+                             action and lives in the row menu with the
+                             rest. --%>
                         <span :if={info.is_primary} class="badge badge-sm badge-primary">
                           {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Primary")}
                         </span>
-                        <.button
-                          :if={not info.is_primary}
-                          type="button"
-                          phx-click="set_primary_supplier"
-                          phx-value-uuid={info.uuid}
-                          variant="ghost"
-                          size="xs"
-                        >
-                          {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Make primary")}
-                        </.button>
+                        <span :if={not info.is_primary} class="text-base-content/30">—</span>
                       </td>
-                      <%!-- History and Edit exist to manage the price, so
-                           they are tied to it rather than to the hidden
-                           terms flag. --%>
-                      <td>
-                        <.button
-                          type="button"
-                          phx-click="open_supplier_history"
-                          phx-value-uuid={info.uuid}
-                          variant="ghost"
-                          size="xs"
-                          title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Price History")}
-                        >
-                          <.icon name="hero-chevron-down" class="w-3 h-3" />
-                        </.button>
-                      </td>
+                      <%!-- Every row action in one ⋮ menu (core's
+                           TableRowMenu — it uses position:fixed via the
+                           RowMenu hook so the panel escapes the table's
+                           overflow clipping, which a plain daisyUI
+                           dropdown does not). --%>
                       <td class="whitespace-nowrap text-right">
-                        <%!-- Opens the CRM company's own comment thread —
-                             the same rows its Comments tab shows. Absent
-                             for a supplier with no company behind it. --%>
-                        <.button
-                          :if={Map.has_key?(@supplier_comment_targets, info.uuid)}
-                          type="button"
-                          phx-click="open_supplier_comments"
-                          phx-value-uuid={info.uuid}
-                          variant="ghost"
-                          size="xs"
-                          title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Comments")}
-                        >
-                          <.icon name="hero-chat-bubble-left-ellipsis" class="w-3 h-3" />
-                        </.button>
-                        <.button
-                          type="button"
-                          phx-click="edit_supplier_info"
-                          phx-value-uuid={info.uuid}
-                          variant="ghost"
-                          size="xs"
-                          title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")}
-                        >
-                          <.icon name="hero-pencil" class="w-3 h-3" />
-                        </.button>
-                        <.button
-                          type="button"
-                          phx-click="delete_supplier_info"
-                          phx-value-uuid={info.uuid}
-                          data-confirm={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Remove this supplier link?")}
-                          variant="ghost"
-                          size="xs"
-                          class="text-error"
-                        >
-                          <.icon name="hero-trash" class="w-3 h-3" />
-                        </.button>
+                        <.table_row_menu id={"supplier-actions-#{info.uuid}"}>
+                          <.table_row_menu_button
+                            :if={Map.has_key?(@supplier_comment_targets, info.uuid)}
+                            phx-click="open_supplier_comments"
+                            phx-value-uuid={info.uuid}
+                            icon="hero-chat-bubble-left-ellipsis"
+                            label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Comments")}
+                          />
+                          <.table_row_menu_button
+                            phx-click="edit_supplier_info"
+                            phx-value-uuid={info.uuid}
+                            icon="hero-pencil"
+                            label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")}
+                          />
+                          <.table_row_menu_button
+                            phx-click="open_supplier_history"
+                            phx-value-uuid={info.uuid}
+                            icon="hero-clock"
+                            label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Price History")}
+                          />
+                          <.table_row_menu_button
+                            :if={not info.is_primary}
+                            phx-click="set_primary_supplier"
+                            phx-value-uuid={info.uuid}
+                            icon="hero-star"
+                            label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Make primary")}
+                          />
+                          <.table_row_menu_divider />
+                          <.table_row_menu_button
+                            phx-click="delete_supplier_info"
+                            phx-value-uuid={info.uuid}
+                            data-confirm={
+                              Gettext.gettext(
+                                PhoenixKitCatalogue.Gettext,
+                                "Remove this supplier link?"
+                              )
+                            }
+                            icon="hero-trash"
+                            label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Remove")}
+                            variant="error"
+                          />
+                        </.table_row_menu>
+                      </td>
+                    </tr>
+
+                    <%!-- The supplier's latest comments, inline. These are
+                         the CRM company's own — the same rows its Comments
+                         tab shows. --%>
+                    <tr :if={Map.has_key?(@supplier_comment_previews, info.uuid)} class="border-0">
+                      <td colspan={supplier_table_colspan(assigns)} class="pt-0 pb-3">
+                        <.supplier_comment_preview
+                          preview={@supplier_comment_previews[info.uuid]}
+                          uuid={info.uuid}
+                        />
                       </td>
                     </tr>
                   <% end %>
