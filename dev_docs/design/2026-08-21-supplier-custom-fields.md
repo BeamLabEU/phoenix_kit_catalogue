@@ -58,6 +58,22 @@ company, and filing company-scoped records against one would attach them to the
 wrong party. The affordance only renders for rows that resolve, and the uuid is
 resolved server-side from the row rather than taken from the event payload.
 
+Each supplier row shows its **two latest comments inline**, with a "Show all N"
+button opening the full thread. One grouped count query covers every supplier on
+the item; the list runs only for the ones that actually have comments, so an
+item whose suppliers have none costs a single query. Bodies are rich text, so
+the excerpt strips markup and truncates and HEEx escapes the result — nothing a
+commenter wrote can render as markup there. The author comes from the row's
+frozen `author_display_name`, never re-derived, or a rename would re-sign every
+old comment. A failure anywhere in the preview is logged and swallowed:
+decoration must not take the sourcing tab down.
+
+Row actions (Comments, Edit, Price History, Make primary, Remove) live in core's
+`TableRowMenu`. It positions with `position: fixed` via the `RowMenu` hook so the
+panel escapes the table's `overflow-clip`, which a plain daisyUI dropdown does
+not. **Primary stays a badge in its own column** — it is a status, not an action
+— and promoting it is a menu item.
+
 `phoenix_kit_comments` is a **soft** dependency of the catalogue (CRM declares
 it; the catalogue does not). That is why the composer's `{:leaf_changed, …}` hop
 is wired at runtime in `handle_info` instead of through
