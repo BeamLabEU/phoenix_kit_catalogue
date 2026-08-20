@@ -2,6 +2,12 @@ defmodule PhoenixKitCatalogue.Catalogue.CrmLink do
   @moduledoc """
   Links a catalogue directory row to the CRM party it represents.
 
+  There is no UI for this any more: suppliers and manufacturers are created
+  and managed in CRM, and the item form picks them from there directly. What
+  remains is the migration path for rows that predate the move —
+  `mix phoenix_kit_crm.import_suppliers_from_catalogue` and anything else that
+  needs to attach an existing local row to its party.
+
   CRM owns party identity: "supplier" and "manufacturer" are *roles* on a CRM
   company or contact. The catalogue's local `phoenix_kit_cat_suppliers` /
   `phoenix_kit_cat_manufacturers` rows are kept — catalogue-standalone installs
