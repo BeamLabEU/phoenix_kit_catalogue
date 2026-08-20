@@ -2336,12 +2336,14 @@ defmodule PhoenixKitCatalogue.Web.Components do
 
   Presentation — the image column, the card/table toggle, price and status
   formatting — stays owned by the catalogue, so an embedded list keeps
-  matching the catalogue's own.
+  matching the catalogue's own. That includes the convention that an item's
+  name opens its edit form; the `catalogue` column is the way back to where
+  the item lives.
   """
   def party_items_table(assigns) do
     assigns =
       assigns
-      |> Map.put_new(:columns, [:name, :sku, :base_price, :unit, :status, :category])
+      |> Map.put_new(:columns, [:name, :sku, :base_price, :unit, :status, :catalogue, :category])
       |> Map.put_new(:id, "party-items")
 
     ~H"""
