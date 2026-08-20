@@ -5210,6 +5210,9 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
   # ── Supplier custom fields (entities-defined, values on the row) ────
 
+  defdelegate supplier_builtin_fields(), to: SupplierFields, as: :builtin_fields
+  defdelegate supplier_builtin_field(key), to: SupplierFields, as: :builtin_field
+  defdelegate cast_supplier_builtin(key, raw), to: SupplierFields, as: :cast_builtin
   defdelegate supplier_fields(opts \\ []), to: SupplierFields, as: :fields
   defdelegate supplier_field(key, opts \\ []), to: SupplierFields, as: :field
   defdelegate supplier_field_types(), to: SupplierFields, as: :field_types

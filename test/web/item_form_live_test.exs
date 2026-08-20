@@ -271,28 +271,97 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLiveTest do
       )
     end
 
-    # Owner decision 2026-08-21: a supplier row is just a link to a
-    # supplier. Everything behind @supplier_terms_fields stays in the
-    # database and in the context — this pins that none of it renders.
-    test "the modal is a supplier picker and nothing else", %{conn: conn} do
+    # Owner decisions 2026-08-21: the supplier form carries the picker and
+    # the PRICE, nothing else. SKU, lead time and MOQ stay behind
+    # @supplier_terms_fields — their data and columns are untouched.
+    test "the modal carries the picker and the price, and nothing else", %{conn: conn} do
       item =
         fixture_item(%{
           name: "Oak Panel",
           category_uuid: fixture_category(fixture_catalogue()).uuid
         })
 
-      {:ok, view, page} = live(conn, edit_item_url(item.uuid))
+      {:ok, view, _page} = live(conn, edit_item_url(item.uuid))
       html = render_click(view, "open_add_supplier", %{})
 
       assert html =~ ~s(name="supplier_info[supplier_uuid]")
+      assert html =~ ~s(name="supplier_info[unit_cost]")
+      assert html =~ ~s(name="supplier_info[currency]")
 
-      for field <- ~w(supplier_sku unit_cost currency lead_time_days min_order_qty) do
+      for field <- ~w(supplier_sku lead_time_days min_order_qty) do
         refute html =~ ~s(name="supplier_info[#{field}]")
       end
+    end
 
-      # ...and the row actions that only make sense beside those fields.
-      refute page =~ "open_supplier_history"
-      refute page =~ "edit_supplier_info"
+    # The price control comes from entities' `decimal` renderer, not a
+    # hand-rolled number input — that is what keeps it exact.
+    test "the price control is the entities decimal field", %{conn: conn} do
+      item =
+        fixture_item(%{
+          name: "Oak Panel",
+          category_uuid: fixture_category(fixture_catalogue()).uuid
+        })
+
+      {:ok, view, _page} = live(conn, edit_item_url(item.uuid))
+      html = render_click(view, "open_add_supplier", %{})
+
+      # scale 4 on the built-in definition, or the browser rejects the
+      # fourth decimal place the column stores.
+      assert html =~ ~s(step="0.0001")
+      assert Catalogue.supplier_builtin_field("unit_cost")["type"] == "decimal"
+    end
+
+    # The whole reason entities grew a `decimal` type: a price must reach
+    # NUMERIC(14,4) exactly, not via Float.parse/1.
+    test "a price saves to the column exactly, to four places", %{conn: conn} do
+      item =
+        fixture_item(%{
+          name: "Oak Panel",
+          category_uuid: fixture_category(fixture_catalogue()).uuid
+        })
+
+      supplier = fixture_supplier()
+
+      {:ok, view, _html} = live(conn, edit_item_url(item.uuid))
+      render_click(view, "open_add_supplier", %{})
+
+      render_change(view, "supplier_info_field_change", %{
+        "supplier_info" => %{
+          "supplier_uuid" => supplier.uuid,
+          "unit_cost" => "5.1234",
+          "currency" => "eur"
+        }
+      })
+
+      render_click(view, "save_supplier_info", %{})
+
+      [info] = Catalogue.list_supplier_infos_for_item(item.uuid)
+      assert Decimal.equal?(info.unit_cost, Decimal.new("5.1234"))
+      assert Decimal.to_string(info.unit_cost, :normal) == "5.1234"
+      # Currency is upcased on the way in — the input is uppercase by CSS only.
+      assert info.currency == "EUR"
+    end
+
+    test "a price that is not a number is refused inside the modal", %{conn: conn} do
+      item =
+        fixture_item(%{
+          name: "Oak Panel",
+          category_uuid: fixture_category(fixture_catalogue()).uuid
+        })
+
+      supplier = fixture_supplier()
+
+      {:ok, view, _html} = live(conn, edit_item_url(item.uuid))
+      render_click(view, "open_add_supplier", %{})
+
+      render_change(view, "supplier_info_field_change", %{
+        "supplier_info" => %{"supplier_uuid" => supplier.uuid, "unit_cost" => "abc"}
+      })
+
+      html = render_click(view, "save_supplier_info", %{})
+
+      assert html =~ "Unit cost must be a number."
+      assert Catalogue.list_supplier_infos_for_item(item.uuid) == []
     end
 
     test "add is refused with no supplier picked, and says so inside the modal",

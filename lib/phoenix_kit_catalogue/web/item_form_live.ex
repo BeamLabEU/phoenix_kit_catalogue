@@ -1025,6 +1025,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
     supplier_uuid = Map.get(form.draft, "supplier_uuid", "")
 
     with :ok <- require_supplier(supplier_uuid),
+         {:ok, unit_cost} <- cast_unit_cost(form.draft),
          {:ok, custom} <- Catalogue.cast_supplier_field_values(form.custom) do
       selected = Enum.find(socket.assigns.all_suppliers, &(&1.uuid == supplier_uuid))
 
@@ -1032,6 +1033,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
         form.draft
         |> supplier_column_attrs()
         |> Map.merge(%{
+          "unit_cost" => unit_cost,
           "item_uuid" => item.uuid,
           "supplier_uuid" => supplier_uuid,
           # The dropdown mixes local and CRM suppliers; persist the source
@@ -1081,6 +1083,19 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
     |> Map.update!("currency", &normalize_currency/1)
   end
 
+  # `unit_cost` is a BUILT-IN entities field: cast it through the same
+  # pipeline an admin-defined field uses, so the value reaching the
+  # NUMERIC(14,4) column is an exact Decimal rather than whatever the
+  # browser submitted. Returns nil when cleared.
+  defp cast_unit_cost(draft) do
+    case Catalogue.cast_supplier_builtin("unit_cost", Map.get(draft, "unit_cost")) do
+      {:ok, cost} -> {:ok, cost}
+      # Named so the modal says "Unit cost must be a number" rather than
+      # the generic extra-fields message.
+      {:error, _reason} -> {:error, :invalid_cost}
+    end
+  end
+
   # The input is uppercase by CSS only — the submitted value keeps
   # whatever case was typed, and the schema's ^[A-Z]{3}$ would reject it.
   defp normalize_currency(nil), do: nil
@@ -1096,23 +1111,23 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   # for the first time (or clearing it) is an ordinary column write and
   # rides the update above.
   defp apply_cost_change(info, draft, opts) do
-    raw_cost = draft |> Map.get("unit_cost") |> to_string() |> String.trim()
     currency = draft |> Map.get("currency") |> normalize_currency() |> blank_to_nil()
 
-    if is_nil(info.unit_cost) or raw_cost == "" do
-      ItemSupplierInfos.update(
-        info,
-        %{"unit_cost" => blank_to_nil(raw_cost), "currency" => currency},
-        opts
-      )
-    else
-      case Decimal.parse(raw_cost) do
-        {cost, ""} ->
-          ItemSupplierInfos.revise_unit_cost(info, cost, Keyword.put(opts, :currency, currency))
+    # Cast through the entities decimal field, not Decimal.parse/1
+    # directly: the field carries the scale and the `min: 0` bound, and
+    # this is the one place a price enters the system from a form.
+    case cast_unit_cost(draft) do
+      {:ok, nil} ->
+        ItemSupplierInfos.update(info, %{"unit_cost" => nil, "currency" => currency}, opts)
 
-        _ ->
-          {:error, :invalid_cost}
-      end
+      {:ok, cost} when is_nil(info.unit_cost) ->
+        ItemSupplierInfos.update(info, %{"unit_cost" => cost, "currency" => currency}, opts)
+
+      {:ok, cost} ->
+        ItemSupplierInfos.revise_unit_cost(info, cost, Keyword.put(opts, :currency, currency))
+
+      {:error, _reason} ->
+        {:error, :invalid_cost}
     end
   end
 
@@ -2641,9 +2656,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                     <th :if={@supplier_terms_visible}>
                       {Gettext.gettext(PhoenixKitCatalogue.Gettext, "SKU")}
                     </th>
-                    <th :if={@supplier_terms_visible}>
-                      {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Unit Cost")}
-                    </th>
+                    <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Unit Cost")}</th>
                     <th :if={@supplier_terms_visible}>
                       {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Lead (d)")}
                     </th>
@@ -2652,9 +2665,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                     </th>
                     <th :for={field <- @supplier_fields}>{field["label"]}</th>
                     <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Primary")}</th>
-                    <th :if={@supplier_terms_visible}>
-                      {Gettext.gettext(PhoenixKitCatalogue.Gettext, "History")}
-                    </th>
+                    <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "History")}</th>
                     <th></th>
                   </tr>
                 </thead>
@@ -2667,7 +2678,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                       <td :if={@supplier_terms_visible} class="font-mono text-xs">
                         {info.supplier_sku || "—"}
                       </td>
-                      <td :if={@supplier_terms_visible}>
+                      <td>
                         <%= if info.unit_cost do %>
                           {Decimal.to_string(info.unit_cost, :normal)} {info.currency || ""}
                         <% else %>
@@ -2700,11 +2711,10 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                           {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Make primary")}
                         </.button>
                       </td>
-                      <%!-- History and Edit ride the terms flag: with no
-                           editable fields the edit modal would be empty, and
-                           a price history nothing can add a price to is a
-                           dead button. --%>
-                      <td :if={@supplier_terms_visible}>
+                      <%!-- History and Edit exist to manage the price, so
+                           they are tied to it rather than to the hidden
+                           terms flag. --%>
+                      <td>
                         <.button
                           type="button"
                           phx-click="open_supplier_history"
@@ -2718,7 +2728,6 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                       </td>
                       <td class="whitespace-nowrap text-right">
                         <.button
-                          :if={@supplier_terms_visible}
                           type="button"
                           phx-click="edit_supplier_info"
                           phx-value-uuid={info.uuid}
@@ -2942,20 +2951,25 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
               />
             </div>
 
-            <div :if={@supplier_terms_visible}>
+            <%!-- Price is NOT behind the terms flag: the owner asked for
+                 it back specifically, and it is the one field warehouse
+                 reads. The cost control comes from entities' own renderer
+                 for its `decimal` type — added for this — so the value is
+                 exact rather than a float. --%>
+            <div class="md:col-span-2">
               <.label class="block mb-2">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Unit Cost")}</.label>
               <%!-- Deliberately raw (L029): the kit input wraps each field
                    in its own feedback div, which would break the daisyUI
                    join grouping of these two inputs. --%>
               <div class="join w-full">
-                <input
-                  type="number"
+                <.field_input
+                  field={Catalogue.supplier_builtin_field("unit_cost")}
+                  id="supplier-unit-cost"
                   name="supplier_info[unit_cost]"
                   value={@supplier_form.draft["unit_cost"]}
-                  step="0.0001"
-                  min="0"
-                  class="input join-item flex-1"
-                  placeholder="0.00"
+                  form="supplier-form"
+                  size="md"
+                  class="join-item flex-1"
                 />
                 <input
                   type="text"
