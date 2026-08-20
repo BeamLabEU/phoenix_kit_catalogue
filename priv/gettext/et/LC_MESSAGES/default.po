@@ -2597,7 +2597,7 @@ msgstr "…"
 msgid "CRM Company"
 msgstr "CRM ettevõte"
 
-msgid "Identity is managed in CRM. Name, website and contact info are read-only here."
+msgid "Details come from CRM wherever this is used. The fields above are no longer shown to anyone."
 msgstr "Andmeid hallatakse CRM-is. Nimi, veebileht ja kontaktinfo on siin ainult lugemiseks."
 
 msgid "Linked to"
@@ -2606,11 +2606,7 @@ msgstr "Seotud ettevõttega"
 msgid "The linked CRM company could not be found. Unlink to edit locally again."
 msgstr "Seotud CRM ettevõtet ei leitud. Eemalda seos, et jälle kohapeal muuta."
 
-msgid "Refresh from CRM"
-msgstr "Värskenda CRM-ist"
 
-msgid "Refreshing..."
-msgstr "Värskendan..."
 
 msgid "Unlink"
 msgstr "Eemalda seos"
@@ -2627,7 +2623,7 @@ msgstr "Seo"
 msgid "Linking..."
 msgstr "Seon..."
 
-msgid "Link this supplier to the CRM company it represents. The company gains the supplier role and its details are copied here."
+msgid "Link this supplier to the CRM company it represents. The company gains the supplier role, and its details are then used everywhere this supplier appears."
 msgstr "Seo see tarnija CRM ettevõttega, keda ta esindab. Ettevõte saab tarnija rolli ja tema andmed kopeeritakse siia."
 
 msgid "Link this manufacturer to the CRM company it represents. Link only a real company — a brand you never deal with belongs in the catalogue alone."
@@ -2642,8 +2638,6 @@ msgstr "CRM-iga seotud."
 msgid "Unlinked from CRM."
 msgstr "CRM seos eemaldatud."
 
-msgid "Refreshed from CRM."
-msgstr "CRM-ist värskendatud."
 
 msgid "The CRM module is not available."
 msgstr "CRM moodul ei ole saadaval."
@@ -2651,8 +2645,12 @@ msgstr "CRM moodul ei ole saadaval."
 msgid "That CRM company no longer exists."
 msgstr "Seda CRM ettevõtet enam ei ole."
 
-msgid "This record is not linked to CRM."
-msgstr "See kirje ei ole CRM-iga seotud."
 
 msgid "That CRM company is already linked to another record."
 msgstr "See CRM ettevõte on juba teise kirjega seotud."
+
+msgid "Could not give that CRM company the role, so nothing was linked."
+msgstr "Ei saanud sellele CRM ettevõttele rolli anda, seega midagi ei seotud."
+
+msgid "Someone else changed this link first. Reload the page and try again."
+msgstr "Keegi teine muutis seda seost enne. Laadi leht uuesti ja proovi uuesti."
