@@ -63,8 +63,12 @@ defmodule PhoenixKitCatalogue.Catalogue.CrmLink do
   @spec list_candidates() :: [{String.t(), Ecto.UUID.t()}]
   def list_candidates do
     if available?() and function_exported?(PhoenixKitCRM.Companies, :company_options, 0) do
-      PhoenixKitCRM.Companies.company_options()
-      |> normalize_candidates()
+      # `apply/3` rather than a direct call: CRM is an optional runtime
+      # dependency, so the module does not exist at compile or analysis time.
+      # Every other cross-module call in this file is written the same way.
+      # credo:disable-for-next-line Credo.Check.Refactor.Apply
+      options = apply(PhoenixKitCRM.Companies, :company_options, [])
+      normalize_candidates(options)
     else
       []
     end
