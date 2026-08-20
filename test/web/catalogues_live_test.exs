@@ -90,22 +90,9 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
       assert html =~ "New Catalogue"
     end
 
-    test "manufacturers tab renders manufacturers", %{conn: conn} do
-      fixture_manufacturer(%{name: "Blum"})
-
-      {:ok, _view, html} = live(conn, "#{@base}/manufacturers")
-      assert html =~ "Blum"
-      assert html =~ "New Manufacturer"
-    end
-
     test "empty catalogues state", %{conn: conn} do
       {:ok, _view, html} = live(conn, @base)
       assert html =~ "No catalogues yet"
-    end
-
-    test "empty manufacturers state", %{conn: conn} do
-      {:ok, _view, html} = live(conn, "#{@base}/manufacturers")
-      assert html =~ "No manufacturers yet"
     end
   end
 
@@ -547,15 +534,6 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
       expected_href = "/en/admin/catalogue/#{catalogue.uuid}"
       assert html =~ ~s(href="#{expected_href}")
     end
-
-    test "manufacturer name in the table view is a link to its edit page", %{conn: conn} do
-      m = fixture_manufacturer(%{name: "Clickable mfg"})
-
-      {:ok, _view, html} = live(conn, "#{@base}/manufacturers")
-
-      expected_href = "/en/admin/catalogue/manufacturers/#{m.uuid}/edit"
-      assert html =~ ~s(href="#{expected_href}")
-    end
   end
 
   describe "catalogue mutations" do
@@ -624,16 +602,6 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
   # ─────────────────────────────────────────────────────────────────
 
   describe "manufacturer and supplier deletion" do
-    test "delete_manufacturer removes it from the list", %{conn: conn} do
-      m = fixture_manufacturer(%{name: "Gone manufacturer"})
-
-      {:ok, view, _html} = live(conn, "#{@base}/manufacturers")
-
-      render_click(view, "show_delete_confirm", %{"uuid" => m.uuid, "type" => "manufacturer"})
-      render_click(view, "delete_manufacturer", %{})
-
-      assert Catalogue.get_manufacturer(m.uuid) == nil
-    end
   end
 
   # ─────────────────────────────────────────────────────────────────
@@ -667,11 +635,11 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
       assert html =~ "Zephyr"
     end
 
-    test "?q= applies to whichever tab the route selected", %{conn: conn} do
-      fixture_manufacturer(%{name: "Zephyr Werke"})
-      fixture_manufacturer(%{name: "Quokka GmbH"})
+    test "?q= filters the list the route selected", %{conn: conn} do
+      fixture_catalogue(%{name: "Zephyr Werke"})
+      fixture_catalogue(%{name: "Quokka GmbH"})
 
-      {:ok, _view, html} = live(conn, "#{@base}/manufacturers?q=quokka")
+      {:ok, _view, html} = live(conn, "#{@base}?q=quokka")
 
       assert html =~ "Quokka GmbH"
       refute html =~ "Zephyr Werke"
@@ -681,14 +649,14 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
     # tab's own assigns (active_tab, page_title, the rows it already loaded)
     # still have to survive that patch.
     test "a search patch leaves the tab itself intact", %{conn: conn} do
-      fixture_manufacturer(%{name: "Zephyr Werke"})
+      fixture_catalogue(%{name: "Zephyr Werke"})
 
-      {:ok, view, _html} = live(conn, "#{@base}/manufacturers")
+      {:ok, view, _html} = live(conn, "#{@base}")
 
       html = render_change(view, "table_search", %{"query" => "zephyr"})
 
       assert html =~ "Zephyr Werke"
-      assert html =~ "New Manufacturer"
+      assert html =~ "New Catalogue"
     end
   end
 
@@ -771,15 +739,6 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
       )
 
       assert ViewConfig.load_global_sort(:catalogues) == {"position", :asc}
-    end
-
-    test "manufacturers sort stays per-user", %{conn: conn} do
-      fixture_manufacturer(%{name: "Blum"})
-
-      {:ok, view, _html} = live(conn, "#{@base}/manufacturers")
-      render_click(view, "set_sort", %{"sort_by" => "updated"})
-
-      assert PhoenixKit.Settings.get_setting("catalogue_sort_manufacturers", nil) == nil
     end
   end
 end

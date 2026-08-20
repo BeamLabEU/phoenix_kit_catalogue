@@ -1,8 +1,8 @@
 defmodule PhoenixKitCatalogue.Web.FormLivesTest do
   @moduledoc """
   End-to-end tests for the simple form LiveViews:
-  CatalogueFormLive, CategoryFormLive and ManufacturerFormLive. Each
-  covers the happy path and the primary validation/redirect paths.
+  CatalogueFormLive and CategoryFormLive. Each covers the happy path and
+  the primary validation/redirect paths.
   """
   use PhoenixKitCatalogue.LiveCase
 
@@ -283,71 +283,6 @@ defmodule PhoenixKitCatalogue.Web.FormLivesTest do
       # No redirect — still on the edit form, retitled to the new name.
       assert html =~ "Stayed put"
       assert Catalogue.get_category(category.uuid).name == "Stayed put"
-    end
-  end
-
-  # ─────────────────────────────────────────────────────────────────
-  # ManufacturerFormLive
-  # ─────────────────────────────────────────────────────────────────
-
-  describe "ManufacturerFormLive :new" do
-    test "creates a manufacturer", %{conn: conn} do
-      {:ok, view, _html} = live(conn, "#{@base}/manufacturers/new")
-
-      view
-      |> form(form_selector(), %{
-        "manufacturer" => %{
-          "name" => "Blum",
-          "website" => "https://blum.com",
-          "contact_info" => "",
-          "logo_url" => "",
-          "notes" => "",
-          "status" => "active"
-        }
-      })
-      |> render_submit()
-
-      [m] = Catalogue.list_manufacturers()
-      assert m.name == "Blum"
-      assert m.website == "https://blum.com"
-    end
-
-    test "rejects blank name", %{conn: conn} do
-      {:ok, view, _html} = live(conn, "#{@base}/manufacturers/new")
-
-      html =
-        view
-        |> form(form_selector(), %{
-          "manufacturer" => %{"name" => "", "status" => "active"}
-        })
-        |> render_submit()
-
-      assert html =~ "New Manufacturer"
-      assert Catalogue.list_manufacturers() == []
-    end
-  end
-
-  describe "ManufacturerFormLive :edit" do
-    test "prefills and saves", %{conn: conn} do
-      m = fixture_manufacturer(%{name: "Old"})
-
-      {:ok, view, html} = live(conn, "#{@base}/manufacturers/#{m.uuid}/edit")
-      assert html =~ "Old"
-
-      view
-      |> form(form_selector(), %{
-        "manufacturer" => %{
-          "name" => "New",
-          "website" => "",
-          "contact_info" => "",
-          "logo_url" => "",
-          "notes" => "",
-          "status" => "active"
-        }
-      })
-      |> render_submit()
-
-      assert Catalogue.get_manufacturer(m.uuid).name == "New"
     end
   end
 

@@ -182,14 +182,9 @@ defmodule PhoenixKitCatalogueTest do
              )
     end
 
-    test "does NOT match manufacturer paths (belongs to Manufacturers subtab)", %{tab: tab} do
-      refute Tab.matches_path?(tab, "/admin/catalogue/manufacturers")
-      refute Tab.matches_path?(tab, "/admin/catalogue/manufacturers/new")
-
-      refute Tab.matches_path?(
-               tab,
-               "/admin/catalogue/manufacturers/019d1330-c5e0-7caf-b84b-91a4418f67f2/edit"
-             )
+    # The Manufacturers subtab is gone too — manufacturers are CRM companies.
+    test "matches leftover manufacturer paths, which no longer belong to a subtab", %{tab: tab} do
+      assert Tab.matches_path?(tab, "/admin/catalogue/manufacturers")
     end
 
     # The Suppliers subtab is gone — suppliers are CRM companies now — so the
