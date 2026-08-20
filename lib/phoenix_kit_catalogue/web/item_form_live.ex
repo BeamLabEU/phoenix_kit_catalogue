@@ -188,7 +188,6 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
       catalogue_discount: discount_from_catalogue(parent_catalogue),
       categories: categories,
       manufacturers: Catalogue.list_all_manufacturers(status: "active"),
-      suppliers: Catalogue.list_suppliers(status: "active"),
       all_suppliers: Suppliers.list_all(),
       supplier_infos: load_supplier_infos(action, item),
       supplier_form_open: false,

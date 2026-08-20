@@ -205,19 +205,6 @@ defmodule PhoenixKitCatalogue do
         parent: :admin_catalogue,
         live_view: {PhoenixKitCatalogue.Web.CataloguesLive, :manufacturers}
       },
-      %Tab{
-        id: :admin_catalogue_suppliers,
-        label: "Suppliers",
-        gettext_backend: PhoenixKitCatalogue.Gettext,
-        gettext_domain: "default",
-        icon: "hero-cube",
-        path: "catalogue/suppliers",
-        priority: 663,
-        level: :admin,
-        permission: module_key(),
-        parent: :admin_catalogue,
-        live_view: {PhoenixKitCatalogue.Web.CataloguesLive, :suppliers}
-      },
       # Attributes tab — reusable attribute groups. `match: :prefix` keeps
       # it lit on the hidden new/edit subpages below.
       %Tab{
@@ -416,34 +403,6 @@ defmodule PhoenixKitCatalogue do
         parent: :admin_catalogue,
         visible: false,
         live_view: {PhoenixKitCatalogue.Web.ManufacturerFormLive, :edit}
-      },
-      %Tab{
-        id: :admin_catalogue_supplier_new,
-        label: "New Supplier",
-        gettext_backend: PhoenixKitCatalogue.Gettext,
-        gettext_domain: "default",
-        icon: "hero-plus",
-        path: "catalogue/suppliers/new",
-        priority: 669,
-        level: :admin,
-        permission: module_key(),
-        parent: :admin_catalogue,
-        visible: false,
-        live_view: {PhoenixKitCatalogue.Web.SupplierFormLive, :new}
-      },
-      %Tab{
-        id: :admin_catalogue_supplier_edit,
-        label: "Edit Supplier",
-        gettext_backend: PhoenixKitCatalogue.Gettext,
-        gettext_domain: "default",
-        icon: "hero-pencil-square",
-        path: "catalogue/suppliers/:uuid/edit",
-        priority: 670,
-        level: :admin,
-        permission: module_key(),
-        parent: :admin_catalogue,
-        visible: false,
-        live_view: {PhoenixKitCatalogue.Web.SupplierFormLive, :edit}
       },
       # Categories — static edit path before catalogue :uuid wildcard
       %Tab{

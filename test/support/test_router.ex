@@ -61,8 +61,6 @@ defmodule PhoenixKitCatalogue.Test.Router do
       # Manufacturer / Supplier CRUD
       live("/manufacturers/new", ManufacturerFormLive, :new)
       live("/manufacturers/:uuid/edit", ManufacturerFormLive, :edit)
-      live("/suppliers/new", SupplierFormLive, :new)
-      live("/suppliers/:uuid/edit", SupplierFormLive, :edit)
 
       # Import wizard (scoped to catalogue)
       live("/import", ImportLive, :index)
