@@ -198,7 +198,14 @@ defmodule PhoenixKitCatalogue.Catalogue.Suppliers do
     crm_suppliers = list_crm_suppliers()
 
     local_suppliers =
-      list_suppliers(opts)
+      opts
+      |> list_suppliers()
+      # A linked local row is a PROJECTION of a CRM party that this list
+      # already yielded from the CRM side — emitting both would show the same
+      # company twice in every picker, and let a user pick the "wrong" one.
+      # The party wins; the projection stays addressable by uuid via
+      # `resolve/1`, which is what item and warehouse rows still reference.
+      |> Enum.reject(& &1.crm_company_uuid)
       |> Enum.map(fn s ->
         %{
           uuid: s.uuid,

@@ -138,4 +138,107 @@ defmodule PhoenixKitCatalogue.Catalogue.Manufacturers do
   def change_manufacturer(%Manufacturer{} = manufacturer, attrs \\ %{}) do
     Manufacturer.changeset(manufacturer, attrs)
   end
+
+  # ── Cross-module resolution ────────────────────────────────────────────────
+  # Mirrors `PhoenixKitCatalogue.Catalogue.Suppliers`' resolver pair, with one
+  # important difference stated up front: items reference manufacturers through
+  # the HARD FK `phoenix_kit_cat_items.manufacturer_uuid`, so a CRM party uuid
+  # can never be stored there. These functions federate the manufacturer
+  # DIRECTORY (and any picker built on it); they do not make item references
+  # federated. See `PhoenixKitCatalogue.Catalogue.CrmLink`.
+
+  @doc """
+  Resolves a manufacturer UUID to a unified map regardless of source.
+
+  Returns `{:ok, map}` with keys `:uuid`, `:name`, `:email`, `:phone`,
+  `:website`, `:source` (`:crm | :local`), or `:error` when the uuid is
+  unknown to both sources. CRM is consulted first and only when the CRM
+  module is loaded.
+  """
+  @spec resolve(Ecto.UUID.t()) :: {:ok, map()} | :error
+  def resolve(uuid) when is_binary(uuid) do
+    with :error <- try_resolve_crm(uuid) do
+      case repo().get(Manufacturer, uuid) do
+        nil ->
+          :error
+
+        %Manufacturer{} = m ->
+          {:ok,
+           %{
+             uuid: m.uuid,
+             name: m.name,
+             email: nil,
+             phone: nil,
+             website: m.website,
+             source: :local
+           }}
+      end
+    end
+  end
+
+  @doc """
+  Lists manufacturers from all available sources as normalized maps.
+
+  CRM parties holding an active `manufacturer` role come first, then local
+  rows ordered by name. Local rows already linked to a CRM party are omitted:
+  the party side of the same company is in the list already, and emitting both
+  would show one company twice.
+  """
+  @spec list_all(keyword()) :: [map()]
+  def list_all(opts \\ []) do
+    local =
+      opts
+      |> list_manufacturers()
+      |> Enum.reject(& &1.crm_company_uuid)
+      |> Enum.map(fn m ->
+        %{
+          uuid: m.uuid,
+          name: m.name,
+          email: nil,
+          phone: nil,
+          website: m.website,
+          source: :local
+        }
+      end)
+
+    list_crm_manufacturers() ++ local
+  end
+
+  defp try_resolve_crm(uuid) do
+    if crm_available?() do
+      # credo:disable-for-next-line Credo.Check.Refactor.Apply
+      case apply(PhoenixKitCRM.PartyRoles, :get_manufacturer, [uuid]) do
+        nil ->
+          :error
+
+        party ->
+          {:ok,
+           %{
+             uuid: uuid,
+             name: party.name,
+             email: Map.get(party, :email),
+             phone: Map.get(party, :phone),
+             website: Map.get(party, :website),
+             source: :crm
+           }}
+      end
+    else
+      :error
+    end
+  end
+
+  defp list_crm_manufacturers do
+    if crm_available?() and
+         function_exported?(PhoenixKitCRM.PartyRoles, :list_manufacturers, 1) do
+      # credo:disable-for-next-line Credo.Check.Refactor.Apply
+      apply(PhoenixKitCRM.PartyRoles, :list_manufacturers, [[]])
+    else
+      []
+    end
+  end
+
+  defp crm_available? do
+    Code.ensure_loaded?(PhoenixKitCRM.PartyRoles) and
+      function_exported?(PhoenixKitCRM.PartyRoles, :get_manufacturer, 1)
+  end
 end
