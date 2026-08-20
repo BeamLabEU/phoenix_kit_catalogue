@@ -51,6 +51,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
     Attributes,
     AttributeSets,
     Counts,
+    CrmLink,
     Helpers,
     ItemSupplierInfos,
     Links,
@@ -282,6 +283,15 @@ defmodule PhoenixKitCatalogue.Catalogue do
   defdelegate delete_manufacturer(manufacturer, opts \\ []), to: Manufacturers
   defdelegate change_manufacturer(manufacturer, attrs \\ %{}), to: Manufacturers
 
+  @doc """
+  Resolves a manufacturer UUID to a unified map regardless of source
+  (local or CRM). Note items still reference the LOCAL row by hard FK.
+  """
+  defdelegate resolve_manufacturer(uuid), to: Manufacturers, as: :resolve
+
+  @doc "Lists manufacturers from all available sources (local + CRM) as normalized maps."
+  defdelegate list_all_manufacturers(opts \\ []), to: Manufacturers, as: :list_all
+
   # ═══════════════════════════════════════════════════════════════════
   # Suppliers — see PhoenixKitCatalogue.Catalogue.Suppliers
   # ═══════════════════════════════════════════════════════════════════
@@ -299,6 +309,28 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
   @doc "Lists all suppliers from all available sources (local + CRM) as normalized maps."
   defdelegate list_all_suppliers(opts \\ []), to: Suppliers, as: :list_all
+
+  # ═══════════════════════════════════════════════════════════════════
+  # CRM links — see PhoenixKitCatalogue.Catalogue.CrmLink
+  # ═══════════════════════════════════════════════════════════════════
+
+  defdelegate crm_link_available?(), to: CrmLink, as: :available?
+  defdelegate crm_link_candidates(), to: CrmLink, as: :list_candidates
+  defdelegate link_supplier_to_crm(supplier, company_uuid, opts \\ []), to: CrmLink, as: :link_supplier
+  defdelegate unlink_supplier_from_crm(supplier, opts \\ []), to: CrmLink, as: :unlink_supplier
+  defdelegate refresh_supplier_from_crm(supplier, opts \\ []), to: CrmLink, as: :refresh_supplier
+
+  defdelegate link_manufacturer_to_crm(manufacturer, company_uuid, opts \\ []),
+    to: CrmLink,
+    as: :link_manufacturer
+
+  defdelegate unlink_manufacturer_from_crm(manufacturer, opts \\ []),
+    to: CrmLink,
+    as: :unlink_manufacturer
+
+  defdelegate refresh_manufacturer_from_crm(manufacturer, opts \\ []),
+    to: CrmLink,
+    as: :refresh_manufacturer
 
   # ═══════════════════════════════════════════════════════════════════
   # Item ↔ Supplier info — see PhoenixKitCatalogue.Catalogue.ItemSupplierInfos
