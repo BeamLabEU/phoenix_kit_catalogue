@@ -2663,3 +2663,9 @@ msgstr "Не удалось назначить роль этой компани�
 
 msgid "Someone else changed this link first. Reload the page and try again."
 msgstr "Кто-то другой изменил эту связь раньше. Обновите страницу и попробуйте снова."
+
+msgid "Suppliers and Manufacturer"
+msgstr "Поставщики и производитель"
+
+msgid "Who makes this item."
+msgstr "Кто производит этот товар."
