@@ -84,13 +84,15 @@ defmodule PhoenixKitCatalogue.Schemas.Supplier do
   # imports and any future API share this changeset.
   defp reject_crm_owned_changes(changeset) do
     if get_field(changeset, :crm_company_uuid) do
-      Enum.reduce(@crm_owned_fields, changeset, fn field, acc ->
-        if Map.has_key?(acc.changes, field) do
-          add_error(acc, field, "is managed in CRM for a linked supplier")
-        else
-          acc
-        end
-      end)
+      Enum.reduce(@crm_owned_fields, changeset, &reject_if_changed/2)
+    else
+      changeset
+    end
+  end
+
+  defp reject_if_changed(field, changeset) do
+    if Map.has_key?(changeset.changes, field) do
+      add_error(changeset, field, "is managed in CRM for a linked supplier")
     else
       changeset
     end

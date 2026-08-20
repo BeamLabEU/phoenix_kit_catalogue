@@ -90,7 +90,8 @@ defmodule PhoenixKitCatalogue.Catalogue.CrmLink do
   unique index).
   """
   @spec link_supplier(Supplier.t(), Ecto.UUID.t(), keyword()) ::
-          {:ok, Supplier.t()} | {:error, :crm_unavailable | :company_not_found | Ecto.Changeset.t()}
+          {:ok, Supplier.t()}
+          | {:error, :crm_unavailable | :company_not_found | Ecto.Changeset.t()}
   def link_supplier(%Supplier{} = supplier, company_uuid, opts \\ []),
     do: link(supplier, company_uuid, "supplier", opts)
 
@@ -158,7 +159,8 @@ defmodule PhoenixKitCatalogue.Catalogue.CrmLink do
   @spec refresh_supplier(Supplier.t(), keyword()) ::
           {:ok, Supplier.t()}
           | {:error, :not_linked | :crm_unavailable | :party_not_found | Ecto.Changeset.t()}
-  def refresh_supplier(%Supplier{} = supplier, opts \\ []), do: refresh(supplier, "supplier", opts)
+  def refresh_supplier(%Supplier{} = supplier, opts \\ []),
+    do: refresh(supplier, "supplier", opts)
 
   @doc "Manufacturer counterpart of `refresh_supplier/2`."
   @spec refresh_manufacturer(Manufacturer.t(), keyword()) ::
@@ -217,7 +219,8 @@ defmodule PhoenixKitCatalogue.Catalogue.CrmLink do
 
   # ── Shared plumbing ────────────────────────────────────────────────────────
 
-  defp link_changeset(%Supplier{} = supplier, attrs), do: Supplier.crm_link_changeset(supplier, attrs)
+  defp link_changeset(%Supplier{} = supplier, attrs),
+    do: Supplier.crm_link_changeset(supplier, attrs)
 
   defp link_changeset(%Manufacturer{} = manufacturer, attrs),
     do: Manufacturer.crm_link_changeset(manufacturer, attrs)

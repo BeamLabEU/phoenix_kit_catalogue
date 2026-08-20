@@ -316,7 +316,11 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
   defdelegate crm_link_available?(), to: CrmLink, as: :available?
   defdelegate crm_link_candidates(), to: CrmLink, as: :list_candidates
-  defdelegate link_supplier_to_crm(supplier, company_uuid, opts \\ []), to: CrmLink, as: :link_supplier
+
+  defdelegate link_supplier_to_crm(supplier, company_uuid, opts \\ []),
+    to: CrmLink,
+    as: :link_supplier
+
   defdelegate unlink_supplier_from_crm(supplier, opts \\ []), to: CrmLink, as: :unlink_supplier
   defdelegate refresh_supplier_from_crm(supplier, opts \\ []), to: CrmLink, as: :refresh_supplier
 
