@@ -372,6 +372,10 @@ defmodule PhoenixKitCatalogue.Catalogue.SupplierFields do
   @spec put_values(map() | nil, map() | nil) :: map()
   def put_values(metadata, nil), do: metadata || %{}
 
+  # Merging nothing changes nothing — and must not stamp an empty
+  # `custom_fields` key onto every row written while the UI is hidden.
+  def put_values(metadata, values) when values == %{}, do: metadata || %{}
+
   def put_values(metadata, values) when is_map(values) do
     metadata = metadata || %{}
     merged = Map.merge(Map.get(metadata, @data_key) || %{}, values)

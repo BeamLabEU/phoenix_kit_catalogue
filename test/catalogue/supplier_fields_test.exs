@@ -167,9 +167,14 @@ defmodule PhoenixKitCatalogue.Catalogue.SupplierFieldsTest do
         assert merged == %{"custom_fields" => %{"a" => 1, "b" => 2}, "system" => "keep"}
       end
 
-      test "put_values with nil leaves stored values untouched" do
+      test "put_values with nil or nothing to merge leaves stored values untouched" do
         metadata = %{"custom_fields" => %{"a" => 1}}
         assert SupplierFields.put_values(metadata, nil) == metadata
+        assert SupplierFields.put_values(metadata, %{}) == metadata
+
+        # And must not stamp an empty key onto a row that has none —
+        # every supplier written while the UI is hidden takes this path.
+        assert SupplierFields.put_values(%{}, %{}) == %{}
       end
 
       test "values/1 reads the namespaced map and tolerates rows without one" do

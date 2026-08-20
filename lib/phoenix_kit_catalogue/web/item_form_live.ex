@@ -49,6 +49,20 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   alias PhoenixKitCatalogue.Paths
   alias PhoenixKitCatalogue.Schemas.Item
 
+  # Admin-defined extra fields on supplier rows (the entities-backed
+  # feature built 2026-08-21). HIDDEN by owner decision the same day —
+  # "simplify things", to be brought back later. Everything behind this
+  # flag is intact and tested: the `SupplierFields` context, its managed
+  # blueprint, the facade delegations, and the boot-time guard
+  # registration. Flipping this to `true` is the whole restore — it
+  # re-shows the Fields button, the per-field columns on the suppliers
+  # table, and the Extra fields block in the supplier modal.
+  #
+  # Values already stored under `metadata["custom_fields"]` are NOT
+  # touched while it is off: the edit path merges an empty map, which
+  # preserves them, so a restore brings the data back with the UI.
+  @supplier_custom_fields false
+
   @translatable_fields ["name", "description"]
   @preserve_fields %{
     # Translatable primaries: submitted only on the primary tab, so a
@@ -199,7 +213,8 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
       # modal reports failures inside itself rather than as a page flash
       # that lands behind it.
       supplier_form: nil,
-      supplier_fields: Catalogue.supplier_fields(),
+      supplier_fields: load_supplier_fields(),
+      supplier_fields_manageable: supplier_fields_manageable?(),
       supplier_field_manager: false,
       supplier_field_editor: nil,
       supplier_field_remove: nil,
@@ -717,11 +732,17 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   # the type is immutable after creation because stored values were cast
   # for it. Same contract as the attribute-set extras editor.
 
+  # Gated on the server too, not just by hiding the button: a crafted
+  # event must not open a manager the owner asked to remove.
   def handle_event("open_supplier_field_manager", _params, socket) do
-    # Re-read on open: another session may have changed the field set
-    # since this page mounted.
-    {:noreply,
-     assign(socket, supplier_field_manager: true, supplier_fields: Catalogue.supplier_fields())}
+    if supplier_custom_fields?() do
+      # Re-read on open: another session may have changed the field set
+      # since this page mounted.
+      {:noreply,
+       assign(socket, supplier_field_manager: true, supplier_fields: load_supplier_fields())}
+    else
+      {:noreply, socket}
+    end
   end
 
   def handle_event("close_supplier_field_manager", _params, socket) do
@@ -816,7 +837,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
          {:ok, _} <- Catalogue.remove_supplier_field(key, actor_opts(socket)) do
       {:noreply,
        socket
-       |> assign(supplier_field_remove: nil, supplier_fields: Catalogue.supplier_fields())
+       |> assign(supplier_field_remove: nil, supplier_fields: load_supplier_fields())
        |> put_flash(:info, Gettext.gettext(PhoenixKitCatalogue.Gettext, "Field removed."))}
     else
       _ ->
@@ -929,6 +950,22 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   # crafted payload must not reach another item's supplier row.
   defp owned_supplier_info(socket, uuid) do
     Enum.find(socket.assigns.supplier_infos, &(&1.uuid == uuid))
+  end
+
+  # The single choke point for the hidden feature: with @supplier_custom_fields
+  # false every render site iterates an empty list, so the columns, the
+  # modal block and the manager all disappear without a branch each.
+  defp load_supplier_fields do
+    if supplier_custom_fields?(), do: Catalogue.supplier_fields(), else: []
+  end
+
+  defp supplier_custom_fields?, do: @supplier_custom_fields
+
+  # Computed once at mount rather than inline in the template: with the
+  # flag off the compiler folds the call to a constant and rejects the
+  # `:if` as an always-false conditional.
+  defp supplier_fields_manageable? do
+    if supplier_custom_fields?(), do: Catalogue.supplier_fields_enabled?(), else: false
   end
 
   defp defined_custom_values(socket, info) do
@@ -1155,7 +1192,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
         {:noreply,
          assign(socket,
            supplier_field_editor: nil,
-           supplier_fields: Catalogue.supplier_fields()
+           supplier_fields: load_supplier_fields()
          )}
 
       {:error, reason} ->
@@ -2547,7 +2584,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                      Hidden when entities is off — there is nothing to
                      define without it. --%>
                 <.button
-                  :if={Catalogue.supplier_fields_enabled?()}
+                  :if={@supplier_fields_manageable}
                   type="button"
                   phx-click="open_supplier_field_manager"
                   variant="ghost"
