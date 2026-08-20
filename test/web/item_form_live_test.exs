@@ -362,11 +362,16 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLiveTest do
   end
 
   # ─────────────────────────────────────────────────────────────────
-  # Supplier custom fields (entities-defined)
+  # Supplier custom fields — HIDDEN (owner decision 2026-08-21)
+  #
+  # The feature is intact behind ItemFormLive's @supplier_custom_fields
+  # flag; its context is covered by supplier_fields_test.exs. These pin
+  # what SHIPS: nothing entity-shaped reaches the supplier UI, and data
+  # already written survives untouched so a restore brings it back.
   # ─────────────────────────────────────────────────────────────────
 
   if Code.ensure_loaded?(PhoenixKitEntities.Managed) do
-    describe "supplier custom fields" do
+    describe "supplier custom fields (hidden)" do
       setup do
         PhoenixKitCatalogue.Catalogue.SupplierFields.startup()
         PhoenixKit.Settings.update_setting("entities_enabled", "true")
@@ -374,7 +379,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLiveTest do
         :ok
       end
 
-      test "a field added in the manager is stored on the supplier row", %{conn: conn} do
+      test "a defined field reaches neither the table nor the modal", %{conn: conn} do
         item =
           fixture_item(%{
             name: "Oak Panel",
@@ -382,91 +387,64 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLiveTest do
           })
 
         supplier = fixture_supplier()
-
-        {:ok, view, _html} = live(conn, edit_item_url(item.uuid))
-
-        render_click(view, "open_supplier_field_manager", %{})
-        render_click(view, "open_supplier_field_editor", %{})
-
-        html =
-          render_submit(view, "save_supplier_field_editor", %{
-            "label" => "Incoterm",
-            "type" => "text"
-          })
-
-        # The definition is live on the page, as a column header.
-        assert html =~ "Incoterm"
-
-        render_click(view, "open_add_supplier", %{})
-
-        render_change(view, "supplier_info_field_change", %{
-          "supplier_info" => %{"supplier_uuid" => supplier.uuid},
-          "custom_fields" => %{"incoterm" => "DAP"}
-        })
-
-        render_click(view, "save_supplier_info", %{})
-
-        [info] = Catalogue.list_supplier_infos_for_item(item.uuid)
-        assert Catalogue.supplier_field_values(info) == %{"incoterm" => "DAP"}
-        # Namespaced, so it can never collide with a system metadata key.
-        assert info.metadata["custom_fields"] == %{"incoterm" => "DAP"}
-      end
-
-      test "a value outside a select's choices is refused inside the modal", %{conn: conn} do
-        item =
-          fixture_item(%{
-            name: "Oak Panel",
-            category_uuid: fixture_category(fixture_catalogue()).uuid
-          })
-
-        supplier = fixture_supplier()
-
-        {:ok, _} =
-          Catalogue.add_supplier_field(%{
-            label: "Packaging",
-            type: "select",
-            options: ["Box", "Pallet"]
-          })
-
-        {:ok, view, _html} = live(conn, edit_item_url(item.uuid))
-        render_click(view, "open_add_supplier", %{})
-
-        render_change(view, "supplier_info_field_change", %{
-          "supplier_info" => %{"supplier_uuid" => supplier.uuid},
-          "custom_fields" => %{"packaging" => "Barrel"}
-        })
-
-        html = render_click(view, "save_supplier_info", %{})
-
-        assert html =~ "invalid input"
-        assert Catalogue.list_supplier_infos_for_item(item.uuid) == []
-      end
-
-      # Removing a field must not lock existing rows out of editing: the
-      # stale value is dropped from the form rather than failing the save.
-      test "a row survives editing after one of its fields is removed", %{conn: conn} do
-        item =
-          fixture_item(%{
-            name: "Oak Panel",
-            category_uuid: fixture_category(fixture_catalogue()).uuid
-          })
-
-        supplier = fixture_supplier()
-
         {:ok, _} = Catalogue.add_supplier_field(%{label: "Incoterm", type: "text"})
 
-        {:ok, view, _html} = live(conn, edit_item_url(item.uuid))
-        render_click(view, "open_add_supplier", %{})
+        {:ok, view, html} = live(conn, edit_item_url(item.uuid))
+
+        # No manager affordance, and no column for the defined field.
+        refute html =~ "open_supplier_field_manager"
+        refute html =~ "Incoterm"
+
+        # The supplier modal carries no Extra fields block either.
+        modal_html = render_click(view, "open_add_supplier", %{})
+        refute modal_html =~ "Extra fields"
+        refute modal_html =~ "custom_fields["
 
         render_change(view, "supplier_info_field_change", %{
-          "supplier_info" => %{"supplier_uuid" => supplier.uuid},
-          "custom_fields" => %{"incoterm" => "DAP"}
+          "supplier_info" => %{"supplier_uuid" => supplier.uuid}
         })
 
         render_click(view, "save_supplier_info", %{})
-        [info] = Catalogue.list_supplier_infos_for_item(item.uuid)
 
-        {:ok, _} = Catalogue.remove_supplier_field("incoterm")
+        # Nothing entity-shaped is stamped onto rows written while hidden.
+        [info] = Catalogue.list_supplier_infos_for_item(item.uuid)
+        assert info.metadata == %{}
+      end
+
+      test "the manager cannot be opened by a crafted event", %{conn: conn} do
+        item =
+          fixture_item(%{
+            name: "Oak Panel",
+            category_uuid: fixture_category(fixture_catalogue()).uuid
+          })
+
+        {:ok, _} = Catalogue.add_supplier_field(%{label: "Incoterm", type: "text"})
+        {:ok, view, _html} = live(conn, edit_item_url(item.uuid))
+
+        html = render_click(view, "open_supplier_field_manager", %{})
+
+        refute html =~ "Supplier extra fields"
+        refute html =~ "Add field"
+      end
+
+      # The restore path depends on this: values written before the
+      # feature was hidden must still be there when it comes back.
+      test "values stored earlier survive an edit while the UI is hidden", %{conn: conn} do
+        item =
+          fixture_item(%{
+            name: "Oak Panel",
+            category_uuid: fixture_category(fixture_catalogue()).uuid
+          })
+
+        supplier = fixture_supplier()
+
+        {:ok, info} =
+          Catalogue.create_supplier_info(%{
+            "item_uuid" => item.uuid,
+            "supplier_uuid" => supplier.uuid,
+            "supplier_source" => "local",
+            "metadata" => %{"custom_fields" => %{"incoterm" => "DAP"}}
+          })
 
         {:ok, view, _html} = live(conn, edit_item_url(item.uuid))
         render_click(view, "edit_supplier_info", %{"uuid" => info.uuid})
@@ -477,7 +455,6 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLiveTest do
 
         [updated] = Catalogue.list_supplier_infos_for_item(item.uuid)
         assert updated.supplier_sku == "STILL-EDITABLE"
-        # The orphaned value is preserved, not destroyed.
         assert updated.metadata["custom_fields"] == %{"incoterm" => "DAP"}
       end
     end

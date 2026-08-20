@@ -1,10 +1,43 @@
 # Supplier rows: entities-defined custom fields
 
 **Date:** 2026-08-21
-**Status:** implemented, deployed to max-dev, not released
+**Status:** built and deployed to max-dev, then **HIDDEN the same day** at the
+owner's request ("simplify things — remove the entity stuff from suppliers,
+leave it for when he wants it back"). Not released.
 **Direction:** boss — "for these types of data we should be using entities like
 we already did in the modules", plus "the add supplier drawer isn't very good,
 it should be a popup"
+
+---
+
+## Current state: hidden behind one flag
+
+`PhoenixKitCatalogue.Web.ItemFormLive`'s `@supplier_custom_fields false` is the
+whole switch. With it off:
+
+- the **Fields** button does not render, and `open_supplier_field_manager`
+  no-ops server-side so a crafted event cannot open it either;
+- `load_supplier_fields/0` returns `[]`, which empties the per-field columns on
+  the suppliers table and the Extra fields block in the supplier modal without a
+  branch at each site;
+- rows written while hidden get **no** `custom_fields` key at all
+  (`put_values/2` treats an empty merge as a no-op);
+- values written **before** it was hidden are preserved through edits — the edit
+  path merges an empty map rather than replacing.
+
+Everything else stayed: the `SupplierFields` context and its tests, the managed
+blueprint, the facade delegations, the boot-time guard registration, and the
+gettext strings in all three locales. Flipping the flag to `true` restores the
+feature and any data already stored. The modal and its edit mode are NOT behind
+the flag — the owner asked for those and they stay.
+
+`item_form_live_test.exs` pins the hidden behaviour (no manager, no columns, no
+`custom_fields[` inputs, stored values survive); `supplier_fields_test.exs`
+still covers the context in full, so the feature stays regression-tested while
+invisible.
+
+The rest of this document describes the design as built, for whoever turns it
+back on.
 
 ---
 
