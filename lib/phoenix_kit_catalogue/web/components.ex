@@ -1415,6 +1415,17 @@ defmodule PhoenixKitCatalogue.Web.Components do
   attr(:markup_percentage, :any, default: nil)
   attr(:discount_percentage, :any, default: nil)
   attr(:edit_path, :any, default: nil)
+
+  attr(:name_path, :any,
+    default: nil,
+    doc: """
+    Where an item's NAME links, as a 1-arity function of the item. Defaults
+    to `edit_path` (the catalogue's own convention). An embedded list can
+    point it somewhere read-only instead — landing on an edit form from a
+    list you are only reading is a surprise.
+    """
+  )
+
   attr(:on_delete, :string, default: nil)
   attr(:on_restore, :string, default: nil)
   attr(:on_permanent_delete, :string, default: nil)
@@ -1511,13 +1522,15 @@ defmodule PhoenixKitCatalogue.Web.Components do
             has_files={Map.get(@file_counts, item.uuid, 0) > 0}
           />
           <.link
-            :if={@edit_path && item.uuid}
-            navigate={safe_call(@edit_path, item.uuid)}
+            :if={item_name_link(assigns, item)}
+            navigate={item_name_link(assigns, item)}
             class="font-medium text-sm link link-hover"
           >
             {item.name || "—"}
           </.link>
-          <span :if={!@edit_path || !item.uuid} class="font-medium text-sm">{item.name || "—"}</span>
+          <span :if={is_nil(item_name_link(assigns, item))} class="font-medium text-sm">
+            {item.name || "—"}
+          </span>
           <span
             :if={Map.has_key?(@attribute_map, item.uuid)}
             class="shrink-0"
@@ -1653,6 +1666,17 @@ defmodule PhoenixKitCatalogue.Web.Components do
   """
   attr(:item, :any, required: true)
   attr(:edit_path, :any, default: nil)
+
+  attr(:name_path, :any,
+    default: nil,
+    doc: """
+    Where an item's NAME links, as a 1-arity function of the item. Defaults
+    to `edit_path` (the catalogue's own convention). An embedded list can
+    point it somewhere read-only instead — landing on an edit form from a
+    list you are only reading is a surprise.
+    """
+  )
+
   attr(:has_attributes, :boolean, default: false)
   attr(:file_count, :integer, default: 0)
   attr(:columns, :list, default: ["sku", "price", "unit", "status"])
@@ -1738,6 +1762,17 @@ defmodule PhoenixKitCatalogue.Web.Components do
   """
   attr(:item, :any, required: true)
   attr(:edit_path, :any, default: nil)
+
+  attr(:name_path, :any,
+    default: nil,
+    doc: """
+    Where an item's NAME links, as a 1-arity function of the item. Defaults
+    to `edit_path` (the catalogue's own convention). An embedded list can
+    point it somewhere read-only instead — landing on an edit form from a
+    list you are only reading is a surprise.
+    """
+  )
+
   attr(:on_delete, :string, default: nil)
   attr(:pdf_search_event, :string, default: nil)
 
@@ -1763,6 +1798,17 @@ defmodule PhoenixKitCatalogue.Web.Components do
   attr(:item, :any, required: true)
   attr(:id_prefix, :string, default: "item-card-menu")
   attr(:edit_path, :any, default: nil)
+
+  attr(:name_path, :any,
+    default: nil,
+    doc: """
+    Where an item's NAME links, as a 1-arity function of the item. Defaults
+    to `edit_path` (the catalogue's own convention). An embedded list can
+    point it somewhere read-only instead — landing on an edit form from a
+    list you are only reading is a surprise.
+    """
+  )
+
   attr(:on_delete, :string, default: nil)
   attr(:pdf_search_event, :string, default: nil)
 
@@ -1867,6 +1913,17 @@ defmodule PhoenixKitCatalogue.Web.Components do
 
   attr(:item, :any, required: true)
   attr(:edit_path, :any, default: nil)
+
+  attr(:name_path, :any,
+    default: nil,
+    doc: """
+    Where an item's NAME links, as a 1-arity function of the item. Defaults
+    to `edit_path` (the catalogue's own convention). An embedded list can
+    point it somewhere read-only instead — landing on an edit form from a
+    list you are only reading is a surprise.
+    """
+  )
+
   attr(:on_delete, :string, default: nil)
   attr(:on_restore, :string, default: nil)
   attr(:on_permanent_delete, :string, default: nil)
@@ -1932,6 +1989,17 @@ defmodule PhoenixKitCatalogue.Web.Components do
   attr(:discount_percentage, :any, default: nil)
   attr(:catalogue_path, :any, default: nil)
   attr(:edit_path, :any, default: nil)
+
+  attr(:name_path, :any,
+    default: nil,
+    doc: """
+    Where an item's NAME links, as a 1-arity function of the item. Defaults
+    to `edit_path` (the catalogue's own convention). An embedded list can
+    point it somewhere read-only instead — landing on an edit form from a
+    list you are only reading is a surprise.
+    """
+  )
+
   attr(:has_attributes, :boolean, default: false)
 
   defp item_cell(%{column: :name} = assigns) do
@@ -2059,6 +2127,17 @@ defmodule PhoenixKitCatalogue.Web.Components do
 
   attr(:item, :any, required: true)
   attr(:edit_path, :any, default: nil)
+
+  attr(:name_path, :any,
+    default: nil,
+    doc: """
+    Where an item's NAME links, as a 1-arity function of the item. Defaults
+    to `edit_path` (the catalogue's own convention). An embedded list can
+    point it somewhere read-only instead — landing on an edit form from a
+    list you are only reading is a surprise.
+    """
+  )
+
   attr(:on_delete, :string, default: nil)
   attr(:on_restore, :string, default: nil)
   attr(:on_permanent_delete, :string, default: nil)
@@ -2333,6 +2412,9 @@ defmodule PhoenixKitCatalogue.Web.Components do
     * `:items` — `%Item{}` structs, ideally hydrated by
       `Manufacturers.hydrate/1` so the manufacturer column has a name
     * `:id` — unique DOM id for the table
+    * `:columns` — optional; which columns to show, in order. Defaults to a
+      sensible set. Pair it with core's `column_settings_modal/1` and
+      `managed_columns/0` below to give the embed a working column picker.
 
   Presentation — the image column, the card/table toggle, price and status
   formatting — stays owned by the catalogue, so an embedded list keeps
@@ -2352,9 +2434,60 @@ defmodule PhoenixKitCatalogue.Web.Components do
       items={@items}
       columns={@columns}
       edit_path={&PhoenixKitCatalogue.Paths.item_edit/1}
+      name_path={&item_in_catalogue_path/1}
       catalogue_path={&PhoenixKitCatalogue.Paths.catalogue_detail/1}
       size="sm"
     />
     """
   end
+
+  @doc """
+  The configurable columns of `party_items_table/1`, in the shape core's
+  `column_settings_modal/1` expects. `name` is deliberately absent: it is
+  always shown, so it is not the picker's to remove.
+  """
+  def party_items_columns do
+    [
+      %{id: "sku", label: fn -> Gettext.gettext(PhoenixKitCatalogue.Gettext, "SKU") end},
+      %{id: "base_price", label: fn -> Gettext.gettext(PhoenixKitCatalogue.Gettext, "Price") end},
+      %{id: "unit", label: fn -> Gettext.gettext(PhoenixKitCatalogue.Gettext, "Unit") end},
+      %{id: "status", label: fn -> Gettext.gettext(PhoenixKitCatalogue.Gettext, "Status") end},
+      %{
+        id: "catalogue",
+        label: fn -> Gettext.gettext(PhoenixKitCatalogue.Gettext, "Catalogue") end
+      },
+      %{
+        id: "category",
+        label: fn -> Gettext.gettext(PhoenixKitCatalogue.Gettext, "Category") end
+      },
+      %{
+        id: "manufacturer",
+        label: fn -> Gettext.gettext(PhoenixKitCatalogue.Gettext, "Manufacturer") end
+      }
+    ]
+  end
+
+  @doc "Default shown columns for `party_items_table/1`."
+  def party_items_default_columns, do: ~w(sku base_price unit status catalogue category)
+
+  # An item is viewed inside its catalogue, filtered to its category — there
+  # is no standalone item page to link to.
+  defp item_in_catalogue_path(%{catalogue_uuid: nil}), do: nil
+
+  defp item_in_catalogue_path(%{catalogue_uuid: cat, category_uuid: nil}),
+    do: PhoenixKitCatalogue.Paths.uncategorized_browse(cat)
+
+  defp item_in_catalogue_path(%{catalogue_uuid: cat, category_uuid: category}),
+    do: PhoenixKitCatalogue.Paths.category_browse(cat, category)
+
+  # Where an item's name links: `name_path` when a caller overrides it,
+  # otherwise the catalogue's own convention of opening the edit form.
+  defp item_name_link(_assigns, %{uuid: nil}), do: nil
+
+  defp item_name_link(%{name_path: fun}, item) when is_function(fun, 1), do: fun.(item)
+
+  defp item_name_link(%{edit_path: edit_path}, item) when not is_nil(edit_path),
+    do: safe_call(edit_path, item.uuid)
+
+  defp item_name_link(_assigns, _item), do: nil
 end
