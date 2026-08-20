@@ -61,6 +61,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
     Rules,
     Search,
     SmartPricing,
+    SupplierFields,
     Suppliers,
     Translations,
     Tree
@@ -5206,6 +5207,19 @@ defmodule PhoenixKitCatalogue.Catalogue do
     as: :update_extra_field
 
   defdelegate attribute_set_field_types(), to: AttributeSets, as: :extra_field_types
+
+  # ── Supplier custom fields (entities-defined, values on the row) ────
+
+  defdelegate supplier_fields(opts \\ []), to: SupplierFields, as: :fields
+  defdelegate supplier_field(key, opts \\ []), to: SupplierFields, as: :field
+  defdelegate supplier_field_types(), to: SupplierFields, as: :field_types
+  defdelegate supplier_fields_enabled?(), to: SupplierFields, as: :enabled?
+  defdelegate add_supplier_field(attrs, opts \\ []), to: SupplierFields, as: :add_field
+  defdelegate update_supplier_field(key, attrs, opts \\ []), to: SupplierFields, as: :update_field
+  defdelegate remove_supplier_field(key, opts \\ []), to: SupplierFields, as: :remove_field
+  defdelegate supplier_field_values(info), to: SupplierFields, as: :values
+  defdelegate cast_supplier_field_values(raw, opts \\ []), to: SupplierFields, as: :cast_values
+  defdelegate put_supplier_field_values(metadata, values), to: SupplierFields, as: :put_values
 
   defdelegate attach_attribute_set(item_uuid, set_uuid, opts \\ []),
     to: AttributeSets,

@@ -2657,3 +2657,60 @@ msgstr ""
 msgid "Suppliers and Manufacturer"
 msgstr ""
 
+
+msgid "A field was removed while this was open. Close and reopen the form."
+msgstr ""
+
+msgid "Add supplier"
+msgstr ""
+
+msgid "Changing the cost closes the current price and starts a new one, kept in History."
+msgstr ""
+
+msgid "Could not save the supplier."
+msgstr ""
+
+msgid "Done"
+msgstr ""
+
+msgid "Edit supplier"
+msgstr ""
+
+msgid "Extra fields need the Entities module, which is turned off."
+msgstr ""
+
+msgid "Extra info every supplier row carries — incoterm, carton quantity, certification expiry. These apply to every item, not just this one."
+msgstr ""
+
+msgid "Failed to remove the field."
+msgstr ""
+
+msgid "Field removed."
+msgstr ""
+
+msgid "Fields"
+msgstr ""
+
+msgid "No"
+msgstr ""
+
+msgid "No extra fields yet."
+msgstr ""
+
+msgid "One of the extra fields has invalid input."
+msgstr ""
+
+msgid "Remove this field? Values already saved on supplier rows stay in the database but stop being shown."
+msgstr ""
+
+msgid "Supplier extra fields"
+msgstr ""
+
+msgid "Unit cost must be a number."
+msgstr ""
+
+msgid "Yes"
+msgstr ""
+
+msgid "e.g. Incoterm"
+msgstr ""

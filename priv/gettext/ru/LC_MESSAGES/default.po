@@ -2667,3 +2667,60 @@ msgstr "Кто-то другой изменил эту связь раньше. 
 msgid "Suppliers and Manufacturer"
 msgstr "Поставщики и производитель"
 
+
+msgid "A field was removed while this was open. Close and reopen the form."
+msgstr "Поле было удалено, пока форма была открыта. Закройте и откройте её заново."
+
+msgid "Add supplier"
+msgstr "Добавить поставщика"
+
+msgid "Changing the cost closes the current price and starts a new one, kept in History."
+msgstr "Изменение цены закрывает текущую цену и открывает новую; прежняя остаётся в истории."
+
+msgid "Could not save the supplier."
+msgstr "Не удалось сохранить поставщика."
+
+msgid "Done"
+msgstr "Готово"
+
+msgid "Edit supplier"
+msgstr "Изменить поставщика"
+
+msgid "Extra fields need the Entities module, which is turned off."
+msgstr "Дополнительные поля требуют модуль Entities, который отключён."
+
+msgid "Extra info every supplier row carries — incoterm, carton quantity, certification expiry. These apply to every item, not just this one."
+msgstr "Дополнительные данные каждой строки поставщика — условия поставки, количество в коробке, срок действия сертификата. Они применяются ко всем товарам, а не только к этому."
+
+msgid "Failed to remove the field."
+msgstr "Не удалось удалить поле."
+
+msgid "Field removed."
+msgstr "Поле удалено."
+
+msgid "Fields"
+msgstr "Поля"
+
+msgid "No"
+msgstr "Нет"
+
+msgid "No extra fields yet."
+msgstr "Дополнительных полей пока нет."
+
+msgid "One of the extra fields has invalid input."
+msgstr "В одном из дополнительных полей неверное значение."
+
+msgid "Remove this field? Values already saved on supplier rows stay in the database but stop being shown."
+msgstr "Удалить это поле? Значения, уже сохранённые в строках поставщиков, останутся в базе, но перестанут отображаться."
+
+msgid "Supplier extra fields"
+msgstr "Дополнительные поля поставщика"
+
+msgid "Unit cost must be a number."
+msgstr "Цена за единицу должна быть числом."
+
+msgid "Yes"
+msgstr "Да"
+
+msgid "e.g. Incoterm"
+msgstr "напр. Incoterm"

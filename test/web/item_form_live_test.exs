@@ -270,6 +270,217 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLiveTest do
         metadata_has: %{"item_uuid" => item.uuid}
       )
     end
+
+    test "add is refused with no supplier picked, and says so inside the modal",
+         %{conn: conn} do
+      item =
+        fixture_item(%{
+          name: "Oak Panel",
+          category_uuid: fixture_category(fixture_catalogue()).uuid
+        })
+
+      {:ok, view, _html} = live(conn, edit_item_url(item.uuid))
+
+      render_click(view, "open_add_supplier", %{})
+      html = render_click(view, "save_supplier_info", %{})
+
+      assert html =~ "Please select a supplier."
+      assert Catalogue.list_supplier_infos_for_item(item.uuid) == []
+    end
+
+    test "edit_supplier_info updates the row's columns", %{conn: conn} do
+      item =
+        fixture_item(%{
+          name: "Oak Panel",
+          category_uuid: fixture_category(fixture_catalogue()).uuid
+        })
+
+      supplier = fixture_supplier()
+
+      {:ok, view, _html} = live(conn, edit_item_url(item.uuid))
+      render_click(view, "open_add_supplier", %{})
+
+      render_change(view, "supplier_info_field_change", %{
+        "supplier_info" => %{"supplier_uuid" => supplier.uuid, "supplier_sku" => "OLD-1"}
+      })
+
+      render_click(view, "save_supplier_info", %{})
+      [info] = Catalogue.list_supplier_infos_for_item(item.uuid)
+
+      render_click(view, "edit_supplier_info", %{"uuid" => info.uuid})
+
+      render_click(view, "save_supplier_info", %{
+        "supplier_info" => %{"supplier_sku" => "NEW-2", "lead_time_days" => "5"}
+      })
+
+      [updated] = Catalogue.list_supplier_infos_for_item(item.uuid)
+      assert updated.supplier_sku == "NEW-2"
+      assert updated.lead_time_days == 5
+    end
+
+    # A cost CHANGE closes the current row and opens a successor, which is
+    # what feeds the History dialog — a plain overwrite would lose it.
+    test "changing an existing unit cost creates a price revision", %{conn: conn} do
+      item =
+        fixture_item(%{
+          name: "Oak Panel",
+          category_uuid: fixture_category(fixture_catalogue()).uuid
+        })
+
+      supplier = fixture_supplier()
+
+      {:ok, view, _html} = live(conn, edit_item_url(item.uuid))
+      render_click(view, "open_add_supplier", %{})
+
+      render_change(view, "supplier_info_field_change", %{
+        "supplier_info" => %{
+          "supplier_uuid" => supplier.uuid,
+          "unit_cost" => "10.00",
+          "currency" => "EUR"
+        }
+      })
+
+      render_click(view, "save_supplier_info", %{})
+      [info] = Catalogue.list_supplier_infos_for_item(item.uuid)
+
+      render_click(view, "edit_supplier_info", %{"uuid" => info.uuid})
+
+      render_click(view, "save_supplier_info", %{
+        "supplier_info" => %{"unit_cost" => "12.50", "currency" => "EUR"}
+      })
+
+      # One CURRENT row at the new price...
+      [current] = Catalogue.list_supplier_infos_for_item(item.uuid)
+      assert Decimal.equal?(current.unit_cost, Decimal.new("12.50"))
+      assert is_nil(current.valid_to)
+
+      # ...and the old price kept as a closed row.
+      history = Catalogue.supplier_info_history_for_pair(item.uuid, supplier.uuid)
+      assert length(history) == 2
+      assert Enum.any?(history, &(not is_nil(&1.valid_to)))
+    end
+  end
+
+  # ─────────────────────────────────────────────────────────────────
+  # Supplier custom fields (entities-defined)
+  # ─────────────────────────────────────────────────────────────────
+
+  if Code.ensure_loaded?(PhoenixKitEntities.Managed) do
+    describe "supplier custom fields" do
+      setup do
+        PhoenixKitCatalogue.Catalogue.SupplierFields.startup()
+        PhoenixKit.Settings.update_setting("entities_enabled", "true")
+        on_exit(fn -> PhoenixKit.Settings.update_setting("entities_enabled", "false") end)
+        :ok
+      end
+
+      test "a field added in the manager is stored on the supplier row", %{conn: conn} do
+        item =
+          fixture_item(%{
+            name: "Oak Panel",
+            category_uuid: fixture_category(fixture_catalogue()).uuid
+          })
+
+        supplier = fixture_supplier()
+
+        {:ok, view, _html} = live(conn, edit_item_url(item.uuid))
+
+        render_click(view, "open_supplier_field_manager", %{})
+        render_click(view, "open_supplier_field_editor", %{})
+
+        html =
+          render_submit(view, "save_supplier_field_editor", %{
+            "label" => "Incoterm",
+            "type" => "text"
+          })
+
+        # The definition is live on the page, as a column header.
+        assert html =~ "Incoterm"
+
+        render_click(view, "open_add_supplier", %{})
+
+        render_change(view, "supplier_info_field_change", %{
+          "supplier_info" => %{"supplier_uuid" => supplier.uuid},
+          "custom_fields" => %{"incoterm" => "DAP"}
+        })
+
+        render_click(view, "save_supplier_info", %{})
+
+        [info] = Catalogue.list_supplier_infos_for_item(item.uuid)
+        assert Catalogue.supplier_field_values(info) == %{"incoterm" => "DAP"}
+        # Namespaced, so it can never collide with a system metadata key.
+        assert info.metadata["custom_fields"] == %{"incoterm" => "DAP"}
+      end
+
+      test "a value outside a select's choices is refused inside the modal", %{conn: conn} do
+        item =
+          fixture_item(%{
+            name: "Oak Panel",
+            category_uuid: fixture_category(fixture_catalogue()).uuid
+          })
+
+        supplier = fixture_supplier()
+
+        {:ok, _} =
+          Catalogue.add_supplier_field(%{
+            label: "Packaging",
+            type: "select",
+            options: ["Box", "Pallet"]
+          })
+
+        {:ok, view, _html} = live(conn, edit_item_url(item.uuid))
+        render_click(view, "open_add_supplier", %{})
+
+        render_change(view, "supplier_info_field_change", %{
+          "supplier_info" => %{"supplier_uuid" => supplier.uuid},
+          "custom_fields" => %{"packaging" => "Barrel"}
+        })
+
+        html = render_click(view, "save_supplier_info", %{})
+
+        assert html =~ "invalid input"
+        assert Catalogue.list_supplier_infos_for_item(item.uuid) == []
+      end
+
+      # Removing a field must not lock existing rows out of editing: the
+      # stale value is dropped from the form rather than failing the save.
+      test "a row survives editing after one of its fields is removed", %{conn: conn} do
+        item =
+          fixture_item(%{
+            name: "Oak Panel",
+            category_uuid: fixture_category(fixture_catalogue()).uuid
+          })
+
+        supplier = fixture_supplier()
+
+        {:ok, _} = Catalogue.add_supplier_field(%{label: "Incoterm", type: "text"})
+
+        {:ok, view, _html} = live(conn, edit_item_url(item.uuid))
+        render_click(view, "open_add_supplier", %{})
+
+        render_change(view, "supplier_info_field_change", %{
+          "supplier_info" => %{"supplier_uuid" => supplier.uuid},
+          "custom_fields" => %{"incoterm" => "DAP"}
+        })
+
+        render_click(view, "save_supplier_info", %{})
+        [info] = Catalogue.list_supplier_infos_for_item(item.uuid)
+
+        {:ok, _} = Catalogue.remove_supplier_field("incoterm")
+
+        {:ok, view, _html} = live(conn, edit_item_url(item.uuid))
+        render_click(view, "edit_supplier_info", %{"uuid" => info.uuid})
+
+        render_click(view, "save_supplier_info", %{
+          "supplier_info" => %{"supplier_sku" => "STILL-EDITABLE"}
+        })
+
+        [updated] = Catalogue.list_supplier_infos_for_item(item.uuid)
+        assert updated.supplier_sku == "STILL-EDITABLE"
+        # The orphaned value is preserved, not destroyed.
+        assert updated.metadata["custom_fields"] == %{"incoterm" => "DAP"}
+      end
+    end
   end
 
   # ─────────────────────────────────────────────────────────────────
