@@ -13,6 +13,12 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   import PhoenixKitWeb.Components.Core.Button, only: [button: 1]
   import PhoenixKitWeb.Components.Core.Modal, only: [modal: 1]
 
+  # `<.input label=...>` renders its label as a plain `font-semibold` span
+  # while `<.select>` and this component use daisyUI's `fieldset-legend`,
+  # so the two sizes disagree wherever they sit side by side. The supplier
+  # modal labels every field through this one component instead.
+  import PhoenixKitWeb.Components.Core.FormFieldLabel, only: [label: 1]
+
   # Entities renders the control for every admin-defined supplier field,
   # so a type added to entities later works here without a change.
   import PhoenixKitEntities.Components.FieldInput, only: [field_input: 1]
@@ -2879,33 +2885,36 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                 options={supplier_options(@all_suppliers)}
                 class="w-full"
               />
-              <div :if={@supplier_form.mode == :edit} class="flex flex-col gap-1">
-                <span class="label-text font-medium">
-                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Supplier")}
-                </span>
+              <div :if={@supplier_form.mode == :edit}>
+                <.label class="block mb-2">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Supplier")}</.label>
                 <p class="text-sm font-medium">{supplier_form_name(assigns)}</p>
               </div>
             </div>
 
-            <.input
-              type="text"
-              name="supplier_info[supplier_sku]"
-              value={@supplier_form.draft["supplier_sku"]}
-              label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Supplier SKU")}
-              class="w-full font-mono"
-              placeholder={Gettext.gettext(PhoenixKitCatalogue.Gettext, "e.g., ABC-001")}
-            />
+            <%!-- Every field below labels itself through `<.label class="block mb-2">` rather
+                 than `<.input label=...>`: the two render different type
+                 sizes, and side by side in this grid the rows stopped
+                 lining up. --%>
+            <div>
+              <.label for="supplier-sku" class="block mb-2">
+                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Supplier SKU")}
+              </.label>
+              <.input
+                type="text"
+                id="supplier-sku"
+                name="supplier_info[supplier_sku]"
+                value={@supplier_form.draft["supplier_sku"]}
+                class="w-full font-mono"
+                placeholder={Gettext.gettext(PhoenixKitCatalogue.Gettext, "e.g., ABC-001")}
+              />
+            </div>
 
-            <div class="fieldset">
-              <label class="label">
-                <span class="fieldset-legend">
-                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Unit Cost")}
-                </span>
-              </label>
+            <div>
+              <.label class="block mb-2">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Unit Cost")}</.label>
               <%!-- Deliberately raw (L029): the kit input wraps each field
                    in its own feedback div, which would break the daisyUI
                    join grouping of these two inputs. --%>
-              <div class="join">
+              <div class="join w-full">
                 <input
                   type="number"
                   name="supplier_info[unit_cost]"
@@ -2924,7 +2933,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                   maxlength="3"
                 />
               </div>
-              <span
+              <p
                 :if={@supplier_form.mode == :edit}
                 class="text-xs text-base-content/50 pt-1"
               >
@@ -2932,26 +2941,37 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                   PhoenixKitCatalogue.Gettext,
                   "Changing the cost closes the current price and starts a new one, kept in History."
                 )}
-              </span>
+              </p>
             </div>
 
-            <.input
-              type="number"
-              name="supplier_info[lead_time_days]"
-              value={@supplier_form.draft["lead_time_days"]}
-              label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Lead Time (days)")}
-              min="0"
-              class="w-full"
-            />
-            <.input
-              type="number"
-              name="supplier_info[min_order_qty]"
-              value={@supplier_form.draft["min_order_qty"]}
-              label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Min. Order Qty")}
-              step="0.0001"
-              min="0"
-              class="w-full"
-            />
+            <div>
+              <.label for="supplier-lead-time" class="block mb-2">
+                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Lead Time (days)")}
+              </.label>
+              <.input
+                type="number"
+                id="supplier-lead-time"
+                name="supplier_info[lead_time_days]"
+                value={@supplier_form.draft["lead_time_days"]}
+                min="0"
+                class="w-full"
+              />
+            </div>
+
+            <div>
+              <.label for="supplier-moq" class="block mb-2">
+                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Min. Order Qty")}
+              </.label>
+              <.input
+                type="number"
+                id="supplier-moq"
+                name="supplier_info[min_order_qty]"
+                value={@supplier_form.draft["min_order_qty"]}
+                step="0.0001"
+                min="0"
+                class="w-full"
+              />
+            </div>
           </div>
 
           <%!-- Admin-defined fields. Entities owns the definitions; the
