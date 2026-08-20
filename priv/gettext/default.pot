@@ -2663,5 +2663,3 @@ msgstr ""
 msgid "Suppliers and Manufacturer"
 msgstr ""
 
-msgid "Who makes this item."
-msgstr ""
