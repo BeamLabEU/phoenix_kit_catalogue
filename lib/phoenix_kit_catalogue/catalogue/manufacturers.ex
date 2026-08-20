@@ -223,6 +223,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Manufacturers do
       select: %{item_uuid: i.uuid, item_name: i.name, item_sku: i.sku}
     )
     |> repo().all()
+    |> Enum.map(&Suppliers.with_item_path/1)
   end
 
   def items_manufactured_by(_), do: []

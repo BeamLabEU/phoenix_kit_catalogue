@@ -307,9 +307,16 @@ defmodule PhoenixKitCatalogue.Catalogue.Suppliers do
       }
     )
     |> repo().all()
+    |> Enum.map(&with_item_path/1)
   end
 
   def items_supplied_by(_), do: []
+
+  # The catalogue owns its own routes, so it hands back the link rather than
+  # letting a caller in another module assemble catalogue URLs by hand.
+  @doc false
+  def with_item_path(%{item_uuid: uuid} = row),
+    do: Map.put(row, :item_path, PhoenixKitCatalogue.Paths.item_edit(uuid))
 
   # Local directory rows that project this party. Callers prepend the party's
   # own uuid: a reference may name either side, and both mean the same company.
