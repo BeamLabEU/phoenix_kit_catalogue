@@ -52,6 +52,21 @@ defmodule PhoenixKitCatalogue.CrmLinkTest do
       assert CrmLink.list_candidates() == []
     end
 
+    # Found on a live install: CRM returns `%{label:, value:}`, the panel
+    # comprehension matched `{name, uuid}`, and a comprehension DROPS
+    # non-matching elements — so the picker rendered with zero options and no
+    # error anywhere. Normalization happens in the bridge; these pin the shape
+    # it must emit whatever CRM hands back.
+    test "normalizes the map shape CRM actually returns into {label, value}" do
+      assert [{"Acme", "01a0-uuid"}] =
+               CrmLink.normalize_candidates([%{label: "Acme", value: "01a0-uuid"}])
+    end
+
+    test "accepts the tuple shape too, and drops anything unrecognized" do
+      assert [{"Acme", "01a0-uuid"}] = CrmLink.normalize_candidates([{"Acme", "01a0-uuid"}])
+      assert [] = CrmLink.normalize_candidates([:garbage, nil, %{name: "no value key"}])
+    end
+
     test "linking fails with :crm_unavailable instead of crashing" do
       supplier = supplier_fixture()
 

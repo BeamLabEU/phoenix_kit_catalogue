@@ -75,10 +75,28 @@ defmodule PhoenixKitCatalogue.Catalogue.CrmLink do
     if available?() and function_exported?(PhoenixKitCRM.Companies, :company_options, 0) do
       # credo:disable-for-next-line Credo.Check.Refactor.Apply
       apply(PhoenixKitCRM.Companies, :company_options, [])
+      |> normalize_candidates()
     else
       []
     end
   end
+
+  @doc """
+  Normalizes whatever CRM's option source returns into `{label, value}` pairs.
+
+  CRM hands back `%{label:, value:}` today; the tuple shape is accepted too and
+  anything unrecognized is dropped. Public so it can be tested without CRM
+  installed — this is a cross-module shape assumption, and the version that
+  assumed tuples rendered a picker with zero options and no error anywhere,
+  because a comprehension silently drops elements that don't match its pattern.
+  """
+  @spec normalize_candidates([term()]) :: [{String.t(), Ecto.UUID.t()}]
+  def normalize_candidates(options) when is_list(options),
+    do: Enum.flat_map(options, &normalize_candidate/1)
+
+  defp normalize_candidate(%{label: label, value: value}), do: [{label, value}]
+  defp normalize_candidate({label, value}) when is_binary(value), do: [{label, value}]
+  defp normalize_candidate(_other), do: []
 
   @doc """
   Links a supplier to a CRM company: grants the `supplier` role and copies
