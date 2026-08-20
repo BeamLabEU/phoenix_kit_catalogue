@@ -18,7 +18,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Suppliers do
 
   import Ecto.Query, warn: false
 
-  alias PhoenixKitCatalogue.Catalogue.{ActivityLog, ItemSupplierInfos, PubSub}
+  alias PhoenixKitCatalogue.Catalogue.{ActivityLog, ItemSupplierInfos, Manufacturers, PubSub}
   alias PhoenixKitCatalogue.Schemas.{Item, ItemSupplierInfo, Supplier}
 
   defp repo, do: PhoenixKit.RepoHelper.repo()
@@ -286,37 +286,23 @@ defmodule PhoenixKitCatalogue.Catalogue.Suppliers do
   Returns plain maps, not schemas: the caller is another module rendering a
   read-only list, and handing it structs would invite it to write them back.
   """
-  @spec items_supplied_by(Ecto.UUID.t()) :: [map()]
+  @spec items_supplied_by(Ecto.UUID.t()) :: [Item.t()]
   def items_supplied_by(party_uuid) when is_binary(party_uuid) do
     uuids = [party_uuid | projection_uuids(Supplier, party_uuid)]
 
-    from(info in ItemSupplierInfo,
-      join: i in Item,
-      on: i.uuid == info.item_uuid,
+    from(i in Item,
+      join: info in ItemSupplierInfo,
+      on: info.item_uuid == i.uuid,
       where: info.supplier_uuid in ^uuids and is_nil(info.valid_to) and i.status != "deleted",
       order_by: [desc: info.is_primary, asc: i.name],
-      select: %{
-        item_uuid: i.uuid,
-        item_name: i.name,
-        item_sku: i.sku,
-        supplier_sku: info.supplier_sku,
-        unit_cost: info.unit_cost,
-        currency: info.currency,
-        lead_time_days: info.lead_time_days,
-        is_primary: info.is_primary
-      }
+      distinct: i.uuid,
+      preload: [:catalogue, :category]
     )
     |> repo().all()
-    |> Enum.map(&with_item_path/1)
+    |> Manufacturers.hydrate()
   end
 
   def items_supplied_by(_), do: []
-
-  # The catalogue owns its own routes, so it hands back the link rather than
-  # letting a caller in another module assemble catalogue URLs by hand.
-  @doc false
-  def with_item_path(%{item_uuid: uuid} = row),
-    do: Map.put(row, :item_path, PhoenixKitCatalogue.Paths.item_edit(uuid))
 
   # Local directory rows that project this party. Callers prepend the party's
   # own uuid: a reference may name either side, and both mean the same company.
