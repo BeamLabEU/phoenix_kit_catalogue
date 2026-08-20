@@ -2721,3 +2721,15 @@ msgstr "Kommentaarid"
 
 msgid "Shared with this supplier's company page in CRM."
 msgstr "Jagatud selle tarnija ettevõtte lehega CRM-is."
+
+msgid "Add a comment"
+msgstr "Lisa kommentaar"
+
+msgid "No comments yet."
+msgstr "Kommentaare veel pole."
+
+msgid "Open comments"
+msgstr "Ava kommentaarid"
+
+msgid "Show all %{count} comments"
+msgstr "Näita kõiki %{count} kommentaari"

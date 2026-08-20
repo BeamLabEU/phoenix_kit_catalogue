@@ -2730,3 +2730,15 @@ msgstr "Комментарии"
 
 msgid "Shared with this supplier's company page in CRM."
 msgstr "Общие со страницей компании этого поставщика в CRM."
+
+msgid "Add a comment"
+msgstr "Добавить комментарий"
+
+msgid "No comments yet."
+msgstr "Комментариев пока нет."
+
+msgid "Open comments"
+msgstr "Открыть комментарии"
+
+msgid "Show all %{count} comments"
+msgstr "Показать все комментарии (%{count})"

@@ -2720,3 +2720,15 @@ msgstr ""
 
 msgid "Shared with this supplier's company page in CRM."
 msgstr ""
+
+msgid "Add a comment"
+msgstr ""
+
+msgid "No comments yet."
+msgstr ""
+
+msgid "Open comments"
+msgstr ""
+
+msgid "Show all %{count} comments"
+msgstr ""
