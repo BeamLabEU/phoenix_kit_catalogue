@@ -1419,10 +1419,10 @@ defmodule PhoenixKitCatalogue.Web.Components do
   attr(:name_path, :any,
     default: nil,
     doc: """
-    Where an item's NAME links, as a 1-arity function of the item. Defaults
-    to `edit_path` (the catalogue's own convention). An embedded list can
-    point it somewhere read-only instead — landing on an edit form from a
-    list you are only reading is a surprise.
+    Where an item's NAME links, as a 1-arity function of the item. Defaults to
+    `edit_path` (the catalogue's own convention). An embedded, read-only list
+    can point it somewhere else — landing on an edit form from a list you are
+    only reading is a surprise.
     """
   )
 
@@ -1620,6 +1620,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
             discount_percentage={@discount_percentage}
             catalogue_path={@catalogue_path}
             edit_path={@edit_path}
+            name_path={@name_path}
             has_attributes={Map.has_key?(@attribute_map, item.uuid)}
           />
           <.item_actions
@@ -1666,16 +1667,6 @@ defmodule PhoenixKitCatalogue.Web.Components do
   """
   attr(:item, :any, required: true)
   attr(:edit_path, :any, default: nil)
-
-  attr(:name_path, :any,
-    default: nil,
-    doc: """
-    Where an item's NAME links, as a 1-arity function of the item. Defaults
-    to `edit_path` (the catalogue's own convention). An embedded list can
-    point it somewhere read-only instead — landing on an edit form from a
-    list you are only reading is a surprise.
-    """
-  )
 
   attr(:has_attributes, :boolean, default: false)
   attr(:file_count, :integer, default: 0)
@@ -1763,16 +1754,6 @@ defmodule PhoenixKitCatalogue.Web.Components do
   attr(:item, :any, required: true)
   attr(:edit_path, :any, default: nil)
 
-  attr(:name_path, :any,
-    default: nil,
-    doc: """
-    Where an item's NAME links, as a 1-arity function of the item. Defaults
-    to `edit_path` (the catalogue's own convention). An embedded list can
-    point it somewhere read-only instead — landing on an edit form from a
-    list you are only reading is a surprise.
-    """
-  )
-
   attr(:on_delete, :string, default: nil)
   attr(:pdf_search_event, :string, default: nil)
 
@@ -1798,16 +1779,6 @@ defmodule PhoenixKitCatalogue.Web.Components do
   attr(:item, :any, required: true)
   attr(:id_prefix, :string, default: "item-card-menu")
   attr(:edit_path, :any, default: nil)
-
-  attr(:name_path, :any,
-    default: nil,
-    doc: """
-    Where an item's NAME links, as a 1-arity function of the item. Defaults
-    to `edit_path` (the catalogue's own convention). An embedded list can
-    point it somewhere read-only instead — landing on an edit form from a
-    list you are only reading is a surprise.
-    """
-  )
 
   attr(:on_delete, :string, default: nil)
   attr(:pdf_search_event, :string, default: nil)
@@ -1914,16 +1885,6 @@ defmodule PhoenixKitCatalogue.Web.Components do
   attr(:item, :any, required: true)
   attr(:edit_path, :any, default: nil)
 
-  attr(:name_path, :any,
-    default: nil,
-    doc: """
-    Where an item's NAME links, as a 1-arity function of the item. Defaults
-    to `edit_path` (the catalogue's own convention). An embedded list can
-    point it somewhere read-only instead — landing on an edit form from a
-    list you are only reading is a surprise.
-    """
-  )
-
   attr(:on_delete, :string, default: nil)
   attr(:on_restore, :string, default: nil)
   attr(:on_permanent_delete, :string, default: nil)
@@ -1993,26 +1954,24 @@ defmodule PhoenixKitCatalogue.Web.Components do
   attr(:name_path, :any,
     default: nil,
     doc: """
-    Where an item's NAME links, as a 1-arity function of the item. Defaults
-    to `edit_path` (the catalogue's own convention). An embedded list can
-    point it somewhere read-only instead — landing on an edit form from a
-    list you are only reading is a surprise.
+    Where an item's NAME links, as a 1-arity function of the item. Defaults to
+    `edit_path` (the catalogue's own convention). An embedded, read-only list
+    can point it somewhere else — landing on an edit form from a list you are
+    only reading is a surprise.
     """
   )
 
   attr(:has_attributes, :boolean, default: false)
 
   defp item_cell(%{column: :name} = assigns) do
+    assigns = assign(assigns, :name_link, item_name_link(assigns, assigns.item))
+
     ~H"""
     <.table_default_cell class="font-medium">
-      <.link
-        :if={@edit_path && @item.uuid}
-        navigate={safe_call(@edit_path, @item.uuid)}
-        class="link link-hover"
-      >
+      <.link :if={@name_link} navigate={@name_link} class="link link-hover">
         {@item.name || "—"}
       </.link>
-      <span :if={!@edit_path || !@item.uuid}>{@item.name || "—"}</span>
+      <span :if={is_nil(@name_link)}>{@item.name || "—"}</span>
       <span
         :if={assigns[:has_attributes]}
         class="inline-block ml-1.5 align-[-2px]"
@@ -2127,16 +2086,6 @@ defmodule PhoenixKitCatalogue.Web.Components do
 
   attr(:item, :any, required: true)
   attr(:edit_path, :any, default: nil)
-
-  attr(:name_path, :any,
-    default: nil,
-    doc: """
-    Where an item's NAME links, as a 1-arity function of the item. Defaults
-    to `edit_path` (the catalogue's own convention). An embedded list can
-    point it somewhere read-only instead — landing on an edit form from a
-    list you are only reading is a surprise.
-    """
-  )
 
   attr(:on_delete, :string, default: nil)
   attr(:on_restore, :string, default: nil)
