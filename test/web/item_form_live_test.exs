@@ -271,6 +271,30 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLiveTest do
       )
     end
 
+    # Owner decision 2026-08-21: a supplier row is just a link to a
+    # supplier. Everything behind @supplier_terms_fields stays in the
+    # database and in the context — this pins that none of it renders.
+    test "the modal is a supplier picker and nothing else", %{conn: conn} do
+      item =
+        fixture_item(%{
+          name: "Oak Panel",
+          category_uuid: fixture_category(fixture_catalogue()).uuid
+        })
+
+      {:ok, view, page} = live(conn, edit_item_url(item.uuid))
+      html = render_click(view, "open_add_supplier", %{})
+
+      assert html =~ ~s(name="supplier_info[supplier_uuid]")
+
+      for field <- ~w(supplier_sku unit_cost currency lead_time_days min_order_qty) do
+        refute html =~ ~s(name="supplier_info[#{field}]")
+      end
+
+      # ...and the row actions that only make sense beside those fields.
+      refute page =~ "open_supplier_history"
+      refute page =~ "edit_supplier_info"
+    end
+
     test "add is refused with no supplier picked, and says so inside the modal",
          %{conn: conn} do
       item =
