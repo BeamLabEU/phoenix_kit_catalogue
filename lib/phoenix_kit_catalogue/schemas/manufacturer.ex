@@ -45,11 +45,6 @@ defmodule PhoenixKitCatalogue.Schemas.Manufacturer do
   @required_fields [:name]
   @optional_fields [:description, :website, :contact_info, :logo_url, :notes, :status, :data]
 
-  # Identity belongs to the CRM party once this row projects one. `logo_url`
-  # is NOT in this list: the brand mark is catalogue presentation, and CRM
-  # has nowhere to store it.
-  @crm_owned_fields [:name, :website, :contact_info]
-
   def changeset(manufacturer, attrs) do
     manufacturer
     |> cast(attrs, @required_fields ++ @optional_fields)
@@ -59,42 +54,5 @@ defmodule PhoenixKitCatalogue.Schemas.Manufacturer do
     |> validate_length(:contact_info, max: 500)
     |> validate_length(:logo_url, max: 500)
     |> validate_inclusion(:status, @statuses)
-    |> reject_crm_owned_changes()
-  end
-
-  @doc """
-  The changeset the CRM link/unlink/refresh actions use — the ONE write path
-  allowed to set `crm_company_uuid` and to stamp the party's identity onto
-  this projection. See `PhoenixKitCatalogue.Schemas.Supplier.crm_link_changeset/2`.
-  """
-  @spec crm_link_changeset(t() | Ecto.Changeset.t(t()), map()) :: Ecto.Changeset.t(t())
-  def crm_link_changeset(manufacturer, attrs) do
-    manufacturer
-    |> cast(attrs, [:crm_company_uuid | @crm_owned_fields])
-    |> validate_required(@required_fields)
-    |> validate_length(:name, min: 1, max: 255)
-    |> validate_length(:website, max: 500)
-    |> validate_length(:contact_info, max: 500)
-    |> unique_constraint(:crm_company_uuid,
-      name: :phoenix_kit_cat_manufacturers_crm_company_uuid_index,
-      message: "is already linked to another manufacturer"
-    )
-  end
-
-  # See the twin in `PhoenixKitCatalogue.Schemas.Supplier`.
-  defp reject_crm_owned_changes(changeset) do
-    if get_field(changeset, :crm_company_uuid) do
-      Enum.reduce(@crm_owned_fields, changeset, &reject_if_changed/2)
-    else
-      changeset
-    end
-  end
-
-  defp reject_if_changed(field, changeset) do
-    if Map.has_key?(changeset.changes, field) do
-      add_error(changeset, field, "is managed in CRM for a linked manufacturer")
-    else
-      changeset
-    end
   end
 end

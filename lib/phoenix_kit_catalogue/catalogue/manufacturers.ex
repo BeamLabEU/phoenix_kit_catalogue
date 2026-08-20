@@ -13,7 +13,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Manufacturers do
   import Ecto.Query, warn: false
 
   alias PhoenixKitCatalogue.Catalogue.{ActivityLog, PubSub}
-  alias PhoenixKitCatalogue.Schemas.Manufacturer
+  alias PhoenixKitCatalogue.Schemas.{Item, Manufacturer}
 
   defp repo, do: PhoenixKit.RepoHelper.repo()
 
@@ -140,12 +140,10 @@ defmodule PhoenixKitCatalogue.Catalogue.Manufacturers do
   end
 
   # ── Cross-module resolution ────────────────────────────────────────────────
-  # Mirrors `PhoenixKitCatalogue.Catalogue.Suppliers`' resolver pair, with one
-  # important difference stated up front: items reference manufacturers through
-  # the HARD FK `phoenix_kit_cat_items.manufacturer_uuid`, so a CRM party uuid
-  # can never be stored there. These functions federate the manufacturer
-  # DIRECTORY (and any picker built on it); they do not make item references
-  # federated. See `PhoenixKitCatalogue.Catalogue.CrmLink`.
+  # Mirrors `PhoenixKitCatalogue.Catalogue.Suppliers`' resolver pair. Since V179
+  # an item's manufacturer is a federated `{source, uuid}` reference rather than
+  # a foreign key, so these functions are the ONLY way to turn one into a name:
+  # `Item` carries no `belongs_to :manufacturer` to preload.
 
   @doc """
   Resolves a manufacturer UUID to a unified map regardless of source.
@@ -159,20 +157,95 @@ defmodule PhoenixKitCatalogue.Catalogue.Manufacturers do
   def resolve(uuid) when is_binary(uuid) do
     with :error <- try_resolve_crm(uuid) do
       case repo().get(Manufacturer, uuid) do
-        nil ->
-          :error
-
-        %Manufacturer{} = m ->
-          {:ok,
-           %{
-             uuid: m.uuid,
-             name: m.name,
-             email: nil,
-             phone: nil,
-             website: m.website,
-             source: :local
-           }}
+        nil -> :error
+        %Manufacturer{} = m -> resolve_local(m)
       end
+    end
+  end
+
+  # Resolves THROUGH the xref to the party — see the twin in
+  # `PhoenixKitCatalogue.Catalogue.Suppliers`. This is what lets an item that
+  # still stores the LOCAL manufacturer uuid display the party's current name
+  # with no data rewrite, and why linking copies nothing down.
+  defp resolve_local(%Manufacturer{crm_company_uuid: party} = m) when is_binary(party) do
+    case try_resolve_crm(party) do
+      {:ok, resolved} -> {:ok, resolved}
+      :error -> {:ok, local_map(m)}
+    end
+  end
+
+  defp resolve_local(%Manufacturer{} = m), do: {:ok, local_map(m)}
+
+  defp local_map(%Manufacturer{} = m) do
+    %{uuid: m.uuid, name: m.name, email: nil, phone: nil, website: m.website, source: :local}
+  end
+
+  @doc """
+  Batch form of `resolve/1` — see
+  `PhoenixKitCatalogue.Catalogue.Suppliers.resolve_many/1`. This is the call
+  that hydrates a page of items without one cross-module lookup per row.
+  """
+  @spec resolve_many([Ecto.UUID.t()]) :: %{Ecto.UUID.t() => map()}
+  def resolve_many([]), do: %{}
+
+  def resolve_many(uuids) when is_list(uuids) do
+    uuids = uuids |> Enum.reject(&is_nil/1) |> Enum.uniq()
+    from_crm = batch_resolve_crm(uuids)
+
+    locals =
+      Manufacturer
+      |> where([m], m.uuid in ^(uuids -- Map.keys(from_crm)))
+      |> repo().all()
+
+    party_uuids = for %Manufacturer{crm_company_uuid: p} <- locals, is_binary(p), do: p
+    projected = batch_resolve_crm(party_uuids)
+
+    locals
+    |> Map.new(fn m -> {m.uuid, Map.get(projected, m.crm_company_uuid) || local_map(m)} end)
+    |> Map.merge(from_crm)
+  end
+
+  @doc """
+  Stamps `:manufacturer_name` on each item — the replacement for the
+  `preload(:manufacturer)` that V179's federated reference made impossible.
+
+  One call per page, two queries at most, whatever mix of local and CRM
+  manufacturers the page contains. Items whose reference resolves to nothing
+  fall back to their stored `manufacturer_name_snapshot`, and then to `nil`,
+  so a deleted party degrades to the last known name rather than a blank.
+
+  Accepts a single item or a list, and is a no-op for anything without a
+  manufacturer.
+  """
+  @spec hydrate([Item.t()] | Item.t()) :: [Item.t()] | Item.t()
+  def hydrate(%Item{} = item), do: item |> List.wrap() |> hydrate() |> List.first()
+
+  def hydrate(items) when is_list(items) do
+    resolved =
+      items
+      |> Enum.map(& &1.manufacturer_uuid)
+      |> Enum.reject(&is_nil/1)
+      |> resolve_many()
+
+    Enum.map(items, fn item ->
+      name =
+        case Map.get(resolved, item.manufacturer_uuid) do
+          %{name: name} -> name
+          nil -> item.manufacturer_name_snapshot
+        end
+
+      %{item | manufacturer_name: name}
+    end)
+  end
+
+  defp batch_resolve_crm([]), do: %{}
+
+  defp batch_resolve_crm(uuids) do
+    if crm_available?() and function_exported?(PhoenixKitCRM.PartyRoles, :get_manufacturers, 1) do
+      # credo:disable-for-next-line Credo.Check.Refactor.Apply
+      apply(PhoenixKitCRM.PartyRoles, :get_manufacturers, [uuids])
+    else
+      %{}
     end
   end
 
@@ -186,22 +259,21 @@ defmodule PhoenixKitCatalogue.Catalogue.Manufacturers do
   """
   @spec list_all(keyword()) :: [map()]
   def list_all(opts \\ []) do
+    crm = list_crm_manufacturers()
+    listed_parties = MapSet.new(crm, & &1.uuid)
+
     local =
       opts
       |> list_manufacturers()
-      |> Enum.reject(& &1.crm_company_uuid)
-      |> Enum.map(fn m ->
-        %{
-          uuid: m.uuid,
-          name: m.name,
-          email: nil,
-          phone: nil,
-          website: m.website,
-          source: :local
-        }
-      end)
+      # Only hide a linked local when its party is genuinely in the list — see
+      # the twin in `Suppliers.list_all/1` for why rejecting on the xref alone
+      # silently deletes the row from every picker when CRM is absent.
+      |> Enum.reject(
+        &(&1.crm_company_uuid && MapSet.member?(listed_parties, &1.crm_company_uuid))
+      )
+      |> Enum.map(&local_map/1)
 
-    list_crm_manufacturers() ++ local
+    crm ++ local
   end
 
   defp try_resolve_crm(uuid) do

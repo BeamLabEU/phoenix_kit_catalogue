@@ -159,15 +159,6 @@ defmodule PhoenixKitCatalogue.Web.ManufacturerFormLive do
     )
   end
 
-  def handle_event("crm_refresh", _params, socket) do
-    socket.assigns.manufacturer
-    |> Catalogue.refresh_manufacturer_from_crm(actor_opts(socket))
-    |> handle_crm_result(
-      socket,
-      Gettext.gettext(PhoenixKitCatalogue.Gettext, "Refreshed from CRM.")
-    )
-  end
-
   defp handle_crm_result({:ok, manufacturer}, socket, message) do
     {:noreply,
      socket
@@ -279,7 +270,6 @@ defmodule PhoenixKitCatalogue.Web.ManufacturerFormLive do
               type="text"
               label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Name *")}
               placeholder={Gettext.gettext(PhoenixKitCatalogue.Gettext, "e.g., Blum, Hettich")}
-              readonly={crm_linked?(@manufacturer)}
               required
             />
 
@@ -304,14 +294,12 @@ defmodule PhoenixKitCatalogue.Web.ManufacturerFormLive do
                 type="url"
                 label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Website")}
                 placeholder={Gettext.gettext(PhoenixKitCatalogue.Gettext, "https://...")}
-                readonly={crm_linked?(@manufacturer)}
               />
               <.input
                 field={@form[:contact_info]}
                 type="text"
                 label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Contact Info")}
                 placeholder={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Email or phone")}
-                readonly={crm_linked?(@manufacturer)}
               />
             </div>
 
@@ -417,7 +405,4 @@ defmodule PhoenixKitCatalogue.Web.ManufacturerFormLive do
     </PhoenixKitWeb.Components.LayoutWrapper.app_layout>
     """
   end
-
-  defp crm_linked?(%{crm_company_uuid: uuid}) when is_binary(uuid), do: true
-  defp crm_linked?(_), do: false
 end
