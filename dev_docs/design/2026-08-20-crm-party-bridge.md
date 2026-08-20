@@ -110,6 +110,22 @@ on top.
   degradation insurance, never displayed as authoritative. Say if you want them
   gone entirely.
 
+## If a supplier is ever assignable to a whole catalogue
+
+The read model on the CRM company page (`items_supplied_by/1`,
+`items_manufactured_by/1`) resolves the party's own uuid AND any local row that
+projects it, and returns `:item_path` so CRM renders a link without assembling
+catalogue URLs itself. **A catalogue-level assignment must follow the same two
+rules**: match both uuids, and hand back the path. Otherwise a supplier
+attached to a whole catalogue would either be invisible on its CRM page, or
+appear there with a title that is not clickable.
+
+Practically that means a sibling `catalogues_supplied_by/1` returning
+`%{catalogue_uuid, catalogue_name, catalogue_path}`, and a third section on the
+tab beside Supplied items and Manufactured items — following the same rule as
+those two, that a section appears when the role is held OR when rows reference
+the company regardless.
+
 ## Follow-ups
 
 1. **Warehouse is CRM-blind** and lives in a different workspace

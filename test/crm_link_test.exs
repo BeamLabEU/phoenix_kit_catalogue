@@ -371,6 +371,10 @@ defmodule PhoenixKitCatalogue.CrmLinkTest do
       assert [row] = Catalogue.items_supplied_by(party)
       assert row.item_name == "Direct Party Item"
       assert row.is_primary
+
+      # The catalogue hands back the link: CRM renders it rather than
+      # assembling catalogue URLs from another module.
+      assert row.item_path =~ item.uuid
     end
 
     test "ALSO finds sourcing recorded against a local row that projects the party" do
@@ -430,8 +434,10 @@ defmodule PhoenixKitCatalogue.CrmLinkTest do
           manufacturer_uuid: maker.uuid
         })
 
-      names = Catalogue.items_manufactured_by(party) |> Enum.map(& &1.item_name) |> Enum.sort()
-      assert names == ["Direct", "Via Local"]
+      rows = Catalogue.items_manufactured_by(party)
+
+      assert rows |> Enum.map(& &1.item_name) |> Enum.sort() == ["Direct", "Via Local"]
+      assert Enum.all?(rows, &(&1.item_path =~ &1.item_uuid))
     end
 
     test "returns nothing for a party with no catalogue presence, and tolerates junk" do
