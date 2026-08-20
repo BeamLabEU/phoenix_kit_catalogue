@@ -71,6 +71,74 @@ defmodule PhoenixKitCatalogue.Catalogue.SupplierFields do
   # unrenderable type would store a uuid nothing can choose.
   @field_types ~w(text textarea number boolean date select)
 
+  # ── Built-in fields ────────────────────────────────────────────────
+  #
+  # Fields the catalogue itself declares, in the entities field-definition
+  # format, so they render and cast through exactly the same machinery as
+  # admin-added ones (`FieldInput` + `FormBuilder.cast_field/2`). This is
+  # the first step of the owner's "everything in entities" direction:
+  # entities owns the SHAPE of a supplier field, including the built-in
+  # ones.
+  #
+  # They deliberately live in code rather than in the blueprint:
+  #
+  #   * the hidden field manager cannot delete or retype them;
+  #   * they keep working when the entities MODULE is toggled off —
+  #     `cast_field/2` is a pure function, so only the admin-defined
+  #     extras depend on the blueprint being reachable. Money must not
+  #     become uneditable because someone flipped a module switch.
+  #
+  # A built-in key names a real COLUMN on
+  # `phoenix_kit_cat_item_supplier_info`; its value is written there, not
+  # into `metadata`. `unit_cost` is `NUMERIC(14,4)` and warehouse reads it
+  # directly (`cost_proposals.ex` compares a goods-receipt value against
+  # it as Decimals), so it cannot move into JSONB — hence `decimal`,
+  # added to entities for exactly this.
+  @builtin_fields [
+    %{
+      "type" => "decimal",
+      "key" => "unit_cost",
+      "label" => "Unit cost",
+      "scale" => 4,
+      "min" => 0
+    }
+  ]
+
+  @doc """
+  The catalogue's own supplier field definitions, in entities format.
+  Always available — these do not depend on the entities module being
+  enabled, only on its field machinery being compiled in.
+  """
+  @spec builtin_fields() :: [map()]
+  def builtin_fields, do: @builtin_fields
+
+  @doc "One built-in field definition by key, or `nil`."
+  @spec builtin_field(String.t()) :: map() | nil
+  def builtin_field(key) when is_binary(key),
+    do: Enum.find(@builtin_fields, &(&1["key"] == key))
+
+  @doc """
+  Casts a built-in field's raw form input through the entities pipeline.
+  Returns `{:ok, term}` — a `%Decimal{}` for `unit_cost`, or `nil` when
+  cleared — or `{:error, :invalid_value}`.
+
+  Unlike the admin-defined extras, the result is destined for a typed
+  COLUMN, so the caller hands it straight to the changeset.
+  """
+  @spec cast_builtin(String.t(), term()) :: {:ok, term()} | {:error, term()}
+  def cast_builtin(key, raw) when is_binary(key) do
+    case builtin_field(key) do
+      nil ->
+        {:error, :unknown_field}
+
+      field ->
+        case PhoenixKitEntities.FormBuilder.cast_field(field, raw) do
+          {:ok, cast} -> {:ok, cast}
+          {:error, _messages} -> {:error, :invalid_value}
+        end
+    end
+  end
+
   @doc """
   True when the feature is live: the entities module is enabled AND its
   package carries the Managed API. Mirrors
