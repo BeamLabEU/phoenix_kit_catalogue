@@ -368,13 +368,12 @@ defmodule PhoenixKitCatalogue.CrmLinkTest do
           is_primary: true
         })
 
+      # Returns Item structs so the catalogue's own table can render them --
+      # image column, card view and all -- rather than a bespoke row shape.
       assert [row] = Catalogue.items_supplied_by(party)
-      assert row.item_name == "Direct Party Item"
-      assert row.is_primary
-
-      # The catalogue hands back the link: CRM renders it rather than
-      # assembling catalogue URLs from another module.
-      assert row.item_path =~ item.uuid
+      assert row.uuid == item.uuid
+      assert row.name == "Direct Party Item"
+      assert %Ecto.Association.NotLoaded{} != row.catalogue
     end
 
     test "ALSO finds sourcing recorded against a local row that projects the party" do
@@ -392,7 +391,7 @@ defmodule PhoenixKitCatalogue.CrmLinkTest do
         })
 
       assert [row] = Catalogue.items_supplied_by(party)
-      assert row.item_name == "Legacy Reference Item"
+      assert row.name == "Legacy Reference Item"
     end
 
     test "excludes closed sourcing rows" do
@@ -436,8 +435,14 @@ defmodule PhoenixKitCatalogue.CrmLinkTest do
 
       rows = Catalogue.items_manufactured_by(party)
 
-      assert rows |> Enum.map(& &1.item_name) |> Enum.sort() == ["Direct", "Via Local"]
-      assert Enum.all?(rows, &(&1.item_path =~ &1.item_uuid))
+      assert rows |> Enum.map(& &1.name) |> Enum.sort() == ["Direct", "Via Local"]
+
+      # Hydrated, so the manufacturer column has something to render. The
+      # CRM-sourced one resolves to nothing here (no CRM installed) and falls
+      # back to its snapshot, which this fixture never set — that nil IS the
+      # tombstone path working.
+      via_local = Enum.find(rows, &(&1.name == "Via Local"))
+      assert via_local.manufacturer_name == maker.name
     end
 
     test "returns nothing for a party with no catalogue presence, and tolerates junk" do

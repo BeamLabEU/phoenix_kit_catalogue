@@ -2316,4 +2316,43 @@ defmodule PhoenixKitCatalogue.Web.Components do
   defp safe_call(func, arg) when is_function(func, 1), do: func.(arg)
 
   # Safe nested association access — follows a path of keys, returns nil on any miss
+
+  @doc """
+  An item list for another module to embed — the CRM company page's
+  Catalogue tab today.
+
+  This is a deliberately narrow wrapper around `item_table/1` rather than a
+  second table. A caller outside this package cannot invoke `item_table/1`
+  itself: HEEx injects `attr` defaults at the CALL SITE, so reaching it
+  through `apply/3` would mean the caller supplying every attribute by hand
+  and re-supplying each new one we add. Here the defaults are applied inside
+  the catalogue, and the contract with the caller is two keys.
+
+  Takes a plain map (no attr defaults are available through `apply/3`):
+
+    * `:items` — `%Item{}` structs, ideally hydrated by
+      `Manufacturers.hydrate/1` so the manufacturer column has a name
+    * `:id` — unique DOM id for the table
+
+  Presentation — the image column, the card/table toggle, price and status
+  formatting — stays owned by the catalogue, so an embedded list keeps
+  matching the catalogue's own.
+  """
+  def party_items_table(assigns) do
+    assigns =
+      assigns
+      |> Map.put_new(:columns, [:name, :sku, :base_price, :unit, :status, :category])
+      |> Map.put_new(:id, "party-items")
+
+    ~H"""
+    <.item_table
+      id={@id}
+      items={@items}
+      columns={@columns}
+      edit_path={&PhoenixKitCatalogue.Paths.item_edit/1}
+      catalogue_path={&PhoenixKitCatalogue.Paths.catalogue_detail/1}
+      size="sm"
+    />
+    """
+  end
 end

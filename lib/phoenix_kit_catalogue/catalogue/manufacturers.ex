@@ -213,17 +213,17 @@ defmodule PhoenixKitCatalogue.Catalogue.Manufacturers do
   so items that still store the pre-move local uuid are included. Deleted
   items excluded.
   """
-  @spec items_manufactured_by(Ecto.UUID.t()) :: [map()]
+  @spec items_manufactured_by(Ecto.UUID.t()) :: [Item.t()]
   def items_manufactured_by(party_uuid) when is_binary(party_uuid) do
     uuids = [party_uuid | Suppliers.projection_uuids(Manufacturer, party_uuid)]
 
     from(i in Item,
       where: i.manufacturer_uuid in ^uuids and i.status != "deleted",
       order_by: [asc: i.name],
-      select: %{item_uuid: i.uuid, item_name: i.name, item_sku: i.sku}
+      preload: [:catalogue, :category]
     )
     |> repo().all()
-    |> Enum.map(&Suppliers.with_item_path/1)
+    |> hydrate()
   end
 
   def items_manufactured_by(_), do: []
