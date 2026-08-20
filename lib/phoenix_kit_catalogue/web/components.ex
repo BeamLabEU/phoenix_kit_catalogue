@@ -2425,8 +2425,16 @@ defmodule PhoenixKitCatalogue.Web.Components do
   def party_items_table(assigns) do
     assigns =
       assigns
-      |> Map.put_new(:columns, [:name, :sku, :base_price, :unit, :status, :catalogue, :category])
+      |> Map.put_new(
+        :columns,
+        party_items_default_columns() |> Enum.map(&String.to_existing_atom/1)
+      )
       |> Map.put_new(:id, "party-items")
+      # `:name` is always shown and is not the picker's to remove, but
+      # `item_table/1` still needs it in `columns` to render the Name COLUMN —
+      # the card view draws the name from its header instead, which is why a
+      # missing `:name` looks fine in cards and blank in the table.
+      |> Map.update!(:columns, fn cols -> [:name | List.delete(cols, :name)] end)
 
     ~H"""
     <.item_table
