@@ -773,4 +773,74 @@ defmodule PhoenixKitCatalogue.ItemSupplierInfosTest do
       assert Decimal.equal?(successor.unit_cost, Decimal.new("7.00"))
     end
   end
+
+  # A supplier listed twice on one item means two live prices for the same
+  # pair and no rule about which anything downstream should believe.
+  describe "one current row per item/supplier pair" do
+    test "a second link to the same supplier is refused" do
+      item = create_catalogue() |> create_item()
+      supplier = create_supplier()
+
+      _first = create_info(item, supplier)
+
+      assert {:error, :already_linked} =
+               ItemSupplierInfos.create(%{
+                 "item_uuid" => item.uuid,
+                 "supplier_uuid" => supplier.uuid,
+                 "supplier_source" => "local"
+               })
+
+      assert length(ItemSupplierInfos.list_for_item(item.uuid)) == 1
+    end
+
+    test "a different supplier on the same item is fine" do
+      item = create_catalogue() |> create_item()
+
+      create_info(item, create_supplier())
+      create_info(item, create_supplier())
+
+      assert length(ItemSupplierInfos.list_for_item(item.uuid)) == 2
+    end
+
+    test "the same supplier on a different item is fine" do
+      catalogue = create_catalogue()
+      supplier = create_supplier()
+
+      create_info(create_item(catalogue), supplier)
+      create_info(create_item(catalogue), supplier)
+    end
+
+    # Price history is exactly "several rows for one pair", so the guard
+    # must not block a revision — only one of them is ever open.
+    test "a price revision still appends a successor for the same pair" do
+      item = create_catalogue() |> create_item()
+      supplier = create_supplier()
+
+      info = create_info(item, supplier, %{"unit_cost" => "10.00"})
+      {:ok, _revised} = ItemSupplierInfos.revise_unit_cost(info, Decimal.new("12.50"))
+
+      assert length(ItemSupplierInfos.list_for_item(item.uuid)) == 1
+      assert length(ItemSupplierInfos.history_for_pair(item.uuid, supplier.uuid)) == 2
+    end
+
+    # Once the earlier row is closed, re-adding the supplier is a new
+    # arrangement, not a duplicate.
+    test "re-adding is allowed after the previous row is closed" do
+      item = create_catalogue() |> create_item()
+      supplier = create_supplier()
+
+      info = create_info(item, supplier)
+
+      info
+      |> Ecto.Changeset.change(%{valid_to: Date.utc_today()})
+      |> PhoenixKit.RepoHelper.repo().update!()
+
+      assert {:ok, _} =
+               ItemSupplierInfos.create(%{
+                 "item_uuid" => item.uuid,
+                 "supplier_uuid" => supplier.uuid,
+                 "supplier_source" => "local"
+               })
+    end
+  end
 end

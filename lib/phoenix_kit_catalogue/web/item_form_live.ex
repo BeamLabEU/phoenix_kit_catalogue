@@ -257,6 +257,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
       supplier_comments_available: comments_available?(),
       supplier_comments: nil,
       supplier_comment_previews: %{},
+      supplier_comment_subscriptions: MapSet.new(),
       supplier_field_manager: false,
       supplier_field_editor: nil,
       supplier_field_remove: nil,
@@ -1064,6 +1065,35 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
     socket
     |> assign(supplier_infos: infos, supplier_comment_targets: targets)
     |> assign(:supplier_comment_previews, comment_previews(targets))
+    |> subscribe_to_comment_targets(targets)
+  end
+
+  # Re-reads the previews against the targets already resolved — a comment
+  # changes no supplier row, so there is nothing else to reload.
+  defp refresh_comment_previews(socket) do
+    assign(
+      socket,
+      :supplier_comment_previews,
+      comment_previews(socket.assigns.supplier_comment_targets)
+    )
+  end
+
+  # One subscription per company, and only for companies not already
+  # subscribed: PubSub delivers once PER subscription, so re-subscribing on
+  # every row reload would multiply the refreshes.
+  defp subscribe_to_comment_targets(socket, targets) do
+    if connected?(socket) and socket.assigns.supplier_comments_available do
+      already = socket.assigns[:supplier_comment_subscriptions] || MapSet.new()
+      wanted = MapSet.new(Map.values(targets))
+
+      wanted
+      |> MapSet.difference(already)
+      |> Enum.each(&PhoenixKitComments.subscribe("crm_company", &1))
+
+      assign(socket, :supplier_comment_subscriptions, MapSet.union(already, wanted))
+    else
+      socket
+    end
   end
 
   # ── Inline comment previews ──────────────────────────────────────────
@@ -1246,6 +1276,11 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
         {:ok, _info} ->
           {:noreply, close_supplier_form(socket, "Supplier added.")}
 
+        # Named reasons reach the modal as themselves; a changeset is a
+        # shape failure and stays generic.
+        {:error, reason} when is_atom(reason) ->
+          {:noreply, supplier_form_error(socket, form, reason)}
+
         {:error, _changeset} ->
           {:noreply, supplier_form_error(socket, form, :save_failed)}
       end
@@ -1356,6 +1391,13 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
 
   defp supplier_error_message(:invalid_value),
     do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "One of the extra fields has invalid input.")
+
+  defp supplier_error_message(:already_linked),
+    do:
+      Gettext.gettext(
+        PhoenixKitCatalogue.Gettext,
+        "This supplier is already on the item. Edit the existing row instead."
+      )
 
   defp supplier_error_message(:invalid_cost),
     do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Unit cost must be a number.")
@@ -1518,6 +1560,14 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   # own — so without this hop "Post comment" silently no-ops. Resolved at
   # runtime because comments is a soft dep here; `use …Comments.Embed`
   # would need a compile-time dependency the catalogue does not declare.
+  # Posting a comment must show up under the supplier without a page
+  # reload. CommentsComponent sends this to its HOST on create/delete, and
+  # the same shape arrives over PubSub when someone else comments on the
+  # company — one contract covers both.
+  def handle_info({:comments_updated, _payload}, socket) do
+    {:noreply, refresh_comment_previews(socket)}
+  end
+
   def handle_info({:leaf_changed, _payload} = msg, socket) do
     case Code.ensure_loaded(PhoenixKitComments.Web.CommentsComponent) do
       {:module, module} ->
@@ -1730,6 +1780,19 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
       label = if s.source != :local, do: "#{s.name} (CRM)", else: s.name
       {label, s.uuid}
     end)
+  end
+
+  # Suppliers already linked to this item are dropped from the Add picker:
+  # a second CURRENT row for the same pair means the supplier listed twice
+  # with two live prices. `create/2` refuses it too — this just stops the
+  # user reaching for it in the first place. Editing an existing row still
+  # sees its own supplier, since that path renders the name, not a select.
+  defp available_supplier_options(suppliers, supplier_infos) do
+    linked = MapSet.new(supplier_infos, & &1.supplier_uuid)
+
+    suppliers
+    |> Enum.reject(&MapSet.member?(linked, &1.uuid))
+    |> supplier_options()
   end
 
   # Same shape for manufacturers since V179 made that reference federated too.
@@ -3156,7 +3219,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                 value={@supplier_form.draft["supplier_uuid"]}
                 label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Supplier")}
                 prompt={Gettext.gettext(PhoenixKitCatalogue.Gettext, "-- Select supplier --")}
-                options={supplier_options(@all_suppliers)}
+                options={available_supplier_options(@all_suppliers, @supplier_infos)}
                 class="w-full"
               />
               <div :if={@supplier_form.mode == :edit}>
