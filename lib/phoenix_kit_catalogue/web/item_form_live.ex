@@ -69,6 +69,19 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   # preserves them, so a restore brings the data back with the UI.
   @supplier_custom_fields false
 
+  # The BUILT-IN supplier terms — SKU, unit cost + currency, lead time,
+  # minimum order quantity — and the two row actions that only make sense
+  # alongside them (edit, price history). Hidden by owner decision
+  # 2026-08-21: a supplier link is just a link for now, and when the
+  # switch to entities happens these become entity fields rather than
+  # columns, so the form should not teach two systems in the meantime.
+  #
+  # Columns, data and context are all untouched — this hides the UI only.
+  # `phoenix_kit_cat_item_supplier_info` still carries every value already
+  # written, `revise_unit_cost/3` still works, and warehouse still reads
+  # what it always read.
+  @supplier_terms_fields false
+
   @translatable_fields ["name", "description"]
   @preserve_fields %{
     # Translatable primaries: submitted only on the primary tab, so a
@@ -221,6 +234,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
       supplier_form: nil,
       supplier_fields: load_supplier_fields(),
       supplier_fields_manageable: supplier_fields_manageable?(),
+      supplier_terms_visible: supplier_terms_fields?(),
       supplier_field_manager: false,
       supplier_field_editor: nil,
       supplier_field_remove: nil,
@@ -966,6 +980,8 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   end
 
   defp supplier_custom_fields?, do: @supplier_custom_fields
+
+  defp supplier_terms_fields?, do: @supplier_terms_fields
 
   # Computed once at mount rather than inline in the template: with the
   # flag off the compiler folds the call to a constant and rejects the
@@ -2622,13 +2638,23 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                 <thead>
                   <tr>
                     <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Supplier")}</th>
-                    <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "SKU")}</th>
-                    <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Unit Cost")}</th>
-                    <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Lead (d)")}</th>
-                    <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "MOQ")}</th>
+                    <th :if={@supplier_terms_visible}>
+                      {Gettext.gettext(PhoenixKitCatalogue.Gettext, "SKU")}
+                    </th>
+                    <th :if={@supplier_terms_visible}>
+                      {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Unit Cost")}
+                    </th>
+                    <th :if={@supplier_terms_visible}>
+                      {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Lead (d)")}
+                    </th>
+                    <th :if={@supplier_terms_visible}>
+                      {Gettext.gettext(PhoenixKitCatalogue.Gettext, "MOQ")}
+                    </th>
                     <th :for={field <- @supplier_fields}>{field["label"]}</th>
                     <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Primary")}</th>
-                    <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "History")}</th>
+                    <th :if={@supplier_terms_visible}>
+                      {Gettext.gettext(PhoenixKitCatalogue.Gettext, "History")}
+                    </th>
                     <th></th>
                   </tr>
                 </thead>
@@ -2638,16 +2664,18 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                       <td class="font-medium">
                         {supplier_display_name(info, @all_suppliers)}
                       </td>
-                      <td class="font-mono text-xs">{info.supplier_sku || "—"}</td>
-                      <td>
+                      <td :if={@supplier_terms_visible} class="font-mono text-xs">
+                        {info.supplier_sku || "—"}
+                      </td>
+                      <td :if={@supplier_terms_visible}>
                         <%= if info.unit_cost do %>
                           {Decimal.to_string(info.unit_cost, :normal)} {info.currency || ""}
                         <% else %>
                           —
                         <% end %>
                       </td>
-                      <td>{info.lead_time_days || "—"}</td>
-                      <td>
+                      <td :if={@supplier_terms_visible}>{info.lead_time_days || "—"}</td>
+                      <td :if={@supplier_terms_visible}>
                         <%= if info.min_order_qty do %>
                           {Decimal.to_string(info.min_order_qty, :normal)}
                         <% else %>
@@ -2672,7 +2700,11 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                           {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Make primary")}
                         </.button>
                       </td>
-                      <td>
+                      <%!-- History and Edit ride the terms flag: with no
+                           editable fields the edit modal would be empty, and
+                           a price history nothing can add a price to is a
+                           dead button. --%>
+                      <td :if={@supplier_terms_visible}>
                         <.button
                           type="button"
                           phx-click="open_supplier_history"
@@ -2686,6 +2718,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                       </td>
                       <td class="whitespace-nowrap text-right">
                         <.button
+                          :if={@supplier_terms_visible}
                           type="button"
                           phx-click="edit_supplier_info"
                           phx-value-uuid={info.uuid}
@@ -2891,11 +2924,11 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
               </div>
             </div>
 
-            <%!-- Every field below labels itself through `<.label class="block mb-2">` rather
-                 than `<.input label=...>`: the two render different type
-                 sizes, and side by side in this grid the rows stopped
-                 lining up. --%>
-            <div>
+            <%!-- The built-in supplier terms, hidden together. Each labels
+                 itself through `<.label>` rather than `<.input label=...>`:
+                 the two render different type sizes, and side by side in
+                 this grid the rows stopped lining up. --%>
+            <div :if={@supplier_terms_visible}>
               <.label for="supplier-sku" class="block mb-2">
                 {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Supplier SKU")}
               </.label>
@@ -2909,7 +2942,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
               />
             </div>
 
-            <div>
+            <div :if={@supplier_terms_visible}>
               <.label class="block mb-2">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Unit Cost")}</.label>
               <%!-- Deliberately raw (L029): the kit input wraps each field
                    in its own feedback div, which would break the daisyUI
@@ -2944,7 +2977,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
               </p>
             </div>
 
-            <div>
+            <div :if={@supplier_terms_visible}>
               <.label for="supplier-lead-time" class="block mb-2">
                 {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Lead Time (days)")}
               </.label>
@@ -2958,7 +2991,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
               />
             </div>
 
-            <div>
+            <div :if={@supplier_terms_visible}>
               <.label for="supplier-moq" class="block mb-2">
                 {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Min. Order Qty")}
               </.label>

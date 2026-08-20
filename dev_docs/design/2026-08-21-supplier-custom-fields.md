@@ -10,10 +10,51 @@ it should be a popup"
 
 ---
 
-## Current state: hidden behind one flag
+## Where this is going (owner direction, 2026-08-21)
 
-`PhoenixKitCatalogue.Web.ItemFormLive`'s `@supplier_custom_fields false` is the
-whole switch. With it off:
+**Eventually every supplier field moves into entities — including the built-in
+ones.** The owner's reasoning: "no point in breaking up into multiple systems."
+So the end state is not the hybrid this document originally proposed; it is one
+system, with SKU, unit cost, currency, lead time and MOQ defined as entity
+fields alongside any admin-added ones. In the meantime the boss wants **no
+fields at all** on the supplier form, so both sets are hidden rather than one
+being taught while the other waits.
+
+That end state has three problems still to solve, recorded here so they are not
+rediscovered halfway through the migration:
+
+1. **Money precision.** Entities' `number` casts through `Float.parse/1`, so
+   `unit_cost` would stop being `NUMERIC(14,4)`. Either entities grows a decimal
+   field type, or unit cost keeps a typed column while everything else moves.
+2. **"One primary supplier per item"** is a partial unique index today
+   (`phoenix_kit_cat_item_supplier_info_primary_uniq`, V151). JSONB cannot carry
+   it; it becomes application-enforced, with the race that implies.
+3. **The price-history mechanism** (`revise_unit_cost/3`) closes a row on
+   `valid_to` and appends a successor, ordered by indexed `date` columns.
+   Entities stores dates as `"YYYY-MM-DD"` strings, so "which price is current"
+   stops being an indexed SQL predicate. Warehouse also reads these rows.
+
+None of that blocks the direction — it just needs deciding rather than
+discovering.
+
+## Current state: hidden behind two flags
+
+`PhoenixKitCatalogue.Web.ItemFormLive` carries two, both false:
+
+- **`@supplier_terms_fields`** — the BUILT-IN terms (SKU, unit cost + currency,
+  lead time, MOQ) and the two row actions that only make sense beside them
+  (Edit, price History). Off, a supplier row is just a link to a supplier: the
+  modal is a picker and nothing else, and the table shows Supplier / Primary /
+  remove. The columns, the data and `revise_unit_cost/3` are all untouched —
+  warehouse still reads what it always read.
+- **`@supplier_custom_fields`** — the entity-backed extras, below.
+
+Handlers are deliberately NOT gated for the terms: `save_supplier_info` and
+`edit_supplier_info` still work end to end, so the existing tests keep proving
+the mechanism (including price revision) while the UI is invisible, and the
+restore is purely visual.
+
+With `@supplier_custom_fields` off:
 
 - the **Fields** button does not render, and `open_supplier_field_manager`
   no-ops server-side so a crafted event cannot open it either;
