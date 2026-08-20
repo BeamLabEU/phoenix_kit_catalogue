@@ -331,6 +331,14 @@ defmodule PhoenixKitCatalogue.Catalogue do
     to: CrmLink,
     as: :unlink_manufacturer
 
+  @doc """
+  What a CRM party supplies / manufactures — the read model behind the
+  catalogue panel on a company's CRM page. Both accept a party uuid and match
+  local projections of it too.
+  """
+  defdelegate items_supplied_by(party_uuid), to: Suppliers
+  defdelegate items_manufactured_by(party_uuid), to: Manufacturers
+
   @doc "Batch supplier resolution for a page of rows — see `Suppliers.resolve_many/1`."
   defdelegate resolve_suppliers(uuids), to: Suppliers, as: :resolve_many
 

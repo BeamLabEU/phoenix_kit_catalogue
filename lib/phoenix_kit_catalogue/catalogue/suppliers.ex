@@ -19,7 +19,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Suppliers do
   import Ecto.Query, warn: false
 
   alias PhoenixKitCatalogue.Catalogue.{ActivityLog, ItemSupplierInfos, PubSub}
-  alias PhoenixKitCatalogue.Schemas.Supplier
+  alias PhoenixKitCatalogue.Schemas.{Item, ItemSupplierInfo, Supplier}
 
   defp repo, do: PhoenixKit.RepoHelper.repo()
 
@@ -272,6 +272,51 @@ defmodule PhoenixKitCatalogue.Catalogue.Suppliers do
     else
       %{}
     end
+  end
+
+  @doc """
+  Everything a CRM party currently supplies, for the catalogue panel on that
+  party's page in CRM.
+
+  Matches the party's own uuid AND the uuid of any local supplier row that
+  projects it — the same resolve-through rule `resolve/1` uses, so sourcing
+  recorded against the old local row before the party existed still shows up.
+  Current rows only (`valid_to` is null), deleted items excluded.
+
+  Returns plain maps, not schemas: the caller is another module rendering a
+  read-only list, and handing it structs would invite it to write them back.
+  """
+  @spec items_supplied_by(Ecto.UUID.t()) :: [map()]
+  def items_supplied_by(party_uuid) when is_binary(party_uuid) do
+    uuids = [party_uuid | projection_uuids(Supplier, party_uuid)]
+
+    from(info in ItemSupplierInfo,
+      join: i in Item,
+      on: i.uuid == info.item_uuid,
+      where: info.supplier_uuid in ^uuids and is_nil(info.valid_to) and i.status != "deleted",
+      order_by: [desc: info.is_primary, asc: i.name],
+      select: %{
+        item_uuid: i.uuid,
+        item_name: i.name,
+        item_sku: i.sku,
+        supplier_sku: info.supplier_sku,
+        unit_cost: info.unit_cost,
+        currency: info.currency,
+        lead_time_days: info.lead_time_days,
+        is_primary: info.is_primary
+      }
+    )
+    |> repo().all()
+  end
+
+  def items_supplied_by(_), do: []
+
+  # Local directory rows that project this party. Callers prepend the party's
+  # own uuid: a reference may name either side, and both mean the same company.
+  @doc false
+  def projection_uuids(schema, party_uuid) do
+    from(r in schema, where: r.crm_company_uuid == ^party_uuid, select: r.uuid)
+    |> repo().all()
   end
 
   @doc "Returns the primary supplier-info row for an item, or `nil` if none is marked primary."

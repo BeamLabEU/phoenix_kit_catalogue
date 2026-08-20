@@ -342,4 +342,103 @@ defmodule PhoenixKitCatalogue.CrmLinkTest do
       assert hydrated.manufacturer_name == "Projected Maker"
     end
   end
+
+  describe "what a CRM party supplies / manufactures" do
+    # Powers the Catalogue tab on the company page in CRM. Since the catalogue
+    # no longer has supplier or manufacturer pages, that tab is the only place
+    # "what do they actually supply?" can be answered.
+
+    defp catalogue_item(name) do
+      {:ok, c} = Catalogue.create_catalogue(%{name: "Cat #{System.unique_integer([:positive])}"})
+      {:ok, item} = Catalogue.create_item(%{name: name, catalogue_uuid: c.uuid})
+      item
+    end
+
+    test "finds sourcing recorded against the party's own uuid" do
+      party = Ecto.UUID.generate()
+      item = catalogue_item("Direct Party Item")
+
+      {:ok, _} =
+        Catalogue.create_supplier_info(%{
+          item_uuid: item.uuid,
+          supplier_uuid: party,
+          supplier_source: "crm_company",
+          unit_cost: Decimal.new("9.50"),
+          currency: "EUR",
+          is_primary: true
+        })
+
+      assert [row] = Catalogue.items_supplied_by(party)
+      assert row.item_name == "Direct Party Item"
+      assert row.is_primary
+    end
+
+    test "ALSO finds sourcing recorded against a local row that projects the party" do
+      party = Ecto.UUID.generate()
+      supplier = supplier_fixture() |> mark_linked!(party)
+      item = catalogue_item("Legacy Reference Item")
+
+      {:ok, _} =
+        Catalogue.create_supplier_info(%{
+          item_uuid: item.uuid,
+          supplier_uuid: supplier.uuid,
+          supplier_source: "local",
+          unit_cost: Decimal.new("3.00"),
+          currency: "EUR"
+        })
+
+      assert [row] = Catalogue.items_supplied_by(party)
+      assert row.item_name == "Legacy Reference Item"
+    end
+
+    test "excludes closed sourcing rows" do
+      party = Ecto.UUID.generate()
+      item = catalogue_item("Closed Row Item")
+
+      {:ok, info} =
+        Catalogue.create_supplier_info(%{
+          item_uuid: item.uuid,
+          supplier_uuid: party,
+          supplier_source: "crm_company",
+          unit_cost: Decimal.new("1.00"),
+          currency: "EUR"
+        })
+
+      {:ok, _} = Catalogue.update_supplier_info(info, %{valid_to: Date.utc_today()})
+
+      assert Catalogue.items_supplied_by(party) == []
+    end
+
+    test "finds items manufactured directly and through a linked local row" do
+      party = Ecto.UUID.generate()
+      maker = manufacturer_fixture() |> mark_linked!(party)
+
+      {:ok, c} = Catalogue.create_catalogue(%{name: "MCat #{System.unique_integer([:positive])}"})
+
+      {:ok, _direct} =
+        Catalogue.create_item(%{
+          name: "Direct",
+          catalogue_uuid: c.uuid,
+          manufacturer_uuid: party,
+          manufacturer_source: "crm_company"
+        })
+
+      {:ok, _via_local} =
+        Catalogue.create_item(%{
+          name: "Via Local",
+          catalogue_uuid: c.uuid,
+          manufacturer_uuid: maker.uuid
+        })
+
+      names = Catalogue.items_manufactured_by(party) |> Enum.map(& &1.item_name) |> Enum.sort()
+      assert names == ["Direct", "Via Local"]
+    end
+
+    test "returns nothing for a party with no catalogue presence, and tolerates junk" do
+      assert Catalogue.items_supplied_by(Ecto.UUID.generate()) == []
+      assert Catalogue.items_manufactured_by(Ecto.UUID.generate()) == []
+      assert Catalogue.items_supplied_by(nil) == []
+      assert Catalogue.items_manufactured_by(nil) == []
+    end
+  end
 end

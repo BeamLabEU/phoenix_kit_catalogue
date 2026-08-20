@@ -12,7 +12,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Manufacturers do
 
   import Ecto.Query, warn: false
 
-  alias PhoenixKitCatalogue.Catalogue.{ActivityLog, PubSub}
+  alias PhoenixKitCatalogue.Catalogue.{ActivityLog, PubSub, Suppliers}
   alias PhoenixKitCatalogue.Schemas.{Item, Manufacturer}
 
   defp repo, do: PhoenixKit.RepoHelper.repo()
@@ -204,6 +204,28 @@ defmodule PhoenixKitCatalogue.Catalogue.Manufacturers do
     |> Map.new(fn m -> {m.uuid, Map.get(projected, m.crm_company_uuid) || local_map(m)} end)
     |> Map.merge(from_crm)
   end
+
+  @doc """
+  Every item this CRM party is recorded as the manufacturer of, for the
+  catalogue panel on that party's page in CRM.
+
+  Matches the party's own uuid AND any local manufacturer row projecting it,
+  so items that still store the pre-move local uuid are included. Deleted
+  items excluded.
+  """
+  @spec items_manufactured_by(Ecto.UUID.t()) :: [map()]
+  def items_manufactured_by(party_uuid) when is_binary(party_uuid) do
+    uuids = [party_uuid | Suppliers.projection_uuids(Manufacturer, party_uuid)]
+
+    from(i in Item,
+      where: i.manufacturer_uuid in ^uuids and i.status != "deleted",
+      order_by: [asc: i.name],
+      select: %{item_uuid: i.uuid, item_name: i.name, item_sku: i.sku}
+    )
+    |> repo().all()
+  end
+
+  def items_manufactured_by(_), do: []
 
   @doc """
   Stamps `:manufacturer_name` on each item — the replacement for the
