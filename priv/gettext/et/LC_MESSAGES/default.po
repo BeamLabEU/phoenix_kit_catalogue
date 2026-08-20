@@ -2658,3 +2658,60 @@ msgstr "Keegi teine muutis seda seost enne. Laadi leht uuesti ja proovi uuesti."
 msgid "Suppliers and Manufacturer"
 msgstr "Tarnijad ja tootja"
 
+
+msgid "A field was removed while this was open. Close and reopen the form."
+msgstr "Väli eemaldati, kui see vorm oli avatud. Sulge ja ava vorm uuesti."
+
+msgid "Add supplier"
+msgstr "Lisa tarnija"
+
+msgid "Changing the cost closes the current price and starts a new one, kept in History."
+msgstr "Hinna muutmine sulgeb praeguse hinna ja alustab uut; vana jääb ajalukku."
+
+msgid "Could not save the supplier."
+msgstr "Tarnija salvestamine ebaõnnestus."
+
+msgid "Done"
+msgstr "Valmis"
+
+msgid "Edit supplier"
+msgstr "Muuda tarnijat"
+
+msgid "Extra fields need the Entities module, which is turned off."
+msgstr "Lisaväljad vajavad Entities moodulit, mis on välja lülitatud."
+
+msgid "Extra info every supplier row carries — incoterm, carton quantity, certification expiry. These apply to every item, not just this one."
+msgstr "Lisaandmed, mida kannab iga tarnija rida — tarneklausel, karbi kogus, sertifikaadi aegumine. Need kehtivad kõigile toodetele, mitte ainult sellele."
+
+msgid "Failed to remove the field."
+msgstr "Välja eemaldamine ebaõnnestus."
+
+msgid "Field removed."
+msgstr "Väli eemaldatud."
+
+msgid "Fields"
+msgstr "Väljad"
+
+msgid "No"
+msgstr "Ei"
+
+msgid "No extra fields yet."
+msgstr "Lisavälju veel pole."
+
+msgid "One of the extra fields has invalid input."
+msgstr "Ühel lisaväljal on vigane sisend."
+
+msgid "Remove this field? Values already saved on supplier rows stay in the database but stop being shown."
+msgstr "Kas eemaldada see väli? Tarnija ridadele juba salvestatud väärtused jäävad andmebaasi, kuid neid enam ei kuvata."
+
+msgid "Supplier extra fields"
+msgstr "Tarnija lisaväljad"
+
+msgid "Unit cost must be a number."
+msgstr "Ühiku hind peab olema arv."
+
+msgid "Yes"
+msgstr "Jah"
+
+msgid "e.g. Incoterm"
+msgstr "nt Incoterm"

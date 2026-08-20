@@ -108,9 +108,14 @@ defmodule PhoenixKitCatalogue do
     # (a set with item attachments cannot be deleted; temporary task —
     # runs once, exits), plus the PubSub subscriber that prunes item
     # attachments when a set blueprint is deleted out-of-band.
+    #
+    # SupplierFields registers its own guard under its own owner key —
+    # its blueprint is NOT an attribute set and must not land in either
+    # of the set registries above.
     [
       PhoenixKitCatalogue.Catalogue.AttributeSets,
-      PhoenixKitCatalogue.Catalogue.AttributeSets.OrphanPruner
+      PhoenixKitCatalogue.Catalogue.AttributeSets.OrphanPruner,
+      PhoenixKitCatalogue.Catalogue.SupplierFields
     ]
   end
 

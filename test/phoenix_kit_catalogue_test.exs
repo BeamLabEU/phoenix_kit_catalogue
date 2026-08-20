@@ -230,10 +230,11 @@ defmodule PhoenixKitCatalogueTest do
       assert PhoenixKitCatalogue.user_dashboard_tabs() == []
     end
 
-    test "children/0 supervises the attribute-set guard registration and pruner" do
+    test "children/0 supervises the guard registrations and pruner" do
       assert PhoenixKitCatalogue.children() == [
                PhoenixKitCatalogue.Catalogue.AttributeSets,
-               PhoenixKitCatalogue.Catalogue.AttributeSets.OrphanPruner
+               PhoenixKitCatalogue.Catalogue.AttributeSets.OrphanPruner,
+               PhoenixKitCatalogue.Catalogue.SupplierFields
              ]
     end
 
