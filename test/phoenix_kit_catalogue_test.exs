@@ -182,24 +182,15 @@ defmodule PhoenixKitCatalogueTest do
              )
     end
 
-    test "does NOT match manufacturer paths (belongs to Manufacturers subtab)", %{tab: tab} do
-      refute Tab.matches_path?(tab, "/admin/catalogue/manufacturers")
-      refute Tab.matches_path?(tab, "/admin/catalogue/manufacturers/new")
-
-      refute Tab.matches_path?(
-               tab,
-               "/admin/catalogue/manufacturers/019d1330-c5e0-7caf-b84b-91a4418f67f2/edit"
-             )
+    # The Manufacturers subtab is gone too — manufacturers are CRM companies.
+    test "matches leftover manufacturer paths, which no longer belong to a subtab", %{tab: tab} do
+      assert Tab.matches_path?(tab, "/admin/catalogue/manufacturers")
     end
 
-    test "does NOT match supplier paths (belongs to Suppliers subtab)", %{tab: tab} do
-      refute Tab.matches_path?(tab, "/admin/catalogue/suppliers")
-      refute Tab.matches_path?(tab, "/admin/catalogue/suppliers/new")
-
-      refute Tab.matches_path?(
-               tab,
-               "/admin/catalogue/suppliers/019d1330-c5e0-7caf-b84b-91a4418f67f2/edit"
-             )
+    # The Suppliers subtab is gone — suppliers are CRM companies now — so the
+    # parent no longer has a sibling to yield those paths to.
+    test "matches leftover supplier paths, which no longer belong to a subtab", %{tab: tab} do
+      assert Tab.matches_path?(tab, "/admin/catalogue/suppliers")
     end
 
     test "does NOT match import or events paths (belong to their own subtabs)", %{tab: tab} do
@@ -239,10 +230,11 @@ defmodule PhoenixKitCatalogueTest do
       assert PhoenixKitCatalogue.user_dashboard_tabs() == []
     end
 
-    test "children/0 supervises the attribute-set guard registration and pruner" do
+    test "children/0 supervises the guard registrations and pruner" do
       assert PhoenixKitCatalogue.children() == [
                PhoenixKitCatalogue.Catalogue.AttributeSets,
-               PhoenixKitCatalogue.Catalogue.AttributeSets.OrphanPruner
+               PhoenixKitCatalogue.Catalogue.AttributeSets.OrphanPruner,
+               PhoenixKitCatalogue.Catalogue.SupplierFields
              ]
     end
 

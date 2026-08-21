@@ -2598,3 +2598,155 @@ msgstr ""
 
 msgid "…"
 msgstr ""
+
+msgid "CRM Company"
+msgstr ""
+
+msgid "Details come from CRM wherever this is used. The fields above are no longer shown to anyone."
+msgstr ""
+
+msgid "Linked to"
+msgstr ""
+
+msgid "The linked CRM company could not be found. Unlink to edit locally again."
+msgstr ""
+
+
+
+msgid "Unlink"
+msgstr ""
+
+msgid "No CRM companies yet."
+msgstr ""
+
+msgid "Select a CRM company..."
+msgstr ""
+
+msgid "Link"
+msgstr ""
+
+msgid "Linking..."
+msgstr ""
+
+msgid "Link this supplier to the CRM company it represents. The company gains the supplier role, and its details are then used everywhere this supplier appears."
+msgstr ""
+
+msgid "Link this manufacturer to the CRM company it represents. Link only a real company — a brand you never deal with belongs in the catalogue alone."
+msgstr ""
+
+msgid "Choose a CRM company first."
+msgstr ""
+
+msgid "Linked to CRM."
+msgstr ""
+
+msgid "Unlinked from CRM."
+msgstr ""
+
+
+msgid "The CRM module is not available."
+msgstr ""
+
+msgid "That CRM company no longer exists."
+msgstr ""
+
+
+msgid "That CRM company is already linked to another record."
+msgstr ""
+
+msgid "Could not give that CRM company the role, so nothing was linked."
+msgstr ""
+
+msgid "Someone else changed this link first. Reload the page and try again."
+msgstr ""
+
+msgid "Suppliers and Manufacturer"
+msgstr ""
+
+
+msgid "A field was removed while this was open. Close and reopen the form."
+msgstr ""
+
+msgid "Add supplier"
+msgstr ""
+
+msgid "Changing the cost closes the current price and starts a new one, kept in History."
+msgstr ""
+
+msgid "Could not save the supplier."
+msgstr ""
+
+msgid "Done"
+msgstr ""
+
+msgid "Edit supplier"
+msgstr ""
+
+msgid "Extra fields need the Entities module, which is turned off."
+msgstr ""
+
+msgid "Extra info every supplier row carries — incoterm, carton quantity, certification expiry. These apply to every item, not just this one."
+msgstr ""
+
+msgid "Failed to remove the field."
+msgstr ""
+
+msgid "Field removed."
+msgstr ""
+
+msgid "Fields"
+msgstr ""
+
+msgid "No"
+msgstr ""
+
+msgid "No extra fields yet."
+msgstr ""
+
+msgid "One of the extra fields has invalid input."
+msgstr ""
+
+msgid "Remove this field? Values already saved on supplier rows stay in the database but stop being shown."
+msgstr ""
+
+msgid "Supplier extra fields"
+msgstr ""
+
+msgid "Unit cost must be a number."
+msgstr ""
+
+msgid "Yes"
+msgstr ""
+
+msgid "e.g. Incoterm"
+msgstr ""
+
+msgid "Comments"
+msgstr ""
+
+msgid "Shared with this supplier's company page in CRM."
+msgstr ""
+
+msgid "Add a comment"
+msgstr ""
+
+msgid "No comments yet."
+msgstr ""
+
+msgid "Open comments"
+msgstr ""
+
+msgid "Show all %{count} comments"
+msgstr ""
+
+msgid "This supplier is already on the item. Edit the existing row instead."
+msgstr ""
+
+msgid "contact"
+msgstr ""
+
+msgid "imported"
+msgstr ""
+
+msgid "Open the company"
+msgstr ""

@@ -11,6 +11,21 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   import PhoenixKitWeb.Components.Core.Input, only: [input: 1]
   import PhoenixKitWeb.Components.Core.Select, only: [select: 1]
   import PhoenixKitWeb.Components.Core.Button, only: [button: 1]
+  import PhoenixKitWeb.Components.Core.Modal, only: [modal: 1]
+  import PhoenixKitWeb.Components.Core.PkLink, only: [pk_link: 1]
+
+  import PhoenixKitWeb.Components.Core.TableRowMenu,
+    only: [table_row_menu: 1, table_row_menu_button: 1, table_row_menu_divider: 1]
+
+  # `<.input label=...>` renders its label as a plain `font-semibold` span
+  # while `<.select>` and this component use daisyUI's `fieldset-legend`,
+  # so the two sizes disagree wherever they sit side by side. The supplier
+  # modal labels every field through this one component instead.
+  import PhoenixKitWeb.Components.Core.FormFieldLabel, only: [label: 1]
+
+  # Entities renders the control for every admin-defined supplier field,
+  # so a type added to entities later works here without a change.
+  import PhoenixKitEntities.Components.FieldInput, only: [field_input: 1]
 
   import PhoenixKitCatalogue.Web.Components,
     only: [
@@ -33,6 +48,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
     ]
 
   alias PhoenixKit.Modules.Storage.URLSigner
+  alias PhoenixKit.Users.Auth.User
   alias PhoenixKit.Utils.Multilang
   alias PhoenixKit.Utils.Routes
   alias PhoenixKitCatalogue.Attachments
@@ -43,6 +59,48 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   alias PhoenixKitCatalogue.Metadata
   alias PhoenixKitCatalogue.Paths
   alias PhoenixKitCatalogue.Schemas.Item
+
+  # Admin-defined extra fields on supplier rows (the entities-backed
+  # feature built 2026-08-21). HIDDEN by owner decision the same day —
+  # "simplify things", to be brought back later. Everything behind this
+  # flag is intact and tested: the `SupplierFields` context, its managed
+  # blueprint, the facade delegations, and the boot-time guard
+  # registration. Flipping this to `true` is the whole restore — it
+  # re-shows the Fields button, the per-field columns on the suppliers
+  # table, and the Extra fields block in the supplier modal.
+  #
+  # Values already stored under `metadata["custom_fields"]` are NOT
+  # touched while it is off: the edit path merges an empty map, which
+  # preserves them, so a restore brings the data back with the UI.
+  @supplier_custom_fields false
+
+  # The BUILT-IN supplier terms — SKU, unit cost + currency, lead time,
+  # minimum order quantity — and the two row actions that only make sense
+  # alongside them (edit, price history). Hidden by owner decision
+  # 2026-08-21: a supplier link is just a link for now, and when the
+  # switch to entities happens these become entity fields rather than
+  # columns, so the form should not teach two systems in the meantime.
+  #
+  # Columns, data and context are all untouched — this hides the UI only.
+  # `phoenix_kit_cat_item_supplier_info` still carries every value already
+  # written, `revise_unit_cost/3` still works, and warehouse still reads
+  # what it always read.
+  @supplier_terms_fields false
+
+  # Comments on a supplier are comments on the CRM COMPANY — the very same
+  # rows the company page's Comments tab shows, addressed by the same
+  # `{resource_type, resource_uuid}` pair (`"crm_company"` + the company
+  # uuid). Nothing is copied or synced between the two views because there
+  # is only one store, which is the same rule the rest of this integration
+  # follows.
+  #
+  # `phoenix_kit_comments` is a SOFT dependency here: the catalogue does
+  # not declare it (CRM does), so every touchpoint is guarded and the
+  # affordance simply does not render when the package is absent or the
+  # module is switched off.
+  @compile {:no_warn_undefined, PhoenixKitComments}
+  @compile {:no_warn_undefined, PhoenixKitComments.Web.CommentsComponent}
+  @compile {:no_warn_undefined, PhoenixKitCRM.Paths}
 
   @translatable_fields ["name", "description"]
   @preserve_fields %{
@@ -134,7 +192,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
       item ->
         item =
           item
-          |> PhoenixKit.RepoHelper.repo().preload([:category, :manufacturer])
+          |> PhoenixKit.RepoHelper.repo().preload([:category])
           |> normalize_display_decimals()
 
         {item, Catalogue.change_item(item), item.catalogue_uuid}
@@ -187,12 +245,24 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
       catalogue_markup: markup_from_catalogue(parent_catalogue),
       catalogue_discount: discount_from_catalogue(parent_catalogue),
       categories: categories,
-      manufacturers: Catalogue.list_manufacturers(status: "active"),
-      suppliers: Catalogue.list_suppliers(status: "active"),
+      manufacturers: Catalogue.list_all_manufacturers(status: "active"),
       all_suppliers: Suppliers.list_all(),
       supplier_infos: load_supplier_infos(action, item),
-      supplier_form_open: false,
-      supplier_info_draft: %{},
+      supplier_comment_targets: %{},
+      # nil = closed. Open state carries its own mode/draft/error so the
+      # modal reports failures inside itself rather than as a page flash
+      # that lands behind it.
+      supplier_form: nil,
+      supplier_fields: load_supplier_fields(),
+      supplier_fields_manageable: supplier_fields_manageable?(),
+      supplier_terms_visible: supplier_terms_fields?(),
+      supplier_comments_available: comments_available?(),
+      supplier_comments: nil,
+      supplier_comment_previews: %{},
+      supplier_comment_subscriptions: MapSet.new(),
+      supplier_field_manager: false,
+      supplier_field_editor: nil,
+      supplier_field_remove: nil,
       supplier_history_open: false,
       supplier_history_rows: [],
       supplier_history_name: nil,
@@ -203,6 +273,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
       meta_state: Metadata.build_state(:item, item),
       show_pdf_search: false
     )
+    |> mount_supplier_comment_targets(action, item)
     |> Attachments.mount_attachments(item)
     |> Attachments.allow_attachment_upload()
     |> assign_changeset(changeset)
@@ -551,72 +622,72 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   end
 
   def handle_event("open_add_supplier", _params, socket) do
-    {:noreply, assign(socket, supplier_form_open: true, supplier_info_draft: %{})}
+    {:noreply,
+     assign(socket, :supplier_form, %{
+       mode: :new,
+       uuid: nil,
+       draft: %{},
+       custom: %{},
+       error: nil
+     })}
+  end
+
+  def handle_event("edit_supplier_info", %{"uuid" => uuid}, socket) do
+    case owned_supplier_info(socket, uuid) do
+      %{} = info ->
+        {:noreply,
+         assign(socket, :supplier_form, %{
+           mode: :edit,
+           uuid: info.uuid,
+           draft: supplier_draft_from(info),
+           # Only currently-DEFINED keys. A removed field's value stays in
+           # the database on purpose, but seeding it here would fail the
+           # save with :unknown_field and lock the row out of editing.
+           custom: defined_custom_values(socket, info),
+           error: nil
+         })}
+
+      nil ->
+        {:noreply, socket}
+    end
   end
 
   def handle_event("cancel_add_supplier", _params, socket) do
-    {:noreply, assign(socket, supplier_form_open: false, supplier_info_draft: %{})}
+    {:noreply, assign(socket, :supplier_form, nil)}
   end
 
+  # The modal's inputs are namespaced `supplier_info[...]` and
+  # `custom_fields[...]`; a change payload carries whichever the user
+  # touched, so both merge independently into the open form's state.
   def handle_event("supplier_info_field_change", params, socket) do
-    draft = socket.assigns.supplier_info_draft
-    si_params = Map.get(params, "supplier_info", %{})
-    {:noreply, assign(socket, supplier_info_draft: Map.merge(draft, si_params))}
+    case socket.assigns.supplier_form do
+      nil ->
+        {:noreply, socket}
+
+      form ->
+        {:noreply,
+         assign(socket, :supplier_form, %{
+           form
+           | draft: Map.merge(form.draft, Map.get(params, "supplier_info", %{})),
+             custom: Map.merge(form.custom, Map.get(params, "custom_fields", %{})),
+             error: nil
+         })}
+    end
   end
 
-  def handle_event("save_supplier_info", _params, socket) do
-    item = socket.assigns.item
-    draft = socket.assigns.supplier_info_draft
-    all_suppliers = socket.assigns.all_suppliers
+  def handle_event("save_supplier_info", params, socket) do
+    case socket.assigns.supplier_form do
+      nil ->
+        {:noreply, socket}
 
-    supplier_uuid = Map.get(draft, "supplier_uuid", "")
+      form ->
+        form = %{
+          form
+          | draft: Map.merge(form.draft, Map.get(params, "supplier_info", %{})),
+            custom: Map.merge(form.custom, Map.get(params, "custom_fields", %{}))
+        }
 
-    if supplier_uuid == "" do
-      {:noreply,
-       put_flash(
-         socket,
-         :error,
-         Gettext.gettext(PhoenixKitCatalogue.Gettext, "Please select a supplier.")
-       )}
-    else
-      selected = Enum.find(all_suppliers, &(&1.uuid == supplier_uuid))
-      snapshot = selected && selected.name
-      # The dropdown mixes local and CRM suppliers; persist the source of the
-      # chosen entry — a CRM party stored as "local" would misroute the
-      # resolver and the audit task.
-      source = if selected, do: Atom.to_string(selected.source), else: "local"
-
-      attrs = %{
-        "item_uuid" => item.uuid,
-        "supplier_uuid" => supplier_uuid,
-        "supplier_source" => source,
-        "supplier_name_snapshot" => snapshot,
-        "supplier_sku" => Map.get(draft, "supplier_sku"),
-        "unit_cost" => Map.get(draft, "unit_cost"),
-        "currency" => Map.get(draft, "currency"),
-        "lead_time_days" => Map.get(draft, "lead_time_days"),
-        "min_order_qty" => Map.get(draft, "min_order_qty")
-      }
-
-      case ItemSupplierInfos.create(attrs, actor_opts(socket)) do
-        {:ok, _info} ->
-          {:noreply,
-           socket
-           |> assign(
-             supplier_infos: ItemSupplierInfos.list_for_item(item.uuid),
-             supplier_form_open: false,
-             supplier_info_draft: %{}
-           )
-           |> put_flash(:info, Gettext.gettext(PhoenixKitCatalogue.Gettext, "Supplier added."))}
-
-        {:error, _changeset} ->
-          {:noreply,
-           put_flash(
-             socket,
-             :error,
-             Gettext.gettext(PhoenixKitCatalogue.Gettext, "Failed to add supplier.")
-           )}
-      end
+        save_supplier_form(socket, form)
     end
   end
 
@@ -630,7 +701,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
       info ->
         case ItemSupplierInfos.set_primary(info, actor_opts(socket)) do
           {:ok, _} ->
-            {:noreply, assign(socket, supplier_infos: ItemSupplierInfos.list_for_item(item.uuid))}
+            {:noreply, assign_supplier_infos(socket, item.uuid)}
 
           {:error, _} ->
             {:noreply,
@@ -661,6 +732,28 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
     end
   end
 
+  # Opens the CRM company's comment thread for this supplier. The uuid is
+  # resolved server-side from the row, never taken from the payload — a
+  # crafted uuid must not be able to address an arbitrary company's
+  # comments.
+  def handle_event("open_supplier_comments", %{"uuid" => uuid}, socket) do
+    with true <- socket.assigns.supplier_comments_available,
+         %{} = info <- owned_supplier_info(socket, uuid),
+         company_uuid when is_binary(company_uuid) <- Catalogue.supplier_crm_company_uuid(info) do
+      {:noreply,
+       assign(socket, :supplier_comments, %{
+         company_uuid: company_uuid,
+         name: supplier_display_name(info, socket.assigns.all_suppliers)
+       })}
+    else
+      _ -> {:noreply, socket}
+    end
+  end
+
+  def handle_event("close_supplier_comments", _params, socket) do
+    {:noreply, assign(socket, :supplier_comments, nil)}
+  end
+
   def handle_event("close_supplier_history", _params, socket) do
     {:noreply,
      assign(socket,
@@ -682,7 +775,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
           {:ok, _} ->
             {:noreply,
              socket
-             |> assign(supplier_infos: ItemSupplierInfos.list_for_item(item.uuid))
+             |> assign_supplier_infos(item.uuid)
              |> put_flash(
                :info,
                Gettext.gettext(PhoenixKitCatalogue.Gettext, "Supplier removed.")
@@ -696,6 +789,133 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                Gettext.gettext(PhoenixKitCatalogue.Gettext, "Failed to remove supplier.")
              )}
         end
+    end
+  end
+
+  # ── Supplier custom fields (entities-defined) ────────────────────────
+  #
+  # These edit the GLOBAL field set every item's suppliers share, not
+  # this item's data — the modal copy says so. One modal, two modes,
+  # rendered fresh per open so the type-specific block is server-driven;
+  # the type is immutable after creation because stored values were cast
+  # for it. Same contract as the attribute-set extras editor.
+
+  # Gated on the server too, not just by hiding the button: a crafted
+  # event must not open a manager the owner asked to remove.
+  def handle_event("open_supplier_field_manager", _params, socket) do
+    if supplier_custom_fields?() do
+      # Re-read on open: another session may have changed the field set
+      # since this page mounted.
+      {:noreply,
+       assign(socket, supplier_field_manager: true, supplier_fields: load_supplier_fields())}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_event("close_supplier_field_manager", _params, socket) do
+    {:noreply, assign(socket, supplier_field_manager: false)}
+  end
+
+  def handle_event("open_supplier_field_editor", _params, socket) do
+    {:noreply,
+     assign(socket, :supplier_field_editor, %{
+       mode: :new,
+       key: nil,
+       label: "",
+       type: "text",
+       choices: [],
+       error: nil
+     })}
+  end
+
+  def handle_event("edit_supplier_field", %{"key" => key}, socket) do
+    case Enum.find(socket.assigns.supplier_fields, &(&1["key"] == key)) do
+      %{} = field ->
+        {:noreply,
+         assign(socket, :supplier_field_editor, %{
+           mode: :edit,
+           key: key,
+           label: field["label"],
+           type: field["type"],
+           choices: field["options"] || [],
+           error: nil
+         })}
+
+      _ ->
+        {:noreply, socket}
+    end
+  end
+
+  def handle_event("close_supplier_field_editor", _params, socket) do
+    {:noreply, assign(socket, :supplier_field_editor, nil)}
+  end
+
+  def handle_event("validate_supplier_field_editor", params, socket) do
+    case socket.assigns.supplier_field_editor do
+      nil ->
+        {:noreply, socket}
+
+      editor ->
+        {:noreply, assign(socket, :supplier_field_editor, merge_field_params(editor, params))}
+    end
+  end
+
+  def handle_event("add_supplier_field_choice", _params, socket) do
+    case socket.assigns.supplier_field_editor do
+      nil ->
+        {:noreply, socket}
+
+      editor ->
+        {:noreply,
+         assign(socket, :supplier_field_editor, %{editor | choices: editor.choices ++ [""]})}
+    end
+  end
+
+  def handle_event("remove_supplier_field_choice", %{"index" => raw}, socket) do
+    with editor when not is_nil(editor) <- socket.assigns.supplier_field_editor,
+         {index, ""} <- Integer.parse(raw) do
+      {:noreply,
+       assign(socket, :supplier_field_editor, %{
+         editor
+         | choices: List.delete_at(editor.choices, index)
+       })}
+    else
+      _ -> {:noreply, socket}
+    end
+  end
+
+  def handle_event("save_supplier_field_editor", params, socket) do
+    case socket.assigns.supplier_field_editor do
+      nil -> {:noreply, socket}
+      editor -> save_supplier_field(socket, merge_field_params(editor, params))
+    end
+  end
+
+  def handle_event("request_remove_supplier_field", %{"key" => key}, socket) do
+    {:noreply, assign(socket, :supplier_field_remove, key)}
+  end
+
+  def handle_event("cancel_remove_supplier_field", _params, socket) do
+    {:noreply, assign(socket, :supplier_field_remove, nil)}
+  end
+
+  def handle_event("confirm_remove_supplier_field", _params, socket) do
+    with key when is_binary(key) <- socket.assigns.supplier_field_remove,
+         {:ok, _} <- Catalogue.remove_supplier_field(key, actor_opts(socket)) do
+      {:noreply,
+       socket
+       |> assign(supplier_field_remove: nil, supplier_fields: load_supplier_fields())
+       |> put_flash(:info, Gettext.gettext(PhoenixKitCatalogue.Gettext, "Field removed."))}
+    else
+      _ ->
+        {:noreply,
+         socket
+         |> assign(:supplier_field_remove, nil)
+         |> put_flash(
+           :error,
+           Gettext.gettext(PhoenixKitCatalogue.Gettext, "Failed to remove the field.")
+         )}
     end
   end
 
@@ -772,6 +992,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   end
 
   defp parse_tab("metadata"), do: :metadata
+  defp parse_tab("sourcing"), do: :sourcing
   defp parse_tab("files"), do: :files
   defp parse_tab(_), do: :details
 
@@ -791,6 +1012,563 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
     end
   end
 
+  # ── Supplier modal ───────────────────────────────────────────────────
+
+  # Scope the lookup to the rows this item actually shows: a uuid from a
+  # crafted payload must not reach another item's supplier row.
+  defp owned_supplier_info(socket, uuid) do
+    Enum.find(socket.assigns.supplier_infos, &(&1.uuid == uuid))
+  end
+
+  # The single choke point for the hidden feature: with @supplier_custom_fields
+  # false every render site iterates an empty list, so the columns, the
+  # modal block and the manager all disappear without a branch each.
+  defp load_supplier_fields do
+    if supplier_custom_fields?(), do: Catalogue.supplier_fields(), else: []
+  end
+
+  defp supplier_custom_fields?, do: @supplier_custom_fields
+
+  defp supplier_terms_fields?, do: @supplier_terms_fields
+
+  defp comments_available? do
+    Code.ensure_loaded?(PhoenixKitComments) and PhoenixKitComments.enabled?()
+  rescue
+    _ -> false
+  catch
+    # An unreachable DB raises on an unowned checkout but EXITS on a dead
+    # pool — the settings read behind enabled?/0 hits both.
+    :exit, _ -> false
+  end
+
+  # Rows plus their comment targets, together. Only a row that resolves to
+  # a CRM company can carry comments — a purely local supplier has no
+  # company to file them against — and resolving a local row costs a
+  # query, so the map is built once per reload rather than per render.
+  # Runs after the main assign block: comment targets need both the rows
+  # and the availability flag, and neither exists before it.
+  defp mount_supplier_comment_targets(socket, :edit, %Item{uuid: uuid}) when not is_nil(uuid),
+    do: assign_supplier_infos(socket, uuid)
+
+  defp mount_supplier_comment_targets(socket, _action, _item), do: socket
+
+  defp assign_supplier_infos(socket, item_uuid) do
+    infos = ItemSupplierInfos.list_for_item(item_uuid)
+
+    targets =
+      if socket.assigns[:supplier_comments_available] do
+        infos
+        |> Map.new(&{&1.uuid, Catalogue.supplier_crm_company_uuid(&1)})
+        |> Map.filter(fn {_uuid, company} -> is_binary(company) end)
+      else
+        %{}
+      end
+
+    socket
+    |> assign(supplier_infos: infos, supplier_comment_targets: targets)
+    |> assign(:supplier_comment_previews, comment_previews(targets))
+    |> subscribe_to_comment_targets(targets)
+  end
+
+  # Re-reads the previews against the targets already resolved — a comment
+  # changes no supplier row, so there is nothing else to reload.
+  defp refresh_comment_previews(socket) do
+    assign(
+      socket,
+      :supplier_comment_previews,
+      comment_previews(socket.assigns.supplier_comment_targets)
+    )
+  end
+
+  # One subscription per company, and only for companies not already
+  # subscribed: PubSub delivers once PER subscription, so re-subscribing on
+  # every row reload would multiply the refreshes.
+  defp subscribe_to_comment_targets(socket, targets) do
+    if connected?(socket) and socket.assigns.supplier_comments_available do
+      already = socket.assigns[:supplier_comment_subscriptions] || MapSet.new()
+      wanted = MapSet.new(Map.values(targets))
+
+      wanted
+      |> MapSet.difference(already)
+      |> Enum.each(&PhoenixKitComments.subscribe("crm_company", &1))
+
+      assign(socket, :supplier_comment_subscriptions, MapSet.union(already, wanted))
+    else
+      socket
+    end
+  end
+
+  # The CRM company page for a supplier row, or nil when there is no company
+  # behind it (an unlinked local row, or a contact). Reuses the map already
+  # built for comments — both answer "which company is this?", and resolving a
+  # local row costs a query.
+  #
+  # `PhoenixKitCRM.Paths` is reached through a guard: CRM is an optional
+  # runtime dependency here.
+  defp supplier_page_path(targets, %{uuid: uuid}),
+    do: targets |> Map.get(uuid) |> crm_company_path()
+
+  defp supplier_page_path(_targets, _info), do: nil
+
+  defp crm_company_path(company_uuid) when is_binary(company_uuid) do
+    if Code.ensure_loaded?(PhoenixKitCRM.Paths) and
+         function_exported?(PhoenixKitCRM.Paths, :company, 1) do
+      # credo:disable-for-next-line Credo.Check.Refactor.Apply
+      apply(PhoenixKitCRM.Paths, :company, [company_uuid])
+    end
+  end
+
+  defp crm_company_path(_company_uuid), do: nil
+
+  # ── Inline comment previews ──────────────────────────────────────────
+
+  attr(:preview, :map, required: true)
+  attr(:uuid, :string, required: true)
+
+  defp supplier_comment_preview(assigns) do
+    ~H"""
+    <div class="rounded-lg bg-base-200/50 px-3 py-2 flex flex-col gap-2">
+      <div :if={@preview.latest == []} class="flex items-center justify-between gap-2">
+        <span class="text-xs text-base-content/50 italic">
+          {Gettext.gettext(PhoenixKitCatalogue.Gettext, "No comments yet.")}
+        </span>
+        <.button
+          type="button"
+          phx-click="open_supplier_comments"
+          phx-value-uuid={@uuid}
+          variant="ghost"
+          size="xs"
+        >
+          <.icon name="hero-chat-bubble-left-ellipsis" class="w-3.5 h-3.5" />
+          {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Add a comment")}
+        </.button>
+      </div>
+
+      <div :for={comment <- @preview.latest} class="flex flex-col gap-0.5">
+        <div class="flex items-baseline gap-2">
+          <span class="text-xs font-medium">{comment_author(comment)}</span>
+          <span class="text-[0.65rem] text-base-content/40">
+            {Calendar.strftime(comment.inserted_at, "%Y-%m-%d")}
+          </span>
+        </div>
+        <p class="text-xs text-base-content/70 leading-snug">{comment_excerpt(comment)}</p>
+      </div>
+
+      <.button
+        :if={@preview.latest != []}
+        type="button"
+        phx-click="open_supplier_comments"
+        phx-value-uuid={@uuid}
+        variant="ghost"
+        size="xs"
+        class="self-start"
+      >
+        {if @preview.count > length(@preview.latest),
+          do:
+            Gettext.gettext(PhoenixKitCatalogue.Gettext, "Show all %{count} comments",
+              count: @preview.count
+            ),
+          else: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Open comments")}
+      </.button>
+    </div>
+    """
+  end
+
+  @comment_preview_count 2
+
+  # One grouped count query for every supplier on the item, then a list
+  # only for the ones that actually have comments — so an item whose
+  # suppliers have none costs a single query.
+  defp comment_previews(targets) when map_size(targets) == 0, do: %{}
+
+  defp comment_previews(targets) do
+    counts =
+      PhoenixKitComments.count_comments("crm_company", Map.values(targets) |> Enum.uniq())
+
+    Map.new(targets, fn {info_uuid, company_uuid} ->
+      count = Map.get(counts, company_uuid, 0)
+
+      {info_uuid, %{count: count, latest: latest_comments(company_uuid, count)}}
+    end)
+  rescue
+    # A preview is decoration; it must never take the sourcing tab down.
+    error ->
+      Logger.warning("supplier comment previews unavailable: #{inspect(error)}")
+      %{}
+  end
+
+  defp latest_comments(_company_uuid, 0), do: []
+
+  defp latest_comments(company_uuid, _count) do
+    "crm_company"
+    |> PhoenixKitComments.list_comments(company_uuid, preload: [:user])
+    |> Enum.take(-@comment_preview_count)
+    |> Enum.reverse()
+  end
+
+  # Comment bodies are rich text. The preview strips markup and truncates;
+  # HEEx escapes the result on the way out, so nothing a commenter wrote
+  # can render as markup here.
+  defp comment_excerpt(%{content: content}) when is_binary(content) do
+    content
+    |> String.replace(~r/<[^>]*>/, " ")
+    |> String.replace(~r/\s+/, " ")
+    |> String.trim()
+    |> String.slice(0, 140)
+  end
+
+  defp comment_excerpt(_comment), do: ""
+
+  # `author_display_name` is frozen on the row at write time — re-deriving
+  # it would re-sign old comments when someone is renamed.
+  defp comment_author(%{author_display_name: name}) when is_binary(name) and name != "", do: name
+
+  defp comment_author(%{user: %User{} = user}), do: User.display_name(user)
+
+  defp comment_author(_comment),
+    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Unknown")
+
+  # Header count must match the cells rendered per row, or the preview row
+  # under each supplier misaligns the table.
+  defp supplier_table_colspan(assigns) do
+    # Supplier + Unit Cost + Primary + actions
+    4 + if(assigns.supplier_terms_visible, do: 3, else: 0) + length(assigns.supplier_fields)
+  end
+
+  # Computed once at mount rather than inline in the template: with the
+  # flag off the compiler folds the call to a constant and rejects the
+  # `:if` as an always-false conditional.
+  defp supplier_fields_manageable? do
+    if supplier_custom_fields?(), do: Catalogue.supplier_fields_enabled?(), else: false
+  end
+
+  defp defined_custom_values(socket, info) do
+    keys = MapSet.new(socket.assigns.supplier_fields, & &1["key"])
+
+    info
+    |> Catalogue.supplier_field_values()
+    |> Map.filter(fn {key, _value} -> MapSet.member?(keys, key) end)
+  end
+
+  defp supplier_draft_from(info) do
+    %{
+      "supplier_uuid" => info.supplier_uuid,
+      "supplier_sku" => info.supplier_sku,
+      "unit_cost" => info.unit_cost && Decimal.to_string(info.unit_cost, :normal),
+      "currency" => info.currency,
+      "lead_time_days" => info.lead_time_days && Integer.to_string(info.lead_time_days),
+      "min_order_qty" => info.min_order_qty && Decimal.to_string(info.min_order_qty, :normal)
+    }
+  end
+
+  # Display name for the row being edited: the live supplier when it still
+  # resolves, otherwise the row's tombstone snapshot.
+  defp supplier_form_name(%{supplier_form: %{uuid: uuid}} = assigns) when is_binary(uuid) do
+    case Enum.find(assigns.supplier_infos, &(&1.uuid == uuid)) do
+      nil -> ""
+      info -> supplier_display_name(info, assigns.all_suppliers)
+    end
+  end
+
+  defp supplier_form_name(_assigns), do: ""
+
+  defp save_supplier_form(socket, %{mode: :new} = form) do
+    item = socket.assigns.item
+    supplier_uuid = Map.get(form.draft, "supplier_uuid", "")
+
+    with :ok <- require_supplier(supplier_uuid),
+         {:ok, unit_cost} <- cast_unit_cost(form.draft),
+         {:ok, custom} <- Catalogue.cast_supplier_field_values(form.custom) do
+      selected = Enum.find(socket.assigns.all_suppliers, &(&1.uuid == supplier_uuid))
+
+      attrs =
+        form.draft
+        |> supplier_column_attrs()
+        |> Map.merge(%{
+          "unit_cost" => unit_cost,
+          "item_uuid" => item.uuid,
+          "supplier_uuid" => supplier_uuid,
+          # The dropdown mixes local and CRM suppliers; persist the source
+          # of the chosen entry — a CRM party stored as "local" would
+          # misroute the resolver and the audit task.
+          "supplier_source" => if(selected, do: Atom.to_string(selected.source), else: "local"),
+          "supplier_name_snapshot" => selected && selected.name,
+          "metadata" => Catalogue.put_supplier_field_values(%{}, custom)
+        })
+
+      case ItemSupplierInfos.create(attrs, actor_opts(socket)) do
+        {:ok, _info} ->
+          {:noreply, close_supplier_form(socket, "Supplier added.")}
+
+        # Named reasons reach the modal as themselves; a changeset is a
+        # shape failure and stays generic.
+        {:error, reason} when is_atom(reason) ->
+          {:noreply, supplier_form_error(socket, form, reason)}
+
+        {:error, _changeset} ->
+          {:noreply, supplier_form_error(socket, form, :save_failed)}
+      end
+    else
+      {:error, reason} -> {:noreply, supplier_form_error(socket, form, reason)}
+    end
+  end
+
+  defp save_supplier_form(socket, %{mode: :edit} = form) do
+    with %{} = info <- owned_supplier_info(socket, form.uuid) || {:error, :save_failed},
+         {:ok, custom} <- Catalogue.cast_supplier_field_values(form.custom),
+         attrs =
+           form.draft
+           |> supplier_column_attrs()
+           |> Map.drop(["unit_cost", "currency"])
+           |> Map.put("metadata", Catalogue.put_supplier_field_values(info.metadata, custom)),
+         {:ok, updated} <- ItemSupplierInfos.update(info, attrs, actor_opts(socket)),
+         {:ok, _} <- apply_cost_change(updated, form.draft, actor_opts(socket)) do
+      {:noreply, close_supplier_form(socket, "Supplier updated.")}
+    else
+      {:error, reason} -> {:noreply, supplier_form_error(socket, form, reason)}
+      _ -> {:noreply, supplier_form_error(socket, form, :save_failed)}
+    end
+  end
+
+  defp require_supplier(""), do: {:error, :supplier_required}
+  defp require_supplier(nil), do: {:error, :supplier_required}
+  defp require_supplier(_uuid), do: :ok
+
+  defp supplier_column_attrs(draft) do
+    ~w(supplier_sku unit_cost currency lead_time_days min_order_qty)
+    |> Map.new(&{&1, Map.get(draft, &1)})
+    |> Map.update!("currency", &normalize_currency/1)
+  end
+
+  # `unit_cost` is a BUILT-IN entities field: cast it through the same
+  # pipeline an admin-defined field uses, so the value reaching the
+  # NUMERIC(14,4) column is an exact Decimal rather than whatever the
+  # browser submitted. Returns nil when cleared.
+  defp cast_unit_cost(draft) do
+    case Catalogue.cast_supplier_builtin("unit_cost", Map.get(draft, "unit_cost")) do
+      {:ok, cost} -> {:ok, cost}
+      # Named so the modal says "Unit cost must be a number" rather than
+      # the generic extra-fields message.
+      {:error, _reason} -> {:error, :invalid_cost}
+    end
+  end
+
+  # The input is uppercase by CSS only — the submitted value keeps
+  # whatever case was typed, and the schema's ^[A-Z]{3}$ would reject it.
+  defp normalize_currency(nil), do: nil
+
+  defp normalize_currency(value) when is_binary(value),
+    do: value |> String.trim() |> String.upcase()
+
+  defp normalize_currency(value), do: value
+
+  # A price CHANGE on a row that already had one is a revision, not an
+  # overwrite: `revise_unit_cost/3` closes the current row and appends a
+  # successor, which is what feeds the History dialog. Setting a price
+  # for the first time (or clearing it) is an ordinary column write and
+  # rides the update above.
+  defp apply_cost_change(info, draft, opts) do
+    currency = draft |> Map.get("currency") |> normalize_currency() |> blank_to_nil()
+
+    # Cast through the entities decimal field, not Decimal.parse/1
+    # directly: the field carries the scale and the `min: 0` bound, and
+    # this is the one place a price enters the system from a form.
+    case cast_unit_cost(draft) do
+      {:ok, nil} ->
+        ItemSupplierInfos.update(info, %{"unit_cost" => nil, "currency" => currency}, opts)
+
+      {:ok, cost} when is_nil(info.unit_cost) ->
+        ItemSupplierInfos.update(info, %{"unit_cost" => cost, "currency" => currency}, opts)
+
+      {:ok, cost} ->
+        ItemSupplierInfos.revise_unit_cost(info, cost, Keyword.put(opts, :currency, currency))
+
+      {:error, _reason} ->
+        {:error, :invalid_cost}
+    end
+  end
+
+  defp blank_to_nil(nil), do: nil
+  defp blank_to_nil(""), do: nil
+  defp blank_to_nil(value), do: value
+
+  defp close_supplier_form(socket, message) do
+    socket
+    |> assign(:supplier_form, nil)
+    |> assign_supplier_infos(socket.assigns.item.uuid)
+    |> put_flash(:info, Gettext.gettext(PhoenixKitCatalogue.Gettext, message))
+  end
+
+  defp supplier_form_error(socket, form, reason) do
+    assign(socket, :supplier_form, %{form | error: supplier_error_message(reason)})
+  end
+
+  defp supplier_error_message(:supplier_required),
+    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Please select a supplier.")
+
+  defp supplier_error_message(:unknown_field),
+    do:
+      Gettext.gettext(
+        PhoenixKitCatalogue.Gettext,
+        "A field was removed while this was open. Close and reopen the form."
+      )
+
+  defp supplier_error_message(:invalid_value),
+    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "One of the extra fields has invalid input.")
+
+  defp supplier_error_message(:already_linked),
+    do:
+      Gettext.gettext(
+        PhoenixKitCatalogue.Gettext,
+        "This supplier is already on the item. Edit the existing row instead."
+      )
+
+  defp supplier_error_message(:invalid_cost),
+    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Unit cost must be a number.")
+
+  defp supplier_error_message(:entities_disabled),
+    do:
+      Gettext.gettext(
+        PhoenixKitCatalogue.Gettext,
+        "Extra fields need the Entities module, which is turned off."
+      )
+
+  defp supplier_error_message(_other),
+    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Could not save the supplier.")
+
+  # ── Supplier field editor ────────────────────────────────────────────
+
+  defp merge_field_params(editor, params) do
+    type =
+      if editor.mode == :new,
+        do: validate_field_type(Map.get(params, "type", editor.type), editor.type),
+        else: editor.type
+
+    choices =
+      cond do
+        type != "select" -> []
+        # Switching TO select seeds two empty inputs so the purpose is
+        # visible without another click.
+        editor.type != "select" -> ["", ""]
+        true -> params |> Map.get("choices", editor.choices) |> List.wrap()
+      end
+
+    %{
+      editor
+      | label: Map.get(params, "label", editor.label),
+        type: type,
+        choices: choices,
+        error: nil
+    }
+  end
+
+  defp validate_field_type(candidate, fallback) do
+    if candidate in Catalogue.supplier_field_types(), do: candidate, else: fallback
+  end
+
+  defp save_supplier_field(socket, editor) do
+    label = String.trim(editor.label)
+
+    result =
+      case editor.mode do
+        :new ->
+          Catalogue.add_supplier_field(
+            %{label: label, type: editor.type, options: editor.choices},
+            actor_opts(socket)
+          )
+
+        :edit ->
+          attrs =
+            if editor.type == "select",
+              do: %{label: label, options: editor.choices},
+              else: %{label: label}
+
+          Catalogue.update_supplier_field(editor.key, attrs, actor_opts(socket))
+      end
+
+    case result do
+      {:ok, _} ->
+        {:noreply,
+         assign(socket,
+           supplier_field_editor: nil,
+           supplier_fields: load_supplier_fields()
+         )}
+
+      {:error, reason} ->
+        {:noreply,
+         assign(socket, :supplier_field_editor, %{
+           editor
+           | error: supplier_field_error(reason)
+         })}
+    end
+  end
+
+  defp supplier_field_error(:label_required),
+    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Name is required.")
+
+  defp supplier_field_error(:options_required),
+    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Add at least one choice.")
+
+  defp supplier_field_error(:duplicate_key),
+    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "A field with this name already exists.")
+
+  defp supplier_field_error(:entities_disabled),
+    do:
+      Gettext.gettext(
+        PhoenixKitCatalogue.Gettext,
+        "Extra fields need the Entities module, which is turned off."
+      )
+
+  defp supplier_field_error(_other),
+    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Failed to save the field.")
+
+  defp supplier_field_type_label("text"),
+    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Text")
+
+  defp supplier_field_type_label("textarea"),
+    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Text area")
+
+  defp supplier_field_type_label("number"),
+    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Number")
+
+  defp supplier_field_type_label("boolean"),
+    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Yes / No")
+
+  defp supplier_field_type_label("date"),
+    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Date")
+
+  defp supplier_field_type_label("select"),
+    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Select")
+
+  defp supplier_field_type_label(type), do: type
+
+  defp supplier_field_type_options do
+    Enum.map(Catalogue.supplier_field_types(), &{supplier_field_type_label(&1), &1})
+  end
+
+  # Read-only rendering of a stored value for the suppliers table. Booleans
+  # and dates arrive as the JSON scalars entities cast them to.
+  defp supplier_field_display(info, field) do
+    case Catalogue.supplier_field_values(info)[field["key"]] do
+      nil -> "—"
+      "" -> "—"
+      true -> Gettext.gettext(PhoenixKitCatalogue.Gettext, "Yes")
+      false -> Gettext.gettext(PhoenixKitCatalogue.Gettext, "No")
+      value when is_list(value) -> Enum.join(value, ", ")
+      value -> format_field_value(value)
+    end
+  end
+
+  # Entities' `number` type casts through Float.parse/1, so a whole number
+  # comes back as 24.0. Show it the way it was typed.
+  defp format_field_value(value) when is_float(value) do
+    if value == Float.round(value),
+      do: value |> trunc() |> Integer.to_string(),
+      else: Float.to_string(value)
+  end
+
+  defp format_field_value(value), do: to_string(value)
+
   # ── Attachments handle_info (delegated to Attachments module) ────
 
   # {:ai_translation, ...} events folded into the form by `use ...AITranslate.Embed`.
@@ -800,6 +1578,34 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
 
   def handle_info({:media_selector_closed}, socket),
     do: {:noreply, Attachments.close_media_selector(socket)}
+
+  # The comment composer's rich-text editor reports its content to the
+  # HOST via a process message — a LiveComponent has no handle_info of its
+  # own — so without this hop "Post comment" silently no-ops. Resolved at
+  # runtime because comments is a soft dep here; `use …Comments.Embed`
+  # would need a compile-time dependency the catalogue does not declare.
+  # Posting a comment must show up under the supplier without a page
+  # reload. CommentsComponent sends this to its HOST on create/delete, and
+  # the same shape arrives over PubSub when someone else comments on the
+  # company — one contract covers both.
+  def handle_info({:comments_updated, _payload}, socket) do
+    {:noreply, refresh_comment_previews(socket)}
+  end
+
+  def handle_info({:leaf_changed, _payload} = msg, socket) do
+    case Code.ensure_loaded(PhoenixKitComments.Web.CommentsComponent) do
+      {:module, module} ->
+        case module.forward_leaf_event(msg, socket) do
+          {:noreply, _socket} = handled -> handled
+          # Not a comments editor — this LV has no other Leaf editor, so
+          # there is nothing else to route it to.
+          :pass -> {:noreply, socket}
+        end
+
+      _ ->
+        {:noreply, socket}
+    end
+  end
 
   def handle_info({:pdf_search_modal_closed}, socket),
     do: {:noreply, assign(socket, :show_pdf_search, false)}
@@ -844,7 +1650,10 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   # actor_opts/1 imported from PhoenixKitCatalogue.Web.Helpers
 
   defp save_item(socket, :new, params, mode) do
-    params = Map.put_new(params, "catalogue_uuid", socket.assigns.catalogue_uuid)
+    params =
+      params
+      |> Map.put_new("catalogue_uuid", socket.assigns.catalogue_uuid)
+      |> put_manufacturer_source(socket.assigns.manufacturers)
 
     with {:ok, item} <- Catalogue.create_item(params, actor_opts(socket)),
          {:ok, _rules} <- maybe_put_rules(socket, item),
@@ -891,6 +1700,8 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
       else
         params
       end
+
+    params = put_manufacturer_source(params, socket.assigns.manufacturers)
 
     with {:ok, item} <- Catalogue.update_item(socket.assigns.item, params, actor_opts(socket)),
          {:ok, _rules} <- maybe_put_rules(socket, item) do
@@ -984,15 +1795,72 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
 
   # ── Attribute group selection ───────────────────────────────────
 
-  # {label, value} pairs for the kit <.select> (L029 conversion): the
-  # dynamic suffixes ("(CRM)" for external suppliers, "(archived)" for
-  # groups kept readable on items that hold them) move out of option
-  # markup into the label strings.
+  # {label, value} pairs for the kit <.select> (L029 conversion).
+  #
+  # The suffix marks the EXCEPTION, not the norm. A CRM company is what a
+  # supplier normally is now that the catalogue's own directory is gone,
+  # so tagging every one of them "(CRM)" labelled the entire list and said
+  # nothing. What is worth flagging is a row that behaves differently:
+  #
+  #   * a CONTACT is a person, not a company — it carries no company page
+  #     and therefore no comments (`crm_company_uuid/1` returns nil for it);
+  #   * a LOCAL row came from an import, the only path that still mints
+  #     them, and has no CRM record behind it at all.
   defp supplier_options(suppliers) do
-    Enum.map(suppliers, fn s ->
-      label = if s.source != :local, do: "#{s.name} (CRM)", else: s.name
-      {label, s.uuid}
-    end)
+    Enum.map(suppliers, fn s -> {party_option_label(s), s.uuid} end)
+  end
+
+  defp party_option_label(%{source: :crm_contact} = party),
+    do: "#{party.name} (#{Gettext.gettext(PhoenixKitCatalogue.Gettext, "contact")})"
+
+  defp party_option_label(%{source: :local} = party),
+    do: "#{party.name} (#{Gettext.gettext(PhoenixKitCatalogue.Gettext, "imported")})"
+
+  defp party_option_label(party), do: party.name
+
+  # Suppliers already linked to this item are dropped from the Add picker:
+  # a second CURRENT row for the same pair means the supplier listed twice
+  # with two live prices. `create/2` refuses it too — this just stops the
+  # user reaching for it in the first place. Editing an existing row still
+  # sees its own supplier, since that path renders the name, not a select.
+  defp available_supplier_options(suppliers, supplier_infos) do
+    linked = MapSet.new(supplier_infos, & &1.supplier_uuid)
+
+    suppliers
+    |> Enum.reject(&MapSet.member?(linked, &1.uuid))
+    |> supplier_options()
+  end
+
+  # Same shape for manufacturers since V179 made that reference federated too.
+  defp manufacturer_options(manufacturers) do
+    Enum.map(manufacturers, fn m -> {party_option_label(m), m.uuid} end)
+  end
+
+  # The picked uuid alone does not say WHICH side it came from, and storing a
+  # CRM party under `manufacturer_source: "local"` would misroute the resolver
+  # exactly the way the supplier card's own comment warns about. Derive the tag
+  # from the entry the user actually chose, and stamp the tombstone name while
+  # we have it.
+  defp put_manufacturer_source(params, manufacturers) do
+    case Map.get(params, "manufacturer_uuid") do
+      uuid when is_binary(uuid) and uuid != "" ->
+        tag_picked_manufacturer(params, Enum.find(manufacturers, &(&1.uuid == uuid)))
+
+      _ ->
+        params
+        |> Map.put("manufacturer_source", "local")
+        |> Map.put("manufacturer_name_snapshot", nil)
+    end
+  end
+
+  defp tag_picked_manufacturer(params, nil), do: params
+
+  defp tag_picked_manufacturer(params, picked) do
+    source = if picked.source == :local, do: "local", else: "crm_company"
+
+    params
+    |> Map.put("manufacturer_source", source)
+    |> Map.put("manufacturer_name_snapshot", picked.name)
   end
 
   defp attribute_group_options_for_select(groups) do
@@ -1303,7 +2171,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   defp refresh_after_edit(socket, item) do
     item =
       item
-      |> PhoenixKit.RepoHelper.repo().preload([:category, :manufacturer])
+      |> PhoenixKit.RepoHelper.repo().preload([:category])
       |> normalize_display_decimals()
 
     socket
@@ -1434,6 +2302,18 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
           {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Attributes")}
           <span :if={attribute_tab_count(assigns)} class="badge badge-sm badge-ghost ml-2">
             {attribute_tab_count(assigns)}
+          </span>
+        </button>
+        <button
+          type="button"
+          phx-click="switch_tab"
+          phx-value-tab="sourcing"
+          class={"tab #{if @current_tab == :sourcing, do: "tab-active"}"}
+        >
+          <.icon name="hero-building-storefront" class="w-4 h-4 mr-1" />
+          {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Suppliers and Manufacturer")}
+          <span :if={@action == :edit and @supplier_infos != []} class="badge badge-sm badge-ghost ml-2">
+            {length(@supplier_infos)}
           </span>
         </button>
         <button
@@ -1723,7 +2603,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                 {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Classification")}
               </h2>
 
-              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div class="grid grid-cols-1 gap-4">
                 <.select
                   field={@form[:category_uuid]}
                   label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Category")}
@@ -1731,258 +2611,9 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                   prompt={Gettext.gettext(PhoenixKitCatalogue.Gettext, "-- No category --")}
                   options={Enum.map(@categories, &{&1.name, &1.uuid})}
                 />
-                <.select
-                  field={@form[:manufacturer_uuid]}
-                  label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Manufacturer")}
-                  class="transition-colors focus-within:select-primary"
-                  prompt={Gettext.gettext(PhoenixKitCatalogue.Gettext, "-- No manufacturer --")}
-                  options={Enum.map(@manufacturers, &{&1.name, &1.uuid})}
-                />
               </div>
             </div>
 
-            <%!-- Suppliers card — junction-based supplier-info table.
-                 Only rendered for existing items (new items need a UUID first). --%>
-            <div :if={@action == :edit} class="flex flex-col gap-4">
-              <div class="divider my-0"></div>
-              <div class="flex items-center justify-between gap-2">
-                <h2 class="text-base font-semibold text-base-content/80 flex items-center gap-2">
-                  <.icon name="hero-building-storefront" class="w-4 h-4" />
-                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Suppliers")}
-                </h2>
-                <.button type="button" phx-click="open_add_supplier" size="sm">
-                  <.icon name="hero-plus" class="w-4 h-4" />
-                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Add Supplier")}
-                </.button>
-              </div>
-
-              <%!-- Add/edit supplier-info inline form --%>
-              <div :if={@supplier_form_open} class="card bg-base-200 p-4">
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <div class="fieldset md:col-span-2">
-                    <.select
-                      name="supplier_info[supplier_uuid]"
-                      value={@supplier_info_draft["supplier_uuid"]}
-                      label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Supplier")}
-                      prompt={Gettext.gettext(PhoenixKitCatalogue.Gettext, "-- Select supplier --")}
-                      options={supplier_options(@all_suppliers)}
-                      phx-change="supplier_info_field_change"
-                      class="w-full"
-                    />
-                  </div>
-                  <.input
-                    type="text"
-                    name="supplier_info[supplier_sku]"
-                    value={@supplier_info_draft["supplier_sku"]}
-                    label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Supplier SKU")}
-                    phx-change="supplier_info_field_change"
-                    class="w-full font-mono"
-                    placeholder={Gettext.gettext(PhoenixKitCatalogue.Gettext, "e.g., ABC-001")}
-                  />
-                  <div class="fieldset">
-                    <label class="label">
-                      <span class="fieldset-legend">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Unit Cost")}</span>
-                    </label>
-                    <%!-- Deliberately raw (L029): the kit input wraps each
-                         field in its own feedback div, which would break the
-                         daisyUI join grouping of these two inputs. --%>
-                    <div class="join">
-                      <input
-                        type="number"
-                        name="supplier_info[unit_cost]"
-                        value={@supplier_info_draft["unit_cost"]}
-                        phx-change="supplier_info_field_change"
-                        step="0.0001"
-                        min="0"
-                        class="input join-item flex-1"
-                        placeholder="0.00"
-                      />
-                      <input
-                        type="text"
-                        name="supplier_info[currency]"
-                        value={@supplier_info_draft["currency"]}
-                        phx-change="supplier_info_field_change"
-                        class="input join-item w-16 font-mono uppercase"
-                        placeholder="EUR"
-                        maxlength="3"
-                      />
-                    </div>
-                  </div>
-                  <.input
-                    type="number"
-                    name="supplier_info[lead_time_days]"
-                    value={@supplier_info_draft["lead_time_days"]}
-                    label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Lead Time (days)")}
-                    phx-change="supplier_info_field_change"
-                    min="0"
-                    class="w-full"
-                  />
-                  <.input
-                    type="number"
-                    name="supplier_info[min_order_qty]"
-                    value={@supplier_info_draft["min_order_qty"]}
-                    label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Min. Order Qty")}
-                    phx-change="supplier_info_field_change"
-                    step="0.0001"
-                    min="0"
-                    class="w-full"
-                  />
-                </div>
-                <div class="flex gap-2 mt-3 justify-end">
-                  <.button type="button" phx-click="cancel_add_supplier" variant="ghost" size="sm">
-                    {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Cancel")}
-                  </.button>
-                  <.button type="button" phx-click="save_supplier_info" size="sm">
-                    {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Save")}
-                  </.button>
-                </div>
-              </div>
-
-              <%!-- Supplier-info rows --%>
-              <div :if={@supplier_infos == []} class="text-sm text-base-content/50 italic py-2">
-                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "No suppliers linked yet.")}
-              </div>
-
-              <div :if={@supplier_infos != []} class="overflow-x-auto">
-                <table class="table table-sm w-full">
-                  <thead>
-                    <tr>
-                      <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Supplier")}</th>
-                      <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "SKU")}</th>
-                      <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Unit Cost")}</th>
-                      <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Lead (d)")}</th>
-                      <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "MOQ")}</th>
-                      <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Primary")}</th>
-                      <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "History")}</th>
-                      <th></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <%= for info <- @supplier_infos do %>
-                      <tr class={if info.is_primary, do: "bg-primary/5", else: ""}>
-                        <td class="font-medium">
-                          {supplier_display_name(info, @all_suppliers)}
-                        </td>
-                        <td class="font-mono text-xs">{info.supplier_sku || "—"}</td>
-                        <td>
-                          <%= if info.unit_cost do %>
-                            {Decimal.to_string(info.unit_cost, :normal)} {info.currency || ""}
-                          <% else %>
-                            —
-                          <% end %>
-                        </td>
-                        <td>{info.lead_time_days || "—"}</td>
-                        <td>
-                          <%= if info.min_order_qty do %>
-                            {Decimal.to_string(info.min_order_qty, :normal)}
-                          <% else %>
-                            —
-                          <% end %>
-                        </td>
-                        <td>
-                          <span :if={info.is_primary} class="badge badge-sm badge-primary">
-                            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Primary")}
-                          </span>
-                          <.button
-                            :if={not info.is_primary}
-                            type="button"
-                            phx-click="set_primary_supplier"
-                            phx-value-uuid={info.uuid}
-                            variant="ghost"
-                            size="xs"
-                          >
-                            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Make primary")}
-                          </.button>
-                        </td>
-                        <td>
-                          <.button
-                            type="button"
-                            phx-click="open_supplier_history"
-                            phx-value-uuid={info.uuid}
-                            variant="ghost"
-                            size="xs"
-                            title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Price History")}
-                          >
-                            <.icon name="hero-chevron-down" class="w-3 h-3" />
-                          </.button>
-                        </td>
-                        <td>
-                          <.button
-                            type="button"
-                            phx-click="delete_supplier_info"
-                            phx-value-uuid={info.uuid}
-                            data-confirm={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Remove this supplier link?")}
-                            variant="ghost"
-                            size="xs"
-                            class="text-error"
-                          >
-                            <.icon name="hero-trash" class="w-3 h-3" />
-                          </.button>
-                        </td>
-                      </tr>
-                    <% end %>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            <%!-- Supplier price-history modal — read-only, compact. Shows closed
-                 revision rows for the selected item/supplier pair. --%>
-            <dialog :if={@supplier_history_open} open class="modal">
-              <div class="modal-box max-w-lg">
-                <h3 class="font-bold text-lg mb-4">
-                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Price History")}
-                  <span :if={@supplier_history_name} class="font-normal text-base-content/60 ml-1">
-                    — {@supplier_history_name}
-                  </span>
-                </h3>
-                <div :if={@supplier_history_rows == []} class="text-sm text-base-content/50 italic py-2">
-                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "No price history.")}
-                </div>
-                <div :if={@supplier_history_rows != []} class="overflow-x-auto">
-                  <table class="table table-xs w-full">
-                    <thead>
-                      <tr>
-                        <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Unit Cost")}</th>
-                        <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Currency")}</th>
-                        <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Valid From")}</th>
-                        <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Valid To")}</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <%= for row <- @supplier_history_rows do %>
-                        <tr class={if is_nil(row.valid_to), do: "font-medium", else: "text-base-content/60"}>
-                          <td class="tabular-nums">
-                            <%= if row.unit_cost do %>
-                              {Decimal.to_string(row.unit_cost, :normal)}
-                            <% else %>
-                              —
-                            <% end %>
-                          </td>
-                          <td>{row.currency || "—"}</td>
-                          <td>{if row.valid_from, do: Date.to_string(row.valid_from), else: "—"}</td>
-                          <td>
-                            <%= if is_nil(row.valid_to) do %>
-                              <span class="badge badge-xs badge-primary">
-                                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Current")}
-                              </span>
-                            <% else %>
-                              {Date.to_string(row.valid_to)}
-                            <% end %>
-                          </td>
-                        </tr>
-                      <% end %>
-                    </tbody>
-                  </table>
-                </div>
-                <div class="modal-action">
-                  <button type="button" phx-click="close_supplier_history" class="btn btn-sm">
-                    {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Close")}
-                  </button>
-                </div>
-              </div>
-              <div class="modal-backdrop" phx-click="close_supplier_history"></div>
-            </dialog>
 
             <div class="fieldset">
               <.select
@@ -2266,6 +2897,267 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
              scoped picker in single+image mode; the picker both browses
              this item's images and accepts new uploads (which get
              dropped into the item's folder automatically). --%>
+
+        <%!-- Suppliers and Manufacturer panel. Kept in the DOM and toggled by
+             `hidden` like the other panels, so the inline supplier draft form
+             does not lose what has been typed into it when tabs are flipped.
+             The price-history dialog lives in here too: left in the Details
+             panel it would be hidden along with it. --%>
+        <div class={"card bg-base-100 shadow-lg #{if @current_tab != :sourcing, do: "hidden"}"}>
+          <div class="card-body flex flex-col gap-5">
+            <div class="flex flex-col gap-3">
+              <h2 class="text-base font-semibold text-base-content/80 flex items-center gap-2">
+                <.icon name="hero-building-office" class="w-4 h-4" />
+                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Manufacturer")}
+              </h2>
+              <%!-- No field label: the section title above already says it. --%>
+              <.select
+                field={@form[:manufacturer_uuid]}
+                class="transition-colors focus-within:select-primary"
+                prompt={Gettext.gettext(PhoenixKitCatalogue.Gettext, "-- No manufacturer --")}
+                options={manufacturer_options(@manufacturers)}
+              />
+            </div>
+
+          <%!-- Suppliers card — junction-based supplier-info table.
+               Only rendered for existing items (new items need a UUID first). --%>
+          <div :if={@action == :edit} class="flex flex-col gap-4">
+            <div class="divider my-0"></div>
+            <div class="flex items-center justify-between gap-2">
+              <h2 class="text-base font-semibold text-base-content/80 flex items-center gap-2">
+                <.icon name="hero-building-storefront" class="w-4 h-4" />
+                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Suppliers")}
+              </h2>
+              <div class="flex items-center gap-2">
+                <%!-- Edits the GLOBAL supplier field set, not this item.
+                     Hidden when entities is off — there is nothing to
+                     define without it. --%>
+                <.button
+                  :if={@supplier_fields_manageable}
+                  type="button"
+                  phx-click="open_supplier_field_manager"
+                  variant="ghost"
+                  size="sm"
+                  title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Extra fields")}
+                >
+                  <.icon name="hero-adjustments-horizontal" class="w-4 h-4" />
+                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Fields")}
+                </.button>
+                <.button type="button" phx-click="open_add_supplier" size="sm">
+                  <.icon name="hero-plus" class="w-4 h-4" />
+                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Add Supplier")}
+                </.button>
+              </div>
+            </div>
+
+            <%!-- The add/edit form is a modal, rendered outside the item
+                 form below: nested <form> elements are invalid HTML and
+                 the browser drops the inner one, which would attach the
+                 supplier inputs to the item form instead. --%>
+
+            <%!-- Supplier-info rows --%>
+            <div :if={@supplier_infos == []} class="text-sm text-base-content/50 italic py-2">
+              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "No suppliers linked yet.")}
+            </div>
+
+            <div :if={@supplier_infos != []} class="overflow-x-auto">
+              <table class="table table-sm w-full">
+                <thead>
+                  <tr>
+                    <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Supplier")}</th>
+                    <th :if={@supplier_terms_visible}>
+                      {Gettext.gettext(PhoenixKitCatalogue.Gettext, "SKU")}
+                    </th>
+                    <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Unit Cost")}</th>
+                    <th :if={@supplier_terms_visible}>
+                      {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Lead (d)")}
+                    </th>
+                    <th :if={@supplier_terms_visible}>
+                      {Gettext.gettext(PhoenixKitCatalogue.Gettext, "MOQ")}
+                    </th>
+                    <th :for={field <- @supplier_fields}>{field["label"]}</th>
+                    <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Primary")}</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <%= for info <- @supplier_infos do %>
+                    <tr class={if info.is_primary, do: "bg-primary/5", else: ""}>
+                      <td class="font-medium">
+                        <%!-- The name links to the party's own page when there
+                             is one, the same rule the CRM side follows for item
+                             names. The PATH comes from CRM rather than being
+                             assembled here — a module does not build another
+                             module's URLs. --%>
+                        <.pk_link
+                          :if={supplier_page_path(@supplier_comment_targets, info)}
+                          navigate={supplier_page_path(@supplier_comment_targets, info)}
+                          class="link link-hover"
+                        >
+                          {supplier_display_name(info, @all_suppliers)}
+                        </.pk_link>
+                        <span :if={is_nil(supplier_page_path(@supplier_comment_targets, info))}>
+                          {supplier_display_name(info, @all_suppliers)}
+                        </span>
+                      </td>
+                      <td :if={@supplier_terms_visible} class="font-mono text-xs">
+                        {info.supplier_sku || "—"}
+                      </td>
+                      <td>
+                        <%= if info.unit_cost do %>
+                          {Decimal.to_string(info.unit_cost, :normal)} {info.currency || ""}
+                        <% else %>
+                          —
+                        <% end %>
+                      </td>
+                      <td :if={@supplier_terms_visible}>{info.lead_time_days || "—"}</td>
+                      <td :if={@supplier_terms_visible}>
+                        <%= if info.min_order_qty do %>
+                          {Decimal.to_string(info.min_order_qty, :normal)}
+                        <% else %>
+                          —
+                        <% end %>
+                      </td>
+                      <td :for={field <- @supplier_fields} class="text-xs">
+                        {supplier_field_display(info, field)}
+                      </td>
+                      <td>
+                        <%!-- Primary is a STATUS here; promoting is an
+                             action and lives in the row menu with the
+                             rest. --%>
+                        <span :if={info.is_primary} class="badge badge-sm badge-primary">
+                          {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Primary")}
+                        </span>
+                        <span :if={not info.is_primary} class="text-base-content/30">—</span>
+                      </td>
+                      <%!-- Every row action in one ⋮ menu (core's
+                           TableRowMenu — it uses position:fixed via the
+                           RowMenu hook so the panel escapes the table's
+                           overflow clipping, which a plain daisyUI
+                           dropdown does not). --%>
+                      <td class="whitespace-nowrap text-right">
+                        <.table_row_menu id={"supplier-actions-#{info.uuid}"}>
+                          <.table_row_menu_button
+                            :if={Map.has_key?(@supplier_comment_targets, info.uuid)}
+                            phx-click="open_supplier_comments"
+                            phx-value-uuid={info.uuid}
+                            icon="hero-chat-bubble-left-ellipsis"
+                            label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Comments")}
+                          />
+                          <.table_row_menu_button
+                            phx-click="edit_supplier_info"
+                            phx-value-uuid={info.uuid}
+                            icon="hero-pencil"
+                            label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")}
+                          />
+                          <.table_row_menu_button
+                            phx-click="open_supplier_history"
+                            phx-value-uuid={info.uuid}
+                            icon="hero-clock"
+                            label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Price History")}
+                          />
+                          <.table_row_menu_button
+                            :if={not info.is_primary}
+                            phx-click="set_primary_supplier"
+                            phx-value-uuid={info.uuid}
+                            icon="hero-star"
+                            label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Make primary")}
+                          />
+                          <.table_row_menu_divider />
+                          <.table_row_menu_button
+                            phx-click="delete_supplier_info"
+                            phx-value-uuid={info.uuid}
+                            data-confirm={
+                              Gettext.gettext(
+                                PhoenixKitCatalogue.Gettext,
+                                "Remove this supplier link?"
+                              )
+                            }
+                            icon="hero-trash"
+                            label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Remove")}
+                            variant="error"
+                          />
+                        </.table_row_menu>
+                      </td>
+                    </tr>
+
+                    <%!-- The supplier's latest comments, inline. These are
+                         the CRM company's own — the same rows its Comments
+                         tab shows. --%>
+                    <tr :if={Map.has_key?(@supplier_comment_previews, info.uuid)} class="border-0">
+                      <td colspan={supplier_table_colspan(assigns)} class="pt-0 pb-3">
+                        <.supplier_comment_preview
+                          preview={@supplier_comment_previews[info.uuid]}
+                          uuid={info.uuid}
+                        />
+                      </td>
+                    </tr>
+                  <% end %>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <%!-- Supplier price-history modal — read-only, compact. Shows closed
+               revision rows for the selected item/supplier pair. --%>
+          <dialog :if={@supplier_history_open} open class="modal">
+            <div class="modal-box max-w-lg">
+              <h3 class="font-bold text-lg mb-4">
+                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Price History")}
+                <span :if={@supplier_history_name} class="font-normal text-base-content/60 ml-1">
+                  — {@supplier_history_name}
+                </span>
+              </h3>
+              <div :if={@supplier_history_rows == []} class="text-sm text-base-content/50 italic py-2">
+                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "No price history.")}
+              </div>
+              <div :if={@supplier_history_rows != []} class="overflow-x-auto">
+                <table class="table table-xs w-full">
+                  <thead>
+                    <tr>
+                      <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Unit Cost")}</th>
+                      <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Currency")}</th>
+                      <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Valid From")}</th>
+                      <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Valid To")}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <%= for row <- @supplier_history_rows do %>
+                      <tr class={if is_nil(row.valid_to), do: "font-medium", else: "text-base-content/60"}>
+                        <td class="tabular-nums">
+                          <%= if row.unit_cost do %>
+                            {Decimal.to_string(row.unit_cost, :normal)}
+                          <% else %>
+                            —
+                          <% end %>
+                        </td>
+                        <td>{row.currency || "—"}</td>
+                        <td>{if row.valid_from, do: Date.to_string(row.valid_from), else: "—"}</td>
+                        <td>
+                          <%= if is_nil(row.valid_to) do %>
+                            <span class="badge badge-xs badge-primary">
+                              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Current")}
+                            </span>
+                          <% else %>
+                            {Date.to_string(row.valid_to)}
+                          <% end %>
+                        </td>
+                      </tr>
+                    <% end %>
+                  </tbody>
+                </table>
+              </div>
+              <div class="modal-action">
+                <button type="button" phx-click="close_supplier_history" class="btn btn-sm">
+                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Close")}
+                </button>
+              </div>
+            </div>
+            <div class="modal-backdrop" phx-click="close_supplier_history"></div>
+          </dialog>
+          </div>
+        </div>
+
         <div class={"mb-4 #{if @current_tab != :files, do: "hidden"}"}>
           <.attachments_files_panel
             uploads={@uploads}
@@ -2336,6 +3228,471 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
       <%!-- AI translate modal — rendered OUTSIDE the form (its endpoint/
            prompt selectors are their own <form>; nested forms are invalid). --%>
       <.ai_translate_modal ai_translate={ai_translate_config(assigns)} />
+
+      <%!-- Supplier add/edit — one modal, two modes. OUTSIDE the item
+           form for the same reason as the AI modal above. Errors render
+           inside it; a page flash would land behind the backdrop. --%>
+      <.modal
+        :if={@supplier_form != nil}
+        id="supplier-form-modal"
+        show
+        on_close="cancel_add_supplier"
+        max_width="lg"
+      >
+        <:title>
+          {if @supplier_form.mode == :new,
+            do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Add supplier"),
+            else: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit supplier")}
+        </:title>
+
+        <%!-- phx-submit is load-bearing even though phx-change tracks
+             every field: a form with only phx-change is external to
+             LiveView, so Enter inside a text input native-submits and
+             navigates away, killing the socket. --%>
+        <form
+          id="supplier-form"
+          phx-change="supplier_info_field_change"
+          phx-submit="save_supplier_info"
+          class="flex flex-col gap-4"
+        >
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div class="fieldset md:col-span-2">
+              <%!-- The supplier is the identity of the pair and price
+                   history keys on it, so editing a row cannot re-point
+                   it at a different company — remove and re-add. --%>
+              <.select
+                :if={@supplier_form.mode == :new}
+                name="supplier_info[supplier_uuid]"
+                value={@supplier_form.draft["supplier_uuid"]}
+                label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Supplier")}
+                prompt={Gettext.gettext(PhoenixKitCatalogue.Gettext, "-- Select supplier --")}
+                options={available_supplier_options(@all_suppliers, @supplier_infos)}
+                class="w-full"
+              />
+              <div :if={@supplier_form.mode == :edit}>
+                <.label class="block mb-2">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Supplier")}</.label>
+                <p class="text-sm font-medium">{supplier_form_name(assigns)}</p>
+              </div>
+            </div>
+
+            <%!-- The built-in supplier terms, hidden together. Each labels
+                 itself through `<.label>` rather than `<.input label=...>`:
+                 the two render different type sizes, and side by side in
+                 this grid the rows stopped lining up. --%>
+            <div :if={@supplier_terms_visible}>
+              <.label for="supplier-sku" class="block mb-2">
+                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Supplier SKU")}
+              </.label>
+              <.input
+                type="text"
+                id="supplier-sku"
+                name="supplier_info[supplier_sku]"
+                value={@supplier_form.draft["supplier_sku"]}
+                class="w-full font-mono"
+                placeholder={Gettext.gettext(PhoenixKitCatalogue.Gettext, "e.g., ABC-001")}
+              />
+            </div>
+
+            <%!-- Price is NOT behind the terms flag: the owner asked for
+                 it back specifically, and it is the one field warehouse
+                 reads. The cost control comes from entities' own renderer
+                 for its `decimal` type — added for this — so the value is
+                 exact rather than a float. --%>
+            <div class="md:col-span-2">
+              <.label class="block mb-2">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Unit Cost")}</.label>
+              <%!-- Deliberately raw (L029): the kit input wraps each field
+                   in its own feedback div, which would break the daisyUI
+                   join grouping of these two inputs. --%>
+              <div class="join w-full">
+                <.field_input
+                  field={Catalogue.supplier_builtin_field("unit_cost")}
+                  id="supplier-unit-cost"
+                  name="supplier_info[unit_cost]"
+                  value={@supplier_form.draft["unit_cost"]}
+                  form="supplier-form"
+                  size="md"
+                  class="join-item flex-1"
+                />
+                <input
+                  type="text"
+                  name="supplier_info[currency]"
+                  value={@supplier_form.draft["currency"]}
+                  class="input join-item w-16 font-mono uppercase"
+                  placeholder="EUR"
+                  maxlength="3"
+                />
+              </div>
+              <p
+                :if={@supplier_form.mode == :edit}
+                class="text-xs text-base-content/50 pt-1"
+              >
+                {Gettext.gettext(
+                  PhoenixKitCatalogue.Gettext,
+                  "Changing the cost closes the current price and starts a new one, kept in History."
+                )}
+              </p>
+            </div>
+
+            <div :if={@supplier_terms_visible}>
+              <.label for="supplier-lead-time" class="block mb-2">
+                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Lead Time (days)")}
+              </.label>
+              <.input
+                type="number"
+                id="supplier-lead-time"
+                name="supplier_info[lead_time_days]"
+                value={@supplier_form.draft["lead_time_days"]}
+                min="0"
+                class="w-full"
+              />
+            </div>
+
+            <div :if={@supplier_terms_visible}>
+              <.label for="supplier-moq" class="block mb-2">
+                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Min. Order Qty")}
+              </.label>
+              <.input
+                type="number"
+                id="supplier-moq"
+                name="supplier_info[min_order_qty]"
+                value={@supplier_form.draft["min_order_qty"]}
+                step="0.0001"
+                min="0"
+                class="w-full"
+              />
+            </div>
+          </div>
+
+          <%!-- Admin-defined fields. Entities owns the definitions; the
+               control per type comes from its own renderer. --%>
+          <div :if={@supplier_fields != []} class="flex flex-col gap-3">
+            <div class="divider my-0 text-xs text-base-content/50">
+              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Extra fields")}
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div :for={field <- @supplier_fields} class="flex flex-col gap-1">
+                <span class="label-text font-medium">{field["label"]}</span>
+                <.field_input
+                  field={field}
+                  id={"supplier-custom-#{field["key"]}"}
+                  name={"custom_fields[#{field["key"]}]"}
+                  value={@supplier_form.custom[field["key"]]}
+                  form="supplier-form"
+                />
+              </div>
+            </div>
+          </div>
+
+          <p :if={@supplier_form.error} class="text-sm text-error">{@supplier_form.error}</p>
+        </form>
+
+        <:actions>
+          <.button type="button" variant="ghost" phx-click="cancel_add_supplier">
+            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Cancel")}
+          </.button>
+          <.button
+            form="supplier-form"
+            type="submit"
+            phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Saving...")}
+          >
+            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Save")}
+          </.button>
+        </:actions>
+      </.modal>
+
+      <%!-- Supplier comments — the CRM company's thread, not a
+           catalogue-local one. Same `{resource_type, resource_uuid}` the
+           company page uses, so anything written here appears on its
+           Comments tab and vice versa; there is one store, not two. --%>
+      <.modal
+        :if={@supplier_comments != nil}
+        id="supplier-comments-modal"
+        show
+        on_close="close_supplier_comments"
+        max_width="2xl"
+      >
+        <:title>
+          {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Comments")}
+          <span :if={@supplier_comments.name} class="font-normal text-base-content/60 ml-1">
+            — {@supplier_comments.name}
+          </span>
+        </:title>
+
+        <%!-- The note says these live on the company page, so the company page
+             is one click away rather than something to go and find. --%>
+        <p class="text-xs text-base-content/50 mb-3">
+          {Gettext.gettext(
+            PhoenixKitCatalogue.Gettext,
+            "Shared with this supplier's company page in CRM."
+          )}
+          <.pk_link
+            :if={crm_company_path(@supplier_comments.company_uuid)}
+            navigate={crm_company_path(@supplier_comments.company_uuid)}
+            class="link link-hover ml-1"
+          >
+            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Open the company")}
+          </.pk_link>
+        </p>
+
+        <.live_component
+          module={PhoenixKitComments.Web.CommentsComponent}
+          id={"supplier-comments-#{@supplier_comments.company_uuid}"}
+          resource_type="crm_company"
+          resource_uuid={@supplier_comments.company_uuid}
+          current_user={assigns[:phoenix_kit_current_user]}
+        />
+
+        <:actions>
+          <.button type="button" phx-click="close_supplier_comments">
+            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Close")}
+          </.button>
+        </:actions>
+      </.modal>
+
+      <%!-- Supplier field manager — the GLOBAL field set. --%>
+      <.modal
+        :if={@supplier_field_manager}
+        id="supplier-field-manager-modal"
+        show
+        on_close="close_supplier_field_manager"
+        max_width="lg"
+      >
+        <:title>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Supplier extra fields")}</:title>
+
+        <div class="flex flex-col gap-4">
+          <p class="text-sm text-base-content/60">
+            {Gettext.gettext(
+              PhoenixKitCatalogue.Gettext,
+              "Extra info every supplier row carries — incoterm, carton quantity, certification expiry. These apply to every item, not just this one."
+            )}
+          </p>
+
+          <div :if={@supplier_fields != []} class="flex flex-col gap-2">
+            <div
+              :for={field <- @supplier_fields}
+              class="rounded-lg border border-base-content/10 bg-base-content/5 p-2 flex items-center gap-2"
+            >
+              <span class="font-medium text-sm shrink-0">{field["label"]}</span>
+              <span class="badge badge-sm badge-ghost shrink-0">
+                {supplier_field_type_label(field["type"])}
+              </span>
+              <span
+                :if={field["type"] == "select"}
+                class="text-xs text-base-content/50 truncate flex-1 min-w-0"
+                title={Enum.join(field["options"] || [], ", ")}
+              >
+                {Enum.join(field["options"] || [], ", ")}
+              </span>
+              <span :if={field["type"] != "select"} class="flex-1"></span>
+              <.button
+                type="button"
+                phx-click="edit_supplier_field"
+                phx-value-key={field["key"]}
+                variant="ghost"
+                size="xs"
+                class="px-1"
+                title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit field")}
+              >
+                <.icon name="hero-pencil" class="w-4 h-4" />
+              </.button>
+              <.button
+                type="button"
+                phx-click="request_remove_supplier_field"
+                phx-value-key={field["key"]}
+                variant="ghost"
+                size="xs"
+                class="px-1 text-base-content/40 hover:text-error"
+                title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Remove field")}
+              >
+                <.icon name="hero-trash" class="w-4 h-4" />
+              </.button>
+            </div>
+          </div>
+
+          <p :if={@supplier_fields == []} class="text-sm text-base-content/50 italic">
+            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "No extra fields yet.")}
+          </p>
+
+          <%!-- Confirmation is inline, not a nested modal: a <dialog>
+               inside an open <dialog> is not reliably interactive. --%>
+          <div
+            :if={@supplier_field_remove}
+            class="rounded-lg border border-error/30 bg-error/5 p-3 flex flex-col gap-2"
+          >
+            <p class="text-sm">
+              {Gettext.gettext(
+                PhoenixKitCatalogue.Gettext,
+                "Remove this field? Values already saved on supplier rows stay in the database but stop being shown."
+              )}
+            </p>
+            <div class="flex gap-2 justify-end">
+              <.button
+                type="button"
+                variant="ghost"
+                size="xs"
+                phx-click="cancel_remove_supplier_field"
+              >
+                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Cancel")}
+              </.button>
+              <.button
+                type="button"
+                size="xs"
+                class="btn-error"
+                phx-click="confirm_remove_supplier_field"
+              >
+                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Remove")}
+              </.button>
+            </div>
+          </div>
+
+          <.button
+            type="button"
+            phx-click="open_supplier_field_editor"
+            variant="outline"
+            size="sm"
+            class="self-start"
+          >
+            <.icon name="hero-plus" class="w-4 h-4" />
+            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Add field")}
+          </.button>
+        </div>
+
+        <:actions>
+          <.button type="button" phx-click="close_supplier_field_manager">
+            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Done")}
+          </.button>
+        </:actions>
+      </.modal>
+
+      <%!-- Field editor — one modal, two modes; rendered fresh per open
+           so the type-specific block is server-driven. --%>
+      <.modal
+        :if={@supplier_field_editor != nil}
+        id="supplier-field-editor-modal"
+        show
+        on_close="close_supplier_field_editor"
+        max_width="md"
+      >
+        <:title>
+          {if @supplier_field_editor.mode == :new,
+            do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Add extra field"),
+            else: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit extra field")}
+        </:title>
+
+        <form
+          id="supplier-field-editor-form"
+          phx-change="validate_supplier_field_editor"
+          phx-submit="save_supplier_field_editor"
+          class="flex flex-col gap-4"
+        >
+          <label class="form-control">
+            <span class="label-text font-medium pb-1">
+              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Name")}
+              <span class="text-error">*</span>
+            </span>
+            <input
+              type="text"
+              name="label"
+              value={@supplier_field_editor.label}
+              placeholder={Gettext.gettext(PhoenixKitCatalogue.Gettext, "e.g. Incoterm")}
+              class="input input-bordered w-full"
+            />
+          </label>
+          <p :if={@supplier_field_editor.mode == :edit} class="text-xs text-base-content/50 -mt-2">
+            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Key: %{key}",
+              key: @supplier_field_editor.key
+            )}
+          </p>
+
+          <%= if @supplier_field_editor.mode == :new do %>
+            <label class="form-control">
+              <span class="label-text font-medium pb-1">
+                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Type")}
+              </span>
+              <select name="type" class="select select-bordered w-full">
+                <option
+                  :for={{label, val} <- supplier_field_type_options()}
+                  value={val}
+                  selected={@supplier_field_editor.type == val}
+                >
+                  {label}
+                </option>
+              </select>
+            </label>
+          <% else %>
+            <div class="flex flex-col gap-1">
+              <span class="label-text font-medium">
+                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Type")}
+              </span>
+              <p class="text-sm">{supplier_field_type_label(@supplier_field_editor.type)}</p>
+              <p class="text-xs text-base-content/50">
+                {Gettext.gettext(
+                  PhoenixKitCatalogue.Gettext,
+                  "Type can't be changed. Remove the field and add a new one if you need a different type."
+                )}
+              </p>
+            </div>
+          <% end %>
+
+          <div :if={@supplier_field_editor.type == "select"} class="flex flex-col gap-2">
+            <span class="label-text font-medium">
+              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Choices")}
+            </span>
+            <div
+              :for={{choice, index} <- Enum.with_index(@supplier_field_editor.choices)}
+              class="flex items-center gap-2"
+            >
+              <input
+                type="text"
+                name="choices[]"
+                id={"supplier-field-choice-#{index}"}
+                value={choice}
+                class="input input-sm input-bordered flex-1"
+              />
+              <.button
+                type="button"
+                phx-click="remove_supplier_field_choice"
+                phx-value-index={index}
+                variant="ghost"
+                size="xs"
+                class="px-1 text-base-content/40 hover:text-error"
+                title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Remove choice")}
+              >
+                <.icon name="hero-x-mark" class="w-4 h-4" />
+              </.button>
+            </div>
+            <.button
+              type="button"
+              phx-click="add_supplier_field_choice"
+              variant="outline"
+              size="xs"
+              class="self-start"
+            >
+              <.icon name="hero-plus" class="w-3.5 h-3.5" />
+              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Add choice")}
+            </.button>
+          </div>
+
+          <p :if={@supplier_field_editor.error} class="text-sm text-error">
+            {@supplier_field_editor.error}
+          </p>
+        </form>
+
+        <:actions>
+          <.button type="button" variant="ghost" phx-click="close_supplier_field_editor">
+            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Cancel")}
+          </.button>
+          <.button
+            form="supplier-field-editor-form"
+            type="submit"
+            phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Saving...")}
+          >
+            {if @supplier_field_editor.mode == :new,
+              do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Add field"),
+              else: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Save field")}
+          </.button>
+        </:actions>
+      </.modal>
 
       <%!-- Move — collapsed by default. Standard items move to a
            category anywhere; smart items move across smart catalogues

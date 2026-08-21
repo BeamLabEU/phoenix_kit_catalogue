@@ -22,16 +22,35 @@ defmodule PhoenixKitCatalogue.Catalogue.Links do
 
   Returns `{:error, changeset}` if the link already exists (unique constraint).
   """
-  @spec link_manufacturer_supplier(Ecto.UUID.t(), Ecto.UUID.t()) ::
+  @spec link_manufacturer_supplier(Ecto.UUID.t(), Ecto.UUID.t(), keyword()) ::
           {:ok, ManufacturerSupplier.t()}
           | {:error, Ecto.Changeset.t(ManufacturerSupplier.t())}
-  def link_manufacturer_supplier(manufacturer_uuid, supplier_uuid) do
+  def link_manufacturer_supplier(manufacturer_uuid, supplier_uuid, opts \\ []) do
     %ManufacturerSupplier{}
     |> ManufacturerSupplier.changeset(%{
       manufacturer_uuid: manufacturer_uuid,
-      supplier_uuid: supplier_uuid
+      supplier_uuid: supplier_uuid,
+      # Default "local" keeps every existing caller working unchanged; core
+      # V180 federated both sides, so a CRM party is now storable here.
+      manufacturer_source: Keyword.get(opts, :manufacturer_source, "local"),
+      supplier_source: Keyword.get(opts, :supplier_source, "local")
     })
     |> repo().insert()
+  end
+
+  @doc """
+  Deletes every link touching a party, whichever side it sits on.
+
+  Replaces the `ON DELETE CASCADE` that core V180 dropped along with the two
+  foreign keys: without this, deleting a local supplier or manufacturer leaves
+  its links behind pointing at nothing.
+  """
+  @spec delete_links_for(Ecto.UUID.t()) :: {integer(), nil}
+  def delete_links_for(uuid) when is_binary(uuid) do
+    from(ms in ManufacturerSupplier,
+      where: ms.manufacturer_uuid == ^uuid or ms.supplier_uuid == ^uuid
+    )
+    |> repo().delete_all()
   end
 
   @doc """

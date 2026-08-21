@@ -1415,6 +1415,17 @@ defmodule PhoenixKitCatalogue.Web.Components do
   attr(:markup_percentage, :any, default: nil)
   attr(:discount_percentage, :any, default: nil)
   attr(:edit_path, :any, default: nil)
+
+  attr(:name_path, :any,
+    default: nil,
+    doc: """
+    Where an item's NAME links, as a 1-arity function of the item. Defaults to
+    `edit_path` (the catalogue's own convention). An embedded, read-only list
+    can point it somewhere else — landing on an edit form from a list you are
+    only reading is a surprise.
+    """
+  )
+
   attr(:on_delete, :string, default: nil)
   attr(:on_restore, :string, default: nil)
   attr(:on_permanent_delete, :string, default: nil)
@@ -1511,13 +1522,15 @@ defmodule PhoenixKitCatalogue.Web.Components do
             has_files={Map.get(@file_counts, item.uuid, 0) > 0}
           />
           <.link
-            :if={@edit_path && item.uuid}
-            navigate={safe_call(@edit_path, item.uuid)}
+            :if={item_name_link(assigns, item)}
+            navigate={item_name_link(assigns, item)}
             class="font-medium text-sm link link-hover"
           >
             {item.name || "—"}
           </.link>
-          <span :if={!@edit_path || !item.uuid} class="font-medium text-sm">{item.name || "—"}</span>
+          <span :if={is_nil(item_name_link(assigns, item))} class="font-medium text-sm">
+            {item.name || "—"}
+          </span>
           <span
             :if={Map.has_key?(@attribute_map, item.uuid)}
             class="shrink-0"
@@ -1607,6 +1620,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
             discount_percentage={@discount_percentage}
             catalogue_path={@catalogue_path}
             edit_path={@edit_path}
+            name_path={@name_path}
             has_attributes={Map.has_key?(@attribute_map, item.uuid)}
           />
           <.item_actions
@@ -1653,6 +1667,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
   """
   attr(:item, :any, required: true)
   attr(:edit_path, :any, default: nil)
+
   attr(:has_attributes, :boolean, default: false)
   attr(:file_count, :integer, default: 0)
   attr(:columns, :list, default: ["sku", "price", "unit", "status"])
@@ -1738,6 +1753,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
   """
   attr(:item, :any, required: true)
   attr(:edit_path, :any, default: nil)
+
   attr(:on_delete, :string, default: nil)
   attr(:pdf_search_event, :string, default: nil)
 
@@ -1763,6 +1779,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
   attr(:item, :any, required: true)
   attr(:id_prefix, :string, default: "item-card-menu")
   attr(:edit_path, :any, default: nil)
+
   attr(:on_delete, :string, default: nil)
   attr(:pdf_search_event, :string, default: nil)
 
@@ -1858,7 +1875,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
     do: safe_assoc_field(item, :catalogue, :name)
 
   defp card_field_value(item, :manufacturer, _, _, _),
-    do: safe_assoc_field(item, :manufacturer, :name)
+    do: manufacturer_display(item)
 
   defp card_field_value(_, col, _, _, _) do
     Logger.warning("item_table card: unknown column #{inspect(col)}, skipping")
@@ -1867,6 +1884,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
 
   attr(:item, :any, required: true)
   attr(:edit_path, :any, default: nil)
+
   attr(:on_delete, :string, default: nil)
   attr(:on_restore, :string, default: nil)
   attr(:on_permanent_delete, :string, default: nil)
@@ -1932,19 +1950,28 @@ defmodule PhoenixKitCatalogue.Web.Components do
   attr(:discount_percentage, :any, default: nil)
   attr(:catalogue_path, :any, default: nil)
   attr(:edit_path, :any, default: nil)
+
+  attr(:name_path, :any,
+    default: nil,
+    doc: """
+    Where an item's NAME links, as a 1-arity function of the item. Defaults to
+    `edit_path` (the catalogue's own convention). An embedded, read-only list
+    can point it somewhere else — landing on an edit form from a list you are
+    only reading is a surprise.
+    """
+  )
+
   attr(:has_attributes, :boolean, default: false)
 
   defp item_cell(%{column: :name} = assigns) do
+    assigns = assign(assigns, :name_link, item_name_link(assigns, assigns.item))
+
     ~H"""
     <.table_default_cell class="font-medium">
-      <.link
-        :if={@edit_path && @item.uuid}
-        navigate={safe_call(@edit_path, @item.uuid)}
-        class="link link-hover"
-      >
+      <.link :if={@name_link} navigate={@name_link} class="link link-hover">
         {@item.name || "—"}
       </.link>
-      <span :if={!@edit_path || !@item.uuid}>{@item.name || "—"}</span>
+      <span :if={is_nil(@name_link)}>{@item.name || "—"}</span>
       <span
         :if={assigns[:has_attributes]}
         class="inline-block ml-1.5 align-[-2px]"
@@ -2041,7 +2068,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
   defp item_cell(%{column: :manufacturer} = assigns) do
     ~H"""
     <.table_default_cell class="text-sm text-base-content/60">
-      {safe_assoc_field(@item, :manufacturer, :name)}
+      {manufacturer_display(@item)}
     </.table_default_cell>
     """
   end
@@ -2059,6 +2086,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
 
   attr(:item, :any, required: true)
   attr(:edit_path, :any, default: nil)
+
   attr(:on_delete, :string, default: nil)
   attr(:on_restore, :string, default: nil)
   attr(:on_permanent_delete, :string, default: nil)
@@ -2289,6 +2317,16 @@ defmodule PhoenixKitCatalogue.Web.Components do
   # Returns "—" if the association is nil or not loaded; otherwise the
   # named field. Used at template render time, where a bare `nil` would
   # be ugly. This is presentation, not error handling.
+  # The manufacturer is a federated {source, uuid} reference (V179), not an
+  # association, so there is nothing to preload and nothing to `safe_assoc_field`.
+  # `Manufacturers.hydrate/1` stamps `:manufacturer_name` at the query boundary;
+  # a nil here means the page forgot to hydrate, which shows as the same "—" an
+  # item with no manufacturer gets rather than crashing the render.
+  defp manufacturer_display(%{manufacturer_name: name}) when is_binary(name) and name != "",
+    do: name
+
+  defp manufacturer_display(_item), do: "—"
+
   defp safe_assoc_field(record, assoc, field) do
     case Map.get(record, assoc) do
       %{__struct__: Ecto.Association.NotLoaded} -> "—"
@@ -2306,4 +2344,110 @@ defmodule PhoenixKitCatalogue.Web.Components do
   defp safe_call(func, arg) when is_function(func, 1), do: func.(arg)
 
   # Safe nested association access — follows a path of keys, returns nil on any miss
+
+  @doc """
+  An item list for another module to embed — the CRM company page's
+  Catalogue tab today.
+
+  This is a deliberately narrow wrapper around `item_table/1` rather than a
+  second table. A caller outside this package cannot invoke `item_table/1`
+  itself: HEEx injects `attr` defaults at the CALL SITE, so reaching it
+  through `apply/3` would mean the caller supplying every attribute by hand
+  and re-supplying each new one we add. Here the defaults are applied inside
+  the catalogue, and the contract with the caller is two keys.
+
+  Takes a plain map (no attr defaults are available through `apply/3`):
+
+    * `:items` — `%Item{}` structs, ideally hydrated by
+      `Manufacturers.hydrate/1` so the manufacturer column has a name
+    * `:id` — unique DOM id for the table
+    * `:columns` — optional; which columns to show, in order. Defaults to a
+      sensible set. Pair it with core's `column_settings_modal/1` and
+      `managed_columns/0` below to give the embed a working column picker.
+
+  Presentation — the image column, the card/table toggle, price and status
+  formatting — stays owned by the catalogue, so an embedded list keeps
+  matching the catalogue's own. That includes the convention that an item's
+  name opens its edit form; the `catalogue` column is the way back to where
+  the item lives.
+  """
+  def party_items_table(assigns) do
+    assigns =
+      assigns
+      |> Map.put_new(
+        :columns,
+        party_items_default_columns() |> Enum.map(&String.to_existing_atom/1)
+      )
+      |> Map.put_new(:id, "party-items")
+      # `:name` is always shown and is not the picker's to remove, but
+      # `item_table/1` still needs it in `columns` to render the Name COLUMN —
+      # the card view draws the name from its header instead, which is why a
+      # missing `:name` looks fine in cards and blank in the table.
+      |> Map.update!(:columns, fn cols -> [:name | List.delete(cols, :name)] end)
+
+    ~H"""
+    <.item_table
+      id={@id}
+      items={@items}
+      columns={@columns}
+      edit_path={&PhoenixKitCatalogue.Paths.item_edit/1}
+      name_path={&item_in_catalogue_path/1}
+      catalogue_path={&PhoenixKitCatalogue.Paths.catalogue_detail/1}
+      size="sm"
+    />
+    """
+  end
+
+  @doc """
+  The configurable columns of `party_items_table/1`, in the shape core's
+  `column_settings_modal/1` expects. `name` is deliberately absent: it is
+  always shown, so it is not the picker's to remove.
+  """
+  def party_items_columns do
+    [
+      %{id: "sku", label: fn -> Gettext.gettext(PhoenixKitCatalogue.Gettext, "SKU") end},
+      %{
+        id: "base_price",
+        label: fn -> Gettext.gettext(PhoenixKitCatalogue.Gettext, "Base Price") end
+      },
+      %{id: "unit", label: fn -> Gettext.gettext(PhoenixKitCatalogue.Gettext, "Unit") end},
+      %{id: "status", label: fn -> Gettext.gettext(PhoenixKitCatalogue.Gettext, "Status") end},
+      %{
+        id: "catalogue",
+        label: fn -> Gettext.gettext(PhoenixKitCatalogue.Gettext, "Catalogue") end
+      },
+      %{
+        id: "category",
+        label: fn -> Gettext.gettext(PhoenixKitCatalogue.Gettext, "Category") end
+      },
+      %{
+        id: "manufacturer",
+        label: fn -> Gettext.gettext(PhoenixKitCatalogue.Gettext, "Manufacturer") end
+      }
+    ]
+  end
+
+  @doc "Default shown columns for `party_items_table/1`."
+  def party_items_default_columns, do: ~w(sku base_price unit status catalogue category)
+
+  # An item is viewed inside its catalogue, filtered to its category — there
+  # is no standalone item page to link to.
+  defp item_in_catalogue_path(%{catalogue_uuid: nil}), do: nil
+
+  defp item_in_catalogue_path(%{catalogue_uuid: cat, category_uuid: nil}),
+    do: PhoenixKitCatalogue.Paths.uncategorized_browse(cat)
+
+  defp item_in_catalogue_path(%{catalogue_uuid: cat, category_uuid: category}),
+    do: PhoenixKitCatalogue.Paths.category_browse(cat, category)
+
+  # Where an item's name links: `name_path` when a caller overrides it,
+  # otherwise the catalogue's own convention of opening the edit form.
+  defp item_name_link(_assigns, %{uuid: nil}), do: nil
+
+  defp item_name_link(%{name_path: fun}, item) when is_function(fun, 1), do: fun.(item)
+
+  defp item_name_link(%{edit_path: edit_path}, item) when not is_nil(edit_path),
+    do: safe_call(edit_path, item.uuid)
+
+  defp item_name_link(_assigns, _item), do: nil
 end

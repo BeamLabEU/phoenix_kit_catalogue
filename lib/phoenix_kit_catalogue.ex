@@ -2,9 +2,14 @@ defmodule PhoenixKitCatalogue do
   @moduledoc """
   Catalogue module for PhoenixKit.
 
-  Manages product catalogues with manufacturers, suppliers, categories, and items.
+  Manages product catalogues with categories and items.
   Designed for manufacturing companies (e.g., kitchen/furniture producers) that need
-  to organize materials and components from multiple manufacturers and suppliers.
+  to organize materials and components.
+
+  Suppliers and manufacturers are NOT managed here: both are companies in the
+  CRM module, holding the `supplier` / `manufacturer` role. This module
+  keeps only the per-item sourcing facts (cost, SKU, lead time) and resolves the
+  supplier's identity through `PhoenixKitCatalogue.Catalogue.Suppliers`.
 
   ## Installation
 
@@ -103,9 +108,14 @@ defmodule PhoenixKitCatalogue do
     # (a set with item attachments cannot be deleted; temporary task —
     # runs once, exits), plus the PubSub subscriber that prunes item
     # attachments when a set blueprint is deleted out-of-band.
+    #
+    # SupplierFields registers its own guard under its own owner key —
+    # its blueprint is NOT an attribute set and must not land in either
+    # of the set registries above.
     [
       PhoenixKitCatalogue.Catalogue.AttributeSets,
-      PhoenixKitCatalogue.Catalogue.AttributeSets.OrphanPruner
+      PhoenixKitCatalogue.Catalogue.AttributeSets.OrphanPruner,
+      PhoenixKitCatalogue.Catalogue.SupplierFields
     ]
   end
 
@@ -137,7 +147,7 @@ defmodule PhoenixKitCatalogue do
       key: module_key(),
       label: "Catalogue",
       icon: "hero-rectangle-stack",
-      description: "Product catalogue management for manufacturers and suppliers"
+      description: "Product catalogue management for items and categories"
     }
   end
 
@@ -180,43 +190,15 @@ defmodule PhoenixKitCatalogue do
         # that conceptually belongs to it — the catalogues list, the
         # catalogue detail/new/edit pages, the nested item/category
         # new/edit pages — while explicitly excluding the sibling
-        # subtab paths (manufacturers, suppliers, import, events).
+        # subtab paths (attributes, import, events).
         #
         # Without this, hidden subtabs with literal `:uuid` segments
         # (e.g. "catalogue/:uuid/edit") never match a real URL, so the
         # parent "Catalogue" tab is the only thing that lights up on
         # detail/form pages — which looks wrong in the sidebar.
-        match:
-          {:regex,
-           ~r"^/admin/catalogue(/(?!manufacturers|suppliers|attributes|import|export|events|pdfs).*)?$"},
+        match: {:regex, ~r"^/admin/catalogue(/(?!attributes|import|export|events|pdfs).*)?$"},
         parent: :admin_catalogue,
         live_view: {PhoenixKitCatalogue.Web.CataloguesLive, :index}
-      },
-      %Tab{
-        id: :admin_catalogue_manufacturers,
-        label: "Manufacturers",
-        gettext_backend: PhoenixKitCatalogue.Gettext,
-        gettext_domain: "default",
-        icon: "hero-building-office",
-        path: "catalogue/manufacturers",
-        priority: 662,
-        level: :admin,
-        permission: module_key(),
-        parent: :admin_catalogue,
-        live_view: {PhoenixKitCatalogue.Web.CataloguesLive, :manufacturers}
-      },
-      %Tab{
-        id: :admin_catalogue_suppliers,
-        label: "Suppliers",
-        gettext_backend: PhoenixKitCatalogue.Gettext,
-        gettext_domain: "default",
-        icon: "hero-cube",
-        path: "catalogue/suppliers",
-        priority: 663,
-        level: :admin,
-        permission: module_key(),
-        parent: :admin_catalogue,
-        live_view: {PhoenixKitCatalogue.Web.CataloguesLive, :suppliers}
       },
       # Attributes tab — reusable attribute groups. `match: :prefix` keeps
       # it lit on the hidden new/edit subpages below.
@@ -388,62 +370,6 @@ defmodule PhoenixKitCatalogue do
         parent: :admin_catalogue,
         visible: false,
         live_view: {PhoenixKitCatalogue.Web.CatalogueFormLive, :new}
-      },
-      %Tab{
-        id: :admin_catalogue_manufacturer_new,
-        label: "New Manufacturer",
-        gettext_backend: PhoenixKitCatalogue.Gettext,
-        gettext_domain: "default",
-        icon: "hero-plus",
-        path: "catalogue/manufacturers/new",
-        priority: 667,
-        level: :admin,
-        permission: module_key(),
-        parent: :admin_catalogue,
-        visible: false,
-        live_view: {PhoenixKitCatalogue.Web.ManufacturerFormLive, :new}
-      },
-      %Tab{
-        id: :admin_catalogue_manufacturer_edit,
-        label: "Edit Manufacturer",
-        gettext_backend: PhoenixKitCatalogue.Gettext,
-        gettext_domain: "default",
-        icon: "hero-pencil-square",
-        path: "catalogue/manufacturers/:uuid/edit",
-        priority: 668,
-        level: :admin,
-        permission: module_key(),
-        parent: :admin_catalogue,
-        visible: false,
-        live_view: {PhoenixKitCatalogue.Web.ManufacturerFormLive, :edit}
-      },
-      %Tab{
-        id: :admin_catalogue_supplier_new,
-        label: "New Supplier",
-        gettext_backend: PhoenixKitCatalogue.Gettext,
-        gettext_domain: "default",
-        icon: "hero-plus",
-        path: "catalogue/suppliers/new",
-        priority: 669,
-        level: :admin,
-        permission: module_key(),
-        parent: :admin_catalogue,
-        visible: false,
-        live_view: {PhoenixKitCatalogue.Web.SupplierFormLive, :new}
-      },
-      %Tab{
-        id: :admin_catalogue_supplier_edit,
-        label: "Edit Supplier",
-        gettext_backend: PhoenixKitCatalogue.Gettext,
-        gettext_domain: "default",
-        icon: "hero-pencil-square",
-        path: "catalogue/suppliers/:uuid/edit",
-        priority: 670,
-        level: :admin,
-        permission: module_key(),
-        parent: :admin_catalogue,
-        visible: false,
-        live_view: {PhoenixKitCatalogue.Web.SupplierFormLive, :edit}
       },
       # Categories — static edit path before catalogue :uuid wildcard
       %Tab{

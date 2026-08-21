@@ -11,7 +11,7 @@ defmodule PhoenixKitCatalogue.Web.ComponentsTest do
   import Phoenix.LiveViewTest
   import PhoenixKitCatalogue.Web.Components
 
-  alias PhoenixKitCatalogue.Schemas.{Catalogue, Category, Item, Manufacturer}
+  alias PhoenixKitCatalogue.Schemas.{Catalogue, Category, Item}
 
   # ─────────────────────────────────────────────────────────────────
   # status_badge
@@ -123,11 +123,6 @@ defmodule PhoenixKitCatalogue.Web.ComponentsTest do
         catalogue: catalogue
       }
 
-      manufacturer = %Manufacturer{
-        uuid: "019d1336-0000-7fa9-bea8-6e54bda31eda",
-        name: "Blum"
-      }
-
       item = %Item{
         uuid: "019d1337-0000-7fa9-bea8-6e54bda31eda",
         name: "Oak Panel",
@@ -137,7 +132,9 @@ defmodule PhoenixKitCatalogue.Web.ComponentsTest do
         status: "active",
         category: category,
         catalogue: catalogue,
-        manufacturer: manufacturer
+        # Since V179 the manufacturer is a federated reference hydrated onto a
+        # virtual field, not an association.
+        manufacturer_name: "Blum"
       }
 
       html =
@@ -212,11 +209,8 @@ defmodule PhoenixKitCatalogue.Web.ComponentsTest do
           __owner__: Item,
           __cardinality__: :one
         },
-        manufacturer: %Ecto.Association.NotLoaded{
-          __field__: :manufacturer,
-          __owner__: Item,
-          __cardinality__: :one
-        }
+        # Never hydrated: the render must degrade to "—", not crash.
+        manufacturer_name: nil
       }
 
       html =
@@ -237,7 +231,7 @@ defmodule PhoenixKitCatalogue.Web.ComponentsTest do
         name: "Nil assocs",
         category: nil,
         catalogue: nil,
-        manufacturer: nil
+        manufacturer_name: nil
       }
 
       html =

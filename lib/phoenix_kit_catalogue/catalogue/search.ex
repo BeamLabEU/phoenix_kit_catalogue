@@ -13,7 +13,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Search do
 
   import Ecto.Query, warn: false
 
-  alias PhoenixKitCatalogue.Catalogue.{Helpers, Tree}
+  alias PhoenixKitCatalogue.Catalogue.{Helpers, Manufacturers, Tree}
   alias PhoenixKitCatalogue.Schemas.{Catalogue, Category, Item}
 
   defp repo, do: PhoenixKit.RepoHelper.repo()
@@ -39,14 +39,14 @@ defmodule PhoenixKitCatalogue.Catalogue.Search do
     * `:limit` — max results (default 50).
     * `:offset` — paging offset (default 0).
     * `:preload` — extra associations appended to the default
-      `[:catalogue, category: :catalogue, manufacturer: []]`. Pass
+      `[:catalogue, category: :catalogue]`. Pass
       `[catalogue_rules: :referenced_catalogue]` for smart-pricing.
   """
   @spec search_items(String.t(), keyword()) :: [Item.t()]
   def search_items(query, opts \\ []) do
     limit = Keyword.get(opts, :limit, 50)
     offset = Keyword.get(opts, :offset, 0)
-    preloads = Helpers.merge_preloads([:catalogue, category: :catalogue, manufacturer: []], opts)
+    preloads = Helpers.merge_preloads([:catalogue, category: :catalogue], opts)
 
     # Ordering note: `i.position` is intentionally NOT in the global
     # `search_items/2` order_by. `position` is per-`(catalogue_uuid,
@@ -61,6 +61,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Search do
     |> offset(^offset)
     |> preload(^preloads)
     |> repo().all()
+    |> Manufacturers.hydrate()
   end
 
   @doc """
@@ -82,14 +83,14 @@ defmodule PhoenixKitCatalogue.Catalogue.Search do
   walk through a catalogue's categories.
 
   Same `:preload` opt as `search_items/2` (extra associations appended
-  to the default `[:catalogue, category: :catalogue, manufacturer: []]`).
+  to the default `[:catalogue, category: :catalogue]`).
   """
   @spec search_items_in_catalogue(Ecto.UUID.t(), String.t(), keyword()) :: [Item.t()]
   def search_items_in_catalogue(catalogue_uuid, query, opts \\ []) do
     limit = Keyword.get(opts, :limit, 50)
     offset = Keyword.get(opts, :offset, 0)
     opts = Keyword.put(opts, :catalogue_uuids, [catalogue_uuid])
-    preloads = Helpers.merge_preloads([:catalogue, category: :catalogue, manufacturer: []], opts)
+    preloads = Helpers.merge_preloads([:catalogue, category: :catalogue], opts)
 
     query
     |> search_items_base(opts)
@@ -103,6 +104,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Search do
     |> offset(^offset)
     |> preload(^preloads)
     |> repo().all()
+    |> Manufacturers.hydrate()
   end
 
   @doc "Total match count for `search_items_in_catalogue/3`."
