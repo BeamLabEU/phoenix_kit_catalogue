@@ -4456,4 +4456,77 @@ defmodule PhoenixKitCatalogue.CatalogueTest do
       assert Map.get(counts, "inactive", 0) == 0
     end
   end
+
+  # Core V180 federated both sides of this table and dropped the two FKs —
+  # including their ON DELETE CASCADE, which is why deletion has to clear the
+  # links itself now.
+  describe "federated manufacturer↔supplier links" do
+    test "a link defaults to local on both sides" do
+      m = create_manufacturer()
+      s = create_supplier()
+
+      {:ok, link} = Catalogue.link_manufacturer_supplier(m.uuid, s.uuid)
+
+      assert link.manufacturer_source == "local"
+      assert link.supplier_source == "local"
+    end
+
+    test "a link can record a CRM party on either side" do
+      m = create_manufacturer()
+      party = Ecto.UUID.generate()
+
+      {:ok, link} =
+        Catalogue.link_manufacturer_supplier(m.uuid, party, supplier_source: "crm_company")
+
+      assert link.manufacturer_source == "local"
+      assert link.supplier_source == "crm_company"
+    end
+
+    test "an unknown source is refused rather than stored" do
+      m = create_manufacturer()
+      s = create_supplier()
+
+      assert {:error, changeset} =
+               Catalogue.link_manufacturer_supplier(m.uuid, s.uuid, supplier_source: "nonsense")
+
+      assert changeset.errors[:supplier_source]
+    end
+
+    test "deleting a supplier clears its links" do
+      m = create_manufacturer()
+      s = create_supplier()
+      {:ok, _} = Catalogue.link_manufacturer_supplier(m.uuid, s.uuid)
+
+      {:ok, _} = Catalogue.delete_supplier(s)
+
+      assert Catalogue.list_suppliers_for_manufacturer(m.uuid) == []
+    end
+
+    test "deleting a manufacturer clears its links" do
+      m = create_manufacturer()
+      s = create_supplier()
+      {:ok, _} = Catalogue.link_manufacturer_supplier(m.uuid, s.uuid)
+
+      {:ok, _} = Catalogue.delete_manufacturer(m)
+
+      assert Catalogue.list_manufacturers_for_supplier(s.uuid) == []
+    end
+
+    # A CRM-sourced link has no local row on that side, so nothing would
+    # cascade even if the FK still existed — it must survive its counterpart
+    # being deleted rather than disappearing.
+    test "deleting one side leaves an unrelated link alone" do
+      m = create_manufacturer()
+      other = create_manufacturer()
+      s = create_supplier()
+
+      {:ok, _} = Catalogue.link_manufacturer_supplier(m.uuid, s.uuid)
+      {:ok, _} = Catalogue.link_manufacturer_supplier(other.uuid, s.uuid)
+
+      {:ok, _} = Catalogue.delete_manufacturer(m)
+
+      assert [kept] = Catalogue.list_manufacturers_for_supplier(s.uuid)
+      assert kept.uuid == other.uuid
+    end
+  end
 end
