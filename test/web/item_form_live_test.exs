@@ -8,6 +8,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLiveTest do
   use PhoenixKitCatalogue.LiveCase
 
   alias PhoenixKitCatalogue.Catalogue
+  alias PhoenixKitCatalogue.Catalogue.SupplierFields
   alias PhoenixKitCatalogue.Schemas.Item
   alias PhoenixKitCatalogue.Test.Repo, as: TestRepo
 
@@ -517,7 +518,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLiveTest do
   if Code.ensure_loaded?(PhoenixKitEntities.Managed) do
     describe "supplier custom fields (hidden)" do
       setup do
-        PhoenixKitCatalogue.Catalogue.SupplierFields.startup()
+        SupplierFields.startup()
         PhoenixKit.Settings.update_setting("entities_enabled", "true")
         on_exit(fn -> PhoenixKit.Settings.update_setting("entities_enabled", "false") end)
         :ok

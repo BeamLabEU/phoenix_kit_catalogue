@@ -2747,3 +2747,6 @@ msgstr ""
 
 msgid "imported"
 msgstr ""
+
+msgid "Open the company"
+msgstr ""

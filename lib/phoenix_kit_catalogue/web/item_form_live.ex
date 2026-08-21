@@ -12,6 +12,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   import PhoenixKitWeb.Components.Core.Select, only: [select: 1]
   import PhoenixKitWeb.Components.Core.Button, only: [button: 1]
   import PhoenixKitWeb.Components.Core.Modal, only: [modal: 1]
+  import PhoenixKitWeb.Components.Core.PkLink, only: [pk_link: 1]
 
   import PhoenixKitWeb.Components.Core.TableRowMenu,
     only: [table_row_menu: 1, table_row_menu_button: 1, table_row_menu_divider: 1]
@@ -99,6 +100,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   # module is switched off.
   @compile {:no_warn_undefined, PhoenixKitComments}
   @compile {:no_warn_undefined, PhoenixKitComments.Web.CommentsComponent}
+  @compile {:no_warn_undefined, PhoenixKitCRM.Paths}
 
   @translatable_fields ["name", "description"]
   @preserve_fields %{
@@ -1095,6 +1097,28 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
       socket
     end
   end
+
+  # The CRM company page for a supplier row, or nil when there is no company
+  # behind it (an unlinked local row, or a contact). Reuses the map already
+  # built for comments — both answer "which company is this?", and resolving a
+  # local row costs a query.
+  #
+  # `PhoenixKitCRM.Paths` is reached through a guard: CRM is an optional
+  # runtime dependency here.
+  defp supplier_page_path(targets, %{uuid: uuid}),
+    do: targets |> Map.get(uuid) |> crm_company_path()
+
+  defp supplier_page_path(_targets, _info), do: nil
+
+  defp crm_company_path(company_uuid) when is_binary(company_uuid) do
+    if Code.ensure_loaded?(PhoenixKitCRM.Paths) and
+         function_exported?(PhoenixKitCRM.Paths, :company, 1) do
+      # credo:disable-for-next-line Credo.Check.Refactor.Apply
+      apply(PhoenixKitCRM.Paths, :company, [company_uuid])
+    end
+  end
+
+  defp crm_company_path(_company_uuid), do: nil
 
   # ── Inline comment previews ──────────────────────────────────────────
 
@@ -2960,7 +2984,21 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                   <%= for info <- @supplier_infos do %>
                     <tr class={if info.is_primary, do: "bg-primary/5", else: ""}>
                       <td class="font-medium">
-                        {supplier_display_name(info, @all_suppliers)}
+                        <%!-- The name links to the party's own page when there
+                             is one, the same rule the CRM side follows for item
+                             names. The PATH comes from CRM rather than being
+                             assembled here — a module does not build another
+                             module's URLs. --%>
+                        <.pk_link
+                          :if={supplier_page_path(@supplier_comment_targets, info)}
+                          navigate={supplier_page_path(@supplier_comment_targets, info)}
+                          class="link link-hover"
+                        >
+                          {supplier_display_name(info, @all_suppliers)}
+                        </.pk_link>
+                        <span :if={is_nil(supplier_page_path(@supplier_comment_targets, info))}>
+                          {supplier_display_name(info, @all_suppliers)}
+                        </span>
                       </td>
                       <td :if={@supplier_terms_visible} class="font-mono text-xs">
                         {info.supplier_sku || "—"}
@@ -3380,11 +3418,20 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
           </span>
         </:title>
 
+        <%!-- The note says these live on the company page, so the company page
+             is one click away rather than something to go and find. --%>
         <p class="text-xs text-base-content/50 mb-3">
           {Gettext.gettext(
             PhoenixKitCatalogue.Gettext,
             "Shared with this supplier's company page in CRM."
           )}
+          <.pk_link
+            :if={crm_company_path(@supplier_comments.company_uuid)}
+            navigate={crm_company_path(@supplier_comments.company_uuid)}
+            class="link link-hover ml-1"
+          >
+            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Open the company")}
+          </.pk_link>
         </p>
 
         <.live_component
