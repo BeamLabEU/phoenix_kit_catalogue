@@ -22,6 +22,11 @@ defmodule PhoenixKitCatalogue.Schemas.Manufacturer do
     field(:status, :string, default: "active")
     field(:data, :map, default: %{})
 
+    # Soft cross-reference to the CRM party this manufacturer projects (V178).
+    # Deliberately absent from @optional_fields: it is set by the link action,
+    # never by the manufacturer form.
+    field(:crm_company_uuid, UUIDv7)
+
     has_many(:manufacturer_suppliers, PhoenixKitCatalogue.Schemas.ManufacturerSupplier,
       foreign_key: :manufacturer_uuid,
       references: :uuid

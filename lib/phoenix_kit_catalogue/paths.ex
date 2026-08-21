@@ -70,15 +70,7 @@ defmodule PhoenixKitCatalogue.Paths do
 
   # ── Manufacturers ────────────────────────────────────────────────
 
-  def manufacturers, do: Routes.path("#{@base}/manufacturers")
-  def manufacturer_new, do: Routes.path("#{@base}/manufacturers/new")
-  def manufacturer_edit(uuid), do: Routes.path("#{@base}/manufacturers/#{uuid}/edit")
-
   # ── Suppliers ────────────────────────────────────────────────────
-
-  def suppliers, do: Routes.path("#{@base}/suppliers")
-  def supplier_new, do: Routes.path("#{@base}/suppliers/new")
-  def supplier_edit(uuid), do: Routes.path("#{@base}/suppliers/#{uuid}/edit")
 
   # ── Attribute groups ─────────────────────────────────────────────
 

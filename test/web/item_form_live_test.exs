@@ -8,6 +8,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLiveTest do
   use PhoenixKitCatalogue.LiveCase
 
   alias PhoenixKitCatalogue.Catalogue
+  alias PhoenixKitCatalogue.Catalogue.SupplierFields
   alias PhoenixKitCatalogue.Schemas.Item
   alias PhoenixKitCatalogue.Test.Repo, as: TestRepo
 
@@ -269,6 +270,338 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLiveTest do
         actor_uuid: scope.user.uuid,
         metadata_has: %{"item_uuid" => item.uuid}
       )
+    end
+
+    # Owner decisions 2026-08-21: the supplier form carries the picker and
+    # the PRICE, nothing else. SKU, lead time and MOQ stay behind
+    # @supplier_terms_fields — their data and columns are untouched.
+    test "the modal carries the picker and the price, and nothing else", %{conn: conn} do
+      item =
+        fixture_item(%{
+          name: "Oak Panel",
+          category_uuid: fixture_category(fixture_catalogue()).uuid
+        })
+
+      {:ok, view, _page} = live(conn, edit_item_url(item.uuid))
+      html = render_click(view, "open_add_supplier", %{})
+
+      assert html =~ ~s(name="supplier_info[supplier_uuid]")
+      assert html =~ ~s(name="supplier_info[unit_cost]")
+      assert html =~ ~s(name="supplier_info[currency]")
+
+      for field <- ~w(supplier_sku lead_time_days min_order_qty) do
+        refute html =~ ~s(name="supplier_info[#{field}]")
+      end
+    end
+
+    # The price control comes from entities' `decimal` renderer, not a
+    # hand-rolled number input — that is what keeps it exact.
+    test "the price control is the entities decimal field", %{conn: conn} do
+      item =
+        fixture_item(%{
+          name: "Oak Panel",
+          category_uuid: fixture_category(fixture_catalogue()).uuid
+        })
+
+      {:ok, view, _page} = live(conn, edit_item_url(item.uuid))
+      html = render_click(view, "open_add_supplier", %{})
+
+      # scale 4 on the built-in definition, or the browser rejects the
+      # fourth decimal place the column stores.
+      assert html =~ ~s(step="0.0001")
+      assert Catalogue.supplier_builtin_field("unit_cost")["type"] == "decimal"
+    end
+
+    # The whole reason entities grew a `decimal` type: a price must reach
+    # NUMERIC(14,4) exactly, not via Float.parse/1.
+    test "a price saves to the column exactly, to four places", %{conn: conn} do
+      item =
+        fixture_item(%{
+          name: "Oak Panel",
+          category_uuid: fixture_category(fixture_catalogue()).uuid
+        })
+
+      supplier = fixture_supplier()
+
+      {:ok, view, _html} = live(conn, edit_item_url(item.uuid))
+      render_click(view, "open_add_supplier", %{})
+
+      render_change(view, "supplier_info_field_change", %{
+        "supplier_info" => %{
+          "supplier_uuid" => supplier.uuid,
+          "unit_cost" => "5.1234",
+          "currency" => "eur"
+        }
+      })
+
+      render_click(view, "save_supplier_info", %{})
+
+      [info] = Catalogue.list_supplier_infos_for_item(item.uuid)
+      assert Decimal.equal?(info.unit_cost, Decimal.new("5.1234"))
+      assert Decimal.to_string(info.unit_cost, :normal) == "5.1234"
+      # Currency is upcased on the way in — the input is uppercase by CSS only.
+      assert info.currency == "EUR"
+    end
+
+    test "a price that is not a number is refused inside the modal", %{conn: conn} do
+      item =
+        fixture_item(%{
+          name: "Oak Panel",
+          category_uuid: fixture_category(fixture_catalogue()).uuid
+        })
+
+      supplier = fixture_supplier()
+
+      {:ok, view, _html} = live(conn, edit_item_url(item.uuid))
+      render_click(view, "open_add_supplier", %{})
+
+      render_change(view, "supplier_info_field_change", %{
+        "supplier_info" => %{"supplier_uuid" => supplier.uuid, "unit_cost" => "abc"}
+      })
+
+      html = render_click(view, "save_supplier_info", %{})
+
+      assert html =~ "Unit cost must be a number."
+      assert Catalogue.list_supplier_infos_for_item(item.uuid) == []
+    end
+
+    # Max hit this on max-dev: the same supplier could be added twice,
+    # leaving one item with two live prices for one company.
+    test "a supplier already on the item is not offered again", %{conn: conn} do
+      item =
+        fixture_item(%{
+          name: "Oak Panel",
+          category_uuid: fixture_category(fixture_catalogue()).uuid
+        })
+
+      linked = fixture_supplier()
+      other = fixture_supplier()
+
+      {:ok, view, _html} = live(conn, edit_item_url(item.uuid))
+      render_click(view, "open_add_supplier", %{})
+
+      render_change(view, "supplier_info_field_change", %{
+        "supplier_info" => %{"supplier_uuid" => linked.uuid}
+      })
+
+      render_click(view, "save_supplier_info", %{})
+
+      html = render_click(view, "open_add_supplier", %{})
+
+      refute html =~ linked.uuid
+      assert html =~ other.uuid
+    end
+
+    test "adding the same supplier twice is refused with a clear reason", %{conn: conn} do
+      item =
+        fixture_item(%{
+          name: "Oak Panel",
+          category_uuid: fixture_category(fixture_catalogue()).uuid
+        })
+
+      supplier = fixture_supplier()
+
+      {:ok, view, _html} = live(conn, edit_item_url(item.uuid))
+
+      for _attempt <- 1..2 do
+        render_click(view, "open_add_supplier", %{})
+
+        render_change(view, "supplier_info_field_change", %{
+          "supplier_info" => %{"supplier_uuid" => supplier.uuid}
+        })
+
+        render_click(view, "save_supplier_info", %{})
+      end
+
+      assert length(Catalogue.list_supplier_infos_for_item(item.uuid)) == 1
+    end
+
+    test "add is refused with no supplier picked, and says so inside the modal",
+         %{conn: conn} do
+      item =
+        fixture_item(%{
+          name: "Oak Panel",
+          category_uuid: fixture_category(fixture_catalogue()).uuid
+        })
+
+      {:ok, view, _html} = live(conn, edit_item_url(item.uuid))
+
+      render_click(view, "open_add_supplier", %{})
+      html = render_click(view, "save_supplier_info", %{})
+
+      assert html =~ "Please select a supplier."
+      assert Catalogue.list_supplier_infos_for_item(item.uuid) == []
+    end
+
+    test "edit_supplier_info updates the row's columns", %{conn: conn} do
+      item =
+        fixture_item(%{
+          name: "Oak Panel",
+          category_uuid: fixture_category(fixture_catalogue()).uuid
+        })
+
+      supplier = fixture_supplier()
+
+      {:ok, view, _html} = live(conn, edit_item_url(item.uuid))
+      render_click(view, "open_add_supplier", %{})
+
+      render_change(view, "supplier_info_field_change", %{
+        "supplier_info" => %{"supplier_uuid" => supplier.uuid, "supplier_sku" => "OLD-1"}
+      })
+
+      render_click(view, "save_supplier_info", %{})
+      [info] = Catalogue.list_supplier_infos_for_item(item.uuid)
+
+      render_click(view, "edit_supplier_info", %{"uuid" => info.uuid})
+
+      render_click(view, "save_supplier_info", %{
+        "supplier_info" => %{"supplier_sku" => "NEW-2", "lead_time_days" => "5"}
+      })
+
+      [updated] = Catalogue.list_supplier_infos_for_item(item.uuid)
+      assert updated.supplier_sku == "NEW-2"
+      assert updated.lead_time_days == 5
+    end
+
+    # A cost CHANGE closes the current row and opens a successor, which is
+    # what feeds the History dialog — a plain overwrite would lose it.
+    test "changing an existing unit cost creates a price revision", %{conn: conn} do
+      item =
+        fixture_item(%{
+          name: "Oak Panel",
+          category_uuid: fixture_category(fixture_catalogue()).uuid
+        })
+
+      supplier = fixture_supplier()
+
+      {:ok, view, _html} = live(conn, edit_item_url(item.uuid))
+      render_click(view, "open_add_supplier", %{})
+
+      render_change(view, "supplier_info_field_change", %{
+        "supplier_info" => %{
+          "supplier_uuid" => supplier.uuid,
+          "unit_cost" => "10.00",
+          "currency" => "EUR"
+        }
+      })
+
+      render_click(view, "save_supplier_info", %{})
+      [info] = Catalogue.list_supplier_infos_for_item(item.uuid)
+
+      render_click(view, "edit_supplier_info", %{"uuid" => info.uuid})
+
+      render_click(view, "save_supplier_info", %{
+        "supplier_info" => %{"unit_cost" => "12.50", "currency" => "EUR"}
+      })
+
+      # One CURRENT row at the new price...
+      [current] = Catalogue.list_supplier_infos_for_item(item.uuid)
+      assert Decimal.equal?(current.unit_cost, Decimal.new("12.50"))
+      assert is_nil(current.valid_to)
+
+      # ...and the old price kept as a closed row.
+      history = Catalogue.supplier_info_history_for_pair(item.uuid, supplier.uuid)
+      assert length(history) == 2
+      assert Enum.any?(history, &(not is_nil(&1.valid_to)))
+    end
+  end
+
+  # ─────────────────────────────────────────────────────────────────
+  # Supplier custom fields — HIDDEN (owner decision 2026-08-21)
+  #
+  # The feature is intact behind ItemFormLive's @supplier_custom_fields
+  # flag; its context is covered by supplier_fields_test.exs. These pin
+  # what SHIPS: nothing entity-shaped reaches the supplier UI, and data
+  # already written survives untouched so a restore brings it back.
+  # ─────────────────────────────────────────────────────────────────
+
+  if Code.ensure_loaded?(PhoenixKitEntities.Managed) do
+    describe "supplier custom fields (hidden)" do
+      setup do
+        SupplierFields.startup()
+        PhoenixKit.Settings.update_setting("entities_enabled", "true")
+        on_exit(fn -> PhoenixKit.Settings.update_setting("entities_enabled", "false") end)
+        :ok
+      end
+
+      test "a defined field reaches neither the table nor the modal", %{conn: conn} do
+        item =
+          fixture_item(%{
+            name: "Oak Panel",
+            category_uuid: fixture_category(fixture_catalogue()).uuid
+          })
+
+        supplier = fixture_supplier()
+        {:ok, _} = Catalogue.add_supplier_field(%{label: "Incoterm", type: "text"})
+
+        {:ok, view, html} = live(conn, edit_item_url(item.uuid))
+
+        # No manager affordance, and no column for the defined field.
+        refute html =~ "open_supplier_field_manager"
+        refute html =~ "Incoterm"
+
+        # The supplier modal carries no Extra fields block either.
+        modal_html = render_click(view, "open_add_supplier", %{})
+        refute modal_html =~ "Extra fields"
+        refute modal_html =~ "custom_fields["
+
+        render_change(view, "supplier_info_field_change", %{
+          "supplier_info" => %{"supplier_uuid" => supplier.uuid}
+        })
+
+        render_click(view, "save_supplier_info", %{})
+
+        # Nothing entity-shaped is stamped onto rows written while hidden.
+        [info] = Catalogue.list_supplier_infos_for_item(item.uuid)
+        assert info.metadata == %{}
+      end
+
+      test "the manager cannot be opened by a crafted event", %{conn: conn} do
+        item =
+          fixture_item(%{
+            name: "Oak Panel",
+            category_uuid: fixture_category(fixture_catalogue()).uuid
+          })
+
+        {:ok, _} = Catalogue.add_supplier_field(%{label: "Incoterm", type: "text"})
+        {:ok, view, _html} = live(conn, edit_item_url(item.uuid))
+
+        html = render_click(view, "open_supplier_field_manager", %{})
+
+        refute html =~ "Supplier extra fields"
+        refute html =~ "Add field"
+      end
+
+      # The restore path depends on this: values written before the
+      # feature was hidden must still be there when it comes back.
+      test "values stored earlier survive an edit while the UI is hidden", %{conn: conn} do
+        item =
+          fixture_item(%{
+            name: "Oak Panel",
+            category_uuid: fixture_category(fixture_catalogue()).uuid
+          })
+
+        supplier = fixture_supplier()
+
+        {:ok, info} =
+          Catalogue.create_supplier_info(%{
+            "item_uuid" => item.uuid,
+            "supplier_uuid" => supplier.uuid,
+            "supplier_source" => "local",
+            "metadata" => %{"custom_fields" => %{"incoterm" => "DAP"}}
+          })
+
+        {:ok, view, _html} = live(conn, edit_item_url(item.uuid))
+        render_click(view, "edit_supplier_info", %{"uuid" => info.uuid})
+
+        render_click(view, "save_supplier_info", %{
+          "supplier_info" => %{"supplier_sku" => "STILL-EDITABLE"}
+        })
+
+        [updated] = Catalogue.list_supplier_infos_for_item(item.uuid)
+        assert updated.supplier_sku == "STILL-EDITABLE"
+        assert updated.metadata["custom_fields"] == %{"incoterm" => "DAP"}
+      end
     end
   end
 

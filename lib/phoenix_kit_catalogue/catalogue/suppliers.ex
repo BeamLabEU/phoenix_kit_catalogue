@@ -18,8 +18,15 @@ defmodule PhoenixKitCatalogue.Catalogue.Suppliers do
 
   import Ecto.Query, warn: false
 
-  alias PhoenixKitCatalogue.Catalogue.{ActivityLog, ItemSupplierInfos, PubSub}
-  alias PhoenixKitCatalogue.Schemas.Supplier
+  alias PhoenixKitCatalogue.Catalogue.{
+    ActivityLog,
+    ItemSupplierInfos,
+    Links,
+    Manufacturers,
+    PubSub
+  }
+
+  alias PhoenixKitCatalogue.Schemas.{Item, ItemSupplierInfo, Supplier}
 
   defp repo, do: PhoenixKit.RepoHelper.repo()
 
@@ -119,7 +126,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Suppliers do
   def delete_supplier(%Supplier{} = supplier, opts \\ []) do
     result =
       ActivityLog.with_log(
-        fn -> repo().delete(supplier) end,
+        fn -> delete_with_links(supplier) end,
         fn _ ->
           %{
             action: "supplier.deleted",
@@ -136,6 +143,20 @@ defmodule PhoenixKitCatalogue.Catalogue.Suppliers do
       PubSub.broadcast(:supplier, supplier.uuid)
       {:ok, deleted}
     end
+  end
+
+  # V180 dropped the FKs that carried ON DELETE CASCADE, so the links have to
+  # be cleared here or they outlive the row they point at. One transaction:
+  # a delete that fails must not leave the graph already pruned.
+  defp delete_with_links(record) do
+    repo().transaction(fn ->
+      Links.delete_links_for(record.uuid)
+
+      case repo().delete(record) do
+        {:ok, deleted} -> deleted
+        {:error, changeset} -> repo().rollback(changeset)
+      end
+    end)
   end
 
   @doc "Returns a changeset for tracking supplier changes."
@@ -165,22 +186,58 @@ defmodule PhoenixKitCatalogue.Catalogue.Suppliers do
   def resolve(uuid) when is_binary(uuid) do
     with :error <- try_resolve_crm(uuid) do
       case repo().get(Supplier, uuid) do
-        nil ->
-          :error
-
-        %Supplier{} = s ->
-          {:ok,
-           %{
-             uuid: s.uuid,
-             name: s.name,
-             email: nil,
-             phone: nil,
-             website: s.website,
-             source: :local
-           }}
+        nil -> :error
+        %Supplier{} = s -> resolve_local(s)
       end
     end
   end
+
+  # A local row that projects a CRM party resolves THROUGH to the party.
+  #
+  # This is what makes existing references live without rewriting a single
+  # stored uuid: junction rows and warehouse documents that already hold the
+  # local uuid keep working, and they show the party's current name rather than
+  # whatever the local row was called when it was linked. It is also why
+  # linking does not copy identity down — there is nothing to keep in sync.
+  #
+  # A party that has since been deleted (or a CRM that is not installed) falls
+  # back to the local row, which is the last thing anyone knew about it.
+  defp resolve_local(%Supplier{crm_company_uuid: party_uuid} = s) when is_binary(party_uuid) do
+    case try_resolve_crm(party_uuid) do
+      {:ok, party} -> {:ok, party}
+      :error -> {:ok, local_map(s)}
+    end
+  end
+
+  defp resolve_local(%Supplier{} = s), do: {:ok, local_map(s)}
+
+  defp local_map(%Supplier{} = s) do
+    %{uuid: s.uuid, name: s.name, email: nil, phone: nil, website: s.website, source: :local}
+  end
+
+  @doc """
+  The CRM **company** uuid a supplier reference points at — directly when
+  the reference is already a party, or through the xref when it is a local
+  row linked to one. `nil` when there is no company behind it.
+
+  This is the join anyone needs to address a supplier as a CRM company:
+  comments, activity, anything CRM stores per company. Contacts return
+  `nil` deliberately — a contact is not a company, and pointing
+  company-scoped records at one would file them against the wrong party.
+  """
+  @spec crm_company_uuid(map()) :: Ecto.UUID.t() | nil
+  def crm_company_uuid(%{supplier_source: "crm_company", supplier_uuid: uuid})
+      when is_binary(uuid),
+      do: uuid
+
+  def crm_company_uuid(%{supplier_source: "local", supplier_uuid: uuid}) when is_binary(uuid) do
+    case repo().get(Supplier, uuid) do
+      %Supplier{crm_company_uuid: company_uuid} when is_binary(company_uuid) -> company_uuid
+      _ -> nil
+    end
+  end
+
+  def crm_company_uuid(_reference), do: nil
 
   @doc """
   Lists all suppliers from all available sources as normalized maps.
@@ -196,21 +253,108 @@ defmodule PhoenixKitCatalogue.Catalogue.Suppliers do
   @spec list_all(keyword()) :: [map()]
   def list_all(opts \\ []) do
     crm_suppliers = list_crm_suppliers()
+    listed_parties = MapSet.new(crm_suppliers, & &1.uuid)
 
     local_suppliers =
-      list_suppliers(opts)
-      |> Enum.map(fn s ->
-        %{
-          uuid: s.uuid,
-          name: s.name,
-          email: nil,
-          phone: nil,
-          website: s.website,
-          source: :local
-        }
-      end)
+      opts
+      |> list_suppliers()
+      # Hide a linked local row ONLY when the party it projects is actually in
+      # the list above. Rejecting on `crm_company_uuid` alone made the supplier
+      # vanish entirely whenever the party did not come back — CRM uninstalled
+      # or unavailable, the role revoked, the company trashed or deleted, or a
+      # role grant that failed. That broke the standalone install outright, and
+      # it is silent: no error, the row simply stops existing.
+      |> Enum.reject(
+        &(&1.crm_company_uuid && MapSet.member?(listed_parties, &1.crm_company_uuid))
+      )
+      |> Enum.map(&local_map/1)
 
     crm_suppliers ++ local_suppliers
+  end
+
+  @doc """
+  Batch form of `resolve/1`: `%{uuid => resolved_map}` for many supplier uuids
+  in a bounded number of queries, whatever mix of local and CRM they are.
+
+  Unresolvable uuids are simply absent — callers render their stored name
+  snapshot, or a placeholder.
+  """
+  @spec resolve_many([Ecto.UUID.t()]) :: %{Ecto.UUID.t() => map()}
+  def resolve_many([]), do: %{}
+
+  def resolve_many(uuids) when is_list(uuids) do
+    uuids = uuids |> Enum.reject(&is_nil/1) |> Enum.uniq()
+
+    # 1. Whichever uuids are parties in their own right.
+    from_crm = batch_resolve_crm(uuids)
+
+    # 2. The rest may be local rows — and a local row that projects a party
+    #    resolves THROUGH to it (see `resolve_local/1`), which needs a second
+    #    CRM round trip for the parties those rows point at. Two batches total,
+    #    not one per row.
+    locals =
+      Supplier
+      |> where([s], s.uuid in ^(uuids -- Map.keys(from_crm)))
+      |> repo().all()
+
+    party_uuids = for %Supplier{crm_company_uuid: p} <- locals, is_binary(p), do: p
+    projected = batch_resolve_crm(party_uuids)
+
+    local_resolved =
+      Map.new(locals, fn s ->
+        {s.uuid, Map.get(projected, s.crm_company_uuid) || local_map(s)}
+      end)
+
+    Map.merge(local_resolved, from_crm)
+  end
+
+  defp batch_resolve_crm([]), do: %{}
+
+  defp batch_resolve_crm(uuids) do
+    if crm_available?() and function_exported?(PhoenixKitCRM.PartyRoles, :get_suppliers, 1) do
+      # credo:disable-for-next-line Credo.Check.Refactor.Apply
+      apply(PhoenixKitCRM.PartyRoles, :get_suppliers, [uuids])
+    else
+      %{}
+    end
+  end
+
+  @doc """
+  Everything a CRM party currently supplies, for the catalogue panel on that
+  party's page in CRM.
+
+  Matches the party's own uuid AND the uuid of any local supplier row that
+  projects it — the same resolve-through rule `resolve/1` uses, so sourcing
+  recorded against the old local row before the party existed still shows up.
+  Current rows only (`valid_to` is null), deleted items excluded.
+
+  Returns plain maps, not schemas: the caller is another module rendering a
+  read-only list, and handing it structs would invite it to write them back.
+  """
+  @spec items_supplied_by(Ecto.UUID.t()) :: [Item.t()]
+  def items_supplied_by(party_uuid) when is_binary(party_uuid) do
+    uuids = [party_uuid | projection_uuids(Supplier, party_uuid)]
+
+    from(i in Item,
+      join: info in ItemSupplierInfo,
+      on: info.item_uuid == i.uuid,
+      where: info.supplier_uuid in ^uuids and is_nil(info.valid_to) and i.status != "deleted",
+      order_by: [desc: info.is_primary, asc: i.name],
+      distinct: i.uuid,
+      preload: [:catalogue, :category]
+    )
+    |> repo().all()
+    |> Manufacturers.hydrate()
+  end
+
+  def items_supplied_by(_), do: []
+
+  # Local directory rows that project this party. Callers prepend the party's
+  # own uuid: a reference may name either side, and both mean the same company.
+  @doc false
+  def projection_uuids(schema, party_uuid) do
+    from(r in schema, where: r.crm_company_uuid == ^party_uuid, select: r.uuid)
+    |> repo().all()
   end
 
   @doc "Returns the primary supplier-info row for an item, or `nil` if none is marked primary."

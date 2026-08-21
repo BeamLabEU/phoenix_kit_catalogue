@@ -19,46 +19,7 @@ defmodule PhoenixKitCatalogue.Web.FormLVBranchesExtrasTest do
     end)
   end
 
-  describe "ManufacturerFormLive — toggle_supplier" do
-    test "toggle_supplier flips a supplier in the linked set", %{conn: conn} do
-      m = fixture_manufacturer(%{name: "Mfg-Toggle"})
-      s = fixture_supplier(%{name: "Sup-A"})
-
-      {:ok, view, _html} = live(conn, "/en/admin/catalogue/manufacturers/#{m.uuid}/edit")
-
-      render_click(view, "toggle_supplier", %{"uuid" => s.uuid})
-      assigns = :sys.get_state(view.pid).socket.assigns
-      assert MapSet.member?(assigns.linked_supplier_uuids, s.uuid)
-
-      # Toggle again — should remove.
-      render_click(view, "toggle_supplier", %{"uuid" => s.uuid})
-
-      refute MapSet.member?(
-               :sys.get_state(view.pid).socket.assigns.linked_supplier_uuids,
-               s.uuid
-             )
-    end
-  end
-
   describe "SupplierFormLive — toggle_manufacturer" do
-    test "toggle_manufacturer flips a manufacturer in the linked set",
-         %{conn: conn} do
-      s = fixture_supplier(%{name: "Sup-Toggle"})
-      m = fixture_manufacturer(%{name: "Mfg-A"})
-
-      {:ok, view, _html} = live(conn, "/en/admin/catalogue/suppliers/#{s.uuid}/edit")
-
-      render_click(view, "toggle_manufacturer", %{"uuid" => m.uuid})
-      assigns = :sys.get_state(view.pid).socket.assigns
-      assert MapSet.member?(assigns.linked_manufacturer_uuids, m.uuid)
-
-      render_click(view, "toggle_manufacturer", %{"uuid" => m.uuid})
-
-      refute MapSet.member?(
-               :sys.get_state(view.pid).socket.assigns.linked_manufacturer_uuids,
-               m.uuid
-             )
-    end
   end
 
   describe "ItemFormLive — metadata + clear_featured_image branches" do

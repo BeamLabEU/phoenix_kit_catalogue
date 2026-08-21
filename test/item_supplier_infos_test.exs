@@ -646,6 +646,52 @@ defmodule PhoenixKitCatalogue.ItemSupplierInfosTest do
       assert Decimal.equal?(hd(rows).unit_cost, Decimal.new("14.00"))
     end
 
+    # The intermittent failure this function had. Every tiebreak column is
+    # forced to tie, and the CURRENT row is given the LOWEST uuid — which is
+    # what actually happens when two revisions land in the same millisecond,
+    # because UUIDv7 is only time-ordered to the millisecond and the tail
+    # below that is random. Under the old ordering (`valid_from` leading, and
+    # `desc: :uuid` deciding) the current row sorted LAST here.
+    test "the current row sorts first even when every tiebreak column ties" do
+      cat = create_catalogue()
+      item = create_item(cat)
+      supplier = create_supplier()
+      repo = PhoenixKit.RepoHelper.repo()
+
+      stamp = ~U[2026-08-21 12:00:00Z]
+      today = Date.utc_today()
+
+      [lowest, middle, highest] =
+        Enum.sort([UUIDv7.generate(), UUIDv7.generate(), UUIDv7.generate()])
+
+      # current row gets `lowest`, so uuid ordering argues against it.
+      for {uuid, cost, valid_to} <- [
+            {lowest, "14.00", nil},
+            {middle, "12.00", today},
+            {highest, "10.00", today}
+          ] do
+        {:ok, _row} =
+          %ItemSupplierInfo{}
+          |> ItemSupplierInfo.changeset(%{
+            "item_uuid" => item.uuid,
+            "supplier_uuid" => supplier.uuid,
+            "supplier_source" => "local",
+            "unit_cost" => cost,
+            "valid_from" => today,
+            "valid_to" => valid_to
+          })
+          |> Ecto.Changeset.put_change(:uuid, uuid)
+          |> Ecto.Changeset.put_change(:inserted_at, stamp)
+          |> Ecto.Changeset.put_change(:updated_at, stamp)
+          |> repo.insert()
+      end
+
+      [first | _] = ItemSupplierInfos.history_for_pair(item.uuid, supplier.uuid)
+
+      assert is_nil(first.valid_to)
+      assert Decimal.equal?(first.unit_cost, Decimal.new("14.00"))
+    end
+
     test "does not include rows from a different supplier" do
       cat = create_catalogue()
       item = create_item(cat)
@@ -771,6 +817,76 @@ defmodule PhoenixKitCatalogue.ItemSupplierInfosTest do
 
       assert {:ok, successor} = Suppliers.revise_unit_cost(info, Decimal.new("7.00"))
       assert Decimal.equal?(successor.unit_cost, Decimal.new("7.00"))
+    end
+  end
+
+  # A supplier listed twice on one item means two live prices for the same
+  # pair and no rule about which anything downstream should believe.
+  describe "one current row per item/supplier pair" do
+    test "a second link to the same supplier is refused" do
+      item = create_catalogue() |> create_item()
+      supplier = create_supplier()
+
+      _first = create_info(item, supplier)
+
+      assert {:error, :already_linked} =
+               ItemSupplierInfos.create(%{
+                 "item_uuid" => item.uuid,
+                 "supplier_uuid" => supplier.uuid,
+                 "supplier_source" => "local"
+               })
+
+      assert length(ItemSupplierInfos.list_for_item(item.uuid)) == 1
+    end
+
+    test "a different supplier on the same item is fine" do
+      item = create_catalogue() |> create_item()
+
+      create_info(item, create_supplier())
+      create_info(item, create_supplier())
+
+      assert length(ItemSupplierInfos.list_for_item(item.uuid)) == 2
+    end
+
+    test "the same supplier on a different item is fine" do
+      catalogue = create_catalogue()
+      supplier = create_supplier()
+
+      create_info(create_item(catalogue), supplier)
+      create_info(create_item(catalogue), supplier)
+    end
+
+    # Price history is exactly "several rows for one pair", so the guard
+    # must not block a revision — only one of them is ever open.
+    test "a price revision still appends a successor for the same pair" do
+      item = create_catalogue() |> create_item()
+      supplier = create_supplier()
+
+      info = create_info(item, supplier, %{"unit_cost" => "10.00"})
+      {:ok, _revised} = ItemSupplierInfos.revise_unit_cost(info, Decimal.new("12.50"))
+
+      assert length(ItemSupplierInfos.list_for_item(item.uuid)) == 1
+      assert length(ItemSupplierInfos.history_for_pair(item.uuid, supplier.uuid)) == 2
+    end
+
+    # Once the earlier row is closed, re-adding the supplier is a new
+    # arrangement, not a duplicate.
+    test "re-adding is allowed after the previous row is closed" do
+      item = create_catalogue() |> create_item()
+      supplier = create_supplier()
+
+      info = create_info(item, supplier)
+
+      info
+      |> Ecto.Changeset.change(%{valid_to: Date.utc_today()})
+      |> PhoenixKit.RepoHelper.repo().update!()
+
+      assert {:ok, _} =
+               ItemSupplierInfos.create(%{
+                 "item_uuid" => item.uuid,
+                 "supplier_uuid" => supplier.uuid,
+                 "supplier_source" => "local"
+               })
     end
   end
 end

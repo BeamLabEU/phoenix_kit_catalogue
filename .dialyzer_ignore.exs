@@ -14,5 +14,15 @@
   # into Mix.Task/Mix.shell() reads as an unknown callback/function. Inherent
   # to dialyzing a Mix.Task module, not specific to this file's code.
   {"lib/mix/tasks/phoenix_kit_catalogue.audit_supplier_refs.ex", :callback_info_missing},
-  {"lib/mix/tasks/phoenix_kit_catalogue.audit_supplier_refs.ex", :unknown_function}
+  {"lib/mix/tasks/phoenix_kit_catalogue.audit_supplier_refs.ex", :unknown_function},
+
+  # `phoenix_kit_comments` is a SOFT dependency: this package does not declare
+  # it (CRM does), so the module is absent from the PLT and every call into it
+  # reads as unknown. Each one is guarded at runtime by `comments_available?/0`
+  # — `Code.ensure_loaded?` + the module's own `enabled?/0` — and the
+  # affordances simply do not render when the package is missing.
+  #
+  # Scoped to :unknown_function deliberately. A real type error in this file
+  # still fails the build; only the absent-module noise is suppressed.
+  {"lib/phoenix_kit_catalogue/web/item_form_live.ex", :unknown_function}
 ]

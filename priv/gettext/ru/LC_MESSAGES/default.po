@@ -2602,3 +2602,155 @@ msgstr "Неверное значение."
 
 msgid "…"
 msgstr "…"
+
+msgid "CRM Company"
+msgstr "Компания в CRM"
+
+msgid "Details come from CRM wherever this is used. The fields above are no longer shown to anyone."
+msgstr "Данные компании ведутся в CRM. Название, сайт и контакты здесь доступны только для чтения."
+
+msgid "Linked to"
+msgstr "Связано с"
+
+msgid "The linked CRM company could not be found. Unlink to edit locally again."
+msgstr "Связанная компания в CRM не найдена. Удалите связь, чтобы снова редактировать здесь."
+
+
+
+msgid "Unlink"
+msgstr "Удалить связь"
+
+msgid "No CRM companies yet."
+msgstr "В CRM пока нет компаний."
+
+msgid "Select a CRM company..."
+msgstr "Выберите компанию из CRM..."
+
+msgid "Link"
+msgstr "Связать"
+
+msgid "Linking..."
+msgstr "Связывание..."
+
+msgid "Link this supplier to the CRM company it represents. The company gains the supplier role, and its details are then used everywhere this supplier appears."
+msgstr "Свяжите этого поставщика с компанией в CRM, которую он представляет. Компания получит роль поставщика, а её данные скопируются сюда."
+
+msgid "Link this manufacturer to the CRM company it represents. Link only a real company — a brand you never deal with belongs in the catalogue alone."
+msgstr "Свяжите этого производителя с компанией в CRM, которую он представляет. Связывайте только реальную компанию — бренд, с которым вы не работаете, остаётся только в каталоге."
+
+msgid "Choose a CRM company first."
+msgstr "Сначала выберите компанию из CRM."
+
+msgid "Linked to CRM."
+msgstr "Связано с CRM."
+
+msgid "Unlinked from CRM."
+msgstr "Связь с CRM удалена."
+
+
+msgid "The CRM module is not available."
+msgstr "Модуль CRM недоступен."
+
+msgid "That CRM company no longer exists."
+msgstr "Этой компании в CRM больше нет."
+
+
+msgid "That CRM company is already linked to another record."
+msgstr "Эта компания в CRM уже связана с другой записью."
+
+msgid "Could not give that CRM company the role, so nothing was linked."
+msgstr "Не удалось назначить роль этой компании в CRM, поэтому связь не создана."
+
+msgid "Someone else changed this link first. Reload the page and try again."
+msgstr "Кто-то другой изменил эту связь раньше. Обновите страницу и попробуйте снова."
+
+msgid "Suppliers and Manufacturer"
+msgstr "Поставщики и производитель"
+
+
+msgid "A field was removed while this was open. Close and reopen the form."
+msgstr "Поле было удалено, пока форма была открыта. Закройте и откройте её заново."
+
+msgid "Add supplier"
+msgstr "Добавить поставщика"
+
+msgid "Changing the cost closes the current price and starts a new one, kept in History."
+msgstr "Изменение цены закрывает текущую цену и открывает новую; прежняя остаётся в истории."
+
+msgid "Could not save the supplier."
+msgstr "Не удалось сохранить поставщика."
+
+msgid "Done"
+msgstr "Готово"
+
+msgid "Edit supplier"
+msgstr "Изменить поставщика"
+
+msgid "Extra fields need the Entities module, which is turned off."
+msgstr "Дополнительные поля требуют модуль Entities, который отключён."
+
+msgid "Extra info every supplier row carries — incoterm, carton quantity, certification expiry. These apply to every item, not just this one."
+msgstr "Дополнительные данные каждой строки поставщика — условия поставки, количество в коробке, срок действия сертификата. Они применяются ко всем товарам, а не только к этому."
+
+msgid "Failed to remove the field."
+msgstr "Не удалось удалить поле."
+
+msgid "Field removed."
+msgstr "Поле удалено."
+
+msgid "Fields"
+msgstr "Поля"
+
+msgid "No"
+msgstr "Нет"
+
+msgid "No extra fields yet."
+msgstr "Дополнительных полей пока нет."
+
+msgid "One of the extra fields has invalid input."
+msgstr "В одном из дополнительных полей неверное значение."
+
+msgid "Remove this field? Values already saved on supplier rows stay in the database but stop being shown."
+msgstr "Удалить это поле? Значения, уже сохранённые в строках поставщиков, останутся в базе, но перестанут отображаться."
+
+msgid "Supplier extra fields"
+msgstr "Дополнительные поля поставщика"
+
+msgid "Unit cost must be a number."
+msgstr "Цена за единицу должна быть числом."
+
+msgid "Yes"
+msgstr "Да"
+
+msgid "e.g. Incoterm"
+msgstr "напр. Incoterm"
+
+msgid "Comments"
+msgstr "Комментарии"
+
+msgid "Shared with this supplier's company page in CRM."
+msgstr "Общие со страницей компании этого поставщика в CRM."
+
+msgid "Add a comment"
+msgstr "Добавить комментарий"
+
+msgid "No comments yet."
+msgstr "Комментариев пока нет."
+
+msgid "Open comments"
+msgstr "Открыть комментарии"
+
+msgid "Show all %{count} comments"
+msgstr "Показать все комментарии (%{count})"
+
+msgid "This supplier is already on the item. Edit the existing row instead."
+msgstr "Этот поставщик уже добавлен к товару. Измените существующую строку."
+
+msgid "contact"
+msgstr "контакт"
+
+msgid "imported"
+msgstr "импортирован"
+
+msgid "Open the company"
+msgstr "Открыть компанию"

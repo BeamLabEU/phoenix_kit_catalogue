@@ -51,6 +51,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
     Attributes,
     AttributeSets,
     Counts,
+    CrmLink,
     Helpers,
     ItemSupplierInfos,
     Links,
@@ -60,6 +61,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
     Rules,
     Search,
     SmartPricing,
+    SupplierFields,
     Suppliers,
     Translations,
     Tree
@@ -282,6 +284,15 @@ defmodule PhoenixKitCatalogue.Catalogue do
   defdelegate delete_manufacturer(manufacturer, opts \\ []), to: Manufacturers
   defdelegate change_manufacturer(manufacturer, attrs \\ %{}), to: Manufacturers
 
+  @doc """
+  Resolves a manufacturer UUID to a unified map regardless of source
+  (local or CRM). Note items still reference the LOCAL row by hard FK.
+  """
+  defdelegate resolve_manufacturer(uuid), to: Manufacturers, as: :resolve
+
+  @doc "Lists manufacturers from all available sources (local + CRM) as normalized maps."
+  defdelegate list_all_manufacturers(opts \\ []), to: Manufacturers, as: :list_all
+
   # ═══════════════════════════════════════════════════════════════════
   # Suppliers — see PhoenixKitCatalogue.Catalogue.Suppliers
   # ═══════════════════════════════════════════════════════════════════
@@ -299,6 +310,41 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
   @doc "Lists all suppliers from all available sources (local + CRM) as normalized maps."
   defdelegate list_all_suppliers(opts \\ []), to: Suppliers, as: :list_all
+
+  # ═══════════════════════════════════════════════════════════════════
+  # CRM links — see PhoenixKitCatalogue.Catalogue.CrmLink
+  # ═══════════════════════════════════════════════════════════════════
+
+  defdelegate crm_link_available?(), to: CrmLink, as: :available?
+  defdelegate crm_link_candidates(), to: CrmLink, as: :list_candidates
+
+  defdelegate link_supplier_to_crm(supplier, company_uuid, opts \\ []),
+    to: CrmLink,
+    as: :link_supplier
+
+  defdelegate unlink_supplier_from_crm(supplier, opts \\ []), to: CrmLink, as: :unlink_supplier
+
+  defdelegate link_manufacturer_to_crm(manufacturer, company_uuid, opts \\ []),
+    to: CrmLink,
+    as: :link_manufacturer
+
+  defdelegate unlink_manufacturer_from_crm(manufacturer, opts \\ []),
+    to: CrmLink,
+    as: :unlink_manufacturer
+
+  @doc """
+  What a CRM party supplies / manufactures — the read model behind the
+  catalogue panel on a company's CRM page. Both accept a party uuid and match
+  local projections of it too.
+  """
+  defdelegate items_supplied_by(party_uuid), to: Suppliers
+  defdelegate items_manufactured_by(party_uuid), to: Manufacturers
+
+  @doc "Batch supplier resolution for a page of rows — see `Suppliers.resolve_many/1`."
+  defdelegate resolve_suppliers(uuids), to: Suppliers, as: :resolve_many
+
+  @doc "Batch manufacturer resolution for a page of items — see `Manufacturers.resolve_many/1`."
+  defdelegate resolve_manufacturers(uuids), to: Manufacturers, as: :resolve_many
 
   # ═══════════════════════════════════════════════════════════════════
   # Item ↔ Supplier info — see PhoenixKitCatalogue.Catalogue.ItemSupplierInfos
@@ -338,7 +384,10 @@ defmodule PhoenixKitCatalogue.Catalogue do
   # Manufacturer ↔ Supplier links — see PhoenixKitCatalogue.Catalogue.Links
   # ═══════════════════════════════════════════════════════════════════
 
-  defdelegate link_manufacturer_supplier(manufacturer_uuid, supplier_uuid), to: Links
+  defdelegate link_manufacturer_supplier(manufacturer_uuid, supplier_uuid, opts \\ []),
+    to: Links
+
+  defdelegate delete_manufacturer_supplier_links_for(uuid), to: Links, as: :delete_links_for
   defdelegate unlink_manufacturer_supplier(manufacturer_uuid, supplier_uuid), to: Links
   defdelegate list_suppliers_for_manufacturer(manufacturer_uuid), to: Links
   defdelegate list_manufacturers_for_supplier(supplier_uuid), to: Links
@@ -883,14 +932,14 @@ defmodule PhoenixKitCatalogue.Catalogue do
     * `:offset` — default `0`
     * `:limit` — default `50`
     * `:preload` — extra associations appended to the default
-      `[:catalogue, :manufacturer]`.
+      `[:catalogue]`.
   """
   @spec list_items_for_category_paged(Ecto.UUID.t(), keyword()) :: [Item.t()]
   def list_items_for_category_paged(category_uuid, opts \\ []) do
     mode = Keyword.get(opts, :mode, :active)
     offset = Keyword.get(opts, :offset, 0)
     limit = Keyword.get(opts, :limit, 50)
-    preloads = Helpers.merge_preloads([:catalogue, :manufacturer], opts)
+    preloads = Helpers.merge_preloads([:catalogue], opts)
 
     query =
       from(i in Item,
@@ -900,7 +949,11 @@ defmodule PhoenixKitCatalogue.Catalogue do
         preload: ^preloads
       )
 
-    query |> apply_item_status_filter(opts, mode) |> apply_item_order(opts) |> repo().all()
+    query
+    |> apply_item_status_filter(opts, mode)
+    |> apply_item_order(opts)
+    |> repo().all()
+    |> Manufacturers.hydrate()
   end
 
   # Status filter shared by the item list/count queries. `:status` (an
@@ -934,14 +987,14 @@ defmodule PhoenixKitCatalogue.Catalogue do
     * `:offset` — default `0`
     * `:limit` — default `50`
     * `:preload` — extra associations appended to the default
-      `[:catalogue, :manufacturer]`.
+      `[:catalogue]`.
   """
   @spec list_uncategorized_items_paged(Ecto.UUID.t(), keyword()) :: [Item.t()]
   def list_uncategorized_items_paged(catalogue_uuid, opts \\ []) do
     mode = Keyword.get(opts, :mode, :active)
     offset = Keyword.get(opts, :offset, 0)
     limit = Keyword.get(opts, :limit, 50)
-    preloads = Helpers.merge_preloads([:catalogue, :manufacturer], opts)
+    preloads = Helpers.merge_preloads([:catalogue], opts)
 
     query =
       from(i in Item,
@@ -951,7 +1004,11 @@ defmodule PhoenixKitCatalogue.Catalogue do
         preload: ^preloads
       )
 
-    query |> apply_item_status_filter(opts, mode) |> apply_item_order(opts) |> repo().all()
+    query
+    |> apply_item_status_filter(opts, mode)
+    |> apply_item_order(opts)
+    |> repo().all()
+    |> Manufacturers.hydrate()
   end
 
   # ── Item sort + strategy reorder ─────────────────────────────────
@@ -3813,7 +3870,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
     query =
       from(i in Item,
         order_by: [asc: i.position, asc: i.name],
-        preload: [:catalogue, category: :catalogue, manufacturer: []]
+        preload: [:catalogue, category: :catalogue]
       )
 
     query =
@@ -3828,13 +3885,13 @@ defmodule PhoenixKitCatalogue.Catalogue do
         limit -> limit(query, ^limit)
       end
 
-    repo().all(query)
+    query |> repo().all() |> Manufacturers.hydrate()
   end
 
   @doc """
   Lists non-deleted items for a category, ordered by position then name.
 
-  Default preloads `[:catalogue, category: :catalogue, manufacturer: []]`.
+  Default preloads `[:catalogue, category: :catalogue]`.
   Pass `:preload` in `opts` to add more (e.g.
   `preload: [catalogue_rules: :referenced_catalogue]` for smart-pricing
   consumers); the lists are concatenated, not replaced.
@@ -3844,16 +3901,17 @@ defmodule PhoenixKitCatalogue.Catalogue do
     from(i in Item,
       where: i.category_uuid == ^category_uuid and i.status != "deleted",
       order_by: [asc: i.position, asc: i.name],
-      preload: ^Helpers.merge_preloads([:catalogue, category: :catalogue, manufacturer: []], opts)
+      preload: ^Helpers.merge_preloads([:catalogue, category: :catalogue], opts)
     )
     |> repo().all()
+    |> Manufacturers.hydrate()
   end
 
   @doc """
   Lists non-deleted items for a catalogue, ordered by category position then
   item name. Includes uncategorized items (those with no category) at the end.
 
-  Default preloads `[:catalogue, category: :catalogue, manufacturer: []]`.
+  Default preloads `[:catalogue, category: :catalogue]`.
   Pass `:preload` in `opts` to add more — see `list_items_for_category/2`.
   """
   @spec list_items_for_catalogue(Ecto.UUID.t(), keyword()) :: [Item.t()]
@@ -3863,9 +3921,10 @@ defmodule PhoenixKitCatalogue.Catalogue do
       on: i.category_uuid == c.uuid,
       where: i.catalogue_uuid == ^catalogue_uuid and i.status != "deleted",
       order_by: [asc_nulls_last: c.position, asc: i.position, asc: i.name],
-      preload: ^Helpers.merge_preloads([:catalogue, category: :catalogue, manufacturer: []], opts)
+      preload: ^Helpers.merge_preloads([:catalogue, category: :catalogue], opts)
     )
     |> repo().all()
+    |> Manufacturers.hydrate()
   end
 
   @doc """
@@ -3881,7 +3940,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
       yet; if a catalogue routinely exceeds the limit, layer a cursor
       on top of this query.
     * `:preload` — extra associations on top of the default
-      `[:catalogue, category: :catalogue, manufacturer: []]`.
+      `[:catalogue, category: :catalogue]`.
 
   ## Examples
 
@@ -3895,9 +3954,10 @@ defmodule PhoenixKitCatalogue.Catalogue do
       where: i.catalogue_uuid == ^catalogue_uuid and i.status == "deleted",
       order_by: [desc: i.updated_at, asc: i.uuid],
       limit: ^limit,
-      preload: ^Helpers.merge_preloads([:catalogue, category: :catalogue, manufacturer: []], opts)
+      preload: ^Helpers.merge_preloads([:catalogue, category: :catalogue], opts)
     )
     |> repo().all()
+    |> Manufacturers.hydrate()
   end
 
   @doc """
@@ -3908,7 +3968,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
     * `:mode` — `:active` (default) excludes deleted items;
       `:deleted` returns only deleted items.
     * `:preload` — extra associations appended to the default
-      `[:catalogue, :manufacturer]` preloads. Pass
+      `[:catalogue]` preloads. Pass
       `[catalogue_rules: :referenced_catalogue]` for smart-pricing.
 
   ## Examples
@@ -3919,7 +3979,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
   @spec list_uncategorized_items(Ecto.UUID.t(), keyword()) :: [Item.t()]
   def list_uncategorized_items(catalogue_uuid, opts \\ []) do
     mode = Keyword.get(opts, :mode, :active)
-    preloads = Helpers.merge_preloads([:catalogue, :manufacturer], opts)
+    preloads = Helpers.merge_preloads([:catalogue], opts)
 
     query =
       from(i in Item,
@@ -3969,7 +4029,8 @@ defmodule PhoenixKitCatalogue.Catalogue do
   def get_item!(uuid, opts \\ []) do
     Item
     |> repo().get!(uuid)
-    |> repo().preload(Helpers.merge_preloads([:catalogue, :category, :manufacturer], opts))
+    |> repo().preload(Helpers.merge_preloads([:catalogue, :category], opts))
+    |> Manufacturers.hydrate()
   end
 
   @doc """
@@ -3985,7 +4046,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
   ## Options
 
     * `:preload` — extra associations appended to the default
-      `[:catalogue, :category, :manufacturer]`. Pass
+      `[:catalogue, :category]`. Pass
       `[catalogue_rules: :referenced_catalogue]` for smart-pricing.
 
   ## Examples
@@ -3999,7 +4060,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
   def list_items_by_uuids([], _opts), do: []
 
   def list_items_by_uuids(uuids, opts) when is_list(uuids) do
-    preloads = Helpers.merge_preloads([:catalogue, :category, :manufacturer], opts)
+    preloads = Helpers.merge_preloads([:catalogue, :category], opts)
 
     items_by_uuid =
       from(i in Item,
@@ -5149,6 +5210,23 @@ defmodule PhoenixKitCatalogue.Catalogue do
     as: :update_extra_field
 
   defdelegate attribute_set_field_types(), to: AttributeSets, as: :extra_field_types
+
+  # ── Supplier custom fields (entities-defined, values on the row) ────
+
+  defdelegate supplier_crm_company_uuid(reference), to: Suppliers, as: :crm_company_uuid
+  defdelegate supplier_builtin_fields(), to: SupplierFields, as: :builtin_fields
+  defdelegate supplier_builtin_field(key), to: SupplierFields, as: :builtin_field
+  defdelegate cast_supplier_builtin(key, raw), to: SupplierFields, as: :cast_builtin
+  defdelegate supplier_fields(opts \\ []), to: SupplierFields, as: :fields
+  defdelegate supplier_field(key, opts \\ []), to: SupplierFields, as: :field
+  defdelegate supplier_field_types(), to: SupplierFields, as: :field_types
+  defdelegate supplier_fields_enabled?(), to: SupplierFields, as: :enabled?
+  defdelegate add_supplier_field(attrs, opts \\ []), to: SupplierFields, as: :add_field
+  defdelegate update_supplier_field(key, attrs, opts \\ []), to: SupplierFields, as: :update_field
+  defdelegate remove_supplier_field(key, opts \\ []), to: SupplierFields, as: :remove_field
+  defdelegate supplier_field_values(info), to: SupplierFields, as: :values
+  defdelegate cast_supplier_field_values(raw, opts \\ []), to: SupplierFields, as: :cast_values
+  defdelegate put_supplier_field_values(metadata, values), to: SupplierFields, as: :put_values
 
   defdelegate attach_attribute_set(item_uuid, set_uuid, opts \\ []),
     to: AttributeSets,

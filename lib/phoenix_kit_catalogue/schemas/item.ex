@@ -21,6 +21,9 @@ defmodule PhoenixKitCatalogue.Schemas.Item do
 
   @statuses ~w(active inactive discontinued deleted)
   @units ~w(piece set pair sheet m2 running_meter)
+
+  # Mirrors the DB CHECK added in V179. Keep the two in step.
+  @manufacturer_sources ~w(local crm_company)
   @default_units ~w(percent flat)
 
   @spec allowed_units() :: [String.t()]
@@ -84,11 +87,26 @@ defmodule PhoenixKitCatalogue.Schemas.Item do
       type: UUIDv7
     )
 
-    belongs_to(:manufacturer, PhoenixKitCatalogue.Schemas.Manufacturer,
-      foreign_key: :manufacturer_uuid,
-      references: :uuid,
-      type: UUIDv7
-    )
+    # The manufacturer is a FEDERATED reference, not an association: `{source,
+    # uuid}` addressing either a local `phoenix_kit_cat_manufacturers` row or a
+    # CRM party (V179 dropped the FK that made only the former possible). There
+    # is deliberately no `belongs_to` — preloading one would resolve local rows
+    # and silently yield `nil` for every CRM-sourced manufacturer, which is the
+    # blank-name class of bug this design exists to avoid.
+    #
+    # Resolve through `PhoenixKitCatalogue.Catalogue.Manufacturers.resolve/1`,
+    # or `resolve_many/1` + `hydrate/1` for a page of items, which stamps
+    # `:manufacturer_name` below.
+    field(:manufacturer_uuid, UUIDv7)
+    field(:manufacturer_source, :string, default: "local")
+
+    # TOMBSTONE, not a cache: read only when the reference resolves to nothing
+    # (party deleted, CRM uninstalled, dangling uuid). Never the display source.
+    field(:manufacturer_name_snapshot, :string)
+
+    # Stamped by `Manufacturers.hydrate/1`; nil means "not hydrated", which is
+    # not the same as "no manufacturer".
+    field(:manufacturer_name, :string, virtual: true)
 
     has_many(:catalogue_rules, PhoenixKitCatalogue.Schemas.CatalogueRule,
       foreign_key: :item_uuid,
@@ -121,6 +139,8 @@ defmodule PhoenixKitCatalogue.Schemas.Item do
     :position,
     :category_uuid,
     :manufacturer_uuid,
+    :manufacturer_source,
+    :manufacturer_name_snapshot,
     :data
   ]
 
@@ -133,6 +153,7 @@ defmodule PhoenixKitCatalogue.Schemas.Item do
     |> validate_length(:sku, max: 100)
     |> validate_inclusion(:status, @statuses)
     |> validate_inclusion(:unit, @units)
+    |> validate_inclusion(:manufacturer_source, @manufacturer_sources)
     |> validate_number(:base_price, greater_than_or_equal_to: 0)
     |> validate_number(:markup_percentage, greater_than_or_equal_to: 0)
     |> validate_number(:discount_percentage,
