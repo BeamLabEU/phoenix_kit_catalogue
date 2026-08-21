@@ -81,6 +81,13 @@ defmodule PhoenixKitCatalogue.Schemas.ItemSupplierInfo do
       name: :phoenix_kit_cat_item_supplier_info_primary_uniq,
       message: "another supplier is already marked primary for this item"
     )
+    # Core V180. `ItemSupplierInfos.create/2` checks first, but check-then-insert
+    # is a race; this is what makes the invariant hold under concurrency, and
+    # `create/2` maps the violation back to `:already_linked`.
+    |> unique_constraint(:supplier_uuid,
+      name: :phoenix_kit_cat_item_supplier_info_current_pair_uniq,
+      message: "this supplier is already on the item"
+    )
   end
 
   defp validate_currency(changeset) do

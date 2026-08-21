@@ -44,7 +44,10 @@ defmodule PhoenixKitCatalogue.Schemas.ManufacturerSupplier do
     timestamps(type: :utc_datetime)
   end
 
-  @sources ~w(local crm_company)
+  # Matches the DB CHECK and `item_supplier_info.supplier_source`: a
+  # supplier can be a contact, so a narrower list here would make such a
+  # supplier unlinkable.
+  @sources ~w(local crm_company crm_contact)
 
   @required_fields [:manufacturer_uuid, :supplier_uuid]
   @optional_fields [:manufacturer_source, :supplier_source]
