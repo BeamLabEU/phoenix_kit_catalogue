@@ -598,13 +598,6 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
   end
 
   # ─────────────────────────────────────────────────────────────────
-  # Manufacturer / Supplier hard-delete (via confirm modal)
-  # ─────────────────────────────────────────────────────────────────
-
-  describe "manufacturer and supplier deletion" do
-  end
-
-  # ─────────────────────────────────────────────────────────────────
   # URL-backed search (?q=)
   # ─────────────────────────────────────────────────────────────────
 

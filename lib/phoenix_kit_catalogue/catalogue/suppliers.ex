@@ -317,6 +317,10 @@ defmodule PhoenixKitCatalogue.Catalogue.Suppliers do
     else
       %{}
     end
+  rescue
+    _ -> %{}
+  catch
+    :exit, _ -> %{}
   end
 
   @doc """
@@ -423,6 +427,10 @@ defmodule PhoenixKitCatalogue.Catalogue.Suppliers do
     else
       :error
     end
+  rescue
+    _ -> :error
+  catch
+    :exit, _ -> :error
   end
 
   # `PartyRoles.get_supplier/1` federates both roleable types behind one
@@ -455,6 +463,10 @@ defmodule PhoenixKitCatalogue.Catalogue.Suppliers do
     else
       []
     end
+  rescue
+    _ -> []
+  catch
+    :exit, _ -> []
   end
 
   defp list_crm_contacts do
@@ -476,6 +488,10 @@ defmodule PhoenixKitCatalogue.Catalogue.Suppliers do
     else
       []
     end
+  rescue
+    _ -> []
+  catch
+    :exit, _ -> []
   end
 
   defp blank_to_unnamed(nil), do: "Unnamed"

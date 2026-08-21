@@ -30,11 +30,7 @@ defmodule PhoenixKitCatalogue.Test.Router do
     live_session :catalogue_test,
       on_mount: {PhoenixKitCatalogue.LiveCase, :assign_test_current_user},
       layout: {PhoenixKitCatalogue.Test.Layouts, :app} do
-      # Catalogues / Manufacturers / Suppliers — CataloguesLive owns
-      # all three tabs.
       live("/", CataloguesLive, :index)
-      live("/manufacturers", CataloguesLive, :manufacturers)
-      live("/suppliers", CataloguesLive, :suppliers)
       live("/attributes", CataloguesLive, :attribute_groups)
 
       # Attribute group CRUD (literal "/attributes" prefix; declared before
@@ -57,10 +53,6 @@ defmodule PhoenixKitCatalogue.Test.Router do
       # Item CRUD
       live("/:catalogue_uuid/items/new", ItemFormLive, :new)
       live("/items/:uuid/edit", ItemFormLive, :edit)
-
-      # Manufacturer / Supplier CRUD
-      live("/manufacturers/new", ManufacturerFormLive, :new)
-      live("/manufacturers/:uuid/edit", ManufacturerFormLive, :edit)
 
       # Import wizard (scoped to catalogue)
       live("/import", ImportLive, :index)

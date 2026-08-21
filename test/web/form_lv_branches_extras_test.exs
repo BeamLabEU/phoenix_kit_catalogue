@@ -1,9 +1,8 @@
 defmodule PhoenixKitCatalogue.Web.FormLVBranchesExtrasTest do
   @moduledoc """
   Additional branch coverage for events the existing form LV tests
-  haven't pinned: toggle_supplier / toggle_manufacturer M:N pickers,
-  ItemFormLive metadata + cancel_upload paths, schemas.Catalogue
-  validation edges.
+  haven't pinned: ItemFormLive metadata + cancel_upload paths,
+  schemas.Catalogue validation edges.
   """
 
   use PhoenixKitCatalogue.LiveCase, async: false
@@ -17,9 +16,6 @@ defmodule PhoenixKitCatalogue.Web.FormLVBranchesExtrasTest do
         opts |> Keyword.get(String.to_existing_atom(key), key) |> to_string()
       end)
     end)
-  end
-
-  describe "SupplierFormLive — toggle_manufacturer" do
   end
 
   describe "ItemFormLive — metadata + clear_featured_image branches" do

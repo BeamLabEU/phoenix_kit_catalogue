@@ -75,6 +75,7 @@ defmodule PhoenixKitCatalogue.Errors do
           | :duplicate_key
           | :unknown_field
           | :invalid_value
+          | :already_linked
 
   @doc """
   Translates an error reason into a user-facing string via gettext.
@@ -219,6 +220,13 @@ defmodule PhoenixKitCatalogue.Errors do
 
   def message(:not_attached),
     do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "This set is not attached to the item.")
+
+  def message(:already_linked),
+    do:
+      Gettext.gettext(
+        PhoenixKitCatalogue.Gettext,
+        "This supplier is already on the item. Edit the existing row instead."
+      )
 
   def message(:label_required),
     do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Name is required.")
