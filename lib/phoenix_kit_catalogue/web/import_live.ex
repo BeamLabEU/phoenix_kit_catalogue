@@ -37,6 +37,7 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
   end
 
   alias PhoenixKitCatalogue.Catalogue
+  alias PhoenixKitCatalogue.Catalogue.CrmLink
   alias PhoenixKitCatalogue.Import
   alias PhoenixKitCatalogue.Import.{Executor, Mapper, Parser, Pro100Plan}
   alias PhoenixKitCatalogue.Import.Source.Universal
@@ -1127,9 +1128,9 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
           |> Map.from_struct()
           |> Map.take([:name, :description, :website, :contact_info, :logo_url, :notes])
 
-        case Catalogue.create_manufacturer(attrs, actor_opts(socket)) do
-          {:ok, manufacturer} ->
-            {:ok, manufacturer.uuid, socket}
+        case create_import_party(attrs, "manufacturer", actor_opts(socket)) do
+          {:ok, uuid} ->
+            {:ok, uuid, socket}
 
           {:error, changeset} ->
             socket =
@@ -1149,6 +1150,42 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
     end
   end
 
+  # A party named in the wizard is created in CRM, not in the catalogue's
+  # own directory — suppliers and manufacturers are CRM companies now. The
+  # local tables remain the fallback for installs with no CRM, which stay
+  # supported; `resolve_or_create_company/3` reports `:unavailable` there.
+  #
+  # Matching by name is deliberate: typing a name CRM already knows should
+  # attach to that company rather than mint a second record for the same
+  # business.
+  defp create_import_party(attrs, role, activity_opts) do
+    name = attrs[:name] || attrs["name"] || ""
+
+    case CrmLink.resolve_or_create_company(name, role, activity_opts) do
+      {:ok, uuid} ->
+        {:ok, uuid}
+
+      :unavailable ->
+        create_local_import_party(attrs, role, activity_opts)
+
+      {:error, %Ecto.Changeset{} = changeset} ->
+        {:error, changeset}
+
+      {:error, _reason} ->
+        create_local_import_party(attrs, role, activity_opts)
+    end
+  end
+
+  defp create_local_import_party(attrs, "supplier", activity_opts) do
+    with {:ok, supplier} <- Catalogue.create_supplier(attrs, activity_opts),
+         do: {:ok, supplier.uuid}
+  end
+
+  defp create_local_import_party(attrs, _role, activity_opts) do
+    with {:ok, manufacturer} <- Catalogue.create_manufacturer(attrs, activity_opts),
+         do: {:ok, manufacturer.uuid}
+  end
+
   defp resolve_import_supplier(socket) do
     case socket.assigns.import_supplier_mode do
       :existing ->
@@ -1161,9 +1198,9 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
           |> Map.from_struct()
           |> Map.take([:name, :description, :website, :contact_info, :notes])
 
-        case Catalogue.create_supplier(attrs, actor_opts(socket)) do
-          {:ok, supplier} ->
-            {:ok, supplier.uuid, socket}
+        case create_import_party(attrs, "supplier", actor_opts(socket)) do
+          {:ok, uuid} ->
+            {:ok, uuid, socket}
 
           {:error, changeset} ->
             socket =

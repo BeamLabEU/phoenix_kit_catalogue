@@ -2,11 +2,17 @@ defmodule PhoenixKitCatalogue.Catalogue.CrmLink do
   @moduledoc """
   Links a catalogue directory row to the CRM party it represents.
 
-  There is no UI for this any more: suppliers and manufacturers are created
+  There is no UI for linking any more: suppliers and manufacturers are created
   and managed in CRM, and the item form picks them from there directly. What
   remains is the migration path for rows that predate the move —
   `mix phoenix_kit_crm.import_suppliers_from_catalogue` and anything else that
   needs to attach an existing local row to its party.
+
+  This module also owns the other direction — `resolve_or_create_company/3`,
+  which turns a NAME into a party. The importer is its caller: a spreadsheet
+  column carries a name, and the catalogue no longer owns supplier or
+  manufacturer identity, so that name has to land in CRM. Local directory rows
+  are created only when CRM is absent.
 
   CRM owns party identity: "supplier" and "manufacturer" are *roles* on a CRM
   company or contact. The catalogue's local `phoenix_kit_cat_suppliers` /
@@ -82,6 +88,98 @@ defmodule PhoenixKitCatalogue.Catalogue.CrmLink do
     _ -> []
   catch
     :exit, _ -> []
+  end
+
+  @doc """
+  True when CRM can additionally PROVISION a company, not just read one —
+  a narrower guard than `available?/0`, which only covers linking an
+  existing party.
+  """
+  @spec can_provision?() :: boolean()
+  def can_provision? do
+    available?() and
+      function_exported?(PhoenixKitCRM.Companies, :create_company, 1) and
+      function_exported?(PhoenixKitCRM.Companies, :list_companies, 1)
+  end
+
+  @doc """
+  Resolves a party BY NAME, creating the company when there is no match, and
+  grants it `role`. Returns `{:ok, company_uuid}`.
+
+  This is the importer's entry point. An import column carries a name, not a
+  uuid, and the catalogue no longer owns supplier or manufacturer identity —
+  so a name that CRM already knows must attach to that company rather than
+  minting a second record for the same business.
+
+  `:unavailable` when CRM is absent, which is a supported install: the caller
+  falls back to a local directory row.
+
+  ## Matching
+
+  Trimmed, case-insensitive, exact. CRM's own search is an ILIKE *contains*
+  match, so "Nordic" would otherwise adopt "Nordic Hardware Supply OY" — the
+  candidates come from that search but the equality check is done here. Two
+  genuinely different companies whose names differ only in case are treated
+  as one; that is the deliberate trade, because importing `ACME` beside
+  `Acme` as separate suppliers is the worse failure and the harder one to
+  notice.
+  """
+  @spec resolve_or_create_company(String.t(), String.t(), keyword()) ::
+          {:ok, Ecto.UUID.t()} | :unavailable | {:error, term()}
+  def resolve_or_create_company(name, role, opts \\ []) when is_binary(name) do
+    trimmed = String.trim(name)
+
+    cond do
+      trimmed == "" -> {:error, :blank_name}
+      not can_provision?() -> :unavailable
+      true -> do_resolve_or_create(trimmed, role, opts)
+    end
+  rescue
+    error -> {:error, error}
+  catch
+    :exit, reason -> {:error, reason}
+  end
+
+  defp do_resolve_or_create(name, role, opts) do
+    with {:ok, company} <- find_or_create_company(name) do
+      # Grant is not optional: the resolvers key on the ACTIVE ROLE, so a
+      # company without it resolves to nothing and the imported reference
+      # would point at a party the pickers never show.
+      case grant(company, role, opts) do
+        {:ok, _} -> {:ok, company.uuid}
+        {:error, reason} -> {:error, reason}
+      end
+    end
+  end
+
+  defp find_or_create_company(name) do
+    case existing_company(name) do
+      %{} = company ->
+        {:ok, company}
+
+      nil ->
+        # credo:disable-for-next-line Credo.Check.Refactor.Apply
+        case apply(PhoenixKitCRM.Companies, :create_company, [%{name: name}]) do
+          {:ok, company} -> {:ok, company}
+          {:error, reason} -> {:error, reason}
+        end
+    end
+  end
+
+  defp existing_company(name) do
+    target = String.downcase(name)
+
+    # credo:disable-for-next-line Credo.Check.Refactor.Apply
+    candidates = apply(PhoenixKitCRM.Companies, :list_companies, [[search: name]])
+
+    Enum.find(candidates, fn company ->
+      is_binary(company.name) and String.downcase(String.trim(company.name)) == target
+    end)
+  end
+
+  defp grant(company, role, opts) do
+    # credo:disable-for-next-line Credo.Check.Refactor.Apply
+    apply(PhoenixKitCRM.PartyRoles, :grant_role, [company, role, %{}, opts])
   end
 
   @doc """
