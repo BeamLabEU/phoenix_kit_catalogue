@@ -2736,3 +2736,9 @@ msgstr "Näita kõiki %{count} kommentaari"
 
 msgid "This supplier is already on the item. Edit the existing row instead."
 msgstr "See tarnija on juba tootel. Muuda olemasolevat rida."
+
+msgid "contact"
+msgstr "kontakt"
+
+msgid "imported"
+msgstr "imporditud"

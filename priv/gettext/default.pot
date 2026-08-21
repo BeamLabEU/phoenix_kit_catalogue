@@ -2741,3 +2741,9 @@ msgstr ""
 
 msgid "This supplier is already on the item. Edit the existing row instead."
 msgstr ""
+
+msgid "contact"
+msgstr ""
+
+msgid "imported"
+msgstr ""

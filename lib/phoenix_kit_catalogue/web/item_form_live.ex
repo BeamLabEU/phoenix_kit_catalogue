@@ -1771,16 +1771,28 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
 
   # ── Attribute group selection ───────────────────────────────────
 
-  # {label, value} pairs for the kit <.select> (L029 conversion): the
-  # dynamic suffixes ("(CRM)" for external suppliers, "(archived)" for
-  # groups kept readable on items that hold them) move out of option
-  # markup into the label strings.
+  # {label, value} pairs for the kit <.select> (L029 conversion).
+  #
+  # The suffix marks the EXCEPTION, not the norm. A CRM company is what a
+  # supplier normally is now that the catalogue's own directory is gone,
+  # so tagging every one of them "(CRM)" labelled the entire list and said
+  # nothing. What is worth flagging is a row that behaves differently:
+  #
+  #   * a CONTACT is a person, not a company — it carries no company page
+  #     and therefore no comments (`crm_company_uuid/1` returns nil for it);
+  #   * a LOCAL row came from an import, the only path that still mints
+  #     them, and has no CRM record behind it at all.
   defp supplier_options(suppliers) do
-    Enum.map(suppliers, fn s ->
-      label = if s.source != :local, do: "#{s.name} (CRM)", else: s.name
-      {label, s.uuid}
-    end)
+    Enum.map(suppliers, fn s -> {party_option_label(s), s.uuid} end)
   end
+
+  defp party_option_label(%{source: :crm_contact} = party),
+    do: "#{party.name} (#{Gettext.gettext(PhoenixKitCatalogue.Gettext, "contact")})"
+
+  defp party_option_label(%{source: :local} = party),
+    do: "#{party.name} (#{Gettext.gettext(PhoenixKitCatalogue.Gettext, "imported")})"
+
+  defp party_option_label(party), do: party.name
 
   # Suppliers already linked to this item are dropped from the Add picker:
   # a second CURRENT row for the same pair means the supplier listed twice
@@ -1797,10 +1809,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
 
   # Same shape for manufacturers since V179 made that reference federated too.
   defp manufacturer_options(manufacturers) do
-    Enum.map(manufacturers, fn m ->
-      label = if m.source != :local, do: "#{m.name} (CRM)", else: m.name
-      {label, m.uuid}
-    end)
+    Enum.map(manufacturers, fn m -> {party_option_label(m), m.uuid} end)
   end
 
   # The picked uuid alone does not say WHICH side it came from, and storing a
