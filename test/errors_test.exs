@@ -137,6 +137,11 @@ defmodule PhoenixKitCatalogue.ErrorsTest do
       assert Errors.message(:invalid_value) == "Invalid value."
     end
 
+    test "already_linked" do
+      assert Errors.message(:already_linked) ==
+               "This supplier is already on the item. Edit the existing row instead."
+    end
+
     # `:pdf_invalid_format` and `:pdf_extraction_failed` removed
     # 2026-05-06 (Phase 2 sweep) — neither had a caller. The PDF
     # library upload pipeline rejects non-PDF MIME at the LV's

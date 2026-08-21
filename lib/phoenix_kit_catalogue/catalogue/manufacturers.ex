@@ -284,6 +284,10 @@ defmodule PhoenixKitCatalogue.Catalogue.Manufacturers do
     else
       %{}
     end
+  rescue
+    _ -> %{}
+  catch
+    :exit, _ -> %{}
   end
 
   @doc """
@@ -334,6 +338,10 @@ defmodule PhoenixKitCatalogue.Catalogue.Manufacturers do
     else
       :error
     end
+  rescue
+    _ -> :error
+  catch
+    :exit, _ -> :error
   end
 
   defp list_crm_manufacturers do
@@ -344,6 +352,10 @@ defmodule PhoenixKitCatalogue.Catalogue.Manufacturers do
     else
       []
     end
+  rescue
+    _ -> []
+  catch
+    :exit, _ -> []
   end
 
   defp crm_available? do
