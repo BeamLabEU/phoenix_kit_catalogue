@@ -2745,3 +2745,9 @@ msgstr "Показать все комментарии (%{count})"
 
 msgid "This supplier is already on the item. Edit the existing row instead."
 msgstr "Этот поставщик уже добавлен к товару. Измените существующую строку."
+
+msgid "contact"
+msgstr "контакт"
+
+msgid "imported"
+msgstr "импортирован"
