@@ -364,6 +364,57 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLiveTest do
       assert Catalogue.list_supplier_infos_for_item(item.uuid) == []
     end
 
+    # Max hit this on max-dev: the same supplier could be added twice,
+    # leaving one item with two live prices for one company.
+    test "a supplier already on the item is not offered again", %{conn: conn} do
+      item =
+        fixture_item(%{
+          name: "Oak Panel",
+          category_uuid: fixture_category(fixture_catalogue()).uuid
+        })
+
+      linked = fixture_supplier()
+      other = fixture_supplier()
+
+      {:ok, view, _html} = live(conn, edit_item_url(item.uuid))
+      render_click(view, "open_add_supplier", %{})
+
+      render_change(view, "supplier_info_field_change", %{
+        "supplier_info" => %{"supplier_uuid" => linked.uuid}
+      })
+
+      render_click(view, "save_supplier_info", %{})
+
+      html = render_click(view, "open_add_supplier", %{})
+
+      refute html =~ linked.uuid
+      assert html =~ other.uuid
+    end
+
+    test "adding the same supplier twice is refused with a clear reason", %{conn: conn} do
+      item =
+        fixture_item(%{
+          name: "Oak Panel",
+          category_uuid: fixture_category(fixture_catalogue()).uuid
+        })
+
+      supplier = fixture_supplier()
+
+      {:ok, view, _html} = live(conn, edit_item_url(item.uuid))
+
+      for _attempt <- 1..2 do
+        render_click(view, "open_add_supplier", %{})
+
+        render_change(view, "supplier_info_field_change", %{
+          "supplier_info" => %{"supplier_uuid" => supplier.uuid}
+        })
+
+        render_click(view, "save_supplier_info", %{})
+      end
+
+      assert length(Catalogue.list_supplier_infos_for_item(item.uuid)) == 1
+    end
+
     test "add is refused with no supplier picked, and says so inside the modal",
          %{conn: conn} do
       item =
