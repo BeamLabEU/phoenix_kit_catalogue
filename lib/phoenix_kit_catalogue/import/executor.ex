@@ -10,7 +10,9 @@ defmodule PhoenixKitCatalogue.Import.Executor do
 
   alias PhoenixKit.Utils.Multilang
   alias PhoenixKitCatalogue.Catalogue
+  alias PhoenixKitCatalogue.Catalogue.CrmLink
   alias PhoenixKitCatalogue.Catalogue.PubSub
+  alias PhoenixKitCatalogue.Catalogue.Suppliers
 
   @type import_result :: %{
           created: non_neg_integer(),
@@ -58,8 +60,12 @@ defmodule PhoenixKitCatalogue.Import.Executor do
   def execute(import_plan, catalogue_uuid, notify_pid, opts \\ []) do
     language = Keyword.get(opts, :language)
     fixed_category_uuid = Keyword.get(opts, :category_uuid)
-    fixed_manufacturer_uuid = Keyword.get(opts, :manufacturer_uuid)
-    fixed_supplier_uuid = Keyword.get(opts, :supplier_uuid)
+    # The wizard passes a bare uuid; normalise to the {uuid, source} shape
+    # the resolvers speak. A fixed party chosen in the UI comes from the
+    # same picker the item form uses, so it is already CRM-sourced when CRM
+    # is installed.
+    fixed_manufacturer_uuid = fixed_party(Keyword.get(opts, :manufacturer_uuid))
+    fixed_supplier_uuid = fixed_party(Keyword.get(opts, :supplier_uuid))
     match_across = Keyword.get(opts, :match_categories_across_languages, false)
     activity_opts = build_activity_opts(opts)
 
@@ -98,7 +104,7 @@ defmodule PhoenixKitCatalogue.Import.Executor do
           if fixed_manufacturer_uuid do
             {%{}, 0}
           else
-            create_manufacturers(
+            create_manufacturers_lookup(
               Map.get(import_plan, :manufacturers_to_create, []),
               activity_opts
             )
@@ -122,24 +128,29 @@ defmodule PhoenixKitCatalogue.Import.Executor do
       import_plan.items
       |> Enum.with_index(1)
       |> Enum.reduce(initial_acc, fn {item_attrs, idx}, {cr, errs, pairs, mfrs} ->
-        {mfr_uuid, attrs} =
+        {mfr_ref, attrs} =
           item_attrs
           |> resolve_manufacturer(manufacturer_lookup, fixed_manufacturer_uuid)
 
-        {sup_uuid, attrs} = resolve_supplier(attrs, supplier_lookup, fixed_supplier_uuid)
+        {sup_ref, attrs} = resolve_supplier(attrs, supplier_lookup, fixed_supplier_uuid)
 
         attrs =
           attrs
           |> Map.put(:catalogue_uuid, catalogue_uuid)
-          |> maybe_put(:manufacturer_uuid, mfr_uuid)
+          |> put_manufacturer(mfr_ref)
           |> resolve_category(category_lookup, fixed_category_uuid)
           |> apply_language(language)
 
         result = insert_item(attrs, activity_opts)
 
+        # A supplier column means "this item is supplied by X", so it
+        # attaches to the ITEM. That reference is federated, so it takes a
+        # CRM party; the manufacturer M:N table below cannot.
+        attach_supplier(result, sup_ref, activity_opts)
+
         maybe_notify(notify_pid, {:import_progress, idx, total})
 
-        accumulate_item_result(result, {cr, errs, pairs, mfrs}, idx, mfr_uuid, sup_uuid)
+        accumulate_item_result(result, {cr, errs, pairs, mfrs}, idx, mfr_ref, sup_ref)
       end)
 
     # Phase 3: M:N links. A fixed supplier (existing/create mode) gets
@@ -321,8 +332,11 @@ defmodule PhoenixKitCatalogue.Import.Executor do
   # spend the rest of the import re-running `refresh_in_place` on each one.
   defp insert_item(attrs, activity_opts) do
     case Catalogue.create_item(attrs, [skip_derive: true, broadcast: false] ++ activity_opts) do
-      {:ok, _item} ->
-        {:ok, :created}
+      # The item comes back now: a CRM-sourced supplier attaches to the
+      # ITEM (`item_supplier_info`, a federated reference) rather than to
+      # the manufacturer M:N table, whose FKs only accept local rows.
+      {:ok, item} ->
+        {:ok, item}
 
       {:error, changeset} ->
         {:error, format_changeset_errors(changeset)}
@@ -373,48 +387,15 @@ defmodule PhoenixKitCatalogue.Import.Executor do
 
   # ── Manufacturer creation + per-item resolution ───────────────
 
-  defp create_manufacturers([], _activity_opts), do: {%{}, 0}
-
-  defp create_manufacturers(names, activity_opts) do
-    existing =
-      Catalogue.list_manufacturers()
-      |> Map.new(fn m -> {m.name, m.uuid} end)
-
-    Enum.reduce(names, {existing, 0}, fn name, acc ->
-      get_or_create_manufacturer(acc, name, activity_opts)
-    end)
+  # Returns `{{uuid, source} | nil, attrs_without_placeholder}`. When a
+  # fixed UUID is supplied (existing/create UI mode) every item gets it;
+  # otherwise we resolve from the column-mode lookup. A blank or unmatched
+  # name leaves `manufacturer_uuid` unset on the item.
+  defp resolve_manufacturer(attrs, _lookup, {uuid, source}) when is_binary(uuid) do
+    {{uuid, source}, Map.delete(attrs, :_manufacturer_name)}
   end
 
-  defp get_or_create_manufacturer({lookup, count}, name, _activity_opts)
-       when is_map_key(lookup, name),
-       do: {lookup, count}
-
-  defp get_or_create_manufacturer({lookup, count}, name, activity_opts) do
-    case Catalogue.create_manufacturer(%{name: name}, activity_opts) do
-      {:ok, mfr} ->
-        {Map.put(lookup, name, mfr.uuid), count + 1}
-
-      {:error, changeset} ->
-        # Items referencing this name will fall through with
-        # `manufacturer_uuid: nil`; surface why so it's debuggable.
-        Logger.warning(
-          "Import: failed to create manufacturer #{inspect(name)}: " <>
-            inspect(changeset.errors)
-        )
-
-        {lookup, count}
-    end
-  end
-
-  # Returns `{manufacturer_uuid_or_nil, attrs_without_placeholder}`.
-  # When a fixed UUID is supplied (existing/create UI mode) every item
-  # gets it; otherwise we resolve from the column-mode lookup. A blank
-  # or unmatched name leaves `manufacturer_uuid` unset on the item.
-  defp resolve_manufacturer(attrs, _lookup, fixed_uuid) when is_binary(fixed_uuid) do
-    {fixed_uuid, Map.delete(attrs, :_manufacturer_name)}
-  end
-
-  defp resolve_manufacturer(attrs, lookup, _fixed_uuid) do
+  defp resolve_manufacturer(attrs, lookup, _fixed) do
     case Map.pop(attrs, :_manufacturer_name) do
       {nil, attrs} -> {nil, attrs}
       {"", attrs} -> {nil, attrs}
@@ -427,28 +408,139 @@ defmodule PhoenixKitCatalogue.Import.Executor do
   defp create_suppliers([], _activity_opts), do: {%{}, 0}
 
   defp create_suppliers(names, activity_opts) do
-    existing =
-      Catalogue.list_suppliers()
-      |> Map.new(fn s -> {s.name, s.uuid} end)
-
-    Enum.reduce(names, {existing, 0}, fn name, acc ->
-      get_or_create_supplier(acc, name, activity_opts)
+    resolve_parties(names, "supplier", activity_opts, fn ->
+      Catalogue.list_suppliers() |> Map.new(fn s -> {s.name, {s.uuid, "local"}} end)
     end)
   end
 
-  defp get_or_create_supplier({lookup, count}, name, _activity_opts)
-       when is_map_key(lookup, name),
-       do: {lookup, count}
+  defp create_manufacturers_lookup(names, activity_opts) do
+    resolve_parties(names, "manufacturer", activity_opts, fn ->
+      Catalogue.list_manufacturers() |> Map.new(fn m -> {m.name, {m.uuid, "local"}} end)
+    end)
+  end
 
-  defp get_or_create_supplier({lookup, count}, name, activity_opts) do
-    case Catalogue.create_supplier(%{name: name}, activity_opts) do
-      {:ok, sup} ->
-        {Map.put(lookup, name, sup.uuid), count + 1}
+  defp fixed_party(nil), do: nil
+  defp fixed_party({uuid, source}), do: {uuid, source}
+
+  # A uuid chosen in the wizard: ask the resolver which side it came from
+  # rather than assuming, so a CRM pick is not stamped "local".
+  defp fixed_party(uuid) when is_binary(uuid) do
+    case Suppliers.resolve(uuid) do
+      {:ok, %{source: :local}} -> {uuid, "local"}
+      {:ok, %{source: _crm}} -> {uuid, "crm_company"}
+      _ -> {uuid, "local"}
+    end
+  end
+
+  defp put_manufacturer(attrs, nil), do: attrs
+
+  defp put_manufacturer(attrs, {uuid, source}) do
+    attrs
+    |> Map.put(:manufacturer_uuid, uuid)
+    |> Map.put(:manufacturer_source, source)
+  end
+
+  # One junction row per imported item/supplier pair. `create/2` refuses a
+  # second CURRENT row for a pair, which is exactly right here: a file
+  # listing the same supplier on the same item twice must not produce two
+  # live prices.
+  defp attach_supplier({:ok, %{uuid: item_uuid}}, {supplier_uuid, source}, activity_opts)
+       when is_binary(item_uuid) and is_binary(supplier_uuid) do
+    case Catalogue.create_supplier_info(
+           %{
+             "item_uuid" => item_uuid,
+             "supplier_uuid" => supplier_uuid,
+             "supplier_source" => source,
+             "supplier_name_snapshot" => supplier_snapshot(supplier_uuid)
+           },
+           activity_opts
+         ) do
+      {:ok, _info} ->
+        :ok
+
+      {:error, :already_linked} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("Import: could not attach supplier to item: #{inspect(reason)}")
+        :ok
+    end
+  end
+
+  defp attach_supplier(_result, _supplier_ref, _activity_opts), do: :ok
+
+  defp supplier_snapshot(uuid) do
+    case Suppliers.resolve(uuid) do
+      {:ok, %{name: name}} -> name
+      _ -> nil
+    end
+  end
+
+  # ── Party resolution: CRM first, local as the fallback ─────────
+  #
+  # Suppliers and manufacturers are CRM parties now, so an import column
+  # carrying a name resolves to a COMPANY — matched by name, created when
+  # CRM has never heard of it, and granted the role. The local directory
+  # tables are only used on installs with no CRM, which stay supported.
+  #
+  # The lookup carries `{uuid, source}` rather than a bare uuid because
+  # what the caller may do with it differs by source: a federated
+  # reference (`cat_items.manufacturer_uuid`, `item_supplier_info`) takes
+  # either, while `phoenix_kit_cat_manufacturer_suppliers` has hard FKs
+  # onto the local tables and can only take a local row.
+  defp resolve_parties(names, role, activity_opts, local_existing) do
+    crm? = CrmLink.can_provision?()
+    seed = if crm?, do: %{}, else: local_existing.()
+
+    Enum.reduce(names, {seed, 0}, fn name, {lookup, count} ->
+      cond do
+        Map.has_key?(lookup, name) ->
+          {lookup, count}
+
+        crm? ->
+          resolve_via_crm(lookup, count, name, role, activity_opts, local_existing)
+
+        true ->
+          create_local_party(lookup, count, name, role, activity_opts)
+      end
+    end)
+  end
+
+  defp resolve_via_crm(lookup, count, name, role, activity_opts, local_existing) do
+    case CrmLink.resolve_or_create_company(name, role, activity_opts) do
+      {:ok, uuid} ->
+        {Map.put(lookup, name, {uuid, "crm_company"}), count + 1}
+
+      # CRM went away between the guard and the call, or refused the
+      # write. Falling back keeps the import running rather than dropping
+      # every reference in the file on the floor.
+      other ->
+        Logger.warning(
+          "Import: CRM could not provide #{role} #{inspect(name)} " <>
+            "(#{inspect(other)}); falling back to a local row"
+        )
+
+        lookup
+        |> Map.merge(local_existing.(), fn _k, existing, _new -> existing end)
+        |> create_local_party(count, name, role, activity_opts)
+    end
+  end
+
+  defp create_local_party(lookup, count, name, role, activity_opts) do
+    creator =
+      if role == "supplier",
+        do: &Catalogue.create_supplier/2,
+        else: &Catalogue.create_manufacturer/2
+
+    case creator.(%{name: name}, activity_opts) do
+      {:ok, record} ->
+        {Map.put(lookup, name, {record.uuid, "local"}), count + 1}
 
       {:error, changeset} ->
+        # Items referencing this name fall through unset; surface why so
+        # it is debuggable.
         Logger.warning(
-          "Import: failed to create supplier #{inspect(name)}: " <>
-            inspect(changeset.errors)
+          "Import: failed to create #{role} #{inspect(name)}: " <> inspect(changeset.errors)
         )
 
         {lookup, count}
@@ -460,11 +552,11 @@ defmodule PhoenixKitCatalogue.Import.Executor do
   # the item attrs (not into them) and is used only for building the
   # M:N link in phase 3. We still strip the placeholder so it doesn't
   # leak into changeset cast.
-  defp resolve_supplier(attrs, _lookup, fixed_uuid) when is_binary(fixed_uuid) do
-    {fixed_uuid, Map.delete(attrs, :_supplier_name)}
+  defp resolve_supplier(attrs, _lookup, {uuid, source}) when is_binary(uuid) do
+    {{uuid, source}, Map.delete(attrs, :_supplier_name)}
   end
 
-  defp resolve_supplier(attrs, lookup, _fixed_uuid) do
+  defp resolve_supplier(attrs, lookup, _fixed) do
     case Map.pop(attrs, :_supplier_name) do
       {nil, attrs} -> {nil, attrs}
       {"", attrs} -> {nil, attrs}
@@ -480,16 +572,20 @@ defmodule PhoenixKitCatalogue.Import.Executor do
   # phase 2.
   defp expand_supplier_links(link_pairs, _manufacturers_touched, nil), do: link_pairs
 
-  defp expand_supplier_links(link_pairs, manufacturers_touched, fixed_supplier_uuid) do
+  defp expand_supplier_links(link_pairs, _manufacturers_touched, {_uuid, source})
+       when source != "local",
+       do: link_pairs
+
+  defp expand_supplier_links(link_pairs, manufacturers_touched, {supplier_uuid, "local"}) do
     Enum.reduce(manufacturers_touched, link_pairs, fn mfr_uuid, acc ->
-      MapSet.put(acc, {mfr_uuid, fixed_supplier_uuid})
+      MapSet.put(acc, {mfr_uuid, supplier_uuid})
     end)
   end
 
   # Threads one item-insert outcome into the phase-2 accumulator: bumps
   # the success counter and records the (mfr, sup) pair / manufacturer
   # for phase-3 linking on `:ok`; appends to the error list on `:error`.
-  defp accumulate_item_result({:ok, :created}, {cr, errs, pairs, mfrs}, _idx, mfr_uuid, sup_uuid) do
+  defp accumulate_item_result({:ok, _item}, {cr, errs, pairs, mfrs}, _idx, mfr_uuid, sup_uuid) do
     new_pairs = maybe_record_pair(pairs, mfr_uuid, sup_uuid)
     new_mfrs = maybe_record_manufacturer(mfrs, mfr_uuid)
     {cr + 1, errs, new_pairs, new_mfrs}
@@ -499,22 +595,19 @@ defmodule PhoenixKitCatalogue.Import.Executor do
     {cr, [{idx, reason} | errs], pairs, mfrs}
   end
 
-  defp maybe_record_pair(pairs, mfr_uuid, sup_uuid)
-       when is_binary(mfr_uuid) and is_binary(sup_uuid),
-       do: MapSet.put(pairs, {mfr_uuid, sup_uuid})
+  # LOCAL rows only, on both sides. `phoenix_kit_cat_manufacturer_suppliers`
+  # carries hard FKs onto `cat_manufacturers` and `cat_suppliers`, so a CRM
+  # party uuid physically cannot go in it. With CRM installed this graph is
+  # simply not built any more — the supplier attaches to the item instead,
+  # and `manufacturer_supplier_links_created` reports 0 rather than failing
+  # a row at a time.
+  defp maybe_record_pair(pairs, {mfr_uuid, "local"}, {sup_uuid, "local"}),
+    do: MapSet.put(pairs, {mfr_uuid, sup_uuid})
 
-  defp maybe_record_pair(pairs, _, _), do: pairs
+  defp maybe_record_pair(pairs, _mfr, _sup), do: pairs
 
-  defp maybe_record_manufacturer(mfrs, mfr_uuid) when is_binary(mfr_uuid),
-    do: MapSet.put(mfrs, mfr_uuid)
-
-  defp maybe_record_manufacturer(mfrs, _), do: mfrs
-
-  # Skip the put when value is nil so we don't accidentally clobber
-  # `manufacturer_uuid` to nil (e.g. via the Item changeset's cast
-  # treating it as an explicit nil) when the row had no manufacturer.
-  defp maybe_put(map, _key, nil), do: map
-  defp maybe_put(map, key, value), do: Map.put(map, key, value)
+  defp maybe_record_manufacturer(mfrs, {mfr_uuid, "local"}), do: MapSet.put(mfrs, mfr_uuid)
+  defp maybe_record_manufacturer(mfrs, _mfr), do: mfrs
 
   defp create_manufacturer_supplier_links(pairs) do
     # `link_manufacturer_supplier/2` returns `{:error, changeset}` on

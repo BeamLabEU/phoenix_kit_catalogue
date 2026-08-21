@@ -497,4 +497,89 @@ defmodule PhoenixKitCatalogue.Import.ExecutorTest do
 
     c
   end
+
+  # CRM is deliberately NOT a dependency of this package, so the suite runs
+  # the CRM-ABSENT half — which is the half that must not regress, since a
+  # catalogue-standalone install has nowhere else to put a party.
+  describe "party sourcing without CRM" do
+    test "falls back to local rows and stamps the item manufacturer as local" do
+      cat = create_catalogue()
+
+      plan = %{
+        categories_to_create: [],
+        manufacturers_to_create: ["Local Maker"],
+        suppliers_to_create: ["Local Supplier"],
+        items: [
+          %{name: "Row A", _manufacturer_name: "Local Maker", _supplier_name: "Local Supplier"}
+        ]
+      }
+
+      result = Executor.execute(plan, cat.uuid, nil)
+
+      assert result.created == 1
+      assert result.manufacturers_created == 1
+      assert result.suppliers_created == 1
+
+      [item] = Catalogue.list_items_for_catalogue(cat.uuid)
+      assert item.manufacturer_source == "local"
+      assert is_binary(item.manufacturer_uuid)
+    end
+
+    # A supplier column means "this item is supplied by X", so it now
+    # produces a junction row rather than only a manufacturer M:N link.
+    test "attaches the supplier to the item" do
+      cat = create_catalogue()
+
+      plan = %{
+        categories_to_create: [],
+        suppliers_to_create: ["Local Supplier"],
+        items: [%{name: "Row A", _supplier_name: "Local Supplier"}]
+      }
+
+      Executor.execute(plan, cat.uuid, nil)
+
+      [item] = Catalogue.list_items_for_catalogue(cat.uuid)
+      assert [info] = Catalogue.list_supplier_infos_for_item(item.uuid)
+      assert info.supplier_source == "local"
+      assert info.supplier_name_snapshot == "Local Supplier"
+    end
+
+    # Two rows naming the same supplier for the same item must not create
+    # two live prices — create/2 refuses the second.
+    test "the same supplier twice on one item yields one junction row" do
+      cat = create_catalogue()
+
+      plan = %{
+        categories_to_create: [],
+        suppliers_to_create: ["Local Supplier"],
+        items: [
+          %{name: "Row A", sku: "A", _supplier_name: "Local Supplier"},
+          %{name: "Row A", sku: "A2", _supplier_name: "Local Supplier"}
+        ]
+      }
+
+      Executor.execute(plan, cat.uuid, nil)
+
+      for item <- Catalogue.list_items_for_catalogue(cat.uuid) do
+        assert length(Catalogue.list_supplier_infos_for_item(item.uuid)) == 1
+      end
+    end
+
+    test "the manufacturer M:N graph is still built when both sides are local" do
+      cat = create_catalogue()
+
+      plan = %{
+        categories_to_create: [],
+        manufacturers_to_create: ["Local Maker"],
+        suppliers_to_create: ["Local Supplier"],
+        items: [
+          %{name: "Row A", _manufacturer_name: "Local Maker", _supplier_name: "Local Supplier"}
+        ]
+      }
+
+      result = Executor.execute(plan, cat.uuid, nil)
+
+      assert result.manufacturer_supplier_links_created == 1
+    end
+  end
 end
