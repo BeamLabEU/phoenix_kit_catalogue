@@ -126,6 +126,39 @@ tab beside Supplied items and Manufactured items — following the same rule as
 those two, that a section appears when the role is held OR when rows reference
 the company regardless.
 
+## The importer creates parties in CRM (2026-08-21)
+
+An import column carries a supplier or manufacturer **name**, and the catalogue
+no longer owns that identity, so the name resolves to a CRM company:
+`CrmLink.resolve_or_create_company/3` matches by name, creates the company when
+CRM has never heard of it, and grants the role. Both the per-row column path and
+the wizard's "create new" step go through it. Local directory rows are created
+only when CRM is absent, which stays a supported install — and the same fallback
+catches CRM *refusing* the write, so a failed grant does not drop every
+reference in the file on the floor.
+
+Matching is trimmed and case-insensitive. The equality check lives on the
+catalogue side because CRM's search is an ILIKE **contains** match, which would
+otherwise let `Nordic` adopt `Nordic Hardware Supply OY`. Two companies
+differing only in case collapse into one; that is the deliberate trade, since
+importing `ACME` beside `Acme` as separate suppliers is the worse failure and
+the harder one to notice.
+
+Two consequences worth knowing before touching this again:
+
+1. **A supplier now attaches to the ITEM**, as an `item_supplier_info` row,
+   rather than only to the manufacturer. That is what a supplier column means,
+   and it is the only option under CRM:
+   `phoenix_kit_cat_manufacturer_suppliers` has hard FKs onto **both** local
+   tables (`cat_manufacturers`, `cat_suppliers`), so a party uuid physically
+   cannot go in it. That M:N graph is still built when both sides are local, and
+   `manufacturer_supplier_links_created` reports 0 rather than failing row by
+   row when they are not. If the graph is wanted for CRM parties, the link table
+   has to become federated — a core migration, same shape as V179.
+2. **`manufacturer_source` is stamped on the item now.** V179 made the
+   reference federated but the importer never set the discriminator, so every
+   imported manufacturer was recorded as `local` regardless.
+
 ## Follow-ups
 
 1. **Warehouse is CRM-blind** and lives in a different workspace
