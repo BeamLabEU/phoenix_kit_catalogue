@@ -671,8 +671,8 @@ defmodule PhoenixKitCatalogue.ItemSupplierInfosTest do
             {highest, "10.00", today}
           ] do
         {:ok, _row} =
-          %PhoenixKitCatalogue.Schemas.ItemSupplierInfo{}
-          |> PhoenixKitCatalogue.Schemas.ItemSupplierInfo.changeset(%{
+          %ItemSupplierInfo{}
+          |> ItemSupplierInfo.changeset(%{
             "item_uuid" => item.uuid,
             "supplier_uuid" => supplier.uuid,
             "supplier_source" => "local",

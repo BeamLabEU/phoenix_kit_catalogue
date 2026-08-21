@@ -2751,3 +2751,6 @@ msgstr "контакт"
 
 msgid "imported"
 msgstr "импортирован"
+
+msgid "Open the company"
+msgstr "Открыть компанию"

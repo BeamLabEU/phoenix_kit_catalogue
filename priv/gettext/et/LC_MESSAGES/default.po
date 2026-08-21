@@ -2742,3 +2742,6 @@ msgstr "kontakt"
 
 msgid "imported"
 msgstr "imporditud"
+
+msgid "Open the company"
+msgstr "Ava ettevõte"
