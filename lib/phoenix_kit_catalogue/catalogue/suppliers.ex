@@ -18,7 +18,14 @@ defmodule PhoenixKitCatalogue.Catalogue.Suppliers do
 
   import Ecto.Query, warn: false
 
-  alias PhoenixKitCatalogue.Catalogue.{ActivityLog, ItemSupplierInfos, Manufacturers, PubSub}
+  alias PhoenixKitCatalogue.Catalogue.{
+    ActivityLog,
+    ItemSupplierInfos,
+    Links,
+    Manufacturers,
+    PubSub
+  }
+
   alias PhoenixKitCatalogue.Schemas.{Item, ItemSupplierInfo, Supplier}
 
   defp repo, do: PhoenixKit.RepoHelper.repo()
@@ -119,7 +126,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Suppliers do
   def delete_supplier(%Supplier{} = supplier, opts \\ []) do
     result =
       ActivityLog.with_log(
-        fn -> repo().delete(supplier) end,
+        fn -> delete_with_links(supplier) end,
         fn _ ->
           %{
             action: "supplier.deleted",
@@ -136,6 +143,20 @@ defmodule PhoenixKitCatalogue.Catalogue.Suppliers do
       PubSub.broadcast(:supplier, supplier.uuid)
       {:ok, deleted}
     end
+  end
+
+  # V180 dropped the FKs that carried ON DELETE CASCADE, so the links have to
+  # be cleared here or they outlive the row they point at. One transaction:
+  # a delete that fails must not leave the graph already pruned.
+  defp delete_with_links(record) do
+    repo().transaction(fn ->
+      Links.delete_links_for(record.uuid)
+
+      case repo().delete(record) do
+        {:ok, deleted} -> deleted
+        {:error, changeset} -> repo().rollback(changeset)
+      end
+    end)
   end
 
   @doc "Returns a changeset for tracking supplier changes."

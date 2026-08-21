@@ -572,13 +572,9 @@ defmodule PhoenixKitCatalogue.Import.Executor do
   # phase 2.
   defp expand_supplier_links(link_pairs, _manufacturers_touched, nil), do: link_pairs
 
-  defp expand_supplier_links(link_pairs, _manufacturers_touched, {_uuid, source})
-       when source != "local",
-       do: link_pairs
-
-  defp expand_supplier_links(link_pairs, manufacturers_touched, {supplier_uuid, "local"}) do
-    Enum.reduce(manufacturers_touched, link_pairs, fn mfr_uuid, acc ->
-      MapSet.put(acc, {mfr_uuid, supplier_uuid})
+  defp expand_supplier_links(link_pairs, manufacturers_touched, {_uuid, _source} = supplier) do
+    Enum.reduce(manufacturers_touched, link_pairs, fn manufacturer, acc ->
+      MapSet.put(acc, {manufacturer, supplier})
     end)
   end
 
@@ -595,18 +591,17 @@ defmodule PhoenixKitCatalogue.Import.Executor do
     {cr, [{idx, reason} | errs], pairs, mfrs}
   end
 
-  # LOCAL rows only, on both sides. `phoenix_kit_cat_manufacturer_suppliers`
-  # carries hard FKs onto `cat_manufacturers` and `cat_suppliers`, so a CRM
-  # party uuid physically cannot go in it. With CRM installed this graph is
-  # simply not built any more — the supplier attaches to the item instead,
-  # and `manufacturer_supplier_links_created` reports 0 rather than failing
-  # a row at a time.
-  defp maybe_record_pair(pairs, {mfr_uuid, "local"}, {sup_uuid, "local"}),
-    do: MapSet.put(pairs, {mfr_uuid, sup_uuid})
+  # Both sides carry their source since core V180 federated this table — a
+  # CRM party is storable here now, so the graph is built whatever the source.
+  defp maybe_record_pair(pairs, {mfr_uuid, mfr_src}, {sup_uuid, sup_src})
+       when is_binary(mfr_uuid) and is_binary(sup_uuid),
+       do: MapSet.put(pairs, {{mfr_uuid, mfr_src}, {sup_uuid, sup_src}})
 
   defp maybe_record_pair(pairs, _mfr, _sup), do: pairs
 
-  defp maybe_record_manufacturer(mfrs, {mfr_uuid, "local"}), do: MapSet.put(mfrs, mfr_uuid)
+  defp maybe_record_manufacturer(mfrs, {mfr_uuid, mfr_src}) when is_binary(mfr_uuid),
+    do: MapSet.put(mfrs, {mfr_uuid, mfr_src})
+
   defp maybe_record_manufacturer(mfrs, _mfr), do: mfrs
 
   defp create_manufacturer_supplier_links(pairs) do
@@ -619,8 +614,11 @@ defmodule PhoenixKitCatalogue.Import.Executor do
     Enum.reduce(pairs, 0, fn pair, count -> attempt_link(pair, count) end)
   end
 
-  defp attempt_link({mfr_uuid, sup_uuid}, count) do
-    case Catalogue.link_manufacturer_supplier(mfr_uuid, sup_uuid) do
+  defp attempt_link({{mfr_uuid, mfr_src}, {sup_uuid, sup_src}}, count) do
+    case Catalogue.link_manufacturer_supplier(mfr_uuid, sup_uuid,
+           manufacturer_source: mfr_src,
+           supplier_source: sup_src
+         ) do
       {:ok, _} ->
         count + 1
 
