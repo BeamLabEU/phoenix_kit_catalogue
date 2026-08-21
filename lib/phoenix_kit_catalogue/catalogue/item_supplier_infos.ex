@@ -17,8 +17,8 @@ defmodule PhoenixKitCatalogue.Catalogue.ItemSupplierInfos do
   non-destructive price revision: the current row is closed (`valid_to: today`,
   `is_primary: false`) and a successor row is inserted with the new cost,
   `valid_from: today`, and `valid_to: nil`. This produces an append-only price
-  history ordered by `valid_from` descending. The canonical "current" predicate
-  is `is_nil(valid_to)`.
+  history. The canonical "current" predicate is `is_nil(valid_to)`, and that is
+  also what `history_for_pair/2` orders on first — see the note there.
   """
 
   import Ecto.Query, warn: false
@@ -28,6 +28,8 @@ defmodule PhoenixKitCatalogue.Catalogue.ItemSupplierInfos do
   alias PhoenixKitCatalogue.Schemas.ItemSupplierInfo
 
   defp repo, do: PhoenixKit.RepoHelper.repo()
+
+  @pair_constraint "phoenix_kit_cat_item_supplier_info_current_pair_uniq"
 
   @doc """
   Lists *current* supplier-info rows for an item, ordered by position then
@@ -50,19 +52,29 @@ defmodule PhoenixKitCatalogue.Catalogue.ItemSupplierInfos do
   Returns all rows for an item/supplier pair ordered newest-first.
 
   Includes both current (`valid_to: nil`) and closed rows so callers can
-  display a full price revision history. Ordered by `valid_from` descending
-  (nulls last), then `inserted_at` descending.
+  display a full price revision history. The current row is always first;
+  closed rows follow, most recently closed first.
   """
   @spec history_for_pair(Ecto.UUID.t(), Ecto.UUID.t()) :: [ItemSupplierInfo.t()]
   def history_for_pair(item_uuid, supplier_uuid) do
     from(i in ItemSupplierInfo,
       where: i.item_uuid == ^item_uuid and i.supplier_uuid == ^supplier_uuid,
-      # `:uuid` is the final tiebreaker so the order is TOTAL. Revisions made
-      # in the same second tie on both valid_from and inserted_at, and the
-      # rows then came back in whatever order Postgres chose -- so the
-      # "current" row was not reliably first. UUIDv7 is time-ordered, so
-      # desc: :uuid resolves the tie newest-first.
-      order_by: [desc_nulls_last: :valid_from, desc: :inserted_at, desc: :uuid]
+      # `valid_to` leads, nulls first: the CURRENT row is the one with no end
+      # date, and that is the only column that says so. Everything below it is
+      # a tiebreak between closed rows.
+      #
+      # It used to lead with `valid_from`, leaving "current first" to fall
+      # through to `desc: :uuid`. That reads as safe because UUIDv7 is
+      # time-ordered — but only to the MILLISECOND; inside one millisecond the
+      # tail is random, so two revisions made in the same millisecond sorted
+      # arbitrarily and the current row was not reliably first. That is the
+      # intermittent failure in this function's test.
+      order_by: [
+        desc_nulls_first: :valid_to,
+        desc_nulls_last: :valid_from,
+        desc: :inserted_at,
+        desc: :uuid
+      ]
     )
     |> repo().all()
   end
@@ -116,6 +128,18 @@ defmodule PhoenixKitCatalogue.Catalogue.ItemSupplierInfos do
     |> repo().exists?()
   end
 
+  # The pre-check above is not a guarantee — two callers can both see no row.
+  # Core V180's partial unique index is what actually holds the line, so its
+  # violation is translated back into the same reason the pre-check returns.
+  defp already_linked_violation?(%Ecto.Changeset{errors: errors}) do
+    Enum.any?(errors, fn
+      {:supplier_uuid, {_msg, opts}} -> opts[:constraint_name] == @pair_constraint
+      _ -> false
+    end)
+  end
+
+  defp already_linked_violation?(_other), do: false
+
   defp do_create(attrs, opts) do
     result =
       ActivityLog.with_log(
@@ -136,14 +160,20 @@ defmodule PhoenixKitCatalogue.Catalogue.ItemSupplierInfos do
         end
       )
 
-    with {:ok, info} <- result do
-      PubSub.broadcast(:item_supplier_info, info.uuid)
+    case result do
+      {:ok, info} ->
+        PubSub.broadcast(:item_supplier_info, info.uuid)
 
-      if info.is_primary == false and primary_for_item(info.item_uuid) == nil do
-        set_primary(info, opts)
-      else
-        {:ok, info}
-      end
+        if info.is_primary == false and primary_for_item(info.item_uuid) == nil do
+          set_primary(info, opts)
+        else
+          {:ok, info}
+        end
+
+      {:error, changeset} ->
+        if already_linked_violation?(changeset),
+          do: {:error, :already_linked},
+          else: {:error, changeset}
     end
   end
 

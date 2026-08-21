@@ -112,7 +112,13 @@ defmodule PhoenixKitCatalogue.Catalogue.CrmLink do
   minting a second record for the same business.
 
   `:unavailable` when CRM is absent, which is a supported install: the caller
-  falls back to a local directory row.
+  falls back to a local directory row. `{:error, {:ambiguous_name, uuids}}` when
+  two live companies share the name — picking one by list order would attach the
+  reference to an arbitrary legal entity while looking like it worked.
+
+  Creating the company and granting the role happen in ONE transaction: the
+  resolvers key on the active role, so a company created without one is
+  invisible to every picker.
 
   ## Matching
 
@@ -140,39 +146,50 @@ defmodule PhoenixKitCatalogue.Catalogue.CrmLink do
     :exit, reason -> {:error, reason}
   end
 
+  # Creating the company and granting the role are ONE transaction. The
+  # resolvers key on the ACTIVE ROLE, so a company created without one is
+  # invisible to every picker — a failed grant must not leave that behind.
   defp do_resolve_or_create(name, role, opts) do
-    with {:ok, company} <- find_or_create_company(name) do
-      # Grant is not optional: the resolvers key on the ACTIVE ROLE, so a
-      # company without it resolves to nothing and the imported reference
-      # would point at a party the pickers never show.
-      case grant(company, role, opts) do
-        {:ok, _} -> {:ok, company.uuid}
-        {:error, reason} -> {:error, reason}
-      end
+    result =
+      repo().transaction(fn ->
+        with {:ok, company} <- find_or_create_company(name),
+             {:ok, _role} <- grant(company, role, opts) do
+          company.uuid
+        else
+          {:error, reason} -> repo().rollback(reason)
+        end
+      end)
+
+    case result do
+      {:ok, uuid} -> {:ok, uuid}
+      {:error, reason} -> {:error, reason}
     end
   end
 
   defp find_or_create_company(name) do
-    case existing_company(name) do
-      %{} = company ->
+    case existing_companies(name) do
+      [company] ->
         {:ok, company}
 
-      nil ->
+      [] ->
         # credo:disable-for-next-line Credo.Check.Refactor.Apply
-        case apply(PhoenixKitCRM.Companies, :create_company, [%{name: name}]) do
-          {:ok, company} -> {:ok, company}
-          {:error, reason} -> {:error, reason}
-        end
+        apply(PhoenixKitCRM.Companies, :create_company, [%{name: name}])
+
+      [_ | _] = several ->
+        # Two live companies share this name. Picking one by list order would
+        # attach the reference to an arbitrary legal entity and look like it
+        # worked — the caller has to decide, so say so.
+        {:error, {:ambiguous_name, Enum.map(several, & &1.uuid)}}
     end
   end
 
-  defp existing_company(name) do
+  defp existing_companies(name) do
     target = String.downcase(name)
 
     # credo:disable-for-next-line Credo.Check.Refactor.Apply
     candidates = apply(PhoenixKitCRM.Companies, :list_companies, [[search: name]])
 
-    Enum.find(candidates, fn company ->
+    Enum.filter(candidates, fn company ->
       is_binary(company.name) and String.downcase(String.trim(company.name)) == target
     end)
   end

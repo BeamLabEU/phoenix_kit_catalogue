@@ -501,4 +501,19 @@ defmodule PhoenixKitCatalogue.CrmLinkTest do
              })
     end
   end
+
+  # Findings from the 2026-08-21 external review pass.
+  describe "resolve_or_create_company/3 without CRM" do
+    test "reports :unavailable rather than pretending to succeed" do
+      assert CrmLink.resolve_or_create_company("Acme", "supplier") == :unavailable
+    end
+
+    test "a blank name is refused before CRM is even consulted" do
+      assert CrmLink.resolve_or_create_company("   ", "supplier") == {:error, :blank_name}
+    end
+
+    test "can_provision? is narrower than available?" do
+      refute CrmLink.can_provision?()
+    end
+  end
 end

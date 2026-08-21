@@ -11,6 +11,7 @@ defmodule PhoenixKitCatalogue.Import.Executor do
   alias PhoenixKit.Utils.Multilang
   alias PhoenixKitCatalogue.Catalogue
   alias PhoenixKitCatalogue.Catalogue.CrmLink
+  alias PhoenixKitCatalogue.Catalogue.Manufacturers
   alias PhoenixKitCatalogue.Catalogue.PubSub
   alias PhoenixKitCatalogue.Catalogue.Suppliers
 
@@ -64,8 +65,8 @@ defmodule PhoenixKitCatalogue.Import.Executor do
     # the resolvers speak. A fixed party chosen in the UI comes from the
     # same picker the item form uses, so it is already CRM-sourced when CRM
     # is installed.
-    fixed_manufacturer_uuid = fixed_party(Keyword.get(opts, :manufacturer_uuid))
-    fixed_supplier_uuid = fixed_party(Keyword.get(opts, :supplier_uuid))
+    fixed_manufacturer_uuid = fixed_party(Keyword.get(opts, :manufacturer_uuid), "manufacturer")
+    fixed_supplier_uuid = fixed_party(Keyword.get(opts, :supplier_uuid), "supplier")
     match_across = Keyword.get(opts, :match_categories_across_languages, false)
     activity_opts = build_activity_opts(opts)
 
@@ -121,6 +122,7 @@ defmodule PhoenixKitCatalogue.Import.Executor do
       end)
 
     # Phase 2: Create items, accumulating M:N link pairs along the way
+    supplier_names = supplier_names(supplier_lookup, fixed_supplier_uuid)
     total = length(import_plan.items)
     initial_acc = {0, [], MapSet.new(), MapSet.new()}
 
@@ -146,7 +148,7 @@ defmodule PhoenixKitCatalogue.Import.Executor do
         # A supplier column means "this item is supplied by X", so it
         # attaches to the ITEM. That reference is federated, so it takes a
         # CRM party; the manufacturer M:N table below cannot.
-        attach_supplier(result, sup_ref, activity_opts)
+        attach_supplier(result, sup_ref, supplier_names, activity_opts)
 
         maybe_notify(notify_pid, {:import_progress, idx, total})
 
@@ -419,18 +421,27 @@ defmodule PhoenixKitCatalogue.Import.Executor do
     end)
   end
 
-  defp fixed_party(nil), do: nil
-  defp fixed_party({uuid, source}), do: {uuid, source}
+  defp fixed_party(uuid, role, resolver \\ nil)
+  defp fixed_party(nil, _role, _resolver), do: nil
+  defp fixed_party({uuid, source}, _role, _resolver), do: {uuid, source}
 
-  # A uuid chosen in the wizard: ask the resolver which side it came from
-  # rather than assuming, so a CRM pick is not stamped "local".
-  defp fixed_party(uuid) when is_binary(uuid) do
-    case Suppliers.resolve(uuid) do
+  # A uuid chosen in the wizard: ask the resolver for THAT role which side it
+  # came from, rather than assuming. Resolving a manufacturer through the
+  # supplier resolver returns nothing for a manufacturer-only party, and the
+  # reference would then be stamped "local" — a dangling local uuid in a
+  # column that no longer has an FK to catch it.
+  defp fixed_party(uuid, role, resolver) when is_binary(uuid) do
+    resolve = resolver || role_resolver(role)
+
+    case resolve.(uuid) do
       {:ok, %{source: :local}} -> {uuid, "local"}
       {:ok, %{source: _crm}} -> {uuid, "crm_company"}
       _ -> {uuid, "local"}
     end
   end
+
+  defp role_resolver("supplier"), do: &Suppliers.resolve/1
+  defp role_resolver(_manufacturer), do: &Manufacturers.resolve/1
 
   defp put_manufacturer(attrs, nil), do: attrs
 
@@ -444,14 +455,24 @@ defmodule PhoenixKitCatalogue.Import.Executor do
   # second CURRENT row for a pair, which is exactly right here: a file
   # listing the same supplier on the same item twice must not produce two
   # live prices.
-  defp attach_supplier({:ok, %{uuid: item_uuid}}, {supplier_uuid, source}, activity_opts)
+  defp attach_supplier(result, supplier_ref, names, activity_opts)
+
+  defp attach_supplier(
+         {:ok, %{uuid: item_uuid}},
+         {supplier_uuid, source},
+         names,
+         activity_opts
+       )
        when is_binary(item_uuid) and is_binary(supplier_uuid) do
     case Catalogue.create_supplier_info(
            %{
              "item_uuid" => item_uuid,
              "supplier_uuid" => supplier_uuid,
              "supplier_source" => source,
-             "supplier_name_snapshot" => supplier_snapshot(supplier_uuid)
+             # From the lookup we already built, not a fresh resolve per
+             # ITEM: that was a query per row, and it discarded the source
+             # we already hold.
+             "supplier_name_snapshot" => Map.get(names, supplier_uuid)
            },
            activity_opts
          ) do
@@ -467,9 +488,21 @@ defmodule PhoenixKitCatalogue.Import.Executor do
     end
   end
 
-  defp attach_supplier(_result, _supplier_ref, _activity_opts), do: :ok
+  defp attach_supplier(_result, _supplier_ref, _names, _activity_opts), do: :ok
 
-  defp supplier_snapshot(uuid) do
+  # uuid => name, from the resolution pass. One map for the whole import
+  # rather than a resolve per row.
+  defp supplier_names(lookup, {uuid, _source}) when is_binary(uuid) do
+    lookup
+    |> Map.new(fn {name, {resolved_uuid, _src}} -> {resolved_uuid, name} end)
+    |> Map.put_new_lazy(uuid, fn -> resolved_name(uuid) end)
+  end
+
+  defp supplier_names(lookup, _fixed) do
+    Map.new(lookup, fn {name, {uuid, _src}} -> {uuid, name} end)
+  end
+
+  defp resolved_name(uuid) do
     case Suppliers.resolve(uuid) do
       {:ok, %{name: name}} -> name
       _ -> nil
@@ -511,18 +544,25 @@ defmodule PhoenixKitCatalogue.Import.Executor do
       {:ok, uuid} ->
         {Map.put(lookup, name, {uuid, "crm_company"}), count + 1}
 
-      # CRM went away between the guard and the call, or refused the
-      # write. Falling back keeps the import running rather than dropping
-      # every reference in the file on the floor.
-      other ->
-        Logger.warning(
-          "Import: CRM could not provide #{role} #{inspect(name)} " <>
-            "(#{inspect(other)}); falling back to a local row"
-        )
-
+      # CRM went away between the guard and the call — an install with no CRM
+      # is supported, so a local row is the right answer there.
+      :unavailable ->
         lookup
         |> Map.merge(local_existing.(), fn _k, existing, _new -> existing end)
         |> create_local_party(count, name, role, activity_opts)
+
+      # CRM is present and REFUSED: an ambiguous name, a validation error, a
+      # failed grant. Creating a local row here would mint a second identity
+      # for a business CRM already owns, which is exactly what moving parties
+      # into CRM was meant to stop. The name is left unresolved instead — the
+      # item imports without that reference rather than with a wrong one.
+      {:error, reason} ->
+        Logger.warning(
+          "Import: CRM refused #{role} #{inspect(name)} (#{inspect(reason)}); " <>
+            "items naming it will import without it"
+        )
+
+        {lookup, count}
     end
   end
 

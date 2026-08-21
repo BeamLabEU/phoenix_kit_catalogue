@@ -582,4 +582,34 @@ defmodule PhoenixKitCatalogue.Import.ExecutorTest do
       assert result.manufacturer_supplier_links_created == 1
     end
   end
+
+  # External review, 2026-08-21: a manufacturer was being resolved through the
+  # SUPPLIER resolver. That keys on the supplier role, so a manufacturer-only
+  # party resolved to nothing and got stamped "local" — a dangling local uuid
+  # in a column whose FK V179 removed.
+  describe "a fixed party is resolved for its own role" do
+    test "a fixed manufacturer that is a local row is stamped local" do
+      cat = create_catalogue()
+      {:ok, mfr} = Catalogue.create_manufacturer(%{name: "Local Maker"})
+
+      plan = %{categories_to_create: [], items: [%{name: "Row A"}]}
+      Executor.execute(plan, cat.uuid, nil, manufacturer_uuid: mfr.uuid)
+
+      [item] = Catalogue.list_items_for_catalogue(cat.uuid)
+      assert item.manufacturer_uuid == mfr.uuid
+      assert item.manufacturer_source == "local"
+    end
+
+    # A uuid belonging to neither directory must not be silently accepted as a
+    # local row; it is stamped local only because there is nothing else it can
+    # be, and the audit task is what surfaces it.
+    test "an unknown fixed manufacturer still imports the item" do
+      cat = create_catalogue()
+
+      plan = %{categories_to_create: [], items: [%{name: "Row A"}]}
+      result = Executor.execute(plan, cat.uuid, nil, manufacturer_uuid: Ecto.UUID.generate())
+
+      assert result.created == 1
+    end
+  end
 end
