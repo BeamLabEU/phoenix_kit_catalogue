@@ -1,3 +1,55 @@
+## 0.18.0 - 2026-08-22
+
+### Added
+
+- **Item selector modal and embeddable browse components** (#76) — a
+  client-facing "pick items with quantities" modal (the catalogue's
+  `MediaSelectorModal` analogue) plus the stack it is assembled from:
+  `Catalogue.BrowseState` (pure reducer, no process), `Web.Components.Browse`
+  (card / grid / chips / qty stepper), `ItemSelectorModal`, and
+  `CatalogueBrowse` for a scoped catalogue surface on any logged-in page.
+  Scope is a security boundary (`search_items/2` vocabulary, including
+  `:statuses` and `:include_descendants`); quantities are Decimal end to
+  end; confirm hands the host a display snapshot (re-price server-side).
+
+### Fixed
+
+- **`:statuses` on `search_items/2` was documented and then ignored** —
+  `BrowseState` forwarded it, Search never read it, so
+  `statuses: ["active"]` still listed inactive/discontinued items and the
+  picker would select them. Search now filters; atoms stringify;
+  soft-deleted rows stay excluded.
+- **Picker hydration crashed on an uncategorized preselect** against a
+  `category_uuids` / `:categorized_only` scope (`to_string(nil)`), and
+  `:categorized_only` itself was missing from the availability check —
+  the hole `:uncategorized_only` already had a pin for.
+- **Descendant-category preselects were marked unavailable** even though
+  Search expands parent scopes by default, so an order line in a nested
+  category silently dropped on confirm.
+- **Cards showed `base_price`, not the selling price** — `present_items/2`
+  now uses `Catalogue.item_pricing/1`'s `final_price`, matching
+  `ItemPicker`. Starting qty is 1; `Item.default_value` is the
+  smart-catalogue fee fallback, not a pick quantity.
+- **Invalid quantity commits did not recreate the input** — the
+  documented per-row revision that forces morphdom to drop typed garbage
+  was never incremented.
+- **Category chips preloaded every item in the catalogue**; preselect
+  hydration was N+1 `get_item/1` and could confirm a deleted row.
+  Chips now use the metadata listing; hydration uses
+  `list_items_by_uuids/2`.
+- **`CatalogueBrowse` lacked the picker's event catch-all and scope-key
+  validation** — a crafted payload or a string-keyed scope could crash
+  the host LV or silently widen browsing. Both live in `BrowseState.init/1`
+  now.
+- **Declare `rustler` as an optional Hex dep** (#77) so `mdex_native`
+  can force-build its NIF from source (`MDEX_NATIVE_BUILD=1`) on OTP 28,
+  which ships no precompiled artefact. Same declaration core
+  `phoenix_kit` already carries.
+
+See [PR #76](dev_docs/pull_requests/2026/76-item-selector-and-browse-components/GROK_REVIEW.md)
+and [PR #77](dev_docs/pull_requests/2026/77-rustler-declare/GROK_REVIEW.md)
+reviews for the full findings.
+
 ## 0.17.0 - 2026-08-19
 
 ### Added

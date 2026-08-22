@@ -46,6 +46,11 @@ defmodule PhoenixKitCatalogue.Catalogue.BrowseState do
 
   @default_per_page 24
 
+  # Mirrors the `Search.search_items/2` filter vocabulary (paging/preload
+  # excluded). A string-keyed or unknown-key scope would read as no
+  # restriction and silently widen browsing — fail loud at init instead.
+  @scope_keys [:catalogue_uuids, :category_uuids, :only, :statuses, :include_descendants]
+
   defstruct scope: %{},
             search: "",
             category_uuid: nil,
@@ -64,14 +69,27 @@ defmodule PhoenixKitCatalogue.Catalogue.BrowseState do
   Builds the initial state. `opts`:
 
     * `:scope` — map with any of `:catalogue_uuids`, `:category_uuids`,
-      `:only`, `:statuses`. Fixed for the state's lifetime.
+      `:only`, `:statuses`, `:include_descendants`. Fixed for the state's
+      lifetime. Unknown keys raise `ArgumentError`.
     * `:per_page` — page size (default #{@default_per_page}).
   """
   def init(opts \\ []) do
     %__MODULE__{
-      scope: Map.new(opts[:scope] || %{}),
+      scope: validate_scope!(Map.new(opts[:scope] || %{})),
       per_page: opts[:per_page] || @default_per_page
     }
+  end
+
+  defp validate_scope!(scope) do
+    case Map.keys(scope) -- @scope_keys do
+      [] ->
+        scope
+
+      bad ->
+        raise ArgumentError,
+              "BrowseState scope has unknown keys #{inspect(bad)} — " <>
+                "use #{inspect(@scope_keys)} (atoms, the search_items/2 vocabulary)"
+    end
   end
 
   @doc """
@@ -99,6 +117,8 @@ defmodule PhoenixKitCatalogue.Catalogue.BrowseState do
     fetch(%{state | search: String.slice(q, 0, 200)})
   end
 
+  def command(state, {:search, _}), do: {state, :noop}
+
   def command(%{category_uuid: uuid} = state, {:set_category, uuid}), do: {state, :noop}
 
   def command(state, {:set_category, nil}), do: fetch(%{state | category_uuid: nil})
@@ -110,6 +130,8 @@ defmodule PhoenixKitCatalogue.Catalogue.BrowseState do
       {state, :noop}
     end
   end
+
+  def command(state, {:set_category, _}), do: {state, :noop}
 
   def command(%{loading?: true} = state, :load_more), do: {state, :noop}
   def command(%{exhausted?: true} = state, :load_more), do: {state, :noop}
@@ -165,7 +187,7 @@ defmodule PhoenixKitCatalogue.Catalogue.BrowseState do
   """
   def query_opts(state) do
     state.scope
-    |> Map.take([:catalogue_uuids, :only, :statuses])
+    |> Map.take([:catalogue_uuids, :only, :statuses, :include_descendants])
     |> Map.put(:category_uuids, effective_category_uuids(state))
     |> Map.put(:limit, state.per_page)
     |> Map.put(:offset, state.page * state.per_page)

@@ -3331,6 +3331,45 @@ defmodule PhoenixKitCatalogue.CatalogueTest do
       assert length(Catalogue.search_items("oak", category_uuids: [])) == 1
     end
 
+    test ":statuses narrows to the listed item statuses" do
+      cat = create_catalogue()
+
+      _inactive =
+        create_item(%{
+          name: "Oak Inactive",
+          catalogue_uuid: cat.uuid,
+          status: "inactive"
+        })
+
+      active =
+        create_item(%{
+          name: "Oak Active",
+          catalogue_uuid: cat.uuid,
+          status: "active"
+        })
+
+      names =
+        "oak"
+        |> Catalogue.search_items(
+          catalogue_uuids: [cat.uuid],
+          statuses: ["active"]
+        )
+        |> Enum.map(& &1.name)
+
+      assert names == [active.name]
+
+      # Atoms stringify the same way BrowseState forwards them.
+      atom_names =
+        "oak"
+        |> Catalogue.search_items(
+          catalogue_uuids: [cat.uuid],
+          statuses: [:inactive]
+        )
+        |> Enum.map(& &1.name)
+
+      assert atom_names == ["Oak Inactive"]
+    end
+
     test "count_search_items/2 accepts the same scope filters" do
       cat_a = create_catalogue(%{name: "A"})
       cat_b = create_catalogue(%{name: "B"})

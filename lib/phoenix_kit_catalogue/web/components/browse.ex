@@ -19,7 +19,7 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
       |> Browse.present_items(locale)
       # => [%{uuid: "…", name: "…", sku: "…", price: %Decimal{}|nil,
       #       unit: "piece", photo_url: "/…/medium/…"|nil,
-      #       manufacturer: "…"|nil, default_qty: %Decimal{}}]
+      #       manufacturer: "…"|nil, default_qty: %Decimal{1}}]
 
   Pair them with `PhoenixKitCatalogue.Catalogue.BrowseState` for the
   fetch/paging state machine; the moduledoc there shows the loop.
@@ -31,14 +31,19 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
   import PhoenixKitWeb.Components.Core.Icon, only: [icon: 1]
 
   alias PhoenixKit.Modules.Storage.URLSigner
+  alias PhoenixKitCatalogue.Catalogue
   alias PhoenixKitCatalogue.Catalogue.Translations
+  alias PhoenixKitCatalogue.Schemas.Item
 
   @photo_variant "medium"
 
   @doc """
   Denormalizes schema items into presented maps: translated name, signed
-  featured-photo URL, and the default quantity a picker should start at
-  (the item's `default_value` when set, else 1).
+  featured-photo URL, selling price (`Catalogue.item_pricing/1`'s
+  `final_price`, matching `ItemPicker`), and a starting quantity of 1.
+
+  `Item.default_value` is the smart-catalogue fee fallback (percent/flat),
+  not a pick quantity — do not use it as a stepper default.
 
   Runs once per fetched page — never call translation or URL helpers from
   a template; a quantity keystroke re-renders every card.
@@ -51,14 +56,21 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
         uuid: to_string(item.uuid),
         name: translated["name"] || item.name,
         sku: item.sku,
-        price: item.base_price,
+        price: presented_price(item),
         unit: item.unit,
         manufacturer: item.manufacturer_name || item.manufacturer_name_snapshot,
         photo_url: featured_photo_url(item),
-        default_qty: default_qty(item)
+        default_qty: Decimal.new(1)
       }
     end)
   end
+
+  # Selling price for a real item (markup → discount). Test doubles and
+  # other maps fall back to `base_price` so render-shape tests stay
+  # DB-free.
+  defp presented_price(%Item{} = item), do: Catalogue.item_pricing(item).final_price
+  defp presented_price(%{base_price: price}), do: price
+  defp presented_price(_), do: nil
 
   @doc """
   Signed URL for an item's featured photo (`#{@photo_variant}` variant), or
@@ -71,12 +83,6 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
       _ -> nil
     end
   end
-
-  defp default_qty(%{default_value: %Decimal{} = d}) do
-    if Decimal.compare(d, 0) == :gt, do: d, else: Decimal.new(1)
-  end
-
-  defp default_qty(_), do: Decimal.new(1)
 
   @doc """
   Horizontally scrollable category filter chips: "All" plus one per

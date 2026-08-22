@@ -52,22 +52,27 @@ defmodule PhoenixKitCatalogue.Test.SelectorHostLive do
   end
 
   defp build_scope(params) do
-    scope =
-      case params["c"] do
-        nil -> %{}
-        uuid -> %{catalogue_uuids: [uuid]}
-      end
-
-    scope =
-      case params["cat_scope"] do
-        nil -> scope
-        uuid -> Map.put(scope, :category_uuids, [uuid])
-      end
-
-    if params["only"] == "uncategorized",
-      do: Map.put(scope, :only, :uncategorized_only),
-      else: scope
+    %{}
+    |> maybe_put_catalogue(params["c"])
+    |> maybe_put_category(params["cat_scope"])
+    |> maybe_put_only(params["only"])
+    |> maybe_put_statuses(params["statuses"])
   end
+
+  defp maybe_put_catalogue(scope, nil), do: scope
+  defp maybe_put_catalogue(scope, uuid), do: Map.put(scope, :catalogue_uuids, [uuid])
+
+  defp maybe_put_category(scope, nil), do: scope
+  defp maybe_put_category(scope, uuid), do: Map.put(scope, :category_uuids, [uuid])
+
+  defp maybe_put_only(scope, "uncategorized"), do: Map.put(scope, :only, :uncategorized_only)
+  defp maybe_put_only(scope, "categorized"), do: Map.put(scope, :only, :categorized_only)
+  defp maybe_put_only(scope, _), do: scope
+
+  defp maybe_put_statuses(scope, nil), do: scope
+
+  defp maybe_put_statuses(scope, raw),
+    do: Map.put(scope, :statuses, String.split(raw, ",", trim: true))
 
   @impl true
   def handle_info({:items_selected, payload}, socket),

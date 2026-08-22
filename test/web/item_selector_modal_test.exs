@@ -315,6 +315,166 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       assert html =~ ~s(<span id="picked-count">0</span>)
     end
 
+    test "a :categorized_only-excluded uncategorized preselect is not confirmable", %{
+      conn: conn,
+      cat: cat
+    } do
+      {:ok, loose} =
+        Catalogue.create_item(%{
+          name: "Loose Widget",
+          catalogue_uuid: cat.uuid
+        })
+
+      {:ok, view, _html} =
+        live(
+          conn,
+          "/test/selector-host?c=#{cat.uuid}&only=categorized&pre=#{loose.uuid}:2"
+        )
+
+      # Hydration of a nil category_uuid against a restriction list must
+      # not crash (to_string(nil) is not implemented). Tray starts collapsed.
+      html = view |> picker() |> render_click("toggle_tray", %{})
+      assert html =~ "Loose Widget"
+      assert html =~ "Not available in this selection"
+
+      {:ok, view, _html} =
+        live(
+          conn,
+          "/test/selector-host?c=#{cat.uuid}&only=categorized&pre=#{loose.uuid}:2"
+        )
+
+      view |> picker() |> render_click("confirm", %{})
+      html = render(view)
+      assert html =~ ~s(<span id="picked-count">0</span>)
+    end
+
+    test "an uncategorized preselect under a category_uuids scope does not crash", %{
+      conn: conn,
+      cat: cat
+    } do
+      allowed = fixture_category(cat, %{name: "Allowed"})
+
+      {:ok, loose} =
+        Catalogue.create_item(%{
+          name: "Uncategorized Preselect",
+          catalogue_uuid: cat.uuid
+        })
+
+      {:ok, view, _html} =
+        live(
+          conn,
+          "/test/selector-host?c=#{cat.uuid}&cat_scope=#{allowed.uuid}&pre=#{loose.uuid}:1"
+        )
+
+      html = view |> picker() |> render_click("toggle_tray", %{})
+      assert html =~ "Uncategorized Preselect"
+      assert html =~ "Not available in this selection"
+
+      {:ok, view, _html} =
+        live(
+          conn,
+          "/test/selector-host?c=#{cat.uuid}&cat_scope=#{allowed.uuid}&pre=#{loose.uuid}:1"
+        )
+
+      view |> picker() |> render_click("confirm", %{})
+      html = render(view)
+      assert html =~ ~s(<span id="picked-count">0</span>)
+    end
+
+    test "a descendant-category preselect is confirmable (search expands the tree)", %{
+      conn: conn,
+      cat: cat
+    } do
+      parent = fixture_category(cat, %{name: "Kitchen"})
+      child = fixture_category(cat, %{name: "Frames", parent_uuid: parent.uuid})
+
+      {:ok, nested} =
+        Catalogue.create_item(%{
+          name: "Nested Frame",
+          catalogue_uuid: cat.uuid,
+          category_uuid: child.uuid
+        })
+
+      {:ok, view, _html} =
+        live(
+          conn,
+          "/test/selector-host?c=#{cat.uuid}&cat_scope=#{parent.uuid}&pre=#{nested.uuid}:2"
+        )
+
+      view |> picker() |> render_click("confirm", %{})
+      html = render(view)
+
+      assert html =~ "Nested Frame"
+      assert html =~ "qty=2"
+    end
+
+    test "statuses scope hides inactive items from the grid", %{conn: conn, cat: cat} do
+      {:ok, _inactive} =
+        Catalogue.create_item(%{
+          name: "Sleepy Widget",
+          sku: "SLP-1",
+          catalogue_uuid: cat.uuid,
+          status: "inactive"
+        })
+
+      {:ok, _view, html} = live(conn, "/test/selector-host?c=#{cat.uuid}&statuses=active")
+
+      refute html =~ "Sleepy Widget"
+      assert html =~ "M8 Screw"
+    end
+
+    test "selling price (markup applied) is what the card and snapshot show", %{
+      conn: conn
+    } do
+      cat =
+        fixture_catalogue(%{
+          name: "Marked Up",
+          markup_percentage: Decimal.new("10"),
+          discount_percentage: Decimal.new("0")
+        })
+
+      {:ok, item} =
+        Catalogue.create_item(%{
+          name: "Priced Widget",
+          sku: "PW-1",
+          base_price: Decimal.new("100.00"),
+          catalogue_uuid: cat.uuid
+        })
+
+      {:ok, view, html} = open(conn, "c=#{cat.uuid}")
+
+      assert html =~ "110.00"
+      refute html =~ ">100.00<"
+
+      view |> element("#picker-card-#{item.uuid} > button") |> render_click()
+      view |> picker() |> render_click("confirm", %{})
+      html = render(view)
+
+      assert html =~ "line=110.00"
+    end
+
+    test "invalid qty commit bumps the stepper revision so morphdom recreates the input",
+         %{
+           conn: conn,
+           cat: cat,
+           screw: screw
+         } do
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}")
+      uuid = to_string(screw.uuid)
+
+      view |> element("#picker-card-#{screw.uuid} > button") |> render_click()
+      html = render(view)
+      assert html =~ ~s(id="picker-qty-#{uuid}-r0")
+
+      html =
+        view
+        |> picker()
+        |> render_click("qty_commit", %{"uuid" => uuid, "value" => "abc"})
+
+      assert html =~ ~s(id="picker-qty-#{uuid}-r1")
+      refute html =~ ~s(id="picker-qty-#{uuid}-r0")
+    end
+
     test "exponent quantities are rejected, not parsed to 1e9", %{
       conn: conn,
       cat: cat,

@@ -457,4 +457,37 @@ defmodule PhoenixKitCatalogue.GettextTest do
       )
     end
   end
+
+  # PR #76 — item selector modal / embeddable browse. These were added by
+  # hand to default.pot and en/et/ru (mix gettext.extract would wipe the
+  # catalogues). Empty en msgstr is Gettext's "use the msgid" convention.
+  describe "item selector strings are present in every locale" do
+    test "Select items" do
+      msgid = "Select items"
+      assert po_msgstr("en", msgid) != nil
+      assert gettext_in("et", msgid) == "Vali tooted"
+      assert gettext_in("ru", msgid) == "Выберите позиции"
+    end
+
+    test "Confirm selection" do
+      msgid = "Confirm selection"
+      assert po_msgstr("en", msgid) != nil
+      assert gettext_in("et", msgid) == "Kinnita valik"
+      assert gettext_in("ru", msgid) == "Подтвердить выбор"
+    end
+
+    test "Not available in this selection" do
+      msgid = "Not available in this selection"
+      assert po_msgstr("en", msgid) != nil
+      assert gettext_in("et", msgid) == "Selles valikus pole saadaval"
+      assert gettext_in("ru", msgid) == "Недоступно в этом выборе"
+    end
+
+    test "No items match your search." do
+      msgid = "No items match your search."
+      assert po_msgstr("en", msgid) != nil
+      assert gettext_in("et", msgid) == "Otsingule vastavaid tooteid pole."
+      assert gettext_in("ru", msgid) == "Нет позиций, соответствующих запросу."
+    end
+  end
 end
