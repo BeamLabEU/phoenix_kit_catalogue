@@ -29,6 +29,22 @@ defmodule PhoenixKitCatalogue.Web.Components do
       `add_meta_field` and `remove_meta_field` events wired up in the LV;
       text edits are absorbed via the form's `validate`.
 
+  ## Embeddable browse surfaces (separate modules)
+
+    * `Components.ItemSelectorModal` — LiveComponent: the client-facing
+      "pick items + quantities from the catalogue" modal. Scoped via
+      `search_items/2` opts, reports `{:items_selected, %{picks: …}}` /
+      `{:item_selector_closed, _}` to the host LV.
+    * `Components.CatalogueBrowse` — LiveComponent: the same browse
+      surface (search + category chips + card grid) without selection
+      chrome, for embedding a catalogue view on any logged-in page.
+      Reports `{:catalogue_browse, %{event: :item_clicked, …}}`.
+    * `Components.Browse` — the pure function components both are built
+      from (`item_card/1`, `item_grid/1`, `category_chips/1`,
+      `qty_stepper/1`, `grid_skeleton/1`, `present_items/2`) for hosts
+      that want to compose their own surface with
+      `Catalogue.BrowseState`.
+
   Several of these (`search_input`, `search_results_summary`,
   `view_mode_toggle`) are deliberately generic — no
   catalogue-specific schema knowledge — and are candidates for

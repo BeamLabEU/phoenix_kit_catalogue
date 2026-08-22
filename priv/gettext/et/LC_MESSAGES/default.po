@@ -2745,3 +2745,30 @@ msgstr "imporditud"
 
 msgid "Open the company"
 msgstr "Ava ettevõte"
+
+msgid "All"
+msgstr "Kõik"
+
+msgid "Quantity"
+msgstr "Kogus"
+
+msgid "Decrease quantity"
+msgstr "Vähenda kogust"
+
+msgid "Increase quantity"
+msgstr "Suurenda kogust"
+
+msgid "Load more"
+msgstr "Laadi veel"
+
+msgid "Select items"
+msgstr "Vali tooted"
+
+msgid "Confirm selection"
+msgstr "Kinnita valik"
+
+msgid "Not available in this selection"
+msgstr "Selles valikus pole saadaval"
+
+msgid "Shown on category landing pages."
+msgstr "Kuvatakse kategooria avalehtedel."
