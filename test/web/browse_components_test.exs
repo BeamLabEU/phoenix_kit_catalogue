@@ -149,8 +149,34 @@ defmodule PhoenixKitCatalogue.Web.Components.BrowseTest do
       # The signed URL is computed here — the card never talks to Storage.
       assert p.photo_url =~ "photo-uuid"
       assert p.photo_url =~ "medium"
-      # default_value drives the starting quantity (the paint case).
-      assert Decimal.equal?(p.default_qty, Decimal.new("2.5"))
+      # Starting qty is always 1. `default_value` is the smart-catalogue
+      # fee fallback, not a pick quantity.
+      assert Decimal.equal?(p.default_qty, Decimal.new(1))
+    end
+
+    test "Item structs expose selling price (markup applied), not base_price" do
+      item = %PhoenixKitCatalogue.Schemas.Item{
+        uuid: "u-11",
+        name: "Priced",
+        sku: "P-1",
+        base_price: Decimal.new("100.00"),
+        markup_percentage: nil,
+        discount_percentage: nil,
+        unit: "piece",
+        manufacturer_name: nil,
+        manufacturer_name_snapshot: nil,
+        default_value: Decimal.new("5"),
+        data: %{},
+        catalogue: %PhoenixKitCatalogue.Schemas.Catalogue{
+          markup_percentage: Decimal.new("10"),
+          discount_percentage: Decimal.new("0")
+        }
+      }
+
+      [p] = Browse.present_items([item], "en")
+
+      assert Decimal.equal?(p.price, Decimal.new("110.00"))
+      assert Decimal.equal?(p.default_qty, Decimal.new(1))
     end
 
     test "no featured image and no default_value degrade to nil photo and qty 1" do

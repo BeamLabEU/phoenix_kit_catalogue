@@ -36,6 +36,10 @@ defmodule PhoenixKitCatalogue.Catalogue.Search do
       belong to some category. `nil` (default) is unrestricted.
       Combining `:uncategorized_only` with a non-empty `:category_uuids`
       is a logical contradiction and raises `ArgumentError`.
+    * `:statuses` — list of item statuses to include (`"active"`,
+      `"inactive"`, `"discontinued"`). `nil` or `[]` = all non-deleted
+      (the historical default). Soft-deleted rows stay excluded even if
+      `"deleted"` is listed. Atoms are accepted and stringified.
     * `:limit` — max results (default 50).
     * `:offset` — paging offset (default 0).
     * `:preload` — extra associations appended to the default
@@ -137,6 +141,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Search do
     catalogue_uuids = opts[:catalogue_uuids]
     category_uuids = expand_category_scope(opts)
     only = Keyword.get(opts, :only)
+    statuses = opts[:statuses]
 
     from(i in Item,
       join: cat in Catalogue,
@@ -154,6 +159,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Search do
     |> maybe_scope_catalogues(catalogue_uuids)
     |> maybe_scope_categories(category_uuids)
     |> maybe_scope_only(only)
+    |> maybe_scope_statuses(statuses)
   end
 
   # Catches two foot-guns up front so callers see a loud error instead
@@ -237,5 +243,16 @@ defmodule PhoenixKitCatalogue.Catalogue.Search do
 
   defp maybe_scope_only(query, :categorized_only) do
     from([i, _cat, _c] in query, where: not is_nil(i.category_uuid))
+  end
+
+  defp maybe_scope_statuses(query, statuses) when statuses in [nil, []], do: query
+
+  defp maybe_scope_statuses(query, status) when is_binary(status) or is_atom(status) do
+    maybe_scope_statuses(query, [status])
+  end
+
+  defp maybe_scope_statuses(query, statuses) when is_list(statuses) do
+    statuses = Enum.map(statuses, &to_string/1)
+    from([i, _cat, _c] in query, where: i.status in ^statuses)
   end
 end

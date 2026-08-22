@@ -38,7 +38,6 @@ defmodule PhoenixKitCatalogue.Web.Components.CatalogueBrowse do
 
   alias PhoenixKitCatalogue.Catalogue
   alias PhoenixKitCatalogue.Catalogue.BrowseState
-  alias PhoenixKitCatalogue.Catalogue.Search
   alias PhoenixKitCatalogue.Web.Components.Browse
 
   @impl true
@@ -53,11 +52,9 @@ defmodule PhoenixKitCatalogue.Web.Components.CatalogueBrowse do
     if socket.assigns.initialized do
       {:ok, socket}
     else
-      scope = Map.new(assigns[:scope] || %{})
-      locale = assigns[:locale] || Gettext.get_locale(PhoenixKitCatalogue.Gettext)
-
-      browse = BrowseState.init(scope: scope, per_page: assigns[:per_page] || 24)
+      browse = BrowseState.init(scope: assigns[:scope] || %{}, per_page: assigns[:per_page] || 24)
       {browse, effect} = BrowseState.command(browse, :reset)
+      locale = assigns[:locale] || Gettext.get_locale(PhoenixKitCatalogue.Gettext)
 
       socket =
         socket
@@ -68,7 +65,7 @@ defmodule PhoenixKitCatalogue.Web.Components.CatalogueBrowse do
           show_prices: Map.get(assigns, :show_prices, true),
           show_sku: Map.get(assigns, :show_sku, true),
           show_search: Map.get(assigns, :show_search, true),
-          categories: chip_categories(scope),
+          categories: chip_categories(browse.scope),
           browse: browse
         )
 
@@ -85,15 +82,15 @@ defmodule PhoenixKitCatalogue.Web.Components.CatalogueBrowse do
   defp run_fetch(socket, {:fetch, opts, gen}) do
     %{browse: browse, locale: locale} = socket.assigns
 
-    items = Search.search_items(browse.search, opts)
-    total = Search.count_search_items(browse.search, opts)
+    items = Catalogue.search_items(browse.search, opts)
+    total = Catalogue.count_search_items(browse.search, opts)
     presented = Browse.present_items(items, locale)
 
     assign(socket, browse: BrowseState.ingest(browse, gen, presented, total))
   end
 
   defp chip_categories(%{catalogue_uuids: [catalogue_uuid]} = scope) do
-    categories = Catalogue.list_categories_for_catalogue(catalogue_uuid)
+    categories = Catalogue.list_categories_metadata_for_catalogue(catalogue_uuid)
 
     case scope[:category_uuids] do
       nil ->
@@ -143,6 +140,10 @@ defmodule PhoenixKitCatalogue.Web.Components.CatalogueBrowse do
       _ -> {:noreply, socket}
     end
   end
+
+  # A crafted payload with missing keys must degrade to a no-op, not a
+  # FunctionClauseError that takes the whole LiveView down.
+  def handle_event(_event, _params, socket), do: {:noreply, socket}
 
   @impl true
   def render(assigns) do

@@ -49,4 +49,18 @@ defmodule PhoenixKitCatalogue.Web.Components.CatalogueBrowseTest do
     refute html =~ "Widget"
     assert html =~ "No items match your search."
   end
+
+  test "a crafted payload with missing keys is a no-op, not a crash", %{
+    conn: conn,
+    cat: cat
+  } do
+    {:ok, view, _html} = live(conn, "/test/selector-host?browse=true&c=#{cat.uuid}")
+
+    html =
+      view
+      |> with_target("#surface")
+      |> render_click("nonsense_event", %{})
+
+    assert html =~ "Widget"
+  end
 end

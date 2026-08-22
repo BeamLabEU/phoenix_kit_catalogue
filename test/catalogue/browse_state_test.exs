@@ -16,7 +16,13 @@ defmodule PhoenixKitCatalogue.Catalogue.BrowseStateTest do
 
   describe "scope is a boundary" do
     test "catalogue_uuids and :only survive every command that fetches" do
-      scope = %{catalogue_uuids: ["cat-1"], only: :uncategorized_only, statuses: [:active]}
+      scope = %{
+        catalogue_uuids: ["cat-1"],
+        only: :uncategorized_only,
+        statuses: [:active],
+        include_descendants: false
+      }
+
       state = BrowseState.init(scope: scope)
 
       for cmd <- [:reset, {:search, "screw"}, :load_more] do
@@ -25,7 +31,24 @@ defmodule PhoenixKitCatalogue.Catalogue.BrowseStateTest do
         assert opts[:catalogue_uuids] == ["cat-1"], "#{inspect(cmd)} dropped catalogue scope"
         assert opts[:only] == :uncategorized_only, "#{inspect(cmd)} dropped :only"
         assert opts[:statuses] == [:active], "#{inspect(cmd)} dropped :statuses"
+        assert opts[:include_descendants] == false, "#{inspect(cmd)} dropped :include_descendants"
       end
+    end
+
+    test "a string-keyed or unknown-key scope raises rather than silently widening" do
+      assert_raise ArgumentError, ~r/unknown keys/, fn ->
+        BrowseState.init(scope: %{"catalogue_uuids" => ["cat-1"]})
+      end
+
+      assert_raise ArgumentError, ~r/unknown keys/, fn ->
+        BrowseState.init(scope: %{catalogue_uuids: ["cat-1"], extra: true})
+      end
+    end
+
+    test "a non-binary search or category command is a no-op, not a crash" do
+      state = BrowseState.init(scope: %{})
+      assert {^state, :noop} = BrowseState.command(state, {:search, ["crafted"]})
+      assert {^state, :noop} = BrowseState.command(state, {:set_category, 123})
     end
 
     test "a category command NARROWS scope.category_uuids, never escapes it" do

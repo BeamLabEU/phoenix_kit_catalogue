@@ -40,12 +40,12 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
   ## Scope
 
   `scope` fixes what the user may browse: any of `:catalogue_uuids`,
-  `:category_uuids`, `:only`, `:statuses` (the `Catalogue.search_items/2`
-  vocabulary). It is enforced in `BrowseState` — every fetch re-derives
-  from it, and client events can only narrow within it, so a crafted event
-  cannot browse or select outside what the host allowed. Selection events
-  are additionally accepted only for uuids the component itself has
-  rendered (or that arrived preselected).
+  `:category_uuids`, `:only`, `:statuses`, `:include_descendants` (the
+  `Catalogue.search_items/2` vocabulary). It is enforced in `BrowseState`
+  — every fetch re-derives from it, and client events can only narrow
+  within it, so a crafted event cannot browse or select outside what the
+  host allowed. Selection events are additionally accepted only for uuids
+  the component itself has rendered (or that arrived preselected).
 
   ## Preselection
 
@@ -71,7 +71,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
 
   alias PhoenixKitCatalogue.Catalogue
   alias PhoenixKitCatalogue.Catalogue.BrowseState
-  alias PhoenixKitCatalogue.Catalogue.Search
+  alias PhoenixKitCatalogue.Catalogue.Tree
   alias PhoenixKitCatalogue.Web.Components.Browse
 
   @impl true
@@ -99,13 +99,15 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
   end
 
   defp initialize(socket, assigns) do
-    scope = validate_scope!(Map.new(assigns[:scope] || %{}))
+    # BrowseState.init/1 validates the scope keys (atoms, search_items/2
+    # vocabulary) so a string-keyed map cannot silently widen browsing.
+    browse = BrowseState.init(scope: assigns[:scope] || %{}, per_page: assigns[:per_page] || 24)
+    {browse, effect} = BrowseState.command(browse, :reset)
+
     locale = assigns[:locale] || Gettext.get_locale(PhoenixKitCatalogue.Gettext)
     qty_precision = assigns[:qty_precision] || 0
     mode = assigns[:mode] || :multiple
-
-    browse = BrowseState.init(scope: scope, per_page: assigns[:per_page] || 24)
-    {browse, effect} = BrowseState.command(browse, :reset)
+    scope = browse.scope
 
     socket =
       socket
@@ -135,22 +137,6 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
     }
   end
 
-  # A string-keyed scope would read as %{} everywhere and silently WIDEN
-  # browsing to the whole catalogue — the one failure mode a scope must not
-  # have. Host props are server-side code, so fail loud at mount.
-  @scope_keys [:catalogue_uuids, :category_uuids, :only, :statuses]
-  defp validate_scope!(scope) do
-    case Map.keys(scope) -- @scope_keys do
-      [] ->
-        scope
-
-      bad ->
-        raise ArgumentError,
-              "ItemSelectorModal scope has unknown keys #{inspect(bad)} — " <>
-                "use #{inspect(@scope_keys)} (atoms, the search_items/2 vocabulary)"
-    end
-  end
-
   # ── Fetching ─────────────────────────────────────────────────────────
 
   # Synchronous by design: LiveComponent events serialize, so there is no
@@ -161,8 +147,8 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
   defp run_fetch(socket, {:fetch, opts, gen}) do
     %{browse: browse, locale: locale} = socket.assigns
 
-    items = Search.search_items(browse.search, opts)
-    total = Search.count_search_items(browse.search, opts)
+    items = Catalogue.search_items(browse.search, opts)
+    total = Catalogue.count_search_items(browse.search, opts)
     presented_page = Browse.present_items(items, locale)
 
     browse = BrowseState.ingest(browse, gen, presented_page, total)
@@ -178,12 +164,24 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
   # The scope-exempt read: the tray must render whatever the host handed
   # in, so these uuids are fetched directly. Availability is then judged
   # against the scope so out-of-scope rows can be shown-but-excluded.
+  # `list_items_by_uuids/2` is one query and already drops soft-deleted
+  # rows, matching the fetch layer.
+  defp hydrate_preselection(selected, _scope, _locale) when selected == %{}, do: %{}
+
   defp hydrate_preselection(selected, scope, locale) do
+    expanded_categories = expand_scope_categories(scope)
+
+    items_by_uuid =
+      selected
+      |> Map.keys()
+      |> Catalogue.list_items_by_uuids()
+      |> Map.new(&{to_string(&1.uuid), &1})
+
     selected
     |> Enum.flat_map(fn {uuid, qty} ->
       uuid = to_string(uuid)
 
-      case Catalogue.get_item(uuid) do
+      case items_by_uuid[uuid] do
         nil ->
           []
 
@@ -195,7 +193,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
              %{
                qty: to_decimal(qty),
                item: presented,
-               available: in_scope?(item, scope)
+               available: in_scope?(item, scope, expanded_categories)
              }}
           ]
       end
@@ -204,27 +202,72 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
   end
 
   # Mirrors every restriction `query_opts/1` sends to the fetch layer —
-  # including `:only`, or a preselected row the browse itself could never
-  # return would confirm as available (the hole an external review found).
-  defp in_scope?(item, scope) do
+  # including `:only` and descendant-expanded `:category_uuids`, or a
+  # preselected row the browse itself could never return would confirm
+  # as available.
+  defp in_scope?(item, scope, expanded_categories) do
     allowed?(scope[:catalogue_uuids], item.catalogue_uuid) and
-      allowed?(scope[:category_uuids], item.category_uuid) and
+      category_in_scope?(expanded_categories, item.category_uuid) and
       allowed?(scope[:statuses], item.status) and
       only_ok?(scope[:only], item)
   end
 
   defp allowed?(nil, _value), do: true
   defp allowed?([], _value), do: true
-  defp allowed?(list, value), do: to_string(value) in Enum.map(list, &to_string/1)
+  defp allowed?(_list, nil), do: false
+  defp allowed?(list, value), do: normalize_uuid(value) in Enum.map(list, &normalize_uuid/1)
+
+  defp category_in_scope?(nil, _value), do: true
+  defp category_in_scope?([], _value), do: true
+  defp category_in_scope?(_expanded, nil), do: false
+
+  defp category_in_scope?(expanded, value) do
+    MapSet.member?(expanded, normalize_uuid(value))
+  end
+
+  # Same expansion Search.search_items/2 applies (Tree.subtree_uuids_for/1,
+  # skipped when the host passed include_descendants: false).
+  defp expand_scope_categories(scope) do
+    case scope[:category_uuids] do
+      nil ->
+        nil
+
+      [] ->
+        []
+
+      uuids ->
+        raw =
+          if scope[:include_descendants] == false,
+            do: uuids,
+            else: Tree.subtree_uuids_for(uuids)
+
+        MapSet.new(Enum.map(raw, &normalize_uuid/1))
+    end
+  end
+
+  defp normalize_uuid(nil), do: nil
+
+  defp normalize_uuid(bin) when is_binary(bin) and byte_size(bin) == 16 do
+    case Ecto.UUID.load(bin) do
+      {:ok, uuid} -> uuid
+      :error -> bin
+    end
+  end
+
+  defp normalize_uuid(other), do: to_string(other)
 
   defp only_ok?(:uncategorized_only, item), do: is_nil(item.category_uuid)
+  defp only_ok?(:categorized_only, item), do: not is_nil(item.category_uuid)
   defp only_ok?(_other, _item), do: true
 
   # Chips only make sense inside one catalogue — with several (or all),
   # a flat chip row of every category across catalogues is noise, and
   # search does the narrowing instead.
+  #
+  # Metadata-only: `list_categories_for_catalogue/1` preloads every item
+  # in every category, which is a full-catalogue load just to render chips.
   defp chip_categories(%{catalogue_uuids: [catalogue_uuid]} = scope) do
-    categories = Catalogue.list_categories_for_catalogue(catalogue_uuid)
+    categories = Catalogue.list_categories_metadata_for_catalogue(catalogue_uuid)
 
     case scope[:category_uuids] do
       nil ->
@@ -288,11 +331,13 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
     do: {:noreply, step_qty(socket, uuid, :dec)}
 
   def handle_event("qty_commit", %{"uuid" => uuid, "value" => raw}, socket) do
+    # Bump the per-row revision so the input's id changes. Morphdom will
+    # not reset typed garbage (or "01") when the value attr is unchanged.
+    socket = bump_qty_rev(socket, uuid)
+
     case parse_qty(raw, socket.assigns) do
       {:ok, qty} -> {:noreply, put_qty(socket, uuid, qty)}
-      # Invalid input: drop the draft so the field re-renders the last
-      # committed value — the row is never lost over a typo.
-      :error -> {:noreply, update(socket, :drafts, &Map.delete(&1, uuid))}
+      :error -> {:noreply, socket}
     end
   end
 
@@ -372,12 +417,14 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
 
       entry ->
         qty = clamp(qty, socket.assigns)
-
-        assign(socket,
-          selection: Map.put(socket.assigns.selection, uuid, %{entry | qty: qty}),
-          drafts: Map.delete(socket.assigns.drafts, uuid)
-        )
+        assign(socket, selection: Map.put(socket.assigns.selection, uuid, %{entry | qty: qty}))
     end
+  end
+
+  defp bump_qty_rev(socket, uuid) do
+    update(socket, :drafts, fn drafts ->
+      Map.update(drafts, uuid, 1, &(&1 + 1))
+    end)
   end
 
   # Quantities arrive from the client and are clamped here, not trusted
@@ -463,6 +510,9 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
   defp format_qty(%Decimal{} = qty), do: Decimal.to_string(Decimal.normalize(qty), :normal)
 
   defp selection_count(selection), do: map_size(selection)
+
+  defp confirmable_selection?(selection),
+    do: Enum.any?(selection, fn {_uuid, entry} -> entry.available end)
 
   defp selection_total(selection) do
     selection
@@ -600,7 +650,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
                   class="btn btn-primary btn-sm"
                   phx-click="confirm"
                   phx-target={@myself}
-                  disabled={@selection == %{}}
+                  disabled={not confirmable_selection?(@selection)}
                 >
                   {gettext("Confirm selection")}
                 </button>
