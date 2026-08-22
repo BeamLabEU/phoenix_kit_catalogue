@@ -2754,3 +2754,30 @@ msgstr "импортирован"
 
 msgid "Open the company"
 msgstr "Открыть компанию"
+
+msgid "All"
+msgstr "Все"
+
+msgid "Quantity"
+msgstr "Количество"
+
+msgid "Decrease quantity"
+msgstr "Уменьшить количество"
+
+msgid "Increase quantity"
+msgstr "Увеличить количество"
+
+msgid "Load more"
+msgstr "Загрузить ещё"
+
+msgid "Select items"
+msgstr "Выберите позиции"
+
+msgid "Confirm selection"
+msgstr "Подтвердить выбор"
+
+msgid "Not available in this selection"
+msgstr "Недоступно в этом выборе"
+
+msgid "Shown on category landing pages."
+msgstr "Отображается на страницах категорий."

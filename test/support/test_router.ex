@@ -69,4 +69,18 @@ defmodule PhoenixKitCatalogue.Test.Router do
       live("/:uuid", CatalogueDetailLive, :show)
     end
   end
+
+  # Unaliased scope: the block above prefixes every module with
+  # PhoenixKitCatalogue.Web, and the selector host lives under Test.
+  scope "/test" do
+    pipe_through(:browser)
+
+    live_session :selector_test,
+      on_mount: {PhoenixKitCatalogue.LiveCase, :assign_test_current_user},
+      layout: {PhoenixKitCatalogue.Test.Layouts, :app} do
+      # Test-only host for the ItemSelectorModal LiveComponent — asserts
+      # the process-message contract a real host would consume.
+      live("/selector-host", PhoenixKitCatalogue.Test.SelectorHostLive)
+    end
+  end
 end

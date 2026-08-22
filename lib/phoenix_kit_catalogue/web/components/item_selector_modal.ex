@@ -1,0 +1,673 @@
+defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
+  @moduledoc """
+  Catalogue item selector modal: the catalogue's analogue of core's
+  `MediaSelectorModal`. A logged-in user browses the catalogue inside a
+  modal — search, category chips, photo-forward card grid — picks items,
+  sets a quantity per item, reviews the selection in a tray, and confirms.
+
+  ## Usage
+
+      # In the parent LiveView's template. Mount it with :if — unmounting
+      # on close is what gives clean reopen semantics (fresh search, fresh
+      # scroll, preselects re-read).
+      <.live_component
+        :if={@show_item_selector}
+        module={PhoenixKitCatalogue.Web.Components.ItemSelectorModal}
+        id="order-item-selector"
+        scope={%{catalogue_uuids: [@catalogue.uuid]}}
+        selected={@order_lines_by_uuid}
+      />
+
+  ## Required host wiring (do not skip — silent failure otherwise)
+
+  This is a `LiveComponent`; it reports through process messages to the
+  host LiveView, exactly like `MediaSelectorModal`. The host MUST handle
+  both, or a confirmed selection is silently dropped:
+
+    * `handle_info({:items_selected, %{id: id, mode: mode, picks: picks}}, socket)`
+      — fired on Confirm. Each pick is a map with `:uuid`, `:qty`
+      (**always** a `Decimal`, integers included — hosts write one clause),
+      `:unit`, and a display snapshot: `:name`, `:sku`, `:price`,
+      `:line_total` (`price × qty`, nil when the item has no price) and
+      `:photo_url` (a signed URL — it expires, render it, never persist
+      it). The snapshot is for rendering the host's own summary without a
+      re-query; it is NOT an order record — re-read and re-price items
+      server-side when the selection becomes something real.
+    * `handle_info({:item_selector_closed, %{id: id}}, socket)` — fired on
+      cancel/ESC/backdrop, AND after a confirm. Reset the `:if` assign
+      here.
+
+  ## Scope
+
+  `scope` fixes what the user may browse: any of `:catalogue_uuids`,
+  `:category_uuids`, `:only`, `:statuses` (the `Catalogue.search_items/2`
+  vocabulary). It is enforced in `BrowseState` — every fetch re-derives
+  from it, and client events can only narrow within it, so a crafted event
+  cannot browse or select outside what the host allowed. Selection events
+  are additionally accepted only for uuids the component itself has
+  rendered (or that arrived preselected).
+
+  ## Preselection
+
+  `selected` is `%{uuid => qty}` (string uuids, `Decimal` or integer
+  quantities). Preselected items are hydrated at mount ignoring scope —
+  the tray must be able to render what the host handed it. A hydrated item
+  that falls OUTSIDE the scope renders in the tray marked unavailable and
+  is excluded from the confirm picks, never silently dropped.
+
+  ## Quantities
+
+  `qty_precision: 0` (default) is whole numbers; a positive precision
+  turns the same stepper decimal-capable ("2.5" of unit "L"). The input
+  commits on blur/Enter; decimal commas are accepted ("2,5" — ru/et
+  keyboards); all limits re-clamped server-side.
+  """
+
+  use Phoenix.LiveComponent
+  use Gettext, backend: PhoenixKitCatalogue.Gettext
+
+  import PhoenixKitWeb.Components.Core.Modal, only: [modal: 1]
+  import PhoenixKitCatalogue.Web.Components.Browse
+
+  alias PhoenixKitCatalogue.Catalogue
+  alias PhoenixKitCatalogue.Catalogue.BrowseState
+  alias PhoenixKitCatalogue.Catalogue.Search
+  alias PhoenixKitCatalogue.Web.Components.Browse
+
+  @impl true
+  def mount(socket) do
+    {:ok,
+     assign(socket,
+       initialized: false,
+       tray_open: false,
+       drafts: %{}
+     )}
+  end
+
+  @impl true
+  def update(assigns, socket) do
+    socket = assign(socket, Map.take(assigns, [:id]))
+
+    if socket.assigns.initialized do
+      # A parent re-render must not clobber live selection state (the
+      # classic LiveComponent update/2 trap) — after init, only cosmetic
+      # props may refresh.
+      {:ok, assign(socket, Map.take(assigns, [:title]))}
+    else
+      {:ok, initialize(socket, assigns)}
+    end
+  end
+
+  defp initialize(socket, assigns) do
+    scope = validate_scope!(Map.new(assigns[:scope] || %{}))
+    locale = assigns[:locale] || Gettext.get_locale(PhoenixKitCatalogue.Gettext)
+    qty_precision = assigns[:qty_precision] || 0
+    mode = assigns[:mode] || :multiple
+
+    browse = BrowseState.init(scope: scope, per_page: assigns[:per_page] || 24)
+    {browse, effect} = BrowseState.command(browse, :reset)
+
+    socket =
+      socket
+      |> assign(display_opts(assigns))
+      |> assign(
+        initialized: true,
+        mode: mode,
+        locale: locale,
+        qty_precision: qty_precision,
+        qty_min: to_decimal(assigns[:qty_min] || 1),
+        qty_max: assigns[:qty_max] && to_decimal(assigns[:qty_max]),
+        categories: chip_categories(scope),
+        presented: %{},
+        selection: hydrate_preselection(assigns[:selected] || %{}, scope, locale),
+        browse: browse
+      )
+
+    run_fetch(socket, effect)
+  end
+
+  defp display_opts(assigns) do
+    %{
+      immediate: assigns[:immediate] || false,
+      show_prices: Map.get(assigns, :show_prices, true),
+      show_sku: Map.get(assigns, :show_sku, true),
+      title: assigns[:title]
+    }
+  end
+
+  # A string-keyed scope would read as %{} everywhere and silently WIDEN
+  # browsing to the whole catalogue — the one failure mode a scope must not
+  # have. Host props are server-side code, so fail loud at mount.
+  @scope_keys [:catalogue_uuids, :category_uuids, :only, :statuses]
+  defp validate_scope!(scope) do
+    case Map.keys(scope) -- @scope_keys do
+      [] ->
+        scope
+
+      bad ->
+        raise ArgumentError,
+              "ItemSelectorModal scope has unknown keys #{inspect(bad)} — " <>
+                "use #{inspect(@scope_keys)} (atoms, the search_items/2 vocabulary)"
+    end
+  end
+
+  # ── Fetching ─────────────────────────────────────────────────────────
+
+  # Synchronous by design: LiveComponent events serialize, so there is no
+  # stale-result race today. BrowseState still carries a generation, so
+  # moving this into start_async later is a drop-in, not a redesign.
+  defp run_fetch(socket, :noop), do: socket
+
+  defp run_fetch(socket, {:fetch, opts, gen}) do
+    %{browse: browse, locale: locale} = socket.assigns
+
+    items = Search.search_items(browse.search, opts)
+    total = Search.count_search_items(browse.search, opts)
+    presented_page = Browse.present_items(items, locale)
+
+    browse = BrowseState.ingest(browse, gen, presented_page, total)
+
+    presented =
+      Enum.into(presented_page, socket.assigns.presented, fn item -> {item.uuid, item} end)
+
+    assign(socket, browse: browse, presented: presented)
+  end
+
+  # ── Preselection hydration ───────────────────────────────────────────
+
+  # The scope-exempt read: the tray must render whatever the host handed
+  # in, so these uuids are fetched directly. Availability is then judged
+  # against the scope so out-of-scope rows can be shown-but-excluded.
+  defp hydrate_preselection(selected, scope, locale) do
+    selected
+    |> Enum.flat_map(fn {uuid, qty} ->
+      uuid = to_string(uuid)
+
+      case Catalogue.get_item(uuid) do
+        nil ->
+          []
+
+        item ->
+          [presented] = Browse.present_items([item], locale)
+
+          [
+            {uuid,
+             %{
+               qty: to_decimal(qty),
+               item: presented,
+               available: in_scope?(item, scope)
+             }}
+          ]
+      end
+    end)
+    |> Map.new()
+  end
+
+  # Mirrors every restriction `query_opts/1` sends to the fetch layer —
+  # including `:only`, or a preselected row the browse itself could never
+  # return would confirm as available (the hole an external review found).
+  defp in_scope?(item, scope) do
+    allowed?(scope[:catalogue_uuids], item.catalogue_uuid) and
+      allowed?(scope[:category_uuids], item.category_uuid) and
+      allowed?(scope[:statuses], item.status) and
+      only_ok?(scope[:only], item)
+  end
+
+  defp allowed?(nil, _value), do: true
+  defp allowed?([], _value), do: true
+  defp allowed?(list, value), do: to_string(value) in Enum.map(list, &to_string/1)
+
+  defp only_ok?(:uncategorized_only, item), do: is_nil(item.category_uuid)
+  defp only_ok?(_other, _item), do: true
+
+  # Chips only make sense inside one catalogue — with several (or all),
+  # a flat chip row of every category across catalogues is noise, and
+  # search does the narrowing instead.
+  defp chip_categories(%{catalogue_uuids: [catalogue_uuid]} = scope) do
+    categories = Catalogue.list_categories_for_catalogue(catalogue_uuid)
+
+    case scope[:category_uuids] do
+      nil ->
+        categories
+
+      [] ->
+        categories
+
+      allowed ->
+        allowed = Enum.map(allowed, &to_string/1)
+        Enum.filter(categories, fn category -> to_string(category.uuid) in allowed end)
+    end
+  rescue
+    _ -> []
+  end
+
+  defp chip_categories(_scope), do: []
+
+  # ── Events: browsing ─────────────────────────────────────────────────
+
+  @impl true
+  def handle_event("browse_search", %{"search" => q}, socket) do
+    {browse, effect} = BrowseState.command(socket.assigns.browse, {:search, q})
+    {:noreply, socket |> assign(browse: browse) |> run_fetch(effect)}
+  end
+
+  def handle_event("browse_category", %{"uuid" => uuid}, socket) do
+    cmd = {:set_category, if(uuid == "", do: nil, else: uuid)}
+    {browse, effect} = BrowseState.command(socket.assigns.browse, cmd)
+    {:noreply, socket |> assign(browse: browse) |> run_fetch(effect)}
+  end
+
+  def handle_event("load_more", _params, socket) do
+    {browse, effect} = BrowseState.command(socket.assigns.browse, :load_more)
+    {:noreply, socket |> assign(browse: browse) |> run_fetch(effect)}
+  end
+
+  # ── Events: selection ────────────────────────────────────────────────
+
+  def handle_event("card_click", %{"uuid" => uuid}, socket) do
+    selection = socket.assigns.selection
+
+    cond do
+      Map.has_key?(selection, uuid) ->
+        {:noreply, deselect(socket, uuid)}
+
+      # Only items this component itself rendered are selectable — an
+      # event with a foreign uuid (crafted, or stale DOM) is refused.
+      item = socket.assigns.presented[uuid] ->
+        {:noreply, select(socket, item)}
+
+      true ->
+        {:noreply, socket}
+    end
+  end
+
+  def handle_event("qty_inc", %{"uuid" => uuid}, socket),
+    do: {:noreply, step_qty(socket, uuid, :inc)}
+
+  def handle_event("qty_dec", %{"uuid" => uuid}, socket),
+    do: {:noreply, step_qty(socket, uuid, :dec)}
+
+  def handle_event("qty_commit", %{"uuid" => uuid, "value" => raw}, socket) do
+    case parse_qty(raw, socket.assigns) do
+      {:ok, qty} -> {:noreply, put_qty(socket, uuid, qty)}
+      # Invalid input: drop the draft so the field re-renders the last
+      # committed value — the row is never lost over a typo.
+      :error -> {:noreply, update(socket, :drafts, &Map.delete(&1, uuid))}
+    end
+  end
+
+  def handle_event("remove_pick", %{"uuid" => uuid}, socket),
+    do: {:noreply, deselect(socket, uuid)}
+
+  def handle_event("toggle_tray", _params, socket),
+    do: {:noreply, assign(socket, tray_open: !socket.assigns.tray_open)}
+
+  # ── Events: closing ──────────────────────────────────────────────────
+
+  def handle_event("confirm", _params, socket) do
+    send(self(), {:items_selected, confirm_payload(socket.assigns)})
+    send(self(), {:item_selector_closed, %{id: socket.assigns.id}})
+    {:noreply, socket}
+  end
+
+  def handle_event("cancel", _params, socket) do
+    send(self(), {:item_selector_closed, %{id: socket.assigns.id}})
+    {:noreply, socket}
+  end
+
+  # A crafted payload with missing keys must degrade to a no-op, not a
+  # FunctionClauseError that takes the whole LiveView down.
+  def handle_event(_event, _params, socket), do: {:noreply, socket}
+
+  # ── Selection mechanics ──────────────────────────────────────────────
+
+  defp select(socket, item) do
+    entry = %{qty: clamp(item.default_qty, socket.assigns), item: item, available: true}
+
+    socket =
+      case socket.assigns.mode do
+        # Single mode replaces the previous pick — the map never grows.
+        :single -> assign(socket, selection: %{item.uuid => entry})
+        _ -> assign(socket, selection: Map.put(socket.assigns.selection, item.uuid, entry))
+      end
+
+    if socket.assigns.mode == :single and socket.assigns.immediate do
+      send(self(), {:items_selected, confirm_payload(socket.assigns)})
+      send(self(), {:item_selector_closed, %{id: socket.assigns.id}})
+    end
+
+    socket
+  end
+
+  defp deselect(socket, uuid) do
+    assign(socket,
+      selection: Map.delete(socket.assigns.selection, uuid),
+      drafts: Map.delete(socket.assigns.drafts, uuid)
+    )
+  end
+
+  defp step_qty(socket, uuid, direction) do
+    case socket.assigns.selection[uuid] do
+      nil ->
+        socket
+
+      %{qty: qty} ->
+        step = Decimal.new(1)
+        next = if direction == :inc, do: Decimal.add(qty, step), else: Decimal.sub(qty, step)
+
+        # Stepping below the minimum IS deselection — the minus button on
+        # a qty-1 card removes the pick, which is what a client expects.
+        if Decimal.compare(next, socket.assigns.qty_min) == :lt do
+          deselect(socket, uuid)
+        else
+          put_qty(socket, uuid, next)
+        end
+    end
+  end
+
+  defp put_qty(socket, uuid, qty) do
+    case socket.assigns.selection[uuid] do
+      nil ->
+        socket
+
+      entry ->
+        qty = clamp(qty, socket.assigns)
+
+        assign(socket,
+          selection: Map.put(socket.assigns.selection, uuid, %{entry | qty: qty}),
+          drafts: Map.delete(socket.assigns.drafts, uuid)
+        )
+    end
+  end
+
+  # Quantities arrive from the client and are clamped here, not trusted
+  # from input attributes: min, max, and precision are all re-enforced.
+  defp clamp(qty, %{qty_min: min, qty_max: max, qty_precision: precision}) do
+    qty
+    |> Decimal.round(precision)
+    |> Decimal.max(min)
+    |> then(fn q -> if max, do: Decimal.min(q, max), else: q end)
+  end
+
+  # A hard ceiling even when the host sets no qty_max: Decimal.parse
+  # accepts "1e1000000" as a full match, and an absurd exponent is a
+  # process-DoS the moment it hits multiplication.
+  @qty_ceiling Decimal.new(1_000_000)
+
+  defp parse_qty(raw, assigns) when is_binary(raw) do
+    # ru/et keyboards produce a decimal comma; Decimal.parse wants a dot.
+    # Plain digits only — exponent forms are rejected before parse.
+    normalized = raw |> String.trim() |> String.replace(",", ".")
+
+    with true <- Regex.match?(~r/^\d{1,12}(\.\d{1,6})?$/, normalized),
+         {qty, ""} <- Decimal.parse(normalized),
+         :gt <- Decimal.compare(qty, 0) do
+      {:ok, qty |> Decimal.min(@qty_ceiling) |> clamp(assigns)}
+    else
+      _ -> :error
+    end
+  end
+
+  defp parse_qty(_, _), do: :error
+
+  defp to_decimal(%Decimal{} = d), do: d
+  defp to_decimal(n) when is_integer(n), do: Decimal.new(n)
+  defp to_decimal(n) when is_float(n), do: Decimal.from_float(n)
+
+  defp to_decimal(n) when is_binary(n) do
+    case Decimal.parse(String.trim(n)) do
+      {d, ""} -> d
+      _ -> raise ArgumentError, "not a quantity: #{inspect(n)}"
+    end
+  end
+
+  # ── Confirm payload ──────────────────────────────────────────────────
+
+  defp confirm_payload(assigns) do
+    picks =
+      assigns.selection
+      # An unavailable row (preselected, now outside scope) is shown in
+      # the tray but must never reach the host as a pick — the host's
+      # scope said no.
+      |> Enum.filter(fn {_uuid, entry} -> entry.available end)
+      |> Enum.sort_by(fn {_uuid, entry} -> entry.item.name || "" end)
+      |> Enum.map(fn {uuid, %{qty: qty, item: item}} ->
+        %{
+          uuid: uuid,
+          qty: qty,
+          unit: item.unit,
+          name: item.name,
+          sku: item.sku,
+          price: item.price,
+          line_total: item.price && Decimal.mult(item.price, qty),
+          photo_url: item.photo_url
+        }
+      end)
+
+    %{id: assigns.id, mode: assigns.mode, picks: picks}
+  end
+
+  # ── Render helpers ───────────────────────────────────────────────────
+
+  defp qty_display(assigns, uuid) do
+    case assigns.selection[uuid] do
+      nil -> ""
+      %{qty: qty} -> format_qty(qty)
+    end
+  end
+
+  # See "qty_commit" — part of each stepper input's id, so bumping it
+  # recreates the input and discards rejected garbage.
+  defp qty_rev(assigns, uuid), do: assigns.drafts[uuid] || 0
+
+  defp format_qty(%Decimal{} = qty), do: Decimal.to_string(Decimal.normalize(qty), :normal)
+
+  defp selection_count(selection), do: map_size(selection)
+
+  defp selection_total(selection) do
+    selection
+    |> Enum.filter(fn {_u, e} -> e.available and e.item.price end)
+    |> Enum.reduce(Decimal.new(0), fn {_u, e}, acc ->
+      Decimal.add(acc, Decimal.mult(e.item.price, e.qty))
+    end)
+  end
+
+  defp any_priced?(selection),
+    do: Enum.any?(selection, fn {_u, e} -> e.available and e.item.price end)
+
+  defp modal_title(nil), do: gettext("Select items")
+  defp modal_title(title), do: title
+
+  # ── Render ───────────────────────────────────────────────────────────
+
+  @impl true
+  def render(assigns) do
+    ~H"""
+    <div id={@id}>
+      <.modal show={true} id={"#{@id}-dialog"} on_close="cancel" max_width="4xl" max_height="85vh">
+        <:title>{modal_title(@title)}</:title>
+
+        <div class="flex flex-col gap-3">
+          <%!-- Header: search + chips. --%>
+          <form id={"#{@id}-search-form"} phx-change="browse_search" phx-target={@myself}>
+            <label class="input flex items-center gap-2 w-full">
+              <span class="hero-magnifying-glass w-4 h-4 opacity-60"></span>
+              <input
+                id={"#{@id}-search"}
+                type="text"
+                name="search"
+                value={@browse.search}
+                placeholder={gettext("Search items…")}
+                phx-debounce="250"
+                autocomplete="off"
+                class="grow"
+              />
+            </label>
+          </form>
+
+          <.category_chips
+            :if={@categories != []}
+            id={"#{@id}-chips"}
+            categories={@categories}
+            active_uuid={@browse.category_uuid}
+            target={@myself}
+          />
+
+          <%!-- The scrollable grid region. --%>
+          <div id={"#{@id}-scroll"} class="overflow-y-auto min-h-[16rem] max-h-[48vh] pr-1">
+            <.item_grid id={"#{@id}-grid"}>
+              <%= if @browse.loading? and @browse.items == [] do %>
+                <.grid_skeleton id={"#{@id}-skeleton"} count={8} />
+              <% end %>
+              <%= for item <- @browse.items do %>
+                <.item_card
+                  id={"#{@id}-card-#{item.uuid}"}
+                  item={item}
+                  selected={Map.has_key?(@selection, item.uuid)}
+                  show_price={@show_prices}
+                  show_sku={@show_sku}
+                  target={@myself}
+                >
+                  <:footer>
+                    <div
+                      :if={@selection[item.uuid] && @selection[item.uuid].available}
+                      class="p-2 pt-0 flex justify-center"
+                    >
+                      <.qty_stepper
+                        id={"#{@id}-qty-#{item.uuid}-r#{qty_rev(assigns, item.uuid)}"}
+                        uuid={item.uuid}
+                        qty={qty_display(assigns, item.uuid)}
+                        unit={if(@qty_precision > 0, do: item.uuid && item.unit)}
+                        precision={@qty_precision}
+                        target={@myself}
+                        size="xs"
+                      />
+                    </div>
+                  </:footer>
+                </.item_card>
+              <% end %>
+            </.item_grid>
+
+            <div :if={@browse.items == [] and not @browse.loading?} class="text-center py-12">
+              <div class="text-4xl mb-3 opacity-40">🔍</div>
+              <p class="text-base-content/60">{gettext("No items match your search.")}</p>
+            </div>
+
+            <div :if={not @browse.exhausted? and @browse.items != []} class="flex justify-center py-3">
+              <button
+                type="button"
+                class="btn btn-ghost btn-sm"
+                phx-click="load_more"
+                phx-target={@myself}
+                disabled={@browse.loading?}
+              >
+                <span :if={@browse.loading?} class="loading loading-spinner loading-xs"></span>
+                {gettext("Load more")}
+              </button>
+            </div>
+          </div>
+
+          <%!-- Selection tray. --%>
+          <div :if={@mode != :single or not @immediate} class="border-t border-base-300 pt-3">
+            <div class="flex items-center justify-between gap-3">
+              <button
+                type="button"
+                class="btn btn-ghost btn-sm gap-2"
+                phx-click="toggle_tray"
+                phx-target={@myself}
+                disabled={@selection == %{}}
+                aria-expanded={@tray_open}
+              >
+                <span class="hero-shopping-cart w-4 h-4"></span>
+                {ngettext("%{count} item", "%{count} items", selection_count(@selection),
+                  count: selection_count(@selection)
+                )}
+                <span :if={any_priced?(@selection)} class="text-base-content/60">
+                  · {format_price(selection_total(@selection))}
+                </span>
+              </button>
+              <div class="flex gap-2">
+                <button
+                  type="button"
+                  class="btn btn-ghost btn-sm"
+                  phx-click="cancel"
+                  phx-target={@myself}
+                >
+                  {gettext("Cancel")}
+                </button>
+                <button
+                  type="button"
+                  class="btn btn-primary btn-sm"
+                  phx-click="confirm"
+                  phx-target={@myself}
+                  disabled={@selection == %{}}
+                >
+                  {gettext("Confirm selection")}
+                </button>
+              </div>
+            </div>
+
+            <div :if={@tray_open and @selection != %{}} class="mt-3 max-h-[26vh] overflow-y-auto">
+              <div
+                :for={
+                  {uuid, entry} <-
+                    Enum.sort_by(@selection, fn {_u, e} -> e.item.name || "" end)
+                }
+                id={"#{@id}-tray-#{uuid}"}
+                class={[
+                  "flex items-center gap-3 py-2 border-b border-base-200 last:border-0",
+                  !entry.available && "opacity-60"
+                ]}
+              >
+                <img
+                  :if={entry.item.photo_url}
+                  src={entry.item.photo_url}
+                  alt=""
+                  class="w-10 h-10 rounded object-cover bg-base-200"
+                  loading="lazy"
+                />
+                <div
+                  :if={!entry.item.photo_url}
+                  class="w-10 h-10 rounded bg-base-200 flex items-center justify-center text-base-content/40 font-bold"
+                >
+                  {String.first(entry.item.name || "?")}
+                </div>
+                <div class="flex-1 min-w-0">
+                  <div class="text-sm font-medium truncate">{entry.item.name}</div>
+                  <div class="text-xs text-base-content/60 font-mono">{entry.item.sku}</div>
+                  <div :if={!entry.available} class="text-xs text-warning">
+                    {gettext("Not available in this selection")}
+                  </div>
+                </div>
+                <.qty_stepper
+                  :if={entry.available}
+                  id={"#{@id}-tray-qty-#{uuid}-r#{qty_rev(assigns, uuid)}"}
+                  uuid={uuid}
+                  qty={qty_display(assigns, uuid)}
+                  unit={if(@qty_precision > 0, do: entry.item.unit)}
+                  precision={@qty_precision}
+                  target={@myself}
+                  size="xs"
+                />
+                <span :if={entry.available and entry.item.price} class="text-sm font-semibold w-20 text-right">
+                  {format_price(Decimal.mult(entry.item.price, entry.qty))}
+                </span>
+                <button
+                  type="button"
+                  class="btn btn-ghost btn-xs"
+                  phx-click="remove_pick"
+                  phx-value-uuid={uuid}
+                  phx-target={@myself}
+                  aria-label={gettext("Remove")}
+                >
+                  <span class="hero-x-mark w-4 h-4"></span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </.modal>
+    </div>
+    """
+  end
+end
