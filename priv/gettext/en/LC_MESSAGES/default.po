@@ -2744,3 +2744,30 @@ msgstr ""
 
 msgid "Open the company"
 msgstr ""
+
+msgid "All"
+msgstr ""
+
+msgid "Quantity"
+msgstr ""
+
+msgid "Decrease quantity"
+msgstr ""
+
+msgid "Increase quantity"
+msgstr ""
+
+msgid "Load more"
+msgstr ""
+
+msgid "Select items"
+msgstr ""
+
+msgid "Confirm selection"
+msgstr ""
+
+msgid "Not available in this selection"
+msgstr ""
+
+msgid "Shown on category landing pages."
+msgstr ""
