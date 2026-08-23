@@ -189,7 +189,11 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         search_has_more: false,
         search_loading: false,
         show_pdf_search: false,
-        pdf_search_item: nil
+        pdf_search_item: nil,
+        # True between a cross-tab `{:catalogue_bulk_change, …}` and its
+        # deferred `:bulk_change_apply`: the plain data-changed refresh is
+        # held back so the leaving-rows flash can play before the reload.
+        bulk_change_pending: false
       )
 
     # Subscribe BEFORE the first load so a write landing between connect
@@ -453,7 +457,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
     Process.send_after(self(), {:bulk_change_apply, kind, uuids}, @bulk_change_apply_delay_ms)
 
-    {:noreply, socket}
+    {:noreply, assign(socket, :bulk_change_pending, true)}
   end
 
   # Originator's own bulk-change broadcast — already updated locally.
@@ -463,7 +467,11 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   # Tail of the cross-tab bulk animation — applies the actual state
   # refresh and the arriving-side green flash (for moves / restores).
   def handle_info({:bulk_change_apply, kind, uuids}, socket) do
-    socket = socket |> reset_and_load() |> refresh_counts()
+    socket =
+      socket
+      |> assign(:bulk_change_pending, false)
+      |> reset_and_load()
+      |> refresh_counts()
 
     socket =
       if kind in [:restored, :moved],
@@ -477,6 +485,12 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     Logger.debug("CatalogueDetailLive ignored unhandled message: #{inspect(msg)}")
     {:noreply, socket}
   end
+
+  # A batch `:item` event from a bulk op that this page is already
+  # animating (`bulk_change_pending`) is skipped — the scheduled
+  # `:bulk_change_apply` reloads everything once the flash has played.
+  defp handle_catalogue_data_changed(%{assigns: %{bulk_change_pending: true}} = socket),
+    do: {:noreply, socket}
 
   defp handle_catalogue_data_changed(socket) do
     {:noreply, refresh_in_place(socket)}
@@ -1422,13 +1436,24 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     end)
   end
 
+  defp muted_actor_opts(socket), do: Keyword.put(actor_opts(socket), :broadcast, false)
+
+  defp broadcast_item_batch(socket),
+    do: PubSub.broadcast(:item, nil, socket.assigns.catalogue_uuid)
+
   # Active-list bulk ops read the client-captured uuids; deleted-list
   # bulk ops pass `@selected_items`. After each op we clear BOTH the
   # server-side MapSet (deleted list) AND push `bulk_select:clear` so a
   # stale client-side checkmark can't persist on the active list.
+  # The context's batch `:item` event is muted here and re-emitted by
+  # `broadcast_item_batch/1` AFTER the bulk-change message, so another
+  # open detail page receives the flash instruction before the reload
+  # trigger (mailbox order) and can hold the reload until the flash has
+  # played. The catalogues index only listens to the `:item` event.
   defp do_bulk_trash_items(socket, uuids) do
-    {count, _} = Catalogue.bulk_trash_items(uuids, actor_opts(socket))
+    {count, _} = Catalogue.bulk_trash_items(uuids, muted_actor_opts(socket))
     PubSub.broadcast_bulk_change(socket.assigns.catalogue_uuid, :trashed, uuids)
+    broadcast_item_batch(socket)
 
     socket
     |> assign(:bulk_confirm, nil)
@@ -1442,8 +1467,9 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   end
 
   defp do_bulk_permanent_delete_items(socket, uuids) do
-    {count, _} = Catalogue.bulk_permanently_delete_items(uuids, actor_opts(socket))
+    {count, _} = Catalogue.bulk_permanently_delete_items(uuids, muted_actor_opts(socket))
     PubSub.broadcast_bulk_change(socket.assigns.catalogue_uuid, :permanent_delete, uuids)
+    broadcast_item_batch(socket)
 
     socket
     |> assign(:bulk_confirm, nil)
@@ -1459,8 +1485,9 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   end
 
   defp do_bulk_restore_items(socket, uuids) do
-    {count, _} = Catalogue.bulk_restore_items(uuids, actor_opts(socket))
+    {count, _} = Catalogue.bulk_restore_items(uuids, muted_actor_opts(socket))
     PubSub.broadcast_bulk_change(socket.assigns.catalogue_uuid, :restored, uuids)
+    broadcast_item_batch(socket)
 
     socket
     |> clear_item_selection()
@@ -1474,13 +1501,14 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
   defp do_bulk_move_items(socket, uuids, target_uuid) do
     opts =
-      actor_opts(socket) |> Keyword.put(:catalogue_uuid, socket.assigns.catalogue_uuid)
+      muted_actor_opts(socket) |> Keyword.put(:catalogue_uuid, socket.assigns.catalogue_uuid)
 
     case Catalogue.bulk_move_items_to_category(uuids, target_uuid, opts) do
       {:ok, count} ->
         # `:moved` triggers the receiver's full red-fade → refresh →
         # green-fade sequence on every other open tab.
         PubSub.broadcast_bulk_change(socket.assigns.catalogue_uuid, :moved, uuids)
+        broadcast_item_batch(socket)
 
         socket
         |> assign(:bulk_move_modal, nil)

@@ -120,6 +120,18 @@ defmodule PhoenixKitCatalogue.Catalogue do
   defp broadcast_for(%{resource_type: "folder", resource_uuid: uuid}, _parent),
     do: PubSub.broadcast(:folder, uuid)
 
+  # Batch writes (bulk trash / restore / move, category reorder) log ONE
+  # activity row for the whole batch and carry no single `resource_uuid`.
+  # They still have to fan out — the index "Items" column and every open
+  # detail page count them — so the batch rides the same kind with a
+  # `nil` uuid and the catalogue as parent. Consumers already treat the
+  # uuid as informational and refresh the whole slice.
+  defp broadcast_for(%{resource_type: "item"}, parent) when is_binary(parent),
+    do: PubSub.broadcast(:item, nil, parent)
+
+  defp broadcast_for(%{resource_type: "category"}, parent) when is_binary(parent),
+    do: PubSub.broadcast(:category, nil, parent)
+
   # Manufacturer/supplier/smart_rule activity rows never reach this
   # helper today — `Manufacturers`, `Suppliers`, and `Rules` call
   # `PubSub.broadcast/3` directly and bypass `log_activity`. Anything
@@ -1525,21 +1537,26 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
     case result do
       {:ok, {updated, subtree_size, items_handled}} ->
-        log_activity(%{
-          action: "category.trashed",
-          mode: "manual",
-          actor_uuid: opts[:actor_uuid],
-          resource_type: "category",
-          resource_uuid: category.uuid,
-          parent_catalogue_uuid: category.catalogue_uuid,
-          metadata: %{
-            "name" => category.name,
-            "catalogue_uuid" => category.catalogue_uuid,
-            "subtree_size" => subtree_size,
-            "items_handled" => items_handled,
-            "items_disposition" => disposition_to_metadata(disposition)
-          }
-        })
+        # `broadcast: false` lets `bulk_trash_categories/3` run this inside
+        # its own transaction and fan out once after that commits.
+        log_activity(
+          %{
+            action: "category.trashed",
+            mode: "manual",
+            actor_uuid: opts[:actor_uuid],
+            resource_type: "category",
+            resource_uuid: category.uuid,
+            parent_catalogue_uuid: category.catalogue_uuid,
+            metadata: %{
+              "name" => category.name,
+              "catalogue_uuid" => category.catalogue_uuid,
+              "subtree_size" => subtree_size,
+              "items_handled" => items_handled,
+              "items_disposition" => disposition_to_metadata(disposition)
+            }
+          },
+          Keyword.take(opts, [:broadcast])
+        )
 
         {:ok, updated}
 
@@ -3214,17 +3231,20 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
     case txn_result do
       {:ok, :ok} ->
-        log_activity(%{
-          action: "category.reordered",
-          mode: "manual",
-          actor_uuid: opts[:actor_uuid],
-          resource_type: "category",
-          parent_catalogue_uuid: catalogue_uuid,
-          metadata: %{
-            "groups" => length(deduped_groups),
-            "count" => total_count
-          }
-        })
+        log_activity(
+          %{
+            action: "category.reordered",
+            mode: "manual",
+            actor_uuid: opts[:actor_uuid],
+            resource_type: "category",
+            parent_catalogue_uuid: catalogue_uuid,
+            metadata: %{
+              "groups" => length(deduped_groups),
+              "count" => total_count
+            }
+          },
+          opts
+        )
 
         :ok
 
@@ -4433,16 +4453,41 @@ defmodule PhoenixKitCatalogue.Catalogue do
       |> repo().update_all(set: [status: "deleted", updated_at: DateTime.utc_now()])
 
     if count > 0 do
-      log_activity(%{
-        action: "item.bulk_trashed",
-        mode: "manual",
-        actor_uuid: opts[:actor_uuid],
-        resource_type: "item",
-        metadata: %{"category_uuid" => category_uuid, "count" => count}
-      })
+      log_activity(
+        %{
+          action: "item.bulk_trashed",
+          mode: "manual",
+          actor_uuid: opts[:actor_uuid],
+          resource_type: "item",
+          parent_catalogue_uuid: lookup_parent(:category, category_uuid),
+          metadata: %{"category_uuid" => category_uuid, "count" => count}
+        },
+        opts
+      )
     end
 
     {count, nil}
+  end
+
+  # ── Batch fan-out for uuid-list bulk ops ──────────────────────
+
+  # A uuid list from the admin toolbar normally comes from one catalogue,
+  # but nothing in the API forbids a mixed list — so the batch event goes
+  # out once per touched catalogue (the `nil` uuid marks it as a batch;
+  # see `broadcast_for/2`). Read BEFORE the write for trash / delete: the
+  # rows may no longer exist afterwards.
+  defp catalogue_uuids_for_items(uuids) do
+    from(i in Item, where: i.uuid in ^uuids, distinct: true, select: i.catalogue_uuid)
+    |> repo().all()
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp broadcast_item_batch(catalogue_uuids, opts) do
+    if Keyword.get(opts, :broadcast, true) do
+      Enum.each(catalogue_uuids, &PubSub.broadcast(:item, nil, &1))
+    end
+
+    :ok
   end
 
   # ── Bulk actions on UUID lists (admin selection toolbar) ──────
@@ -4455,18 +4500,25 @@ defmodule PhoenixKitCatalogue.Catalogue do
   def bulk_trash_items([], _opts), do: {0, nil}
 
   def bulk_trash_items(uuids, opts) when is_list(uuids) do
+    catalogue_uuids = catalogue_uuids_for_items(uuids)
+
     {count, _} =
       from(i in Item, where: i.uuid in ^uuids and i.status != "deleted")
       |> repo().update_all(set: [status: "deleted", updated_at: DateTime.utc_now()])
 
     if count > 0 do
-      log_activity(%{
-        action: "item.bulk_trashed",
-        mode: "manual",
-        actor_uuid: opts[:actor_uuid],
-        resource_type: "item",
-        metadata: %{"count" => count, "uuids" => uuids}
-      })
+      log_activity(
+        %{
+          action: "item.bulk_trashed",
+          mode: "manual",
+          actor_uuid: opts[:actor_uuid],
+          resource_type: "item",
+          metadata: %{"count" => count, "uuids" => uuids}
+        },
+        broadcast: false
+      )
+
+      broadcast_item_batch(catalogue_uuids, opts)
     end
 
     {count, nil}
@@ -4488,21 +4540,26 @@ defmodule PhoenixKitCatalogue.Catalogue do
   def bulk_restore_items([], _opts), do: {0, nil}
 
   def bulk_restore_items(uuids, opts) when is_list(uuids) do
-    {:ok, {count, count_detached, restored_uuids}} =
+    {:ok, {count, count_detached, restored_uuids, catalogue_uuids}} =
       repo().transaction(fn -> do_bulk_restore_items(uuids) end)
 
     if count > 0 do
-      log_activity(%{
-        action: "item.bulk_restored",
-        mode: "manual",
-        actor_uuid: opts[:actor_uuid],
-        resource_type: "item",
-        metadata: %{
-          "count" => count,
-          "detached_count" => count_detached,
-          "uuids" => restored_uuids
-        }
-      })
+      log_activity(
+        %{
+          action: "item.bulk_restored",
+          mode: "manual",
+          actor_uuid: opts[:actor_uuid],
+          resource_type: "item",
+          metadata: %{
+            "count" => count,
+            "detached_count" => count_detached,
+            "uuids" => restored_uuids
+          }
+        },
+        broadcast: false
+      )
+
+      broadcast_item_batch(catalogue_uuids, opts)
     end
 
     {count, nil}
@@ -4537,7 +4594,10 @@ defmodule PhoenixKitCatalogue.Catalogue do
       from(i in Item, where: i.uuid in ^detached_uuids and i.status == "deleted")
       |> repo().update_all(set: [status: "active", category_uuid: nil, updated_at: now])
 
-    {count_attached + count_detached, count_detached, attached_uuids ++ detached_uuids}
+    catalogue_uuids = items |> Enum.map(& &1.catalogue_uuid) |> Enum.uniq()
+
+    {count_attached + count_detached, count_detached, attached_uuids ++ detached_uuids,
+     catalogue_uuids}
   end
 
   @doc """
@@ -4550,16 +4610,22 @@ defmodule PhoenixKitCatalogue.Catalogue do
   def bulk_permanently_delete_items([], _opts), do: {0, nil}
 
   def bulk_permanently_delete_items(uuids, opts) when is_list(uuids) do
+    catalogue_uuids = catalogue_uuids_for_items(uuids)
     {count, _} = from(i in Item, where: i.uuid in ^uuids) |> repo().delete_all()
 
     if count > 0 do
-      log_activity(%{
-        action: "item.bulk_permanently_deleted",
-        mode: "manual",
-        actor_uuid: opts[:actor_uuid],
-        resource_type: "item",
-        metadata: %{"count" => count, "uuids" => uuids}
-      })
+      log_activity(
+        %{
+          action: "item.bulk_permanently_deleted",
+          mode: "manual",
+          actor_uuid: opts[:actor_uuid],
+          resource_type: "item",
+          metadata: %{"count" => count, "uuids" => uuids}
+        },
+        broadcast: false
+      )
+
+      broadcast_item_batch(catalogue_uuids, opts)
     end
 
     {count, nil}
@@ -4642,14 +4708,17 @@ defmodule PhoenixKitCatalogue.Catalogue do
       |> repo().update_all(set: [category_uuid: nil, updated_at: DateTime.utc_now()])
 
     if count > 0 do
-      log_activity(%{
-        action: "item.bulk_moved",
-        mode: "manual",
-        actor_uuid: opts[:actor_uuid],
-        resource_type: "item",
-        parent_catalogue_uuid: catalogue_uuid,
-        metadata: %{"count" => count, "to_category_uuid" => nil}
-      })
+      log_activity(
+        %{
+          action: "item.bulk_moved",
+          mode: "manual",
+          actor_uuid: opts[:actor_uuid],
+          resource_type: "item",
+          parent_catalogue_uuid: catalogue_uuid,
+          metadata: %{"count" => count, "to_category_uuid" => nil}
+        },
+        opts
+      )
     end
 
     {:ok, count}
@@ -4661,18 +4730,21 @@ defmodule PhoenixKitCatalogue.Catalogue do
       |> repo().update_all(set: [category_uuid: target.uuid, updated_at: DateTime.utc_now()])
 
     if count > 0 do
-      log_activity(%{
-        action: "item.bulk_moved",
-        mode: "manual",
-        actor_uuid: opts[:actor_uuid],
-        resource_type: "item",
-        parent_catalogue_uuid: target.catalogue_uuid,
-        metadata: %{
-          "count" => count,
-          "to_category_uuid" => target.uuid,
-          "to_catalogue_uuid" => target.catalogue_uuid
-        }
-      })
+      log_activity(
+        %{
+          action: "item.bulk_moved",
+          mode: "manual",
+          actor_uuid: opts[:actor_uuid],
+          resource_type: "item",
+          parent_catalogue_uuid: target.catalogue_uuid,
+          metadata: %{
+            "count" => count,
+            "to_category_uuid" => target.uuid,
+            "to_catalogue_uuid" => target.catalogue_uuid
+          }
+        },
+        opts
+      )
     end
 
     {:ok, count}
@@ -4695,15 +4767,36 @@ defmodule PhoenixKitCatalogue.Catalogue do
     do: {:ok, %{categories: 0, items_handled: 0}}
 
   def bulk_trash_categories(uuids, disposition, opts) when is_list(uuids) do
+    # Each step runs `trash_category/2` muted: a broadcast from inside the
+    # outer transaction would reach subscribers before the rows commit
+    # (and before a later step could roll them back). The trashed
+    # `{uuid, catalogue_uuid}` pairs are collected and fanned out once the
+    # transaction has committed.
+    step_opts = Keyword.put(opts, :broadcast, false)
+
     repo().transaction(fn ->
-      Enum.reduce_while(uuids, %{categories: 0, items_handled: 0}, fn uuid, acc ->
-        bulk_trash_category_step(uuid, disposition, opts, acc)
+      Enum.reduce_while(uuids, %{categories: 0, items_handled: 0, trashed: []}, fn uuid, acc ->
+        bulk_trash_category_step(uuid, disposition, step_opts, acc)
       end)
     end)
     |> case do
-      {:ok, summary} -> {:ok, summary}
-      error -> error
+      {:ok, %{trashed: trashed} = summary} ->
+        broadcast_trashed_categories(trashed, opts)
+        {:ok, Map.delete(summary, :trashed)}
+
+      error ->
+        error
     end
+  end
+
+  defp broadcast_trashed_categories(trashed, opts) do
+    if Keyword.get(opts, :broadcast, true) do
+      Enum.each(trashed, fn {uuid, catalogue_uuid} ->
+        PubSub.broadcast(:category, uuid, catalogue_uuid)
+      end)
+    end
+
+    :ok
   end
 
   defp bulk_trash_category_step(uuid, disposition, opts, acc) do
@@ -4716,8 +4809,16 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
   defp trash_one_in_bulk(category, disposition, opts, acc) do
     case trash_category(category, Keyword.put(opts, :items, disposition)) do
-      {:ok, _} -> {:cont, %{acc | categories: acc.categories + 1}}
-      {:error, reason} -> {:halt, repo().rollback(reason)}
+      {:ok, _} ->
+        {:cont,
+         %{
+           acc
+           | categories: acc.categories + 1,
+             trashed: [{category.uuid, category.catalogue_uuid} | acc.trashed]
+         }}
+
+      {:error, reason} ->
+        {:halt, repo().rollback(reason)}
     end
   end
 
