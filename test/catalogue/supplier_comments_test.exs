@@ -298,6 +298,35 @@ defmodule PhoenixKitCatalogue.Catalogue.SupplierCommentsTest do
     end
   end
 
+  test "the resolver is self-registered through the resource_links/0 callback" do
+    assert PhoenixKitCatalogue.resource_links() == %{
+             "catalogue_item_supplier" => PhoenixKitCatalogue
+           }
+
+    assert function_exported?(PhoenixKitCatalogue, :resolve_comment_resources, 1)
+  end
+
+  # Core's boot starts the module registry, which scans beams for
+  # `@phoenix_kit_module` and then reads `resource_links/0` off every entry.
+  # Nothing in this suite runs that boot, so the test starts the registry
+  # itself and clears any host `:comment_resource_handlers` config: the
+  # resolver has to arrive through the module's own callback alone.
+  test "core's registry picks the resolver up without host config" do
+    previous = Application.get_env(:phoenix_kit, :comment_resource_handlers)
+    Application.put_env(:phoenix_kit, :comment_resource_handlers, %{})
+
+    on_exit(fn ->
+      if previous,
+        do: Application.put_env(:phoenix_kit, :comment_resource_handlers, previous),
+        else: Application.delete_env(:phoenix_kit, :comment_resource_handlers)
+    end)
+
+    start_supervised!(PhoenixKit.ModuleRegistry)
+
+    assert PhoenixKitCatalogue in PhoenixKit.ModuleRegistry.all_modules()
+    assert PhoenixKit.ResourceLinks.handlers()["catalogue_item_supplier"] == PhoenixKitCatalogue
+  end
+
   test "the resource type is stable and shared by the LiveView and the resolver" do
     assert SupplierComments.resource_type() == "catalogue_item_supplier"
     assert Catalogue.supplier_comment_resource_type() == "catalogue_item_supplier"

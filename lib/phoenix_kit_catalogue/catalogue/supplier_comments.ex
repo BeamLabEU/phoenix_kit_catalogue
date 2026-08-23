@@ -28,16 +28,12 @@ defmodule PhoenixKitCatalogue.Catalogue.SupplierComments do
   before the key existed use their own uuid as the thread until their first
   write pins it (`thread_uuid/1`).
 
-  ## Host wiring
+  ## Back-links
 
-  The central Comments admin links a comment back to its record through a
-  host-configured handler. Add the catalogue's:
-
-      config :phoenix_kit, :comment_resource_handlers, %{
-        "catalogue_item_supplier" => PhoenixKitCatalogue
-      }
-
-  Without it every thread renders as a neutral chip there — nothing breaks.
+  The central Comments admin and the Activity feed link a comment back to
+  its record through a resolver. `PhoenixKitCatalogue.resource_links/0`
+  registers this module's (`resolve_resources/1`) for the type, and core
+  discovers that callback on its own — no host configuration.
   """
 
   import Ecto.Query, warn: false

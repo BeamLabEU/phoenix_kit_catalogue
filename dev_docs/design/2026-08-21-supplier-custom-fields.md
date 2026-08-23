@@ -81,18 +81,13 @@ CRM company (`Suppliers.crm_company_uuid/1`, which still returns `nil` for a
 contact on purpose). The uuid the modal opens is resolved server-side from a
 row the LiveView rendered, never from the payload.
 
-The central Comments admin links a thread back to the item's Suppliers tab
-through `PhoenixKitCatalogue.resolve_comment_resources/1` (raw path,
-`?tab=sourcing`, which the item form now honours at mount). That handler is
-**host config**:
-
-```elixir
-config :phoenix_kit, :comment_resource_handlers, %{
-  "catalogue_item_supplier" => PhoenixKitCatalogue
-}
-```
-
-Without it the admin shows a neutral chip — nothing breaks.
+The central Comments admin (and the Activity feed) link a thread back to the
+item's Suppliers tab through `PhoenixKitCatalogue.resolve_comment_resources/1`
+(raw path, `?tab=sourcing`, which the item form now honours at mount). The
+resolver is registered by the module itself via the `resource_links/0`
+`PhoenixKit.Module` callback, which core discovers on every loaded module —
+**no host configuration** (a first cut hand-edited the host config on max-dev;
+that was the wrong tool and was removed).
 
 Each supplier row shows its **two latest comments inline**, with a "Show all N"
 button opening the full thread. One grouped count query covers every supplier on
