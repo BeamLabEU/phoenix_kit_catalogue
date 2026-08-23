@@ -99,6 +99,25 @@ defmodule PhoenixKitCatalogue do
   @impl PhoenixKit.Module
   def route_module, do: PhoenixKitCatalogue.Web.Routes
 
+  @doc """
+  phoenix_kit_comments back-link resolver for supplier comment threads
+  (`"catalogue_item_supplier"`): turns thread uuids into
+  `%{uuid => %{title, path}}` chips for the central Comments admin, so a
+  "he promised a discount" note links back to the item's Suppliers tab.
+
+  Paths are RAW (no URL prefix) — the comments module applies the
+  prefix/locale itself. Registered via the host's config:
+
+      config :phoenix_kit, :comment_resource_handlers, %{
+        "catalogue_item_supplier" => PhoenixKitCatalogue
+      }
+
+  See `PhoenixKitCatalogue.Catalogue.SupplierComments` for the thread model.
+  """
+  @spec resolve_comment_resources([binary()]) :: %{binary() => map()}
+  def resolve_comment_resources(uuids) when is_list(uuids),
+    do: PhoenixKitCatalogue.Catalogue.resolve_supplier_comment_resources(uuids)
+
   @impl PhoenixKit.Module
   def css_sources, do: [:phoenix_kit_catalogue]
 

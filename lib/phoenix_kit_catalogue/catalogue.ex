@@ -61,6 +61,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
     Rules,
     Search,
     SmartPricing,
+    SupplierComments,
     SupplierFields,
     Suppliers,
     Translations,
@@ -5214,6 +5215,16 @@ defmodule PhoenixKitCatalogue.Catalogue do
   # ── Supplier custom fields (entities-defined, values on the row) ────
 
   defdelegate supplier_crm_company_uuid(reference), to: Suppliers, as: :crm_company_uuid
+
+  # ── Supplier comments (one thread per item × supplier) ──────────────
+  # See PhoenixKitCatalogue.Catalogue.SupplierComments.
+  defdelegate supplier_comment_resource_type(), to: SupplierComments, as: :resource_type
+  defdelegate supplier_comment_thread_uuid(info), to: SupplierComments, as: :thread_uuid
+
+  defdelegate resolve_supplier_comment_resources(uuids),
+    to: SupplierComments,
+    as: :resolve_resources
+
   defdelegate supplier_builtin_fields(), to: SupplierFields, as: :builtin_fields
   defdelegate supplier_builtin_field(key), to: SupplierFields, as: :builtin_field
   defdelegate cast_supplier_builtin(key, raw), to: SupplierFields, as: :cast_builtin

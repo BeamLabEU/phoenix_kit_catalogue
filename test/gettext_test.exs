@@ -28,6 +28,21 @@ defmodule PhoenixKitCatalogue.GettextTest do
              "Otsi failinime järgi…"
   end
 
+  test "the supplier-comments note is translated (pin for the per-row threads, 2026-08-24)" do
+    msgid =
+      "About this supplier for this item only. The company's own comments stay on its CRM page."
+
+    Gettext.put_locale(PhoenixKitCatalogue.Gettext, "ru")
+
+    assert Gettext.gettext(PhoenixKitCatalogue.Gettext, msgid) ==
+             "Только об этом поставщике для этого товара. Собственные комментарии компании остаются на её странице в CRM."
+
+    Gettext.put_locale(PhoenixKitCatalogue.Gettext, "et")
+
+    assert Gettext.gettext(PhoenixKitCatalogue.Gettext, msgid) ==
+             "Ainult selle tarnija kohta selle toote juures. Ettevõtte enda kommentaarid jäävad tema CRM-i lehele."
+  end
+
   test "attribute-sets strings are translated (pin for the 2026-08-18 rework, PR #74)" do
     Gettext.put_locale(PhoenixKitCatalogue.Gettext, "ru")
 
