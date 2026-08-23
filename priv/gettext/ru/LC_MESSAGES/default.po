@@ -2728,8 +2728,8 @@ msgstr "напр. Incoterm"
 msgid "Comments"
 msgstr "Комментарии"
 
-msgid "Shared with this supplier's company page in CRM."
-msgstr "Общие со страницей компании этого поставщика в CRM."
+msgid "About this supplier for this item only. The company's own comments stay on its CRM page."
+msgstr "Только об этом поставщике для этого товара. Собственные комментарии компании остаются на её странице в CRM."
 
 msgid "Add a comment"
 msgstr "Добавить комментарий"

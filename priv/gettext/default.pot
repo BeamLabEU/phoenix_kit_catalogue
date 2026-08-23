@@ -2724,7 +2724,7 @@ msgstr ""
 msgid "Comments"
 msgstr ""
 
-msgid "Shared with this supplier's company page in CRM."
+msgid "About this supplier for this item only. The company's own comments stay on its CRM page."
 msgstr ""
 
 msgid "Add a comment"

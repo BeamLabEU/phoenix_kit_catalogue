@@ -2719,8 +2719,8 @@ msgstr "nt Incoterm"
 msgid "Comments"
 msgstr "Kommentaarid"
 
-msgid "Shared with this supplier's company page in CRM."
-msgstr "Jagatud selle tarnija ettevõtte lehega CRM-is."
+msgid "About this supplier for this item only. The company's own comments stay on its CRM page."
+msgstr "Ainult selle tarnija kohta selle toote juures. Ettevõtte enda kommentaarid jäävad tema CRM-i lehele."
 
 msgid "Add a comment"
 msgstr "Lisa kommentaar"
