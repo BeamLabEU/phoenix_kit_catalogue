@@ -10,6 +10,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormSupplierCommentsTest do
 
   use PhoenixKitCatalogue.LiveCase
 
+  alias PhoenixKit.Utils.Routes
   alias PhoenixKitCatalogue.Catalogue
   alias PhoenixKitCatalogue.Catalogue.ItemSupplierInfos
 
@@ -168,6 +169,42 @@ defmodule PhoenixKitCatalogue.Web.ItemFormSupplierCommentsTest do
              )
 
       refute has_element?(view, "[phx-value-uuid='#{info.uuid}']")
+    end
+
+    # The CRM link goes through <.pk_link navigate>, which prefixes the path
+    # itself — CRM's prefixed helper produced /phoenix_kit/en/phoenix_kit/en/…
+    # on max-dev. The test router is mounted at "/", so a doubled prefix
+    # would show up as a doubled "/en" or "/admin" segment.
+    test "the supplier name and the modal's company link carry ONE url prefix",
+         %{conn: conn, scope: scope} do
+      item =
+        fixture_item(%{
+          name: "Oak Panel",
+          category_uuid: fixture_category(fixture_catalogue()).uuid
+        })
+
+      company_uuid = UUIDv7.generate()
+
+      {:ok, info} =
+        Catalogue.create_supplier_info(%{
+          "item_uuid" => item.uuid,
+          "supplier_uuid" => company_uuid,
+          "supplier_source" => "crm_company",
+          "supplier_name_snapshot" => "Baltic Timber",
+          "unit_cost" => "10.00"
+        })
+
+      {:ok, view, html} =
+        conn |> with_scope(scope) |> live(edit_item_url(item.uuid) <> "?tab=sourcing")
+
+      expected = Routes.path("/admin/crm/companies/#{company_uuid}")
+      assert html =~ ~s(href="#{expected}")
+      refute html =~ ~r{href="[^"]*/admin/crm/companies/[^"]*/admin/crm/companies/}
+      refute html =~ ~r{href="/[^"]*?(/en/)[^"]*\1}
+
+      html = render_click(view, "open_supplier_comments", %{"uuid" => info.uuid})
+      assert html =~ "Open the company"
+      assert html =~ ~s(href="#{expected}")
     end
 
     test "the modal opens only rows this item renders, resolved server-side",

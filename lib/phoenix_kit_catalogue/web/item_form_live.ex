@@ -87,12 +87,12 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   # what it always read.
   @supplier_terms_fields false
 
-  # Comments on a supplier are comments on the CRM COMPANY — the very same
-  # rows the company page's Comments tab shows, addressed by the same
-  # `{resource_type, resource_uuid}` pair (`"crm_company"` + the company
-  # uuid). Nothing is copied or synced between the two views because there
-  # is only one store, which is the same rule the rest of this integration
-  # follows.
+  # Comments on a supplier row are about THAT supplier on THIS item — one
+  # thread per item × supplier, keyed on the row's thread uuid
+  # (`Catalogue.SupplierComments`), never the CRM company's own thread: the
+  # same company supplies other products, and "he promised a discount on
+  # this one" must not land in its general notes. The company page keeps
+  # its own comments; the modal only links to it.
   #
   # `phoenix_kit_comments` is a SOFT dependency here: the catalogue does
   # not declare it (CRM does), so every touchpoint is guarded and the
@@ -1126,7 +1126,9 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   # behind it (an unlinked local row, or a contact).
   #
   # `PhoenixKitCRM.Paths` is reached through a guard: CRM is an optional
-  # runtime dependency here.
+  # runtime dependency here. The RAW helper on purpose: these paths go into
+  # `<.pk_link navigate>`, which applies `Routes.path/1` itself — the
+  # prefixed `company/1` rendered `/phoenix_kit/en/phoenix_kit/en/…`.
   defp supplier_page_path(links, %{uuid: uuid}),
     do: links |> Map.get(uuid) |> crm_company_path()
 
@@ -1134,9 +1136,9 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
 
   defp crm_company_path(company_uuid) when is_binary(company_uuid) do
     if Code.ensure_loaded?(PhoenixKitCRM.Paths) and
-         function_exported?(PhoenixKitCRM.Paths, :company, 1) do
+         function_exported?(PhoenixKitCRM.Paths, :company_raw, 1) do
       # credo:disable-for-next-line Credo.Check.Refactor.Apply
-      apply(PhoenixKitCRM.Paths, :company, [company_uuid])
+      apply(PhoenixKitCRM.Paths, :company_raw, [company_uuid])
     end
   end
 
