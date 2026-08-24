@@ -2787,3 +2787,33 @@ msgstr "Импорт не удался"
 
 msgid "The import stopped unexpectedly before it finished. Rows written before the failure were kept. Check the server log for details."
 msgstr "Импорт неожиданно прервался до завершения. Строки, записанные до сбоя, сохранены. Подробности — в журнале сервера."
+
+msgid "Move selected categories"
+msgstr "Переместить выбранные категории"
+
+msgid "Move categories"
+msgstr "Переместить категории"
+
+msgid "Pick where %{count} categories should go. Each one brings its subcategories and items along."
+msgstr "Выберите, куда переместить %{count} категорий. Каждая забирает с собой свои подкатегории и товары."
+
+msgid "Make them top-level categories"
+msgstr "Сделать их категориями верхнего уровня"
+
+msgid "They leave their parent and sit at the root of this catalogue."
+msgstr "Они выходят из родительской категории и располагаются в корне этого каталога."
+
+msgid "Nest them under another category"
+msgstr "Вложить их в другую категорию"
+
+msgid "No category can take them — only the top level is left."
+msgstr "Ни одна категория не может их принять — остаётся только верхний уровень."
+
+msgid "Moved %{count} categories."
+msgstr "Перемещено категорий: %{count}."
+
+msgid "%{count} categories could not be moved."
+msgstr "Не удалось переместить категорий: %{count}."
+
+msgid "Select all categories"
+msgstr "Выбрать все категории"

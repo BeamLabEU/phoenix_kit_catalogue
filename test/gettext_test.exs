@@ -43,6 +43,24 @@ defmodule PhoenixKitCatalogue.GettextTest do
              "Ainult selle tarnija kohta selle toote juures. Ettevõtte enda kommentaarid jäävad tema CRM-i lehele."
   end
 
+  test "the category bulk-move strings are translated (pin for the 2026-08-24 toolkit change)" do
+    Gettext.put_locale(PhoenixKitCatalogue.Gettext, "ru")
+
+    assert Gettext.gettext(PhoenixKitCatalogue.Gettext, "Move categories") ==
+             "Переместить категории"
+
+    assert Gettext.gettext(PhoenixKitCatalogue.Gettext, "Make them top-level categories") ==
+             "Сделать их категориями верхнего уровня"
+
+    Gettext.put_locale(PhoenixKitCatalogue.Gettext, "et")
+
+    assert Gettext.gettext(PhoenixKitCatalogue.Gettext, "Move categories") ==
+             "Liiguta kategooriad"
+
+    assert Gettext.gettext(PhoenixKitCatalogue.Gettext, "Select all categories") ==
+             "Vali kõik kategooriad"
+  end
+
   test "attribute-sets strings are translated (pin for the 2026-08-18 rework, PR #74)" do
     Gettext.put_locale(PhoenixKitCatalogue.Gettext, "ru")
 

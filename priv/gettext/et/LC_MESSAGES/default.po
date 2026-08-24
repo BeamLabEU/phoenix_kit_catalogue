@@ -2778,3 +2778,33 @@ msgstr "Import ebaõnnestus"
 
 msgid "The import stopped unexpectedly before it finished. Rows written before the failure were kept. Check the server log for details."
 msgstr "Import katkes ootamatult enne lõpetamist. Enne tõrget kirjutatud read jäid alles. Üksikasjad leiad serveri logist."
+
+msgid "Move selected categories"
+msgstr "Liiguta valitud kategooriad"
+
+msgid "Move categories"
+msgstr "Liiguta kategooriad"
+
+msgid "Pick where %{count} categories should go. Each one brings its subcategories and items along."
+msgstr "Vali, kuhu %{count} kategooriat peaksid minema. Iga kategooria võtab oma alamkategooriad ja tooted kaasa."
+
+msgid "Make them top-level categories"
+msgstr "Tee neist ülataseme kategooriad"
+
+msgid "They leave their parent and sit at the root of this catalogue."
+msgstr "Nad lahkuvad oma ülemkategooriast ja asuvad selle kataloogi juurtasemel."
+
+msgid "Nest them under another category"
+msgstr "Paiguta need teise kategooria alla"
+
+msgid "No category can take them — only the top level is left."
+msgstr "Ükski kategooria ei saa neid vastu võtta — jääb ainult ülatase."
+
+msgid "Moved %{count} categories."
+msgstr "Liigutatud %{count} kategooriat."
+
+msgid "%{count} categories could not be moved."
+msgstr "%{count} kategooriat ei õnnestunud liigutada."
+
+msgid "Select all categories"
+msgstr "Vali kõik kategooriad"
