@@ -9,6 +9,7 @@ defmodule PhoenixKitCatalogue.Web.LiveSurfacesTest do
   use PhoenixKitCatalogue.LiveCase, async: false
 
   alias PhoenixKit.Modules.Storage
+  alias PhoenixKitCatalogue.AITranslatable
   alias PhoenixKitCatalogue.Catalogue
   alias PhoenixKitCatalogue.Catalogue.PubSub
   alias PhoenixKitCatalogue.Test.Repo, as: TestRepo
@@ -157,6 +158,48 @@ defmodule PhoenixKitCatalogue.Web.LiveSurfacesTest do
       PubSub.subscribe()
       render_click(view, "close_media_selector", %{})
       refute_receive {:catalogue_data_changed, _, _, _}
+    end
+  end
+
+  describe "F6 — the attribute-group editor follows child writes from other processes" do
+    setup do
+      {:ok, group} = Catalogue.create_attribute_group(%{name: "Idea doors"})
+      {:ok, attribute} = Catalogue.create_attribute(group, %{"name" => "Color"})
+      %{group: group, attribute: attribute}
+    end
+
+    test "a translation job's write shows up without a timer",
+         %{conn: conn, group: group, attribute: attribute} do
+      {:ok, view, _html} = live(conn, "#{@base}/attributes/#{group.uuid}/edit")
+
+      {:ok, _} = AITranslatable.put_translation(attribute, "et", %{"name" => "Värv"}, [])
+      _ = render(view)
+
+      [loaded] = :sys.get_state(view.pid).socket.assigns.group.attributes
+      assert loaded.data["et"]["_name"] == "Värv"
+    end
+
+    test "a colleague adding an attribute appears in the list", %{conn: conn, group: group} do
+      {:ok, view, _html} = live(conn, "#{@base}/attributes/#{group.uuid}/edit")
+      refute render(view) =~ "Material"
+
+      {:ok, _} = Catalogue.create_attribute(group, %{"name" => "Material"})
+      assert render(view) =~ "Material"
+    end
+
+    test "another group's events are ignored", %{conn: conn, group: group} do
+      {:ok, view, _html} = live(conn, "#{@base}/attributes/#{group.uuid}/edit")
+      {:ok, other} = Catalogue.create_attribute_group(%{name: "Other"})
+      {:ok, _} = Catalogue.create_attribute(other, %{"name" => "Finish"})
+
+      refute render(view) =~ "Finish"
+    end
+
+    test "the group being deleted elsewhere bounces to the list", %{conn: conn, group: group} do
+      {:ok, view, _html} = live(conn, "#{@base}/attributes/#{group.uuid}/edit")
+
+      {:ok, _} = Catalogue.delete_attribute_group(group)
+      assert_redirect(view, "#{@base}/attributes")
     end
   end
 

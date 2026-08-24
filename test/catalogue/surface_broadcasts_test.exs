@@ -8,6 +8,7 @@ defmodule PhoenixKitCatalogue.Catalogue.SurfaceBroadcastsTest do
 
   use PhoenixKitCatalogue.DataCase, async: false
 
+  alias PhoenixKitCatalogue.AITranslatable
   alias PhoenixKitCatalogue.Catalogue
   alias PhoenixKitCatalogue.Catalogue.PubSub
 
@@ -199,6 +200,56 @@ defmodule PhoenixKitCatalogue.Catalogue.SurfaceBroadcastsTest do
       assert {:ok, _} = Catalogue.delete_manufacturer(m)
       assert_receive {:catalogue_data_changed, :manufacturer, _, nil}
       refute_receive {:catalogue_data_changed, :links, _, _}
+    end
+  end
+
+  describe "F5 — an AI translation write announces the resource it localized" do
+    test "catalogue / category / item" do
+      cat = catalogue!()
+      sec = category!(cat)
+      item = item!(cat)
+      flush()
+
+      assert {:ok, _} = AITranslatable.put_translation(cat, "et", %{"name" => "Kass"}, [])
+      assert_receive {:catalogue_data_changed, :catalogue, uuid, parent}
+      assert {uuid, parent} == {cat.uuid, cat.uuid}
+
+      assert {:ok, _} = AITranslatable.put_translation(sec, "et", %{"name" => "Jagu"}, [])
+      assert_receive {:catalogue_data_changed, :category, uuid, parent}
+      assert {uuid, parent} == {sec.uuid, cat.uuid}
+
+      assert {:ok, _} = AITranslatable.put_translation(item, "et", %{"name" => "Asi"}, [])
+      assert_receive {:catalogue_data_changed, :item, uuid, parent}
+      assert {uuid, parent} == {item.uuid, cat.uuid}
+    end
+
+    test "group / attribute / value all announce the owning group" do
+      {:ok, group} = Catalogue.create_attribute_group(%{name: "Doors"})
+      {:ok, attribute} = Catalogue.create_attribute(group, %{"name" => "Color"})
+      {:ok, value} = Catalogue.create_attribute_value(attribute, %{"value" => "Oak"})
+      flush()
+
+      for {resource, fields} <- [
+            {group, %{"name" => "Uksed"}},
+            {attribute, %{"name" => "Värv"}},
+            {value, %{"value" => "Tamm"}}
+          ] do
+        assert {:ok, _} = AITranslatable.put_translation(resource, "et", fields, [])
+        assert_receive {:catalogue_data_changed, :attribute_group, uuid, nil}
+        assert uuid == group.uuid
+      end
+    end
+
+    test "a vanished row rolls back and stays silent" do
+      cat = catalogue!()
+      item = item!(cat)
+      {1, nil} = Catalogue.bulk_permanently_delete_items([item.uuid], broadcast: false)
+      flush()
+
+      assert {:error, :resource_not_found} =
+               AITranslatable.put_translation(item, "et", %{"name" => "Asi"}, [])
+
+      refute_receive {:catalogue_data_changed, _, _, _}
     end
   end
 
