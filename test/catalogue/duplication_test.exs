@@ -73,8 +73,10 @@ defmodule PhoenixKitCatalogue.Catalogue.DuplicationTest do
       assert copy.category_uuid == alpha.uuid
       assert copy.catalogue_uuid == a.catalogue_uuid
       # Translations, custom fields and the featured pointer travel; the
-      # folder pointer belongs to one item only.
-      assert copy.data["et"] == %{"_name" => "A-et"}
+      # folder pointer belongs to one item only. Lists render the
+      # translated name, so every language entry carries the suffix.
+      assert copy.data["en"] == %{"name" => "A (copy)"}
+      assert copy.data["et"] == %{"_name" => "A-et (copy)"}
       assert copy.data["custom_fields"] == %{"colour" => "red"}
       assert copy.data["featured_image_uuid"] == "0192aaaa-0000-7000-8000-000000000001"
       refute Map.has_key?(copy.data, "files_folder_uuid")
@@ -171,7 +173,11 @@ defmodule PhoenixKitCatalogue.Catalogue.DuplicationTest do
 
   describe "duplicate_category/2" do
     test "copies the subtree with names and positions intact, only the top renamed",
-         %{catalogue: cat, alpha: alpha, beta: beta} do
+         %{catalogue: cat, alpha: alpha, beta: beta, a: a} do
+      {:ok, _} =
+        Catalogue.update_item(a, %{data: %{"_primary_language" => "en", "en" => %{"name" => "A"}}})
+
+      a_uuid = a.uuid
       child = fixture_category(cat, %{name: "Alpha child", parent_uuid: alpha.uuid, position: 0})
 
       _ =
@@ -196,6 +202,9 @@ defmodule PhoenixKitCatalogue.Catalogue.DuplicationTest do
       assert Catalogue.get_category(beta.uuid).position == 2
 
       assert names_in(copy.uuid) == [{"A", 0}, {"B", 1}, {"C", 2}]
+      # Nested copies keep their translations verbatim (no suffix).
+      assert Catalogue.get_item!(hd(Catalogue.list_items_for_category(copy.uuid)).uuid).data ==
+               Catalogue.get_item!(a_uuid).data
 
       [copied_child] = Catalogue.list_child_categories(cat.uuid, copy.uuid)
       assert copied_child.name == "Alpha child"
