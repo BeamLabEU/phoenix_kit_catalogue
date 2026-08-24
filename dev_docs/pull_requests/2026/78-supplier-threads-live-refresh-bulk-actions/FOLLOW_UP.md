@@ -1,6 +1,9 @@
 # Follow-up Items for PR #78
 
-Triaged 2026-08-24 against `main` (`3437621`). Reviewers: Codex (`CODEX_REVIEW.md`), Gemini (`GEMINI_REVIEW.md`), Grok (`GROK_REVIEW.md`), ZAI (`ZAI_REVIEW.md`), four Claude triage passes (`CLAUDE_REVIEW.md`). Every finding was re-verified before being acted on.
+Triaged 2026-08-24 against `main` (`3437621`, then the post-merge pass).
+Reviewers: Codex (`CODEX_REVIEW.md`), Gemini (`GEMINI_REVIEW.md`), Grok
+(`GROK_REVIEW.md`), ZAI (`ZAI_REVIEW.md`), four Claude triage passes
+(`CLAUDE_REVIEW.md`). Every finding was re-verified before being acted on.
 
 ## Fixed (Batch 1 — 2026-08-24, commit 3437621)
 
@@ -19,6 +22,15 @@ Triaged 2026-08-24 against `main` (`3437621`). Reviewers: Codex (`CODEX_REVIEW.m
 - ~~`{:import_result, _}` after "Import another" yanks the fresh wizard~~ (ZAI) — guarded on `import_task: nil`; test added.
 - ~~Test smells~~ — bulk-op event order pinned (bulk change before batch `:item`); the import-monitor test monitors a real process from inside the LiveView and asserts the monitor is released; the permanent-delete test pins the broadcast.
 
+## Fixed (Batch 2 — 2026-08-24, post-merge release pass)
+
+- ~~`trash_category(items: {:move_to, child})` parked live items in a deleted category~~ — context returns `:move_target_in_subtree`; the three modal pickers clamp select + confirm to offered targets; `request_trash_category` / `restore_category` refuse a foreign catalogue uuid.
+- ~~`set_primary/2` / `revise_unit_cost/3` trusted a stale struct~~ — lock-reload under `FOR UPDATE`, refuse `:not_current`. `set_primary` now has the missing pin.
+- ~~Category Duplicate did not lock the target parent~~ — `ensure_same_catalogue!/2` takes `FOR SHARE`, matching `catalogue_for/2`.
+- ~~`Attachments.refresh_files/1` was a no-op without a folder pointer~~ — resolves the deterministic `catalogue-item-<uuid>` name (ZAI).
+- ~~Item-form `delete` / `set_primary` / history ignored `owned_supplier_info/2`~~ — crafted uuid of another item's row is a no-op.
+- ~~New error atoms and Duplicate activity actions unpinned~~ — `Errors.message/1` + `errors_test.exs` + `activity_logging_test.exs` + hand-edited catalogues.
+
 ## Not defects on verification
 
 See `CLAUDE_REVIEW.md` "Not defects on verification" (cost-range currency grouping, nil min/max, search-results staleness, pending-window drop, prune broadcast, `valid_from`).
@@ -32,7 +44,7 @@ See `CLAUDE_REVIEW.md` "Not defects on verification" (cost-range currency groupi
 - **Gemini: `bulk_change_pending` is a boolean** — two overlapping bulk broadcasts within the flash window cut the second's fade short. Counter instead?
 - **Search results render a fixed column set** (no Supplier price, no Columns config) — pre-existing; extend to `items_columns`?
 - **Triage: PRO100 loader logs `mode: "manual"`, `actor_uuid: nil`** — pre-existing; thread `actor_uuid` / `mode: "import"` through `apply_plan/2`?
-- **ZAI: `Attachments.refresh_files/1` when THIS tab has no folder pointer yet** (first upload happened in another tab) — resolve the deterministic folder name on refresh?
+- ~~**ZAI: `Attachments.refresh_files/1` when THIS tab has no folder pointer yet**~~ — fixed in batch 2.
 - **Codex: `surface_broadcasts_test` post-commit assertions are same-process** — cannot distinguish an in-transaction broadcast; needs a separate subscriber reading the committed row.
 - **Test gaps still open**: attachments upload broadcast (needs `render_upload`), attribute-set / attribute-group copy in Duplication (entities-gated), the item form's stale-thread unsubscribe.
 
@@ -52,8 +64,10 @@ See `CLAUDE_REVIEW.md` "Not defects on verification" (cost-range currency groupi
 
 ## Verification
 
-`mix precommit` green (compile with warnings-as-errors, format, credo --strict, dialyzer); `mix test`: 2 doctests, 1927 tests, 0 failures. Deployed to max-dev.
+Batch 1: `mix precommit` green; `mix test`: 2 doctests, 1927 tests, 0 failures. Deployed to max-dev.
+
+Batch 2: see the post-merge commit; `mix precommit` + `mix test` re-run before the 0.19.0 publish.
 
 ## Open
 
-See "Open — for Max to decide" above.
+See "Open — for Max to decide" above. SKU / shared files / "(copy) (copy)" stacking remain product calls.

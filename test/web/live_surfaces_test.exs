@@ -479,6 +479,22 @@ defmodule PhoenixKitCatalogue.Web.LiveSurfacesTest do
       assert supplier_row_uuids(view) == []
     end
 
+    test "crafted uuids cannot act on another item's supplier row",
+         %{conn: conn, item: item, supplier: supplier} do
+      other = fixture_item(%{name: "Other", catalogue_uuid: item.catalogue_uuid})
+      foreign = supplier_info!(other, supplier)
+      _mine = supplier_info!(item, supplier)
+      {:ok, view, _html} = live(conn, "#{@base}/items/#{item.uuid}/edit?tab=sourcing")
+
+      render_click(view, "set_primary_supplier", %{"uuid" => foreign.uuid})
+      render_click(view, "open_supplier_history", %{"uuid" => foreign.uuid})
+      render_click(view, "delete_supplier_info", %{"uuid" => foreign.uuid})
+
+      refute assigns(view).supplier_history_open
+      assert Catalogue.get_supplier_info(foreign.uuid).valid_to == nil
+      assert Catalogue.primary_supplier_info_for_item(other.uuid).uuid == foreign.uuid
+    end
+
     test "a primary flip and a removal elsewhere are reflected",
          %{conn: conn, item: item, supplier: supplier} do
       second = fixture_supplier(%{name: "Beta Parts"})
@@ -546,6 +562,23 @@ defmodule PhoenixKitCatalogue.Web.LiveSurfacesTest do
       assert file_uuid in files_state_uuids(view)
       assert Ecto.Changeset.get_change(assigns(view).changeset, :name) == "Typed but unsaved"
       assert Catalogue.get_item(item.uuid).name == "Original"
+    end
+
+    test "a first upload in another tab is picked up when this tab has no folder pointer",
+         %{conn: conn, scope: scope} do
+      cat = fixture_catalogue()
+      item = fixture_item(%{name: "No pointer", catalogue_uuid: cat.uuid})
+      {:ok, view, _html} = live(conn, "#{@base}/items/#{item.uuid}/edit")
+      assert assigns(view).files_folder_uuid in [nil, ""]
+      assert files_state_uuids(view) == []
+
+      folder = folder!("catalogue-item-#{item.uuid}")
+      file_uuid = insert_document!(folder.uuid, scope)
+      PubSub.broadcast(:item, item.uuid, cat.uuid)
+      _ = render(view)
+
+      assert assigns(view).files_folder_uuid == folder.uuid
+      assert file_uuid in files_state_uuids(view)
     end
 
     test "a category added elsewhere becomes selectable", %{conn: conn} do

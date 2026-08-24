@@ -1530,7 +1530,11 @@ defmodule PhoenixKitCatalogue.Catalogue do
   """
   @spec trash_category(Category.t(), keyword()) ::
           {:ok, Category.t()}
-          | {:error, :move_target_not_found | :cross_catalogue_move | term()}
+          | {:error,
+             :move_target_not_found
+             | :cross_catalogue_move
+             | :move_target_in_subtree
+             | term()}
   def trash_category(%Category{} = category, opts \\ []) do
     disposition = Keyword.get(opts, :items, :cascade)
 
@@ -1616,19 +1620,35 @@ defmodule PhoenixKitCatalogue.Catalogue do
         {:error, :cross_catalogue_move}
 
       %Category{uuid: ^target_uuid} = target ->
-        {count, _} =
-          from(i in Item,
-            where: i.category_uuid in ^subtree and i.status != "deleted"
-          )
-          |> repo().update_all(
-            set: [
-              category_uuid: target.uuid,
-              catalogue_uuid: target.catalogue_uuid,
-              updated_at: now
-            ]
-          )
+        # The picker hides the subtree, but a crafted target inside it
+        # would reparent items onto a category this same transaction then
+        # deletes — leaving live items in a deleted category.
+        if in_subtree?(target.uuid, subtree) do
+          {:error, :move_target_in_subtree}
+        else
+          {count, _} =
+            from(i in Item,
+              where: i.category_uuid in ^subtree and i.status != "deleted"
+            )
+            |> repo().update_all(
+              set: [
+                category_uuid: target.uuid,
+                catalogue_uuid: target.catalogue_uuid,
+                updated_at: now
+              ]
+            )
 
-        {:ok, count}
+          {:ok, count}
+        end
+    end
+  end
+
+  # `Tree.subtree_uuids/1` returns raw 16-byte binaries; loaded rows
+  # carry the textual form.
+  defp in_subtree?(textual_uuid, subtree) do
+    case Ecto.UUID.dump(textual_uuid) do
+      {:ok, dumped} -> dumped in subtree
+      :error -> false
     end
   end
 

@@ -378,6 +378,30 @@ defmodule PhoenixKitCatalogue.ItemSupplierInfosTest do
 
       assert is_nil(ItemSupplierInfos.primary_for_item(item.uuid))
     end
+
+    test "returns {:error, :not_current} for a closed revision" do
+      cat = create_catalogue()
+      item = create_item(cat)
+      supplier = create_supplier()
+      info = create_info(item, supplier)
+      {:ok, closed} = ItemSupplierInfos.delete(info)
+
+      assert {:error, :not_current} = ItemSupplierInfos.set_primary(closed)
+      assert is_nil(ItemSupplierInfos.primary_for_item(item.uuid))
+    end
+
+    test "refuses a stale in-memory current row that has been closed since" do
+      cat = create_catalogue()
+      item = create_item(cat)
+      supplier = create_supplier()
+      info = create_info(item, supplier)
+      assert is_nil(info.valid_to)
+
+      {:ok, _} = ItemSupplierInfos.delete(ItemSupplierInfos.get(info.uuid))
+
+      assert {:error, :not_current} = ItemSupplierInfos.set_primary(info)
+      assert is_nil(ItemSupplierInfos.primary_for_item(item.uuid))
+    end
   end
 
   # ═══════════════════════════════════════════════════════════════════════════

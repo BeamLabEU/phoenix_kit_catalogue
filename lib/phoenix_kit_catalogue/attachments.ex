@@ -388,7 +388,30 @@ defmodule PhoenixKitCatalogue.Attachments do
   over PubSub that the resource changed in another session (an upload or
   removal there) — the form's own pointers (featured image) are untouched.
   """
-  def refresh_files(socket), do: refresh_files_from_folder(socket)
+  def refresh_files(socket) do
+    socket
+    |> resolve_files_folder()
+    |> refresh_files_from_folder()
+  end
+
+  # When THIS tab never uploaded, `files_folder_uuid` is still nil even
+  # if another tab created the deterministic folder. Resolve it the same
+  # way Duplicate finds a source folder that predates the pointer.
+  defp resolve_files_folder(socket) do
+    case socket.assigns[:files_folder_uuid] do
+      uuid when is_binary(uuid) -> socket
+      _ -> assign_resolved_folder(socket)
+    end
+  end
+
+  defp assign_resolved_folder(socket) do
+    with {:ok, name} <- folder_name_for(socket.assigns[:attachments_resource]),
+         %{uuid: uuid} <- find_folder_by_name(name) do
+      assign(socket, :files_folder_uuid, uuid)
+    else
+      _ -> socket
+    end
+  end
 
   # ── Upload progress (captured via &handle_progress/3) ────────────
 

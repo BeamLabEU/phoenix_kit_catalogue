@@ -2742,6 +2742,21 @@ msgstr ""
 msgid "This supplier is already on the item. Edit the existing row instead."
 msgstr ""
 
+msgid "That selection is not in this catalogue."
+msgstr ""
+
+msgid "That id is not valid."
+msgstr ""
+
+msgid "Could not copy the files folder."
+msgstr ""
+
+msgid "This supplier row is no longer current."
+msgstr ""
+
+msgid "Cannot move items into a category that is being deleted."
+msgstr ""
+
 msgid "contact"
 msgstr ""
 

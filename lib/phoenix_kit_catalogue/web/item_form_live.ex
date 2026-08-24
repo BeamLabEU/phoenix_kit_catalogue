@@ -708,7 +708,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   def handle_event("set_primary_supplier", %{"uuid" => uuid}, socket) do
     item = socket.assigns.item
 
-    case ItemSupplierInfos.get(uuid) do
+    case owned_supplier_info(socket, uuid) do
       nil ->
         {:noreply, socket}
 
@@ -729,7 +729,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   end
 
   def handle_event("open_supplier_history", %{"uuid" => uuid}, socket) do
-    case ItemSupplierInfos.get(uuid) do
+    case owned_supplier_info(socket, uuid) do
       nil ->
         {:noreply, socket}
 
@@ -784,7 +784,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   def handle_event("delete_supplier_info", %{"uuid" => uuid}, socket) do
     item = socket.assigns.item
 
-    case ItemSupplierInfos.get(uuid) do
+    case owned_supplier_info(socket, uuid) do
       nil ->
         {:noreply, socket}
 
