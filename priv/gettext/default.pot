@@ -2777,3 +2777,9 @@ msgstr ""
 
 msgid "Shown on category landing pages."
 msgstr ""
+
+msgid "Import Failed"
+msgstr ""
+
+msgid "The import stopped unexpectedly before it finished. Rows written before the failure were kept. Check the server log for details."
+msgstr ""

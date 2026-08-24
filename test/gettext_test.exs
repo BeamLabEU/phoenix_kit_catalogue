@@ -505,4 +505,26 @@ defmodule PhoenixKitCatalogue.GettextTest do
       assert gettext_in("ru", msgid) == "Нет позиций, соответствующих запросу."
     end
   end
+
+  describe "import failed-step strings are present in every locale" do
+    test "Import Failed" do
+      msgid = "Import Failed"
+      assert po_msgstr("en", msgid) != nil
+      assert gettext_in("et", msgid) == "Import ebaõnnestus"
+      assert gettext_in("ru", msgid) == "Импорт не удался"
+    end
+
+    test "failure explanation" do
+      msgid =
+        "The import stopped unexpectedly before it finished. Rows written before the failure were kept. Check the server log for details."
+
+      assert po_msgstr("en", msgid) != nil
+
+      assert gettext_in("et", msgid) ==
+               "Import katkes ootamatult enne lõpetamist. Enne tõrget kirjutatud read jäid alles. Üksikasjad leiad serveri logist."
+
+      assert gettext_in("ru", msgid) ==
+               "Импорт неожиданно прервался до завершения. Строки, записанные до сбоя, сохранены. Подробности — в журнале сервера."
+    end
+  end
 end

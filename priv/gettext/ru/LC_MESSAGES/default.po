@@ -2781,3 +2781,9 @@ msgstr "Недоступно в этом выборе"
 
 msgid "Shown on category landing pages."
 msgstr "Отображается на страницах категорий."
+
+msgid "Import Failed"
+msgstr "Импорт не удался"
+
+msgid "The import stopped unexpectedly before it finished. Rows written before the failure were kept. Check the server log for details."
+msgstr "Импорт неожиданно прервался до завершения. Строки, записанные до сбоя, сохранены. Подробности — в журнале сервера."
