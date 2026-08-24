@@ -161,7 +161,8 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
        card_images: [],
        card_fields: [],
        card_files: [],
-       locale: "en"
+       locale: "en",
+       category_paths: %{}
      )}
   end
 
@@ -178,6 +179,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
       socket
       |> assign(assigns)
       |> assign(:last_selected_uuid, incoming_uuid)
+      |> ensure_category_paths(List.wrap(assigns[:selected_item]))
 
     socket =
       if prior_uuid == incoming_uuid do
@@ -384,12 +386,57 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
         false
       end
 
-    assign(socket, options: options, has_more: has_more)
+    socket
+    |> ensure_category_paths(options)
+    |> assign(options: options, has_more: has_more)
   end
 
   defp maybe_put(opts, _key, nil), do: opts
   defp maybe_put(opts, _key, []), do: opts
   defp maybe_put(opts, key, value), do: Keyword.put(opts, key, value)
+
+  # Batches ancestor-chain lookups by UNIQUE category uuid instead of one
+  # query per item — a page can hold up to `page_size` items (default 500
+  # for some callers) but almost always draws from a handful of distinct
+  # categories. Memoized in `:category_paths` across the component's life
+  # so a category looked up once (in a search page, or as the initial
+  # selection) stays available even after the query changes and that page
+  # of options is gone — the selected item still needs its breadcrumb.
+  defp ensure_category_paths(socket, items) do
+    known = socket.assigns.category_paths
+
+    new_uuids =
+      items
+      |> Enum.map(&category_uuid_of/1)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
+      |> Enum.reject(&Map.has_key?(known, &1))
+
+    case new_uuids do
+      [] ->
+        socket
+
+      uuids ->
+        locale = socket.assigns.locale
+
+        fresh =
+          Map.new(uuids, fn uuid ->
+            names =
+              uuid
+              |> Catalogue.list_category_ancestors()
+              |> Enum.map(&translated_name(&1, locale))
+
+            {uuid, names}
+          end)
+
+        assign(socket, :category_paths, Map.merge(known, fresh))
+    end
+  end
+
+  defp category_uuid_of(%Item{category: %{__struct__: Ecto.Association.NotLoaded}}), do: nil
+  defp category_uuid_of(%Item{category: nil}), do: nil
+  defp category_uuid_of(%Item{category: %{uuid: uuid}}), do: uuid
+  defp category_uuid_of(_), do: nil
 
   # ─────────────────────────────────────────────────────────────────
   # Display helpers
@@ -433,7 +480,11 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
       item.name
   end
 
-  defp item_breadcrumb(%Item{} = item, locale) do
+  # Full path: catalogue / every ancestor category (root → direct parent) /
+  # the item's own category. `category_paths` (built by `ensure_category_paths/2`)
+  # supplies the ancestor names — looking them up here would mean a DB query
+  # inside render, once per rendered row.
+  defp item_breadcrumb(%Item{} = item, locale, category_paths) do
     catalogue_name =
       case item.catalogue do
         %{__struct__: Ecto.Association.NotLoaded} ->
@@ -446,19 +497,19 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
           translated_name(catalogue, locale)
       end
 
-    category_name =
+    {ancestor_names, category_name} =
       case item.category do
         %{__struct__: Ecto.Association.NotLoaded} ->
-          nil
+          {[], nil}
 
         nil ->
-          nil
+          {[], nil}
 
         category ->
-          translated_name(category, locale)
+          {Map.get(category_paths, category.uuid, []), translated_name(category, locale)}
       end
 
-    [catalogue_name, category_name]
+    ([catalogue_name] ++ ancestor_names ++ [category_name])
     |> Enum.reject(&(&1 in [nil, ""]))
     |> Enum.join(" / ")
   end
@@ -591,6 +642,20 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
             <.icon name="hero-x-mark" class="w-3 h-3" />
           </button>
 
+          <%!--
+            The picked item's own breadcrumb — otherwise once a selection
+            closes the dropdown, its category hierarchy is shown nowhere at
+            all (only the bare item name survives in the input).
+          --%>
+          <% selected_breadcrumb =
+            @selected_item && item_breadcrumb(@selected_item, @locale, @category_paths) %>
+          <div
+            :if={!@open and selected_breadcrumb not in [nil, ""]}
+            class="text-xs text-base-content/50 truncate mt-0.5 px-1"
+          >
+            {selected_breadcrumb}
+          </div>
+
           <ul
             :if={@open and @options != []}
             id={"#{@id}-listbox"}
@@ -621,10 +686,10 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
                   {item_display_name(item, @locale)}
                 </div>
                 <div
-                  :if={item_breadcrumb(item, @locale) != ""}
+                  :if={item_breadcrumb(item, @locale, @category_paths) != ""}
                   class="text-xs text-base-content/50 truncate"
                 >
-                  {item_breadcrumb(item, @locale)}
+                  {item_breadcrumb(item, @locale, @category_paths)}
                 </div>
               </div>
               <div :if={(price != nil and price != "") or unit != ""} class="text-right ml-4 shrink-0">
