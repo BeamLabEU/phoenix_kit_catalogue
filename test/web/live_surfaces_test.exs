@@ -113,6 +113,29 @@ defmodule PhoenixKitCatalogue.Web.LiveSurfacesTest do
       assert parent == cat.uuid
     end
 
+    # A file that exists but was never linked into this resource's folder:
+    # the detach deletes zero rows and must not announce a change.
+    test "removing a file this resource never held stays silent", %{conn: conn, scope: scope} do
+      folder = folder!("catalogue-item-f3-mine")
+      elsewhere = folder!("catalogue-item-f3-elsewhere")
+      cat = fixture_catalogue()
+
+      item =
+        fixture_item(%{
+          name: "Doc holder",
+          catalogue_uuid: cat.uuid,
+          data: %{"files_folder_uuid" => folder.uuid}
+        })
+
+      foreign_file = insert_document!(elsewhere.uuid, scope, "theirs.pdf")
+      {:ok, view, _html} = live(conn, "#{@base}/items/#{item.uuid}/edit")
+
+      PubSub.subscribe()
+      render_click(view, "remove_file", %{"uuid" => foreign_file})
+
+      refute_receive {:catalogue_data_changed, _, _, _}, 100
+    end
+
     test "a miss (unknown file) writes nothing and stays silent", %{conn: conn} do
       cat = fixture_catalogue()
       {:ok, view, _html} = live(conn, "#{@base}/#{cat.uuid}/edit")
@@ -290,6 +313,32 @@ defmodule PhoenixKitCatalogue.Web.LiveSurfacesTest do
       assert html =~ "Import Failed"
       assert html =~ "key :sku not found"
       assert html =~ "Import Another"
+    end
+
+    test "a second execute_import while a task runs is ignored", %{conn: conn} do
+      cat = fixture_catalogue()
+      {:ok, view, _html} = live(conn, "#{@import_url}?catalogue_uuid=#{cat.uuid}")
+      {pid, ref} = fake_import_task(view)
+
+      render_click(view, "execute_import", %{})
+
+      assert assigns(view).import_task == {pid, ref}
+      assert assigns(view).step == :importing
+    end
+
+    test "import_another releases a monitor that is still held", %{conn: conn} do
+      cat = fixture_catalogue()
+      {:ok, view, _html} = live(conn, "#{@import_url}?catalogue_uuid=#{cat.uuid}")
+      {pid, ref} = fake_import_task(view)
+
+      render_click(view, "import_another", %{})
+
+      assert assigns(view).import_task == nil
+      assert assigns(view).step == :upload
+      # A late :DOWN from the old task no longer flips the fresh wizard.
+      send(view.pid, {:DOWN, ref, :process, pid, :killed})
+      _ = render(view)
+      assert assigns(view).step == :upload
     end
 
     test "a :DOWN for a task that is not ours is ignored", %{conn: conn} do
@@ -563,6 +612,38 @@ defmodule PhoenixKitCatalogue.Web.LiveSurfacesTest do
       {1, nil} = Catalogue.bulk_trash_items([a.uuid], [])
       _ = render(view)
       assert detail_item_uuids(view) == [b.uuid]
+    end
+
+    # The batch `:item` event is held back while the flash plays, so the
+    # apply step has to re-run an active search itself — otherwise the
+    # results grid (the only thing on screen) kept the trashed row.
+    test "the apply step re-runs an active search", %{conn: conn, catalogue: cat, a: a, b: b} do
+      {:ok, view, _html} = live(conn, "#{@base}/#{cat.uuid}?q=A")
+      eventually(fn -> a.uuid in search_uuids(view) end)
+
+      {1, nil} = Catalogue.bulk_trash_items([a.uuid], broadcast: false)
+      other = spawn(fn -> :ok end)
+      send(view.pid, {:catalogue_bulk_change, cat.uuid, :trashed, [a.uuid], other})
+      PubSub.broadcast(:item, nil, cat.uuid)
+
+      Process.sleep(900)
+      eventually(fn -> a.uuid not in search_uuids(view) end)
+      _ = b
+    end
+
+    test "the catalogue being deleted during the flash bounces to the index instead of crashing",
+         %{conn: conn, catalogue: cat, a: a} do
+      {:ok, view, _html} = live(conn, "#{@base}/#{cat.uuid}")
+
+      other = spawn(fn -> :ok end)
+      send(view.pid, {:catalogue_bulk_change, cat.uuid, :trashed, [a.uuid], other})
+      _ = render(view)
+      assert assigns(view).bulk_change_pending
+
+      {:ok, _} = Catalogue.permanently_delete_catalogue(cat)
+
+      Process.sleep(900)
+      assert_redirect(view, @base)
     end
 
     test "a pending cross-tab bulk flash holds the reload until the apply step",

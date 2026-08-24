@@ -344,13 +344,17 @@ defmodule PhoenixKitCatalogue.Attachments do
 
   # File's home is elsewhere — removing from this resource just means
   # deleting its folder_link for this folder. Other resources keep it.
+  # `:noop` when nothing was linked (a forged removal of a file this
+  # resource never held), so no change is announced for no write.
   defp detach_link(file_uuid, folder_uuid) do
     from(fl in FolderLink,
       where: fl.file_uuid == ^file_uuid and fl.folder_uuid == ^folder_uuid
     )
     |> PhoenixKit.RepoHelper.repo().delete_all()
-
-    :ok
+    |> case do
+      {0, _} -> :noop
+      _ -> :ok
+    end
   end
 
   defp list_links(file_uuid) do
