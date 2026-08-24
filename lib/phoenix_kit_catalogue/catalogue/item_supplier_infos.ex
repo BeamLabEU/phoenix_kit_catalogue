@@ -24,12 +24,47 @@ defmodule PhoenixKitCatalogue.Catalogue.ItemSupplierInfos do
   import Ecto.Query, warn: false
 
   alias Ecto.Multi
-  alias PhoenixKitCatalogue.Catalogue.{ActivityLog, PubSub}
+  alias PhoenixKitCatalogue.Catalogue.{ActivityLog, PubSub, SupplierComments}
   alias PhoenixKitCatalogue.Schemas.ItemSupplierInfo
 
   defp repo, do: PhoenixKit.RepoHelper.repo()
 
   @pair_constraint "phoenix_kit_cat_item_supplier_info_current_pair_uniq"
+
+  @doc """
+  Supplier cost ranges for a batch of items, from their CURRENT rows
+  (`valid_to` nil) that carry a unit cost: `%{item_uuid => [range]}` with
+  one range per currency — `%{currency: "EUR" | nil, min: Decimal,
+  max: Decimal, count: n}`, cheapest currency group first. Items without
+  a priced supplier are absent. One query however many items.
+  """
+  @spec cost_ranges([Ecto.UUID.t()]) :: %{
+          Ecto.UUID.t() => [
+            %{
+              currency: String.t() | nil,
+              min: Decimal.t(),
+              max: Decimal.t(),
+              count: pos_integer()
+            }
+          ]
+        }
+  def cost_ranges([]), do: %{}
+
+  def cost_ranges(item_uuids) when is_list(item_uuids) do
+    from(i in ItemSupplierInfo,
+      where: i.item_uuid in ^item_uuids and is_nil(i.valid_to) and not is_nil(i.unit_cost),
+      group_by: [i.item_uuid, i.currency],
+      select: {i.item_uuid, i.currency, min(i.unit_cost), max(i.unit_cost), count(i.uuid)}
+    )
+    |> repo().all()
+    |> Enum.group_by(&elem(&1, 0), fn {_, currency, min, max, count} ->
+      %{currency: blank_to_nil(currency), min: min, max: max, count: count}
+    end)
+    |> Map.new(fn {uuid, ranges} -> {uuid, Enum.sort_by(ranges, & &1.min, Decimal)} end)
+  end
+
+  defp blank_to_nil(""), do: nil
+  defp blank_to_nil(value), do: value
 
   @doc """
   Lists *current* supplier-info rows for an item, ordered by position then
@@ -140,10 +175,22 @@ defmodule PhoenixKitCatalogue.Catalogue.ItemSupplierInfos do
 
   defp already_linked_violation?(_other), do: false
 
+  # The comment thread is stamped here, never taken from attrs: a pair that
+  # was attached before resumes its thread (see SupplierComments), a new
+  # pair gets a fresh one, and neither an import nor a form can point the
+  # row at somebody else's.
   defp do_create(attrs, opts) do
+    changeset = ItemSupplierInfo.changeset(%ItemSupplierInfo{}, attrs)
+
+    thread =
+      SupplierComments.inherited_thread(
+        Ecto.Changeset.get_field(changeset, :item_uuid),
+        Ecto.Changeset.get_field(changeset, :supplier_uuid)
+      ) || UUIDv7.generate()
+
     result =
       ActivityLog.with_log(
-        fn -> %ItemSupplierInfo{} |> ItemSupplierInfo.changeset(attrs) |> repo().insert() end,
+        fn -> changeset |> SupplierComments.stamp_changeset(thread) |> repo().insert() end,
         fn info ->
           %{
             action: "item_supplier_info.created",
@@ -177,13 +224,30 @@ defmodule PhoenixKitCatalogue.Catalogue.ItemSupplierInfos do
     end
   end
 
-  @doc "Updates a supplier-info row."
+  @doc """
+  Updates a supplier-info row.
+
+  The row's comment thread is re-stamped from the row itself on every
+  update, so a caller replacing `metadata` wholesale (the custom-field save
+  does) cannot drop it, and attrs cannot change it.
+  """
   @spec update(ItemSupplierInfo.t(), map(), keyword()) ::
           {:ok, ItemSupplierInfo.t()} | {:error, Ecto.Changeset.t(ItemSupplierInfo.t())}
   def update(%ItemSupplierInfo{} = info, attrs, opts \\ []) do
+    thread = SupplierComments.thread_uuid(info)
+    # The pair is the row's identity and carries its comment thread: an
+    # update never re-points a row at another item or supplier (that would
+    # move the thread with it). Detach and attach instead.
+    attrs = Map.drop(attrs, [:item_uuid, :supplier_uuid, "item_uuid", "supplier_uuid"])
+
     result =
       ActivityLog.with_log(
-        fn -> info |> ItemSupplierInfo.changeset(attrs) |> repo().update() end,
+        fn ->
+          info
+          |> ItemSupplierInfo.changeset(attrs)
+          |> SupplierComments.stamp_changeset(thread)
+          |> repo().update()
+        end,
         fn updated ->
           %{
             action: "item_supplier_info.updated",
@@ -202,31 +266,79 @@ defmodule PhoenixKitCatalogue.Catalogue.ItemSupplierInfos do
     end
   end
 
-  @doc "Deletes a supplier-info row."
+  @doc """
+  Removes a supplier from its item.
+
+  The current row is CLOSED (`valid_to` today, primary flag dropped), not
+  deleted — exactly what a price revision does to the row it supersedes.
+  Every "current" reader filters on `valid_to`, so the supplier disappears
+  from the item everywhere; `history_for_pair/2` keeps the row, which is
+  what carries the pair's comment thread so re-attaching the supplier
+  resumes it. Only the current row can be removed: `{:error, :not_current}`
+  for one already closed.
+  """
   @spec delete(ItemSupplierInfo.t(), keyword()) ::
-          {:ok, ItemSupplierInfo.t()} | {:error, Ecto.Changeset.t(ItemSupplierInfo.t())}
-  def delete(%ItemSupplierInfo{} = info, opts \\ []) do
+          {:ok, ItemSupplierInfo.t()}
+          | {:error, :not_current | Ecto.Changeset.t(ItemSupplierInfo.t())}
+  def delete(info, opts \\ [])
+
+  def delete(%ItemSupplierInfo{valid_to: valid_to}, _opts) when not is_nil(valid_to),
+    do: {:error, :not_current}
+
+  def delete(%ItemSupplierInfo{} = info, opts) do
     result =
       ActivityLog.with_log(
-        fn -> repo().delete(info) end,
-        fn deleted ->
+        fn -> close_current(info) end,
+        fn closed ->
           %{
             action: "item_supplier_info.deleted",
             mode: "manual",
             actor_uuid: opts[:actor_uuid],
             resource_type: "item_supplier_info",
-            resource_uuid: deleted.uuid,
+            resource_uuid: closed.uuid,
             metadata: %{
-              "item_uuid" => deleted.item_uuid,
-              "supplier_uuid" => deleted.supplier_uuid
+              "item_uuid" => closed.item_uuid,
+              "supplier_uuid" => closed.supplier_uuid,
+              "closed" => true,
+              "valid_to" => Date.to_iso8601(closed.valid_to)
             }
           }
         end
       )
 
-    with {:ok, deleted} <- result do
-      PubSub.broadcast(:item_supplier_info, deleted.uuid)
-      {:ok, deleted}
+    with {:ok, closed} <- result do
+      PubSub.broadcast(:item_supplier_info, closed.uuid)
+      {:ok, closed}
+    end
+  end
+
+  # Re-read the row under lock so a revision or a second remove that
+  # committed after the caller's struct was loaded cannot resurrect a
+  # supplier or close a row twice; `:not_current` when it is no longer open.
+  # A row dated to start in the future closes on its own start date, so
+  # the window is never inverted (force_change bypasses the changeset's
+  # valid_to >= valid_from rule).
+  defp close_current(%ItemSupplierInfo{uuid: uuid}) do
+    repo().transaction(fn ->
+      case repo().one(from(i in ItemSupplierInfo, where: i.uuid == ^uuid, lock: "FOR UPDATE")) do
+        %ItemSupplierInfo{valid_to: nil} = current -> close_row!(current)
+        _ -> repo().rollback(:not_current)
+      end
+    end)
+  end
+
+  defp close_row!(current) do
+    close_on = Enum.max([Date.utc_today(), current.valid_from || Date.utc_today()], Date)
+
+    current
+    |> Ecto.Changeset.change()
+    |> Ecto.Changeset.force_change(:valid_to, close_on)
+    |> Ecto.Changeset.force_change(:is_primary, false)
+    |> SupplierComments.stamp_changeset(SupplierComments.thread_uuid(current))
+    |> repo().update()
+    |> case do
+      {:ok, closed} -> closed
+      {:error, changeset} -> repo().rollback(changeset)
     end
   end
 
@@ -240,7 +352,14 @@ defmodule PhoenixKitCatalogue.Catalogue.ItemSupplierInfos do
   """
   @spec set_primary(ItemSupplierInfo.t(), keyword()) ::
           {:ok, ItemSupplierInfo.t()} | {:error, any()}
-  def set_primary(%ItemSupplierInfo{} = info, opts \\ []) do
+  def set_primary(info, opts \\ [])
+
+  # Only a current row can be the primary; promoting a closed revision
+  # would demote the live one and leave the item without a primary.
+  def set_primary(%ItemSupplierInfo{valid_to: valid_to}, _opts) when not is_nil(valid_to),
+    do: {:error, :not_current}
+
+  def set_primary(%ItemSupplierInfo{} = info, opts) do
     Multi.new()
     |> Multi.update_all(
       :clear_primary,
@@ -391,7 +510,7 @@ defmodule PhoenixKitCatalogue.Catalogue.ItemSupplierInfos do
       valid_from: today,
       valid_to: nil,
       position: info.position,
-      metadata: info.metadata
+      metadata: SupplierComments.stamp(info.metadata, SupplierComments.thread_uuid(info))
     }
 
     result =
