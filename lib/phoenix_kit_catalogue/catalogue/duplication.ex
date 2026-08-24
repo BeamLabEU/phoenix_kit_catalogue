@@ -226,7 +226,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Duplication do
         catalogue_uuid: catalogue_uuid,
         category_uuid: category_uuid,
         position: source.position,
-        data: Map.drop(source.data || %{}, @data_keys_not_copied)
+        data: copy_data(source.data, opts)
       })
 
     item = insert!(%Item{} |> Item.changeset(attrs))
@@ -261,10 +261,44 @@ defmodule PhoenixKitCatalogue.Catalogue.Duplication do
     end
   end
 
+  defp copy_name(nil, _opts), do: nil
+
   defp copy_name(name, opts) do
     if Keyword.get(opts, :suffix, true),
       do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "%{name} (copy)", name: name),
       else: name
+  end
+
+  # Lists show the translated name out of the multilang `data`, not the
+  # column, so the suffix has to reach every language entry too — the
+  # primary language stores all fields under `"name"`, overrides store
+  # `"_name"`. Other top-level keys (custom fields, pointers) are copied
+  # untouched, apart from the folder pointer.
+  @language_key ~r/^[a-z]{2,3}(-[A-Za-z]{2,4})?$/
+
+  defp copy_data(data, opts) do
+    data = Map.drop(data || %{}, @data_keys_not_copied)
+
+    if Keyword.get(opts, :suffix, true),
+      do: Map.new(data, &suffix_language_entry(&1, opts)),
+      else: data
+  end
+
+  defp suffix_language_entry({lang, %{} = entry}, opts) do
+    if Regex.match?(@language_key, lang),
+      do: {lang, suffix_names(entry, opts)},
+      else: {lang, entry}
+  end
+
+  defp suffix_language_entry(pair, _opts), do: pair
+
+  defp suffix_names(entry, opts) do
+    Enum.reduce(["name", "_name"], entry, fn key, acc ->
+      case Map.get(acc, key) do
+        name when is_binary(name) and name != "" -> Map.put(acc, key, copy_name(name, opts))
+        _ -> acc
+      end
+    end)
   end
 
   defp copy_attribute_sets(source, item) do
@@ -438,7 +472,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Duplication do
       position: source.position,
       catalogue_uuid: source.catalogue_uuid,
       parent_uuid: parent_uuid,
-      data: Map.drop(source.data || %{}, @data_keys_not_copied)
+      data: copy_data(source.data, opts)
     }
 
     category = insert!(%Category{} |> Category.changeset(attrs))
