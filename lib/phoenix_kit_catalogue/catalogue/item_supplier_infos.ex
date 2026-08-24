@@ -235,6 +235,10 @@ defmodule PhoenixKitCatalogue.Catalogue.ItemSupplierInfos do
           {:ok, ItemSupplierInfo.t()} | {:error, Ecto.Changeset.t(ItemSupplierInfo.t())}
   def update(%ItemSupplierInfo{} = info, attrs, opts \\ []) do
     thread = SupplierComments.thread_uuid(info)
+    # The pair is the row's identity and carries its comment thread: an
+    # update never re-points a row at another item or supplier (that would
+    # move the thread with it). Detach and attach instead.
+    attrs = Map.drop(attrs, [:item_uuid, :supplier_uuid, "item_uuid", "supplier_uuid"])
 
     result =
       ActivityLog.with_log(
@@ -282,16 +286,9 @@ defmodule PhoenixKitCatalogue.Catalogue.ItemSupplierInfos do
     do: {:error, :not_current}
 
   def delete(%ItemSupplierInfo{} = info, opts) do
-    close_changeset =
-      info
-      |> Ecto.Changeset.change()
-      |> Ecto.Changeset.force_change(:valid_to, Date.utc_today())
-      |> Ecto.Changeset.force_change(:is_primary, false)
-      |> SupplierComments.stamp_changeset(SupplierComments.thread_uuid(info))
-
     result =
       ActivityLog.with_log(
-        fn -> repo().update(close_changeset) end,
+        fn -> close_current(info) end,
         fn closed ->
           %{
             action: "item_supplier_info.deleted",
@@ -301,7 +298,9 @@ defmodule PhoenixKitCatalogue.Catalogue.ItemSupplierInfos do
             resource_uuid: closed.uuid,
             metadata: %{
               "item_uuid" => closed.item_uuid,
-              "supplier_uuid" => closed.supplier_uuid
+              "supplier_uuid" => closed.supplier_uuid,
+              "closed" => true,
+              "valid_to" => Date.to_iso8601(closed.valid_to)
             }
           }
         end
@@ -310,6 +309,36 @@ defmodule PhoenixKitCatalogue.Catalogue.ItemSupplierInfos do
     with {:ok, closed} <- result do
       PubSub.broadcast(:item_supplier_info, closed.uuid)
       {:ok, closed}
+    end
+  end
+
+  # Re-read the row under lock so a revision or a second remove that
+  # committed after the caller's struct was loaded cannot resurrect a
+  # supplier or close a row twice; `:not_current` when it is no longer open.
+  # A row dated to start in the future closes on its own start date, so
+  # the window is never inverted (force_change bypasses the changeset's
+  # valid_to >= valid_from rule).
+  defp close_current(%ItemSupplierInfo{uuid: uuid}) do
+    repo().transaction(fn ->
+      case repo().one(from(i in ItemSupplierInfo, where: i.uuid == ^uuid, lock: "FOR UPDATE")) do
+        %ItemSupplierInfo{valid_to: nil} = current -> close_row!(current)
+        _ -> repo().rollback(:not_current)
+      end
+    end)
+  end
+
+  defp close_row!(current) do
+    close_on = Enum.max([Date.utc_today(), current.valid_from || Date.utc_today()], Date)
+
+    current
+    |> Ecto.Changeset.change()
+    |> Ecto.Changeset.force_change(:valid_to, close_on)
+    |> Ecto.Changeset.force_change(:is_primary, false)
+    |> SupplierComments.stamp_changeset(SupplierComments.thread_uuid(current))
+    |> repo().update()
+    |> case do
+      {:ok, closed} -> closed
+      {:error, changeset} -> repo().rollback(changeset)
     end
   end
 
@@ -323,7 +352,14 @@ defmodule PhoenixKitCatalogue.Catalogue.ItemSupplierInfos do
   """
   @spec set_primary(ItemSupplierInfo.t(), keyword()) ::
           {:ok, ItemSupplierInfo.t()} | {:error, any()}
-  def set_primary(%ItemSupplierInfo{} = info, opts \\ []) do
+  def set_primary(info, opts \\ [])
+
+  # Only a current row can be the primary; promoting a closed revision
+  # would demote the live one and leave the item without a primary.
+  def set_primary(%ItemSupplierInfo{valid_to: valid_to}, _opts) when not is_nil(valid_to),
+    do: {:error, :not_current}
+
+  def set_primary(%ItemSupplierInfo{} = info, opts) do
     Multi.new()
     |> Multi.update_all(
       :clear_primary,

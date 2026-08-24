@@ -36,7 +36,8 @@ defmodule PhoenixKitCatalogue.Catalogue.SupplierComments do
   discovers that callback on its own — no host configuration.
   """
 
-  import Ecto.Query, warn: false
+  import Ecto.Query
+  require Logger, warn: false
 
   alias PhoenixKitCatalogue.Catalogue.ItemSupplierInfos
   alias PhoenixKitCatalogue.Paths
@@ -113,7 +114,11 @@ defmodule PhoenixKitCatalogue.Catalogue.SupplierComments do
     uuids = uuids |> Enum.map(&textual_uuid/1) |> Enum.reject(&is_nil/1) |> Enum.uniq()
     if uuids == [], do: %{}, else: resolve(uuids)
   rescue
-    _ -> %{}
+    # The comments admin must render even if this resolver fails; say so
+    # in the log instead of silently handing back an empty map.
+    error ->
+      Logger.warning("catalogue supplier-comment resolver failed: #{inspect(error)}")
+      %{}
   end
 
   defp resolve(uuids) do

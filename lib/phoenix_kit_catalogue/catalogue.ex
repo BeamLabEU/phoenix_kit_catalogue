@@ -1980,10 +1980,20 @@ defmodule PhoenixKitCatalogue.Catalogue do
     end
   end
 
+  # `opts[:catalogue_uuid]`, when given, is a scope: a category outside it
+  # is refused (`:wrong_catalogue_scope`) — the uuids come from the client.
   defp move_one_category(uuid, new_parent_uuid, opts) do
+    scope = opts[:catalogue_uuid]
+
     case get_category(uuid) do
-      nil -> {:error, :not_found}
-      category -> move_category_under(category, new_parent_uuid, opts)
+      nil ->
+        {:error, :not_found}
+
+      %Category{catalogue_uuid: c} when is_binary(scope) and c != scope ->
+        {:error, :wrong_catalogue_scope}
+
+      category ->
+        move_category_under(category, new_parent_uuid, opts)
     end
   end
 
@@ -1994,6 +2004,9 @@ defmodule PhoenixKitCatalogue.Catalogue do
   missing parent); one refusal does not stop the others. Per-move
   broadcasts are muted and ONE `:category` batch event per touched
   catalogue is emitted after the loop, so every open page reloads once.
+
+  Pass `catalogue_uuid:` to refuse categories outside that catalogue
+  (`:wrong_catalogue_scope`) — the uuids are client-captured.
 
   Returns `{:ok, %{moved: n, errors: [{uuid, reason}]}}`.
   """
@@ -4565,6 +4578,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
   def bulk_trash_items([], _opts), do: {0, nil}
 
   def bulk_trash_items(uuids, opts) when is_list(uuids) do
+    uuids = scope_item_uuids(uuids, opts[:catalogue_uuid])
     catalogue_uuids = catalogue_uuids_for_items(uuids)
 
     {count, _} =
@@ -4605,6 +4619,8 @@ defmodule PhoenixKitCatalogue.Catalogue do
   def bulk_restore_items([], _opts), do: {0, nil}
 
   def bulk_restore_items(uuids, opts) when is_list(uuids) do
+    uuids = scope_item_uuids(uuids, opts[:catalogue_uuid])
+
     {:ok, {count, count_detached, restored_uuids, catalogue_uuids}} =
       repo().transaction(fn -> do_bulk_restore_items(uuids) end)
 
@@ -4675,6 +4691,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
   def bulk_permanently_delete_items([], _opts), do: {0, nil}
 
   def bulk_permanently_delete_items(uuids, opts) when is_list(uuids) do
+    uuids = scope_item_uuids(uuids, opts[:catalogue_uuid])
     catalogue_uuids = catalogue_uuids_for_items(uuids)
     {count, _} = from(i in Item, where: i.uuid in ^uuids) |> repo().delete_all()
 
@@ -4734,6 +4751,21 @@ defmodule PhoenixKitCatalogue.Catalogue do
           do_bulk_move(uuids, target, catalogue_uuid, opts)
         end
     end
+  end
+
+  # `opts[:catalogue_uuid]` on the bulk item ops is a scope: uuids that
+  # are not this catalogue's items are dropped before anything is
+  # touched (the lists are client-captured; the page only re-broadcasts
+  # for its own catalogue).
+  defp scope_item_uuids(uuids, nil), do: uuids
+
+  defp scope_item_uuids(uuids, catalogue_uuid) do
+    repo().all(
+      from(i in Item,
+        where: i.uuid in ^uuids and i.catalogue_uuid == ^catalogue_uuid,
+        select: i.uuid
+      )
+    )
   end
 
   defp ensure_items_in_catalogue(uuids, catalogue_uuid) do
@@ -4832,6 +4864,8 @@ defmodule PhoenixKitCatalogue.Catalogue do
     do: {:ok, %{categories: 0, items_handled: 0}}
 
   def bulk_trash_categories(uuids, disposition, opts) when is_list(uuids) do
+    uuids = scope_category_uuids(uuids, opts[:catalogue_uuid])
+
     # Each step runs `trash_category/2` muted: a broadcast from inside the
     # outer transaction would reach subscribers before the rows commit
     # (and before a later step could roll them back). The trashed
@@ -4854,10 +4888,27 @@ defmodule PhoenixKitCatalogue.Catalogue do
     end
   end
 
+  defp scope_category_uuids(uuids, nil), do: uuids
+
+  defp scope_category_uuids(uuids, catalogue_uuid) do
+    repo().all(
+      from(c in Category,
+        where: c.uuid in ^uuids and c.catalogue_uuid == ^catalogue_uuid,
+        select: c.uuid
+      )
+    )
+  end
+
+  # One batch event per touched catalogue (like the other bulk ops), not
+  # one per category — N per-row events made every open page reload N
+  # times (review finding, 2026-08-24).
   defp broadcast_trashed_categories(trashed, opts) do
     if Keyword.get(opts, :broadcast, true) do
-      Enum.each(trashed, fn {uuid, catalogue_uuid} ->
-        PubSub.broadcast(:category, uuid, catalogue_uuid)
+      trashed
+      |> Enum.map(fn {_uuid, catalogue_uuid} -> catalogue_uuid end)
+      |> Enum.uniq()
+      |> Enum.each(fn catalogue_uuid ->
+        PubSub.broadcast(:category, nil, catalogue_uuid)
       end)
     end
 

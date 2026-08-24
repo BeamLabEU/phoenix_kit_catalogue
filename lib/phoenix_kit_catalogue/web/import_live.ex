@@ -593,6 +593,11 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
     {:noreply, assign(socket, import_progress: current, import_total: total)}
   end
 
+  # A result from a task the wizard already abandoned ("Import another"
+  # while it ran) must not yank the fresh wizard to :done.
+  def handle_info({:import_result, _result}, %{assigns: %{import_task: nil}} = socket),
+    do: {:noreply, socket}
+
   def handle_info({:import_result, result}, socket) do
     log_import_activity(socket, result)
 

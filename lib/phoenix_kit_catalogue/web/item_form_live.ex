@@ -3109,6 +3109,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                 </thead>
                 <tbody>
                   <%= for info <- @supplier_infos do %>
+                    <% page_path = supplier_page_path(@supplier_company_links, info) %>
                     <tr class={if info.is_primary, do: "bg-primary/5", else: ""}>
                       <td class="font-medium">
                         <%!-- The name links to the party's own page when there
@@ -3117,13 +3118,13 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                              assembled here — a module does not build another
                              module's URLs. --%>
                         <.pk_link
-                          :if={supplier_page_path(@supplier_company_links, info)}
-                          navigate={supplier_page_path(@supplier_company_links, info)}
+                          :if={page_path}
+                          navigate={page_path}
                           class="link link-hover"
                         >
                           {supplier_display_name(info, @all_suppliers)}
                         </.pk_link>
-                        <span :if={is_nil(supplier_page_path(@supplier_company_links, info))}>
+                        <span :if={is_nil(page_path)}>
                           {supplier_display_name(info, @all_suppliers)}
                         </span>
                       </td>

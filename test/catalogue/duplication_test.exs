@@ -75,8 +75,9 @@ defmodule PhoenixKitCatalogue.Catalogue.DuplicationTest do
       # Translations, custom fields and the featured pointer travel; the
       # folder pointer belongs to one item only. Lists render the
       # translated name, so every language entry carries the suffix.
+      # …each in its own language, not the acting admin's.
       assert copy.data["en"] == %{"name" => "A (copy)"}
-      assert copy.data["et"] == %{"_name" => "A-et (copy)"}
+      assert copy.data["et"] == %{"_name" => "A-et (koopia)"}
       assert copy.data["custom_fields"] == %{"colour" => "red"}
       assert copy.data["featured_image_uuid"] == "0192aaaa-0000-7000-8000-000000000001"
       refute Map.has_key?(copy.data, "files_folder_uuid")
@@ -252,6 +253,42 @@ defmodule PhoenixKitCatalogue.Catalogue.DuplicationTest do
       cat_uuid = cat.uuid
       assert_receive {:catalogue_data_changed, :item, nil, ^cat_uuid}
       refute_receive {:catalogue_data_changed, :item, _, _}, 100
+    end
+
+    test "a catalogue scope refuses rows from elsewhere", %{catalogue: cat, alpha: alpha, a: a} do
+      other = fixture_catalogue(%{name: "Elsewhere"})
+      foreign_cat = fixture_category(other, %{name: "Foreign"})
+      foreign_item = fixture_item(%{catalogue_uuid: other.uuid, name: "Foreign item"})
+
+      assert {:ok, %{created: 1, errors: [{fi, :wrong_catalogue_scope}]}} =
+               Catalogue.bulk_duplicate_items([foreign_item.uuid, a.uuid],
+                 catalogue_uuid: cat.uuid
+               )
+
+      assert fi == foreign_item.uuid
+      assert Catalogue.list_items_for_catalogue(other.uuid) |> length() == 1
+
+      assert {:ok, %{created: 1, errors: [{fc, :wrong_catalogue_scope}]}} =
+               Catalogue.bulk_duplicate_categories([foreign_cat.uuid, alpha.uuid],
+                 catalogue_uuid: cat.uuid
+               )
+
+      assert fc == foreign_cat.uuid
+      assert Catalogue.list_child_categories(other.uuid, nil) |> length() == 1
+    end
+
+    test "the item bulk ops honour the same scope", %{catalogue: cat, a: a} do
+      other = fixture_catalogue(%{name: "Elsewhere"})
+      foreign = fixture_item(%{catalogue_uuid: other.uuid, name: "Foreign item"})
+
+      assert {1, _} = Catalogue.bulk_trash_items([foreign.uuid, a.uuid], catalogue_uuid: cat.uuid)
+      assert Catalogue.get_item!(a.uuid).status == "deleted"
+      assert Catalogue.get_item!(foreign.uuid).status == "active"
+
+      assert {1, _} =
+               Catalogue.bulk_restore_items([foreign.uuid, a.uuid], catalogue_uuid: cat.uuid)
+
+      assert Catalogue.get_item!(a.uuid).status == "active"
     end
 
     test "categories: one batch pair per catalogue", %{catalogue: cat, alpha: alpha, beta: beta} do

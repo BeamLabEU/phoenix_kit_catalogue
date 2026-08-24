@@ -284,11 +284,15 @@ defmodule PhoenixKitCatalogue.Web.LiveSurfacesTest do
   describe "F8 — a crashed import task surfaces a failed step instead of freezing" do
     @import_url "/en/admin/catalogue/import"
 
+    # A real, monitored task: the fun runs INSIDE the LiveView process, so
+    # the monitor belongs to it and `Process.info(view.pid, :monitors)` can
+    # tell whether the wizard released it.
     defp fake_import_task(view) do
-      pid = spawn(fn -> :ok end)
-      ref = make_ref()
+      pid = spawn(fn -> Process.sleep(:infinity) end)
 
       :sys.replace_state(view.pid, fn state ->
+        ref = Process.monitor(pid)
+
         assigns =
           state.socket.assigns
           |> Map.put(:step, :importing)
@@ -297,7 +301,7 @@ defmodule PhoenixKitCatalogue.Web.LiveSurfacesTest do
         put_in(state.socket.assigns, assigns)
       end)
 
-      {pid, ref}
+      {pid, elem(:sys.get_state(view.pid).socket.assigns.import_task, 1)}
     end
 
     test "an unrescued crash lands on Import Failed with the exception message", %{conn: conn} do
@@ -331,13 +335,33 @@ defmodule PhoenixKitCatalogue.Web.LiveSurfacesTest do
       {:ok, view, _html} = live(conn, "#{@import_url}?catalogue_uuid=#{cat.uuid}")
       {pid, ref} = fake_import_task(view)
 
+      monitored = fn ->
+        Process.info(view.pid, :monitors) |> elem(1) |> Keyword.get_values(:process)
+      end
+
+      assert pid in monitored.()
+
       render_click(view, "import_another", %{})
 
       assert assigns(view).import_task == nil
       assert assigns(view).step == :upload
+      # The monitor is released, not just forgotten.
+      refute pid in monitored.()
       # A late :DOWN from the old task no longer flips the fresh wizard.
       send(view.pid, {:DOWN, ref, :process, pid, :killed})
       _ = render(view)
+      assert assigns(view).step == :upload
+    end
+
+    test "a result from an abandoned task does not yank the fresh wizard", %{conn: conn} do
+      cat = fixture_catalogue()
+      {:ok, view, _html} = live(conn, "#{@import_url}?catalogue_uuid=#{cat.uuid}")
+      _ = fake_import_task(view)
+
+      render_click(view, "import_another", %{})
+      send(view.pid, {:import_result, %{created: 1, updated: 0, skipped: 0, errors: []}})
+      _ = render(view)
+
       assert assigns(view).step == :upload
     end
 
@@ -599,9 +623,15 @@ defmodule PhoenixKitCatalogue.Web.LiveSurfacesTest do
       _ = render(view)
       assert index_row(view, cat.uuid).item_count == 1
 
+      # b is already trashed, so the count cannot move — pin the broadcast the
+      # index reacts to instead of a number that stays 1 either way.
+      PubSub.subscribe()
       {1, nil} = Catalogue.bulk_permanently_delete_items([b.uuid], [])
+      cat_uuid = cat.uuid
+      assert_receive {:catalogue_data_changed, :item, nil, ^cat_uuid}
       _ = render(view)
       assert index_row(view, cat.uuid).item_count == 1
+      assert Catalogue.get_item(b.uuid) == nil
     end
 
     test "detail page of the same catalogue drops bulk-trashed items",
