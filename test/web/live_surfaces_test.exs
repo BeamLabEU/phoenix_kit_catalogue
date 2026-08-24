@@ -258,6 +258,104 @@ defmodule PhoenixKitCatalogue.Web.LiveSurfacesTest do
     end
   end
 
+  describe "F8 — a crashed import task surfaces a failed step instead of freezing" do
+    @import_url "/en/admin/catalogue/import"
+
+    defp fake_import_task(view) do
+      pid = spawn(fn -> :ok end)
+      ref = make_ref()
+
+      :sys.replace_state(view.pid, fn state ->
+        assigns =
+          state.socket.assigns
+          |> Map.put(:step, :importing)
+          |> Map.put(:import_task, {pid, ref})
+
+        put_in(state.socket.assigns, assigns)
+      end)
+
+      {pid, ref}
+    end
+
+    test "an unrescued crash lands on Import Failed with the exception message", %{conn: conn} do
+      cat = fixture_catalogue()
+      {:ok, view, _html} = live(conn, "#{@import_url}?catalogue_uuid=#{cat.uuid}")
+      {pid, ref} = fake_import_task(view)
+
+      send(view.pid, {:DOWN, ref, :process, pid, {%KeyError{key: :sku, term: %{}}, []}})
+      html = render(view)
+
+      assert assigns(view).step == :failed
+      assert assigns(view).import_task == nil
+      assert html =~ "Import Failed"
+      assert html =~ "key :sku not found"
+      assert html =~ "Import Another"
+    end
+
+    test "a :DOWN for a task that is not ours is ignored", %{conn: conn} do
+      cat = fixture_catalogue()
+      {:ok, view, _html} = live(conn, "#{@import_url}?catalogue_uuid=#{cat.uuid}")
+      {_pid, _ref} = fake_import_task(view)
+
+      send(view.pid, {:DOWN, make_ref(), :process, self(), :killed})
+      _ = render(view)
+
+      assert assigns(view).step == :importing
+    end
+
+    test "a result that arrived before the exit wins and the monitor is dropped", %{conn: conn} do
+      cat = fixture_catalogue()
+      {:ok, view, _html} = live(conn, "#{@import_url}?catalogue_uuid=#{cat.uuid}")
+      {pid, ref} = fake_import_task(view)
+
+      result = %{
+        created: 1,
+        errors: [],
+        categories_created: 0,
+        manufacturers_created: 0,
+        suppliers_created: 0,
+        manufacturer_supplier_links_created: 0
+      }
+
+      send(view.pid, {:import_result, result})
+      send(view.pid, {:DOWN, ref, :process, pid, :normal})
+      _ = render(view)
+
+      assert assigns(view).step == :done
+      assert assigns(view).import_task == nil
+    end
+
+    test "a real import is monitored and the monitor is released on completion",
+         %{conn: conn} do
+      cat = fixture_catalogue()
+      {:ok, view, _html} = live(conn, @import_url)
+      render_change(view, "validate_upload", %{"catalogue" => cat.uuid})
+
+      file =
+        Phoenix.LiveViewTest.file_input(view, "#upload-form", :import_file, [
+          %{
+            last_modified: 1_700_000_000_000,
+            name: "mon.csv",
+            content: "name,sku\nMonitored Item,MON-1\n",
+            type: "text/csv"
+          }
+        ])
+
+      render_upload(file, "mon.csv")
+      render_submit(view, "parse_file", %{"catalogue" => cat.uuid})
+      render_click(view, "continue_to_confirm", %{})
+      render_click(view, "execute_import", %{})
+
+      eventually(fn ->
+        _ = render(view)
+        assigns(view).step == :done
+      end)
+
+      assert assigns(view).import_task == nil
+      assert [%{name: "Monitored Item"}] = Catalogue.list_items_for_catalogue(cat.uuid)
+    end
+  end
+
   describe "F6 — the attribute-group editor follows child writes from other processes" do
     setup do
       {:ok, group} = Catalogue.create_attribute_group(%{name: "Idea doors"})

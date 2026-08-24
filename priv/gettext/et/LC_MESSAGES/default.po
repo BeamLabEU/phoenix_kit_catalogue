@@ -2772,3 +2772,9 @@ msgstr "Selles valikus pole saadaval"
 
 msgid "Shown on category landing pages."
 msgstr "Kuvatakse kategooria avalehtedel."
+
+msgid "Import Failed"
+msgstr "Import ebaõnnestus"
+
+msgid "The import stopped unexpectedly before it finished. Rows written before the failure were kept. Check the server log for details."
+msgstr "Import katkes ootamatult enne lõpetamist. Enne tõrget kirjutatud read jäid alles. Üksikasjad leiad serveri logist."
