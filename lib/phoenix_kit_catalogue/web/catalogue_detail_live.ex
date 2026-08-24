@@ -511,13 +511,24 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   @impl true
   def handle_event("switch_view", %{"mode" => mode}, socket)
       when mode in ~w(active inactive discontinued deleted) do
-    {:noreply,
-     socket
-     |> assign(:view_mode, mode)
-     |> assign(:confirm_delete, nil)
-     |> assign(:selected_items, MapSet.new())
-     |> assign(:selected_categories, MapSet.new())
-     |> reset_and_load()}
+    # Search is Active-only (the context search excludes deleted rows), so
+    # a tab switch drops it — otherwise the page kept rendering the old
+    # results grid instead of the tab it just switched to. The `?q=` goes
+    # too, or the next URL patch would re-run it.
+    had_search? = socket.assigns.search_query != ""
+
+    socket =
+      socket
+      |> assign(:view_mode, mode)
+      |> assign(:confirm_delete, nil)
+      |> assign(:selected_items, MapSet.new())
+      |> assign(:selected_categories, MapSet.new())
+      |> clear_search()
+      |> reset_and_load()
+
+    if had_search?,
+      do: {:noreply, push_url_state(socket, [search_query: ""], replace: true)},
+      else: {:noreply, socket}
   end
 
   # One bottom sentinel drives both search-result paging and the current
@@ -1807,7 +1818,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     catalogue = Catalogue.localize_one(catalogue, loc(socket))
     child_categories = Catalogue.localize(child_categories, loc(socket))
 
-    assign(socket,
+    socket
+    |> assign(
       page_title: if(current, do: current_node_label(current), else: catalogue.name),
       catalogue: catalogue,
       breadcrumb: build_breadcrumb(current, cat_mode) |> Catalogue.localize(loc(socket)),
@@ -1825,21 +1837,38 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       items: items,
       edit_path_fn:
         item_edit_with_return(%{current_category: current, catalogue_uuid: catalogue.uuid}),
-      file_counts:
-        socket.assigns.file_counts
-        |> Map.merge(Catalogue.attached_file_counts(items))
-        |> Map.merge(Catalogue.attached_file_counts(child_categories)),
-      attribute_map:
-        Map.merge(
-          socket.assigns.attribute_map,
-          Catalogue.item_attribute_group_map(Enum.map(items, & &1.uuid))
-        ),
       items_total: node_total,
       items_offset: length(items),
       items_has_more: length(items) < node_total,
       show_items_section: show_items_section,
       level_status_counts: status_counts,
       status_tabs: visible_status_tabs(status, status_counts)
+    )
+    |> merge_row_indicators(items, child_categories)
+  end
+
+  # Re-derives the paperclip (`file_counts`) and attribute-swatch
+  # (`attribute_map`) entries for the rows just loaded. Both maps
+  # accumulate across pages — a deep scroll keeps its earlier rows'
+  # entries — but the source queries omit zero rows, so a plain merge
+  # could never CLEAR an entry: an item whose last document was removed
+  # or whose group was cleared kept its indicator until reload. Dropping
+  # the reloaded rows' keys first makes the merge authoritative for
+  # exactly those rows and leaves every other page's entries alone.
+  defp merge_row_indicators(socket, items, categories \\ []) do
+    item_uuids = Enum.map(items, & &1.uuid)
+    row_uuids = item_uuids ++ Enum.map(categories, & &1.uuid)
+
+    assign(socket,
+      file_counts:
+        socket.assigns.file_counts
+        |> Map.drop(row_uuids)
+        |> Map.merge(Catalogue.attached_file_counts(items))
+        |> Map.merge(Catalogue.attached_file_counts(categories)),
+      attribute_map:
+        socket.assigns.attribute_map
+        |> Map.drop(item_uuids)
+        |> Map.merge(Catalogue.item_attribute_group_map(item_uuids))
     )
   end
 
@@ -1899,17 +1928,13 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     new_offset = offset + length(page)
     page = Catalogue.localize(page, loc(socket))
 
-    assign(socket,
+    socket
+    |> assign(
       items: socket.assigns.items ++ page,
-      file_counts: Map.merge(socket.assigns.file_counts, Catalogue.attached_file_counts(page)),
-      attribute_map:
-        Map.merge(
-          socket.assigns.attribute_map,
-          Catalogue.item_attribute_group_map(Enum.map(page, & &1.uuid))
-        ),
       items_offset: new_offset,
       items_has_more: page != [] and new_offset < socket.assigns.items_total
     )
+    |> merge_row_indicators(page)
   end
 
   # Parent scope of a node for the child-categories query.
@@ -1975,7 +2000,16 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   # depth so a cross-tab broadcast (another admin, the import wizard)
   # doesn't collapse a deep item scroll. The `Ecto.NoResultsError` rescue
   # in the caller handles the catalogue-was-deleted-elsewhere edge case.
-  defp refresh_in_place(socket), do: refresh_counts(socket)
+  # With a search active the page renders the results grid instead of
+  # the level, so the search is re-run too (async; `handle_async(:search)`
+  # swaps the results in and re-derives their indicators).
+  defp refresh_in_place(socket) do
+    socket = refresh_counts(socket)
+
+    if socket.assigns.search_query != "",
+      do: run_search(socket, socket.assigns.search_query),
+      else: socket
+  end
 
   # Runs a fresh search query asynchronously. If a prior search is still
   # in flight, `start_async/3` cancels it — so fast typing (type-pause-
@@ -2032,20 +2066,15 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       results = Catalogue.localize(results, loc(socket))
 
       {:noreply,
-       assign(socket,
+       socket
+       |> assign(
          search_results: results,
-         file_counts:
-           Map.merge(socket.assigns.file_counts, Catalogue.attached_file_counts(results)),
-         attribute_map:
-           Map.merge(
-             socket.assigns.attribute_map,
-             Catalogue.item_attribute_group_map(Enum.map(results, & &1.uuid))
-           ),
          search_offset: length(results),
          search_total: total,
          search_has_more: length(results) < total,
          search_loading: false
-       )}
+       )
+       |> merge_row_indicators(results)}
     else
       {:noreply, socket}
     end
@@ -2095,18 +2124,14 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       page = Catalogue.localize(page, loc(socket))
 
       {:noreply,
-       assign(socket,
+       socket
+       |> assign(
          search_results: (socket.assigns.search_results || []) ++ page,
-         file_counts: Map.merge(socket.assigns.file_counts, Catalogue.attached_file_counts(page)),
-         attribute_map:
-           Map.merge(
-             socket.assigns.attribute_map,
-             Catalogue.item_attribute_group_map(Enum.map(page, & &1.uuid))
-           ),
          search_offset: new_offset,
          search_has_more: has_more,
          search_loading: false
-       )}
+       )
+       |> merge_row_indicators(page)}
     else
       {:noreply, socket}
     end
@@ -2188,12 +2213,14 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
       total = card_total(scope, catalogue_uuid, status)
 
-      assign(socket,
+      socket
+      |> assign(
         items: fresh,
         items_total: total,
         items_offset: length(fresh),
         items_has_more: length(fresh) < total
       )
+      |> merge_row_indicators(fresh)
     else
       socket
     end

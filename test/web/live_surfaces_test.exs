@@ -45,6 +45,23 @@ defmodule PhoenixKitCatalogue.Web.LiveSurfacesTest do
     :sys.get_state(view.pid).socket.assigns.files_state.files |> Enum.map(& &1.uuid)
   end
 
+  defp assigns(view), do: :sys.get_state(view.pid).socket.assigns
+
+  # Async work (start_async searches) lands a tick later — poll instead of
+  # sleeping a fixed amount.
+  defp eventually(fun, tries \\ 100) do
+    cond do
+      fun.() -> :ok
+      tries == 0 -> flunk("condition never held")
+      true -> Process.sleep(20) && eventually(fun, tries - 1)
+    end
+  end
+
+  defp search_uuids(view) do
+    _ = render(view)
+    (assigns(view).search_results || []) |> Enum.map(& &1.uuid)
+  end
+
   defp index_row(view, uuid) do
     :sys.get_state(view.pid).socket.assigns.catalogue_rows
     |> Enum.find(&(&1.uuid == uuid))
@@ -158,6 +175,86 @@ defmodule PhoenixKitCatalogue.Web.LiveSurfacesTest do
       PubSub.subscribe()
       render_click(view, "close_media_selector", %{})
       refute_receive {:catalogue_data_changed, _, _, _}
+    end
+  end
+
+  describe "F2 — detail indicators clear when the last file / the group goes away" do
+    test "clearing an item's attribute group drops the swatch", %{conn: conn} do
+      cat = fixture_catalogue()
+      item = fixture_item(%{name: "Swatched", catalogue_uuid: cat.uuid})
+      {:ok, group} = Catalogue.create_attribute_group(%{name: "Doors"})
+      {:ok, :assigned} = Catalogue.set_item_attribute_group(item, group.uuid)
+
+      {:ok, view, _html} = live(conn, "#{@base}/#{cat.uuid}")
+      assert Map.has_key?(assigns(view).attribute_map, item.uuid)
+      assert render(view) =~ "Has attribute group"
+
+      {:ok, :cleared} = Catalogue.set_item_attribute_group(item, nil)
+      refute render(view) =~ "Has attribute group"
+      refute Map.has_key?(assigns(view).attribute_map, item.uuid)
+    end
+
+    test "removing an item's last document drops the paperclip count",
+         %{conn: conn, scope: scope} do
+      folder = folder!("catalogue-item-f2")
+      cat = fixture_catalogue()
+
+      item =
+        fixture_item(%{
+          name: "Clipped",
+          catalogue_uuid: cat.uuid,
+          data: %{"files_folder_uuid" => folder.uuid}
+        })
+
+      file_uuid = insert_document!(folder.uuid, scope)
+      {:ok, view, _html} = live(conn, "#{@base}/#{cat.uuid}")
+      assert assigns(view).file_counts[item.uuid] == 1
+
+      # The other tab trashed the file (what Attachments.trash_file does)
+      # and announced the item.
+      {:ok, _} =
+        TestRepo.query("UPDATE phoenix_kit_files SET status = 'trashed' WHERE uuid = $1", [
+          Ecto.UUID.dump!(file_uuid)
+        ])
+
+      PubSub.broadcast(:item, item.uuid, cat.uuid)
+      _ = render(view)
+      assert Map.get(assigns(view).file_counts, item.uuid, 0) == 0
+    end
+  end
+
+  describe "F7 — an active search follows writes and tab switches" do
+    setup do
+      cat = fixture_catalogue()
+      alpha = fixture_item(%{name: "Alpha Bolt", catalogue_uuid: cat.uuid})
+      beta = fixture_item(%{name: "Beta Nut", catalogue_uuid: cat.uuid})
+      %{catalogue: cat, alpha: alpha, beta: beta}
+    end
+
+    test "a rename elsewhere re-runs the search", %{conn: conn, catalogue: cat, alpha: a, beta: b} do
+      {:ok, view, _html} = live(conn, "#{@base}/#{cat.uuid}?q=Alpha")
+      eventually(fn -> search_uuids(view) == [a.uuid] end)
+
+      {:ok, _} = Catalogue.update_item(b, %{name: "Alpha Nut"})
+      eventually(fn -> Enum.sort(search_uuids(view)) == Enum.sort([a.uuid, b.uuid]) end)
+    end
+
+    test "switching the status tab clears the search grid", %{
+      conn: conn,
+      catalogue: cat,
+      alpha: a
+    } do
+      {:ok, view, _html} = live(conn, "#{@base}/#{cat.uuid}?q=Alpha")
+      eventually(fn -> search_uuids(view) == [a.uuid] end)
+
+      render_click(view, "switch_view", %{"mode" => "deleted"})
+      _ = render(view)
+
+      # (The empty Deleted tab auto-flips back to Active, where "Alpha
+      # Bolt" is a normal level row again — the search grid is what's gone.)
+      assert assigns(view).search_results == nil
+      assert assigns(view).search_query == ""
+      refute has_element?(view, "form[phx-submit=search] input[value='Alpha']")
     end
   end
 
