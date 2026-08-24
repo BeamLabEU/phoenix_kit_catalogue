@@ -164,6 +164,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         selected_items: MapSet.new(),
         attribute_map: %{},
         selected_categories: MapSet.new(),
+        # Categories captured by "Reorder N selected" (core toolkit); [] = all.
+        categories_reorder_captured: [],
         # ── Active item list sort + strategy reorder ──
         # The active list uses the core List-UI toolkit: a sort dropdown,
         # client-side bulk-select, DnD reorder (manual mode only), and a
@@ -821,11 +823,6 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     {:noreply, assign(socket, :selected_items, toggle(socket.assigns.selected_items, uuid))}
   end
 
-  def handle_event("toggle_select_category", %{"uuid" => uuid}, socket) do
-    {:noreply,
-     assign(socket, :selected_categories, toggle(socket.assigns.selected_categories, uuid))}
-  end
-
   def handle_event("clear_selection", _params, socket) do
     {:noreply,
      assign(socket,
@@ -946,8 +943,13 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
   # Bulk delete categories: routes through trash_modal with bulk: true
   # so the disposition picker is shared with the single-category flow.
-  def handle_event("request_bulk_delete_categories", _params, socket) do
-    uuids = socket.assigns.selected_categories |> MapSet.to_list()
+  # The selection lives in the browser (core BulkSelectScope, the same
+  # toolkit the item list uses) and arrives as `%{"uuids" => [...]}`; it
+  # is snapshotted into `@selected_categories` so the confirm path and
+  # the post-op reset keep working unchanged.
+  def handle_event("request_bulk_delete_categories", params, socket) do
+    uuids = sanitize_uuids(params)
+    socket = assign(socket, :selected_categories, MapSet.new(uuids))
 
     if uuids == [] do
       {:noreply, socket}
@@ -1201,12 +1203,22 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   # Open the strategy-reorder modal. Captures the client-side selection
   # (via the BulkSelectScope hook payload). A 0–1 selection collapses to
   # "reorder all" (stored as `[]`) — a single-row reorder is a no-op.
-  def handle_event("open_categories_reorder_modal", _params, socket) do
-    {:noreply, assign(socket, :show_categories_reorder, true)}
+  # "Reorder all" (page control row, no payload) or "Reorder N selected"
+  # (bulk toolbar, uuids in the payload). A 0–1 selection is "all": a
+  # one-row reorder is a no-op.
+  def handle_event("open_categories_reorder_modal", params, socket) do
+    captured =
+      case sanitize_uuids(params) do
+        list when length(list) < 2 -> []
+        list -> list
+      end
+
+    {:noreply,
+     assign(socket, show_categories_reorder: true, categories_reorder_captured: captured)}
   end
 
   def handle_event("close_categories_reorder_modal", _params, socket) do
-    {:noreply, assign(socket, :show_categories_reorder, false)}
+    {:noreply, assign(socket, show_categories_reorder: false, categories_reorder_captured: [])}
   end
 
   # Strategy reorder for the current level's sibling categories ("Reorder
@@ -1217,9 +1229,12 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       when is_map_key(@items_reorder_strategy_map, strategy_str) do
     strategy = Map.fetch!(@items_reorder_strategy_map, strategy_str)
 
+    # A captured selection is re-sequenced within the slots those rows
+    # already occupy — the same "reorder N selected" meaning the item
+    # list has — so unselected siblings keep their places.
     ordered =
       socket.assigns.child_categories
-      |> order_categories_for_strategy(strategy)
+      |> reorder_within_slots(socket.assigns.categories_reorder_captured, strategy)
       |> Enum.map(& &1.uuid)
 
     parent_uuid =
@@ -1237,7 +1252,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       :ok ->
         {:noreply,
          socket
-         |> assign(:show_categories_reorder, false)
+         |> assign(show_categories_reorder: false, categories_reorder_captured: [])
+         |> push_event("bulk_select:clear", %{})
          |> put_flash(
            :info,
            Gettext.gettext(PhoenixKitCatalogue.Gettext, "Categories reordered.")
@@ -1579,6 +1595,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         socket
         |> assign(:bulk_confirm, nil)
         |> assign(:selected_categories, MapSet.new())
+        |> push_event("bulk_select:clear", %{})
         |> put_flash(
           :info,
           Gettext.gettext(PhoenixKitCatalogue.Gettext, "Deleted %{count} categories.",
@@ -2653,37 +2670,12 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
             is_nil(@current_category) and @view_mode == "active" and
               @uncategorized_active_count > 0 and @child_categories != [] %>
 
-          <%!-- Category bulk-action bar (when subcategories selected) --%>
-          <.bulk_actions_bar
-            :if={MapSet.size(@selected_categories) > 0}
-            count={MapSet.size(@selected_categories)}
-            clear_event="clear_selection"
-            wrapper_class="sticky top-[72px] z-40 -mx-1 px-3 py-2 rounded-lg bg-base-100/95 border border-primary/40 shadow-md backdrop-blur"
-          >
-            <button
-              :if={@view_mode == "active"}
-              phx-click="request_bulk_delete_categories"
-              class="btn btn-sm btn-outline btn-error"
-            >
-              <.icon name="hero-trash" class="w-4 h-4" />
-              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")}
-            </button>
-            <button
-              :if={@view_mode != "active"}
-              phx-click="request_bulk_restore_categories"
-              class="btn btn-sm btn-outline btn-success"
-            >
-              <.icon name="hero-arrow-path" class="w-4 h-4" />
-              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Restore")}
-            </button>
-          </.bulk_actions_bar>
-
           <.reorder_modal
             id="categories-reorder-modal"
             show={@show_categories_reorder}
             on_close="close_categories_reorder_modal"
             on_apply="apply_categories_reorder"
-            selected_count={0}
+            selected_count={length(@categories_reorder_captured)}
             total_count={length(@child_categories)}
             strategies={item_reorder_strategies()}
             noun_singular={Gettext.gettext(PhoenixKitCatalogue.Gettext, "category")}
@@ -2697,8 +2689,31 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                and the hook no-ops when a branch is missing, so nothing can
                toggle itself invisible. Both branches carry their own
                SortableGrid on the same reorder event. --%>
-          <div
+          <%!-- Category selection rides the same core BulkSelectScope
+               toolkit as the item list, so both levels of the page select
+               and act the same way: checkboxes are client-side, the
+               toolbar stays hidden until something is selected, and the
+               uuids travel with the action. "Reorder all" lives in the
+               page control row; the toolbar's Reorder only appears for a
+               2+ selection ("Reorder N selected"). --%>
+          <.bulk_select_scope
             :if={@child_categories != [] or show_uncat_card}
+            id={"categories-bulk-" <> (@current_category_uuid || "root")}
+            total_count={length(@child_categories)}
+            class="flex flex-col gap-2"
+          >
+            <div :if={@view_mode == "active"} data-bulk-show="has-selection" style="display: none;">
+              <.bulk_actions_toolbar
+                on_open_reorder="open_categories_reorder_modal"
+                reorder_dialog_id="categories-reorder-modal"
+                reorder_gate={:multi}
+                on_bulk_delete="request_bulk_delete_categories"
+                noun_singular={Gettext.gettext(PhoenixKitCatalogue.Gettext, "category")}
+                noun_plural={Gettext.gettext(PhoenixKitCatalogue.Gettext, "categories")}
+              />
+            </div>
+
+          <div
             id="catalogue-categories-views"
             phx-hook="TableCardView"
             data-storage-key="catalogue-detail-items"
@@ -2712,7 +2727,6 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                 child_categories={@child_categories}
                 child_counts={@child_counts}
                 children_with_subs={@children_with_subs}
-                selected_categories={@selected_categories}
                 view_mode={@view_mode}
                 file_counts={@file_counts}
                 show_uncat={show_uncat_card}
@@ -2746,7 +2760,6 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                     has_subs={MapSet.member?(@children_with_subs, cat.uuid)}
                     view_mode={@view_mode}
                     sibling_count={length(@child_categories)}
-                    selected={MapSet.member?(@selected_categories, cat.uuid)}
                     has_files={Map.get(@file_counts, cat.uuid, 0) > 0}
                   />
                 <% end %>
@@ -2758,6 +2771,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               </div>
             </div>
           </div>
+          </.bulk_select_scope>
 
           <%!-- Deleted-list bulk-action bar (server-side select). The
                active list owns its selection client-side via the core
@@ -3164,7 +3178,6 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   attr(:child_categories, :list, required: true)
   attr(:child_counts, :map, required: true)
   attr(:children_with_subs, :any, required: true)
-  attr(:selected_categories, :any, required: true)
   attr(:view_mode, :string, required: true)
   attr(:categories_sort_by, :atom, default: :position)
   attr(:file_counts, :map, required: true)
@@ -3199,7 +3212,12 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       <.table_default_header>
         <.table_default_row>
           <.drag_handle_header_cell :if={@draggable?} />
-          <.table_default_header_cell class="w-8"></.table_default_header_cell>
+          <.bulk_select_header_cell
+            :if={@view_mode == "active"}
+            id="categories-select-all"
+            aria_label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Select all categories")}
+          />
+          <.table_default_header_cell :if={@view_mode != "active"} class="w-8"></.table_default_header_cell>
           <.table_default_header_cell :if={@photo_col?} class="w-12 !pr-0 !py-1 [.pk-comfy_&]:w-22 [.pk-comfy_&]:!py-1.5"></.table_default_header_cell>
           <.table_default_header_cell>
             {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Name")}
@@ -3255,9 +3273,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               :if={@view_mode == "active" and cat.status == "active"}
               type="checkbox"
               class="checkbox checkbox-xs"
-              checked={MapSet.member?(@selected_categories, cat.uuid)}
-              phx-click="toggle_select_category"
-              phx-value-uuid={cat.uuid}
+              data-bulk-role="row"
+              data-uuid={cat.uuid}
             />
           </.table_default_cell>
           <.table_default_cell :if={@photo_col?} class="w-12 !pr-0 !py-1 [.pk-comfy_&]:w-22 [.pk-comfy_&]:!py-1.5">
@@ -3423,7 +3440,6 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   attr(:has_subs, :boolean, default: false)
   attr(:view_mode, :string, required: true)
   attr(:sibling_count, :integer, required: true)
-  attr(:selected, :boolean, default: false)
   attr(:has_files, :boolean, default: false)
   attr(:categories_columns, :list, default: ["items"])
   attr(:subcat_count, :integer, default: 0)
@@ -3450,9 +3466,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
           :if={@view_mode == "active" and @category.status == "active"}
           type="checkbox"
           class="checkbox checkbox-xs absolute top-1.5 left-1.5 bg-base-100/80"
-          checked={@selected}
-          phx-click="toggle_select_category"
-          phx-value-uuid={@category.uuid}
+          data-bulk-role="row"
+          data-uuid={@category.uuid}
         />
         <span
           :if={
@@ -3951,6 +3966,22 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
   # Orders sibling categories for a reorder strategy; "reverse" reverses
   # the manual order (position, name-tiebroken), matching the drag order.
+  # `[]` reorders every sibling; a captured subset is sorted by the
+  # strategy and written back into the slots it occupied.
+  defp reorder_within_slots(cats, [], strategy), do: order_categories_for_strategy(cats, strategy)
+
+  defp reorder_within_slots(cats, captured, strategy) do
+    selected? = &(&1.uuid in captured)
+    resequenced = cats |> Enum.filter(selected?) |> order_categories_for_strategy(strategy)
+
+    {ordered, []} =
+      Enum.map_reduce(cats, resequenced, fn cat, queue ->
+        if selected?.(cat), do: {hd(queue), tl(queue)}, else: {cat, queue}
+      end)
+
+    ordered
+  end
+
   defp order_categories_for_strategy(cats, :name_asc),
     do: Enum.sort_by(cats, &String.downcase(&1.name || ""))
 
