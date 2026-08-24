@@ -2817,3 +2817,42 @@ msgstr "Не удалось переместить категорий: %{count}.
 
 msgid "Select all categories"
 msgstr "Выбрать все категории"
+
+msgid "Duplicate"
+msgstr "Дублировать"
+
+msgid "Duplicate selected items"
+msgstr "Дублировать выбранные товары"
+
+msgid "Duplicate selected categories"
+msgstr "Дублировать выбранные категории"
+
+msgid "Duplicate items"
+msgstr "Дублировать товары"
+
+msgid "Duplicate categories"
+msgstr "Дублировать категории"
+
+msgid "%{count} items will be copied with their files, attribute sets, supplier rows and catalogue rules. Comments are not copied."
+msgstr "%{count} товаров будут скопированы вместе с файлами, наборами атрибутов, строками поставщиков и правилами каталога. Комментарии не копируются."
+
+msgid "%{count} categories will be copied with their subcategories and items."
+msgstr "%{count} категорий будут скопированы вместе с подкатегориями и товарами."
+
+msgid "Each copy is named after its original with \"(copy)\" added and placed right after it."
+msgstr "Каждая копия получает имя оригинала с добавлением «(копия)» и размещается сразу после него."
+
+msgid "Duplicated %{count} items."
+msgstr "Продублировано товаров: %{count}."
+
+msgid "Duplicated %{count} categories."
+msgstr "Продублировано категорий: %{count}."
+
+msgid "%{count} items could not be duplicated."
+msgstr "Не удалось продублировать товаров: %{count}."
+
+msgid "%{count} categories could not be duplicated."
+msgstr "Не удалось продублировать категорий: %{count}."
+
+msgid "%{name} (copy)"
+msgstr "%{name} (копия)"
