@@ -179,7 +179,6 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
       socket
       |> assign(assigns)
       |> assign(:last_selected_uuid, incoming_uuid)
-      |> ensure_category_paths(List.wrap(assigns[:selected_item]))
 
     socket =
       if prior_uuid == incoming_uuid do
@@ -399,9 +398,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
   # query per item — a page can hold up to `page_size` items (default 500
   # for some callers) but almost always draws from a handful of distinct
   # categories. Memoized in `:category_paths` across the component's life
-  # so a category looked up once (in a search page, or as the initial
-  # selection) stays available even after the query changes and that page
-  # of options is gone — the selected item still needs its breadcrumb.
+  # so a category looked up once stays cheap on the next search page too.
   defp ensure_category_paths(socket, items) do
     known = socket.assigns.category_paths
 
@@ -641,20 +638,6 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
           >
             <.icon name="hero-x-mark" class="w-3 h-3" />
           </button>
-
-          <%!--
-            The picked item's own breadcrumb — otherwise once a selection
-            closes the dropdown, its category hierarchy is shown nowhere at
-            all (only the bare item name survives in the input).
-          --%>
-          <% selected_breadcrumb =
-            @selected_item && item_breadcrumb(@selected_item, @locale, @category_paths) %>
-          <div
-            :if={!@open and selected_breadcrumb not in [nil, ""]}
-            class="text-xs text-base-content/50 truncate mt-0.5 px-1"
-          >
-            {selected_breadcrumb}
-          </div>
 
           <ul
             :if={@open and @options != []}
