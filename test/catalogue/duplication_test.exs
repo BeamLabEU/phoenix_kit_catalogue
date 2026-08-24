@@ -81,14 +81,14 @@ defmodule PhoenixKitCatalogue.Catalogue.DuplicationTest do
       assert copy.data["featured_image_uuid"] == "0192aaaa-0000-7000-8000-000000000001"
       refute Map.has_key?(copy.data, "files_folder_uuid")
 
-      assert names_in(alpha.uuid) == [{"A", 0}, {"A (copy)", 1}, {"B", 2}, {"C", 3}]
+      assert names_in(alpha.uuid) == [{"A", 1}, {"A (copy)", 2}, {"B", 3}, {"C", 4}]
     end
 
     test "a copy sent to another category is appended there", %{beta: beta, alpha: alpha, b: b} do
       {:ok, copy} = Catalogue.duplicate_item(b, category_uuid: beta.uuid)
 
       assert copy.category_uuid == beta.uuid
-      assert names_in(beta.uuid) == [{"B (copy)", 0}]
+      assert names_in(beta.uuid) == [{"B (copy)", 1}]
       assert names_in(alpha.uuid) == [{"A", 0}, {"B", 1}, {"C", 2}]
     end
 
@@ -165,6 +165,14 @@ defmodule PhoenixKitCatalogue.Catalogue.DuplicationTest do
       assert Repo.get!(StorageFile, file_uuid).folder_uuid == folder.uuid
     end
 
+    test "a 255-character name is trimmed so the suffix still fits", %{a: a} do
+      {:ok, _} = Catalogue.update_item(a, %{name: String.duplicate("x", 255)})
+      {:ok, copy} = Catalogue.duplicate_item(Catalogue.get_item!(a.uuid))
+
+      assert String.length(copy.name) == 255
+      assert String.ends_with?(copy.name, " (copy)")
+    end
+
     test "an item without files gets no folder", %{a: a} do
       {:ok, copy} = Catalogue.duplicate_item(a)
       refute Map.has_key?(copy.data || %{}, "files_folder_uuid")
@@ -199,7 +207,7 @@ defmodule PhoenixKitCatalogue.Catalogue.DuplicationTest do
 
       roots = Catalogue.list_child_categories(cat.uuid, nil) |> Enum.map(& &1.name)
       assert roots == ["Alpha", "Alpha (copy)", "Beta"]
-      assert Catalogue.get_category(beta.uuid).position == 2
+      assert Catalogue.get_category(beta.uuid).position == 3
 
       assert names_in(copy.uuid) == [{"A", 0}, {"B", 1}, {"C", 2}]
       # Nested copies keep their translations verbatim (no suffix).
@@ -216,6 +224,19 @@ defmodule PhoenixKitCatalogue.Catalogue.DuplicationTest do
     end
   end
 
+  describe "duplicate_category/2 guards" do
+    test "a parent from another catalogue is refused", %{alpha: alpha} do
+      other = fixture_catalogue(%{name: "Elsewhere"})
+      foreign = fixture_category(other, %{name: "Foreign"})
+
+      assert {:error, :cross_catalogue} =
+               Catalogue.duplicate_category(alpha, parent_uuid: foreign.uuid)
+
+      assert {:error, :parent_not_found} =
+               Catalogue.duplicate_category(alpha, parent_uuid: UUIDv7.generate())
+    end
+  end
+
   describe "bulk" do
     test "copies in position order, reports unknown uuids and broadcasts once",
          %{catalogue: cat, alpha: alpha, a: a, c: c} do
@@ -226,7 +247,7 @@ defmodule PhoenixKitCatalogue.Catalogue.DuplicationTest do
                Catalogue.bulk_duplicate_items([c.uuid, ghost, a.uuid, "forged"])
 
       assert names_in(alpha.uuid) ==
-               [{"A", 0}, {"A (copy)", 1}, {"B", 2}, {"C", 3}, {"C (copy)", 4}]
+               [{"A", 1}, {"A (copy)", 2}, {"B", 3}, {"C", 4}, {"C (copy)", 5}]
 
       cat_uuid = cat.uuid
       assert_receive {:catalogue_data_changed, :item, nil, ^cat_uuid}

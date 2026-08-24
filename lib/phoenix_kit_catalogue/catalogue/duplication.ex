@@ -73,10 +73,6 @@ defmodule PhoenixKitCatalogue.Catalogue.Duplication do
   # own folder (see `copy_files_folder/3`) or none.
   @data_keys_not_copied ["files_folder_uuid"]
 
-  # Same ceiling as the form's files grid — a folder with thousands of
-  # files is stale data, not something to fan a copy out over.
-  @files_limit 200
-
   defp repo, do: PhoenixKit.RepoHelper.repo()
 
   @type bulk_result :: {:ok, %{created: non_neg_integer(), errors: [{Ecto.UUID.t(), term()}]}}
@@ -254,19 +250,38 @@ defmodule PhoenixKitCatalogue.Catalogue.Duplication do
 
   defp catalogue_for(nil, fallback), do: fallback
 
+  # `FOR SHARE` until commit, as `create_item/2` does: a concurrent
+  # `move_category_to_catalogue/3` takes `FOR UPDATE` on this row, so
+  # the copy can never land with a stale `catalogue_uuid`.
   defp catalogue_for(category_uuid, fallback) do
-    case repo().get(Category, category_uuid) do
+    from(c in Category, where: c.uuid == ^category_uuid, lock: "FOR SHARE")
+    |> repo().one()
+    |> case do
       nil -> repo().rollback(:category_not_found)
       %Category{catalogue_uuid: uuid} -> uuid || fallback
     end
   end
 
+  @name_max 255
+
   defp copy_name(nil, _opts), do: nil
 
+  # Names are capped at 255 by the schemas; a long original is trimmed
+  # so the suffix still fits rather than failing validation.
   defp copy_name(name, opts) do
-    if Keyword.get(opts, :suffix, true),
-      do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "%{name} (copy)", name: name),
-      else: name
+    if Keyword.get(opts, :suffix, true) do
+      suffixed = Gettext.gettext(PhoenixKitCatalogue.Gettext, "%{name} (copy)", name: name)
+      overflow = String.length(suffixed) - @name_max
+
+      if overflow > 0,
+        do:
+          Gettext.gettext(PhoenixKitCatalogue.Gettext, "%{name} (copy)",
+            name: String.slice(name, 0, String.length(name) - overflow)
+          ),
+        else: suffixed
+    else
+      name
+    end
   end
 
   # Lists show the translated name out of the multilang `data`, not the
@@ -443,8 +458,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Duplication do
     from(f in File,
       where:
         (f.folder_uuid == ^folder_uuid or f.uuid in subquery(linked)) and f.status != "trashed",
-      order_by: [asc: f.inserted_at],
-      limit: @files_limit
+      order_by: [asc: f.inserted_at]
     )
     |> repo().all()
   end
@@ -463,6 +477,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Duplication do
 
   defp copy_category(%Category{} = source, opts) do
     parent_uuid = Keyword.get(opts, :parent_uuid, source.parent_uuid)
+    ensure_same_catalogue!(parent_uuid, source.catalogue_uuid)
     keep_position? = Keyword.get(opts, :keep_position, false)
 
     attrs = %{
@@ -531,6 +546,18 @@ defmodule PhoenixKitCatalogue.Catalogue.Duplication do
     }
   end
 
+  # A copy always stays in its source's catalogue; a parent from another
+  # catalogue would leave the subtree unreachable through the tree.
+  defp ensure_same_catalogue!(nil, _catalogue_uuid), do: :ok
+
+  defp ensure_same_catalogue!(parent_uuid, catalogue_uuid) do
+    case repo().get(Category, parent_uuid) do
+      %Category{catalogue_uuid: ^catalogue_uuid} -> :ok
+      nil -> repo().rollback(:parent_not_found)
+      _ -> repo().rollback(:cross_catalogue)
+    end
+  end
+
   # ── Placement ─────────────────────────────────────────────────────
 
   # Renumber the copy's sibling list with the copy right after its
@@ -578,9 +605,10 @@ defmodule PhoenixKitCatalogue.Catalogue.Duplication do
     end
   end
 
+  # 1-based, the convention the reorder path writes.
   defp renumber(schema, ordered_uuids) do
     ordered_uuids
-    |> Enum.with_index()
+    |> Enum.with_index(1)
     |> Enum.each(fn {uuid, idx} ->
       repo().update_all(from(r in schema, where: r.uuid == ^uuid), set: [position: idx])
     end)
