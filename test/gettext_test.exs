@@ -81,6 +81,31 @@ defmodule PhoenixKitCatalogue.GettextTest do
              "Vali kõik kategooriad"
   end
 
+  test "new #78 error atoms are translated (pin, 2026-08-24)" do
+    Gettext.put_locale(PhoenixKitCatalogue.Gettext, "ru")
+
+    assert Gettext.gettext(
+             PhoenixKitCatalogue.Gettext,
+             "Cannot move items into a category that is being deleted."
+           ) == "Нельзя перенести товары в категорию, которая удаляется."
+
+    assert Gettext.gettext(
+             PhoenixKitCatalogue.Gettext,
+             "That selection is not in this catalogue."
+           ) ==
+             "Этот выбор не принадлежит данному каталогу."
+
+    Gettext.put_locale(PhoenixKitCatalogue.Gettext, "et")
+
+    assert Gettext.gettext(
+             PhoenixKitCatalogue.Gettext,
+             "Cannot move items into a category that is being deleted."
+           ) == "Kirjeid ei saa tõsta kategooriasse, mida kustutatakse."
+
+    assert Gettext.gettext(PhoenixKitCatalogue.Gettext, "This supplier row is no longer current.") ==
+             "See tarnija rida ei ole enam kehtiv."
+  end
+
   test "attribute-sets strings are translated (pin for the 2026-08-18 rework, PR #74)" do
     Gettext.put_locale(PhoenixKitCatalogue.Gettext, "ru")
 

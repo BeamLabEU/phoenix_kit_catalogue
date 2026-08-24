@@ -2746,6 +2746,21 @@ msgstr "Показать все комментарии (%{count})"
 msgid "This supplier is already on the item. Edit the existing row instead."
 msgstr "Этот поставщик уже добавлен к товару. Измените существующую строку."
 
+msgid "That selection is not in this catalogue."
+msgstr "Этот выбор не принадлежит данному каталогу."
+
+msgid "That id is not valid."
+msgstr "Некорректный идентификатор."
+
+msgid "Could not copy the files folder."
+msgstr "Не удалось скопировать папку файлов."
+
+msgid "This supplier row is no longer current."
+msgstr "Эта строка поставщика больше не актуальна."
+
+msgid "Cannot move items into a category that is being deleted."
+msgstr "Нельзя перенести товары в категорию, которая удаляется."
+
 msgid "contact"
 msgstr "контакт"
 

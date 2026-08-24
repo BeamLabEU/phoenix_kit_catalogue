@@ -620,10 +620,15 @@ defmodule PhoenixKitCatalogue.Catalogue.Duplication do
 
   # A copy always stays in its source's catalogue; a parent from another
   # catalogue would leave the subtree unreachable through the tree.
+  # `FOR SHARE` until commit, as `catalogue_for/2` does: a concurrent
+  # `move_category_to_catalogue/3` takes `FOR UPDATE` on this row, so the
+  # copy cannot land under a parent that just changed catalogues.
   defp ensure_same_catalogue!(nil, _catalogue_uuid), do: :ok
 
   defp ensure_same_catalogue!(parent_uuid, catalogue_uuid) do
-    case repo().get(Category, parent_uuid) do
+    from(c in Category, where: c.uuid == ^parent_uuid, lock: "FOR SHARE")
+    |> repo().one()
+    |> case do
       %Category{catalogue_uuid: ^catalogue_uuid} -> :ok
       nil -> repo().rollback(:parent_not_found)
       _ -> repo().rollback(:cross_catalogue)

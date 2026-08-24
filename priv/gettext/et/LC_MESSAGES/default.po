@@ -2737,6 +2737,21 @@ msgstr "Näita kõiki %{count} kommentaari"
 msgid "This supplier is already on the item. Edit the existing row instead."
 msgstr "See tarnija on juba tootel. Muuda olemasolevat rida."
 
+msgid "That selection is not in this catalogue."
+msgstr "See valik ei ole selles kataloogis."
+
+msgid "That id is not valid."
+msgstr "See identifikaator ei ole kehtiv."
+
+msgid "Could not copy the files folder."
+msgstr "Failikausta ei õnnestunud kopeerida."
+
+msgid "This supplier row is no longer current."
+msgstr "See tarnija rida ei ole enam kehtiv."
+
+msgid "Cannot move items into a category that is being deleted."
+msgstr "Kirjeid ei saa tõsta kategooriasse, mida kustutatakse."
+
 msgid "contact"
 msgstr "kontakt"
 

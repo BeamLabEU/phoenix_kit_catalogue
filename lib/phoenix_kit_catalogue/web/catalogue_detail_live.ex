@@ -749,15 +749,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   # the same catalogue) before the category trash fires.
   def handle_event("request_trash_category", %{"uuid" => uuid}, socket) do
     case Catalogue.get_category(uuid) do
-      nil ->
-        {:noreply,
-         put_flash(
-           socket,
-           :error,
-           Gettext.gettext(PhoenixKitCatalogue.Gettext, "Category not found.")
-         )}
-
-      category ->
+      %Category{catalogue_uuid: cat_uuid} = category
+      when cat_uuid == socket.assigns.catalogue_uuid ->
         item_count = Catalogue.active_item_count_in_subtree(uuid)
 
         if item_count == 0 do
@@ -770,6 +763,14 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
              build_trash_modal_state(category, item_count, loc(socket))
            )}
         end
+
+      _ ->
+        {:noreply,
+         put_flash(
+           socket,
+           :error,
+           Gettext.gettext(PhoenixKitCatalogue.Gettext, "Category not found.")
+         )}
     end
   end
 
@@ -798,33 +799,24 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     do: {:noreply, socket}
 
   def handle_event("select_trash_target", %{"category_uuid" => uuid}, socket) do
-    modal = socket.assigns.trash_modal || %{}
-    {:noreply, assign(socket, :trash_modal, %{modal | target_uuid: Values.blank_to_nil(uuid)})}
+    modal = socket.assigns.trash_modal
+    target = accepted_picker_target(modal.targets, uuid)
+    {:noreply, assign(socket, :trash_modal, %{modal | target_uuid: target})}
   end
 
   def handle_event("confirm_trash_category", _params, socket) do
     case socket.assigns.trash_modal do
-      %{bulk: true, bulk_uuids: uuids, disposition: disp, target_uuid: target_uuid} ->
-        items_opt = disposition_to_items_opt(disp, target_uuid)
-
-        if is_nil(items_opt) do
-          {:noreply, socket}
-        else
-          socket
-          |> assign(:trash_modal, nil)
-          |> do_bulk_trash_categories_with(uuids, items_opt)
-        end
+      %{bulk: true} = modal ->
+        confirm_bulk_trash(socket, modal)
 
       %{category: category, disposition: :uncategorize} ->
         socket
         |> assign(:trash_modal, nil)
         |> do_trash_category(category, items: :uncategorize)
 
-      %{category: category, disposition: :move_to, target_uuid: target_uuid}
-      when not is_nil(target_uuid) ->
-        socket
-        |> assign(:trash_modal, nil)
-        |> do_trash_category(category, items: {:move_to, target_uuid})
+      %{category: category, disposition: :move_to, target_uuid: target, targets: targets}
+      when not is_nil(target) ->
+        confirm_trash_move_to(socket, category, target, targets)
 
       %{category: category, disposition: :cascade} ->
         socket
@@ -832,7 +824,6 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         |> do_trash_category(category, items: :cascade)
 
       _ ->
-        # Confirm should be disabled in this state; defensive no-op.
         {:noreply, socket}
     end
   end
@@ -939,10 +930,9 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       do: {:noreply, socket}
 
   def handle_event("select_bulk_move_target", %{"category_uuid" => uuid}, socket) do
-    modal = socket.assigns.bulk_move_modal || %{}
-
-    {:noreply,
-     assign(socket, :bulk_move_modal, %{modal | target_uuid: Values.blank_to_nil(uuid)})}
+    modal = socket.assigns.bulk_move_modal
+    target = accepted_picker_target(modal.targets, uuid)
+    {:noreply, assign(socket, :bulk_move_modal, %{modal | target_uuid: target})}
   end
 
   def handle_event("confirm_bulk_move_items", _params, socket) do
@@ -950,9 +940,11 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       %{disposition: :uncategorize, uuids: uuids} ->
         do_bulk_move_items(socket, uuids, nil)
 
-      %{disposition: :move_to, target_uuid: target_uuid, uuids: uuids}
+      %{disposition: :move_to, target_uuid: target_uuid, uuids: uuids, targets: targets}
       when not is_nil(target_uuid) ->
-        do_bulk_move_items(socket, uuids, target_uuid)
+        if picker_has_target?(targets, target_uuid),
+          do: do_bulk_move_items(socket, uuids, target_uuid),
+          else: {:noreply, socket}
 
       _ ->
         {:noreply, socket}
@@ -1021,10 +1013,10 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       do: {:noreply, socket}
 
   def handle_event("select_bulk_move_categories_target", %{"category_uuid" => uuid}, socket) do
-    modal = socket.assigns.bulk_move_categories_modal || %{}
+    modal = socket.assigns.bulk_move_categories_modal
+    target = accepted_picker_target(modal.targets, uuid)
 
-    {:noreply,
-     assign(socket, :bulk_move_categories_modal, %{modal | target_uuid: Values.blank_to_nil(uuid)})}
+    {:noreply, assign(socket, :bulk_move_categories_modal, %{modal | target_uuid: target})}
   end
 
   def handle_event("confirm_bulk_move_categories", _params, socket) do
@@ -1126,14 +1118,15 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   end
 
   def handle_event("restore_category", %{"uuid" => uuid}, socket) do
-    with %{} = category <- Catalogue.get_category(uuid),
+    with %Category{catalogue_uuid: cat_uuid} = category <- Catalogue.get_category(uuid),
+         true <- cat_uuid == socket.assigns.catalogue_uuid,
          {:ok, _} <- Catalogue.restore_category(category, actor_opts(socket)) do
       {:noreply,
        socket
        |> put_flash(:info, Gettext.gettext(PhoenixKitCatalogue.Gettext, "Category restored."))
        |> reset_and_load()}
     else
-      nil ->
+      unmatched when unmatched in [nil, false] ->
         {:noreply,
          put_flash(
            socket,
@@ -1744,9 +1737,60 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   # The target must be one the picker offered: a forged uuid from inside
   # the selection would be a cycle, from elsewhere a scope leak.
   defp confirm_bulk_move_categories_under(socket, uuids, target, targets) do
-    if Enum.any?(targets, fn {cat, _} -> cat.uuid == target end),
+    if picker_has_target?(targets, target),
       do: do_bulk_move_categories(socket, uuids, target),
       else: {:noreply, socket}
+  end
+
+  # The three modal pickers store `{category, depth}` pairs. Empty string
+  # (the "-- Select --" option) and a uuid the picker did not offer both
+  # become nil, so confirm never acts on a forged target.
+  defp accepted_picker_target(targets, uuid) do
+    uuid = Values.blank_to_nil(uuid)
+    if picker_has_target?(targets, uuid), do: uuid, else: nil
+  end
+
+  defp picker_has_target?(targets, uuid) when is_list(targets) and is_binary(uuid) do
+    Enum.any?(targets, fn
+      {%{uuid: ^uuid}, _depth} -> true
+      _ -> false
+    end)
+  end
+
+  defp picker_has_target?(_, _), do: false
+
+  defp confirm_bulk_trash(socket, %{
+         bulk_uuids: uuids,
+         disposition: disp,
+         target_uuid: target,
+         targets: targets
+       }) do
+    items_opt = disposition_to_items_opt(disp, target)
+
+    if trash_disposition_allowed?(items_opt, targets, target) do
+      socket
+      |> assign(:trash_modal, nil)
+      |> do_bulk_trash_categories_with(uuids, items_opt)
+    else
+      {:noreply, socket}
+    end
+  end
+
+  defp trash_disposition_allowed?(nil, _targets, _target), do: false
+
+  defp trash_disposition_allowed?({:move_to, _}, targets, target),
+    do: picker_has_target?(targets, target)
+
+  defp trash_disposition_allowed?(_items_opt, _targets, _target), do: true
+
+  defp confirm_trash_move_to(socket, category, target, targets) do
+    if picker_has_target?(targets, target) do
+      socket
+      |> assign(:trash_modal, nil)
+      |> do_trash_category(category, items: {:move_to, target})
+    else
+      {:noreply, socket}
+    end
   end
 
   # The category picker the three modals share (trash → move items to…,

@@ -360,31 +360,21 @@ defmodule PhoenixKitCatalogue.Catalogue.ItemSupplierInfos do
     do: {:error, :not_current}
 
   def set_primary(%ItemSupplierInfo{} = info, opts) do
-    Multi.new()
-    |> Multi.update_all(
-      :clear_primary,
-      from(i in ItemSupplierInfo,
-        where: i.item_uuid == ^info.item_uuid and i.is_primary == true
-      ),
-      set: [is_primary: false]
-    )
-    # force_change: when `info` is already the in-memory primary (e.g. the
-    # auto-promoted first row), a plain changeset diffs to empty and the
-    # UPDATE is skipped — while clear_primary above has just demoted the DB
-    # row, silently leaving the item with no primary at all.
-    |> Multi.update(
-      :set_primary,
-      info
-      |> Ecto.Changeset.change()
-      |> Ecto.Changeset.force_change(:is_primary, true)
-      |> Ecto.Changeset.unique_constraint(:item_uuid,
-        name: :phoenix_kit_cat_item_supplier_info_primary_uniq,
-        message: "another supplier is already marked primary for this item"
-      )
-    )
-    |> repo().transaction()
-    |> case do
-      {:ok, %{set_primary: updated}} ->
+    # Re-read under lock: a concurrent close/revise can land between the
+    # caller's struct and this write, and promoting that closed row would
+    # demote the live primary (primary_for_item/1 then returns nil).
+    result =
+      repo().transaction(fn ->
+        case repo().one(
+               from(i in ItemSupplierInfo, where: i.uuid == ^info.uuid, lock: "FOR UPDATE")
+             ) do
+          %ItemSupplierInfo{valid_to: nil} = current -> promote_locked!(current)
+          _ -> repo().rollback(:not_current)
+        end
+      end)
+
+    case result do
+      {:ok, updated} ->
         ActivityLog.log(%{
           action: "item_supplier_info.primary_set",
           mode: "manual",
@@ -397,8 +387,32 @@ defmodule PhoenixKitCatalogue.Catalogue.ItemSupplierInfos do
         PubSub.broadcast(:item_supplier_info, updated.uuid)
         {:ok, updated}
 
-      {:error, _op, reason, _changes} ->
+      {:error, reason} ->
         {:error, reason}
+    end
+  end
+
+  defp promote_locked!(current) do
+    from(i in ItemSupplierInfo,
+      where: i.item_uuid == ^current.item_uuid and i.is_primary == true
+    )
+    |> repo().update_all(set: [is_primary: false])
+
+    # force_change: when `current` is already the in-memory primary (e.g. the
+    # auto-promoted first row), a plain changeset diffs to empty and the
+    # UPDATE is skipped — while the clear above has just demoted the DB
+    # row, silently leaving the item with no primary at all.
+    current
+    |> Ecto.Changeset.change()
+    |> Ecto.Changeset.force_change(:is_primary, true)
+    |> Ecto.Changeset.unique_constraint(:item_uuid,
+      name: :phoenix_kit_cat_item_supplier_info_primary_uniq,
+      message: "another supplier is already marked primary for this item"
+    )
+    |> repo().update()
+    |> case do
+      {:ok, updated} -> updated
+      {:error, changeset} -> repo().rollback(changeset)
     end
   end
 
@@ -481,85 +495,104 @@ defmodule PhoenixKitCatalogue.Catalogue.ItemSupplierInfos do
 
   defp do_revise_unit_cost(%ItemSupplierInfo{} = info, new_cost, opts) do
     today = Date.utc_today()
-    original_is_primary = info.is_primary
-
-    caller_currency = opts[:currency]
-
-    new_currency =
-      if caller_currency && caller_currency != info.currency,
-        do: caller_currency,
-        else: info.currency
-
-    close_changeset =
-      info
-      |> Ecto.Changeset.change()
-      |> Ecto.Changeset.force_change(:valid_to, today)
-      |> Ecto.Changeset.force_change(:is_primary, false)
-
-    successor_attrs = %{
-      item_uuid: info.item_uuid,
-      supplier_uuid: info.supplier_uuid,
-      supplier_source: info.supplier_source,
-      supplier_name_snapshot: info.supplier_name_snapshot,
-      supplier_sku: info.supplier_sku,
-      unit_cost: new_cost,
-      currency: new_currency,
-      lead_time_days: info.lead_time_days,
-      min_order_qty: info.min_order_qty,
-      is_primary: original_is_primary,
-      valid_from: today,
-      valid_to: nil,
-      position: info.position,
-      metadata: SupplierComments.stamp(info.metadata, SupplierComments.thread_uuid(info))
-    }
 
     result =
       Multi.new()
-      |> Multi.update(:close, close_changeset)
-      |> Multi.insert(:successor, fn _ ->
-        ItemSupplierInfo.changeset(%ItemSupplierInfo{}, successor_attrs)
-        |> Ecto.Changeset.unique_constraint(:item_uuid,
-          name: :phoenix_kit_cat_item_supplier_info_primary_uniq,
-          message: "another supplier is already marked primary for this item"
-        )
-      end)
+      # Same class as close_current/1: a concurrent revise or remove can
+      # close this row after the caller loaded it. Lock, re-check, then
+      # close *that* row so we never insert a second current pair.
+      |> Multi.run(:current, fn repo, _ -> lock_current_row(repo, info.uuid) end)
+      |> Multi.update(:close, &close_for_revision(&1.current, today))
+      |> Multi.insert(
+        :successor,
+        &successor_changeset(&1.current, new_cost, today, opts[:currency])
+      )
       |> repo().transaction()
 
     case result do
-      {:ok, %{successor: successor}} ->
-        old_cost_str =
-          if info.unit_cost, do: Decimal.to_string(info.unit_cost, :normal), else: nil
-
-        currency_meta =
-          if caller_currency && caller_currency != info.currency,
-            do: %{"old_currency" => info.currency, "new_currency" => new_currency},
-            else: %{}
-
-        ActivityLog.log(%{
-          action: "item_supplier_info.cost_revised",
-          mode: "manual",
-          actor_uuid: opts[:actor_uuid],
-          resource_type: "item_supplier_info",
-          resource_uuid: successor.uuid,
-          metadata:
-            Map.merge(
-              %{
-                "item_uuid" => info.item_uuid,
-                "supplier_uuid" => info.supplier_uuid,
-                "old_cost" => old_cost_str,
-                "new_cost" => Decimal.to_string(new_cost, :normal),
-                "source" => opts[:source],
-                "source_uuid" => opts[:source_uuid]
-              },
-              currency_meta
-            )
-        })
-
+      {:ok, %{current: current, successor: successor}} ->
+        log_revision(current, successor, new_cost, opts)
         PubSub.broadcast(:item_supplier_info, successor.uuid)
         {:ok, successor}
 
       {:error, _op, reason, _changes} ->
         {:error, reason}
     end
+  end
+
+  defp lock_current_row(repo, uuid) do
+    case repo.one(from(i in ItemSupplierInfo, where: i.uuid == ^uuid, lock: "FOR UPDATE")) do
+      %ItemSupplierInfo{valid_to: nil} = current -> {:ok, current}
+      _ -> {:error, :not_current}
+    end
+  end
+
+  defp close_for_revision(current, today) do
+    current
+    |> Ecto.Changeset.change()
+    |> Ecto.Changeset.force_change(:valid_to, today)
+    |> Ecto.Changeset.force_change(:is_primary, false)
+  end
+
+  defp successor_changeset(current, new_cost, today, caller_currency) do
+    new_currency =
+      if caller_currency && caller_currency != current.currency,
+        do: caller_currency,
+        else: current.currency
+
+    attrs = %{
+      item_uuid: current.item_uuid,
+      supplier_uuid: current.supplier_uuid,
+      supplier_source: current.supplier_source,
+      supplier_name_snapshot: current.supplier_name_snapshot,
+      supplier_sku: current.supplier_sku,
+      unit_cost: new_cost,
+      currency: new_currency,
+      lead_time_days: current.lead_time_days,
+      min_order_qty: current.min_order_qty,
+      is_primary: current.is_primary,
+      valid_from: today,
+      valid_to: nil,
+      position: current.position,
+      metadata: SupplierComments.stamp(current.metadata, SupplierComments.thread_uuid(current))
+    }
+
+    ItemSupplierInfo.changeset(%ItemSupplierInfo{}, attrs)
+    |> Ecto.Changeset.unique_constraint(:item_uuid,
+      name: :phoenix_kit_cat_item_supplier_info_primary_uniq,
+      message: "another supplier is already marked primary for this item"
+    )
+  end
+
+  defp log_revision(current, successor, new_cost, opts) do
+    old_cost_str =
+      if current.unit_cost, do: Decimal.to_string(current.unit_cost, :normal), else: nil
+
+    caller_currency = opts[:currency]
+
+    currency_meta =
+      if caller_currency && caller_currency != current.currency,
+        do: %{"old_currency" => current.currency, "new_currency" => successor.currency},
+        else: %{}
+
+    ActivityLog.log(%{
+      action: "item_supplier_info.cost_revised",
+      mode: "manual",
+      actor_uuid: opts[:actor_uuid],
+      resource_type: "item_supplier_info",
+      resource_uuid: successor.uuid,
+      metadata:
+        Map.merge(
+          %{
+            "item_uuid" => current.item_uuid,
+            "supplier_uuid" => current.supplier_uuid,
+            "old_cost" => old_cost_str,
+            "new_cost" => Decimal.to_string(new_cost, :normal),
+            "source" => opts[:source],
+            "source_uuid" => opts[:source_uuid]
+          },
+          currency_meta
+        )
+    })
   end
 end
