@@ -11,6 +11,9 @@ defmodule PhoenixKitCatalogue.Catalogue.SurfaceBroadcastsTest do
   alias PhoenixKitCatalogue.AITranslatable
   alias PhoenixKitCatalogue.Catalogue
   alias PhoenixKitCatalogue.Catalogue.PubSub
+  alias PhoenixKitCatalogue.Import.Pro100TemplateLoader
+  alias PhoenixKitCatalogue.Import.Pro100TemplateParser
+  alias PhoenixKitCatalogue.Import.Pro100TemplatePlan
 
   setup do
     PubSub.subscribe()
@@ -250,6 +253,72 @@ defmodule PhoenixKitCatalogue.Catalogue.SurfaceBroadcastsTest do
                AITranslatable.put_translation(item, "et", %{"name" => "Asi"}, [])
 
       refute_receive {:catalogue_data_changed, _, _, _}
+    end
+  end
+
+  describe "F12 — the PRO100 template loader rolls its fan-out up after commit" do
+    @pro100_xml """
+    <?xml version="1.0"?>
+    <ArrayOfTable>
+      <Table>
+        <Name>Roll-up Table</Name>
+        <TemplateGuid>tbl-rollup</TemplateGuid>
+        <Id>1</Id>
+        <SortOrder>0</SortOrder>
+        <Items>
+          <TableItem>
+            <Name>Sektsioon:</Name>
+            <Price>0.00</Price>
+            <TemplateGuid>g-sec</TemplateGuid>
+            <SortOrder>1</SortOrder>
+          </TableItem>
+          <TableItem>
+            <Name>-CARGO</Name>
+            <Price>24.80</Price>
+            <TemplateGuid>g-cargo</TemplateGuid>
+            <SortOrder>2</SortOrder>
+          </TableItem>
+        </Items>
+      </Table>
+    </ArrayOfTable>
+    """
+
+    defp pro100_plan do
+      {:ok, tables} = Pro100TemplateParser.parse(@pro100_xml)
+
+      Pro100TemplatePlan.build(tables,
+        folder_name: "PRO100 rollup #{System.unique_integer([:positive])}"
+      )
+    end
+
+    test "a dry run says nothing" do
+      assert {:ok, _report} = Pro100TemplateLoader.apply_plan(pro100_plan(), dry_run: true)
+      refute_receive {:catalogue_data_changed, _, _, _}
+    end
+
+    test "a real run emits :folder (created) + one :catalogue roll-up, never the row events" do
+      plan = pro100_plan()
+
+      assert {:ok, %{stats: %{catalogues_created: 1, categories_created: 1, items_created: 1}}} =
+               Pro100TemplateLoader.apply_plan(plan, dry_run: false)
+
+      assert_receive {:catalogue_data_changed, :folder, folder_uuid, nil}
+      assert %{name: _} = Catalogue.get_folder(folder_uuid)
+      assert_receive {:catalogue_data_changed, :catalogue, cat_uuid, parent}
+      assert parent == cat_uuid
+      assert [%{name: "-CARGO"}] = Catalogue.list_items_for_catalogue(cat_uuid)
+
+      refute_receive {:catalogue_data_changed, :category, _, _}
+      refute_receive {:catalogue_data_changed, :item, _, _}
+      refute_receive {:catalogue_data_changed, _, _, _}
+
+      # Second run: folder + catalogue reused — the catalogue still rolls
+      # up (its rows were re-checked), the folder was not created again.
+      assert {:ok, %{stats: %{catalogues_reused: 1}}} =
+               Pro100TemplateLoader.apply_plan(plan, dry_run: false)
+
+      assert_receive {:catalogue_data_changed, :catalogue, ^cat_uuid, ^cat_uuid}
+      refute_receive {:catalogue_data_changed, :folder, _, _}
     end
   end
 

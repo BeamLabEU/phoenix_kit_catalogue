@@ -625,14 +625,17 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
     case result do
       {:ok, catalogue} = ok ->
-        log_activity(%{
-          action: "catalogue.created",
-          mode: "manual",
-          actor_uuid: opts[:actor_uuid],
-          resource_type: "catalogue",
-          resource_uuid: catalogue.uuid,
-          metadata: %{"name" => catalogue.name}
-        })
+        log_activity(
+          %{
+            action: "catalogue.created",
+            mode: "manual",
+            actor_uuid: opts[:actor_uuid],
+            resource_type: "catalogue",
+            resource_uuid: catalogue.uuid,
+            metadata: %{"name" => catalogue.name}
+          },
+          Keyword.take(opts, [:broadcast])
+        )
 
         ok
 
@@ -1346,15 +1349,18 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
     case repo().insert(changeset) do
       {:ok, category} = ok ->
-        log_activity(%{
-          action: "category.created",
-          mode: "manual",
-          actor_uuid: opts[:actor_uuid],
-          resource_type: "category",
-          resource_uuid: category.uuid,
-          parent_catalogue_uuid: category.catalogue_uuid,
-          metadata: %{"name" => category.name, "catalogue_uuid" => category.catalogue_uuid}
-        })
+        log_activity(
+          %{
+            action: "category.created",
+            mode: "manual",
+            actor_uuid: opts[:actor_uuid],
+            resource_type: "category",
+            resource_uuid: category.uuid,
+            parent_catalogue_uuid: category.catalogue_uuid,
+            metadata: %{"name" => category.name, "catalogue_uuid" => category.catalogue_uuid}
+          },
+          Keyword.take(opts, [:broadcast])
+        )
 
         ok
 
@@ -2449,14 +2455,17 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
     case result do
       {:ok, folder} = ok ->
-        log_activity(%{
-          action: "folder.created",
-          mode: "manual",
-          actor_uuid: opts[:actor_uuid],
-          resource_type: "folder",
-          resource_uuid: folder.uuid,
-          metadata: %{"name" => folder.name, "parent_uuid" => folder.parent_uuid}
-        })
+        log_activity(
+          %{
+            action: "folder.created",
+            mode: "manual",
+            actor_uuid: opts[:actor_uuid],
+            resource_type: "folder",
+            resource_uuid: folder.uuid,
+            metadata: %{"name" => folder.name, "parent_uuid" => folder.parent_uuid}
+          },
+          Keyword.take(opts, [:broadcast])
+        )
 
         ok
 
