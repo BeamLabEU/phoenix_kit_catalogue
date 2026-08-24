@@ -142,6 +142,66 @@ defmodule PhoenixKitCatalogue.Catalogue.SurfaceBroadcastsTest do
     end
   end
 
+  describe "F11 — single manufacturer↔supplier link writes broadcast :links like the syncs" do
+    setup do
+      {:ok, m} = Catalogue.create_manufacturer(%{name: "Mfr"})
+      {:ok, s} = Catalogue.create_supplier(%{name: "Sup"})
+      flush()
+      %{m: m, s: s}
+    end
+
+    test "link / unlink", %{m: m, s: s} do
+      assert {:ok, _} = Catalogue.link_manufacturer_supplier(m.uuid, s.uuid)
+      assert_receive {:catalogue_data_changed, :links, uuid, nil}
+      assert uuid == m.uuid
+
+      assert {:ok, _} = Catalogue.unlink_manufacturer_supplier(m.uuid, s.uuid)
+      assert_receive {:catalogue_data_changed, :links, uuid, nil}
+      assert uuid == m.uuid
+
+      # A miss writes nothing and says nothing.
+      assert {:error, :not_found} = Catalogue.unlink_manufacturer_supplier(m.uuid, s.uuid)
+      refute_receive {:catalogue_data_changed, :links, _, _}
+    end
+
+    test "broadcast: false mutes a single link", %{m: m, s: s} do
+      assert {:ok, _} = Catalogue.link_manufacturer_supplier(m.uuid, s.uuid, broadcast: false)
+      refute_receive {:catalogue_data_changed, :links, _, _}
+    end
+
+    test "delete_links_for broadcasts only when a link was actually removed", %{m: m, s: s} do
+      assert {0, nil} = Catalogue.delete_manufacturer_supplier_links_for(s.uuid)
+      refute_receive {:catalogue_data_changed, :links, _, _}
+
+      {:ok, _} = Catalogue.link_manufacturer_supplier(m.uuid, s.uuid, broadcast: false)
+      assert {1, nil} = Catalogue.delete_manufacturer_supplier_links_for(s.uuid)
+      assert_receive {:catalogue_data_changed, :links, uuid, nil}
+      assert uuid == s.uuid
+    end
+
+    test "a sync still emits exactly one :links event (per-link writes stay muted)",
+         %{m: m, s: s} do
+      assert {:ok, :synced} = Catalogue.sync_manufacturer_suppliers(m.uuid, [s.uuid])
+      assert_receive {:catalogue_data_changed, :links, uuid, nil}
+      assert uuid == m.uuid
+      refute_receive {:catalogue_data_changed, :links, _, _}
+    end
+
+    test "deleting a party announces its removed links after the commit", %{m: m, s: s} do
+      {:ok, _} = Catalogue.link_manufacturer_supplier(m.uuid, s.uuid, broadcast: false)
+
+      assert {:ok, _} = Catalogue.delete_supplier(s)
+      assert_receive {:catalogue_data_changed, :supplier, _, nil}
+      assert_receive {:catalogue_data_changed, :links, uuid, nil}
+      assert uuid == s.uuid
+
+      # No links left on the manufacturer — its delete says nothing about links.
+      assert {:ok, _} = Catalogue.delete_manufacturer(m)
+      assert_receive {:catalogue_data_changed, :manufacturer, _, nil}
+      refute_receive {:catalogue_data_changed, :links, _, _}
+    end
+  end
+
   describe "F13 — bulk_trash_categories broadcasts after the outer transaction commits" do
     test "one :category event per trashed category, after commit" do
       cat = catalogue!()

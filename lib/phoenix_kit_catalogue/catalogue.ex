@@ -400,8 +400,13 @@ defmodule PhoenixKitCatalogue.Catalogue do
   defdelegate link_manufacturer_supplier(manufacturer_uuid, supplier_uuid, opts \\ []),
     to: Links
 
-  defdelegate delete_manufacturer_supplier_links_for(uuid), to: Links, as: :delete_links_for
-  defdelegate unlink_manufacturer_supplier(manufacturer_uuid, supplier_uuid), to: Links
+  defdelegate delete_manufacturer_supplier_links_for(uuid, opts \\ []),
+    to: Links,
+    as: :delete_links_for
+
+  defdelegate unlink_manufacturer_supplier(manufacturer_uuid, supplier_uuid, opts \\ []),
+    to: Links
+
   defdelegate list_suppliers_for_manufacturer(manufacturer_uuid), to: Links
   defdelegate list_manufacturers_for_supplier(supplier_uuid), to: Links
   defdelegate linked_supplier_uuids(manufacturer_uuid), to: Links
