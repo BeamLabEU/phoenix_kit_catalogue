@@ -55,6 +55,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   alias PhoenixKitCatalogue.Catalogue
   alias PhoenixKitCatalogue.Catalogue.Helpers
   alias PhoenixKitCatalogue.Catalogue.ItemSupplierInfos
+  alias PhoenixKitCatalogue.Catalogue.PubSub
   alias PhoenixKitCatalogue.Catalogue.Suppliers
   alias PhoenixKitCatalogue.Metadata
   alias PhoenixKitCatalogue.Paths
@@ -142,6 +143,11 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
          |> push_navigate(to: Paths.index())}
 
       {item, changeset, catalogue_uuid} ->
+        # Supplier rows, the files grid and the category options are read
+        # from the DB, not owned by the form — follow other sessions' writes
+        # to them (see the `:catalogue_data_changed` clauses).
+        if connected?(socket), do: PubSub.subscribe()
+
         {:ok,
          socket
          |> assign(:return_to, safe_return_to(params["return_to"]))
@@ -271,6 +277,9 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
       supplier_history_open: false,
       supplier_history_rows: [],
       supplier_history_name: nil,
+      # `{item_uuid, supplier_uuid}` of the open history modal, so a price
+      # revision landing from another session can re-read its rows.
+      supplier_history_pair: nil,
       all_categories: all_categories,
       smart_move_targets: smart_move_targets,
       move_target: nil,
@@ -732,7 +741,8 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
          assign(socket,
            supplier_history_open: true,
            supplier_history_rows: rows,
-           supplier_history_name: name
+           supplier_history_name: name,
+           supplier_history_pair: {info.item_uuid, info.supplier_uuid}
          )}
     end
   end
@@ -766,7 +776,8 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
      assign(socket,
        supplier_history_open: false,
        supplier_history_rows: [],
-       supplier_history_name: nil
+       supplier_history_name: nil,
+       supplier_history_pair: nil
      )}
   end
 
@@ -1081,6 +1092,45 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
     )
     |> assign(:supplier_comment_previews, comment_previews(threads))
     |> sync_comment_subscriptions(threads)
+  end
+
+  # Everything the Suppliers tab derives from the DB: the rows (+ CRM
+  # links, threads, previews, subscriptions), the supplier names, and the
+  # price-history modal if it is open.
+  defp refresh_supplier_state(socket) do
+    socket
+    |> assign(:all_suppliers, Suppliers.list_all())
+    |> assign_supplier_infos(socket.assigns.item.uuid)
+    |> refresh_supplier_history()
+  end
+
+  defp refresh_supplier_history(
+         %{assigns: %{supplier_history_open: true, supplier_history_pair: {item_uuid, sup_uuid}}} =
+           socket
+       ) do
+    assign(
+      socket,
+      :supplier_history_rows,
+      ItemSupplierInfos.history_for_pair(item_uuid, sup_uuid)
+    )
+  end
+
+  defp refresh_supplier_history(socket), do: socket
+
+  # Same source as mount_form/5: the catalogue's categories for an item
+  # that has one, every category otherwise (a `:new` form without scope).
+  defp refresh_category_options(socket) do
+    catalogue_uuid = socket.assigns.catalogue_uuid
+
+    categories =
+      if catalogue_uuid,
+        do: Catalogue.list_categories_for_catalogue(catalogue_uuid),
+        else: Catalogue.list_all_categories()
+
+    all_categories =
+      if socket.assigns.action == :edit, do: Catalogue.list_all_categories(), else: []
+
+    assign(socket, categories: categories, all_categories: all_categories)
   end
 
   # Re-reads the previews against the threads already resolved — a comment
@@ -1635,6 +1685,57 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
 
   def handle_info({:pdf_search_modal_closed}, socket),
     do: {:noreply, assign(socket, :show_pdf_search, false)}
+
+  # ── Catalogue PubSub: writes from other sessions ──────────────────
+  # Only state the form does NOT own is refreshed — the changeset, the
+  # staged attribute sets, the rules picker and the featured-image
+  # pointer are the user's unsaved input and are never touched here.
+
+  # A supplier row of THIS item changed elsewhere (add / edit / remove /
+  # primary flip / price revision — ItemSupplierInfos broadcasts all
+  # five). The payload carries the ROW uuid: resolve it through the
+  # context and match on item_uuid, so other items' rows are ignored.
+  def handle_info(
+        {:catalogue_data_changed, :item_supplier_info, uuid, _parent},
+        %{assigns: %{item: %{uuid: item_uuid}}} = socket
+      )
+      when is_binary(uuid) and is_binary(item_uuid) do
+    case Catalogue.get_supplier_info(uuid) do
+      %{item_uuid: ^item_uuid} -> {:noreply, refresh_supplier_state(socket)}
+      _ -> {:noreply, socket}
+    end
+  end
+
+  # A supplier was renamed / removed: the rows show names from
+  # `all_suppliers`, loaded once at mount.
+  def handle_info({:catalogue_data_changed, :supplier, _uuid, _parent}, socket) do
+    {:noreply, assign(socket, :all_suppliers, Suppliers.list_all())}
+  end
+
+  # This item changed elsewhere. What the form does not own and reads
+  # from the DB is the files grid (an upload / removal in another tab —
+  # Attachments announces the item); the item's own fields stay as the
+  # user typed them.
+  def handle_info(
+        {:catalogue_data_changed, :item, uuid, _parent},
+        %{assigns: %{item: %{uuid: item_uuid}}} = socket
+      )
+      when is_binary(uuid) and uuid == item_uuid do
+    {:noreply, Attachments.refresh_files(socket)}
+  end
+
+  # A category came or went in this catalogue: refresh the select options
+  # (the chosen value lives in the changeset and is left alone).
+  def handle_info(
+        {:catalogue_data_changed, :category, _uuid, parent},
+        %{assigns: %{catalogue_uuid: catalogue_uuid}} = socket
+      )
+      when is_nil(catalogue_uuid) or parent == catalogue_uuid or is_nil(parent) do
+    {:noreply, refresh_category_options(socket)}
+  end
+
+  def handle_info({:catalogue_data_changed, _kind, _uuid, _parent}, socket),
+    do: {:noreply, socket}
 
   # Catch-all so stray monitor signals or unrelated PubSub traffic
   # can't crash the form mid-edit.

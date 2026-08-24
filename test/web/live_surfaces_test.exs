@@ -356,6 +356,138 @@ defmodule PhoenixKitCatalogue.Web.LiveSurfacesTest do
     end
   end
 
+  describe "F10 — the item form follows supplier-row writes from other sessions" do
+    setup do
+      cat = fixture_catalogue()
+      item = fixture_item(%{name: "Sourced", catalogue_uuid: cat.uuid})
+      supplier = fixture_supplier(%{name: "Acme Metals"})
+      %{catalogue: cat, item: item, supplier: supplier}
+    end
+
+    defp supplier_info!(item, supplier, extra \\ %{}) do
+      {:ok, info} =
+        Catalogue.create_supplier_info(
+          Map.merge(
+            %{
+              "item_uuid" => item.uuid,
+              "supplier_uuid" => supplier.uuid,
+              "supplier_source" => "local",
+              "supplier_name_snapshot" => supplier.name,
+              "unit_cost" => "10.00"
+            },
+            extra
+          )
+        )
+
+      info
+    end
+
+    defp supplier_row_uuids(view), do: Enum.map(assigns(view).supplier_infos, & &1.uuid)
+
+    test "a row added elsewhere appears with its name and the tab badge",
+         %{conn: conn, item: item, supplier: supplier} do
+      {:ok, view, _html} = live(conn, "#{@base}/items/#{item.uuid}/edit?tab=sourcing")
+      assert supplier_row_uuids(view) == []
+
+      info = supplier_info!(item, supplier)
+      html = render(view)
+
+      assert supplier_row_uuids(view) == [info.uuid]
+      assert html =~ "Acme Metals"
+    end
+
+    test "another item's rows are ignored", %{conn: conn, item: item, supplier: supplier} do
+      other = fixture_item(%{name: "Other", catalogue_uuid: item.catalogue_uuid})
+      {:ok, view, _html} = live(conn, "#{@base}/items/#{item.uuid}/edit")
+
+      _ = supplier_info!(other, supplier)
+      _ = render(view)
+
+      assert supplier_row_uuids(view) == []
+    end
+
+    test "a primary flip and a removal elsewhere are reflected",
+         %{conn: conn, item: item, supplier: supplier} do
+      second = fixture_supplier(%{name: "Beta Parts"})
+      first_info = supplier_info!(item, supplier)
+      second_info = supplier_info!(item, second)
+      {:ok, view, _html} = live(conn, "#{@base}/items/#{item.uuid}/edit")
+
+      {:ok, _} = Catalogue.set_primary_supplier_info(second_info)
+      _ = render(view)
+      primary = Enum.find(assigns(view).supplier_infos, & &1.is_primary)
+      assert primary.uuid == second_info.uuid
+
+      {:ok, _} = Catalogue.delete_supplier_info(first_info)
+      _ = render(view)
+      assert supplier_row_uuids(view) == [second_info.uuid]
+    end
+
+    test "an open price-history modal picks up a revision made elsewhere",
+         %{conn: conn, item: item, supplier: supplier} do
+      info = supplier_info!(item, supplier)
+      {:ok, view, _html} = live(conn, "#{@base}/items/#{item.uuid}/edit")
+
+      render_click(view, "open_supplier_history", %{"uuid" => info.uuid})
+      assert length(assigns(view).supplier_history_rows) == 1
+
+      {:ok, _} = Catalogue.revise_supplier_info_cost(info, Decimal.new("12.50"))
+      _ = render(view)
+      assert length(assigns(view).supplier_history_rows) == 2
+
+      render_click(view, "close_supplier_history", %{})
+      assert assigns(view).supplier_history_pair == nil
+    end
+
+    test "a supplier renamed elsewhere shows its new name",
+         %{conn: conn, item: item, supplier: supplier} do
+      _ = supplier_info!(item, supplier)
+      {:ok, view, _html} = live(conn, "#{@base}/items/#{item.uuid}/edit")
+      assert render(view) =~ "Acme Metals"
+
+      {:ok, _} = Catalogue.update_supplier(supplier, %{name: "Acme Alloys"})
+      assert render(view) =~ "Acme Alloys"
+    end
+  end
+
+  describe "F10 — the item form follows its item / categories without clobbering input" do
+    test "a file attached elsewhere shows in the grid; typed input survives",
+         %{conn: conn, scope: scope} do
+      folder = folder!("catalogue-item-f10")
+      cat = fixture_catalogue()
+
+      item =
+        fixture_item(%{
+          name: "Original",
+          catalogue_uuid: cat.uuid,
+          data: %{"files_folder_uuid" => folder.uuid}
+        })
+
+      {:ok, view, _html} = live(conn, "#{@base}/items/#{item.uuid}/edit")
+      render_change(view, "validate", %{"item" => %{"name" => "Typed but unsaved"}})
+
+      file_uuid = insert_document!(folder.uuid, scope)
+      PubSub.broadcast(:item, item.uuid, cat.uuid)
+      _ = render(view)
+
+      assert file_uuid in files_state_uuids(view)
+      assert Ecto.Changeset.get_change(assigns(view).changeset, :name) == "Typed but unsaved"
+      assert Catalogue.get_item(item.uuid).name == "Original"
+    end
+
+    test "a category added elsewhere becomes selectable", %{conn: conn} do
+      cat = fixture_catalogue()
+      item = fixture_item(%{name: "Cat aware", catalogue_uuid: cat.uuid})
+      {:ok, view, _html} = live(conn, "#{@base}/items/#{item.uuid}/edit")
+      assert assigns(view).categories == []
+
+      sec = fixture_category(cat, %{name: "Late Section"})
+      _ = render(view)
+
+      assert Enum.map(assigns(view).categories, & &1.uuid) == [sec.uuid]
+    end
+  end
+
   describe "F6 — the attribute-group editor follows child writes from other processes" do
     setup do
       {:ok, group} = Catalogue.create_attribute_group(%{name: "Idea doors"})

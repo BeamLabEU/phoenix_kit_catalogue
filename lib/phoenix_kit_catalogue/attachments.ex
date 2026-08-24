@@ -379,6 +379,13 @@ defmodule PhoenixKitCatalogue.Attachments do
     {:noreply, close_media_selector(socket)}
   end
 
+  @doc """
+  Re-reads the resource's folder into the files grid. For hosts that hear
+  over PubSub that the resource changed in another session (an upload or
+  removal there) — the form's own pointers (featured image) are untouched.
+  """
+  def refresh_files(socket), do: refresh_files_from_folder(socket)
+
   # ── Upload progress (captured via &handle_progress/3) ────────────
 
   @doc false
