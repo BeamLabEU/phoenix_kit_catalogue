@@ -161,6 +161,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         trash_modal: nil,
         bulk_move_modal: nil,
         bulk_move_categories_modal: nil,
+        bulk_duplicate_modal: nil,
         bulk_confirm: nil,
         selected_items: MapSet.new(),
         attribute_map: %{},
@@ -982,6 +983,25 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     {:noreply, assign(socket, :bulk_move_categories_modal, nil)}
   end
 
+  # ── Bulk duplicate (items and categories share one confirm modal) ──
+  def handle_event("request_bulk_duplicate_items", params, socket),
+    do: {:noreply, open_bulk_duplicate_modal(socket, :items, sanitize_uuids(params))}
+
+  def handle_event("request_bulk_duplicate_categories", params, socket),
+    do: {:noreply, open_bulk_duplicate_modal(socket, :categories, sanitize_uuids(params))}
+
+  def handle_event("confirm_bulk_duplicate", _params, socket) do
+    case socket.assigns.bulk_duplicate_modal do
+      %{kind: :items, uuids: uuids} -> do_bulk_duplicate_items(socket, uuids)
+      %{kind: :categories, uuids: uuids} -> do_bulk_duplicate_categories(socket, uuids)
+      _ -> {:noreply, socket}
+    end
+  end
+
+  def handle_event("cancel_bulk_duplicate", _params, socket) do
+    {:noreply, assign(socket, :bulk_duplicate_modal, nil)}
+  end
+
   def handle_event("confirm_bulk_action", _params, socket) do
     case socket.assigns.bulk_confirm do
       %{kind: :items, mode: :trash, uuids: uuids} ->
@@ -1422,8 +1442,10 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   defp resolve_bulk_uuids(%{"uuids" => _} = params, _socket), do: sanitize_uuids(params)
   defp resolve_bulk_uuids(_params, socket), do: MapSet.to_list(socket.assigns.selected_items)
 
+  # Client-captured uuids: anything that is not a uuid is dropped here,
+  # before it can reach a `Repo.get` and raise a query cast error.
   defp sanitize_uuids(%{"uuids" => uuids}) when is_list(uuids),
-    do: Enum.filter(uuids, &is_binary/1)
+    do: Enum.filter(uuids, &(is_binary(&1) and match?({:ok, _}, Ecto.UUID.cast(&1))))
 
   defp sanitize_uuids(_), do: []
 
@@ -1648,6 +1670,77 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       else: {:noreply, socket}
   end
 
+  defp open_bulk_duplicate_modal(socket, _kind, []), do: socket
+
+  defp open_bulk_duplicate_modal(socket, kind, uuids) do
+    assign(socket, :bulk_duplicate_modal, %{kind: kind, count: length(uuids), uuids: uuids})
+  end
+
+  defp do_bulk_duplicate_items(socket, uuids) do
+    {:ok, %{created: created, errors: errors}} =
+      Catalogue.bulk_duplicate_items(uuids, muted_actor_opts(socket))
+
+    if created > 0, do: broadcast_item_batch(socket)
+
+    socket
+    |> assign(:bulk_duplicate_modal, nil)
+    |> clear_item_selection()
+    |> flash_duplicated(
+      created,
+      Gettext.gettext(PhoenixKitCatalogue.Gettext, "Duplicated %{count} items.", count: created)
+    )
+    |> flash_duplicate_errors(
+      errors,
+      "bulk_duplicate_items",
+      Gettext.gettext(
+        PhoenixKitCatalogue.Gettext,
+        "%{count} items could not be duplicated.",
+        count: length(errors)
+      )
+    )
+    |> reset_and_load()
+    |> then(&{:noreply, &1})
+  end
+
+  defp do_bulk_duplicate_categories(socket, uuids) do
+    {:ok, %{created: created, errors: errors}} =
+      Catalogue.bulk_duplicate_categories(uuids, actor_opts(socket))
+
+    socket
+    |> assign(:bulk_duplicate_modal, nil)
+    |> assign(:selected_categories, MapSet.new())
+    |> push_event("bulk_select:clear", %{})
+    |> flash_duplicated(
+      created,
+      Gettext.gettext(
+        PhoenixKitCatalogue.Gettext,
+        "Duplicated %{count} categories.",
+        count: created
+      )
+    )
+    |> flash_duplicate_errors(
+      errors,
+      "bulk_duplicate_categories",
+      Gettext.gettext(
+        PhoenixKitCatalogue.Gettext,
+        "%{count} categories could not be duplicated.",
+        count: length(errors)
+      )
+    )
+    |> reset_and_load()
+    |> then(&{:noreply, &1})
+  end
+
+  defp flash_duplicated(socket, 0, _msg), do: socket
+  defp flash_duplicated(socket, _n, msg), do: put_flash(socket, :info, msg)
+
+  defp flash_duplicate_errors(socket, [], _op, _msg), do: socket
+
+  defp flash_duplicate_errors(socket, errors, op, msg) do
+    log_operation_error(socket, op, %{reason: :partial_failure, errors: errors})
+    put_flash(socket, :error, msg)
+  end
+
   # Same-catalogue active categories that every selected category may go
   # under: the intersection of each one's own target list (which excludes
   # its subtree). Unknown uuids contribute nothing and drop out.
@@ -1695,7 +1788,10 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
     socket =
       if errors != [] do
-        log_operation_error(socket, "bulk_move_categories_under", %{errors: errors})
+        log_operation_error(socket, "bulk_move_categories_under", %{
+          reason: :partial_failure,
+          errors: errors
+        })
 
         put_flash(
           socket,
@@ -2859,6 +2955,16 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                     <.icon name="hero-arrows-right-left" class="w-4 h-4" />
                     {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Move")}
                   </button>
+                  <button
+                    type="button"
+                    class="btn btn-sm btn-ghost"
+                    data-bulk-action="request_bulk_duplicate_categories"
+                    data-bulk-show="has-selection"
+                    style="display: none;"
+                  >
+                    <.icon name="hero-document-duplicate" class="w-4 h-4" />
+                    {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Duplicate")}
+                  </button>
                 </:leading>
               </.bulk_actions_toolbar>
             </div>
@@ -3374,6 +3480,35 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
             </div>
           </label>
         </div>
+      </.confirm_modal>
+
+      <.confirm_modal
+        :if={@bulk_duplicate_modal}
+        show={true}
+        on_confirm="confirm_bulk_duplicate"
+        on_cancel="cancel_bulk_duplicate"
+        title={
+          if @bulk_duplicate_modal.kind == :items,
+            do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Duplicate selected items"),
+            else: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Duplicate selected categories")
+        }
+        title_icon="hero-document-duplicate"
+        confirm_text={
+          if @bulk_duplicate_modal.kind == :items,
+            do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Duplicate items"),
+            else: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Duplicate categories")
+        }
+      >
+        <p class="text-sm text-base-content/70">
+          <%= if @bulk_duplicate_modal.kind == :items do %>
+            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "%{count} items will be copied with their files, attribute sets, supplier rows and catalogue rules. Comments are not copied.", count: @bulk_duplicate_modal.count)}
+          <% else %>
+            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "%{count} categories will be copied with their subcategories and items.", count: @bulk_duplicate_modal.count)}
+          <% end %>
+        </p>
+        <p class="text-sm text-base-content/70 mt-2">
+          {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Each copy is named after its original with \"(copy)\" added and placed right after it.")}
+        </p>
       </.confirm_modal>
 
       <.live_component
@@ -3932,6 +4067,16 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
             >
               <.icon name="hero-arrows-right-left" class="w-4 h-4" />
               {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Move")}
+            </button>
+            <button
+              type="button"
+              class="btn btn-sm btn-ghost"
+              data-bulk-action="request_bulk_duplicate_items"
+              data-bulk-show="has-selection"
+              style="display: none;"
+            >
+              <.icon name="hero-document-duplicate" class="w-4 h-4" />
+              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Duplicate")}
             </button>
           </:leading>
           </.bulk_actions_toolbar>

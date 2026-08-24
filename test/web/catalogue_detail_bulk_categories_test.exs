@@ -173,6 +173,16 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailBulkCategoriesTest do
       assert assigns(view).bulk_move_categories_modal
     end
 
+    test "a forged uuid in the selection never reaches the targets lookup",
+         %{conn: conn, catalogue: cat, a: a} do
+      {:ok, view, _html} = live(conn, "#{@base}/#{cat.uuid}")
+
+      render_click(view, "request_bulk_move_categories", %{"uuids" => [a.uuid, "not-a-uuid"]})
+
+      assert Process.alive?(view.pid)
+      assert assigns(view).bulk_move_categories_modal.uuids == [a.uuid]
+    end
+
     test "the batch move broadcasts one :category event per catalogue, after the loop",
          %{catalogue: cat, a: a, b: b, c: c} do
       CataloguePubSub.subscribe()

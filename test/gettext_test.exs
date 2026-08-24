@@ -43,6 +43,19 @@ defmodule PhoenixKitCatalogue.GettextTest do
              "Ainult selle tarnija kohta selle toote juures. Ettevõtte enda kommentaarid jäävad tema CRM-i lehele."
   end
 
+  test "the duplicate strings are translated (pin for the 2026-08-24 Duplicate action)" do
+    Gettext.put_locale(PhoenixKitCatalogue.Gettext, "ru")
+    assert Gettext.gettext(PhoenixKitCatalogue.Gettext, "Duplicate") == "Дублировать"
+
+    assert Gettext.gettext(PhoenixKitCatalogue.Gettext, "%{name} (copy)", name: "Труба") ==
+             "Труба (копия)"
+
+    Gettext.put_locale(PhoenixKitCatalogue.Gettext, "et")
+
+    assert Gettext.gettext(PhoenixKitCatalogue.Gettext, "Duplicate categories") ==
+             "Dubleeri kategooriad"
+  end
+
   test "the category bulk-move strings are translated (pin for the 2026-08-24 toolkit change)" do
     Gettext.put_locale(PhoenixKitCatalogue.Gettext, "ru")
 

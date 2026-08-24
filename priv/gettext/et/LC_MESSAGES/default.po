@@ -2808,3 +2808,42 @@ msgstr "%{count} kategooriat ei õnnestunud liigutada."
 
 msgid "Select all categories"
 msgstr "Vali kõik kategooriad"
+
+msgid "Duplicate"
+msgstr "Dubleeri"
+
+msgid "Duplicate selected items"
+msgstr "Dubleeri valitud tooted"
+
+msgid "Duplicate selected categories"
+msgstr "Dubleeri valitud kategooriad"
+
+msgid "Duplicate items"
+msgstr "Dubleeri tooted"
+
+msgid "Duplicate categories"
+msgstr "Dubleeri kategooriad"
+
+msgid "%{count} items will be copied with their files, attribute sets, supplier rows and catalogue rules. Comments are not copied."
+msgstr "%{count} toodet kopeeritakse koos failide, atribuudikomplektide, tarnijaridade ja kataloogireeglitega. Kommentaare ei kopeerita."
+
+msgid "%{count} categories will be copied with their subcategories and items."
+msgstr "%{count} kategooriat kopeeritakse koos alamkategooriate ja toodetega."
+
+msgid "Each copy is named after its original with \"(copy)\" added and placed right after it."
+msgstr "Iga koopia saab originaali nime lisandiga „(koopia)“ ja paigutatakse kohe selle järele."
+
+msgid "Duplicated %{count} items."
+msgstr "Dubleeritud %{count} toodet."
+
+msgid "Duplicated %{count} categories."
+msgstr "Dubleeritud %{count} kategooriat."
+
+msgid "%{count} items could not be duplicated."
+msgstr "%{count} toodet ei õnnestunud dubleerida."
+
+msgid "%{count} categories could not be duplicated."
+msgstr "%{count} kategooriat ei õnnestunud dubleerida."
+
+msgid "%{name} (copy)"
+msgstr "%{name} (koopia)"

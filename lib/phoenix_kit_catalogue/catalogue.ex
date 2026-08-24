@@ -52,6 +52,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
     AttributeSets,
     Counts,
     CrmLink,
+    Duplication,
     Helpers,
     ItemSupplierInfos,
     Links,
@@ -362,6 +363,12 @@ defmodule PhoenixKitCatalogue.Catalogue do
   # ═══════════════════════════════════════════════════════════════════
   # Item ↔ Supplier info — see PhoenixKitCatalogue.Catalogue.ItemSupplierInfos
   # ═══════════════════════════════════════════════════════════════════
+
+  # ── Duplication (see `Catalogue.Duplication`) ────────────────────
+  defdelegate duplicate_item(item, opts \\ []), to: Duplication
+  defdelegate duplicate_category(category, opts \\ []), to: Duplication
+  defdelegate bulk_duplicate_items(uuids, opts \\ []), to: Duplication
+  defdelegate bulk_duplicate_categories(uuids, opts \\ []), to: Duplication
 
   defdelegate list_supplier_infos_for_item(item_uuid), to: ItemSupplierInfos, as: :list_for_item
   defdelegate get_supplier_info(uuid), to: ItemSupplierInfos, as: :get

@@ -2813,3 +2813,42 @@ msgstr ""
 
 msgid "Select all categories"
 msgstr ""
+
+msgid "Duplicate"
+msgstr ""
+
+msgid "Duplicate selected items"
+msgstr ""
+
+msgid "Duplicate selected categories"
+msgstr ""
+
+msgid "Duplicate items"
+msgstr ""
+
+msgid "Duplicate categories"
+msgstr ""
+
+msgid "%{count} items will be copied with their files, attribute sets, supplier rows and catalogue rules. Comments are not copied."
+msgstr ""
+
+msgid "%{count} categories will be copied with their subcategories and items."
+msgstr ""
+
+msgid "Each copy is named after its original with \"(copy)\" added and placed right after it."
+msgstr ""
+
+msgid "Duplicated %{count} items."
+msgstr ""
+
+msgid "Duplicated %{count} categories."
+msgstr ""
+
+msgid "%{count} items could not be duplicated."
+msgstr ""
+
+msgid "%{count} categories could not be duplicated."
+msgstr ""
+
+msgid "%{name} (copy)"
+msgstr ""
