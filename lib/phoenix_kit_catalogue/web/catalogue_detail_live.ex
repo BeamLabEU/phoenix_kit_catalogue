@@ -3131,9 +3131,9 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                   {Gettext.gettext(PhoenixKitCatalogue.Gettext, "No other categories available — use Uncategorized instead.")}
                 </p>
               <% else %>
-                <select
+                <form phx-change="select_trash_target">
+                  <select
                   name="category_uuid"
-                  phx-change="select_trash_target"
                   disabled={@trash_modal[:disposition] != :move_to}
                   class="select select-sm w-full"
                 >
@@ -3144,6 +3144,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                     </option>
                   <% end %>
                 </select>
+                  </form>
               <% end %>
             </div>
           </label>
@@ -3275,9 +3276,9 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                   {Gettext.gettext(PhoenixKitCatalogue.Gettext, "No categories available — use Uncategorized instead.")}
                 </p>
               <% else %>
-                <select
+                <form phx-change="select_bulk_move_target">
+                  <select
                   name="category_uuid"
-                  phx-change="select_bulk_move_target"
                   disabled={@bulk_move_modal[:disposition] != :move_to}
                   class="select select-sm w-full mt-2"
                 >
@@ -3288,6 +3289,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                     </option>
                   <% end %>
                 </select>
+                  </form>
               <% end %>
             </div>
           </label>
@@ -3354,9 +3356,9 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                   {Gettext.gettext(PhoenixKitCatalogue.Gettext, "No category can take them — only the top level is left.")}
                 </p>
               <% else %>
-                <select
+                <form phx-change="select_bulk_move_categories_target">
+                  <select
                   name="category_uuid"
-                  phx-change="select_bulk_move_categories_target"
                   disabled={@bulk_move_categories_modal[:disposition] != :move_under}
                   class="select select-sm w-full mt-2"
                 >
@@ -3367,6 +3369,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                     </option>
                   <% end %>
                 </select>
+                  </form>
               <% end %>
             </div>
           </label>

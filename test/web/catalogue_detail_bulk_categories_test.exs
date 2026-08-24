@@ -130,7 +130,13 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailBulkCategoriesTest do
 
       render_click(view, "request_bulk_move_categories", %{"uuids" => [a.uuid, b.uuid]})
       render_click(view, "set_bulk_move_categories_disposition", %{"disposition" => "move_under"})
-      render_click(view, "select_bulk_move_categories_target", %{"category_uuid" => c.uuid})
+      # Through the real form: a bare <select phx-change> throws in LiveView JS
+      # ("form events require the input to be inside a form") and never
+      # reaches the server — found on the box, so drive the DOM here.
+      view
+      |> element("form[phx-change=select_bulk_move_categories_target]")
+      |> render_change(%{"category_uuid" => c.uuid})
+
       html = render_click(view, "confirm_bulk_move_categories", %{})
 
       assert html =~ "Moved 2 categories."
