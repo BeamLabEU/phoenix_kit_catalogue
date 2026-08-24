@@ -466,12 +466,17 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
   # Tail of the cross-tab bulk animation — applies the actual state
   # refresh and the arriving-side green flash (for moves / restores).
+  # `reset_and_load/1` already loads the level (no second `refresh_counts`);
+  # an active search is re-run too, since the batch `:item` event that
+  # would have done it was held back by `bulk_change_pending`. The
+  # catalogue may have been deleted during the flash delay — same bounce
+  # as a plain refresh.
   def handle_info({:bulk_change_apply, kind, uuids}, socket) do
     socket =
       socket
       |> assign(:bulk_change_pending, false)
       |> reset_and_load()
-      |> refresh_counts()
+      |> rerun_active_search()
 
     socket =
       if kind in [:restored, :moved],
@@ -479,6 +484,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         else: socket
 
     {:noreply, socket}
+  rescue
+    Ecto.NoResultsError -> {:noreply, catalogue_gone(socket)}
   end
 
   def handle_info(msg, socket) do
@@ -495,15 +502,17 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   defp handle_catalogue_data_changed(socket) do
     {:noreply, refresh_in_place(socket)}
   rescue
-    Ecto.NoResultsError ->
-      # The catalogue we're viewing was deleted in another session.
-      {:noreply,
-       socket
-       |> put_flash(
-         :info,
-         Gettext.gettext(PhoenixKitCatalogue.Gettext, "This catalogue was just deleted.")
-       )
-       |> push_navigate(to: Paths.index())}
+    Ecto.NoResultsError -> {:noreply, catalogue_gone(socket)}
+  end
+
+  # The catalogue we're viewing was deleted in another session.
+  defp catalogue_gone(socket) do
+    socket
+    |> put_flash(
+      :info,
+      Gettext.gettext(PhoenixKitCatalogue.Gettext, "This catalogue was just deleted.")
+    )
+    |> push_navigate(to: Paths.index())
   end
 
   # ── Event handlers ──────────────────────────────────────────────
@@ -2004,8 +2013,10 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   # the level, so the search is re-run too (async; `handle_async(:search)`
   # swaps the results in and re-derives their indicators).
   defp refresh_in_place(socket) do
-    socket = refresh_counts(socket)
+    socket |> refresh_counts() |> rerun_active_search()
+  end
 
+  defp rerun_active_search(socket) do
     if socket.assigns.search_query != "",
       do: run_search(socket, socket.assigns.search_query),
       else: socket

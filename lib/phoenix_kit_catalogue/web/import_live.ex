@@ -394,6 +394,12 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
     {:noreply, assign(socket, step: :map, import_plan: nil)}
   end
 
+  # One import at a time: a double-click or a re-sent event while the task
+  # runs would start a second task, overwrite the tracked monitor, and
+  # have both results accepted.
+  def handle_event("execute_import", _params, %{assigns: %{import_task: {_, _}}} = socket),
+    do: {:noreply, socket}
+
   def handle_event("execute_import", _params, socket) do
     catalogue_uuid = socket.assigns.selected_catalogue.uuid
     import_lang = if socket.assigns.multilang_enabled, do: socket.assigns.current_lang, else: nil
@@ -439,6 +445,9 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
 
     {:noreply,
      socket
+     # A monitor still held here (the button pressed while a task was
+     # running) would deliver a stray :DOWN into the fresh wizard.
+     |> stop_import_monitor()
      |> assign(
        step: :upload,
        headers: [],

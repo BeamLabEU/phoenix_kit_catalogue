@@ -374,21 +374,7 @@ defmodule PhoenixKitCatalogue.Web.AttributeGroupFormLive do
         {:catalogue_data_changed, :attribute_group, uuid, _parent},
         %{assigns: %{action: :edit, group: %{uuid: uuid}}} = socket
       ) do
-    case Catalogue.get_attribute_group_full(uuid) do
-      nil ->
-        {:noreply,
-         socket
-         |> put_flash(
-           :error,
-           Gettext.gettext(PhoenixKitCatalogue.Gettext, "Attribute group not found.")
-         )
-         |> push_navigate(
-           to: safe_return_to(socket.assigns.return_to) || Paths.attribute_groups()
-         )}
-
-      _group ->
-        {:noreply, reload_group(socket)}
-    end
+    {:noreply, reload_group(socket)}
   end
 
   # Catch-all so stray PubSub traffic can't crash the editor mid-session.
@@ -556,9 +542,26 @@ defmodule PhoenixKitCatalogue.Web.AttributeGroupFormLive do
 
   defp draft_gen(draft_generation, key), do: Map.get(draft_generation, key, 0)
 
+  # Every re-read goes through here, so a group deleted in another session
+  # between two reads (the delete broadcast, then any event that reloads)
+  # bounces to the list instead of dereferencing nil.
   defp reload_group(socket, opts \\ []) do
-    group = Catalogue.get_attribute_group_full(socket.assigns.group.uuid)
+    case Catalogue.get_attribute_group_full(socket.assigns.group.uuid) do
+      nil -> group_gone(socket)
+      group -> assign_reloaded_group(socket, group, opts)
+    end
+  end
 
+  defp group_gone(socket) do
+    socket
+    |> put_flash(
+      :error,
+      Gettext.gettext(PhoenixKitCatalogue.Gettext, "Attribute group not found.")
+    )
+    |> push_navigate(to: safe_return_to(socket.assigns.return_to) || Paths.attribute_groups())
+  end
+
+  defp assign_reloaded_group(socket, group, opts) do
     socket =
       socket
       |> assign(:group, group)
