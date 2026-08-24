@@ -160,6 +160,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         confirm_delete: nil,
         trash_modal: nil,
         bulk_move_modal: nil,
+        bulk_move_categories_modal: nil,
         bulk_confirm: nil,
         selected_items: MapSet.new(),
         attribute_map: %{},
@@ -921,6 +922,66 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     {:noreply, assign(socket, :bulk_move_modal, nil)}
   end
 
+  # ── Bulk move categories (re-parent / promote to top level) ──────
+  # The selection arrives with the action (core BulkSelectScope). Targets
+  # are the catalogue's active categories minus every selected category's
+  # own subtree — a category cannot go under itself or a descendant — so
+  # the picker never offers a cycle; the context re-checks under a lock.
+  def handle_event("request_bulk_move_categories", params, socket) do
+    uuids = sanitize_uuids(params)
+
+    if uuids == [] do
+      {:noreply, socket}
+    else
+      {:noreply,
+       assign(socket, :bulk_move_categories_modal, %{
+         count: length(uuids),
+         uuids: uuids,
+         targets: localize_targets(category_move_targets(uuids), loc(socket)),
+         disposition: :top_level,
+         target_uuid: nil
+       })}
+    end
+  end
+
+  def handle_event("set_bulk_move_categories_disposition", %{"disposition" => disp}, socket) do
+    modal = socket.assigns.bulk_move_categories_modal || %{}
+
+    new_modal =
+      case disp do
+        "top_level" -> %{modal | disposition: :top_level, target_uuid: nil}
+        "move_under" -> %{modal | disposition: :move_under}
+        _ -> modal
+      end
+
+    {:noreply, assign(socket, :bulk_move_categories_modal, new_modal)}
+  end
+
+  def handle_event("select_bulk_move_categories_target", %{"category_uuid" => uuid}, socket) do
+    modal = socket.assigns.bulk_move_categories_modal || %{}
+
+    {:noreply,
+     assign(socket, :bulk_move_categories_modal, %{modal | target_uuid: Values.blank_to_nil(uuid)})}
+  end
+
+  def handle_event("confirm_bulk_move_categories", _params, socket) do
+    case socket.assigns.bulk_move_categories_modal do
+      %{disposition: :top_level, uuids: uuids} ->
+        do_bulk_move_categories(socket, uuids, nil)
+
+      %{disposition: :move_under, target_uuid: target, uuids: uuids, targets: targets}
+      when is_binary(target) ->
+        confirm_bulk_move_categories_under(socket, uuids, target, targets)
+
+      _ ->
+        {:noreply, socket}
+    end
+  end
+
+  def handle_event("cancel_bulk_move_categories", _params, socket) do
+    {:noreply, assign(socket, :bulk_move_categories_modal, nil)}
+  end
+
   def handle_event("confirm_bulk_action", _params, socket) do
     case socket.assigns.bulk_confirm do
       %{kind: :items, mode: :trash, uuids: uuids} ->
@@ -1577,6 +1638,79 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
            )
          )}
     end
+  end
+
+  # The target must be one the picker offered: a forged uuid from inside
+  # the selection would be a cycle, from elsewhere a scope leak.
+  defp confirm_bulk_move_categories_under(socket, uuids, target, targets) do
+    if Enum.any?(targets, fn {cat, _} -> cat.uuid == target end),
+      do: do_bulk_move_categories(socket, uuids, target),
+      else: {:noreply, socket}
+  end
+
+  # Same-catalogue active categories that every selected category may go
+  # under: the intersection of each one's own target list (which excludes
+  # its subtree). Unknown uuids contribute nothing and drop out.
+  defp category_move_targets(uuids) do
+    uuids
+    |> Enum.map(&Catalogue.get_category/1)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.map(&Catalogue.list_move_target_categories/1)
+    |> case do
+      [] ->
+        []
+
+      [first | rest] ->
+        allowed =
+          Enum.reduce(rest, MapSet.new(first, fn {c, _} -> c.uuid end), fn list, acc ->
+            MapSet.intersection(acc, MapSet.new(list, fn {c, _} -> c.uuid end))
+          end)
+
+        Enum.filter(first, fn {c, _} -> MapSet.member?(allowed, c.uuid) end)
+    end
+  end
+
+  defp do_bulk_move_categories(socket, uuids, target_uuid) do
+    {:ok, %{moved: moved, errors: errors}} =
+      Catalogue.bulk_move_categories_under(uuids, target_uuid, actor_opts(socket))
+
+    socket =
+      socket
+      |> assign(:bulk_move_categories_modal, nil)
+      |> assign(:selected_categories, MapSet.new())
+      |> push_event("bulk_select:clear", %{})
+      |> reset_and_load()
+
+    socket =
+      if moved > 0,
+        do:
+          put_flash(
+            socket,
+            :info,
+            Gettext.gettext(PhoenixKitCatalogue.Gettext, "Moved %{count} categories.",
+              count: moved
+            )
+          ),
+        else: socket
+
+    socket =
+      if errors != [] do
+        log_operation_error(socket, "bulk_move_categories_under", %{errors: errors})
+
+        put_flash(
+          socket,
+          :error,
+          Gettext.gettext(
+            PhoenixKitCatalogue.Gettext,
+            "%{count} categories could not be moved.",
+            count: length(errors)
+          )
+        )
+      else
+        socket
+      end
+
+    {:noreply, socket}
   end
 
   defp do_bulk_trash_categories(socket) do
@@ -2710,7 +2844,23 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                 on_bulk_delete="request_bulk_delete_categories"
                 noun_singular={Gettext.gettext(PhoenixKitCatalogue.Gettext, "category")}
                 noun_plural={Gettext.gettext(PhoenixKitCatalogue.Gettext, "categories")}
-              />
+              >
+                <:leading>
+                  <%!-- Categories nest: Move re-parents the selection (or
+                       promotes it to the top level). Same client-side button
+                       shape as the item list's Move. --%>
+                  <button
+                    type="button"
+                    class="btn btn-sm btn-ghost"
+                    data-bulk-action="request_bulk_move_categories"
+                    data-bulk-show="has-selection"
+                    style="display: none;"
+                  >
+                    <.icon name="hero-arrows-right-left" class="w-4 h-4" />
+                    {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Move")}
+                  </button>
+                </:leading>
+              </.bulk_actions_toolbar>
             </div>
 
           <div
@@ -3134,6 +3284,85 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                   <option value="">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "-- Select category --")}</option>
                   <%= for {cat, depth} <- @bulk_move_modal[:targets] do %>
                     <option value={cat.uuid} selected={@bulk_move_modal[:target_uuid] == cat.uuid}>
+                      {String.duplicate("— ", depth)}{cat.name}
+                    </option>
+                  <% end %>
+                </select>
+              <% end %>
+            </div>
+          </label>
+        </div>
+      </.confirm_modal>
+
+      <%!-- Bulk-move modal for categories: promote the selection to the top
+           level, or nest it under another category of this catalogue (the
+           picker already leaves out each selected category's own subtree). --%>
+      <.confirm_modal
+        :if={@bulk_move_categories_modal}
+        show={true}
+        on_confirm="confirm_bulk_move_categories"
+        on_cancel="cancel_bulk_move_categories"
+        title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Move selected categories")}
+        title_icon="hero-arrows-right-left"
+        confirm_text={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Move categories")}
+        confirm_disabled={
+          @bulk_move_categories_modal[:disposition] == :move_under and
+            is_nil(@bulk_move_categories_modal[:target_uuid])
+        }
+      >
+        <p class="text-sm text-base-content/70">
+          {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Pick where %{count} categories should go. Each one brings its subcategories and items along.", count: @bulk_move_categories_modal[:count])}
+        </p>
+
+        <div class="space-y-3 mt-4">
+          <label class="flex items-start gap-3 p-3 rounded-lg border border-base-300 cursor-pointer hover:bg-base-200/50">
+            <input
+              type="radio"
+              name="bulk_move_categories_disposition"
+              value="top_level"
+              checked={@bulk_move_categories_modal[:disposition] == :top_level}
+              phx-click="set_bulk_move_categories_disposition"
+              phx-value-disposition="top_level"
+              class="radio radio-sm radio-primary mt-0.5"
+            />
+            <div class="flex-1 min-w-0">
+              <p class="font-medium text-sm">
+                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Make them top-level categories")}
+              </p>
+              <p class="text-xs text-base-content/60">
+                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "They leave their parent and sit at the root of this catalogue.")}
+              </p>
+            </div>
+          </label>
+
+          <label class="flex items-start gap-3 p-3 rounded-lg border border-base-300 cursor-pointer hover:bg-base-200/50">
+            <input
+              type="radio"
+              name="bulk_move_categories_disposition"
+              value="move_under"
+              checked={@bulk_move_categories_modal[:disposition] == :move_under}
+              phx-click="set_bulk_move_categories_disposition"
+              phx-value-disposition="move_under"
+              class="radio radio-sm radio-primary mt-0.5"
+            />
+            <div class="flex-1 min-w-0">
+              <p class="font-medium text-sm">
+                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Nest them under another category")}
+              </p>
+              <%= if @bulk_move_categories_modal[:targets] == [] do %>
+                <p class="text-xs text-warning">
+                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "No category can take them — only the top level is left.")}
+                </p>
+              <% else %>
+                <select
+                  name="category_uuid"
+                  phx-change="select_bulk_move_categories_target"
+                  disabled={@bulk_move_categories_modal[:disposition] != :move_under}
+                  class="select select-sm w-full mt-2"
+                >
+                  <option value="">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "-- Select category --")}</option>
+                  <%= for {cat, depth} <- @bulk_move_categories_modal[:targets] do %>
+                    <option value={cat.uuid} selected={@bulk_move_categories_modal[:target_uuid] == cat.uuid}>
                       {String.duplicate("— ", depth)}{cat.name}
                     </option>
                   <% end %>

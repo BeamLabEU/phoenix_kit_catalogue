@@ -2783,3 +2783,33 @@ msgstr ""
 
 msgid "The import stopped unexpectedly before it finished. Rows written before the failure were kept. Check the server log for details."
 msgstr ""
+
+msgid "Move selected categories"
+msgstr ""
+
+msgid "Move categories"
+msgstr ""
+
+msgid "Pick where %{count} categories should go. Each one brings its subcategories and items along."
+msgstr ""
+
+msgid "Make them top-level categories"
+msgstr ""
+
+msgid "They leave their parent and sit at the root of this catalogue."
+msgstr ""
+
+msgid "Nest them under another category"
+msgstr ""
+
+msgid "No category can take them — only the top level is left."
+msgstr ""
+
+msgid "Moved %{count} categories."
+msgstr ""
+
+msgid "%{count} categories could not be moved."
+msgstr ""
+
+msgid "Select all categories"
+msgstr ""

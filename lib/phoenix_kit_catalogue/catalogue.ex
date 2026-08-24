@@ -1900,20 +1900,23 @@ defmodule PhoenixKitCatalogue.Catalogue do
            category
            |> Category.changeset(%{parent_uuid: nil, position: next_pos})
            |> repo().update() do
-      log_activity(%{
-        action: "category.moved",
-        mode: "manual",
-        actor_uuid: opts[:actor_uuid],
-        resource_type: "category",
-        resource_uuid: moved.uuid,
-        parent_catalogue_uuid: moved.catalogue_uuid,
-        metadata: %{
-          "name" => moved.name,
-          "from_parent_uuid" => from_parent_uuid,
-          "to_parent_uuid" => nil,
-          "catalogue_uuid" => moved.catalogue_uuid
-        }
-      })
+      log_activity(
+        %{
+          action: "category.moved",
+          mode: "manual",
+          actor_uuid: opts[:actor_uuid],
+          resource_type: "category",
+          resource_uuid: moved.uuid,
+          parent_catalogue_uuid: moved.catalogue_uuid,
+          metadata: %{
+            "name" => moved.name,
+            "from_parent_uuid" => from_parent_uuid,
+            "to_parent_uuid" => nil,
+            "catalogue_uuid" => moved.catalogue_uuid
+          }
+        },
+        Keyword.take(opts, [:broadcast])
+      )
 
       {:ok, moved}
     end
@@ -1947,23 +1950,63 @@ defmodule PhoenixKitCatalogue.Catalogue do
       end)
 
     with {:ok, {moved, from_parent_uuid}} <- result do
-      log_activity(%{
-        action: "category.moved",
-        mode: "manual",
-        actor_uuid: opts[:actor_uuid],
-        resource_type: "category",
-        resource_uuid: moved.uuid,
-        parent_catalogue_uuid: moved.catalogue_uuid,
-        metadata: %{
-          "name" => moved.name,
-          "from_parent_uuid" => from_parent_uuid,
-          "to_parent_uuid" => new_parent_uuid,
-          "catalogue_uuid" => moved.catalogue_uuid
-        }
-      })
+      log_activity(
+        %{
+          action: "category.moved",
+          mode: "manual",
+          actor_uuid: opts[:actor_uuid],
+          resource_type: "category",
+          resource_uuid: moved.uuid,
+          parent_catalogue_uuid: moved.catalogue_uuid,
+          metadata: %{
+            "name" => moved.name,
+            "from_parent_uuid" => from_parent_uuid,
+            "to_parent_uuid" => new_parent_uuid,
+            "catalogue_uuid" => moved.catalogue_uuid
+          }
+        },
+        Keyword.take(opts, [:broadcast])
+      )
 
       {:ok, moved}
     end
+  end
+
+  defp move_one_category(uuid, new_parent_uuid, opts) do
+    case get_category(uuid) do
+      nil -> {:error, :not_found}
+      category -> move_category_under(category, new_parent_uuid, opts)
+    end
+  end
+
+  @doc """
+  Re-parents several categories at once — under `new_parent_uuid`, or to
+  the root of their catalogue when it is `nil`. Each move is
+  `move_category_under/3` with its own guards (cycles, cross-catalogue,
+  missing parent); one refusal does not stop the others. Per-move
+  broadcasts are muted and ONE `:category` batch event per touched
+  catalogue is emitted after the loop, so every open page reloads once.
+
+  Returns `{:ok, %{moved: n, errors: [{uuid, reason}]}}`.
+  """
+  @spec bulk_move_categories_under([Ecto.UUID.t()], Ecto.UUID.t() | nil, keyword()) ::
+          {:ok, %{moved: non_neg_integer(), errors: [{Ecto.UUID.t(), term()}]}}
+  def bulk_move_categories_under(uuids, new_parent_uuid, opts \\ []) when is_list(uuids) do
+    muted = Keyword.put(opts, :broadcast, false)
+
+    {moved, errors, catalogues} =
+      Enum.reduce(uuids, {0, [], MapSet.new()}, fn uuid, {moved, errors, cats} ->
+        case move_one_category(uuid, new_parent_uuid, muted) do
+          {:ok, m} -> {moved + 1, errors, MapSet.put(cats, m.catalogue_uuid)}
+          {:error, reason} -> {moved, [{uuid, reason} | errors], cats}
+        end
+      end)
+
+    if moved > 0 and Keyword.get(opts, :broadcast, true) do
+      Enum.each(catalogues, &PubSub.broadcast(:category, nil, &1))
+    end
+
+    {:ok, %{moved: moved, errors: Enum.reverse(errors)}}
   end
 
   # Loads a raw 16-byte binary UUID from a Tree CTE result back into the

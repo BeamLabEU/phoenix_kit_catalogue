@@ -8,6 +8,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailBulkCategoriesTest do
   use PhoenixKitCatalogue.LiveCase
 
   alias PhoenixKitCatalogue.Catalogue
+  alias PhoenixKitCatalogue.Catalogue.PubSub, as: CataloguePubSub
 
   @base "/en/admin/catalogue"
 
@@ -103,5 +104,79 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailBulkCategoriesTest do
       |> Enum.map(& &1.name)
 
     assert names == ["Gamma", "Beta", "Alpha"]
+  end
+
+  describe "Move" do
+    test "the modal offers every category except the selection's own subtrees",
+         %{conn: conn, catalogue: cat, a: a, b: b, c: c} do
+      child = fixture_category(cat, %{name: "Alpha child", parent_uuid: a.uuid})
+      {:ok, view, _html} = live(conn, "#{@base}/#{cat.uuid}")
+
+      html = render_click(view, "request_bulk_move_categories", %{"uuids" => [a.uuid, b.uuid]})
+      modal = assigns(view).bulk_move_categories_modal
+      offered = modal.targets |> Enum.map(fn {c, _} -> c.uuid end)
+
+      assert modal.count == 2
+      assert html =~ "Move selected categories"
+      # Gamma can take them; Alpha, its child and Beta cannot (self / subtree).
+      assert offered == [c.uuid]
+      refute child.uuid in offered
+    end
+
+    test "nesting under a target re-parents each selected category with its subtree",
+         %{conn: conn, catalogue: cat, a: a, b: b, c: c} do
+      child = fixture_category(cat, %{name: "Alpha child", parent_uuid: a.uuid})
+      {:ok, view, _html} = live(conn, "#{@base}/#{cat.uuid}")
+
+      render_click(view, "request_bulk_move_categories", %{"uuids" => [a.uuid, b.uuid]})
+      render_click(view, "set_bulk_move_categories_disposition", %{"disposition" => "move_under"})
+      render_click(view, "select_bulk_move_categories_target", %{"category_uuid" => c.uuid})
+      html = render_click(view, "confirm_bulk_move_categories", %{})
+
+      assert html =~ "Moved 2 categories."
+      assert Catalogue.get_category(a.uuid).parent_uuid == c.uuid
+      assert Catalogue.get_category(b.uuid).parent_uuid == c.uuid
+      assert Catalogue.get_category(child.uuid).parent_uuid == a.uuid
+      refute assigns(view).bulk_move_categories_modal
+    end
+
+    test "top level promotes nested categories to the root", %{conn: conn, catalogue: cat, a: a} do
+      child = fixture_category(cat, %{name: "Alpha child", parent_uuid: a.uuid})
+      {:ok, view, _html} = live(conn, "#{@base}/#{cat.uuid}?category=#{a.uuid}")
+
+      render_click(view, "request_bulk_move_categories", %{"uuids" => [child.uuid]})
+      render_click(view, "confirm_bulk_move_categories", %{})
+
+      assert Catalogue.get_category(child.uuid).parent_uuid == nil
+    end
+
+    test "a forged target inside the selection is refused and moves nothing",
+         %{conn: conn, catalogue: cat, a: a, b: b} do
+      {:ok, view, _html} = live(conn, "#{@base}/#{cat.uuid}")
+
+      render_click(view, "request_bulk_move_categories", %{"uuids" => [a.uuid, b.uuid]})
+      render_click(view, "set_bulk_move_categories_disposition", %{"disposition" => "move_under"})
+      # Bypass the picker: point the selection at one of its own members.
+      :sys.replace_state(view.pid, fn state ->
+        put_in(state.socket.assigns.bulk_move_categories_modal.target_uuid, a.uuid)
+      end)
+
+      render_click(view, "confirm_bulk_move_categories", %{})
+
+      assert Catalogue.get_category(b.uuid).parent_uuid == nil
+      assert assigns(view).bulk_move_categories_modal
+    end
+
+    test "the batch move broadcasts one :category event per catalogue, after the loop",
+         %{catalogue: cat, a: a, b: b, c: c} do
+      CataloguePubSub.subscribe()
+
+      assert {:ok, %{moved: 2, errors: []}} =
+               Catalogue.bulk_move_categories_under([a.uuid, b.uuid], c.uuid)
+
+      cat_uuid = cat.uuid
+      assert_receive {:catalogue_data_changed, :category, nil, ^cat_uuid}
+      refute_receive {:catalogue_data_changed, :category, _, _}, 100
+    end
   end
 end
