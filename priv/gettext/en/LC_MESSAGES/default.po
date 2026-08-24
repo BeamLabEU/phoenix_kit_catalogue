@@ -2846,3 +2846,6 @@ msgstr ""
 
 msgid "%{name} (copy)"
 msgstr ""
+
+msgid "Supplier price"
+msgstr ""

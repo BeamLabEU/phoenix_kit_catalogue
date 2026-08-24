@@ -148,6 +148,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         # drives the paperclip indicator. Merged per page load; per-uuid
         # entries are overwritten on reload, so staleness is bounded.
         file_counts: %{},
+        supplier_costs: %{},
         # Edit links carry the current level as return_to; recomputed on
         # every level load. The bare path fn is only the pre-load default.
         edit_path_fn: &Paths.item_edit/1,
@@ -351,6 +352,12 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   # detail page resolving items that attach the set.
   def handle_info({:catalogue_data_changed, :attribute_set, _uuid, _parent}, socket) do
     handle_catalogue_data_changed(socket)
+  end
+
+  # Supplier rows broadcast without a catalogue parent; only the
+  # "Supplier price" column depends on them.
+  def handle_info({:catalogue_data_changed, :item_supplier_info, _uuid, _parent}, socket) do
+    {:noreply, refresh_supplier_costs(socket)}
   end
 
   # Another admin changed a shared detail sort (global-sort scopes) —
@@ -2124,7 +2131,26 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       attribute_map:
         socket.assigns.attribute_map
         |> Map.drop(item_uuids)
-        |> Map.merge(Catalogue.item_attribute_group_map(item_uuids))
+        |> Map.merge(Catalogue.item_attribute_group_map(item_uuids)),
+      supplier_costs:
+        socket.assigns.supplier_costs
+        |> Map.drop(item_uuids)
+        |> Map.merge(Catalogue.supplier_cost_ranges(item_uuids))
+    )
+  end
+
+  # A supplier row changed somewhere (the item form's Suppliers tab, an
+  # import): re-derive just the "Supplier price" entries for the rows on
+  # this page instead of reloading the level.
+  defp refresh_supplier_costs(socket) do
+    item_uuids = Enum.map(socket.assigns.items, & &1.uuid)
+
+    assign(
+      socket,
+      :supplier_costs,
+      socket.assigns.supplier_costs
+      |> Map.drop(item_uuids)
+      |> Map.merge(Catalogue.supplier_cost_ranges(item_uuids))
     )
   end
 
@@ -3061,6 +3087,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
           <%!-- The current node's own direct items --%>
           <.level_items
             attribute_map={@attribute_map}
+            supplier_costs={@supplier_costs}
             items_columns={@items_columns}
             controls_in_page_header={@child_categories == []}
             :if={@show_items_section}
@@ -3992,6 +4019,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   attr(:reorder_captured_uuids, :list, required: true)
   attr(:file_counts, :map, default: %{})
   attr(:attribute_map, :map, default: %{})
+  attr(:supplier_costs, :map, default: %{})
   attr(:edit_path_fn, :any, required: true)
   attr(:items_columns, :list, default: ["sku", "price", "unit", "status"])
 
@@ -4137,6 +4165,9 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                         do: Decimal.to_string(sale_price, :normal),
                         else: "—"}
                     </div>
+                  <% "supplier_price" -> %>
+                    <div class="text-base-content/60">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Supplier price")}</div>
+                    <div>{format_supplier_costs(Map.get(@supplier_costs, item.uuid, []))}</div>
                   <% "unit" -> %>
                     <div class="text-base-content/60">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Unit")}</div>
                     <div>{Item.unit_label(item.unit)}</div>
@@ -4204,6 +4235,10 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                     <.sort_header_cell field={:base_price} sort={%{by: @items_sort_by, dir: @items_sort_dir}} event="toggle_sort_items">
                       {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Price")}
                     </.sort_header_cell>
+                  <% "supplier_price" -> %>
+                    <.table_default_header_cell>
+                      {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Supplier price")}
+                    </.table_default_header_cell>
                   <% "unit" -> %>
                     <.table_default_header_cell>
                       {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Unit")}
@@ -4264,6 +4299,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                 has_attributes={Map.has_key?(@attribute_map, item.uuid)}
                 file_count={Map.get(@file_counts, item.uuid, 0)}
                 columns={@items_columns}
+                supplier_costs={Map.get(@supplier_costs, item.uuid, [])}
               />
               <.item_row_menu
                 item={item}

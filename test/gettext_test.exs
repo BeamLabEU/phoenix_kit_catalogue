@@ -43,6 +43,13 @@ defmodule PhoenixKitCatalogue.GettextTest do
              "Ainult selle tarnija kohta selle toote juures. Ettevõtte enda kommentaarid jäävad tema CRM-i lehele."
   end
 
+  test "the supplier price column label is translated (pin, 2026-08-24)" do
+    Gettext.put_locale(PhoenixKitCatalogue.Gettext, "et")
+    assert Gettext.gettext(PhoenixKitCatalogue.Gettext, "Supplier price") == "Tarnija hind"
+    Gettext.put_locale(PhoenixKitCatalogue.Gettext, "ru")
+    assert Gettext.gettext(PhoenixKitCatalogue.Gettext, "Supplier price") == "Цена поставщика"
+  end
+
   test "the duplicate strings are translated (pin for the 2026-08-24 Duplicate action)" do
     Gettext.put_locale(PhoenixKitCatalogue.Gettext, "ru")
     assert Gettext.gettext(PhoenixKitCatalogue.Gettext, "Duplicate") == "Дублировать"

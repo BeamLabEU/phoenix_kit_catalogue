@@ -371,6 +371,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
   defdelegate bulk_duplicate_categories(uuids, opts \\ []), to: Duplication
 
   defdelegate list_supplier_infos_for_item(item_uuid), to: ItemSupplierInfos, as: :list_for_item
+  defdelegate supplier_cost_ranges(item_uuids), to: ItemSupplierInfos, as: :cost_ranges
   defdelegate get_supplier_info(uuid), to: ItemSupplierInfos, as: :get
   defdelegate create_supplier_info(attrs, opts \\ []), to: ItemSupplierInfos, as: :create
   defdelegate update_supplier_info(info, attrs, opts \\ []), to: ItemSupplierInfos, as: :update

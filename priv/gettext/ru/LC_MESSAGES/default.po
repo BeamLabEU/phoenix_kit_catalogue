@@ -2856,3 +2856,6 @@ msgstr "Не удалось продублировать категорий: %{c
 
 msgid "%{name} (copy)"
 msgstr "%{name} (копия)"
+
+msgid "Supplier price"
+msgstr "Цена поставщика"

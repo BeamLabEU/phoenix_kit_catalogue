@@ -32,6 +32,41 @@ defmodule PhoenixKitCatalogue.Catalogue.ItemSupplierInfos do
   @pair_constraint "phoenix_kit_cat_item_supplier_info_current_pair_uniq"
 
   @doc """
+  Supplier cost ranges for a batch of items, from their CURRENT rows
+  (`valid_to` nil) that carry a unit cost: `%{item_uuid => [range]}` with
+  one range per currency — `%{currency: "EUR" | nil, min: Decimal,
+  max: Decimal, count: n}`, cheapest currency group first. Items without
+  a priced supplier are absent. One query however many items.
+  """
+  @spec cost_ranges([Ecto.UUID.t()]) :: %{
+          Ecto.UUID.t() => [
+            %{
+              currency: String.t() | nil,
+              min: Decimal.t(),
+              max: Decimal.t(),
+              count: pos_integer()
+            }
+          ]
+        }
+  def cost_ranges([]), do: %{}
+
+  def cost_ranges(item_uuids) when is_list(item_uuids) do
+    from(i in ItemSupplierInfo,
+      where: i.item_uuid in ^item_uuids and is_nil(i.valid_to) and not is_nil(i.unit_cost),
+      group_by: [i.item_uuid, i.currency],
+      select: {i.item_uuid, i.currency, min(i.unit_cost), max(i.unit_cost), count(i.uuid)}
+    )
+    |> repo().all()
+    |> Enum.group_by(&elem(&1, 0), fn {_, currency, min, max, count} ->
+      %{currency: blank_to_nil(currency), min: min, max: max, count: count}
+    end)
+    |> Map.new(fn {uuid, ranges} -> {uuid, Enum.sort_by(ranges, & &1.min, Decimal)} end)
+  end
+
+  defp blank_to_nil(""), do: nil
+  defp blank_to_nil(value), do: value
+
+  @doc """
   Lists *current* supplier-info rows for an item, ordered by position then
   inserted_at.
 

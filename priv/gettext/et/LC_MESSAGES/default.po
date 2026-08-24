@@ -2847,3 +2847,6 @@ msgstr "%{count} kategooriat ei õnnestunud dubleerida."
 
 msgid "%{name} (copy)"
 msgstr "%{name} (koopia)"
+
+msgid "Supplier price"
+msgstr "Tarnija hind"
