@@ -323,7 +323,7 @@ defmodule PhoenixKitCatalogue.Catalogue.SurfaceBroadcastsTest do
   end
 
   describe "F13 — bulk_trash_categories broadcasts after the outer transaction commits" do
-    test "one :category event per trashed category, after commit" do
+    test "one :category batch event per touched catalogue, after commit" do
       cat = catalogue!()
       a = category!(cat, "A")
       b = category!(cat, "B")
@@ -332,10 +332,11 @@ defmodule PhoenixKitCatalogue.Catalogue.SurfaceBroadcastsTest do
       assert {:ok, %{categories: 2}} =
                Catalogue.bulk_trash_categories([a.uuid, b.uuid], :cascade, [])
 
-      assert_receive {:catalogue_data_changed, :category, uuid1, parent}
-      assert parent == cat.uuid
-      assert_receive {:catalogue_data_changed, :category, uuid2, _}
-      assert Enum.sort([uuid1, uuid2]) == Enum.sort([a.uuid, b.uuid])
+      # Like the other bulk ops: one nil-uuid batch per catalogue, not one
+      # event per category (N events = N reloads on every open page).
+      cat_uuid = cat.uuid
+      assert_receive {:catalogue_data_changed, :category, nil, ^cat_uuid}
+      refute_receive {:catalogue_data_changed, :category, _, _}, 100
     end
 
     test "a rolled-back batch emits nothing for the steps that had succeeded" do

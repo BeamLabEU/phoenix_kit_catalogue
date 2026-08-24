@@ -27,6 +27,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Duplication do
   import Ecto.Query, warn: false
   require Logger
 
+  alias Ecto.Adapters.SQL
   alias PhoenixKit.Modules.Storage
   alias PhoenixKit.Modules.Storage.{File, Folder, FolderLink}
   alias PhoenixKitCatalogue.Catalogue.{ActivityLog, PubSub, SupplierComments}
@@ -91,7 +92,9 @@ defmodule PhoenixKitCatalogue.Catalogue.Duplication do
   @spec duplicate_item(Item.t(), keyword()) :: {:ok, Item.t()} | {:error, term()}
   def duplicate_item(%Item{} = source, opts \\ []) do
     case repo().transaction(fn -> copy_item(source, opts) end) do
-      {:ok, item} ->
+      {:ok, {item, logs}} ->
+        flush_logs(logs)
+
         if Keyword.get(opts, :broadcast, true),
           do: PubSub.broadcast(:item, item.uuid, item.catalogue_uuid)
 
@@ -113,7 +116,9 @@ defmodule PhoenixKitCatalogue.Catalogue.Duplication do
           | {:error, term()}
   def duplicate_category(%Category{} = source, opts \\ []) do
     case repo().transaction(fn -> copy_category(source, opts) end) do
-      {:ok, %{category: category} = result} ->
+      {:ok, {%{category: category} = result, logs}} ->
+        flush_logs(logs)
+
         if Keyword.get(opts, :broadcast, true) do
           PubSub.broadcast(:category, nil, category.catalogue_uuid)
           PubSub.broadcast(:item, nil, category.catalogue_uuid)
@@ -126,17 +131,22 @@ defmodule PhoenixKitCatalogue.Catalogue.Duplication do
     end
   end
 
-  @doc "Copies several items; one transaction each, one `:item` batch event per catalogue."
+  @doc """
+  Copies several items; one transaction each, one `:item` batch event per
+  catalogue. Pass `catalogue_uuid:` to refuse items outside that catalogue
+  (`:wrong_catalogue_scope`) — the uuids are client-captured.
+  """
   @spec bulk_duplicate_items([Ecto.UUID.t()], keyword()) :: bulk_result()
   def bulk_duplicate_items(uuids, opts \\ []) when is_list(uuids) do
     muted = Keyword.put(opts, :broadcast, false)
 
     {created, errors, catalogues} =
       uuids
-      |> load_in_position_order(Item)
+      |> load_in_position_order(Item, opts)
       |> Enum.reduce({0, [], MapSet.new()}, fn
-        {uuid, :invalid_uuid}, {n, errors, cats} ->
-          {n, [{uuid, :invalid_uuid} | errors], cats}
+        {uuid, reason}, {n, errors, cats}
+        when reason in [:invalid_uuid, :wrong_catalogue_scope] ->
+          {n, [{uuid, reason} | errors], cats}
 
         {uuid, nil}, {n, errors, cats} ->
           {n, [{uuid, :not_found} | errors], cats}
@@ -144,9 +154,11 @@ defmodule PhoenixKitCatalogue.Catalogue.Duplication do
         {uuid, item}, {n, errors, cats} ->
           case duplicate_item(item, muted) do
             {:ok, copy} -> {n + 1, errors, MapSet.put(cats, copy.catalogue_uuid)}
-            {:error, reason} -> {n, [{uuid, reason} | errors], cats}
+            {:error, reason} -> {n, [{uuid, normalize_error(reason)} | errors], cats}
           end
       end)
+
+    log_bulk("item", created, catalogues, opts)
 
     if created > 0 and Keyword.get(opts, :broadcast, true),
       do: Enum.each(catalogues, &PubSub.broadcast(:item, nil, &1))
@@ -161,10 +173,11 @@ defmodule PhoenixKitCatalogue.Catalogue.Duplication do
 
     {created, errors, catalogues} =
       uuids
-      |> load_in_position_order(Category)
+      |> load_in_position_order(Category, opts)
       |> Enum.reduce({0, [], MapSet.new()}, fn
-        {uuid, :invalid_uuid}, {n, errors, cats} ->
-          {n, [{uuid, :invalid_uuid} | errors], cats}
+        {uuid, reason}, {n, errors, cats}
+        when reason in [:invalid_uuid, :wrong_catalogue_scope] ->
+          {n, [{uuid, reason} | errors], cats}
 
         {uuid, nil}, {n, errors, cats} ->
           {n, [{uuid, :not_found} | errors], cats}
@@ -172,9 +185,11 @@ defmodule PhoenixKitCatalogue.Catalogue.Duplication do
         {uuid, category}, {n, errors, cats} ->
           case duplicate_category(category, muted) do
             {:ok, %{category: copy}} -> {n + 1, errors, MapSet.put(cats, copy.catalogue_uuid)}
-            {:error, reason} -> {n, [{uuid, reason} | errors], cats}
+            {:error, reason} -> {n, [{uuid, normalize_error(reason)} | errors], cats}
           end
       end)
+
+    log_bulk("category", created, catalogues, opts)
 
     if created > 0 and Keyword.get(opts, :broadcast, true) do
       Enum.each(catalogues, fn cat ->
@@ -186,21 +201,58 @@ defmodule PhoenixKitCatalogue.Catalogue.Duplication do
     {:ok, %{created: created, errors: Enum.reverse(errors)}}
   end
 
+  # Activity rows are written AFTER the copy's transaction commits: core's
+  # `Activity.log/1` inserts and broadcasts at once, so logging inside the
+  # transaction would announce rows that may still roll back (and a failed
+  # activity insert would abort the copy itself).
+  defp flush_logs(logs), do: Enum.each(logs, &ActivityLog.log/1)
+
+  # One summary row per bulk run, like `item.bulk_trashed`.
+  defp log_bulk(_type, 0, _catalogues, _opts), do: :ok
+
+  defp log_bulk(type, created, catalogues, opts) do
+    ActivityLog.log(%{
+      action: "#{type}.bulk_duplicated",
+      mode: opts[:mode] || "manual",
+      actor_uuid: opts[:actor_uuid],
+      resource_type: type,
+      metadata: %{"count" => created, "catalogue_uuids" => MapSet.to_list(catalogues)}
+    })
+  end
+
+  # Bulk callers count and log errors; a changeset or a tagged tuple is
+  # collapsed to one atom so the error list has one shape.
+  defp normalize_error(%Ecto.Changeset{}), do: :invalid
+  defp normalize_error({:files_folder, _}), do: :files_folder
+  defp normalize_error(reason) when is_atom(reason), do: reason
+  defp normalize_error(_), do: :failed
+
   # Sources are copied lowest position first so several copies inside
   # one sibling list land in the same order as their originals. The
   # uuids are client-captured: a malformed one must surface as an error
   # for that entry, not as a query cast crash for the whole batch.
-  defp load_in_position_order(uuids, schema) do
+  # `opts[:catalogue_uuid]` scopes the batch: a row from another
+  # catalogue is reported as `:wrong_catalogue_scope`, never copied.
+  defp load_in_position_order(uuids, schema, opts) do
     uuids = Enum.uniq(uuids)
+    scope = opts[:catalogue_uuid]
     {valid, invalid} = Enum.split_with(uuids, &match?({:ok, _}, Ecto.UUID.cast(&1)))
     rows = repo().all(from(r in schema, where: r.uuid in ^valid)) |> Map.new(&{&1.uuid, &1})
 
     sorted =
       valid
-      |> Enum.map(&{&1, Map.get(rows, &1)})
+      |> Enum.map(fn uuid ->
+        case Map.get(rows, uuid) do
+          %{catalogue_uuid: c} when is_binary(scope) and c != scope ->
+            {uuid, :wrong_catalogue_scope}
+
+          row ->
+            {uuid, row}
+        end
+      end)
       |> Enum.sort_by(fn
-        {_, nil} -> {1, 0, ""}
-        {_, row} -> {0, row.position, row.name}
+        {_, %{position: position, name: name}} -> {0, position, name}
+        _ -> {1, 0, ""}
       end)
 
     sorted ++ Enum.map(invalid, &{&1, :invalid_uuid})
@@ -235,17 +287,21 @@ defmodule PhoenixKitCatalogue.Catalogue.Duplication do
 
     unless keep_position?, do: place_item_after(source, item)
 
-    ActivityLog.log(%{
+    log = %{
       action: "item.duplicated",
       mode: opts[:mode] || "manual",
       actor_uuid: opts[:actor_uuid],
       resource_type: "item",
       resource_uuid: item.uuid,
-      parent_catalogue_uuid: item.catalogue_uuid,
-      metadata: %{"name" => item.name, "sku" => item.sku || "", "source_uuid" => source.uuid}
-    })
+      metadata: %{
+        "name" => item.name,
+        "sku" => item.sku || "",
+        "source_uuid" => source.uuid,
+        "catalogue_uuid" => item.catalogue_uuid
+      }
+    }
 
-    repo().get!(Item, item.uuid)
+    {repo().get!(Item, item.uuid), [log]}
   end
 
   defp catalogue_for(nil, fallback), do: fallback
@@ -299,13 +355,27 @@ defmodule PhoenixKitCatalogue.Catalogue.Duplication do
       else: data
   end
 
+  # Each language entry gets the suffix in ITS language ("(koopia)" for
+  # et, "(копия)" for ru), not the acting admin's (review finding).
   defp suffix_language_entry({lang, %{} = entry}, opts) do
-    if Regex.match?(@language_key, lang),
-      do: {lang, suffix_names(entry, opts)},
-      else: {lang, entry}
+    if Regex.match?(@language_key, lang) do
+      {lang,
+       Gettext.with_locale(PhoenixKitCatalogue.Gettext, gettext_locale(lang), fn ->
+         suffix_names(entry, opts)
+       end)}
+    else
+      {lang, entry}
+    end
   end
 
   defp suffix_language_entry(pair, _opts), do: pair
+
+  # "et", "en-US" → the base language when the backend knows it, else the
+  # msgid (English) fallback.
+  defp gettext_locale(lang) do
+    base = lang |> String.split("-") |> hd()
+    if base in Gettext.known_locales(PhoenixKitCatalogue.Gettext), do: base, else: "en"
+  end
 
   defp suffix_names(entry, opts) do
     Enum.reduce(["name", "_name"], entry, fn key, acc ->
@@ -500,50 +570,52 @@ defmodule PhoenixKitCatalogue.Catalogue.Duplication do
       mode: opts[:mode] || "manual"
     ]
 
-    items =
+    {items, item_logs} =
       from(i in Item,
         where: i.category_uuid == ^source.uuid and i.status != "deleted",
         order_by: [asc: i.position, asc: i.name]
       )
       |> repo().all()
-      |> Enum.map(&copy_item(&1, Keyword.put(nested, :category_uuid, category.uuid)))
-      |> length()
+      |> Enum.reduce({0, []}, fn item, {n, logs} ->
+        {_copy, item_logs} = copy_item(item, Keyword.put(nested, :category_uuid, category.uuid))
+        {n + 1, logs ++ item_logs}
+      end)
 
-    {sub_categories, sub_items} =
+    {sub_categories, sub_items, child_logs} =
       from(c in Category,
         where: c.parent_uuid == ^source.uuid and c.status != "deleted",
         order_by: [asc: c.position, asc: c.name]
       )
       |> repo().all()
-      |> Enum.reduce({0, 0}, fn child, {cats, its} ->
-        %{categories: c, items: i} =
+      |> Enum.reduce({0, 0, []}, fn child, {cats, its, logs} ->
+        {%{categories: c, items: i}, child_logs} =
           copy_category(child, Keyword.put(nested, :parent_uuid, category.uuid))
 
-        {cats + 1 + c, its + i}
+        {cats + 1 + c, its + i, logs ++ child_logs}
       end)
 
     unless keep_position?, do: place_category_after(source, category)
 
-    ActivityLog.log(%{
+    log = %{
       action: "category.duplicated",
       mode: opts[:mode] || "manual",
       actor_uuid: opts[:actor_uuid],
       resource_type: "category",
       resource_uuid: category.uuid,
-      parent_catalogue_uuid: category.catalogue_uuid,
       metadata: %{
         "name" => category.name,
         "source_uuid" => source.uuid,
+        "catalogue_uuid" => category.catalogue_uuid,
         "categories" => sub_categories,
         "items" => items + sub_items
       }
-    })
-
-    %{
-      category: repo().get!(Category, category.uuid),
-      categories: sub_categories,
-      items: items + sub_items
     }
+
+    {%{
+       category: repo().get!(Category, category.uuid),
+       categories: sub_categories,
+       items: items + sub_items
+     }, [log | item_logs ++ child_logs]}
   end
 
   # A copy always stays in its source's catalogue; a parent from another
@@ -564,6 +636,8 @@ defmodule PhoenixKitCatalogue.Catalogue.Duplication do
   # source (appended when the source is not a sibling — a copy sent to
   # another category). Positions are written 0..n like the reorder path.
   defp place_item_after(source, item) do
+    lock_sibling_scope("items", item.catalogue_uuid, item.category_uuid)
+
     siblings =
       from(i in Item,
         where:
@@ -579,6 +653,8 @@ defmodule PhoenixKitCatalogue.Catalogue.Duplication do
   end
 
   defp place_category_after(source, category) do
+    lock_sibling_scope("categories", category.catalogue_uuid, category.parent_uuid)
+
     siblings =
       from(c in Category,
         where:
@@ -591,6 +667,15 @@ defmodule PhoenixKitCatalogue.Catalogue.Duplication do
       |> repo().all()
 
     renumber(Category, insert_after(siblings, source.uuid, category.uuid))
+  end
+
+  # Two copies into the same sibling list at once would both read the
+  # same order and renumber over each other; a transaction-scoped
+  # advisory lock on the scope serialises them (released at commit).
+  defp lock_sibling_scope(kind, catalogue_uuid, parent_uuid) do
+    key = "catalogue:#{kind}:#{catalogue_uuid}:#{parent_uuid || "root"}"
+    SQL.query!(repo(), "SELECT pg_advisory_xact_lock(hashtext($1))", [key])
+    :ok
   end
 
   defp scope_category(query, nil), do: where(query, [i], is_nil(i.category_uuid))

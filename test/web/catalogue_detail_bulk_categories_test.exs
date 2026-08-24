@@ -26,17 +26,17 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailBulkCategoriesTest do
        %{conn: conn, catalogue: cat, a: a} do
     {:ok, view, html} = live(conn, "#{@base}/#{cat.uuid}")
 
-    assert has_element?(view, "#categories-bulk-root[phx-hook=BulkSelectScope]")
+    assert has_element?(view, "[id^=categories-bulk-root][phx-hook=BulkSelectScope]")
     assert html =~ ~s(data-bulk-role="row" data-uuid="#{a.uuid}")
 
     assert has_element?(
              view,
-             "#categories-bulk-root [data-bulk-action=request_bulk_delete_categories]"
+             "[id^=categories-bulk-root] [data-bulk-action=request_bulk_delete_categories]"
            )
 
     assert has_element?(
              view,
-             "#categories-bulk-root [data-bulk-action=open_categories_reorder_modal]"
+             "[id^=categories-bulk-root] [data-bulk-action=open_categories_reorder_modal]"
            )
 
     assert has_element?(view, "#categories-select-all")
@@ -181,6 +181,82 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailBulkCategoriesTest do
 
       assert Process.alive?(view.pid)
       assert assigns(view).bulk_move_categories_modal.uuids == [a.uuid]
+    end
+
+    test "a category from another catalogue in the selection is refused, not moved",
+         %{conn: conn, catalogue: cat, a: a, c: c} do
+      other = fixture_catalogue(%{name: "Elsewhere"})
+      foreign = fixture_category(other, %{name: "Foreign"})
+      {:ok, view, _html} = live(conn, "#{@base}/#{cat.uuid}")
+
+      render_click(view, "request_bulk_move_categories", %{"uuids" => [foreign.uuid, a.uuid]})
+      # Targets come from THIS catalogue only (Alpha's own list: Beta, Gamma).
+      targets =
+        assigns(view).bulk_move_categories_modal.targets |> Enum.map(fn {x, _} -> x.uuid end)
+
+      assert c.uuid in targets
+      refute foreign.uuid in targets
+      refute Enum.any?(targets, &(Catalogue.get_category(&1).catalogue_uuid != cat.uuid))
+
+      render_click(view, "set_bulk_move_categories_disposition", %{"disposition" => "move_under"})
+      render_click(view, "select_bulk_move_categories_target", %{"category_uuid" => c.uuid})
+      html = render_click(view, "confirm_bulk_move_categories", %{})
+
+      assert html =~ "Moved 1 categories."
+      assert html =~ "1 categories could not be moved."
+      assert Catalogue.get_category(a.uuid).parent_uuid == c.uuid
+      assert Catalogue.get_category(foreign.uuid).parent_uuid == nil
+    end
+
+    test "bulk trash leaves a category from another catalogue alone", %{
+      conn: conn,
+      catalogue: cat,
+      a: a
+    } do
+      other = fixture_catalogue(%{name: "Elsewhere"})
+      foreign = fixture_category(other, %{name: "Foreign"})
+      {:ok, view, _html} = live(conn, "#{@base}/#{cat.uuid}")
+
+      render_click(view, "request_bulk_delete_categories", %{"uuids" => [foreign.uuid, a.uuid]})
+      render_click(view, "set_trash_disposition", %{"disposition" => "cascade"})
+      render_click(view, "confirm_trash_category", %{})
+
+      assert Catalogue.get_category(a.uuid).status == "deleted"
+      assert Catalogue.get_category(foreign.uuid).status == "active"
+    end
+
+    test "modal events after the modal closed are no-ops", %{conn: conn, catalogue: cat} do
+      {:ok, view, _html} = live(conn, "#{@base}/#{cat.uuid}")
+
+      render_click(view, "set_bulk_move_categories_disposition", %{"disposition" => "move_under"})
+      render_click(view, "select_bulk_move_categories_target", %{"category_uuid" => "x"})
+      render_click(view, "set_bulk_move_disposition", %{"disposition" => "move_to"})
+      render_click(view, "select_bulk_move_target", %{"category_uuid" => "x"})
+      render_click(view, "set_trash_disposition", %{"disposition" => "cascade"})
+      render_click(view, "select_trash_target", %{"category_uuid" => "x"})
+
+      assert Process.alive?(view.pid)
+      refute assigns(view).bulk_move_categories_modal
+      refute assigns(view).bulk_move_modal
+      refute assigns(view).trash_modal
+    end
+
+    test "an item bulk op announces the bulk change BEFORE the batch :item event",
+         %{conn: conn, catalogue: cat, a: a} do
+      item = fixture_item(%{catalogue_uuid: cat.uuid, category_uuid: a.uuid, name: "Loose"})
+      {:ok, view, _html} = live(conn, "#{@base}/#{cat.uuid}?category=#{a.uuid}")
+      CataloguePubSub.subscribe()
+
+      render_click(view, "request_bulk_move_items", %{"uuids" => [item.uuid]})
+      render_click(view, "confirm_bulk_move_items", %{})
+
+      cat_uuid = cat.uuid
+      # The context is muted; the page emits the flash-driving bulk change
+      # first and the batch reload second, so other tabs fade then refresh.
+      assert_receive {:catalogue_bulk_change, ^cat_uuid, :moved, _uuids, _from}
+      assert_receive {:catalogue_data_changed, :item, nil, ^cat_uuid}
+      {:messages, rest} = Process.info(self(), :messages)
+      refute Enum.any?(rest, &match?({:catalogue_data_changed, :item, _, _}, &1))
     end
 
     test "the batch move broadcasts one :category event per catalogue, after the loop",

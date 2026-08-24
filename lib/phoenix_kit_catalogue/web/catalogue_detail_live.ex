@@ -163,6 +163,11 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         bulk_move_modal: nil,
         bulk_move_categories_modal: nil,
         bulk_duplicate_modal: nil,
+        # Bumped after every bulk op: it is part of the BulkSelectScope ids,
+        # so the hook remounts with an empty selection. Core's hook has no
+        # handler for the `bulk_select:clear` push (rows that survive an op —
+        # the originals after Duplicate — kept their ticks).
+        bulk_epoch: 0,
         bulk_confirm: nil,
         selected_items: MapSet.new(),
         attribute_map: %{},
@@ -768,6 +773,11 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     end
   end
 
+  # A modal event after the modal closed (double click, second tab,
+  # stale client) is a no-op, not a KeyError on `%{}`.
+  def handle_event("set_trash_disposition", _params, %{assigns: %{trash_modal: nil}} = socket),
+    do: {:noreply, socket}
+
   def handle_event("set_trash_disposition", %{"disposition" => disp}, socket) do
     modal = socket.assigns.trash_modal || %{}
 
@@ -781,6 +791,11 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
     {:noreply, assign(socket, :trash_modal, new_modal)}
   end
+
+  # A modal event after the modal closed (double click, second tab,
+  # stale client) is a no-op, not a KeyError on `%{}`.
+  def handle_event("select_trash_target", _params, %{assigns: %{trash_modal: nil}} = socket),
+    do: {:noreply, socket}
 
   def handle_event("select_trash_target", %{"category_uuid" => uuid}, socket) do
     modal = socket.assigns.trash_modal || %{}
@@ -892,6 +907,15 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     end
   end
 
+  # A modal event after the modal closed (double click, second tab,
+  # stale client) is a no-op, not a KeyError on `%{}`.
+  def handle_event(
+        "set_bulk_move_disposition",
+        _params,
+        %{assigns: %{bulk_move_modal: nil}} = socket
+      ),
+      do: {:noreply, socket}
+
   def handle_event("set_bulk_move_disposition", %{"disposition" => disp}, socket) do
     modal = socket.assigns.bulk_move_modal || %{}
 
@@ -904,6 +928,15 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
     {:noreply, assign(socket, :bulk_move_modal, new_modal)}
   end
+
+  # A modal event after the modal closed (double click, second tab,
+  # stale client) is a no-op, not a KeyError on `%{}`.
+  def handle_event(
+        "select_bulk_move_target",
+        _params,
+        %{assigns: %{bulk_move_modal: nil}} = socket
+      ),
+      do: {:noreply, socket}
 
   def handle_event("select_bulk_move_target", %{"category_uuid" => uuid}, socket) do
     modal = socket.assigns.bulk_move_modal || %{}
@@ -945,12 +978,25 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
        assign(socket, :bulk_move_categories_modal, %{
          count: length(uuids),
          uuids: uuids,
-         targets: localize_targets(category_move_targets(uuids), loc(socket)),
+         targets:
+           localize_targets(
+             category_move_targets(uuids, socket.assigns.catalogue_uuid),
+             loc(socket)
+           ),
          disposition: :top_level,
          target_uuid: nil
        })}
     end
   end
+
+  # A modal event after the modal closed (double click, second tab,
+  # stale client) is a no-op, not a KeyError on `%{}`.
+  def handle_event(
+        "set_bulk_move_categories_disposition",
+        _params,
+        %{assigns: %{bulk_move_categories_modal: nil}} = socket
+      ),
+      do: {:noreply, socket}
 
   def handle_event("set_bulk_move_categories_disposition", %{"disposition" => disp}, socket) do
     modal = socket.assigns.bulk_move_categories_modal || %{}
@@ -964,6 +1010,15 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
     {:noreply, assign(socket, :bulk_move_categories_modal, new_modal)}
   end
+
+  # A modal event after the modal closed (double click, second tab,
+  # stale client) is a no-op, not a KeyError on `%{}`.
+  def handle_event(
+        "select_bulk_move_categories_target",
+        _params,
+        %{assigns: %{bulk_move_categories_modal: nil}} = socket
+      ),
+      do: {:noreply, socket}
 
   def handle_event("select_bulk_move_categories_target", %{"category_uuid" => uuid}, socket) do
     modal = socket.assigns.bulk_move_categories_modal || %{}
@@ -1341,7 +1396,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         {:noreply,
          socket
          |> assign(show_categories_reorder: false, categories_reorder_captured: [])
-         |> push_event("bulk_select:clear", %{})
+         |> clear_bulk_selection()
          |> put_flash(
            :info,
            Gettext.gettext(PhoenixKitCatalogue.Gettext, "Categories reordered.")
@@ -1401,7 +1456,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
          socket
          |> put_flash(:info, Gettext.gettext(PhoenixKitCatalogue.Gettext, "Items reordered."))
          |> assign(show_items_reorder: false, reorder_captured_uuids: [])
-         |> push_event("bulk_select:clear", %{})
+         |> clear_bulk_selection()
          |> reset_and_load()}
 
       {:error, :duplicate_positions} ->
@@ -1461,6 +1516,15 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   defp clear_item_selection(socket) do
     socket
     |> assign(:selected_items, MapSet.new())
+    |> clear_bulk_selection()
+  end
+
+  # Both selection models: the server-side MapSet (deleted list) is the
+  # caller's; this clears the client-side BulkSelectScope by remounting it
+  # (new id) — the `bulk_select:clear` push stays for a core that handles it.
+  defp clear_bulk_selection(socket) do
+    socket
+    |> update(:bulk_epoch, &(&1 + 1))
     |> push_event("bulk_select:clear", %{})
   end
 
@@ -1564,6 +1628,14 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
   defp muted_actor_opts(socket), do: Keyword.put(actor_opts(socket), :broadcast, false)
 
+  # Bulk category ops take the page's catalogue as a scope: a uuid from
+  # another catalogue in a client-captured selection is refused per entry.
+  defp scoped_actor_opts(socket),
+    do: Keyword.put(actor_opts(socket), :catalogue_uuid, socket.assigns.catalogue_uuid)
+
+  defp scoped_muted_actor_opts(socket),
+    do: Keyword.put(muted_actor_opts(socket), :catalogue_uuid, socket.assigns.catalogue_uuid)
+
   defp broadcast_item_batch(socket),
     do: PubSub.broadcast(:item, nil, socket.assigns.catalogue_uuid)
 
@@ -1577,7 +1649,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   # trigger (mailbox order) and can hold the reload until the flash has
   # played. The catalogues index only listens to the `:item` event.
   defp do_bulk_trash_items(socket, uuids) do
-    {count, _} = Catalogue.bulk_trash_items(uuids, muted_actor_opts(socket))
+    {count, _} = Catalogue.bulk_trash_items(uuids, scoped_muted_actor_opts(socket))
     PubSub.broadcast_bulk_change(socket.assigns.catalogue_uuid, :trashed, uuids)
     broadcast_item_batch(socket)
 
@@ -1593,7 +1665,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   end
 
   defp do_bulk_permanent_delete_items(socket, uuids) do
-    {count, _} = Catalogue.bulk_permanently_delete_items(uuids, muted_actor_opts(socket))
+    {count, _} = Catalogue.bulk_permanently_delete_items(uuids, scoped_muted_actor_opts(socket))
     PubSub.broadcast_bulk_change(socket.assigns.catalogue_uuid, :permanent_delete, uuids)
     broadcast_item_batch(socket)
 
@@ -1611,7 +1683,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   end
 
   defp do_bulk_restore_items(socket, uuids) do
-    {count, _} = Catalogue.bulk_restore_items(uuids, muted_actor_opts(socket))
+    {count, _} = Catalogue.bulk_restore_items(uuids, scoped_muted_actor_opts(socket))
     PubSub.broadcast_bulk_change(socket.assigns.catalogue_uuid, :restored, uuids)
     broadcast_item_batch(socket)
 
@@ -1677,6 +1749,34 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       else: {:noreply, socket}
   end
 
+  # The category picker the three modals share (trash → move items to…,
+  # move items, move categories). A form around the select is what makes
+  # `phx-change` reach the server (LiveView refuses bare inputs).
+  attr(:event, :string, required: true)
+  attr(:targets, :list, required: true, doc: "`{category, depth}` pairs")
+  attr(:target_uuid, :string, default: nil)
+  attr(:disabled, :boolean, default: false)
+  attr(:class, :string, default: "")
+
+  defp move_target_picker(assigns) do
+    ~H"""
+    <form phx-change={@event}>
+      <select
+        name="category_uuid"
+        disabled={@disabled}
+        class={["select select-sm w-full", @class]}
+      >
+        <option value="">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "-- Select category --")}</option>
+        <%= for {cat, depth} <- @targets do %>
+          <option value={cat.uuid} selected={@target_uuid == cat.uuid}>
+            {String.duplicate("— ", depth)}{cat.name}
+          </option>
+        <% end %>
+      </select>
+    </form>
+    """
+  end
+
   defp open_bulk_duplicate_modal(socket, _kind, []), do: socket
 
   defp open_bulk_duplicate_modal(socket, kind, uuids) do
@@ -1685,18 +1785,19 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
   defp do_bulk_duplicate_items(socket, uuids) do
     {:ok, %{created: created, errors: errors}} =
-      Catalogue.bulk_duplicate_items(uuids, muted_actor_opts(socket))
+      Catalogue.bulk_duplicate_items(
+        uuids,
+        Keyword.put(muted_actor_opts(socket), :catalogue_uuid, socket.assigns.catalogue_uuid)
+      )
 
     if created > 0, do: broadcast_item_batch(socket)
 
     socket
     |> assign(:bulk_duplicate_modal, nil)
     |> clear_item_selection()
-    |> flash_duplicated(
+    |> flash_bulk_result(
       created,
-      Gettext.gettext(PhoenixKitCatalogue.Gettext, "Duplicated %{count} items.", count: created)
-    )
-    |> flash_duplicate_errors(
+      Gettext.gettext(PhoenixKitCatalogue.Gettext, "Duplicated %{count} items.", count: created),
       errors,
       "bulk_duplicate_items",
       Gettext.gettext(
@@ -1711,21 +1812,19 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
   defp do_bulk_duplicate_categories(socket, uuids) do
     {:ok, %{created: created, errors: errors}} =
-      Catalogue.bulk_duplicate_categories(uuids, actor_opts(socket))
+      Catalogue.bulk_duplicate_categories(uuids, scoped_actor_opts(socket))
 
     socket
     |> assign(:bulk_duplicate_modal, nil)
     |> assign(:selected_categories, MapSet.new())
-    |> push_event("bulk_select:clear", %{})
-    |> flash_duplicated(
+    |> clear_bulk_selection()
+    |> flash_bulk_result(
       created,
       Gettext.gettext(
         PhoenixKitCatalogue.Gettext,
         "Duplicated %{count} categories.",
         count: created
-      )
-    )
-    |> flash_duplicate_errors(
+      ),
       errors,
       "bulk_duplicate_categories",
       Gettext.gettext(
@@ -1738,23 +1837,29 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     |> then(&{:noreply, &1})
   end
 
-  defp flash_duplicated(socket, 0, _msg), do: socket
-  defp flash_duplicated(socket, _n, msg), do: put_flash(socket, :info, msg)
-
-  defp flash_duplicate_errors(socket, [], _op, _msg), do: socket
-
-  defp flash_duplicate_errors(socket, errors, op, msg) do
-    log_operation_error(socket, op, %{reason: :partial_failure, errors: errors})
-    put_flash(socket, :error, msg)
+  # Bulk ops report both halves: a success flash when anything happened
+  # and an error flash (plus an operation log) for the entries refused.
+  defp flash_bulk_result(socket, done, ok_msg, errors, op, err_msg) do
+    socket
+    |> then(&if(done > 0, do: put_flash(&1, :info, ok_msg), else: &1))
+    |> then(fn socket ->
+      if errors == [] do
+        socket
+      else
+        log_operation_error(socket, op, %{reason: :partial_failure, errors: errors})
+        put_flash(socket, :error, err_msg)
+      end
+    end)
   end
 
   # Same-catalogue active categories that every selected category may go
   # under: the intersection of each one's own target list (which excludes
-  # its subtree). Unknown uuids contribute nothing and drop out.
-  defp category_move_targets(uuids) do
+  # its subtree). Unknown uuids — and uuids from another catalogue, which
+  # a forged event could carry — contribute nothing and drop out.
+  defp category_move_targets(uuids, catalogue_uuid) do
     uuids
     |> Enum.map(&Catalogue.get_category/1)
-    |> Enum.reject(&is_nil/1)
+    |> Enum.reject(&(is_nil(&1) or &1.catalogue_uuid != catalogue_uuid))
     |> Enum.map(&Catalogue.list_move_target_categories/1)
     |> case do
       [] ->
@@ -1772,48 +1877,25 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
   defp do_bulk_move_categories(socket, uuids, target_uuid) do
     {:ok, %{moved: moved, errors: errors}} =
-      Catalogue.bulk_move_categories_under(uuids, target_uuid, actor_opts(socket))
+      Catalogue.bulk_move_categories_under(uuids, target_uuid, scoped_actor_opts(socket))
 
-    socket =
-      socket
-      |> assign(:bulk_move_categories_modal, nil)
-      |> assign(:selected_categories, MapSet.new())
-      |> push_event("bulk_select:clear", %{})
-      |> reset_and_load()
-
-    socket =
-      if moved > 0,
-        do:
-          put_flash(
-            socket,
-            :info,
-            Gettext.gettext(PhoenixKitCatalogue.Gettext, "Moved %{count} categories.",
-              count: moved
-            )
-          ),
-        else: socket
-
-    socket =
-      if errors != [] do
-        log_operation_error(socket, "bulk_move_categories_under", %{
-          reason: :partial_failure,
-          errors: errors
-        })
-
-        put_flash(
-          socket,
-          :error,
-          Gettext.gettext(
-            PhoenixKitCatalogue.Gettext,
-            "%{count} categories could not be moved.",
-            count: length(errors)
-          )
-        )
-      else
-        socket
-      end
-
-    {:noreply, socket}
+    socket
+    |> assign(:bulk_move_categories_modal, nil)
+    |> assign(:selected_categories, MapSet.new())
+    |> clear_bulk_selection()
+    |> flash_bulk_result(
+      moved,
+      Gettext.gettext(PhoenixKitCatalogue.Gettext, "Moved %{count} categories.", count: moved),
+      errors,
+      "bulk_move_categories_under",
+      Gettext.gettext(
+        PhoenixKitCatalogue.Gettext,
+        "%{count} categories could not be moved.",
+        count: length(errors)
+      )
+    )
+    |> reset_and_load()
+    |> then(&{:noreply, &1})
   end
 
   defp do_bulk_trash_categories(socket) do
@@ -1827,12 +1909,12 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   end
 
   defp do_bulk_trash_categories_with(socket, uuids, items_opt) do
-    case Catalogue.bulk_trash_categories(uuids, items_opt, actor_opts(socket)) do
+    case Catalogue.bulk_trash_categories(uuids, items_opt, scoped_actor_opts(socket)) do
       {:ok, %{categories: count}} ->
         socket
         |> assign(:bulk_confirm, nil)
         |> assign(:selected_categories, MapSet.new())
-        |> push_event("bulk_select:clear", %{})
+        |> clear_bulk_selection()
         |> put_flash(
           :info,
           Gettext.gettext(PhoenixKitCatalogue.Gettext, "Deleted %{count} categories.",
@@ -2954,7 +3036,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                2+ selection ("Reorder N selected"). --%>
           <.bulk_select_scope
             :if={@child_categories != [] or show_uncat_card}
-            id={"categories-bulk-" <> (@current_category_uuid || "root")}
+            id={"categories-bulk-" <> (@current_category_uuid || "root") <> "-" <> Integer.to_string(@bulk_epoch)}
             total_count={length(@child_categories)}
             class="flex flex-col gap-2"
           >
@@ -3088,6 +3170,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
           <.level_items
             attribute_map={@attribute_map}
             supplier_costs={@supplier_costs}
+            bulk_epoch={@bulk_epoch}
             items_columns={@items_columns}
             controls_in_page_header={@child_categories == []}
             :if={@show_items_section}
@@ -3264,20 +3347,13 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                   {Gettext.gettext(PhoenixKitCatalogue.Gettext, "No other categories available — use Uncategorized instead.")}
                 </p>
               <% else %>
-                <form phx-change="select_trash_target">
-                  <select
-                  name="category_uuid"
+                <.move_target_picker
+                  event="select_trash_target"
+                  targets={@trash_modal[:targets]}
+                  target_uuid={@trash_modal[:target_uuid]}
                   disabled={@trash_modal[:disposition] != :move_to}
-                  class="select select-sm w-full"
-                >
-                  <option value="">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "-- Select category --")}</option>
-                  <%= for {cat, depth} <- @trash_modal[:targets] do %>
-                    <option value={cat.uuid} selected={@trash_modal[:target_uuid] == cat.uuid}>
-                      {String.duplicate("— ", depth)}{cat.name}
-                    </option>
-                  <% end %>
-                </select>
-                  </form>
+                  class=""
+                />
               <% end %>
             </div>
           </label>
@@ -3409,20 +3485,13 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                   {Gettext.gettext(PhoenixKitCatalogue.Gettext, "No categories available — use Uncategorized instead.")}
                 </p>
               <% else %>
-                <form phx-change="select_bulk_move_target">
-                  <select
-                  name="category_uuid"
+                <.move_target_picker
+                  event="select_bulk_move_target"
+                  targets={@bulk_move_modal[:targets]}
+                  target_uuid={@bulk_move_modal[:target_uuid]}
                   disabled={@bulk_move_modal[:disposition] != :move_to}
-                  class="select select-sm w-full mt-2"
-                >
-                  <option value="">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "-- Select category --")}</option>
-                  <%= for {cat, depth} <- @bulk_move_modal[:targets] do %>
-                    <option value={cat.uuid} selected={@bulk_move_modal[:target_uuid] == cat.uuid}>
-                      {String.duplicate("— ", depth)}{cat.name}
-                    </option>
-                  <% end %>
-                </select>
-                  </form>
+                  class="mt-2"
+                />
               <% end %>
             </div>
           </label>
@@ -3489,20 +3558,13 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                   {Gettext.gettext(PhoenixKitCatalogue.Gettext, "No category can take them — only the top level is left.")}
                 </p>
               <% else %>
-                <form phx-change="select_bulk_move_categories_target">
-                  <select
-                  name="category_uuid"
+                <.move_target_picker
+                  event="select_bulk_move_categories_target"
+                  targets={@bulk_move_categories_modal[:targets]}
+                  target_uuid={@bulk_move_categories_modal[:target_uuid]}
                   disabled={@bulk_move_categories_modal[:disposition] != :move_under}
-                  class="select select-sm w-full mt-2"
-                >
-                  <option value="">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "-- Select category --")}</option>
-                  <%= for {cat, depth} <- @bulk_move_categories_modal[:targets] do %>
-                    <option value={cat.uuid} selected={@bulk_move_categories_modal[:target_uuid] == cat.uuid}>
-                      {String.duplicate("— ", depth)}{cat.name}
-                    </option>
-                  <% end %>
-                </select>
-                  </form>
+                  class="mt-2"
+                />
               <% end %>
             </div>
           </label>
@@ -4020,6 +4082,12 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   attr(:file_counts, :map, default: %{})
   attr(:attribute_map, :map, default: %{})
   attr(:supplier_costs, :map, default: %{})
+
+  attr(:bulk_epoch, :integer,
+    default: 0,
+    doc: "Part of the selection scope id; bumps remount it."
+  )
+
   attr(:edit_path_fn, :any, required: true)
   attr(:items_columns, :list, default: ["sku", "price", "unit", "status"])
 
@@ -4048,7 +4116,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       <%!-- ── Active list: core List-UI toolkit ── --%>
       <.bulk_select_scope
         :if={@items != [] and @view_mode != "deleted"}
-        id={"items-bulk-" <> (@current_category_uuid || "root")}
+        id={"items-bulk-" <> (@current_category_uuid || "root") <> "-" <> Integer.to_string(@bulk_epoch)}
         total_count={@items_total}
         class="flex flex-col gap-2"
       >
