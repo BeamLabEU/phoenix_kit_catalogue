@@ -936,6 +936,58 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPickerTest do
     end
   end
 
+  describe "dropdown option photo preview (A040 part 2)" do
+    test "renders a thumbnail before the name for an option with a photo" do
+      item = %{
+        fake_item("item-1", "Oak Plank")
+        | data: %{"featured_image_uuid" => "photo-uuid-option"}
+      }
+
+      html =
+        render_component(
+          ItemPicker,
+          base_assigns(%{open: true, options: [item], has_more: false})
+        )
+
+      assert html =~ "<img"
+      assert html =~ "photo-uuid-option"
+    end
+
+    test "renders no thumbnail for an option without a photo" do
+      # fake_item/2 sets data: %{} — no featured_image_uuid.
+      item = fake_item("item-1", "Oak Plank")
+
+      html =
+        render_component(
+          ItemPicker,
+          base_assigns(%{open: true, options: [item], has_more: false})
+        )
+
+      refute html =~ "<img"
+    end
+
+    test "only the options that have a photo get a thumbnail, the rest render unchanged" do
+      with_photo = %{
+        fake_item("item-1", "Oak Plank")
+        | data: %{"featured_image_uuid" => "photo-uuid-oak"}
+      }
+
+      without_photo = fake_item("item-2", "Pine Plank")
+
+      html =
+        render_component(
+          ItemPicker,
+          base_assigns(%{open: true, options: [with_photo, without_photo], has_more: false})
+        )
+
+      assert html =~ "photo-uuid-oak"
+      assert html =~ "Oak Plank"
+      assert html =~ "Pine Plank"
+      assert html =~ ~s(id="test-picker-option-0")
+      assert html =~ ~s(id="test-picker-option-1")
+    end
+  end
+
   # initial_query SEEDING here only covers the DB-free guard branches (the
   # positive "search runs and prefills" path needs the catalogue Repo and lives
   # in the integration suite). update/2 must never clobber a real selection or a
