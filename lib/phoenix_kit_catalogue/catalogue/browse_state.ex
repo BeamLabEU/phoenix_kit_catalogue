@@ -33,6 +33,11 @@ defmodule PhoenixKitCatalogue.Catalogue.BrowseState do
   `:catalogue_uuids` / `:only`. A crafted client event can therefore never
   make the fetch layer return items the host did not allow.
 
+  An empty list (`[]`) in a scope entry means **unrestricted** — the same
+  alias for `nil` the whole `Search.search_items/2` vocabulary uses — not
+  "nothing allowed". A host wanting to show nothing should not mount the
+  browse surface at all.
+
   ## Generations
 
   Every effectful command bumps `gen`, and `ingest/4` discards results
@@ -76,7 +81,9 @@ defmodule PhoenixKitCatalogue.Catalogue.BrowseState do
   def init(opts \\ []) do
     %__MODULE__{
       scope: validate_scope!(Map.new(opts[:scope] || %{})),
-      per_page: opts[:per_page] || @default_per_page
+      # Floored at 1: a 0 page size never satisfies `length(items) < per_page`,
+      # so `exhausted?` could not latch and :load_more would page forever.
+      per_page: max(opts[:per_page] || @default_per_page, 1)
     }
   end
 
@@ -201,13 +208,29 @@ defmodule PhoenixKitCatalogue.Catalogue.BrowseState do
 
   defp effective_category_uuids(%{category_uuid: uuid}), do: [uuid]
 
+  # Beyond the allow-list, two rejections keep a crafted (or merely stale)
+  # chip event from crashing the host LV in the fetch layer:
+  # `:uncategorized_only` scopes contradict ANY category narrowing —
+  # `search_items/2` raises on the combination by contract — and on an
+  # UNRESTRICTED scope a non-UUID string would sail into the subtree
+  # expansion and raise `Ecto.Query.CastError`. Both degrade to :noop.
+  # A host-provided allow-list is trusted as-is: membership is the guard
+  # there, and garbage a host wrote crashes loudly on its own head.
+  # (`Ecto.UUID.cast/1` also accepts 16-byte raw UUIDs; that's fine —
+  # those are still valid query input.)
   defp category_allowed?(scope, uuid) do
-    case scope[:category_uuids] do
-      nil -> true
-      [] -> true
-      allowed -> uuid in allowed
+    if scope[:only] == :uncategorized_only do
+      false
+    else
+      case scope[:category_uuids] do
+        nil -> valid_uuid?(uuid)
+        [] -> valid_uuid?(uuid)
+        allowed -> uuid in allowed
+      end
     end
   end
+
+  defp valid_uuid?(uuid), do: match?({:ok, _}, Ecto.UUID.cast(uuid))
 
   defp uuid_of(%Item{uuid: uuid}), do: to_string(uuid)
   defp uuid_of(%{uuid: uuid}), do: to_string(uuid)

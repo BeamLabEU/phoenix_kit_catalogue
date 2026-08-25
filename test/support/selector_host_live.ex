@@ -13,6 +13,7 @@ defmodule PhoenixKitCatalogue.Test.SelectorHostLive do
     * `mode`      — "single" for `mode: :single`
     * `immediate` — "true" with single mode
     * `precision` — qty_precision (default 0)
+    * `min`       — qty_min
     * `max`       — qty_max
     * `two`       — "true" mounts a SECOND picker (id-uniqueness tests)
   """
@@ -42,6 +43,7 @@ defmodule PhoenixKitCatalogue.Test.SelectorHostLive do
        mode: if(params["mode"] == "single", do: :single, else: :multiple),
        immediate: params["immediate"] == "true",
        precision: String.to_integer(params["precision"] || "0"),
+       min: params["min"] && String.to_integer(params["min"]),
        max: params["max"] && String.to_integer(params["max"]),
        two: params["two"] == "true",
        browse: params["browse"] == "true",
@@ -104,6 +106,7 @@ defmodule PhoenixKitCatalogue.Test.SelectorHostLive do
         mode={@mode}
         immediate={@immediate}
         qty_precision={@precision}
+        qty_min={@min}
         qty_max={@max}
       />
       <.live_component

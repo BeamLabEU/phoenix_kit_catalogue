@@ -152,9 +152,9 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       view |> picker() |> render_click("confirm", %{})
       html = render(view)
 
-      # Nothing was selectable, so the payload is empty — the forbidden
-      # item never enters the selection, let alone the picks.
-      assert html =~ ~s(<span id="picked-count">0</span>)
+      # The forbidden item never enters the selection, so nothing is
+      # confirmable and the confirm itself is refused — no message at all.
+      refute html =~ ~s(id="picked")
     end
 
     test "clicking a selected card deselects it", %{conn: conn, cat: cat, screw: screw} do
@@ -165,7 +165,9 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       view |> picker() |> render_click("confirm", %{})
       html = render(view)
 
-      assert html =~ ~s(<span id="picked-count">0</span>)
+      # Deselected back to empty: confirm is refused rather than sending
+      # `picks: []`.
+      refute html =~ ~s(id="picked")
     end
 
     test "cancel sends the closed message and nothing else", %{conn: conn, cat: cat} do
@@ -196,7 +198,8 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       view |> picker() |> render_click("qty_dec", %{"uuid" => uuid})
       view |> picker() |> render_click("confirm", %{})
       html = render(view)
-      assert html =~ ~s(<span id="picked-count">0</span>)
+      # The minus removed the only pick, so confirm is refused outright.
+      refute html =~ ~s(id="picked")
     end
 
     test "commit parses a decimal comma when precision allows", %{
@@ -286,8 +289,11 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       view |> picker() |> render_click("confirm", %{})
       html = render(view)
 
-      # …but it must not come back as a pick: the host's own scope said no.
-      assert html =~ ~s(<span id="picked-count">0</span>)
+      # …and with nothing available the confirm itself is refused — no
+      # message at all, not a `picks: []` a replace-semantics host would
+      # read as "erase everything".
+      refute html =~ ~s(id="picked")
+      refute html =~ ~s(id="closed")
     end
   end
 
@@ -312,7 +318,8 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
 
       view |> picker() |> render_click("confirm", %{})
       html = render(view)
-      assert html =~ ~s(<span id="picked-count">0</span>)
+      # Nothing available -> the confirm is refused, no message at all.
+      refute html =~ ~s(id="picked")
     end
 
     test "a :categorized_only-excluded uncategorized preselect is not confirmable", %{
@@ -345,7 +352,8 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
 
       view |> picker() |> render_click("confirm", %{})
       html = render(view)
-      assert html =~ ~s(<span id="picked-count">0</span>)
+      # Nothing available -> the confirm is refused, no message at all.
+      refute html =~ ~s(id="picked")
     end
 
     test "an uncategorized preselect under a category_uuids scope does not crash", %{
@@ -378,7 +386,8 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
 
       view |> picker() |> render_click("confirm", %{})
       html = render(view)
-      assert html =~ ~s(<span id="picked-count">0</span>)
+      # Nothing available -> the confirm is refused, no message at all.
+      refute html =~ ~s(id="picked")
     end
 
     test "a descendant-category preselect is confirmable (search expands the tree)", %{
@@ -540,6 +549,188 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       dupes = ids |> Enum.frequencies() |> Enum.filter(fn {_id, n} -> n > 1 end)
 
       assert dupes == [], "duplicate DOM ids: #{inspect(dupes)}"
+    end
+  end
+
+  describe "hardening from the 2026-08-25 quorum review" do
+    test "the search form routes submit — Enter must not become a native page load", %{
+      conn: conn,
+      cat: cat
+    } do
+      {:ok, view, html} = open(conn, "c=#{cat.uuid}")
+
+      # The attribute is the fix: a phx-change form WITHOUT phx-submit is
+      # an "external form" to LiveView's client — Enter would run a native
+      # submit and destroy the modal with every pick in it.
+      assert has_element?(view, ~s(#picker-search-form[phx-submit="browse_search"]))
+      assert html =~ ~s(phx-submit="browse_search")
+
+      # And the routed submit is just a re-search.
+      html =
+        view
+        |> element("#picker-search-form")
+        |> render_submit(%{"search" => "M8"})
+
+      assert html =~ "M8 Screw"
+      refute html =~ "White Paint"
+    end
+
+    test "an :uncategorized_only scope offers no category chips", %{conn: conn, cat: cat} do
+      _category = fixture_category(cat, %{name: "Visible Cat"})
+
+      {:ok, _view, html} = open(conn, "c=#{cat.uuid}&only=uncategorized")
+
+      # Every chip would be an invalid action (search_items/2 raises on
+      # the combination), so the whole row is suppressed.
+      refute html =~ ~s(id="picker-chips")
+    end
+
+    test "a crafted browse_category with a non-UUID string is a no-op, not a crash", %{
+      conn: conn,
+      cat: cat
+    } do
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}")
+
+      html = view |> picker() |> render_click("browse_category", %{"uuid" => "garbage"})
+
+      # Without the reducer guard this raised Ecto.Query.CastError inside
+      # the subtree expansion and took the host LiveView down.
+      assert Process.alive?(view.pid)
+      assert html =~ "M8 Screw"
+    end
+
+    test "hydrated preselect quantities are clamped like typed ones", %{
+      conn: conn,
+      cat: cat,
+      screw: screw,
+      paint: paint
+    } do
+      # Above the absolute ceiling → capped; below the minimum → floored.
+      {:ok, view, _html} =
+        open(conn, "c=#{cat.uuid}&pre=#{screw.uuid}:5000000,#{paint.uuid}:0")
+
+      view |> picker() |> render_click("confirm", %{})
+      html = render(view)
+
+      assert html =~ "qty=1000000"
+      assert html =~ "qty=1"
+    end
+
+    test "single mode keeps at most one preselected entry", %{
+      conn: conn,
+      cat: cat,
+      screw: screw,
+      paint: paint
+    } do
+      {:ok, view, _html} =
+        open(conn, "c=#{cat.uuid}&pre=#{paint.uuid}:1,#{screw.uuid}:1&mode=single")
+
+      view |> picker() |> render_click("confirm", %{})
+      html = render(view)
+
+      assert html =~ ~s(<span id="picked-count">1</span>)
+    end
+
+    test "a crafted confirm with nothing selected is refused outright", %{conn: conn, cat: cat} do
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}")
+
+      view |> picker() |> render_click("confirm", %{})
+      html = render(view)
+
+      refute html =~ ~s(id="picked")
+      refute html =~ ~s(id="closed")
+    end
+
+    test "a preselect under a soft-deleted catalogue is unavailable", %{
+      conn: conn,
+      cat: cat,
+      screw: screw
+    } do
+      # The search joins exclude items under deleted parents; hydration
+      # must judge the same way or the tray blesses a row the browse could
+      # never return.
+      {:ok, _} = Catalogue.update_catalogue(cat, %{status: "deleted"})
+
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&pre=#{screw.uuid}:2")
+
+      html = view |> picker() |> render_click("toggle_tray", %{})
+      assert html =~ "Not available in this selection"
+
+      view |> picker() |> render_click("confirm", %{})
+      refute render(view) =~ ~s(id="picked")
+    end
+
+    test "with qty_min: 0 a typed \"0\" commits instead of reverting", %{
+      conn: conn,
+      cat: cat,
+      screw: screw
+    } do
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&min=0")
+
+      view |> picker() |> render_click("card_click", %{"uuid" => screw.uuid})
+      view |> picker() |> render_click("qty_commit", %{"uuid" => screw.uuid, "value" => "0"})
+      view |> picker() |> render_click("confirm", %{})
+
+      assert render(view) =~ "qty=0"
+    end
+
+    test "a qty_commit for an unselected uuid changes nothing and cannot crash", %{
+      conn: conn,
+      cat: cat
+    } do
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}")
+
+      view
+      |> picker()
+      |> render_click("qty_commit", %{"uuid" => Ecto.UUID.generate(), "value" => "5"})
+
+      assert Process.alive?(view.pid)
+      refute render(view) =~ ~s(id="picked")
+    end
+
+    test "a fresh search resets the selectable set — stale uuids are refused", %{
+      conn: conn,
+      cat: cat,
+      screw: screw,
+      paint: paint
+    } do
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}")
+
+      # Narrow to paint only, then card_click the screw (rendered by the
+      # PREVIOUS query, absent from this one): refused, so a later
+      # confirm has nothing.
+      view |> picker() |> render_change("browse_search", %{"search" => "Paint"})
+      view |> picker() |> render_click("card_click", %{"uuid" => screw.uuid})
+      view |> picker() |> render_click("confirm", %{})
+      refute render(view) =~ ~s(id="picked")
+
+      # Positive control: the currently-rendered card still selects.
+      view |> picker() |> render_click("card_click", %{"uuid" => paint.uuid})
+      view |> picker() |> render_click("confirm", %{})
+      assert render(view) =~ ~s(<span id="picked-count">1</span>)
+    end
+
+    test "a parent-category scope shows and accepts descendant chips", %{conn: conn, cat: cat} do
+      parent = fixture_category(cat, %{name: "Parent Cat"})
+      child = fixture_category(cat, %{name: "Child Cat", parent_uuid: parent.uuid})
+
+      {:ok, nested} =
+        Catalogue.create_item(%{
+          name: "Nested Item",
+          catalogue_uuid: cat.uuid,
+          category_uuid: child.uuid
+        })
+
+      {:ok, view, html} = open(conn, "c=#{cat.uuid}&cat_scope=#{parent.uuid}")
+
+      # The subtree is part of the scope, so its chips must be offered…
+      assert html =~ "Child Cat"
+      assert html =~ "Nested Item"
+
+      # …and narrowing to a descendant is accepted, not rejected as
+      # out-of-scope.
+      html = view |> picker() |> render_click("browse_category", %{"uuid" => child.uuid})
+      assert html =~ "Nested Item"
     end
   end
 end
