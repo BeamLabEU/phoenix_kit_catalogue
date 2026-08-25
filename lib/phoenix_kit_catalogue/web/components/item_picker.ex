@@ -581,10 +581,12 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
   # Display helpers
   # ─────────────────────────────────────────────────────────────────
 
-  # The selected item's featured photo UUID (from the JSONB `data` map)
-  # or nil. Drives the optional thumbnail rendered to the left of the
-  # input; a blank or missing pointer renders no thumbnail, leaving the
-  # layout unchanged for items without a photo.
+  # An item's featured photo UUID (from the JSONB `data` map) or nil.
+  # Drives the optional thumbnail left of the input for the selected item,
+  # and, since A040 part 2, the same per-row thumbnail in the dropdown
+  # list — any `%Item{}` works, not just the selected one. A blank or
+  # missing pointer renders no thumbnail, leaving the layout unchanged for
+  # items without a photo.
   defp selected_photo_uuid(%Item{data: data}) when is_map(data) do
     # Canonical uuid form only: the value goes into a URL path (see
     # `Components.featured_image_uuid/1`).
@@ -856,15 +858,25 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
               <% price = format_price_display(item, @price_fun) %>
               <% unit = if @show_unit, do: @unit_fun.(item.unit), else: "" %>
               <% sku = if @show_sku, do: item.sku || "—", else: nil %>
-              <div class="min-w-0 flex-1">
-                <div class="font-medium text-sm truncate">
-                  {item_display_name(item, @locale)}
-                </div>
-                <div
-                  :if={item_breadcrumb(item, @locale, @category_paths) != ""}
-                  class="text-xs text-base-content/50 truncate"
-                >
-                  {item_breadcrumb(item, @locale, @category_paths)}
+              <% li_photo_uuid = selected_photo_uuid(item) %>
+              <div class="flex items-center gap-2 min-w-0 flex-1">
+                <img
+                  :if={li_photo_uuid}
+                  src={URLSigner.signed_url(li_photo_uuid, "thumbnail")}
+                  alt=""
+                  onerror="this.style.display='none'"
+                  class="w-8 h-8 shrink-0 rounded object-cover bg-base-200 border border-base-300"
+                />
+                <div class="min-w-0 flex-1">
+                  <div class="font-medium text-sm truncate">
+                    {item_display_name(item, @locale)}
+                  </div>
+                  <div
+                    :if={item_breadcrumb(item, @locale, @category_paths) != ""}
+                    class="text-xs text-base-content/50 truncate"
+                  >
+                    {item_breadcrumb(item, @locale, @category_paths)}
+                  </div>
                 </div>
               </div>
               <div
