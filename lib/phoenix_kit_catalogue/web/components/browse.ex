@@ -30,6 +30,16 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
 
   import PhoenixKitWeb.Components.Core.Icon, only: [icon: 1]
 
+  import PhoenixKitWeb.Components.Core.TableDefault,
+    only: [
+      table_default: 1,
+      table_default_header: 1,
+      table_default_header_cell: 1,
+      table_default_body: 1,
+      table_default_row: 1,
+      table_default_cell: 1
+    ]
+
   alias PhoenixKit.Modules.Storage.URLSigner
   alias PhoenixKitCatalogue.Catalogue
   alias PhoenixKitCatalogue.Catalogue.Translations
@@ -299,19 +309,23 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
 
   def item_table(assigns) do
     ~H"""
-    <div id={@id} class="overflow-x-auto">
-      <table class="table table-sm table-zebra">
-        <thead>
+    <%!-- Composed from core's table_default family — the components the
+    admin tables are built on — so the picker list is literally the admin
+    look, and improvements there flow here. The id lives on our wrapper:
+    the classic table branch doesn't render one. --%>
+    <div id={@id}>
+      <.table_default variant="zebra" size="sm">
+        <.table_default_header>
           <tr>
-            <th :for={col <- @columns} class={col == :qty && "text-right"}>
+            <.table_default_header_cell :for={col <- @columns} class={col == :qty && "text-right"}>
               {column_header(col)}
-            </th>
+            </.table_default_header_cell>
           </tr>
-        </thead>
-        <tbody>
+        </.table_default_header>
+        <.table_default_body>
           {render_slot(@inner_block)}
-        </tbody>
-      </table>
+        </.table_default_body>
+      </.table_default>
     </div>
     """
   end
@@ -342,13 +356,13 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
 
   def item_row(assigns) do
     ~H"""
-    <tr
+    <.table_default_row
       id={@id}
       data-selected={to_string(@selected)}
       aria-selected={to_string(@selected)}
       class={@selected && "bg-primary/10"}
     >
-      <td
+      <.table_default_cell
         :for={col <- @columns}
         class={[
           row_cell_class(col),
@@ -391,8 +405,8 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
           <% :qty -> %>
             <div class="flex justify-end">{render_slot(@qty)}</div>
         <% end %>
-      </td>
-    </tr>
+      </.table_default_cell>
+    </.table_default_row>
     """
   end
 
