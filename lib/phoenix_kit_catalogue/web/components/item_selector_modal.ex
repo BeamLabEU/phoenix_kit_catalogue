@@ -171,6 +171,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
     }
 
     display = display_opts(assigns)
+    columns = resolve_columns!(assigns[:columns], display)
 
     socket =
       socket
@@ -180,7 +181,8 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
         mode: mode,
         locale: locale,
         view: resolve_view!(assigns[:view]),
-        columns: resolve_columns!(assigns[:columns], display),
+        columns: columns,
+        visible_columns: visible_columns(columns, assigns[:hidden_columns]),
         selection_mode: resolve_selection_mode!(assigns[:selection_mode]),
         qty_precision: qty_precision,
         qty_min: limits.qty_min,
@@ -215,6 +217,36 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
         ArgumentError,
         ~s(ItemSelectorModal selection_mode must be "click" or "quantity", got: #{inspect(other)})
       )
+
+  # The granted set minus what starts hidden. SKU is hidden by default in
+  # THIS picker — most embeds don't want it seen, though it stays granted
+  # and one dropdown click away. Hosts override via hidden_columns
+  # (unknown/ungranted entries are simply ignored: hiding less than asked
+  # never widens anything).
+  defp visible_columns(granted, hidden) do
+    hidden = if is_list(hidden), do: hidden, else: [:sku, :breadcrumb]
+    Enum.reject(granted, &(&1 in hidden))
+  end
+
+  # Columns the viewer may NOT toggle at all: in quantity-first mode qty
+  # IS the selector. Identity (:name/:breadcrumb) is handled dynamically —
+  # either may hide as long as the OTHER still shows (the last identity
+  # column refuses to go, the way the admin tables pin name).
+  defp locked_columns(assigns) do
+    if assigns.selection_mode == "quantity", do: [:qty], else: []
+  end
+
+  # The Uncategorized chip only makes sense where BrowseState would accept
+  # the narrowing (see its {:set_category, :uncategorized} clause).
+  defp offer_uncategorized?(scope) do
+    scope[:only] == nil and scope[:category_uuids] in [nil, []]
+  end
+
+  @identity_columns [:name, :breadcrumb]
+
+  defp last_identity?(col, visible) do
+    col in @identity_columns and Enum.filter(@identity_columns, &(&1 in visible)) == [col]
+  end
 
   # The popup is potentially client-facing, so columns are a host contract:
   # nothing renders that the embed didn't ask for. With no explicit list,
@@ -513,13 +545,47 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
     {:noreply, assign(socket, :view, mode)}
   end
 
+  def handle_event("toggle_column", %{"col" => raw}, socket) do
+    granted = socket.assigns.columns
+    visible = socket.assigns.visible_columns
+    col = Enum.find(granted, &(to_string(&1) == raw))
+
+    cond do
+      # Outside the host's pre-approved set, or locked: refused — the
+      # dropdown only offers legal rows, but the server is the boundary.
+      is_nil(col) or col in locked_columns(socket.assigns) ->
+        {:noreply, socket}
+
+      col in visible ->
+        # The last visible identity column stays — a list where nothing
+        # names the items is not a picker.
+        if last_identity?(col, visible) do
+          {:noreply, socket}
+        else
+          {:noreply, assign(socket, :visible_columns, visible -- [col])}
+        end
+
+      true ->
+        # Re-show in the GRANTED order, not appended at the end.
+        shown = [col | visible]
+        {:noreply, assign(socket, :visible_columns, Enum.filter(granted, &(&1 in shown)))}
+    end
+  end
+
   def handle_event("browse_search", %{"search" => q}, socket) do
     {browse, effect} = BrowseState.command(socket.assigns.browse, {:search, q})
     {:noreply, socket |> assign(browse: browse) |> run_fetch(effect)}
   end
 
   def handle_event("browse_category", %{"uuid" => uuid}, socket) do
-    cmd = {:set_category, if(uuid == "", do: nil, else: uuid)}
+    value =
+      case uuid do
+        "" -> nil
+        "__uncategorized__" -> :uncategorized
+        other -> other
+      end
+
+    cmd = {:set_category, value}
     {browse, effect} = BrowseState.command(socket.assigns.browse, cmd)
     {:noreply, socket |> assign(browse: browse) |> run_fetch(effect)}
   end
@@ -883,6 +949,13 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
                 />
               </label>
             </form>
+            <.column_toggle
+              :if={@view == "table"}
+              id={"#{@id}-column-toggle"}
+              columns={@columns -- locked_columns(assigns)}
+              visible={@visible_columns}
+              target={@myself}
+            />
             <.view_toggle
               id={"#{@id}-view-toggle"}
               modes={[
@@ -899,6 +972,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
             id={"#{@id}-chips"}
             categories={@categories}
             active_uuid={@browse.category_uuid}
+            show_uncategorized={offer_uncategorized?(@browse.scope)}
             target={@myself}
           />
 
@@ -940,18 +1014,18 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
             <.item_table
               :if={@view == "table" and (@browse.items != [] or @browse.loading?)}
               id={"#{@id}-table"}
-              columns={@columns}
+              columns={@visible_columns}
             >
               <%= if @browse.loading? and @browse.items == [] do %>
                 <tr :for={i <- 1..5} id={"#{@id}-row-skeleton-#{i}"}>
-                  <td colspan={length(@columns)}><div class="skeleton h-8 w-full"></div></td>
+                  <td colspan={length(@visible_columns)}><div class="skeleton h-8 w-full"></div></td>
                 </tr>
               <% end %>
               <%= for item <- @browse.items do %>
                 <.item_row
                   id={"#{@id}-row-#{item.uuid}"}
                   item={item}
-                  columns={@columns}
+                  columns={@visible_columns}
                   selected={Map.has_key?(@selection, item.uuid)}
                   clickable={@selection_mode != "quantity"}
                   target={@myself}

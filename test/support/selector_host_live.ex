@@ -17,6 +17,7 @@ defmodule PhoenixKitCatalogue.Test.SelectorHostLive do
     * `max`       — qty_max
     * `view`      — starting view, "table" | "card" (nil = component default)
     * `sel`       — selection_mode, "click" | "quantity"
+    * `hide`      — comma list for hidden_columns; empty string = hide nothing
     * `cols`      — comma list of table columns, e.g. "thumb,name,qty"
                     (unknown names map to :invalid_column so the modal's
                     own validation raise can be exercised)
@@ -53,6 +54,7 @@ defmodule PhoenixKitCatalogue.Test.SelectorHostLive do
        view: params["view"],
        sel: params["sel"],
        cols: parse_cols(params["cols"]),
+       hide: params["hide"] && parse_cols(params["hide"]) |> List.wrap(),
        show_prices: params["hide_prices"] != "true",
        two: params["two"] == "true",
        browse: params["browse"] == "true",
@@ -81,7 +83,7 @@ defmodule PhoenixKitCatalogue.Test.SelectorHostLive do
   defp maybe_put_only(scope, _), do: scope
 
   @col_atoms Map.new(
-               ~w(thumb name sku manufacturer category unit price base_price qty),
+               ~w(thumb breadcrumb name sku manufacturer category unit price base_price qty),
                &{&1, String.to_atom(&1)}
              )
 
@@ -133,6 +135,7 @@ defmodule PhoenixKitCatalogue.Test.SelectorHostLive do
         view={@view}
         selection_mode={@sel}
         columns={@cols}
+        hidden_columns={@hide}
         show_prices={@show_prices}
       />
       <.live_component

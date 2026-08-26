@@ -124,8 +124,16 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
   """
   attr(:id, :string, required: true)
   attr(:categories, :list, required: true, doc: "[%{uuid:, name:}]")
-  attr(:active_uuid, :string, default: nil)
+  attr(:active_uuid, :any, default: nil)
   attr(:target, :any, default: nil)
+
+  attr(:show_uncategorized, :boolean,
+    default: false,
+    doc:
+      "Adds an Uncategorized chip (value \"__uncategorized__\") after the " <>
+        "category chips — for scopes where items without a category exist " <>
+        "and the chips would otherwise never add up."
+  )
 
   def category_chips(assigns) do
     ~H"""
@@ -151,6 +159,19 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
         phx-target={@target}
       >
         {category.name}
+      </button>
+      <button
+        :if={@show_uncategorized}
+        type="button"
+        class={[
+          "btn btn-xs rounded-full whitespace-nowrap",
+          if(@active_uuid == :uncategorized, do: "btn-primary", else: "btn-ghost")
+        ]}
+        phx-click="browse_category"
+        phx-value-uuid="__uncategorized__"
+        phx-target={@target}
+      >
+        {gettext("Uncategorized")}
       </button>
     </div>
     """
@@ -290,18 +311,70 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
     """
   end
 
+  @doc """
+  A columns-visibility dropdown: one checkbox row per TOGGLEABLE column,
+  pushing `event` (default `"toggle_column"`) with `%{"col" => col}` to
+  `target` on each row click. Presentation only — the caller owns which
+  columns are toggleable at all (its pre-approved set minus pinned ones)
+  and what is currently visible. Focus-based dropdown, so several columns
+  can be flipped before it closes on blur.
+  """
+  attr(:id, :string, required: true)
+  attr(:columns, :list, required: true, doc: "toggleable columns, display order")
+  attr(:visible, :list, required: true)
+  attr(:event, :string, default: "toggle_column")
+  attr(:target, :any, default: nil)
+
+  def column_toggle(assigns) do
+    ~H"""
+    <div id={@id} class="dropdown dropdown-end">
+      <div tabindex="0" role="button" class="btn btn-sm" title={gettext("Columns")}>
+        <span class="hero-view-columns w-4 h-4"></span>
+      </div>
+      <ul
+        tabindex="0"
+        class="dropdown-content menu bg-base-100 rounded-box border border-base-300 shadow-lg z-50 w-48 p-2"
+      >
+        <li :for={col <- @columns}>
+          <button
+            type="button"
+            phx-click={@event}
+            phx-value-col={col}
+            phx-target={@target}
+            class="justify-start gap-2"
+          >
+            <input
+              type="checkbox"
+              class="checkbox checkbox-xs pointer-events-none"
+              checked={col in @visible}
+              tabindex="-1"
+            />
+            {column_label(col)}
+          </button>
+        </li>
+      </ul>
+    </div>
+    """
+  end
+
+  # Dropdown labels: same as the headers except :thumb, whose header is
+  # deliberately blank.
+  defp column_label(:thumb), do: gettext("Photo")
+  defp column_label(:breadcrumb), do: gettext("Category / Name")
+  defp column_label(col), do: column_header(col)
+
   # The column vocabulary for `item_table`/`item_row`. Hosts pick a subset
   # in display order; anything else raises at init (config is a contract).
   # `:price` is the customer-facing SELLING price (markup and discount
   # applied — `item_pricing/1`'s final_price) rendered as "6.40 / piece";
   # `:base_price` is the raw column for internal embeds; `:unit` is the
   # standalone unit for lists that show no price at all.
-  @table_columns ~w(thumb name sku manufacturer category unit price base_price qty)a
+  @table_columns ~w(thumb breadcrumb name sku manufacturer category unit price base_price qty)a
 
   # What renders when the host doesn't pass columns: unit lives inside the
   # price cell, and the raw base price is opt-in only — a client-facing
   # default must never leak it.
-  @default_table_columns ~w(thumb name sku manufacturer category price qty)a
+  @default_table_columns ~w(thumb breadcrumb name sku manufacturer category price qty)a
 
   @doc "The legal `item_table`/`item_row` column atoms, in canonical order."
   def table_columns, do: @table_columns
@@ -347,6 +420,8 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
   end
 
   defp column_header(:thumb), do: ""
+  # Deliberately headerless, like :thumb — the content is its own label.
+  defp column_header(:breadcrumb), do: ""
   defp column_header(:name), do: gettext("Name")
   defp column_header(:sku), do: gettext("SKU")
   defp column_header(:manufacturer), do: gettext("Manufacturer")
@@ -412,6 +487,16 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
               the whole table width back and resurrect sideways scroll. --%>
               <span class="line-clamp-2">{@item.name}</span>
             </div>
+          <% :breadcrumb -> %>
+            <div class="flex items-center gap-1.5 font-medium">
+              <.icon :if={@selected} name="hero-check" class="w-4 h-4 text-primary shrink-0" />
+              <span class="line-clamp-2">
+                <span :if={@item.category} class="font-normal text-base-content/60">
+                  {@item.category} /
+                </span>
+                {@item.name}
+              </span>
+            </div>
           <% :sku -> %>
             <span class="font-mono text-xs text-base-content/60">{@item.sku}</span>
           <% :manufacturer -> %>
@@ -442,6 +527,7 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
 
   defp row_cell_class(:thumb), do: "w-10"
   defp row_cell_class(:name), do: "w-full"
+  defp row_cell_class(:breadcrumb), do: "w-full"
   defp row_cell_class(:price), do: "text-right whitespace-nowrap"
   defp row_cell_class(:base_price), do: "text-right whitespace-nowrap"
   defp row_cell_class(:qty), do: "text-right whitespace-nowrap"
@@ -453,6 +539,7 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
   # drifting to the far edge with dead space before it. Numeric columns
   # right-align.
   defp col_shape_class(:name), do: "w-full"
+  defp col_shape_class(:breadcrumb), do: "w-full"
   defp col_shape_class(:price), do: "text-right"
   defp col_shape_class(:base_price), do: "text-right"
   defp col_shape_class(:qty), do: "text-right"

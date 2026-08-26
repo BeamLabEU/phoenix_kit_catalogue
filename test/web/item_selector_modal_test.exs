@@ -821,9 +821,8 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       {:ok, _view, html} = open(conn, "c=#{cat.uuid}")
 
       # Low-priority columns carry their responsive stage on th AND td…
-      # (unit is no longer a default column — it rides inside the price
-      # cell — so no sm stage appears in the default set).
-      assert html =~ "hidden md:table-cell"
+      # (unit rides inside the price cell and SKU starts hidden, so only
+      # the lg stage appears in the default visible set).
       assert html =~ "hidden lg:table-cell"
       # …and the modal box grows past core Modal's 4xl cap on big screens.
       assert html =~ "xl:max-w-6xl"
@@ -858,6 +857,146 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       assert has_element?(view, "#picker-table th", "Base price")
       assert html =~ "10.00"
       refute html =~ "11.00"
+    end
+
+    test "SKU starts hidden; the Columns dropdown reveals it within the granted set", %{
+      conn: conn,
+      cat: cat
+    } do
+      {:ok, view, html} = open(conn, "c=#{cat.uuid}")
+
+      # Hidden by default in the picker — but granted, so the dropdown
+      # offers it and the data waits one click away.
+      refute has_element?(view, "#picker-table th", "SKU")
+      assert has_element?(view, ~s(#picker-column-toggle [phx-value-col="sku"]))
+      _ = html
+
+      view |> picker() |> render_click("toggle_column", %{"col" => "sku"})
+      assert has_element?(view, "#picker-table th", "SKU")
+      assert render(view) =~ "M8-100"
+
+      # And hiding it again removes header and data both.
+      view |> picker() |> render_click("toggle_column", %{"col" => "sku"})
+      refute has_element?(view, "#picker-table th", "SKU")
+      refute render(view) =~ "M8-100"
+    end
+
+    test "toggle_column refuses pinned and ungranted columns", %{conn: conn, cat: cat} do
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}")
+
+      # :name is the last visible identity column here; :base_price was
+      # never granted; garbage is garbage.
+      view |> picker() |> render_click("toggle_column", %{"col" => "name"})
+      view |> picker() |> render_click("toggle_column", %{"col" => "base_price"})
+      view |> picker() |> render_click("toggle_column", %{"col" => "bogus"})
+
+      assert has_element?(view, "#picker-table th", "Name")
+      refute has_element?(view, "#picker-table th", "Base price")
+      assert Process.alive?(view.pid)
+    end
+
+    test "breadcrumb: category/name in one headerless column, replacing name", %{
+      conn: conn,
+      cat: cat
+    } do
+      fasteners = fixture_category(cat, %{name: "Fasteners"})
+
+      {:ok, _} =
+        Catalogue.create_item(%{
+          name: "Wood screws 4x40 (100pk)",
+          catalogue_uuid: cat.uuid,
+          category_uuid: fasteners.uuid
+        })
+
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}")
+
+      # Off by default, offered in the dropdown.
+      refute render(view) =~ "Fasteners /"
+      assert has_element?(view, ~s(#picker-column-toggle [phx-value-col="breadcrumb"]))
+
+      # Turn it on, drop the now-redundant name and category columns.
+      view |> picker() |> render_click("toggle_column", %{"col" => "breadcrumb"})
+      view |> picker() |> render_click("toggle_column", %{"col" => "name"})
+      view |> picker() |> render_click("toggle_column", %{"col" => "category"})
+
+      html = render(view)
+      assert html =~ "Fasteners /"
+      assert html =~ "Wood screws 4x40 (100pk)"
+      refute has_element?(view, "#picker-table th", "Name")
+      refute has_element?(view, "#picker-table th", "Category")
+
+      # But the breadcrumb is now the last identity column — it stays.
+      view |> picker() |> render_click("toggle_column", %{"col" => "breadcrumb"})
+      assert render(view) =~ "Wood screws 4x40 (100pk)"
+    end
+
+    test "quantity-first pins the qty column — the selector cannot be hidden", %{
+      conn: conn,
+      cat: cat
+    } do
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&sel=quantity")
+
+      refute has_element?(view, ~s(#picker-column-toggle [phx-value-col="qty"]))
+      view |> picker() |> render_click("toggle_column", %{"col" => "qty"})
+      assert has_element?(view, "#picker-table th", "Qty")
+    end
+
+    test "hidden_columns is the host's knob — empty list shows SKU from the start", %{
+      conn: conn,
+      cat: cat
+    } do
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&hide=")
+
+      assert has_element?(view, "#picker-table th", "SKU")
+    end
+
+    test "the Uncategorized chip makes the filters add up", %{conn: conn, cat: cat} do
+      # Categorized and uncategorized items coexist; without this chip the
+      # category chips can never reach the loose items.
+      tools = fixture_category(cat, %{name: "Tools"})
+
+      {:ok, _} =
+        Catalogue.create_item(%{
+          name: "Torx Driver",
+          catalogue_uuid: cat.uuid,
+          category_uuid: tools.uuid
+        })
+
+      {:ok, view, html} = open(conn, "c=#{cat.uuid}")
+      assert html =~ "Uncategorized"
+
+      # Narrow to the loose items: the categorized one disappears, the
+      # uncategorized seed items stay.
+      html = view |> picker() |> render_click("browse_category", %{"uuid" => "__uncategorized__"})
+      refute html =~ "Torx Driver"
+      assert html =~ "M8 Screw"
+
+      # All restores everything.
+      html = view |> picker() |> render_click("browse_category", %{"uuid" => ""})
+      assert html =~ "Torx Driver"
+    end
+
+    test "the Uncategorized chip stays away from scopes that cannot accept it", %{
+      conn: conn,
+      cat: cat
+    } do
+      tools = fixture_category(cat, %{name: "Tools"})
+
+      {:ok, _} =
+        Catalogue.create_item(%{
+          name: "Torx Driver",
+          catalogue_uuid: cat.uuid,
+          category_uuid: tools.uuid
+        })
+
+      # Category-restricted scope: uncategorized sits outside it.
+      {:ok, _view, html} = open(conn, "c=#{cat.uuid}&cat_scope=#{tools.uuid}")
+      refute html =~ "Uncategorized"
+
+      # And a crafted event is refused by the reducer either way.
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&cat_scope=#{tools.uuid}")
+      html = view |> picker() |> render_click("browse_category", %{"uuid" => "__uncategorized__"})
+      assert html =~ "Torx Driver"
     end
 
     test "quantity-first: every row is an order line, no click-selection", %{
