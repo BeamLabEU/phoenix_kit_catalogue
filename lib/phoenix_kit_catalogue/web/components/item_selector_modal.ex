@@ -160,17 +160,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
     mode = assigns[:mode] || :multiple
     scope = browse.scope
 
-    # Bounds are normalized to the precision once, here: clamp/2 applies
-    # qty_max AFTER rounding, so a fractional max under qty_precision: 0
-    # would reintroduce the fraction it just removed. Max floors, min
-    # ceils — both stay inside the host's stated bound.
-    limits = %{
-      qty_min: Decimal.round(to_decimal(assigns[:qty_min] || 1), qty_precision, :ceiling),
-      qty_max:
-        assigns[:qty_max] && Decimal.round(to_decimal(assigns[:qty_max]), qty_precision, :floor),
-      qty_precision: qty_precision
-    }
-
+    limits = resolve_limits!(assigns, qty_precision)
     display = display_opts(assigns)
     columns = resolve_columns!(assigns[:columns], display)
 
@@ -195,6 +185,29 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
       )
 
     run_fetch(socket, effect)
+  end
+
+  # Bounds are normalized to the precision once, here: clamp/2 applies
+  # qty_max AFTER rounding, so a fractional max under qty_precision: 0
+  # would reintroduce the fraction it just removed. Max floors, min ceils —
+  # both stay inside the host's stated bound — and bounds that INVERT after
+  # rounding raise: every quantity would silently collapse to the max.
+  defp resolve_limits!(assigns, qty_precision) do
+    limits = %{
+      qty_min: Decimal.round(to_decimal(assigns[:qty_min] || 1), qty_precision, :ceiling),
+      qty_max:
+        assigns[:qty_max] && Decimal.round(to_decimal(assigns[:qty_max]), qty_precision, :floor),
+      qty_precision: qty_precision
+    }
+
+    if limits.qty_max && Decimal.lt?(limits.qty_max, limits.qty_min) do
+      raise ArgumentError,
+            "ItemSelectorModal qty_max #{inspect(assigns[:qty_max])} rounds below " <>
+              "qty_min #{inspect(assigns[:qty_min] || 1)} at precision #{qty_precision} — " <>
+              "every quantity would silently collapse to the max"
+    end
+
+    limits
   end
 
   defp resolve_view!(nil), do: "table"
@@ -297,12 +310,13 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
         if Map.get(scope, :include_descendants, true) do
           # subtree_uuids_for/1 returns Postgres' raw 16-byte binaries;
           # normalize to the string form chips render and client events
-          # carry, or membership checks compare apples to bytes.
+          # carry, or membership checks compare apples to bytes. The flag
+          # STAYS true: flipping it made a parent-chip click fetch only the
+          # parent's direct items (children vanished). Re-expanding the full
+          # list is idempotent, and a member's subtree cannot escape the
+          # root's subtree, so narrowing stays inside the allow-list.
           expanded = Enum.map(Tree.subtree_uuids_for(uuids), &normalize_uuid/1)
-
-          scope
-          |> Map.put(:category_uuids, expanded)
-          |> Map.put(:include_descendants, false)
+          Map.put(scope, :category_uuids, expanded)
         else
           scope
         end
@@ -986,13 +1000,17 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
                 <.grid_skeleton id={"#{@id}-skeleton"} count={8} />
               <% end %>
               <%= for item <- @browse.items do %>
+                <%!-- Cards honor the same columns contract as the table —
+                a host that granted no :price must not have prices reappear
+                one view-toggle away, and default-hidden SKU stays hidden
+                here too (visible ⊆ granted always). --%>
                 <.item_card
                   id={"#{@id}-card-#{item.uuid}"}
                   item={item}
                   selected={Map.has_key?(@selection, item.uuid)}
                   clickable={@selection_mode != "quantity"}
-                  show_price={@show_prices}
-                  show_sku={@show_sku}
+                  show_price={@show_prices and :price in @visible_columns}
+                  show_sku={@show_sku and :sku in @visible_columns}
                   target={@myself}
                 >
                   <:footer>
