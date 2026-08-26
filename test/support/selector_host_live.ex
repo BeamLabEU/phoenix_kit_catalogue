@@ -15,6 +15,10 @@ defmodule PhoenixKitCatalogue.Test.SelectorHostLive do
     * `precision` — qty_precision (default 0)
     * `min`       — qty_min
     * `max`       — qty_max
+    * `view`      — starting view, "table" | "card" (nil = component default)
+    * `cols`      — comma list of table columns, e.g. "thumb,name,qty"
+                    (unknown names map to :invalid_column so the modal's
+                    own validation raise can be exercised)
     * `two`       — "true" mounts a SECOND picker (id-uniqueness tests)
   """
 
@@ -45,6 +49,9 @@ defmodule PhoenixKitCatalogue.Test.SelectorHostLive do
        precision: String.to_integer(params["precision"] || "0"),
        min: params["min"] && String.to_integer(params["min"]),
        max: params["max"] && String.to_integer(params["max"]),
+       view: params["view"],
+       cols: parse_cols(params["cols"]),
+       show_prices: params["hide_prices"] != "true",
        two: params["two"] == "true",
        browse: params["browse"] == "true",
        clicked: nil,
@@ -70,6 +77,16 @@ defmodule PhoenixKitCatalogue.Test.SelectorHostLive do
   defp maybe_put_only(scope, "uncategorized"), do: Map.put(scope, :only, :uncategorized_only)
   defp maybe_put_only(scope, "categorized"), do: Map.put(scope, :only, :categorized_only)
   defp maybe_put_only(scope, _), do: scope
+
+  @col_atoms Map.new(~w(thumb name sku manufacturer unit price qty), &{&1, String.to_atom(&1)})
+
+  defp parse_cols(nil), do: nil
+
+  defp parse_cols(raw) do
+    raw
+    |> String.split(",", trim: true)
+    |> Enum.map(&(@col_atoms[&1] || :invalid_column))
+  end
 
   defp maybe_put_statuses(scope, nil), do: scope
 
@@ -108,6 +125,9 @@ defmodule PhoenixKitCatalogue.Test.SelectorHostLive do
         qty_precision={@precision}
         qty_min={@min}
         qty_max={@max}
+        view={@view}
+        columns={@cols}
+        show_prices={@show_prices}
       />
       <.live_component
         :if={@show and @two}

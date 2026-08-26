@@ -40,6 +40,22 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
       cancel/ESC/backdrop, AND after a confirm. Reset the `:if` assign
       here.
 
+  ## Views and columns
+
+  Two presentations over the same fetch: `view: "table"` (the default — a
+  compact admin-look list) and `view: "card"` (the photo-forward grid). A
+  toggle beside the search box switches them; the choice is transient and
+  the host attr only sets the STARTING view — like `scope`, it is read at
+  init and not refreshed by later parent renders.
+
+  Table columns are a host contract, because the popup can be
+  client-facing: pass `columns` as a non-empty list from
+  `Browse.table_columns/0` (`:thumb :name :sku :manufacturer :unit :price
+  :qty`) in display order, and only those render. Unknown entries raise.
+  Omitted, the full set applies minus what `show_sku: false` /
+  `show_prices: false` already opt out of. Omitting `:qty` hides the
+  inline stepper — quantities are then edited in the tray only.
+
   ## Scope
 
   `scope` fixes what the user may browse: any of `:catalogue_uuids`,
@@ -132,13 +148,17 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
       qty_precision: qty_precision
     }
 
+    display = display_opts(assigns)
+
     socket =
       socket
-      |> assign(display_opts(assigns))
+      |> assign(display)
       |> assign(
         initialized: true,
         mode: mode,
         locale: locale,
+        view: resolve_view!(assigns[:view]),
+        columns: resolve_columns!(assigns[:columns], display),
         qty_precision: qty_precision,
         qty_min: limits.qty_min,
         qty_max: limits.qty_max,
@@ -150,6 +170,49 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
 
     run_fetch(socket, effect)
   end
+
+  defp resolve_view!(nil), do: "table"
+  defp resolve_view!(view) when view in ["table", "card"], do: view
+  defp resolve_view!(view) when view in [:table, :card], do: to_string(view)
+
+  defp resolve_view!(other),
+    do:
+      raise(
+        ArgumentError,
+        ~s(ItemSelectorModal view must be "table" or "card", got: #{inspect(other)})
+      )
+
+  # The popup is potentially client-facing, so columns are a host contract:
+  # nothing renders that the embed didn't ask for. With no explicit list,
+  # the full vocabulary applies minus whatever show_sku/show_prices already
+  # opt out of; an explicit list is taken verbatim, in order, and unknown
+  # entries raise — a silently-dropped column is how a price ends up shown
+  # to the wrong audience's sibling.
+  defp resolve_columns!(nil, display) do
+    Enum.reject(
+      Browse.table_columns(),
+      &((&1 == :sku and not display.show_sku) or (&1 == :price and not display.show_prices))
+    )
+  end
+
+  defp resolve_columns!(columns, _display) when is_list(columns) and columns != [] do
+    case Enum.reject(columns, &(&1 in Browse.table_columns())) do
+      [] ->
+        columns
+
+      bad ->
+        raise ArgumentError,
+              "ItemSelectorModal columns has unknown entries #{inspect(bad)} — " <>
+                "use #{inspect(Browse.table_columns())}"
+    end
+  end
+
+  defp resolve_columns!(other, _display),
+    do:
+      raise(
+        ArgumentError,
+        "ItemSelectorModal columns must be a non-empty list of atoms, got: #{inspect(other)}"
+      )
 
   # A parent-category scope means "that category and its subtree"
   # (include_descendants defaults to true across the search vocabulary),
@@ -412,6 +475,10 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
   # ── Events: browsing ─────────────────────────────────────────────────
 
   @impl true
+  def handle_event("set_view", %{"mode" => mode}, socket) when mode in ["table", "card"] do
+    {:noreply, assign(socket, :view, mode)}
+  end
+
   def handle_event("browse_search", %{"search" => q}, socket) do
     {browse, effect} = BrowseState.command(socket.assigns.browse, {:search, q})
     {:noreply, socket |> assign(browse: browse) |> run_fetch(effect)}
@@ -688,26 +755,38 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
           run a NATIVE submit (full page navigation) and destroy the modal
           and every pick in it. Routing submit at the same handler makes
           Enter a plain re-search. --%>
-          <form
-            id={"#{@id}-search-form"}
-            phx-change="browse_search"
-            phx-submit="browse_search"
-            phx-target={@myself}
-          >
-            <label class="input flex items-center gap-2 w-full">
-              <span class="hero-magnifying-glass w-4 h-4 opacity-60"></span>
-              <input
-                id={"#{@id}-search"}
-                type="text"
-                name="search"
-                value={@browse.search}
-                placeholder={gettext("Search items…")}
-                phx-debounce="250"
-                autocomplete="off"
-                class="grow"
-              />
-            </label>
-          </form>
+          <div class="flex items-center gap-2">
+            <form
+              id={"#{@id}-search-form"}
+              class="flex-1"
+              phx-change="browse_search"
+              phx-submit="browse_search"
+              phx-target={@myself}
+            >
+              <label class="input flex items-center gap-2 w-full">
+                <span class="hero-magnifying-glass w-4 h-4 opacity-60"></span>
+                <input
+                  id={"#{@id}-search"}
+                  type="text"
+                  name="search"
+                  value={@browse.search}
+                  placeholder={gettext("Search items…")}
+                  phx-debounce="250"
+                  autocomplete="off"
+                  class="grow"
+                />
+              </label>
+            </form>
+            <.view_toggle
+              id={"#{@id}-view-toggle"}
+              modes={[
+                %{mode: "table", icon: "hero-bars-3", label: gettext("List view")},
+                %{mode: "card", icon: "hero-squares-2x2", label: gettext("Card view")}
+              ]}
+              current={@view}
+              target={@myself}
+            />
+          </div>
 
           <.category_chips
             :if={@categories != []}
@@ -717,9 +796,11 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
             target={@myself}
           />
 
-          <%!-- The scrollable grid region. --%>
+          <%!-- The scrollable results region: ONE data path (@browse.items),
+          two renderers. Only the active view's branch is server-rendered —
+          both hidden in the DOM would duplicate qty-form ids. --%>
           <div id={"#{@id}-scroll"} class="overflow-y-auto min-h-[16rem] max-h-[48vh] pr-1">
-            <.item_grid id={"#{@id}-grid"}>
+            <.item_grid :if={@view == "card"} id={"#{@id}-grid"}>
               <%= if @browse.loading? and @browse.items == [] do %>
                 <.grid_skeleton id={"#{@id}-skeleton"} count={8} />
               <% end %>
@@ -751,6 +832,40 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
                 </.item_card>
               <% end %>
             </.item_grid>
+
+            <.item_table
+              :if={@view == "table" and (@browse.items != [] or @browse.loading?)}
+              id={"#{@id}-table"}
+              columns={@columns}
+            >
+              <%= if @browse.loading? and @browse.items == [] do %>
+                <tr :for={i <- 1..5} id={"#{@id}-row-skeleton-#{i}"}>
+                  <td colspan={length(@columns)}><div class="skeleton h-8 w-full"></div></td>
+                </tr>
+              <% end %>
+              <%= for item <- @browse.items do %>
+                <.item_row
+                  id={"#{@id}-row-#{item.uuid}"}
+                  item={item}
+                  columns={@columns}
+                  selected={Map.has_key?(@selection, item.uuid)}
+                  target={@myself}
+                >
+                  <:qty>
+                    <.qty_stepper
+                      :if={@selection[item.uuid] && @selection[item.uuid].available}
+                      id={"#{@id}-qty-#{item.uuid}-r#{qty_rev(assigns, item.uuid)}"}
+                      uuid={item.uuid}
+                      qty={qty_display(assigns, item.uuid)}
+                      unit={if(@qty_precision > 0, do: item.unit)}
+                      precision={@qty_precision}
+                      target={@myself}
+                      size="xs"
+                    />
+                  </:qty>
+                </.item_row>
+              <% end %>
+            </.item_table>
 
             <div :if={@browse.items == [] and not @browse.loading?} class="text-center py-12">
               <div class="text-4xl mb-3 opacity-40">🔍</div>

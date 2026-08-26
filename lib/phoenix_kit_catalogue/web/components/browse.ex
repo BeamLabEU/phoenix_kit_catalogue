@@ -224,6 +224,157 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
   end
 
   @doc """
+  A server-driven segmented view toggle: one button per mode, the active
+  one highlighted, pushing `event` (default `"set_view"`) with
+  `%{"mode" => mode}` to `target`. Presentation only — the caller owns the
+  state and any persistence. (The admin pages' `view_mode_toggle` is the
+  localStorage/client-side sibling; this one is for LiveComponents that
+  hold their view in assigns.)
+  """
+  attr(:id, :string, required: true)
+  attr(:modes, :list, required: true, doc: "[%{mode:, icon:, label:}] in display order")
+  attr(:current, :string, required: true)
+  attr(:event, :string, default: "set_view")
+  attr(:target, :any, default: nil)
+
+  def view_toggle(assigns) do
+    ~H"""
+    <div id={@id} class="join" role="group" aria-label={gettext("View")}>
+      <button
+        :for={m <- @modes}
+        type="button"
+        phx-click={@event}
+        phx-value-mode={m.mode}
+        phx-target={@target}
+        class={["btn btn-sm join-item", @current == m.mode && "btn-active"]}
+        title={m.label}
+        aria-pressed={to_string(@current == m.mode)}
+      >
+        <span class={[m.icon, "w-4 h-4"]}></span>
+      </button>
+    </div>
+    """
+  end
+
+  # The column vocabulary for `item_table`/`item_row`. Hosts pick a subset
+  # in display order; anything else raises at init (config is a contract).
+  @table_columns ~w(thumb name sku manufacturer unit price qty)a
+
+  @doc "The legal `item_table`/`item_row` column atoms, in canonical order."
+  def table_columns, do: @table_columns
+
+  @doc """
+  The table twin of `item_grid`: an admin-look list for the same presented
+  maps. Hosts configure which columns render (and their order) via
+  `columns` — the popup is potentially client-facing, so nothing is shown
+  that the host didn't ask for. Rows go inside via `item_row/1` with the
+  SAME `columns` value.
+  """
+  attr(:id, :string, required: true)
+  attr(:columns, :list, required: true, doc: "subset of table_columns/0, display order")
+  slot(:inner_block, required: true)
+
+  def item_table(assigns) do
+    ~H"""
+    <div id={@id} class="overflow-x-auto">
+      <table class="table table-sm table-zebra">
+        <thead>
+          <tr>
+            <th :for={col <- @columns} class={col == :qty && "text-right"}>
+              {column_header(col)}
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {render_slot(@inner_block)}
+        </tbody>
+      </table>
+    </div>
+    """
+  end
+
+  defp column_header(:thumb), do: ""
+  defp column_header(:name), do: gettext("Name")
+  defp column_header(:sku), do: gettext("SKU")
+  defp column_header(:manufacturer), do: gettext("Manufacturer")
+  defp column_header(:unit), do: gettext("Unit")
+  defp column_header(:price), do: gettext("Price")
+  defp column_header(:qty), do: gettext("Qty")
+
+  @doc """
+  One selectable row for `item_table`. Every cell except `:qty` carries the
+  same `card_click` toggle the card face uses — one event vocabulary, two
+  views — while the `:qty` cell (the `:qty` slot, typically a
+  `qty_stepper`) is deliberately not click-bound so stepping a quantity
+  can never toggle the row underneath it.
+  """
+  attr(:id, :string, required: true)
+  attr(:item, :map, required: true, doc: "a presented item (see present_items/2)")
+  attr(:columns, :list, required: true, doc: "the same list the item_table got")
+  attr(:selected, :boolean, default: false)
+  attr(:clickable, :boolean, default: true)
+  attr(:target, :any, default: nil)
+  slot(:qty, doc: "rendered in the :qty cell when that column is present")
+
+  def item_row(assigns) do
+    ~H"""
+    <tr
+      id={@id}
+      data-selected={to_string(@selected)}
+      aria-selected={to_string(@selected)}
+      class={@selected && "bg-primary/10"}
+    >
+      <td
+        :for={col <- @columns}
+        class={[
+          row_cell_class(col),
+          col != :qty and @clickable && "cursor-pointer"
+        ]}
+        phx-click={if col != :qty and @clickable, do: "card_click"}
+        phx-value-uuid={if col != :qty and @clickable, do: @item.uuid}
+        phx-target={if col != :qty and @clickable, do: @target}
+      >
+        <%= case col do %>
+          <% :thumb -> %>
+            <img
+              :if={@item.photo_url}
+              src={@item.photo_url}
+              alt=""
+              class="w-8 h-8 rounded object-cover bg-base-200"
+              loading="lazy"
+            />
+            <div
+              :if={!@item.photo_url}
+              class="w-8 h-8 rounded bg-base-200 flex items-center justify-center text-base-content/40 font-bold"
+            >
+              {String.first(@item.sku || @item.name || "?")}
+            </div>
+          <% :name -> %>
+            <div class="flex items-center gap-1.5 font-medium">
+              <.icon :if={@selected} name="hero-check" class="w-4 h-4 text-primary shrink-0" />
+              <span class="truncate">{@item.name}</span>
+            </div>
+          <% :sku -> %>
+            <span class="font-mono text-xs text-base-content/60">{@item.sku}</span>
+          <% :manufacturer -> %>
+            <span class="text-base-content/70">{@item.manufacturer}</span>
+          <% :unit -> %>
+            <span class="text-base-content/70">{@item.unit}</span>
+          <% :price -> %>
+            <span class="font-semibold whitespace-nowrap">{format_price(@item.price)}</span>
+          <% :qty -> %>
+            <div class="flex justify-end">{render_slot(@qty)}</div>
+        <% end %>
+      </td>
+    </tr>
+    """
+  end
+
+  defp row_cell_class(:thumb), do: "w-10"
+  defp row_cell_class(:qty), do: "text-right w-40"
+  defp row_cell_class(_), do: nil
+
+  @doc """
   Quantity stepper: minus / text input / plus. The input commits on blur or
   Enter (`qty_commit` with `%{"uuid" =>, "value" =>}`) — never on keystroke,
   so typing "2." on the way to "2.5" is not fought. The buttons dispatch
