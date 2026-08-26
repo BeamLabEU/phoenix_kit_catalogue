@@ -761,8 +761,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       |> element(~s(#picker-row-#{screw.uuid} td[phx-click="card_click"]:first-of-type))
       |> render_click()
 
-      html = render(view)
-      assert html =~ ~s(id="picker-row-#{screw.uuid}" data-selected="true")
+      assert has_element?(view, ~s(#picker-row-#{screw.uuid}[data-selected="true"]))
       # The stepper appeared in the qty cell…
       assert has_element?(view, "#picker-qty-#{screw.uuid}-r0-input")
       # …and that cell is not click-bound, so stepping can't deselect.
