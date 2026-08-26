@@ -50,8 +50,13 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
 
   Table columns are a host contract, because the popup can be
   client-facing: pass `columns` as a non-empty list from
-  `Browse.table_columns/0` (`:thumb :name :sku :manufacturer :unit :price
-  :qty`) in display order, and only those render. Unknown entries raise.
+  `Browse.table_columns/0` (`:thumb :name :sku :manufacturer :category
+  :unit :price :base_price :qty`) in display order, and only those
+  render. Unknown entries raise. `:price` is the customer-facing selling
+  price (markup and discounts applied) shown as "6.40 / piece" — the
+  default set carries it and NOT `:base_price`, the raw internal number,
+  which an embed must ask for explicitly; `:unit` is the standalone
+  column for price-free lists.
   Omitted, the full set applies minus what `show_sku: false` /
   `show_prices: false` already opt out of. Omitting `:qty` hides the
   inline stepper — quantities are then edited in the tray only.
@@ -219,7 +224,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
   # to the wrong audience's sibling.
   defp resolve_columns!(nil, display) do
     Enum.reject(
-      Browse.table_columns(),
+      Browse.default_table_columns(),
       &((&1 == :sku and not display.show_sku) or (&1 == :price and not display.show_prices))
     )
   end

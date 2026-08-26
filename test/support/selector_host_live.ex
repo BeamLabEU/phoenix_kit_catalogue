@@ -80,7 +80,10 @@ defmodule PhoenixKitCatalogue.Test.SelectorHostLive do
   defp maybe_put_only(scope, "categorized"), do: Map.put(scope, :only, :categorized_only)
   defp maybe_put_only(scope, _), do: scope
 
-  @col_atoms Map.new(~w(thumb name sku manufacturer unit price qty), &{&1, String.to_atom(&1)})
+  @col_atoms Map.new(
+               ~w(thumb name sku manufacturer category unit price base_price qty),
+               &{&1, String.to_atom(&1)}
+             )
 
   defp parse_cols(nil), do: nil
 

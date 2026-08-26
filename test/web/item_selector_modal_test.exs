@@ -821,12 +821,43 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       {:ok, _view, html} = open(conn, "c=#{cat.uuid}")
 
       # Low-priority columns carry their responsive stage on th AND td…
+      # (unit is no longer a default column — it rides inside the price
+      # cell — so no sm stage appears in the default set).
       assert html =~ "hidden md:table-cell"
       assert html =~ "hidden lg:table-cell"
-      assert html =~ "hidden sm:table-cell"
       # …and the modal box grows past core Modal's 4xl cap on big screens.
       assert html =~ "xl:max-w-6xl"
       assert html =~ "2xl:max-w-7xl"
+    end
+
+    test "price is the SELLING price with inline unit; base_price is opt-in raw", %{
+      conn: conn
+    } do
+      # 10% catalogue markup: base 10.00 sells at 11.00. The client-facing
+      # default must show the selling price (with the unit folded in) and
+      # never the raw number.
+      marked = fixture_catalogue(%{name: "Marked Cat", markup_percentage: Decimal.new("10")})
+
+      {:ok, _item} =
+        Catalogue.create_item(%{
+          name: "Marked Widget",
+          catalogue_uuid: marked.uuid,
+          base_price: Decimal.new("10.00"),
+          unit: "set"
+        })
+
+      {:ok, view, html} = open(conn, "c=#{marked.uuid}")
+      assert html =~ "11.00"
+      assert html =~ "/ set"
+      refute has_element?(view, "#picker-table th", "Unit")
+      refute has_element?(view, "#picker-table th", "Base price")
+      refute html =~ ">10.00<"
+
+      # An internal embed asks for the raw column explicitly.
+      {:ok, view, html} = open(conn, "c=#{marked.uuid}&cols=name,base_price")
+      assert has_element?(view, "#picker-table th", "Base price")
+      assert html =~ "10.00"
+      refute html =~ "11.00"
     end
 
     test "quantity-first: every row is an order line, no click-selection", %{
