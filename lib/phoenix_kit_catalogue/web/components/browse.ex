@@ -244,26 +244,25 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
 
   def qty_stepper(assigns) do
     ~H"""
-    <div id={@id} class="join" role="group" aria-label={gettext("Quantity")}>
-      <button
-        type="button"
-        class={["btn join-item", btn_size(@size)]}
-        phx-click="qty_dec"
-        phx-value-uuid={@uuid}
-        phx-target={@target}
-        aria-label={gettext("Decrease quantity")}
-      >
-        −
-      </button>
-      <%!-- A form so Enter commits; phx-blur commits on focus loss. One
-           form per stepper — ids stay unique by construction. --%>
-      <form
-        id={"#{@id}-form"}
-        class="join-item"
-        phx-submit="qty_commit"
-        phx-target={@target}
-      >
-        <input type="hidden" name="uuid" value={@uuid} />
+    <%!-- The form WRAPS the join (Enter still commits via phx-submit;
+         phx-blur commits on focus loss; the +/− are type="button" so they
+         never submit). With the input nested inside a join-item form
+         instead, the inline form aligned to the text BASELINE and the
+         input rendered with a visible offset below the buttons, its
+         corners unmerged. Direct join children keep everything flush. --%>
+    <form id={@id} phx-submit="qty_commit" phx-target={@target}>
+      <input type="hidden" name="uuid" value={@uuid} />
+      <div class="join" role="group" aria-label={gettext("Quantity")}>
+        <button
+          type="button"
+          class={["btn join-item", btn_size(@size)]}
+          phx-click="qty_dec"
+          phx-value-uuid={@uuid}
+          phx-target={@target}
+          aria-label={gettext("Decrease quantity")}
+        >
+          −
+        </button>
         <input
           id={"#{@id}-input"}
           type="text"
@@ -276,25 +275,28 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
           phx-target={@target}
           aria-label={gettext("Quantity")}
         />
-      </form>
-      <span
-        :if={@unit}
-        class={["btn join-item pointer-events-none font-normal text-base-content/60", btn_size(@size)]}
-        aria-hidden="true"
-      >
-        {@unit}
-      </span>
-      <button
-        type="button"
-        class={["btn join-item", btn_size(@size)]}
-        phx-click="qty_inc"
-        phx-value-uuid={@uuid}
-        phx-target={@target}
-        aria-label={gettext("Increase quantity")}
-      >
-        +
-      </button>
-    </div>
+        <span
+          :if={@unit}
+          class={[
+            "btn join-item pointer-events-none font-normal text-base-content/60",
+            btn_size(@size)
+          ]}
+          aria-hidden="true"
+        >
+          {@unit}
+        </span>
+        <button
+          type="button"
+          class={["btn join-item", btn_size(@size)]}
+          phx-click="qty_inc"
+          phx-value-uuid={@uuid}
+          phx-target={@target}
+          aria-label={gettext("Increase quantity")}
+        >
+          +
+        </button>
+      </div>
+    </form>
     """
   end
 
