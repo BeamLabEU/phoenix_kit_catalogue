@@ -59,10 +59,33 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
         price: presented_price(item),
         unit: item.unit,
         manufacturer: item.manufacturer_name || item.manufacturer_name_snapshot,
+        category: presented_category(item, locale),
         photo_url: featured_photo_url(item),
         default_qty: Decimal.new(1)
       }
     end)
+  end
+
+  # The item's category display name for the viewer's locale, or nil for
+  # uncategorized items (and for maps without the preload — test doubles).
+  defp presented_category(item, locale) do
+    case Map.get(item, :category) do
+      %{__struct__: Ecto.Association.NotLoaded} ->
+        nil
+
+      nil ->
+        nil
+
+      category ->
+        translated =
+          try do
+            Translations.get_translation(category, locale)
+          rescue
+            _ -> %{}
+          end
+
+        translated["name"] || Map.get(category, :name)
+    end
   end
 
   # Selling price for a real item (markup → discount). Test doubles and
@@ -258,7 +281,7 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
 
   # The column vocabulary for `item_table`/`item_row`. Hosts pick a subset
   # in display order; anything else raises at init (config is a contract).
-  @table_columns ~w(thumb name sku manufacturer unit price qty)a
+  @table_columns ~w(thumb name sku manufacturer category unit price qty)a
 
   @doc "The legal `item_table`/`item_row` column atoms, in canonical order."
   def table_columns, do: @table_columns
@@ -297,6 +320,7 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
   defp column_header(:name), do: gettext("Name")
   defp column_header(:sku), do: gettext("SKU")
   defp column_header(:manufacturer), do: gettext("Manufacturer")
+  defp column_header(:category), do: gettext("Category")
   defp column_header(:unit), do: gettext("Unit")
   defp column_header(:price), do: gettext("Price")
   defp column_header(:qty), do: gettext("Qty")
@@ -358,6 +382,8 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
             <span class="font-mono text-xs text-base-content/60">{@item.sku}</span>
           <% :manufacturer -> %>
             <span class="text-base-content/70">{@item.manufacturer}</span>
+          <% :category -> %>
+            <span class="text-base-content/70">{@item.category}</span>
           <% :unit -> %>
             <span class="text-base-content/70">{@item.unit}</span>
           <% :price -> %>

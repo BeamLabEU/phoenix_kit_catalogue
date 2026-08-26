@@ -56,6 +56,16 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
   `show_prices: false` already opt out of. Omitting `:qty` hides the
   inline stepper — quantities are then edited in the tray only.
 
+  ## Selection modes
+
+  `selection_mode: "click"` (default) is the classic picker: clicking a
+  row/card toggles it, and the stepper appears once selected.
+  `selection_mode: "quantity"` is the order-sheet flavour: EVERY rendered
+  row shows its stepper at 0, entering a positive quantity (plus button
+  or typing) IS the selection, stepping back to 0 removes it, and
+  rows/cards are not click-targets at all — no separate "select" step.
+  The tray, Confirm, and every guard behave identically in both modes.
+
   ## Scope
 
   `scope` fixes what the user may browse: any of `:catalogue_uuids`,
@@ -159,6 +169,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
         locale: locale,
         view: resolve_view!(assigns[:view]),
         columns: resolve_columns!(assigns[:columns], display),
+        selection_mode: resolve_selection_mode!(assigns[:selection_mode]),
         qty_precision: qty_precision,
         qty_min: limits.qty_min,
         qty_max: limits.qty_max,
@@ -180,6 +191,17 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
       raise(
         ArgumentError,
         ~s(ItemSelectorModal view must be "table" or "card", got: #{inspect(other)})
+      )
+
+  defp resolve_selection_mode!(nil), do: "click"
+  defp resolve_selection_mode!(mode) when mode in ["click", "quantity"], do: mode
+  defp resolve_selection_mode!(mode) when mode in [:click, :quantity], do: to_string(mode)
+
+  defp resolve_selection_mode!(other),
+    do:
+      raise(
+        ArgumentError,
+        ~s(ItemSelectorModal selection_mode must be "click" or "quantity", got: #{inspect(other)})
       )
 
   # The popup is potentially client-facing, so columns are a host contract:
@@ -501,6 +523,12 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
     selection = socket.assigns.selection
 
     cond do
+      # Quantity-first embeds have no click-selection: the stepper IS the
+      # selector. The markup renders nothing clickable; a crafted click is
+      # refused here for the same reason.
+      socket.assigns.selection_mode == "quantity" ->
+        {:noreply, socket}
+
       Map.has_key?(selection, uuid) ->
         {:noreply, deselect(socket, uuid)}
 
@@ -521,21 +549,19 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
     do: {:noreply, step_qty(socket, uuid, :dec)}
 
   def handle_event("qty_commit", %{"uuid" => uuid, "value" => raw}, socket) do
-    # Only rows that are actually selected get any state at all — without
-    # the membership check, crafted commits with unique foreign uuids grow
-    # `drafts` without bound (put_qty/3 would no-op, but only after the
-    # revision bump already stored a key).
-    if Map.has_key?(socket.assigns.selection, uuid) do
-      # Bump the per-row revision so the input's id changes. Morphdom will
-      # not reset typed garbage (or "01") when the value attr is unchanged.
-      socket = bump_qty_rev(socket, uuid)
+    # Only rows that are selected — or, quantity-first, RENDERED — get any
+    # state at all: without the gate, crafted commits with unique foreign
+    # uuids grow `drafts` without bound (put_qty/3 would no-op, but only
+    # after the revision bump already stored a key).
+    cond do
+      Map.has_key?(socket.assigns.selection, uuid) ->
+        {:noreply, commit_qty(socket, uuid, raw)}
 
-      case parse_qty(raw, socket.assigns) do
-        {:ok, qty} -> {:noreply, put_qty(socket, uuid, qty)}
-        :error -> {:noreply, socket}
-      end
-    else
-      {:noreply, socket}
+      socket.assigns.selection_mode == "quantity" and is_map(socket.assigns.presented[uuid]) ->
+        {:noreply, commit_first_qty(socket, uuid, raw)}
+
+      true ->
+        {:noreply, socket}
     end
   end
 
@@ -568,6 +594,35 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
   # FunctionClauseError that takes the whole LiveView down.
   def handle_event(_event, _params, socket), do: {:noreply, socket}
 
+  # Selected row: bump the per-row revision so the input's id changes —
+  # morphdom will not reset typed garbage (or "01") when the value attr is
+  # unchanged — then re-clamp the parse.
+  defp commit_qty(socket, uuid, raw) do
+    socket = bump_qty_rev(socket, uuid)
+
+    case parse_qty(raw, socket.assigns) do
+      {:ok, qty} -> put_qty(socket, uuid, qty)
+      :error -> socket
+    end
+  end
+
+  # Quantity-first, unselected row: a typed POSITIVE quantity is the
+  # selection ("0" stays unselected — in this mode zero IS the unselected
+  # state, whatever qty_min says).
+  defp commit_first_qty(socket, uuid, raw) do
+    socket = bump_qty_rev(socket, uuid)
+
+    case parse_qty(raw, socket.assigns) do
+      {:ok, qty} ->
+        if Decimal.gt?(qty, 0),
+          do: socket |> select(socket.assigns.presented[uuid]) |> put_qty(uuid, qty),
+          else: socket
+
+      :error ->
+        socket
+    end
+  end
+
   # ── Selection mechanics ──────────────────────────────────────────────
 
   defp select(socket, item) do
@@ -598,7 +653,16 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
   defp step_qty(socket, uuid, direction) do
     case socket.assigns.selection[uuid] do
       nil ->
-        socket
+        # Quantity-first: plus on an unselected (but RENDERED — the
+        # presented gate applies to steppers exactly as to clicks) row is
+        # the selection itself, entering at the minimum quantity.
+        with "quantity" <- socket.assigns.selection_mode,
+             :inc <- direction,
+             %{} = item <- socket.assigns.presented[uuid] do
+          select(socket, item)
+        else
+          _ -> socket
+        end
 
       %{qty: qty} ->
         step = Decimal.new(1)
@@ -714,6 +778,25 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
     end
   end
 
+  # Whether a rendered row/card shows its stepper: any selected available
+  # entry — plus, in quantity-first mode, EVERY rendered row (rendered
+  # means in-scope by construction, and the stepper at 0 IS the selector).
+  defp stepper?(assigns, uuid) do
+    case assigns.selection[uuid] do
+      %{available: available} -> available
+      nil -> assigns.selection_mode == "quantity"
+    end
+  end
+
+  # In quantity-first mode an unselected row's stepper reads 0 — zero is
+  # the unselected state there, whatever qty_min says.
+  defp qty_display_or_zero(assigns, uuid) do
+    case qty_display(assigns, uuid) do
+      "" -> "0"
+      qty -> qty
+    end
+  end
+
   # See "qty_commit" — part of each stepper input's id, so bumping it
   # recreates the input and discards rejected garbage.
   defp qty_rev(assigns, uuid), do: assigns.drafts[uuid] || 0
@@ -809,19 +892,17 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
                   id={"#{@id}-card-#{item.uuid}"}
                   item={item}
                   selected={Map.has_key?(@selection, item.uuid)}
+                  clickable={@selection_mode != "quantity"}
                   show_price={@show_prices}
                   show_sku={@show_sku}
                   target={@myself}
                 >
                   <:footer>
-                    <div
-                      :if={@selection[item.uuid] && @selection[item.uuid].available}
-                      class="p-2 pt-0 flex justify-center"
-                    >
+                    <div :if={stepper?(assigns, item.uuid)} class="p-2 pt-0 flex justify-center">
                       <.qty_stepper
                         id={"#{@id}-qty-#{item.uuid}-r#{qty_rev(assigns, item.uuid)}"}
                         uuid={item.uuid}
-                        qty={qty_display(assigns, item.uuid)}
+                        qty={qty_display_or_zero(assigns, item.uuid)}
                         unit={if(@qty_precision > 0, do: item.uuid && item.unit)}
                         precision={@qty_precision}
                         target={@myself}
@@ -849,14 +930,15 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
                   item={item}
                   columns={@columns}
                   selected={Map.has_key?(@selection, item.uuid)}
+                  clickable={@selection_mode != "quantity"}
                   target={@myself}
                 >
                   <:qty>
                     <.qty_stepper
-                      :if={@selection[item.uuid] && @selection[item.uuid].available}
+                      :if={stepper?(assigns, item.uuid)}
                       id={"#{@id}-qty-#{item.uuid}-r#{qty_rev(assigns, item.uuid)}"}
                       uuid={item.uuid}
-                      qty={qty_display(assigns, item.uuid)}
+                      qty={qty_display_or_zero(assigns, item.uuid)}
                       unit={if(@qty_precision > 0, do: item.unit)}
                       precision={@qty_precision}
                       target={@myself}
