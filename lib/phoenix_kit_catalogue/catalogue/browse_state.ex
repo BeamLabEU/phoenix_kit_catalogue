@@ -107,9 +107,12 @@ defmodule PhoenixKitCatalogue.Catalogue.BrowseState do
 
     * `:reset` — first load / clear everything back to the scope.
     * `{:search, q}` — replace the search string (no-op when unchanged).
-    * `{:set_category, uuid | nil}` — narrow to one category (nil = all
-      within scope). Rejected with `:noop` when the uuid falls outside
-      `scope.category_uuids` — scope only ever narrows.
+    * `{:set_category, uuid | :uncategorized | nil}` — narrow to one
+      category, to the items WITHOUT one, or back to all within scope.
+      Rejected with `:noop` when the uuid falls outside
+      `scope.category_uuids`, or (for `:uncategorized`) when the scope
+      restricts categories or carries its own `:only` — scope only ever
+      narrows.
     * `:load_more` — next page. No-op while loading or exhausted.
   """
   def command(state, :reset) do
@@ -129,6 +132,19 @@ defmodule PhoenixKitCatalogue.Catalogue.BrowseState do
   def command(%{category_uuid: uuid} = state, {:set_category, uuid}), do: {state, :noop}
 
   def command(state, {:set_category, nil}), do: fetch(%{state | category_uuid: nil})
+
+  def command(state, {:set_category, :uncategorized}) do
+    # "No category" is a real narrowing choice — the chips otherwise never
+    # add up when uncategorized items exist. Only offered/accepted where
+    # the scope neither restricts categories (uncategorized sits outside
+    # any allow-list) nor carries an :only of its own (search_items/2
+    # raises on contradictions).
+    if state.scope[:only] == nil and state.scope[:category_uuids] in [nil, []] do
+      fetch(%{state | category_uuid: :uncategorized})
+    else
+      {state, :noop}
+    end
+  end
 
   def command(state, {:set_category, uuid}) when is_binary(uuid) do
     if category_allowed?(state.scope, uuid) do
@@ -193,9 +209,18 @@ defmodule PhoenixKitCatalogue.Catalogue.BrowseState do
   from the immutable scope, never from anything a client event set directly.
   """
   def query_opts(state) do
-    state.scope
-    |> Map.take([:catalogue_uuids, :only, :statuses, :include_descendants])
-    |> Map.put(:category_uuids, effective_category_uuids(state))
+    base = Map.take(state.scope, [:catalogue_uuids, :only, :statuses, :include_descendants])
+
+    base =
+      case state.category_uuid do
+        # The uncategorized narrowing IS an :only — never combined with
+        # category_uuids (the fetch layer raises on the contradiction, and
+        # command/2 only admits it on scopes without their own :only).
+        :uncategorized -> Map.put(base, :only, :uncategorized_only)
+        _ -> Map.put(base, :category_uuids, effective_category_uuids(state))
+      end
+
+    base
     |> Map.put(:limit, state.per_page)
     |> Map.put(:offset, state.page * state.per_page)
     |> Enum.reject(fn {_k, v} -> is_nil(v) end)
