@@ -149,10 +149,15 @@ defmodule PhoenixKitCatalogue.Web.Components.CatalogueBrowse do
   def render(assigns) do
     ~H"""
     <div id={@id} class="flex flex-col gap-3">
+      <%!-- phx-submit is load-bearing: a phx-change form WITHOUT it is an
+      "external form" to LiveView's client — Enter would run a NATIVE
+      submit and navigate the whole page away. Same handler, so Enter is
+      just a re-search. --%>
       <form
         :if={@show_search}
         id={"#{@id}-search-form"}
         phx-change="browse_search"
+        phx-submit="browse_search"
         phx-target={@myself}
       >
         <label class="input flex items-center gap-2 w-full">

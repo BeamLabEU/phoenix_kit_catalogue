@@ -193,6 +193,9 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         show_categories_reorder: false,
         reorder_captured_uuids: [],
         view_mode: "active",
+        # The node the current view_mode was chosen FOR (load_level) — the
+        # auto-pick of a populated tab happens only when this changes.
+        view_mode_node: :unset,
         search_results: nil,
         search_offset: 0,
         search_total: 0,
@@ -2157,17 +2160,17 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     status_counts = node_status_counts(current, uuid)
 
     # `status` is the exact item status shown. The root is a pure navigation
-    # step (always Active, no tabs). Inside a node we auto-select a populated
-    # tab: keep the chosen status if it has items, else fall to the first one
-    # that does — so e.g. a category with only deleted items opens straight on
-    # Deleted instead of an empty Active. `cat_mode` is the active/deleted
-    # bucket for the (status-less) subcategory cards.
-    status =
-      if is_nil(current),
-        do: "active",
-        else: effective_view_mode(socket.assigns.view_mode, status_counts)
-
-    socket = assign(socket, :view_mode, status)
+    # step (always Active, no tabs). ENTERING a node auto-selects a populated
+    # tab — a category with only deleted items opens straight on Deleted
+    # instead of an empty Active. A reload of the SAME node keeps the tab the
+    # user is on: deleting the last active item must not dump the admin into
+    # the Deleted view (and, because the auto-pick used to run on every
+    # reload, clicking back to Active while it was empty flipped straight
+    # back — the user was stuck in the trash). `cat_mode` is the
+    # active/deleted bucket for the (status-less) subcategory cards.
+    node_key = level_node_key(current)
+    status = pick_view_mode(socket, current, node_key, status_counts)
+    socket = assign(socket, view_mode: status, view_mode_node: node_key)
     cat_mode = view_mode_to_atom(status)
     show_categories? = status in ["active", "deleted"]
 
@@ -2708,6 +2711,27 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   defp status_tab_active_class("deleted"), do: "border-error text-error"
   defp status_tab_active_class(_), do: "border-primary text-primary"
 
+  # The level identity the current view_mode was chosen for. `current` is a
+  # %Category{}, the :uncategorized sentinel (the Uncategorized drill), or
+  # nil at the root.
+  defp level_node_key(nil), do: nil
+  defp level_node_key(:uncategorized), do: "uncategorized"
+  defp level_node_key(%{uuid: uuid}), do: to_string(uuid)
+
+  # Root always shows Active; RE-loading the node the user is already on
+  # keeps their tab (deleting the last active item must not dump them into
+  # Deleted — and re-running the auto-pick on every reload made an empty
+  # Active unselectable: instant flip back, stuck in the trash); ENTERING
+  # a node auto-picks a populated tab (deliberate: an all-deleted category
+  # opens on Deleted, not an empty Active).
+  defp pick_view_mode(socket, current, node_key, status_counts) do
+    cond do
+      is_nil(current) -> "active"
+      socket.assigns.view_mode_node == node_key -> socket.assigns.view_mode
+      true -> effective_view_mode(socket.assigns.view_mode, status_counts)
+    end
+  end
+
   # The status to actually show for a node: keep the selected `view_mode` if it
   # has items, otherwise fall to the first populated status (active → inactive →
   # discontinued → deleted), or "active" when the node is empty in every status.
@@ -2725,25 +2749,15 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     end
   end
 
-  # `[{status, label, count}]` for the tabs to render — only populated statuses,
-  # so an empty Active no longer sits next to a populated Deleted. When nothing
-  # is populated, surface just the current tab (count 0) so it's representable;
-  # the strip is hidden anyway whenever there's ≤1 tab (see render).
+  # `[{status, label, count}]` for the tabs to render — populated statuses
+  # plus ALWAYS the current one, so an empty Active no longer sits next to a
+  # populated Deleted, but the tab the user is standing on can never vanish
+  # from under them (a just-emptied Active stays representable at count 0).
+  # The strip is hidden anyway whenever there's ≤1 tab (see render).
   defp visible_status_tabs(view_mode, counts) do
     item_status_tabs()
     |> Enum.map(fn {status, label} -> {status, label, Map.get(counts, status, 0)} end)
-    |> Enum.filter(fn {_status, _label, count} -> count > 0 end)
-    |> case do
-      [] ->
-        label =
-          Enum.find_value(item_status_tabs(), fn {status, l} -> status == view_mode && l end) ||
-            ""
-
-        [{view_mode, label, 0}]
-
-      tabs ->
-        tabs
-    end
+    |> Enum.filter(fn {status, _label, count} -> count > 0 or status == view_mode end)
   end
 
   # Processes a flat list of category UUIDs that came back from the

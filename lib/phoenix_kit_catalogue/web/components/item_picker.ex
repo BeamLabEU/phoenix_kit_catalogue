@@ -50,6 +50,14 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
       a category; `:categorized_only` restricts to items in some
       category; `nil` (default) is unrestricted. Forwards to
       `Catalogue.search_items/2`'s `:only` opt.
+    * `:statuses` — list of item statuses to include (`"active"`,
+      `"inactive"`, `"discontinued"`); `nil` or `[]` = all non-deleted.
+      Forwards to `Catalogue.search_items/2`'s `:statuses` opt — the same
+      scope vocabulary `ItemSelectorModal` accepts.
+    * Changing any scope attr (`:category_uuids`, `:catalogue_uuids`,
+      `:include_descendants`, `:only`, `:statuses`) from the parent
+      invalidates the current option list and closes the dropdown — a
+      result set fetched under the old scope is never left selectable.
     * `:selected_item` — the `%Item{}` currently chosen (or `nil`).
       Drives the input text and the `aria-selected` / primary-border
       styling in the dropdown. When the chosen item carries a featured
@@ -57,8 +65,9 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
       rendered to the left of the input; items without a photo render as
       before (input only).
     * `:excluded_uuids` — items in this list are rendered dim +
-      `aria-disabled` and cannot be clicked. Use for "already picked in
-      another row" state.
+      `aria-disabled` and cannot be clicked; the select handler refuses
+      them server-side too (a click can race the re-render that excluded
+      its target). Use for "already picked in another row" state.
     * `:locale` (required) — locale string for translated display
       names (`"en"`, `"es"`, etc.). Resolved via
       `Catalogue.get_translation/2`.
@@ -144,6 +153,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
        catalogue_uuids: nil,
        include_descendants: true,
        only: nil,
+       statuses: nil,
        placeholder: nil,
        empty_query_limit: @default_empty_query_limit,
        page_size: @default_page_size,
@@ -166,6 +176,12 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
      )}
   end
 
+  # The search-scope attrs. When a parent re-render changes any of them,
+  # the option list fetched under the OLD scope is invalidated — otherwise
+  # a still-open dropdown keeps offering (and `select` keeps accepting)
+  # items the new scope would never return.
+  @scope_assigns [:category_uuids, :catalogue_uuids, :include_descendants, :only, :statuses]
+
   @impl true
   def update(assigns, socket) do
     # If the selected_item UUID *changes* between updates, mirror the
@@ -174,11 +190,28 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
     # isn't clobbered by unrelated parent re-renders.
     incoming_uuid = uuid_of(assigns[:selected_item])
     prior_uuid = socket.assigns.last_selected_uuid
+    prior_scope = Map.take(socket.assigns, @scope_assigns)
+    prior_locale = socket.assigns.locale
 
     socket =
       socket
       |> assign(assigns)
       |> assign(:last_selected_uuid, incoming_uuid)
+
+    socket =
+      if Map.take(socket.assigns, @scope_assigns) == prior_scope do
+        socket
+      else
+        assign(socket, options: [], has_more: false, open: false, searched?: false)
+      end
+
+    # The breadcrumb memo bakes translated ancestor names in; a locale
+    # change would otherwise serve the old language forever while the rest
+    # of the row re-translates live.
+    socket =
+      if socket.assigns.locale == prior_locale,
+        do: socket,
+        else: assign(socket, :category_paths, %{})
 
     socket =
       if prior_uuid == incoming_uuid do
@@ -233,13 +266,19 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
   # ─────────────────────────────────────────────────────────────────
 
   @impl true
-  def handle_event("query_change", %{"value" => value}, socket) do
-    {:noreply,
-     socket
-     |> assign(:query, value)
-     |> assign(:searched?, true)
-     |> assign(:open, true)
-     |> run_search()}
+  def handle_event("query_change", %{"value" => value}, socket) when is_binary(value) do
+    if socket.assigns.disabled do
+      {:noreply, socket}
+    else
+      # Client input, capped before it reaches two queries (same 200 as
+      # BrowseState) — nothing a human searches for needs more.
+      {:noreply,
+       socket
+       |> assign(:query, String.slice(value, 0, 200))
+       |> assign(:searched?, true)
+       |> assign(:open, true)
+       |> run_search()}
+    end
   end
 
   def handle_event("open", _params, socket) do
@@ -261,6 +300,9 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
     # want exactly that retry.
     socket =
       cond do
+        socket.assigns.disabled ->
+          socket
+
         socket.assigns.options == [] and not socket.assigns.searched? and
             query_is_selection_name?(socket) ->
           run_search(assign(socket, :open, true), "")
@@ -280,17 +322,25 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
   end
 
   def handle_event("select", %{"uuid" => uuid}, socket) do
-    case Enum.find(socket.assigns.options, &(&1.uuid == uuid)) do
-      nil ->
-        {:noreply, socket}
+    # The dropdown renders excluded rows unclickable and a disabled picker
+    # offers no rows at all — but a select can still arrive for either: a
+    # crafted push, or an honest click racing the parent re-render that
+    # just excluded the row it was aimed at (row B picks item X, row A's
+    # in-flight click for X lands after A learns X is taken). The server
+    # is the boundary, not the markup.
+    blocked? = socket.assigns.disabled or uuid in socket.assigns.excluded_uuids
 
-      %Item{} = item ->
+    case Enum.find(socket.assigns.options, &(&1.uuid == uuid)) do
+      %Item{} = item when not blocked? ->
         send(self(), {:item_picker_select, socket.assigns.id, item})
 
         {:noreply,
          socket
          |> assign(:query, item_display_name(item, socket.assigns.locale) || "")
          |> assign(:open, false)}
+
+      _ ->
+        {:noreply, socket}
     end
   end
 
@@ -326,15 +376,26 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
   end
 
   def handle_event("clear", _params, socket) do
-    send(self(), {:item_picker_clear, socket.assigns.id})
+    # The clear button is hidden while disabled; refuse the crafted event
+    # too, or a "read-only" picker could still have its selection cleared.
+    if socket.assigns.disabled do
+      {:noreply, socket}
+    else
+      send(self(), {:item_picker_clear, socket.assigns.id})
 
-    {:noreply,
-     socket
-     |> assign(:query, "")
-     |> assign(:options, [])
-     |> assign(:has_more, false)
-     |> assign(:open, false)}
+      {:noreply,
+       socket
+       |> assign(:query, "")
+       |> assign(:options, [])
+       |> assign(:has_more, false)
+       |> assign(:open, false)}
+    end
   end
+
+  # A crafted payload with missing or mistyped keys must degrade to a
+  # no-op, not a FunctionClauseError that takes the host LiveView down —
+  # same clause the ItemSelectorModal carries.
+  def handle_event(_event, _params, socket), do: {:noreply, socket}
 
   # ─────────────────────────────────────────────────────────────────
   # Search
@@ -357,6 +418,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
       catalogue_uuids: catalogue_uuids,
       include_descendants: include_descendants,
       only: only,
+      statuses: statuses,
       page_size: page_size,
       empty_query_limit: empty_query_limit
     } = socket.assigns
@@ -374,6 +436,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
       |> maybe_put(:category_uuids, category_uuids)
       |> maybe_put(:catalogue_uuids, catalogue_uuids)
       |> maybe_put(:only, only)
+      |> maybe_put(:statuses, statuses)
 
     options = Catalogue.search_items(query || "", opts)
 
@@ -639,17 +702,28 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
             <.icon name="hero-x-mark" class="w-3 h-3" />
           </button>
 
+          <%!-- Rendered whenever open — aria-expanded="true" promises that
+          aria-controls resolves, so the empty state is a status row inside
+          the listbox rather than a listbox that doesn't exist. --%>
           <ul
-            :if={@open and @options != []}
+            :if={@open}
             id={"#{@id}-listbox"}
             role="listbox"
             class="absolute z-50 mt-1 w-full max-h-64 overflow-y-auto bg-base-100 border border-base-300 rounded-box shadow-lg"
           >
             <li
+              :if={@options == []}
+              role="option"
+              aria-disabled="true"
+              class="px-3 py-2 text-sm text-base-content/50 cursor-default select-none"
+            >
+              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "No items found")}
+            </li>
+            <li
               :for={{item, idx} <- Enum.with_index(@options)}
               id={"#{@id}-option-#{idx}"}
               role="option"
-              aria-selected={to_string(@selected_item && @selected_item.uuid == item.uuid)}
+              aria-selected={to_string(@selected_item != nil and @selected_item.uuid == item.uuid)}
               aria-disabled={to_string(item.uuid in @excluded_uuids)}
               data-excluded={to_string(item.uuid in @excluded_uuids)}
               class={[
@@ -694,12 +768,6 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
             </li>
           </ul>
 
-          <div
-            :if={@open and @options == [] and @query != ""}
-            class="absolute z-50 mt-1 w-full bg-base-100 border border-base-300 rounded-box shadow-lg px-3 py-2 text-sm text-base-content/50"
-          >
-            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "No items found")}
-          </div>
         </div>
       </div>
 
@@ -720,14 +788,24 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
           mounted() {
             this.input = this.el.querySelector('input[role="combobox"]')
             this.focusedIdx = -1
+            this._optSig = ""
             this._onKey = (e) => this.handleKey(e)
             this.input.addEventListener("keydown", this._onKey)
           },
 
           updated() {
-            // Options re-rendered — clamp the highlight.
+            // A NEW option set (debounced search landed) resets the
+            // highlight — carrying the old index over highlights whatever
+            // now sits at that position, and Enter would activate an item
+            // the user never focused. Same-set re-renders only clamp.
+            // Signature is by uuid: option ids are positional and identical
+            // across different result sets of the same length.
             const opts = this.enabledOptions()
-            if (this.focusedIdx >= opts.length) {
+            const sig = opts.map((o) => o.getAttribute("phx-value-uuid")).join(" ")
+            if (sig !== this._optSig) {
+              this._optSig = sig
+              this.focusedIdx = -1
+            } else if (this.focusedIdx >= opts.length) {
               this.focusedIdx = opts.length - 1
             }
             this.syncActiveDescendant()
