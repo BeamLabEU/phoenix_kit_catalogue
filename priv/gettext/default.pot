@@ -2972,3 +2972,35 @@ msgstr ""
 #, elixir-autogen, elixir-format
 msgid "Photo"
 msgstr ""
+
+## Attribute sets viewer (2026-08-27 — editing moved to Entities)
+msgid "Edit values"
+msgstr ""
+
+msgid "Set settings"
+msgstr ""
+
+msgid "None yet — add them in Entities."
+msgstr ""
+
+msgid "No items attached."
+msgstr ""
+
+msgid "New attribute set"
+msgstr ""
+
+msgid "Create and edit in Entities"
+msgstr ""
+
+msgid "The kind is fixed after creation. Values, names and everything else are edited in Entities — you'll be taken there."
+msgstr ""
+
+msgid "Could not create the set — check the name."
+msgstr ""
+
+msgid "Could not create the set."
+msgstr ""
+
+msgid "One dimension from one vendor — Ikea colors, HomeDepot trims. Items attach any number of sets. Sets are edited in the Entities module."
+msgstr ""
+
