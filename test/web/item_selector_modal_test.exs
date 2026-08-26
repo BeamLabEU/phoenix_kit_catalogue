@@ -1060,6 +1060,78 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       assert inspect(exit_value) =~ "rounds below"
     end
 
+    test "quantity + single + immediate delivers the TYPED quantity", %{
+      conn: conn,
+      cat: cat,
+      screw: screw
+    } do
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&sel=quantity&mode=single&immediate=true")
+
+      # Typing 5 into an unselected row confirms immediately — with 5, not
+      # the default the old ordering shipped before the typed value landed.
+      view |> picker() |> render_click("qty_commit", %{"uuid" => screw.uuid, "value" => "5"})
+
+      html = render(view)
+      assert html =~ ~s(<span id="picked-count">1</span>)
+      assert html =~ "qty=5"
+    end
+
+    test "quantity-first with qty_min: 0 — zero deselects everywhere", %{
+      conn: conn,
+      cat: cat,
+      screw: screw
+    } do
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&sel=quantity&min=0")
+
+      # Step up then back to zero: the line is gone, not a zero-qty pick.
+      view |> picker() |> render_click("qty_inc", %{"uuid" => screw.uuid})
+      view |> picker() |> render_click("qty_dec", %{"uuid" => screw.uuid})
+      view |> picker() |> render_click("confirm", %{})
+      refute render(view) =~ ~s(id="picked")
+
+      # Committing "0" on a selected row removes it too.
+      view |> picker() |> render_click("qty_inc", %{"uuid" => screw.uuid})
+      view |> picker() |> render_click("qty_commit", %{"uuid" => screw.uuid, "value" => "0"})
+      view |> picker() |> render_click("confirm", %{})
+      refute render(view) =~ ~s(id="picked")
+    end
+
+    test "quantity mode without the :qty column is a config error", %{conn: conn, cat: cat} do
+      exit_value = catch_exit(open(conn, "c=#{cat.uuid}&sel=quantity&cols=name,price"))
+      assert inspect(exit_value) =~ "requires the :qty column"
+    end
+
+    test "quantity mode force-shows a merely hidden :qty column", %{
+      conn: conn,
+      cat: cat,
+      screw: screw
+    } do
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&sel=quantity&hide=qty")
+
+      assert has_element?(view, "#picker-qty-#{screw.uuid}-r0-input")
+    end
+
+    test "omitting :qty keeps quantities tray-only in BOTH views", %{
+      conn: conn,
+      cat: cat,
+      screw: screw
+    } do
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&cols=thumb,name,price")
+
+      view |> picker() |> render_click("card_click", %{"uuid" => screw.uuid})
+      refute has_element?(view, "#picker-qty-#{screw.uuid}-r0-input")
+
+      # The card footer honored show-everything before; it follows the
+      # columns contract now.
+      view |> picker() |> render_click("set_view", %{"mode" => "card"})
+      refute has_element?(view, "#picker-qty-#{screw.uuid}-r0-input")
+    end
+
+    test "a qty_min above the safety ceiling is a config error", %{conn: conn, cat: cat} do
+      exit_value = catch_exit(open(conn, "c=#{cat.uuid}&min=2000000"))
+      assert inspect(exit_value) =~ "safety ceiling"
+    end
+
     test "quantity-first: every row is an order line, no click-selection", %{
       conn: conn,
       cat: cat,
