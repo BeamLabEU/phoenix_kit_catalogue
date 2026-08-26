@@ -2966,3 +2966,35 @@ msgstr "Kategooria eesliide"
 #, elixir-autogen, elixir-format
 msgid "Photo"
 msgstr "Foto"
+
+## Attribute sets viewer (2026-08-27 — editing moved to Entities)
+msgid "Edit values"
+msgstr "Muuda väärtusi"
+
+msgid "Set settings"
+msgstr "Komplekti seaded"
+
+msgid "None yet — add them in Entities."
+msgstr "Pole veel — lisa need Entities moodulis."
+
+msgid "No items attached."
+msgstr "Ühtegi toodet pole lisatud."
+
+msgid "New attribute set"
+msgstr "Uus atribuutide komplekt"
+
+msgid "Create and edit in Entities"
+msgstr "Loo ja muuda Entities moodulis"
+
+msgid "The kind is fixed after creation. Values, names and everything else are edited in Entities — you'll be taken there."
+msgstr "Tüüpi ei saa pärast loomist muuta. Väärtusi, nimesid ja kõike muud muudetakse Entities moodulis — sind suunatakse sinna."
+
+msgid "Could not create the set — check the name."
+msgstr "Komplekti loomine ebaõnnestus — kontrolli nime."
+
+msgid "Could not create the set."
+msgstr "Komplekti loomine ebaõnnestus."
+
+msgid "One dimension from one vendor — Ikea colors, HomeDepot trims. Items attach any number of sets. Sets are edited in the Entities module."
+msgstr "Üks dimensioon ühelt tarnijalt — Ikea värvid, HomeDepot liistud. Tooted võivad kasutada mis tahes arvu komplekte. Komplekte muudetakse Entities moodulis."
+

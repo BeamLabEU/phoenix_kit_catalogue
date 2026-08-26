@@ -2975,3 +2975,35 @@ msgstr "Префикс категории"
 #, elixir-autogen, elixir-format
 msgid "Photo"
 msgstr "Фото"
+
+## Attribute sets viewer (2026-08-27 — editing moved to Entities)
+msgid "Edit values"
+msgstr "Редактировать значения"
+
+msgid "Set settings"
+msgstr "Настройки набора"
+
+msgid "None yet — add them in Entities."
+msgstr "Пока нет — добавьте их в Entities."
+
+msgid "No items attached."
+msgstr "Нет привязанных товаров."
+
+msgid "New attribute set"
+msgstr "Новый набор атрибутов"
+
+msgid "Create and edit in Entities"
+msgstr "Создать и редактировать в Entities"
+
+msgid "The kind is fixed after creation. Values, names and everything else are edited in Entities — you'll be taken there."
+msgstr "Тип нельзя изменить после создания. Значения, названия и всё остальное редактируются в Entities — вы будете перенаправлены туда."
+
+msgid "Could not create the set — check the name."
+msgstr "Не удалось создать набор — проверьте название."
+
+msgid "Could not create the set."
+msgstr "Не удалось создать набор."
+
+msgid "One dimension from one vendor — Ikea colors, HomeDepot trims. Items attach any number of sets. Sets are edited in the Entities module."
+msgstr "Одно измерение от одного поставщика — цвета Ikea, отделка HomeDepot. Товары могут иметь любое число наборов. Наборы редактируются в модуле Entities."
+

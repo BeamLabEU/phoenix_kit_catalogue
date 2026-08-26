@@ -2966,3 +2966,35 @@ msgstr "Category prefix"
 #, elixir-autogen, elixir-format
 msgid "Photo"
 msgstr "Photo"
+
+## Attribute sets viewer (2026-08-27 — editing moved to Entities)
+msgid "Edit values"
+msgstr "Edit values"
+
+msgid "Set settings"
+msgstr "Set settings"
+
+msgid "None yet — add them in Entities."
+msgstr "None yet — add them in Entities."
+
+msgid "No items attached."
+msgstr "No items attached."
+
+msgid "New attribute set"
+msgstr "New attribute set"
+
+msgid "Create and edit in Entities"
+msgstr "Create and edit in Entities"
+
+msgid "The kind is fixed after creation. Values, names and everything else are edited in Entities — you'll be taken there."
+msgstr "The kind is fixed after creation. Values, names and everything else are edited in Entities — you'll be taken there."
+
+msgid "Could not create the set — check the name."
+msgstr "Could not create the set — check the name."
+
+msgid "Could not create the set."
+msgstr "Could not create the set."
+
+msgid "One dimension from one vendor — Ikea colors, HomeDepot trims. Items attach any number of sets. Sets are edited in the Entities module."
+msgstr "One dimension from one vendor — Ikea colors, HomeDepot trims. Items attach any number of sets. Sets are edited in the Entities module."
+

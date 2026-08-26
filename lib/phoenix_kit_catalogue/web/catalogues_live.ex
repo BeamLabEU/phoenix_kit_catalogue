@@ -34,6 +34,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   import PhoenixKitCatalogue.Web.Helpers,
     only: [actor_opts: 1, actor_uuid: 1, log_operation_error: 3, status_label: 1]
 
+  alias PhoenixKit.Utils.Routes, as: KitRoutes
   alias PhoenixKitCatalogue.Catalogue
   alias PhoenixKitCatalogue.Catalogue.PubSub
   alias PhoenixKitCatalogue.Errors
@@ -71,6 +72,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
        catalogue_rows: [],
        attribute_group_rows: [],
        attribute_set_rows: [],
+       show_new_set_modal: false,
        sets_enabled: false,
        confirm_delete: nil,
        catalogue_view_mode: "active",
@@ -405,8 +407,9 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   defp load_attribute_sets(socket) do
     if Catalogue.attribute_sets_enabled?() do
       socket = maybe_auto_migrate_legacy(socket)
-      sets = Catalogue.list_attribute_sets(lang: socket.assigns[:current_locale])
-      counts = Catalogue.attribute_set_attachment_counts(Enum.map(sets, & &1.uuid))
+      locale = socket.assigns[:current_locale]
+      sets = Catalogue.list_attribute_sets(lang: locale)
+      items_by_set = Catalogue.attribute_set_attached_items(Enum.map(sets, & &1.uuid))
 
       rows =
         Enum.map(sets, fn s ->
@@ -415,8 +418,8 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
             name: s.display_name,
             key: s.name,
             kind: Catalogue.attribute_set_kind(s),
-            value_count: length(Catalogue.list_attribute_set_values(s)),
-            item_count: Map.get(counts, s.uuid, 0)
+            values: Catalogue.list_attribute_set_values(s, lang: locale),
+            items: Map.get(items_by_set, s.uuid, [])
           }
         end)
 
@@ -1906,57 +1909,6 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     end
   end
 
-  def handle_event("delete_attribute_set", _params, socket) do
-    case socket.assigns.confirm_delete do
-      {"attribute_set", uuid} ->
-        with %{} = set <- Catalogue.get_attribute_set(uuid),
-             {:ok, _} <- Catalogue.delete_attribute_set(set, actor_opts(socket)) do
-          {:noreply,
-           socket
-           |> put_flash(
-             :info,
-             Gettext.gettext(PhoenixKitCatalogue.Gettext, "Attribute set deleted.")
-           )
-           |> assign(:confirm_delete, nil)
-           |> load_data(:attribute_groups)}
-        else
-          nil ->
-            {:noreply, assign(socket, :confirm_delete, nil)}
-
-          {:error, :set_in_use} ->
-            {:noreply,
-             socket
-             |> put_flash(
-               :error,
-               Gettext.gettext(
-                 PhoenixKitCatalogue.Gettext,
-                 "This set is attached to items — detach it everywhere first."
-               )
-             )
-             |> assign(:confirm_delete, nil)}
-
-          {:error, reason} ->
-            log_operation_error(socket, "delete_attribute_set", %{
-              entity_type: "attribute_set",
-              entity_uuid: uuid,
-              reason: reason
-            })
-
-            {:noreply,
-             socket
-             |> put_flash(
-               :error,
-               Gettext.gettext(PhoenixKitCatalogue.Gettext, "Failed to delete attribute set.")
-             )
-             |> assign(:confirm_delete, nil)}
-        end
-
-      _ ->
-        unexpected_confirm_event(socket, "delete_attribute_set")
-    end
-  end
-
-  # Archive / restore straight from the row menu — reversible, no confirm.
   def handle_event("set_attribute_group_status", %{"uuid" => uuid, "status" => status}, socket)
       when status in ["active", "archived"] do
     with %{} = group <- Catalogue.get_attribute_group(uuid),
@@ -2170,6 +2122,41 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       {:noreply, put_cfg(socket, scope, %{cfg | filters: Map.delete(cfg.filters, id)})}
     else
       {:noreply, socket}
+    end
+  end
+
+  def handle_event("open_new_set_modal", _params, socket),
+    do: {:noreply, assign(socket, :show_new_set_modal, true)}
+
+  def handle_event("close_new_set_modal", _params, socket),
+    do: {:noreply, assign(socket, :show_new_set_modal, false)}
+
+  # Creation is the one write kept on this tab (catalogue must stamp its
+  # managed_by settings; entities knows nothing about catalogue) — the
+  # kind is part of it because it is LOCKED after creation. Everything
+  # else redirects to the entities editor immediately.
+  def handle_event("create_attribute_set", %{"name" => name, "kind" => kind}, socket) do
+    case Catalogue.create_attribute_set(%{name: name, kind: kind}, actor_opts(socket)) do
+      {:ok, set} ->
+        {:noreply,
+         push_navigate(socket,
+           to: KitRoutes.path("/admin/entities/#{set.uuid}/edit")
+         )}
+
+      {:error, reason} ->
+        message =
+          case reason do
+            %Ecto.Changeset{} ->
+              Gettext.gettext(
+                PhoenixKitCatalogue.Gettext,
+                "Could not create the set — check the name."
+              )
+
+            _ ->
+              Gettext.gettext(PhoenixKitCatalogue.Gettext, "Could not create the set.")
+          end
+
+        {:noreply, socket |> put_flash(:error, message) |> assign(:show_new_set_modal, false)}
     end
   end
 
@@ -2584,6 +2571,13 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         <%!-- SETS (2026-08-18 rework) — the primary system once entities
              is enabled. One dimension from one vendor per set; managed
              blueprints under the hood. --%>
+        <%!-- VIEWER ONLY (2026-08-27 direction): sets and the items
+             they're attached to are read here; ALL editing — names,
+             values, images, deletion — happens in the entities module,
+             where these managed blueprints are now first-class. The one
+             affordance kept is creation: catalogue must stamp its
+             ownership settings, so "New set" collects name+kind and
+             hands straight off to the entities editor. --%>
         <div :if={@sets_enabled} class="flex flex-col gap-3">
           <div class="flex items-center justify-between gap-4">
             <div class="flex flex-col gap-0.5 min-w-0">
@@ -2591,17 +2585,17 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
                 <.icon name="hero-swatch" class="w-4 h-4 text-base-content/60" />
                 {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Attribute sets")}
               </h3>
-              <p class="text-xs text-base-content/50">
+              <p class="text-sm text-base-content/60">
                 {Gettext.gettext(
                   PhoenixKitCatalogue.Gettext,
-                  "One dimension from one vendor — Ikea colors, HomeDepot trims. Items attach any number of sets."
+                  "One dimension from one vendor — Ikea colors, HomeDepot trims. Items attach any number of sets. Sets are edited in the Entities module."
                 )}
               </p>
             </div>
-            <.link navigate={Paths.attribute_set_new()} class="btn btn-primary btn-sm shrink-0">
+            <button type="button" phx-click="open_new_set_modal" class="btn btn-primary btn-sm shrink-0">
               <.icon name="hero-plus" class="w-4 h-4" />
               {Gettext.gettext(PhoenixKitCatalogue.Gettext, "New Set")}
-            </.link>
+            </button>
           </div>
 
           <p :if={@attribute_set_rows == []} class="text-sm text-base-content/60 py-4 text-center border border-dashed border-base-content/20 rounded-lg">
@@ -2611,49 +2605,99 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
             )}
           </p>
 
-          <div :if={@attribute_set_rows != []} class="overflow-x-auto rounded-lg border border-base-content/10">
-            <table class="table table-sm bg-base-100">
-              <thead>
-                <tr>
-                  <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Name")}</th>
-                  <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Kind")}</th>
-                  <th class="text-right">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Values")}</th>
-                  <th class="text-right">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Items")}</th>
-                  <th class="w-10"></th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr :for={s <- @attribute_set_rows} class="hover">
-                  <td>
-                    <.link navigate={Paths.attribute_set_edit(s.uuid)} class="link link-hover font-medium">
-                      {s.name}
-                    </.link>
-                  </td>
-                  <td class="text-base-content/70">{set_kind_label(s.kind)}</td>
-                  <td class="text-right tabular-nums">{s.value_count}</td>
-                  <td class="text-right tabular-nums">{s.item_count}</td>
-                  <td>
-                    <.table_row_menu mode="auto" id={"attr-set-menu-#{s.uuid}"}>
-                      <.table_row_menu_link
-                        navigate={Paths.attribute_set_edit(s.uuid)}
-                        icon="hero-pencil"
-                        label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")}
-                      />
-                      <.table_row_menu_divider />
-                      <.table_row_menu_button
-                        phx-click="show_delete_confirm"
-                        phx-value-uuid={s.uuid}
-                        phx-value-type="attribute_set"
-                        icon="hero-trash"
-                        label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")}
-                        variant="error"
-                      />
-                    </.table_row_menu>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
+          <div
+            :for={s <- @attribute_set_rows}
+            id={"attr-set-#{s.uuid}"}
+            class="rounded-lg border border-base-content/10 bg-base-100 p-4 flex flex-col gap-3"
+          >
+            <div class="flex flex-wrap items-center gap-3">
+              <span class="font-semibold">{s.name}</span>
+              <span class="badge badge-ghost badge-sm">{set_kind_label(s.kind)}</span>
+              <span class="font-mono text-xs text-base-content/40">{s.key}</span>
+              <div class="ml-auto flex gap-2">
+                <.link
+                  navigate={KitRoutes.path("/admin/entities/#{s.key}/data")}
+                  class="btn btn-xs"
+                >
+                  <.icon name="hero-pencil-square" class="w-3 h-3" />
+                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit values")}
+                </.link>
+                <.link
+                  navigate={KitRoutes.path("/admin/entities/#{s.uuid}/edit")}
+                  class="btn btn-xs btn-ghost"
+                >
+                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Set settings")}
+                </.link>
+              </div>
+            </div>
+
+            <div class="flex flex-wrap items-center gap-1.5">
+              <span class="text-xs font-semibold text-base-content/50 uppercase mr-1">
+                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Values")} ({length(s.values)})
+              </span>
+              <span :for={v <- s.values} class="badge badge-outline badge-sm">{v.title}</span>
+              <span :if={s.values == []} class="text-sm text-base-content/50">
+                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "None yet — add them in Entities.")}
+              </span>
+            </div>
+
+            <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <span class="text-xs font-semibold text-base-content/50 uppercase mr-1">
+                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Items")} ({length(s.items)})
+              </span>
+              <.link
+                :for={item <- s.items}
+                navigate={Paths.item_edit(item.uuid)}
+                class="link link-hover text-sm"
+              >
+                {item.name}
+              </.link>
+              <span :if={s.items == []} class="text-sm text-base-content/50">
+                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "No items attached.")}
+              </span>
+            </div>
           </div>
+
+          <.modal
+            :if={@show_new_set_modal}
+            show={true}
+            id="new-attribute-set-modal"
+            on_close="close_new_set_modal"
+            max_width="md"
+          >
+            <:title>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "New attribute set")}</:title>
+            <form phx-submit="create_attribute_set" class="flex flex-col gap-4">
+              <label class="input w-full">
+                <span class="label">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Name")}</span>
+                <input type="text" name="name" required autocomplete="off" class="grow" />
+              </label>
+              <label class="select w-full">
+                <span class="label">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Kind")}</span>
+                <select name="kind">
+                  <option value="multi">
+                    {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Multiple values")}
+                  </option>
+                  <option value="fixed">
+                    {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Fixed value")}
+                  </option>
+                </select>
+              </label>
+              <p class="text-xs text-base-content/60">
+                {Gettext.gettext(
+                  PhoenixKitCatalogue.Gettext,
+                  "The kind is fixed after creation. Values, names and everything else are edited in Entities — you'll be taken there."
+                )}
+              </p>
+              <div class="flex justify-end gap-2">
+                <button type="button" class="btn btn-ghost btn-sm" phx-click="close_new_set_modal">
+                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Cancel")}
+                </button>
+                <button type="submit" class="btn btn-primary btn-sm">
+                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Create and edit in Entities")}
+                </button>
+              </div>
+            </form>
+          </.modal>
         </div>
 
         <%!-- LEGACY groups — only rendered on hosts WITHOUT the entities
@@ -2763,17 +2807,6 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         </.simple_table>
         </div>
       </div>
-
-      <.confirm_modal
-        show={match?({"attribute_set", _}, @confirm_delete)}
-        on_confirm="delete_attribute_set"
-        on_cancel="cancel_delete"
-        title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete Attribute Set")}
-        title_icon="hero-trash"
-        messages={[{:warning, Gettext.gettext(PhoenixKitCatalogue.Gettext, "This deletes the set and all its values. Sets attached to items cannot be deleted.")}]}
-        confirm_text={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")}
-        danger={true}
-      />
 
       <.confirm_modal
         show={match?({"catalogue", _}, @confirm_delete)}
