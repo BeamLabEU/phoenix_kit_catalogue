@@ -815,6 +815,95 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       assert html =~ "SKU"
     end
 
+    test "quantity-first: every row is an order line, no click-selection", %{
+      conn: conn,
+      cat: cat,
+      screw: screw,
+      paint: paint
+    } do
+      {:ok, view, html} = open(conn, "c=#{cat.uuid}&sel=quantity")
+
+      # Steppers at 0 on every rendered row; rows are not click-targets.
+      assert has_element?(view, ~s(#picker-qty-#{screw.uuid}-r0-input[value="0"]))
+      assert has_element?(view, ~s(#picker-qty-#{paint.uuid}-r0-input[value="0"]))
+      refute html =~ ~s(phx-click="card_click")
+
+      # Plus on an unselected row selects at the minimum…
+      view |> picker() |> render_click("qty_inc", %{"uuid" => screw.uuid})
+      # …and typing a positive quantity selects at that quantity.
+      view |> picker() |> render_click("qty_commit", %{"uuid" => paint.uuid, "value" => "5"})
+
+      view |> picker() |> render_click("confirm", %{})
+      html = render(view)
+      assert html =~ ~s(<span id="picked-count">2</span>)
+      assert html =~ "M8 Screw|M8-100|qty=1|"
+      assert html =~ "White Paint|PAINT-W|qty=5|"
+    end
+
+    test "quantity-first: back to zero is deselection, zero input stays nothing", %{
+      conn: conn,
+      cat: cat,
+      screw: screw
+    } do
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&sel=quantity")
+
+      # Typing "0" on an untouched row selects nothing.
+      view |> picker() |> render_click("qty_commit", %{"uuid" => screw.uuid, "value" => "0"})
+      view |> picker() |> render_click("confirm", %{})
+      refute render(view) =~ ~s(id="picked")
+
+      # Up then down again removes the line entirely.
+      view |> picker() |> render_click("qty_inc", %{"uuid" => screw.uuid})
+      view |> picker() |> render_click("qty_dec", %{"uuid" => screw.uuid})
+      view |> picker() |> render_click("confirm", %{})
+      refute render(view) =~ ~s(id="picked")
+    end
+
+    test "quantity-first: crafted clicks and foreign uuids stay refused", %{
+      conn: conn,
+      cat: cat,
+      screw: screw,
+      forbidden: forbidden
+    } do
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&sel=quantity")
+
+      # card_click has no meaning in this mode — even crafted.
+      view |> picker() |> render_click("card_click", %{"uuid" => screw.uuid})
+      # A stepper event for an item this modal never rendered is refused
+      # by the same presented gate that guards clicks.
+      view |> picker() |> render_click("qty_inc", %{"uuid" => forbidden.uuid})
+      view |> picker() |> render_click("qty_commit", %{"uuid" => forbidden.uuid, "value" => "3"})
+
+      view |> picker() |> render_click("confirm", %{})
+      refute render(view) =~ ~s(id="picked")
+    end
+
+    test "the category column shows each item's category, host-omittable", %{
+      conn: conn,
+      cat: cat
+    } do
+      shelving = fixture_category(cat, %{name: "Shelving"})
+
+      {:ok, _item} =
+        Catalogue.create_item(%{
+          name: "Wall Bracket",
+          catalogue_uuid: cat.uuid,
+          category_uuid: shelving.uuid
+        })
+
+      # Default columns include Category, populated per row. Assertions
+      # scope to the table — the chips row legitimately shows the name
+      # regardless of columns (navigation, not data).
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}")
+      assert has_element?(view, "#picker-table th", "Category")
+      assert has_element?(view, "#picker-table td", "Shelving")
+
+      # A host that leaves it out shows neither header nor value.
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&cols=name,qty")
+      refute has_element?(view, "#picker-table th", "Category")
+      refute has_element?(view, "#picker-table td", "Shelving")
+    end
+
     test "a parent-category scope shows and accepts descendant chips", %{conn: conn, cat: cat} do
       parent = fixture_category(cat, %{name: "Parent Cat"})
       child = fixture_category(cat, %{name: "Child Cat", parent_uuid: parent.uuid})

@@ -16,6 +16,7 @@ defmodule PhoenixKitCatalogue.Test.SelectorHostLive do
     * `min`       — qty_min
     * `max`       — qty_max
     * `view`      — starting view, "table" | "card" (nil = component default)
+    * `sel`       — selection_mode, "click" | "quantity"
     * `cols`      — comma list of table columns, e.g. "thumb,name,qty"
                     (unknown names map to :invalid_column so the modal's
                     own validation raise can be exercised)
@@ -50,6 +51,7 @@ defmodule PhoenixKitCatalogue.Test.SelectorHostLive do
        min: params["min"] && String.to_integer(params["min"]),
        max: params["max"] && String.to_integer(params["max"]),
        view: params["view"],
+       sel: params["sel"],
        cols: parse_cols(params["cols"]),
        show_prices: params["hide_prices"] != "true",
        two: params["two"] == "true",
@@ -126,6 +128,7 @@ defmodule PhoenixKitCatalogue.Test.SelectorHostLive do
         qty_min={@min}
         qty_max={@max}
         view={@view}
+        selection_mode={@sel}
         columns={@cols}
         show_prices={@show_prices}
       />
