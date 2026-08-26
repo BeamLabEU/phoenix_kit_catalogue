@@ -1,3 +1,45 @@
+## 0.20.0 - 2026-08-26
+
+### Added
+
+- **ItemSelectorModal table view** (#80) — a new admin-look list view,
+  composed from core's `table_default` family, is now the picker's default
+  presentation; the photo card grid stays one toggle away.
+- **Columns are a host contract** — `columns` (a subset of
+  `Browse.table_columns/0`, in display order) renders only what the embed
+  granted, in both the table and card views. `:price` is the selling price
+  (markup/discounts applied, e.g. `6.40 / piece`); `:base_price` is opt-in
+  raw; `:breadcrumb` is a headerless muted "Category /" prefix beside Name.
+  A viewer-facing Columns dropdown toggles visibility within the granted
+  set (server-enforced; the last identity column and, in quantity mode,
+  `:qty` are pinned). SKU is granted but hidden by default.
+- **`selection_mode: "quantity"`** — order-sheet flavour: every row shows a
+  stepper starting at 0, entering a positive quantity IS the selection,
+  zero removes the line, rows are not click targets.
+- **Uncategorized chip** so the category chips add up when loose items
+  exist (emitted as `only: :uncategorized_only`, accepted only where the
+  scope can take it).
+- Responsive: the modal widens past 4xl on xl/2xl viewports; granted
+  columns stage by breakpoint (identity + price + qty hold to phone width)
+  so the list never scrolls sideways.
+
+### Fixed
+
+- **Deleting the last active item in a category no longer strands the
+  admin on the Deleted view** (#80) — the populated-tab auto-pick no
+  longer overrides an explicit tab choice on every reload. Entering an
+  all-deleted category still opens on Deleted, as before.
+- Pre-merge hardening pass on the popup components (ItemPicker /
+  ItemSelectorModal / BrowseState), recorded in
+  `dev_docs/design/2026-08-25-popup-components-quorum-review.md`: native
+  page navigation on Enter in browse search forms, server-side enforcement
+  of excluded/disabled picker rows, non-UUID scope crashes, contradictory
+  `:only` narrowings, confirm-with-nothing-selected, unclamped preselect
+  quantities, `:single`-mode multi-preselect, soft-deleted-parent
+  re-checks, and more (20 defects total, each with a test).
+- Repaired the unparseable `Select Featured Image` entry in `default.pot`
+  (missing `msgstr`) that blocked `gettext.extract`.
+
 ## 0.19.1 - 2026-08-25
 
 ### Added
