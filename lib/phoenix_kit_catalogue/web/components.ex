@@ -2260,6 +2260,12 @@ defmodule PhoenixKitCatalogue.Web.Components do
     doc: "Restrict results to uncategorised or categorised items only."
   )
 
+  # `:any` for the same explicit-nil reason as the uuid scopes above.
+  attr(:statuses, :any,
+    default: nil,
+    doc: "Item statuses to include (`nil`/`[]` = all non-deleted) — search_items/2's :statuses."
+  )
+
   attr(:selected_item, :any, default: nil)
   attr(:excluded_uuids, :list, default: [])
   attr(:locale, :string, required: true)
@@ -2283,6 +2289,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
       catalogue_uuids={@catalogue_uuids}
       include_descendants={@include_descendants}
       only={@only}
+      statuses={@statuses}
       selected_item={@selected_item}
       excluded_uuids={@excluded_uuids}
       locale={@locale}

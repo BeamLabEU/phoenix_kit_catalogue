@@ -16,12 +16,20 @@ defmodule PhoenixKitCatalogue.Web.Components.CatalogueBrowseTest do
   end
 
   test "renders the scoped grid with no picker chrome", %{conn: conn, cat: cat} do
-    {:ok, _view, html} = live(conn, "/test/selector-host?browse=true&c=#{cat.uuid}")
+    {:ok, view, html} = live(conn, "/test/selector-host?browse=true&c=#{cat.uuid}")
 
     assert html =~ "Widget"
     refute html =~ "Elsewhere"
     # No tray, no confirm — browse only.
     refute html =~ "Confirm selection"
+
+    # phx-submit routes Enter to a re-search — without it LiveView treats
+    # a phx-change-only form as external and Enter runs a NATIVE submit,
+    # navigating the page away.
+    assert has_element?(view, ~s(#surface-search-form[phx-submit="browse_search"]))
+
+    assert view |> element("#surface-search-form") |> render_submit(%{"search" => "Widget"}) =~
+             "Widget"
   end
 
   test "item click reports the generic message to the host", %{
