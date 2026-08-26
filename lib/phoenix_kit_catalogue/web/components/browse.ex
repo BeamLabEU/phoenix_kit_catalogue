@@ -317,7 +317,10 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
       <.table_default variant="zebra" size="sm">
         <.table_default_header>
           <tr>
-            <.table_default_header_cell :for={col <- @columns} class={col == :qty && "text-right"}>
+            <.table_default_header_cell
+              :for={col <- @columns}
+              class={[col == :qty && "text-right", col_responsive_class(col)]}
+            >
               {column_header(col)}
             </.table_default_header_cell>
           </tr>
@@ -366,6 +369,7 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
         :for={col <- @columns}
         class={[
           row_cell_class(col),
+          col_responsive_class(col),
           col != :qty and @clickable && "cursor-pointer"
         ]}
         phx-click={if col != :qty and @clickable, do: "card_click"}
@@ -411,8 +415,19 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
   end
 
   defp row_cell_class(:thumb), do: "w-10"
-  defp row_cell_class(:qty), do: "text-right w-40"
+  defp row_cell_class(:qty), do: "text-right whitespace-nowrap"
   defp row_cell_class(_), do: nil
+
+  # Small screens drop low-priority columns instead of forcing a modal to
+  # scroll sideways: identity (thumb/name) and the numbers that drive the
+  # pick (price/qty) survive down to phone width; unit returns at sm, SKU
+  # at md, manufacturer and category at lg. Presence stays the host's
+  # columns contract — this only stages WHEN a granted column shows.
+  defp col_responsive_class(:unit), do: "hidden sm:table-cell"
+  defp col_responsive_class(:sku), do: "hidden md:table-cell"
+  defp col_responsive_class(:manufacturer), do: "hidden lg:table-cell"
+  defp col_responsive_class(:category), do: "hidden lg:table-cell"
+  defp col_responsive_class(_), do: nil
 
   @doc """
   Quantity stepper: minus / text input / plus. The input commits on blur or
