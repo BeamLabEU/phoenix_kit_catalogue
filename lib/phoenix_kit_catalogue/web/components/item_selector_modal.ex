@@ -120,6 +120,11 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
   alias PhoenixKitCatalogue.Catalogue.Tree
   alias PhoenixKitCatalogue.Web.Components.Browse
 
+  # A hard ceiling even when the host sets no qty_max: Decimal.parse
+  # accepts "1e1000000" as a full match, and an absurd exponent is a
+  # process-DoS the moment it hits multiplication.
+  @qty_ceiling Decimal.new(1_000_000)
+
   @impl true
   def mount(socket) do
     {:ok,
@@ -163,6 +168,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
     limits = resolve_limits!(assigns, qty_precision)
     display = display_opts(assigns)
     columns = resolve_columns!(assigns[:columns], display)
+    selection_mode = resolve_selection_mode!(assigns[:selection_mode])
 
     socket =
       socket
@@ -173,8 +179,9 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
         locale: locale,
         view: resolve_view!(assigns[:view]),
         columns: columns,
-        visible_columns: visible_columns(columns, assigns[:hidden_columns]),
-        selection_mode: resolve_selection_mode!(assigns[:selection_mode]),
+        visible_columns:
+          resolve_visible_columns!(selection_mode, columns, assigns[:hidden_columns]),
+        selection_mode: selection_mode,
         qty_precision: qty_precision,
         qty_min: limits.qty_min,
         qty_max: limits.qty_max,
@@ -207,6 +214,13 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
               "every quantity would silently collapse to the max"
     end
 
+    if Decimal.gt?(limits.qty_min, @qty_ceiling) do
+      raise ArgumentError,
+            "ItemSelectorModal qty_min #{inspect(assigns[:qty_min])} exceeds the " <>
+              "#{Decimal.to_string(@qty_ceiling, :normal)} safety ceiling — clamp/2 would " <>
+              "silently violate the declared minimum"
+    end
+
     limits
   end
 
@@ -237,6 +251,25 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
   # and one dropdown click away. Hosts override via hidden_columns
   # (unknown/ungranted entries are simply ignored: hiding less than asked
   # never widens anything).
+  # Quantity-first without a :qty column is a contradiction — the stepper
+  # IS the selector — so an ungranted :qty raises and a merely-hidden one
+  # is forced visible (locked_columns already stops the viewer hiding it).
+  defp resolve_visible_columns!("quantity", columns, hidden) do
+    if :qty not in columns do
+      raise ArgumentError,
+            ~s(ItemSelectorModal selection_mode "quantity" requires the :qty column — ) <>
+              "the stepper is the selector"
+    end
+
+    visible = visible_columns(columns, hidden)
+
+    if :qty in visible,
+      do: visible,
+      else: Enum.filter(columns, &(&1 == :qty or &1 in visible))
+  end
+
+  defp resolve_visible_columns!(_mode, columns, hidden), do: visible_columns(columns, hidden)
+
   defp visible_columns(granted, hidden) do
     hidden = if is_list(hidden), do: hidden, else: [:sku, :breadcrumb]
     Enum.reject(granted, &(&1 in hidden))
@@ -694,8 +727,16 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
     socket = bump_qty_rev(socket, uuid)
 
     case parse_qty(raw, socket.assigns) do
-      {:ok, qty} -> put_qty(socket, uuid, qty)
-      :error -> socket
+      {:ok, qty} ->
+        # Quantity-first: zero IS the unselected state, so committing it on
+        # a selected row removes the line (possible only with qty_min: 0 —
+        # parse_qty rejects below-minimum input otherwise).
+        if socket.assigns.selection_mode == "quantity" and not Decimal.gt?(qty, 0),
+          do: deselect(socket, uuid),
+          else: put_qty(socket, uuid, qty)
+
+      :error ->
+        socket
     end
   end
 
@@ -707,9 +748,14 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
 
     case parse_qty(raw, socket.assigns) do
       {:ok, qty} ->
-        if Decimal.gt?(qty, 0),
-          do: socket |> select(socket.assigns.presented[uuid]) |> put_qty(uuid, qty),
-          else: socket
+        if Decimal.gt?(qty, 0) do
+          socket
+          |> select_entry(socket.assigns.presented[uuid])
+          |> put_qty(uuid, qty)
+          |> maybe_notify_immediate()
+        else
+          socket
+        end
 
       :error ->
         socket
@@ -719,15 +765,23 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
   # ── Selection mechanics ──────────────────────────────────────────────
 
   defp select(socket, item) do
+    socket |> select_entry(item) |> maybe_notify_immediate()
+  end
+
+  defp select_entry(socket, item) do
     entry = %{qty: clamp(item.default_qty, socket.assigns), item: item, available: true}
 
-    socket =
-      case socket.assigns.mode do
-        # Single mode replaces the previous pick — the map never grows.
-        :single -> assign(socket, selection: %{item.uuid => entry})
-        _ -> assign(socket, selection: Map.put(socket.assigns.selection, item.uuid, entry))
-      end
+    case socket.assigns.mode do
+      # Single mode replaces the previous pick — the map never grows.
+      :single -> assign(socket, selection: %{item.uuid => entry})
+      _ -> assign(socket, selection: Map.put(socket.assigns.selection, item.uuid, entry))
+    end
+  end
 
+  # Split from select_entry/2 so quantity-first commits can put the TYPED
+  # quantity in place first — notifying inside the entry placement sent the
+  # default quantity and dropped what the user typed.
+  defp maybe_notify_immediate(socket) do
     if socket.assigns.mode == :single and socket.assigns.immediate do
       send(self(), {:items_selected, confirm_payload(socket.assigns)})
       send(self(), {:item_selector_closed, %{id: socket.assigns.id}})
@@ -763,7 +817,14 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
 
         # Stepping below the minimum IS deselection — the minus button on
         # a qty-1 card removes the pick, which is what a client expects.
-        if Decimal.compare(next, socket.assigns.qty_min) == :lt do
+        # Quantity-first additionally treats zero itself as unselected
+        # (reachable only with qty_min: 0).
+        below_min? = Decimal.compare(next, socket.assigns.qty_min) == :lt
+
+        zero_in_qty_mode? =
+          socket.assigns.selection_mode == "quantity" and not Decimal.gt?(next, 0)
+
+        if below_min? or zero_in_qty_mode? do
           deselect(socket, uuid)
         else
           put_qty(socket, uuid, next)
@@ -791,8 +852,6 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
   # A hard ceiling even when the host sets no qty_max: Decimal.parse
   # accepts "1e1000000" as a full match, and an absurd exponent is a
   # process-DoS the moment it hits multiplication.
-  @qty_ceiling Decimal.new(1_000_000)
-
   # Quantities arrive from the client and are clamped here, not trusted
   # from input attributes: min, max, precision AND the absolute ceiling are
   # all re-enforced. The ceiling lives here (not only in parse_qty/2) so
@@ -875,10 +934,11 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
   # entry — plus, in quantity-first mode, EVERY rendered row (rendered
   # means in-scope by construction, and the stepper at 0 IS the selector).
   defp stepper?(assigns, uuid) do
-    case assigns.selection[uuid] do
-      %{available: available} -> available
-      nil -> assigns.selection_mode == "quantity"
-    end
+    :qty in assigns.visible_columns and
+      case assigns.selection[uuid] do
+        %{available: available} -> available
+        nil -> assigns.selection_mode == "quantity"
+      end
   end
 
   # In quantity-first mode an unselected row's stepper reads 0 — zero is

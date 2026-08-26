@@ -79,23 +79,13 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
 
   # The item's category display name for the viewer's locale, or nil for
   # uncategorized items (and for maps without the preload — test doubles).
+  # Goes through Translations.translated_name/2 — the "_name" multilang key
+  # the chips honor applies to the category columns too.
   defp presented_category(item, locale) do
     case Map.get(item, :category) do
-      %{__struct__: Ecto.Association.NotLoaded} ->
-        nil
-
-      nil ->
-        nil
-
-      category ->
-        translated =
-          try do
-            Translations.get_translation(category, locale)
-          rescue
-            _ -> %{}
-          end
-
-        translated["name"] || Map.get(category, :name)
+      %{__struct__: Ecto.Association.NotLoaded} -> nil
+      nil -> nil
+      category -> Translations.translated_name(category, locale) || Map.get(category, :name)
     end
   end
 
@@ -492,7 +482,12 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
               <span class="line-clamp-2">{@item.name}</span>
             </div>
           <% :breadcrumb -> %>
-            <span :if={@item.category} class="text-base-content/60 whitespace-nowrap">
+            <%!-- nowrap but width-capped: a long category must not hand the
+            table sideways scroll back. --%>
+            <span
+              :if={@item.category}
+              class="text-base-content/60 whitespace-nowrap truncate inline-block max-w-40 align-bottom"
+            >
               {@item.category} /
             </span>
           <% :sku -> %>
@@ -547,6 +542,7 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
   # pick (price/qty) survive down to phone width; unit returns at sm, SKU
   # at md, manufacturer and category at lg. Presence stays the host's
   # columns contract — this only stages WHEN a granted column shows.
+  defp col_responsive_class(:breadcrumb), do: "hidden sm:table-cell"
   defp col_responsive_class(:unit), do: "hidden sm:table-cell"
   defp col_responsive_class(:sku), do: "hidden md:table-cell"
   defp col_responsive_class(:base_price), do: "hidden md:table-cell"
