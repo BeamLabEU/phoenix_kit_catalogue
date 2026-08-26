@@ -814,6 +814,21 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       assert html =~ "SKU"
     end
 
+    test "the list adapts: staged columns and a widened modal, no sideways scroll", %{
+      conn: conn,
+      cat: cat
+    } do
+      {:ok, _view, html} = open(conn, "c=#{cat.uuid}")
+
+      # Low-priority columns carry their responsive stage on th AND td…
+      assert html =~ "hidden md:table-cell"
+      assert html =~ "hidden lg:table-cell"
+      assert html =~ "hidden sm:table-cell"
+      # …and the modal box grows past core Modal's 4xl cap on big screens.
+      assert html =~ "xl:max-w-6xl"
+      assert html =~ "2xl:max-w-7xl"
+    end
+
     test "quantity-first: every row is an order line, no click-selection", %{
       conn: conn,
       cat: cat,

@@ -56,6 +56,13 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
   `show_prices: false` already opt out of. Omitting `:qty` hides the
   inline stepper — quantities are then edited in the tray only.
 
+  Granted columns are additionally staged by viewport so the modal never
+  scrolls sideways: identity and the pick-driving numbers (thumb, name,
+  price, qty) hold down to phone width; unit returns at `sm`, SKU at
+  `md`, manufacturer and category at `lg`. The modal box itself widens on
+  large viewports (`xl`/`2xl`) beyond core Modal's 4xl cap. On phones the
+  card grid remains the roomier alternative, one toggle away.
+
   ## Selection modes
 
   `selection_mode: "click"` (default) is the classic picker: clicking a
@@ -828,7 +835,18 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
   def render(assigns) do
     ~H"""
     <div id={@id}>
-      <.modal show={true} id={"#{@id}-dialog"} on_close="cancel" max_width="4xl" max_height="85vh">
+      <%!-- max_width caps at 4xl in core Modal; the responsive variants in
+      `class` land AFTER the width class in its class list, widening the
+      box where the viewport has room instead of forcing the table to
+      scroll sideways next to empty margin. --%>
+      <.modal
+        show={true}
+        id={"#{@id}-dialog"}
+        on_close="cancel"
+        max_width="4xl"
+        class="xl:max-w-6xl 2xl:max-w-7xl"
+        max_height="85vh"
+      >
         <:title>{modal_title(@title)}</:title>
 
         <div class="flex flex-col gap-3">
