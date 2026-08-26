@@ -104,6 +104,32 @@ defmodule PhoenixKitCatalogue.Catalogue.BrowseStateTest do
       refute Map.has_key?(Map.new(opts), :category_uuids)
     end
 
+    test "the :uncategorized narrowing becomes :uncategorized_only, never category_uuids" do
+      state = BrowseState.init(scope: %{catalogue_uuids: ["cat-1"]})
+
+      assert {state, {:fetch, opts, _}} =
+               BrowseState.command(state, {:set_category, :uncategorized})
+
+      opts = Map.new(opts)
+      assert opts[:only] == :uncategorized_only
+      refute Map.has_key?(opts, :category_uuids)
+      assert opts[:catalogue_uuids] == ["cat-1"]
+
+      # Clearing the chip restores the plain scope.
+      assert {_, {:fetch, opts, _}} = BrowseState.command(state, {:set_category, nil})
+      refute Map.has_key?(Map.new(opts), :only)
+    end
+
+    test ":uncategorized is refused where the scope restricts categories or sets :only" do
+      restricted = BrowseState.init(scope: %{category_uuids: ["a"]})
+
+      assert {^restricted, :noop} =
+               BrowseState.command(restricted, {:set_category, :uncategorized})
+
+      only = BrowseState.init(scope: %{only: :categorized_only})
+      assert {^only, :noop} = BrowseState.command(only, {:set_category, :uncategorized})
+    end
+
     test "per_page is floored at 1 — a 0 page size could never exhaust" do
       assert BrowseState.init(per_page: 0).per_page == 1
       assert BrowseState.init(per_page: 24).per_page == 24
