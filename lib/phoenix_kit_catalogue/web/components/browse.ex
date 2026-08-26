@@ -67,6 +67,7 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
         name: translated["name"] || item.name,
         sku: item.sku,
         price: presented_price(item),
+        base_price: Map.get(item, :base_price),
         unit: item.unit,
         manufacturer: item.manufacturer_name || item.manufacturer_name_snapshot,
         category: presented_category(item, locale),
@@ -291,10 +292,22 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
 
   # The column vocabulary for `item_table`/`item_row`. Hosts pick a subset
   # in display order; anything else raises at init (config is a contract).
-  @table_columns ~w(thumb name sku manufacturer category unit price qty)a
+  # `:price` is the customer-facing SELLING price (markup and discount
+  # applied — `item_pricing/1`'s final_price) rendered as "6.40 / piece";
+  # `:base_price` is the raw column for internal embeds; `:unit` is the
+  # standalone unit for lists that show no price at all.
+  @table_columns ~w(thumb name sku manufacturer category unit price base_price qty)a
+
+  # What renders when the host doesn't pass columns: unit lives inside the
+  # price cell, and the raw base price is opt-in only — a client-facing
+  # default must never leak it.
+  @default_table_columns ~w(thumb name sku manufacturer category price qty)a
 
   @doc "The legal `item_table`/`item_row` column atoms, in canonical order."
   def table_columns, do: @table_columns
+
+  @doc "The default column set — selling price with inline unit, no raw base price."
+  def default_table_columns, do: @default_table_columns
 
   @doc """
   The table twin of `item_grid`: an admin-look list for the same presented
@@ -340,6 +353,7 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
   defp column_header(:category), do: gettext("Category")
   defp column_header(:unit), do: gettext("Unit")
   defp column_header(:price), do: gettext("Price")
+  defp column_header(:base_price), do: gettext("Base price")
   defp column_header(:qty), do: gettext("Qty")
 
   @doc """
@@ -407,7 +421,17 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
           <% :unit -> %>
             <span class="text-base-content/70">{@item.unit}</span>
           <% :price -> %>
-            <span class="font-semibold whitespace-nowrap">{format_price(@item.price)}</span>
+            <span :if={@item.price} class="font-semibold whitespace-nowrap">
+              {format_price(@item.price)}
+              <span :if={@item.unit} class="text-xs font-normal text-base-content/60">
+                / {@item.unit}
+              </span>
+            </span>
+            <span :if={!@item.price && @item.unit} class="text-base-content/60">
+              {@item.unit}
+            </span>
+          <% :base_price -> %>
+            <span class="whitespace-nowrap">{format_price(@item.base_price)}</span>
           <% :qty -> %>
             <div class="flex justify-end">{render_slot(@qty)}</div>
         <% end %>
@@ -419,6 +443,7 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
   defp row_cell_class(:thumb), do: "w-10"
   defp row_cell_class(:name), do: "w-full"
   defp row_cell_class(:price), do: "text-right whitespace-nowrap"
+  defp row_cell_class(:base_price), do: "text-right whitespace-nowrap"
   defp row_cell_class(:qty), do: "text-right whitespace-nowrap"
   defp row_cell_class(_), do: "whitespace-nowrap"
 
@@ -429,6 +454,7 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
   # right-align.
   defp col_shape_class(:name), do: "w-full"
   defp col_shape_class(:price), do: "text-right"
+  defp col_shape_class(:base_price), do: "text-right"
   defp col_shape_class(:qty), do: "text-right"
   defp col_shape_class(_), do: nil
 
@@ -439,6 +465,7 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
   # columns contract — this only stages WHEN a granted column shows.
   defp col_responsive_class(:unit), do: "hidden sm:table-cell"
   defp col_responsive_class(:sku), do: "hidden md:table-cell"
+  defp col_responsive_class(:base_price), do: "hidden md:table-cell"
   defp col_responsive_class(:manufacturer), do: "hidden lg:table-cell"
   defp col_responsive_class(:category), do: "hidden lg:table-cell"
   defp col_responsive_class(_), do: nil
