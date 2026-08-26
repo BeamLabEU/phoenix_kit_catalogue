@@ -50,9 +50,10 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
 
   Table columns are a host contract, because the popup can be
   client-facing: pass `columns` as a non-empty list from
-  `Browse.table_columns/0` (`:thumb :name :sku :manufacturer :category
-  :unit :price :base_price :qty`) in display order, and only those
-  render. Unknown entries raise. `:price` is the customer-facing selling
+  `Browse.table_columns/0` (`:thumb :breadcrumb :name :sku :manufacturer
+  :category :unit :price :base_price :qty`) in display order, and only
+  those render. `:breadcrumb` is a headerless muted "Category /" prefix
+  column beside Name (granted and hidden by default, like `:sku`). Unknown entries raise. `:price` is the customer-facing selling
   price (markup and discounts applied) shown as "6.40 / piece" — the
   default set carries it and NOT `:base_price`, the raw internal number,
   which an embed must ask for explicitly; `:unit` is the standalone
@@ -229,9 +230,9 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
   end
 
   # Columns the viewer may NOT toggle at all: in quantity-first mode qty
-  # IS the selector. Identity (:name/:breadcrumb) is handled dynamically —
-  # either may hide as long as the OTHER still shows (the last identity
-  # column refuses to go, the way the admin tables pin name).
+  # IS the selector. Identity (:name) is guarded separately — the last
+  # visible identity column refuses to hide, the way the admin tables
+  # pin name.
   defp locked_columns(assigns) do
     if assigns.selection_mode == "quantity", do: [:qty], else: []
   end
@@ -242,7 +243,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
     scope[:only] == nil and scope[:category_uuids] in [nil, []]
   end
 
-  @identity_columns [:name, :breadcrumb]
+  @identity_columns [:name]
 
   defp last_identity?(col, visible) do
     col in @identity_columns and Enum.filter(@identity_columns, &(&1 in visible)) == [col]

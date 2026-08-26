@@ -895,7 +895,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       assert Process.alive?(view.pid)
     end
 
-    test "breadcrumb: category/name in one headerless column, replacing name", %{
+    test "breadcrumb: the category prefix gets its own unlabeled column beside Name", %{
       conn: conn,
       cat: cat
     } do
@@ -914,20 +914,25 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       refute render(view) =~ "Fasteners /"
       assert has_element?(view, ~s(#picker-column-toggle [phx-value-col="breadcrumb"]))
 
-      # Turn it on, drop the now-redundant name and category columns.
       view |> picker() |> render_click("toggle_column", %{"col" => "breadcrumb"})
-      view |> picker() |> render_click("toggle_column", %{"col" => "name"})
+      # Redundant standalone Category column can go in its favour.
       view |> picker() |> render_click("toggle_column", %{"col" => "category"})
 
       html = render(view)
+      # The prefix lives in its OWN cell — muted, slash-terminated — and
+      # the name stays clean in the Name column.
       assert html =~ "Fasteners /"
-      assert html =~ "Wood screws 4x40 (100pk)"
-      refute has_element?(view, "#picker-table th", "Name")
+      assert has_element?(view, "#picker-table td", "Fasteners /")
+      assert has_element?(view, "#picker-table th", "Name")
       refute has_element?(view, "#picker-table th", "Category")
 
-      # But the breadcrumb is now the last identity column — it stays.
-      view |> picker() |> render_click("toggle_column", %{"col" => "breadcrumb"})
-      assert render(view) =~ "Wood screws 4x40 (100pk)"
+      # An uncategorized row simply leaves the prefix cell empty (the seed
+      # items have no category and must not render a stray slash).
+      refute html =~ "> /<"
+
+      # Name is the identity column and cannot be hidden.
+      view |> picker() |> render_click("toggle_column", %{"col" => "name"})
+      assert has_element?(view, "#picker-table th", "Name")
     end
 
     test "quantity-first pins the qty column — the selector cannot be hidden", %{

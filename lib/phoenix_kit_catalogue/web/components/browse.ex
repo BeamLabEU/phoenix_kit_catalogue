@@ -360,7 +360,7 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
   # Dropdown labels: same as the headers except :thumb, whose header is
   # deliberately blank.
   defp column_label(:thumb), do: gettext("Photo")
-  defp column_label(:breadcrumb), do: gettext("Category / Name")
+  defp column_label(:breadcrumb), do: gettext("Category prefix")
   defp column_label(col), do: column_header(col)
 
   # The column vocabulary for `item_table`/`item_row`. Hosts pick a subset
@@ -368,7 +368,9 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
   # `:price` is the customer-facing SELLING price (markup and discount
   # applied — `item_pricing/1`'s final_price) rendered as "6.40 / piece";
   # `:base_price` is the raw column for internal embeds; `:unit` is the
-  # standalone unit for lists that show no price at all.
+  # standalone unit for lists that show no price at all; `:breadcrumb` is
+  # a headerless muted "Category /" prefix cell that sits flush against
+  # the Name column, keeping names clean in their own column.
   @table_columns ~w(thumb breadcrumb name sku manufacturer category unit price base_price qty)a
 
   # What renders when the host doesn't pass columns: unit lives inside the
@@ -488,15 +490,9 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
               <span class="line-clamp-2">{@item.name}</span>
             </div>
           <% :breadcrumb -> %>
-            <div class="flex items-center gap-1.5 font-medium">
-              <.icon :if={@selected} name="hero-check" class="w-4 h-4 text-primary shrink-0" />
-              <span class="line-clamp-2">
-                <span :if={@item.category} class="font-normal text-base-content/60">
-                  {@item.category} /
-                </span>
-                {@item.name}
-              </span>
-            </div>
+            <span :if={@item.category} class="text-base-content/60 whitespace-nowrap">
+              {@item.category} /
+            </span>
           <% :sku -> %>
             <span class="font-mono text-xs text-base-content/60">{@item.sku}</span>
           <% :manufacturer -> %>
@@ -527,7 +523,7 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
 
   defp row_cell_class(:thumb), do: "w-10"
   defp row_cell_class(:name), do: "w-full"
-  defp row_cell_class(:breadcrumb), do: "w-full"
+  defp row_cell_class(:breadcrumb), do: "text-right whitespace-nowrap pr-0"
   defp row_cell_class(:price), do: "text-right whitespace-nowrap"
   defp row_cell_class(:base_price), do: "text-right whitespace-nowrap"
   defp row_cell_class(:qty), do: "text-right whitespace-nowrap"
@@ -539,7 +535,6 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
   # drifting to the far edge with dead space before it. Numeric columns
   # right-align.
   defp col_shape_class(:name), do: "w-full"
-  defp col_shape_class(:breadcrumb), do: "w-full"
   defp col_shape_class(:price), do: "text-right"
   defp col_shape_class(:base_price), do: "text-right"
   defp col_shape_class(:qty), do: "text-right"
