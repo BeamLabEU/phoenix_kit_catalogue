@@ -319,7 +319,7 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
           <tr>
             <.table_default_header_cell
               :for={col <- @columns}
-              class={[col == :qty && "text-right", col_responsive_class(col)]}
+              class={[col_shape_class(col), col_responsive_class(col)]}
             >
               {column_header(col)}
             </.table_default_header_cell>
@@ -394,7 +394,9 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
           <% :name -> %>
             <div class="flex items-center gap-1.5 font-medium">
               <.icon :if={@selected} name="hero-check" class="w-4 h-4 text-primary shrink-0" />
-              <span class="truncate">{@item.name}</span>
+              <%!-- line-clamp, not truncate: nowrap would hand a long name
+              the whole table width back and resurrect sideways scroll. --%>
+              <span class="line-clamp-2">{@item.name}</span>
             </div>
           <% :sku -> %>
             <span class="font-mono text-xs text-base-content/60">{@item.sku}</span>
@@ -415,8 +417,20 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
   end
 
   defp row_cell_class(:thumb), do: "w-10"
+  defp row_cell_class(:name), do: "w-full"
+  defp row_cell_class(:price), do: "text-right whitespace-nowrap"
   defp row_cell_class(:qty), do: "text-right whitespace-nowrap"
-  defp row_cell_class(_), do: nil
+  defp row_cell_class(_), do: "whitespace-nowrap"
+
+  # Header twins of the shape classes: the NAME column is the one rubber
+  # column — it absorbs all slack width so the data columns pack together
+  # at content width and the qty stepper sits beside the price instead of
+  # drifting to the far edge with dead space before it. Numeric columns
+  # right-align.
+  defp col_shape_class(:name), do: "w-full"
+  defp col_shape_class(:price), do: "text-right"
+  defp col_shape_class(:qty), do: "text-right"
+  defp col_shape_class(_), do: nil
 
   # Small screens drop low-priority columns instead of forcing a modal to
   # scroll sideways: identity (thumb/name) and the numbers that drive the
