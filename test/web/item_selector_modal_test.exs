@@ -1004,6 +1004,62 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       assert html =~ "Torx Driver"
     end
 
+    test "cards honor the columns contract — no price/SKU one toggle away", %{
+      conn: conn,
+      cat: cat,
+      screw: screw
+    } do
+      # Host granted neither :price nor :sku. The table hides them; the
+      # card view must not have them reappear.
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&cols=thumb,name,qty")
+
+      html = view |> picker() |> render_click("set_view", %{"mode" => "card"})
+      assert html =~ ~s(id="picker-card-#{screw.uuid}")
+      refute html =~ "2.50"
+      refute html =~ "M8-100"
+
+      # And default-hidden SKU stays hidden on cards until the viewer
+      # reveals it in the dropdown (visible drives both views).
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}")
+      html = view |> picker() |> render_click("set_view", %{"mode" => "card"})
+      refute html =~ "M8-100"
+
+      view |> picker() |> render_click("set_view", %{"mode" => "table"})
+      view |> picker() |> render_click("toggle_column", %{"col" => "sku"})
+      html = view |> picker() |> render_click("set_view", %{"mode" => "card"})
+      assert html =~ "M8-100"
+    end
+
+    test "a parent-category chip still shows the whole subtree", %{conn: conn, cat: cat} do
+      parent = fixture_category(cat, %{name: "Parent Scope"})
+      child = fixture_category(cat, %{name: "Child Scope", parent_uuid: parent.uuid})
+
+      {:ok, _} =
+        Catalogue.create_item(%{
+          name: "Deep Nested Item",
+          catalogue_uuid: cat.uuid,
+          category_uuid: child.uuid
+        })
+
+      {:ok, view, html} = open(conn, "c=#{cat.uuid}&cat_scope=#{parent.uuid}")
+      assert html =~ "Deep Nested Item"
+
+      # Clicking the PARENT chip must keep descendants' items — the scope
+      # expansion regression fetched only the parent's direct items.
+      html = view |> picker() |> render_click("browse_category", %{"uuid" => parent.uuid})
+      assert html =~ "Deep Nested Item"
+    end
+
+    test "qty bounds that invert after precision rounding raise at init", %{
+      conn: conn,
+      cat: cat
+    } do
+      # precision 0: min 1 (ceiled) vs max 0.9 -> 0 (floored) — every qty
+      # would silently collapse to 0. Config fails loud instead.
+      exit_value = catch_exit(open(conn, "c=#{cat.uuid}&max=0&min=1"))
+      assert inspect(exit_value) =~ "rounds below"
+    end
+
     test "quantity-first: every row is an order line, no click-selection", %{
       conn: conn,
       cat: cat,

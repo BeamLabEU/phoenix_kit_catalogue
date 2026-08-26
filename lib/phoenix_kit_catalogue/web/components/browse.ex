@@ -242,13 +242,15 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
             loading="lazy"
             decoding="async"
           />
-          <%!-- No photo: a deliberate tile (SKU initial), not a broken image. --%>
+          <%!-- No photo: a deliberate tile (SKU initial), not a broken image.
+          The SKU line honors show_sku — the placeholder must not leak what
+          the card body hides. --%>
           <div
             :if={!@item.photo_url}
             class="w-full h-full flex flex-col items-center justify-center text-base-content/40"
           >
             <span class="text-4xl font-bold">{String.first(@item.sku || @item.name || "?")}</span>
-            <span :if={@item.sku} class="font-mono text-xs mt-1">{@item.sku}</span>
+            <span :if={@show_sku && @item.sku} class="font-mono text-xs mt-1">{@item.sku}</span>
           </div>
           <span
             :if={@selected}
