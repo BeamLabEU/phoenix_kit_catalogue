@@ -26,40 +26,53 @@ defmodule PhoenixKitCatalogue.Web.AttributeSetsSurfacesTest do
     end
 
     describe "CataloguesLive attributes tab (sets enabled)" do
-      test "lists sets instead of the legacy table and deletes unattached sets", %{conn: conn} do
+      test "the tab is a VIEWER: values and attached items, no edit or delete", %{conn: conn} do
+        # 2026-08-27 direction: the subtab shows sets and the items
+        # they're attached to; ALL editing lives in the entities module.
         {:ok, set} = Catalogue.create_attribute_set(%{name: "Tab colors"})
-
-        {:ok, view, html} = live(conn, "/en/admin/catalogue/attributes")
-
-        assert html =~ "Tab colors"
-        # The legacy group table is gone once sets are live.
-        assert :sys.get_state(view.pid).socket.assigns.sets_enabled
-
-        render_click(view, "show_delete_confirm", %{
-          "uuid" => set.uuid,
-          "type" => "attribute_set"
-        })
-
-        html = render_click(view, "delete_attribute_set", %{})
-        assert html =~ "Attribute set deleted."
-        assert Catalogue.get_attribute_set(set.uuid) == nil
-      end
-
-      test "refuses deleting an attached set with the in-use flash", %{conn: conn} do
-        {:ok, set} = Catalogue.create_attribute_set(%{name: "Tab widths"})
+        {:ok, _red} = Catalogue.create_attribute_set_value(set, %{label: "Red"})
         item = fixture_item(%{name: "TabItem"})
         {:ok, _} = Catalogue.attach_attribute_set(item.uuid, set.uuid)
 
+        {:ok, view, html} = live(conn, "/en/admin/catalogue/attributes")
+
+        assert :sys.get_state(view.pid).socket.assigns.sets_enabled
+        assert html =~ "Tab colors"
+        # The viewer shows the set's values and its attached items…
+        assert html =~ "Red"
+        assert html =~ "TabItem"
+        # …links every edit affordance into entities…
+        assert html =~ "/admin/entities/#{set.name}/data"
+        assert html =~ "/admin/entities/#{set.uuid}/edit"
+        # …and carries no delete flow of its own — the handler itself is
+        # gone (a crafted push would FunctionClauseError, proving no code
+        # path on this LV can delete a set).
+        refute html =~ "delete_attribute_set"
+        refute html =~ "show_delete_confirm"
+        assert %{} = Catalogue.get_attribute_set(set.uuid)
+      end
+
+      test "New Set collects name+kind, stamps ownership, hands off to entities", %{conn: conn} do
         {:ok, view, _html} = live(conn, "/en/admin/catalogue/attributes")
 
-        render_click(view, "show_delete_confirm", %{
-          "uuid" => set.uuid,
-          "type" => "attribute_set"
-        })
+        render_click(view, "open_new_set_modal", %{})
 
-        html = render_click(view, "delete_attribute_set", %{})
-        assert html =~ "detach it everywhere first"
-        assert %{} = Catalogue.get_attribute_set(set.uuid)
+        assert {:error, {:live_redirect, %{to: to}}} =
+                 view
+                 |> element("#new-attribute-set-modal form")
+                 |> render_submit(%{"name" => "Handed Off", "kind" => "fixed"})
+
+        assert to =~ "/admin/entities/"
+        assert to =~ "/edit"
+
+        [set] =
+          Catalogue.list_attribute_sets()
+          |> Enum.filter(&(&1.display_name == "Handed Off"))
+
+        # The one reason creation stays here: the managed stamp + the
+        # post-creation-locked kind.
+        assert PhoenixKitEntities.Managed.owner(set) == "catalogue"
+        assert Catalogue.attribute_set_kind(set) == "fixed"
       end
 
       test "the deferred backstop migration message reloads without crashing", %{conn: conn} do
@@ -136,9 +149,9 @@ defmodule PhoenixKitCatalogue.Web.AttributeSetsSurfacesTest do
     end
 
     describe "paths" do
-      test "set editor paths" do
-        assert Paths.attribute_set_new() =~ "/admin/catalogue/attributes/sets/new"
-        assert Paths.attribute_set_edit("abc") =~ "/admin/catalogue/attributes/sets/abc/edit"
+      test "the set editor paths are gone — editing moved to entities" do
+        refute function_exported?(Paths, :attribute_set_new, 0)
+        refute function_exported?(Paths, :attribute_set_edit, 1)
       end
     end
   else

@@ -40,6 +40,7 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
   alias PhoenixKitCatalogue.Catalogue.ActivityLog
   alias PhoenixKitCatalogue.Catalogue.Helpers
   alias PhoenixKitCatalogue.Catalogue.PubSub
+  alias PhoenixKitCatalogue.Schemas.Item
   alias PhoenixKitCatalogue.Schemas.ItemAttributeSet
 
   @owner "catalogue"
@@ -843,6 +844,23 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
       )
     )
     |> Map.new()
+  end
+
+  @doc "The items attached to each set: %{set_uuid => [%{uuid:, name:}]}, name-ordered."
+  @spec attached_items([Ecto.UUID.t()]) :: %{optional(Ecto.UUID.t()) => [map()]}
+  def attached_items([]), do: %{}
+
+  def attached_items(set_uuids) when is_list(set_uuids) do
+    repo().all(
+      from(a in ItemAttributeSet,
+        join: i in Item,
+        on: i.uuid == a.item_uuid,
+        where: a.set_uuid in ^set_uuids and i.status != "deleted",
+        order_by: [asc: i.name],
+        select: {a.set_uuid, %{uuid: i.uuid, name: i.name}}
+      )
+    )
+    |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
   end
 
   @doc """
