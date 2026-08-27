@@ -332,6 +332,59 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPickerTest do
     end
   end
 
+  describe "show_sku (opt-in SKU column)" do
+    test "show_sku=true renders the item's SKU in the row" do
+      item = %{fake_item("item-1", "Oak Plank") | sku: "74.W1000.ST76.1.5.43"}
+
+      html =
+        render_component(
+          ItemPicker,
+          base_assigns(%{
+            open: true,
+            show_sku: true,
+            options: [item],
+            has_more: false
+          })
+        )
+
+      assert html =~ "74.W1000.ST76.1.5.43"
+    end
+
+    test "show_sku=true with a missing SKU renders an em dash" do
+      item = %{fake_item("item-1", "Oak Plank") | sku: nil}
+
+      html =
+        render_component(
+          ItemPicker,
+          base_assigns(%{
+            open: true,
+            show_sku: true,
+            options: [item],
+            has_more: false
+          })
+        )
+
+      assert html =~ "Oak Plank"
+      assert html =~ "—"
+    end
+
+    test "show_sku defaults to false and hides the SKU (backward compatible)" do
+      item = %{fake_item("item-1", "Oak Plank") | sku: "74.W1000.ST76.1.5.43"}
+
+      html =
+        render_component(
+          ItemPicker,
+          base_assigns(%{
+            open: true,
+            options: [item],
+            has_more: false
+          })
+        )
+
+      refute html =~ "74.W1000.ST76.1.5.43"
+    end
+  end
+
   describe "selected_item styling" do
     test "selected_item non-nil adds input-primary class" do
       item = fake_item("item-1", "Oak Plank")
