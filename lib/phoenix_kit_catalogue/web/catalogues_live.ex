@@ -39,6 +39,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   alias PhoenixKitCatalogue.Catalogue.PubSub
   alias PhoenixKitCatalogue.Errors
   alias PhoenixKitCatalogue.Paths
+  alias PhoenixKitCatalogue.Web.Components.AttributeSetItemsModal
   alias PhoenixKitCatalogue.Web.{TableConfig, TableQuery, ViewConfig}
 
   # PhoenixKit auto-applies its admin chrome layout to external module admin
@@ -87,6 +88,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
        attr_sets_total: 0,
        attr_sets_max_page: 1,
        show_new_set_modal: false,
+       items_modal_set: nil,
        sets_enabled: false,
        confirm_delete: nil,
        catalogue_view_mode: "active",
@@ -145,6 +147,10 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   # Backstop legacy migration, deferred off the render path by
   # maybe_auto_migrate_legacy/1 (which has already flipped the
   # once-per-process flag, so the reload below cannot loop).
+  def handle_info({:attr_set_items_modal_closed}, socket) do
+    {:noreply, assign(socket, :items_modal_set, nil)}
+  end
+
   def handle_info(:auto_migrate_legacy, socket) do
     Catalogue.auto_migrate_attribute_groups()
     {:noreply, load_data(socket, :attribute_groups)}
@@ -450,33 +456,25 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   end
 
   attr(:set, :map, required: true)
-  attr(:limit, :integer, required: true)
 
-  # Item previews link to their items; the overflow stays a plain count —
-  # there is no set-scoped item search yet, and a fake drawer would just
-  # re-import the unbounded list.
+  # The count IS the button (Max, 2026-08-28): it opens the per-set
+  # items popup — the set-scoped search surface the old comment said
+  # didn't exist yet.
   defp attr_set_items_cell(assigns) do
-    assigns = assign(assigns, :cap, elide_cap(assigns.set.item_count, assigns.limit))
-
     ~H"""
-    <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
-      <.link
-        :for={item <- Enum.take(@set.items, @cap)}
-        navigate={Paths.item_edit(item.uuid)}
-        class="link link-hover text-sm"
-      >
-        {item.name}
-      </.link>
-      <span :if={@set.item_count > @cap} class="text-sm text-base-content/50">
-        {Gettext.gettext(PhoenixKitCatalogue.Gettext, "and %{n} more", n: @set.item_count - @cap)}
-      </span>
-      <span :if={@set.item_count == 0} class="text-sm text-base-content/50">
-        {Gettext.gettext(PhoenixKitCatalogue.Gettext, "No items attached.")}
-      </span>
-      <span :if={@set.item_count > 0} class="text-xs text-base-content/40">
-        ({@set.item_count})
-      </span>
-    </div>
+    <button
+      :if={@set.item_count > 0}
+      type="button"
+      phx-click="open_set_items_modal"
+      phx-value-uuid={@set.uuid}
+      class="btn btn-ghost btn-xs font-medium"
+      title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "View items")}
+    >
+      {@set.item_count}
+    </button>
+    <span :if={@set.item_count == 0} class="text-sm text-base-content/50">
+      {Gettext.gettext(PhoenixKitCatalogue.Gettext, "No items attached.")}
+    </span>
     """
   end
 
@@ -486,10 +484,12 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   defp attr_set_menu(assigns) do
     ~H"""
     <.table_row_menu mode="auto" id={"attr-set-menu-#{@suffix}-#{@set.uuid}"}>
-      <.table_row_menu_link
-        navigate={Paths.attribute_set(@set.uuid)}
+      <.table_row_menu_button
+        :if={@set.item_count > 0}
         icon="hero-eye"
-        label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "View")}
+        label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "View items")}
+        phx-click="open_set_items_modal"
+        phx-value-uuid={@set.uuid}
       />
       <.table_row_menu_link
         navigate={KitRoutes.path("/admin/entities/#{@set.key}/data")}
@@ -512,7 +512,6 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   # page, so the per-set value listing is fine.
   @attr_sets_page_size 25
   @attr_value_preview 9
-  @attr_item_preview 6
 
   defp load_attribute_sets(socket) do
     if Catalogue.attribute_sets_enabled?() do
@@ -566,7 +565,6 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     uuids = Enum.map(page_rows, & &1.uuid)
     value_counts = Catalogue.attribute_set_value_counts(uuids)
     item_counts = Catalogue.attribute_set_attachment_counts(uuids)
-    item_previews = Catalogue.attribute_set_attached_items_preview(uuids, @attr_item_preview)
 
     rows =
       Enum.map(page_rows, fn s ->
@@ -574,7 +572,6 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
           values:
             Catalogue.list_attribute_set_values(s.uuid, lang: locale, limit: @attr_value_preview),
           value_count: Map.get(value_counts, s.uuid, 0),
-          items: Map.get(item_previews, s.uuid, []),
           item_count: Map.get(item_counts, s.uuid, 0)
         })
       end)
@@ -2299,6 +2296,11 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
      |> derive_attribute_sets_page()}
   end
 
+  def handle_event("open_set_items_modal", %{"uuid" => uuid}, socket) do
+    set = Enum.find(socket.assigns.attr_sets_all, &(&1.uuid == uuid))
+    {:noreply, assign(socket, :items_modal_set, set)}
+  end
+
   def handle_event("open_new_set_modal", _params, socket),
     do: {:noreply, assign(socket, :show_new_set_modal, true)}
 
@@ -2751,6 +2753,13 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
 
 
       <div :if={@active_tab == :attribute_groups} class="flex flex-col gap-4">
+        <.live_component
+          :if={@items_modal_set}
+          module={AttributeSetItemsModal}
+          id={"attr-set-items-modal-#{@items_modal_set.uuid}"}
+          set={@items_modal_set}
+          locale={@current_locale}
+        />
         <%!-- SETS (2026-08-18 rework) — the primary system once entities
              is enabled. One dimension from one vendor per set; managed
              blueprints under the hood. --%>
@@ -2855,7 +2864,10 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
             <.table_default_body>
               <.table_default_row :for={s <- @attribute_set_rows} id={"attr-set-#{s.uuid}"}>
                 <.table_default_cell class="align-top">
-                  <.link navigate={Paths.attribute_set(s.uuid)} class="font-medium link link-hover">
+                  <.link
+                    navigate={KitRoutes.path("/admin/entities/#{s.key}/data")}
+                    class="font-medium link link-hover"
+                  >
                     {s.name}
                   </.link>
                 </.table_default_cell>
@@ -2863,7 +2875,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
                   <.attr_set_values_cell set={s} limit={6} />
                 </.table_default_cell>
                 <.table_default_cell class="align-top">
-                  <.attr_set_items_cell set={s} limit={3} />
+                  <.attr_set_items_cell set={s} />
                 </.table_default_cell>
                 <.table_default_cell class="align-top">
                   <.attr_set_menu set={s} suffix="t" />
@@ -2873,7 +2885,10 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
 
             <:card_body :let={s}>
               <div class="min-w-0">
-                <.link navigate={Paths.attribute_set(s.uuid)} class="font-semibold link link-hover">
+                <.link
+                  navigate={KitRoutes.path("/admin/entities/#{s.key}/data")}
+                  class="font-semibold link link-hover"
+                >
                   {s.name}
                 </.link>
               </div>
@@ -2881,7 +2896,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
                 <.attr_set_values_cell set={s} limit={8} />
               </div>
               <div class="mt-2">
-                <.attr_set_items_cell set={s} limit={5} />
+                <.attr_set_items_cell set={s} />
               </div>
             </:card_body>
             <:card_actions :let={s}>

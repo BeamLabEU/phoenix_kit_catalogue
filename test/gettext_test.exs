@@ -109,9 +109,6 @@ defmodule PhoenixKitCatalogue.GettextTest do
   test "attribute-sets strings are translated (pin for the 2026-08-18 rework, PR #74)" do
     Gettext.put_locale(PhoenixKitCatalogue.Gettext, "ru")
 
-    assert Gettext.gettext(PhoenixKitCatalogue.Gettext, "Attribute set not found.") ==
-             "Набор атрибутов не найден."
-
     assert Gettext.gettext(
              PhoenixKitCatalogue.Gettext,
              "This set is attached to items — detach it everywhere first."
@@ -124,9 +121,6 @@ defmodule PhoenixKitCatalogue.GettextTest do
              "Модуль наборов атрибутов не включён."
 
     Gettext.put_locale(PhoenixKitCatalogue.Gettext, "et")
-
-    assert Gettext.gettext(PhoenixKitCatalogue.Gettext, "Attribute set not found.") ==
-             "Atribuudikomplekti ei leitud."
 
     assert Gettext.gettext(
              PhoenixKitCatalogue.Gettext,
