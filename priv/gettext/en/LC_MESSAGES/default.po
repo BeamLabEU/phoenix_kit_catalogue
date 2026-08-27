@@ -1237,12 +1237,6 @@ msgstr "Manage this group's attributes, values, and translations."
 msgid "No attributes yet. Add one below — e.g. Color, Trim, Surface."
 msgstr "No attributes yet. Add one below — e.g. Color, Trim, Surface."
 
-msgid "Multiple values"
-msgstr "Multiple values"
-
-msgid "Fixed value"
-msgstr "Fixed value"
-
 msgid "Failed to add attribute."
 msgstr "Failed to add attribute."
 

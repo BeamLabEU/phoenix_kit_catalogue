@@ -488,11 +488,6 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     """
   end
 
-  defp set_kind_label("fixed"), do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Fixed value")
-
-  defp set_kind_label(_multi),
-    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Multiple values")
-
   # The SETS half of the attributes tab (2026-08-18 rework). With sets
   # live there is NO legacy UI — any remaining legacy groups are
   # auto-migrated here (backstopping the boot-time run; idempotent and
@@ -517,8 +512,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
           %{
             uuid: s.uuid,
             name: s.display_name,
-            key: s.name,
-            kind: Catalogue.attribute_set_kind(s)
+            key: s.name
           }
         end)
 
@@ -2748,8 +2742,12 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
              values, images, deletion — happens in the entities module,
              where these managed blueprints are now first-class. The one
              affordance kept is creation: catalogue must stamp its
-             ownership settings, so "New set" collects name+kind and
-             hands straight off to the entities editor. --%>
+             ownership settings, so "New set" collects a name and hands
+             straight off to the entities editor. Kind (fixed/multi) is
+             still STORED (default "multi") but deliberately hidden from
+             every surface until something consumes it — Max, 2026-08-27:
+             it may return when client-facing pickers need to know
+             one-choice vs many. --%>
         <div :if={!@attr_tab_loaded} class="flex flex-col gap-3" aria-busy="true">
           <div class="skeleton h-8 w-64"></div>
           <div class="skeleton h-24 w-full"></div>
@@ -2828,7 +2826,6 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
             <.table_default_header>
               <tr>
                 <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Name")}</th>
-                <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Kind")}</th>
                 <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Values")}</th>
                 <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Items")}</th>
                 <th class="w-10"></th>
@@ -2839,9 +2836,6 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
                 <.table_default_cell class="align-top">
                   <div class="font-medium">{s.name}</div>
                   <div class="font-mono text-xs text-base-content/40">{s.key}</div>
-                </.table_default_cell>
-                <.table_default_cell class="align-top">
-                  <span class="badge badge-ghost badge-sm">{set_kind_label(s.kind)}</span>
                 </.table_default_cell>
                 <.table_default_cell class="align-top">
                   <.attr_set_values_cell set={s} limit={6} />
@@ -2856,12 +2850,9 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
             </.table_default_body>
 
             <:card_body :let={s}>
-              <div class="flex items-start justify-between gap-2">
-                <div class="min-w-0">
-                  <div class="font-semibold">{s.name}</div>
-                  <div class="font-mono text-xs text-base-content/40">{s.key}</div>
-                </div>
-                <span class="badge badge-ghost badge-sm shrink-0">{set_kind_label(s.kind)}</span>
+              <div class="min-w-0">
+                <div class="font-semibold">{s.name}</div>
+                <div class="font-mono text-xs text-base-content/40">{s.key}</div>
               </div>
               <div class="mt-2">
                 <.attr_set_values_cell set={s} limit={8} />

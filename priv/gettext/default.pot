@@ -1243,12 +1243,6 @@ msgstr ""
 msgid "No attributes yet. Add one below — e.g. Color, Trim, Surface."
 msgstr ""
 
-msgid "Multiple values"
-msgstr ""
-
-msgid "Fixed value"
-msgstr ""
-
 msgid "Failed to add attribute."
 msgstr ""
 
