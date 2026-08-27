@@ -351,10 +351,46 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
 
   def list_values(set_uuid, opts) when is_binary(set_uuid) do
     if entities_enabled?() do
-      PhoenixKitEntities.EntityData.list_by_entity(set_uuid, lang: opts[:lang])
-      |> Enum.reject(&(&1.status == "archived"))
+      limit = opts[:limit]
+      fetch = if limit, do: [lang: opts[:lang], limit: limit + 5], else: [lang: opts[:lang]]
+
+      values =
+        PhoenixKitEntities.EntityData.list_by_entity(set_uuid, fetch)
+        |> Enum.reject(&(&1.status == "archived"))
+
+      if limit, do: Enum.take(values, limit), else: values
     else
       []
+    end
+  end
+
+  @doc """
+  Value counts for many sets at once: `%{set_uuid => count}`, matching
+  `list_values/2`'s semantics (archived and trashed excluded). One
+  grouped query — the viewer must not COUNT per row.
+  """
+  @spec value_counts([Ecto.UUID.t()]) :: %{optional(Ecto.UUID.t()) => non_neg_integer()}
+  def value_counts([]), do: %{}
+
+  def value_counts(set_uuids) when is_list(set_uuids) do
+    batch = PhoenixKitEntities.EntityData
+
+    cond do
+      not entities_enabled?() ->
+        %{}
+
+      Code.ensure_loaded?(batch) and function_exported?(batch, :counts_by_entities, 2) ->
+        # apply/3 on purpose: a direct call compiles as an undefined-
+        # function warning against the released entities pin, which
+        # doesn't carry the batch API yet.
+        # credo:disable-for-next-line Credo.Check.Refactor.Apply
+        apply(batch, :counts_by_entities, [set_uuids, [exclude_statuses: ["archived"]]])
+
+      true ->
+        # Released entities without the batch API yet: one COUNT per set —
+        # still counts, just not batched, and it tallies archived values
+        # the batch would exclude (a small drift the pin release closes).
+        Map.new(set_uuids, &{&1, PhoenixKitEntities.EntityData.count_by_entity(&1)})
     end
   end
 
@@ -846,21 +882,35 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
     |> Map.new()
   end
 
-  @doc "The items attached to each set: %{set_uuid => [%{uuid:, name:}]}, name-ordered."
-  @spec attached_items([Ecto.UUID.t()]) :: %{optional(Ecto.UUID.t()) => [map()]}
-  def attached_items([]), do: %{}
+  @doc """
+  The first `limit` items attached to each set (name-ordered):
+  `%{set_uuid => [%{uuid:, name:}]}`. One window-function query — a set
+  can hold a thousand attachments and a viewer wants a taste, not the
+  census (`attachment_counts/1` is the census).
+  """
+  @spec attached_items_preview([Ecto.UUID.t()], pos_integer()) ::
+          %{optional(Ecto.UUID.t()) => [map()]}
+  def attached_items_preview(set_uuids, limit \\ 5)
+  def attached_items_preview([], _limit), do: %{}
 
-  def attached_items(set_uuids) when is_list(set_uuids) do
-    repo().all(
+  def attached_items_preview(set_uuids, limit) when is_list(set_uuids) do
+    ranked =
       from(a in ItemAttributeSet,
         join: i in Item,
         on: i.uuid == a.item_uuid,
         where: a.set_uuid in ^set_uuids and i.status != "deleted",
-        order_by: [asc: i.name],
-        select: {a.set_uuid, %{uuid: i.uuid, name: i.name}}
+        windows: [w: [partition_by: a.set_uuid, order_by: i.name]],
+        select: %{
+          set_uuid: a.set_uuid,
+          uuid: i.uuid,
+          name: i.name,
+          rn: over(row_number(), :w)
+        }
       )
-    )
-    |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
+
+    from(r in subquery(ranked), where: r.rn <= ^limit, order_by: [asc: r.name])
+    |> repo().all()
+    |> Enum.group_by(& &1.set_uuid, &%{uuid: &1.uuid, name: &1.name})
   end
 
   @doc """

@@ -5517,7 +5517,11 @@ defmodule PhoenixKitCatalogue.Catalogue do
     to: AttributeSets,
     as: :prune_orphan_attachments
 
-  defdelegate attribute_set_attached_items(set_uuids), to: AttributeSets, as: :attached_items
+  defdelegate attribute_set_value_counts(set_uuids), to: AttributeSets, as: :value_counts
+
+  defdelegate attribute_set_attached_items_preview(set_uuids, limit \\ 5),
+    to: AttributeSets,
+    as: :attached_items_preview
 
   defdelegate attribute_set_attachment_counts(set_uuids),
     to: AttributeSets,
