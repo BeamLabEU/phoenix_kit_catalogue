@@ -271,6 +271,22 @@ defmodule PhoenixKitCatalogue do
         visible: false,
         live_view: {PhoenixKitCatalogue.Web.AttributeGroupFormLive, :edit}
       },
+      # Attribute set detail — hidden; declared AFTER the static
+      # "attributes/new" path so the literal segment wins over :uuid.
+      %Tab{
+        id: :admin_catalogue_attribute_set_detail,
+        label: "Attribute set",
+        gettext_backend: PhoenixKitCatalogue.Gettext,
+        gettext_domain: "default",
+        icon: "hero-swatch",
+        path: "catalogue/attributes/:uuid",
+        priority: 670,
+        level: :admin,
+        permission: module_key(),
+        parent: :admin_catalogue,
+        visible: false,
+        live_view: {PhoenixKitCatalogue.Web.AttributeSetDetailLive, :show}
+      },
       # Import tab
       %Tab{
         id: :admin_catalogue_import,

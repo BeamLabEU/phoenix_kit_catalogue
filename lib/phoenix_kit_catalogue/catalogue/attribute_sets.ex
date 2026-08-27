@@ -914,6 +914,68 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
   end
 
   @doc """
+  One page of the items attached to a set, name-ordered — the set
+  detail page's listing. Each row is `%{item: %Item{}, selected_slugs:
+  [...]}`; the slugs are the RAW attachment selection — callers
+  ghost-filter them against the set's current values with
+  `valid_selection/2`. Deleted items are excluded, matching
+  `attached_items_preview/2`.
+
+  Options: `:search` (trimmed, matched on item name), `:limit`
+  (default 25), `:offset` (default 0).
+  """
+  @spec list_attached_items(Ecto.UUID.t(), keyword()) :: [map()]
+  def list_attached_items(set_uuid, opts \\ []) when is_binary(set_uuid) do
+    limit = Keyword.get(opts, :limit, 25)
+    offset = Keyword.get(opts, :offset, 0)
+
+    rows =
+      set_uuid
+      |> attached_items_base(opts)
+      |> order_by([a, i], asc: i.name)
+      |> limit(^limit)
+      |> offset(^offset)
+      |> select([a, i], %{item: i, data: a.data})
+      |> repo().all()
+
+    items =
+      rows
+      |> Enum.map(& &1.item)
+      |> repo().preload([:catalogue, category: []])
+
+    Enum.zip_with(items, rows, fn item, row ->
+      %{item: item, selected_slugs: List.wrap(row.data["selected_value_slugs"])}
+    end)
+  end
+
+  @doc "Total match count for `list_attached_items/2` (same filters)."
+  @spec count_attached_items(Ecto.UUID.t(), keyword()) :: non_neg_integer()
+  def count_attached_items(set_uuid, opts \\ []) when is_binary(set_uuid) do
+    set_uuid
+    |> attached_items_base(opts)
+    |> select([a, i], count(i.uuid))
+    |> repo().one()
+  end
+
+  defp attached_items_base(set_uuid, opts) do
+    query =
+      from(a in ItemAttributeSet,
+        join: i in Item,
+        on: i.uuid == a.item_uuid,
+        where: a.set_uuid == ^set_uuid and i.status != "deleted"
+      )
+
+    case opts |> Keyword.get(:search, "") |> to_string() |> String.trim() do
+      "" ->
+        query
+
+      term ->
+        pattern = "%#{Helpers.sanitize_like(term)}%"
+        where(query, [a, i], ilike(i.name, ^pattern))
+    end
+  end
+
+  @doc """
   Removes attachments whose set blueprint no longer exists (called by
   `AttributeSets.OrphanPruner` off entities PubSub delete events).
 

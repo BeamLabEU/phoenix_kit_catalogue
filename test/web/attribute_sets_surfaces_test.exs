@@ -44,14 +44,18 @@ defmodule PhoenixKitCatalogue.Web.AttributeSetsSurfacesTest do
         # …links every edit affordance into entities…
         assert html =~ "/admin/entities/#{set.name}/data"
 
-        # The NAME itself is the way in (Max, 2026-08-28), and the slug
-        # is not rendered — it only rides inside hrefs.
+        # The NAME itself is the way in — to the set's own detail page
+        # (Max, 2026-08-28) — and the slug is not rendered; it only
+        # rides inside hrefs.
         assert has_element?(
                  view,
-                 ~s|a[href$="/admin/entities/#{set.name}/data"]|,
+                 ~s|a[href$="/admin/catalogue/attributes/#{set.uuid}"]|,
                  "Tab colors"
                )
 
+        # The kebab leads with View (same destination), then the
+        # entities editing links.
+        assert has_element?(view, ~s|#attr-set-menu-t-#{set.uuid} a|, "View")
         refute has_element?(view, "#attribute-sets-table .font-mono")
         assert html =~ "/admin/entities/#{set.uuid}/edit"
         # …and carries no delete flow of its own — the handler itself is

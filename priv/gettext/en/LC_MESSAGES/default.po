@@ -3012,3 +3012,13 @@ msgstr "No values yet"
 msgid "Creating…"
 msgstr "Creating…"
 
+
+# Attribute set detail page (2026-08-28)
+msgid "%{values} values · %{items} items"
+msgstr "%{values} values · %{items} items"
+
+msgid "Location"
+msgstr "Location"
+
+msgid "Selected values"
+msgstr "Selected values"
