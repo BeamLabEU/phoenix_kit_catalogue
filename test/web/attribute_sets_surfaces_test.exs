@@ -133,6 +133,23 @@ defmodule PhoenixKitCatalogue.Web.AttributeSetsSurfacesTest do
         assert html =~ ~s(id="attr-set-menu-c-#{big.uuid}")
       end
 
+      test "the static render shows a skeleton, never the legacy empty state", %{conn: conn} do
+        # Data is deferred to the connected mount (whole-LV pattern); the
+        # HTTP render used to flash "No attribute groups yet" from the
+        # LEGACY branch before the sets loaded.
+        {:ok, _} = Catalogue.create_attribute_set(%{name: "Flash Guard"})
+
+        static = conn |> get("/en/admin/catalogue/attributes") |> html_response(200)
+        refute static =~ "No attribute groups yet"
+        refute static =~ "No sets yet"
+        assert static =~ "skeleton"
+
+        # The connected mount replaces the skeleton with the real listing.
+        {:ok, _view, html} = live(conn, "/en/admin/catalogue/attributes")
+        assert html =~ "Flash Guard"
+        refute html =~ "skeleton h-24"
+      end
+
       test "no-match search says so instead of rendering silence", %{conn: conn} do
         {:ok, _} = Catalogue.create_attribute_set(%{name: "Only Set"})
         {:ok, view, _html} = live(conn, "/en/admin/catalogue/attributes")

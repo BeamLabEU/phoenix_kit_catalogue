@@ -72,6 +72,12 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
        catalogue_rows: [],
        attribute_group_rows: [],
        attribute_set_rows: [],
+       # False until the CONNECTED mount's load: data is deliberately
+       # deferred off the static HTTP render (whole-LV pattern), and the
+       # in-between must render a skeleton — showing either system's
+       # empty state before anything loaded is a false statement (the
+       # legacy "No attribute groups yet" flashed here; Max, 2026-08-27).
+       attr_tab_loaded: false,
        attr_sets_all: [],
        attr_sets_search: "",
        attr_sets_page: 1,
@@ -393,6 +399,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
 
       socket
       |> assign(:attribute_group_rows, rows)
+      |> assign(:attr_tab_loaded, true)
       |> load_attribute_sets()
     else
       socket
@@ -2734,7 +2741,13 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
              affordance kept is creation: catalogue must stamp its
              ownership settings, so "New set" collects name+kind and
              hands straight off to the entities editor. --%>
-        <div :if={@sets_enabled} class="flex flex-col gap-3">
+        <div :if={!@attr_tab_loaded} class="flex flex-col gap-3" aria-busy="true">
+          <div class="skeleton h-8 w-64"></div>
+          <div class="skeleton h-24 w-full"></div>
+          <div class="skeleton h-24 w-full"></div>
+        </div>
+
+        <div :if={@attr_tab_loaded and @sets_enabled} class="flex flex-col gap-3">
           <div class="flex items-center justify-between gap-4">
             <div class="flex flex-col gap-0.5 min-w-0">
               <h3 class="font-semibold text-base flex items-center gap-2">
@@ -2926,7 +2939,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
              remaining groups auto-migrate on load ("it should just
              migrate", boss direction 2026-08-18) and the old rows sit
              untouched in the DB until the cutover drop migration. --%>
-        <div :if={!@sets_enabled} class="flex flex-col gap-4">
+        <div :if={@attr_tab_loaded and not @sets_enabled} class="flex flex-col gap-4">
         <% cfg = @view_configs.attribute_groups %>
         <.table_toolbar scope={:attribute_groups} cfg={cfg}>
           <:filters>
