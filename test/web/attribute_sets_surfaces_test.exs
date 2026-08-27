@@ -62,8 +62,9 @@ defmodule PhoenixKitCatalogue.Web.AttributeSetsSurfacesTest do
                  |> element("#new-attribute-set-modal form")
                  |> render_submit(%{"name" => "Handed Off", "kind" => "fixed"})
 
+        # Straight to ADDING VALUES — not the blueprint editor.
         assert to =~ "/admin/entities/"
-        assert to =~ "/edit"
+        assert to =~ "/data/new"
 
         [set] =
           Catalogue.list_attribute_sets()

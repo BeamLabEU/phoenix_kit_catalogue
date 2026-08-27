@@ -2133,14 +2133,16 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
 
   # Creation is the one write kept on this tab (catalogue must stamp its
   # managed_by settings; entities knows nothing about catalogue) — the
-  # kind is part of it because it is LOCKED after creation. Everything
-  # else redirects to the entities editor immediately.
+  # kind is part of it because it is LOCKED after creation. The handoff
+  # lands on the NEW-VALUE form, not the blueprint editor: a fresh set's
+  # next step is adding values, and blueprint settings are a detour
+  # (Max, 2026-08-27).
   def handle_event("create_attribute_set", %{"name" => name, "kind" => kind}, socket) do
     case Catalogue.create_attribute_set(%{name: name, kind: kind}, actor_opts(socket)) do
       {:ok, set} ->
         {:noreply,
          push_navigate(socket,
-           to: KitRoutes.path("/admin/entities/#{set.uuid}/edit")
+           to: KitRoutes.path("/admin/entities/#{set.name}/data/new")
          )}
 
       {:error, reason} ->
@@ -2685,7 +2687,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
               <p class="text-xs text-base-content/60">
                 {Gettext.gettext(
                   PhoenixKitCatalogue.Gettext,
-                  "The kind is fixed after creation. Values, names and everything else are edited in Entities — you'll be taken there."
+                  "The kind is fixed after creation. You'll be taken straight to adding the set's values in Entities."
                 )}
               </p>
               <div class="flex justify-end gap-2">
