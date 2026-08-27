@@ -3021,3 +3021,13 @@ msgstr "Значений пока нет"
 msgid "Creating…"
 msgstr "Создание…"
 
+
+# Attribute set detail page (2026-08-28)
+msgid "%{values} values · %{items} items"
+msgstr "%{values} значений · %{items} позиций"
+
+msgid "Location"
+msgstr "Расположение"
+
+msgid "Selected values"
+msgstr "Выбранные значения"

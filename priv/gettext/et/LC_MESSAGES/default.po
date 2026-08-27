@@ -3012,3 +3012,13 @@ msgstr "Väärtusi pole veel"
 msgid "Creating…"
 msgstr "Loomine…"
 
+
+# Attribute set detail page (2026-08-28)
+msgid "%{values} values · %{items} items"
+msgstr "%{values} väärtust · %{items} toodet"
+
+msgid "Location"
+msgstr "Asukoht"
+
+msgid "Selected values"
+msgstr "Valitud väärtused"

@@ -410,6 +410,11 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     end
   end
 
+  # "Show limit, elide the rest" — EXCEPT when exactly one would be
+  # hidden: "and 1 more" wastes the very space it saves.
+  defp elide_cap(count, limit) when count <= limit + 1, do: limit + 1
+  defp elide_cap(_count, limit), do: limit
+
   attr(:set, :map, required: true)
   attr(:limit, :integer, required: true)
 
@@ -417,17 +422,22 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   # entities values page — expansion-in-place at a thousand values is how
   # the old page melted.
   defp attr_set_values_cell(assigns) do
+    # Never elide exactly one: at limit + 1 the extra chip costs less
+    # than a "+1" (Max, 2026-08-28). The fetch is one past the widest
+    # face's limit, so the extra chip is always on hand.
+    assigns = assign(assigns, :cap, elide_cap(assigns.set.value_count, assigns.limit))
+
     ~H"""
     <div class="flex flex-wrap items-center gap-1">
-      <span :for={v <- Enum.take(@set.values, @limit)} class="badge badge-outline badge-sm">
+      <span :for={v <- Enum.take(@set.values, @cap)} class="badge badge-outline badge-sm">
         {v.title}
       </span>
       <.link
-        :if={@set.value_count > @limit}
+        :if={@set.value_count > @cap}
         navigate={KitRoutes.path("/admin/entities/#{@set.key}/data")}
         class="badge badge-ghost badge-sm link link-hover"
       >
-        +{@set.value_count - @limit}
+        +{@set.value_count - @cap}
       </.link>
       <span :if={@set.value_count == 0} class="text-sm text-base-content/50">
         {Gettext.gettext(PhoenixKitCatalogue.Gettext, "No values yet")}
@@ -446,17 +456,19 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   # there is no set-scoped item search yet, and a fake drawer would just
   # re-import the unbounded list.
   defp attr_set_items_cell(assigns) do
+    assigns = assign(assigns, :cap, elide_cap(assigns.set.item_count, assigns.limit))
+
     ~H"""
     <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
       <.link
-        :for={item <- Enum.take(@set.items, @limit)}
+        :for={item <- Enum.take(@set.items, @cap)}
         navigate={Paths.item_edit(item.uuid)}
         class="link link-hover text-sm"
       >
         {item.name}
       </.link>
-      <span :if={@set.item_count > @limit} class="text-sm text-base-content/50">
-        {Gettext.gettext(PhoenixKitCatalogue.Gettext, "and %{n} more", n: @set.item_count - @limit)}
+      <span :if={@set.item_count > @cap} class="text-sm text-base-content/50">
+        {Gettext.gettext(PhoenixKitCatalogue.Gettext, "and %{n} more", n: @set.item_count - @cap)}
       </span>
       <span :if={@set.item_count == 0} class="text-sm text-base-content/50">
         {Gettext.gettext(PhoenixKitCatalogue.Gettext, "No items attached.")}
@@ -474,6 +486,11 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   defp attr_set_menu(assigns) do
     ~H"""
     <.table_row_menu mode="auto" id={"attr-set-menu-#{@suffix}-#{@set.uuid}"}>
+      <.table_row_menu_link
+        navigate={Paths.attribute_set(@set.uuid)}
+        icon="hero-eye"
+        label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "View")}
+      />
       <.table_row_menu_link
         navigate={KitRoutes.path("/admin/entities/#{@set.key}/data")}
         icon="hero-pencil-square"
@@ -494,8 +511,8 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   # non-raising), then only sets render. A handful of sets on an admin
   # page, so the per-set value listing is fine.
   @attr_sets_page_size 25
-  @attr_value_preview 8
-  @attr_item_preview 5
+  @attr_value_preview 9
+  @attr_item_preview 6
 
   defp load_attribute_sets(socket) do
     if Catalogue.attribute_sets_enabled?() do
@@ -2838,10 +2855,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
             <.table_default_body>
               <.table_default_row :for={s <- @attribute_set_rows} id={"attr-set-#{s.uuid}"}>
                 <.table_default_cell class="align-top">
-                  <.link
-                    navigate={KitRoutes.path("/admin/entities/#{s.key}/data")}
-                    class="font-medium link link-hover"
-                  >
+                  <.link navigate={Paths.attribute_set(s.uuid)} class="font-medium link link-hover">
                     {s.name}
                   </.link>
                 </.table_default_cell>
@@ -2859,10 +2873,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
 
             <:card_body :let={s}>
               <div class="min-w-0">
-                <.link
-                  navigate={KitRoutes.path("/admin/entities/#{s.key}/data")}
-                  class="font-semibold link link-hover"
-                >
+                <.link navigate={Paths.attribute_set(s.uuid)} class="font-semibold link link-hover">
                   {s.name}
                 </.link>
               </div>

@@ -75,6 +75,8 @@ defmodule PhoenixKitCatalogue.Paths do
   # ── Attribute groups ─────────────────────────────────────────────
 
   def attribute_groups, do: Routes.path("#{@base}/attributes")
+  def attribute_set(uuid), do: Routes.path("#{@base}/attributes/#{uuid}")
+
   def attribute_group_new, do: Routes.path("#{@base}/attributes/new")
   def attribute_group_edit(uuid), do: Routes.path("#{@base}/attributes/#{uuid}/edit")
 

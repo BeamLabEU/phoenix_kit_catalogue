@@ -3018,3 +3018,13 @@ msgstr ""
 msgid "Creating…"
 msgstr ""
 
+
+# Attribute set detail page (2026-08-28)
+msgid "%{values} values · %{items} items"
+msgstr ""
+
+msgid "Location"
+msgstr ""
+
+msgid "Selected values"
+msgstr ""
