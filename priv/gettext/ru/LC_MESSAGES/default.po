@@ -1342,9 +1342,6 @@ msgstr "Поиск по имени файла…"
 msgid "Attribute sets need the Entities module enabled."
 msgstr "Наборы атрибутов требуют включённого модуля Entities."
 
-msgid "Attribute set not found."
-msgstr "Набор атрибутов не найден."
-
 msgid "New Attribute Set"
 msgstr "Новый набор атрибутов"
 
@@ -3012,9 +3009,6 @@ msgstr "Нет наборов по вашему запросу."
 msgid "Page %{page} of %{max} — %{total} sets"
 msgstr "Страница %{page} из %{max} — %{total} наборов"
 
-msgid "and %{n} more"
-msgstr "и ещё %{n}"
-
 msgid "No values yet"
 msgstr "Значений пока нет"
 
@@ -3022,12 +3016,6 @@ msgid "Creating…"
 msgstr "Создание…"
 
 
-# Attribute set detail page (2026-08-28)
-msgid "%{values} values · %{items} items"
-msgstr "%{values} значений · %{items} позиций"
-
-msgid "Location"
-msgstr "Расположение"
-
-msgid "Selected values"
-msgstr "Выбранные значения"
+# Set items popup (2026-08-28)
+msgid "View items"
+msgstr "Просмотр позиций"

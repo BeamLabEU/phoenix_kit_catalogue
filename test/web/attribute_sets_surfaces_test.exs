@@ -38,24 +38,32 @@ defmodule PhoenixKitCatalogue.Web.AttributeSetsSurfacesTest do
 
         assert :sys.get_state(view.pid).socket.assigns.sets_enabled
         assert html =~ "Tab colors"
-        # The viewer shows the set's values and its attached items…
+        # The viewer shows the set's values; items are a COUNT that
+        # opens the popup (2026-08-28) — names never render inline.
         assert html =~ "Red"
-        assert html =~ "TabItem"
+        refute html =~ "TabItem"
+
+        assert has_element?(
+                 view,
+                 ~s|button[phx-click="open_set_items_modal"][phx-value-uuid="#{set.uuid}"]|,
+                 "1"
+               )
+
         # …links every edit affordance into entities…
         assert html =~ "/admin/entities/#{set.name}/data"
 
-        # The NAME itself is the way in — to the set's own detail page
-        # (Max, 2026-08-28) — and the slug is not rendered; it only
-        # rides inside hrefs.
+        # The NAME goes to the entities values page (the detail page
+        # became the items POPUP, 2026-08-28); the slug is not
+        # rendered — it only rides inside hrefs.
         assert has_element?(
                  view,
-                 ~s|a[href$="/admin/catalogue/attributes/#{set.uuid}"]|,
+                 ~s|a[href$="/admin/entities/#{set.name}/data"]|,
                  "Tab colors"
                )
 
-        # The kebab leads with View (same destination), then the
+        # The kebab leads with View items (opens the popup), then the
         # entities editing links.
-        assert has_element?(view, ~s|#attr-set-menu-t-#{set.uuid} a|, "View")
+        assert has_element?(view, ~s|#attr-set-menu-t-#{set.uuid} button|, "View items")
         refute has_element?(view, "#attribute-sets-table .font-mono")
         assert html =~ "/admin/entities/#{set.uuid}/edit"
         # …and carries no delete flow of its own — the handler itself is
@@ -142,11 +150,15 @@ defmodule PhoenixKitCatalogue.Web.AttributeSetsSurfacesTest do
         assert html =~ "(12)"
         assert html =~ "/admin/entities/#{big.name}/data"
 
-        # Item links capped; overflow is a plain count, not a link dump.
-        assert html =~ "BigItem 01"
-        refute html =~ "BigItem 07"
-        assert html =~ "and 2 more"
-        assert html =~ "(7)"
+        # Items are ONLY a count opening the popup — no name dump at
+        # any size (2026-08-28: the count is the button).
+        refute html =~ "BigItem 01"
+
+        assert has_element?(
+                 view,
+                 ~s|button[phx-click="open_set_items_modal"][phx-value-uuid="#{big.uuid}"]|,
+                 "7"
+               )
 
         # The kebab carries the only actions, in both faces.
         assert html =~ ~s(id="attr-set-menu-t-#{big.uuid}")

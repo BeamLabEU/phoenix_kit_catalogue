@@ -37,7 +37,6 @@ defmodule PhoenixKitCatalogue.Test.Router do
       # the "/:uuid" catch-all)
       live("/attributes/new", AttributeGroupFormLive, :new)
       live("/attributes/:uuid/edit", AttributeGroupFormLive, :edit)
-      live("/attributes/:uuid", AttributeSetDetailLive, :show)
 
       # Catalogue CRUD
       live("/new", CatalogueFormLive, :new)

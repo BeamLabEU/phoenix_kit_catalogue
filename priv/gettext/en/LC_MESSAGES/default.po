@@ -1333,9 +1333,6 @@ msgstr ""
 msgid "Attribute sets need the Entities module enabled."
 msgstr ""
 
-msgid "Attribute set not found."
-msgstr ""
-
 msgid "New Attribute Set"
 msgstr ""
 
@@ -3003,9 +3000,6 @@ msgstr "No sets match your search."
 msgid "Page %{page} of %{max} — %{total} sets"
 msgstr "Page %{page} of %{max} — %{total} sets"
 
-msgid "and %{n} more"
-msgstr "and %{n} more"
-
 msgid "No values yet"
 msgstr "No values yet"
 
@@ -3013,12 +3007,6 @@ msgid "Creating…"
 msgstr "Creating…"
 
 
-# Attribute set detail page (2026-08-28)
-msgid "%{values} values · %{items} items"
-msgstr "%{values} values · %{items} items"
-
-msgid "Location"
-msgstr "Location"
-
-msgid "Selected values"
-msgstr "Selected values"
+# Set items popup (2026-08-28)
+msgid "View items"
+msgstr "View items"

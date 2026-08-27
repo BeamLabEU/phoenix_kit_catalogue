@@ -883,43 +883,11 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
   end
 
   @doc """
-  The first `limit` items attached to each set (name-ordered):
-  `%{set_uuid => [%{uuid:, name:}]}`. One window-function query — a set
-  can hold a thousand attachments and a viewer wants a taste, not the
-  census (`attachment_counts/1` is the census).
-  """
-  @spec attached_items_preview([Ecto.UUID.t()], pos_integer()) ::
-          %{optional(Ecto.UUID.t()) => [map()]}
-  def attached_items_preview(set_uuids, limit \\ 5)
-  def attached_items_preview([], _limit), do: %{}
-
-  def attached_items_preview(set_uuids, limit) when is_list(set_uuids) do
-    ranked =
-      from(a in ItemAttributeSet,
-        join: i in Item,
-        on: i.uuid == a.item_uuid,
-        where: a.set_uuid in ^set_uuids and i.status != "deleted",
-        windows: [w: [partition_by: a.set_uuid, order_by: i.name]],
-        select: %{
-          set_uuid: a.set_uuid,
-          uuid: i.uuid,
-          name: i.name,
-          rn: over(row_number(), :w)
-        }
-      )
-
-    from(r in subquery(ranked), where: r.rn <= ^limit, order_by: [asc: r.name])
-    |> repo().all()
-    |> Enum.group_by(& &1.set_uuid, &%{uuid: &1.uuid, name: &1.name})
-  end
-
-  @doc """
   One page of the items attached to a set, name-ordered — the set
   detail page's listing. Each row is `%{item: %Item{}, selected_slugs:
   [...]}`; the slugs are the RAW attachment selection — callers
   ghost-filter them against the set's current values with
-  `valid_selection/2`. Deleted items are excluded, matching
-  `attached_items_preview/2`.
+  `valid_selection/2`. Deleted items are excluded.
 
   Options: `:search` (trimmed, matched on item name), `:limit`
   (default 25), `:offset` (default 0).

@@ -1333,9 +1333,6 @@ msgstr "Otsi failinime järgi…"
 msgid "Attribute sets need the Entities module enabled."
 msgstr "Atribuudikomplektid eeldavad, et Entities moodul on sisse lülitatud."
 
-msgid "Attribute set not found."
-msgstr "Atribuudikomplekti ei leitud."
-
 msgid "New Attribute Set"
 msgstr "Uus atribuudikomplekt"
 
@@ -3003,9 +3000,6 @@ msgstr "Otsingule ei vasta ükski komplekt."
 msgid "Page %{page} of %{max} — %{total} sets"
 msgstr "Leht %{page} / %{max} — %{total} komplekti"
 
-msgid "and %{n} more"
-msgstr "ja veel %{n}"
-
 msgid "No values yet"
 msgstr "Väärtusi pole veel"
 
@@ -3013,12 +3007,6 @@ msgid "Creating…"
 msgstr "Loomine…"
 
 
-# Attribute set detail page (2026-08-28)
-msgid "%{values} values · %{items} items"
-msgstr "%{values} väärtust · %{items} toodet"
-
-msgid "Location"
-msgstr "Asukoht"
-
-msgid "Selected values"
-msgstr "Valitud väärtused"
+# Set items popup (2026-08-28)
+msgid "View items"
+msgstr "Vaata tooteid"
