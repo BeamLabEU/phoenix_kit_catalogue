@@ -756,7 +756,11 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
                   {item_breadcrumb(item, @locale, @category_paths)}
                 </div>
               </div>
-              <div :if={sku} class="text-xs text-base-content/40 shrink-0 self-end px-2 truncate max-w-24">
+              <div
+                :if={sku}
+                class="text-xs text-base-content/60 font-mono shrink-0 self-end px-2 truncate max-w-40"
+                title={sku}
+              >
                 {sku}
               </div>
               <div :if={(price != nil and price != "") or unit != ""} class="text-right ml-4 shrink-0">
