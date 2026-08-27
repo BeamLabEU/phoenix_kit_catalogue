@@ -2992,7 +2992,7 @@ msgstr ""
 msgid "Create and edit in Entities"
 msgstr ""
 
-msgid "The kind is fixed after creation. You'll be taken straight to adding the set's values in Entities."
+msgid "You'll be taken straight to adding the set's values in Entities."
 msgstr ""
 
 msgid "Could not create the set — check the name."

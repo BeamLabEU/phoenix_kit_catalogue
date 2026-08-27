@@ -2132,13 +2132,15 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     do: {:noreply, assign(socket, :show_new_set_modal, false)}
 
   # Creation is the one write kept on this tab (catalogue must stamp its
-  # managed_by settings; entities knows nothing about catalogue) — the
-  # kind is part of it because it is LOCKED after creation. The handoff
-  # lands on the NEW-VALUE form, not the blueprint editor: a fresh set's
-  # next step is adding values, and blueprint settings are a detour
-  # (Max, 2026-08-27).
-  def handle_event("create_attribute_set", %{"name" => name, "kind" => kind}, socket) do
-    case Catalogue.create_attribute_set(%{name: name, kind: kind}, actor_opts(socket)) do
+  # managed_by settings; entities knows nothing about catalogue). The
+  # dialog asks for a NAME only: kind was a mandatory immutable choice
+  # that no runtime behavior consumes (Max dropped it, 2026-08-27) — it
+  # defaults to "multi" in create_set, and the variants feature that one
+  # day needs the distinction will design its own home for it. The
+  # handoff lands on the NEW-VALUE form, not the blueprint editor: a
+  # fresh set's next step is adding values.
+  def handle_event("create_attribute_set", %{"name" => name}, socket) do
+    case Catalogue.create_attribute_set(%{name: name}, actor_opts(socket)) do
       {:ok, set} ->
         {:noreply,
          push_navigate(socket,
@@ -2673,21 +2675,10 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
                 <span class="label">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Name")}</span>
                 <input type="text" name="name" required autocomplete="off" class="grow" />
               </label>
-              <label class="select w-full">
-                <span class="label">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Kind")}</span>
-                <select name="kind">
-                  <option value="multi">
-                    {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Multiple values")}
-                  </option>
-                  <option value="fixed">
-                    {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Fixed value")}
-                  </option>
-                </select>
-              </label>
               <p class="text-xs text-base-content/60">
                 {Gettext.gettext(
                   PhoenixKitCatalogue.Gettext,
-                  "The kind is fixed after creation. You'll be taken straight to adding the set's values in Entities."
+                  "You'll be taken straight to adding the set's values in Entities."
                 )}
               </p>
               <div class="flex justify-end gap-2">

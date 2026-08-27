@@ -2986,8 +2986,8 @@ msgstr "New attribute set"
 msgid "Create and edit in Entities"
 msgstr "Create and edit in Entities"
 
-msgid "The kind is fixed after creation. You'll be taken straight to adding the set's values in Entities."
-msgstr "The kind is fixed after creation. You'll be taken straight to adding the set's values in Entities."
+msgid "You'll be taken straight to adding the set's values in Entities."
+msgstr "You'll be taken straight to adding the set's values in Entities."
 
 msgid "Could not create the set — check the name."
 msgstr "Could not create the set — check the name."
