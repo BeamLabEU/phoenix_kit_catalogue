@@ -137,7 +137,10 @@ defmodule PhoenixKitCatalogue.Catalogue.Search do
   defp search_items_base(query_str, opts) do
     validate_scope_opts!(opts)
 
-    pattern = "%#{Helpers.sanitize_like(query_str)}%"
+    # Trimmed here, at the shared choke point: several input layers
+    # (BrowseState among them) pass the raw string through, and a
+    # trailing space must not turn a match into a miss.
+    pattern = "%#{Helpers.sanitize_like(String.trim(query_str))}%"
     catalogue_uuids = opts[:catalogue_uuids]
     category_uuids = expand_category_scope(opts)
     only = Keyword.get(opts, :only)

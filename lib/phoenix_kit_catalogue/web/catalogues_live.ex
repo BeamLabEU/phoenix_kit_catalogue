@@ -532,7 +532,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
 
   defp derive_attribute_sets_page(socket) do
     locale = socket.assigns[:current_locale]
-    search = socket.assigns.attr_sets_search |> String.downcase()
+    search = socket.assigns.attr_sets_search |> String.trim() |> String.downcase()
 
     filtered =
       Enum.filter(socket.assigns.attr_sets_all, fn s ->
@@ -2774,13 +2774,6 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
             </button>
           </div>
 
-          <p :if={@attribute_set_rows == []} class="text-sm text-base-content/60 py-4 text-center border border-dashed border-base-content/20 rounded-lg">
-            {Gettext.gettext(
-              PhoenixKitCatalogue.Gettext,
-              "No sets yet. Create one to define the options items can attach."
-            )}
-          </p>
-
           <div class="flex flex-wrap items-center gap-2">
             <%!-- phx-submit is load-bearing (Enter would native-submit). --%>
             <form
@@ -2798,6 +2791,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
                   placeholder={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search sets…")}
                   phx-debounce="250"
                   autocomplete="off"
+                  spellcheck="false"
                   class="grow"
                 />
               </label>
@@ -2806,7 +2800,17 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
           </div>
 
           <p
-            :if={@attr_sets_total == 0 and @attr_sets_search != ""}
+            :if={@attr_sets_all == []}
+            class="text-sm text-base-content/60 py-4 text-center border border-dashed border-base-content/20 rounded-lg"
+          >
+            {Gettext.gettext(
+              PhoenixKitCatalogue.Gettext,
+              "No sets yet. Create one to define the options items can attach."
+            )}
+          </p>
+
+          <p
+            :if={@attr_sets_all != [] and @attr_sets_total == 0}
             class="text-sm text-base-content/60 py-4 text-center"
           >
             {Gettext.gettext(PhoenixKitCatalogue.Gettext, "No sets match your search.")}

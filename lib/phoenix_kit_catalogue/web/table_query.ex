@@ -24,9 +24,18 @@ defmodule PhoenixKitCatalogue.Web.TableQuery do
   @spec search([map()], String.t() | nil, (map() -> String.t() | nil)) :: [map()]
   def search(rows, q, field_fn \\ & &1.name)
 
-  def search(rows, q, field_fn) when is_binary(q) and q != "" do
-    needle = String.downcase(q)
-    Enum.filter(rows, fn r -> String.contains?(String.downcase(field_fn.(r) || ""), needle) end)
+  def search(rows, q, field_fn) when is_binary(q) do
+    # Trimmed: a trailing space must not turn a match into a miss
+    # (Max, 2026-08-28), and an all-space query means "no filter".
+    case q |> String.trim() |> String.downcase() do
+      "" ->
+        rows
+
+      needle ->
+        Enum.filter(rows, fn r ->
+          String.contains?(String.downcase(field_fn.(r) || ""), needle)
+        end)
+    end
   end
 
   def search(rows, _, _), do: rows

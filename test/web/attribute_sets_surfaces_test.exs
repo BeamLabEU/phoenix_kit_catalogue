@@ -172,6 +172,22 @@ defmodule PhoenixKitCatalogue.Web.AttributeSetsSurfacesTest do
 
         html = render_change(view, "attr_sets_search", %{"q" => "zzz-nothing"})
         assert html =~ "No sets match your search."
+        # …and ONLY the no-match message: "No sets yet" used to key off
+        # the page rows and pile on above the search bar (Max, 2026-08-28).
+        refute html =~ "No sets yet."
+      end
+
+      test "the query is trimmed: a trailing space still matches", %{conn: conn} do
+        {:ok, _} = Catalogue.create_attribute_set(%{name: "Doors Color"})
+        {:ok, view, _html} = live(conn, "/en/admin/catalogue/attributes")
+
+        html = render_change(view, "attr_sets_search", %{"q" => "Doors Color "})
+        assert html =~ "Doors Color"
+        refute html =~ "No sets match your search."
+
+        # Spaces-only means "no filter", not "match nothing".
+        html = render_change(view, "attr_sets_search", %{"q" => "   "})
+        assert html =~ "Doors Color"
       end
 
       test "the deferred backstop migration message reloads without crashing", %{conn: conn} do
