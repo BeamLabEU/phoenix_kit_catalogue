@@ -78,6 +78,69 @@ defmodule PhoenixKitCatalogue.Web.AttributeSetsSurfacesTest do
         assert Catalogue.attribute_set_kind(set) == "multi"
       end
 
+      test "a thousand of anything stays capped: pages, chips, previews", %{conn: conn} do
+        # 30 sets -> two pages; one set with 12 values and 7 items ->
+        # capped chips + "+N" to entities, capped item links + plain
+        # overflow count. Counts stay the REAL numbers throughout.
+        {:ok, big} = Catalogue.create_attribute_set(%{name: "Big Set"})
+
+        for i <- 1..12 do
+          {:ok, _} = Catalogue.create_attribute_set_value(big, %{label: "Val #{i}"})
+        end
+
+        for i <- 1..7 do
+          item = fixture_item(%{name: "BigItem #{String.pad_leading(to_string(i), 2, "0")}"})
+          {:ok, _} = Catalogue.attach_attribute_set(item.uuid, big.uuid)
+        end
+
+        for i <- 1..29 do
+          {:ok, _} =
+            Catalogue.create_attribute_set(%{
+              name: "Filler #{String.pad_leading(to_string(i), 2, "0")}"
+            })
+        end
+
+        {:ok, view, html} = live(conn, "/en/admin/catalogue/attributes")
+
+        # Page 1 of 2, 30 sets total; page 2 reachable and clamped.
+        assert html =~ "Page 1 of 2"
+        refute html =~ "Filler 29"
+        html = render_click(view, "attr_sets_page", %{"dir" => "next"})
+        assert html =~ "Filler 29"
+        html = render_click(view, "attr_sets_page", %{"dir" => "next"})
+        assert html =~ "Page 2 of 2"
+
+        # Search narrows and resets to page 1.
+        html = render_change(view, "attr_sets_search", %{"q" => "Big Set"})
+        assert html =~ "Big Set"
+        refute html =~ "Filler 01"
+
+        # Chips capped with the real count and a "+N" LINK to entities —
+        # never all twelve inline.
+        assert html =~ "Val 1"
+        refute html =~ "Val 12"
+        assert html =~ "(12)"
+        assert html =~ "/admin/entities/#{big.name}/data"
+
+        # Item links capped; overflow is a plain count, not a link dump.
+        assert html =~ "BigItem 01"
+        refute html =~ "BigItem 07"
+        assert html =~ "and 2 more"
+        assert html =~ "(7)"
+
+        # The kebab carries the only actions, in both faces.
+        assert html =~ ~s(id="attr-set-menu-t-#{big.uuid}")
+        assert html =~ ~s(id="attr-set-menu-c-#{big.uuid}")
+      end
+
+      test "no-match search says so instead of rendering silence", %{conn: conn} do
+        {:ok, _} = Catalogue.create_attribute_set(%{name: "Only Set"})
+        {:ok, view, _html} = live(conn, "/en/admin/catalogue/attributes")
+
+        html = render_change(view, "attr_sets_search", %{"q" => "zzz-nothing"})
+        assert html =~ "No sets match your search."
+      end
+
       test "the deferred backstop migration message reloads without crashing", %{conn: conn} do
         {:ok, view, _html} = live(conn, "/en/admin/catalogue/attributes")
 

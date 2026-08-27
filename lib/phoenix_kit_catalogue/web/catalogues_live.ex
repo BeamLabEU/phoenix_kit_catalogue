@@ -72,6 +72,11 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
        catalogue_rows: [],
        attribute_group_rows: [],
        attribute_set_rows: [],
+       attr_sets_all: [],
+       attr_sets_search: "",
+       attr_sets_page: 1,
+       attr_sets_total: 0,
+       attr_sets_max_page: 1,
        show_new_set_modal: false,
        sets_enabled: false,
        confirm_delete: nil,
@@ -394,6 +399,84 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     end
   end
 
+  attr(:set, :map, required: true)
+  attr(:limit, :integer, required: true)
+
+  # Chips are a HINT; the count is the number. "+N" navigates to the
+  # entities values page — expansion-in-place at a thousand values is how
+  # the old page melted.
+  defp attr_set_values_cell(assigns) do
+    ~H"""
+    <div class="flex flex-wrap items-center gap-1">
+      <span :for={v <- Enum.take(@set.values, @limit)} class="badge badge-outline badge-sm">
+        {v.title}
+      </span>
+      <.link
+        :if={@set.value_count > @limit}
+        navigate={KitRoutes.path("/admin/entities/#{@set.key}/data")}
+        class="badge badge-ghost badge-sm link link-hover"
+      >
+        +{@set.value_count - @limit}
+      </.link>
+      <span :if={@set.value_count == 0} class="text-sm text-base-content/50">
+        {Gettext.gettext(PhoenixKitCatalogue.Gettext, "No values yet")}
+      </span>
+      <span :if={@set.value_count > 0} class="text-xs text-base-content/40">
+        ({@set.value_count})
+      </span>
+    </div>
+    """
+  end
+
+  attr(:set, :map, required: true)
+  attr(:limit, :integer, required: true)
+
+  # Item previews link to their items; the overflow stays a plain count —
+  # there is no set-scoped item search yet, and a fake drawer would just
+  # re-import the unbounded list.
+  defp attr_set_items_cell(assigns) do
+    ~H"""
+    <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
+      <.link
+        :for={item <- Enum.take(@set.items, @limit)}
+        navigate={Paths.item_edit(item.uuid)}
+        class="link link-hover text-sm"
+      >
+        {item.name}
+      </.link>
+      <span :if={@set.item_count > @limit} class="text-sm text-base-content/50">
+        {Gettext.gettext(PhoenixKitCatalogue.Gettext, "and %{n} more", n: @set.item_count - @limit)}
+      </span>
+      <span :if={@set.item_count == 0} class="text-sm text-base-content/50">
+        {Gettext.gettext(PhoenixKitCatalogue.Gettext, "No items attached.")}
+      </span>
+      <span :if={@set.item_count > 0} class="text-xs text-base-content/40">
+        ({@set.item_count})
+      </span>
+    </div>
+    """
+  end
+
+  attr(:set, :map, required: true)
+  attr(:suffix, :string, required: true, doc: "table and card render the SAME row — distinct ids")
+
+  defp attr_set_menu(assigns) do
+    ~H"""
+    <.table_row_menu mode="auto" id={"attr-set-menu-#{@suffix}-#{@set.uuid}"}>
+      <.table_row_menu_link
+        navigate={KitRoutes.path("/admin/entities/#{@set.key}/data")}
+        icon="hero-pencil-square"
+        label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit values")}
+      />
+      <.table_row_menu_link
+        navigate={KitRoutes.path("/admin/entities/#{@set.uuid}/edit")}
+        icon="hero-cog-6-tooth"
+        label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Set settings")}
+      />
+    </.table_row_menu>
+    """
+  end
+
   defp set_kind_label("fixed"), do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Fixed value")
 
   defp set_kind_label(_multi),
@@ -404,29 +487,82 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   # auto-migrated here (backstopping the boot-time run; idempotent and
   # non-raising), then only sets render. A handful of sets on an admin
   # page, so the per-set value listing is fine.
+  @attr_sets_page_size 25
+  @attr_value_preview 8
+  @attr_item_preview 5
+
   defp load_attribute_sets(socket) do
     if Catalogue.attribute_sets_enabled?() do
       socket = maybe_auto_migrate_legacy(socket)
-      locale = socket.assigns[:current_locale]
-      sets = Catalogue.list_attribute_sets(lang: locale)
-      items_by_set = Catalogue.attribute_set_attached_items(Enum.map(sets, & &1.uuid))
 
-      rows =
-        Enum.map(sets, fn s ->
+      # One lean in-memory list (blueprints are entities-module rows we
+      # don't own, so no SQL paging) — search/page/derive below, and all
+      # counts/previews are fetched for the VISIBLE PAGE only. At a
+      # thousand sets the old shape (full values + full attachments per
+      # set) was both an N+1 and an unbounded DOM.
+      all =
+        Catalogue.list_attribute_sets(lang: socket.assigns[:current_locale])
+        |> Enum.map(fn s ->
           %{
             uuid: s.uuid,
             name: s.display_name,
             key: s.name,
-            kind: Catalogue.attribute_set_kind(s),
-            values: Catalogue.list_attribute_set_values(s, lang: locale),
-            items: Map.get(items_by_set, s.uuid, [])
+            kind: Catalogue.attribute_set_kind(s)
           }
         end)
 
-      assign(socket, sets_enabled: true, attribute_set_rows: rows)
+      socket
+      |> assign(sets_enabled: true, attr_sets_all: all)
+      |> derive_attribute_sets_page()
     else
-      assign(socket, sets_enabled: false, attribute_set_rows: [])
+      assign(socket,
+        sets_enabled: false,
+        attr_sets_all: [],
+        attribute_set_rows: [],
+        attr_sets_total: 0,
+        attr_sets_max_page: 1
+      )
     end
+  end
+
+  defp derive_attribute_sets_page(socket) do
+    locale = socket.assigns[:current_locale]
+    search = socket.assigns.attr_sets_search |> String.downcase()
+
+    filtered =
+      Enum.filter(socket.assigns.attr_sets_all, fn s ->
+        search == "" or
+          String.contains?(String.downcase(s.name || ""), search) or
+          String.contains?(String.downcase(s.key || ""), search)
+      end)
+
+    total = length(filtered)
+    max_page = max(ceil(total / @attr_sets_page_size), 1)
+    page = socket.assigns.attr_sets_page |> max(1) |> min(max_page)
+    page_rows = Enum.slice(filtered, (page - 1) * @attr_sets_page_size, @attr_sets_page_size)
+
+    uuids = Enum.map(page_rows, & &1.uuid)
+    value_counts = Catalogue.attribute_set_value_counts(uuids)
+    item_counts = Catalogue.attribute_set_attachment_counts(uuids)
+    item_previews = Catalogue.attribute_set_attached_items_preview(uuids, @attr_item_preview)
+
+    rows =
+      Enum.map(page_rows, fn s ->
+        Map.merge(s, %{
+          values:
+            Catalogue.list_attribute_set_values(s.uuid, lang: locale, limit: @attr_value_preview),
+          value_count: Map.get(value_counts, s.uuid, 0),
+          items: Map.get(item_previews, s.uuid, []),
+          item_count: Map.get(item_counts, s.uuid, 0)
+        })
+      end)
+
+    assign(socket,
+      attribute_set_rows: rows,
+      attr_sets_total: total,
+      attr_sets_page: page,
+      attr_sets_max_page: max_page
+    )
   end
 
   # Once per LV process — reloads (PubSub, tab switches) don't rescan.
@@ -2125,6 +2261,22 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     end
   end
 
+  def handle_event("attr_sets_search", %{"q" => q}, socket) do
+    {:noreply,
+     socket
+     |> assign(attr_sets_search: String.slice(q, 0, 200), attr_sets_page: 1)
+     |> derive_attribute_sets_page()}
+  end
+
+  def handle_event("attr_sets_page", %{"dir" => dir}, socket) do
+    delta = if dir == "next", do: 1, else: -1
+
+    {:noreply,
+     socket
+     |> assign(:attr_sets_page, socket.assigns.attr_sets_page + delta)
+     |> derive_attribute_sets_page()}
+  end
+
   def handle_event("open_new_set_modal", _params, socket),
     do: {:noreply, assign(socket, :show_new_set_modal, true)}
 
@@ -2592,7 +2744,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
               <p class="text-sm text-base-content/60">
                 {Gettext.gettext(
                   PhoenixKitCatalogue.Gettext,
-                  "One dimension from one vendor — Ikea colors, HomeDepot trims. Items attach any number of sets. Sets are edited in the Entities module."
+                  "One dimension from one vendor — a color range, a trim series. Items attach any number of sets. Sets are edited in the Entities module."
                 )}
               </p>
             </div>
@@ -2609,56 +2761,128 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
             )}
           </p>
 
-          <div
-            :for={s <- @attribute_set_rows}
-            id={"attr-set-#{s.uuid}"}
-            class="rounded-lg border border-base-content/10 bg-base-100 p-4 flex flex-col gap-3"
+          <div class="flex flex-wrap items-center gap-2">
+            <%!-- phx-submit is load-bearing (Enter would native-submit). --%>
+            <form
+              id="attr-sets-search"
+              class="flex-1 min-w-48"
+              phx-change="attr_sets_search"
+              phx-submit="attr_sets_search"
+            >
+              <label class="input input-sm w-full flex items-center gap-2">
+                <span class="hero-magnifying-glass w-4 h-4 opacity-60"></span>
+                <input
+                  type="text"
+                  name="q"
+                  value={@attr_sets_search}
+                  placeholder={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search sets…")}
+                  phx-debounce="250"
+                  autocomplete="off"
+                  class="grow"
+                />
+              </label>
+            </form>
+            <.view_mode_toggle storage_key="catalogue-attribute-sets" />
+          </div>
+
+          <p
+            :if={@attr_sets_total == 0 and @attr_sets_search != ""}
+            class="text-sm text-base-content/60 py-4 text-center"
           >
-            <div class="flex flex-wrap items-center gap-3">
-              <span class="font-semibold">{s.name}</span>
-              <span class="badge badge-ghost badge-sm">{set_kind_label(s.kind)}</span>
-              <span class="font-mono text-xs text-base-content/40">{s.key}</span>
-              <div class="ml-auto flex gap-2">
-                <.link
-                  navigate={KitRoutes.path("/admin/entities/#{s.key}/data")}
-                  class="btn btn-xs"
-                >
-                  <.icon name="hero-pencil-square" class="w-3 h-3" />
-                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit values")}
-                </.link>
-                <.link
-                  navigate={KitRoutes.path("/admin/entities/#{s.uuid}/edit")}
-                  class="btn btn-xs btn-ghost"
-                >
-                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Set settings")}
-                </.link>
+            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "No sets match your search.")}
+          </p>
+
+          <.table_default
+            :if={@attribute_set_rows != []}
+            id="attribute-sets-table"
+            size="sm"
+            variant="zebra"
+            toggleable={true}
+            show_toggle={false}
+            storage_key="catalogue-attribute-sets"
+            items={@attribute_set_rows}
+            wrapper_class="overflow-x-auto rounded-lg border border-base-content/10 shadow-none"
+          >
+            <.table_default_header>
+              <tr>
+                <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Name")}</th>
+                <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Kind")}</th>
+                <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Values")}</th>
+                <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Items")}</th>
+                <th class="w-10"></th>
+              </tr>
+            </.table_default_header>
+            <.table_default_body>
+              <.table_default_row :for={s <- @attribute_set_rows} id={"attr-set-#{s.uuid}"}>
+                <.table_default_cell class="align-top">
+                  <div class="font-medium">{s.name}</div>
+                  <div class="font-mono text-xs text-base-content/40">{s.key}</div>
+                </.table_default_cell>
+                <.table_default_cell class="align-top">
+                  <span class="badge badge-ghost badge-sm">{set_kind_label(s.kind)}</span>
+                </.table_default_cell>
+                <.table_default_cell class="align-top">
+                  <.attr_set_values_cell set={s} limit={6} />
+                </.table_default_cell>
+                <.table_default_cell class="align-top">
+                  <.attr_set_items_cell set={s} limit={3} />
+                </.table_default_cell>
+                <.table_default_cell class="align-top">
+                  <.attr_set_menu set={s} suffix="t" />
+                </.table_default_cell>
+              </.table_default_row>
+            </.table_default_body>
+
+            <:card_body :let={s}>
+              <div class="flex items-start justify-between gap-2">
+                <div class="min-w-0">
+                  <div class="font-semibold">{s.name}</div>
+                  <div class="font-mono text-xs text-base-content/40">{s.key}</div>
+                </div>
+                <span class="badge badge-ghost badge-sm shrink-0">{set_kind_label(s.kind)}</span>
               </div>
-            </div>
+              <div class="mt-2">
+                <.attr_set_values_cell set={s} limit={8} />
+              </div>
+              <div class="mt-2">
+                <.attr_set_items_cell set={s} limit={5} />
+              </div>
+            </:card_body>
+            <:card_actions :let={s}>
+              <.attr_set_menu set={s} suffix="c" />
+            </:card_actions>
+          </.table_default>
 
-            <div class="flex flex-wrap items-center gap-1.5">
-              <span class="text-xs font-semibold text-base-content/50 uppercase mr-1">
-                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Values")} ({length(s.values)})
-              </span>
-              <span :for={v <- s.values} class="badge badge-outline badge-sm">{v.title}</span>
-              <span :if={s.values == []} class="text-sm text-base-content/50">
-                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "None yet — add them in Entities.")}
-              </span>
-            </div>
-
-            <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
-              <span class="text-xs font-semibold text-base-content/50 uppercase mr-1">
-                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Items")} ({length(s.items)})
-              </span>
-              <.link
-                :for={item <- s.items}
-                navigate={Paths.item_edit(item.uuid)}
-                class="link link-hover text-sm"
+          <div
+            :if={@attr_sets_max_page > 1}
+            class="flex items-center justify-end gap-3 text-sm text-base-content/60"
+          >
+            <span>
+              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Page %{page} of %{max} — %{total} sets",
+                page: @attr_sets_page,
+                max: @attr_sets_max_page,
+                total: @attr_sets_total
+              )}
+            </span>
+            <div class="join">
+              <button
+                type="button"
+                class="btn btn-sm join-item"
+                phx-click="attr_sets_page"
+                phx-value-dir="prev"
+                disabled={@attr_sets_page <= 1}
               >
-                {item.name}
-              </.link>
-              <span :if={s.items == []} class="text-sm text-base-content/50">
-                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "No items attached.")}
-              </span>
+                «
+              </button>
+              <button
+                type="button"
+                class="btn btn-sm join-item"
+                phx-click="attr_sets_page"
+                phx-value-dir="next"
+                disabled={@attr_sets_page >= @attr_sets_max_page}
+              >
+                »
+              </button>
             </div>
           </div>
 
@@ -2685,7 +2909,11 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
                 <button type="button" class="btn btn-ghost btn-sm" phx-click="close_new_set_modal">
                   {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Cancel")}
                 </button>
-                <button type="submit" class="btn btn-primary btn-sm">
+                <button
+                  type="submit"
+                  class="btn btn-primary btn-sm"
+                  phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Creating…")}
+                >
                   {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Create and edit in Entities")}
                 </button>
               </div>

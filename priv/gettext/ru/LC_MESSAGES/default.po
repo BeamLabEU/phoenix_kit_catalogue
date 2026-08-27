@@ -3004,6 +3004,6 @@ msgstr "Не удалось создать набор — проверьте н�
 msgid "Could not create the set."
 msgstr "Не удалось создать набор."
 
-msgid "One dimension from one vendor — Ikea colors, HomeDepot trims. Items attach any number of sets. Sets are edited in the Entities module."
-msgstr "Одно измерение от одного поставщика — цвета Ikea, отделка HomeDepot. Товары могут иметь любое число наборов. Наборы редактируются в модуле Entities."
+msgid "One dimension from one vendor — a color range, a trim series. Items attach any number of sets. Sets are edited in the Entities module."
+msgstr "Одно измерение от одного поставщика — палитра цветов, серия отделки. Товары могут иметь любое число наборов. Наборы редактируются в модуле Entities."
 

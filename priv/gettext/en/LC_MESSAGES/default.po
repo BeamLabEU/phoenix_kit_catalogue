@@ -2995,6 +2995,6 @@ msgstr "Could not create the set — check the name."
 msgid "Could not create the set."
 msgstr "Could not create the set."
 
-msgid "One dimension from one vendor — Ikea colors, HomeDepot trims. Items attach any number of sets. Sets are edited in the Entities module."
-msgstr "One dimension from one vendor — Ikea colors, HomeDepot trims. Items attach any number of sets. Sets are edited in the Entities module."
+msgid "One dimension from one vendor — a color range, a trim series. Items attach any number of sets. Sets are edited in the Entities module."
+msgstr "One dimension from one vendor — a color range, a trim series. Items attach any number of sets. Sets are edited in the Entities module."
 

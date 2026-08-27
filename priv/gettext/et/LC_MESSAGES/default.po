@@ -2995,6 +2995,6 @@ msgstr "Komplekti loomine ebaõnnestus — kontrolli nime."
 msgid "Could not create the set."
 msgstr "Komplekti loomine ebaõnnestus."
 
-msgid "One dimension from one vendor — Ikea colors, HomeDepot trims. Items attach any number of sets. Sets are edited in the Entities module."
-msgstr "Üks dimensioon ühelt tarnijalt — Ikea värvid, HomeDepot liistud. Tooted võivad kasutada mis tahes arvu komplekte. Komplekte muudetakse Entities moodulis."
+msgid "One dimension from one vendor — a color range, a trim series. Items attach any number of sets. Sets are edited in the Entities module."
+msgstr "Üks dimensioon ühelt tarnijalt — värvivalik, liistuseeria. Tooted võivad kasutada mis tahes arvu komplekte. Komplekte muudetakse Entities moodulis."
 
