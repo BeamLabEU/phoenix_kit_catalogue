@@ -758,7 +758,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
               </div>
               <div
                 :if={sku}
-                class="text-xs text-base-content/60 font-mono shrink-0 self-end px-2 truncate max-w-40"
+                class="text-xs text-base-content/60 font-mono shrink-0 self-end px-2 truncate max-w-44"
                 title={sku}
               >
                 {sku}
