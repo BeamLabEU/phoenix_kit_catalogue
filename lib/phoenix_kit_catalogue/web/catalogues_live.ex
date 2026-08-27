@@ -2834,8 +2834,12 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
             <.table_default_body>
               <.table_default_row :for={s <- @attribute_set_rows} id={"attr-set-#{s.uuid}"}>
                 <.table_default_cell class="align-top">
-                  <div class="font-medium">{s.name}</div>
-                  <div class="font-mono text-xs text-base-content/40">{s.key}</div>
+                  <.link
+                    navigate={KitRoutes.path("/admin/entities/#{s.key}/data")}
+                    class="font-medium link link-hover"
+                  >
+                    {s.name}
+                  </.link>
                 </.table_default_cell>
                 <.table_default_cell class="align-top">
                   <.attr_set_values_cell set={s} limit={6} />
@@ -2851,8 +2855,12 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
 
             <:card_body :let={s}>
               <div class="min-w-0">
-                <div class="font-semibold">{s.name}</div>
-                <div class="font-mono text-xs text-base-content/40">{s.key}</div>
+                <.link
+                  navigate={KitRoutes.path("/admin/entities/#{s.key}/data")}
+                  class="font-semibold link link-hover"
+                >
+                  {s.name}
+                </.link>
               </div>
               <div class="mt-2">
                 <.attr_set_values_cell set={s} limit={8} />

@@ -43,6 +43,16 @@ defmodule PhoenixKitCatalogue.Web.AttributeSetsSurfacesTest do
         assert html =~ "TabItem"
         # …links every edit affordance into entities…
         assert html =~ "/admin/entities/#{set.name}/data"
+
+        # The NAME itself is the way in (Max, 2026-08-28), and the slug
+        # is not rendered — it only rides inside hrefs.
+        assert has_element?(
+                 view,
+                 ~s|a[href$="/admin/entities/#{set.name}/data"]|,
+                 "Tab colors"
+               )
+
+        refute has_element?(view, "#attribute-sets-table .font-mono")
         assert html =~ "/admin/entities/#{set.uuid}/edit"
         # …and carries no delete flow of its own — the handler itself is
         # gone (a crafted push would FunctionClauseError, proving no code
