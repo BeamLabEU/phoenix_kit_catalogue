@@ -2998,3 +2998,23 @@ msgstr "Could not create the set."
 msgid "One dimension from one vendor — a color range, a trim series. Items attach any number of sets. Sets are edited in the Entities module."
 msgstr "One dimension from one vendor — a color range, a trim series. Items attach any number of sets. Sets are edited in the Entities module."
 
+
+## Attribute sets viewer listing (2026-08-27 scale pass)
+msgid "Search sets…"
+msgstr "Search sets…"
+
+msgid "No sets match your search."
+msgstr "No sets match your search."
+
+msgid "Page %{page} of %{max} — %{total} sets"
+msgstr "Page %{page} of %{max} — %{total} sets"
+
+msgid "and %{n} more"
+msgstr "and %{n} more"
+
+msgid "No values yet"
+msgstr "No values yet"
+
+msgid "Creating…"
+msgstr "Creating…"
+

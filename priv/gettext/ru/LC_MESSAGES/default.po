@@ -3007,3 +3007,23 @@ msgstr "Не удалось создать набор."
 msgid "One dimension from one vendor — a color range, a trim series. Items attach any number of sets. Sets are edited in the Entities module."
 msgstr "Одно измерение от одного поставщика — палитра цветов, серия отделки. Товары могут иметь любое число наборов. Наборы редактируются в модуле Entities."
 
+
+## Attribute sets viewer listing (2026-08-27 scale pass)
+msgid "Search sets…"
+msgstr "Поиск наборов…"
+
+msgid "No sets match your search."
+msgstr "Нет наборов по вашему запросу."
+
+msgid "Page %{page} of %{max} — %{total} sets"
+msgstr "Страница %{page} из %{max} — %{total} наборов"
+
+msgid "and %{n} more"
+msgstr "и ещё %{n}"
+
+msgid "No values yet"
+msgstr "Значений пока нет"
+
+msgid "Creating…"
+msgstr "Создание…"
+

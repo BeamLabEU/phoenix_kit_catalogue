@@ -2998,3 +2998,23 @@ msgstr "Komplekti loomine ebaõnnestus."
 msgid "One dimension from one vendor — a color range, a trim series. Items attach any number of sets. Sets are edited in the Entities module."
 msgstr "Üks dimensioon ühelt tarnijalt — värvivalik, liistuseeria. Tooted võivad kasutada mis tahes arvu komplekte. Komplekte muudetakse Entities moodulis."
 
+
+## Attribute sets viewer listing (2026-08-27 scale pass)
+msgid "Search sets…"
+msgstr "Otsi komplekte…"
+
+msgid "No sets match your search."
+msgstr "Otsingule ei vasta ükski komplekt."
+
+msgid "Page %{page} of %{max} — %{total} sets"
+msgstr "Leht %{page} / %{max} — %{total} komplekti"
+
+msgid "and %{n} more"
+msgstr "ja veel %{n}"
+
+msgid "No values yet"
+msgstr "Väärtusi pole veel"
+
+msgid "Creating…"
+msgstr "Loomine…"
+
