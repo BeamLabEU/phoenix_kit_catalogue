@@ -100,9 +100,11 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLive do
   # (`connected?` false) we skip it — the connected render fills the list in.
   defp assign_pdfs(socket) do
     if connected?(socket) do
-      assign(socket, :pdfs, Catalogue.list_pdfs(status: socket.assigns.filter))
+      assign(socket, pdfs: Catalogue.list_pdfs(status: socket.assigns.filter), pdfs_loaded: true)
     else
-      assign(socket, :pdfs, [])
+      # Not loaded yet, not empty — the dead render must show a skeleton,
+      # not "No PDFs uploaded yet."
+      assign(socket, pdfs: [], pdfs_loaded: false)
     end
   end
 
@@ -497,6 +499,11 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLive do
 
         <%!-- PDF list --%>
         <%= cond do %>
+          <% !@pdfs_loaded -> %>
+            <div class="flex flex-col gap-3" aria-busy="true">
+              <div class="skeleton h-16 w-full"></div>
+              <div class="skeleton h-16 w-full"></div>
+            </div>
           <% @pdfs == [] -> %>
             <div class="text-center py-12 text-base-content/60">
               <.icon name="hero-document-text" class="w-12 h-12 mx-auto mb-2 opacity-50" />
