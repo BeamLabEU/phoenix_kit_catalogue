@@ -52,7 +52,9 @@ defmodule PhoenixKitCatalogue.Web.AttributeSetsSurfacesTest do
         assert %{} = Catalogue.get_attribute_set(set.uuid)
       end
 
-      test "New Set collects name+kind, stamps ownership, hands off to entities", %{conn: conn} do
+      test "New Set collects a name only, stamps ownership, hands off to entities", %{
+        conn: conn
+      } do
         {:ok, view, _html} = live(conn, "/en/admin/catalogue/attributes")
 
         render_click(view, "open_new_set_modal", %{})
@@ -60,7 +62,7 @@ defmodule PhoenixKitCatalogue.Web.AttributeSetsSurfacesTest do
         assert {:error, {:live_redirect, %{to: to}}} =
                  view
                  |> element("#new-attribute-set-modal form")
-                 |> render_submit(%{"name" => "Handed Off", "kind" => "fixed"})
+                 |> render_submit(%{"name" => "Handed Off"})
 
         # Straight to ADDING VALUES — not the blueprint editor.
         assert to =~ "/admin/entities/"
@@ -70,10 +72,10 @@ defmodule PhoenixKitCatalogue.Web.AttributeSetsSurfacesTest do
           Catalogue.list_attribute_sets()
           |> Enum.filter(&(&1.display_name == "Handed Off"))
 
-        # The one reason creation stays here: the managed stamp + the
-        # post-creation-locked kind.
+        # The one reason creation stays here: the managed stamp. Kind is
+        # no longer asked for (nothing consumes it) and defaults quietly.
         assert PhoenixKitEntities.Managed.owner(set) == "catalogue"
-        assert Catalogue.attribute_set_kind(set) == "fixed"
+        assert Catalogue.attribute_set_kind(set) == "multi"
       end
 
       test "the deferred backstop migration message reloads without crashing", %{conn: conn} do

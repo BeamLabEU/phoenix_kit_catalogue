@@ -2986,8 +2986,8 @@ msgstr "Uus atribuutide komplekt"
 msgid "Create and edit in Entities"
 msgstr "Loo ja muuda Entities moodulis"
 
-msgid "The kind is fixed after creation. You'll be taken straight to adding the set's values in Entities."
-msgstr "Tüüpi ei saa pärast loomist muuta. Sind suunatakse kohe komplekti väärtuste lisamise juurde Entities moodulis."
+msgid "You'll be taken straight to adding the set's values in Entities."
+msgstr "Sind suunatakse kohe komplekti väärtuste lisamise juurde Entities moodulis."
 
 msgid "Could not create the set — check the name."
 msgstr "Komplekti loomine ebaõnnestus — kontrolli nime."

@@ -2995,8 +2995,8 @@ msgstr "Новый набор атрибутов"
 msgid "Create and edit in Entities"
 msgstr "Создать и редактировать в Entities"
 
-msgid "The kind is fixed after creation. You'll be taken straight to adding the set's values in Entities."
-msgstr "Тип нельзя изменить после создания. Вы сразу перейдёте к добавлению значений набора в Entities."
+msgid "You'll be taken straight to adding the set's values in Entities."
+msgstr "Вы сразу перейдёте к добавлению значений набора в Entities."
 
 msgid "Could not create the set — check the name."
 msgstr "Не удалось создать набор — проверьте название."
