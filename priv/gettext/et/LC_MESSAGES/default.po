@@ -1237,12 +1237,6 @@ msgstr "Halda selle rühma atribuute, väärtusi ja tõlkeid."
 msgid "No attributes yet. Add one below — e.g. Color, Trim, Surface."
 msgstr "Atribuute pole veel. Lisa mõni allpool — nt Värv, Kant, Pind."
 
-msgid "Multiple values"
-msgstr "Mitu väärtust"
-
-msgid "Fixed value"
-msgstr "Fikseeritud väärtus"
-
 msgid "Failed to add attribute."
 msgstr "Atribuudi lisamine ebaõnnestus."
 

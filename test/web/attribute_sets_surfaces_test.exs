@@ -76,6 +76,12 @@ defmodule PhoenixKitCatalogue.Web.AttributeSetsSurfacesTest do
         # no longer asked for (nothing consumes it) and defaults quietly.
         assert PhoenixKitEntities.Managed.owner(set) == "catalogue"
         assert Catalogue.attribute_set_kind(set) == "multi"
+
+        # Kind is stored but HIDDEN from every surface until something
+        # consumes it (Max, 2026-08-27) — no badge, no column.
+        {:ok, _view, listing} = live(conn, "/en/admin/catalogue/attributes")
+        refute listing =~ "Fixed value"
+        refute listing =~ "Multiple values"
       end
 
       test "a thousand of anything stays capped: pages, chips, previews", %{conn: conn} do

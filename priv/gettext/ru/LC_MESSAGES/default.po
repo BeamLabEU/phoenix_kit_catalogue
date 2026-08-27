@@ -1246,12 +1246,6 @@ msgstr "Управляйте атрибутами, значениями и пе�
 msgid "No attributes yet. Add one below — e.g. Color, Trim, Surface."
 msgstr "Атрибутов пока нет. Добавьте ниже — напр. Цвет, Кант, Поверхность."
 
-msgid "Multiple values"
-msgstr "Несколько значений"
-
-msgid "Fixed value"
-msgstr "Фиксированное значение"
-
 msgid "Failed to add attribute."
 msgstr "Не удалось добавить атрибут."
 

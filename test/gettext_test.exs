@@ -436,8 +436,6 @@ defmodule PhoenixKitCatalogue.GettextTest do
             {"Add", "Lisa", "Добавить"},
             {"New Attribute Group", "Uus atribuudirühm", "Новая группа атрибутов"},
             {"Attribute group created.", "Atribuudirühm loodud.", "Группа атрибутов создана."},
-            {"Multiple values", "Mitu väärtust", "Несколько значений"},
-            {"Fixed value", "Fikseeritud väärtus", "Фиксированное значение"},
             {"Make default", "Määra vaikeväärtuseks", "Сделать по умолчанию"},
             {"This group is used by items — archive it instead.",
              "See rühm on toodetel kasutusel — arhiveeri see kustutamise asemel.",
