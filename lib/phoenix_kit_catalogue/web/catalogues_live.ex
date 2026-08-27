@@ -78,6 +78,9 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
        # empty state before anything loaded is a false statement (the
        # legacy "No attribute groups yet" flashed here; Max, 2026-08-27).
        attr_tab_loaded: false,
+       # Same flag for the catalogues tab — "No catalogues yet." used to
+       # flash on the dead render for the same reason.
+       index_loaded: false,
        attr_sets_all: [],
        attr_sets_search: "",
        attr_sets_page: 1,
@@ -374,6 +377,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         folder_options: folder_options(active_tree)
       )
       |> drop_stale_folder_filter(folder_lookup)
+      |> assign(:index_loaded, true)
     else
       socket
     end
@@ -2484,7 +2488,12 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     >
       <div class="flex flex-col w-full px-4 py-6 gap-6">
         <%!-- Catalogue tab content --%>
-        <div :if={@active_tab == :index} class="flex flex-col gap-4">
+        <div :if={@active_tab == :index and !@index_loaded} class="flex flex-col gap-3" aria-busy="true">
+          <div class="skeleton h-8 w-64"></div>
+          <div class="skeleton h-24 w-full"></div>
+          <div class="skeleton h-24 w-full"></div>
+        </div>
+        <div :if={@active_tab == :index and @index_loaded} class="flex flex-col gap-4">
           <% cfg = @view_configs.catalogues %>
           <.table_toolbar
             scope={:catalogues}
