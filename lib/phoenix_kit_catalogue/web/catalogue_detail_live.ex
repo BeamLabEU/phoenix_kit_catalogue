@@ -2931,7 +2931,15 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                 {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Searching for \"%{query}\"...", query: @search_query)}
               </span>
             <% else %>
-              <.search_results_summary :if={@search_results != nil} count={@search_total} query={@search_query} loaded={length(@search_results)} />
+              <%!-- The summary counts ITEMS. Suppress it when a search
+                    matched only categories, or the line reads "0 results"
+                    directly above the category it just found. --%>
+              <.search_results_summary
+                :if={@search_results != nil and (@search_total > 0 or @search_categories == [])}
+                count={@search_total}
+                query={@search_query}
+                loaded={length(@search_results)}
+              />
             <% end %>
             <span :if={@search_loading} class="loading loading-spinner loading-xs text-base-content/40"></span>
             <div :if={@search_results not in [nil, []]} class="ml-auto">

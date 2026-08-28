@@ -136,6 +136,10 @@ defmodule PhoenixKitCatalogue.Catalogue.SearchCoverageTest do
       assert names(assigns.search_categories) == ["Shaker Fronts"]
       # The trail tells two same-named subcategories apart.
       assert assigns.category_trails[ctx.child.uuid] == "Cabinet Doors"
+
+      # …and the item summary keeps quiet rather than announcing
+      # "0 results" directly above the category it just found.
+      refute render(view) =~ "0 results"
     end
 
     test "a query matching nothing at all says so once", ctx do
