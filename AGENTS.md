@@ -113,22 +113,34 @@ SemVer. The version lives in **two places** — bump both: `mix.exs` `@version` 
 - **JS hooks:** shared hooks (RowMenu, SortableGrid, InfiniteScroll, …) come from phoenix_kit core's `window.PhoenixKitHooks`; this module ships no external hooks.
 - **Gettext:** the module has its own backend, `PhoenixKitCatalogue.Gettext` — use it (not `PhoenixKitWeb.Gettext`) for new strings.
 
-  ⚠️ **Do not run `mix gettext.extract` / `mix gettext.merge` in this repo — they
-  would delete almost every translation.** Nearly all strings here are written
-  as the *runtime function* call `Gettext.gettext(PhoenixKitCatalogue.Gettext,
-  "…")` (~891 call sites) rather than the `gettext("…")` macro (~7 sites),
-  because most LiveViews here don't `use Gettext, backend:
-  PhoenixKitCatalogue.Gettext`. `mix gettext.extract` only sees macro calls, so
-  a fresh `.pot` would contain those ~7 strings instead of the 336 currently
-  in `priv/gettext/default.pot`, and `mix gettext.merge` (`on_obsolete:
-  :delete` by default) would then strip the remaining ~329 entries from all
-  three `.po` files. The catalogues are **hand-maintained**: add new msgids to
-  `default.pot` and to each of `en`/`et`/`ru` by hand, and pin them with a test
-  in `test/gettext_test.exs`.
+  `mix gettext.extract` / `mix gettext.merge` are **safe here, and are the
+  right workflow** — measured 2026-08-29 against gettext 1.0.2, on the whole
+  tree: extraction reproduced 959 of the 960 committed msgids and merge
+  reported `0 removed, 0 reworded (fuzzy), 0 marked as obsolete` in all three
+  languages, with zero translations lost.
 
-  The real fix is to add `use Gettext, backend: PhoenixKitCatalogue.Gettext` to
-  each LiveView and convert the call sites to the macro form, which would make
-  extraction work normally. `web/table_config.ex` and `web/catalogues_live.ex`
-  already do this. Until that conversion happens, treat the catalogues as
-  hand-edited files.
+  This corrects a warning that stood here until 2026-08-29 and said the
+  opposite: that extraction sees only the `gettext("…")` macro, so
+  regenerating would reduce the `.pot` to ~7 strings and merge would then
+  delete ~329 translations. That was measured against an older gettext.
+  **Today's gettext also extracts the runtime form**
+  `Gettext.gettext(PhoenixKitCatalogue.Gettext, "…")`, which is how ~1100 of
+  the call sites here are written — so the catastrophe the warning described
+  does not happen, and treating the catalogues as hand-maintained was costing
+  more than it saved: it is why a string added to `catalogues_live.ex` on
+  2026-08-28 reached no catalogue at all and rendered English in `et`/`ru`.
+
+  One real gap remains, and it is narrow: the runtime form is **not** extracted
+  from inside a HEEx attribute interpolation (`title={Gettext.gettext(…)}`).
+  Exactly two msgids were affected — "Comfortable view" and "Compact view" in
+  `web/components.ex` — and both are now written as the macro, with that file
+  carrying `use Gettext, backend: PhoenixKitCatalogue.Gettext`. **Write new
+  strings in an attribute as the macro** (`title={gettext("…")}`), and add the
+  `use` line to any module that needs it. Everything else can stay as it is.
+
+  After adding a string: `mix gettext.extract && mix gettext.merge
+  priv/gettext`, then fill in `et`/`ru` (a merge can guess a translation by
+  similarity and mark it `fuzzy` — gettext IGNORES a fuzzy entry at runtime and
+  falls back to English, so review every one) and pin it in
+  `test/gettext_test.exs`.
 - **Settings keys:** `catalogue_enabled`.
