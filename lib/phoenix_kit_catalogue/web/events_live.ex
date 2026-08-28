@@ -397,6 +397,13 @@ defmodule PhoenixKitCatalogue.Web.EventsLive do
 
       <%!-- Infinite scroll sentinel --%>
       <%= if @has_more do %>
+        <%!-- Core's InfiniteScroll hook, not a local one. This template used
+             to carry an inline <script> defining a simpler fallback guarded
+             by `|| {…}` — which never took effect, because core's bundle is
+             already in the LiveSocket at construction, and could not have
+             taken effect on a LiveView navigation anyway: morphdom does not
+             execute an inserted <script>. Core's version also has the load
+             guard and watchdog this one lacked. --%>
         <div id="load-more-sentinel" phx-hook="InfiniteScroll" data-page={@page} class="py-4">
           <div class="flex justify-center">
             <span class="loading loading-spinner loading-sm text-base-content/30"></span>
@@ -411,35 +418,6 @@ defmodule PhoenixKitCatalogue.Web.EventsLive do
       <% end %>
     </div>
 
-    <script>
-      window.PhoenixKitHooks = window.PhoenixKitHooks || {};
-      window.PhoenixKitHooks.InfiniteScroll = window.PhoenixKitHooks.InfiniteScroll || {
-        mounted() {
-          this.intersecting = false;
-          this.observer = new IntersectionObserver((entries) => {
-            this.intersecting = entries[0].isIntersecting;
-            if (this.intersecting) {
-              this.pushEvent("load_more", {});
-            }
-          }, { rootMargin: "200px" });
-          this.observer.observe(this.el);
-        },
-        updated() {
-          // IntersectionObserver only fires on state transitions. When the
-          // viewport is tall or the user jumped via Page Down / resize, the
-          // sentinel stays continuously in view across batches — so the
-          // observer goes silent after the first fire. Re-trigger explicitly
-          // whenever the server patches us while we're still on-screen.
-          // The server's `loading` guard dedupes duplicate events.
-          if (this.intersecting) {
-            this.pushEvent("load_more", {});
-          }
-        },
-        destroyed() {
-          this.observer.disconnect();
-        }
-      };
-    </script>
     </PhoenixKitWeb.Components.LayoutWrapper.app_layout>
     """
   end
