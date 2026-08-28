@@ -13,6 +13,34 @@ defmodule PhoenixKitCatalogue.GettextTest do
     assert Code.ensure_loaded?(PhoenixKitCatalogue.Gettext)
   end
 
+  test "every string the UI shows is actually in the catalogues (ru + et)" do
+    # The failure this guards is silent by construction: `gettext/1` returns
+    # the msgid when a string is missing, so a page renders correct-looking
+    # English and no test fails. It is how "Showing catalogues that contain
+    # matching items." shipped on 2026-08-28 present in no catalogue at all.
+    #
+    # A po-vs-po parity check cannot see it either — a string absent from all
+    # three files is symmetric. The only thing that catches it is asking the
+    # backend, in a non-English locale, for a string the code actually uses.
+    for {msgid, ru, et} <- [
+          {"Showing catalogues that contain matching items.",
+           "Показаны каталоги, содержащие подходящие товары.",
+           "Kuvatakse kataloogid, mis sisaldavad sobivaid tooteid."},
+          # Written as the macro inside a HEEx attribute on purpose: the
+          # runtime form is NOT extracted from attribute interpolation, which
+          # is how these two were in the catalogues but absent from a
+          # regenerated .pot. See the Gettext note in AGENTS.md.
+          {"Comfortable view", "Просторный вид", "Avar vaade"},
+          {"Compact view", "Компактный вид", "Kompaktne vaade"}
+        ] do
+      Gettext.put_locale(PhoenixKitCatalogue.Gettext, "ru")
+      assert Gettext.gettext(PhoenixKitCatalogue.Gettext, msgid) == ru
+
+      Gettext.put_locale(PhoenixKitCatalogue.Gettext, "et")
+      assert Gettext.gettext(PhoenixKitCatalogue.Gettext, msgid) == et
+    end
+  end
+
   test "PDF content-search strings are translated (pin for the 2026-08-16 additions)" do
     Gettext.put_locale(PhoenixKitCatalogue.Gettext, "ru")
 

@@ -72,6 +72,13 @@ defmodule PhoenixKitCatalogue.Web.Components do
 
   use Phoenix.Component
 
+  # Macro form, so `mix gettext.extract` can see these. The runtime form
+  # `Gettext.gettext(Backend, "…")` extracts fine in ordinary code, but NOT
+  # inside a HEEx attribute interpolation — which is how "Comfortable view"
+  # and "Compact view" came to be in the catalogues but absent from a
+  # regenerated .pot.
+  use Gettext, backend: PhoenixKitCatalogue.Gettext
+
   require Logger
 
   import PhoenixKitWeb.Components.Core.Icon, only: [icon: 1]
@@ -1114,7 +1121,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
         phx-click="set_view"
         phx-value-mode="comfy"
         class={["btn btn-sm join-item", @view == "comfy" && "btn-active"]}
-        title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Comfortable view")}
+        title={gettext("Comfortable view")}
       >
         <.icon name="hero-bars-3" class="w-4 h-4" />
       </button>
@@ -1123,7 +1130,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
         phx-click="set_view"
         phx-value-mode="table"
         class={["btn btn-sm join-item", @view == "table" && "btn-active"]}
-        title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Compact view")}
+        title={gettext("Compact view")}
       >
         <.icon name="hero-bars-4" class="w-4 h-4" />
       </button>
@@ -1176,7 +1183,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
           type="button"
           data-view-action="comfy"
           class="btn btn-sm join-item"
-          title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Comfortable view")}
+          title={gettext("Comfortable view")}
         >
           <.icon name="hero-bars-3" class="w-4 h-4" />
         </button>
@@ -1184,7 +1191,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
           type="button"
           data-view-action="table"
           class="btn btn-sm join-item"
-          title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Compact view")}
+          title={gettext("Compact view")}
         >
           <.icon name="hero-bars-4" class="w-4 h-4" />
         </button>
