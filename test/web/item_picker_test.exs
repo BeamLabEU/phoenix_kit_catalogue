@@ -503,6 +503,138 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPickerTest do
       assert html =~ ~s(phx-click="photo_click")
       assert html =~ "photo-uuid-abc"
     end
+
+    test "photo_clickable=true renders cursor-pointer on the thumbnail button" do
+      item = %{
+        fake_item("item-1", "Oak Plank")
+        | data: %{"featured_image_uuid" => "photo-uuid-abc"}
+      }
+
+      html =
+        render_component(ItemPicker, base_assigns(%{selected_item: item, photo_clickable: true}))
+
+      assert html =~ "cursor-pointer"
+    end
+  end
+
+  describe "photo_placeholder (opt-in no-photo placeholder)" do
+    test "defaults to false: a photo-less selected item renders no placeholder (backward compatible)" do
+      item = fake_item("item-1", "Oak Plank")
+
+      html =
+        render_component(ItemPicker, base_assigns(%{selected_item: item, photo_clickable: true}))
+
+      refute html =~ "hero-photo"
+      refute html =~ ~s(phx-click="photo_click")
+    end
+
+    test "photo_placeholder=true + photo_clickable=true renders a clickable placeholder for a photo-less selected item" do
+      item = fake_item("item-1", "Oak Plank")
+
+      html =
+        render_component(
+          ItemPicker,
+          base_assigns(%{selected_item: item, photo_clickable: true, photo_placeholder: true})
+        )
+
+      assert html =~ "hero-photo"
+      assert html =~ ~s(phx-click="photo_click")
+      assert html =~ "cursor-pointer"
+    end
+
+    test "photo_placeholder=true without photo_clickable renders nothing (no click target to offer)" do
+      item = fake_item("item-1", "Oak Plank")
+
+      html =
+        render_component(
+          ItemPicker,
+          base_assigns(%{selected_item: item, photo_clickable: false, photo_placeholder: true})
+        )
+
+      refute html =~ "hero-photo"
+    end
+
+    test "photo_placeholder=true with nothing selected renders nothing" do
+      html =
+        render_component(
+          ItemPicker,
+          base_assigns(%{photo_clickable: true, photo_placeholder: true})
+        )
+
+      refute html =~ "hero-photo"
+    end
+
+    test "photo_placeholder=true does not change rendering for a selected item WITH a photo" do
+      item = %{
+        fake_item("item-1", "Oak Plank")
+        | data: %{"featured_image_uuid" => "photo-uuid-abc"}
+      }
+
+      with_placeholder =
+        render_component(
+          ItemPicker,
+          base_assigns(%{selected_item: item, photo_clickable: true, photo_placeholder: true})
+        )
+
+      without_placeholder =
+        render_component(
+          ItemPicker,
+          base_assigns(%{selected_item: item, photo_clickable: true, photo_placeholder: false})
+        )
+
+      refute with_placeholder =~ "hero-photo"
+      assert with_placeholder == without_placeholder
+    end
+  end
+
+  describe "photo_size (thumbnail/placeholder size override)" do
+    test "defaults to w-8 h-8, rendering byte-for-byte as before the attribute existed" do
+      item = %{
+        fake_item("item-1", "Oak Plank")
+        | data: %{"featured_image_uuid" => "photo-uuid-abc"}
+      }
+
+      html = render_component(ItemPicker, base_assigns(%{selected_item: item}))
+
+      assert html =~
+               ~s(class="w-8 h-8 shrink-0 rounded object-cover bg-base-200 border border-base-300")
+    end
+
+    test "a custom photo_size overrides the thumbnail size" do
+      item = %{
+        fake_item("item-1", "Oak Plank")
+        | data: %{"featured_image_uuid" => "photo-uuid-abc"}
+      }
+
+      html =
+        render_component(
+          ItemPicker,
+          base_assigns(%{selected_item: item, photo_size: "w-16 h-16"})
+        )
+
+      assert html =~
+               ~s(class="w-16 h-16 shrink-0 rounded object-cover bg-base-200 border border-base-300")
+
+      refute html =~
+               ~s(class="w-8 h-8 shrink-0 rounded object-cover bg-base-200 border border-base-300")
+    end
+
+    test "a custom photo_size also sizes the placeholder" do
+      item = fake_item("item-1", "Oak Plank")
+
+      html =
+        render_component(
+          ItemPicker,
+          base_assigns(%{
+            selected_item: item,
+            photo_clickable: true,
+            photo_placeholder: true,
+            photo_size: "w-16 h-16"
+          })
+        )
+
+      assert html =~ "w-16 h-16"
+    end
   end
 
   # initial_query SEEDING here only covers the DB-free guard branches (the
