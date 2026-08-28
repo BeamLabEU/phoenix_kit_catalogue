@@ -135,6 +135,15 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   def mount(params, _session, socket) do
     action = socket.assigns.live_action
 
+    # Subscribe BEFORE the read below, not after it. Supplier rows, the files
+    # grid and the category options come from the DB and are not owned by this
+    # form, so a write landing between the read and the subscribe was dropped
+    # and the form rendered stale until the next unrelated event. Every other
+    # LiveView in this module subscribes first and says so; this one read
+    # first and subscribed inside the success branch. Subscribing on the
+    # not-found path too is harmless — that branch navigates away immediately.
+    if connected?(socket), do: PubSub.subscribe()
+
     case load_item(action, params) do
       {nil, _, _} ->
         {:ok,
@@ -143,11 +152,6 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
          |> push_navigate(to: Paths.index())}
 
       {item, changeset, catalogue_uuid} ->
-        # Supplier rows, the files grid and the category options are read
-        # from the DB, not owned by the form — follow other sessions' writes
-        # to them (see the `:catalogue_data_changed` clauses).
-        if connected?(socket), do: PubSub.subscribe()
-
         {:ok,
          socket
          |> assign(:return_to, safe_return_to(params["return_to"]))
@@ -2254,13 +2258,21 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
       staged = socket.assigns.staged_set_uuids
       current = Enum.map(Catalogue.list_attribute_set_attachments(item.uuid), & &1.set_uuid)
 
+      # One roll-up broadcast at the end instead of one per change. A save
+      # can detach, attach, reorder and write a selection per set — each of
+      # which broadcast `:item` separately and ran its own
+      # `item_catalogue_uuid/1` SELECT to build the payload, so every open
+      # detail LiveView re-ran `refresh_in_place/1` once per staged set.
+      # Same convention the importer uses for its per-row writes.
+      opts = [broadcast: false] ++ actor_opts(socket)
+
       Enum.each(current -- staged, fn uuid ->
-        Catalogue.detach_attribute_set(item.uuid, uuid, actor_opts(socket))
+        Catalogue.detach_attribute_set(item.uuid, uuid, opts)
       end)
 
-      Enum.each(staged -- current, &attach_staged_set(socket, item.uuid, &1))
+      Enum.each(staged -- current, &attach_staged_set(item.uuid, &1, opts))
 
-      Catalogue.reorder_attribute_sets(item.uuid, staged, actor_opts(socket))
+      Catalogue.reorder_attribute_sets(item.uuid, staged, opts)
 
       # Selections write AFTER attach so new attachments exist; the
       # context validates keys against the set's current values.
@@ -2270,15 +2282,17 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
           |> Map.get(set_uuid, MapSet.new())
           |> MapSet.to_list()
 
-        Catalogue.set_attribute_set_selection(item.uuid, set_uuid, slugs, actor_opts(socket))
+        Catalogue.set_attribute_set_selection(item.uuid, set_uuid, slugs, opts)
       end)
+
+      PubSub.broadcast(:item, item.uuid, item.catalogue_uuid)
     end
 
     :ok
   end
 
-  defp attach_staged_set(socket, item_uuid, set_uuid) do
-    case Catalogue.attach_attribute_set(item_uuid, set_uuid, actor_opts(socket)) do
+  defp attach_staged_set(item_uuid, set_uuid, opts) do
+    case Catalogue.attach_attribute_set(item_uuid, set_uuid, opts) do
       {:ok, _} ->
         :ok
 

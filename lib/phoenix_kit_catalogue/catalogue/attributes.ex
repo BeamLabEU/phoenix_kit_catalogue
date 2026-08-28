@@ -357,26 +357,39 @@ defmodule PhoenixKitCatalogue.Catalogue.Attributes do
   the client list is forgeable, so the write count is bounded by the
   group's real row count, never by payload length (panel finding).
   """
-  @spec reorder_attributes(AttributeGroup.t(), [Ecto.UUID.t()]) :: :ok
+  @spec reorder_attributes(AttributeGroup.t(), [Ecto.UUID.t()]) :: :ok | {:error, term()}
   def reorder_attributes(%AttributeGroup{} = group, uuids) when is_list(uuids) do
     known =
       repo().all(from(a in Attribute, where: a.group_uuid == ^group.uuid, select: a.uuid))
 
     ordered = sanitize_reorder(uuids, known)
 
-    repo().transaction(fn ->
-      ordered
-      |> Enum.with_index()
-      |> Enum.each(fn {uuid, idx} ->
-        repo().update_all(
-          from(a in Attribute, where: a.uuid == ^uuid),
-          set: [position: idx, updated_at: DateTime.utc_now(:second)]
-        )
+    result =
+      repo().transaction(fn ->
+        ordered
+        |> Enum.with_index()
+        |> Enum.each(fn {uuid, idx} ->
+          repo().update_all(
+            from(a in Attribute, where: a.uuid == ^uuid),
+            set: [position: idx, updated_at: DateTime.utc_now(:second)]
+          )
+        end)
       end)
-    end)
 
-    PubSub.broadcast(:attribute_group, group.uuid)
-    :ok
+    # Broadcast and report success only if the transaction COMMITTED. The
+    # result used to be discarded, so a rolled-back reorder still told every
+    # open editor to re-read (data that had not changed) and still answered
+    # `:ok` — and the LiveView call sites match on `:ok =`, so the failure
+    # surfaced as a MatchError somewhere else entirely, if at all.
+    # `Rules.reorder_referenced_catalogues/2` is the shape to follow.
+    case result do
+      {:ok, _} ->
+        PubSub.broadcast(:attribute_group, group.uuid)
+        :ok
+
+      {:error, reason} ->
+        {:error, reason}
+    end
   end
 
   # ── Values ─────────────────────────────────────────────────────────
@@ -546,7 +559,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Attributes do
   end
 
   @doc "Persists a manual ordering of an attribute's values (same contract as `reorder_attributes/2`)."
-  @spec reorder_attribute_values(Attribute.t(), [Ecto.UUID.t()]) :: :ok
+  @spec reorder_attribute_values(Attribute.t(), [Ecto.UUID.t()]) :: :ok | {:error, term()}
   def reorder_attribute_values(%Attribute{} = attribute, uuids) when is_list(uuids) do
     known =
       repo().all(
@@ -555,19 +568,26 @@ defmodule PhoenixKitCatalogue.Catalogue.Attributes do
 
     ordered = sanitize_reorder(uuids, known)
 
-    repo().transaction(fn ->
-      ordered
-      |> Enum.with_index()
-      |> Enum.each(fn {uuid, idx} ->
-        repo().update_all(
-          from(v in AttributeValue, where: v.uuid == ^uuid),
-          set: [position: idx, updated_at: DateTime.utc_now(:second)]
-        )
+    result =
+      repo().transaction(fn ->
+        ordered
+        |> Enum.with_index()
+        |> Enum.each(fn {uuid, idx} ->
+          repo().update_all(
+            from(v in AttributeValue, where: v.uuid == ^uuid),
+            set: [position: idx, updated_at: DateTime.utc_now(:second)]
+          )
+        end)
       end)
-    end)
 
-    PubSub.broadcast(:attribute_group, attribute.group_uuid)
-    :ok
+    case result do
+      {:ok, _} ->
+        PubSub.broadcast(:attribute_group, attribute.group_uuid)
+        :ok
+
+      {:error, reason} ->
+        {:error, reason}
+    end
   end
 
   # Dedupe + intersect the forgeable client list with the real child set;
