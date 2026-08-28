@@ -663,4 +663,34 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPickerTest do
       assert html =~ ~s(aria-expanded="false")
     end
   end
+
+  # The wrapper in `components.ex` and the LiveComponent are two layers: an
+  # attribute declared on the wrapper but not passed down is accepted from the
+  # caller and silently dropped. Every render test above goes straight to the
+  # LiveComponent, so none of them can see that gap — it shipped unnoticed
+  # twice. This checks the two layers agree at the source level.
+  describe "wrapper forwards every declared attribute" do
+    test "each attr/2 on item_picker/1 is passed to the live_component" do
+      source = File.read!("lib/phoenix_kit_catalogue/web/components.ex")
+
+      [_, block] = String.split(source, "  def item_picker(assigns) do", parts: 2)
+      [call, _] = String.split(block, "\n  end", parts: 2)
+
+      [_, attr_block] =
+        String.split(source, "  attr(:id, :string, required: true)", parts: 2)
+
+      declared =
+        attr_block
+        |> String.split("  def item_picker(assigns) do", parts: 2)
+        |> hd()
+        |> then(&Regex.scan(~r/attr\(:(\w+),/, &1))
+        |> Enum.map(fn [_, name] -> name end)
+
+      missing = Enum.reject(declared, &String.contains?(call, "#{&1}={@#{&1}}"))
+
+      assert missing == [],
+             "declared on the wrapper but never forwarded to the LiveComponent: " <>
+               Enum.join(missing, ", ")
+    end
+  end
 end
