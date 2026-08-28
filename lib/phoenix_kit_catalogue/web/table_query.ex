@@ -33,12 +33,35 @@ defmodule PhoenixKitCatalogue.Web.TableQuery do
 
       needle ->
         Enum.filter(rows, fn r ->
-          String.contains?(String.downcase(field_fn.(r) || ""), needle)
+          String.contains?(String.downcase(field_fn.(r) || ""), needle) or
+            translation_matches?(r, needle)
         end)
     end
   end
 
   def search(rows, _, _), do: rows
+
+  # Rows carry the row's own `:data` JSONB, which is where translations
+  # live (`%{"et" => %{"_name" => "Köök"}}`). Without this the listing
+  # only ever matched the name in the language you happen to be viewing,
+  # so a catalogue was unfindable by its Estonian name from the English
+  # admin (Max, 2026-08-28: search has to work in all the languages).
+  # The DB-side searches match `data::text` for the same reason.
+  defp translation_matches?(row, needle) do
+    case Map.get(row, :data) do
+      data when is_map(data) and map_size(data) > 0 ->
+        data
+        |> Jason.encode!()
+        |> String.downcase()
+        |> String.contains?(needle)
+
+      _ ->
+        false
+    end
+  rescue
+    # A row whose data holds something unencodable is not a search error.
+    _ -> false
+  end
 
   @spec filter([map()], TableConfig.scope(), map()) :: [map()]
   def filter(rows, scope, filters) when is_map(filters) do

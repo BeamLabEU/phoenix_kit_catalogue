@@ -5330,6 +5330,8 @@ defmodule PhoenixKitCatalogue.Catalogue do
   defdelegate search_items(query, opts \\ []), to: Search
   defdelegate count_search_items(query, opts \\ []), to: Search
   defdelegate search_items_in_catalogue(catalogue_uuid, query, opts \\ []), to: Search
+
+  defdelegate search_categories(catalogue_uuid, query, opts \\ []), to: Search
   defdelegate count_search_items_in_catalogue(catalogue_uuid, query), to: Search
   defdelegate search_items_in_category(category_uuid, query, opts \\ []), to: Search
   defdelegate count_search_items_in_category(category_uuid, query), to: Search

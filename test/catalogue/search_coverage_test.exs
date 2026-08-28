@@ -1,0 +1,162 @@
+defmodule PhoenixKitCatalogue.Catalogue.SearchCoverageTest do
+  @moduledoc """
+  What catalogue search covers, pinned end to end (Max's audit,
+  2026-08-28): item names, category and SUBcategory names, every
+  language, and the niceties — trimming, case, and LIKE metacharacters
+  staying literal.
+
+  Category search did not exist before this audit: searching a catalogue
+  for a category it contains returned nothing, and the page only looked
+  like it had matched because that category's own card was on screen.
+  """
+
+  use PhoenixKitCatalogue.LiveCase, async: false
+
+  alias PhoenixKitCatalogue.Catalogue
+
+  setup %{conn: conn, scope: scope} do
+    cat = fixture_catalogue(%{name: "Kitchen Range"})
+
+    {:ok, parent} = Catalogue.create_category(%{name: "Cabinet Doors", catalogue_uuid: cat.uuid})
+
+    {:ok, child} =
+      Catalogue.create_category(%{
+        name: "Shaker Fronts",
+        catalogue_uuid: cat.uuid,
+        parent_uuid: parent.uuid
+      })
+
+    top =
+      fixture_item(%{name: "Brass Handle", catalogue_uuid: cat.uuid, category_uuid: parent.uuid})
+
+    deep = fixture_item(%{name: "Oak Panel", catalogue_uuid: cat.uuid, category_uuid: child.uuid})
+    loose = fixture_item(%{name: "Loose Screw", catalogue_uuid: cat.uuid})
+
+    %{
+      conn: with_scope(conn, scope),
+      cat: cat,
+      parent: parent,
+      child: child,
+      top: top,
+      deep: deep,
+      loose: loose
+    }
+  end
+
+  defp names(rows), do: Enum.map(rows, & &1.name)
+
+  describe "items" do
+    test "found catalogue-wide, inside subcategories, and uncategorized", ctx do
+      assert names(Catalogue.search_items_in_catalogue(ctx.cat.uuid, "Brass")) == ["Brass Handle"]
+
+      # A subcategory's item is found from the catalogue root…
+      assert names(Catalogue.search_items_in_catalogue(ctx.cat.uuid, "Oak")) == ["Oak Panel"]
+
+      # …and from its parent, whose scope includes descendants.
+      assert names(Catalogue.search_items_in_category(ctx.parent.uuid, "Oak")) == ["Oak Panel"]
+
+      assert names(
+               Catalogue.search_items(" Loose ",
+                 catalogue_uuids: [ctx.cat.uuid],
+                 only: :uncategorized_only
+               )
+             ) == ["Loose Screw"]
+    end
+  end
+
+  describe "categories" do
+    test "by name, at any depth, scoped like items are", ctx do
+      assert names(Catalogue.search_categories(ctx.cat.uuid, "Cabinet")) == ["Cabinet Doors"]
+      assert names(Catalogue.search_categories(ctx.cat.uuid, "Shaker")) == ["Shaker Fronts"]
+
+      # Drilled into the parent: its subtree, excluding the node you are
+      # standing in (navigating to where you already are is not a result).
+      assert names(
+               Catalogue.search_categories(ctx.cat.uuid, "Shaker", parent_uuid: ctx.parent.uuid)
+             ) ==
+               ["Shaker Fronts"]
+
+      assert Catalogue.search_categories(ctx.cat.uuid, "Cabinet", parent_uuid: ctx.parent.uuid) ==
+               []
+    end
+
+    test "deleted categories stay out", ctx do
+      {:ok, _} = Catalogue.trash_category(ctx.child)
+      assert Catalogue.search_categories(ctx.cat.uuid, "Shaker") == []
+    end
+  end
+
+  describe "every language" do
+    test "items and categories are found by their translated names", ctx do
+      {:ok, _} =
+        Catalogue.update_category(ctx.child, %{data: %{"et" => %{"_name" => "Uksed Eesti"}}})
+
+      {:ok, _} = Catalogue.update_item(ctx.deep, %{data: %{"et" => %{"_name" => "Tammepaneel"}}})
+
+      # Translations live in each record's data JSONB; both searches match
+      # it, so the language the admin is viewing in doesn't matter.
+      assert names(Catalogue.search_items_in_catalogue(ctx.cat.uuid, "Tammepaneel")) == [
+               "Oak Panel"
+             ]
+
+      assert names(Catalogue.search_categories(ctx.cat.uuid, "Uksed")) == ["Shaker Fronts"]
+    end
+  end
+
+  describe "the niceties" do
+    test "trimmed, case-insensitive, and % is a literal percent", ctx do
+      assert names(Catalogue.search_items_in_catalogue(ctx.cat.uuid, "  Brass  ")) == [
+               "Brass Handle"
+             ]
+
+      assert names(Catalogue.search_items_in_catalogue(ctx.cat.uuid, "bRaSs")) == ["Brass Handle"]
+      assert names(Catalogue.search_categories(ctx.cat.uuid, "  shaker ")) == ["Shaker Fronts"]
+
+      # A bare "%" would match everything if it reached LIKE unescaped.
+      assert Catalogue.search_items_in_catalogue(ctx.cat.uuid, "%") == []
+      assert Catalogue.search_categories(ctx.cat.uuid, "%") == []
+
+      # An all-space query is "no query", not "match nothing at all".
+      assert Catalogue.search_categories(ctx.cat.uuid, "   ") == []
+    end
+  end
+
+  describe "the detail page" do
+    test "surfaces matching categories beside the items, with their trail", ctx do
+      {:ok, view, _html} = live(ctx.conn, "/en/admin/catalogue/#{ctx.cat.uuid}")
+
+      render_change(view, "search", %{"query" => "Oak"})
+      html = render_async(view)
+      assert html =~ "Oak Panel"
+
+      render_change(view, "search", %{"query" => "Shaker"})
+      render_async(view)
+      assigns = :sys.get_state(view.pid).socket.assigns
+
+      assert names(assigns.search_categories) == ["Shaker Fronts"]
+      # The trail tells two same-named subcategories apart.
+      assert assigns.category_trails[ctx.child.uuid] == "Cabinet Doors"
+    end
+
+    test "a query matching nothing at all says so once", ctx do
+      {:ok, view, _html} = live(ctx.conn, "/en/admin/catalogue/#{ctx.cat.uuid}")
+
+      render_change(view, "search", %{"query" => "zzz-nothing"})
+      html = render_async(view)
+
+      assert html =~ "Nothing matches your search."
+    end
+  end
+
+  describe "the catalogues listing" do
+    test "matches a catalogue by name in any language, trimmed", ctx do
+      {:ok, _} =
+        Catalogue.update_catalogue(ctx.cat, %{data: %{"et" => %{"_name" => "Köögisari"}}})
+
+      {:ok, view, _html} = live(ctx.conn, "/en/admin/catalogue")
+
+      assert render_change(view, "table_search", %{"query" => "  kitchen  "}) =~ "Kitchen Range"
+      assert render_change(view, "table_search", %{"query" => "Köögisari"}) =~ "Kitchen Range"
+    end
+  end
+end

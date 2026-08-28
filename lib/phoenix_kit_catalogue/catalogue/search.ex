@@ -133,6 +133,73 @@ defmodule PhoenixKitCatalogue.Catalogue.Search do
     count_search_items(query, category_uuids: [category_uuid])
   end
 
+  @doc """
+  Categories whose NAME or description matches, within one catalogue.
+
+  Item search never covered these: searching a catalogue for a category
+  it contains returned nothing, and the page looked like it had matched
+  only because that category's own card happened to be on screen (Max,
+  2026-08-28).
+
+  `:parent_uuid` narrows to that category's SUBTREE (itself excluded),
+  mirroring how `search_items_in_category/3` scopes items when the user
+  has drilled in. Deleted categories and categories of deleted
+  catalogues are excluded, as everywhere else.
+  """
+  @spec search_categories(Ecto.UUID.t(), String.t(), keyword()) :: [Category.t()]
+  def search_categories(catalogue_uuid, query_str, opts \\ []) do
+    limit = Keyword.get(opts, :limit, 25)
+
+    case String.trim(query_str || "") do
+      "" ->
+        []
+
+      trimmed ->
+        pattern = "%#{Helpers.sanitize_like(trimmed)}%"
+
+        from(c in Category,
+          join: cat in Catalogue,
+          on: c.catalogue_uuid == cat.uuid,
+          where: c.catalogue_uuid == ^catalogue_uuid,
+          where: c.status != "deleted" and cat.status != "deleted",
+          # `data::text` is what makes this work in EVERY language:
+          # translations live in that JSONB under language keys, so a
+          # category named "Doors" in en and "Uksed" in et is found by
+          # either (Max, 2026-08-28). Item search matches its own data
+          # the same way.
+          where:
+            ilike(c.name, ^pattern) or ilike(c.description, ^pattern) or
+              fragment("?::text ILIKE ?", c.data, ^pattern),
+          order_by: [asc: c.name],
+          limit: ^limit
+        )
+        |> maybe_scope_subtree(opts[:parent_uuid])
+        |> repo().all()
+    end
+  end
+
+  defp maybe_scope_subtree(query, nil), do: query
+
+  defp maybe_scope_subtree(query, parent_uuid) when is_binary(parent_uuid) do
+    # Tree.subtree_uuids_for/1 includes the node itself and returns raw
+    # 16-byte binaries; drop the node (a search inside a category should
+    # not offer to navigate to the category you are standing in).
+    subtree =
+      [parent_uuid]
+      |> Tree.subtree_uuids_for()
+      |> Enum.map(&normalize_uuid/1)
+      |> Enum.reject(&(&1 in [nil, parent_uuid]))
+
+    where(query, [c], c.uuid in ^subtree)
+  end
+
+  defp normalize_uuid(uuid) when is_binary(uuid) do
+    case Ecto.UUID.load(uuid) do
+      {:ok, text} -> text
+      :error -> uuid
+    end
+  end
+
   # Builds the shared base query (joins + status + text-match + scope filters).
   defp search_items_base(query_str, opts) do
     validate_scope_opts!(opts)

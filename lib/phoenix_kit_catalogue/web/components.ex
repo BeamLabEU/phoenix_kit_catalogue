@@ -740,6 +740,11 @@ defmodule PhoenixKitCatalogue.Web.Components do
   attr(:debounce, :integer, default: 300)
   attr(:class, :string, default: "")
 
+  attr(:id, :string,
+    default: "catalogue-search-input",
+    doc: "Form id — LiveView warns without one and cannot recover the form after a disconnect."
+  )
+
   def search_input(assigns) do
     placeholder =
       assigns.placeholder ||
@@ -749,7 +754,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
 
     ~H"""
     <div class={["flex gap-2", @class]}>
-      <form phx-change={@on_search} phx-submit={@on_search} class="flex-1 relative">
+      <form id={@id} phx-change={@on_search} phx-submit={@on_search} class="flex-1 relative">
         <input
           type="text"
           name="query"

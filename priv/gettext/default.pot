@@ -3016,3 +3016,7 @@ msgstr ""
 # Set items popup (2026-08-28)
 msgid "View items"
 msgstr ""
+
+# Catalogue search covers categories too (2026-08-28)
+msgid "Nothing matches your search."
+msgstr ""

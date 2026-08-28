@@ -823,7 +823,9 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
       {:ok, view, _html} = live(conn, cat_url(catalogue.uuid, category.uuid) <> "&q=oak")
       html = render_async(view)
 
-      assert html =~ "No items match your search."
+      # The empty state now speaks for items AND categories, since search
+      # covers both (2026-08-28).
+      assert html =~ "Nothing matches your search."
       assert html =~ "Search within this category"
       assert html =~ "clear_search"
     end

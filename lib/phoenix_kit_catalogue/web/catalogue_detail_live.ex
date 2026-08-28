@@ -197,6 +197,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         # auto-pick of a populated tab happens only when this changes.
         view_mode_node: :unset,
         search_results: nil,
+        search_categories: [],
+        category_trails: %{},
         search_offset: 0,
         search_total: 0,
         search_has_more: false,
@@ -2438,7 +2440,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     |> start_async(:search, fn ->
       results = search_in_scope(uuid, current, query, @per_page, 0)
       total = search_count_in_scope(uuid, current, query)
-      {query, results, total}
+      {query, results, total, categories_in_scope(uuid, current, query)}
     end)
   end
 
@@ -2447,6 +2449,31 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   # defaults to `include_descendants: true`), and uncategorized-only in
   # the uncategorized bucket. Search is Active-mode only (the context
   # search excludes deleted rows), so the input is hidden in Deleted view.
+  # Categories follow the item scope: the whole catalogue at root, the
+  # drilled category's subtree below it, and none in the uncategorized
+  # bucket (which by definition holds no categories).
+  # "Doors / Fronts" for each hit, so two subcategories with the same
+  # name are told apart. One ancestor query per hit — the result set is
+  # capped at 25, and only a search runs this.
+  defp category_trails(categories, locale) do
+    Map.new(categories, fn category ->
+      trail =
+        category.uuid
+        |> Catalogue.list_category_ancestors()
+        |> Enum.map_join(" / ", &(Catalogue.localize_one(&1, locale) || &1).name)
+
+      {category.uuid, if(trail == "", do: nil, else: trail)}
+    end)
+  end
+
+  defp categories_in_scope(uuid, nil, query),
+    do: Catalogue.search_categories(uuid, query)
+
+  defp categories_in_scope(_uuid, :uncategorized, _query), do: []
+
+  defp categories_in_scope(uuid, %Category{uuid: cuuid}, query),
+    do: Catalogue.search_categories(uuid, query, parent_uuid: cuuid)
+
   defp search_in_scope(uuid, nil, query, limit, offset),
     do: Catalogue.search_items_in_catalogue(uuid, query, limit: limit, offset: offset)
 
@@ -2472,7 +2499,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     do: Catalogue.count_search_items_in_category(cuuid, query)
 
   @impl true
-  def handle_async(:search, {:ok, {query, results, total}}, socket) do
+  def handle_async(:search, {:ok, {query, results, total, categories}}, socket) do
     # Only apply if the user is still asking for this query. A late
     # response for a query the user has already superseded gets dropped.
     if socket.assigns.search_query == query do
@@ -2482,6 +2509,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
        socket
        |> assign(
          search_results: results,
+         search_categories: Catalogue.localize(categories, loc(socket)),
+         category_trails: category_trails(categories, loc(socket)),
          search_offset: length(results),
          search_total: total,
          search_has_more: length(results) < total,
@@ -2594,6 +2623,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     assign(socket,
       search_query: "",
       search_results: nil,
+      search_categories: [],
+      category_trails: %{},
       search_offset: 0,
       search_total: 0,
       search_has_more: false,
@@ -2908,7 +2939,40 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
             </div>
           </div>
 
-          <.empty_state :if={@search_results == [] and not @search_loading} variant="card" title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "No items match your search.")} />
+          <%!-- Matching CATEGORIES, above the items: searching a
+                catalogue for a category it contains used to return
+                nothing at all (Max, 2026-08-28). Each one navigates
+                into that category; the muted trail is its ancestors, so
+                two subcategories of the same name stay distinguishable. --%>
+          <div :if={@search_categories != []} class="flex flex-col gap-2">
+            <h3 class="text-sm font-semibold text-base-content/70">
+              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Categories")}
+              <span class="text-xs font-normal text-base-content/40">
+                ({length(@search_categories)})
+              </span>
+            </h3>
+            <div class="flex flex-wrap gap-2">
+              <.link
+                :for={category <- @search_categories}
+                patch={
+                  url_state_path(assigns, current_category_uuid: category.uuid, search_query: "")
+                }
+                class="btn btn-sm btn-ghost gap-2 justify-start"
+              >
+                <.icon name="hero-folder" class="w-4 h-4 text-warning shrink-0" />
+                <span class="font-medium">{category.name}</span>
+                <span :if={@category_trails[category.uuid]} class="text-xs text-base-content/40">
+                  {@category_trails[category.uuid]}
+                </span>
+              </.link>
+            </div>
+          </div>
+
+          <.empty_state
+            :if={@search_results == [] and @search_categories == [] and not @search_loading}
+            variant="card"
+            title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Nothing matches your search.")}
+          />
 
           <div :if={@search_results not in [nil, []]} class={["transition-opacity", @search_loading && "opacity-50"]}>
             <.item_table
