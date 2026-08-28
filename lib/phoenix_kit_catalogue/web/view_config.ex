@@ -14,14 +14,29 @@ defmodule PhoenixKitCatalogue.Web.ViewConfig do
   same order (the live half rides `Catalogue.PubSub`; see
   `broadcast_view_sort_changed/4` and `CataloguesLive.put_cfg/3`).
   `load/2` overlays the global value over whatever the user row stored, so
-  the per-user copy is inert for these scopes. Columns / filters / view mode
-  stay per-user everywhere.
+  the per-user copy is inert for these scopes. Columns and filters stay
+  per-user, per-scope.
+
+  ## Shared view mode
+
+  The VIEW (card / comfy / table) is per-user but **not** per-scope: it is
+  one choice for the whole module, stored under `@view_key`. Picking cards
+  on the catalogues index and then opening a catalogue used to land on
+  whatever that page happened to remember — every surface kept its own
+  preference, and two of them (the detail page, the attributes tab) kept
+  theirs in the browser's localStorage instead, so the two halves could not
+  agree even in principle (boss's ask via Max, 2026-08-28: the view should
+  stay when you switch pages). `load/2` overlays it exactly like the sort,
+  so every `cfg.view` in the module returns the same answer.
   """
   alias PhoenixKit.Settings
   alias PhoenixKit.Users.Auth
   alias PhoenixKitCatalogue.Web.TableConfig
 
   @root "catalogue_view_configs"
+
+  # Not a scope name: the module-wide view lives beside the per-scope maps.
+  @view_key "__view__"
 
   # Shared sort for every admin: the catalogues index plus the detail
   # page's items/categories tables. Manufacturers/suppliers stay per-user.
@@ -100,6 +115,8 @@ defmodule PhoenixKitCatalogue.Web.ViewConfig do
     # still carry the folder filter — ignore it so nobody stays stuck.
     cfg = %{cfg | filters: Map.delete(cfg.filters, "folder")}
 
+    cfg = %{cfg | view: load_view(user)}
+
     if global_sort?(scope) do
       {sort_by, sort_dir} = load_global_sort(scope)
       %{cfg | sort_by: sort_by, sort_dir: sort_dir}
@@ -107,6 +124,36 @@ defmodule PhoenixKitCatalogue.Web.ViewConfig do
       cfg
     end
   end
+
+  @doc """
+  The user's module-wide view mode: `"card"`, `"comfy"` or `"table"`.
+  Defaults to `"comfy"` for anyone who has never chosen.
+  """
+  @spec load_view(map() | nil) :: String.t()
+  def load_view(user) do
+    stored =
+      case user do
+        %{custom_fields: cf} when is_map(cf) -> get_in(cf, [@root, @view_key])
+        _ -> nil
+      end
+
+    if stored in ["card", "comfy", "table"], do: stored, else: "comfy"
+  end
+
+  @doc """
+  Stores the module-wide view mode. Best-effort like `save/3`: a test
+  harness user (or none) keeps the choice in memory for the session
+  rather than crashing the LiveView on a toggle click.
+  """
+  @spec save_view(map() | nil, String.t()) :: {:ok, map()} | {:error, term()}
+  def save_view(%Auth.User{} = user, view) when view in ["card", "comfy", "table"] do
+    current = user.custom_fields || %{}
+    merged = Map.put(current, @root, Map.put(Map.get(current, @root, %{}), @view_key, view))
+
+    Auth.update_user_custom_fields(user, merged, ensure_definitions: false, broadcast: false)
+  end
+
+  def save_view(_user, _view), do: {:error, :no_user}
 
   @spec normalize(TableConfig.scope(), map()) :: map()
   def normalize(scope, raw) when is_map(raw) do
@@ -156,8 +203,9 @@ defmodule PhoenixKitCatalogue.Web.ViewConfig do
       # the URL (?folder=) like the detail page's ?category=, so it is
       # never persisted — a stored value made the index "remember" a
       # drill across sessions and devices with no link to share.
-      "filters" => Map.delete(cfg.filters, "folder"),
-      "view" => cfg.view
+      # The view is module-wide (see the moduledoc) — `save_view/2` owns
+      # it. Writing it per scope here is what let the surfaces drift.
+      "filters" => Map.delete(cfg.filters, "folder")
     }
 
     current = user.custom_fields || %{}

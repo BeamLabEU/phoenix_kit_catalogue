@@ -23,7 +23,7 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLive do
   import PhoenixKitWeb.Components.Core.FileUpload, only: [file_upload: 1]
   import PhoenixKitWeb.Components.Core.TableDefault
   import PhoenixKitWeb.Components.Core.TableRowMenu
-  import PhoenixKitCatalogue.Web.Components, only: [view_mode_toggle: 1]
+  import PhoenixKitCatalogue.Web.Components, only: [view_toggle: 1]
 
   alias PhoenixKitCatalogue.Catalogue
   alias PhoenixKitCatalogue.Catalogue.ActivityLog
@@ -31,6 +31,7 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLive do
   alias PhoenixKitCatalogue.Paths
   alias PhoenixKitCatalogue.Web.Helpers
   alias PhoenixKitCatalogue.Web.TableQuery
+  alias PhoenixKitCatalogue.Web.ViewConfig
 
   # PhoenixKit auto-applies its admin chrome layout to external module admin
   # views via socket.private[:live_layout]. Opt out here so this view can
@@ -61,6 +62,8 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLive do
      socket
      |> assign(
        page_title: Gettext.gettext(PhoenixKitCatalogue.Gettext, "PDFs"),
+       # Module-wide view preference, shared with every catalogue page.
+       view_mode: ViewConfig.load_view(socket.assigns[:phoenix_kit_current_user]),
        pdfs: [],
        upload_error: nil,
        show_content_search: false
@@ -109,6 +112,13 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLive do
   end
 
   @impl true
+  def handle_event("set_view", %{"mode" => v}, socket) when v in ["table", "card", "comfy"] do
+    ViewConfig.save_view(socket.assigns[:phoenix_kit_current_user], v)
+    {:noreply, assign(socket, :view_mode, v)}
+  end
+
+  def handle_event("set_view", _params, socket), do: {:noreply, socket}
+
   def handle_event("validate", _params, socket), do: {:noreply, socket}
 
   @impl true
@@ -492,7 +502,7 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLive do
               />
             </label>
           </form>
-          <.view_mode_toggle :if={visible_pdfs != []} storage_key="catalogue-pdf-library" class="ml-auto" />
+          <.view_toggle :if={visible_pdfs != []} view={@view_mode} class="ml-auto" />
         </div>
 
         <.live_component
@@ -531,7 +541,7 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLive do
             size="sm"
             toggleable={true}
             show_toggle={false}
-            storage_key="catalogue-pdf-library"
+            view_mode={@view_mode}
             items={visible_pdfs}
             card_title={fn pdf -> pdf.original_filename end}
             card_fields={fn pdf ->
