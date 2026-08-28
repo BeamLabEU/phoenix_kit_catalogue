@@ -2931,7 +2931,13 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
                   wide_only_class="hidden sm:inline-flex"
                 />
               </div>
-              <div class="mt-2">
+              <%!-- The table face has an "Items" column header; a card
+                    has none, so the count needs its own label or it
+                    reads as a stray number. --%>
+              <div class="mt-2 flex items-center gap-1">
+                <span class="text-xs text-base-content/50">
+                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Items")}
+                </span>
                 <.attr_set_items_cell set={s} />
               </div>
             </:card_body>
