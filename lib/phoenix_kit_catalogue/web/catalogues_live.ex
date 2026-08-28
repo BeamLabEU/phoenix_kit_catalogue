@@ -666,11 +666,16 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     value_counts = Catalogue.attribute_set_value_counts(uuids)
     item_counts = Catalogue.attribute_set_attachment_counts(uuids)
 
+    # Batched like the two counts above it. This was one query PER ROW, and
+    # the page size is 25 — so opening the Attributes tab cost 25 queries,
+    # repeated on every attribute-set and item broadcast (`reload_on?/2`).
+    values_by_set =
+      Catalogue.list_attribute_set_values_for(uuids, lang: locale, limit: @attr_value_preview)
+
     rows =
       Enum.map(page_rows, fn s ->
         Map.merge(s, %{
-          values:
-            Catalogue.list_attribute_set_values(s.uuid, lang: locale, limit: @attr_value_preview),
+          values: Map.get(values_by_set, s.uuid, []),
           value_count: Map.get(value_counts, s.uuid, 0),
           item_count: Map.get(item_counts, s.uuid, 0)
         })

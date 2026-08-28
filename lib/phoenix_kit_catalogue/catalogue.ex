@@ -5521,6 +5521,11 @@ defmodule PhoenixKitCatalogue.Catalogue do
     as: :create_value
 
   defdelegate list_attribute_set_values(set, opts \\ []), to: AttributeSets, as: :list_values
+
+  defdelegate list_attribute_set_values_for(set_uuids, opts \\ []),
+    to: AttributeSets,
+    as: :list_values_for
+
   defdelegate get_attribute_set_value(set, value_uuid), to: AttributeSets, as: :get_value
 
   defdelegate update_attribute_set_value(set, value, attrs, opts \\ []),
