@@ -193,6 +193,9 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         show_categories_reorder: false,
         reorder_captured_uuids: [],
         view_mode: "active",
+        # `view_mode` here is the ACTIVE/DELETED bucket; this is the
+        # card/comfy/table preference, shared module-wide per user.
+        view_mode_pref: ViewConfig.load_view(socket.assigns[:phoenix_kit_current_user]),
         # The node the current view_mode was chosen FOR (load_level) — the
         # auto-pick of a populated tab happens only when this changes.
         view_mode_node: :unset,
@@ -583,6 +586,13 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     query = String.trim(query)
     {:noreply, push_url_state(socket, [search_query: query], replace: true)}
   end
+
+  def handle_event("set_view", %{"mode" => v}, socket) when v in ["table", "card", "comfy"] do
+    ViewConfig.save_view(socket.assigns[:phoenix_kit_current_user], v)
+    {:noreply, assign(socket, :view_mode_pref, v)}
+  end
+
+  def handle_event("set_view", _params, socket), do: {:noreply, socket}
 
   def handle_event("clear_search", _params, socket) do
     {:noreply, push_url_state(socket, search_query: "")}
@@ -2943,7 +2953,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
             <% end %>
             <span :if={@search_loading} class="loading loading-spinner loading-xs text-base-content/40"></span>
             <div :if={@search_results not in [nil, []]} class="ml-auto">
-              <.view_mode_toggle storage_key="catalogue-detail-items" />
+              <.view_toggle view={@view_mode_pref} />
             </div>
           </div>
 
@@ -2994,7 +3004,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               pdf_search_event="show_pdf_search"
               cards={true}
               show_toggle={false}
-              storage_key="catalogue-detail-items"
+              view_mode={@view_mode_pref}
               id="catalogue-search-items"
             />
           </div>
@@ -3127,7 +3137,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                 {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Columns")}
               </span>
             </button>
-              <.view_mode_toggle storage_key="catalogue-detail-items" />
+              <.view_toggle view={@view_mode_pref} />
             </div>
           </div>
           <%!-- The Uncategorized drill card only appears when there are
@@ -3298,6 +3308,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
           <%!-- The current node's own direct items --%>
           <.level_items
+            view_mode_pref={@view_mode_pref}
             attribute_map={@attribute_map}
             supplier_costs={@supplier_costs}
             bulk_epoch={@bulk_epoch}
@@ -4220,6 +4231,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
   attr(:edit_path_fn, :any, required: true)
   attr(:items_columns, :list, default: ["sku", "price", "unit", "status"])
+  attr(:view_mode_pref, :string, required: true)
 
   attr(:controls_in_page_header, :boolean,
     default: false,
@@ -4315,26 +4327,31 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
           toggleable={true}
           show_toggle={false}
           items={@items}
-          storage_key="catalogue-detail-items"
+          view_mode={@view_mode_pref}
           on_reorder={if @reorderable?, do: "reorder_items"}
+          {card_media_frame()}
         >
-          <%!-- Mobile card view: name + checkbox header, key-value body,
-               icon-only action footer. Checkbox uses data-bulk-role so
-               the BulkSelectScope hook picks it up without a phx-click. --%>
+          <%!-- The picture leads the card and the selection checkbox rides
+                in its corner, exactly as the categories grid above does it
+                (boss via Max, 2026-08-28). --%>
+          <:card_media :let={item}>
+            <.card_media
+              resource={item}
+              has_files={Map.get(@file_counts, item.uuid, 0) > 0}
+              on_click="show_product_card"
+            >
+              <:overlay>
+                <input
+                  type="checkbox"
+                  class="checkbox checkbox-xs absolute top-1.5 left-1.5 bg-base-100/80"
+                  data-bulk-role="row"
+                  data-uuid={item.uuid}
+                />
+              </:overlay>
+            </.card_media>
+          </:card_media>
           <:card_body :let={item}>
             <div class="flex items-center gap-2 font-medium text-sm">
-              <input
-                type="checkbox"
-                class="checkbox checkbox-xs shrink-0"
-                data-bulk-role="row"
-                data-uuid={item.uuid}
-              />
-              <.featured_thumb
-                resource={item}
-                class="w-12 h-12"
-                on_click="show_product_card"
-                has_files={Map.get(@file_counts, item.uuid, 0) > 0}
-              />
               <.link
                 :if={item.uuid}
                 navigate={@edit_path_fn.(item.uuid)}
@@ -4522,7 +4539,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         permanent_delete_type="item"
         cards={true}
         show_toggle={false}
-        storage_key="catalogue-detail-items"
+        view_mode={@view_mode_pref}
         id="level-items-deleted"
         wrapper_class="overflow-x-auto shadow-none rounded-none"
         selectable={true}

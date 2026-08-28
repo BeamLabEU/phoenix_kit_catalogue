@@ -88,6 +88,9 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
        attr_sets_total: 0,
        attr_sets_max_page: 1,
        show_new_set_modal: false,
+       # Module-wide view preference (ViewConfig moduledoc) — the
+       # attributes tab reads the same value the catalogues table does.
+       view_mode: ViewConfig.load_view(socket.assigns[:phoenix_kit_current_user]),
        items_modal_set: nil,
        sets_enabled: false,
        confirm_delete: nil,
@@ -1102,23 +1105,35 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       data-tree-uuid={@c_row.uuid}
       data-tree-type="catalogue"
       data-tree-parent={@parent_key}
-      class="card card-sm bg-base-200 shadow-sm"
+      class="card card-sm bg-base-200 shadow-sm overflow-hidden"
     >
+      <%!-- Same band as every other card in the module (boss via Max,
+            2026-08-28): the picture leads, and the drag handle rides in
+            its corner the way the categories grid does it. --%>
+      <figure class={card_media_band()}>
+        <.card_media
+          resource={@c_row}
+          has_files={Map.get(@ctx.file_counts, @c_row.uuid, 0) > 0}
+          placeholder_icon="hero-book-open"
+        >
+          <:overlay>
+            <span
+              data-tree-item={"catalogue:" <> @c_row.uuid}
+              class="pk-drag-handle cursor-grab active:cursor-grabbing absolute top-1.5 right-1.5 rounded bg-base-100/80 p-0.5 text-base-content/50 hover:text-base-content/80"
+              title={
+                Gettext.gettext(
+                  PhoenixKitCatalogue.Gettext,
+                  "Drag to reorder or move into a folder"
+                )
+              }
+            >
+              <.icon name="hero-bars-3" class="w-4 h-4" />
+            </span>
+          </:overlay>
+        </.card_media>
+      </figure>
       <div class="card-body gap-2">
         <div class="flex items-center gap-2 min-w-0">
-          <span
-            data-tree-item={"catalogue:" <> @c_row.uuid}
-            class="cursor-grab active:cursor-grabbing text-base-content/40 shrink-0"
-            title={
-              Gettext.gettext(PhoenixKitCatalogue.Gettext, "Drag to reorder or move into a folder")
-            }
-          >
-            <.icon name="hero-bars-3" class="w-4 h-4" />
-          </span>
-          <.featured_thumb
-            resource={@c_row}
-            has_files={Map.get(@ctx.file_counts, @c_row.uuid, 0) > 0}
-          />
           <.link
             navigate={Paths.catalogue_detail(@c_row.uuid)}
             draggable="false"
@@ -1164,45 +1179,6 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
           </.table_row_menu>
         </div>
       </div>
-    </div>
-    """
-  end
-
-  attr(:view, :string, required: true)
-  attr(:class, :any, default: nil)
-
-  # Same three-way switcher table_default renders, for surfaces that
-  # aren't inside a table_default (the card-level grid).
-  defp catalogues_view_toggle(assigns) do
-    ~H"""
-    <div class={["join inline-flex", @class]}>
-      <button
-        type="button"
-        phx-click="set_view"
-        phx-value-mode="card"
-        class={["btn btn-sm join-item", @view == "card" && "btn-active"]}
-        title={gettext("Card view")}
-      >
-        <.icon name="hero-squares-2x2" class="w-4 h-4" />
-      </button>
-      <button
-        type="button"
-        phx-click="set_view"
-        phx-value-mode="comfy"
-        class={["btn btn-sm join-item", @view == "comfy" && "btn-active"]}
-        title={gettext("Comfortable view")}
-      >
-        <.icon name="hero-bars-3" class="w-4 h-4" />
-      </button>
-      <button
-        type="button"
-        phx-click="set_view"
-        phx-value-mode="table"
-        class={["btn btn-sm join-item", @view == "table" && "btn-active"]}
-        title={gettext("Compact view")}
-      >
-        <.icon name="hero-bars-4" class="w-4 h-4" />
-      </button>
     </div>
     """
   end
@@ -2382,10 +2358,20 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     end
   end
 
+  # The view is module-wide, not per scope (ViewConfig moduledoc): saving
+  # it here and reflecting it into EVERY loaded scope's cfg is what makes
+  # the choice survive a jump to another page.
   def handle_event("set_view", %{"mode" => v}, socket) when v in ["table", "card", "comfy"] do
-    scope = active_scope(socket.assigns)
-    {:noreply, put_cfg(socket, scope, %{current_cfg(socket.assigns) | view: v})}
+    ViewConfig.save_view(socket.assigns[:phoenix_kit_current_user], v)
+
+    configs =
+      Map.new(socket.assigns.view_configs, fn {scope, cfg} -> {scope, %{cfg | view: v}} end)
+
+    {:noreply, socket |> assign(:view_configs, configs) |> assign(:view_mode, v)}
   end
+
+  # Client-forgeable payload: an unknown mode is ignored, not a crash.
+  def handle_event("set_view", _params, socket), do: {:noreply, socket}
 
   # Transient per-scope text search — NOT persisted via put_cfg. The URL
   # carries the active scope via the route path, so a single ?q= is
@@ -2556,7 +2542,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
             allow_flat_reorder={@folder_tree == []}
           >
             <:view_toggle>
-              <.catalogues_view_toggle view={cfg.view} />
+              <.view_toggle view={cfg.view} />
             </:view_toggle>
             <:filters>
               <.enum_filter
@@ -2864,7 +2850,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
                 />
               </label>
             </form>
-            <.view_mode_toggle storage_key="catalogue-attribute-sets" />
+            <.view_toggle view={@view_mode} />
           </div>
 
           <p
@@ -2891,7 +2877,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
             variant="zebra"
             toggleable={true}
             show_toggle={false}
-            storage_key="catalogue-attribute-sets"
+            view_mode={@view_mode}
             items={@attribute_set_rows}
             wrapper_class="overflow-x-auto rounded-lg border border-base-content/10 shadow-none"
           >
@@ -3373,6 +3359,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       view_mode={@cfg.view}
       view_event="set_view"
       items={@rows}
+      {card_media_frame()}
       card_fields={fn row ->
         for c <- @cols, c.id != "name" do
           %{label: c.label.(), value: render_card_value(@scope, c.id, row)}
@@ -3430,14 +3417,15 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
           </.table_default_cell>
         </.table_default_row>
       </.table_default_body>
+      <:card_media :let={row} :if={@scope == :catalogues}>
+        <.card_media
+          resource={row}
+          has_files={Map.get(@file_counts, row.uuid, 0) > 0}
+          placeholder_icon="hero-book-open"
+        />
+      </:card_media>
       <:card_header :let={row}>
         <div class="flex items-center gap-2 min-w-0">
-          <.featured_thumb
-            :if={@scope == :catalogues}
-            resource={row}
-            class="w-12 h-12"
-            has_files={Map.get(@file_counts, row.uuid, 0) > 0}
-          />
           {render_cell(@scope, "name", row)}
         </div>
       </:card_header>

@@ -418,6 +418,64 @@ defmodule PhoenixKitCatalogue.Web.Components do
     """
   end
 
+  @doc """
+  The module's card media band: the picture a card leads with.
+
+  One definition for every card in the module. The categories grid had a
+  band like this from the start and the boss likes it (via Max,
+  2026-08-28) — item and catalogue cards showed a small inline thumbnail
+  beside the title instead, or nothing at all, so the same data looked
+  like two different products depending on the page.
+
+  Pass it to `table_default`'s `:card_media` slot together with
+  `card_media_class={card_media_band()}`. Renders the resource's featured
+  photo, or a muted icon when there is none, so a card without a picture
+  is the same shape as one with.
+  """
+  attr(:resource, :map, required: true)
+  attr(:has_files, :boolean, default: false)
+  attr(:on_click, :string, default: nil)
+
+  attr(:placeholder_icon, :string,
+    default: "hero-photo",
+    doc: ~s(Shown when the resource has no picture — "hero-folder" for containers.)
+  )
+
+  slot(:overlay, doc: "Corner controls (a checkbox, a drag handle) — absolutely positioned.")
+
+  def card_media(assigns) do
+    ~H"""
+    <.featured_thumb
+      resource={@resource}
+      has_files={@has_files}
+      on_click={@on_click}
+      class="w-full h-full"
+    />
+    <.icon
+      :if={!featured_image_uuid(@resource) && !@has_files}
+      name={@placeholder_icon}
+      class="w-10 h-10 text-base-content/20 absolute inset-0 m-auto"
+    />
+    {render_slot(@overlay)}
+    """
+  end
+
+  @doc """
+  Classes for the `:card_media` frame every catalogue card uses. Kept in
+  one place so the bands cannot drift apart page by page.
+  """
+  def card_media_band, do: "relative h-24 bg-base-200 overflow-hidden"
+
+  @doc """
+  The band as a DYNAMIC attribute for `table_default`.
+
+  `card_media_class` only exists in core after this module's released pin,
+  and a literal attribute would fail the compile gate until that lands. An
+  older core ignores the extra assign and renders the media unframed —
+  the picture is still there, it just isn't held to a fixed height yet.
+  """
+  def card_media_frame, do: %{card_media_class: card_media_band()}
+
   # The thumb slot's visual: image (with an optional corner paperclip emblem)
   # or, with no image, the paperclip tile filling the same footprint so names
   # stay aligned across rows either way.
@@ -821,6 +879,52 @@ defmodule PhoenixKitCatalogue.Web.Components do
   # ═══════════════════════════════════════════════════════════════════
   # View mode toggle
   # ═══════════════════════════════════════════════════════════════════
+
+  @doc """
+  The module's view switcher: card / comfortable / compact.
+
+  Server-driven on purpose. The localStorage-backed `view_mode_toggle/1`
+  remembers a mode per surface and per browser, which is why a choice made
+  on one page never reached the next one; this posts `set_view` and the
+  answer is stored per USER, module-wide (`ViewConfig.load_view/1`), so
+  every catalogue page opens the way you left the last one.
+  """
+  attr(:view, :string, required: true)
+  attr(:class, :any, default: nil)
+
+  def view_toggle(assigns) do
+    ~H"""
+    <div class={["join inline-flex", @class]}>
+      <button
+        type="button"
+        phx-click="set_view"
+        phx-value-mode="card"
+        class={["btn btn-sm join-item", @view == "card" && "btn-active"]}
+        title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Card view")}
+      >
+        <.icon name="hero-squares-2x2" class="w-4 h-4" />
+      </button>
+      <button
+        type="button"
+        phx-click="set_view"
+        phx-value-mode="comfy"
+        class={["btn btn-sm join-item", @view == "comfy" && "btn-active"]}
+        title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Comfortable view")}
+      >
+        <.icon name="hero-bars-3" class="w-4 h-4" />
+      </button>
+      <button
+        type="button"
+        phx-click="set_view"
+        phx-value-mode="table"
+        class={["btn btn-sm join-item", @view == "table" && "btn-active"]}
+        title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Compact view")}
+      >
+        <.icon name="hero-bars-4" class="w-4 h-4" />
+      </button>
+    </div>
+    """
+  end
 
   @doc """
   Renders a table/card view toggle that syncs all tables sharing the same storage key.
@@ -1433,6 +1537,15 @@ defmodule PhoenixKitCatalogue.Web.Components do
   attr(:show_toggle, :boolean, default: true)
   attr(:id, :string, default: nil)
   attr(:storage_key, :string, default: nil)
+
+  attr(:view_mode, :string,
+    default: nil,
+    doc:
+      "Controlled view (`card` / `comfy` / `table`). Set it to follow the user's " <>
+        "module-wide preference (`ViewConfig.load_view/1`) instead of the " <>
+        "per-browser localStorage key — see `view_toggle/1`."
+  )
+
   attr(:markup_percentage, :any, default: nil)
   attr(:discount_percentage, :any, default: nil)
   attr(:edit_path, :any, default: nil)
@@ -1514,6 +1627,8 @@ defmodule PhoenixKitCatalogue.Web.Components do
       show_toggle={@show_toggle}
       id={@id}
       storage_key={@storage_key}
+      view_mode={@view_mode}
+      {card_media_frame()}
       items={@items}
       on_reorder={@on_reorder}
       reorder_scope={@reorder_scope}
@@ -1523,6 +1638,18 @@ defmodule PhoenixKitCatalogue.Web.Components do
         &card_fields(&1, @card_columns, @markup_percentage, @discount_percentage, @catalogue_path)
       }
     >
+      <%!-- The picture leads the card, the way the categories grid has
+            always done it (boss via Max, 2026-08-28) — this used to be a
+            48px thumb wedged beside the title, so the same product looked
+            like a different kind of thing depending on which page you
+            were on. --%>
+      <:card_media :let={item}>
+        <.card_media
+          resource={item}
+          has_files={Map.get(@file_counts, item.uuid, 0) > 0}
+          on_click={@photo_click}
+        />
+      </:card_media>
       <:card_header :let={item}>
         <%!-- Mobile card view: prepend the checkbox so bulk-select works
              on phone screens too. The desktop table view has its own
@@ -1535,12 +1662,6 @@ defmodule PhoenixKitCatalogue.Web.Components do
             checked={selected?(@selected_uuids, item.uuid)}
             phx-click={@on_toggle_select}
             phx-value-uuid={item.uuid}
-          />
-          <.featured_thumb
-            resource={item}
-            class="w-12 h-12"
-            on_click={@photo_click}
-            has_files={Map.get(@file_counts, item.uuid, 0) > 0}
           />
           <.link
             :if={item_name_link(assigns, item)}
