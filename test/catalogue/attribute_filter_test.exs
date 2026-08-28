@@ -219,6 +219,36 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeFilterTest do
       refute has_element?(view, ~s|button[phx-value-slug="#{ctx.blue.slug}"][disabled]|)
     end
 
+    test "counts follow the level you are standing in", ctx do
+      # An item in ANOTHER category of the same catalogue must not keep a
+      # value alive here: the filter narrows this level, so the counts
+      # have to be about this level.
+      {:ok, elsewhere} =
+        Catalogue.create_category(%{name: "Elsewhere", catalogue_uuid: ctx.catalogue.uuid})
+
+      far =
+        fixture_item(%{
+          name: "Far away",
+          catalogue_uuid: ctx.catalogue.uuid,
+          category_uuid: elsewhere.uuid
+        })
+
+      {:ok, teal} = Catalogue.create_attribute_set_value(ctx.colour, %{label: "Teal"})
+      {:ok, _} = Catalogue.attach_attribute_set(far.uuid, ctx.colour.uuid)
+      :ok = AttributeSets.set_attachment_selection(far.uuid, ctx.colour.uuid, [teal.slug])
+
+      # Catalogue-wide, Teal matches one item…
+      assert Catalogue.attribute_value_match_counts(catalogue_uuid: ctx.catalogue.uuid)[teal.slug] ==
+               1
+
+      # …but standing in Doors, it matches nothing, so the page offers it
+      # disabled.
+      {:ok, view, _html} =
+        live(ctx.conn, "/en/admin/catalogue/#{ctx.catalogue.uuid}?category=#{ctx.category.uuid}")
+
+      assert has_element?(view, ~s|button[phx-value-slug="#{teal.slug}"][disabled]|)
+    end
+
     test "the index counts catalogues, not items", ctx do
       counts =
         Catalogue.attribute_value_match_counts(count: :catalogues)

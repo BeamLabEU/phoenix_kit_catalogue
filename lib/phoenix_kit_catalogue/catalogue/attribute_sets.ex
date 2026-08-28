@@ -1005,6 +1005,12 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
         _ -> q
       end
     end)
+    |> then(fn q ->
+      # The uncategorized bucket is a scope like any other level.
+      if opts[:only] == :uncategorized_only,
+        do: where(q, [_a, i], is_nil(i.category_uuid)),
+        else: q
+    end)
   end
 
   @doc """

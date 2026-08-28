@@ -2746,13 +2746,22 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   # tab on screen, and the filters already on. Values that match nothing
   # are then offered disabled rather than as a route to an empty list.
   defp assign_attribute_counts(socket, catalogue_uuid) do
+    scope =
+      case socket.assigns[:current_category] do
+        %Category{uuid: uuid} -> [category_uuids: [uuid]]
+        :uncategorized -> [only: :uncategorized_only]
+        _ -> []
+      end
+
     assign(
       socket,
       :attribute_value_counts,
       Catalogue.attribute_value_match_counts(
-        catalogue_uuid: catalogue_uuid,
-        statuses: [socket.assigns[:view_mode] || "active"],
-        value_slugs: attribute_filter_slugs(socket.assigns)
+        [
+          catalogue_uuid: catalogue_uuid,
+          statuses: [socket.assigns[:view_mode] || "active"],
+          value_slugs: attribute_filter_slugs(socket.assigns)
+        ] ++ scope
       )
     )
   end
