@@ -113,8 +113,9 @@ defmodule PhoenixKitCatalogue.Web.AttributeSetItemsModalTest do
 
       {:ok, view, html} = live(conn, "/en/admin/catalogue/attributes")
 
-      # An unattached set renders text, not a dead button.
-      assert html =~ "No items attached."
+      # An unattached set renders a bare muted 0, not a dead button
+      # (Max, 2026-08-28).
+      refute html =~ "No items attached."
 
       refute has_element?(
                view,

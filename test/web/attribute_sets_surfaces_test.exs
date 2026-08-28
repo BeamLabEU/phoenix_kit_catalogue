@@ -112,7 +112,7 @@ defmodule PhoenixKitCatalogue.Web.AttributeSetsSurfacesTest do
         # overflow count. Counts stay the REAL numbers throughout.
         {:ok, big} = Catalogue.create_attribute_set(%{name: "Big Set"})
 
-        for i <- 1..12 do
+        for i <- 1..20 do
           {:ok, _} = Catalogue.create_attribute_set_value(big, %{label: "Val #{i}"})
         end
 
@@ -143,11 +143,14 @@ defmodule PhoenixKitCatalogue.Web.AttributeSetsSurfacesTest do
         assert html =~ "Big Set"
         refute html =~ "Filler 01"
 
-        # Chips capped with the real count and a "+N" LINK to entities —
-        # never all twelve inline.
-        assert html =~ "Val 1"
-        refute html =~ "Val 12"
-        assert html =~ "(12)"
+        # Chips capped (12 in the table face since 2026-08-28 — the
+        # items column shrank to a count, so values own the width) with
+        # the real count and a "+N" LINK to entities — never all twenty
+        # inline.
+        assert html =~ "Val 12"
+        refute html =~ "Val 13"
+        assert html =~ "+8"
+        assert html =~ "(20)"
         assert html =~ "/admin/entities/#{big.name}/data"
 
         # Items are ONLY a count opening the popup — no name dump at

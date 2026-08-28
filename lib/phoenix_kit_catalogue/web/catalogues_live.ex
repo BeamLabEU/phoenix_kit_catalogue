@@ -472,9 +472,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     >
       {@set.item_count}
     </button>
-    <span :if={@set.item_count == 0} class="text-sm text-base-content/50">
-      {Gettext.gettext(PhoenixKitCatalogue.Gettext, "No items attached.")}
-    </span>
+    <span :if={@set.item_count == 0} class="text-sm text-base-content/40 px-2">0</span>
     """
   end
 
@@ -511,7 +509,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   # non-raising), then only sets render. A handful of sets on an admin
   # page, so the per-set value listing is fine.
   @attr_sets_page_size 25
-  @attr_value_preview 9
+  @attr_value_preview 13
 
   defp load_attribute_sets(socket) do
     if Catalogue.attribute_sets_enabled?() do
@@ -2857,7 +2855,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
               <tr>
                 <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Name")}</th>
                 <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Values")}</th>
-                <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Items")}</th>
+                <th class="w-20">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Items")}</th>
                 <th class="w-10"></th>
               </tr>
             </.table_default_header>
@@ -2872,7 +2870,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
                   </.link>
                 </.table_default_cell>
                 <.table_default_cell class="align-top">
-                  <.attr_set_values_cell set={s} limit={6} />
+                  <.attr_set_values_cell set={s} limit={12} />
                 </.table_default_cell>
                 <.table_default_cell class="align-top">
                   <.attr_set_items_cell set={s} />
