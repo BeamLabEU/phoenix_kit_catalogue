@@ -65,6 +65,7 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeFilterTest do
         category: category,
         colour: colour,
         blue: blue,
+        red: red,
         oak: oak,
         items: %{blue_oak: blue_oak, blue_pine: blue_pine, red_door: red_door}
       }
@@ -172,6 +173,58 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeFilterTest do
 
       assert html =~ "Blue oak door"
       refute html =~ "Red door"
+    end
+
+    test "counts say what each value would still match", ctx do
+      counts = Catalogue.attribute_value_match_counts(catalogue_uuid: ctx.catalogue.uuid)
+
+      assert counts[ctx.blue.slug] == 2
+      assert counts[ctx.oak.slug] == 1
+
+      # Conditioned on the current selection: with Blue on, Oak reports
+      # the blue OAK items, not every oak item — so a dead combination
+      # reads 0 before it is picked rather than emptying the list after.
+      narrowed =
+        Catalogue.attribute_value_match_counts(
+          catalogue_uuid: ctx.catalogue.uuid,
+          value_slugs: [ctx.blue.slug]
+        )
+
+      assert narrowed[ctx.oak.slug] == 1
+
+      # A value nothing carries is simply absent — the UI reads that as 0
+      # and disables it.
+      {:ok, unused} = Catalogue.create_attribute_set_value(ctx.colour, %{label: "Chartreuse"})
+      refute Map.has_key?(counts, unused.slug)
+    end
+
+    test "a value that leads nowhere is offered disabled, not clickable", ctx do
+      # "Chartreuse" exists on the set but nothing carries it.
+      {:ok, dead} = Catalogue.create_attribute_set_value(ctx.colour, %{label: "Chartreuse"})
+
+      {:ok, view, _html} =
+        live(ctx.conn, "/en/admin/catalogue/#{ctx.catalogue.uuid}?category=#{ctx.category.uuid}")
+
+      assert has_element?(view, ~s|button[phx-value-slug="#{dead.slug}"][disabled]|)
+      refute has_element?(view, ~s|button[phx-value-slug="#{ctx.blue.slug}"][disabled]|)
+
+      # Picking Blue greys out what cannot be combined with it: no item
+      # is both blue and red, so Red dies the moment Blue is on.
+      render_click(view, "toggle_attribute_filter", %{"slug" => ctx.blue.slug})
+
+      assert has_element?(view, ~s|button[phx-value-slug="#{ctx.red.slug}"][disabled]|)
+      # Oak survives — one item is both.
+      refute has_element?(view, ~s|button[phx-value-slug="#{ctx.oak.slug}"][disabled]|)
+      # And Blue itself stays clickable, or it could never be switched off.
+      refute has_element?(view, ~s|button[phx-value-slug="#{ctx.blue.slug}"][disabled]|)
+    end
+
+    test "the index counts catalogues, not items", ctx do
+      counts =
+        Catalogue.attribute_value_match_counts(count: :catalogues)
+
+      # Two blue items, but they live in ONE catalogue.
+      assert counts[ctx.blue.slug] == 1
     end
 
     test "the index narrows to the catalogues CONTAINING such items", ctx do

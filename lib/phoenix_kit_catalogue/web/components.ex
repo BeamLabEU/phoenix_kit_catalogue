@@ -422,6 +422,14 @@ defmodule PhoenixKitCatalogue.Web.Components do
   attr(:selected, :list, required: true)
   attr(:class, :string, default: nil)
 
+  attr(:counts, :map,
+    default: %{},
+    doc:
+      "`%{slug => count}` of what each value would still match given the current " <>
+        "selection (`Catalogue.attribute_value_match_counts/1`). A value missing " <>
+        "from the map matches nothing and is offered disabled."
+  )
+
   @doc """
   The attribute filter: ONE button opening every set and its values.
 
@@ -434,6 +442,11 @@ defmodule PhoenixKitCatalogue.Web.Components do
   detail page (narrowing its items) and the index (narrowing to the
   catalogues that CONTAIN such items), so it means the same thing
   wherever it appears.
+
+  Each value carries what it would still match and is DISABLED at zero,
+  so the filter cannot be walked into an empty list (Max, 2026-08-28).
+  Because the counts are conditioned on the current selection, a dead
+  combination greys out the moment its first half is picked.
   """
   def attribute_filter(assigns) do
     assigns = assign(assigns, :active_count, length(assigns.selected))
@@ -461,14 +474,28 @@ defmodule PhoenixKitCatalogue.Web.Components do
             </span>
           </div>
           <ul class="menu menu-sm p-0">
-            <li :for={value <- set.values}>
-              <button type="button" phx-click="toggle_attribute_filter" phx-value-slug={value.slug}>
+            <li :for={value <- set.values} class={value_dead?(value, @counts, @selected) && "disabled"}>
+              <button
+                type="button"
+                phx-click={!value_dead?(value, @counts, @selected) && "toggle_attribute_filter"}
+                phx-value-slug={value.slug}
+                disabled={value_dead?(value, @counts, @selected)}
+                title={
+                  value_dead?(value, @counts, @selected) &&
+                    Gettext.gettext(
+                      PhoenixKitCatalogue.Gettext,
+                      "Nothing matches this together with the filters already on"
+                    )
+                }
+              >
                 <input
                   type="checkbox"
                   class="checkbox checkbox-xs"
                   checked={value.slug in @selected}
+                  disabled={value_dead?(value, @counts, @selected)}
                 />
                 <span class="truncate">{value.title}</span>
+                <span class="ml-auto text-xs opacity-50">{Map.get(@counts, value.slug, 0)}</span>
               </button>
             </li>
           </ul>
@@ -489,6 +516,12 @@ defmodule PhoenixKitCatalogue.Web.Components do
   end
 
   defp selected_count(set, selected), do: Enum.count(set.values, &(&1.slug in selected))
+
+  # A value leads nowhere when nothing matches it alongside the filters
+  # already on. An ACTIVE value is never dead — it has to stay clickable
+  # to be switched back off.
+  defp value_dead?(value, counts, selected),
+    do: value.slug not in selected and Map.get(counts, value.slug, 0) == 0
 
   @doc """
   The attribute filter as a slug list.

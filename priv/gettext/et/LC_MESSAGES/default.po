@@ -3018,3 +3018,7 @@ msgstr "Otsingule ei vasta miski."
 # Attribute filter (2026-08-28)
 msgid "Clear filters"
 msgstr "Tühjenda filtrid"
+
+# Attribute filter: dead values (2026-08-28)
+msgid "Nothing matches this together with the filters already on"
+msgstr "Koos juba valitud filtritega ei vasta sellele miski"

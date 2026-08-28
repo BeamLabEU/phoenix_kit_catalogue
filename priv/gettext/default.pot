@@ -3024,3 +3024,7 @@ msgstr ""
 # Attribute filter (2026-08-28)
 msgid "Clear filters"
 msgstr ""
+
+# Attribute filter: dead values (2026-08-28)
+msgid "Nothing matches this together with the filters already on"
+msgstr ""
