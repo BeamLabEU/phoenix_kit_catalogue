@@ -249,6 +249,31 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeFilterTest do
       assert has_element?(view, ~s|button[phx-value-slug="#{teal.slug}"][disabled]|)
     end
 
+    test "a level where nothing carries a value offers no filter at all", ctx do
+      {:ok, empty_cat} =
+        Catalogue.create_category(%{name: "Plain", catalogue_uuid: ctx.catalogue.uuid})
+
+      fixture_item(%{
+        name: "Plain item",
+        catalogue_uuid: ctx.catalogue.uuid,
+        category_uuid: empty_cat.uuid
+      })
+
+      {:ok, view, html} =
+        live(ctx.conn, "/en/admin/catalogue/#{ctx.catalogue.uuid}?category=#{empty_cat.uuid}")
+
+      assert html =~ "Plain item"
+      # Every value would return nothing here, so the button would only
+      # ever disappoint — it is not rendered.
+      refute has_element?(view, ~s|button[phx-click="toggle_attribute_filter"]|)
+
+      # …while the level that does carry values still offers it.
+      {:ok, doors, _} =
+        live(ctx.conn, "/en/admin/catalogue/#{ctx.catalogue.uuid}?category=#{ctx.category.uuid}")
+
+      assert has_element?(doors, ~s|button[phx-value-slug="#{ctx.blue.slug}"]|)
+    end
+
     test "the index counts catalogues, not items", ctx do
       counts =
         Catalogue.attribute_value_match_counts(count: :catalogues)
