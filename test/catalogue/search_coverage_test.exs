@@ -103,6 +103,47 @@ defmodule PhoenixKitCatalogue.Catalogue.SearchCoverageTest do
     end
   end
 
+  describe "structure is not content" do
+    test "a query matching only a JSON key finds nothing", ctx do
+      # `data::text ILIKE` read the whole encoded document, so a row
+      # holding the key "_name" answered a search for "a" — which is how
+      # a catalogue called "Plumbing" turned up (Max, 2026-08-28).
+      {:ok, _} = Catalogue.update_item(ctx.deep, %{data: %{"et" => %{"_name" => "Tammepaneel"}}})
+
+      {:ok, _} =
+        Catalogue.update_category(ctx.child, %{data: %{"et" => %{"_name" => "Uksed Eesti"}}})
+
+      # The key names are "_name" and "et" — neither may match.
+      refute Enum.any?(
+               Catalogue.search_items_in_catalogue(ctx.cat.uuid, "_name"),
+               &(&1.uuid == ctx.deep.uuid)
+             )
+
+      assert Catalogue.search_categories(ctx.cat.uuid, "_name") == []
+      # (Not asserting on the language key "et" — it legitimately matches
+      # "Cabinet Doors" by NAME.)
+
+      # …while the VALUES still do.
+      assert names(Catalogue.search_items_in_catalogue(ctx.cat.uuid, "Tammepaneel")) == [
+               "Oak Panel"
+             ]
+
+      assert names(Catalogue.search_categories(ctx.cat.uuid, "Uksed")) == ["Shaker Fronts"]
+    end
+
+    test "the listing filter reads values, not the encoded map", ctx do
+      # Same defect one layer up: the catalogues index filters rows in
+      # memory, and JSON-encoding the row matched key names too.
+      {:ok, _} =
+        Catalogue.update_catalogue(ctx.cat, %{data: %{"et" => %{"_name" => "Köögisari"}}})
+
+      {:ok, view, _html} = live(ctx.conn, "/en/admin/catalogue")
+
+      assert render_change(view, "table_search", %{"query" => "Köögisari"}) =~ "Kitchen Range"
+      refute render_change(view, "table_search", %{"query" => "_name"}) =~ "Kitchen Range"
+    end
+  end
+
   describe "the niceties" do
     test "trimmed, case-insensitive, and % is a literal percent", ctx do
       assert names(Catalogue.search_items_in_catalogue(ctx.cat.uuid, "  Brass  ")) == [

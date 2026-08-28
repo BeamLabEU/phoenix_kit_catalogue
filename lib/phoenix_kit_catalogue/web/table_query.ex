@@ -42,26 +42,30 @@ defmodule PhoenixKitCatalogue.Web.TableQuery do
   def search(rows, _, _), do: rows
 
   # Rows carry the row's own `:data` JSONB, which is where translations
-  # live (`%{"et" => %{"_name" => "Köök"}}`). Without this the listing
-  # only ever matched the name in the language you happen to be viewing,
-  # so a catalogue was unfindable by its Estonian name from the English
-  # admin (Max, 2026-08-28: search has to work in all the languages).
-  # The DB-side searches match `data::text` for the same reason.
+  # live (`%{"et" => %{"_name" => "Köögisari"}}`). Only the VALUES count:
+  # JSON-encoding the map and searching that matched KEY names too, so
+  # "Plumbing" came back for the query "a" — its data holds the key
+  # `_name` (Max, 2026-08-28). On real data, "a" matched 7 of 26 items
+  # that way against 3 by value.
   defp translation_matches?(row, needle) do
     case Map.get(row, :data) do
       data when is_map(data) and map_size(data) > 0 ->
-        data
-        |> Jason.encode!()
-        |> String.downcase()
-        |> String.contains?(needle)
+        data |> string_values() |> Enum.any?(&String.contains?(String.downcase(&1), needle))
 
       _ ->
         false
     end
-  rescue
-    # A row whose data holds something unencodable is not a search error.
-    _ -> false
   end
+
+  # Every string leaf, whatever the shape nests into.
+  defp string_values(value) when is_binary(value), do: [value]
+
+  defp string_values(value) when is_map(value),
+    do: value |> Map.values() |> Enum.flat_map(&string_values/1)
+
+  defp string_values(value) when is_list(value), do: Enum.flat_map(value, &string_values/1)
+
+  defp string_values(_other), do: []
 
   @spec filter([map()], TableConfig.scope(), map()) :: [map()]
   def filter(rows, scope, filters) when is_map(filters) do
