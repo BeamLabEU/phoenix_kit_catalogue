@@ -1,3 +1,28 @@
+## 0.21.0 - 2026-08-28
+
+### Added
+
+- **Attributes viewer, honest search, and a filter that only offers what it
+  can deliver** (#84) — the old 1273-line attribute-set editor LiveView is
+  replaced by a read-focused viewer (`AttributeSetItemsModal`); listing
+  search and facet-count search now share one match fragment so the two
+  can no longer disagree; the attribute-value filter greys out/hides
+  values that would return zero results given the current selection
+  instead of offering dead-end options.
+- **ItemPicker `:show_sku`** (#82) — opt-in SKU column on dropdown rows
+  (em dash when the item has no SKU on file). Defaults to `false`.
+- **ItemPicker `:photo_placeholder` and `:photo_size`** (#83) — opt-in
+  clickable placeholder for photo-less items when `:photo_clickable` is
+  also set, and a configurable thumbnail size. Both default to the
+  existing behaviour.
+
+### Fixed
+
+- Post-merge review of #82–#84: an `<.icon class={[...]}>` list value in
+  `item_picker.ex` (from #83) failed `mix compile --warnings-as-errors`,
+  blocking the release gate — fixed to a plain interpolated string. See
+  `dev_docs/pull_requests/2026/84-attributes-viewer-honest-search-filter/CLAUDE_REVIEW.md`.
+
 ## 0.20.0 - 2026-08-26
 
 ### Added

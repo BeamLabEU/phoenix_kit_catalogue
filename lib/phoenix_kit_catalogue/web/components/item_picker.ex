@@ -93,11 +93,11 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
       abbreviations (`piece`→`pc`, `set`→`set`, `pair`→`pair`,
       `sheet`→`sheet`, `m2`→`m²`, `running_meter`→`rm`; unknown strings
       pass through). Supply your own to use a different unit vocabulary.
-    * `:show_sku` — when `true`, renders the item's `:sku` between the
-      category breadcrumb and the unit label on each dropdown row's
-      second line (as an em dash when the item has no SKU on file, so a
-      blank catalogue field doesn't read as a rendering bug). Defaults to
-      `false` so existing consumers are unaffected.
+    * `:show_sku` — when `true`, renders the item's `:sku` as its own
+      column between the name/breadcrumb block and the price/unit block
+      on each dropdown row (as an em dash when the item has no SKU on
+      file, so a blank catalogue field doesn't read as a rendering bug).
+      Defaults to `false` so existing consumers are unaffected.
     * `:highlight_selected` — when `true` (default), the input gets the
       `input-primary` border while an item is selected. Pass `false` to
       suppress that highlight. Default preserves existing behaviour.
@@ -709,10 +709,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
         >
           <.icon
             name="hero-photo"
-            class={[
-              @photo_size,
-              "shrink-0 rounded bg-base-200 border border-base-300 p-1.5 opacity-40"
-            ]}
+            class={"#{@photo_size} shrink-0 rounded bg-base-200 border border-base-300 p-1.5 opacity-40"}
           />
         </button>
         <div class="relative flex-1">
