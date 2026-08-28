@@ -3027,3 +3027,7 @@ msgstr "Ничего не найдено по запросу."
 # Attribute filter (2026-08-28)
 msgid "Clear filters"
 msgstr "Очистить фильтры"
+
+# Attribute filter: dead values (2026-08-28)
+msgid "Nothing matches this together with the filters already on"
+msgstr "Ничего не найдено вместе с уже выбранными фильтрами"

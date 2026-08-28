@@ -931,6 +931,83 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
   end
 
   @doc """
+  How many rows each attribute VALUE would still match, given the filter
+  already applied — the numbers beside the filter's checkboxes, and what
+  lets a value that leads nowhere be disabled instead of offered (Max,
+  2026-08-28).
+
+  Conditioned on the CURRENT selection, so once Blue is on, Oak shows how
+  many blue oak items there are. A dead combination is therefore visible
+  as a 0 before it is picked, rather than as an empty list afterwards.
+
+  Options: `:catalogue_uuid`, `:category_uuids`, `:statuses`,
+  `:value_slugs` (the selection to condition on) and `:count` —
+  `:items` (default) or `:catalogues`, which counts distinct catalogues
+  for the index's version of the filter.
+
+  One grouped query: the selection slugs are unnested from the
+  attachment's JSONB, so a page with fifteen values still asks once.
+  """
+  @spec value_match_counts(keyword()) :: %{optional(String.t()) => non_neg_integer()}
+  def value_match_counts(opts \\ []) do
+    if entities_enabled?() do
+      base =
+        from(a in ItemAttributeSet,
+          join: i in Item,
+          as: :item,
+          on: i.uuid == a.item_uuid,
+          inner_lateral_join:
+            slug in fragment(
+              "jsonb_array_elements_text(CASE WHEN jsonb_typeof(? -> 'selected_value_slugs') = 'array' THEN ? -> 'selected_value_slugs' ELSE '[]'::jsonb END)",
+              a.data,
+              a.data
+            ),
+          on: true,
+          where: i.status != "deleted",
+          group_by: fragment("?", slug)
+        )
+        |> scope_counts(opts)
+        |> PhoenixKitCatalogue.Catalogue.filter_by_attribute_values(opts)
+
+      # Two selects rather than a dynamic: a dynamic cannot be spliced
+      # into a select tuple.
+      case Keyword.get(opts, :count, :items) do
+        :catalogues ->
+          select(base, [_a, i, slug], {fragment("?", slug), count(i.catalogue_uuid, :distinct)})
+
+        _ ->
+          select(base, [_a, i, slug], {fragment("?", slug), count(i.uuid, :distinct)})
+      end
+      |> repo().all()
+      |> Map.new()
+    else
+      %{}
+    end
+  end
+
+  defp scope_counts(query, opts) do
+    query
+    |> then(fn q ->
+      case opts[:catalogue_uuid] do
+        uuid when is_binary(uuid) -> where(q, [_a, i], i.catalogue_uuid == ^uuid)
+        _ -> q
+      end
+    end)
+    |> then(fn q ->
+      case opts[:category_uuids] do
+        [_ | _] = uuids -> where(q, [_a, i], i.category_uuid in ^uuids)
+        _ -> q
+      end
+    end)
+    |> then(fn q ->
+      case opts[:statuses] do
+        [_ | _] = statuses -> where(q, [_a, i], i.status in ^statuses)
+        _ -> q
+      end
+    end)
+  end
+
+  @doc """
   The attribute filter's options for one catalogue: every set attached to
   an item in it, with that set's values.
 

@@ -203,6 +203,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         # auto-pick of a populated tab happens only when this changes.
         view_mode_node: :unset,
         attribute_filter_options: [],
+        attribute_value_counts: %{},
         prior_attribute_filter: "",
         search_results: nil,
         search_categories: [],
@@ -2202,11 +2203,12 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     # Which sets this catalogue actually uses — the filter offers nothing
     # where attributes are unused, so it costs those pages no space.
     socket =
-      assign(
-        socket,
+      socket
+      |> assign(
         :attribute_filter_options,
         Catalogue.attribute_filter_options(uuid, lang: loc(socket))
       )
+      |> assign_attribute_counts(uuid)
 
     # Per-status item counts for the current node — drive the tab labels and
     # the default-tab pick below.
@@ -2740,6 +2742,21 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     end
   end
 
+  # What each value would still match HERE: this catalogue, the status
+  # tab on screen, and the filters already on. Values that match nothing
+  # are then offered disabled rather than as a route to an empty list.
+  defp assign_attribute_counts(socket, catalogue_uuid) do
+    assign(
+      socket,
+      :attribute_value_counts,
+      Catalogue.attribute_value_match_counts(
+        catalogue_uuid: catalogue_uuid,
+        statuses: [socket.assigns[:view_mode] || "active"],
+        value_slugs: attribute_filter_slugs(socket.assigns)
+      )
+    )
+  end
+
   # The status TABS stay unfiltered — a tab reading 0 because of an
   # attribute filter would look broken — but the item section's own total
   # has to match what the filter actually returns (2026-08-28).
@@ -3001,6 +3018,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                 :if={@attribute_filter_options != []}
                 options={@attribute_filter_options}
                 selected={attribute_filter_slugs(assigns)}
+                counts={@attribute_value_counts}
               />
               <div :if={@view_mode == "active"} class="ml-auto flex flex-wrap items-center gap-2">
                 <%!-- On every level (boss's call, 2026-08-18 — subcategories

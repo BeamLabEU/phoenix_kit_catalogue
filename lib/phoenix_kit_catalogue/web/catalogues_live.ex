@@ -92,6 +92,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
        attr_sets_max_page: 1,
        show_new_set_modal: false,
        attribute_filter_options: [],
+       attribute_value_counts: %{},
        attribute_allowed: :all,
        # Module-wide view preference (ViewConfig moduledoc) — the
        # attributes tab reads the same value the catalogues table does.
@@ -247,6 +248,13 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         :attribute_allowed,
         Catalogue.catalogue_uuids_with_attribute_values(
           attribute_filter_slugs(%{attribute_filter: state.attribute_filter})
+        )
+      )
+      |> assign(
+        :attribute_value_counts,
+        Catalogue.attribute_value_match_counts(
+          count: :catalogues,
+          value_slugs: attribute_filter_slugs(%{attribute_filter: state.attribute_filter})
         )
       )
       |> assign(:view_configs, Map.put(socket.assigns.view_configs, scope, cfg))
@@ -2622,6 +2630,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
                 :if={@attribute_filter_options != []}
                 options={@attribute_filter_options}
                 selected={attribute_filter_slugs(assigns)}
+                counts={@attribute_value_counts}
               />
             </:filters>
             <:actions>

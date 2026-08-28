@@ -3018,3 +3018,7 @@ msgstr "Nothing matches your search."
 # Attribute filter (2026-08-28)
 msgid "Clear filters"
 msgstr "Clear filters"
+
+# Attribute filter: dead values (2026-08-28)
+msgid "Nothing matches this together with the filters already on"
+msgstr "Nothing matches this together with the filters already on"

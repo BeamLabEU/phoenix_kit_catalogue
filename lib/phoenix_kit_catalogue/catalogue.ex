@@ -5490,6 +5490,10 @@ defmodule PhoenixKitCatalogue.Catalogue do
   defdelegate update_attribute_set(set, attrs, opts \\ []), to: AttributeSets, as: :update_set
   defdelegate delete_attribute_set(set, opts \\ []), to: AttributeSets, as: :delete_set
 
+  defdelegate attribute_value_match_counts(opts \\ []),
+    to: AttributeSets,
+    as: :value_match_counts
+
   defdelegate attribute_filter_options(catalogue_uuid, opts \\ []),
     to: AttributeSets,
     as: :filter_options
