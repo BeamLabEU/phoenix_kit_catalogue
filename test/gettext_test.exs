@@ -31,7 +31,18 @@ defmodule PhoenixKitCatalogue.GettextTest do
           # is how these two were in the catalogues but absent from a
           # regenerated .pot. See the Gettext note in AGENTS.md.
           {"Comfortable view", "Просторный вид", "Avar vaade"},
-          {"Compact view", "Компактный вид", "Kompaktne vaade"}
+          {"Compact view", "Компактный вид", "Kompaktne vaade"},
+          # Found by the 2026-08-29 sweep: all of these were rendered by the
+          # UI and present in NO catalogue. `:set_not_found` is the sharpest —
+          # `errors_test.exs` pinned `Errors.message(:set_not_found) ==
+          # "Attribute set not found."` and passed *because* the string was
+          # untranslated, so a green test guarded the bug.
+          {"Attribute set not found.", "Набор атрибутов не найден.",
+           "Atribuutide komplekti ei leitud."},
+          {"Multiple values", "Несколько значений", "Mitu väärtust"},
+          {"Fixed value", "Фиксированное значение", "Kindel väärtus"},
+          {"Previous page", "Предыдущая страница", "Eelmine leht"},
+          {"Next page", "Следующая страница", "Järgmine leht"}
         ] do
       Gettext.put_locale(PhoenixKitCatalogue.Gettext, "ru")
       assert Gettext.gettext(PhoenixKitCatalogue.Gettext, msgid) == ru

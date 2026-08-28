@@ -3035,3 +3035,30 @@ msgstr "Ничего не найдено вместе с уже выбранны
 #, elixir-autogen, elixir-format
 msgid "Showing catalogues that contain matching items."
 msgstr "Показаны каталоги, содержащие подходящие товары."
+
+msgid "Attribute set not found."
+msgstr "Набор атрибутов не найден."
+
+msgid "Multiple values"
+msgstr "Несколько значений"
+
+msgid "Fixed value"
+msgstr "Фиксированное значение"
+
+msgid "Previous page"
+msgstr "Предыдущая страница"
+
+msgid "Next page"
+msgstr "Следующая страница"
+
+msgid "Create %{count} unmatched position"
+msgid_plural "Create %{count} unmatched positions"
+msgstr[0] "Создать %{count} несопоставленную позицию"
+msgstr[1] "Создать %{count} несопоставленные позиции"
+msgstr[2] "Создать %{count} несопоставленных позиций"
+
+msgid "%{count} row skipped"
+msgid_plural "%{count} rows skipped"
+msgstr[0] "%{count} строка пропущена"
+msgstr[1] "%{count} строки пропущено"
+msgstr[2] "%{count} строк пропущено"

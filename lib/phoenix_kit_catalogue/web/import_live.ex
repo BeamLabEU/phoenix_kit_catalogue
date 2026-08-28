@@ -69,6 +69,7 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
      |> assign(
        page_title: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Import"),
        step: :upload,
+       applying_pro100?: false,
        catalogues: catalogues,
        catalogue_item_counts: catalogue_item_counts,
        catalogue_category_counts: catalogue_category_counts,
@@ -450,6 +451,7 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
      |> stop_import_monitor()
      |> assign(
        step: :upload,
+       applying_pro100?: false,
        headers: [],
        preview_rows: [],
        row_count: 0,
@@ -500,7 +502,16 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
     {:noreply, update(socket, :create_unmatched, &(!&1))}
   end
 
+  # One apply at a time, for the same reason `execute_import` above refuses a
+  # second start: this runs the whole plan synchronously and leaves
+  # `import_plan` in place until it returns, so a second event queued behind
+  # the first re-applies every update and re-runs every create — duplicating
+  # rows. `phx-disable-with` is a client-side courtesy, not a guard.
+  def handle_event("apply_pro100", _params, %{assigns: %{applying_pro100?: true}} = socket),
+    do: {:noreply, socket}
+
   def handle_event("apply_pro100", _params, socket) do
+    socket = assign(socket, :applying_pro100?, true)
     plan = socket.assigns.import_plan
     actor = extract_actor_uuid(socket)
 
@@ -515,7 +526,7 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
       skipped: plan.skipped ++ Enum.reverse(failures) ++ create_failures
     }
 
-    {:noreply, assign(socket, report: report, step: :report)}
+    {:noreply, assign(socket, report: report, step: :report, applying_pro100?: false)}
   end
 
   # Creates run through the universal Executor so category get-or-create,
@@ -957,7 +968,12 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
 
     params =
       params
-      |> Map.put_new("catalogue_uuid", catalogue_uuid)
+      # `put/3`, not `put_new/3`: the catalogue is the SERVER's scope, taken
+      # from the URL, and a client-supplied `catalogue_uuid` in the form
+      # payload must not win it. `:catalogue_uuid` is in the cast allowlist,
+      # so with `put_new` a forged submit could file the record under a
+      # different catalogue than the one being edited.
+      |> Map.put("catalogue_uuid", catalogue_uuid)
       |> merge_translatable_params(socket, @category_translatable_fields,
         changeset: socket.assigns.new_category_changeset
       )
@@ -1321,14 +1337,20 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
             Ecto.QueryError,
             Postgrex.Error
           ] ->
-            Logger.error("Import failed: #{Exception.message(e)}")
+            # Field names, never values. `Exception.message/1` on an
+            # Ecto.InvalidChangesetError renders the whole changeset —
+            # `changes` and `params` included — which here is raw rows from
+            # the operator's uploaded spreadsheet: item names, SKUs, prices,
+            # supplier details. The module's own convention says so
+            # (`web/helpers.ex:112`) and `import/executor.ex:583` follows it.
+            Logger.error("Import failed: #{safe_exception_message(e)}")
 
             send(
               lv_pid,
               {:import_result,
                %{
                  created: 0,
-                 errors: [{0, Exception.message(e)}],
+                 errors: [{0, safe_exception_message(e)}],
                  categories_created: 0,
                  manufacturers_created: 0,
                  suppliers_created: 0,
@@ -2712,6 +2734,17 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
   defp translate_target(label), do: label
 
   defp translate_error(reason), do: PhoenixKitCatalogue.Errors.message(reason)
+
+  # An exception message safe to log and to show. `Ecto.InvalidChangesetError`
+  # renders the entire changeset, so its `params` — the operator's uploaded
+  # spreadsheet rows — would land in the log file and on screen. Field names
+  # and validation messages carry every bit of the diagnostic value without
+  # the values themselves.
+  defp safe_exception_message(%Ecto.InvalidChangesetError{changeset: changeset}) do
+    "invalid changeset: " <> inspect(changeset.errors)
+  end
+
+  defp safe_exception_message(e), do: Exception.message(e)
 
   defp unique_column_values_from_ets(nil, _col_idx), do: []
 

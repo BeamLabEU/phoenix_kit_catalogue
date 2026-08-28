@@ -3026,3 +3026,28 @@ msgstr "Koos juba valitud filtritega ei vasta sellele miski"
 #, elixir-autogen, elixir-format
 msgid "Showing catalogues that contain matching items."
 msgstr "Kuvatakse kataloogid, mis sisaldavad sobivaid tooteid."
+
+msgid "Attribute set not found."
+msgstr "Atribuutide komplekti ei leitud."
+
+msgid "Multiple values"
+msgstr "Mitu väärtust"
+
+msgid "Fixed value"
+msgstr "Kindel väärtus"
+
+msgid "Previous page"
+msgstr "Eelmine leht"
+
+msgid "Next page"
+msgstr "Järgmine leht"
+
+msgid "Create %{count} unmatched position"
+msgid_plural "Create %{count} unmatched positions"
+msgstr[0] "Loo %{count} sobitamata positsioon"
+msgstr[1] "Loo %{count} sobitamata positsiooni"
+
+msgid "%{count} row skipped"
+msgid_plural "%{count} rows skipped"
+msgstr[0] "%{count} rida vahele jäetud"
+msgstr[1] "%{count} rida vahele jäetud"

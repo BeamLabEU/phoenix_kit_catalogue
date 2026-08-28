@@ -110,37 +110,54 @@ SemVer. The version lives in **two places** — bump both: `mix.exs` `@version` 
 ## Misc
 
 - **Tailwind:** `css_sources/0` returns `[:phoenix_kit_catalogue]` so the host's `app.css` scans this module's templates.
-- **JS hooks:** shared hooks (RowMenu, SortableGrid, InfiniteScroll, …) come from phoenix_kit core's `window.PhoenixKitHooks`; this module ships no external hooks.
+- **JS hooks:** shared hooks (RowMenu, SortableGrid, InfiniteScroll, …) come
+  from phoenix_kit core's `window.PhoenixKitHooks`. **This module also ships
+  two of its own** — `CatalogueTreeDnD` and `ViewPref`, in
+  `priv/static/assets/phoenix_kit_catalogue.js`, declared by `js_sources/0`
+  under the global `PhoenixKitCatalogueHooks`. (This line used to say the
+  module ships none, which would lead a host to skip the
+  `:phoenix_kit_js_sources` compiler entry — at which point tree
+  drag-and-drop and view-preference persistence die with
+  `unknown hook found for "…"` and nothing else.) A hook must reach the
+  LiveSocket at construction, so never register one from an inline
+  `<script>`: morphdom does not execute an inserted script tag, so it works
+  on a hard load and silently does nothing on a LiveView navigation. The
+  item picker uses a colocated hook (`Phoenix.LiveView.ColocatedHook`)
+  instead, which the host reaches via `phoenix-colocated/phoenix_kit_catalogue`.
 - **Gettext:** the module has its own backend, `PhoenixKitCatalogue.Gettext` — use it (not `PhoenixKitWeb.Gettext`) for new strings.
 
-  `mix gettext.extract` / `mix gettext.merge` are **safe here, and are the
-  right workflow** — measured 2026-08-29 against gettext 1.0.2, on the whole
-  tree: extraction reproduced 959 of the 960 committed msgids and merge
-  reported `0 removed, 0 reworded (fuzzy), 0 marked as obsolete` in all three
-  languages, with zero translations lost.
+  ⚠️ **Do not regenerate `priv/gettext/default.pot` from scratch — it is
+  hand-maintained, and a from-scratch extraction produces 47 of its 961
+  msgids.** Almost every string here is the *runtime function* call
+  `Gettext.gettext(PhoenixKitCatalogue.Gettext, "…")` (~1100 sites) rather
+  than the `gettext("…")` macro, and the extractor only sees macros. Add new
+  msgids **by hand** to `default.pot` and to each of `en`/`et`/`ru`, and pin
+  them in `test/gettext_test.exs`.
 
-  This corrects a warning that stood here until 2026-08-29 and said the
-  opposite: that extraction sees only the `gettext("…")` macro, so
-  regenerating would reduce the `.pot` to ~7 strings and merge would then
-  delete ~329 translations. That was measured against an older gettext.
-  **Today's gettext also extracts the runtime form**
-  `Gettext.gettext(PhoenixKitCatalogue.Gettext, "…")`, which is how ~1100 of
-  the call sites here are written — so the catastrophe the warning described
-  does not happen, and treating the catalogues as hand-maintained was costing
-  more than it saved: it is why a string added to `catalogues_live.ex` on
-  2026-08-28 reached no catalogue at all and rendered English in `et`/`ru`.
+  **The trap that makes this worth spelling out** (measured 2026-08-29, and I
+  got it wrong the first time): `mix gettext.extract` **merges into** an
+  existing `.pot` rather than replacing it. Run it with the committed file in
+  place and it reports a near-identical catalogue — 959 of 960 msgids
+  "extracted" — because it *kept* them. That looks like proof the warning is
+  stale. It isn't: delete the `.pot` first and the same command yields 47.
+  Only 46 of the committed entries carry `#, elixir-autogen`, which is the
+  honest count of what extraction actually contributes.
 
-  One real gap remains, and it is narrow: the runtime form is **not** extracted
-  from inside a HEEx attribute interpolation (`title={Gettext.gettext(…)}`).
-  Exactly two msgids were affected — "Comfortable view" and "Compact view" in
-  `web/components.ex` — and both are now written as the macro, with that file
-  carrying `use Gettext, backend: PhoenixKitCatalogue.Gettext`. **Write new
-  strings in an attribute as the macro** (`title={gettext("…")}`), and add the
-  `use` line to any module that needs it. Everything else can stay as it is.
+  So `mix gettext.merge priv/gettext` is safe **only** while the `.pot` still
+  holds the hand-added entries. Against a freshly regenerated one it would
+  strip ~914 msgids from all three `.po` files, since `on_obsolete: :delete`
+  is the default.
 
-  After adding a string: `mix gettext.extract && mix gettext.merge
-  priv/gettext`, then fill in `et`/`ru` (a merge can guess a translation by
-  similarity and mark it `fuzzy` — gettext IGNORES a fuzzy entry at runtime and
-  falls back to English, so review every one) and pin it in
-  `test/gettext_test.exs`.
+  One narrower gap worth knowing: the runtime form is **not** extracted from
+  inside a HEEx attribute interpolation (`title={Gettext.gettext(…)}`) even
+  when the module carries `use Gettext`. `web/components.ex` now uses the
+  macro there for that reason.
+
+  The real fix remains converting the call sites to the macro form and adding
+  `use Gettext, backend: PhoenixKitCatalogue.Gettext` per module, at which
+  point extraction works normally. Six files already do
+  (`web/table_config.ex`, `web/catalogues_live.ex`, `web/components.ex`, and
+  the three browse/selector components). Until then, treat the catalogues as
+  hand-edited files.
+
 - **Settings keys:** `catalogue_enabled`.
