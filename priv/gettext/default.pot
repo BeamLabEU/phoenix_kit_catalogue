@@ -1243,12 +1243,6 @@ msgstr ""
 msgid "No attributes yet. Add one below — e.g. Color, Trim, Surface."
 msgstr ""
 
-msgid "Multiple values"
-msgstr ""
-
-msgid "Fixed value"
-msgstr ""
-
 msgid "Failed to add attribute."
 msgstr ""
 
@@ -1343,9 +1337,6 @@ msgid "Search by filename…"
 msgstr ""
 
 msgid "Attribute sets need the Entities module enabled."
-msgstr ""
-
-msgid "Attribute set not found."
 msgstr ""
 
 msgid "New Attribute Set"
@@ -2971,4 +2962,69 @@ msgstr ""
 #: lib/phoenix_kit_catalogue/web/components/browse.ex:354
 #, elixir-autogen, elixir-format
 msgid "Photo"
+msgstr ""
+
+## Attribute sets viewer (2026-08-27 — editing moved to Entities)
+msgid "Edit values"
+msgstr ""
+
+msgid "Set settings"
+msgstr ""
+
+msgid "None yet — add them in Entities."
+msgstr ""
+
+msgid "No items attached."
+msgstr ""
+
+msgid "New attribute set"
+msgstr ""
+
+msgid "Create and edit in Entities"
+msgstr ""
+
+msgid "You'll be taken straight to adding the set's values in Entities."
+msgstr ""
+
+msgid "Could not create the set — check the name."
+msgstr ""
+
+msgid "Could not create the set."
+msgstr ""
+
+msgid "One dimension from one vendor — a color range, a trim series. Items attach any number of sets. Sets are edited in the Entities module."
+msgstr ""
+
+
+## Attribute sets viewer listing (2026-08-27 scale pass)
+msgid "Search sets and values…"
+msgstr ""
+
+msgid "No sets match your search."
+msgstr ""
+
+msgid "Page %{page} of %{max} — %{total} sets"
+msgstr ""
+
+msgid "No values yet"
+msgstr ""
+
+msgid "Creating…"
+msgstr ""
+
+
+# Set items popup (2026-08-28)
+msgid "View items"
+msgstr ""
+
+# Catalogue search covers categories too (2026-08-28)
+msgid "Nothing matches your search."
+msgstr ""
+
+# Attribute filter (2026-08-28)
+msgid "Clear filters"
+msgstr ""
+
+# Attribute filter: dead values (2026-08-28)
+msgid "Nothing matches this together with the filters already on"
 msgstr ""
