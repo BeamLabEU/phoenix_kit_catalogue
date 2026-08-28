@@ -214,6 +214,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Search do
     statuses = opts[:statuses]
 
     from(i in Item,
+      as: :item,
       join: cat in Catalogue,
       on: i.catalogue_uuid == cat.uuid,
       left_join: c in Category,
@@ -230,6 +231,9 @@ defmodule PhoenixKitCatalogue.Catalogue.Search do
     |> maybe_scope_categories(category_uuids)
     |> maybe_scope_only(only)
     |> maybe_scope_statuses(statuses)
+    # Same `value_slugs:` the level listings take, so a search inside an
+    # attribute filter stays inside it.
+    |> PhoenixKitCatalogue.Catalogue.filter_by_attribute_values(opts)
   end
 
   # Catches two foot-guns up front so callers see a loud error instead

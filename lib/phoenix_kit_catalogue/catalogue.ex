@@ -70,7 +70,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
   }
 
   alias PhoenixKit.Utils.Values
-  alias PhoenixKitCatalogue.Schemas.{Catalogue, Category, Folder, Item}
+  alias PhoenixKitCatalogue.Schemas.{Catalogue, Category, Folder, Item, ItemAttributeSet}
 
   require Logger
 
@@ -972,6 +972,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
     query =
       from(i in Item,
+        as: :item,
         where: i.category_uuid == ^category_uuid,
         offset: ^offset,
         limit: ^limit,
@@ -979,6 +980,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
       )
 
     query
+    |> filter_by_attribute_values(opts)
     |> apply_item_status_filter(opts, mode)
     |> apply_item_order(opts)
     |> repo().all()
@@ -1027,6 +1029,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
     query =
       from(i in Item,
+        as: :item,
         where: i.catalogue_uuid == ^catalogue_uuid and is_nil(i.category_uuid),
         offset: ^offset,
         limit: ^limit,
@@ -1034,6 +1037,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
       )
 
     query
+    |> filter_by_attribute_values(opts)
     |> apply_item_status_filter(opts, mode)
     |> apply_item_order(opts)
     |> repo().all()
@@ -1075,10 +1079,52 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
     query =
       from(i in Item,
+        as: :item,
         where: i.catalogue_uuid == ^catalogue_uuid and is_nil(i.category_uuid)
       )
 
-    query |> apply_item_status_filter(opts, mode) |> repo().aggregate(:count)
+    query
+    |> filter_by_attribute_values(opts)
+    |> apply_item_status_filter(opts, mode)
+    |> repo().aggregate(:count)
+  end
+
+  @doc """
+  Narrows an item query to the items carrying ALL of the given attribute
+  VALUE slugs — "the blue doors", and with two slugs "the blue oak doors"
+  (Max, 2026-08-28).
+
+  The slugs are what an item's attachment row stores in
+  `data["selected_value_slugs"]`, so this reads the selection the item
+  form writes. AND semantics: each slug adds its own EXISTS, because
+  narrowing is what a filter is for — an OR would widen the list as you
+  pick more.
+
+  Pass `value_slugs: [...]` to the paged listings and the counts; an
+  empty list is no filter.
+  """
+  @spec filter_by_attribute_values(Ecto.Query.t(), keyword()) :: Ecto.Query.t()
+  def filter_by_attribute_values(query, opts) do
+    opts
+    |> Keyword.get(:value_slugs, [])
+    |> List.wrap()
+    |> Enum.filter(&(is_binary(&1) and &1 != ""))
+    |> Enum.uniq()
+    |> Enum.reduce(query, fn slug, acc ->
+      # `?` is the JSONB "key/element exists" operator; doubled here
+      # because Ecto reads a single one as a parameter placeholder.
+      from(i in acc,
+        where:
+          exists(
+            from(a in ItemAttributeSet,
+              where: a.item_uuid == parent_as(:item).uuid,
+              where: fragment("jsonb_typeof(? -> 'selected_value_slugs') = 'array'", a.data),
+              where: fragment("? -> 'selected_value_slugs' \\? ?", a.data, ^slug),
+              select: 1
+            )
+          )
+      )
+    end)
   end
 
   @doc """
@@ -1096,9 +1142,12 @@ defmodule PhoenixKitCatalogue.Catalogue do
   def item_count_for_category(category_uuid, opts \\ []) do
     mode = Keyword.get(opts, :mode, :active)
 
-    query = from(i in Item, where: i.category_uuid == ^category_uuid)
+    query = from(i in Item, as: :item, where: i.category_uuid == ^category_uuid)
 
-    query |> apply_item_status_filter(opts, mode) |> repo().aggregate(:count)
+    query
+    |> filter_by_attribute_values(opts)
+    |> apply_item_status_filter(opts, mode)
+    |> repo().aggregate(:count)
   end
 
   @doc """
@@ -5417,6 +5466,10 @@ defmodule PhoenixKitCatalogue.Catalogue do
   defdelegate get_attribute_set(uuid, opts \\ []), to: AttributeSets, as: :get_set
   defdelegate update_attribute_set(set, attrs, opts \\ []), to: AttributeSets, as: :update_set
   defdelegate delete_attribute_set(set, opts \\ []), to: AttributeSets, as: :delete_set
+
+  defdelegate attribute_filter_options(catalogue_uuid, opts \\ []),
+    to: AttributeSets,
+    as: :filter_options
 
   defdelegate attribute_set_uuids_matching_value(set_uuids, term),
     to: AttributeSets,
