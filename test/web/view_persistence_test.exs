@@ -48,6 +48,24 @@ defmodule PhoenixKitCatalogue.Web.ViewPersistenceTest do
     assert :sys.get_state(index.pid).socket.assigns.view_configs.catalogues.view == "card"
   end
 
+  test "the switch itself needs no server round trip", %{conn: conn, catalogue: catalogue} do
+    # Routing the click through the server cost 150-350ms and could spike
+    # to seconds (Max, 2026-08-28). A page that renders BOTH faces lets
+    # CSS do the switching and persists afterwards, so the click is free.
+    # (Asserted on the detail page because the attributes tab and the PDF
+    # library render no toggle at all when they have nothing to list.)
+    {:ok, view, html} = live(conn, "/en/admin/catalogue/#{catalogue.uuid}")
+
+    # The table is UNCONTROLLED — it carries the shared storage key, which
+    # is what lets the client swap faces without asking the server.
+    assert html =~ ~s(data-storage-key="catalogue-view")
+    refute html =~ ~s(phx-click="set_view")
+
+    # …and the hook that persists the choice knows what the server holds,
+    # so a browser that has never been here still opens correctly.
+    assert has_element?(view, ~s|[phx-hook="ViewPref"][data-server-view]|)
+  end
+
   test "an unknown mode is ignored rather than blanking the page", %{conn: conn, user: user} do
     {:ok, index, _} = live(conn, "/en/admin/catalogue")
 

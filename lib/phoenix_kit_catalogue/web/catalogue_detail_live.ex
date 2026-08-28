@@ -3068,7 +3068,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
             <% end %>
             <span :if={@search_loading} class="loading loading-spinner loading-xs text-base-content/40"></span>
             <div :if={@search_results not in [nil, []]} class="ml-auto">
-              <.view_toggle view={@view_mode_pref} />
+              <.view_toggle_instant view={@view_mode_pref} id="detail-view-pref" />
             </div>
           </div>
 
@@ -3119,7 +3119,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               pdf_search_event="show_pdf_search"
               cards={true}
               show_toggle={false}
-              view_mode={@view_mode_pref}
+              storage_key={view_storage_key()}
               id="catalogue-search-items"
             />
           </div>
@@ -3252,7 +3252,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                 {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Columns")}
               </span>
             </button>
-              <.view_toggle view={@view_mode_pref} />
+              <.view_toggle_instant view={@view_mode_pref} id="detail-view-pref" />
             </div>
           </div>
           <%!-- The Uncategorized drill card only appears when there are
@@ -4442,7 +4442,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
           toggleable={true}
           show_toggle={false}
           items={@items}
-          view_mode={@view_mode_pref}
+          storage_key={view_storage_key()}
           on_reorder={if @reorderable?, do: "reorder_items"}
           {card_media_frame()}
         >
@@ -4654,7 +4654,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         permanent_delete_type="item"
         cards={true}
         show_toggle={false}
-        view_mode={@view_mode_pref}
+        storage_key={view_storage_key()}
         id="level-items-deleted"
         wrapper_class="overflow-x-auto shadow-none rounded-none"
         selectable={true}

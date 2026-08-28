@@ -169,4 +169,57 @@
           this.clearAll();
         }
       };
+
+      // ViewPref — keeps the card/comfy/table choice INSTANT while still
+      // remembering it per user.
+      //
+      // The switch itself is core's TableCardView hook: it toggles CSS on
+      // markup that is already in the DOM, so it costs nothing. Routing
+      // the click through the server instead (which is what made the
+      // choice survive a jump to another page) put a round trip and a
+      // full table re-render in front of every click — 150-350ms on a
+      // good day, and seconds on a busy dev box (Max, 2026-08-28).
+      //
+      // So: switch on the client, persist in the background. On mount the
+      // server's stored choice seeds localStorage, so a page opened in a
+      // browser that has never been here still lands on the right view.
+      window.PhoenixKitCatalogueHooks.ViewPref = {
+        mounted() {
+          var key = this.el.dataset.storageKey;
+          var serverView = this.el.dataset.serverView;
+
+          // The server is the source of truth across browsers; adopt it
+          // and let TableCardView apply it.
+          try {
+            if (serverView && localStorage.getItem(key) !== serverView) {
+              localStorage.setItem(key, serverView);
+              window.dispatchEvent(new CustomEvent("phx:table-view-change", {
+                detail: { key: key, mode: serverView }
+              }));
+            }
+          } catch (e) {
+            /* storage blocked: the server value still rendered server-side */
+          }
+
+          // One listener per page, however many toggles are on it.
+          if (window.__pkCatalogueViewPrefBound) return;
+          window.__pkCatalogueViewPrefBound = true;
+
+          var hook = this;
+          this._onChange = function(e) {
+            if (e.detail && e.detail.key === key) {
+              // Fire-and-forget: the view has already changed on screen.
+              hook.pushEvent("set_view", { mode: e.detail.mode });
+            }
+          };
+          window.addEventListener("phx:table-view-change", this._onChange);
+        },
+
+        destroyed() {
+          if (this._onChange) {
+            window.removeEventListener("phx:table-view-change", this._onChange);
+            window.__pkCatalogueViewPrefBound = false;
+          }
+        }
+      };
 })();

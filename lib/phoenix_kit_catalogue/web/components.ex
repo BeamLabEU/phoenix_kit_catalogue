@@ -1019,6 +1019,45 @@ defmodule PhoenixKitCatalogue.Web.Components do
   # ═══════════════════════════════════════════════════════════════════
 
   @doc """
+  The INSTANT view switcher, for surfaces that render both faces and let
+  CSS choose between them.
+
+  Core's `view_mode_toggle/1` does the switching (no server involved, so
+  it is immediate) and this adds the remembering: the page's stored
+  choice seeds the browser on mount, and a change is pushed to
+  `set_view` afterwards, once the view has already moved.
+
+  Use `view_toggle/1` instead where the server picks the layout — the
+  catalogues index renders a folder tree or a card grid, which is not
+  something CSS can swap.
+  """
+  attr(:view, :string, required: true)
+  attr(:id, :string, default: "catalogue-view-pref")
+  attr(:class, :any, default: nil)
+
+  def view_toggle_instant(assigns) do
+    ~H"""
+    <div class={["flex items-center", @class]}>
+      <div
+        id={@id}
+        phx-hook="ViewPref"
+        data-storage-key={view_storage_key()}
+        data-server-view={@view}
+        class="hidden"
+      >
+      </div>
+      <.view_mode_toggle storage_key={view_storage_key()} />
+    </div>
+    """
+  end
+
+  @doc """
+  The one localStorage key every catalogue surface shares, so a view
+  chosen on one page is the view the next page opens with.
+  """
+  def view_storage_key, do: "catalogue-view"
+
+  @doc """
   The module's view switcher: card / comfortable / compact.
 
   Server-driven on purpose. The localStorage-backed `view_mode_toggle/1`
