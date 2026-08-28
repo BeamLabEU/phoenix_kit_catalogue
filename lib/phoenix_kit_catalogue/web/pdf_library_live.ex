@@ -474,7 +474,12 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLive do
              Content search lives in the modal behind the header button. --%>
         <% visible_pdfs = filter_by_search(@pdfs, @search) %>
         <div class="flex flex-wrap items-center gap-3">
-          <form phx-change="search" phx-submit="search" class="grow basis-64 sm:max-w-72">
+          <form
+            id="pdf-library-search"
+            phx-change="search"
+            phx-submit="search"
+            class="grow basis-64 sm:max-w-72"
+          >
             <label class="input input-sm w-full">
               <.icon name="hero-magnifying-glass" class="h-4 w-4 opacity-50" />
               <input
