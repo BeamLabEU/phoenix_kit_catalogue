@@ -402,9 +402,23 @@ defmodule PhoenixKitCatalogue.Web.EventsLive do
              by `|| {…}` — which never took effect, because core's bundle is
              already in the LiveSocket at construction, and could not have
              taken effect on a LiveView navigation anyway: morphdom does not
-             execute an inserted <script>. Core's version also has the load
-             guard and watchdog this one lacked. --%>
-        <div id="load-more-sentinel" phx-hook="InfiniteScroll" data-page={@page} class="py-4">
+             execute an inserted <script>.
+
+             `data-cursor` is the attribute name core reads, and it is
+             load-bearing: the hook re-fires only when the cursor CHANGES
+             (that is also what clears its in-flight guard). This sentinel
+             passed `data-page`, so `dataset.cursor` was permanently
+             undefined — one page loaded on mount and nothing after it,
+             because an IntersectionObserver only fires on a transition and
+             the sentinel stays continuously in view. Core's own
+             `load_more` component passes `data-cursor` for the same
+             reason. --%>
+        <div
+          id="load-more-sentinel"
+          phx-hook="InfiniteScroll"
+          data-cursor={@page}
+          class="py-4"
+        >
           <div class="flex justify-center">
             <span class="loading loading-spinner loading-sm text-base-content/30"></span>
           </div>
