@@ -420,58 +420,70 @@ defmodule PhoenixKitCatalogue.Web.Components do
 
   attr(:options, :list, required: true)
   attr(:selected, :list, required: true)
+  attr(:class, :string, default: nil)
 
   @doc """
-  The attribute filter: one dropdown per set, each a plain list of its
-  values. A value is a toggle, and picking Blue and Oak narrows to the
-  items carrying BOTH — which is what "blue oak doors" means.
+  The attribute filter: ONE button opening every set and its values.
 
-  Shared by the catalogue detail page (narrowing its items) and the
-  catalogues index (narrowing to the catalogues that CONTAIN such items),
-  so the control means the same thing wherever it appears.
+  A set per button put six dropdowns in the catalogues index toolbar and
+  wrapped it onto a second row; one button keeps the toolbar the shape it
+  was whatever a catalogue's attributes grow into (Max, 2026-08-28).
+
+  Values are toggles, and picking Blue and Oak narrows to the items
+  carrying BOTH — which is what "blue oak doors" means. Shared by the
+  detail page (narrowing its items) and the index (narrowing to the
+  catalogues that CONTAIN such items), so it means the same thing
+  wherever it appears.
   """
   def attribute_filter(assigns) do
-    ~H"""
-    <div class="flex flex-wrap items-center gap-2">
-      <div :for={set <- @options} class="dropdown">
-        <label
-          tabindex="0"
-          class={[
-            "btn btn-sm gap-1",
-            if(Enum.any?(set.values, &(&1.slug in @selected)),
-              do: "btn-primary",
-              else: "btn-outline"
-            )
-          ]}
-        >
-          {set.name}
-          <span :if={selected_count(set, @selected) > 0} class="badge badge-xs">
-            {selected_count(set, @selected)}
-          </span>
-          <.icon name="hero-chevron-down" class="w-3 h-3" />
-        </label>
-        <ul
-          tabindex="0"
-          class="dropdown-content z-[1] menu p-2 shadow-lg bg-base-100 rounded-box w-56 mt-1 max-h-80 overflow-y-auto flex-nowrap"
-        >
-          <li :for={value <- set.values}>
-            <button type="button" phx-click="toggle_attribute_filter" phx-value-slug={value.slug}>
-              <input type="checkbox" class="checkbox checkbox-xs" checked={value.slug in @selected} />
-              <span class="truncate">{value.title}</span>
-            </button>
-          </li>
-        </ul>
-      </div>
+    assigns = assign(assigns, :active_count, length(assigns.selected))
 
-      <button
-        :if={@selected != []}
-        type="button"
-        phx-click="clear_attribute_filter"
-        class="btn btn-ghost btn-sm"
+    ~H"""
+    <div class={["dropdown", @class]}>
+      <label
+        tabindex="0"
+        class={["btn btn-sm gap-1", if(@active_count > 0, do: "btn-primary", else: "btn-outline")]}
       >
-        <.icon name="hero-x-mark" class="w-4 h-4" />
-        {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Clear filters")}
-      </button>
+        <.icon name="hero-swatch" class="w-4 h-4" />
+        {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Attributes")}
+        <span :if={@active_count > 0} class="badge badge-xs">{@active_count}</span>
+        <.icon name="hero-chevron-down" class="w-3 h-3" />
+      </label>
+      <div
+        tabindex="0"
+        class="dropdown-content z-[1] p-2 shadow-lg bg-base-100 rounded-box w-64 mt-1 max-h-96 overflow-y-auto"
+      >
+        <div :for={set <- @options} class="mb-1 last:mb-0">
+          <div class="px-2 py-1 text-xs font-semibold uppercase tracking-wide text-base-content/50">
+            {set.name}
+            <span :if={selected_count(set, @selected) > 0} class="badge badge-xs badge-primary ml-1">
+              {selected_count(set, @selected)}
+            </span>
+          </div>
+          <ul class="menu menu-sm p-0">
+            <li :for={value <- set.values}>
+              <button type="button" phx-click="toggle_attribute_filter" phx-value-slug={value.slug}>
+                <input
+                  type="checkbox"
+                  class="checkbox checkbox-xs"
+                  checked={value.slug in @selected}
+                />
+                <span class="truncate">{value.title}</span>
+              </button>
+            </li>
+          </ul>
+        </div>
+
+        <button
+          :if={@selected != []}
+          type="button"
+          phx-click="clear_attribute_filter"
+          class="btn btn-ghost btn-xs w-full mt-2"
+        >
+          <.icon name="hero-x-mark" class="w-3.5 h-3.5" />
+          {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Clear filters")}
+        </button>
+      </div>
     </div>
     """
   end
