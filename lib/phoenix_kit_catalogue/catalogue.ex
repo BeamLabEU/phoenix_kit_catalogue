@@ -5404,6 +5404,8 @@ defmodule PhoenixKitCatalogue.Catalogue do
   defdelegate search_items_in_catalogue(catalogue_uuid, query, opts \\ []), to: Search
 
   defdelegate search_categories(catalogue_uuid, query, opts \\ []), to: Search
+  defdelegate match_search_text(query, term), to: Search, as: :match_text
+  defdelegate category_subtree_uuids(roots), to: Tree, as: :subtree_uuids_for
   defdelegate count_search_items_in_catalogue(catalogue_uuid, query), to: Search
   defdelegate search_items_in_category(category_uuid, query, opts \\ []), to: Search
   defdelegate count_search_items_in_category(category_uuid, query), to: Search

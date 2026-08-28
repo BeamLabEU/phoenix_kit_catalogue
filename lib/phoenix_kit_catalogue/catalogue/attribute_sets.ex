@@ -351,16 +351,46 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
 
   def list_values(set_uuid, opts) when is_binary(set_uuid) do
     if entities_enabled?() do
-      limit = opts[:limit]
-      fetch = if limit, do: [lang: opts[:lang], limit: limit + 5], else: [lang: opts[:lang]]
-
-      values =
-        PhoenixKitEntities.EntityData.list_by_entity(set_uuid, fetch)
-        |> Enum.reject(&(&1.status == "archived"))
-
-      if limit, do: Enum.take(values, limit), else: values
+      [set_uuid] |> list_values_for(opts) |> Map.get(set_uuid, [])
     else
       []
+    end
+  end
+
+  # Values for one or more sets, archived excluded, `%{set_uuid => values}`.
+  #
+  # The batched entities API filters status in SQL, which is what makes a
+  # `:limit` mean what it says. The fallback cannot: it limits first and
+  # drops archived after, so a set whose first rows are archived comes
+  # back short — asking for 5 and getting 3 reads as "there are only 3".
+  # It over-fetches to make that unlikely; the pin release removes the
+  # guesswork.
+  defp list_values_for(set_uuids, opts) do
+    batch = PhoenixKitEntities.EntityData
+    limit = opts[:limit]
+
+    if Code.ensure_loaded?(batch) and function_exported?(batch, :list_by_entities, 2) do
+      # credo:disable-for-next-line Credo.Check.Refactor.Apply
+      apply(batch, :list_by_entities, [
+        set_uuids,
+        [
+          lang: opts[:lang],
+          limit: limit,
+          exclude_statuses: ["archived"],
+          preload: []
+        ]
+      ])
+    else
+      fetch = if limit, do: [lang: opts[:lang], limit: limit + 5], else: [lang: opts[:lang]]
+
+      Map.new(set_uuids, fn uuid ->
+        values =
+          uuid
+          |> batch.list_by_entity(fetch)
+          |> Enum.reject(&(&1.status == "archived"))
+
+        {uuid, if(limit, do: Enum.take(values, limit), else: values)}
+      end)
     end
   end
 
@@ -940,10 +970,16 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
   many blue oak items there are. A dead combination is therefore visible
   as a 0 before it is picked, rather than as an empty list afterwards.
 
-  Options: `:catalogue_uuid`, `:category_uuids`, `:statuses`,
-  `:value_slugs` (the selection to condition on) and `:count` —
-  `:items` (default) or `:catalogues`, which counts distinct catalogues
-  for the index's version of the filter.
+  Options: `:catalogue_uuid`, `:catalogue_uuids`, `:category_uuids`,
+  `:statuses`, `:search`, `:value_slugs` (the selection to condition on)
+  and `:count` — `:items` (default) or `:catalogues`, which counts
+  distinct catalogues for the index's version of the filter.
+
+  Every scope the LISTING is under has to be passed, or the promise
+  breaks the other way: a value offered as live because something
+  matches it SOMEWHERE, while the page the user is on has none of it,
+  is exactly the empty list this exists to prevent. `:search` narrows by
+  the same text predicate the item search uses.
 
   One grouped query: the selection slugs are unnested from the
   attachment's JSONB, so a page with fifteen values still asks once.
@@ -963,9 +999,10 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
               a.data
             ),
           on: true,
-          where: i.status != "deleted",
           group_by: fragment("?", slug)
         )
+        |> exclude_deleted_unless_asked(opts)
+        |> PhoenixKitCatalogue.Catalogue.match_search_text(opts[:search])
         |> scope_counts(opts)
         |> PhoenixKitCatalogue.Catalogue.filter_by_attribute_values(opts)
 
@@ -985,33 +1022,57 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
     end
   end
 
+  # Deleted items are out unless the caller asked for a status set that
+  # names them — otherwise the Deleted tab's own counts contradict
+  # themselves (`status in ["deleted"]` AND `status != "deleted"`) and
+  # every value reads 0.
+  defp exclude_deleted_unless_asked(query, opts) do
+    if "deleted" in List.wrap(opts[:statuses]) do
+      query
+    else
+      where(query, [_a, i], i.status != "deleted")
+    end
+  end
+
   defp scope_counts(query, opts) do
     query
-    |> then(fn q ->
-      case opts[:catalogue_uuid] do
-        uuid when is_binary(uuid) -> where(q, [_a, i], i.catalogue_uuid == ^uuid)
-        _ -> q
-      end
-    end)
-    |> then(fn q ->
-      case opts[:category_uuids] do
-        [_ | _] = uuids -> where(q, [_a, i], i.category_uuid in ^uuids)
-        _ -> q
-      end
-    end)
-    |> then(fn q ->
-      case opts[:statuses] do
-        [_ | _] = statuses -> where(q, [_a, i], i.status in ^statuses)
-        _ -> q
-      end
-    end)
-    |> then(fn q ->
-      # The uncategorized bucket is a scope like any other level.
-      if opts[:only] == :uncategorized_only,
-        do: where(q, [_a, i], is_nil(i.category_uuid)),
-        else: q
-    end)
+    |> scope_one_catalogue(opts[:catalogue_uuid])
+    |> scope_many_catalogues(opts[:catalogue_uuids])
+    |> scope_categories(opts[:category_uuids])
+    |> scope_statuses(opts[:statuses])
+    |> scope_uncategorized(opts[:only])
   end
+
+  defp scope_one_catalogue(query, uuid) when is_binary(uuid),
+    do: where(query, [_a, i], i.catalogue_uuid == ^uuid)
+
+  defp scope_one_catalogue(query, _), do: query
+
+  # The INDEX's version: count only within the catalogues the list is
+  # currently showing, so a value cannot look available because of a
+  # catalogue hidden by the folder, search or status the user is in. An
+  # EMPTY list is a real answer — "the list is showing nothing, so nothing
+  # matches" — and must not read as "no constraint".
+  defp scope_many_catalogues(query, uuids) when is_list(uuids),
+    do: where(query, [_a, i], i.catalogue_uuid in ^uuids)
+
+  defp scope_many_catalogues(query, _), do: query
+
+  defp scope_categories(query, [_ | _] = uuids),
+    do: where(query, [_a, i], i.category_uuid in ^uuids)
+
+  defp scope_categories(query, _), do: query
+
+  defp scope_statuses(query, [_ | _] = statuses),
+    do: where(query, [_a, i], i.status in ^statuses)
+
+  defp scope_statuses(query, _), do: query
+
+  # The uncategorized bucket is a scope like any other level.
+  defp scope_uncategorized(query, :uncategorized_only),
+    do: where(query, [_a, i], is_nil(i.category_uuid))
+
+  defp scope_uncategorized(query, _), do: query
 
   @doc """
   The attribute filter's options for one catalogue: every set attached to
@@ -1046,6 +1107,12 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
         end
         |> repo().all()
 
+      # Values for every set in ONE query. Per-set loading here is two
+      # queries each and this runs on every URL change — on the index,
+      # where `:all` gathers the sets used anywhere, that is the whole
+      # roster loaded a row at a time.
+      values_by_set = list_values_for(set_uuids, lang: opts[:lang])
+
       set_uuids
       |> Enum.map(&get_set(&1, lang: opts[:lang]))
       |> Enum.reject(&is_nil/1)
@@ -1054,8 +1121,8 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
           uuid: set.uuid,
           name: set.display_name || set.name,
           values:
-            set.uuid
-            |> list_values(lang: opts[:lang])
+            values_by_set
+            |> Map.get(set.uuid, [])
             |> Enum.map(&%{slug: &1.slug, title: &1.title})
         }
       end)

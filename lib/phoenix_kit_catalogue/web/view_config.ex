@@ -155,6 +155,29 @@ defmodule PhoenixKitCatalogue.Web.ViewConfig do
 
   def save_view(_user, _view), do: {:error, :no_user}
 
+  @doc """
+  `save_view/2` for a LiveView: stores the choice and puts the REFRESHED
+  user back on the socket.
+
+  Keeping the refreshed user is the whole point. Every write here merges
+  one subtree into the user's entire `custom_fields` map and saves the
+  result, so a socket still holding the pre-save user carries a snapshot
+  that predates the view. The next column or filter save then merges
+  into that snapshot and writes it back — deleting the view the user
+  just chose, without an error anywhere. It surfaces one page later, as
+  "my view didn't stick", which is the thing this feature exists to fix.
+  """
+  @spec save_view_on(Phoenix.LiveView.Socket.t(), String.t()) :: Phoenix.LiveView.Socket.t()
+  def save_view_on(socket, view) do
+    case save_view(socket.assigns[:phoenix_kit_current_user], view) do
+      {:ok, updated_user} ->
+        Phoenix.Component.assign(socket, :phoenix_kit_current_user, updated_user)
+
+      _ ->
+        socket
+    end
+  end
+
   @spec normalize(TableConfig.scope(), map()) :: map()
   def normalize(scope, raw) when is_map(raw) do
     d = defaults(scope)

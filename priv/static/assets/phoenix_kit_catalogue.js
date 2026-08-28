@@ -183,15 +183,30 @@
       // So: switch on the client, persist in the background. On mount the
       // server's stored choice seeds localStorage, so a page opened in a
       // browser that has never been here still lands on the right view.
+      // Live hook instances, so one shared listener can always find a
+      // hook that is still attached to push through. A plain "already
+      // bound" boolean loses the listener for good the first time two
+      // of these overlap: the second mount skips binding, then the
+      // first one's destroyed() unbinds, and nothing saves the view
+      // again for the rest of the session. Live navigation overlaps
+      // them routinely (the new page mounts before the old unmounts).
+      var viewPrefHooks = new Set();
+      var viewPrefListener = null;
+
       window.PhoenixKitCatalogueHooks.ViewPref = {
         mounted() {
           var key = this.el.dataset.storageKey;
           var serverView = this.el.dataset.serverView;
 
-          // The server is the source of truth across browsers; adopt it
-          // and let TableCardView apply it.
+          // Seed from the server ONLY for a browser that has never
+          // chosen here. Adopting it on every mount looks like "the
+          // server is the source of truth", but the save is
+          // fire-and-forget: navigate straight after a click and the
+          // next page's assign is still the old value, which would
+          // then overwrite the choice the user just made and snap the
+          // view back. Whoever is looking at this browser wins.
           try {
-            if (serverView && localStorage.getItem(key) !== serverView) {
+            if (serverView && !localStorage.getItem(key)) {
               localStorage.setItem(key, serverView);
               window.dispatchEvent(new CustomEvent("phx:table-view-change", {
                 detail: { key: key, mode: serverView }
@@ -201,24 +216,24 @@
             /* storage blocked: the server value still rendered server-side */
           }
 
-          // One listener per page, however many toggles are on it.
-          if (window.__pkCatalogueViewPrefBound) return;
-          window.__pkCatalogueViewPrefBound = true;
+          viewPrefHooks.add(this);
+          if (viewPrefListener) return;
 
-          var hook = this;
-          this._onChange = function(e) {
-            if (e.detail && e.detail.key === key) {
-              // Fire-and-forget: the view has already changed on screen.
-              hook.pushEvent("set_view", { mode: e.detail.mode });
-            }
+          viewPrefListener = function(e) {
+            if (!e.detail || e.detail.key !== key) return;
+
+            // Fire-and-forget: the view has already changed on screen.
+            var live = viewPrefHooks.values().next().value;
+            if (live) live.pushEvent("set_view", { mode: e.detail.mode });
           };
-          window.addEventListener("phx:table-view-change", this._onChange);
+          window.addEventListener("phx:table-view-change", viewPrefListener);
         },
 
         destroyed() {
-          if (this._onChange) {
-            window.removeEventListener("phx:table-view-change", this._onChange);
-            window.__pkCatalogueViewPrefBound = false;
+          viewPrefHooks.delete(this);
+          if (viewPrefHooks.size === 0 && viewPrefListener) {
+            window.removeEventListener("phx:table-view-change", viewPrefListener);
+            viewPrefListener = null;
           }
         }
       };

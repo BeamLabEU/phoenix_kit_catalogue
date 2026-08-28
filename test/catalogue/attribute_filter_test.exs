@@ -9,6 +9,7 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeFilterTest do
 
   alias PhoenixKitCatalogue.Catalogue
   alias PhoenixKitCatalogue.Catalogue.AttributeSets
+  alias PhoenixKitCatalogue.Web.Components
 
   if Code.ensure_loaded?(PhoenixKitEntities.Managed) do
     setup %{conn: conn, scope: scope} do
@@ -319,6 +320,99 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeFilterTest do
 
       colour = Enum.find(options, &(&1.name == "Colour"))
       assert Enum.sort(Enum.map(colour.values, & &1.title)) == ["Blue", "Red"]
+    end
+
+    test "a repeated slug in the URL still toggles off in one click", ctx do
+      assert ctx.catalogue
+
+      # `?attr=oak,oak` parsed to two entries, and toggling deleted one —
+      # the box stayed ticked and the control read as dead.
+      assert Components.attribute_filter_slugs(%{attribute_filter: "oak,oak"}) == ["oak"]
+
+      assert Components.attribute_filter_slugs(%{attribute_filter: " blue , oak ,blue"}) ==
+               ["blue", "oak"]
+    end
+
+    describe "counts answer for the list beside them" do
+      # "Selectable means it has results" is the whole promise (Max,
+      # 2026-08-28). Every scope the LISTING is under has to reach the
+      # counts, or a value is offered as live on a page that has none of
+      # it — and picking it empties the list, which is the thing this was
+      # built to prevent.
+
+      test "a search narrows them", ctx do
+        all = Catalogue.attribute_value_match_counts(catalogue_uuid: ctx.catalogue.uuid)
+        assert all[ctx.blue.slug] == 2
+        assert all[ctx.red.slug] == 1
+
+        # "oak" matches one item, and that item is blue — so Red is dead
+        # here even though the catalogue has a red door.
+        searched =
+          Catalogue.attribute_value_match_counts(
+            catalogue_uuid: ctx.catalogue.uuid,
+            search: "oak"
+          )
+
+        assert searched[ctx.blue.slug] == 1
+        assert searched[ctx.oak.slug] == 1
+        assert Map.get(searched, ctx.red.slug, 0) == 0
+      end
+
+      test "a blank or whitespace search is no constraint", ctx do
+        for term <- [nil, "", "   "] do
+          counts =
+            Catalogue.attribute_value_match_counts(
+              catalogue_uuid: ctx.catalogue.uuid,
+              search: term
+            )
+
+          assert counts[ctx.blue.slug] == 2
+        end
+      end
+
+      test "the index counts only within the catalogues on screen", ctx do
+        other = fixture_catalogue(%{name: "Elsewhere"})
+        stray = fixture_item(%{name: "Stray red", catalogue_uuid: other.uuid})
+        {:ok, _} = Catalogue.attach_attribute_set(stray.uuid, ctx.colour.uuid)
+        :ok = AttributeSets.set_attachment_selection(stray.uuid, ctx.colour.uuid, [ctx.red.slug])
+
+        # Unscoped, Red is carried by two catalogues.
+        assert Catalogue.attribute_value_match_counts(count: :catalogues)[ctx.red.slug] == 2
+
+        # Scoped to the one the list is showing, by one.
+        scoped =
+          Catalogue.attribute_value_match_counts(
+            count: :catalogues,
+            catalogue_uuids: [ctx.catalogue.uuid]
+          )
+
+        assert scoped[ctx.red.slug] == 1
+
+        # And a list showing nothing offers nothing — an empty scope is a
+        # real answer, not "no constraint".
+        assert Catalogue.attribute_value_match_counts(count: :catalogues, catalogue_uuids: []) ==
+                 %{}
+      end
+
+      test "the trash counts its own items rather than contradicting itself", ctx do
+        {:ok, _} = Catalogue.trash_item(ctx.items.blue_oak)
+
+        # Default: deleted items are out.
+        live = Catalogue.attribute_value_match_counts(catalogue_uuid: ctx.catalogue.uuid)
+        assert live[ctx.blue.slug] == 1
+
+        # Asked for explicitly, they are counted — `status in ["deleted"]`
+        # used to meet a hardcoded `status != "deleted"` and every value
+        # came back 0, which read as "nothing here is filterable".
+        trashed =
+          Catalogue.attribute_value_match_counts(
+            catalogue_uuid: ctx.catalogue.uuid,
+            statuses: ["deleted"]
+          )
+
+        assert trashed[ctx.blue.slug] == 1
+        assert trashed[ctx.oak.slug] == 1
+      end
     end
   end
 end

@@ -242,28 +242,17 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       |> assign(:active_tab, action)
       |> assign(:page_title, tab_title(action))
       |> assign(:attribute_filter, state.attribute_filter)
-      # The matching catalogue set is a QUERY, so resolve it once here
-      # rather than per render.
-      |> assign(
-        :attribute_allowed,
-        Catalogue.catalogue_uuids_with_attribute_values(
-          attribute_filter_slugs(%{attribute_filter: state.attribute_filter})
-        )
-      )
-      |> assign(
-        :attribute_value_counts,
-        Catalogue.attribute_value_match_counts(
-          count: :catalogues,
-          value_slugs: attribute_filter_slugs(%{attribute_filter: state.attribute_filter})
-        )
-      )
       |> assign(:view_configs, Map.put(socket.assigns.view_configs, scope, cfg))
 
     socket =
       if tab_changed? do
         load_data(socket, action)
       else
-        socket
+        # The matching catalogue set and the facet counts are QUERIES, so
+        # they are resolved once per URL change rather than per render —
+        # `?attr=` and `?q=` both move them. A tab change went through
+        # `load_data`, which ends by doing this itself.
+        refresh_attribute_scope(socket)
       end
 
     # Expansion AFTER load_data: on a deep link the first call is also
@@ -412,6 +401,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         :attribute_filter_options,
         Catalogue.attribute_filter_options(:all, lang: socket.assigns[:current_locale])
       )
+      |> refresh_attribute_scope()
       |> assign(:index_loaded, true)
     else
       socket
@@ -447,6 +437,45 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
 
   # "Show limit, elide the rest" — EXCEPT when exactly one would be
   # hidden: "and 1 more" wastes the very space it saves.
+  # Everything the attribute filter derives from the rows, recomputed
+  # wherever the rows are. Kept together because they must not drift
+  # apart: `attribute_allowed` decides which catalogues survive the
+  # filter, and the counts decide which values are still offered. A
+  # PubSub refresh used to reload the rows and leave both behind, so a
+  # catalogue whose last matching item had just been edited elsewhere
+  # stayed on screen.
+  defp refresh_attribute_scope(socket) do
+    slugs = active_attribute_slugs(socket.assigns)
+    cfg = Map.fetch!(socket.assigns.view_configs, :catalogues)
+
+    # Which catalogues the list is showing BEFORE the attribute filter —
+    # the folder, the search and the status tab all narrow it. Counting
+    # across every catalogue instead offers values that live somewhere
+    # the user cannot currently see, and picking one empties the list.
+    eligible =
+      socket.assigns.catalogue_rows
+      |> do_derive_rows(:catalogues, cfg)
+      |> Enum.map(& &1.uuid)
+
+    socket
+    |> assign(:attribute_allowed, Catalogue.catalogue_uuids_with_attribute_values(slugs))
+    |> assign(
+      :attribute_value_counts,
+      Catalogue.attribute_value_match_counts(
+        count: :catalogues,
+        catalogue_uuids: eligible,
+        value_slugs: slugs
+      )
+    )
+  end
+
+  # The index's trash lists DELETED catalogues, whose items are deleted
+  # with them — no attribute matches anything there. Same rule as the
+  # detail page's Deleted tab: not applied, not offered, and `?attr=`
+  # survives in the URL for the trip back.
+  defp active_attribute_slugs(%{catalogue_view_mode: "deleted"}), do: []
+  defp active_attribute_slugs(assigns), do: attribute_filter_slugs(assigns)
+
   defp elide_cap(count, limit) when count <= limit + 1, do: limit + 1
   defp elide_cap(_count, limit), do: limit
 
@@ -2324,14 +2353,20 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     end
   end
 
-  def handle_event("attr_sets_search", %{"q" => q}, socket) do
+  # Guarded and given catch-alls: every payload below arrives from the
+  # client and can be anything. A non-string `q` used to raise inside
+  # String.slice/3 and a missing key matched no clause at all — both take
+  # the whole LiveView down, and neither needs an attacker to happen.
+  def handle_event("attr_sets_search", %{"q" => q}, socket) when is_binary(q) do
     {:noreply,
      socket
      |> assign(attr_sets_search: String.slice(q, 0, 200), attr_sets_page: 1)
      |> derive_attribute_sets_page()}
   end
 
-  def handle_event("attr_sets_page", %{"dir" => dir}, socket) do
+  def handle_event("attr_sets_search", _params, socket), do: {:noreply, socket}
+
+  def handle_event("attr_sets_page", %{"dir" => dir}, socket) when dir in ["prev", "next"] do
     delta = if dir == "next", do: 1, else: -1
 
     {:noreply,
@@ -2340,10 +2375,14 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
      |> derive_attribute_sets_page()}
   end
 
-  def handle_event("open_set_items_modal", %{"uuid" => uuid}, socket) do
+  def handle_event("attr_sets_page", _params, socket), do: {:noreply, socket}
+
+  def handle_event("open_set_items_modal", %{"uuid" => uuid}, socket) when is_binary(uuid) do
     set = Enum.find(socket.assigns.attr_sets_all, &(&1.uuid == uuid))
     {:noreply, assign(socket, :items_modal_set, set)}
   end
+
+  def handle_event("open_set_items_modal", _params, socket), do: {:noreply, socket}
 
   def handle_event("open_new_set_modal", _params, socket),
     do: {:noreply, assign(socket, :show_new_set_modal, true)}
@@ -2359,7 +2398,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   # day needs the distinction will design its own home for it. The
   # handoff lands on the NEW-VALUE form, not the blueprint editor: a
   # fresh set's next step is adding values.
-  def handle_event("create_attribute_set", %{"name" => name}, socket) do
+  def handle_event("create_attribute_set", %{"name" => name}, socket) when is_binary(name) do
     case Catalogue.create_attribute_set(%{name: name}, actor_opts(socket)) do
       {:ok, set} ->
         {:noreply,
@@ -2384,11 +2423,13 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     end
   end
 
+  def handle_event("create_attribute_set", _params, socket), do: {:noreply, socket}
+
   # The view is module-wide, not per scope (ViewConfig moduledoc): saving
   # it here and reflecting it into EVERY loaded scope's cfg is what makes
   # the choice survive a jump to another page.
   def handle_event("set_view", %{"mode" => v}, socket) when v in ["table", "card", "comfy"] do
-    ViewConfig.save_view(socket.assigns[:phoenix_kit_current_user], v)
+    socket = ViewConfig.save_view_on(socket, v)
 
     configs =
       Map.new(socket.assigns.view_configs, fn {scope, cfg} -> {scope, %{cfg | view: v}} end)
@@ -2627,9 +2668,9 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
                     carrying these values (Max, 2026-08-28). Absent when
                     no catalogue uses attributes at all. --%>
               <.attribute_filter
-                :if={@attribute_filter_options != []}
+                :if={@attribute_filter_options != [] and @catalogue_view_mode == "active"}
                 options={@attribute_filter_options}
-                selected={attribute_filter_slugs(assigns)}
+                selected={active_attribute_slugs(assigns)}
                 counts={@attribute_value_counts}
               />
             </:filters>
@@ -2663,6 +2704,16 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
             class="text-xs text-base-content/50"
           >
             {gettext("Clear search and filters to see the folder tree.")}
+          </p>
+          <%!-- This page lists CATALOGUES, but search and the attribute
+               filter both match ITEMS. Max read a result here as "why is
+               it showing me a catalogue?" — so say which question the
+               list is answering whenever an item-level filter is on. --%>
+          <p
+            :if={attribute_filter_slugs(assigns) != [] and @catalogue_view_mode == "active"}
+            class="text-xs text-base-content/50"
+          >
+            {gettext("Showing catalogues that contain matching items.")}
           </p>
           <.deleted_folders_list
             :if={@catalogue_view_mode == "deleted" and @folder_tree_deleted != []}

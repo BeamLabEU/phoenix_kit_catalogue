@@ -66,6 +66,24 @@ defmodule PhoenixKitCatalogue.Web.ViewPersistenceTest do
     assert has_element?(view, ~s|[phx-hook="ViewPref"][data-server-view]|)
   end
 
+  test "a later column change does not undo the chosen view",
+       %{conn: conn, catalogue: catalogue, user: user} do
+    # Both writes merge into the SAME `custom_fields` map. Saving the view
+    # and then dropping the refreshed user left the socket holding a
+    # snapshot from before it, so the next scope save wrote that snapshot
+    # back and the view vanished — silently, and only visible one page
+    # later as "my view didn't stick".
+    {:ok, index, _} = live(conn, "/en/admin/catalogue")
+    render_click(index, "set_view", %{"mode" => "table"})
+    assert ViewConfig.load_view(reload_user(user)) == "table"
+
+    render_click(index, "remove_column", %{"column_id" => "status"})
+
+    assert ViewConfig.load_view(reload_user(user)) == "table"
+    {:ok, detail, _} = live(conn, "/en/admin/catalogue/#{catalogue.uuid}")
+    assert :sys.get_state(detail.pid).socket.assigns.view_mode_pref == "table"
+  end
+
   test "an unknown mode is ignored rather than blanking the page", %{conn: conn, user: user} do
     {:ok, index, _} = live(conn, "/en/admin/catalogue")
 

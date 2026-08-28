@@ -459,8 +459,14 @@ defmodule PhoenixKitCatalogue.Web.Components do
 
     ~H"""
     <div :if={@usable?} class={["dropdown", @class]}>
+      <%!-- `role="button"`, not a bare label: without it a screen reader
+           reads the trigger as plain text and Enter does nothing — the
+           dropdown only opened because Tab-focus happens to trip
+           daisyUI's :focus-within. --%>
       <label
         tabindex="0"
+        role="button"
+        aria-haspopup="true"
         class={["btn btn-sm gap-1", if(@active_count > 0, do: "btn-primary", else: "btn-outline")]}
       >
         <.icon name="hero-swatch" class="w-4 h-4" />
@@ -486,6 +492,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
                 phx-click={!value_dead?(value, @counts, @selected) && "toggle_attribute_filter"}
                 phx-value-slug={value.slug}
                 disabled={value_dead?(value, @counts, @selected)}
+                aria-pressed={to_string(value.slug in @selected)}
                 title={
                   value_dead?(value, @counts, @selected) &&
                     Gettext.gettext(
@@ -494,12 +501,23 @@ defmodule PhoenixKitCatalogue.Web.Components do
                     )
                 }
               >
-                <input
-                  type="checkbox"
-                  class="checkbox checkbox-xs"
-                  checked={value.slug in @selected}
-                  disabled={value_dead?(value, @counts, @selected)}
-                />
+                <%!-- A tick that LOOKS like a checkbox rather than one.
+                     A real <input> inside a <button> is invalid HTML: it
+                     may take focus of its own, and there it has no name
+                     to announce — the row's name belongs to the button.
+                     The button carries the state as aria-pressed. --%>
+                <span
+                  aria-hidden="true"
+                  class={[
+                    "w-4 h-4 shrink-0 rounded border flex items-center justify-center",
+                    if(value.slug in @selected,
+                      do: "bg-primary border-primary text-primary-content",
+                      else: "border-base-content/30"
+                    )
+                  ]}
+                >
+                  <.icon :if={value.slug in @selected} name="hero-check" class="w-3 h-3" />
+                </span>
                 <span class="truncate">{value.title}</span>
                 <span class="ml-auto text-xs opacity-50">{Map.get(@counts, value.slug, 0)}</span>
               </button>
@@ -554,6 +572,10 @@ defmodule PhoenixKitCatalogue.Web.Components do
     |> String.split(",", trim: true)
     |> Enum.map(&String.trim/1)
     |> Enum.reject(&(&1 == ""))
+    # `?attr=oak,oak` would otherwise take two clicks to switch off:
+    # toggling removes one copy and the box stays checked, which reads
+    # as a dead control.
+    |> Enum.uniq()
   end
 
   @doc """
@@ -589,11 +611,17 @@ defmodule PhoenixKitCatalogue.Web.Components do
       on_click={@on_click}
       class="w-full h-full"
     />
-    <.icon
+    <%!-- Centred by its OWN full-size flex box, not by absolute
+         positioning against the frame: the frame's `relative` reaches it
+         through `card_media_class`, which a core older than this module's
+         pin ignores. Anchored to the card instead, the icon floated over
+         the title. --%>
+    <div
       :if={!featured_image_uuid(@resource) && !@has_files}
-      name={@placeholder_icon}
-      class="w-10 h-10 text-base-content/20 absolute inset-0 m-auto"
-    />
+      class="w-full h-full flex items-center justify-center"
+    >
+      <.icon name={@placeholder_icon} class="w-10 h-10 text-base-content/20" />
+    </div>
     {render_slot(@overlay)}
     """
   end
@@ -1720,7 +1748,16 @@ defmodule PhoenixKitCatalogue.Web.Components do
     doc:
       "Controlled view (`card` / `comfy` / `table`). Set it to follow the user's " <>
         "module-wide preference (`ViewConfig.load_view/1`) instead of the " <>
-        "per-browser localStorage key — see `view_toggle/1`."
+        "per-browser localStorage key — see `view_toggle/1`. Setting it also " <>
+        "hides the table's built-in toggle: in controlled mode that toggle posts " <>
+        "to the server, and the module answers on `set_view` (see `view_event`)."
+  )
+
+  attr(:view_event, :string,
+    default: "set_view",
+    doc:
+      "Event the CONTROLLED toggle posts. Core's default is `switch_view`, which " <>
+        "no catalogue LiveView answers — and an unhandled event crashes the view."
   )
 
   attr(:markup_percentage, :any, default: nil)
@@ -1801,10 +1838,11 @@ defmodule PhoenixKitCatalogue.Web.Components do
       variant={@variant}
       size={@size}
       toggleable={@cards}
-      show_toggle={@show_toggle}
+      show_toggle={is_nil(@view_mode) and @show_toggle}
       id={@id}
       storage_key={@storage_key}
       view_mode={@view_mode}
+      view_event={@view_event}
       {card_media_frame()}
       items={@items}
       on_reorder={@on_reorder}

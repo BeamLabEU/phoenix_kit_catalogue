@@ -113,8 +113,7 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLive do
 
   @impl true
   def handle_event("set_view", %{"mode" => v}, socket) when v in ["table", "card", "comfy"] do
-    ViewConfig.save_view(socket.assigns[:phoenix_kit_current_user], v)
-    {:noreply, assign(socket, :view_mode, v)}
+    {:noreply, socket |> ViewConfig.save_view_on(v) |> assign(:view_mode, v)}
   end
 
   def handle_event("set_view", _params, socket), do: {:noreply, socket}
