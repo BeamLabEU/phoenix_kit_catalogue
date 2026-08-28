@@ -174,6 +174,34 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeFilterTest do
       refute html =~ "Red door"
     end
 
+    test "the index narrows to the catalogues CONTAINING such items", ctx do
+      # One level up the same filter answers a different question: not
+      # "which items are blue" but "which catalogues have blue in them".
+      other = fixture_catalogue(%{name: "No Attributes Here"})
+      fixture_item(%{name: "Plain thing", catalogue_uuid: other.uuid})
+
+      {:ok, view, html} = live(ctx.conn, "/en/admin/catalogue")
+      assert html =~ "Filter Cat"
+      assert html =~ "No Attributes Here"
+
+      render_click(view, "toggle_attribute_filter", %{"slug" => ctx.blue.slug})
+      html = render(view)
+
+      assert html =~ "Filter Cat"
+      refute html =~ "No Attributes Here"
+
+      render_click(view, "clear_attribute_filter", %{})
+      assert render(view) =~ "No Attributes Here"
+    end
+
+    test "the index offers every set in use anywhere", ctx do
+      assert ctx.catalogue
+
+      names = Catalogue.attribute_filter_options(:all) |> Enum.map(& &1.name)
+      assert "Colour" in names
+      assert "Wood" in names
+    end
+
     test "the filter offers only sets this catalogue actually uses", ctx do
       {:ok, _unused} = Catalogue.create_attribute_set(%{name: "Unused elsewhere"})
 

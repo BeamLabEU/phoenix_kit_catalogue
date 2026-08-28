@@ -14,7 +14,10 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       # The drilled folder is URL state (?folder=<uuid>), mirroring the
       # detail page's ?category= — shareable, Back-friendly, reload-safe.
       # "" (absent) = top level.
-      current_folder: [default: "", url_key: "folder"]
+      current_folder: [default: "", url_key: "folder"],
+      # Attribute VALUE slugs, comma-joined — here they narrow to the
+      # catalogues CONTAINING such items (2026-08-28).
+      attribute_filter: [default: "", url_key: "attr"]
     ]
 
   use Gettext, backend: PhoenixKitCatalogue.Gettext
@@ -88,6 +91,8 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
        attr_sets_total: 0,
        attr_sets_max_page: 1,
        show_new_set_modal: false,
+       attribute_filter_options: [],
+       attribute_allowed: :all,
        # Module-wide view preference (ViewConfig moduledoc) — the
        # attributes tab reads the same value the catalogues table does.
        view_mode: ViewConfig.load_view(socket.assigns[:phoenix_kit_current_user]),
@@ -235,6 +240,15 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       socket
       |> assign(:active_tab, action)
       |> assign(:page_title, tab_title(action))
+      |> assign(:attribute_filter, state.attribute_filter)
+      # The matching catalogue set is a QUERY, so resolve it once here
+      # rather than per render.
+      |> assign(
+        :attribute_allowed,
+        Catalogue.catalogue_uuids_with_attribute_values(
+          attribute_filter_slugs(%{attribute_filter: state.attribute_filter})
+        )
+      )
       |> assign(:view_configs, Map.put(socket.assigns.view_configs, scope, cfg))
 
     socket =
@@ -386,6 +400,10 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         folder_options: folder_options(active_tree)
       )
       |> drop_stale_folder_filter(folder_lookup)
+      |> assign(
+        :attribute_filter_options,
+        Catalogue.attribute_filter_options(:all, lang: socket.assigns[:current_locale])
+      )
       |> assign(:index_loaded, true)
     else
       socket
@@ -2377,6 +2395,20 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   # carries the active scope via the route path, so a single ?q= is
   # unambiguous. UrlState calls handle_url_state which syncs q into
   # view_configs[scope].search for derive_rows.
+  def handle_event("toggle_attribute_filter", %{"slug" => slug}, socket) when is_binary(slug) do
+    current = attribute_filter_slugs(socket.assigns)
+
+    next = if slug in current, do: List.delete(current, slug), else: current ++ [slug]
+
+    {:noreply, push_url_state(socket, attribute_filter: Enum.join(next, ","))}
+  end
+
+  def handle_event("toggle_attribute_filter", _params, socket), do: {:noreply, socket}
+
+  def handle_event("clear_attribute_filter", _params, socket) do
+    {:noreply, push_url_state(socket, attribute_filter: "")}
+  end
+
   def handle_event("table_search", %{"query" => q}, socket) do
     {:noreply, push_url_state(socket, [search_query: q], replace: true)}
   end
@@ -2391,7 +2423,30 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   end
 
   # Apply search/filter/sort to a raw list for a scope.
-  defp derive_rows(rows, scope, cfg) do
+  # The catalogue rows the attribute filter allows — every layout (tree,
+  # card level, flat table) reads this rather than @catalogue_rows, so
+  # one filter narrows all three.
+  defp visible_catalogue_rows(assigns),
+    do: keep_allowed_catalogues(assigns.catalogue_rows, :catalogues, assigns.attribute_allowed)
+
+  # Catalogue rows first pass the attribute filter — "the catalogues with
+  # blue doors in them" — then the usual search/sort/filters.
+  defp derive_rows(rows, scope, cfg, allowed \\ :all)
+
+  defp derive_rows(rows, scope, cfg, allowed) do
+    rows
+    |> keep_allowed_catalogues(scope, allowed)
+    |> then(&do_derive_rows(&1, scope, cfg))
+  end
+
+  defp keep_allowed_catalogues(rows, _scope, :all), do: rows
+
+  defp keep_allowed_catalogues(rows, :catalogues, allowed),
+    do: Enum.filter(rows, &MapSet.member?(allowed, &1.uuid))
+
+  defp keep_allowed_catalogues(rows, _scope, _allowed), do: rows
+
+  defp do_derive_rows(rows, scope, cfg) do
     TableQuery.apply(rows, scope, %{
       search: cfg[:search] || "",
       filters: cfg.filters,
@@ -2559,6 +2614,15 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
                 prompt={Gettext.gettext(PhoenixKitCatalogue.Gettext, "All statuses")}
                 options={TableQuery.enum_options(@catalogue_rows, :catalogues, "status")}
               />
+              <%!-- Same control as the detail page's, meaning the same
+                    thing one level up: the catalogues that CONTAIN items
+                    carrying these values (Max, 2026-08-28). Absent when
+                    no catalogue uses attributes at all. --%>
+              <.attribute_filter
+                :if={@attribute_filter_options != []}
+                options={@attribute_filter_options}
+                selected={attribute_filter_slugs(assigns)}
+              />
             </:filters>
             <:actions>
               <button
@@ -2639,7 +2703,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
             rows={
               build_catalogue_tree_rows(
                 @folder_tree,
-                @catalogue_rows,
+                visible_catalogue_rows(assigns),
                 @expanded_folders,
                 current_tree_folder(cfg, @folder_lookup)
               )
@@ -2651,7 +2715,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
           <.catalogues_card_level
             :if={card_level?}
             folder_tree={@folder_tree}
-            catalogue_rows={@catalogue_rows}
+            catalogue_rows={visible_catalogue_rows(assigns)}
             cfg={cfg}
             current={current_tree_folder(cfg, @folder_lookup)}
             renaming_folder={@renaming_folder}
@@ -2663,8 +2727,8 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
             cfg={cfg}
             show_view_toggle={false}
             file_counts={@catalogue_file_counts}
-            rows={derive_rows(@catalogue_rows, :catalogues, cfg)}
-            total={length(@catalogue_rows)}
+            rows={derive_rows(visible_catalogue_rows(assigns), :catalogues, cfg)}
+            total={length(visible_catalogue_rows(assigns))}
             empty={Gettext.gettext(PhoenixKitCatalogue.Gettext, "No catalogues yet.")}
             draggable={manual_order_draggable?(@catalogue_view_mode, cfg)}
           >

@@ -2794,20 +2794,6 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     ]
   end
 
-  @doc false
-  # The attribute filter as a slug list. Stored in the URL as one
-  # comma-joined string so a filtered view is a shareable link.
-  def attribute_filter_slugs(%{assigns: assigns}), do: attribute_filter_slugs(assigns)
-
-  def attribute_filter_slugs(assigns) when is_map(assigns) do
-    assigns
-    |> Map.get(:attribute_filter, "")
-    |> to_string()
-    |> String.split(",", trim: true)
-    |> Enum.map(&String.trim/1)
-    |> Enum.reject(&(&1 == ""))
-  end
-
   # Re-fetches the current level's child categories in their new order
   # after a sibling DnD reorder. Items are untouched (reorder of the
   # subcategory cards doesn't affect the node's own item scroll).
@@ -2946,60 +2932,6 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
          |> flash_reorder(moved_id, :error)}
     end
   end
-
-  attr(:options, :list, required: true)
-  attr(:selected, :list, required: true)
-
-  # One dropdown per set, each a plain list of its values. A value is a
-  # toggle: picking Blue and Oak narrows to the items carrying BOTH,
-  # which is what "blue oak doors" means.
-  defp attribute_filter(assigns) do
-    ~H"""
-    <div class="flex flex-wrap items-center gap-2">
-      <div :for={set <- @options} class="dropdown">
-        <label
-          tabindex="0"
-          class={[
-            "btn btn-sm gap-1",
-            if(Enum.any?(set.values, &(&1.slug in @selected)),
-              do: "btn-primary",
-              else: "btn-outline"
-            )
-          ]}
-        >
-          {set.name}
-          <span :if={selected_count(set, @selected) > 0} class="badge badge-xs">
-            {selected_count(set, @selected)}
-          </span>
-          <.icon name="hero-chevron-down" class="w-3 h-3" />
-        </label>
-        <ul
-          tabindex="0"
-          class="dropdown-content z-[1] menu p-2 shadow-lg bg-base-100 rounded-box w-56 mt-1 max-h-80 overflow-y-auto flex-nowrap"
-        >
-          <li :for={value <- set.values}>
-            <button type="button" phx-click="toggle_attribute_filter" phx-value-slug={value.slug}>
-              <input type="checkbox" class="checkbox checkbox-xs" checked={value.slug in @selected} />
-              <span class="truncate">{value.title}</span>
-            </button>
-          </li>
-        </ul>
-      </div>
-
-      <button
-        :if={@selected != []}
-        type="button"
-        phx-click="clear_attribute_filter"
-        class="btn btn-ghost btn-sm"
-      >
-        <.icon name="hero-x-mark" class="w-4 h-4" />
-        {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Clear filters")}
-      </button>
-    </div>
-    """
-  end
-
-  defp selected_count(set, selected), do: Enum.count(set.values, &(&1.slug in selected))
 
   # The viewer's locale for content localization (nil outside locale
   # routes — then records pass through untouched).
