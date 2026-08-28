@@ -205,6 +205,47 @@ defmodule PhoenixKitCatalogue.Web.AttributeSetsSurfacesTest do
         refute html =~ "No sets yet."
       end
 
+      test "search finds a set by what is IN it, not just its name", %{conn: conn} do
+        # Max, 2026-08-28: typing a value label must reach the set that
+        # holds it — the name is not the only handle people have.
+        {:ok, colors} = Catalogue.create_attribute_set(%{name: "Front finishes"})
+        {:ok, _} = Catalogue.create_attribute_set_value(colors, %{label: "Oak veneer"})
+        {:ok, other} = Catalogue.create_attribute_set(%{name: "Hinge sides"})
+        {:ok, _} = Catalogue.create_attribute_set_value(other, %{label: "Left"})
+
+        {:ok, view, _html} = live(conn, "/en/admin/catalogue/attributes")
+
+        html = render_change(view, "attr_sets_search", %{"q" => "oak"})
+        assert html =~ "Front finishes"
+        refute html =~ "Hinge sides"
+
+        # The set's own name and slug still match, and a term matching
+        # neither still says so.
+        html = render_change(view, "attr_sets_search", %{"q" => "Hinge"})
+        assert html =~ "Hinge sides"
+        refute html =~ "Front finishes"
+
+        html = render_change(view, "attr_sets_search", %{"q" => "zzz-nothing"})
+        assert html =~ "No sets match your search."
+      end
+
+      test "archived values don't make a set match", %{conn: conn} do
+        {:ok, set} = Catalogue.create_attribute_set(%{name: "Retired palette"})
+        {:ok, value} = Catalogue.create_attribute_set_value(set, %{label: "Discontinued teal"})
+
+        # Archiving is an entities-side lifecycle change; the catalogue's
+        # update_value/4 only carries the label and extras.
+        {:ok, _} =
+          PhoenixKitEntities.EntityData.update(value, %{status: "archived"}, activity_log: false)
+
+        {:ok, view, _html} = live(conn, "/en/admin/catalogue/attributes")
+
+        # The viewer hides archived values, so they must not drag their
+        # set into the results either.
+        html = render_change(view, "attr_sets_search", %{"q" => "teal"})
+        assert html =~ "No sets match your search."
+      end
+
       test "the query is trimmed: a trailing space still matches", %{conn: conn} do
         {:ok, _} = Catalogue.create_attribute_set(%{name: "Doors Color"})
         {:ok, view, _html} = live(conn, "/en/admin/catalogue/attributes")

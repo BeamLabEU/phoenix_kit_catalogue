@@ -3000,8 +3000,8 @@ msgstr "Одно измерение от одного поставщика — �
 
 
 ## Attribute sets viewer listing (2026-08-27 scale pass)
-msgid "Search sets…"
-msgstr "Поиск наборов…"
+msgid "Search sets and values…"
+msgstr "Поиск наборов и значений…"
 
 msgid "No sets match your search."
 msgstr "Нет наборов по вашему запросу."

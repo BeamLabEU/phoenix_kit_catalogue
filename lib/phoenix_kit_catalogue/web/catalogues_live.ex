@@ -573,12 +573,30 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   defp derive_attribute_sets_page(socket) do
     locale = socket.assigns[:current_locale]
     search = socket.assigns.attr_sets_search |> String.trim() |> String.downcase()
+    all = socket.assigns.attr_sets_all
+
+    # A set is found by its own name/slug OR by what is IN it — typing
+    # "oak" should reach the color set (Max, 2026-08-28). The value
+    # match is ONE batched query over the (already loaded) set uuids,
+    # run only when there is a term; the name match stays in memory.
+    # A plain map, not a MapSet: MapSet is opaque and dialyzer reads the
+    # two branches as different internal shapes (`call_without_opaque`).
+    by_value =
+      if search == "" do
+        %{}
+      else
+        all
+        |> Enum.map(& &1.uuid)
+        |> Catalogue.attribute_set_uuids_matching_value(search)
+        |> Map.new(&{&1, true})
+      end
 
     filtered =
-      Enum.filter(socket.assigns.attr_sets_all, fn s ->
+      Enum.filter(all, fn s ->
         search == "" or
           String.contains?(String.downcase(s.name || ""), search) or
-          String.contains?(String.downcase(s.key || ""), search)
+          String.contains?(String.downcase(s.key || ""), search) or
+          Map.has_key?(by_value, s.uuid)
       end)
 
     total = length(filtered)
@@ -2838,7 +2856,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
                   type="text"
                   name="q"
                   value={@attr_sets_search}
-                  placeholder={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search sets…")}
+                  placeholder={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search sets and values…")}
                   phx-debounce="250"
                   autocomplete="off"
                   spellcheck="false"
