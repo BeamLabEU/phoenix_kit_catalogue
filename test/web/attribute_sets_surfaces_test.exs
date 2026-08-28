@@ -153,6 +153,15 @@ defmodule PhoenixKitCatalogue.Web.AttributeSetsSurfacesTest do
         assert html =~ "(20)"
         assert html =~ "/admin/entities/#{big.name}/data"
 
+        # …and the cap is RESPONSIVE: both tiers ship and CSS picks one,
+        # so a phone never gets a desktop-width chip strip. Table face
+        # 6 (+14) below xl / 12 (+8) from xl; card face 5 (+15) below
+        # sm / 8 (+12) from sm.
+        assert html =~ "hidden xl:inline-flex"
+        assert html =~ "+14"
+        assert html =~ "hidden sm:inline-flex"
+        assert html =~ "+15"
+
         # Items are ONLY a count opening the popup — no name dump at
         # any size (2026-08-28: the count is the button).
         refute html =~ "BigItem 01"
