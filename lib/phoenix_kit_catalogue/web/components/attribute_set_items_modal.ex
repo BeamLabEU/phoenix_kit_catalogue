@@ -51,14 +51,14 @@ defmodule PhoenixKitCatalogue.Web.Components.AttributeSetItemsModal do
   end
 
   @impl true
-  def handle_event("search", %{"q" => q}, socket) do
+  def handle_event("search", %{"q" => q}, socket) when is_binary(q) do
     {:noreply,
      socket
      |> assign(search: String.slice(q, 0, 200), page: 1)
      |> load()}
   end
 
-  def handle_event("page", %{"dir" => dir}, socket) do
+  def handle_event("page", %{"dir" => dir}, socket) when dir in ["prev", "next"] do
     delta = if dir == "next", do: 1, else: -1
 
     {:noreply,
@@ -71,6 +71,10 @@ defmodule PhoenixKitCatalogue.Web.Components.AttributeSetItemsModal do
     send(self(), {:attr_set_items_modal_closed})
     {:noreply, socket}
   end
+
+  # Client-sent payloads, so every event above needs somewhere to land
+  # that isn't a crashed LiveView.
+  def handle_event(_event, _params, socket), do: {:noreply, socket}
 
   defp load(socket) do
     set = socket.assigns.set
@@ -127,12 +131,17 @@ defmodule PhoenixKitCatalogue.Web.Components.AttributeSetItemsModal do
   @impl true
   def render(assigns) do
     ~H"""
-    <div id={@id}>
-      <div class="modal modal-open" role="dialog" aria-modal="true">
+    <div id={@id} phx-window-keydown="close" phx-key="Escape" phx-target={@myself}>
+      <div
+        class="modal modal-open"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={"#{@id}-title"}
+      >
         <div class="modal-box max-w-3xl flex flex-col gap-3">
           <div class="flex items-start justify-between gap-3">
             <div class="min-w-0">
-              <h3 class="font-semibold text-lg truncate">{@set.name}</h3>
+              <h3 id={"#{@id}-title"} class="font-semibold text-lg truncate">{@set.name}</h3>
               <p class="text-xs text-base-content/60 mt-0.5">
                 {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Items")} ({@total})
               </p>
@@ -241,6 +250,7 @@ defmodule PhoenixKitCatalogue.Web.Components.AttributeSetItemsModal do
                 phx-click="page"
                 phx-value-dir="prev"
                 phx-target={@myself}
+                aria-label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Previous page")}
               >
                 «
               </button>
@@ -251,6 +261,7 @@ defmodule PhoenixKitCatalogue.Web.Components.AttributeSetItemsModal do
                 phx-click="page"
                 phx-value-dir="next"
                 phx-target={@myself}
+                aria-label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Next page")}
               >
                 »
               </button>

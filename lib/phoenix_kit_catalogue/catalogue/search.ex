@@ -204,6 +204,42 @@ defmodule PhoenixKitCatalogue.Catalogue.Search do
     end
   end
 
+  @doc """
+  Narrows any query with an `:item` named binding to the items a search
+  term matches — name, description, SKU, and every translated string in
+  the record's `data`.
+
+  Public because the attribute filter's FACET COUNTS have to agree with
+  the list beside them: a value offered as live while a search is on has
+  to still be live under that search, and it can only promise that by
+  asking the same question the listing asks. `nil` or a blank term is
+  "no text constraint" and leaves the query alone.
+
+  Callers pass a raw user string; trimming and LIKE-escaping happen here.
+  """
+  @spec match_text(Ecto.Query.t(), String.t() | nil) :: Ecto.Query.t()
+  def match_text(query, term) do
+    case String.trim(term || "") do
+      "" -> query
+      trimmed -> match_item_text(query, "%#{Helpers.sanitize_like(trimmed)}%")
+    end
+  end
+
+  defp match_item_text(query, pattern) do
+    where(
+      query,
+      [item: i],
+      ilike(i.name, ^pattern) or
+        ilike(i.description, ^pattern) or
+        ilike(i.sku, ^pattern) or
+        fragment(
+          "EXISTS (SELECT 1 FROM jsonb_path_query(?, '$.**') AS v WHERE jsonb_typeof(v) = 'string' AND v #>> '{}' ILIKE ?)",
+          i.data,
+          ^pattern
+        )
+    )
+  end
+
   # Builds the shared base query (joins + status + text-match + scope filters).
   defp search_items_base(query_str, opts) do
     validate_scope_opts!(opts)
@@ -211,7 +247,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Search do
     # Trimmed here, at the shared choke point: several input layers
     # (BrowseState among them) pass the raw string through, and a
     # trailing space must not turn a match into a miss.
-    pattern = "%#{Helpers.sanitize_like(String.trim(query_str))}%"
+    pattern = "%#{Helpers.sanitize_like(String.trim(query_str || ""))}%"
     catalogue_uuids = opts[:catalogue_uuids]
     category_uuids = expand_category_scope(opts)
     only = Keyword.get(opts, :only)
@@ -224,17 +260,9 @@ defmodule PhoenixKitCatalogue.Catalogue.Search do
       left_join: c in Category,
       on: i.category_uuid == c.uuid,
       where: i.status != "deleted" and cat.status != "deleted",
-      where: is_nil(c.uuid) or c.status != "deleted",
-      where:
-        ilike(i.name, ^pattern) or
-          ilike(i.description, ^pattern) or
-          ilike(i.sku, ^pattern) or
-          fragment(
-            "EXISTS (SELECT 1 FROM jsonb_path_query(?, '$.**') AS v WHERE jsonb_typeof(v) = 'string' AND v #>> '{}' ILIKE ?)",
-            i.data,
-            ^pattern
-          )
+      where: is_nil(c.uuid) or c.status != "deleted"
     )
+    |> match_item_text(pattern)
     |> maybe_scope_catalogues(catalogue_uuids)
     |> maybe_scope_categories(category_uuids)
     |> maybe_scope_only(only)
