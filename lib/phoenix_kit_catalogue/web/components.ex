@@ -2280,6 +2280,8 @@ defmodule PhoenixKitCatalogue.Web.Components do
   attr(:highlight_selected, :boolean, default: true)
   attr(:initial_query, :string, default: nil)
   attr(:photo_clickable, :boolean, default: false)
+  attr(:photo_placeholder, :boolean, default: false)
+  attr(:photo_size, :string, default: "w-8 h-8")
 
   def item_picker(assigns) do
     ~H"""
@@ -2305,6 +2307,8 @@ defmodule PhoenixKitCatalogue.Web.Components do
       highlight_selected={@highlight_selected}
       initial_query={@initial_query}
       photo_clickable={@photo_clickable}
+      photo_placeholder={@photo_placeholder}
+      photo_size={@photo_size}
     />
     """
   end

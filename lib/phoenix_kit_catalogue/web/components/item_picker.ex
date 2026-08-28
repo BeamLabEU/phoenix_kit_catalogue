@@ -709,9 +709,10 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
         >
           <.icon
             name="hero-photo"
-            class={
-              "#{@photo_size} shrink-0 rounded object-cover bg-base-200 border border-base-300 p-1.5 opacity-40"
-            }
+            class={[
+              @photo_size,
+              "shrink-0 rounded bg-base-200 border border-base-300 p-1.5 opacity-40"
+            ]}
           />
         </button>
         <div class="relative flex-1">
