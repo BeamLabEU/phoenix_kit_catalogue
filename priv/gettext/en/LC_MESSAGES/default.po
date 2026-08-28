@@ -3026,3 +3026,28 @@ msgstr "Nothing matches this together with the filters already on"
 #, elixir-autogen, elixir-format
 msgid "Showing catalogues that contain matching items."
 msgstr ""
+
+msgid "Attribute set not found."
+msgstr ""
+
+msgid "Multiple values"
+msgstr ""
+
+msgid "Fixed value"
+msgstr ""
+
+msgid "Previous page"
+msgstr ""
+
+msgid "Next page"
+msgstr ""
+
+msgid "Create %{count} unmatched position"
+msgid_plural "Create %{count} unmatched positions"
+msgstr[0] ""
+msgstr[1] ""
+
+msgid "%{count} row skipped"
+msgid_plural "%{count} rows skipped"
+msgstr[0] ""
+msgstr[1] ""

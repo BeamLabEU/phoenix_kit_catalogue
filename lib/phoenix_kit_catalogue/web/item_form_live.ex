@@ -1779,7 +1779,12 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   defp save_item(socket, :new, params, mode) do
     params =
       params
-      |> Map.put_new("catalogue_uuid", socket.assigns.catalogue_uuid)
+      # `put/3`, not `put_new/3`: the catalogue is the SERVER's scope, taken
+      # from the URL, and a client-supplied `catalogue_uuid` in the form
+      # payload must not win it. `:catalogue_uuid` is in the cast allowlist,
+      # so with `put_new` a forged submit could file the record under a
+      # different catalogue than the one being edited.
+      |> Map.put("catalogue_uuid", socket.assigns.catalogue_uuid)
       |> put_manufacturer_source(socket.assigns.manufacturers)
 
     with {:ok, item} <- Catalogue.create_item(params, actor_opts(socket)),
