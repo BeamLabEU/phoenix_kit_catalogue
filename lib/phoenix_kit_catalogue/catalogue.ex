@@ -70,7 +70,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
   }
 
   alias PhoenixKit.Utils.Values
-  alias PhoenixKitCatalogue.Schemas.{Catalogue, Category, Folder, Item}
+  alias PhoenixKitCatalogue.Schemas.{Catalogue, Category, Folder, Item, ItemAttributeSet}
 
   require Logger
 
@@ -972,6 +972,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
     query =
       from(i in Item,
+        as: :item,
         where: i.category_uuid == ^category_uuid,
         offset: ^offset,
         limit: ^limit,
@@ -979,6 +980,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
       )
 
     query
+    |> filter_by_attribute_values(opts)
     |> apply_item_status_filter(opts, mode)
     |> apply_item_order(opts)
     |> repo().all()
@@ -1027,6 +1029,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
     query =
       from(i in Item,
+        as: :item,
         where: i.catalogue_uuid == ^catalogue_uuid and is_nil(i.category_uuid),
         offset: ^offset,
         limit: ^limit,
@@ -1034,6 +1037,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
       )
 
     query
+    |> filter_by_attribute_values(opts)
     |> apply_item_status_filter(opts, mode)
     |> apply_item_order(opts)
     |> repo().all()
@@ -1075,10 +1079,75 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
     query =
       from(i in Item,
+        as: :item,
         where: i.catalogue_uuid == ^catalogue_uuid and is_nil(i.category_uuid)
       )
 
-    query |> apply_item_status_filter(opts, mode) |> repo().aggregate(:count)
+    query
+    |> filter_by_attribute_values(opts)
+    |> apply_item_status_filter(opts, mode)
+    |> repo().aggregate(:count)
+  end
+
+  @doc """
+  Catalogue uuids holding at least one item that carries ALL of the given
+  attribute value slugs — the catalogues index's half of the filter
+  ("which catalogues have blue doors in them?", 2026-08-28).
+
+  Returns `:all` for an empty slug list, so callers can skip filtering
+  without special-casing an empty result.
+  """
+  @spec catalogue_uuids_with_attribute_values([String.t()]) :: :all | MapSet.t(Ecto.UUID.t())
+  def catalogue_uuids_with_attribute_values(slugs) do
+    slugs = slugs |> List.wrap() |> Enum.filter(&(is_binary(&1) and &1 != ""))
+
+    if slugs == [] do
+      :all
+    else
+      from(i in Item, as: :item, where: i.status != "deleted", distinct: true)
+      |> filter_by_attribute_values(value_slugs: slugs)
+      |> select([i], i.catalogue_uuid)
+      |> repo().all()
+      |> MapSet.new()
+    end
+  end
+
+  @doc """
+  Narrows an item query to the items carrying ALL of the given attribute
+  VALUE slugs — "the blue doors", and with two slugs "the blue oak doors"
+  (Max, 2026-08-28).
+
+  The slugs are what an item's attachment row stores in
+  `data["selected_value_slugs"]`, so this reads the selection the item
+  form writes. AND semantics: each slug adds its own EXISTS, because
+  narrowing is what a filter is for — an OR would widen the list as you
+  pick more.
+
+  Pass `value_slugs: [...]` to the paged listings and the counts; an
+  empty list is no filter.
+  """
+  @spec filter_by_attribute_values(Ecto.Query.t(), keyword()) :: Ecto.Query.t()
+  def filter_by_attribute_values(query, opts) do
+    opts
+    |> Keyword.get(:value_slugs, [])
+    |> List.wrap()
+    |> Enum.filter(&(is_binary(&1) and &1 != ""))
+    |> Enum.uniq()
+    |> Enum.reduce(query, fn slug, acc ->
+      # `?` is the JSONB "key/element exists" operator; doubled here
+      # because Ecto reads a single one as a parameter placeholder.
+      from(i in acc,
+        where:
+          exists(
+            from(a in ItemAttributeSet,
+              where: a.item_uuid == parent_as(:item).uuid,
+              where: fragment("jsonb_typeof(? -> 'selected_value_slugs') = 'array'", a.data),
+              where: fragment("? -> 'selected_value_slugs' \\? ?", a.data, ^slug),
+              select: 1
+            )
+          )
+      )
+    end)
   end
 
   @doc """
@@ -1096,9 +1165,12 @@ defmodule PhoenixKitCatalogue.Catalogue do
   def item_count_for_category(category_uuid, opts \\ []) do
     mode = Keyword.get(opts, :mode, :active)
 
-    query = from(i in Item, where: i.category_uuid == ^category_uuid)
+    query = from(i in Item, as: :item, where: i.category_uuid == ^category_uuid)
 
-    query |> apply_item_status_filter(opts, mode) |> repo().aggregate(:count)
+    query
+    |> filter_by_attribute_values(opts)
+    |> apply_item_status_filter(opts, mode)
+    |> repo().aggregate(:count)
   end
 
   @doc """
@@ -5330,6 +5402,10 @@ defmodule PhoenixKitCatalogue.Catalogue do
   defdelegate search_items(query, opts \\ []), to: Search
   defdelegate count_search_items(query, opts \\ []), to: Search
   defdelegate search_items_in_catalogue(catalogue_uuid, query, opts \\ []), to: Search
+
+  defdelegate search_categories(catalogue_uuid, query, opts \\ []), to: Search
+  defdelegate match_search_text(query, term), to: Search, as: :match_text
+  defdelegate category_subtree_uuids(roots), to: Tree, as: :subtree_uuids_for
   defdelegate count_search_items_in_catalogue(catalogue_uuid, query), to: Search
   defdelegate search_items_in_category(category_uuid, query, opts \\ []), to: Search
   defdelegate count_search_items_in_category(category_uuid, query), to: Search
@@ -5415,6 +5491,30 @@ defmodule PhoenixKitCatalogue.Catalogue do
   defdelegate get_attribute_set(uuid, opts \\ []), to: AttributeSets, as: :get_set
   defdelegate update_attribute_set(set, attrs, opts \\ []), to: AttributeSets, as: :update_set
   defdelegate delete_attribute_set(set, opts \\ []), to: AttributeSets, as: :delete_set
+
+  defdelegate attribute_value_match_counts(opts \\ []),
+    to: AttributeSets,
+    as: :value_match_counts
+
+  defdelegate attribute_filter_options(catalogue_uuid, opts \\ []),
+    to: AttributeSets,
+    as: :filter_options
+
+  defdelegate attribute_set_uuids_matching_value(set_uuids, term),
+    to: AttributeSets,
+    as: :set_uuids_matching_value
+
+  defdelegate list_attribute_set_attached_items(set_uuid, opts \\ []),
+    to: AttributeSets,
+    as: :list_attached_items
+
+  defdelegate count_attribute_set_attached_items(set_uuid, opts \\ []),
+    to: AttributeSets,
+    as: :count_attached_items
+
+  defdelegate attribute_set_valid_selection(slugs, resolved_set),
+    to: AttributeSets,
+    as: :valid_selection
 
   defdelegate create_attribute_set_value(set, attrs, opts \\ []),
     to: AttributeSets,
@@ -5516,6 +5616,8 @@ defmodule PhoenixKitCatalogue.Catalogue do
   defdelegate prune_orphan_attribute_set_attachments(set_uuid),
     to: AttributeSets,
     as: :prune_orphan_attachments
+
+  defdelegate attribute_set_value_counts(set_uuids), to: AttributeSets, as: :value_counts
 
   defdelegate attribute_set_attachment_counts(set_uuids),
     to: AttributeSets,

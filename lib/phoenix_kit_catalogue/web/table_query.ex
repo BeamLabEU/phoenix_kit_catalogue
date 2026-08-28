@@ -24,12 +24,48 @@ defmodule PhoenixKitCatalogue.Web.TableQuery do
   @spec search([map()], String.t() | nil, (map() -> String.t() | nil)) :: [map()]
   def search(rows, q, field_fn \\ & &1.name)
 
-  def search(rows, q, field_fn) when is_binary(q) and q != "" do
-    needle = String.downcase(q)
-    Enum.filter(rows, fn r -> String.contains?(String.downcase(field_fn.(r) || ""), needle) end)
+  def search(rows, q, field_fn) when is_binary(q) do
+    # Trimmed: a trailing space must not turn a match into a miss
+    # (Max, 2026-08-28), and an all-space query means "no filter".
+    case q |> String.trim() |> String.downcase() do
+      "" ->
+        rows
+
+      needle ->
+        Enum.filter(rows, fn r ->
+          String.contains?(String.downcase(field_fn.(r) || ""), needle) or
+            translation_matches?(r, needle)
+        end)
+    end
   end
 
   def search(rows, _, _), do: rows
+
+  # Rows carry the row's own `:data` JSONB, which is where translations
+  # live (`%{"et" => %{"_name" => "Köögisari"}}`). Only the VALUES count:
+  # JSON-encoding the map and searching that matched KEY names too, so
+  # "Plumbing" came back for the query "a" — its data holds the key
+  # `_name` (Max, 2026-08-28). On real data, "a" matched 7 of 26 items
+  # that way against 3 by value.
+  defp translation_matches?(row, needle) do
+    case Map.get(row, :data) do
+      data when is_map(data) and map_size(data) > 0 ->
+        data |> string_values() |> Enum.any?(&String.contains?(String.downcase(&1), needle))
+
+      _ ->
+        false
+    end
+  end
+
+  # Every string leaf, whatever the shape nests into.
+  defp string_values(value) when is_binary(value), do: [value]
+
+  defp string_values(value) when is_map(value),
+    do: value |> Map.values() |> Enum.flat_map(&string_values/1)
+
+  defp string_values(value) when is_list(value), do: Enum.flat_map(value, &string_values/1)
+
+  defp string_values(_other), do: []
 
   @spec filter([map()], TableConfig.scope(), map()) :: [map()]
   def filter(rows, scope, filters) when is_map(filters) do

@@ -38,7 +38,9 @@ defmodule PhoenixKitCatalogue.Web.EventsLive do
        total: 0,
        page: 1,
        has_more: false,
-       loading: false,
+       # Starts true: nothing loads until the connected mount, and the
+       # dead render must not claim "No events recorded yet".
+       loading: true,
        filter_action: nil,
        filter_resource_type: nil,
        action_types: [],
@@ -279,7 +281,7 @@ defmodule PhoenixKitCatalogue.Web.EventsLive do
     <div class="flex flex-col w-full px-4 py-6 gap-4">
       <%!-- Filters --%>
       <div class="bg-base-200 rounded-lg p-3">
-        <.form for={%{}} phx-change="filter" class="flex flex-wrap gap-3 items-end">
+        <.form for={%{}} id="events-filter" phx-change="filter" class="flex flex-wrap gap-3 items-end">
           <div class="fieldset">
             <.select
               name="filter[action]"
@@ -376,6 +378,14 @@ defmodule PhoenixKitCatalogue.Web.EventsLive do
           </div>
         </div>
       </div>
+
+      <%!-- Initial-load skeleton (dead render / first connected pass) --%>
+      <%= if @total == 0 and @loading do %>
+        <div class="flex flex-col gap-3 py-4" aria-busy="true">
+          <div class="skeleton h-12 w-full"></div>
+          <div class="skeleton h-12 w-full"></div>
+        </div>
+      <% end %>
 
       <%!-- Empty state --%>
       <%= if @total == 0 and not @loading do %>

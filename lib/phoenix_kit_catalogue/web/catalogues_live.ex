@@ -14,7 +14,10 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       # The drilled folder is URL state (?folder=<uuid>), mirroring the
       # detail page's ?category= — shareable, Back-friendly, reload-safe.
       # "" (absent) = top level.
-      current_folder: [default: "", url_key: "folder"]
+      current_folder: [default: "", url_key: "folder"],
+      # Attribute VALUE slugs, comma-joined — here they narrow to the
+      # catalogues CONTAINING such items (2026-08-28).
+      attribute_filter: [default: "", url_key: "attr"]
     ]
 
   use Gettext, backend: PhoenixKitCatalogue.Gettext
@@ -34,10 +37,12 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   import PhoenixKitCatalogue.Web.Helpers,
     only: [actor_opts: 1, actor_uuid: 1, log_operation_error: 3, status_label: 1]
 
+  alias PhoenixKit.Utils.Routes, as: KitRoutes
   alias PhoenixKitCatalogue.Catalogue
   alias PhoenixKitCatalogue.Catalogue.PubSub
   alias PhoenixKitCatalogue.Errors
   alias PhoenixKitCatalogue.Paths
+  alias PhoenixKitCatalogue.Web.Components.AttributeSetItemsModal
   alias PhoenixKitCatalogue.Web.{TableConfig, TableQuery, ViewConfig}
 
   # PhoenixKit auto-applies its admin chrome layout to external module admin
@@ -71,6 +76,28 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
        catalogue_rows: [],
        attribute_group_rows: [],
        attribute_set_rows: [],
+       # False until the CONNECTED mount's load: data is deliberately
+       # deferred off the static HTTP render (whole-LV pattern), and the
+       # in-between must render a skeleton — showing either system's
+       # empty state before anything loaded is a false statement (the
+       # legacy "No attribute groups yet" flashed here; Max, 2026-08-27).
+       attr_tab_loaded: false,
+       # Same flag for the catalogues tab — "No catalogues yet." used to
+       # flash on the dead render for the same reason.
+       index_loaded: false,
+       attr_sets_all: [],
+       attr_sets_search: "",
+       attr_sets_page: 1,
+       attr_sets_total: 0,
+       attr_sets_max_page: 1,
+       show_new_set_modal: false,
+       attribute_filter_options: [],
+       attribute_value_counts: %{},
+       attribute_allowed: :all,
+       # Module-wide view preference (ViewConfig moduledoc) — the
+       # attributes tab reads the same value the catalogues table does.
+       view_mode: ViewConfig.load_view(socket.assigns[:phoenix_kit_current_user]),
+       items_modal_set: nil,
        sets_enabled: false,
        confirm_delete: nil,
        catalogue_view_mode: "active",
@@ -129,6 +156,10 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   # Backstop legacy migration, deferred off the render path by
   # maybe_auto_migrate_legacy/1 (which has already flipped the
   # once-per-process flag, so the reload below cannot loop).
+  def handle_info({:attr_set_items_modal_closed}, socket) do
+    {:noreply, assign(socket, :items_modal_set, nil)}
+  end
+
   def handle_info(:auto_migrate_legacy, socket) do
     Catalogue.auto_migrate_attribute_groups()
     {:noreply, load_data(socket, :attribute_groups)}
@@ -210,13 +241,18 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       socket
       |> assign(:active_tab, action)
       |> assign(:page_title, tab_title(action))
+      |> assign(:attribute_filter, state.attribute_filter)
       |> assign(:view_configs, Map.put(socket.assigns.view_configs, scope, cfg))
 
     socket =
       if tab_changed? do
         load_data(socket, action)
       else
-        socket
+        # The matching catalogue set and the facet counts are QUERIES, so
+        # they are resolved once per URL change rather than per render —
+        # `?attr=` and `?q=` both move them. A tab change went through
+        # `load_data`, which ends by doing this itself.
+        refresh_attribute_scope(socket)
       end
 
     # Expansion AFTER load_data: on a deep link the first call is also
@@ -361,6 +397,12 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         folder_options: folder_options(active_tree)
       )
       |> drop_stale_folder_filter(folder_lookup)
+      |> assign(
+        :attribute_filter_options,
+        Catalogue.attribute_filter_options(:all, lang: socket.assigns[:current_locale])
+      )
+      |> refresh_attribute_scope()
+      |> assign(:index_loaded, true)
     else
       socket
     end
@@ -386,44 +428,260 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
 
       socket
       |> assign(:attribute_group_rows, rows)
+      |> assign(:attr_tab_loaded, true)
       |> load_attribute_sets()
     else
       socket
     end
   end
 
-  defp set_kind_label("fixed"), do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Fixed value")
+  # "Show limit, elide the rest" — EXCEPT when exactly one would be
+  # hidden: "and 1 more" wastes the very space it saves.
+  # Everything the attribute filter derives from the rows, recomputed
+  # wherever the rows are. Kept together because they must not drift
+  # apart: `attribute_allowed` decides which catalogues survive the
+  # filter, and the counts decide which values are still offered. A
+  # PubSub refresh used to reload the rows and leave both behind, so a
+  # catalogue whose last matching item had just been edited elsewhere
+  # stayed on screen.
+  defp refresh_attribute_scope(socket) do
+    slugs = active_attribute_slugs(socket.assigns)
+    cfg = Map.fetch!(socket.assigns.view_configs, :catalogues)
 
-  defp set_kind_label(_multi),
-    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Multiple values")
+    # Which catalogues the list is showing BEFORE the attribute filter —
+    # the folder, the search and the status tab all narrow it. Counting
+    # across every catalogue instead offers values that live somewhere
+    # the user cannot currently see, and picking one empties the list.
+    eligible =
+      socket.assigns.catalogue_rows
+      |> do_derive_rows(:catalogues, cfg)
+      |> Enum.map(& &1.uuid)
+
+    socket
+    |> assign(:attribute_allowed, Catalogue.catalogue_uuids_with_attribute_values(slugs))
+    |> assign(
+      :attribute_value_counts,
+      Catalogue.attribute_value_match_counts(
+        count: :catalogues,
+        catalogue_uuids: eligible,
+        value_slugs: slugs
+      )
+    )
+  end
+
+  # The index's trash lists DELETED catalogues, whose items are deleted
+  # with them — no attribute matches anything there. Same rule as the
+  # detail page's Deleted tab: not applied, not offered, and `?attr=`
+  # survives in the URL for the trip back.
+  defp active_attribute_slugs(%{catalogue_view_mode: "deleted"}), do: []
+  defp active_attribute_slugs(assigns), do: attribute_filter_slugs(assigns)
+
+  defp elide_cap(count, limit) when count <= limit + 1, do: limit + 1
+  defp elide_cap(_count, limit), do: limit
+
+  attr(:set, :map, required: true)
+  attr(:limit, :integer, required: true)
+  attr(:narrow_limit, :integer, required: true)
+  attr(:narrow_only_class, :string, required: true)
+  attr(:wide_only_class, :string, required: true)
+
+  # Chips are a HINT; the count is the number. "+N" navigates to the
+  # entities values page — expansion-in-place at a thousand values is how
+  # the old page melted.
+  #
+  # The cap is RESPONSIVE (Max, 2026-08-28 — "don't forget phones"): a
+  # wide table cell fits twice what a phone-width card does, so chips
+  # past `narrow_limit` carry a breakpoint class and EACH tier gets its
+  # own "+N" — CSS picks one, both ship. The classes arrive as literals
+  # from the call sites: Tailwind never sees a string built at runtime,
+  # so a computed "#{bp}:hidden" would compile to nothing.
+  defp attr_set_values_cell(assigns) do
+    # Never elide exactly one: at limit + 1 the extra chip costs less
+    # than a "+1" (Max, 2026-08-28). The fetch is one past the widest
+    # face's limit, so the extra chip is always on hand.
+    count = assigns.set.value_count
+
+    assigns =
+      assign(assigns,
+        cap: elide_cap(count, assigns.limit),
+        narrow_cap: elide_cap(count, assigns.narrow_limit)
+      )
+
+    ~H"""
+    <div class="flex flex-wrap items-center gap-1">
+      <span
+        :for={{v, i} <- Enum.with_index(Enum.take(@set.values, @cap))}
+        class={["badge badge-outline badge-sm", i >= @narrow_cap && @wide_only_class]}
+      >
+        {v.title}
+      </span>
+      <.link
+        :if={@set.value_count > @narrow_cap}
+        navigate={KitRoutes.path("/admin/entities/#{@set.key}/data")}
+        class={["badge badge-ghost badge-sm link link-hover", @narrow_only_class]}
+      >
+        +{@set.value_count - @narrow_cap}
+      </.link>
+      <.link
+        :if={@set.value_count > @cap}
+        navigate={KitRoutes.path("/admin/entities/#{@set.key}/data")}
+        class={["badge badge-ghost badge-sm link link-hover", @wide_only_class]}
+      >
+        +{@set.value_count - @cap}
+      </.link>
+      <span :if={@set.value_count == 0} class="text-sm text-base-content/50">
+        {Gettext.gettext(PhoenixKitCatalogue.Gettext, "No values yet")}
+      </span>
+      <span :if={@set.value_count > 0} class="text-xs text-base-content/40">
+        ({@set.value_count})
+      </span>
+    </div>
+    """
+  end
+
+  attr(:set, :map, required: true)
+
+  # The count IS the button (Max, 2026-08-28): it opens the per-set
+  # items popup — the set-scoped search surface the old comment said
+  # didn't exist yet.
+  defp attr_set_items_cell(assigns) do
+    ~H"""
+    <button
+      :if={@set.item_count > 0}
+      type="button"
+      phx-click="open_set_items_modal"
+      phx-value-uuid={@set.uuid}
+      class="btn btn-ghost btn-xs font-medium"
+      title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "View items")}
+    >
+      {@set.item_count}
+    </button>
+    <span :if={@set.item_count == 0} class="text-sm text-base-content/40 px-2">0</span>
+    """
+  end
+
+  attr(:set, :map, required: true)
+  attr(:suffix, :string, required: true, doc: "table and card render the SAME row — distinct ids")
+
+  defp attr_set_menu(assigns) do
+    ~H"""
+    <.table_row_menu mode="auto" id={"attr-set-menu-#{@suffix}-#{@set.uuid}"}>
+      <.table_row_menu_button
+        :if={@set.item_count > 0}
+        icon="hero-eye"
+        label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "View items")}
+        phx-click="open_set_items_modal"
+        phx-value-uuid={@set.uuid}
+      />
+      <.table_row_menu_link
+        navigate={KitRoutes.path("/admin/entities/#{@set.key}/data")}
+        icon="hero-pencil-square"
+        label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit values")}
+      />
+      <.table_row_menu_link
+        navigate={KitRoutes.path("/admin/entities/#{@set.uuid}/edit")}
+        icon="hero-cog-6-tooth"
+        label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Set settings")}
+      />
+    </.table_row_menu>
+    """
+  end
 
   # The SETS half of the attributes tab (2026-08-18 rework). With sets
   # live there is NO legacy UI — any remaining legacy groups are
   # auto-migrated here (backstopping the boot-time run; idempotent and
   # non-raising), then only sets render. A handful of sets on an admin
   # page, so the per-set value listing is fine.
+  @attr_sets_page_size 25
+  @attr_value_preview 13
+
   defp load_attribute_sets(socket) do
     if Catalogue.attribute_sets_enabled?() do
       socket = maybe_auto_migrate_legacy(socket)
-      sets = Catalogue.list_attribute_sets(lang: socket.assigns[:current_locale])
-      counts = Catalogue.attribute_set_attachment_counts(Enum.map(sets, & &1.uuid))
 
-      rows =
-        Enum.map(sets, fn s ->
+      # One lean in-memory list (blueprints are entities-module rows we
+      # don't own, so no SQL paging) — search/page/derive below, and all
+      # counts/previews are fetched for the VISIBLE PAGE only. At a
+      # thousand sets the old shape (full values + full attachments per
+      # set) was both an N+1 and an unbounded DOM.
+      all =
+        Catalogue.list_attribute_sets(lang: socket.assigns[:current_locale])
+        |> Enum.map(fn s ->
           %{
             uuid: s.uuid,
             name: s.display_name,
-            key: s.name,
-            kind: Catalogue.attribute_set_kind(s),
-            value_count: length(Catalogue.list_attribute_set_values(s)),
-            item_count: Map.get(counts, s.uuid, 0)
+            key: s.name
           }
         end)
 
-      assign(socket, sets_enabled: true, attribute_set_rows: rows)
+      socket
+      |> assign(sets_enabled: true, attr_sets_all: all)
+      |> derive_attribute_sets_page()
     else
-      assign(socket, sets_enabled: false, attribute_set_rows: [])
+      assign(socket,
+        sets_enabled: false,
+        attr_sets_all: [],
+        attribute_set_rows: [],
+        attr_sets_total: 0,
+        attr_sets_max_page: 1
+      )
     end
+  end
+
+  defp derive_attribute_sets_page(socket) do
+    locale = socket.assigns[:current_locale]
+    search = socket.assigns.attr_sets_search |> String.trim() |> String.downcase()
+    all = socket.assigns.attr_sets_all
+
+    # A set is found by its own name/slug OR by what is IN it — typing
+    # "oak" should reach the color set (Max, 2026-08-28). The value
+    # match is ONE batched query over the (already loaded) set uuids,
+    # run only when there is a term; the name match stays in memory.
+    # A plain map, not a MapSet: MapSet is opaque and dialyzer reads the
+    # two branches as different internal shapes (`call_without_opaque`).
+    by_value =
+      if search == "" do
+        %{}
+      else
+        all
+        |> Enum.map(& &1.uuid)
+        |> Catalogue.attribute_set_uuids_matching_value(search)
+        |> Map.new(&{&1, true})
+      end
+
+    filtered =
+      Enum.filter(all, fn s ->
+        search == "" or
+          String.contains?(String.downcase(s.name || ""), search) or
+          String.contains?(String.downcase(s.key || ""), search) or
+          Map.has_key?(by_value, s.uuid)
+      end)
+
+    total = length(filtered)
+    max_page = max(ceil(total / @attr_sets_page_size), 1)
+    page = socket.assigns.attr_sets_page |> max(1) |> min(max_page)
+    page_rows = Enum.slice(filtered, (page - 1) * @attr_sets_page_size, @attr_sets_page_size)
+
+    uuids = Enum.map(page_rows, & &1.uuid)
+    value_counts = Catalogue.attribute_set_value_counts(uuids)
+    item_counts = Catalogue.attribute_set_attachment_counts(uuids)
+
+    rows =
+      Enum.map(page_rows, fn s ->
+        Map.merge(s, %{
+          values:
+            Catalogue.list_attribute_set_values(s.uuid, lang: locale, limit: @attr_value_preview),
+          value_count: Map.get(value_counts, s.uuid, 0),
+          item_count: Map.get(item_counts, s.uuid, 0)
+        })
+      end)
+
+    assign(socket,
+      attribute_set_rows: rows,
+      attr_sets_total: total,
+      attr_sets_page: page,
+      attr_sets_max_page: max_page
+    )
   end
 
   # Once per LV process — reloads (PubSub, tab switches) don't rescan.
@@ -902,23 +1160,35 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       data-tree-uuid={@c_row.uuid}
       data-tree-type="catalogue"
       data-tree-parent={@parent_key}
-      class="card card-sm bg-base-200 shadow-sm"
+      class="card card-sm bg-base-200 shadow-sm overflow-hidden"
     >
+      <%!-- Same band as every other card in the module (boss via Max,
+            2026-08-28): the picture leads, and the drag handle rides in
+            its corner the way the categories grid does it. --%>
+      <figure class={card_media_band()}>
+        <.card_media
+          resource={@c_row}
+          has_files={Map.get(@ctx.file_counts, @c_row.uuid, 0) > 0}
+          placeholder_icon="hero-book-open"
+        >
+          <:overlay>
+            <span
+              data-tree-item={"catalogue:" <> @c_row.uuid}
+              class="pk-drag-handle cursor-grab active:cursor-grabbing absolute top-1.5 right-1.5 rounded bg-base-100/80 p-0.5 text-base-content/50 hover:text-base-content/80"
+              title={
+                Gettext.gettext(
+                  PhoenixKitCatalogue.Gettext,
+                  "Drag to reorder or move into a folder"
+                )
+              }
+            >
+              <.icon name="hero-bars-3" class="w-4 h-4" />
+            </span>
+          </:overlay>
+        </.card_media>
+      </figure>
       <div class="card-body gap-2">
         <div class="flex items-center gap-2 min-w-0">
-          <span
-            data-tree-item={"catalogue:" <> @c_row.uuid}
-            class="cursor-grab active:cursor-grabbing text-base-content/40 shrink-0"
-            title={
-              Gettext.gettext(PhoenixKitCatalogue.Gettext, "Drag to reorder or move into a folder")
-            }
-          >
-            <.icon name="hero-bars-3" class="w-4 h-4" />
-          </span>
-          <.featured_thumb
-            resource={@c_row}
-            has_files={Map.get(@ctx.file_counts, @c_row.uuid, 0) > 0}
-          />
           <.link
             navigate={Paths.catalogue_detail(@c_row.uuid)}
             draggable="false"
@@ -964,45 +1234,6 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
           </.table_row_menu>
         </div>
       </div>
-    </div>
-    """
-  end
-
-  attr(:view, :string, required: true)
-  attr(:class, :any, default: nil)
-
-  # Same three-way switcher table_default renders, for surfaces that
-  # aren't inside a table_default (the card-level grid).
-  defp catalogues_view_toggle(assigns) do
-    ~H"""
-    <div class={["join inline-flex", @class]}>
-      <button
-        type="button"
-        phx-click="set_view"
-        phx-value-mode="card"
-        class={["btn btn-sm join-item", @view == "card" && "btn-active"]}
-        title={gettext("Card view")}
-      >
-        <.icon name="hero-squares-2x2" class="w-4 h-4" />
-      </button>
-      <button
-        type="button"
-        phx-click="set_view"
-        phx-value-mode="comfy"
-        class={["btn btn-sm join-item", @view == "comfy" && "btn-active"]}
-        title={gettext("Comfortable view")}
-      >
-        <.icon name="hero-bars-3" class="w-4 h-4" />
-      </button>
-      <button
-        type="button"
-        phx-click="set_view"
-        phx-value-mode="table"
-        class={["btn btn-sm join-item", @view == "table" && "btn-active"]}
-        title={gettext("Compact view")}
-      >
-        <.icon name="hero-bars-4" class="w-4 h-4" />
-      </button>
     </div>
     """
   end
@@ -1906,57 +2137,6 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     end
   end
 
-  def handle_event("delete_attribute_set", _params, socket) do
-    case socket.assigns.confirm_delete do
-      {"attribute_set", uuid} ->
-        with %{} = set <- Catalogue.get_attribute_set(uuid),
-             {:ok, _} <- Catalogue.delete_attribute_set(set, actor_opts(socket)) do
-          {:noreply,
-           socket
-           |> put_flash(
-             :info,
-             Gettext.gettext(PhoenixKitCatalogue.Gettext, "Attribute set deleted.")
-           )
-           |> assign(:confirm_delete, nil)
-           |> load_data(:attribute_groups)}
-        else
-          nil ->
-            {:noreply, assign(socket, :confirm_delete, nil)}
-
-          {:error, :set_in_use} ->
-            {:noreply,
-             socket
-             |> put_flash(
-               :error,
-               Gettext.gettext(
-                 PhoenixKitCatalogue.Gettext,
-                 "This set is attached to items — detach it everywhere first."
-               )
-             )
-             |> assign(:confirm_delete, nil)}
-
-          {:error, reason} ->
-            log_operation_error(socket, "delete_attribute_set", %{
-              entity_type: "attribute_set",
-              entity_uuid: uuid,
-              reason: reason
-            })
-
-            {:noreply,
-             socket
-             |> put_flash(
-               :error,
-               Gettext.gettext(PhoenixKitCatalogue.Gettext, "Failed to delete attribute set.")
-             )
-             |> assign(:confirm_delete, nil)}
-        end
-
-      _ ->
-        unexpected_confirm_event(socket, "delete_attribute_set")
-    end
-  end
-
-  # Archive / restore straight from the row menu — reversible, no confirm.
   def handle_event("set_attribute_group_status", %{"uuid" => uuid, "status" => status}, socket)
       when status in ["active", "archived"] do
     with %{} = group <- Catalogue.get_attribute_group(uuid),
@@ -2173,15 +2353,111 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     end
   end
 
-  def handle_event("set_view", %{"mode" => v}, socket) when v in ["table", "card", "comfy"] do
-    scope = active_scope(socket.assigns)
-    {:noreply, put_cfg(socket, scope, %{current_cfg(socket.assigns) | view: v})}
+  # Guarded and given catch-alls: every payload below arrives from the
+  # client and can be anything. A non-string `q` used to raise inside
+  # String.slice/3 and a missing key matched no clause at all — both take
+  # the whole LiveView down, and neither needs an attacker to happen.
+  def handle_event("attr_sets_search", %{"q" => q}, socket) when is_binary(q) do
+    {:noreply,
+     socket
+     |> assign(attr_sets_search: String.slice(q, 0, 200), attr_sets_page: 1)
+     |> derive_attribute_sets_page()}
   end
+
+  def handle_event("attr_sets_search", _params, socket), do: {:noreply, socket}
+
+  def handle_event("attr_sets_page", %{"dir" => dir}, socket) when dir in ["prev", "next"] do
+    delta = if dir == "next", do: 1, else: -1
+
+    {:noreply,
+     socket
+     |> assign(:attr_sets_page, socket.assigns.attr_sets_page + delta)
+     |> derive_attribute_sets_page()}
+  end
+
+  def handle_event("attr_sets_page", _params, socket), do: {:noreply, socket}
+
+  def handle_event("open_set_items_modal", %{"uuid" => uuid}, socket) when is_binary(uuid) do
+    set = Enum.find(socket.assigns.attr_sets_all, &(&1.uuid == uuid))
+    {:noreply, assign(socket, :items_modal_set, set)}
+  end
+
+  def handle_event("open_set_items_modal", _params, socket), do: {:noreply, socket}
+
+  def handle_event("open_new_set_modal", _params, socket),
+    do: {:noreply, assign(socket, :show_new_set_modal, true)}
+
+  def handle_event("close_new_set_modal", _params, socket),
+    do: {:noreply, assign(socket, :show_new_set_modal, false)}
+
+  # Creation is the one write kept on this tab (catalogue must stamp its
+  # managed_by settings; entities knows nothing about catalogue). The
+  # dialog asks for a NAME only: kind was a mandatory immutable choice
+  # that no runtime behavior consumes (Max dropped it, 2026-08-27) — it
+  # defaults to "multi" in create_set, and the variants feature that one
+  # day needs the distinction will design its own home for it. The
+  # handoff lands on the NEW-VALUE form, not the blueprint editor: a
+  # fresh set's next step is adding values.
+  def handle_event("create_attribute_set", %{"name" => name}, socket) when is_binary(name) do
+    case Catalogue.create_attribute_set(%{name: name}, actor_opts(socket)) do
+      {:ok, set} ->
+        {:noreply,
+         push_navigate(socket,
+           to: KitRoutes.path("/admin/entities/#{set.name}/data/new")
+         )}
+
+      {:error, reason} ->
+        message =
+          case reason do
+            %Ecto.Changeset{} ->
+              Gettext.gettext(
+                PhoenixKitCatalogue.Gettext,
+                "Could not create the set — check the name."
+              )
+
+            _ ->
+              Gettext.gettext(PhoenixKitCatalogue.Gettext, "Could not create the set.")
+          end
+
+        {:noreply, socket |> put_flash(:error, message) |> assign(:show_new_set_modal, false)}
+    end
+  end
+
+  def handle_event("create_attribute_set", _params, socket), do: {:noreply, socket}
+
+  # The view is module-wide, not per scope (ViewConfig moduledoc): saving
+  # it here and reflecting it into EVERY loaded scope's cfg is what makes
+  # the choice survive a jump to another page.
+  def handle_event("set_view", %{"mode" => v}, socket) when v in ["table", "card", "comfy"] do
+    socket = ViewConfig.save_view_on(socket, v)
+
+    configs =
+      Map.new(socket.assigns.view_configs, fn {scope, cfg} -> {scope, %{cfg | view: v}} end)
+
+    {:noreply, socket |> assign(:view_configs, configs) |> assign(:view_mode, v)}
+  end
+
+  # Client-forgeable payload: an unknown mode is ignored, not a crash.
+  def handle_event("set_view", _params, socket), do: {:noreply, socket}
 
   # Transient per-scope text search — NOT persisted via put_cfg. The URL
   # carries the active scope via the route path, so a single ?q= is
   # unambiguous. UrlState calls handle_url_state which syncs q into
   # view_configs[scope].search for derive_rows.
+  def handle_event("toggle_attribute_filter", %{"slug" => slug}, socket) when is_binary(slug) do
+    current = attribute_filter_slugs(socket.assigns)
+
+    next = if slug in current, do: List.delete(current, slug), else: current ++ [slug]
+
+    {:noreply, push_url_state(socket, attribute_filter: Enum.join(next, ","))}
+  end
+
+  def handle_event("toggle_attribute_filter", _params, socket), do: {:noreply, socket}
+
+  def handle_event("clear_attribute_filter", _params, socket) do
+    {:noreply, push_url_state(socket, attribute_filter: "")}
+  end
+
   def handle_event("table_search", %{"query" => q}, socket) do
     {:noreply, push_url_state(socket, [search_query: q], replace: true)}
   end
@@ -2196,7 +2472,30 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   end
 
   # Apply search/filter/sort to a raw list for a scope.
-  defp derive_rows(rows, scope, cfg) do
+  # The catalogue rows the attribute filter allows — every layout (tree,
+  # card level, flat table) reads this rather than @catalogue_rows, so
+  # one filter narrows all three.
+  defp visible_catalogue_rows(assigns),
+    do: keep_allowed_catalogues(assigns.catalogue_rows, :catalogues, assigns.attribute_allowed)
+
+  # Catalogue rows first pass the attribute filter — "the catalogues with
+  # blue doors in them" — then the usual search/sort/filters.
+  defp derive_rows(rows, scope, cfg, allowed \\ :all)
+
+  defp derive_rows(rows, scope, cfg, allowed) do
+    rows
+    |> keep_allowed_catalogues(scope, allowed)
+    |> then(&do_derive_rows(&1, scope, cfg))
+  end
+
+  defp keep_allowed_catalogues(rows, _scope, :all), do: rows
+
+  defp keep_allowed_catalogues(rows, :catalogues, allowed),
+    do: Enum.filter(rows, &MapSet.member?(allowed, &1.uuid))
+
+  defp keep_allowed_catalogues(rows, _scope, _allowed), do: rows
+
+  defp do_derive_rows(rows, scope, cfg) do
     TableQuery.apply(rows, scope, %{
       search: cfg[:search] || "",
       filters: cfg.filters,
@@ -2334,7 +2633,12 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     >
       <div class="flex flex-col w-full px-4 py-6 gap-6">
         <%!-- Catalogue tab content --%>
-        <div :if={@active_tab == :index} class="flex flex-col gap-4">
+        <div :if={@active_tab == :index and !@index_loaded} class="flex flex-col gap-3" aria-busy="true">
+          <div class="skeleton h-8 w-64"></div>
+          <div class="skeleton h-24 w-full"></div>
+          <div class="skeleton h-24 w-full"></div>
+        </div>
+        <div :if={@active_tab == :index and @index_loaded} class="flex flex-col gap-4">
           <% cfg = @view_configs.catalogues %>
           <.table_toolbar
             scope={:catalogues}
@@ -2342,7 +2646,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
             allow_flat_reorder={@folder_tree == []}
           >
             <:view_toggle>
-              <.catalogues_view_toggle view={cfg.view} />
+              <.view_toggle view={cfg.view} />
             </:view_toggle>
             <:filters>
               <.enum_filter
@@ -2358,6 +2662,16 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
                 value={cfg.filters["status"]}
                 prompt={Gettext.gettext(PhoenixKitCatalogue.Gettext, "All statuses")}
                 options={TableQuery.enum_options(@catalogue_rows, :catalogues, "status")}
+              />
+              <%!-- Same control as the detail page's, meaning the same
+                    thing one level up: the catalogues that CONTAIN items
+                    carrying these values (Max, 2026-08-28). Absent when
+                    no catalogue uses attributes at all. --%>
+              <.attribute_filter
+                :if={@attribute_filter_options != [] and @catalogue_view_mode == "active"}
+                options={@attribute_filter_options}
+                selected={active_attribute_slugs(assigns)}
+                counts={@attribute_value_counts}
               />
             </:filters>
             <:actions>
@@ -2390,6 +2704,16 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
             class="text-xs text-base-content/50"
           >
             {gettext("Clear search and filters to see the folder tree.")}
+          </p>
+          <%!-- This page lists CATALOGUES, but search and the attribute
+               filter both match ITEMS. Max read a result here as "why is
+               it showing me a catalogue?" — so say which question the
+               list is answering whenever an item-level filter is on. --%>
+          <p
+            :if={attribute_filter_slugs(assigns) != [] and @catalogue_view_mode == "active"}
+            class="text-xs text-base-content/50"
+          >
+            {gettext("Showing catalogues that contain matching items.")}
           </p>
           <.deleted_folders_list
             :if={@catalogue_view_mode == "deleted" and @folder_tree_deleted != []}
@@ -2439,7 +2763,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
             rows={
               build_catalogue_tree_rows(
                 @folder_tree,
-                @catalogue_rows,
+                visible_catalogue_rows(assigns),
                 @expanded_folders,
                 current_tree_folder(cfg, @folder_lookup)
               )
@@ -2451,7 +2775,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
           <.catalogues_card_level
             :if={card_level?}
             folder_tree={@folder_tree}
-            catalogue_rows={@catalogue_rows}
+            catalogue_rows={visible_catalogue_rows(assigns)}
             cfg={cfg}
             current={current_tree_folder(cfg, @folder_lookup)}
             renaming_folder={@renaming_folder}
@@ -2463,8 +2787,8 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
             cfg={cfg}
             show_view_toggle={false}
             file_counts={@catalogue_file_counts}
-            rows={derive_rows(@catalogue_rows, :catalogues, cfg)}
-            total={length(@catalogue_rows)}
+            rows={derive_rows(visible_catalogue_rows(assigns), :catalogues, cfg)}
+            total={length(visible_catalogue_rows(assigns))}
             empty={Gettext.gettext(PhoenixKitCatalogue.Gettext, "No catalogues yet.")}
             draggable={manual_order_draggable?(@catalogue_view_mode, cfg)}
           >
@@ -2581,79 +2905,241 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
 
 
       <div :if={@active_tab == :attribute_groups} class="flex flex-col gap-4">
+        <.live_component
+          :if={@items_modal_set}
+          module={AttributeSetItemsModal}
+          id={"attr-set-items-modal-#{@items_modal_set.uuid}"}
+          set={@items_modal_set}
+          locale={@current_locale}
+        />
         <%!-- SETS (2026-08-18 rework) — the primary system once entities
              is enabled. One dimension from one vendor per set; managed
              blueprints under the hood. --%>
-        <div :if={@sets_enabled} class="flex flex-col gap-3">
+        <%!-- VIEWER ONLY (2026-08-27 direction): sets and the items
+             they're attached to are read here; ALL editing — names,
+             values, images, deletion — happens in the entities module,
+             where these managed blueprints are now first-class. The one
+             affordance kept is creation: catalogue must stamp its
+             ownership settings, so "New set" collects a name and hands
+             straight off to the entities editor. Kind (fixed/multi) is
+             still STORED (default "multi") but deliberately hidden from
+             every surface until something consumes it — Max, 2026-08-27:
+             it may return when client-facing pickers need to know
+             one-choice vs many. --%>
+        <div :if={!@attr_tab_loaded} class="flex flex-col gap-3" aria-busy="true">
+          <div class="skeleton h-8 w-64"></div>
+          <div class="skeleton h-24 w-full"></div>
+          <div class="skeleton h-24 w-full"></div>
+        </div>
+
+        <div :if={@attr_tab_loaded and @sets_enabled} class="flex flex-col gap-3">
           <div class="flex items-center justify-between gap-4">
             <div class="flex flex-col gap-0.5 min-w-0">
               <h3 class="font-semibold text-base flex items-center gap-2">
                 <.icon name="hero-swatch" class="w-4 h-4 text-base-content/60" />
                 {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Attribute sets")}
               </h3>
-              <p class="text-xs text-base-content/50">
+              <p class="text-sm text-base-content/60">
                 {Gettext.gettext(
                   PhoenixKitCatalogue.Gettext,
-                  "One dimension from one vendor — Ikea colors, HomeDepot trims. Items attach any number of sets."
+                  "One dimension from one vendor — a color range, a trim series. Items attach any number of sets. Sets are edited in the Entities module."
                 )}
               </p>
             </div>
-            <.link navigate={Paths.attribute_set_new()} class="btn btn-primary btn-sm shrink-0">
+            <button type="button" phx-click="open_new_set_modal" class="btn btn-primary btn-sm shrink-0">
               <.icon name="hero-plus" class="w-4 h-4" />
               {Gettext.gettext(PhoenixKitCatalogue.Gettext, "New Set")}
-            </.link>
+            </button>
           </div>
 
-          <p :if={@attribute_set_rows == []} class="text-sm text-base-content/60 py-4 text-center border border-dashed border-base-content/20 rounded-lg">
+          <div class="flex flex-wrap items-center gap-2">
+            <%!-- phx-submit is load-bearing (Enter would native-submit). --%>
+            <form
+              id="attr-sets-search"
+              class="flex-1 min-w-48"
+              phx-change="attr_sets_search"
+              phx-submit="attr_sets_search"
+            >
+              <label class="input input-sm w-full flex items-center gap-2">
+                <span class="hero-magnifying-glass w-4 h-4 opacity-60"></span>
+                <input
+                  type="text"
+                  name="q"
+                  value={@attr_sets_search}
+                  placeholder={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search sets and values…")}
+                  phx-debounce="250"
+                  autocomplete="off"
+                  spellcheck="false"
+                  class="grow"
+                />
+              </label>
+            </form>
+            <.view_toggle_instant view={@view_mode} id="attributes-view-pref" />
+          </div>
+
+          <p
+            :if={@attr_sets_all == []}
+            class="text-sm text-base-content/60 py-4 text-center border border-dashed border-base-content/20 rounded-lg"
+          >
             {Gettext.gettext(
               PhoenixKitCatalogue.Gettext,
               "No sets yet. Create one to define the options items can attach."
             )}
           </p>
 
-          <div :if={@attribute_set_rows != []} class="overflow-x-auto rounded-lg border border-base-content/10">
-            <table class="table table-sm bg-base-100">
-              <thead>
-                <tr>
-                  <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Name")}</th>
-                  <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Kind")}</th>
-                  <th class="text-right">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Values")}</th>
-                  <th class="text-right">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Items")}</th>
-                  <th class="w-10"></th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr :for={s <- @attribute_set_rows} class="hover">
-                  <td>
-                    <.link navigate={Paths.attribute_set_edit(s.uuid)} class="link link-hover font-medium">
-                      {s.name}
-                    </.link>
-                  </td>
-                  <td class="text-base-content/70">{set_kind_label(s.kind)}</td>
-                  <td class="text-right tabular-nums">{s.value_count}</td>
-                  <td class="text-right tabular-nums">{s.item_count}</td>
-                  <td>
-                    <.table_row_menu mode="auto" id={"attr-set-menu-#{s.uuid}"}>
-                      <.table_row_menu_link
-                        navigate={Paths.attribute_set_edit(s.uuid)}
-                        icon="hero-pencil"
-                        label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")}
-                      />
-                      <.table_row_menu_divider />
-                      <.table_row_menu_button
-                        phx-click="show_delete_confirm"
-                        phx-value-uuid={s.uuid}
-                        phx-value-type="attribute_set"
-                        icon="hero-trash"
-                        label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")}
-                        variant="error"
-                      />
-                    </.table_row_menu>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
+          <p
+            :if={@attr_sets_all != [] and @attr_sets_total == 0}
+            class="text-sm text-base-content/60 py-4 text-center"
+          >
+            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "No sets match your search.")}
+          </p>
+
+          <.table_default
+            :if={@attribute_set_rows != []}
+            id="attribute-sets-table"
+            size="sm"
+            variant="zebra"
+            toggleable={true}
+            show_toggle={false}
+            storage_key={view_storage_key()}
+            items={@attribute_set_rows}
+            wrapper_class="overflow-x-auto rounded-lg border border-base-content/10 shadow-none"
+          >
+            <.table_default_header>
+              <tr>
+                <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Name")}</th>
+                <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Values")}</th>
+                <th class="w-20">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Items")}</th>
+                <th class="w-10"></th>
+              </tr>
+            </.table_default_header>
+            <.table_default_body>
+              <.table_default_row :for={s <- @attribute_set_rows} id={"attr-set-#{s.uuid}"}>
+                <.table_default_cell class="align-top">
+                  <.link
+                    navigate={KitRoutes.path("/admin/entities/#{s.key}/data")}
+                    class="font-medium link link-hover"
+                  >
+                    {s.name}
+                  </.link>
+                </.table_default_cell>
+                <.table_default_cell class="align-top">
+                  <.attr_set_values_cell
+                    set={s}
+                    limit={12}
+                    narrow_limit={6}
+                    narrow_only_class="xl:hidden"
+                    wide_only_class="hidden xl:inline-flex"
+                  />
+                </.table_default_cell>
+                <.table_default_cell class="align-top">
+                  <.attr_set_items_cell set={s} />
+                </.table_default_cell>
+                <.table_default_cell class="align-top">
+                  <.attr_set_menu set={s} suffix="t" />
+                </.table_default_cell>
+              </.table_default_row>
+            </.table_default_body>
+
+            <:card_body :let={s}>
+              <div class="min-w-0">
+                <.link
+                  navigate={KitRoutes.path("/admin/entities/#{s.key}/data")}
+                  class="font-semibold link link-hover"
+                >
+                  {s.name}
+                </.link>
+              </div>
+              <div class="mt-2">
+                <.attr_set_values_cell
+                  set={s}
+                  limit={8}
+                  narrow_limit={5}
+                  narrow_only_class="sm:hidden"
+                  wide_only_class="hidden sm:inline-flex"
+                />
+              </div>
+              <%!-- The table face has an "Items" column header; a card
+                    has none, so the count needs its own label or it
+                    reads as a stray number. --%>
+              <div class="mt-2 flex items-center gap-1">
+                <span class="text-xs text-base-content/50">
+                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Items")}
+                </span>
+                <.attr_set_items_cell set={s} />
+              </div>
+            </:card_body>
+            <:card_actions :let={s}>
+              <.attr_set_menu set={s} suffix="c" />
+            </:card_actions>
+          </.table_default>
+
+          <div
+            :if={@attr_sets_max_page > 1}
+            class="flex items-center justify-end gap-3 text-sm text-base-content/60"
+          >
+            <span>
+              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Page %{page} of %{max} — %{total} sets",
+                page: @attr_sets_page,
+                max: @attr_sets_max_page,
+                total: @attr_sets_total
+              )}
+            </span>
+            <div class="join">
+              <button
+                type="button"
+                class="btn btn-sm join-item"
+                phx-click="attr_sets_page"
+                phx-value-dir="prev"
+                disabled={@attr_sets_page <= 1}
+              >
+                «
+              </button>
+              <button
+                type="button"
+                class="btn btn-sm join-item"
+                phx-click="attr_sets_page"
+                phx-value-dir="next"
+                disabled={@attr_sets_page >= @attr_sets_max_page}
+              >
+                »
+              </button>
+            </div>
           </div>
+
+          <.modal
+            :if={@show_new_set_modal}
+            show={true}
+            id="new-attribute-set-modal"
+            on_close="close_new_set_modal"
+            max_width="md"
+          >
+            <:title>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "New attribute set")}</:title>
+            <form id="new-attribute-set-form" phx-submit="create_attribute_set" class="flex flex-col gap-4">
+              <label class="input w-full">
+                <span class="label">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Name")}</span>
+                <input type="text" name="name" required autocomplete="off" class="grow" />
+              </label>
+              <p class="text-xs text-base-content/60">
+                {Gettext.gettext(
+                  PhoenixKitCatalogue.Gettext,
+                  "You'll be taken straight to adding the set's values in Entities."
+                )}
+              </p>
+              <div class="flex justify-end gap-2">
+                <button type="button" class="btn btn-ghost btn-sm" phx-click="close_new_set_modal">
+                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Cancel")}
+                </button>
+                <button
+                  type="submit"
+                  class="btn btn-primary btn-sm"
+                  phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Creating…")}
+                >
+                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Create and edit in Entities")}
+                </button>
+              </div>
+            </form>
+          </.modal>
         </div>
 
         <%!-- LEGACY groups — only rendered on hosts WITHOUT the entities
@@ -2661,7 +3147,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
              remaining groups auto-migrate on load ("it should just
              migrate", boss direction 2026-08-18) and the old rows sit
              untouched in the DB until the cutover drop migration. --%>
-        <div :if={!@sets_enabled} class="flex flex-col gap-4">
+        <div :if={@attr_tab_loaded and not @sets_enabled} class="flex flex-col gap-4">
         <% cfg = @view_configs.attribute_groups %>
         <.table_toolbar scope={:attribute_groups} cfg={cfg}>
           <:filters>
@@ -2765,17 +3251,6 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       </div>
 
       <.confirm_modal
-        show={match?({"attribute_set", _}, @confirm_delete)}
-        on_confirm="delete_attribute_set"
-        on_cancel="cancel_delete"
-        title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete Attribute Set")}
-        title_icon="hero-trash"
-        messages={[{:warning, Gettext.gettext(PhoenixKitCatalogue.Gettext, "This deletes the set and all its values. Sets attached to items cannot be deleted.")}]}
-        confirm_text={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")}
-        danger={true}
-      />
-
-      <.confirm_modal
         show={match?({"catalogue", _}, @confirm_delete)}
         on_confirm="permanently_delete_catalogue"
         on_cancel="cancel_delete"
@@ -2820,7 +3295,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       />
 
       <.modal :if={@move_dialog != nil} id="move-to-folder-modal" show on_close="cancel_move">
-        <form phx-submit="confirm_move" class="flex flex-col gap-4">
+        <form id="move-to-folder-form" phx-submit="confirm_move" class="flex flex-col gap-4">
           <h3 class="text-lg font-semibold">
             {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Move to folder")}
           </h3>
@@ -2895,7 +3370,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
          so every width renders an intentional-looking toolbar. --%>
     <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 mb-3">
       <div class="flex flex-wrap items-center gap-2">
-        <form phx-change="table_search" phx-submit="table_search" class="contents">
+        <form id={"#{@scope}-table-search"} phx-change="table_search" phx-submit="table_search" class="contents">
           <label class="input input-sm w-full sm:w-64">
             <.icon name="hero-magnifying-glass" class="h-4 w-4 opacity-50" />
             <input
@@ -3008,6 +3483,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       view_mode={@cfg.view}
       view_event="set_view"
       items={@rows}
+      {card_media_frame()}
       card_fields={fn row ->
         for c <- @cols, c.id != "name" do
           %{label: c.label.(), value: render_card_value(@scope, c.id, row)}
@@ -3065,14 +3541,15 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
           </.table_default_cell>
         </.table_default_row>
       </.table_default_body>
+      <:card_media :let={row} :if={@scope == :catalogues}>
+        <.card_media
+          resource={row}
+          has_files={Map.get(@file_counts, row.uuid, 0) > 0}
+          placeholder_icon="hero-book-open"
+        />
+      </:card_media>
       <:card_header :let={row}>
         <div class="flex items-center gap-2 min-w-0">
-          <.featured_thumb
-            :if={@scope == :catalogues}
-            resource={row}
-            class="w-12 h-12"
-            has_files={Map.get(@file_counts, row.uuid, 0) > 0}
-          />
           {render_cell(@scope, "name", row)}
         </div>
       </:card_header>

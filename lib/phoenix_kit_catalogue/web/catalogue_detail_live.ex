@@ -17,7 +17,10 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   use PhoenixKitWeb.Live.UrlState,
     params: [
       current_category_uuid: [default: nil, url_key: "category"],
-      search_query: [default: "", url_key: "q"]
+      search_query: [default: "", url_key: "q"],
+      # Comma-joined attribute VALUE slugs ("blue,oak"). In the URL so a
+      # filtered view is a link you can send someone.
+      attribute_filter: [default: "", url_key: "attr"]
     ]
 
   require Logger
@@ -193,10 +196,18 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         show_categories_reorder: false,
         reorder_captured_uuids: [],
         view_mode: "active",
+        # `view_mode` here is the ACTIVE/DELETED bucket; this is the
+        # card/comfy/table preference, shared module-wide per user.
+        view_mode_pref: ViewConfig.load_view(socket.assigns[:phoenix_kit_current_user]),
         # The node the current view_mode was chosen FOR (load_level) — the
         # auto-pick of a populated tab happens only when this changes.
         view_mode_node: :unset,
+        attribute_filter_options: [],
+        attribute_value_counts: %{},
+        prior_attribute_filter: "",
         search_results: nil,
+        search_categories: [],
+        category_trails: %{},
         search_offset: 0,
         search_total: 0,
         search_has_more: false,
@@ -259,14 +270,24 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         socket
       end
 
-    if connected?(socket) do
-      if cat_changed? do
+    # An attribute filter change re-fetches the level exactly as a
+    # category change does: the items, their total, and any active search
+    # all narrow by it (2026-08-28).
+    filter_changed? = state.attribute_filter != socket.assigns[:prior_attribute_filter]
+    socket = assign(socket, :prior_attribute_filter, state.attribute_filter)
+
+    cond do
+      not connected?(socket) ->
+        socket
+
+      cat_changed? ->
         load_url_state_level(socket, cat_key, state.search_query)
-      else
+
+      filter_changed? ->
+        socket |> handle_url_state_search(state.search_query) |> reset_and_load()
+
+      true ->
         handle_url_state_search(socket, state.search_query)
-      end
-    else
-      socket
     end
   end
 
@@ -580,6 +601,29 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   def handle_event("search", %{"query" => query}, socket) do
     query = String.trim(query)
     {:noreply, push_url_state(socket, [search_query: query], replace: true)}
+  end
+
+  def handle_event("set_view", %{"mode" => v}, socket) when v in ["table", "card", "comfy"] do
+    {:noreply, socket |> ViewConfig.save_view_on(v) |> assign(:view_mode_pref, v)}
+  end
+
+  def handle_event("set_view", _params, socket), do: {:noreply, socket}
+
+  def handle_event("toggle_attribute_filter", %{"slug" => slug}, socket) when is_binary(slug) do
+    current = attribute_filter_slugs(socket)
+
+    next =
+      if slug in current,
+        do: List.delete(current, slug),
+        else: current ++ [slug]
+
+    {:noreply, push_url_state(socket, attribute_filter: Enum.join(next, ","))}
+  end
+
+  def handle_event("toggle_attribute_filter", _params, socket), do: {:noreply, socket}
+
+  def handle_event("clear_attribute_filter", _params, socket) do
+    {:noreply, push_url_state(socket, attribute_filter: "")}
   end
 
   def handle_event("clear_search", _params, socket) do
@@ -1807,7 +1851,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
   defp move_target_picker(assigns) do
     ~H"""
-    <form phx-change={@event}>
+    <form id={"move-target-#{@event}"} phx-change={@event}>
       <select
         name="category_uuid"
         disabled={@disabled}
@@ -2155,6 +2199,15 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     catalogue = Catalogue.fetch_catalogue!(uuid)
     current = socket.assigns.current_category
 
+    # Which sets this catalogue actually uses — the filter offers nothing
+    # where attributes are unused, so it costs those pages no space.
+    socket =
+      assign(
+        socket,
+        :attribute_filter_options,
+        Catalogue.attribute_filter_options(uuid, lang: loc(socket))
+      )
+
     # Per-status item counts for the current node — drive the tab labels and
     # the default-tab pick below.
     status_counts = node_status_counts(current, uuid)
@@ -2170,7 +2223,16 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     # active/deleted bucket for the (status-less) subcategory cards.
     node_key = level_node_key(current)
     status = pick_view_mode(socket, current, node_key, status_counts)
-    socket = assign(socket, view_mode: status, view_mode_node: node_key)
+
+    # Counts AFTER the status is settled, not before: entering a category
+    # with nothing active auto-flips the tab, and counts taken first
+    # answered for the tab the user just left — values greyed out that the
+    # list then showed, or the filter vanishing on a level that has one.
+    socket =
+      socket
+      |> assign(view_mode: status, view_mode_node: node_key)
+      |> assign_attribute_counts(uuid)
+
     cat_mode = view_mode_to_atom(status)
     show_categories? = status in ["active", "deleted"]
 
@@ -2183,7 +2245,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
     uncat_active = Catalogue.uncategorized_count_for_catalogue(uuid, mode: :active)
 
-    node_total = Map.get(status_counts, status, 0)
+    node_total = node_total(socket, status_counts, status, current, uuid)
 
     # Active root with categories shows only cards (its uncategorized items
     # are reached via the Uncategorized card). Every other case — a drilled
@@ -2432,14 +2494,35 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   defp run_search(socket, query) do
     uuid = socket.assigns.catalogue_uuid
     current = socket.assigns.current_category
+    slugs = active_attribute_slugs(socket)
+
+    socket = assign(socket, search_query: query, search_loading: true)
+    stamp = search_stamp(socket, 0)
 
     socket
-    |> assign(search_query: query, search_loading: true)
+    # The facets answer for the list as it will be, search included —
+    # a value still offered as live while the search has narrowed it
+    # away is the empty list this filter exists to prevent.
+    |> assign_attribute_counts(uuid)
     |> start_async(:search, fn ->
-      results = search_in_scope(uuid, current, query, @per_page, 0)
-      total = search_count_in_scope(uuid, current, query)
-      {query, results, total}
+      results = search_in_scope(uuid, current, query, @per_page, 0, slugs)
+      total = search_count_in_scope(uuid, current, query, slugs)
+      {stamp, results, total, categories_in_scope(uuid, current, query)}
     end)
+  end
+
+  # Everything a search result depends on, in one comparable value: the
+  # query, how far down the list it is, the level, and the attribute
+  # filter it ran under. The guards below drop a reply whose stamp no
+  # longer matches the socket.
+  #
+  # Query and offset alone are not enough. Toggle an attribute while page
+  # two is in flight and the replacement search resets the offset to the
+  # value the old page was fetched at — so the old page passes the guard
+  # and its rows, from the previous filter, are appended to the new list.
+  defp search_stamp(socket, offset) do
+    {socket.assigns.search_query, offset, active_attribute_slugs(socket),
+     level_node_key(socket.assigns.current_category)}
   end
 
   # Search scope follows the drill level: catalogue-wide at root, the
@@ -2447,41 +2530,84 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   # defaults to `include_descendants: true`), and uncategorized-only in
   # the uncategorized bucket. Search is Active-mode only (the context
   # search excludes deleted rows), so the input is hidden in Deleted view.
-  defp search_in_scope(uuid, nil, query, limit, offset),
-    do: Catalogue.search_items_in_catalogue(uuid, query, limit: limit, offset: offset)
+  # Categories follow the item scope: the whole catalogue at root, the
+  # drilled category's subtree below it, and none in the uncategorized
+  # bucket (which by definition holds no categories).
+  # "Doors / Fronts" for each hit, so two subcategories with the same
+  # name are told apart. One ancestor query per hit — the result set is
+  # capped at 25, and only a search runs this.
+  defp category_trails(categories, locale) do
+    Map.new(categories, fn category ->
+      trail =
+        category.uuid
+        |> Catalogue.list_category_ancestors()
+        |> Enum.map_join(" / ", &(Catalogue.localize_one(&1, locale) || &1).name)
 
-  defp search_in_scope(uuid, :uncategorized, query, limit, offset),
+      {category.uuid, if(trail == "", do: nil, else: trail)}
+    end)
+  end
+
+  defp categories_in_scope(uuid, nil, query),
+    do: Catalogue.search_categories(uuid, query)
+
+  defp categories_in_scope(_uuid, :uncategorized, _query), do: []
+
+  defp categories_in_scope(uuid, %Category{uuid: cuuid}, query),
+    do: Catalogue.search_categories(uuid, query, parent_uuid: cuuid)
+
+  defp search_in_scope(uuid, nil, query, limit, offset, slugs),
+    do:
+      Catalogue.search_items_in_catalogue(uuid, query,
+        limit: limit,
+        offset: offset,
+        value_slugs: slugs
+      )
+
+  defp search_in_scope(uuid, :uncategorized, query, limit, offset, slugs),
     do:
       Catalogue.search_items(query,
         catalogue_uuids: [uuid],
         only: :uncategorized_only,
         limit: limit,
-        offset: offset
+        offset: offset,
+        value_slugs: slugs
       )
 
-  defp search_in_scope(_uuid, %Category{uuid: cuuid}, query, limit, offset),
-    do: Catalogue.search_items_in_category(cuuid, query, limit: limit, offset: offset)
+  defp search_in_scope(_uuid, %Category{uuid: cuuid}, query, limit, offset, slugs),
+    do:
+      Catalogue.search_items_in_category(cuuid, query,
+        limit: limit,
+        offset: offset,
+        value_slugs: slugs
+      )
 
-  defp search_count_in_scope(uuid, nil, query),
-    do: Catalogue.count_search_items_in_catalogue(uuid, query)
+  defp search_count_in_scope(uuid, nil, query, slugs),
+    do: Catalogue.count_search_items(query, catalogue_uuids: [uuid], value_slugs: slugs)
 
-  defp search_count_in_scope(uuid, :uncategorized, query),
-    do: Catalogue.count_search_items(query, catalogue_uuids: [uuid], only: :uncategorized_only)
+  defp search_count_in_scope(uuid, :uncategorized, query, slugs),
+    do:
+      Catalogue.count_search_items(query,
+        catalogue_uuids: [uuid],
+        only: :uncategorized_only,
+        value_slugs: slugs
+      )
 
-  defp search_count_in_scope(_uuid, %Category{uuid: cuuid}, query),
-    do: Catalogue.count_search_items_in_category(cuuid, query)
+  defp search_count_in_scope(_uuid, %Category{uuid: cuuid}, query, slugs),
+    do: Catalogue.count_search_items(query, category_uuids: [cuuid], value_slugs: slugs)
 
   @impl true
-  def handle_async(:search, {:ok, {query, results, total}}, socket) do
-    # Only apply if the user is still asking for this query. A late
-    # response for a query the user has already superseded gets dropped.
-    if socket.assigns.search_query == query do
+  def handle_async(:search, {:ok, {stamp, results, total, categories}}, socket) do
+    # Only apply if the socket is still asking the same question. A late
+    # response the user has already superseded gets dropped.
+    if search_stamp(socket, 0) == stamp do
       results = Catalogue.localize(results, loc(socket))
 
       {:noreply,
        socket
        |> assign(
          search_results: results,
+         search_categories: Catalogue.localize(categories, loc(socket)),
+         category_trails: category_trails(categories, loc(socket)),
          search_offset: length(results),
          search_total: total,
          search_has_more: length(results) < total,
@@ -2522,13 +2648,11 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     end
   end
 
-  def handle_async(:search_page, {:ok, {query, offset, page}}, socket) do
-    # Same-shape guard as `:search`: only apply if the socket is still on
-    # the query we paged for AND still expecting this offset. If the user
-    # typed a new search mid-flight, `search_query` moved on; if they
-    # somehow triggered a parallel page (shouldn't happen — `load_more`
-    # checks `search_loading`), `search_offset` moved on.
-    if socket.assigns.search_query == query and socket.assigns.search_offset == offset do
+  def handle_async(:search_page, {:ok, {stamp, offset, page}}, socket) do
+    # Same guard as `:search`, and it has to include the offset the
+    # socket is actually expecting — a parallel page (shouldn't happen,
+    # `load_more` checks `search_loading`) would otherwise append twice.
+    if search_stamp(socket, offset) == stamp and socket.assigns.search_offset == offset do
       new_offset = offset + length(page)
       # `page == []` protects against stale `search_total` (items
       # concurrently deleted) keeping `search_has_more` true forever.
@@ -2582,11 +2706,14 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     %{catalogue_uuid: uuid, current_category: current, search_query: query, search_offset: offset} =
       socket.assigns
 
+    slugs = active_attribute_slugs(socket)
+    stamp = search_stamp(socket, offset)
+
     socket
     |> assign(:search_loading, true)
     |> start_async(:search_page, fn ->
-      page = search_in_scope(uuid, current, query, @per_page, offset)
-      {query, offset, page}
+      page = search_in_scope(uuid, current, query, @per_page, offset, slugs)
+      {stamp, offset, page}
     end)
   end
 
@@ -2594,6 +2721,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     assign(socket,
       search_query: "",
       search_results: nil,
+      search_categories: [],
+      category_trails: %{},
       search_offset: 0,
       search_total: 0,
       search_has_more: false,
@@ -2624,7 +2753,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         fetch_card_items(scope, catalogue_uuid, status, limit, 0, items_sort_opts(socket))
         |> Catalogue.localize(loc(socket))
 
-      total = card_total(scope, catalogue_uuid, status)
+      total = card_total(scope, catalogue_uuid, status, active_attribute_slugs(socket))
 
       socket
       |> assign(
@@ -2639,14 +2768,60 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     end
   end
 
-  # `status` is the exact item status of the current tab
-  # ("active" | "inactive" | "discontinued" | "deleted").
-  defp card_total(:uncategorized, catalogue_uuid, status) do
-    Catalogue.uncategorized_count_for_catalogue(catalogue_uuid, status: status)
+  # What each value would still match HERE: this catalogue, the status
+  # tab on screen, and the filters already on. Values that match nothing
+  # are then offered disabled rather than as a route to an empty list.
+  defp assign_attribute_counts(socket, catalogue_uuid) do
+    search = String.trim(socket.assigns[:search_query] || "")
+
+    assign(
+      socket,
+      :attribute_value_counts,
+      Catalogue.attribute_value_match_counts(
+        [
+          catalogue_uuid: catalogue_uuid,
+          statuses: [socket.assigns[:view_mode] || "active"],
+          search: search,
+          value_slugs: active_attribute_slugs(socket.assigns)
+        ] ++ counts_scope(socket.assigns[:current_category], search)
+      )
+    )
   end
 
-  defp card_total(category_uuid, _catalogue_uuid, status) when is_binary(category_uuid) do
-    Catalogue.item_count_for_category(category_uuid, status: status)
+  # Mirrors the scope the LIST is under. A drilled category normally
+  # shows its OWN items, but a search from there covers the whole subtree
+  # (`search_items_in_category/3` defaults to `include_descendants:
+  # true`) — count the direct children while searching and a value living
+  # one level down looks dead on a page that would have shown it.
+  defp counts_scope(%Category{uuid: uuid}, "" = _search), do: [category_uuids: [uuid]]
+
+  defp counts_scope(%Category{uuid: uuid}, _searching),
+    do: [category_uuids: Catalogue.category_subtree_uuids([uuid])]
+
+  defp counts_scope(:uncategorized, _search), do: [only: :uncategorized_only]
+  defp counts_scope(_root, _search), do: []
+
+  # The status TABS stay unfiltered — a tab reading 0 because of an
+  # attribute filter would look broken — but the item section's own total
+  # has to match what the filter actually returns (2026-08-28).
+  defp node_total(socket, status_counts, status, current, uuid) do
+    case active_attribute_slugs(socket) do
+      [] -> Map.get(status_counts, status, 0)
+      slugs -> card_total(node_scope(current), uuid, status, slugs)
+    end
+  end
+
+  # `status` is the exact item status of the current tab
+  # ("active" | "inactive" | "discontinued" | "deleted").
+  defp card_total(:uncategorized, catalogue_uuid, status, slugs) do
+    Catalogue.uncategorized_count_for_catalogue(catalogue_uuid,
+      status: status,
+      value_slugs: slugs
+    )
+  end
+
+  defp card_total(category_uuid, _catalogue_uuid, status, slugs) when is_binary(category_uuid) do
+    Catalogue.item_count_for_category(category_uuid, status: status, value_slugs: slugs)
   end
 
   defp fetch_card_items(:uncategorized, catalogue_uuid, status, limit, offset, sort_opts) do
@@ -2669,10 +2844,26 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   # the plain item_table without a sort control).
   # The deleted list renders without a sort control; every other status
   # (active/inactive/discontinued) uses the core toolkit table with sorting.
-  defp items_sort_opts(%{assigns: %{view_mode: "deleted"}}), do: []
+  defp items_sort_opts(%{assigns: %{view_mode: "deleted"}} = socket),
+    do: [value_slugs: active_attribute_slugs(socket)]
 
-  defp items_sort_opts(socket),
-    do: [sort_by: socket.assigns.items_sort_by, sort_dir: socket.assigns.items_sort_dir]
+  defp items_sort_opts(socket) do
+    [
+      sort_by: socket.assigns.items_sort_by,
+      sort_dir: socket.assigns.items_sort_dir,
+      value_slugs: active_attribute_slugs(socket)
+    ]
+  end
+
+  # The attribute filter is a question about live items, and the trash is
+  # a different one: the counting queries exclude deleted items, so every
+  # value scores 0 there and the control hides itself — leaving a filter
+  # that still empties the Deleted tab with nothing on screen to switch
+  # off. So it does not apply in the trash, and is not offered there.
+  # `?attr=` stays in the URL and comes back with the Active tab.
+  defp active_attribute_slugs(%{assigns: assigns}), do: active_attribute_slugs(assigns)
+  defp active_attribute_slugs(%{view_mode: "deleted"}), do: []
+  defp active_attribute_slugs(assigns), do: attribute_filter_slugs(assigns)
 
   # Re-fetches the current level's child categories in their new order
   # after a sibling DnD reorder. Items are untouched (reorder of the
@@ -2873,6 +3064,16 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                 query={@search_query}
                 placeholder={search_placeholder(@current_category)}
               />
+              <%!-- Attribute filter: "show me the blue doors" (Max,
+                    2026-08-28). Only the sets this catalogue actually
+                    uses are offered, so it stays empty and out of the way
+                    where attributes aren't used at all. --%>
+              <.attribute_filter
+                :if={@attribute_filter_options != []}
+                options={@attribute_filter_options}
+                selected={active_attribute_slugs(assigns)}
+                counts={@attribute_value_counts}
+              />
               <div :if={@view_mode == "active"} class="ml-auto flex flex-wrap items-center gap-2">
                 <%!-- On every level (boss's call, 2026-08-18 — subcategories
                      are a first-class flow): at root it creates a root
@@ -2900,15 +3101,56 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                 {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Searching for \"%{query}\"...", query: @search_query)}
               </span>
             <% else %>
-              <.search_results_summary :if={@search_results != nil} count={@search_total} query={@search_query} loaded={length(@search_results)} />
+              <%!-- The summary counts ITEMS. Suppress it when a search
+                    matched only categories, or the line reads "0 results"
+                    directly above the category it just found. --%>
+              <.search_results_summary
+                :if={@search_results != nil and (@search_total > 0 or @search_categories == [])}
+                count={@search_total}
+                query={@search_query}
+                loaded={length(@search_results)}
+              />
             <% end %>
             <span :if={@search_loading} class="loading loading-spinner loading-xs text-base-content/40"></span>
             <div :if={@search_results not in [nil, []]} class="ml-auto">
-              <.view_mode_toggle storage_key="catalogue-detail-items" />
+              <.view_toggle_instant view={@view_mode_pref} id="detail-view-pref" />
             </div>
           </div>
 
-          <.empty_state :if={@search_results == [] and not @search_loading} variant="card" title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "No items match your search.")} />
+          <%!-- Matching CATEGORIES, above the items: searching a
+                catalogue for a category it contains used to return
+                nothing at all (Max, 2026-08-28). Each one navigates
+                into that category; the muted trail is its ancestors, so
+                two subcategories of the same name stay distinguishable. --%>
+          <div :if={@search_categories != []} class="flex flex-col gap-2">
+            <h3 class="text-sm font-semibold text-base-content/70">
+              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Categories")}
+              <span class="text-xs font-normal text-base-content/40">
+                ({length(@search_categories)})
+              </span>
+            </h3>
+            <div class="flex flex-wrap gap-2">
+              <.link
+                :for={category <- @search_categories}
+                patch={
+                  url_state_path(assigns, current_category_uuid: category.uuid, search_query: "")
+                }
+                class="btn btn-sm btn-ghost gap-2 justify-start"
+              >
+                <.icon name="hero-folder" class="w-4 h-4 text-warning shrink-0" />
+                <span class="font-medium">{category.name}</span>
+                <span :if={@category_trails[category.uuid]} class="text-xs text-base-content/40">
+                  {@category_trails[category.uuid]}
+                </span>
+              </.link>
+            </div>
+          </div>
+
+          <.empty_state
+            :if={@search_results == [] and @search_categories == [] and not @search_loading}
+            variant="card"
+            title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Nothing matches your search.")}
+          />
 
           <div :if={@search_results not in [nil, []]} class={["transition-opacity", @search_loading && "opacity-50"]}>
             <.item_table
@@ -2922,7 +3164,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               pdf_search_event="show_pdf_search"
               cards={true}
               show_toggle={false}
-              storage_key="catalogue-detail-items"
+              storage_key={view_storage_key()}
               id="catalogue-search-items"
             />
           </div>
@@ -3055,7 +3297,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                 {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Columns")}
               </span>
             </button>
-              <.view_mode_toggle storage_key="catalogue-detail-items" />
+              <.view_toggle_instant view={@view_mode_pref} id="detail-view-pref" />
             </div>
           </div>
           <%!-- The Uncategorized drill card only appears when there are
@@ -3135,10 +3377,14 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               </.bulk_actions_toolbar>
             </div>
 
+          <%!-- The CATEGORIES surface reads the same key as everything
+               else: it kept its own until now, so a level holding child
+               categories switched its items to cards and left the
+               categories above them as a table. --%>
           <div
             id="catalogue-categories-views"
             phx-hook="TableCardView"
-            data-storage-key="catalogue-detail-items"
+            data-storage-key={view_storage_key()}
           >
             <div data-table-view class={@view_mode == "active" && "hidden md:block"}>
               <.categories_table
@@ -3226,6 +3472,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
           <%!-- The current node's own direct items --%>
           <.level_items
+            view_mode_pref={@view_mode_pref}
             attribute_map={@attribute_map}
             supplier_costs={@supplier_costs}
             bulk_epoch={@bulk_epoch}
@@ -4148,6 +4395,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
   attr(:edit_path_fn, :any, required: true)
   attr(:items_columns, :list, default: ["sku", "price", "unit", "status"])
+  attr(:view_mode_pref, :string, required: true)
 
   attr(:controls_in_page_header, :boolean,
     default: false,
@@ -4243,26 +4491,31 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
           toggleable={true}
           show_toggle={false}
           items={@items}
-          storage_key="catalogue-detail-items"
+          storage_key={view_storage_key()}
           on_reorder={if @reorderable?, do: "reorder_items"}
+          {card_media_frame()}
         >
-          <%!-- Mobile card view: name + checkbox header, key-value body,
-               icon-only action footer. Checkbox uses data-bulk-role so
-               the BulkSelectScope hook picks it up without a phx-click. --%>
+          <%!-- The picture leads the card and the selection checkbox rides
+                in its corner, exactly as the categories grid above does it
+                (boss via Max, 2026-08-28). --%>
+          <:card_media :let={item}>
+            <.card_media
+              resource={item}
+              has_files={Map.get(@file_counts, item.uuid, 0) > 0}
+              on_click="show_product_card"
+            >
+              <:overlay>
+                <input
+                  type="checkbox"
+                  class="checkbox checkbox-xs absolute top-1.5 left-1.5 bg-base-100/80"
+                  data-bulk-role="row"
+                  data-uuid={item.uuid}
+                />
+              </:overlay>
+            </.card_media>
+          </:card_media>
           <:card_body :let={item}>
             <div class="flex items-center gap-2 font-medium text-sm">
-              <input
-                type="checkbox"
-                class="checkbox checkbox-xs shrink-0"
-                data-bulk-role="row"
-                data-uuid={item.uuid}
-              />
-              <.featured_thumb
-                resource={item}
-                class="w-12 h-12"
-                on_click="show_product_card"
-                has_files={Map.get(@file_counts, item.uuid, 0) > 0}
-              />
               <.link
                 :if={item.uuid}
                 navigate={@edit_path_fn.(item.uuid)}
@@ -4450,7 +4703,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         permanent_delete_type="item"
         cards={true}
         show_toggle={false}
-        storage_key="catalogue-detail-items"
+        storage_key={view_storage_key()}
         id="level-items-deleted"
         wrapper_class="overflow-x-auto shadow-none rounded-none"
         selectable={true}

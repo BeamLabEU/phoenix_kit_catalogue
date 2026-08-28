@@ -1237,12 +1237,6 @@ msgstr "Halda selle rühma atribuute, väärtusi ja tõlkeid."
 msgid "No attributes yet. Add one below — e.g. Color, Trim, Surface."
 msgstr "Atribuute pole veel. Lisa mõni allpool — nt Värv, Kant, Pind."
 
-msgid "Multiple values"
-msgstr "Mitu väärtust"
-
-msgid "Fixed value"
-msgstr "Fikseeritud väärtus"
-
 msgid "Failed to add attribute."
 msgstr "Atribuudi lisamine ebaõnnestus."
 
@@ -1338,9 +1332,6 @@ msgstr "Otsi failinime järgi…"
 
 msgid "Attribute sets need the Entities module enabled."
 msgstr "Atribuudikomplektid eeldavad, et Entities moodul on sisse lülitatud."
-
-msgid "Attribute set not found."
-msgstr "Atribuudikomplekti ei leitud."
 
 msgid "New Attribute Set"
 msgstr "Uus atribuudikomplekt"
@@ -2966,3 +2957,68 @@ msgstr "Kategooria eesliide"
 #, elixir-autogen, elixir-format
 msgid "Photo"
 msgstr "Foto"
+
+## Attribute sets viewer (2026-08-27 — editing moved to Entities)
+msgid "Edit values"
+msgstr "Muuda väärtusi"
+
+msgid "Set settings"
+msgstr "Komplekti seaded"
+
+msgid "None yet — add them in Entities."
+msgstr "Pole veel — lisa need Entities moodulis."
+
+msgid "No items attached."
+msgstr "Ühtegi toodet pole lisatud."
+
+msgid "New attribute set"
+msgstr "Uus atribuutide komplekt"
+
+msgid "Create and edit in Entities"
+msgstr "Loo ja muuda Entities moodulis"
+
+msgid "You'll be taken straight to adding the set's values in Entities."
+msgstr "Sind suunatakse kohe komplekti väärtuste lisamise juurde Entities moodulis."
+
+msgid "Could not create the set — check the name."
+msgstr "Komplekti loomine ebaõnnestus — kontrolli nime."
+
+msgid "Could not create the set."
+msgstr "Komplekti loomine ebaõnnestus."
+
+msgid "One dimension from one vendor — a color range, a trim series. Items attach any number of sets. Sets are edited in the Entities module."
+msgstr "Üks dimensioon ühelt tarnijalt — värvivalik, liistuseeria. Tooted võivad kasutada mis tahes arvu komplekte. Komplekte muudetakse Entities moodulis."
+
+
+## Attribute sets viewer listing (2026-08-27 scale pass)
+msgid "Search sets and values…"
+msgstr "Otsi komplekte ja väärtusi…"
+
+msgid "No sets match your search."
+msgstr "Otsingule ei vasta ükski komplekt."
+
+msgid "Page %{page} of %{max} — %{total} sets"
+msgstr "Leht %{page} / %{max} — %{total} komplekti"
+
+msgid "No values yet"
+msgstr "Väärtusi pole veel"
+
+msgid "Creating…"
+msgstr "Loomine…"
+
+
+# Set items popup (2026-08-28)
+msgid "View items"
+msgstr "Vaata tooteid"
+
+# Catalogue search covers categories too (2026-08-28)
+msgid "Nothing matches your search."
+msgstr "Otsingule ei vasta miski."
+
+# Attribute filter (2026-08-28)
+msgid "Clear filters"
+msgstr "Tühjenda filtrid"
+
+# Attribute filter: dead values (2026-08-28)
+msgid "Nothing matches this together with the filters already on"
+msgstr "Koos juba valitud filtritega ei vasta sellele miski"

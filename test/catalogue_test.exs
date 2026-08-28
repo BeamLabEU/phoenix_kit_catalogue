@@ -813,6 +813,18 @@ defmodule PhoenixKitCatalogue.CatalogueTest do
     end
   end
 
+  describe "search_items/2 query trimming" do
+    test "a trailing space still matches (query is trimmed at the base)" do
+      # Several input layers (BrowseState among them) pass the raw
+      # string through — the shared base trims it (Max, 2026-08-28).
+      item = create_item(%{name: "Teak Bench"})
+
+      results = Catalogue.search_items("Teak Bench ")
+      assert Enum.any?(results, &(&1.uuid == item.uuid))
+      assert Catalogue.count_search_items(" Teak ") >= 1
+    end
+  end
+
   describe "search_items/2 with include_descendants" do
     test "expands a category scope through its subtree by default" do
       cat = create_catalogue()

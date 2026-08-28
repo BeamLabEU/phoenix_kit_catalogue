@@ -418,6 +418,230 @@ defmodule PhoenixKitCatalogue.Web.Components do
     """
   end
 
+  attr(:options, :list, required: true)
+  attr(:selected, :list, required: true)
+  attr(:class, :string, default: nil)
+
+  attr(:counts, :map,
+    default: %{},
+    doc:
+      "`%{slug => count}` of what each value would still match given the current " <>
+        "selection (`Catalogue.attribute_value_match_counts/1`). A value missing " <>
+        "from the map matches nothing and is offered disabled."
+  )
+
+  @doc """
+  The attribute filter: ONE button opening every set and its values.
+
+  A set per button put six dropdowns in the catalogues index toolbar and
+  wrapped it onto a second row; one button keeps the toolbar the shape it
+  was whatever a catalogue's attributes grow into (Max, 2026-08-28).
+
+  Values are toggles, and picking Blue and Oak narrows to the items
+  carrying BOTH — which is what "blue oak doors" means. Shared by the
+  detail page (narrowing its items) and the index (narrowing to the
+  catalogues that CONTAIN such items), so it means the same thing
+  wherever it appears.
+
+  Each value carries what it would still match and is DISABLED at zero,
+  so the filter cannot be walked into an empty list (Max, 2026-08-28).
+  Because the counts are conditioned on the current selection, a dead
+  combination greys out the moment its first half is picked.
+  """
+  def attribute_filter(assigns) do
+    assigns =
+      assigns
+      |> assign(:active_count, length(assigns.selected))
+      # A filter whose every value is dead is not a filter — it is a
+      # button that can only disappoint. It comes back the moment
+      # something here carries a value.
+      |> assign(:usable?, usable_filter?(assigns))
+
+    ~H"""
+    <div :if={@usable?} class={["dropdown", @class]}>
+      <%!-- `role="button"`, not a bare label: without it a screen reader
+           reads the trigger as plain text and Enter does nothing — the
+           dropdown only opened because Tab-focus happens to trip
+           daisyUI's :focus-within. --%>
+      <label
+        tabindex="0"
+        role="button"
+        aria-haspopup="true"
+        class={["btn btn-sm gap-1", if(@active_count > 0, do: "btn-primary", else: "btn-outline")]}
+      >
+        <.icon name="hero-swatch" class="w-4 h-4" />
+        {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Attributes")}
+        <span :if={@active_count > 0} class="badge badge-xs">{@active_count}</span>
+        <.icon name="hero-chevron-down" class="w-3 h-3" />
+      </label>
+      <div
+        tabindex="0"
+        class="dropdown-content z-[1] p-2 shadow-lg bg-base-100 rounded-box w-64 mt-1 max-h-96 overflow-y-auto"
+      >
+        <div :for={set <- @options} class="mb-1 last:mb-0">
+          <div class="px-2 py-1 text-xs font-semibold uppercase tracking-wide text-base-content/50">
+            {set.name}
+            <span :if={selected_count(set, @selected) > 0} class="badge badge-xs badge-primary ml-1">
+              {selected_count(set, @selected)}
+            </span>
+          </div>
+          <ul class="menu menu-sm p-0">
+            <li :for={value <- set.values} class={value_dead?(value, @counts, @selected) && "disabled"}>
+              <button
+                type="button"
+                phx-click={!value_dead?(value, @counts, @selected) && "toggle_attribute_filter"}
+                phx-value-slug={value.slug}
+                disabled={value_dead?(value, @counts, @selected)}
+                aria-pressed={to_string(value.slug in @selected)}
+                title={
+                  value_dead?(value, @counts, @selected) &&
+                    Gettext.gettext(
+                      PhoenixKitCatalogue.Gettext,
+                      "Nothing matches this together with the filters already on"
+                    )
+                }
+              >
+                <%!-- A tick that LOOKS like a checkbox rather than one.
+                     A real <input> inside a <button> is invalid HTML: it
+                     may take focus of its own, and there it has no name
+                     to announce — the row's name belongs to the button.
+                     The button carries the state as aria-pressed. --%>
+                <span
+                  aria-hidden="true"
+                  class={[
+                    "w-4 h-4 shrink-0 rounded border flex items-center justify-center",
+                    if(value.slug in @selected,
+                      do: "bg-primary border-primary text-primary-content",
+                      else: "border-base-content/30"
+                    )
+                  ]}
+                >
+                  <.icon :if={value.slug in @selected} name="hero-check" class="w-3 h-3" />
+                </span>
+                <span class="truncate">{value.title}</span>
+                <span class="ml-auto text-xs opacity-50">{Map.get(@counts, value.slug, 0)}</span>
+              </button>
+            </li>
+          </ul>
+        </div>
+
+        <button
+          :if={@selected != []}
+          type="button"
+          phx-click="clear_attribute_filter"
+          class="btn btn-ghost btn-xs w-full mt-2"
+        >
+          <.icon name="hero-x-mark" class="w-3.5 h-3.5" />
+          {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Clear filters")}
+        </button>
+      </div>
+    </div>
+    """
+  end
+
+  defp selected_count(set, selected), do: Enum.count(set.values, &(&1.slug in selected))
+
+  defp usable_filter?(%{selected: selected}) when selected != [], do: true
+
+  defp usable_filter?(%{options: options, counts: counts, selected: selected}) do
+    Enum.any?(options, fn set ->
+      Enum.any?(set.values, &(not value_dead?(&1, counts, selected)))
+    end)
+  end
+
+  # A value leads nowhere when nothing matches it alongside the filters
+  # already on. An ACTIVE value is never dead — it has to stay clickable
+  # to be switched back off.
+  defp value_dead?(value, counts, selected),
+    do: value.slug not in selected and Map.get(counts, value.slug, 0) == 0
+
+  @doc """
+  The attribute filter as a slug list.
+
+  Stored in the URL as one comma-joined string, so a filtered view is a
+  link you can send someone.
+  """
+  # The attribute filter as a slug list. Stored in the URL as one
+  # comma-joined string so a filtered view is a shareable link.
+  def attribute_filter_slugs(%{assigns: assigns}), do: attribute_filter_slugs(assigns)
+
+  def attribute_filter_slugs(assigns) when is_map(assigns) do
+    assigns
+    |> Map.get(:attribute_filter, "")
+    |> to_string()
+    |> String.split(",", trim: true)
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+    # `?attr=oak,oak` would otherwise take two clicks to switch off:
+    # toggling removes one copy and the box stays checked, which reads
+    # as a dead control.
+    |> Enum.uniq()
+  end
+
+  @doc """
+  The module's card media band: the picture a card leads with.
+
+  One definition for every card in the module. The categories grid had a
+  band like this from the start and the boss likes it (via Max,
+  2026-08-28) — item and catalogue cards showed a small inline thumbnail
+  beside the title instead, or nothing at all, so the same data looked
+  like two different products depending on the page.
+
+  Pass it to `table_default`'s `:card_media` slot together with
+  `card_media_class={card_media_band()}`. Renders the resource's featured
+  photo, or a muted icon when there is none, so a card without a picture
+  is the same shape as one with.
+  """
+  attr(:resource, :map, required: true)
+  attr(:has_files, :boolean, default: false)
+  attr(:on_click, :string, default: nil)
+
+  attr(:placeholder_icon, :string,
+    default: "hero-photo",
+    doc: ~s(Shown when the resource has no picture — "hero-folder" for containers.)
+  )
+
+  slot(:overlay, doc: "Corner controls (a checkbox, a drag handle) — absolutely positioned.")
+
+  def card_media(assigns) do
+    ~H"""
+    <.featured_thumb
+      resource={@resource}
+      has_files={@has_files}
+      on_click={@on_click}
+      class="w-full h-full"
+    />
+    <%!-- Centred by its OWN full-size flex box, not by absolute
+         positioning against the frame: the frame's `relative` reaches it
+         through `card_media_class`, which a core older than this module's
+         pin ignores. Anchored to the card instead, the icon floated over
+         the title. --%>
+    <div
+      :if={!featured_image_uuid(@resource) && !@has_files}
+      class="w-full h-full flex items-center justify-center"
+    >
+      <.icon name={@placeholder_icon} class="w-10 h-10 text-base-content/20" />
+    </div>
+    {render_slot(@overlay)}
+    """
+  end
+
+  @doc """
+  Classes for the `:card_media` frame every catalogue card uses. Kept in
+  one place so the bands cannot drift apart page by page.
+  """
+  def card_media_band, do: "relative h-24 bg-base-200 overflow-hidden"
+
+  @doc """
+  The band as a DYNAMIC attribute for `table_default`.
+
+  `card_media_class` only exists in core after this module's released pin,
+  and a literal attribute would fail the compile gate until that lands. An
+  older core ignores the extra assign and renders the media unframed —
+  the picture is still there, it just isn't held to a fixed height yet.
+  """
+  def card_media_frame, do: %{card_media_class: card_media_band()}
+
   # The thumb slot's visual: image (with an optional corner paperclip emblem)
   # or, with no image, the paperclip tile filling the same footprint so names
   # stay aligned across rows either way.
@@ -740,6 +964,11 @@ defmodule PhoenixKitCatalogue.Web.Components do
   attr(:debounce, :integer, default: 300)
   attr(:class, :string, default: "")
 
+  attr(:id, :string,
+    default: "catalogue-search-input",
+    doc: "Form id — LiveView warns without one and cannot recover the form after a disconnect."
+  )
+
   def search_input(assigns) do
     placeholder =
       assigns.placeholder ||
@@ -749,7 +978,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
 
     ~H"""
     <div class={["flex gap-2", @class]}>
-      <form phx-change={@on_search} phx-submit={@on_search} class="flex-1 relative">
+      <form id={@id} phx-change={@on_search} phx-submit={@on_search} class="flex-1 relative">
         <input
           type="text"
           name="query"
@@ -816,6 +1045,91 @@ defmodule PhoenixKitCatalogue.Web.Components do
   # ═══════════════════════════════════════════════════════════════════
   # View mode toggle
   # ═══════════════════════════════════════════════════════════════════
+
+  @doc """
+  The INSTANT view switcher, for surfaces that render both faces and let
+  CSS choose between them.
+
+  Core's `view_mode_toggle/1` does the switching (no server involved, so
+  it is immediate) and this adds the remembering: the page's stored
+  choice seeds the browser on mount, and a change is pushed to
+  `set_view` afterwards, once the view has already moved.
+
+  Use `view_toggle/1` instead where the server picks the layout — the
+  catalogues index renders a folder tree or a card grid, which is not
+  something CSS can swap.
+  """
+  attr(:view, :string, required: true)
+  attr(:id, :string, default: "catalogue-view-pref")
+  attr(:class, :any, default: nil)
+
+  def view_toggle_instant(assigns) do
+    ~H"""
+    <div class={["flex items-center", @class]}>
+      <div
+        id={@id}
+        phx-hook="ViewPref"
+        data-storage-key={view_storage_key()}
+        data-server-view={@view}
+        class="hidden"
+      >
+      </div>
+      <.view_mode_toggle storage_key={view_storage_key()} />
+    </div>
+    """
+  end
+
+  @doc """
+  The one localStorage key every catalogue surface shares, so a view
+  chosen on one page is the view the next page opens with.
+  """
+  def view_storage_key, do: "catalogue-view"
+
+  @doc """
+  The module's view switcher: card / comfortable / compact.
+
+  Server-driven on purpose. The localStorage-backed `view_mode_toggle/1`
+  remembers a mode per surface and per browser, which is why a choice made
+  on one page never reached the next one; this posts `set_view` and the
+  answer is stored per USER, module-wide (`ViewConfig.load_view/1`), so
+  every catalogue page opens the way you left the last one.
+  """
+  attr(:view, :string, required: true)
+  attr(:class, :any, default: nil)
+
+  def view_toggle(assigns) do
+    ~H"""
+    <div class={["join inline-flex", @class]}>
+      <button
+        type="button"
+        phx-click="set_view"
+        phx-value-mode="card"
+        class={["btn btn-sm join-item", @view == "card" && "btn-active"]}
+        title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Card view")}
+      >
+        <.icon name="hero-squares-2x2" class="w-4 h-4" />
+      </button>
+      <button
+        type="button"
+        phx-click="set_view"
+        phx-value-mode="comfy"
+        class={["btn btn-sm join-item", @view == "comfy" && "btn-active"]}
+        title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Comfortable view")}
+      >
+        <.icon name="hero-bars-3" class="w-4 h-4" />
+      </button>
+      <button
+        type="button"
+        phx-click="set_view"
+        phx-value-mode="table"
+        class={["btn btn-sm join-item", @view == "table" && "btn-active"]}
+        title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Compact view")}
+      >
+        <.icon name="hero-bars-4" class="w-4 h-4" />
+      </button>
+    </div>
+    """
+  end
 
   @doc """
   Renders a table/card view toggle that syncs all tables sharing the same storage key.
@@ -1428,6 +1742,24 @@ defmodule PhoenixKitCatalogue.Web.Components do
   attr(:show_toggle, :boolean, default: true)
   attr(:id, :string, default: nil)
   attr(:storage_key, :string, default: nil)
+
+  attr(:view_mode, :string,
+    default: nil,
+    doc:
+      "Controlled view (`card` / `comfy` / `table`). Set it to follow the user's " <>
+        "module-wide preference (`ViewConfig.load_view/1`) instead of the " <>
+        "per-browser localStorage key — see `view_toggle/1`. Setting it also " <>
+        "hides the table's built-in toggle: in controlled mode that toggle posts " <>
+        "to the server, and the module answers on `set_view` (see `view_event`)."
+  )
+
+  attr(:view_event, :string,
+    default: "set_view",
+    doc:
+      "Event the CONTROLLED toggle posts. Core's default is `switch_view`, which " <>
+        "no catalogue LiveView answers — and an unhandled event crashes the view."
+  )
+
   attr(:markup_percentage, :any, default: nil)
   attr(:discount_percentage, :any, default: nil)
   attr(:edit_path, :any, default: nil)
@@ -1506,9 +1838,12 @@ defmodule PhoenixKitCatalogue.Web.Components do
       variant={@variant}
       size={@size}
       toggleable={@cards}
-      show_toggle={@show_toggle}
+      show_toggle={is_nil(@view_mode) and @show_toggle}
       id={@id}
       storage_key={@storage_key}
+      view_mode={@view_mode}
+      view_event={@view_event}
+      {card_media_frame()}
       items={@items}
       on_reorder={@on_reorder}
       reorder_scope={@reorder_scope}
@@ -1518,6 +1853,18 @@ defmodule PhoenixKitCatalogue.Web.Components do
         &card_fields(&1, @card_columns, @markup_percentage, @discount_percentage, @catalogue_path)
       }
     >
+      <%!-- The picture leads the card, the way the categories grid has
+            always done it (boss via Max, 2026-08-28) — this used to be a
+            48px thumb wedged beside the title, so the same product looked
+            like a different kind of thing depending on which page you
+            were on. --%>
+      <:card_media :let={item}>
+        <.card_media
+          resource={item}
+          has_files={Map.get(@file_counts, item.uuid, 0) > 0}
+          on_click={@photo_click}
+        />
+      </:card_media>
       <:card_header :let={item}>
         <%!-- Mobile card view: prepend the checkbox so bulk-select works
              on phone screens too. The desktop table view has its own
@@ -1530,12 +1877,6 @@ defmodule PhoenixKitCatalogue.Web.Components do
             checked={selected?(@selected_uuids, item.uuid)}
             phx-click={@on_toggle_select}
             phx-value-uuid={item.uuid}
-          />
-          <.featured_thumb
-            resource={item}
-            class="w-12 h-12"
-            on_click={@photo_click}
-            has_files={Map.get(@file_counts, item.uuid, 0) > 0}
           />
           <.link
             :if={item_name_link(assigns, item)}

@@ -28,6 +28,10 @@ defmodule PhoenixKitCatalogue.Web.TableQueryTest do
   test "search is case-insensitive substring on name" do
     assert Enum.map(Q.search(rows(), "al"), & &1.name) == ["alpha"]
     assert Q.search(rows(), "") == rows()
+    # Trimmed: a trailing space is not part of the needle, and an
+    # all-space query means "no filter" (Max, 2026-08-28).
+    assert Enum.map(Q.search(rows(), "alpha "), & &1.name) == ["alpha"]
+    assert Q.search(rows(), "   ") == rows()
   end
 
   test "filter by status; 'all'/nil are no-ops" do
