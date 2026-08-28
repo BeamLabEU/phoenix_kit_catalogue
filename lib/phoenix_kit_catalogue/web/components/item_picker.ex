@@ -107,6 +107,16 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
       hook the product-card feature builds on). Defaults to `false`: the
       thumbnail still renders when the item has a photo, but as an inert
       image, so consumers without a handler are unaffected.
+    * `:photo_placeholder` — when `true` (and `:photo_clickable` is also
+      `true`), a selected item WITHOUT a photo renders a clickable
+      placeholder (a muted photo icon) in the thumbnail's place instead of
+      nothing, so its product card can still be opened. Defaults to
+      `false`: unchanged — no element renders for a photo-less item, exactly
+      as before. Has no effect when `:photo_clickable` is `false`, since
+      there is then nothing to click.
+    * `:photo_size` — Tailwind size classes (e.g. `"w-8 h-8"`) applied to
+      the thumbnail/placeholder image. Defaults to `"w-8 h-8"`, the
+      previously hardcoded size, so existing consumers render unchanged.
     * `:initial_query` — optional seed string for the search input. When
       provided (and nothing is selected and the user hasn't typed), the
       input is prefilled with this string and the dropdown opens with
@@ -142,6 +152,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
 
   @default_empty_query_limit 10
   @default_page_size 20
+  @default_photo_size "w-8 h-8"
 
   @impl true
   def mount(socket) do
@@ -172,6 +183,8 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
        seeded_initial_query: false,
        searched?: false,
        photo_clickable: false,
+       photo_placeholder: false,
+       photo_size: @default_photo_size,
        card_open: false,
        card_name: nil,
        card_images: [],
@@ -657,7 +670,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
           type="button"
           phx-click="photo_click"
           phx-target={@myself}
-          class="shrink-0"
+          class="shrink-0 cursor-pointer"
           aria-label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "View item details")}
           title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "View item details")}
         >
@@ -665,7 +678,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
             src={URLSigner.signed_url(@selected_photo_uuid, "thumbnail")}
             alt=""
             onerror="this.style.display='none'"
-            class="w-8 h-8 shrink-0 rounded object-cover bg-base-200 border border-base-300"
+            class={[@photo_size, "shrink-0 rounded object-cover bg-base-200 border border-base-300"]}
           />
         </button>
         <img
@@ -673,8 +686,35 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
           src={URLSigner.signed_url(@selected_photo_uuid, "thumbnail")}
           alt=""
           onerror="this.style.display='none'"
-          class="w-8 h-8 shrink-0 rounded object-cover bg-base-200 border border-base-300"
+          class={[@photo_size, "shrink-0 rounded object-cover bg-base-200 border border-base-300"]}
         />
+        <%!--
+        Placeholder shown instead of the thumbnail when the selected item has
+        no photo. Opt-in (`photo_placeholder`) and only meaningful alongside
+        `photo_clickable` — its only purpose is to give a photo-less item a
+        clickable target for the product card, which already opens fine for
+        such items once the event reaches the server (see `photo_click`
+        above); without this branch there is simply no element in the DOM
+        to send it. Off by default: existing consumers render nothing for a
+        photo-less item, exactly as before.
+        --%>
+        <button
+          :if={!@selected_photo_uuid && @selected_item && @photo_clickable && @photo_placeholder}
+          type="button"
+          phx-click="photo_click"
+          phx-target={@myself}
+          class="shrink-0 cursor-pointer"
+          aria-label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "View item details")}
+          title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "View item details")}
+        >
+          <.icon
+            name="hero-photo"
+            class={[
+              @photo_size,
+              "shrink-0 rounded bg-base-200 border border-base-300 p-1.5 opacity-40"
+            ]}
+          />
+        </button>
         <div class="relative flex-1">
           <input
             id={"#{@id}-input"}
