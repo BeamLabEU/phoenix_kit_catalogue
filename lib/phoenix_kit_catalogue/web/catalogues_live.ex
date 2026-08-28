@@ -2923,7 +2923,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
                 />
               </label>
             </form>
-            <.view_toggle view={@view_mode} />
+            <.view_toggle_instant view={@view_mode} id="attributes-view-pref" />
           </div>
 
           <p
@@ -2950,7 +2950,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
             variant="zebra"
             toggleable={true}
             show_toggle={false}
-            view_mode={@view_mode}
+            storage_key={view_storage_key()}
             items={@attribute_set_rows}
             wrapper_class="overflow-x-auto rounded-lg border border-base-content/10 shadow-none"
           >

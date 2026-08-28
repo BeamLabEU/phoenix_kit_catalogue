@@ -23,7 +23,7 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLive do
   import PhoenixKitWeb.Components.Core.FileUpload, only: [file_upload: 1]
   import PhoenixKitWeb.Components.Core.TableDefault
   import PhoenixKitWeb.Components.Core.TableRowMenu
-  import PhoenixKitCatalogue.Web.Components, only: [view_toggle: 1]
+  import PhoenixKitCatalogue.Web.Components, only: [view_toggle_instant: 1, view_storage_key: 0]
 
   alias PhoenixKitCatalogue.Catalogue
   alias PhoenixKitCatalogue.Catalogue.ActivityLog
@@ -502,7 +502,7 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLive do
               />
             </label>
           </form>
-          <.view_toggle :if={visible_pdfs != []} view={@view_mode} class="ml-auto" />
+          <.view_toggle_instant :if={visible_pdfs != []} view={@view_mode} id="pdf-view-pref" class="ml-auto" />
         </div>
 
         <.live_component
@@ -541,7 +541,7 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLive do
             size="sm"
             toggleable={true}
             show_toggle={false}
-            view_mode={@view_mode}
+            storage_key={view_storage_key()}
             items={visible_pdfs}
             card_title={fn pdf -> pdf.original_filename end}
             card_fields={fn pdf ->
