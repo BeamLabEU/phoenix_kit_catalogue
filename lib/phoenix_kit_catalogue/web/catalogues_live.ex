@@ -423,25 +423,51 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
 
   attr(:set, :map, required: true)
   attr(:limit, :integer, required: true)
+  attr(:narrow_limit, :integer, required: true)
+  attr(:narrow_only_class, :string, required: true)
+  attr(:wide_only_class, :string, required: true)
 
   # Chips are a HINT; the count is the number. "+N" navigates to the
   # entities values page — expansion-in-place at a thousand values is how
   # the old page melted.
+  #
+  # The cap is RESPONSIVE (Max, 2026-08-28 — "don't forget phones"): a
+  # wide table cell fits twice what a phone-width card does, so chips
+  # past `narrow_limit` carry a breakpoint class and EACH tier gets its
+  # own "+N" — CSS picks one, both ship. The classes arrive as literals
+  # from the call sites: Tailwind never sees a string built at runtime,
+  # so a computed "#{bp}:hidden" would compile to nothing.
   defp attr_set_values_cell(assigns) do
     # Never elide exactly one: at limit + 1 the extra chip costs less
     # than a "+1" (Max, 2026-08-28). The fetch is one past the widest
     # face's limit, so the extra chip is always on hand.
-    assigns = assign(assigns, :cap, elide_cap(assigns.set.value_count, assigns.limit))
+    count = assigns.set.value_count
+
+    assigns =
+      assign(assigns,
+        cap: elide_cap(count, assigns.limit),
+        narrow_cap: elide_cap(count, assigns.narrow_limit)
+      )
 
     ~H"""
     <div class="flex flex-wrap items-center gap-1">
-      <span :for={v <- Enum.take(@set.values, @cap)} class="badge badge-outline badge-sm">
+      <span
+        :for={{v, i} <- Enum.with_index(Enum.take(@set.values, @cap))}
+        class={["badge badge-outline badge-sm", i >= @narrow_cap && @wide_only_class]}
+      >
         {v.title}
       </span>
       <.link
+        :if={@set.value_count > @narrow_cap}
+        navigate={KitRoutes.path("/admin/entities/#{@set.key}/data")}
+        class={["badge badge-ghost badge-sm link link-hover", @narrow_only_class]}
+      >
+        +{@set.value_count - @narrow_cap}
+      </.link>
+      <.link
         :if={@set.value_count > @cap}
         navigate={KitRoutes.path("/admin/entities/#{@set.key}/data")}
-        class="badge badge-ghost badge-sm link link-hover"
+        class={["badge badge-ghost badge-sm link link-hover", @wide_only_class]}
       >
         +{@set.value_count - @cap}
       </.link>
@@ -2870,7 +2896,13 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
                   </.link>
                 </.table_default_cell>
                 <.table_default_cell class="align-top">
-                  <.attr_set_values_cell set={s} limit={12} />
+                  <.attr_set_values_cell
+                    set={s}
+                    limit={12}
+                    narrow_limit={6}
+                    narrow_only_class="xl:hidden"
+                    wide_only_class="hidden xl:inline-flex"
+                  />
                 </.table_default_cell>
                 <.table_default_cell class="align-top">
                   <.attr_set_items_cell set={s} />
@@ -2891,7 +2923,13 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
                 </.link>
               </div>
               <div class="mt-2">
-                <.attr_set_values_cell set={s} limit={8} />
+                <.attr_set_values_cell
+                  set={s}
+                  limit={8}
+                  narrow_limit={5}
+                  narrow_only_class="sm:hidden"
+                  wide_only_class="hidden sm:inline-flex"
+                />
               </div>
               <div class="mt-2">
                 <.attr_set_items_cell set={s} />
