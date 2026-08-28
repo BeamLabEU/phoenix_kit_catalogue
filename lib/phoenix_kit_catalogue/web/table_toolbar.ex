@@ -60,7 +60,7 @@ defmodule PhoenixKitCatalogue.Web.TableToolbar do
       )
 
     ~H"""
-    <form phx-change="set_sort" class="join">
+    <form id={"#{@scope}-sort-controls"} phx-change="set_sort" class="join">
       <select name="sort_by" class="select select-sm join-item">
         <option :for={c <- @options} value={c.id} selected={@sort_by == c.id}>{c.label.()}</option>
       </select>
@@ -88,7 +88,7 @@ defmodule PhoenixKitCatalogue.Web.TableToolbar do
 
   def enum_filter(assigns) do
     ~H"""
-    <form phx-change="set_filter" class="contents">
+    <form id={"filter-form-#{@id}"} phx-change="set_filter" class="contents">
       <input type="hidden" name="column_id" value={@id} />
       <.select
         name="value"

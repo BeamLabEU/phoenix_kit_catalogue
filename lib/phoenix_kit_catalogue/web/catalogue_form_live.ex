@@ -410,7 +410,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
         </button>
       </div>
 
-      <.form for={@form} action="#" phx-change="validate" phx-submit="save">
+      <.form for={@form} id="catalogue-form" action="#" phx-change="validate" phx-submit="save">
         <%!-- Details tab — name, description, kind, pricing, status --%>
         <div class={"card bg-base-100 shadow-lg #{if @current_tab != :details, do: "hidden"}"}>
           <%!-- Bundled tabs + AI row (phoenix_kit_ai's canonical placement;

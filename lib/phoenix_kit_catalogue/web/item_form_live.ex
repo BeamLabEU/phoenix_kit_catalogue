@@ -2470,7 +2470,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
         phoenix_kit_current_user={assigns[:phoenix_kit_current_user]}
       />
 
-      <.form for={@form} action="#" phx-change="validate" phx-submit="save">
+      <.form for={@form} id="item-form" action="#" phx-change="validate" phx-submit="save">
         <div class={"card bg-base-100 shadow-lg #{if @current_tab != :details, do: "hidden"}"}>
           <%!-- Bundled tabs + AI row (phoenix_kit_ai's canonical placement). --%>
           <.ai_multilang_tabs

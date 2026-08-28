@@ -149,7 +149,7 @@ defmodule PhoenixKitCatalogue.Web.Components.AttributeSetItemsModal do
           </div>
 
           <%!-- phx-submit is load-bearing (Enter would native-submit). --%>
-          <form phx-change="search" phx-submit="search" phx-target={@myself}>
+          <form id={"#{@id}-search"} phx-change="search" phx-submit="search" phx-target={@myself}>
             <label class="input input-sm w-full flex items-center gap-2">
               <span class="hero-magnifying-glass w-4 h-4 opacity-60"></span>
               <input

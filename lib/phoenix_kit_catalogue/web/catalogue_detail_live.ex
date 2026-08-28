@@ -1809,7 +1809,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
   defp move_target_picker(assigns) do
     ~H"""
-    <form phx-change={@event}>
+    <form id={"move-target-#{@event}"} phx-change={@event}>
       <select
         name="category_uuid"
         disabled={@disabled}
