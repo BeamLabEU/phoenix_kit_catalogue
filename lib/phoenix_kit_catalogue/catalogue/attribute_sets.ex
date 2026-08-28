@@ -942,17 +942,25 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
   Shape: `[%{uuid:, name:, values: [%{slug:, title:}]}]`, named for what
   the UI renders.
   """
-  @spec filter_options(Ecto.UUID.t(), keyword()) :: [map()]
+  @spec filter_options(Ecto.UUID.t() | :all, keyword()) :: [map()]
   def filter_options(catalogue_uuid, opts \\ []) do
     if entities_enabled?() do
-      set_uuids =
+      base =
         from(a in ItemAttributeSet,
           join: i in Item,
           on: i.uuid == a.item_uuid,
-          where: i.catalogue_uuid == ^catalogue_uuid and i.status != "deleted",
+          where: i.status != "deleted",
           distinct: true,
           select: a.set_uuid
         )
+
+      # `:all` is the catalogues INDEX, which filters catalogues by what
+      # their items carry, so its options come from every catalogue.
+      set_uuids =
+        case catalogue_uuid do
+          :all -> base
+          uuid -> where(base, [_a, i], i.catalogue_uuid == ^uuid)
+        end
         |> repo().all()
 
       set_uuids
