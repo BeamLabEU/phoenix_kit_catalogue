@@ -449,10 +449,16 @@ defmodule PhoenixKitCatalogue.Web.Components do
   combination greys out the moment its first half is picked.
   """
   def attribute_filter(assigns) do
-    assigns = assign(assigns, :active_count, length(assigns.selected))
+    assigns =
+      assigns
+      |> assign(:active_count, length(assigns.selected))
+      # A filter whose every value is dead is not a filter — it is a
+      # button that can only disappoint. It comes back the moment
+      # something here carries a value.
+      |> assign(:usable?, usable_filter?(assigns))
 
     ~H"""
-    <div class={["dropdown", @class]}>
+    <div :if={@usable?} class={["dropdown", @class]}>
       <label
         tabindex="0"
         class={["btn btn-sm gap-1", if(@active_count > 0, do: "btn-primary", else: "btn-outline")]}
@@ -516,6 +522,14 @@ defmodule PhoenixKitCatalogue.Web.Components do
   end
 
   defp selected_count(set, selected), do: Enum.count(set.values, &(&1.slug in selected))
+
+  defp usable_filter?(%{selected: selected}) when selected != [], do: true
+
+  defp usable_filter?(%{options: options, counts: counts, selected: selected}) do
+    Enum.any?(options, fn set ->
+      Enum.any?(set.values, &(not value_dead?(&1, counts, selected)))
+    end)
+  end
 
   # A value leads nowhere when nothing matches it alongside the filters
   # already on. An ACTIVE value is never dead — it has to stay clickable
