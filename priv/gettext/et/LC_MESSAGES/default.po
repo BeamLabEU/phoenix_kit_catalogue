@@ -2991,8 +2991,8 @@ msgstr "Üks dimensioon ühelt tarnijalt — värvivalik, liistuseeria. Tooted v
 
 
 ## Attribute sets viewer listing (2026-08-27 scale pass)
-msgid "Search sets…"
-msgstr "Otsi komplekte…"
+msgid "Search sets and values…"
+msgstr "Otsi komplekte ja väärtusi…"
 
 msgid "No sets match your search."
 msgstr "Otsingule ei vasta ükski komplekt."

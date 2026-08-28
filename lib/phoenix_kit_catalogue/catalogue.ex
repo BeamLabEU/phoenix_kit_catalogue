@@ -5416,6 +5416,10 @@ defmodule PhoenixKitCatalogue.Catalogue do
   defdelegate update_attribute_set(set, attrs, opts \\ []), to: AttributeSets, as: :update_set
   defdelegate delete_attribute_set(set, opts \\ []), to: AttributeSets, as: :delete_set
 
+  defdelegate attribute_set_uuids_matching_value(set_uuids, term),
+    to: AttributeSets,
+    as: :set_uuids_matching_value
+
   defdelegate list_attribute_set_attached_items(set_uuid, opts \\ []),
     to: AttributeSets,
     as: :list_attached_items

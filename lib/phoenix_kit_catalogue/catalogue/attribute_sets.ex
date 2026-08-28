@@ -365,6 +365,54 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
   end
 
   @doc """
+  Of the given sets, which have at least one VALUE whose label matches
+  `term`? Returns a list of set uuids — the listing search uses it
+  to find a set by what is IN it ("oak" finds the color set), not only
+  by its own name.
+
+  One batched query where the entities pin carries the API; the
+  fallback is the older global title search, intersected here. Archived
+  values are excluded, matching `list_values/2`.
+  """
+  @spec set_uuids_matching_value([Ecto.UUID.t()], String.t()) :: [Ecto.UUID.t()]
+  def set_uuids_matching_value([], _term), do: []
+
+  def set_uuids_matching_value(set_uuids, term) when is_list(set_uuids) and is_binary(term) do
+    batch = PhoenixKitEntities.EntityData
+
+    cond do
+      not entities_enabled?() or String.trim(term) == "" ->
+        []
+
+      Code.ensure_loaded?(batch) and function_exported?(batch, :entity_uuids_matching_title, 3) ->
+        # apply/3 on purpose: a direct call compiles as an undefined-
+        # function warning against the released entities pin, which
+        # doesn't carry the batch matcher yet.
+        # credo:disable-for-next-line Credo.Check.Refactor.Apply
+        apply(batch, :entity_uuids_matching_title, [
+          set_uuids,
+          term,
+          [exclude_statuses: ["archived"]]
+        ])
+
+      true ->
+        # Released entities without the batch matcher: the global title
+        # search, narrowed here. Heavier (it loads matching rows across
+        # every entity, preloads and all) but it still finds the set —
+        # degrading to name-only search would be a silent wrong answer.
+        wanted = MapSet.new(set_uuids)
+
+        term
+        |> String.trim()
+        |> batch.search_by_title()
+        |> Enum.reject(&(&1.status == "archived"))
+        |> Enum.map(& &1.entity_uuid)
+        |> Enum.filter(&MapSet.member?(wanted, &1))
+        |> Enum.uniq()
+    end
+  end
+
+  @doc """
   Value counts for many sets at once: `%{set_uuid => count}`, matching
   `list_values/2`'s semantics (archived and trashed excluded). One
   grouped query — the viewer must not COUNT per row.
