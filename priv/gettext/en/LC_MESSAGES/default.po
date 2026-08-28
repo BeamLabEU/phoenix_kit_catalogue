@@ -3014,3 +3014,7 @@ msgstr "View items"
 # Catalogue search covers categories too (2026-08-28)
 msgid "Nothing matches your search."
 msgstr "Nothing matches your search."
+
+# Attribute filter (2026-08-28)
+msgid "Clear filters"
+msgstr "Clear filters"

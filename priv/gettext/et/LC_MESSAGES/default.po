@@ -3014,3 +3014,7 @@ msgstr "Vaata tooteid"
 # Catalogue search covers categories too (2026-08-28)
 msgid "Nothing matches your search."
 msgstr "Otsingule ei vasta miski."
+
+# Attribute filter (2026-08-28)
+msgid "Clear filters"
+msgstr "Tühjenda filtrid"

@@ -931,6 +931,51 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
   end
 
   @doc """
+  The attribute filter's options for one catalogue: every set attached to
+  an item in it, with that set's values.
+
+  Only sets actually in use appear — a filter offering "Colour" for a
+  catalogue of screws is noise. Values come from the set itself rather
+  than from what is currently selected, so picking one that matches
+  nothing yet returns an honest empty list instead of hiding the option.
+
+  Shape: `[%{uuid:, name:, values: [%{slug:, title:}]}]`, named for what
+  the UI renders.
+  """
+  @spec filter_options(Ecto.UUID.t(), keyword()) :: [map()]
+  def filter_options(catalogue_uuid, opts \\ []) do
+    if entities_enabled?() do
+      set_uuids =
+        from(a in ItemAttributeSet,
+          join: i in Item,
+          on: i.uuid == a.item_uuid,
+          where: i.catalogue_uuid == ^catalogue_uuid and i.status != "deleted",
+          distinct: true,
+          select: a.set_uuid
+        )
+        |> repo().all()
+
+      set_uuids
+      |> Enum.map(&get_set(&1, lang: opts[:lang]))
+      |> Enum.reject(&is_nil/1)
+      |> Enum.map(fn set ->
+        %{
+          uuid: set.uuid,
+          name: set.display_name || set.name,
+          values:
+            set.uuid
+            |> list_values(lang: opts[:lang])
+            |> Enum.map(&%{slug: &1.slug, title: &1.title})
+        }
+      end)
+      |> Enum.reject(&(&1.values == []))
+      |> Enum.sort_by(& &1.name)
+    else
+      []
+    end
+  end
+
+  @doc """
   One page of the items attached to a set, name-ordered — the set
   detail page's listing. Each row is `%{item: %Item{}, selected_slugs:
   [...]}`; the slugs are the RAW attachment selection — callers
