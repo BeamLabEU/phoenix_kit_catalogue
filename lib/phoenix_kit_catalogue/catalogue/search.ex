@@ -162,14 +162,18 @@ defmodule PhoenixKitCatalogue.Catalogue.Search do
           on: c.catalogue_uuid == cat.uuid,
           where: c.catalogue_uuid == ^catalogue_uuid,
           where: c.status != "deleted" and cat.status != "deleted",
-          # `data::text` is what makes this work in EVERY language:
-          # translations live in that JSONB under language keys, so a
-          # category named "Doors" in en and "Uksed" in et is found by
-          # either (Max, 2026-08-28). Item search matches its own data
-          # the same way.
+          # The data JSONB is what makes this work in EVERY language:
+          # translations live there under language keys, so a category
+          # named "Doors" in en and "Uksed" in et is found by either.
+          # Only its string VALUES are searched — see
+          # `Helpers.json_string_values_path/0`.
           where:
             ilike(c.name, ^pattern) or ilike(c.description, ^pattern) or
-              fragment("?::text ILIKE ?", c.data, ^pattern),
+              fragment(
+                "EXISTS (SELECT 1 FROM jsonb_path_query(?, '$.**') AS v WHERE jsonb_typeof(v) = 'string' AND v #>> '{}' ILIKE ?)",
+                c.data,
+                ^pattern
+              ),
           order_by: [asc: c.name],
           limit: ^limit
         )
@@ -225,7 +229,11 @@ defmodule PhoenixKitCatalogue.Catalogue.Search do
         ilike(i.name, ^pattern) or
           ilike(i.description, ^pattern) or
           ilike(i.sku, ^pattern) or
-          fragment("?::text ILIKE ?", i.data, ^pattern)
+          fragment(
+            "EXISTS (SELECT 1 FROM jsonb_path_query(?, '$.**') AS v WHERE jsonb_typeof(v) = 'string' AND v #>> '{}' ILIKE ?)",
+            i.data,
+            ^pattern
+          )
     )
     |> maybe_scope_catalogues(catalogue_uuids)
     |> maybe_scope_categories(category_uuids)
