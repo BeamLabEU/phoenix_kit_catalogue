@@ -3005,7 +3005,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
             max_width="md"
           >
             <:title>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "New attribute set")}</:title>
-            <form phx-submit="create_attribute_set" class="flex flex-col gap-4">
+            <form id="new-attribute-set-form" phx-submit="create_attribute_set" class="flex flex-col gap-4">
               <label class="input w-full">
                 <span class="label">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Name")}</span>
                 <input type="text" name="name" required autocomplete="off" class="grow" />
@@ -3185,7 +3185,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       />
 
       <.modal :if={@move_dialog != nil} id="move-to-folder-modal" show on_close="cancel_move">
-        <form phx-submit="confirm_move" class="flex flex-col gap-4">
+        <form id="move-to-folder-form" phx-submit="confirm_move" class="flex flex-col gap-4">
           <h3 class="text-lg font-semibold">
             {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Move to folder")}
           </h3>
@@ -3260,7 +3260,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
          so every width renders an intentional-looking toolbar. --%>
     <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 mb-3">
       <div class="flex flex-wrap items-center gap-2">
-        <form phx-change="table_search" phx-submit="table_search" class="contents">
+        <form id={"#{@scope}-table-search"} phx-change="table_search" phx-submit="table_search" class="contents">
           <label class="input input-sm w-full sm:w-64">
             <.icon name="hero-magnifying-glass" class="h-4 w-4 opacity-50" />
             <input
