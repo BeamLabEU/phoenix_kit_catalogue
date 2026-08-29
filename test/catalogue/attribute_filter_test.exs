@@ -130,7 +130,7 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeFilterTest do
     end
 
     test "the page filters, and the filter is in the URL", ctx do
-      url = "/en/admin/catalogue/#{ctx.catalogue.uuid}?category=#{ctx.category.uuid}"
+      url = "/en/admin/catalogue/#{ctx.catalogue.uuid}?category=#{ctx.category.uuid}&mode=items"
 
       {:ok, view, html} = live(ctx.conn, url)
       assert html =~ "Blue oak door"
@@ -171,7 +171,7 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeFilterTest do
       {:ok, _view, html} =
         live(
           ctx.conn,
-          "/en/admin/catalogue/#{ctx.catalogue.uuid}?category=#{ctx.category.uuid}&attr=#{ctx.blue.slug}"
+          "/en/admin/catalogue/#{ctx.catalogue.uuid}?category=#{ctx.category.uuid}&mode=items&attr=#{ctx.blue.slug}"
         )
 
       assert html =~ "Blue oak door"
@@ -263,18 +263,25 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeFilterTest do
       })
 
       {:ok, view, html} =
-        live(ctx.conn, "/en/admin/catalogue/#{ctx.catalogue.uuid}?category=#{empty_cat.uuid}")
+        live(
+          ctx.conn,
+          "/en/admin/catalogue/#{ctx.catalogue.uuid}?category=#{empty_cat.uuid}&mode=items"
+        )
 
       assert html =~ "Plain item"
-      # Every value would return nothing here, so the button would only
-      # ever disappoint — it is not rendered.
-      refute has_element?(view, ~s|button[phx-click="toggle_attribute_filter"]|)
+      # Items mode keeps the control visible (it is a primary control
+      # there since 2026-08-29) — but every value is dead at this level,
+      # so each one is offered disabled, not clickable.
+      assert has_element?(view, ~s|button[phx-value-slug="#{ctx.blue.slug}"][disabled]|)
 
-      # …while the level that does carry values still offers it.
+      # …while the level that does carry values offers it live.
       {:ok, doors, _} =
-        live(ctx.conn, "/en/admin/catalogue/#{ctx.catalogue.uuid}?category=#{ctx.category.uuid}")
+        live(
+          ctx.conn,
+          "/en/admin/catalogue/#{ctx.catalogue.uuid}?category=#{ctx.category.uuid}&mode=items"
+        )
 
-      assert has_element?(doors, ~s|button[phx-value-slug="#{ctx.blue.slug}"]|)
+      assert has_element?(doors, ~s|button[phx-value-slug="#{ctx.blue.slug}"]:not([disabled])|)
     end
 
     test "the index counts catalogues, not items", ctx do
