@@ -729,6 +729,83 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
       refute html_after =~ "Oak in B"
     end
 
+    test "items mode lists the whole catalogue flat, no query needed", %{conn: conn} do
+      catalogue = fixture_catalogue()
+      cat_a = fixture_category(catalogue, %{name: "Chapter A"})
+      cat_b = fixture_category(catalogue, %{name: "Chapter B"})
+      fixture_item(%{name: "Widget in A", category_uuid: cat_a.uuid})
+      fixture_item(%{name: "Widget in B", category_uuid: cat_b.uuid})
+      fixture_item(%{name: "Loose widget", catalogue_uuid: catalogue.uuid})
+
+      {:ok, view, _html} = live(conn, url(catalogue.uuid) <> "?mode=items")
+      html = render_async(view)
+
+      # Every item, whatever its category — 100 categories deep or none.
+      assert html =~ "Widget in A"
+      assert html =~ "Widget in B"
+      assert html =~ "Loose widget"
+      # The outline browse is replaced, and the chips yield to the mode.
+      refute html =~ "set_search_type"
+    end
+
+    test "items mode drilled into a category scopes to its subtree", %{conn: conn} do
+      catalogue = fixture_catalogue()
+      cat_a = fixture_category(catalogue, %{name: "Chapter A"})
+      sub = fixture_category(catalogue, %{name: "Sub A", parent_uuid: cat_a.uuid})
+      cat_b = fixture_category(catalogue, %{name: "Chapter B"})
+      fixture_item(%{name: "Deep widget", category_uuid: sub.uuid})
+      fixture_item(%{name: "Other widget", category_uuid: cat_b.uuid})
+
+      {:ok, view, _html} = live(conn, cat_url(catalogue.uuid, cat_a.uuid) <> "&mode=items")
+      html = render_async(view)
+
+      assert html =~ "Deep widget"
+      refute html =~ "Other widget"
+    end
+
+    test "searching inside items mode narrows the flat list", %{conn: conn} do
+      catalogue = fixture_catalogue()
+      category = fixture_category(catalogue, %{name: "Oak chapter"})
+      fixture_item(%{name: "Oak panel", category_uuid: category.uuid})
+      fixture_item(%{name: "Pine board", category_uuid: category.uuid})
+
+      {:ok, view, _html} = live(conn, url(catalogue.uuid) <> "?mode=items&q=oak")
+      html = render_async(view)
+
+      assert html =~ "Oak panel"
+      refute html =~ "Pine board"
+      # No category hits in items mode, even when the name matches.
+      refute html =~ "Oak chapter"
+    end
+
+    test "the mode switcher patches ?mode= and leaving restores the outline", %{conn: conn} do
+      catalogue = fixture_catalogue()
+      category = fixture_category(catalogue, %{name: "Only chapter"})
+      fixture_item(%{name: "Only item", category_uuid: category.uuid})
+
+      {:ok, view, _html} = live(conn, url(catalogue.uuid))
+
+      render_click(view, "set_search_mode", %{"mode" => "items"})
+      assert assert_patch(view) =~ "mode=items"
+      assert render_async(view) =~ "Only item"
+
+      render_click(view, "set_search_mode", %{"mode" => "categories"})
+      path = assert_patch(view)
+      refute path =~ "mode="
+      # The outline browse is back.
+      assert render(view) =~ "Only chapter"
+    end
+
+    test "items mode on an empty catalogue says so without inventing a search", %{conn: conn} do
+      catalogue = fixture_catalogue()
+
+      {:ok, view, _html} = live(conn, url(catalogue.uuid) <> "?mode=items")
+      html = render_async(view)
+
+      assert html =~ "No items match."
+      refute html =~ "Nothing matches your search."
+    end
+
     test "the type chips narrow what the search returns", %{conn: conn} do
       catalogue = fixture_catalogue()
       category = fixture_category(catalogue, %{name: "Oak things"})
