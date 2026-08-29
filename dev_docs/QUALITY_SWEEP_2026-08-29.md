@@ -37,20 +37,28 @@ catalogues are intact.
   the attachments renumbered with nothing to roll back. Now one transaction
   under a per-item advisory lock — the mechanism `lock_set/1` already used for
   sets.
-- **Two reorders broadcast on a rolled-back transaction.**
-  `reorder_attributes/2` and `reorder_attribute_values/2` discarded the
-  transaction result and returned `:ok` unconditionally, while both LiveView
-  call sites matched `:ok =` — so a real failure would have surfaced as a
-  MatchError elsewhere, if at all.
+- **Two reorders could not report a failure at all.** `reorder_attributes/2`
+  and `reorder_attribute_values/2` discarded the transaction result and
+  returned `:ok` unconditionally. My first fix only matched on that result,
+  which the external panel correctly called a misdiagnosis: nothing in either
+  transaction calls `rollback/1`, so a database failure RAISES out of
+  `Repo.transaction/1` and an `{:error, _}` branch under it is unreachable —
+  the page still crashed and the spec still advertised an error nothing
+  produced. `run_reorder/1` now turns the DB families a reorder can genuinely
+  hit into that error and leaves programmer errors to crash.
 - **Infinite scroll on the events page loaded one page and stopped.** Core's
   hook re-fires only when `data-cursor` *changes* (that is also what clears its
   in-flight guard) and the sentinel passed `data-page`. An IntersectionObserver
   fires on transitions only, and the sentinel stays in view, so it never fired
   again. Core's own `load_more` component passes `data-cursor`.
-- **`apply_pro100` had no re-entrancy guard**, though `execute_import` beside
-  it does and explains why — it applies the plan synchronously and leaves
-  `import_plan` in place, so a second event re-applies every update and re-runs
-  every create.
+- **A double-click on Apply duplicated every created row.** `apply_pro100`
+  had no guard; the one I first added — an "am I running?" flag — could never
+  fire, as all three reviewing models pointed out: LiveView runs events one at
+  a time and the handler is synchronous, so the flag is false again by the
+  time the second event is dispatched. (`execute_import`'s version works
+  because that path is asynchronous.) The guard now keys on the plan being
+  consumed. Pinned by a test that creates one row and clicks Apply again:
+  against the flag it created two.
 
 ### Security and data protection
 
@@ -115,6 +123,41 @@ catalogues are intact.
   `escape_like/1` with no bypass, and every route is declared
   `level: :admin, permission: module_key()` with the one controller carrying
   its own plug.
+
+## What an external panel found in the fixes
+
+Four models reviewed the PR. Everything below was verified against the code
+before being acted on; the two misdiagnoses above are theirs, and both were
+right.
+
+- **The catalogue-scope pin was on the create path only**, and bypassable on
+  both. `save_item(:edit, …)` never pinned `catalogue_uuid`, and
+  `derive_catalogue_uuid/2` only overrides the field when the item has a
+  category — so for every smart item and every uncategorized standard one,
+  nothing contradicted a forged value, and the move was logged as a plain
+  `item.updated` rather than going through `move_item_to_catalogue/3`. A
+  forged `category_uuid` naming a category in ANOTHER catalogue also beats
+  the pin, by design: deriving the catalogue from the category is what makes
+  a category move carry its items. Both closed, both pinned by tests driven
+  as raw events — `form/3` refuses to send what the markup does not offer,
+  which is precisely the assumption the bug lived inside.
+- **`safe_exception_message/1` scrubbed one exception family of five.** The
+  rescue feeding it lists `ArgumentError`, `RuntimeError`,
+  `Ecto.InvalidChangesetError`, `Ecto.QueryError` and `Postgrex.Error`;
+  everything but the changeset fell through to `Exception.message/1`. A
+  unique violation reports `Key (sku)=(ACME-1) already exists` — a row from
+  the operator's spreadsheet, in the log and on the screen. Each family now
+  reports its structure instead: constraint and code for Postgres, field
+  errors for a changeset, and the type name for the parser exceptions whose
+  message often IS the offending cell.
+- **`list_values_for/2` went public without the feature gate its twin has.**
+  `list_values/2` returns `[]` with entities disabled; the batched form
+  answered with live data, and its fallback called into an unloaded module.
+- **The roll-up broadcast fired even when nothing changed.** Each individual
+  write already declined to broadcast a no-op; rolling them into one
+  unconditional `:item` event meant a name-only save delivered two — the
+  second on top of `update_item/3`'s — so every open detail page ran
+  `refresh_in_place/1` twice. That is the load the roll-up exists to remove.
 
 ## Open — recorded, not done
 
