@@ -967,25 +967,40 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
       refute html =~ "catalogue-categories-views"
     end
 
-    test "the subtree toggle folds subcategory items into the level list", %{conn: conn} do
+    test "the subtree toggle widens the SEARCH, never the browse list", %{conn: conn} do
       catalogue = fixture_catalogue()
       parent = fixture_category(catalogue, %{name: "Hardware chapter"})
       child = fixture_category(catalogue, %{name: "Frames sub", parent_uuid: parent.uuid})
-      fixture_item(%{name: "Own hinge", category_uuid: parent.uuid})
-      fixture_item(%{name: "Nested frame", category_uuid: child.uuid})
+      fixture_item(%{name: "Steel widget own", category_uuid: parent.uuid})
+      fixture_item(%{name: "Steel widget nested", category_uuid: child.uuid})
 
-      # Default: the category's OWN items only; the toggle is offered
-      # because subcategories exist.
+      # Browsing: the category's OWN items only, and no toggle — it
+      # "should only do something when searching" (Max, 2026-08-30), and
+      # an idle control that changes nothing on screen is a lie.
       {:ok, view, html} = live(conn, cat_url(catalogue.uuid, parent.uuid))
-      assert html =~ "Own hinge"
-      refute html =~ "Nested frame"
-      assert html =~ "Include subcategory items"
+      assert html =~ "Steel widget own"
+      refute html =~ "Steel widget nested"
+      refute html =~ "Include subcategory items"
 
+      # Even with ?items=subtree in the URL the browse list stays direct.
+      {:ok, _view, html} =
+        live(conn, cat_url(catalogue.uuid, parent.uuid) <> "&items=subtree")
+
+      refute html =~ "Steel widget nested"
+
+      # A running search offers the toggle; off = direct matches only.
+      {:ok, view, _html} = live(conn, cat_url(catalogue.uuid, parent.uuid) <> "&q=widget")
+      html = render_async(view)
+      assert html =~ "Include subcategory items"
+      assert html =~ "Steel widget own"
+      refute html =~ "Steel widget nested"
+
+      # Flipping it re-runs the search over the whole subtree.
       render_click(view, "toggle_items_scope", %{})
       assert assert_patch(view) =~ "items=subtree"
-      html = render(view)
-      assert html =~ "Own hinge"
-      assert html =~ "Nested frame"
+      html = render_async(view)
+      assert html =~ "Steel widget own"
+      assert html =~ "Steel widget nested"
     end
 
     test "subcategories stay visible on the inactive tab", %{conn: conn} do
@@ -1003,26 +1018,35 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
       assert html =~ "Live sub"
     end
 
-    test "no strategy reorder over a subtree list", %{conn: conn} do
+    test "the toggle no longer blocks reordering the browse list", %{conn: conn} do
       catalogue = fixture_catalogue()
       parent = fixture_category(catalogue, %{name: "Mixed chapter"})
       child = fixture_category(catalogue, %{name: "Inner", parent_uuid: parent.uuid})
       fixture_item(%{name: "Own one", category_uuid: parent.uuid})
+      fixture_item(%{name: "Own two", category_uuid: parent.uuid})
       fixture_item(%{name: "Nested one", category_uuid: child.uuid})
 
+      # The subtree toggle is a search refinement now — the browse list
+      # it would renumber is always the direct one, so reorder stays.
       {:ok, view, _html} =
         live(conn, cat_url(catalogue.uuid, parent.uuid) <> "&items=subtree")
 
-      # The event is refused — a strategy reorder would renumber only
-      # the direct scope of an interleaved list (panel finding).
-      html = render_click(view, "open_items_reorder_modal", %{})
-      refute :sys.get_state(view.pid).socket.assigns.show_items_reorder
+      render_click(view, "open_items_reorder_modal", %{})
+      assert :sys.get_state(view.pid).socket.assigns.show_items_reorder
+    end
 
-      # And the toolbar button is hidden. The substring match is
+    test "root items mode hides the toolbar Reorder via CSS", %{conn: conn} do
+      catalogue = fixture_catalogue()
+      fixture_category(catalogue, %{name: "Grouping chapter"})
+      fixture_item(%{name: "Loose item", catalogue_uuid: catalogue.uuid})
+
+      # Root items mode with categories present cannot strategy-reorder
+      # (document order is grouped by category). The substring match is
       # load-bearing: Tailwind reads a bare `_` in an arbitrary value
       # as a space, and escaping cannot work because Tailwind scans
       # the raw source while HEEx renders the parsed string.
-      assert html =~ "[data-bulk-action*=reorder]]:!hidden"
+      {:ok, view, _html} = live(conn, url(catalogue.uuid) <> "?mode=items")
+      assert render_async(view) =~ "[data-bulk-action*=reorder]]:!hidden"
     end
 
     test "a stale ?items=subtree does not leak into root or the bucket", %{conn: conn} do
@@ -1047,37 +1071,13 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
       refute :sys.get_state(view.pid).socket.assigns.search_loading
     end
 
-    test "a descendant's change refreshes the open subtree list", %{conn: conn} do
-      catalogue = fixture_catalogue()
-      parent = fixture_category(catalogue, %{name: "Watched chapter"})
-      child = fixture_category(catalogue, %{name: "Leaf", parent_uuid: parent.uuid})
-      fixture_item(%{name: "Original nested", category_uuid: child.uuid})
-
-      {:ok, view, _html} =
-        live(conn, cat_url(catalogue.uuid, parent.uuid) <> "&items=subtree")
-
-      # Another tab changed an item in the CHILD — its refresh broadcast
-      # names the child's scope, which the parent's subtree list shows
-      # and used to drop (panel finding). The rename goes through the
-      # Repo so the ONLY signal the view gets is the refresh message.
-      late = fixture_item(%{name: "Placeholder name", category_uuid: child.uuid})
-      render_async(view)
-
-      late
-      |> Ecto.Changeset.change(name: "Late arrival")
-      |> PhoenixKit.RepoHelper.repo().update!()
-
-      other = spawn(fn -> :ok end)
-      send(view.pid, {:catalogue_card_refresh, catalogue.uuid, child.uuid, nil, nil, other})
-      assert render(view) =~ "Late arrival"
-    end
-
     test "no subcategories, no toggle", %{conn: conn} do
       catalogue = fixture_catalogue()
       leaf = fixture_category(catalogue, %{name: "Leaf chapter"})
       fixture_item(%{name: "Leaf item", category_uuid: leaf.uuid})
 
-      {:ok, _view, html} = live(conn, cat_url(catalogue.uuid, leaf.uuid))
+      {:ok, view, _html} = live(conn, cat_url(catalogue.uuid, leaf.uuid) <> "&q=leaf")
+      html = render_async(view)
       assert html =~ "Leaf item"
       refute html =~ "Include subcategory items"
     end
