@@ -112,7 +112,7 @@ msgstr "Discontinued"
 msgid "Toggle folder"
 msgstr "Toggle folder"
 
-#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2962
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2978
 #, elixir-autogen
 msgid "Clear search and filters to see the folder tree."
 msgstr "Clear search and filters to see the folder tree."
@@ -398,8 +398,8 @@ msgstr "Failed to restore category."
 msgid "Failed to restore item."
 msgstr "Failed to restore item."
 
-#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2107
-#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2545
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2123
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2561
 #, elixir-autogen
 msgid "Failed to save the new order."
 msgstr "Failed to save the new order."
@@ -909,7 +909,7 @@ msgstr "All folders"
 msgid "All statuses"
 msgstr "All statuses"
 
-#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2114
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2130
 #, elixir-autogen
 msgid "Clear search and filters to drag-and-drop reorder."
 msgstr "Clear search and filters to drag-and-drop reorder."
@@ -1126,17 +1126,17 @@ msgstr "Next"
 msgid "Show image %{number}"
 msgstr "Show image %{number}"
 
-#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:3804
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:3820
 #, elixir-autogen
 msgid "Reorder all"
 msgstr "Reorder all"
 
-#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:3617
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:3633
 #, elixir-autogen
 msgid "catalogue"
 msgstr "catalogue"
 
-#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:3618
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:3634
 #, elixir-autogen
 msgid "catalogues"
 msgstr "catalogues"
@@ -1147,7 +1147,7 @@ msgstr "category"
 msgid "categories"
 msgstr "categories"
 
-#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2078
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2094
 #, elixir-autogen
 msgid "Catalogues reordered."
 msgstr "Catalogues reordered."
@@ -1155,7 +1155,7 @@ msgstr "Catalogues reordered."
 msgid "Categories reordered."
 msgstr "Categories reordered."
 
-#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2083
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2099
 #, elixir-autogen
 msgid "Failed to reorder."
 msgstr "Failed to reorder."
@@ -1655,7 +1655,7 @@ msgstr ""
 msgid "0.00"
 msgstr ""
 
-#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2761
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2777
 #, elixir-autogen
 msgid "A → Z by name"
 msgstr ""
@@ -2029,7 +2029,7 @@ msgstr ""
 msgid "New Categories"
 msgstr ""
 
-#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2763
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2779
 #, elixir-autogen
 msgid "Newest first"
 msgstr ""
@@ -2091,7 +2091,7 @@ msgstr ""
 msgid "Nothing deleted here."
 msgstr ""
 
-#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2764
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2780
 #, elixir-autogen
 msgid "Oldest first"
 msgstr ""
@@ -2228,7 +2228,7 @@ msgstr ""
 msgid "Retrying…"
 msgstr ""
 
-#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2765
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2781
 #, elixir-autogen
 msgid "Reverse current order"
 msgstr ""
@@ -2506,7 +2506,7 @@ msgstr ""
 msgid "You must map at least one column to 'Item Name'. Scroll down to the column mapping section and pick the column that holds item names."
 msgstr ""
 
-#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2762
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2778
 #, elixir-autogen
 msgid "Z → A by name"
 msgstr ""
@@ -3047,52 +3047,52 @@ msgid_plural "%{count} rows skipped"
 msgstr[0] ""
 msgstr[1] ""
 
-#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2889
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2905
 #, elixir-autogen, elixir-format
 msgid "Search for"
 msgstr "Search for"
 
-#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:3665
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:3681
 #, elixir-autogen, elixir-format
 msgid "No items match."
 msgstr "No items match."
 
-#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:3708
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:3724
 #, elixir-autogen, elixir-format
 msgid "View in catalogue"
 msgstr "View in catalogue"
 
-#: lib/phoenix_kit_catalogue/web/catalogue_detail_live.ex:4748
+#: lib/phoenix_kit_catalogue/web/catalogue_detail_live.ex:4871
 #, elixir-autogen, elixir-format
 msgid "A category cannot move into its own subtree."
 msgstr "A category cannot move into its own subtree."
 
-#: lib/phoenix_kit_catalogue/web/catalogue_detail_live.ex:4754
+#: lib/phoenix_kit_catalogue/web/catalogue_detail_live.ex:4877
 #, elixir-autogen, elixir-format
 msgid "Categories can only move within their own catalogue."
 msgstr "Categories can only move within their own catalogue."
 
-#: lib/phoenix_kit_catalogue/web/catalogue_detail_live.ex:4581
+#: lib/phoenix_kit_catalogue/web/catalogue_detail_live.ex:4662
 #, elixir-autogen, elixir-format
 msgid "Drag to reorder or nest"
 msgstr "Drag to reorder or nest"
 
-#: lib/phoenix_kit_catalogue/web/catalogue_detail_live.ex:4545
+#: lib/phoenix_kit_catalogue/web/catalogue_detail_live.ex:4626
 #, elixir-autogen, elixir-format
 msgid "Drop here to move to this level"
 msgstr "Drop here to move to this level"
 
-#: lib/phoenix_kit_catalogue/web/catalogue_detail_live.ex:4526
+#: lib/phoenix_kit_catalogue/web/catalogue_detail_live.ex:4607
 #, elixir-autogen, elixir-format
 msgid "No categories here yet."
 msgstr "No categories here yet."
 
-#: lib/phoenix_kit_catalogue/web/catalogue_detail_live.ex:3767
+#: lib/phoenix_kit_catalogue/web/catalogue_detail_live.ex:3851
 #, elixir-autogen, elixir-format
 msgid "No subcategories here. Switch to Items to browse this level's items."
 msgstr "No subcategories here. Switch to Items to browse this level's items."
 
-#: lib/phoenix_kit_catalogue/web/catalogue_detail_live.ex:4603
+#: lib/phoenix_kit_catalogue/web/catalogue_detail_live.ex:4684
 #, elixir-autogen, elixir-format
 msgid "Toggle category"
 msgstr "Toggle category"

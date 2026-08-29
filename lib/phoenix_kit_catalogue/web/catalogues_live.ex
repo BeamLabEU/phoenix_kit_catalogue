@@ -532,6 +532,14 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         opts = [catalogue_uuids: scope, value_slugs: slugs]
 
         socket
+        # Cancel BOTH in-flight tasks: start_async does not cancel a
+        # same-key predecessor (verified against LV 1.2.11 — the old
+        # task is orphaned and keeps querying), and a stale :item_page
+        # kicked before this reload could otherwise append its page
+        # onto the fresh first page when the stamps happen to agree
+        # (panel finding, 2026-08-29).
+        |> cancel_async(:item_results, :superseded)
+        |> cancel_async(:item_page, :superseded)
         |> assign(:item_loading, true)
         |> start_async(:item_results, fn ->
           results =
@@ -589,9 +597,12 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   end
 
   def handle_async(key, {:exit, reason}, socket) when key in [:item_results, :item_page] do
-    # :shutdown/:killed = a newer question superseded this one (start_async
-    # cancels the in-flight task under the same key) — the newer handler
-    # owns item_loading. Anything else: stop the spinner, tell the user.
+    # :shutdown/:killed/:superseded = deliberately cancelled above — the
+    # superseding kickoff owns item_loading. A crashed RESULTS task stops
+    # the spinner and tells the user; a crashed PAGE task only clears the
+    # flag — the load-more footer is still there to retry, and a flash
+    # would be noise if a fresh results load is already in flight (panel
+    # finding, 2026-08-29).
     case reason do
       r when r in [:shutdown, :killed] ->
         {:noreply, socket}
@@ -604,13 +615,18 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
           "Catalogues index items-mode task exited unexpectedly: key=#{key} reason=#{inspect(other)} query=#{inspect(current_search(socket.assigns))} actor_uuid=#{inspect(actor_uuid(socket))}"
         )
 
-        {:noreply,
-         socket
-         |> assign(:item_loading, false)
-         |> put_flash(
-           :error,
-           Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search failed. Please try again.")
-         )}
+        socket = assign(socket, :item_loading, false)
+
+        if key == :item_results do
+          {:noreply,
+           put_flash(
+             socket,
+             :error,
+             Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search failed. Please try again.")
+           )}
+        else
+          {:noreply, socket}
+        end
     end
   end
 

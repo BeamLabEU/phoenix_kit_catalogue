@@ -987,6 +987,84 @@ defmodule PhoenixKitCatalogue.Catalogue do
     |> Manufacturers.hydrate()
   end
 
+  @doc """
+  Lists a page of a catalogue's items ACROSS all its categories — the
+  detail page's Items mode since category drilling was removed (Max,
+  2026-08-29): with no level to stand in, the mode lists the whole
+  catalogue. Same options as `list_items_for_category_paged/2`. The
+  default (position) order is the DOCUMENT order — category position,
+  then item position — the same walk the export uses.
+  """
+  @spec list_catalogue_items_paged(Ecto.UUID.t(), keyword()) :: [Item.t()]
+  def list_catalogue_items_paged(catalogue_uuid, opts \\ []) do
+    mode = Keyword.get(opts, :mode, :active)
+    offset = Keyword.get(opts, :offset, 0)
+    limit = Keyword.get(opts, :limit, 50)
+    preloads = Helpers.merge_preloads([:catalogue, category: :catalogue], opts)
+
+    query =
+      from(i in Item,
+        as: :item,
+        left_join: c in Category,
+        on: i.category_uuid == c.uuid,
+        where: i.catalogue_uuid == ^catalogue_uuid,
+        offset: ^offset,
+        limit: ^limit,
+        preload: ^preloads
+      )
+
+    query
+    |> filter_by_attribute_values(opts)
+    |> apply_item_status_filter(opts, mode)
+    |> apply_catalogue_item_order(opts)
+    |> repo().all()
+    |> Manufacturers.hydrate()
+  end
+
+  @doc "Total item count for `list_catalogue_items_paged/2`'s filters."
+  @spec count_items_for_catalogue(Ecto.UUID.t(), keyword()) :: non_neg_integer()
+  def count_items_for_catalogue(catalogue_uuid, opts \\ []) do
+    mode = Keyword.get(opts, :mode, :active)
+
+    from(i in Item, as: :item, where: i.catalogue_uuid == ^catalogue_uuid)
+    |> filter_by_attribute_values(opts)
+    |> apply_item_status_filter(opts, mode)
+    |> repo().aggregate(:count)
+  end
+
+  @doc "Per-status item counts for a whole catalogue: `%{\"active\" => n, …}`."
+  @spec item_status_counts_for_catalogue(Ecto.UUID.t()) :: %{
+          optional(String.t()) => non_neg_integer()
+        }
+  def item_status_counts_for_catalogue(catalogue_uuid) do
+    from(i in Item,
+      where: i.catalogue_uuid == ^catalogue_uuid,
+      group_by: i.status,
+      select: {i.status, count(i.uuid)}
+    )
+    |> repo().all()
+    |> Map.new()
+  end
+
+  # Position on a catalogue-wide list means the DOCUMENT order (category
+  # position, then item position) — bare `i.position` interleaves
+  # per-category sequences into noise. Every other sort defers to the
+  # shared whitelist.
+  defp apply_catalogue_item_order(query, opts) do
+    case Keyword.get(opts, :sort_by, :position) do
+      :position ->
+        order_by(query, [i, c],
+          asc_nulls_last: c.position,
+          asc: i.position,
+          asc: i.name,
+          asc: i.uuid
+        )
+
+      _ ->
+        apply_item_order(query, opts)
+    end
+  end
+
   # Status filter shared by the item list/count queries. `:status` (an
   # exact status string like `"discontinued"`) takes precedence and filters
   # to that one status — used by the detail page's per-status tabs. Without
