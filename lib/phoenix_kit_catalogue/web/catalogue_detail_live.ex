@@ -783,13 +783,6 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   end
 
   # The drilled "include subcategory items" toggle.
-  def handle_event("open_items_reorder_modal", _params, socket)
-      when socket.assigns.items_scope == "subtree" do
-    # A subtree list interleaves per-category position sequences — a
-    # strategy reorder over it would renumber only the direct scope and
-    # reject cross-category selections (panel finding).
-    {:noreply, socket}
-  end
 
   def handle_event("toggle_items_scope", _params, socket) do
     next = if subtree_items?(socket.assigns), do: "", else: "subtree"
@@ -2455,10 +2448,9 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         )
       )
 
-    # Per-status item counts for the current node — drive the tab labels and
-    # the default-tab pick below. With "include subcategory items" on,
-    # the tabs answer for the subtree the list shows.
-    status_counts = node_status_counts(current, uuid, subtree_items?(socket.assigns))
+    # Per-status item counts for the current node — drive the tab labels
+    # and the default-tab pick below.
+    status_counts = node_status_counts(current, uuid)
 
     # `status` is the exact item status shown. The root is a pure navigation
     # step (always Active, no tabs). ENTERING a node auto-selects a populated
@@ -2497,7 +2489,6 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     uncat_active = Catalogue.uncategorized_count_for_catalogue(uuid, mode: :active)
 
     node_total = node_total(socket, status_counts, status, current, uuid)
-    descendants? = subtree_items?(socket.assigns)
 
     # The Active tab's Categories mode is a pure CATEGORY BROWSER since
     # 2026-08-29 (Max: "we just won't show the items in the categories")
@@ -2518,8 +2509,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
             status,
             item_limit,
             0,
-            items_sort_opts(socket),
-            descendants?
+            items_sort_opts(socket)
           )
           |> Catalogue.localize(loc(socket)),
         else: []
@@ -2677,16 +2667,13 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   # `%{status => count}` for the current node's own direct items — drives
   # the four per-status tabs. Root and the Uncategorized bucket both count
   # the catalogue's uncategorized items.
-  defp node_status_counts(%Category{uuid: u}, _catalogue_uuid, true),
-    do: Catalogue.item_status_counts_for_categories(Catalogue.category_subtree_uuids([u]))
-
-  defp node_status_counts(%Category{uuid: u}, _catalogue_uuid, _subtree),
+  defp node_status_counts(%Category{uuid: u}, _catalogue_uuid),
     do: Catalogue.item_status_counts_for_category(u)
 
-  defp node_status_counts(:uncategorized, catalogue_uuid, _subtree),
+  defp node_status_counts(:uncategorized, catalogue_uuid),
     do: Catalogue.item_status_counts_for_uncategorized(catalogue_uuid)
 
-  defp node_status_counts(nil, catalogue_uuid, _subtree),
+  defp node_status_counts(nil, catalogue_uuid),
     do: Catalogue.item_status_counts_for_catalogue(catalogue_uuid)
 
   # Loads the next page of the current node's own items (the bottom
@@ -2703,8 +2690,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         status,
         @per_page,
         offset,
-        items_sort_opts(socket),
-        subtree_items?(socket.assigns)
+        items_sort_opts(socket)
       )
 
     new_offset = offset + length(page)
@@ -2808,6 +2794,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     current = socket.assigns.current_category
     slugs = active_attribute_slugs(socket)
     type = effective_search_type(socket.assigns)
+    subtree? = subtree_items?(socket.assigns)
 
     socket = assign(socket, search_query: query, search_loading: true)
     stamp = search_stamp(socket, 0)
@@ -2830,8 +2817,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         if type == "categories",
           do: {[], 0},
           else:
-            {search_in_scope(uuid, current, query, @per_page, 0, slugs),
-             search_count_in_scope(uuid, current, query, slugs)}
+            {search_in_scope(uuid, current, query, @per_page, 0, slugs, subtree?),
+             search_count_in_scope(uuid, current, query, slugs, subtree?)}
 
       categories =
         if type == "items", do: [], else: categories_in_scope(uuid, current, query)
@@ -2851,17 +2838,19 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   # and its rows, from the previous filter, are appended to the new list.
   defp search_stamp(socket, offset) do
     {socket.assigns.search_query, offset, active_attribute_slugs(socket),
-     level_node_key(socket.assigns.current_category), effective_search_type(socket.assigns)}
+     level_node_key(socket.assigns.current_category), effective_search_type(socket.assigns),
+     subtree_items?(socket.assigns)}
   end
 
   # Search scope follows the drill level: catalogue-wide at root, the
-  # category's subtree when drilled in (`search_items_in_category/3`
-  # defaults to `include_descendants: true`), and uncategorized-only in
+  # drilled category's OWN items — or its whole subtree with "include
+  # subcategory items" on (the toggle is a SEARCH refinement only; the
+  # browse list always shows direct items) — and uncategorized-only in
   # the uncategorized bucket. Search is Active-mode only (the context
   # search excludes deleted rows), so the input is hidden in Deleted view.
-  # Categories follow the item scope: the whole catalogue at root, the
-  # drilled category's subtree below it, and none in the uncategorized
-  # bucket (which by definition holds no categories).
+  # Categories always search the drilled node's subtree (that is how a
+  # deep subcategory is found by name), the whole catalogue at root, and
+  # none in the uncategorized bucket (which holds no categories).
   # "Doors / Fronts" for each hit, so two subcategories with the same
   # name are told apart. One ancestor query per hit — the result set is
   # capped at 25, and only a search runs this.
@@ -2884,7 +2873,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   defp categories_in_scope(uuid, %Category{uuid: cuuid}, query),
     do: Catalogue.search_categories(uuid, query, parent_uuid: cuuid)
 
-  defp search_in_scope(uuid, nil, query, limit, offset, slugs),
+  defp search_in_scope(uuid, nil, query, limit, offset, slugs, _subtree?),
     do:
       Catalogue.search_items_in_catalogue(uuid, query,
         limit: limit,
@@ -2892,7 +2881,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         value_slugs: slugs
       )
 
-  defp search_in_scope(uuid, :uncategorized, query, limit, offset, slugs),
+  defp search_in_scope(uuid, :uncategorized, query, limit, offset, slugs, _subtree?),
     do:
       Catalogue.search_items(query,
         catalogue_uuids: [uuid],
@@ -2902,18 +2891,19 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         value_slugs: slugs
       )
 
-  defp search_in_scope(_uuid, %Category{uuid: cuuid}, query, limit, offset, slugs),
+  defp search_in_scope(_uuid, %Category{uuid: cuuid}, query, limit, offset, slugs, subtree?),
     do:
       Catalogue.search_items_in_category(cuuid, query,
         limit: limit,
         offset: offset,
-        value_slugs: slugs
+        value_slugs: slugs,
+        include_descendants: subtree?
       )
 
-  defp search_count_in_scope(uuid, nil, query, slugs),
+  defp search_count_in_scope(uuid, nil, query, slugs, _subtree?),
     do: Catalogue.count_search_items(query, catalogue_uuids: [uuid], value_slugs: slugs)
 
-  defp search_count_in_scope(uuid, :uncategorized, query, slugs),
+  defp search_count_in_scope(uuid, :uncategorized, query, slugs, _subtree?),
     do:
       Catalogue.count_search_items(query,
         catalogue_uuids: [uuid],
@@ -2921,8 +2911,13 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         value_slugs: slugs
       )
 
-  defp search_count_in_scope(_uuid, %Category{uuid: cuuid}, query, slugs),
-    do: Catalogue.count_search_items(query, category_uuids: [cuuid], value_slugs: slugs)
+  defp search_count_in_scope(_uuid, %Category{uuid: cuuid}, query, slugs, subtree?),
+    do:
+      Catalogue.count_search_items(query,
+        category_uuids: [cuuid],
+        value_slugs: slugs,
+        include_descendants: subtree?
+      )
 
   @impl true
   def handle_async(:search, {:ok, {stamp, results, total, categories}}, socket) do
@@ -3036,12 +3031,13 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       socket.assigns
 
     slugs = active_attribute_slugs(socket)
+    subtree? = subtree_items?(socket.assigns)
     stamp = search_stamp(socket, offset)
 
     socket
     |> assign(:search_loading, true)
     |> start_async(:search_page, fn ->
-      page = search_in_scope(uuid, current, query, @per_page, offset, slugs)
+      page = search_in_scope(uuid, current, query, @per_page, offset, slugs, subtree?)
       {stamp, offset, page}
     end)
   end
@@ -3073,13 +3069,10 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   # compatibility but unused — there is one item list now, no cross-card
   # count drift to correct.
   defp refresh_card_items(socket, scope, _delta \\ 0) do
-    if refresh_scope_visible?(socket, scope) do
-      scope = node_scope(socket.assigns.current_category)
+    if scope == node_scope(socket.assigns.current_category) do
       catalogue_uuid = socket.assigns.catalogue_uuid
       status = socket.assigns.view_mode
       limit = max(socket.assigns.items_offset, @per_page)
-
-      descendants? = subtree_items?(socket.assigns)
 
       fresh =
         fetch_card_items(
@@ -3088,13 +3081,11 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
           status,
           limit,
           0,
-          items_sort_opts(socket),
-          descendants?
+          items_sort_opts(socket)
         )
         |> Catalogue.localize(loc(socket))
 
-      total =
-        card_total(scope, catalogue_uuid, status, active_attribute_slugs(socket), descendants?)
+      total = card_total(scope, catalogue_uuid, status, active_attribute_slugs(socket))
 
       socket
       |> assign(
@@ -3107,31 +3098,6 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     else
       socket
     end
-  end
-
-  # The broadcast names the category that CHANGED; with the subtree
-  # toggle on, a DESCENDANT's change is visible in the open list too and
-  # must refresh it (panel finding). The walk uses the already-loaded
-  # tree index — no query.
-  defp refresh_scope_visible?(socket, scope) do
-    current = socket.assigns.current_category
-
-    cond do
-      scope == node_scope(current) ->
-        true
-
-      is_binary(scope) and subtree_items?(socket.assigns) ->
-        scope in tree_descendant_uuids(socket.assigns.category_tree_children, current.uuid)
-
-      true ->
-        false
-    end
-  end
-
-  defp tree_descendant_uuids(index, root_uuid) do
-    index
-    |> Map.get(root_uuid, [])
-    |> Enum.flat_map(fn c -> [c.uuid | tree_descendant_uuids(index, c.uuid)] end)
   end
 
   # What each value would still match HERE: this catalogue, the status
@@ -3152,17 +3118,17 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         ] ++
           counts_scope(
             socket.assigns[:current_category],
-            search != "" or subtree_items?(socket.assigns)
+            search != "" and subtree_items?(socket.assigns)
           )
       )
     )
   end
 
-  # Mirrors the scope the LIST is under. A drilled category normally
-  # shows its OWN items, but a search from there covers the whole subtree
-  # (`search_items_in_category/3` defaults to `include_descendants:
-  # true`) — count the direct children while searching and a value living
-  # one level down looks dead on a page that would have shown it.
+  # Mirrors the scope the LIST is under. A drilled category shows and
+  # searches its OWN items unless a search is running WITH "include
+  # subcategory items" on — only then do the facet counts answer for the
+  # subtree, or a value living one level down looks dead on a page that
+  # would have shown it.
   defp counts_scope(%Category{uuid: uuid}, false = _widen), do: [category_uuids: [uuid]]
 
   defp counts_scope(%Category{uuid: uuid}, _widen),
@@ -3180,75 +3146,51 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         Map.get(status_counts, status, 0)
 
       slugs ->
-        card_total(node_scope(current), uuid, status, slugs, subtree_items?(socket.assigns))
+        card_total(node_scope(current), uuid, status, slugs)
     end
   end
 
   # `status` is the exact item status of the current tab
   # ("active" | "inactive" | "discontinued" | "deleted").
-  defp card_total(:catalogue, catalogue_uuid, status, slugs, _descendants?) do
+  defp card_total(:catalogue, catalogue_uuid, status, slugs) do
     Catalogue.count_items_for_catalogue(catalogue_uuid, status: status, value_slugs: slugs)
   end
 
-  defp card_total(:uncategorized, catalogue_uuid, status, slugs, _descendants?) do
+  defp card_total(:uncategorized, catalogue_uuid, status, slugs) do
     Catalogue.uncategorized_count_for_catalogue(catalogue_uuid,
       status: status,
       value_slugs: slugs
     )
   end
 
-  defp card_total(category_uuid, _catalogue_uuid, status, slugs, descendants?)
+  defp card_total(category_uuid, _catalogue_uuid, status, slugs)
        when is_binary(category_uuid) do
     Catalogue.item_count_for_category(category_uuid,
       status: status,
       value_slugs: slugs,
-      include_descendants: descendants?
+      include_descendants: false
     )
   end
 
-  defp fetch_card_items(
-         :catalogue,
-         catalogue_uuid,
-         status,
-         limit,
-         offset,
-         sort_opts,
-         _descendants?
-       ) do
+  defp fetch_card_items(:catalogue, catalogue_uuid, status, limit, offset, sort_opts) do
     Catalogue.list_catalogue_items_paged(
       catalogue_uuid,
       [status: status, offset: offset, limit: limit] ++ sort_opts
     )
   end
 
-  defp fetch_card_items(
-         :uncategorized,
-         catalogue_uuid,
-         status,
-         limit,
-         offset,
-         sort_opts,
-         _descendants?
-       ) do
+  defp fetch_card_items(:uncategorized, catalogue_uuid, status, limit, offset, sort_opts) do
     Catalogue.list_uncategorized_items_paged(
       catalogue_uuid,
       [status: status, offset: offset, limit: limit] ++ sort_opts
     )
   end
 
-  defp fetch_card_items(
-         category_uuid,
-         _catalogue_uuid,
-         status,
-         limit,
-         offset,
-         sort_opts,
-         descendants?
-       )
+  defp fetch_card_items(category_uuid, _catalogue_uuid, status, limit, offset, sort_opts)
        when is_binary(category_uuid) do
     Catalogue.list_items_for_category_paged(
       category_uuid,
-      [status: status, offset: offset, limit: limit, include_descendants: descendants?] ++
+      [status: status, offset: offset, limit: limit, include_descendants: false] ++
         sort_opts
     )
   end
@@ -3509,14 +3451,18 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                   {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Items")}
                 </button>
               </div>
-              <%!-- Drilled: the page already shows sections AND content,
-                    so the only real question is whose items — the
-                    category's own, or its whole subtree's. No control at
-                    all without subcategories (Max, 2026-08-29). --%>
+              <%!-- A SEARCH refinement only (Max, 2026-08-30: "should
+                    only do something when searching") — the browse list
+                    always shows the category's own items, so the toggle
+                    appears once a search is actually running (an idle
+                    control that changes nothing on screen is a lie, same
+                    rule as the attribute filter). No control at all
+                    without subcategories (Max, 2026-08-29). --%>
               <label
                 :if={
                   show_search_input and match?(%Category{}, @current_category) and
-                    @child_categories != []
+                    @child_categories != [] and
+                    (@search_results != nil or @search_loading)
                 }
                 class="flex items-center gap-2 text-sm cursor-pointer select-none"
               >
@@ -3764,8 +3710,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                 (@child_categories == [] or not show_categories_section?(assigns)) and
                   @show_items_section and @items_total > 1 and
                   @items_sort_by == :position and @view_mode == "active" and
-                  (@current_category != nil or @child_categories == []) and
-                  not subtree_items?(assigns)
+                  (@current_category != nil or @child_categories == [])
               }
               type="button"
               phx-click="open_items_reorder_modal"
@@ -3983,10 +3928,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
             controls_in_page_header={
               @child_categories == [] or not show_categories_section?(assigns)
             }
-            reorder_allowed={
-              (@current_category != nil or @child_categories == []) and
-                not subtree_items?(assigns)
-            }
+            reorder_allowed={@current_category != nil or @child_categories == []}
             :if={@show_items_section}
             items={@items}
             file_counts={@file_counts}
