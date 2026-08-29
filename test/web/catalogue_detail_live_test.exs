@@ -729,6 +729,46 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
       refute html_after =~ "Oak in B"
     end
 
+    test "the type chips narrow what the search returns", %{conn: conn} do
+      catalogue = fixture_catalogue()
+      category = fixture_category(catalogue, %{name: "Oak things"})
+      fixture_item(%{name: "Oak panel", category_uuid: category.uuid})
+
+      # Default (All): the category hit sits above the item results.
+      {:ok, view, _html} = live(conn, url(catalogue.uuid) <> "?q=oak")
+      html = render_async(view)
+      assert html =~ "Oak things"
+      assert html =~ "Oak panel"
+
+      # Categories only — the item side is not even queried.
+      {:ok, view, _html} = live(conn, url(catalogue.uuid) <> "?q=oak&type=categories")
+      html = render_async(view)
+      assert html =~ "Oak things"
+      refute html =~ "Oak panel"
+
+      # Items only — no category hits.
+      {:ok, view, _html} = live(conn, url(catalogue.uuid) <> "?q=oak&type=items")
+      html = render_async(view)
+      assert html =~ "Oak panel"
+      refute html =~ "Oak things"
+    end
+
+    test "set_search_type patches ?type= and re-asks the search", %{conn: conn} do
+      catalogue = fixture_catalogue()
+      category = fixture_category(catalogue, %{name: "Oak category"})
+      fixture_item(%{name: "Oak item", category_uuid: category.uuid})
+
+      {:ok, view, _html} = live(conn, url(catalogue.uuid) <> "?q=oak")
+      render_async(view)
+
+      render_click(view, "set_search_type", %{"type" => "items"})
+      assert assert_patch(view) =~ "type=items"
+
+      html = render_async(view)
+      assert html =~ "Oak item"
+      refute html =~ "Oak category"
+    end
+
     test "clear_search restores the level view", %{conn: conn} do
       catalogue = fixture_catalogue()
       category = fixture_category(catalogue)

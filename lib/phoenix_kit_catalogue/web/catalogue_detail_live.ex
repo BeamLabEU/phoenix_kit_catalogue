@@ -18,6 +18,9 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     params: [
       current_category_uuid: [default: nil, url_key: "category"],
       search_query: [default: "", url_key: "q"],
+      # What the search returns: "" = everything (categories above items,
+      # the default), "categories" or "items" to narrow (Max, 2026-08-29).
+      search_type: [default: "", url_key: "type"],
       # Comma-joined attribute VALUE slugs ("blue,oak"). In the URL so a
       # filtered view is a link you can send someone.
       attribute_filter: [default: "", url_key: "attr"]
@@ -205,6 +208,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         attribute_filter_options: [],
         attribute_value_counts: %{},
         prior_attribute_filter: "",
+        search_type: "",
         search_results: nil,
         search_categories: [],
         category_trails: %{},
@@ -275,6 +279,14 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     # all narrow by it (2026-08-28).
     filter_changed? = state.attribute_filter != socket.assigns[:prior_attribute_filter]
     socket = assign(socket, :prior_attribute_filter, state.attribute_filter)
+
+    # The result-type chips (All / Categories / Items). Client-forgeable
+    # URL state, so anything unknown means the default. A type change
+    # only re-asks the SEARCH — the catch-all branch below already does
+    # that on every patch, so no branch of its own — while the level
+    # under the results is untouched.
+    type = if state.search_type in ["categories", "items"], do: state.search_type, else: ""
+    socket = assign(socket, :search_type, type)
 
     cond do
       not connected?(socket) ->
@@ -629,6 +641,14 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   def handle_event("clear_search", _params, socket) do
     {:noreply, push_url_state(socket, search_query: "")}
   end
+
+  # The All / Categories / Items chips on the search results.
+  def handle_event("set_search_type", %{"type" => type}, socket)
+      when type in ["", "categories", "items"] do
+    {:noreply, push_url_state(socket, search_type: type)}
+  end
+
+  def handle_event("set_search_type", _params, socket), do: {:noreply, socket}
 
   # ── Product-view card (opened by clicking a featured-image thumb) ──
   # Host-side mirror of ItemPicker's card handlers: no phx-target on the
@@ -2495,6 +2515,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     uuid = socket.assigns.catalogue_uuid
     current = socket.assigns.current_category
     slugs = active_attribute_slugs(socket)
+    type = socket.assigns.search_type
 
     socket = assign(socket, search_query: query, search_loading: true)
     stamp = search_stamp(socket, 0)
@@ -2505,16 +2526,26 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     # away is the empty list this filter exists to prevent.
     |> assign_attribute_counts(uuid)
     |> start_async(:search, fn ->
-      results = search_in_scope(uuid, current, query, @per_page, 0, slugs)
-      total = search_count_in_scope(uuid, current, query, slugs)
-      {stamp, results, total, categories_in_scope(uuid, current, query)}
+      # The type chips narrow what is ASKED, not just what is shown —
+      # a Categories search does not run the item queries at all.
+      {results, total} =
+        if type == "categories",
+          do: {[], 0},
+          else:
+            {search_in_scope(uuid, current, query, @per_page, 0, slugs),
+             search_count_in_scope(uuid, current, query, slugs)}
+
+      categories =
+        if type == "items", do: [], else: categories_in_scope(uuid, current, query)
+
+      {stamp, results, total, categories}
     end)
   end
 
   # Everything a search result depends on, in one comparable value: the
-  # query, how far down the list it is, the level, and the attribute
-  # filter it ran under. The guards below drop a reply whose stamp no
-  # longer matches the socket.
+  # query, how far down the list it is, the level, the attribute filter
+  # and the result type it ran under. The guards below drop a reply
+  # whose stamp no longer matches the socket.
   #
   # Query and offset alone are not enough. Toggle an attribute while page
   # two is in flight and the replacement search resets the offset to the
@@ -2522,7 +2553,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   # and its rows, from the previous filter, are appended to the new list.
   defp search_stamp(socket, offset) do
     {socket.assigns.search_query, offset, active_attribute_slugs(socket),
-     level_node_key(socket.assigns.current_category)}
+     level_node_key(socket.assigns.current_category), socket.assigns.search_type}
   end
 
   # Search scope follows the drill level: catalogue-wide at root, the
@@ -3096,16 +3127,45 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         <%!-- Search results (Active mode; unchanged machinery) --%>
         <div :if={@search_results != nil or @search_loading} class="flex flex-col gap-4">
           <div class="flex flex-wrap items-center gap-2">
+            <%!-- What the search returns (Max, 2026-08-29). Hidden in the
+                  uncategorized bucket, which holds no categories to find.
+                  Same switcher idiom as the index's Catalogues/Items. --%>
+            <div
+              :if={@current_category != :uncategorized}
+              class="join"
+              role="group"
+              aria-label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search for")}
+            >
+              <button
+                :for={
+                  {value, label} <- [
+                    {"", Gettext.gettext(PhoenixKitCatalogue.Gettext, "All")},
+                    {"categories", Gettext.gettext(PhoenixKitCatalogue.Gettext, "Categories")},
+                    {"items", Gettext.gettext(PhoenixKitCatalogue.Gettext, "Items")}
+                  ]
+                }
+                type="button"
+                phx-click="set_search_type"
+                phx-value-type={value}
+                class={["btn btn-xs join-item", @search_type == value && "btn-active"]}
+              >
+                {label}
+              </button>
+            </div>
             <%= if @search_loading and is_nil(@search_results) do %>
               <span class="text-sm text-base-content/60">
                 {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Searching for \"%{query}\"...", query: @search_query)}
               </span>
             <% else %>
               <%!-- The summary counts ITEMS. Suppress it when a search
-                    matched only categories, or the line reads "0 results"
-                    directly above the category it just found. --%>
+                    matched only categories — or asked only for them —
+                    or the line reads "0 results" directly above the
+                    category it just found. --%>
               <.search_results_summary
-                :if={@search_results != nil and (@search_total > 0 or @search_categories == [])}
+                :if={
+                  @search_results != nil and @search_type != "categories" and
+                    (@search_total > 0 or @search_categories == [])
+                }
                 count={@search_total}
                 query={@search_query}
                 loaded={length(@search_results)}

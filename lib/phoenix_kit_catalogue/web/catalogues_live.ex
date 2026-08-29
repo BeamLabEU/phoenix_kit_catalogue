@@ -15,8 +15,11 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       # detail page's ?category= — shareable, Back-friendly, reload-safe.
       # "" (absent) = top level.
       current_folder: [default: "", url_key: "folder"],
-      # Attribute VALUE slugs, comma-joined — here they narrow to the
-      # catalogues CONTAINING such items (2026-08-28).
+      # What the search looks for: "" = catalogues (the page's own rows),
+      # "items" = a cross-catalogue item search (Max, 2026-08-29).
+      search_mode: [default: "", url_key: "mode"],
+      # Attribute VALUE slugs, comma-joined — item-level, so they apply
+      # only in items mode.
       attribute_filter: [default: "", url_key: "attr"]
     ]
 
@@ -26,6 +29,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
 
   import PhoenixKitWeb.Components.Core.Icon, only: [icon: 1]
   import PhoenixKitWeb.Components.Core.Modal, only: [confirm_modal: 1, modal: 1]
+  import PhoenixKitWeb.Components.Core.Pagination, only: [load_more: 1]
   import PhoenixKitWeb.Components.Core.ReorderModal, only: [reorder_modal: 1]
   import PhoenixKitWeb.Components.Core.TableDefault
   import PhoenixKitWeb.Components.Core.TableRowMenu
@@ -93,7 +97,10 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
        show_new_set_modal: false,
        attribute_filter_options: [],
        attribute_value_counts: %{},
-       attribute_allowed: :all,
+       search_mode: "",
+       item_results: nil,
+       item_total: 0,
+       item_has_more: false,
        # Module-wide view preference (ViewConfig moduledoc) — the
        # attributes tab reads the same value the catalogues table does.
        view_mode: ViewConfig.load_view(socket.assigns[:phoenix_kit_current_user]),
@@ -242,17 +249,20 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       |> assign(:active_tab, action)
       |> assign(:page_title, tab_title(action))
       |> assign(:attribute_filter, state.attribute_filter)
+      # Anything but the one other mode means the default — the value is
+      # client-forgeable URL state.
+      |> assign(:search_mode, if(state.search_mode == "items", do: "items", else: ""))
       |> assign(:view_configs, Map.put(socket.assigns.view_configs, scope, cfg))
 
     socket =
       if tab_changed? do
         load_data(socket, action)
       else
-        # The matching catalogue set and the facet counts are QUERIES, so
-        # they are resolved once per URL change rather than per render —
-        # `?attr=` and `?q=` both move them. A tab change went through
+        # Item results and facet counts are QUERIES, so they are resolved
+        # once per URL change rather than per render — `?mode=`, `?attr=`,
+        # `?q=` and `?folder=` all move them. A tab change went through
         # `load_data`, which ends by doing this itself.
-        refresh_attribute_scope(socket)
+        refresh_search_mode(socket)
       end
 
     # Expansion AFTER load_data: on a deep link the first call is also
@@ -401,7 +411,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         :attribute_filter_options,
         Catalogue.attribute_filter_options(:all, lang: socket.assigns[:current_locale])
       )
-      |> refresh_attribute_scope()
+      |> refresh_search_mode()
       |> assign(:index_loaded, true)
     else
       socket
@@ -435,47 +445,152 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     end
   end
 
-  # "Show limit, elide the rest" — EXCEPT when exactly one would be
-  # hidden: "and 1 more" wastes the very space it saves.
-  # Everything the attribute filter derives from the rows, recomputed
-  # wherever the rows are. Kept together because they must not drift
-  # apart: `attribute_allowed` decides which catalogues survive the
-  # filter, and the counts decide which values are still offered. A
-  # PubSub refresh used to reload the rows and leave both behind, so a
-  # catalogue whose last matching item had just been edited elsewhere
-  # stayed on screen.
-  defp refresh_attribute_scope(socket) do
-    slugs = active_attribute_slugs(socket.assigns)
-    cfg = Map.fetch!(socket.assigns.view_configs, :catalogues)
+  @items_page 50
 
-    # Which catalogues the list is showing BEFORE the attribute filter —
-    # the folder, the search and the status tab all narrow it. Counting
-    # across every catalogue instead offers values that live somewhere
-    # the user cannot currently see, and picking one empties the list.
-    eligible =
-      socket.assigns.catalogue_rows
-      |> do_derive_rows(:catalogues, cfg, socket.assigns.folder_lookup)
-      |> Enum.map(& &1.uuid)
-
-    socket
-    |> assign(:attribute_allowed, Catalogue.catalogue_uuids_with_attribute_values(slugs))
-    |> assign(
-      :attribute_value_counts,
-      Catalogue.attribute_value_match_counts(
-        count: :catalogues,
-        catalogue_uuids: eligible,
-        value_slugs: slugs
+  # Everything the ITEMS search mode derives — the result page, its
+  # total, and the facet counts — recomputed wherever its inputs change
+  # (URL state, a PubSub reload). In catalogues mode there is nothing to
+  # derive: the attribute filter is an item-level question and left with
+  # the mode (Max, 2026-08-29 — "the attributes doesn't really make
+  # sense here"), taking the old "catalogues CONTAINING matching items"
+  # proxy with it.
+  defp refresh_search_mode(socket) do
+    if items_mode?(socket.assigns) do
+      load_item_results(socket)
+    else
+      assign(socket,
+        item_results: nil,
+        item_total: 0,
+        item_has_more: false,
+        attribute_value_counts: %{}
       )
+    end
+  end
+
+  # Items mode is an index, Active-view feature: the trash lists deleted
+  # catalogues whose items are deleted with them, and the attributes tab
+  # has its own search. `?mode=` stays in the URL for the trip back,
+  # same rule as `?attr=`.
+  defp items_mode?(assigns) do
+    assigns[:active_tab] == :index and assigns.search_mode == "items" and
+      assigns.catalogue_view_mode == "active"
+  end
+
+  defp load_item_results(socket) do
+    case item_scope_uuids(socket.assigns) do
+      # An empty scope (a drilled folder holding no catalogues) is a real
+      # answer. It must short-circuit here: `search_items` treats
+      # `catalogue_uuids: []` as UNSCOPED, the opposite of what the list
+      # beside the filter is showing.
+      [] ->
+        assign(socket,
+          item_results: [],
+          item_total: 0,
+          item_has_more: false,
+          attribute_value_counts: %{}
+        )
+
+      scope ->
+        query = current_search(socket.assigns)
+        slugs = active_attribute_slugs(socket.assigns)
+        opts = [catalogue_uuids: scope, value_slugs: slugs]
+
+        results =
+          query
+          |> Catalogue.search_items(Keyword.merge(opts, limit: @items_page, offset: 0))
+          |> localize_item_results(socket)
+
+        total = Catalogue.count_search_items(query, opts)
+
+        assign(socket,
+          item_results: results,
+          item_total: total,
+          item_has_more: length(results) < total,
+          attribute_value_counts:
+            Catalogue.attribute_value_match_counts(
+              catalogue_uuids: scope,
+              search: query,
+              value_slugs: slugs
+            )
+        )
+    end
+  end
+
+  # One more page, appended. Synchronous on purpose: LV serializes
+  # events, so there is no stale-reply race to stamp against here.
+  defp append_item_page(socket) do
+    loaded = socket.assigns.item_results || []
+
+    page =
+      current_search(socket.assigns)
+      |> Catalogue.search_items(
+        catalogue_uuids: item_scope_uuids(socket.assigns),
+        value_slugs: active_attribute_slugs(socket.assigns),
+        limit: @items_page,
+        offset: length(loaded)
+      )
+      |> localize_item_results(socket)
+
+    results = loaded ++ page
+
+    assign(socket,
+      item_results: results,
+      # `page == []` guards a stale total (items deleted meanwhile)
+      # keeping the button alive forever.
+      item_has_more: page != [] and length(results) < socket.assigns.item_total
     )
   end
 
-  # The index's trash lists DELETED catalogues, whose items are deleted
-  # with them — no attribute matches anything there. Same rule as the
-  # detail page's Deleted tab: not applied, not offered, and `?attr=`
-  # survives in the URL for the trip back.
-  defp active_attribute_slugs(%{catalogue_view_mode: "deleted"}), do: []
-  defp active_attribute_slugs(assigns), do: attribute_filter_slugs(assigns)
+  # Items carry their catalogue and category preloaded; localize those
+  # too, or the result row would show the canonical name next to a
+  # catalogue row the index localized.
+  defp localize_item_results(items, socket) do
+    locale = socket.assigns[:current_locale]
 
+    items
+    |> Catalogue.localize(locale)
+    |> Enum.map(fn item ->
+      %{
+        item
+        | catalogue: item.catalogue && Catalogue.localize_one(item.catalogue, locale),
+          category: item.category && Catalogue.localize_one(item.category, locale)
+      }
+    end)
+  end
+
+  defp current_search(assigns), do: assigns.view_configs.catalogues[:search] || ""
+
+  # The catalogues the item search looks inside: where the user stands.
+  # A drilled folder means its subtree's catalogues, the unfiled
+  # sentinel (old URLs) the unfiled ones, and the top level everywhere
+  # (`nil` = no scope).
+  defp item_scope_uuids(assigns) do
+    folder = assigns.view_configs.catalogues.filters["folder"]
+
+    cond do
+      is_map_key(assigns.folder_lookup, folder) ->
+        subtree = folder_subtree_set(assigns.folder_lookup, folder)
+
+        for row <- assigns.catalogue_rows,
+            MapSet.member?(subtree, to_string(row[:folder_uuid])),
+            do: row.uuid
+
+      folder == TableQuery.unfiled_folder_value() ->
+        for row <- assigns.catalogue_rows, is_nil(row[:folder_uuid]), do: row.uuid
+
+      true ->
+        nil
+    end
+  end
+
+  # The `?attr=` slugs are item-level, so they act only in items mode —
+  # in catalogues mode (and the trash) they ride the URL inert.
+  defp active_attribute_slugs(assigns) do
+    if items_mode?(assigns), do: attribute_filter_slugs(assigns), else: []
+  end
+
+  # "Show limit, elide the rest" — EXCEPT when exactly one would be
+  # hidden: "and 1 more" wastes the very space it saves.
   defp elide_cap(count, limit) when count <= limit + 1, do: limit + 1
   defp elide_cap(_count, limit), do: limit
 
@@ -2431,6 +2546,24 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     {:noreply, push_url_state(socket, [search_query: q], replace: true)}
   end
 
+  # The Catalogues/Items switcher. Not `replace:` — changing what the
+  # page lists is a step Back should undo, unlike keystrokes.
+  def handle_event("set_search_mode", %{"mode" => mode}, socket)
+      when mode in ["catalogues", "items"] do
+    value = if mode == "items", do: "items", else: ""
+    {:noreply, push_url_state(socket, search_mode: value)}
+  end
+
+  def handle_event("set_search_mode", _params, socket), do: {:noreply, socket}
+
+  def handle_event("load_more_items", _params, socket) do
+    if items_mode?(socket.assigns) and socket.assigns.item_has_more do
+      {:noreply, append_item_page(socket)}
+    else
+      {:noreply, socket}
+    end
+  end
+
   # ── View-config helpers ──────────────────────────────────────────
 
   # Visible columns (col maps) for a scope per the user's cfg, in order.
@@ -2441,30 +2574,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   end
 
   # Apply search/filter/sort to a raw list for a scope.
-  # The catalogue rows the attribute filter allows — every layout (tree,
-  # card level, flat table) reads this rather than @catalogue_rows, so
-  # one filter narrows all three.
-  defp visible_catalogue_rows(assigns),
-    do: keep_allowed_catalogues(assigns.catalogue_rows, :catalogues, assigns.attribute_allowed)
-
-  # Catalogue rows first pass the attribute filter — "the catalogues with
-  # blue doors in them" — then the usual search/sort/filters.
-  defp derive_rows(rows, scope, cfg, allowed \\ :all, folder_lookup \\ %{})
-
-  defp derive_rows(rows, scope, cfg, allowed, folder_lookup) do
-    rows
-    |> keep_allowed_catalogues(scope, allowed)
-    |> then(&do_derive_rows(&1, scope, cfg, folder_lookup))
-  end
-
-  defp keep_allowed_catalogues(rows, _scope, :all), do: rows
-
-  defp keep_allowed_catalogues(rows, :catalogues, allowed),
-    do: Enum.filter(rows, &MapSet.member?(allowed, &1.uuid))
-
-  defp keep_allowed_catalogues(rows, _scope, _allowed), do: rows
-
-  defp do_derive_rows(rows, scope, cfg, folder_lookup) do
+  defp derive_rows(rows, scope, cfg, folder_lookup \\ %{}) do
     TableQuery.apply(rows, scope, %{
       search: cfg[:search] || "",
       filters: search_scoped_filters(cfg, folder_lookup),
@@ -2624,31 +2734,54 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         </div>
         <div :if={@active_tab == :index and @index_loaded} class="flex flex-col gap-4">
           <% cfg = @view_configs.catalogues %>
+          <% items? = items_mode?(assigns) %>
           <.table_toolbar
             scope={:catalogues}
             cfg={cfg}
             allow_flat_reorder={@folder_tree == []}
+            show_table_tools={not items?}
           >
-            <:view_toggle>
-              <.view_toggle view={cfg.view} />
-            </:view_toggle>
+            <:mode :if={@catalogue_view_mode == "active"}>
+              <%!-- What the search looks FOR (Max, 2026-08-29): this
+                    page's own rows, or the items inside them. Both obey
+                    the same "where the user stands" folder scope. --%>
+              <div class="join" role="group" aria-label={gettext("Search for")}>
+                <button
+                  type="button"
+                  phx-click="set_search_mode"
+                  phx-value-mode="catalogues"
+                  class={["btn btn-sm join-item", !items? && "btn-active"]}
+                >
+                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Catalogues")}
+                </button>
+                <button
+                  type="button"
+                  phx-click="set_search_mode"
+                  phx-value-mode="items"
+                  class={["btn btn-sm join-item", items? && "btn-active"]}
+                >
+                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Items")}
+                </button>
+              </div>
+            </:mode>
             <:filters>
               <%!-- No folder select here: search works where the user
                     stands — the drilled folder's subtree — and scope is
                     chosen by navigating folders (Max, 2026-08-29). --%>
               <.enum_filter
+                :if={not items?}
                 id="status"
                 label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Status")}
                 value={cfg.filters["status"]}
                 prompt={Gettext.gettext(PhoenixKitCatalogue.Gettext, "All statuses")}
                 options={TableQuery.enum_options(@catalogue_rows, :catalogues, "status")}
               />
-              <%!-- Same control as the detail page's, meaning the same
-                    thing one level up: the catalogues that CONTAIN items
-                    carrying these values (Max, 2026-08-28). Absent when
-                    no catalogue uses attributes at all. --%>
+              <%!-- The attribute filter is an item-level question, so it
+                    lives with items mode and filters the results directly
+                    (Max, 2026-08-29 — it used to mean "catalogues
+                    containing such items", which needed a disclaimer). --%>
               <.attribute_filter
-                :if={@attribute_filter_options != [] and @catalogue_view_mode == "active"}
+                :if={items? and @attribute_filter_options != []}
                 options={@attribute_filter_options}
                 selected={active_attribute_slugs(assigns)}
                 counts={@attribute_value_counts}
@@ -2674,26 +2807,17 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
               </.link>
             </:actions>
           </.table_toolbar>
-          <% tree? = catalogues_tree_mode?(cfg, @catalogue_view_mode, @folder_lookup) %>
-          <% card_level? = catalogues_card_level_mode?(cfg, @catalogue_view_mode, @folder_lookup) %>
+          <% tree? = not items? and catalogues_tree_mode?(cfg, @catalogue_view_mode, @folder_lookup) %>
+          <% card_level? =
+            not items? and catalogues_card_level_mode?(cfg, @catalogue_view_mode, @folder_lookup) %>
           <p
             :if={
-              @catalogue_view_mode == "active" and cfg.sort_by == "position" and
+              not items? and @catalogue_view_mode == "active" and cfg.sort_by == "position" and
                 cfg.view != "card" and not tree?
             }
             class="text-xs text-base-content/50"
           >
             {gettext("Clear search and filters to see the folder tree.")}
-          </p>
-          <%!-- This page lists CATALOGUES, but search and the attribute
-               filter both match ITEMS. Max read a result here as "why is
-               it showing me a catalogue?" — so say which question the
-               list is answering whenever an item-level filter is on. --%>
-          <p
-            :if={attribute_filter_slugs(assigns) != [] and @catalogue_view_mode == "active"}
-            class="text-xs text-base-content/50"
-          >
-            {gettext("Showing catalogues that contain matching items.")}
           </p>
           <.deleted_folders_list
             :if={@catalogue_view_mode == "deleted" and @folder_tree_deleted != []}
@@ -2702,9 +2826,10 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
           <%!-- Active/Deleted tabs (only when the trash holds anything).
                The view-mode toggle moved into the toolbar's view-tools
                cluster above, next to Columns — it's a filter/menu-panel
-               control, not a trash-visibility one. --%>
+               control, not a trash-visibility one. Items mode is a live
+               view of items, so the trash toggle rests with it. --%>
           <div
-            :if={@deleted_catalogue_count + @deleted_folder_count > 0}
+            :if={not items? and @deleted_catalogue_count + @deleted_folder_count > 0}
             class="flex items-center gap-0.5"
           >
             <button
@@ -2764,7 +2889,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
             rows={
               build_catalogue_tree_rows(
                 @folder_tree,
-                visible_catalogue_rows(assigns),
+                @catalogue_rows,
                 @expanded_folders,
                 current_tree_folder(cfg, @folder_lookup)
               )
@@ -2776,20 +2901,26 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
           <.catalogues_card_level
             :if={card_level?}
             folder_tree={@folder_tree}
-            catalogue_rows={visible_catalogue_rows(assigns)}
+            catalogue_rows={@catalogue_rows}
             cfg={cfg}
             current={current_tree_folder(cfg, @folder_lookup)}
             renaming_folder={@renaming_folder}
             file_counts={@catalogue_file_counts}
           />
+          <.item_search_results
+            :if={items? and @item_results != nil}
+            items={@item_results}
+            total={@item_total}
+            query={current_search(assigns)}
+          />
           <.simple_table
-            :if={!tree? and !card_level?}
+            :if={not items? and !tree? and !card_level?}
             scope={:catalogues}
             cfg={cfg}
             show_view_toggle={false}
             file_counts={@catalogue_file_counts}
-            rows={derive_rows(visible_catalogue_rows(assigns), :catalogues, cfg, :all, @folder_lookup)}
-            total={length(visible_catalogue_rows(assigns))}
+            rows={derive_rows(@catalogue_rows, :catalogues, cfg, @folder_lookup)}
+            total={length(@catalogue_rows)}
             empty={Gettext.gettext(PhoenixKitCatalogue.Gettext, "No catalogues yet.")}
             draggable={manual_order_draggable?(@catalogue_view_mode, cfg)}
           >
@@ -3352,11 +3483,114 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
 
   defp move_dialog_label(_), do: ""
 
+  # ── Items search mode (index) ────────────────────────────────────
+
+  attr(:items, :list, required: true)
+  attr(:total, :integer, required: true)
+  attr(:query, :string, required: true)
+
+  # Cross-catalogue item results. Each row leads with the item, then
+  # says WHERE it lives (catalogue, then category) — a hit here can come
+  # from anywhere, so context is the difference between three identical
+  # "Oak Door" rows. Clicking through lands drilled into that category
+  # with the query still applied, so the item is in sight on arrival
+  # rather than buried in its level.
+  defp item_search_results(assigns) do
+    ~H"""
+    <div :if={@items == []} class="card bg-base-100 shadow">
+      <div class="card-body items-center text-center py-12">
+        <%!-- Macro form on purpose: the runtime Gettext.gettext(Backend,
+             …) call is not extracted from HEEx interpolations (see the
+             "Make gettext extraction safe" commit). --%>
+        <p class="text-base-content/60">
+          {gettext("No items match.")}
+        </p>
+      </div>
+    </div>
+    <div :if={@items != []} class="relative overflow-x-auto">
+      <table class="table table-zebra w-full">
+        <thead>
+          <tr>
+            <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Name")}</th>
+            <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "SKU")}</th>
+            <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Catalogue")}</th>
+            <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Category")}</th>
+            <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Status")}</th>
+            <th class="text-right">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Actions")}</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr :for={item <- @items} id={"item-result-#{item.uuid}"} class="hover">
+            <td>
+              <.link
+                navigate={item_result_path(item, @query)}
+                class="font-medium link link-hover"
+              >
+                {item.name}
+              </.link>
+            </td>
+            <td class="font-mono text-xs">{item.sku}</td>
+            <td>{item.catalogue && item.catalogue.name}</td>
+            <td class="text-base-content/70">
+              {(item.category && item.category.name) ||
+                Gettext.gettext(PhoenixKitCatalogue.Gettext, "Uncategorized")}
+            </td>
+            <td><.status_badge status={item.status} size={:sm} /></td>
+            <td class="text-right whitespace-nowrap">
+              <.table_row_menu mode="auto" id={"item-result-menu-#{item.uuid}"}>
+                <.table_row_menu_link
+                  navigate={Paths.item_edit(item.uuid)}
+                  icon="hero-pencil"
+                  label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")}
+                />
+                <.table_row_menu_link
+                  navigate={item_result_path(item, @query)}
+                  icon="hero-eye"
+                  label={gettext("View in catalogue")}
+                />
+              </.table_row_menu>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <.load_more
+      :if={@items != []}
+      id="item-results-load-more"
+      loaded={length(@items)}
+      total={@total}
+      on_load_more="load_more_items"
+      noun_plural={Gettext.gettext(PhoenixKitCatalogue.Gettext, "items")}
+      infinite
+      cursor={"item-results-#{length(@items)}"}
+    />
+    """
+  end
+
+  # Into the catalogue, drilled to the item's own category (or the
+  # uncategorized bucket), carrying the query along.
+  defp item_result_path(item, query) do
+    params =
+      [category: item.category_uuid || "uncategorized"] ++
+        if(query == "", do: [], else: [q: query])
+
+    Paths.catalogue_detail(item.catalogue_uuid) <> "?" <> URI.encode_query(params)
+  end
+
   # ── Toolbar private component ────────────────────────────────────
 
   attr(:scope, :atom, required: true)
   attr(:cfg, :map, required: true)
   attr(:allow_flat_reorder, :boolean, default: true)
+
+  attr(:show_table_tools, :boolean,
+    default: true,
+    doc: "Sort / Reorder / Columns configure THIS scope's table — hidden
+          when the page is showing something else (the index's items
+          search mode)."
+  )
+
+  slot(:mode, doc: "What the search looks for — rendered right after the search box.")
   slot(:filters)
   slot(:actions)
   slot(:view_toggle)
@@ -3384,6 +3618,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
             />
           </label>
         </form>
+        {render_slot(@mode)}
         {render_slot(@filters)}
       </div>
 
@@ -3392,7 +3627,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
              actions. At widths where both can't share a row, the actions
              cluster drops to its OWN row instead of its buttons scattering
              between rows. The inner flex-wrap is the ultra-narrow fallback. --%>
-        <div class="flex items-center gap-2">
+        <div :if={@show_table_tools} class="flex items-center gap-2">
           <.sort_controls
             scope={@scope}
             selected={["position", "name" | @cfg.columns]}

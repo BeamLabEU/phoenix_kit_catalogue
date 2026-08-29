@@ -112,7 +112,7 @@ msgstr "Tootmine lõpetatud"
 msgid "Toggle folder"
 msgstr "Ava/sule kaust"
 
-#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2688
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2820
 #, elixir-autogen
 msgid "Clear search and filters to see the folder tree."
 msgstr "Puhasta otsing ja filtrid, et näha kaustapuud."
@@ -398,8 +398,8 @@ msgstr "Kategooria taastamine ebaõnnestus."
 msgid "Failed to restore item."
 msgstr "Toote taastamine ebaõnnestus."
 
-#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:1852
-#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2290
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:1967
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2405
 #, elixir-autogen
 msgid "Failed to save the new order."
 msgstr "Uue järjestuse salvestamine ebaõnnestus."
@@ -909,7 +909,7 @@ msgstr "Kõik kaustad"
 msgid "All statuses"
 msgstr "Kõik staatused"
 
-#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:1859
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:1974
 #, elixir-autogen
 msgid "Clear search and filters to drag-and-drop reorder."
 msgstr "Tühjenda otsing ja filtrid, et lohistades ümber järjestada."
@@ -1126,17 +1126,17 @@ msgstr "Järgmine"
 msgid "Show image %{number}"
 msgstr "Näita pilti %{number}"
 
-#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:3412
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:3645
 #, elixir-autogen
 msgid "Reorder all"
 msgstr "Järjesta kõik ümber"
 
-#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:3330
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:3459
 #, elixir-autogen
 msgid "catalogue"
 msgstr "kataloog"
 
-#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:3331
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:3460
 #, elixir-autogen
 msgid "catalogues"
 msgstr "kataloogid"
@@ -1147,7 +1147,7 @@ msgstr "kategooria"
 msgid "categories"
 msgstr "kategooriad"
 
-#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:1823
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:1938
 #, elixir-autogen
 msgid "Catalogues reordered."
 msgstr "Kataloogid järjestati ümber."
@@ -1155,7 +1155,7 @@ msgstr "Kataloogid järjestati ümber."
 msgid "Categories reordered."
 msgstr "Kategooriad järjestati ümber."
 
-#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:1828
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:1943
 #, elixir-autogen
 msgid "Failed to reorder."
 msgstr "Ümberjärjestamine ebaõnnestus."
@@ -1163,14 +1163,14 @@ msgstr "Ümberjärjestamine ebaõnnestus."
 msgid "Photos and Files"
 msgstr "Fotod ja failid"
 
-#: lib/phoenix_kit_catalogue/web/components.ex:1124
-#: lib/phoenix_kit_catalogue/web/components.ex:1186
+#: lib/phoenix_kit_catalogue/web/components.ex:1126
+#: lib/phoenix_kit_catalogue/web/components.ex:1188
 #, elixir-autogen
 msgid "Comfortable view"
 msgstr "Avar vaade"
 
-#: lib/phoenix_kit_catalogue/web/components.ex:1133
-#: lib/phoenix_kit_catalogue/web/components.ex:1194
+#: lib/phoenix_kit_catalogue/web/components.ex:1135
+#: lib/phoenix_kit_catalogue/web/components.ex:1196
 #, elixir-autogen
 msgid "Compact view"
 msgstr "Kompaktne vaade"
@@ -1655,7 +1655,7 @@ msgstr "-- Vali kategooria --"
 msgid "0.00"
 msgstr "0.00"
 
-#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2512
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2620
 #, elixir-autogen
 msgid "A → Z by name"
 msgstr "A → Ü nime järgi"
@@ -2029,7 +2029,7 @@ msgstr "Nimi *"
 msgid "New Categories"
 msgstr "Uued kategooriad"
 
-#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2514
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2622
 #, elixir-autogen
 msgid "Newest first"
 msgstr "Uusimad enne"
@@ -2091,7 +2091,7 @@ msgstr "Kategoriseerimata tooteid pole."
 msgid "Nothing deleted here."
 msgstr "Siin pole midagi kustutatut."
 
-#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2515
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2623
 #, elixir-autogen
 msgid "Oldest first"
 msgstr "Vanimad enne"
@@ -2228,7 +2228,7 @@ msgstr "Korda kinnijäänuid"
 msgid "Retrying…"
 msgstr "Proovin uuesti…"
 
-#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2516
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2624
 #, elixir-autogen
 msgid "Reverse current order"
 msgstr "Pööra praegune järjestus"
@@ -2506,7 +2506,7 @@ msgstr "Milline veerg sisaldab tarnijate nimesid?"
 msgid "You must map at least one column to 'Item Name'. Scroll down to the column mapping section and pick the column that holds item names."
 msgstr "Vähemalt üks veerg peab olema seotud valikuga 'Toote nimi'. Keri alla veergude sidumise osani ja vali veerg, mis sisaldab toodete nimesid."
 
-#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2513
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2621
 #, elixir-autogen
 msgid "Z → A by name"
 msgstr "Ü → A nime järgi"
@@ -3022,11 +3022,6 @@ msgstr "Tühjenda filtrid"
 msgid "Nothing matches this together with the filters already on"
 msgstr "Koos juba valitud filtritega ei vasta sellele miski"
 
-#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2698
-#, elixir-autogen, elixir-format
-msgid "Showing catalogues that contain matching items."
-msgstr "Kuvatakse kataloogid, mis sisaldavad sobivaid tooteid."
-
 msgid "Attribute set not found."
 msgstr "Atribuutide komplekti ei leitud."
 
@@ -3051,3 +3046,18 @@ msgid "%{count} row skipped"
 msgid_plural "%{count} rows skipped"
 msgstr[0] "%{count} rida vahele jäetud"
 msgstr[1] "%{count} rida vahele jäetud"
+
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2748
+#, elixir-autogen, elixir-format
+msgid "Search for"
+msgstr "Mida otsida"
+
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:3506
+#, elixir-autogen, elixir-format
+msgid "No items match."
+msgstr "Sobivaid tooteid pole."
+
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:3549
+#, elixir-autogen, elixir-format
+msgid "View in catalogue"
+msgstr "Vaata kataloogis"
