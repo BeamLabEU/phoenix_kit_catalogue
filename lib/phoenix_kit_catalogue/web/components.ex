@@ -393,6 +393,15 @@ defmodule PhoenixKitCatalogue.Web.Components do
         "reported (2026-08-29). Never \"original\" in lists."
   )
 
+  attr(:comfy_scale, :boolean,
+    default: true,
+    doc:
+      "Whether the comfy-density row override ([.pk-comfy_&]:w-18) applies. " <>
+        "True for table cells; FALSE for fill slots — inside a comfy card " <>
+        "the override beat w-full and shrank the band image to a 72px " <>
+        "square (the not-full-width report, 2026-08-29)."
+  )
+
   attr(:has_files, :boolean,
     default: false,
     doc:
@@ -420,10 +429,16 @@ defmodule PhoenixKitCatalogue.Web.Components do
       type="button"
       phx-click={@on_click}
       phx-value-uuid={@resource.uuid}
-      class="shrink-0 cursor-pointer"
+      class={["shrink-0 cursor-pointer", !@comfy_scale && "block w-full h-full"]}
       title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "View item details")}
     >
-      <.thumb_visual uuid={@uuid} has_files={@has_files} class={@class} variant={@variant} />
+      <.thumb_visual
+        uuid={@uuid}
+        has_files={@has_files}
+        class={@class}
+        variant={@variant}
+        comfy_scale={@comfy_scale}
+      />
     </button>
     <.thumb_visual
       :if={(@uuid || @has_files) && !@on_click}
@@ -431,6 +446,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
       has_files={@has_files}
       class={@class}
       variant={@variant}
+      comfy_scale={@comfy_scale}
     />
     """
   end
@@ -690,6 +706,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
       has_files={@has_files}
       on_click={@on_click}
       variant={@variant}
+      comfy_scale={false}
       class="w-full h-full"
     />
     <%!-- Centred by its OWN full-size flex box, not by absolute
@@ -729,11 +746,13 @@ defmodule PhoenixKitCatalogue.Web.Components do
   attr(:has_files, :boolean, required: true)
   attr(:class, :any, required: true)
   attr(:variant, :string, default: "thumbnail")
+  attr(:comfy_scale, :boolean, default: true)
 
   defp thumb_visual(assigns) do
     ~H"""
     <span class={[
-      "relative block shrink-0 [.pk-comfy_&]:w-18 [.pk-comfy_&]:h-18",
+      "relative block shrink-0",
+      @comfy_scale && "[.pk-comfy_&]:w-18 [.pk-comfy_&]:h-18",
       @class
     ]}>
       <img

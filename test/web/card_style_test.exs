@@ -38,6 +38,39 @@ defmodule PhoenixKitCatalogue.Web.CardStyleTest do
     assert Components.card_media_frame() == %{card_media_class: Components.card_media_band()}
   end
 
+  test "card images fill their band — no comfy row-override, full-width click wrapper" do
+    # In comfy density the row override ([.pk-comfy_&]:w-18) beat w-full
+    # inside cards and shrank the band image to a 72px square; the
+    # on_click button wrapper also shrink-wrapped it (the not-full-width
+    # report, 2026-08-29). Fill slots opt out via comfy_scale={false}.
+    uuid = UUIDv7.generate()
+
+    resource = %{
+      uuid: UUIDv7.generate(),
+      data: {"featured_image_uuid", uuid} |> then(fn {k, v} -> %{k => v} end)
+    }
+
+    html =
+      render_component(&Components.featured_thumb/1,
+        resource: resource,
+        class: "w-full h-full",
+        variant: "medium",
+        comfy_scale: false,
+        on_click: "show_product_card",
+        has_files: false
+      )
+
+    refute html =~ "pk-comfy"
+    assert html =~ ~s(class="shrink-0 cursor-pointer block w-full h-full")
+    assert html =~ "/medium/"
+
+    # Table cells keep the comfy enlargement.
+    row_html =
+      render_component(&Components.featured_thumb/1, resource: resource, has_files: false)
+
+    assert row_html =~ "pk-comfy"
+  end
+
   test "item cards lead with the picture", %{conn: conn, catalogue: catalogue, category: category} do
     {:ok, view, _html} =
       live(conn, "/en/admin/catalogue/#{catalogue.uuid}?category=#{category.uuid}&mode=items")
