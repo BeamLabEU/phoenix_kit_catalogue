@@ -934,10 +934,11 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
       refute html =~ "catalogue-categories-views"
     end
 
-    test "the Categories switcher returns to the root outline from a drilled view",
+    test "the Categories switcher returns to the root outline, expanded to where you were",
          %{conn: conn} do
       catalogue = fixture_catalogue()
-      category = fixture_category(catalogue, %{name: "Deep chapter"})
+      parent = fixture_category(catalogue, %{name: "Outer chapter"})
+      category = fixture_category(catalogue, %{name: "Deep chapter", parent_uuid: parent.uuid})
       fixture_item(%{name: "Deep item", category_uuid: category.uuid})
 
       {:ok, view, _html} = live(conn, cat_url(catalogue.uuid, category.uuid) <> "&mode=items")
@@ -948,7 +949,9 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
 
       # Both the mode AND the drilled category clear — the outline
       # browser lives only at the root — and the tree opens expanded
-      # down to the category just left, so it doesn't look vanished.
+      # down to the category just left: a collapsed root made it look
+      # vanished (Max's Frames report, 2026-08-29). "Deep chapter" is
+      # NESTED, so seeing it in the tree proves the expansion.
       refute path =~ "mode="
       refute path =~ "category="
       assert view |> element("#catalogue-categories-tree") |> render() =~ "Deep chapter"
