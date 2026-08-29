@@ -143,22 +143,43 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
       {:ok, view, html} = live(conn, url(catalogue.uuid))
 
       # Tree face in manual order: top level visible, children collapsed
-      # behind the chevron; drag contract attributes present.
+      # behind the chevron; drag contract attributes present. Scoped to
+      # the tree element — the CARD face in the same DOM shows nesting
+      # unconditionally, which is its job.
       assert html =~ "catalogue-categories-tree"
-      assert html =~ "Chapter A"
-      assert html =~ "Chapter B"
-      refute html =~ "Nested A1"
-      assert html =~ ~s(data-tree-drop="#{parent.uuid}")
-      assert html =~ ~s(data-tree-item="category:#{parent.uuid}")
+      tree = view |> element("#catalogue-categories-tree") |> render()
+      assert tree =~ "Chapter A"
+      assert tree =~ "Chapter B"
+      refute tree =~ "Nested A1"
+      assert tree =~ ~s(data-tree-drop="#{parent.uuid}")
+      assert tree =~ ~s(data-tree-item="category:#{parent.uuid}")
 
-      expanded = render_click(view, "toggle_category_expand", %{"uuid" => parent.uuid})
-      assert expanded =~ "Nested A1"
+      render_click(view, "toggle_category_expand", %{"uuid" => parent.uuid})
+      assert view |> element("#catalogue-categories-tree") |> render() =~ "Nested A1"
 
       # A real sort falls back to the flat table (its sortable tbody id
       # is the marker — the wrapper renders no id in the plain path).
       flat = render_change(view, "sort_categories", %{"sort_by" => "name"})
       refute flat =~ "catalogue-categories-tree"
       assert flat =~ "catalogue-child-categories"
+    end
+
+    test "the card view nests too: parents are boxes holding their children", %{conn: conn} do
+      catalogue = fixture_catalogue()
+      parent = fixture_category(catalogue, %{name: "Chapter A"})
+      child = fixture_category(catalogue, %{name: "Nested A1", parent_uuid: parent.uuid})
+      fixture_category(catalogue, %{name: "Chapter B"})
+
+      {:ok, _view, html} = live(conn, url(catalogue.uuid))
+
+      # The parent renders as a box (a drop target) with the child's
+      # card inside it, carrying the tree contract — nesting is visible
+      # and draggable in card view, not just in the table (Max,
+      # 2026-08-29: "how about the nesting?").
+      assert html =~ "catalogue-categories-cards"
+      assert html =~ ~s(data-tree-drop="#{parent.uuid}")
+      assert html =~ ~s(data-tree-parent="#{parent.uuid}")
+      assert html =~ "Nested A1"
     end
 
     test "a middle drop nests, an edge drop reorders and re-parents", %{conn: conn} do
