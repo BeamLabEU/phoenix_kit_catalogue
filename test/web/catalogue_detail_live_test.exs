@@ -57,8 +57,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
   end
 
   describe "root landing" do
-    test "shows root categories without drill links, plus the catalogue-wide search",
-         %{conn: conn} do
+    test "category names open the chapter's ITEMS, not a sub-browser", %{conn: conn} do
       catalogue = fixture_catalogue()
       cat_a = fixture_category(catalogue, %{name: "First", position: 0})
       _cat_b = fixture_category(catalogue, %{name: "Second", position: 1})
@@ -67,8 +66,10 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
 
       assert html =~ "First"
       assert html =~ "Second"
-      # Drilling is gone (Max, 2026-08-29) — no ?category= navigation.
-      refute html =~ "?category=#{cat_a.uuid}"
+      # A name click lands on that category's item list — "how else are
+      # people supposed to get to the items" (Max, 2026-08-29). The
+      # browser itself never re-roots.
+      assert html =~ "category=#{cat_a.uuid}&amp;mode=items"
       # The pencil keeps a one-click path to the edit form.
       assert html =~ "/en/admin/catalogue/categories/#{cat_a.uuid}/edit"
       # Root search is catalogue-wide.
@@ -356,10 +357,10 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
 
       {:ok, _view, html} = live(conn, cat_url(catalogue.uuid, parent.uuid))
 
-      # Subcategory listed, but not as a drill link (drilling is gone);
-      # the parent's own items live behind the Items mode switcher.
+      # Subcategory listed; its name opens ITS item list. The parent's
+      # own items live behind the Items mode switcher.
       assert html =~ "Child"
-      refute html =~ "?category=#{child.uuid}"
+      assert html =~ "category=#{child.uuid}&amp;mode=items"
       refute html =~ "Parent direct item"
 
       {:ok, _view, html} = live(conn, cat_url(catalogue.uuid, parent.uuid) <> "&mode=items")
@@ -865,6 +866,25 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
       refute html =~ "Pine board"
       # No category hits in items mode, even when the name matches.
       refute html =~ "Oak chapter"
+    end
+
+    test "the Categories switcher returns to the root outline from a drilled view",
+         %{conn: conn} do
+      catalogue = fixture_catalogue()
+      category = fixture_category(catalogue, %{name: "Deep chapter"})
+      fixture_item(%{name: "Deep item", category_uuid: category.uuid})
+
+      {:ok, view, _html} = live(conn, cat_url(catalogue.uuid, category.uuid) <> "&mode=items")
+      assert render_async(view) =~ "Deep item"
+
+      render_click(view, "set_search_mode", %{"mode" => "categories"})
+      path = assert_patch(view)
+
+      # Both the mode AND the drilled category clear — the outline
+      # browser lives only at the root.
+      refute path =~ "mode="
+      refute path =~ "category="
+      assert render(view) =~ "Deep chapter"
     end
 
     test "the mode switcher patches ?mode= and leaving restores the outline", %{conn: conn} do

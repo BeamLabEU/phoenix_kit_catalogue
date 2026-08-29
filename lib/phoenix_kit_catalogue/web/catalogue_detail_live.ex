@@ -709,10 +709,15 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
   # The Categories/Items page-mode switcher. Not `replace:` — changing
   # what the page lists is a step Back should undo.
-  def handle_event("set_search_mode", %{"mode" => mode}, socket)
-      when mode in ["categories", "items"] do
-    value = if mode == "items", do: "items", else: ""
-    {:noreply, push_url_state(socket, search_mode: value)}
+  # Switching to Categories also clears the drilled category: the
+  # outline browser lives at the root only — a category's own page is
+  # its ITEM list (Max, 2026-08-29).
+  def handle_event("set_search_mode", %{"mode" => "categories"}, socket) do
+    {:noreply, push_url_state(socket, search_mode: "", current_category_uuid: nil)}
+  end
+
+  def handle_event("set_search_mode", %{"mode" => "items"}, socket) do
+    {:noreply, push_url_state(socket, search_mode: "items")}
   end
 
   def handle_event("set_search_mode", _params, socket), do: {:noreply, socket}
@@ -1345,29 +1350,6 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
          else: MapSet.put(expanded, uuid)
      end)}
   end
-
-  # A search hit clears the search and REVEALS the category: the tree
-  # expands down its ancestor chain (drilling is gone — Max, 2026-08-29).
-  def handle_event("reveal_category", %{"uuid" => uuid}, socket) when is_binary(uuid) do
-    case Ecto.UUID.cast(uuid) do
-      {:ok, _} ->
-        chain = uuid |> Catalogue.list_category_ancestors() |> Enum.map(& &1.uuid)
-
-        socket =
-          update(
-            socket,
-            :expanded_categories,
-            &MapSet.union(&1, MapSet.new([uuid | chain]))
-          )
-
-        {:noreply, push_url_state(socket, search_query: "", search_mode: "")}
-
-      :error ->
-        {:noreply, socket}
-    end
-  end
-
-  def handle_event("reveal_category", _params, socket), do: {:noreply, socket}
 
   # A middle drop on a row: nest the dragged category under it (or lift
   # it to this level via the root zone). Cycle / cross-catalogue guards
@@ -3464,19 +3446,26 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
             <div class="flex flex-wrap gap-2">
               <%!-- No drilling any more: a hit clears the search and
                     REVEALS the category — the tree opens down to it. --%>
-              <button
+              <%!-- A hit opens the chapter's content: that category's
+                    item list, search cleared. No folder icon —
+                    categories are chapters, not folders (Max,
+                    2026-08-29). --%>
+              <.link
                 :for={category <- @search_categories}
-                type="button"
-                phx-click="reveal_category"
-                phx-value-uuid={category.uuid}
+                patch={
+                  url_state_path(assigns,
+                    current_category_uuid: category.uuid,
+                    search_query: "",
+                    search_mode: "items"
+                  )
+                }
                 class="btn btn-sm btn-ghost gap-2 justify-start"
               >
-                <.icon name="hero-folder" class="w-4 h-4 text-warning shrink-0" />
                 <span class="font-medium">{category.name}</span>
                 <span :if={@category_trails[category.uuid]} class="text-xs text-base-content/40">
                   {@category_trails[category.uuid]}
                 </span>
-              </button>
+              </.link>
             </div>
           </div>
 
@@ -4365,7 +4354,14 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
           </.table_default_cell>
           <.table_default_cell class="font-medium">
             <div class="flex items-center gap-2 min-w-0">
-              <span class={["font-medium", cat.status == "deleted" && "text-error/70"]}>
+              <.link
+                :if={cat.status != "deleted"}
+                patch={Paths.category_browse(@catalogue.uuid, cat.uuid) <> "&mode=items"}
+                class="link link-hover font-medium"
+              >
+                {cat.name}
+              </.link>
+              <span :if={cat.status == "deleted"} class="font-medium text-error/70">
                 {cat.name}
               </span>
               <span
@@ -4686,23 +4682,19 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               toggle_event="toggle_category_expand"
               value={cat.uuid}
               toggle_label={gettext("Toggle category")}
-              icon="hero-folder"
-              icon_class="w-4 h-4 text-warning shrink-0"
               class="font-medium"
             >
-              <%!-- No drilling (Max, 2026-08-29: "remove the ability to
-                   go into a category like into a folder") — the name
-                   expands in place, same as the chevron. --%>
-              <button
-                :if={has_children}
-                type="button"
-                phx-click="toggle_category_expand"
-                phx-value-uuid={cat.uuid}
-                class="font-medium text-left truncate cursor-pointer hover:text-primary transition-colors"
+              <%!-- The chevron unfolds the outline in place; the NAME
+                   opens the chapter's CONTENT — that category's item
+                   list ("how else are people supposed to get to the
+                   items" — Max, 2026-08-29). No folder icon: categories
+                   are chapters, not folders. --%>
+              <.link
+                patch={Paths.category_browse(@catalogue.uuid, cat.uuid) <> "&mode=items"}
+                class="link link-hover font-medium truncate"
               >
                 {cat.name}
-              </button>
-              <span :if={!has_children} class="font-medium truncate">{cat.name}</span>
+              </.link>
             </.tree_name_cell>
             <.category_body_cells
               columns={@categories_columns}
@@ -4956,7 +4948,12 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         </span>
       </figure>
       <div class="card-body p-3 gap-1.5">
-        <span class="font-medium truncate">{@category.name}</span>
+        <.link
+          patch={Paths.category_browse(@catalogue_uuid, @category.uuid) <> "&mode=items"}
+          class="font-medium truncate hover:text-primary"
+        >
+          {@category.name}
+        </.link>
         <%!-- Configured columns add their data to the card, mirroring the
              table (Columns modal drives both). --%>
         <div
