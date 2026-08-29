@@ -3904,6 +3904,22 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
 
   defp render_cell(:catalogues, "folder", row), do: text_or_dash(row[:folder_name])
 
+  # Truncated with the full text on hover — descriptions are prose, and
+  # one long one must not stretch every row on the page.
+  defp render_cell(:catalogues, "description", row) do
+    case row[:description] do
+      desc when is_binary(desc) and desc != "" ->
+        assigns = %{desc: desc}
+
+        ~H"""
+        <span class="block max-w-md truncate text-base-content/70" title={@desc}>{@desc}</span>
+        """
+
+      _ ->
+        "—"
+    end
+  end
+
   defp render_cell(:catalogues, "items", row) do
     assigns = %{n: row[:item_count] || 0}
     ~H"<span class='tabular-nums'>{@n}</span>"
@@ -3940,6 +3956,15 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   defp render_card_value(:catalogues, "folder", row), do: row[:folder_name] || "—"
   defp render_card_value(:catalogues, "items", row), do: to_string(row[:item_count] || 0)
   defp render_card_value(:catalogues, "kind", row), do: row[:kind] || "—"
+
+  # Cards render label:value pairs — cap prose at a phrase.
+  defp render_card_value(:catalogues, "description", row) do
+    case row[:description] do
+      desc when is_binary(desc) and desc != "" -> truncate_text(desc, 80)
+      _ -> "—"
+    end
+  end
+
   defp render_card_value(:catalogues, "markup", row), do: pct_str(row[:markup_percentage])
   defp render_card_value(:catalogues, "discount", row), do: pct_str(row[:discount_percentage])
   defp render_card_value(:catalogues, "created", row), do: ts_str(row[:inserted_at])
@@ -3955,6 +3980,10 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   defp render_card_value(_scope, _id, _row), do: "—"
 
   # ── Small render helpers ─────────────────────────────────────────
+
+  defp truncate_text(text, max) do
+    if String.length(text) > max, do: String.slice(text, 0, max - 1) <> "…", else: text
+  end
 
   defp website_cell(nil), do: ""
 
