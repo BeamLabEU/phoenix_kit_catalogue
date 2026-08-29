@@ -57,7 +57,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
   end
 
   describe "root landing" do
-    test "shows root categories as drill cards and the catalogue-wide search", %{conn: conn} do
+    test "shows root categories without drill links, plus the catalogue-wide search",
+         %{conn: conn} do
       catalogue = fixture_catalogue()
       cat_a = fixture_category(catalogue, %{name: "First", position: 0})
       _cat_b = fixture_category(catalogue, %{name: "Second", position: 1})
@@ -66,26 +67,28 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
 
       assert html =~ "First"
       assert html =~ "Second"
-      # Each card is a drill link into the category.
-      assert html =~ "?category=#{cat_a.uuid}"
+      # Drilling is gone (Max, 2026-08-29) — no ?category= navigation.
+      refute html =~ "?category=#{cat_a.uuid}"
       # The pencil keeps a one-click path to the edit form.
       assert html =~ "/en/admin/catalogue/categories/#{cat_a.uuid}/edit"
       # Root search is catalogue-wide.
       assert html =~ "Search items by name, description, or SKU"
     end
 
-    test "shows an Uncategorized drill card when there are categories + loose items",
+    test "no Uncategorized drill card — loose items live in Items mode",
          %{conn: conn} do
       catalogue = fixture_catalogue()
-      # A category must exist for the Uncategorized card to appear — with no
-      # categories the loose items render inline instead (see next test).
       fixture_category(catalogue, %{name: "A Category"})
       fixture_item(%{name: "Loose Item", catalogue_uuid: catalogue.uuid})
 
+      # The card drilled into the bucket; with drilling gone (Max,
+      # 2026-08-29) the loose items are part of the catalogue-wide
+      # Items mode instead.
       {:ok, _view, html} = live(conn, url(catalogue.uuid))
+      refute html =~ "?category=uncategorized"
 
-      assert html =~ "Uncategorized"
-      assert html =~ "?category=uncategorized"
+      {:ok, _view, html} = live(conn, url(catalogue.uuid) <> "?mode=items")
+      assert html =~ "Loose Item"
     end
 
     test "with no categories, the catalogue's loose items live behind Items mode",
@@ -338,10 +341,11 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
       assert html =~ "Add Category"
       assert html =~ "parent_uuid=#{category.uuid}"
 
-      # At root the same button carries no parent.
+      # At root the header button still creates a ROOT category; the
+      # per-row "New subcategory" menu entries are what carry parents now.
       {:ok, _view, html} = live(conn, url(catalogue.uuid))
       assert html =~ "Add Category"
-      refute html =~ "parent_uuid="
+      refute html =~ "categories/new?parent_uuid=#{catalogue.uuid}"
     end
 
     test "shows subcategories as drill cards alongside the category's own items", %{conn: conn} do
@@ -352,10 +356,10 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
 
       {:ok, _view, html} = live(conn, cat_url(catalogue.uuid, parent.uuid))
 
-      # Subcategory card (drillable); the parent's own items moved
-      # behind the Items mode switcher.
+      # Subcategory listed, but not as a drill link (drilling is gone);
+      # the parent's own items live behind the Items mode switcher.
       assert html =~ "Child"
-      assert html =~ "?category=#{child.uuid}"
+      refute html =~ "?category=#{child.uuid}"
       refute html =~ "Parent direct item"
 
       {:ok, _view, html} = live(conn, cat_url(catalogue.uuid, parent.uuid) <> "&mode=items")
@@ -622,7 +626,6 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
       {:ok, _view, html} = live(conn, url(catalogue.uuid))
 
       assert html =~ "OrphanChild"
-      assert html =~ "?category=#{child.uuid}"
     end
   end
 
@@ -825,25 +828,24 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
       refute html_after =~ "Oak in B"
     end
 
-    test "items mode lists the level's own items with the full surface", %{conn: conn} do
+    test "items mode lists the WHOLE catalogue with the full surface", %{conn: conn} do
       catalogue = fixture_catalogue()
       cat_a = fixture_category(catalogue, %{name: "Chapter A"})
       fixture_item(%{name: "Widget in A", category_uuid: cat_a.uuid})
       fixture_item(%{name: "Loose widget", catalogue_uuid: catalogue.uuid})
 
-      # Root items mode = the root's own (loose) items, managed exactly
-      # as the old mixed view managed them; categorized items live at
-      # their level (or through a search, which covers the subtree).
+      # With drilling gone there is no level to stand in: root Items mode
+      # answers for every item in the catalogue, in document order.
       {:ok, view, _html} = live(conn, url(catalogue.uuid) <> "?mode=items")
       html = render_async(view)
 
       assert html =~ "Loose widget"
-      refute html =~ "Widget in A"
+      assert html =~ "Widget in A"
       # The category browser is folded away, and the chips yield to the mode.
       refute html =~ "catalogue-categories-views"
       refute html =~ "set_search_type"
 
-      # Drilled items mode = that category's own items.
+      # A legacy drilled link still scopes to that category's own items.
       {:ok, view, _html} = live(conn, cat_url(catalogue.uuid, cat_a.uuid) <> "&mode=items")
       html = render_async(view)
       assert html =~ "Widget in A"
@@ -881,9 +883,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
       # live, 2026-08-29). The loose root item proves the load ran.
       html = render_async(view)
       assert html =~ "Loose thing"
-      # Root items mode lists the root's own items — the categorized one
-      # stays at its level.
-      refute html =~ "Only item"
+      # Catalogue-wide: the categorized item is in the flat list too.
+      assert html =~ "Only item"
 
       render_click(view, "set_search_mode", %{"mode" => "categories"})
       path = assert_patch(view)
