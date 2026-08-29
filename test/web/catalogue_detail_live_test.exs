@@ -9,6 +9,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
   use PhoenixKitCatalogue.LiveCase
 
   alias PhoenixKitCatalogue.Catalogue
+  alias PhoenixKitCatalogue.Web.TableConfig
 
   @base "/en/admin/catalogue"
 
@@ -560,7 +561,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
       refute updated =~ "DIR-1"
 
       assert :sys.get_state(view.pid).socket.assigns.categories_columns ==
-               PhoenixKitCatalogue.Web.TableConfig.default_columns(:detail_categories)
+               TableConfig.default_columns(:detail_categories)
 
       # Reset restores every section shown.
       reset = render_click(view, "reset_columns", %{})
