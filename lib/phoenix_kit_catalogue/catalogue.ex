@@ -973,7 +973,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
     query =
       from(i in Item,
         as: :item,
-        where: i.category_uuid == ^category_uuid,
+        where: i.category_uuid in ^level_category_uuids(category_uuid, opts),
         offset: ^offset,
         limit: ^limit,
         preload: ^preloads
@@ -982,9 +982,37 @@ defmodule PhoenixKitCatalogue.Catalogue do
     query
     |> filter_by_attribute_values(opts)
     |> apply_item_status_filter(opts, mode)
-    |> apply_item_order(opts)
+    |> apply_level_item_order(opts)
     |> repo().all()
     |> Manufacturers.hydrate()
+  end
+
+  # `include_descendants: true` widens a level listing to the category's
+  # whole SUBTREE — the detail page's "include subcategory items" toggle
+  # (Max, 2026-08-29).
+  defp level_category_uuids(category_uuid, opts) do
+    if Keyword.get(opts, :include_descendants, false),
+      do: category_subtree_uuids([category_uuid]),
+      else: [category_uuid]
+  end
+
+  # Position on a subtree listing means the DOCUMENT order — bare
+  # `i.position` interleaves per-category sequences into noise. A single
+  # level keeps the plain whitelist ordering.
+  defp apply_level_item_order(query, opts) do
+    if Keyword.get(opts, :include_descendants, false) and
+         Keyword.get(opts, :sort_by, :position) == :position do
+      query
+      |> join(:left, [i], c in Category, on: i.category_uuid == c.uuid)
+      |> order_by([i, ..., c],
+        asc_nulls_last: c.position,
+        asc: i.position,
+        asc: i.name,
+        asc: i.uuid
+      )
+    else
+      apply_item_order(query, opts)
+    end
   end
 
   @doc """
@@ -1219,8 +1247,9 @@ defmodule PhoenixKitCatalogue.Catalogue do
   @spec item_count_for_category(Ecto.UUID.t(), keyword()) :: non_neg_integer()
   def item_count_for_category(category_uuid, opts \\ []) do
     mode = Keyword.get(opts, :mode, :active)
+    uuids = level_category_uuids(category_uuid, opts)
 
-    query = from(i in Item, as: :item, where: i.category_uuid == ^category_uuid)
+    query = from(i in Item, as: :item, where: i.category_uuid in ^uuids)
 
     query
     |> filter_by_attribute_values(opts)
@@ -1254,6 +1283,24 @@ defmodule PhoenixKitCatalogue.Catalogue do
   def item_status_counts_for_uncategorized(catalogue_uuid) do
     from(i in Item,
       where: i.catalogue_uuid == ^catalogue_uuid and is_nil(i.category_uuid),
+      group_by: i.status,
+      select: {i.status, count(i.uuid)}
+    )
+    |> repo().all()
+    |> Map.new()
+  end
+
+  @doc """
+  `%{status => count}` across a set of categories in one grouped query —
+  the subtree variant of `item_status_counts_for_category/1`, for the
+  detail page's tabs when "include subcategory items" is on.
+  """
+  @spec item_status_counts_for_categories([Ecto.UUID.t()]) :: %{
+          String.t() => non_neg_integer()
+        }
+  def item_status_counts_for_categories(category_uuids) when is_list(category_uuids) do
+    from(i in Item,
+      where: i.category_uuid in ^category_uuids,
       group_by: i.status,
       select: {i.status, count(i.uuid)}
     )
