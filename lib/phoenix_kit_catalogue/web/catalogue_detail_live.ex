@@ -3741,35 +3741,22 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
             </div>
 
             <div :if={@view_mode == "active"} data-card-view class="md:hidden">
-              <%!-- DnD only in manual order — same gate as the table
-                   branch's @draggable?; the server guard re-asserts it. --%>
-              <div
-                id="catalogue-child-categories-tiles"
-                class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3"
-                data-sortable={to_string(@categories_sort_by == :position)}
-                data-sortable-event="reorder_categories"
-                data-sortable-items=".sortable-item"
-                data-sortable-hide-source="false"
-                data-sortable-group="catalogue-child-categories-tiles"
-                data-sortable-handle=".pk-drag-handle"
-                phx-hook={if @categories_sort_by == :position, do: "SortableGrid"}
-              >
-                <%= for cat <- @child_categories do %>
-                  <.category_tile
-                    catalogue_uuid={@catalogue.uuid}
-                    category={cat}
-                    reorderable={@categories_sort_by == :position}
-                    count={Map.get(@child_counts, cat.uuid, 0)}
-                    categories_columns={@categories_columns}
-                    subcat_count={Map.get(@child_subcat_counts, cat.uuid, 0)}
-                    file_count={Map.get(@file_counts, cat.uuid, 0)}
-                    has_subs={MapSet.member?(@children_with_subs, cat.uuid)}
-                    view_mode={@view_mode}
-                    sibling_count={length(@child_categories)}
-                    has_files={Map.get(@file_counts, cat.uuid, 0) > 0}
-                  />
-                <% end %>
-              </div>
+              <%!-- Card twin of the tree (Max, 2026-08-29: "how about
+                   the nesting?"): a category with children renders as a
+                   BOX containing its subcategory cards, all the way
+                   down — the index's card-level idiom. Same
+                   CatalogueTreeDnD contract as the tree table. --%>
+              <.categories_card_level
+                catalogue={@catalogue}
+                tree_children={@category_tree_children}
+                root_uuid={normalize_category_key(@current_category_uuid)}
+                child_counts={@child_counts}
+                child_subcat_counts={@child_subcat_counts}
+                file_counts={@file_counts}
+                categories_columns={@categories_columns}
+                view_mode={@view_mode}
+                reorderable={@categories_sort_by == :position}
+              />
             </div>
           </div>
           </.bulk_select_scope>
@@ -4897,6 +4884,161 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     end)
   end
 
+  # ── Nested card level (the index's card-level idiom, for chapters) ──
+
+  attr(:catalogue, :map, required: true)
+  attr(:tree_children, :map, required: true)
+  attr(:root_uuid, :any, required: true)
+  attr(:child_counts, :map, required: true)
+  attr(:child_subcat_counts, :map, required: true)
+  attr(:file_counts, :map, required: true)
+  attr(:categories_columns, :list, required: true)
+  attr(:view_mode, :string, required: true)
+  attr(:reorderable, :boolean, required: true)
+
+  defp categories_card_level(assigns) do
+    assigns = assign(assigns, :roots, Map.get(assigns.tree_children, assigns.root_uuid, []))
+
+    ~H"""
+    <div
+      :if={@roots != []}
+      id="catalogue-categories-cards"
+      phx-hook="CatalogueTreeDnD"
+      class="relative"
+    >
+      <div
+        data-tree-rootzone="1"
+        data-tree-drop="root"
+        class="hidden absolute -top-1 left-0 right-0 z-10 rounded-lg border-2 border-dashed border-primary/50 bg-base-100 py-2.5 text-center text-sm text-base-content/60"
+      >
+        <.icon name="hero-arrow-up-tray" class="w-4 h-4 inline-block mr-1 align-text-bottom" />
+        {gettext("Drop here to move to this level")}
+      </div>
+      <.category_card_entries
+        entries={@roots}
+        parent_key="root"
+        catalogue={@catalogue}
+        tree_children={@tree_children}
+        child_counts={@child_counts}
+        child_subcat_counts={@child_subcat_counts}
+        file_counts={@file_counts}
+        categories_columns={@categories_columns}
+        view_mode={@view_mode}
+        reorderable={@reorderable}
+      />
+    </div>
+    """
+  end
+
+  attr(:entries, :list, required: true)
+  attr(:parent_key, :string, required: true)
+  attr(:catalogue, :map, required: true)
+  attr(:tree_children, :map, required: true)
+  attr(:child_counts, :map, required: true)
+  attr(:child_subcat_counts, :map, required: true)
+  attr(:file_counts, :map, required: true)
+  attr(:categories_columns, :list, required: true)
+  attr(:view_mode, :string, required: true)
+  attr(:reorderable, :boolean, required: true)
+
+  # One level's cards: leaves as tiles, parents as full-width BOXES with
+  # their children's grid inside, recursively — so the whole outline is
+  # visible in card view too (Max, 2026-08-29). Boxes and tiles share
+  # the tree-DnD contract: middle drop nests, edges reorder, the root
+  # strip lifts.
+  defp category_card_entries(assigns) do
+    ~H"""
+    <div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
+      <%= for cat <- @entries do %>
+        <%= if Map.get(@tree_children, cat.uuid, []) == [] do %>
+          <.category_tile
+            catalogue_uuid={@catalogue.uuid}
+            category={cat}
+            reorderable={@reorderable}
+            tree_parent={@parent_key}
+            count={Map.get(@child_counts, cat.uuid, 0)}
+            categories_columns={@categories_columns}
+            subcat_count={Map.get(@child_subcat_counts, cat.uuid, 0)}
+            file_count={Map.get(@file_counts, cat.uuid, 0)}
+            has_subs={false}
+            view_mode={@view_mode}
+            sibling_count={length(@entries)}
+            has_files={Map.get(@file_counts, cat.uuid, 0) > 0}
+          />
+        <% else %>
+          <div
+            data-tree-uuid={cat.uuid}
+            data-tree-type="category"
+            data-tree-parent={@parent_key}
+            data-tree-drop={cat.uuid}
+            class="col-span-full rounded-lg border border-base-300 bg-base-200/40 p-3 flex flex-col gap-2"
+          >
+            <div class="flex items-center gap-2 min-w-0">
+              <span
+                :if={@reorderable}
+                data-tree-item={"category:" <> cat.uuid}
+                class="pk-drag-handle cursor-grab active:cursor-grabbing text-base-content/40 hover:text-base-content/70"
+                title={gettext("Drag to reorder or nest")}
+              >
+                <.icon name="hero-bars-3" class="w-4 h-4" />
+              </span>
+              <input
+                type="checkbox"
+                class="checkbox checkbox-xs"
+                data-bulk-role="row"
+                data-uuid={cat.uuid}
+              />
+              <.link
+                patch={Paths.category_browse(@catalogue.uuid, cat.uuid) <> "&mode=items"}
+                class="font-medium truncate hover:text-primary"
+              >
+                {cat.name}
+              </.link>
+              <span class="badge badge-ghost badge-sm tabular-nums">
+                {Map.get(@child_counts, cat.uuid, 0)}
+              </span>
+              <div class="ml-auto">
+                <.table_row_menu mode="auto" id={"category-box-menu-#{cat.uuid}"}>
+                  <.table_row_menu_link
+                    navigate={Paths.category_edit(cat.uuid)}
+                    icon="hero-pencil"
+                    label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")}
+                  />
+                  <.table_row_menu_link
+                    navigate={Paths.category_new(@catalogue.uuid) <> "?parent_uuid=" <> cat.uuid}
+                    icon="hero-folder-plus"
+                    label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "New subcategory")}
+                  />
+                  <.table_row_menu_divider />
+                  <.table_row_menu_button
+                    phx-click="request_trash_category"
+                    phx-value-uuid={cat.uuid}
+                    icon="hero-trash"
+                    label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")}
+                    variant="error"
+                  />
+                </.table_row_menu>
+              </div>
+            </div>
+            <.category_card_entries
+              entries={Map.get(@tree_children, cat.uuid, [])}
+              parent_key={cat.uuid}
+              catalogue={@catalogue}
+              tree_children={@tree_children}
+              child_counts={@child_counts}
+              child_subcat_counts={@child_subcat_counts}
+              file_counts={@file_counts}
+              categories_columns={@categories_columns}
+              view_mode={@view_mode}
+              reorderable={@reorderable}
+            />
+          </div>
+        <% end %>
+      <% end %>
+    </div>
+    """
+  end
+
   # Tile form of the category card — the "card view" branch of the level's
   # categories. Same affordances as the row (drill, select, drag among
   # siblings, edit); the file indicator moves into the badge row because a
@@ -4912,15 +5054,15 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   attr(:subcat_count, :integer, default: 0)
   attr(:file_count, :integer, default: 0)
   attr(:reorderable, :boolean, default: true)
+  attr(:tree_parent, :string, default: "root")
 
   defp category_tile(assigns) do
     ~H"""
     <div
-      class={[
-        "group card card-sm bg-base-100 shadow hover:shadow-md transition-shadow overflow-hidden",
-        @view_mode == "active" and @category.status == "active" && "sortable-item"
-      ]}
-      data-id={@view_mode == "active" and @category.status == "active" && @category.uuid}
+      class="group card card-sm bg-base-100 shadow hover:shadow-md transition-shadow overflow-hidden"
+      data-tree-uuid={@view_mode == "active" and @category.status == "active" && @category.uuid}
+      data-tree-type={@view_mode == "active" and @category.status == "active" && "category"}
+      data-tree-parent={@view_mode == "active" and @category.status == "active" && @tree_parent}
     >
       <figure class="relative h-24 bg-base-200">
         <.featured_thumb resource={@category} class="w-full h-full" />
@@ -4937,12 +5079,10 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
           data-uuid={@category.uuid}
         />
         <span
-          :if={
-            @view_mode == "active" and @category.status == "active" and @sibling_count > 1 and
-              @reorderable
-          }
+          :if={@view_mode == "active" and @category.status == "active" and @reorderable}
+          data-tree-item={"category:" <> @category.uuid}
           class="pk-drag-handle cursor-grab active:cursor-grabbing absolute top-1.5 right-1.5 rounded bg-base-100/80 p-0.5 text-base-content/50 hover:text-base-content/80"
-          title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Drag to reorder (among siblings)")}
+          title={gettext("Drag to reorder or nest")}
         >
           <.icon name="hero-bars-3" class="w-4 h-4" />
         </span>
