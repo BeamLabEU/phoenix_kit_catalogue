@@ -5231,7 +5231,12 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
           patch={Paths.category_browse(@catalogue_uuid, @category.uuid)}
           class="block w-full h-full"
         >
-          <.featured_thumb resource={@category} class="w-full h-full" variant="medium" />
+          <.featured_thumb
+            resource={@category}
+            class="w-full h-full"
+            variant="medium"
+            comfy_scale={false}
+          />
           <.icon
             :if={!featured_image_uuid(@category)}
             name="hero-folder"
