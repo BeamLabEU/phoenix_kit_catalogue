@@ -974,13 +974,14 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
       fixture_item(%{name: "Steel widget own", category_uuid: parent.uuid})
       fixture_item(%{name: "Steel widget nested", category_uuid: child.uuid})
 
-      # Browsing: the category's OWN items only, and no toggle — it
-      # "should only do something when searching" (Max, 2026-08-30), and
-      # an idle control that changes nothing on screen is a lie.
+      # Browsing: the category's OWN items only. The toggle is offered
+      # (Max, 2026-08-30: "should alwasy be there" with subcategories)
+      # but it "should only do something when searching" — flipping it
+      # here pre-arms the next search without touching the list.
       {:ok, view, html} = live(conn, cat_url(catalogue.uuid, parent.uuid))
       assert html =~ "Steel widget own"
       refute html =~ "Steel widget nested"
-      refute html =~ "Include subcategory items"
+      assert html =~ "Include subcategory items"
 
       # Even with ?items=subtree in the URL the browse list stays direct.
       {:ok, _view, html} =
@@ -1076,8 +1077,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
       leaf = fixture_category(catalogue, %{name: "Leaf chapter"})
       fixture_item(%{name: "Leaf item", category_uuid: leaf.uuid})
 
-      {:ok, view, _html} = live(conn, cat_url(catalogue.uuid, leaf.uuid) <> "&q=leaf")
-      html = render_async(view)
+      {:ok, _view, html} = live(conn, cat_url(catalogue.uuid, leaf.uuid))
       assert html =~ "Leaf item"
       refute html =~ "Include subcategory items"
     end

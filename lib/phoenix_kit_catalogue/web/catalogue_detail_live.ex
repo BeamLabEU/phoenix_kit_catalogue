@@ -3453,16 +3453,15 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               </div>
               <%!-- A SEARCH refinement only (Max, 2026-08-30: "should
                     only do something when searching") — the browse list
-                    always shows the category's own items, so the toggle
-                    appears once a search is actually running (an idle
-                    control that changes nothing on screen is a lie, same
-                    rule as the attribute filter). No control at all
-                    without subcategories (Max, 2026-08-29). --%>
+                    always shows the category's own items; the toggle
+                    pre-arms the next search. Always offered next to the
+                    search box (Max, 2026-08-30: "should alwasy be
+                    there"), but no control at all without subcategories
+                    (Max, 2026-08-29). --%>
               <label
                 :if={
                   show_search_input and match?(%Category{}, @current_category) and
-                    @child_categories != [] and
-                    (@search_results != nil or @search_loading)
+                    @child_categories != []
                 }
                 class="flex items-center gap-2 text-sm cursor-pointer select-none"
               >
