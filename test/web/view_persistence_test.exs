@@ -54,7 +54,7 @@ defmodule PhoenixKitCatalogue.Web.ViewPersistenceTest do
     # CSS do the switching and persists afterwards, so the click is free.
     # (Asserted on the detail page because the attributes tab and the PDF
     # library render no toggle at all when they have nothing to list.)
-    {:ok, view, html} = live(conn, "/en/admin/catalogue/#{catalogue.uuid}")
+    {:ok, view, html} = live(conn, "/en/admin/catalogue/#{catalogue.uuid}?mode=items")
 
     # The table is UNCONTROLLED — it carries the shared storage key, which
     # is what lets the client swap faces without asking the server.

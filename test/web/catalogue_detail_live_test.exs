@@ -88,14 +88,17 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
       assert html =~ "?category=uncategorized"
     end
 
-    test "with no categories, the catalogue's loose items render inline at root",
+    test "with no categories, the catalogue's loose items live behind Items mode",
          %{conn: conn} do
       catalogue = fixture_catalogue()
       fixture_item(%{name: "Loose Alpha", catalogue_uuid: catalogue.uuid})
 
+      # The category browser shows no items — it points at Items mode.
       {:ok, _view, html} = live(conn, url(catalogue.uuid))
+      refute html =~ "Loose Alpha"
+      assert html =~ "Switch to Items"
 
-      # Items show directly — no redundant Uncategorized drill card to click.
+      {:ok, _view, html} = live(conn, url(catalogue.uuid) <> "?mode=items")
       assert html =~ "Loose Alpha"
       refute html =~ "?category=uncategorized"
     end
@@ -123,6 +126,91 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
   end
 
   # ─────────────────────────────────────────────────────────────────
+  # Category browser (the index's folder tree, one level down)
+  # ─────────────────────────────────────────────────────────────────
+
+  describe "category browser" do
+    test "manual order shows a collapsible tree; other sorts flatten", %{conn: conn} do
+      catalogue = fixture_catalogue()
+      parent = fixture_category(catalogue, %{name: "Chapter A"})
+      _child = fixture_category(catalogue, %{name: "Nested A1", parent_uuid: parent.uuid})
+      fixture_category(catalogue, %{name: "Chapter B"})
+
+      {:ok, view, html} = live(conn, url(catalogue.uuid))
+
+      # Tree face in manual order: top level visible, children collapsed
+      # behind the chevron; drag contract attributes present.
+      assert html =~ "catalogue-categories-tree"
+      assert html =~ "Chapter A"
+      assert html =~ "Chapter B"
+      refute html =~ "Nested A1"
+      assert html =~ ~s(data-tree-drop="#{parent.uuid}")
+      assert html =~ ~s(data-tree-item="category:#{parent.uuid}")
+
+      expanded = render_click(view, "toggle_category_expand", %{"uuid" => parent.uuid})
+      assert expanded =~ "Nested A1"
+
+      # A real sort falls back to the flat table (its sortable tbody id
+      # is the marker — the wrapper renders no id in the plain path).
+      flat = render_change(view, "sort_categories", %{"sort_by" => "name"})
+      refute flat =~ "catalogue-categories-tree"
+      assert flat =~ "catalogue-child-categories"
+    end
+
+    test "a middle drop nests, an edge drop reorders and re-parents", %{conn: conn} do
+      catalogue = fixture_catalogue()
+      a = fixture_category(catalogue, %{name: "Chapter A", position: 0})
+      b = fixture_category(catalogue, %{name: "Chapter B", position: 1})
+      c = fixture_category(catalogue, %{name: "Chapter C", position: 2})
+
+      {:ok, view, _html} = live(conn, url(catalogue.uuid))
+
+      # Nest C under A (middle drop).
+      html =
+        render_click(view, "move_to_folder", %{
+          "type" => "category",
+          "uuid" => c.uuid,
+          "target" => a.uuid
+        })
+
+      assert Catalogue.get_category(c.uuid).parent_uuid == a.uuid
+      # The drop target stays expanded so the moved row is visible.
+      assert html =~ "Chapter C"
+
+      # Edge drop: lift C back to the top level, ordered before A.
+      render_click(view, "drop_row", %{
+        "type" => "category",
+        "uuid" => c.uuid,
+        "parent" => "root",
+        "entries" => ["category:#{c.uuid}", "category:#{a.uuid}", "category:#{b.uuid}"]
+      })
+
+      assert Catalogue.get_category(c.uuid).parent_uuid == nil
+
+      assert Catalogue.list_child_categories(catalogue.uuid, nil)
+             |> Enum.map(& &1.name) == ["Chapter C", "Chapter A", "Chapter B"]
+    end
+
+    test "a category cannot be dropped into its own subtree", %{conn: conn} do
+      catalogue = fixture_catalogue()
+      parent = fixture_category(catalogue, %{name: "Chapter A"})
+      child = fixture_category(catalogue, %{name: "Nested A1", parent_uuid: parent.uuid})
+
+      {:ok, view, _html} = live(conn, url(catalogue.uuid))
+
+      html =
+        render_click(view, "move_to_folder", %{
+          "type" => "category",
+          "uuid" => parent.uuid,
+          "target" => child.uuid
+        })
+
+      assert html =~ "cannot move into its own subtree"
+      assert Catalogue.get_category(parent.uuid).parent_uuid == nil
+    end
+  end
+
+  # ─────────────────────────────────────────────────────────────────
   # Drilling into a category
   # ─────────────────────────────────────────────────────────────────
 
@@ -138,11 +226,15 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
       # link back to root) ▸ current category name.
       assert html =~ "Catalogue X"
       assert html =~ "Hardware"
-      assert html =~ "Hinge 90"
       # The breadcrumb root crumb patches back to the catalogue root.
       assert html =~ ~s(href="#{url(catalogue.uuid)}")
       # Search is scoped to this category.
       assert html =~ "Search within this category"
+
+      # The category's own items live behind the Items mode now.
+      refute html =~ "Hinge 90"
+      {:ok, _view, html} = live(conn, cat_url(catalogue.uuid, category.uuid) <> "&mode=items")
+      assert html =~ "Hinge 90"
     end
 
     test "content renders in the viewer's locale, not the primary language", %{conn: conn} do
@@ -179,8 +271,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
       assert html =~ "Aknad"
       refute html =~ "Uksed"
 
-      # Drilled: the page title/crumbs and the item list follow too.
-      {:ok, _view, html} = live(conn, cat_url(catalogue.uuid, category.uuid))
+      # Drilled into Items mode: the title/crumbs and item list follow too.
+      {:ok, _view, html} = live(conn, cat_url(catalogue.uuid, category.uuid) <> "&mode=items")
       assert html =~ "Doors"
       assert html =~ "Oak"
       refute html =~ "Tamm"
@@ -215,7 +307,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
       fixture_item(%{name: "Item A", category_uuid: category.uuid})
       fixture_item(%{name: "Item B", category_uuid: category.uuid})
 
-      {:ok, _view, html} = live(conn, cat_url(catalogue.uuid, category.uuid))
+      {:ok, _view, html} = live(conn, cat_url(catalogue.uuid, category.uuid) <> "&mode=items")
 
       # The card container only gets its -cards id (and the SortableGrid
       # hook + per-card grips with it) when on_reorder is wired.
@@ -227,7 +319,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
       category = fixture_category(catalogue)
       fixture_item(%{name: "Only item", category_uuid: category.uuid})
 
-      {:ok, _view, html} = live(conn, cat_url(catalogue.uuid, category.uuid))
+      {:ok, _view, html} = live(conn, cat_url(catalogue.uuid, category.uuid) <> "&mode=items")
 
       refute html =~ ~s(id="level-items-active-cards")
     end
@@ -260,9 +352,13 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
 
       {:ok, _view, html} = live(conn, cat_url(catalogue.uuid, parent.uuid))
 
-      # Subcategory card (drillable) + the parent's own direct item.
+      # Subcategory card (drillable); the parent's own items moved
+      # behind the Items mode switcher.
       assert html =~ "Child"
       assert html =~ "?category=#{child.uuid}"
+      refute html =~ "Parent direct item"
+
+      {:ok, _view, html} = live(conn, cat_url(catalogue.uuid, parent.uuid) <> "&mode=items")
       assert html =~ "Parent direct item"
     end
 
@@ -271,7 +367,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
       category = fixture_category(catalogue)
       item = fixture_item(%{name: "Clickable item", category_uuid: category.uuid})
 
-      {:ok, _view, html} = live(conn, cat_url(catalogue.uuid, category.uuid))
+      {:ok, _view, html} = live(conn, cat_url(catalogue.uuid, category.uuid) <> "&mode=items")
 
       # The edit link carries the level it was clicked from, so save/cancel
       # can land back here instead of the catalogue root.
@@ -326,7 +422,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
       deleted = fixture_item(%{name: "Deleted item", category_uuid: category.uuid})
       Catalogue.trash_item(deleted)
 
-      {:ok, view, html} = live(conn, cat_url(catalogue.uuid, category.uuid))
+      {:ok, view, html} = live(conn, cat_url(catalogue.uuid, category.uuid) <> "&mode=items")
       assert html =~ "Active item"
       refute html =~ "Deleted item"
 
@@ -362,7 +458,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
       catalogue = fixture_catalogue(%{name: "Cols catalogue"})
       fixture_item(%{name: "Col item", sku: "COL-1", catalogue_uuid: catalogue.uuid})
 
-      {:ok, view, html} = live(conn, url(catalogue.uuid))
+      {:ok, view, html} = live(conn, url(catalogue.uuid) <> "?mode=items")
 
       # Default columns render; the Columns button is present.
       assert html =~ "COL-1"
@@ -394,8 +490,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
       fixture_item(%{name: "Alpha item", catalogue_uuid: catalogue.uuid, position: 1})
       fixture_item(%{name: "Zed item", catalogue_uuid: catalogue.uuid, position: 0})
 
-      {:ok, changer, _} = live(conn, url(catalogue.uuid))
-      {:ok, viewer, _} = live(conn, url(catalogue.uuid))
+      {:ok, changer, _} = live(conn, url(catalogue.uuid) <> "?mode=items")
+      {:ok, viewer, _} = live(conn, url(catalogue.uuid) <> "?mode=items")
 
       render_click(changer, "sort_items", %{"sort_by" => "name"})
 
@@ -404,7 +500,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
                "name:asc"
 
       # ...a fresh session opens with it...
-      {:ok, _fresh, fresh_html} = live(conn, url(catalogue.uuid))
+      {:ok, _fresh, fresh_html} = live(conn, url(catalogue.uuid) <> "?mode=items")
 
       assert :binary.match(fresh_html, "Alpha item") |> elem(0) <
                :binary.match(fresh_html, "Zed item") |> elem(0)
@@ -435,7 +531,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
       item = fixture_item(%{name: "Doomed", category_uuid: category.uuid})
       fixture_item(%{name: "Survivor", category_uuid: category.uuid})
 
-      {:ok, view, html} = live(conn, cat_url(catalogue.uuid, category.uuid))
+      {:ok, view, html} = live(conn, cat_url(catalogue.uuid, category.uuid) <> "&mode=items")
       assert html =~ "Doomed"
 
       html_after = render_click(view, "delete_item", %{"uuid" => item.uuid})
@@ -469,7 +565,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
       category = fixture_category(catalogue)
       survivor = fixture_item(%{name: "Survivor", category_uuid: category.uuid})
 
-      {:ok, view, _html} = live(conn, cat_url(catalogue.uuid, category.uuid))
+      {:ok, view, _html} = live(conn, cat_url(catalogue.uuid, category.uuid) <> "&mode=items")
 
       html =
         render_click(view, "delete_item", %{"uuid" => "00000000-0000-0000-0000-000000000000"})
@@ -541,7 +637,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
       fixture_item(%{name: "Cherry", position: 0, category_uuid: category.uuid})
       fixture_item(%{name: "Apple", position: 1, category_uuid: category.uuid})
 
-      {:ok, view, html} = live(conn, cat_url(catalogue.uuid, category.uuid))
+      {:ok, view, html} = live(conn, cat_url(catalogue.uuid, category.uuid) <> "&mode=items")
       # Manual (position) order: Cherry before Apple.
       assert position_of(html, "Cherry") < position_of(html, "Apple")
 
@@ -555,7 +651,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
       category = fixture_category(catalogue)
       fixture_item(%{name: "Solo", category_uuid: category.uuid})
 
-      {:ok, view, _html} = live(conn, cat_url(catalogue.uuid, category.uuid))
+      {:ok, view, _html} = live(conn, cat_url(catalogue.uuid, category.uuid) <> "&mode=items")
       html = render_change(view, "sort_items", %{"sort_by" => "evil; DROP"})
 
       assert html =~ "Solo"
@@ -683,7 +779,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
         })
       end
 
-      {:ok, view, html} = live(conn, cat_url(catalogue.uuid, category.uuid))
+      {:ok, view, html} = live(conn, cat_url(catalogue.uuid, category.uuid) <> "&mode=items")
       # First page is 100 items.
       assert html =~ "Item 100"
       refute html =~ "Item 130"
@@ -729,38 +825,29 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
       refute html_after =~ "Oak in B"
     end
 
-    test "items mode lists the whole catalogue flat, no query needed", %{conn: conn} do
+    test "items mode lists the level's own items with the full surface", %{conn: conn} do
       catalogue = fixture_catalogue()
       cat_a = fixture_category(catalogue, %{name: "Chapter A"})
-      cat_b = fixture_category(catalogue, %{name: "Chapter B"})
       fixture_item(%{name: "Widget in A", category_uuid: cat_a.uuid})
-      fixture_item(%{name: "Widget in B", category_uuid: cat_b.uuid})
       fixture_item(%{name: "Loose widget", catalogue_uuid: catalogue.uuid})
 
+      # Root items mode = the root's own (loose) items, managed exactly
+      # as the old mixed view managed them; categorized items live at
+      # their level (or through a search, which covers the subtree).
       {:ok, view, _html} = live(conn, url(catalogue.uuid) <> "?mode=items")
       html = render_async(view)
 
-      # Every item, whatever its category — 100 categories deep or none.
-      assert html =~ "Widget in A"
-      assert html =~ "Widget in B"
       assert html =~ "Loose widget"
-      # The outline browse is replaced, and the chips yield to the mode.
+      refute html =~ "Widget in A"
+      # The category browser is folded away, and the chips yield to the mode.
+      refute html =~ "catalogue-categories-views"
       refute html =~ "set_search_type"
-    end
 
-    test "items mode drilled into a category scopes to its subtree", %{conn: conn} do
-      catalogue = fixture_catalogue()
-      cat_a = fixture_category(catalogue, %{name: "Chapter A"})
-      sub = fixture_category(catalogue, %{name: "Sub A", parent_uuid: cat_a.uuid})
-      cat_b = fixture_category(catalogue, %{name: "Chapter B"})
-      fixture_item(%{name: "Deep widget", category_uuid: sub.uuid})
-      fixture_item(%{name: "Other widget", category_uuid: cat_b.uuid})
-
+      # Drilled items mode = that category's own items.
       {:ok, view, _html} = live(conn, cat_url(catalogue.uuid, cat_a.uuid) <> "&mode=items")
       html = render_async(view)
-
-      assert html =~ "Deep widget"
-      refute html =~ "Other widget"
+      assert html =~ "Widget in A"
+      refute html =~ "Loose widget"
     end
 
     test "searching inside items mode narrows the flat list", %{conn: conn} do
@@ -787,7 +874,9 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
 
       render_click(view, "set_search_mode", %{"mode" => "items"})
       assert assert_patch(view) =~ "mode=items"
-      assert render_async(view) =~ "Only item"
+      # Root items mode lists the root's own items — the categorized one
+      # stays at its level.
+      refute render_async(view) =~ "Only item"
 
       render_click(view, "set_search_mode", %{"mode" => "categories"})
       path = assert_patch(view)
@@ -796,7 +885,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
       assert render(view) =~ "Only chapter"
     end
 
-    test "items mode pages by @per_page and the pages tile without duplicates", %{conn: conn} do
+    test "items mode pages by @per_page and a search page tiles without duplicates",
+         %{conn: conn} do
       # The detail page's batch is 100 — the fixture must cross that
       # boundary or this test proves nothing about paging.
       catalogue = fixture_catalogue()
@@ -808,6 +898,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
         })
       end
 
+      # The level list pages…
       {:ok, view, _html} = live(conn, url(catalogue.uuid) <> "?mode=items")
       html = render_async(view)
       assert html =~ "Widget 001"
@@ -817,22 +908,18 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
       html = render_async(view)
       assert html =~ "Widget 105"
 
-      # Million-items paranoia (Max, 2026-08-29): pages must tile — the
-      # search ordering ends in a uuid tiebreak, so OFFSET cannot
-      # shuffle equal keys across page boundaries.
+      # …and so do search results, tiling without duplicates: the search
+      # ordering ends in a uuid tiebreak, so OFFSET cannot shuffle equal
+      # keys across page boundaries (million-items paranoia, Max,
+      # 2026-08-29).
+      render_change(view, "search", %{"query" => "widget"})
+      render_async(view)
+      render_hook(view, "load_more", %{})
+      render_async(view)
+
       results = :sys.get_state(view.pid).socket.assigns.search_results
       assert length(results) == 105
       assert results |> Enum.map(& &1.uuid) |> Enum.uniq() |> length() == 105
-    end
-
-    test "items mode on an empty catalogue says so without inventing a search", %{conn: conn} do
-      catalogue = fixture_catalogue()
-
-      {:ok, view, _html} = live(conn, url(catalogue.uuid) <> "?mode=items")
-      html = render_async(view)
-
-      assert html =~ "No items match."
-      refute html =~ "Nothing matches your search."
     end
 
     test "the type chips narrow what the search returns", %{conn: conn} do
@@ -896,7 +983,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
       category = fixture_category(catalogue)
       fixture_item(%{name: "Only item", category_uuid: category.uuid})
 
-      {:ok, view, _html} = live(conn, cat_url(catalogue.uuid, category.uuid))
+      {:ok, view, _html} = live(conn, cat_url(catalogue.uuid, category.uuid) <> "&mode=items")
       render_change(view, "search", %{"query" => "nothing matches"})
       _ = render_async(view)
       html_after = render_click(view, "clear_search", %{})
@@ -963,13 +1050,13 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
       catalogue = fixture_catalogue()
       fixture_item(%{name: "Oak panel", catalogue_uuid: catalogue.uuid})
 
-      {:ok, view, html} = live(conn, url(catalogue.uuid) <> "?category=")
+      {:ok, view, html} = live(conn, url(catalogue.uuid) <> "?category=&mode=items")
 
       assert html =~ "Oak panel"
       assert html =~ ~s(id="items-body-root")
 
       render_change(view, "search", %{"query" => "oak"})
-      assert_patch(view, url(catalogue.uuid) <> "?q=oak")
+      assert_patch(view, url(catalogue.uuid) <> "?mode=items&q=oak")
     end
 
     # `?q=` now survives the level load, so a deep link into a node whose

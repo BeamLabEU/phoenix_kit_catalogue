@@ -32,6 +32,19 @@ defmodule PhoenixKitCatalogue.GettextTest do
           {"Search for", "Что искать", "Mida otsida"},
           {"No items match.", "Нет подходящих позиций.", "Sobivaid tooteid pole."},
           {"View in catalogue", "Открыть в каталоге", "Vaata kataloogis"},
+          # The category browser's strings (Max, 2026-08-29):
+          {"Toggle category", "Развернуть/свернуть категорию", "Ava/sule kategooria"},
+          {"Drag to reorder or nest", "Перетащите, чтобы изменить порядок или вложить",
+           "Lohista järjestamiseks või pesastamiseks"},
+          {"Drop here to move to this level",
+           "Перетащите сюда, чтобы переместить на этот уровень",
+           "Lohista siia, et tuua sellele tasemele"},
+          {"A category cannot move into its own subtree.",
+           "Категорию нельзя переместить в её собственное поддерево.",
+           "Kategooriat ei saa viia tema enda alampuusse."},
+          {"No subcategories here. Switch to Items to browse this level's items.",
+           "Здесь нет подкатегорий. Переключитесь на Позиции, чтобы просмотреть позиции этого уровня.",
+           "Siin pole alamkategooriaid. Vali Tooted, et sirvida selle taseme tooteid."},
           # Written as the macro inside a HEEx attribute on purpose: the
           # runtime form is NOT extracted from attribute interpolation, which
           # is how these two were in the catalogues but absent from a
