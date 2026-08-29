@@ -5485,7 +5485,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
           data-bulk-show={if @controls_in_page_header, do: "has-selection"}
           style={if @controls_in_page_header, do: "display: none;"}
           class={
-            !@reorder_allowed && "[&_[data-bulk-action=open_items_reorder_modal]]:!hidden"
+            !@reorder_allowed && "[&_[data-bulk-action*=reorder]]:!hidden"
           }
         >
           <.bulk_actions_toolbar
