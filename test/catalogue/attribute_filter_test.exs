@@ -394,6 +394,31 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeFilterTest do
                  %{}
       end
 
+      test "the index counts stay inside the drilled folder's subtree while searching", ctx do
+        {:ok, parent} = Catalogue.create_folder(%{name: "Parent shelf"})
+        {:ok, child} = Catalogue.create_folder(%{name: "Child shelf", parent_uuid: parent.uuid})
+        {:ok, _} = Catalogue.move_catalogue_to_folder(ctx.catalogue, child.uuid)
+
+        # A second red carrier OUTSIDE the folder whose name also matches
+        # the search — an unscoped count would read 2.
+        other = fixture_catalogue(%{name: "Filter Elsewhere"})
+        stray = fixture_item(%{name: "Stray red", catalogue_uuid: other.uuid})
+        {:ok, _} = Catalogue.attach_attribute_set(stray.uuid, ctx.colour.uuid)
+
+        :ok =
+          AttributeSets.set_attachment_selection(stray.uuid, ctx.colour.uuid, [ctx.red.slug])
+
+        {:ok, view, _html} =
+          live(ctx.conn, "/en/admin/catalogue?folder=#{parent.uuid}&q=filter")
+
+        counts = :sys.get_state(view.pid).socket.assigns.attribute_value_counts
+
+        # Searching a drilled folder covers its SUBTREE: "Filter Cat" sits
+        # in the subfolder, so it is on screen and counted; the unfiled
+        # "Filter Elsewhere" is not. Level-only scoping would count zero.
+        assert counts[ctx.red.slug] == 1
+      end
+
       test "the trash counts its own items rather than contradicting itself", ctx do
         {:ok, _} = Catalogue.trash_item(ctx.items.blue_oak)
 

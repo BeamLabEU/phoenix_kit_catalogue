@@ -489,7 +489,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
       Catalogue.trash_catalogue(trashed)
 
       {:ok, view, _html} = live(conn, @base)
-      render_click(view, "set_filter", %{"column_id" => "folder", "value" => folder.uuid})
+      render_click(view, "navigate_folder", %{"uuid" => folder.uuid})
 
       # The unfiled trashed catalogue must be visible despite the filter.
       deleted = render_click(view, "switch_catalogue_view", %{"mode" => "deleted"})
@@ -636,6 +636,55 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
 
       assert html =~ "Quokka GmbH"
       refute html =~ "Zephyr Werke"
+    end
+
+    # The folder select left the toolbar (Max, 2026-08-29): search works
+    # where the user stands, and scope is chosen by navigating folders.
+    test "the toolbar offers no folder select, only the status filter", %{conn: conn} do
+      {:ok, folder} = Catalogue.create_folder(%{name: "Some folder"})
+      filed = fixture_catalogue(%{name: "Filed catalogue"})
+      {:ok, _} = Catalogue.move_catalogue_to_folder(filed, folder.uuid)
+
+      {:ok, _view, html} = live(conn, @base)
+
+      refute html =~ "filter-form-folder"
+      assert html =~ "filter-form-status"
+    end
+
+    test "searching a drilled folder covers its whole subtree", %{conn: conn} do
+      {:ok, parent} = Catalogue.create_folder(%{name: "Parent folder"})
+      {:ok, child} = Catalogue.create_folder(%{name: "Child folder", parent_uuid: parent.uuid})
+
+      direct = fixture_catalogue(%{name: "Verso direct"})
+      {:ok, _} = Catalogue.move_catalogue_to_folder(direct, parent.uuid)
+      deep = fixture_catalogue(%{name: "Verso deep"})
+      {:ok, _} = Catalogue.move_catalogue_to_folder(deep, child.uuid)
+      _outside = fixture_catalogue(%{name: "Verso outside"})
+
+      {:ok, _view, html} = live(conn, "#{@base}?folder=#{parent.uuid}&q=verso")
+
+      # The catalogue in the subfolder is VISIBLE in the tree behind the
+      # search, so the search must find it too — not just direct children.
+      assert html =~ "Verso direct"
+      assert html =~ "Verso deep"
+      # Where the user is not: a match elsewhere stays out of this scope.
+      refute html =~ "Verso outside"
+    end
+
+    test "the location row survives the search's flat table", %{conn: conn} do
+      {:ok, folder} = Catalogue.create_folder(%{name: "Standing here"})
+      filed = fixture_catalogue(%{name: "Filed catalogue"})
+      {:ok, _} = Catalogue.move_catalogue_to_folder(filed, folder.uuid)
+
+      {:ok, _view, html} = live(conn, "#{@base}?folder=#{folder.uuid}&q=filed")
+
+      # The tree is gone while searching; the Up + folder-name row is the
+      # only sign of where the search is looking, so it must stay. The Up
+      # button's icon is the marker — the folder NAME also appears in the
+      # flat table's Folder column, so it proves nothing here.
+      refute html =~ "catalogues-tree-table"
+      assert html =~ "Standing here"
+      assert html =~ "hero-arrow-uturn-left"
     end
 
     # `tab_changed?` keeps the search patch from re-running load_data — the

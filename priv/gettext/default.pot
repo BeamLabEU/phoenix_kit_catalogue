@@ -117,7 +117,7 @@ msgstr ""
 msgid "Toggle folder"
 msgstr ""
 
-#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2706
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2688
 #, elixir-autogen
 msgid "Clear search and filters to see the folder tree."
 msgstr ""
@@ -403,8 +403,8 @@ msgstr ""
 msgid "Failed to restore item."
 msgstr ""
 
-#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:1883
-#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2321
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:1852
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2290
 #, elixir-autogen
 msgid "Failed to save the new order."
 msgstr ""
@@ -914,7 +914,7 @@ msgstr ""
 msgid "All statuses"
 msgstr ""
 
-#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:1890
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:1859
 #, elixir-autogen
 msgid "Clear search and filters to drag-and-drop reorder."
 msgstr ""
@@ -1132,17 +1132,17 @@ msgstr ""
 msgid "Show image %{number}"
 msgstr ""
 
-#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:3409
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:3412
 #, elixir-autogen
 msgid "Reorder all"
 msgstr ""
 
-#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:3327
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:3330
 #, elixir-autogen
 msgid "catalogue"
 msgstr ""
 
-#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:3328
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:3331
 #, elixir-autogen
 msgid "catalogues"
 msgstr ""
@@ -1153,7 +1153,7 @@ msgstr ""
 msgid "categories"
 msgstr ""
 
-#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:1854
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:1823
 #, elixir-autogen
 msgid "Catalogues reordered."
 msgstr ""
@@ -1161,7 +1161,7 @@ msgstr ""
 msgid "Categories reordered."
 msgstr ""
 
-#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:1859
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:1828
 #, elixir-autogen
 msgid "Failed to reorder."
 msgstr ""
@@ -1661,7 +1661,7 @@ msgstr ""
 msgid "0.00"
 msgstr ""
 
-#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2509
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2512
 #, elixir-autogen
 msgid "A → Z by name"
 msgstr ""
@@ -2035,7 +2035,7 @@ msgstr ""
 msgid "New Categories"
 msgstr ""
 
-#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2511
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2514
 #, elixir-autogen
 msgid "Newest first"
 msgstr ""
@@ -2097,7 +2097,7 @@ msgstr ""
 msgid "Nothing deleted here."
 msgstr ""
 
-#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2512
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2515
 #, elixir-autogen
 msgid "Oldest first"
 msgstr ""
@@ -2234,7 +2234,7 @@ msgstr ""
 msgid "Retrying…"
 msgstr ""
 
-#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2513
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2516
 #, elixir-autogen
 msgid "Reverse current order"
 msgstr ""
@@ -2512,7 +2512,7 @@ msgstr ""
 msgid "You must map at least one column to 'Item Name'. Scroll down to the column mapping section and pick the column that holds item names."
 msgstr ""
 
-#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2510
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2513
 #, elixir-autogen
 msgid "Z → A by name"
 msgstr ""
@@ -3028,7 +3028,7 @@ msgstr ""
 msgid "Nothing matches this together with the filters already on"
 msgstr ""
 
-#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2716
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2698
 #, elixir-autogen, elixir-format
 msgid "Showing catalogues that contain matching items."
 msgstr ""

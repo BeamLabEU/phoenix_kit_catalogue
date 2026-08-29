@@ -208,7 +208,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
 
     # The drilled folder rides the URL; thread it into the catalogues
     # cfg (in-memory only — ViewConfig.save never persists it) so every
-    # existing read site (tree mode, walk, filter select) keeps working.
+    # existing read site (tree mode, walk, search scoping) keeps working.
     cfg =
       if scope == :catalogues do
         folder = state.current_folder
@@ -228,7 +228,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     # folder with replace, but earlier history entries keep theirs). The
     # history entry was created in active mode, so returning to it means
     # returning to active mode — otherwise the trash list is silently
-    # filtered by a folder its select can't even show. (Panel finding.)
+    # narrowed to a folder nothing on screen names. (Panel finding.)
     socket =
       if scope == :catalogues and state.current_folder not in [nil, ""] and
            socket.assigns[:catalogue_view_mode] == "deleted" do
@@ -454,7 +454,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     # the user cannot currently see, and picking one empties the list.
     eligible =
       socket.assigns.catalogue_rows
-      |> do_derive_rows(:catalogues, cfg)
+      |> do_derive_rows(:catalogues, cfg, socket.assigns.folder_lookup)
       |> Enum.map(& &1.uuid)
 
     socket
@@ -713,9 +713,8 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       c
       |> Map.from_struct()
       # A lookup miss means the folder is trashed — orphan-promote the row
-      # so it reads as unfiled everywhere: dash in the Folder column,
-      # matched by "Unfiled (root)", and no ghost entry (a nameless option
-      # holding a trashed folder's uuid) in the filter dropdown.
+      # so it reads as unfiled everywhere: dash in the Folder column, and
+      # matched by the unfiled sentinel rather than a ghost uuid.
       |> Map.put(:folder_uuid, folder && c.folder_uuid)
       |> Map.put(:folder_name, folder && folder.name)
       |> Map.put(:item_count, Map.get(item_counts, c.uuid, 0))
@@ -772,8 +771,9 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   # rows with catalogues nested under them (Core.TreeTable name cells
   # inside table_default). Shown in Manual order with no search/status
   # filter — any other sort or an active filter falls back to the flat
-  # sortable table. The folder filter sets the tree's root; the
-  # "Unfiled (root)" sentinel stays a flat filtered list.
+  # sortable table. The drilled ?folder= sets the tree's root; the
+  # "__unfiled__" sentinel (reachable only via old URLs since the folder
+  # select was removed) stays a flat filtered list.
 
   # The folder struct for the tree's current root, or nil at top level
   # (no filter / the unfiled sentinel — not in the lookup).
@@ -796,14 +796,9 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       (folder_filter == nil or Map.has_key?(lookup, folder_filter))
   end
 
-  # Folder is URL state, not a persisted preference; "all"/"" and the
-  # unfiled sentinel clear it (same visible behavior as before). Every
-  # other filter persists through the view config as usual.
-  defp apply_filter_change(socket, :catalogues, "folder", val, _cfg, _filters) do
-    value = if val in [nil, "", "all"], do: "", else: val
-    {:noreply, push_url_state(socket, current_folder: value)}
-  end
-
+  # Folder is URL state (?folder=), set by navigating, and no longer a
+  # filterable column — `filterable_ids/1` drops "folder" before this is
+  # reached. Every real filter persists through the view config as usual.
   defp apply_filter_change(socket, scope, _id, _val, cfg, filters) do
     {:noreply, put_cfg(socket, scope, %{cfg | filters: filters})}
   end
@@ -949,23 +944,8 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       |> assign(:entries, merged_level_entries(ctx, root))
 
     ~H"""
-    <div class="flex items-center gap-2">
-      <button
-        :if={@current}
-        type="button"
-        phx-click="navigate_folder"
-        phx-value-uuid={@current.parent_uuid || ""}
-        class="btn btn-ghost btn-sm gap-1"
-      >
-        <.icon name="hero-arrow-uturn-left" class="w-4 h-4" />
-        {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Up")}
-      </button>
-      <span :if={@current} class="flex items-center gap-1.5 text-sm font-medium min-w-0">
-        <.icon name="hero-folder-open" class="w-4 h-4 text-warning shrink-0" />
-        <span class="truncate">{@current.name}</span>
-      </span>
-    </div>
-
+    <%!-- The location row (Up + folder name) is rendered by the parent —
+         shared with the tree table and the flat search table. --%>
     <div :if={@entries == []} class="card bg-base-100 shadow">
       <div class="card-body items-center text-center py-12">
         <p class="text-base-content/60">
@@ -1263,24 +1243,8 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       assign(assigns, :photo_col?, any_media_thumb?(catalogue_rows, assigns.file_counts))
 
     ~H"""
-    <%!-- Location row: Up + current folder name, only when drilled in.
-         Without a sidebar this is the way back out of a folder. --%>
-    <div :if={@current} class="flex items-center gap-2">
-      <button
-        type="button"
-        phx-click="navigate_folder"
-        phx-value-uuid={@current.parent_uuid || ""}
-        class="btn btn-ghost btn-sm gap-1"
-      >
-        <.icon name="hero-arrow-uturn-left" class="w-4 h-4" />
-        {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Up")}
-      </button>
-      <span class="flex items-center gap-1.5 text-sm font-medium min-w-0">
-        <.icon name="hero-folder-open" class="w-4 h-4 text-warning shrink-0" />
-        <span class="truncate">{@current.name}</span>
-      </span>
-    </div>
-
+    <%!-- The location row (Up + folder name) is rendered by the parent —
+         shared with the card level and the flat search table. --%>
     <div :if={@rows == []} class="card bg-base-100 shadow">
       <div class="card-body items-center text-center py-12">
         <p class="text-base-content/60">
@@ -2485,12 +2449,12 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
 
   # Catalogue rows first pass the attribute filter — "the catalogues with
   # blue doors in them" — then the usual search/sort/filters.
-  defp derive_rows(rows, scope, cfg, allowed \\ :all)
+  defp derive_rows(rows, scope, cfg, allowed \\ :all, folder_lookup \\ %{})
 
-  defp derive_rows(rows, scope, cfg, allowed) do
+  defp derive_rows(rows, scope, cfg, allowed, folder_lookup) do
     rows
     |> keep_allowed_catalogues(scope, allowed)
-    |> then(&do_derive_rows(&1, scope, cfg))
+    |> then(&do_derive_rows(&1, scope, cfg, folder_lookup))
   end
 
   defp keep_allowed_catalogues(rows, _scope, :all), do: rows
@@ -2500,14 +2464,46 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
 
   defp keep_allowed_catalogues(rows, _scope, _allowed), do: rows
 
-  defp do_derive_rows(rows, scope, cfg) do
+  defp do_derive_rows(rows, scope, cfg, folder_lookup) do
     TableQuery.apply(rows, scope, %{
       search: cfg[:search] || "",
-      filters: cfg.filters,
+      filters: search_scoped_filters(cfg, folder_lookup),
       sort_by: cfg.sort_by,
       sort_dir: cfg.sort_dir
     })
   end
+
+  # While a search is on, the drilled folder means its whole SUBTREE —
+  # you can see a catalogue two levels down in the tree, so searching its
+  # name must find it. Same rule as the detail page's categories: list
+  # the level, search the subtree. Without a search (or drilled into the
+  # unfiled sentinel / a folder missing from the lookup) the filter stays
+  # the plain uuid and keeps its exact, level-only meaning.
+  defp search_scoped_filters(cfg, folder_lookup) do
+    folder = cfg.filters["folder"]
+
+    if String.trim(cfg[:search] || "") != "" and is_map_key(folder_lookup, folder) do
+      Map.put(cfg.filters, "folder", folder_subtree_set(folder_lookup, folder))
+    else
+      cfg.filters
+    end
+  end
+
+  # `root` + every descendant folder uuid, walked from the already-loaded
+  # lookup (uuid => folder) — no query; runs per render like the rest of
+  # the derive pipeline.
+  defp folder_subtree_set(folder_lookup, root) do
+    folder_lookup
+    |> Map.values()
+    |> Enum.group_by(& &1.parent_uuid, & &1.uuid)
+    |> collect_subtree([root], [])
+    |> MapSet.new()
+  end
+
+  defp collect_subtree(_children, [], acc), do: acc
+
+  defp collect_subtree(children, [uuid | rest], acc),
+    do: collect_subtree(children, Map.get(children, uuid, []) ++ rest, [uuid | acc])
 
   defp catalogue_reorder_strategies do
     [
@@ -2599,23 +2595,6 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     |> MapSet.new(& &1.id)
   end
 
-  # "All folders" / "Unfiled (root)" / each folder, per the design doc — the
-  # unfiled sentinel isn't derivable from TableQuery.enum_options/3 alone
-  # since it needs a localized label, so it's prepended here.
-  defp folder_filter_options(rows) do
-    base = TableQuery.enum_options(rows, :catalogues, "folder")
-
-    if Enum.any?(rows, &is_nil(&1[:folder_uuid])) do
-      [
-        {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Unfiled (root)"),
-         TableQuery.unfiled_folder_value()}
-        | base
-      ]
-    else
-      base
-    end
-  end
-
   defp known_sortable_ids(scope) do
     scope
     |> TableConfig.columns()
@@ -2654,13 +2633,9 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
               <.view_toggle view={cfg.view} />
             </:view_toggle>
             <:filters>
-              <.enum_filter
-                id="folder"
-                label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Folder")}
-                value={cfg.filters["folder"]}
-                prompt={Gettext.gettext(PhoenixKitCatalogue.Gettext, "All folders")}
-                options={folder_filter_options(@catalogue_rows)}
-              />
+              <%!-- No folder select here: search works where the user
+                    stands — the drilled folder's subtree — and scope is
+                    chosen by navigating folders (Max, 2026-08-29). --%>
               <.enum_filter
                 id="status"
                 label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Status")}
@@ -2762,6 +2737,27 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
                 @deleted_folder_count})
             </button>
           </div>
+          <%!-- Location row: Up + current folder name, whenever drilled
+               in — including the flat search/sorted table, where it is
+               the only sign of WHERE the search is looking now that the
+               folder select is gone. Without a sidebar it is also the
+               way back out of a folder. --%>
+          <% location = current_tree_folder(cfg, @folder_lookup) %>
+          <div :if={location} class="flex items-center gap-2">
+            <button
+              type="button"
+              phx-click="navigate_folder"
+              phx-value-uuid={location.parent_uuid || ""}
+              class="btn btn-ghost btn-sm gap-1"
+            >
+              <.icon name="hero-arrow-uturn-left" class="w-4 h-4" />
+              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Up")}
+            </button>
+            <span class="flex items-center gap-1.5 text-sm font-medium min-w-0">
+              <.icon name="hero-folder-open" class="w-4 h-4 text-warning shrink-0" />
+              <span class="truncate">{location.name}</span>
+            </span>
+          </div>
           <.catalogues_tree_table
             :if={tree?}
             file_counts={@catalogue_file_counts}
@@ -2792,7 +2788,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
             cfg={cfg}
             show_view_toggle={false}
             file_counts={@catalogue_file_counts}
-            rows={derive_rows(visible_catalogue_rows(assigns), :catalogues, cfg)}
+            rows={derive_rows(visible_catalogue_rows(assigns), :catalogues, cfg, :all, @folder_lookup)}
             total={length(visible_catalogue_rows(assigns))}
             empty={Gettext.gettext(PhoenixKitCatalogue.Gettext, "No catalogues yet.")}
             draggable={manual_order_draggable?(@catalogue_view_mode, cfg)}
