@@ -869,14 +869,21 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
       catalogue = fixture_catalogue()
       category = fixture_category(catalogue, %{name: "Only chapter"})
       fixture_item(%{name: "Only item", category_uuid: category.uuid})
+      fixture_item(%{name: "Loose thing", catalogue_uuid: catalogue.uuid})
 
       {:ok, view, _html} = live(conn, url(catalogue.uuid))
 
       render_click(view, "set_search_mode", %{"mode" => "items"})
       assert assert_patch(view) =~ "mode=items"
+      # The CLICK path must reload the level, not just flip the assign —
+      # UrlState auto-assigns params before the callback, so a naive
+      # changed? check reads "unchanged" and skips the reload (bug found
+      # live, 2026-08-29). The loose root item proves the load ran.
+      html = render_async(view)
+      assert html =~ "Loose thing"
       # Root items mode lists the root's own items — the categorized one
       # stays at its level.
-      refute render_async(view) =~ "Only item"
+      refute html =~ "Only item"
 
       render_click(view, "set_search_mode", %{"mode" => "categories"})
       path = assert_patch(view)
