@@ -1,3 +1,92 @@
+## 0.22.0 - 2026-08-29
+
+### Added
+
+- **Search where the user stands, on both levels** (#86) — the catalogues
+  index and the catalogue detail page gained a Catalogues/Categories ×
+  Items search axis. The drilled folder (index) or drilled category
+  (detail) *is* the scope, so the folder `<select>` is gone; searching a
+  drilled folder reaches its whole subtree, so a catalogue filed two
+  levels down is still findable by name. Categories mode became a
+  category browser with the folder tree brought over.
+- **The index's items mode is async** (#86) — count, page and facet-count
+  queries run off the LiveView process, so a debounced keystroke against
+  a million-item catalogue no longer blocks the socket. Replies are
+  stamped and superseded ones dropped; both in-flight tasks are cancelled
+  on a new question.
+- **Catalogue-wide item listing in document order** (#86) —
+  `Catalogue.list_catalogue_items_paged/2`,
+  `count_items_for_catalogue/2` and `item_status_counts_for_catalogue/1`.
+  The default sort is the document walk (category position, then item
+  position) — the same order the export uses.
+- **A `Description` column on the catalogues index** (#86), hidden by
+  default: search matches descriptions through the `data` JSONB, so this
+  is how a surprising match explains itself.
+- **"Include subcategory items" toggle** (#87) on a drilled category —
+  a *search* refinement. The browse list underneath always shows the
+  level you are standing on; the toggle widens what the search asks for.
+  Offered whenever the category has subcategories, so it can pre-arm the
+  next search.
+- **One Columns modal per page** (#87) — a drilled page shows its
+  subcategories and its items at once, and two side-by-side "Columns"
+  buttons read as a mistake. `TableToolbar.column_sections_modal/1`
+  renders one section per visible table.
+
+### Changed
+
+- **Card images are card-grade** (#87) — `card_media` gained `variant`
+  (defaulting to the 800px `medium` for card-width slots) and
+  `comfy_scale`, and the media band grew to `h-40`. A 150px thumbnail
+  stretched across a card was the blur being reported. Card pictures are
+  now clickable, going the same place the card's title does.
+- **Small row cells stopped downloading card-sized images** (#87) — the
+  32–48px thumbs in the item selector, the attribute-set items modal and
+  the browse row now use a new `Browse.featured_thumb_url/1` (150px
+  `thumbnail`) instead of the 800px `medium`.
+- **Attribute-set attachment reorder is transactional** (#85) — read,
+  compare and write now happen inside one transaction under a per-item
+  advisory lock. It was a check-then-act on a non-primary-key column:
+  two concurrent saves of the same item interleaved their per-row
+  updates, and a mid-loop failure left half the attachments renumbered
+  with nothing to roll back.
+- **An item save broadcasts once, not once per staged set** (#85) —
+  attach/detach/reorder/selection writes accept `broadcast: false`, with
+  one roll-up event at the end, gated so a name-only save doesn't hand
+  every open detail LiveView a second `:item` event.
+
+### Fixed
+
+- **Three N+1 queries and two broadcasts that reported the wrong thing**
+  (#85). Notably the attributes tab, which issued one values query per
+  listed set — 25 queries per page, repeated on every broadcast — now
+  batches through `AttributeSets.list_values_for/2`.
+- **Silent form-validation failures** on the item and category forms
+  (#85), and a reorder that could run unlocked.
+- **Upload filenames are basename-stripped** (#85) before reaching
+  storage. `client_name` is browser-supplied and only checked against
+  `:accept`.
+- **The release gate is green again** — `mix precommit` was exiting 2 on a
+  `credo --strict` alias violation left by #87
+  (`test/web/catalogue_detail_live_test.exs`). Because Mix aborts an alias
+  at the first failing task, dialyzer had not run on the tree since #87
+  merged; it does again.
+- Post-merge review of #85–#87: PR #87 settled mid-flight on the subtree
+  toggle refining the *search* only, never the browse list, but left the
+  superseded browse-path machinery behind —
+  `Catalogue.item_status_counts_for_categories/1` (no caller anywhere)
+  and an `:include_descendants` option on
+  `list_items_for_category_paged/2` / `item_count_for_category/2` that no
+  caller ever passed as `true`. Removed before it could ship as public
+  API, with a test pinning the level listing as direct-only. See
+  `dev_docs/pull_requests/2026/87-drilled-mixed-view-and-images/CLAUDE_REVIEW.md`.
+
+### Removed
+
+- `Catalogue.catalogue_uuids_with_attribute_values/1` (#86) — the
+  catalogues index's attribute filter now scopes through
+  `attribute_value_match_counts/1` with `catalogue_uuids:` instead. It
+  was public in 0.21.0; no callers remain in this repo.
+
 ## 0.21.0 - 2026-08-28
 
 ### Added

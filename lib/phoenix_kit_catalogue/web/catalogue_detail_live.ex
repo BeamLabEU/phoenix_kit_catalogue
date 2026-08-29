@@ -3165,11 +3165,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
   defp card_total(category_uuid, _catalogue_uuid, status, slugs)
        when is_binary(category_uuid) do
-    Catalogue.item_count_for_category(category_uuid,
-      status: status,
-      value_slugs: slugs,
-      include_descendants: false
-    )
+    Catalogue.item_count_for_category(category_uuid, status: status, value_slugs: slugs)
   end
 
   defp fetch_card_items(:catalogue, catalogue_uuid, status, limit, offset, sort_opts) do
@@ -3186,12 +3182,15 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     )
   end
 
+  # The level's OWN items. The "include subcategory items" toggle refines
+  # the SEARCH only (Max, 2026-08-30) — the browse list underneath always
+  # shows the category you are standing in, so there is no subtree
+  # variant to pick between here.
   defp fetch_card_items(category_uuid, _catalogue_uuid, status, limit, offset, sort_opts)
        when is_binary(category_uuid) do
     Catalogue.list_items_for_category_paged(
       category_uuid,
-      [status: status, offset: offset, limit: limit, include_descendants: false] ++
-        sort_opts
+      [status: status, offset: offset, limit: limit] ++ sort_opts
     )
   end
 
