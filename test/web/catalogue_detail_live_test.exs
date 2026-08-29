@@ -978,8 +978,14 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
 
       # The event is refused — a strategy reorder would renumber only
       # the direct scope of an interleaved list (panel finding).
-      render_click(view, "open_items_reorder_modal", %{})
+      html = render_click(view, "open_items_reorder_modal", %{})
       refute :sys.get_state(view.pid).socket.assigns.show_items_reorder
+
+      # And the toolbar button is hidden. The substring match is
+      # load-bearing: Tailwind reads a bare `_` in an arbitrary value
+      # as a space, and escaping cannot work because Tailwind scans
+      # the raw source while HEEx renders the parsed string.
+      assert html =~ "[data-bulk-action*=reorder]]:!hidden"
     end
 
     test "a stale ?items=subtree does not leak into root or the bucket", %{conn: conn} do
