@@ -9,6 +9,8 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeFilterTest do
 
   alias PhoenixKitCatalogue.Catalogue
   alias PhoenixKitCatalogue.Catalogue.AttributeSets
+  alias PhoenixKitCatalogue.Schemas.ItemAttributeSet
+  alias PhoenixKitCatalogue.Test.Repo, as: TestRepo
   alias PhoenixKitCatalogue.Web.Components
 
   if Code.ensure_loaded?(PhoenixKitEntities.Managed) do
@@ -335,6 +337,47 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeFilterTest do
 
       colour = Enum.find(options, &(&1.name == "Colour"))
       assert Enum.sort(Enum.map(colour.values, & &1.title)) == ["Blue", "Red"]
+    end
+
+    test "a categories-type search hides the item-level filter", ctx do
+      # The filter narrows items; a categories-only result list cannot
+      # show its effect, so offering it there is a control that lies.
+      # "door" (singular) matters: it matches the items AND the "Doors"
+      # category — "doors" matches no item, and the filter would hide in
+      # All mode too, for the ordinary every-value-is-dead reason.
+      {:ok, view, _html} =
+        live(ctx.conn, "/en/admin/catalogue/#{ctx.catalogue.uuid}?q=door&type=categories")
+
+      refute render_async(view) =~ ~s(id="attribute-filter")
+
+      {:ok, view, _html} = live(ctx.conn, "/en/admin/catalogue/#{ctx.catalogue.uuid}?q=door")
+      assert render_async(view) =~ ~s(id="attribute-filter")
+    end
+
+    test "an attribute-set broadcast reloads an open items-mode index", ctx do
+      {:ok, view, _html} = live(ctx.conn, "/en/admin/catalogue?mode=items")
+      render_click(view, "toggle_attribute_filter", %{"slug" => ctx.blue.slug})
+      assert render(view) =~ "Blue oak door"
+
+      # Prune the selection straight in the DB — a context write would
+      # ALSO broadcast :item and mask what this test pins — then deliver
+      # only the :attribute_set message a set-level write sends. The open
+      # list must move on that kind alone, or a value archived elsewhere
+      # leaves an items search offering rows the filter no longer
+      # matches.
+      import Ecto.Query
+
+      {1, _} =
+        TestRepo.update_all(
+          from(a in ItemAttributeSet,
+            where: a.item_uuid == ^ctx.items.blue_oak.uuid and a.set_uuid == ^ctx.colour.uuid
+          ),
+          set: [data: %{"selected_value_slugs" => []}]
+        )
+
+      send(view.pid, {:catalogue_data_changed, :attribute_set, ctx.colour.uuid, nil})
+
+      refute render(view) =~ "Blue oak door"
     end
 
     test "a repeated slug in the URL still toggles off in one click", ctx do

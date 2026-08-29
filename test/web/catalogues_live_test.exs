@@ -782,6 +782,23 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
       assert html =~ "q=oak"
     end
 
+    test "the unfiled sentinel scopes items mode to unfiled catalogues", %{conn: conn} do
+      {:ok, folder} = Catalogue.create_folder(%{name: "Filed away"})
+      filed = fixture_catalogue(%{name: "Filed"})
+      {:ok, _} = Catalogue.move_catalogue_to_folder(filed, folder.uuid)
+      unfiled = fixture_catalogue(%{name: "Unfiled"})
+      fixture_item(%{name: "Filed widget", catalogue_uuid: filed.uuid})
+      fixture_item(%{name: "Unfiled widget", catalogue_uuid: unfiled.uuid})
+
+      # The sentinel is legacy-URL-only, but it must still MEAN unfiled:
+      # drop_stale_folder_filter used to clear it as "not a real folder",
+      # silently widening the search to everywhere.
+      {:ok, _view, html} = live(conn, "#{@base}?mode=items&folder=__unfiled__")
+
+      assert html =~ "Unfiled widget"
+      refute html =~ "Filed widget"
+    end
+
     test "load_more_items appends the next page", %{conn: conn} do
       cat = fixture_catalogue(%{name: "Big"})
 
