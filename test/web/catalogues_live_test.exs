@@ -795,7 +795,8 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
       fixture_item(%{name: "Oak door", catalogue_uuid: cat_a.uuid, category_uuid: doors.uuid})
       fixture_item(%{name: "Pine shelf", catalogue_uuid: cat_b.uuid})
 
-      {:ok, _view, html} = live(conn, "#{@base}?mode=items")
+      {:ok, view, _html} = live(conn, "#{@base}?mode=items")
+      html = render_async(view)
 
       assert html =~ "Oak door"
       assert html =~ "Pine shelf"
@@ -824,7 +825,8 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
       fixture_item(%{name: "Findable widget", catalogue_uuid: cat.uuid})
       fixture_item(%{name: "Other thing", catalogue_uuid: cat.uuid})
 
-      {:ok, _view, html} = live(conn, "#{@base}?mode=items&q=findable")
+      {:ok, view, _html} = live(conn, "#{@base}?mode=items&q=findable")
+      html = render_async(view)
 
       assert html =~ "Findable widget"
       refute html =~ "Other thing"
@@ -839,7 +841,8 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
       fixture_item(%{name: "Inner widget", catalogue_uuid: inside.uuid})
       fixture_item(%{name: "Outer widget", catalogue_uuid: outside.uuid})
 
-      {:ok, _view, html} = live(conn, "#{@base}?mode=items&folder=#{parent.uuid}")
+      {:ok, view, _html} = live(conn, "#{@base}?mode=items&folder=#{parent.uuid}")
+      html = render_async(view)
 
       assert html =~ "Inner widget"
       refute html =~ "Outer widget"
@@ -855,7 +858,8 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
         category_uuid: category.uuid
       })
 
-      {:ok, _view, html} = live(conn, "#{@base}?mode=items&q=oak")
+      {:ok, view, _html} = live(conn, "#{@base}?mode=items&q=oak")
+      html = render_async(view)
 
       # Landing drilled into the category with the query applied puts the
       # item in sight on arrival instead of buried in its level.
@@ -874,7 +878,8 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
       # The sentinel is legacy-URL-only, but it must still MEAN unfiled:
       # drop_stale_folder_filter used to clear it as "not a real folder",
       # silently widening the search to everywhere.
-      {:ok, _view, html} = live(conn, "#{@base}?mode=items&folder=__unfiled__")
+      {:ok, view, _html} = live(conn, "#{@base}?mode=items&folder=__unfiled__")
+      html = render_async(view)
 
       assert html =~ "Unfiled widget"
       refute html =~ "Filed widget"
@@ -890,14 +895,23 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
         })
       end
 
-      {:ok, view, html} = live(conn, "#{@base}?mode=items")
+      {:ok, view, _html} = live(conn, "#{@base}?mode=items")
+      html = render_async(view)
 
       # Name-ordered, one page of 50: 01 is on it, 55 is not yet.
       assert html =~ "Widget 01"
       refute html =~ "Widget 55"
 
-      html = render_click(view, "load_more_items", %{})
+      render_click(view, "load_more_items", %{})
+      html = render_async(view)
       assert html =~ "Widget 55"
+
+      # Million-items paranoia (Max, 2026-08-29): the pages must tile —
+      # 55 rows loaded, none twice. Ordering carries a uuid tiebreak, so
+      # OFFSET cannot shuffle equal keys across page boundaries.
+      results = :sys.get_state(view.pid).socket.assigns.item_results
+      assert length(results) == 55
+      assert results |> Enum.map(& &1.uuid) |> Enum.uniq() |> length() == 55
     end
   end
 

@@ -796,6 +796,35 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
       assert render(view) =~ "Only chapter"
     end
 
+    test "items mode pages by @per_page and the pages tile without duplicates", %{conn: conn} do
+      # The detail page's batch is 100 — the fixture must cross that
+      # boundary or this test proves nothing about paging.
+      catalogue = fixture_catalogue()
+
+      for n <- 1..105 do
+        fixture_item(%{
+          name: "Widget #{String.pad_leading("#{n}", 3, "0")}",
+          catalogue_uuid: catalogue.uuid
+        })
+      end
+
+      {:ok, view, _html} = live(conn, url(catalogue.uuid) <> "?mode=items")
+      html = render_async(view)
+      assert html =~ "Widget 001"
+      refute html =~ "Widget 105"
+
+      render_hook(view, "load_more", %{})
+      html = render_async(view)
+      assert html =~ "Widget 105"
+
+      # Million-items paranoia (Max, 2026-08-29): pages must tile — the
+      # search ordering ends in a uuid tiebreak, so OFFSET cannot
+      # shuffle equal keys across page boundaries.
+      results = :sys.get_state(view.pid).socket.assigns.search_results
+      assert length(results) == 105
+      assert results |> Enum.map(& &1.uuid) |> Enum.uniq() |> length() == 105
+    end
+
     test "items mode on an empty catalogue says so without inventing a search", %{conn: conn} do
       catalogue = fixture_catalogue()
 
