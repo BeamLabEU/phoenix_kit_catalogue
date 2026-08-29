@@ -711,8 +711,25 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   # what the page lists is a step Back should undo.
   # Switching to Categories also clears the drilled category: the
   # outline browser lives at the root only — a category's own page is
-  # its ITEM list (Max, 2026-08-29).
+  # its ITEM list (Max, 2026-08-29). Coming FROM a category's page, the
+  # outline opens expanded down to it — a collapsed root made the
+  # category you just left look like it vanished (Max's Frames report).
   def handle_event("set_search_mode", %{"mode" => "categories"}, socket) do
+    socket =
+      case socket.assigns.current_category do
+        %Category{uuid: uuid} ->
+          chain = uuid |> Catalogue.list_category_ancestors() |> Enum.map(& &1.uuid)
+
+          update(
+            socket,
+            :expanded_categories,
+            &MapSet.union(&1, MapSet.new([uuid | chain]))
+          )
+
+        _ ->
+          socket
+      end
+
     {:noreply, push_url_state(socket, search_mode: "", current_category_uuid: nil)}
   end
 

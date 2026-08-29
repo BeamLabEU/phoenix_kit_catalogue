@@ -947,10 +947,11 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
       path = assert_patch(view)
 
       # Both the mode AND the drilled category clear — the outline
-      # browser lives only at the root.
+      # browser lives only at the root — and the tree opens expanded
+      # down to the category just left, so it doesn't look vanished.
       refute path =~ "mode="
       refute path =~ "category="
-      assert render(view) =~ "Deep chapter"
+      assert view |> element("#catalogue-categories-tree") |> render() =~ "Deep chapter"
     end
 
     test "the mode switcher patches ?mode= and leaving restores the outline", %{conn: conn} do
