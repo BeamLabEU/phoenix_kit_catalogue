@@ -380,6 +380,23 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeFilterTest do
       refute render(view) =~ "Blue oak door"
     end
 
+    test "items mode keeps the filter visible when a search kills every value", ctx do
+      # The dead-values rule used to hide the whole button; in items mode
+      # the filter is a primary control — greyed values, not a vanished
+      # button (Max, 2026-08-29).
+      other = fixture_catalogue(%{name: "No Attributes Here"})
+      fixture_item(%{name: "Plain thing", catalogue_uuid: other.uuid})
+
+      {:ok, _view, html} = live(ctx.conn, "/en/admin/catalogue?mode=items&q=plain")
+      assert html =~ ~s(id="attribute-filter")
+
+      # Same on the detail page's items mode, searched into nothing.
+      {:ok, view, _html} =
+        live(ctx.conn, "/en/admin/catalogue/#{ctx.catalogue.uuid}?mode=items&q=zzznothing")
+
+      assert render_async(view) =~ ~s(id="attribute-filter")
+    end
+
     test "a repeated slug in the URL still toggles off in one click", ctx do
       assert ctx.catalogue
 

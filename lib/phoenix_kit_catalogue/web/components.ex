@@ -430,6 +430,14 @@ defmodule PhoenixKitCatalogue.Web.Components do
   attr(:class, :string, default: nil)
   attr(:id, :string, default: "attribute-filter")
 
+  attr(:always_visible, :boolean,
+    default: false,
+    doc:
+      "Skip the every-value-is-dead hiding. In items mode the filter is a " <>
+        "primary control (Max, 2026-08-29): a search that currently kills " <>
+        "every value should show them greyed out, not vanish the button."
+  )
+
   attr(:counts, :map,
     default: %{},
     doc:
@@ -550,6 +558,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
 
   defp selected_count(set, selected), do: Enum.count(set.values, &(&1.slug in selected))
 
+  defp usable_filter?(%{always_visible: true}), do: true
   defp usable_filter?(%{selected: selected}) when selected != [], do: true
 
   defp usable_filter?(%{options: options, counts: counts, selected: selected}) do
