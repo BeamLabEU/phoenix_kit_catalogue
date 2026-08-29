@@ -2899,6 +2899,9 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
             allow_flat_reorder={@folder_tree == []}
             show_table_tools={not items?}
           >
+            <:view_toggle>
+              <.view_toggle view={cfg.view} />
+            </:view_toggle>
             <:mode :if={@catalogue_view_mode == "active"}>
               <%!-- What the search looks FOR (Max, 2026-08-29): this
                     page's own rows, or the items inside them. Both obey
