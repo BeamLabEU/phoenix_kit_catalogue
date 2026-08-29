@@ -1780,18 +1780,57 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
 
   # actor_opts/1 imported from PhoenixKitCatalogue.Web.Helpers
 
+  # `put/3`, not `put_new/3`: the catalogue is the SERVER's scope, taken from
+  # the URL, and a client-supplied `catalogue_uuid` in the form payload must
+  # not win it. `:catalogue_uuid` is in the cast allowlist, so with `put_new`
+  # a forged submit filed the record under a different catalogue than the one
+  # being edited.
+  #
+  # On BOTH paths. The first version of this pinned only `:new`, and edit is
+  # where it matters more: `derive_catalogue_uuid/2` overrides the field from
+  # the item's category, but `put_catalogue_from_effective_category(attrs,
+  # nil)` returns attrs untouched — so for an item with no category (every
+  # smart item, and any uncategorized standard one) nothing overrode a forged
+  # value, and the move was recorded as a plain `item.updated` rather than
+  # going through `move_item_to_catalogue/3`.
+  defp scope_to_catalogue(params, socket) do
+    case socket.assigns[:catalogue_uuid] do
+      nil -> params
+      catalogue_uuid -> Map.put(params, "catalogue_uuid", catalogue_uuid)
+    end
+  end
+
+  # The pin above is not sufficient on its own: `category_uuid` reaches the
+  # same field by a longer route. `derive_catalogue_uuid/2` looks the
+  # submitted category up and copies ITS catalogue over whatever the server
+  # just set — deliberately, because a category move should carry its items.
+  # So a forged `category_uuid` naming a category in another catalogue beats
+  # the scope. A category outside this form's catalogue is not a category
+  # this form can offer, so it is refused rather than silently dropped.
+  defp validate_category_scope(params, socket) do
+    scope = socket.assigns[:catalogue_uuid]
+    category_uuid = params["category_uuid"] |> to_string() |> String.trim()
+
+    cond do
+      scope == nil or category_uuid == "" ->
+        :ok
+
+      match?(%{catalogue_uuid: ^scope}, Catalogue.get_category(category_uuid)) ->
+        :ok
+
+      true ->
+        {:error, :category_outside_catalogue}
+    end
+  end
+
   defp save_item(socket, :new, params, mode) do
     params =
       params
-      # `put/3`, not `put_new/3`: the catalogue is the SERVER's scope, taken
-      # from the URL, and a client-supplied `catalogue_uuid` in the form
-      # payload must not win it. `:catalogue_uuid` is in the cast allowlist,
-      # so with `put_new` a forged submit could file the record under a
-      # different catalogue than the one being edited.
-      |> Map.put("catalogue_uuid", socket.assigns.catalogue_uuid)
+      |> scope_to_catalogue(socket)
       |> put_manufacturer_source(socket.assigns.manufacturers)
 
-    with {:ok, item} <- Catalogue.create_item(params, actor_opts(socket)),
+    with :ok <- validate_category_scope(params, socket),
+         {:ok, item} <- Catalogue.create_item(params, actor_opts(socket)),
          {:ok, _rules} <- maybe_put_rules(socket, item),
          :ok <- Attachments.maybe_rename_pending_folder(socket, item) do
       apply_attribute_assignment(socket, item)
@@ -1823,6 +1862,17 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
              "Each catalogue can only appear once in the rules list."
            )
          )}
+
+      {:error, :category_outside_catalogue} ->
+        {:noreply,
+         put_flash(
+           socket,
+           :error,
+           Gettext.gettext(
+             PhoenixKitCatalogue.Gettext,
+             "That category belongs to another catalogue."
+           )
+         )}
     end
   end
 
@@ -1837,9 +1887,13 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
         params
       end
 
-    params = put_manufacturer_source(params, socket.assigns.manufacturers)
+    params =
+      params
+      |> scope_to_catalogue(socket)
+      |> put_manufacturer_source(socket.assigns.manufacturers)
 
-    with {:ok, item} <- Catalogue.update_item(socket.assigns.item, params, actor_opts(socket)),
+    with :ok <- validate_category_scope(params, socket),
+         {:ok, item} <- Catalogue.update_item(socket.assigns.item, params, actor_opts(socket)),
          {:ok, _rules} <- maybe_put_rules(socket, item) do
       apply_attribute_assignment(socket, item)
 
@@ -1862,6 +1916,17 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
            Gettext.gettext(
              PhoenixKitCatalogue.Gettext,
              "Each catalogue can only appear once in the rules list."
+           )
+         )}
+
+      {:error, :category_outside_catalogue} ->
+        {:noreply,
+         put_flash(
+           socket,
+           :error,
+           Gettext.gettext(
+             PhoenixKitCatalogue.Gettext,
+             "That category belongs to another catalogue."
            )
          )}
     end
@@ -2256,7 +2321,8 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   defp apply_attribute_sets(socket, item) do
     if socket.assigns[:sets_enabled] do
       staged = socket.assigns.staged_set_uuids
-      current = Enum.map(Catalogue.list_attribute_set_attachments(item.uuid), & &1.set_uuid)
+      attachments = Catalogue.list_attribute_set_attachments(item.uuid)
+      current = Enum.map(attachments, & &1.set_uuid)
 
       # One roll-up broadcast at the end instead of one per change. A save
       # can detach, attach, reorder and write a selection per set — each of
@@ -2285,10 +2351,38 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
         Catalogue.set_attribute_set_selection(item.uuid, set_uuid, slugs, opts)
       end)
 
-      PubSub.broadcast(:item, item.uuid, item.catalogue_uuid)
+      # Only when something actually moved. Each individual write already
+      # declined to broadcast when it changed nothing; rolling them up into
+      # one unconditional broadcast handed every open detail LiveView a
+      # second `:item` event on a name-only save — on top of the one
+      # `update_item/3` had just sent — and made it re-run `refresh_in_place/1`
+      # twice. That is the load this roll-up exists to remove.
+      if sets_changed?(current, staged, attachments, socket) do
+        PubSub.broadcast(:item, item.uuid, item.catalogue_uuid)
+      end
     end
 
     :ok
+  end
+
+  # Attachment membership AND order (`current` comes back in position order,
+  # so an unequal list covers attach, detach and reorder alike), plus the
+  # per-set value selections, which change without the attachment list moving.
+  defp sets_changed?(current, staged, attachments, socket) do
+    current != staged or selections_changed?(staged, attachments, socket)
+  end
+
+  defp selections_changed?(staged, attachments, socket) do
+    stored =
+      Map.new(attachments, fn attachment ->
+        slugs = (attachment.data || %{})["selected_value_slugs"]
+        {attachment.set_uuid, MapSet.new(List.wrap(slugs))}
+      end)
+
+    Enum.any?(staged, fn set_uuid ->
+      staged_slugs = Map.get(socket.assigns.staged_selections, set_uuid, MapSet.new())
+      staged_slugs != Map.get(stored, set_uuid, MapSet.new())
+    end)
   end
 
   defp attach_staged_set(item_uuid, set_uuid, opts) do

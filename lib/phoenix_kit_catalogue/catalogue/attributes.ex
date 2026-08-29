@@ -365,7 +365,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Attributes do
     ordered = sanitize_reorder(uuids, known)
 
     result =
-      repo().transaction(fn ->
+      run_reorder(fn ->
         ordered
         |> Enum.with_index()
         |> Enum.each(fn {uuid, idx} ->
@@ -376,12 +376,18 @@ defmodule PhoenixKitCatalogue.Catalogue.Attributes do
         end)
       end)
 
-    # Broadcast and report success only if the transaction COMMITTED. The
-    # result used to be discarded, so a rolled-back reorder still told every
-    # open editor to re-read (data that had not changed) and still answered
-    # `:ok` — and the LiveView call sites match on `:ok =`, so the failure
-    # surfaced as a MatchError somewhere else entirely, if at all.
-    # `Rules.reorder_referenced_catalogues/2` is the shape to follow.
+    # Broadcast and report success only if the transaction COMMITTED, and
+    # make "did not commit" an outcome this function can actually return.
+    #
+    # The result used to be discarded and `:ok` returned unconditionally. I
+    # first changed only this `case`, which was not the fix I described:
+    # nothing in the transaction calls `rollback/1`, so a database failure
+    # RAISES straight out of `Repo.transaction/1` and an `{:error, _}` clause
+    # underneath it is unreachable — the page still crashed, and the spec
+    # still advertised an error nothing produced. `run_reorder/1` turns the
+    # DB families this can genuinely hit into that error, and leaves
+    # programmer errors (KeyError, FunctionClauseError from a future
+    # refactor) to crash as they should.
     case result do
       {:ok, _} ->
         PubSub.broadcast(:attribute_group, group.uuid)
@@ -569,7 +575,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Attributes do
     ordered = sanitize_reorder(uuids, known)
 
     result =
-      repo().transaction(fn ->
+      run_reorder(fn ->
         ordered
         |> Enum.with_index()
         |> Enum.each(fn {uuid, idx} ->
@@ -588,6 +594,22 @@ defmodule PhoenixKitCatalogue.Catalogue.Attributes do
       {:error, reason} ->
         {:error, reason}
     end
+  end
+
+  # `Repo.transaction/1`, with the database failures a reorder can actually
+  # hit turned into `{:error, reason}` instead of an exception that unwinds
+  # past both the broadcast and the caller.
+  #
+  # Deliberately narrow. A deadlock, a lost connection or a constraint
+  # violation is a runtime condition the caller can report; a KeyError or a
+  # FunctionClauseError is a bug, and swallowing those into a flash would
+  # hide it. Same reasoning, and the same family list, as the import path's
+  # rescue.
+  defp run_reorder(fun) do
+    repo().transaction(fun)
+  rescue
+    e in [DBConnection.ConnectionError, Ecto.QueryError, Postgrex.Error] ->
+      {:error, e}
   end
 
   # Dedupe + intersect the forgeable client list with the real child set;

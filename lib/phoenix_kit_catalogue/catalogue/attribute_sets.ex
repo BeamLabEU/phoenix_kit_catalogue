@@ -375,6 +375,23 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
   def list_values_for([], _opts), do: %{}
 
   def list_values_for(set_uuids, opts) when is_list(set_uuids) do
+    # Gated like its singular twin. This was private when it had one caller
+    # that had already asked; making it public — and delegating to it from
+    # `Catalogue.list_attribute_set_values_for/2` — put a read on the public
+    # surface that answers with live data while every sibling read degrades
+    # to empty with the feature off. The module's contract (see the moduledoc)
+    # is that reads degrade quietly: `[]`, `nil`, `%{}`, `0`.
+    #
+    # It also guards the fallback below: without entities loaded at all,
+    # `batch.list_by_entity/2` is a call into a module that is not there.
+    if entities_enabled?() do
+      do_list_values_for(set_uuids, opts)
+    else
+      %{}
+    end
+  end
+
+  defp do_list_values_for(set_uuids, opts) do
     batch = PhoenixKitEntities.EntityData
     limit = opts[:limit]
 
