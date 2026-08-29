@@ -57,7 +57,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   import PhoenixKitWeb.Components.Core.BulkActionsBar, only: [bulk_actions_bar: 1]
 
   import PhoenixKitWeb.Components.Core.Sortable, only: [sortable_tbody: 1, sortable_row: 1]
-  import PhoenixKitCatalogue.Web.TableToolbar, only: [column_settings_modal: 1]
+  import PhoenixKitCatalogue.Web.TableToolbar, only: [column_sections_modal: 1]
   import PhoenixKitWeb.Components.Core.TableRowMenu
   import PhoenixKitWeb.Components.Core.ReorderModal, only: [reorder_modal: 1]
   import PhoenixKitWeb.Components.Core.SortSelector, only: [sort_selector: 1]
@@ -211,7 +211,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
           ViewConfig.load(socket.assigns[:phoenix_kit_current_user], :detail_items).columns,
         categories_columns:
           ViewConfig.load(socket.assigns[:phoenix_kit_current_user], :detail_categories).columns,
-        column_modal_scope: nil,
+        show_columns_modal: false,
         show_items_reorder: false,
         show_categories_reorder: false,
         reorder_captured_uuids: [],
@@ -1557,40 +1557,46 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
   # Sortable column header click — toggles direction on the active field,
   # otherwise switches field (ascending).
-  # ── Columns configuration (per-user, ViewConfig) — one LIVE modal
-  # serving both detail scopes; `column_modal_scope` says which table it
-  # edits, and every change applies + persists immediately (footer is
-  # Reset + Close). ──
+  # ── Columns configuration (per-user, ViewConfig) — ONE modal for the
+  # whole page, a section per visible table (a drilled page shows
+  # subcategories and items at once, and two side-by-side "Columns"
+  # buttons read as a mistake). Events carry the section's scope, and
+  # every change applies + persists immediately (footer is Reset +
+  # Close, Reset covers every section shown). ──
 
-  def handle_event("show_column_modal", %{"scope" => scope_str}, socket)
-      when scope_str in ~w(detail_items detail_categories) do
-    {:noreply, assign(socket, :column_modal_scope, String.to_existing_atom(scope_str))}
-  end
+  def handle_event("show_column_modal", _p, socket),
+    do: {:noreply, assign(socket, :show_columns_modal, true)}
 
   def handle_event("hide_column_modal", _p, socket),
-    do: {:noreply, assign(socket, :column_modal_scope, nil)}
+    do: {:noreply, assign(socket, :show_columns_modal, false)}
 
-  def handle_event("add_column", %{"column_id" => id}, socket) do
-    {:noreply, live_update_detail_columns(socket, &(&1 ++ [id]))}
+  def handle_event("add_column", %{"column_id" => id, "scope" => scope_str}, socket)
+      when scope_str in ~w(detail_items detail_categories) do
+    scope = String.to_existing_atom(scope_str)
+    {:noreply, live_update_detail_columns(socket, scope, &(&1 ++ [id]))}
   end
 
-  def handle_event("remove_column", %{"column_id" => id}, socket) do
-    {:noreply, live_update_detail_columns(socket, &Enum.reject(&1, fn c -> c == id end))}
+  def handle_event("remove_column", %{"column_id" => id, "scope" => scope_str}, socket)
+      when scope_str in ~w(detail_items detail_categories) do
+    scope = String.to_existing_atom(scope_str)
+    {:noreply, live_update_detail_columns(socket, scope, &Enum.reject(&1, fn c -> c == id end))}
   end
 
-  def handle_event("reorder_columns", %{"ordered_ids" => ids}, socket) when is_list(ids) do
-    {:noreply, live_update_detail_columns(socket, fn _ -> ids end)}
+  # Per-section reorder events: the SortableGrid payload is only
+  # `%{ordered_ids}`, so the section rides in the event name.
+  def handle_event("reorder_columns_" <> scope_str, %{"ordered_ids" => ids}, socket)
+      when scope_str in ~w(detail_items detail_categories) and is_list(ids) do
+    scope = String.to_existing_atom(scope_str)
+    {:noreply, live_update_detail_columns(socket, scope, fn _ -> ids end)}
   end
 
   def handle_event("reset_columns", _p, socket) do
-    case socket.assigns.column_modal_scope do
-      nil ->
-        {:noreply, socket}
+    socket =
+      Enum.reduce(detail_column_scopes(socket.assigns), socket, fn scope, acc ->
+        live_update_detail_columns(acc, scope, fn _ -> TableConfig.default_columns(scope) end)
+      end)
 
-      scope ->
-        {:noreply,
-         live_update_detail_columns(socket, fn _ -> TableConfig.default_columns(scope) end)}
-    end
+    {:noreply, socket}
   end
 
   def handle_event("toggle_sort_items", %{"by" => field_str}, socket)
@@ -1806,29 +1812,38 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   # index: the setting is the source of truth, changes broadcast so open
   # sessions follow live, and mount reads it back. ──────────────────
 
-  # Applies a columns transformation to the open modal's scope and
-  # persists it per-user. Invalid/empty results fall back to defaults.
-  defp live_update_detail_columns(socket, fun) do
-    case socket.assigns.column_modal_scope do
-      nil ->
-        socket
+  # Applies a columns transformation to one table's scope and persists
+  # it per-user. Invalid/empty results fall back to defaults.
+  defp live_update_detail_columns(socket, scope, fun) do
+    ids = TableConfig.validate_columns(scope, fun.(current_scope_columns(socket, scope)))
+    ids = if ids == [], do: TableConfig.default_columns(scope), else: ids
 
-      scope ->
-        ids = TableConfig.validate_columns(scope, fun.(current_scope_columns(socket, scope)))
-        ids = if ids == [], do: TableConfig.default_columns(scope), else: ids
+    user = socket.assigns[:phoenix_kit_current_user]
+    cfg = %{ViewConfig.load(user, scope) | columns: ids}
 
-        user = socket.assigns[:phoenix_kit_current_user]
-        cfg = %{ViewConfig.load(user, scope) | columns: ids}
+    socket =
+      case ViewConfig.save(user, scope, cfg) do
+        {:ok, updated_user} -> assign(socket, :phoenix_kit_current_user, updated_user)
+        _ -> socket
+      end
 
-        socket =
-          case ViewConfig.save(user, scope, cfg) do
-            {:ok, updated_user} -> assign(socket, :phoenix_kit_current_user, updated_user)
-            _ -> socket
-          end
+    assigns_key = if scope == :detail_items, do: :items_columns, else: :categories_columns
+    assign(socket, assigns_key, ids)
+  end
 
-        assigns_key = if scope == :detail_items, do: :items_columns, else: :categories_columns
-        assign(socket, assigns_key, ids)
-    end
+  defp detail_column_section_title(:detail_categories),
+    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Categories")
+
+  defp detail_column_section_title(:detail_items),
+    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Items")
+
+  # Which tables' column editors the page offers right now — one modal
+  # section per visible table.
+  defp detail_column_scopes(assigns) do
+    cats? = assigns.child_categories != [] and show_categories_section?(assigns)
+    items? = assigns.show_items_section
+
+    Enum.filter([cats? && :detail_categories, items? && :detail_items], & &1)
   end
 
   # Accepts the socket (event handlers) or the assigns map (templates).
@@ -3776,25 +3791,9 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               </span>
             </button>
             <button
-              :if={
-                @child_categories != [] and @view_mode == "active" and
-                  show_categories_section?(assigns)
-              }
+              :if={@view_mode == "active" and detail_column_scopes(assigns) != []}
               type="button"
               phx-click="show_column_modal"
-              phx-value-scope="detail_categories"
-              class="btn btn-outline btn-sm"
-            >
-              <.icon name="hero-adjustments-horizontal" class="w-4 h-4" />
-              <span class="hidden sm:inline">
-                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Columns")}
-              </span>
-            </button>
-            <button
-              :if={@show_items_section and @view_mode == "active"}
-              type="button"
-              phx-click="show_column_modal"
-              phx-value-scope="detail_items"
               class="btn btn-outline btn-sm"
             >
               <.icon name="hero-adjustments-horizontal" class="w-4 h-4" />
@@ -4057,11 +4056,18 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         </div>
       </div>
 
-      <.column_settings_modal
-        :if={@column_modal_scope}
-        show={@column_modal_scope != nil}
-        scope={@column_modal_scope}
-        selected={current_scope_columns(assigns, @column_modal_scope)}
+      <.column_sections_modal
+        :if={@show_columns_modal}
+        show={@show_columns_modal}
+        sections={
+          for scope <- detail_column_scopes(assigns) do
+            %{
+              scope: scope,
+              title: detail_column_section_title(scope),
+              selected: current_scope_columns(assigns, scope)
+            }
+          end
+        }
       />
 
       <.confirm_modal
