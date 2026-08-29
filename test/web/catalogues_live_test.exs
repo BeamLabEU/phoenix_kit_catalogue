@@ -703,6 +703,63 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
   end
 
   # ─────────────────────────────────────────────────────────────────
+  # Search-aware Deleted tab — Max, 2026-08-29
+  # ─────────────────────────────────────────────────────────────────
+
+  describe "search-aware Deleted tab" do
+    test "shows in a search only when the trash holds a match", %{conn: conn} do
+      fixture_catalogue(%{name: "Zephyr live"})
+      binned = fixture_catalogue(%{name: "Binned thing"})
+      Catalogue.trash_catalogue(binned)
+
+      # Nothing in the trash matches "zephyr" — a "Deleted (1)" here is
+      # an invitation into an empty list.
+      {:ok, _view, html} = live(conn, "#{@base}?q=zephyr")
+      refute html =~ "Deleted ("
+
+      {:ok, _view, html} = live(conn, "#{@base}?q=binned")
+      assert html =~ "Deleted (1)"
+
+      # No search: the global count, as before.
+      {:ok, _view, html} = live(conn, @base)
+      assert html =~ "Deleted (1)"
+    end
+
+    test "a matching trashed folder counts too", %{conn: conn} do
+      fixture_catalogue(%{name: "Live one"})
+      {:ok, folder} = Catalogue.create_folder(%{name: "Old shelf"})
+      {:ok, _} = Catalogue.trash_folder(folder)
+
+      {:ok, _view, html} = live(conn, "#{@base}?q=shelf")
+      assert html =~ "Deleted (1)"
+
+      {:ok, _view, html} = live(conn, "#{@base}?q=live")
+      refute html =~ "Deleted ("
+    end
+
+    test "switching to Deleted keeps the query, and the way back stays open", %{conn: conn} do
+      fixture_catalogue(%{name: "Zephyr live"})
+      binned = fixture_catalogue(%{name: "Binned thing"})
+      Catalogue.trash_catalogue(binned)
+
+      {:ok, view, _html} = live(conn, "#{@base}?q=binned")
+      html = render_click(view, "switch_catalogue_view", %{"mode" => "deleted"})
+
+      # The query survives the switch (Max, 2026-08-29) and filters the
+      # trash list.
+      assert html =~ ~s(value="binned")
+      assert html =~ "Binned thing"
+      refute html =~ "Zephyr live"
+
+      # Searching for something the trash lacks while STANDING in
+      # Deleted: the tab row stays — hiding it would trap the user.
+      html = render_change(view, "table_search", %{"query" => "zephyr"})
+      assert html =~ "Deleted (0)"
+      refute html =~ "Binned thing"
+    end
+  end
+
+  # ─────────────────────────────────────────────────────────────────
   # Items search mode (?mode=items) — Max, 2026-08-29
   # ─────────────────────────────────────────────────────────────────
 
