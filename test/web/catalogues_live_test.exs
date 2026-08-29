@@ -787,6 +787,22 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
   # Items search mode (?mode=items) — Max, 2026-08-29
   # ─────────────────────────────────────────────────────────────────
 
+  describe "view toggle" do
+    test "the card/comfy/table toggle renders on the index toolbar", %{conn: conn} do
+      # Regression pin: the items-mode toolbar rework silently dropped
+      # the <:view_toggle> slot and the switcher vanished for hours
+      # before anyone noticed (2026-08-29).
+      fixture_catalogue(%{name: "Toggleable"})
+
+      {:ok, _view, html} = live(conn, @base)
+      assert html =~ ~s(phx-click="set_view")
+
+      # Items mode hides it with the rest of the table tools.
+      {:ok, _view, html} = live(conn, "#{@base}?mode=items")
+      refute html =~ ~s(phx-click="set_view")
+    end
+  end
+
   describe "items search mode" do
     test "lists items across catalogues with their catalogue and category", %{conn: conn} do
       cat_a = fixture_catalogue(%{name: "Alpha Catalogue"})
