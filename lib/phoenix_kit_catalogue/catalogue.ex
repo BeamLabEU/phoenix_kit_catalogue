@@ -1090,29 +1090,6 @@ defmodule PhoenixKitCatalogue.Catalogue do
   end
 
   @doc """
-  Catalogue uuids holding at least one item that carries ALL of the given
-  attribute value slugs — the catalogues index's half of the filter
-  ("which catalogues have blue doors in them?", 2026-08-28).
-
-  Returns `:all` for an empty slug list, so callers can skip filtering
-  without special-casing an empty result.
-  """
-  @spec catalogue_uuids_with_attribute_values([String.t()]) :: :all | MapSet.t(Ecto.UUID.t())
-  def catalogue_uuids_with_attribute_values(slugs) do
-    slugs = slugs |> List.wrap() |> Enum.filter(&(is_binary(&1) and &1 != ""))
-
-    if slugs == [] do
-      :all
-    else
-      from(i in Item, as: :item, where: i.status != "deleted", distinct: true)
-      |> filter_by_attribute_values(value_slugs: slugs)
-      |> select([i], i.catalogue_uuid)
-      |> repo().all()
-      |> MapSet.new()
-    end
-  end
-
-  @doc """
   Narrows an item query to the items carrying ALL of the given attribute
   VALUE slugs — "the blue doors", and with two slugs "the blue oak doors"
   (Max, 2026-08-28).

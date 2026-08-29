@@ -703,6 +703,107 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
   end
 
   # ─────────────────────────────────────────────────────────────────
+  # Items search mode (?mode=items) — Max, 2026-08-29
+  # ─────────────────────────────────────────────────────────────────
+
+  describe "items search mode" do
+    test "lists items across catalogues with their catalogue and category", %{conn: conn} do
+      cat_a = fixture_catalogue(%{name: "Alpha Catalogue"})
+      cat_b = fixture_catalogue(%{name: "Beta Catalogue"})
+      {:ok, doors} = Catalogue.create_category(%{name: "Doors", catalogue_uuid: cat_a.uuid})
+      fixture_item(%{name: "Oak door", catalogue_uuid: cat_a.uuid, category_uuid: doors.uuid})
+      fixture_item(%{name: "Pine shelf", catalogue_uuid: cat_b.uuid})
+
+      {:ok, _view, html} = live(conn, "#{@base}?mode=items")
+
+      assert html =~ "Oak door"
+      assert html =~ "Pine shelf"
+      # Context columns — a hit can come from anywhere, so each row says
+      # which catalogue and category it lives in.
+      assert html =~ "Alpha Catalogue"
+      assert html =~ "Doors"
+      # The catalogues list and its table tools are gone with the mode.
+      refute html =~ "catalogues-tree-table"
+      refute html =~ "filter-form-status"
+    end
+
+    test "the switcher patches ?mode= in and out", %{conn: conn} do
+      fixture_catalogue(%{name: "Anything"})
+      {:ok, view, _html} = live(conn, @base)
+
+      render_click(view, "set_search_mode", %{"mode" => "items"})
+      assert_patch(view, "#{@base}?mode=items")
+
+      render_click(view, "set_search_mode", %{"mode" => "catalogues"})
+      assert_patch(view, @base)
+    end
+
+    test "?q= searches the items, not the catalogues", %{conn: conn} do
+      cat = fixture_catalogue(%{name: "Container"})
+      fixture_item(%{name: "Findable widget", catalogue_uuid: cat.uuid})
+      fixture_item(%{name: "Other thing", catalogue_uuid: cat.uuid})
+
+      {:ok, _view, html} = live(conn, "#{@base}?mode=items&q=findable")
+
+      assert html =~ "Findable widget"
+      refute html =~ "Other thing"
+    end
+
+    test "a drilled folder scopes the items to its subtree", %{conn: conn} do
+      {:ok, parent} = Catalogue.create_folder(%{name: "Parent shelf"})
+      {:ok, child} = Catalogue.create_folder(%{name: "Child shelf", parent_uuid: parent.uuid})
+      inside = fixture_catalogue(%{name: "Inside"})
+      {:ok, _} = Catalogue.move_catalogue_to_folder(inside, child.uuid)
+      outside = fixture_catalogue(%{name: "Outside"})
+      fixture_item(%{name: "Inner widget", catalogue_uuid: inside.uuid})
+      fixture_item(%{name: "Outer widget", catalogue_uuid: outside.uuid})
+
+      {:ok, _view, html} = live(conn, "#{@base}?mode=items&folder=#{parent.uuid}")
+
+      assert html =~ "Inner widget"
+      refute html =~ "Outer widget"
+    end
+
+    test "a result links into its catalogue, drilled and still searched", %{conn: conn} do
+      cat = fixture_catalogue(%{name: "Container"})
+      {:ok, category} = Catalogue.create_category(%{name: "Doors", catalogue_uuid: cat.uuid})
+
+      fixture_item(%{
+        name: "Oak door",
+        catalogue_uuid: cat.uuid,
+        category_uuid: category.uuid
+      })
+
+      {:ok, _view, html} = live(conn, "#{@base}?mode=items&q=oak")
+
+      # Landing drilled into the category with the query applied puts the
+      # item in sight on arrival instead of buried in its level.
+      assert html =~ "category=#{category.uuid}"
+      assert html =~ "q=oak"
+    end
+
+    test "load_more_items appends the next page", %{conn: conn} do
+      cat = fixture_catalogue(%{name: "Big"})
+
+      for n <- 1..55 do
+        fixture_item(%{
+          name: "Widget #{String.pad_leading("#{n}", 2, "0")}",
+          catalogue_uuid: cat.uuid
+        })
+      end
+
+      {:ok, view, html} = live(conn, "#{@base}?mode=items")
+
+      # Name-ordered, one page of 50: 01 is on it, 55 is not yet.
+      assert html =~ "Widget 01"
+      refute html =~ "Widget 55"
+
+      html = render_click(view, "load_more_items", %{})
+      assert html =~ "Widget 55"
+    end
+  end
+
+  # ─────────────────────────────────────────────────────────────────
   # Manual order (drag-and-drop reorder of catalogues)
   # ─────────────────────────────────────────────────────────────────
   #

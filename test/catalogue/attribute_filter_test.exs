@@ -283,24 +283,39 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeFilterTest do
       assert counts[ctx.blue.slug] == 1
     end
 
-    test "the index narrows to the catalogues CONTAINING such items", ctx do
-      # One level up the same filter answers a different question: not
-      # "which items are blue" but "which catalogues have blue in them".
+    test "the index's items mode filters the items themselves", ctx do
+      # The filter used to mean "which catalogues have blue in them" —
+      # an item question grafted onto a catalogue list, which needed a
+      # disclaimer line. Since 2026-08-29 it lives in items mode and
+      # narrows the actual items.
       other = fixture_catalogue(%{name: "No Attributes Here"})
       fixture_item(%{name: "Plain thing", catalogue_uuid: other.uuid})
 
-      {:ok, view, html} = live(ctx.conn, "/en/admin/catalogue")
-      assert html =~ "Filter Cat"
-      assert html =~ "No Attributes Here"
+      {:ok, view, html} = live(ctx.conn, "/en/admin/catalogue?mode=items")
+      assert html =~ "Blue oak door"
+      assert html =~ "Plain thing"
 
       render_click(view, "toggle_attribute_filter", %{"slug" => ctx.blue.slug})
       html = render(view)
 
-      assert html =~ "Filter Cat"
-      refute html =~ "No Attributes Here"
+      assert html =~ "Blue oak door"
+      assert html =~ "Blue pine door"
+      refute html =~ "Plain thing"
 
       render_click(view, "clear_attribute_filter", %{})
-      assert render(view) =~ "No Attributes Here"
+      assert render(view) =~ "Plain thing"
+    end
+
+    test "the catalogues mode offers no attribute filter at all", ctx do
+      assert ctx.catalogue
+
+      # The control's own DOM id — the word "Attributes" and the swatch
+      # icon both also appear in the admin chrome, so they prove nothing.
+      {:ok, _view, html} = live(ctx.conn, "/en/admin/catalogue")
+      refute html =~ ~s(id="attribute-filter")
+
+      {:ok, _view, html} = live(ctx.conn, "/en/admin/catalogue?mode=items")
+      assert html =~ ~s(id="attribute-filter")
     end
 
     test "the index offers every set in use anywhere", ctx do
@@ -394,14 +409,14 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeFilterTest do
                  %{}
       end
 
-      test "the index counts stay inside the drilled folder's subtree while searching", ctx do
+      test "the index's items mode counts inside the drilled folder's subtree", ctx do
         {:ok, parent} = Catalogue.create_folder(%{name: "Parent shelf"})
         {:ok, child} = Catalogue.create_folder(%{name: "Child shelf", parent_uuid: parent.uuid})
         {:ok, _} = Catalogue.move_catalogue_to_folder(ctx.catalogue, child.uuid)
 
-        # A second red carrier OUTSIDE the folder whose name also matches
-        # the search — an unscoped count would read 2.
-        other = fixture_catalogue(%{name: "Filter Elsewhere"})
+        # A second red item OUTSIDE the folder — an unscoped count would
+        # read 2.
+        other = fixture_catalogue(%{name: "Elsewhere"})
         stray = fixture_item(%{name: "Stray red", catalogue_uuid: other.uuid})
         {:ok, _} = Catalogue.attach_attribute_set(stray.uuid, ctx.colour.uuid)
 
@@ -409,13 +424,14 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeFilterTest do
           AttributeSets.set_attachment_selection(stray.uuid, ctx.colour.uuid, [ctx.red.slug])
 
         {:ok, view, _html} =
-          live(ctx.conn, "/en/admin/catalogue?folder=#{parent.uuid}&q=filter")
+          live(ctx.conn, "/en/admin/catalogue?mode=items&folder=#{parent.uuid}")
 
         counts = :sys.get_state(view.pid).socket.assigns.attribute_value_counts
 
-        # Searching a drilled folder covers its SUBTREE: "Filter Cat" sits
-        # in the subfolder, so it is on screen and counted; the unfiled
-        # "Filter Elsewhere" is not. Level-only scoping would count zero.
+        # Items mode stands where the user stands: "Filter Cat" sits in
+        # the SUBFOLDER, so its one red door counts; the stray red lives
+        # outside the drilled folder and must not. Level-only scoping
+        # would count nothing at all.
         assert counts[ctx.red.slug] == 1
       end
 

@@ -112,7 +112,7 @@ msgstr "Снят с производства"
 msgid "Toggle folder"
 msgstr "Развернуть/свернуть папку"
 
-#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2688
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2820
 #, elixir-autogen
 msgid "Clear search and filters to see the folder tree."
 msgstr "Очистите поиск и фильтры, чтобы увидеть дерево папок."
@@ -398,8 +398,8 @@ msgstr "Не удалось восстановить категорию."
 msgid "Failed to restore item."
 msgstr "Не удалось восстановить позицию."
 
-#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:1852
-#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2290
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:1967
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2405
 #, elixir-autogen
 msgid "Failed to save the new order."
 msgstr "Не удалось сохранить новый порядок."
@@ -918,7 +918,7 @@ msgstr "Все папки"
 msgid "All statuses"
 msgstr "Все статусы"
 
-#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:1859
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:1974
 #, elixir-autogen
 msgid "Clear search and filters to drag-and-drop reorder."
 msgstr "Очистите поиск и фильтры, чтобы менять порядок перетаскиванием."
@@ -1135,17 +1135,17 @@ msgstr "Вперёд"
 msgid "Show image %{number}"
 msgstr "Показать изображение %{number}"
 
-#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:3412
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:3645
 #, elixir-autogen
 msgid "Reorder all"
 msgstr "Переупорядочить все"
 
-#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:3330
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:3459
 #, elixir-autogen
 msgid "catalogue"
 msgstr "каталог"
 
-#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:3331
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:3460
 #, elixir-autogen
 msgid "catalogues"
 msgstr "каталоги"
@@ -1156,7 +1156,7 @@ msgstr "категория"
 msgid "categories"
 msgstr "категории"
 
-#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:1823
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:1938
 #, elixir-autogen
 msgid "Catalogues reordered."
 msgstr "Каталоги переупорядочены."
@@ -1164,7 +1164,7 @@ msgstr "Каталоги переупорядочены."
 msgid "Categories reordered."
 msgstr "Категории переупорядочены."
 
-#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:1828
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:1943
 #, elixir-autogen
 msgid "Failed to reorder."
 msgstr "Не удалось изменить порядок."
@@ -1172,14 +1172,14 @@ msgstr "Не удалось изменить порядок."
 msgid "Photos and Files"
 msgstr "Фото и файлы"
 
-#: lib/phoenix_kit_catalogue/web/components.ex:1124
-#: lib/phoenix_kit_catalogue/web/components.ex:1186
+#: lib/phoenix_kit_catalogue/web/components.ex:1126
+#: lib/phoenix_kit_catalogue/web/components.ex:1188
 #, elixir-autogen
 msgid "Comfortable view"
 msgstr "Просторный вид"
 
-#: lib/phoenix_kit_catalogue/web/components.ex:1133
-#: lib/phoenix_kit_catalogue/web/components.ex:1194
+#: lib/phoenix_kit_catalogue/web/components.ex:1135
+#: lib/phoenix_kit_catalogue/web/components.ex:1196
 #, elixir-autogen
 msgid "Compact view"
 msgstr "Компактный вид"
@@ -1664,7 +1664,7 @@ msgstr "-- Выберите категорию --"
 msgid "0.00"
 msgstr "0.00"
 
-#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2512
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2620
 #, elixir-autogen
 msgid "A → Z by name"
 msgstr "А → Я по названию"
@@ -2038,7 +2038,7 @@ msgstr "Название *"
 msgid "New Categories"
 msgstr "Новые категории"
 
-#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2514
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2622
 #, elixir-autogen
 msgid "Newest first"
 msgstr "Сначала новые"
@@ -2100,7 +2100,7 @@ msgstr "Позиций без категории нет."
 msgid "Nothing deleted here."
 msgstr "Здесь нет ничего удалённого."
 
-#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2515
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2623
 #, elixir-autogen
 msgid "Oldest first"
 msgstr "Сначала старые"
@@ -2237,7 +2237,7 @@ msgstr "Повторить зависшие"
 msgid "Retrying…"
 msgstr "Повтор…"
 
-#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2516
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2624
 #, elixir-autogen
 msgid "Reverse current order"
 msgstr "Обратить текущий порядок"
@@ -2515,7 +2515,7 @@ msgstr "В каком столбце находятся названия пос�
 msgid "You must map at least one column to 'Item Name'. Scroll down to the column mapping section and pick the column that holds item names."
 msgstr "Нужно сопоставить хотя бы один столбец с «Название позиции». Прокрутите до раздела сопоставления столбцов и выберите столбец с названиями позиций."
 
-#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2513
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2621
 #, elixir-autogen
 msgid "Z → A by name"
 msgstr "Я → А по названию"
@@ -3031,11 +3031,6 @@ msgstr "Очистить фильтры"
 msgid "Nothing matches this together with the filters already on"
 msgstr "Ничего не найдено вместе с уже выбранными фильтрами"
 
-#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2698
-#, elixir-autogen, elixir-format
-msgid "Showing catalogues that contain matching items."
-msgstr "Показаны каталоги, содержащие подходящие товары."
-
 msgid "Attribute set not found."
 msgstr "Набор атрибутов не найден."
 
@@ -3062,3 +3057,18 @@ msgid_plural "%{count} rows skipped"
 msgstr[0] "%{count} строка пропущена"
 msgstr[1] "%{count} строки пропущено"
 msgstr[2] "%{count} строк пропущено"
+
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2748
+#, elixir-autogen, elixir-format
+msgid "Search for"
+msgstr "Что искать"
+
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:3506
+#, elixir-autogen, elixir-format
+msgid "No items match."
+msgstr "Нет подходящих позиций."
+
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:3549
+#, elixir-autogen, elixir-format
+msgid "View in catalogue"
+msgstr "Открыть в каталоге"

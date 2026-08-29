@@ -23,9 +23,15 @@ defmodule PhoenixKitCatalogue.GettextTest do
     # three files is symmetric. The only thing that catches it is asking the
     # backend, in a non-English locale, for a string the code actually uses.
     for {msgid, ru, et} <- [
-          {"Showing catalogues that contain matching items.",
-           "Показаны каталоги, содержащие подходящие товары.",
-           "Kuvatakse kataloogid, mis sisaldavad sobivaid tooteid."},
+          # ("Showing catalogues that contain matching items." was the
+          # first entry here; it left with the index's catalogues-
+          # containing filter when items search mode replaced it,
+          # 2026-08-29.)
+          #
+          # The items search mode's strings (Max, 2026-08-29):
+          {"Search for", "Что искать", "Mida otsida"},
+          {"No items match.", "Нет подходящих позиций.", "Sobivaid tooteid pole."},
+          {"View in catalogue", "Открыть в каталоге", "Vaata kataloogis"},
           # Written as the macro inside a HEEx attribute on purpose: the
           # runtime form is NOT extracted from attribute interpolation, which
           # is how these two were in the catalogues but absent from a
