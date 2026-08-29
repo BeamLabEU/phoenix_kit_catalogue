@@ -309,7 +309,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     # before this callback runs, so the param assign always reads as
     # "unchanged" (the same reason prior_category_uuid and
     # prior_attribute_filter exist).
-    {socket, toggles_changed?} = track_url_toggles(socket, state)
+    {socket, toggles_changed?} = track_url_toggles(socket, state, cat_key)
     socket = assign(socket, :search_type, normalize_search_type(state.search_type, cat_key))
 
     cond do
@@ -336,9 +336,13 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       {:ok, current} ->
         socket
         |> assign(:current_category, Catalogue.localize_one(current, loc(socket)))
-        |> handle_url_state_search(search_query)
         |> reset_and_load()
         |> maybe_auto_flip_to_active()
+        # AFTER the level settles: the search stamp bakes in the view
+        # mode, and the tab auto-pick above can change it — stamping
+        # first dropped the search's own reply and left the spinner on
+        # (panel finding).
+        |> handle_url_state_search(search_query)
 
       :invalid ->
         socket
@@ -402,9 +406,16 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   # before the callback, so comparing against the param assign itself
   # never fires (the third-time trap). A change of either re-fetches
   # the level: what the item list even CONTAINS depends on them.
-  defp track_url_toggles(socket, state) do
+  defp track_url_toggles(socket, state, cat_key) do
     mode = if state.search_mode == "items", do: "items", else: ""
-    scope = if state.items_scope == "subtree", do: "subtree", else: ""
+
+    # "subtree" only means something on a drilled category — normalized
+    # away at root/bucket so URL-state merges cannot carry it into the
+    # next drilled page by surprise (panel finding).
+    scope =
+      if state.items_scope == "subtree" and not is_nil(cat_key) and cat_key != "uncategorized",
+        do: "subtree",
+        else: ""
 
     changed? =
       mode != socket.assigns[:prior_search_mode] or
@@ -772,6 +783,14 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   end
 
   # The drilled "include subcategory items" toggle.
+  def handle_event("open_items_reorder_modal", _params, socket)
+      when socket.assigns.items_scope == "subtree" do
+    # A subtree list interleaves per-category position sequences — a
+    # strategy reorder over it would renumber only the direct scope and
+    # reject cross-category selections (panel finding).
+    {:noreply, socket}
+  end
+
   def handle_event("toggle_items_scope", _params, socket) do
     next = if subtree_items?(socket.assigns), do: "", else: "subtree"
     {:noreply, push_url_state(socket, items_scope: next)}
@@ -2448,17 +2467,17 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       |> assign_attribute_counts(uuid)
 
     cat_mode = view_mode_to_atom(status)
-    show_categories? = status in ["active", "deleted"]
 
-    {child_categories, children_with_subs} =
-      if show_categories?,
-        do: load_level_children(uuid, current, cat_mode),
-        else: {[], MapSet.new()}
+    # Every tab shows the node's categories (the tabs slice ITEM status;
+    # a drilled page always shows its sections — panel finding: a
+    # category auto-landing on Inactive hid its subcategories and the
+    # subtree toggle entirely).
+    {child_categories, children_with_subs} = load_level_children(uuid, current, cat_mode)
 
     child_categories = root_trash_categories(uuid, current, cat_mode, child_categories)
     tab_status_counts = root_tab_counts(status_counts, uuid, current)
 
-    {counts_map, subcat_counts} = level_count_maps(uuid, cat_mode, show_categories?)
+    {counts_map, subcat_counts} = level_count_maps(uuid, cat_mode)
 
     uncat_active = Catalogue.uncategorized_count_for_catalogue(uuid, mode: :active)
 
@@ -2623,12 +2642,10 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   # `@child_counts` / `@child_subcat_counts` are read only inside the
   # category rows, which are empty unless categories show — skip both
   # whole-catalogue GROUP BYs on the inactive/discontinued tabs.
-  defp level_count_maps(uuid, cat_mode, true) do
+  defp level_count_maps(uuid, cat_mode) do
     {Catalogue.item_counts_by_category_for_catalogue(uuid, mode: cat_mode),
      Catalogue.category_children_counts(uuid, mode: cat_mode)}
   end
-
-  defp level_count_maps(_uuid, _cat_mode, false), do: {%{}, %{}}
 
   defp load_level_children(_uuid, :uncategorized, _mode), do: {[], MapSet.new()}
 
@@ -3041,7 +3058,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   # compatibility but unused — there is one item list now, no cross-card
   # count drift to correct.
   defp refresh_card_items(socket, scope, _delta \\ 0) do
-    if scope == node_scope(socket.assigns.current_category) do
+    if refresh_scope_visible?(socket, scope) do
+      scope = node_scope(socket.assigns.current_category)
       catalogue_uuid = socket.assigns.catalogue_uuid
       status = socket.assigns.view_mode
       limit = max(socket.assigns.items_offset, @per_page)
@@ -3074,6 +3092,31 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     else
       socket
     end
+  end
+
+  # The broadcast names the category that CHANGED; with the subtree
+  # toggle on, a DESCENDANT's change is visible in the open list too and
+  # must refresh it (panel finding). The walk uses the already-loaded
+  # tree index — no query.
+  defp refresh_scope_visible?(socket, scope) do
+    current = socket.assigns.current_category
+
+    cond do
+      scope == node_scope(current) ->
+        true
+
+      is_binary(scope) and subtree_items?(socket.assigns) ->
+        scope in tree_descendant_uuids(socket.assigns.category_tree_children, current.uuid)
+
+      true ->
+        false
+    end
+  end
+
+  defp tree_descendant_uuids(index, root_uuid) do
+    index
+    |> Map.get(root_uuid, [])
+    |> Enum.flat_map(fn c -> [c.uuid | tree_descendant_uuids(index, c.uuid)] end)
   end
 
   # What each value would still match HERE: this catalogue, the status
@@ -5441,6 +5484,9 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         <div
           data-bulk-show={if @controls_in_page_header, do: "has-selection"}
           style={if @controls_in_page_header, do: "display: none;"}
+          class={
+            !@reorder_allowed && "[&_[data-bulk-action=open_items_reorder_modal]]:!hidden"
+          }
         >
           <.bulk_actions_toolbar
             on_open_reorder="open_items_reorder_modal"
