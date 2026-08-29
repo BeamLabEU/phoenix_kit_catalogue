@@ -3541,7 +3541,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
             </div>
             <div class="ml-auto flex flex-wrap items-center justify-end gap-2">
             <.sort_selector
-              :if={@child_categories != [] and not items_mode?(assigns)}
+              :if={@child_categories != [] and show_categories_section?(assigns)}
               sort_by={@categories_sort_by}
               sort_dir={@categories_sort_dir}
               options={category_sort_options()}
@@ -3555,8 +3555,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                  unlabeled sort dropdowns side by side. --%>
             <.sort_selector
               :if={
-                (@child_categories == [] or items_mode?(assigns)) and @show_items_section and
-                  @items != [] and @view_mode == "active"
+                (@child_categories == [] or not show_categories_section?(assigns)) and
+                  @show_items_section and @items != [] and @view_mode == "active"
               }
               sort_by={@items_sort_by}
               sort_dir={@items_sort_dir}
@@ -3567,7 +3567,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
             />
             <button
               :if={
-                @show_items_section and @items_total > 1 and
+                (@child_categories == [] or not show_categories_section?(assigns)) and
+                  @show_items_section and @items_total > 1 and
                   @items_sort_by == :position and @view_mode == "active" and
                   (@current_category != nil or @child_categories == [])
               }
@@ -3583,7 +3584,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
             <button
               :if={
                 @view_mode == "active" and length(@child_categories) > 1 and
-                  @categories_sort_by == :position and not items_mode?(assigns)
+                  @categories_sort_by == :position and show_categories_section?(assigns)
               }
               type="button"
               phx-click="open_categories_reorder_modal"
@@ -3595,7 +3596,10 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               </span>
             </button>
             <button
-              :if={@child_categories != [] and @view_mode == "active" and not items_mode?(assigns)}
+              :if={
+                @child_categories != [] and @view_mode == "active" and
+                  show_categories_section?(assigns)
+              }
               type="button"
               phx-click="show_column_modal"
               phx-value-scope="detail_categories"
@@ -3649,7 +3653,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                page control row; the toolbar's Reorder only appears for a
                2+ selection ("Reorder N selected"). --%>
           <.bulk_select_scope
-            :if={@child_categories != [] and not items_mode?(assigns)}
+            :if={@child_categories != [] and show_categories_section?(assigns)}
             id={"categories-bulk-" <> (@current_category_uuid || "root") <> "-" <> Integer.to_string(@bulk_epoch)}
             total_count={length(@child_categories)}
             class="flex flex-col gap-2"
@@ -3797,7 +3801,9 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
             supplier_costs={@supplier_costs}
             bulk_epoch={@bulk_epoch}
             items_columns={@items_columns}
-            controls_in_page_header={@child_categories == [] or items_mode?(assigns)}
+            controls_in_page_header={
+              @child_categories == [] or not show_categories_section?(assigns)
+            }
             reorder_allowed={@current_category != nil or @child_categories == []}
             :if={@show_items_section}
             items={@items}
@@ -4741,6 +4747,17 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   # the flat sortable table.
   defp categories_tree_mode?(assigns) do
     assigns.view_mode == "active" and assigns.categories_sort_by == :position
+  end
+
+  # Where the CATEGORIES surface renders: everywhere in categories mode,
+  # and on a drilled category's items page — a chapter's page shows its
+  # sections above its content. (Subcategories were visible on the old
+  # drilled view; the no-drilling rework dropped them and Max caught it:
+  # "we already had support for the sub categories", 2026-08-29.) The
+  # ROOT items page stays pure items — the outline is Categories mode's
+  # job there.
+  defp show_categories_section?(assigns) do
+    not items_mode?(assigns) or match?(%Category{}, assigns.current_category)
   end
 
   # The hook's "root" is the level the view stands in: the drilled

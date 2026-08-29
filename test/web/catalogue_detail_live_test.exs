@@ -912,6 +912,28 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
       refute html =~ "Oak chapter"
     end
 
+    test "a category's page shows its subcategories above its items", %{conn: conn} do
+      catalogue = fixture_catalogue()
+      parent = fixture_category(catalogue, %{name: "Hardware chapter"})
+      _child = fixture_category(catalogue, %{name: "Frames sub", parent_uuid: parent.uuid})
+      fixture_item(%{name: "Hinge item", category_uuid: parent.uuid})
+
+      # The exact gap Max hit (2026-08-29): a category nested under
+      # Hardware was invisible on Hardware's own page — the old drilled
+      # view showed subcategories and the no-drilling rework lost them.
+      {:ok, view, _html} = live(conn, cat_url(catalogue.uuid, parent.uuid) <> "&mode=items")
+      html = render_async(view)
+
+      assert html =~ "Frames sub"
+      assert html =~ "Hinge item"
+
+      # The ROOT items page stays pure items — the outline lives in
+      # Categories mode there.
+      {:ok, view, _html} = live(conn, url(catalogue.uuid) <> "?mode=items")
+      html = render_async(view)
+      refute html =~ "catalogue-categories-views"
+    end
+
     test "the Categories switcher returns to the root outline from a drilled view",
          %{conn: conn} do
       catalogue = fixture_catalogue()
