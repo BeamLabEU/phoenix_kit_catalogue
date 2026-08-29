@@ -384,6 +384,24 @@ defmodule PhoenixKitCatalogue.Web.Components do
   attr(:resource, :any, required: true)
   attr(:class, :any, default: "w-10 h-10")
 
+  attr(:variant, :string,
+    default: "thumbnail",
+    doc:
+      "Storage variant to load. \"thumbnail\" (150px) fits the 40px list " <>
+        "cells this was built for; pass \"medium\" (800px) for card-width " <>
+        "slots — a 150px asset stretched across a card is the blur the boss " <>
+        "reported (2026-08-29). Never \"original\" in lists."
+  )
+
+  attr(:comfy_scale, :boolean,
+    default: true,
+    doc:
+      "Whether the comfy-density row override ([.pk-comfy_&]:w-18) applies. " <>
+        "True for table cells; FALSE for fill slots — inside a comfy card " <>
+        "the override beat w-full and shrank the band image to a 72px " <>
+        "square (the not-full-width report, 2026-08-29)."
+  )
+
   attr(:has_files, :boolean,
     default: false,
     doc:
@@ -411,16 +429,24 @@ defmodule PhoenixKitCatalogue.Web.Components do
       type="button"
       phx-click={@on_click}
       phx-value-uuid={@resource.uuid}
-      class="shrink-0 cursor-pointer"
+      class={["shrink-0 cursor-pointer", !@comfy_scale && "block w-full h-full"]}
       title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "View item details")}
     >
-      <.thumb_visual uuid={@uuid} has_files={@has_files} class={@class} />
+      <.thumb_visual
+        uuid={@uuid}
+        has_files={@has_files}
+        class={@class}
+        variant={@variant}
+        comfy_scale={@comfy_scale}
+      />
     </button>
     <.thumb_visual
       :if={(@uuid || @has_files) && !@on_click}
       uuid={@uuid}
       has_files={@has_files}
       class={@class}
+      variant={@variant}
+      comfy_scale={@comfy_scale}
     />
     """
   end
@@ -614,6 +640,21 @@ defmodule PhoenixKitCatalogue.Web.Components do
   attr(:has_files, :boolean, default: false)
   attr(:on_click, :string, default: nil)
 
+  attr(:variant, :string,
+    default: "medium",
+    doc:
+      "Storage variant — cards are card-width, so the 800px \"medium\" by " <>
+        "default (the 150px thumbnail stretched here was the blur the boss " <>
+        "reported, 2026-08-29)."
+  )
+
+  attr(:navigate, :any,
+    default: nil,
+    doc: "When set, the picture links here — the same place the card's title goes."
+  )
+
+  attr(:patch, :any, default: nil, doc: "patch variant of `navigate`.")
+
   attr(:placeholder_icon, :string,
     default: "hero-photo",
     doc: ~s(Shown when the resource has no picture — "hero-folder" for containers.)
@@ -623,10 +664,49 @@ defmodule PhoenixKitCatalogue.Web.Components do
 
   def card_media(assigns) do
     ~H"""
+    <%!-- The picture is clickable like the title (boss, 2026-08-29):
+         a navigate/patch wraps the visual in the same link the name
+         carries. Overlay controls render after it, so they stay on top
+         and keep their own clicks. --%>
+    <.link
+      :if={@navigate || @patch}
+      navigate={@navigate}
+      patch={@patch}
+      class="block w-full h-full"
+    >
+      <.card_media_visual
+        resource={@resource}
+        has_files={@has_files}
+        variant={@variant}
+        placeholder_icon={@placeholder_icon}
+      />
+    </.link>
+    <.card_media_visual
+      :if={!(@navigate || @patch)}
+      resource={@resource}
+      has_files={@has_files}
+      on_click={@on_click}
+      variant={@variant}
+      placeholder_icon={@placeholder_icon}
+    />
+    {render_slot(@overlay)}
+    """
+  end
+
+  attr(:resource, :map, required: true)
+  attr(:has_files, :boolean, required: true)
+  attr(:on_click, :string, default: nil)
+  attr(:variant, :string, required: true)
+  attr(:placeholder_icon, :string, required: true)
+
+  defp card_media_visual(assigns) do
+    ~H"""
     <.featured_thumb
       resource={@resource}
       has_files={@has_files}
       on_click={@on_click}
+      variant={@variant}
+      comfy_scale={false}
       class="w-full h-full"
     />
     <%!-- Centred by its OWN full-size flex box, not by absolute
@@ -640,7 +720,6 @@ defmodule PhoenixKitCatalogue.Web.Components do
     >
       <.icon name={@placeholder_icon} class="w-10 h-10 text-base-content/20" />
     </div>
-    {render_slot(@overlay)}
     """
   end
 
@@ -648,7 +727,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
   Classes for the `:card_media` frame every catalogue card uses. Kept in
   one place so the bands cannot drift apart page by page.
   """
-  def card_media_band, do: "relative h-24 bg-base-200 overflow-hidden"
+  def card_media_band, do: "relative h-40 bg-base-200 overflow-hidden"
 
   @doc """
   The band as a DYNAMIC attribute for `table_default`.
@@ -666,16 +745,19 @@ defmodule PhoenixKitCatalogue.Web.Components do
   attr(:uuid, :string, default: nil)
   attr(:has_files, :boolean, required: true)
   attr(:class, :any, required: true)
+  attr(:variant, :string, default: "thumbnail")
+  attr(:comfy_scale, :boolean, default: true)
 
   defp thumb_visual(assigns) do
     ~H"""
     <span class={[
-      "relative block shrink-0 [.pk-comfy_&]:w-18 [.pk-comfy_&]:h-18",
+      "relative block shrink-0",
+      @comfy_scale && "[.pk-comfy_&]:w-18 [.pk-comfy_&]:h-18",
       @class
     ]}>
       <img
         :if={@uuid}
-        src={URLSigner.signed_url(@uuid, "thumbnail")}
+        src={URLSigner.signed_url(@uuid, @variant)}
         alt=""
         loading="lazy"
         onerror="this.style.display='none'"
@@ -1877,11 +1959,17 @@ defmodule PhoenixKitCatalogue.Web.Components do
             like a different kind of thing depending on which page you
             were on. --%>
       <:card_media :let={item}>
-        <.card_media
-          resource={item}
-          has_files={Map.get(@file_counts, item.uuid, 0) > 0}
-          on_click={@photo_click}
-        />
+        <%!-- The band lives INSIDE the slot: the pinned core ignores
+             card_media_class, so an outer frame never applied and the
+             150px thumb stretched unbounded — half of the blur the boss
+             reported (2026-08-29). --%>
+        <figure class={card_media_band()}>
+          <.card_media
+            resource={item}
+            has_files={Map.get(@file_counts, item.uuid, 0) > 0}
+            on_click={@photo_click}
+          />
+        </figure>
       </:card_media>
       <:card_header :let={item}>
         <%!-- Mobile card view: prepend the checkbox so bulk-select works
