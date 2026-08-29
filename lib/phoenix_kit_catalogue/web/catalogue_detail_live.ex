@@ -4416,6 +4416,13 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       assigns
       |> assign(:draggable?, draggable?)
       |> assign(:reorderable?, draggable? and assigns.items_total > 1)
+      # Hoisted, exactly as `categories_table/1` above already does for its
+      # own grid. `any_media_thumb?/2` scans the WHOLE item list, and it was
+      # being called once per row inside the loop as well as once for the
+      # header — so a full page of 100 items ran 101 full-list scans per
+      # render, on a page that re-renders on every PubSub event, sort and
+      # scroll page.
+      |> assign(:photo_col?, any_media_thumb?(assigns.items, assigns.file_counts))
 
     ~H"""
     <div class="flex flex-col gap-2">
@@ -4600,7 +4607,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               <%!-- Featured images get their own slim column (inline-left
                    of the name made rows jagged); only when some row on
                    this level actually has one. --%>
-              <.table_default_header_cell :if={any_media_thumb?(@items, @file_counts)} class="w-12 !pr-0 !py-1 [.pk-comfy_&]:w-22 [.pk-comfy_&]:!py-1.5"></.table_default_header_cell>
+              <.table_default_header_cell :if={@photo_col?} class="w-12 !pr-0 !py-1 [.pk-comfy_&]:w-22 [.pk-comfy_&]:!py-1.5"></.table_default_header_cell>
               <.sort_header_cell field={:name} sort={%{by: @items_sort_by, dir: @items_sort_dir}} event="toggle_sort_items">
                 {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Name")}
               </.sort_header_cell>
@@ -4665,7 +4672,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                    doesn't jump when a delete drops the list to one row. --%>
               <td :if={@draggable? and not @reorderable?} class="w-8"></td>
               <.bulk_select_cell value={item.uuid} />
-              <.table_default_cell :if={any_media_thumb?(@items, @file_counts)} class="w-12 !pr-0 !py-1 [.pk-comfy_&]:w-22 [.pk-comfy_&]:!py-1.5">
+              <.table_default_cell :if={@photo_col?} class="w-12 !pr-0 !py-1 [.pk-comfy_&]:w-22 [.pk-comfy_&]:!py-1.5">
                 <.featured_thumb
                   resource={item}
                   on_click="show_product_card"

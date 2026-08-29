@@ -175,7 +175,14 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
     changeset =
       socket.assigns.catalogue
       |> Catalogue.change_catalogue(catalogue_params)
-      |> Map.put(:action, socket.assigns.changeset.action)
+      # `:validate`, not whatever the previous changeset carried. The seed
+      # changeset comes from `Catalogue.change_catalogue/1` in mount, whose
+      # action is nil — and `to_form/1` drops errors entirely on a nil-action
+      # changeset. Copying it forward meant EVERY inline validation error on
+      # this form was invisible until the first failed save handed back a repo
+      # changeset carrying :insert/:update. Every sibling form here already
+      # hardcodes :validate.
+      |> Map.put(:action, :validate)
 
     {:noreply, assign_changeset(socket, changeset)}
   end
