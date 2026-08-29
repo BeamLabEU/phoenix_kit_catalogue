@@ -108,6 +108,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
        sets_enabled: false,
        confirm_delete: nil,
        catalogue_view_mode: "active",
+       deleted_catalogue_rows: [],
        deleted_catalogue_count: 0,
        deleted_folder_count: 0,
        folder_tree: [],
@@ -375,7 +376,16 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   defp load_data(socket, :index) do
     if connected?(socket) do
       requested = socket.assigns.catalogue_view_mode
-      deleted_cat_count = Catalogue.deleted_catalogue_count()
+
+      # The full deleted rows, not just a count, in BOTH views: while a
+      # search is on, the Deleted tab shows only when the trash holds
+      # something MATCHING it (Max, 2026-08-29), and answering that
+      # needs the rows. Trash-sized, so no heavier than the old count.
+      deleted_catalogues =
+        Catalogue.list_catalogues(status: "deleted")
+        |> Catalogue.localize(socket.assigns[:current_locale])
+
+      deleted_cat_count = length(deleted_catalogues)
       deleted_folder_tree = Catalogue.list_folder_tree(mode: :deleted)
       deleted_folder_count = length(deleted_folder_tree)
 
@@ -391,11 +401,13 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
 
       catalogues =
         if mode == "deleted" do
-          Catalogue.list_catalogues(status: "deleted")
+          deleted_catalogues
         else
-          Catalogue.catalogues_by_folder() |> Map.values() |> List.flatten()
+          Catalogue.catalogues_by_folder()
+          |> Map.values()
+          |> List.flatten()
+          |> Catalogue.localize(socket.assigns[:current_locale])
         end
-        |> Catalogue.localize(socket.assigns[:current_locale])
 
       catalogue_rows = build_catalogue_rows(catalogues, folder_lookup, item_counts)
 
@@ -403,6 +415,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       |> assign(
         catalogue_rows: catalogue_rows,
         catalogue_file_counts: Catalogue.attached_file_counts(catalogue_rows),
+        deleted_catalogue_rows: deleted_catalogues,
         deleted_catalogue_count: deleted_cat_count,
         deleted_folder_count: deleted_folder_count,
         catalogue_view_mode: mode,
@@ -564,6 +577,43 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   end
 
   defp current_search(assigns), do: assigns.view_configs.catalogues[:search] || ""
+
+  # What the Deleted tab answers for. With no search: everything in the
+  # trash (catalogues + folders). With a search on: only what MATCHES it
+  # — a tab reading "Deleted (3)" above a query none of the three match
+  # is an invitation into an empty list (Max, 2026-08-29). Matching uses
+  # the same in-memory rule as the lists (TableQuery.search: name plus
+  # translated string values; folders have no data, so name only).
+  defp deleted_tab_count(assigns) do
+    query = current_search(assigns)
+
+    if String.trim(query) == "" do
+      assigns.deleted_catalogue_count + assigns.deleted_folder_count
+    else
+      matching_folders =
+        assigns.folder_tree_deleted
+        |> Enum.map(fn {folder, _depth} -> folder end)
+        |> TableQuery.search(query)
+
+      length(TableQuery.search(assigns.deleted_catalogue_rows, query)) +
+        length(matching_folders)
+    end
+  end
+
+  # The trashed-folders list narrowed the same way, so the tab's count
+  # and the list under it agree while searching. Depth is kept — a
+  # matching subfolder stays indented under where it lived.
+  defp searched_deleted_folder_tree(assigns) do
+    query = current_search(assigns)
+
+    if String.trim(query) == "" do
+      assigns.folder_tree_deleted
+    else
+      Enum.filter(assigns.folder_tree_deleted, fn {folder, _depth} ->
+        TableQuery.search([folder], query) != []
+      end)
+    end
+  end
 
   # The catalogues the item search looks inside: where the user stands.
   # A drilled folder means its subtree's catalogues, the unfiled
@@ -2829,17 +2879,24 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
           >
             {gettext("Clear search and filters to see the folder tree.")}
           </p>
+          <% deleted_count = deleted_tab_count(assigns) %>
           <.deleted_folders_list
-            :if={@catalogue_view_mode == "deleted" and @folder_tree_deleted != []}
-            tree={@folder_tree_deleted}
+            :if={
+              @catalogue_view_mode == "deleted" and searched_deleted_folder_tree(assigns) != []
+            }
+            tree={searched_deleted_folder_tree(assigns)}
           />
-          <%!-- Active/Deleted tabs (only when the trash holds anything).
-               The view-mode toggle moved into the toolbar's view-tools
-               cluster above, next to Columns — it's a filter/menu-panel
-               control, not a trash-visibility one. Items mode is a live
-               view of items, so the trash toggle rests with it. --%>
+          <%!-- Active/Deleted tabs. With no search: whenever the trash
+               holds anything. With a search on: only when it holds a
+               MATCH — except while standing in the Deleted view itself,
+               where hiding the row would trap the user (Max,
+               2026-08-29). The view-mode toggle moved into the
+               toolbar's view-tools cluster above, next to Columns —
+               it's a filter/menu-panel control, not a trash-visibility
+               one. Items mode is a live view of items, so the trash
+               toggle rests with it. --%>
           <div
-            :if={not items? and @deleted_catalogue_count + @deleted_folder_count > 0}
+            :if={not items? and (deleted_count > 0 or @catalogue_view_mode == "deleted")}
             class="flex items-center gap-0.5"
           >
             <button
@@ -2868,8 +2925,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
                 )
               ]}
             >
-              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Deleted")} ({@deleted_catalogue_count +
-                @deleted_folder_count})
+              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Deleted")} ({deleted_count})
             </button>
           </div>
           <%!-- Location row: Up + current folder name, whenever drilled
