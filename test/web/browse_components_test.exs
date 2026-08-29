@@ -21,6 +21,7 @@ defmodule PhoenixKitCatalogue.Web.Components.BrowseTest do
         unit: "piece",
         manufacturer: nil,
         photo_url: nil,
+        thumb_url: nil,
         default_qty: Decimal.new(1)
       },
       over
@@ -146,9 +147,13 @@ defmodule PhoenixKitCatalogue.Web.Components.BrowseTest do
       assert p.uuid == "u-9"
       assert p.sku == "SKU-9"
       assert p.manufacturer == "ACME"
-      # The signed URL is computed here — the card never talks to Storage.
+      # The signed URLs are computed here — the card never talks to
+      # Storage. Two sizes: medium for the card faces, the 150px
+      # thumbnail for the 32-48px row cells (2026-08-29 image sweep).
       assert p.photo_url =~ "photo-uuid"
       assert p.photo_url =~ "medium"
+      assert p.thumb_url =~ "photo-uuid"
+      assert p.thumb_url =~ "thumbnail"
       # Starting qty is always 1. `default_value` is the smart-catalogue
       # fee fallback, not a pick quantity.
       assert Decimal.equal?(p.default_qty, Decimal.new(1))
@@ -195,6 +200,7 @@ defmodule PhoenixKitCatalogue.Web.Components.BrowseTest do
       [p] = Browse.present_items([item], "en")
 
       assert p.photo_url == nil
+      assert p.thumb_url == nil
       assert Decimal.equal?(p.default_qty, Decimal.new(1))
     end
   end

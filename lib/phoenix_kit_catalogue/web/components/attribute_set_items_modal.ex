@@ -191,14 +191,14 @@ defmodule PhoenixKitCatalogue.Web.Components.AttributeSetItemsModal do
           <div :if={@rows != []} class="flex flex-col divide-y divide-base-content/10">
             <div :for={row <- @rows} id={"#{@id}-item-#{row.uuid}"} class="flex items-center gap-3 py-2">
               <img
-                :if={row.photo_url}
-                src={row.photo_url}
+                :if={row.thumb_url}
+                src={row.thumb_url}
                 alt=""
                 class="w-12 h-12 rounded object-cover bg-base-200 shrink-0"
                 loading="lazy"
               />
               <div
-                :if={!row.photo_url}
+                :if={!row.thumb_url}
                 class="w-12 h-12 rounded bg-base-200 flex items-center justify-center shrink-0"
               >
                 <.icon name="hero-photo" class="w-6 h-6 text-base-content/30" />

@@ -117,7 +117,7 @@ msgstr ""
 msgid "Toggle folder"
 msgstr ""
 
-#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2978
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2982
 #, elixir-autogen
 msgid "Clear search and filters to see the folder tree."
 msgstr ""
@@ -403,8 +403,8 @@ msgstr ""
 msgid "Failed to restore item."
 msgstr ""
 
-#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2123
-#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2561
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2124
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2562
 #, elixir-autogen
 msgid "Failed to save the new order."
 msgstr ""
@@ -454,7 +454,7 @@ msgstr ""
 msgid "Edit"
 msgstr ""
 
-#: lib/phoenix_kit_catalogue/web/components/browse.ex:289
+#: lib/phoenix_kit_catalogue/web/components/browse.ex:302
 #, elixir-autogen
 msgid "View"
 msgstr ""
@@ -480,7 +480,7 @@ msgstr ""
 msgid "Add Item"
 msgstr ""
 
-#: lib/phoenix_kit_catalogue/web/components/browse.ex:419
+#: lib/phoenix_kit_catalogue/web/components/browse.ex:432
 #, elixir-autogen
 msgid "Name"
 msgstr ""
@@ -589,17 +589,17 @@ msgstr ""
 msgid "Only PDF files are accepted."
 msgstr ""
 
-#: lib/phoenix_kit_catalogue/web/components/browse.ex:422
+#: lib/phoenix_kit_catalogue/web/components/browse.ex:435
 #, elixir-autogen
 msgid "Category"
 msgstr ""
 
-#: lib/phoenix_kit_catalogue/web/components/browse.ex:130
+#: lib/phoenix_kit_catalogue/web/components/browse.ex:143
 #, elixir-autogen
 msgid "Categories"
 msgstr ""
 
-#: lib/phoenix_kit_catalogue/web/components/browse.ex:421
+#: lib/phoenix_kit_catalogue/web/components/browse.ex:434
 #, elixir-autogen
 msgid "Manufacturer"
 msgstr ""
@@ -613,12 +613,12 @@ msgstr ""
 msgid "Items"
 msgstr ""
 
-#: lib/phoenix_kit_catalogue/web/components/browse.ex:420
+#: lib/phoenix_kit_catalogue/web/components/browse.ex:433
 #, elixir-autogen
 msgid "SKU"
 msgstr ""
 
-#: lib/phoenix_kit_catalogue/web/components/browse.ex:424
+#: lib/phoenix_kit_catalogue/web/components/browse.ex:437
 #, elixir-autogen
 msgid "Price"
 msgstr ""
@@ -629,7 +629,7 @@ msgstr ""
 msgid "Final Price"
 msgstr ""
 
-#: lib/phoenix_kit_catalogue/web/components/browse.ex:423
+#: lib/phoenix_kit_catalogue/web/components/browse.ex:436
 #, elixir-autogen
 msgid "Unit"
 msgstr ""
@@ -768,7 +768,7 @@ msgstr ""
 msgid "Updated"
 msgstr ""
 
-#: lib/phoenix_kit_catalogue/web/components/browse.ex:164
+#: lib/phoenix_kit_catalogue/web/components/browse.ex:177
 #, elixir-autogen
 msgid "Uncategorized"
 msgstr ""
@@ -864,7 +864,7 @@ msgid "Permanently deleted %{count} items."
 msgstr ""
 
 ## Catalogue table toolbar
-#: lib/phoenix_kit_catalogue/web/components/browse.ex:323
+#: lib/phoenix_kit_catalogue/web/components/browse.ex:336
 #, elixir-autogen
 msgid "Columns"
 msgstr ""
@@ -914,7 +914,7 @@ msgstr ""
 msgid "All statuses"
 msgstr ""
 
-#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2130
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2131
 #, elixir-autogen
 msgid "Clear search and filters to drag-and-drop reorder."
 msgstr ""
@@ -1132,17 +1132,17 @@ msgstr ""
 msgid "Show image %{number}"
 msgstr ""
 
-#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:3820
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:3824
 #, elixir-autogen
 msgid "Reorder all"
 msgstr ""
 
-#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:3633
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:3637
 #, elixir-autogen
 msgid "catalogue"
 msgstr ""
 
-#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:3634
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:3638
 #, elixir-autogen
 msgid "catalogues"
 msgstr ""
@@ -1153,7 +1153,7 @@ msgstr ""
 msgid "categories"
 msgstr ""
 
-#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2094
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2095
 #, elixir-autogen
 msgid "Catalogues reordered."
 msgstr ""
@@ -1161,7 +1161,7 @@ msgstr ""
 msgid "Categories reordered."
 msgstr ""
 
-#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2099
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2100
 #, elixir-autogen
 msgid "Failed to reorder."
 msgstr ""
@@ -1169,14 +1169,14 @@ msgstr ""
 msgid "Photos and Files"
 msgstr ""
 
-#: lib/phoenix_kit_catalogue/web/components.ex:1135
-#: lib/phoenix_kit_catalogue/web/components.ex:1197
+#: lib/phoenix_kit_catalogue/web/components.ex:1198
+#: lib/phoenix_kit_catalogue/web/components.ex:1260
 #, elixir-autogen
 msgid "Comfortable view"
 msgstr ""
 
-#: lib/phoenix_kit_catalogue/web/components.ex:1144
-#: lib/phoenix_kit_catalogue/web/components.ex:1205
+#: lib/phoenix_kit_catalogue/web/components.ex:1207
+#: lib/phoenix_kit_catalogue/web/components.ex:1268
 #, elixir-autogen
 msgid "Compact view"
 msgstr ""
@@ -1661,7 +1661,7 @@ msgstr ""
 msgid "0.00"
 msgstr ""
 
-#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2777
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2778
 #, elixir-autogen
 msgid "A → Z by name"
 msgstr ""
@@ -2035,7 +2035,7 @@ msgstr ""
 msgid "New Categories"
 msgstr ""
 
-#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2779
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2780
 #, elixir-autogen
 msgid "Newest first"
 msgstr ""
@@ -2097,7 +2097,7 @@ msgstr ""
 msgid "Nothing deleted here."
 msgstr ""
 
-#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2780
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2781
 #, elixir-autogen
 msgid "Oldest first"
 msgstr ""
@@ -2234,7 +2234,7 @@ msgstr ""
 msgid "Retrying…"
 msgstr ""
 
-#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2781
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2782
 #, elixir-autogen
 msgid "Reverse current order"
 msgstr ""
@@ -2512,7 +2512,7 @@ msgstr ""
 msgid "You must map at least one column to 'Item Name'. Scroll down to the column mapping section and pick the column that holds item names."
 msgstr ""
 
-#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2778
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2779
 #, elixir-autogen
 msgid "Z → A by name"
 msgstr ""
@@ -2817,23 +2817,23 @@ msgstr ""
 msgid "Open the company"
 msgstr ""
 
-#: lib/phoenix_kit_catalogue/web/components/browse.ex:138
+#: lib/phoenix_kit_catalogue/web/components/browse.ex:151
 #, elixir-autogen
 msgid "All"
 msgstr ""
 
-#: lib/phoenix_kit_catalogue/web/components/browse.ex:582
-#: lib/phoenix_kit_catalogue/web/components/browse.ex:603
+#: lib/phoenix_kit_catalogue/web/components/browse.ex:595
+#: lib/phoenix_kit_catalogue/web/components/browse.ex:616
 #, elixir-autogen
 msgid "Quantity"
 msgstr ""
 
-#: lib/phoenix_kit_catalogue/web/components/browse.ex:589
+#: lib/phoenix_kit_catalogue/web/components/browse.ex:602
 #, elixir-autogen
 msgid "Decrease quantity"
 msgstr ""
 
-#: lib/phoenix_kit_catalogue/web/components/browse.ex:621
+#: lib/phoenix_kit_catalogue/web/components/browse.ex:634
 #, elixir-autogen
 msgid "Increase quantity"
 msgstr ""
@@ -2945,22 +2945,22 @@ msgstr ""
 msgid "List view"
 msgstr ""
 
-#: lib/phoenix_kit_catalogue/web/components/browse.ex:426
+#: lib/phoenix_kit_catalogue/web/components/browse.ex:439
 #, elixir-autogen, elixir-format
 msgid "Qty"
 msgstr ""
 
-#: lib/phoenix_kit_catalogue/web/components/browse.ex:425
+#: lib/phoenix_kit_catalogue/web/components/browse.ex:438
 #, elixir-autogen, elixir-format
 msgid "Base price"
 msgstr ""
 
-#: lib/phoenix_kit_catalogue/web/components/browse.ex:355
+#: lib/phoenix_kit_catalogue/web/components/browse.ex:368
 #, elixir-autogen, elixir-format
 msgid "Category prefix"
 msgstr ""
 
-#: lib/phoenix_kit_catalogue/web/components/browse.ex:354
+#: lib/phoenix_kit_catalogue/web/components/browse.ex:367
 #, elixir-autogen, elixir-format
 msgid "Photo"
 msgstr ""
@@ -3053,52 +3053,60 @@ msgid_plural "%{count} rows skipped"
 msgstr[0] ""
 msgstr[1] ""
 
-#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2905
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2909
 #, elixir-autogen, elixir-format
 msgid "Search for"
 msgstr ""
 
-#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:3681
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:3685
 #, elixir-autogen, elixir-format
 msgid "No items match."
 msgstr ""
 
-#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:3724
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:3728
 #, elixir-autogen, elixir-format
 msgid "View in catalogue"
 msgstr ""
 
-#: lib/phoenix_kit_catalogue/web/catalogue_detail_live.ex:4871
+#: lib/phoenix_kit_catalogue/web/catalogue_detail_live.ex:4974
 #, elixir-autogen, elixir-format
 msgid "A category cannot move into its own subtree."
 msgstr ""
 
-#: lib/phoenix_kit_catalogue/web/catalogue_detail_live.ex:4877
+#: lib/phoenix_kit_catalogue/web/catalogue_detail_live.ex:4980
 #, elixir-autogen, elixir-format
 msgid "Categories can only move within their own catalogue."
 msgstr ""
 
-#: lib/phoenix_kit_catalogue/web/catalogue_detail_live.ex:4662
+#: lib/phoenix_kit_catalogue/web/catalogue_detail_live.ex:4758
+#: lib/phoenix_kit_catalogue/web/catalogue_detail_live.ex:5101
+#: lib/phoenix_kit_catalogue/web/catalogue_detail_live.ex:5215
 #, elixir-autogen, elixir-format
 msgid "Drag to reorder or nest"
 msgstr ""
 
-#: lib/phoenix_kit_catalogue/web/catalogue_detail_live.ex:4626
+#: lib/phoenix_kit_catalogue/web/catalogue_detail_live.ex:4722
+#: lib/phoenix_kit_catalogue/web/catalogue_detail_live.ex:5035
 #, elixir-autogen, elixir-format
 msgid "Drop here to move to this level"
 msgstr ""
 
-#: lib/phoenix_kit_catalogue/web/catalogue_detail_live.ex:4607
+#: lib/phoenix_kit_catalogue/web/catalogue_detail_live.ex:4703
 #, elixir-autogen, elixir-format
 msgid "No categories here yet."
 msgstr ""
 
-#: lib/phoenix_kit_catalogue/web/catalogue_detail_live.ex:3851
+#: lib/phoenix_kit_catalogue/web/catalogue_detail_live.ex:3940
 #, elixir-autogen, elixir-format
 msgid "No subcategories here. Switch to Items to browse this level's items."
 msgstr ""
 
-#: lib/phoenix_kit_catalogue/web/catalogue_detail_live.ex:4684
+#: lib/phoenix_kit_catalogue/web/catalogue_detail_live.ex:4780
 #, elixir-autogen, elixir-format
 msgid "Toggle category"
+msgstr ""
+
+#: lib/phoenix_kit_catalogue/web/catalogue_detail_live.ex:3438
+#, elixir-autogen, elixir-format
+msgid "Include subcategory items"
 msgstr ""

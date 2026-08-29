@@ -1426,6 +1426,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
           resource={@c_row}
           has_files={Map.get(@ctx.file_counts, @c_row.uuid, 0) > 0}
           placeholder_icon="hero-book-open"
+          navigate={Paths.catalogue_detail(@c_row.uuid)}
         >
           <:overlay>
             <span
@@ -2898,6 +2899,9 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
             allow_flat_reorder={@folder_tree == []}
             show_table_tools={not items?}
           >
+            <:view_toggle>
+              <.view_toggle view={cfg.view} />
+            </:view_toggle>
             <:mode :if={@catalogue_view_mode == "active"}>
               <%!-- What the search looks FOR (Max, 2026-08-29): this
                     page's own rows, or the items inside them. Both obey
@@ -3953,11 +3957,17 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         </.table_default_row>
       </.table_default_body>
       <:card_media :let={row} :if={@scope == :catalogues}>
-        <.card_media
-          resource={row}
-          has_files={Map.get(@file_counts, row.uuid, 0) > 0}
-          placeholder_icon="hero-book-open"
-        />
+        <%!-- Band inside the slot (pinned core ignores card_media_class),
+             and the picture links where the title does (boss,
+             2026-08-29). --%>
+        <figure class={card_media_band()}>
+          <.card_media
+            resource={row}
+            has_files={Map.get(@file_counts, row.uuid, 0) > 0}
+            placeholder_icon="hero-book-open"
+            navigate={if row.status != "deleted", do: Paths.catalogue_detail(row.uuid)}
+          />
+        </figure>
       </:card_media>
       <:card_header :let={row}>
         <div class="flex items-center gap-2 min-w-0">

@@ -1197,14 +1197,14 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
                 ]}
               >
                 <img
-                  :if={entry.item.photo_url}
-                  src={entry.item.photo_url}
+                  :if={entry.item.thumb_url}
+                  src={entry.item.thumb_url}
                   alt=""
                   class="w-10 h-10 rounded object-cover bg-base-200"
                   loading="lazy"
                 />
                 <div
-                  :if={!entry.item.photo_url}
+                  :if={!entry.item.thumb_url}
                   class="w-10 h-10 rounded bg-base-200 flex items-center justify-center text-base-content/40 font-bold"
                 >
                   {String.first(entry.item.name || "?")}
