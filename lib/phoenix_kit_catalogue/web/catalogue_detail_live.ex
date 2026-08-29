@@ -18,6 +18,13 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     params: [
       current_category_uuid: [default: nil, url_key: "category"],
       search_query: [default: "", url_key: "q"],
+      # What the page LISTS: "" = the document outline (categories +
+      # this level's items, the default), "items" = every item in the
+      # current scope as one flat, searchable list — the index's
+      # Catalogues/Items switcher one level down (Max, 2026-08-29:
+      # "what if a person has 100 [categories] and wants to search them
+      # or the items in the catalogue").
+      search_mode: [default: "", url_key: "mode"],
       # What the search returns: "" = everything (categories above items,
       # the default), "categories" or "items" to narrow (Max, 2026-08-29).
       search_type: [default: "", url_key: "type"],
@@ -208,6 +215,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         attribute_filter_options: [],
         attribute_value_counts: %{},
         prior_attribute_filter: "",
+        search_mode: "",
         search_type: "",
         search_results: nil,
         search_categories: [],
@@ -280,6 +288,13 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     filter_changed? = state.attribute_filter != socket.assigns[:prior_attribute_filter]
     socket = assign(socket, :prior_attribute_filter, state.attribute_filter)
 
+    # The Categories/Items page mode. Client-forgeable URL state —
+    # anything unknown means the default outline view. Like the chips
+    # below, no branch of its own: the catch-all re-asks the search on
+    # every patch, and in items mode that runs even with a blank query.
+    socket =
+      assign(socket, :search_mode, if(state.search_mode == "items", do: "items", else: ""))
+
     # The result-type chips (All / Categories / Items). Client-forgeable
     # URL state, so anything unknown means the default. A type change
     # only re-asks the SEARCH — the catch-all branch below already does
@@ -347,8 +362,29 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       |> push_navigate(to: Paths.index())
   end
 
-  defp handle_url_state_search(socket, ""), do: clear_search(socket)
+  # Items mode runs the search machinery even with a BLANK query — the
+  # flat all-items list IS the results view with nothing typed yet.
+  # Outside it, a blank query means "back to browsing".
+  defp handle_url_state_search(socket, "") do
+    if items_mode?(socket.assigns),
+      do: run_search(socket, ""),
+      else: clear_search(socket)
+  end
+
   defp handle_url_state_search(socket, query), do: run_search(socket, query)
+
+  # The flat-items page mode. Inert in the Deleted view (`?mode=` rides
+  # the URL for the trip back, same rule as the index's) — the trash
+  # keeps its own browse UI and the tabs that lead out of it.
+  defp items_mode?(assigns),
+    do: assigns.search_mode == "items" and assigns.view_mode != "deleted"
+
+  # What the search actually asks for: items mode always asks for items
+  # (the `?type=` chips are hidden and inert there); otherwise the
+  # chips' choice.
+  defp effective_search_type(assigns) do
+    if items_mode?(assigns), do: "items", else: assigns.search_type
+  end
 
   defp normalize_category_key(nil), do: nil
   defp normalize_category_key(""), do: nil
@@ -663,6 +699,16 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   end
 
   def handle_event("set_search_type", _params, socket), do: {:noreply, socket}
+
+  # The Categories/Items page-mode switcher. Not `replace:` — changing
+  # what the page lists is a step Back should undo.
+  def handle_event("set_search_mode", %{"mode" => mode}, socket)
+      when mode in ["categories", "items"] do
+    value = if mode == "items", do: "items", else: ""
+    {:noreply, push_url_state(socket, search_mode: value)}
+  end
+
+  def handle_event("set_search_mode", _params, socket), do: {:noreply, socket}
 
   # ── Product-view card (opened by clicking a featured-image thumb) ──
   # Host-side mirror of ItemPicker's card handlers: no phx-target on the
@@ -2514,8 +2560,10 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     socket |> refresh_counts() |> rerun_active_search()
   end
 
+  # Items mode holds results even with a blank query, so it re-runs on
+  # data changes like any active search.
   defp rerun_active_search(socket) do
-    if socket.assigns.search_query != "",
+    if socket.assigns.search_query != "" or items_mode?(socket.assigns),
       do: run_search(socket, socket.assigns.search_query),
       else: socket
   end
@@ -2529,7 +2577,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     uuid = socket.assigns.catalogue_uuid
     current = socket.assigns.current_category
     slugs = active_attribute_slugs(socket)
-    type = socket.assigns.search_type
+    type = effective_search_type(socket.assigns)
 
     socket = assign(socket, search_query: query, search_loading: true)
     stamp = search_stamp(socket, 0)
@@ -2573,7 +2621,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   # and its rows, from the previous filter, are appended to the new list.
   defp search_stamp(socket, offset) do
     {socket.assigns.search_query, offset, active_attribute_slugs(socket),
-     level_node_key(socket.assigns.current_category), socket.assigns.search_type}
+     level_node_key(socket.assigns.current_category), effective_search_type(socket.assigns)}
   end
 
   # Search scope follows the drill level: catalogue-wide at root, the
@@ -3115,6 +3163,34 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                 query={@search_query}
                 placeholder={search_placeholder(@current_category)}
               />
+              <%!-- What the page LISTS (Max, 2026-08-29): the document
+                    outline, or every item in the current scope as one
+                    flat searchable list — the index's switcher one
+                    level down. Hidden in the uncategorized bucket,
+                    which already lists only items. --%>
+              <div
+                :if={show_search_input and @current_category != :uncategorized}
+                class="join"
+                role="group"
+                aria-label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search for")}
+              >
+                <button
+                  type="button"
+                  phx-click="set_search_mode"
+                  phx-value-mode="categories"
+                  class={["btn btn-sm join-item", !items_mode?(assigns) && "btn-active"]}
+                >
+                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Categories")}
+                </button>
+                <button
+                  type="button"
+                  phx-click="set_search_mode"
+                  phx-value-mode="items"
+                  class={["btn btn-sm join-item", items_mode?(assigns) && "btn-active"]}
+                >
+                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Items")}
+                </button>
+              </div>
               <%!-- Attribute filter: "show me the blue doors" (Max,
                     2026-08-28). Only the sets this catalogue actually
                     uses are offered, so it stays empty and out of the way
@@ -3156,10 +3232,11 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         <div :if={@search_results != nil or @search_loading} class="flex flex-col gap-4">
           <div class="flex flex-wrap items-center gap-2">
             <%!-- What the search returns (Max, 2026-08-29). Hidden in the
-                  uncategorized bucket, which holds no categories to find.
-                  Same switcher idiom as the index's Catalogues/Items. --%>
+                  uncategorized bucket, which holds no categories to find,
+                  and in items mode, where the page mode already answers
+                  the question. Same switcher idiom as the index's. --%>
             <div
-              :if={@current_category != :uncategorized}
+              :if={@current_category != :uncategorized and not items_mode?(assigns)}
               class="join"
               role="group"
               aria-label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search for")}
@@ -3181,17 +3258,21 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               </button>
             </div>
             <%= if @search_loading and is_nil(@search_results) do %>
-              <span class="text-sm text-base-content/60">
+              <%!-- Blank query = items mode's un-searched list arriving;
+                    "Searching for \"\"" would be nonsense there. --%>
+              <span :if={@search_query != ""} class="text-sm text-base-content/60">
                 {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Searching for \"%{query}\"...", query: @search_query)}
               </span>
             <% else %>
               <%!-- The summary counts ITEMS. Suppress it when a search
                     matched only categories — or asked only for them —
                     or the line reads "0 results" directly above the
-                    category it just found. --%>
+                    category it just found. With a blank query the
+                    load_more footer already says "Showing N of M". --%>
               <.search_results_summary
                 :if={
-                  @search_results != nil and @search_type != "categories" and
+                  @search_results != nil and @search_query != "" and
+                    effective_search_type(assigns) != "categories" and
                     (@search_total > 0 or @search_categories == [])
                 }
                 count={@search_total}
@@ -3237,7 +3318,11 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
           <.empty_state
             :if={@search_results == [] and @search_categories == [] and not @search_loading}
             variant="card"
-            title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Nothing matches your search.")}
+            title={
+              if @search_query == "",
+                do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "No items match."),
+                else: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Nothing matches your search.")
+            }
           />
 
           <div :if={@search_results not in [nil, []]} class={["transition-opacity", @search_loading && "opacity-50"]}>
