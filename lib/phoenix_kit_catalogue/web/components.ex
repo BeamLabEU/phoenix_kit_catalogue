@@ -428,6 +428,15 @@ defmodule PhoenixKitCatalogue.Web.Components do
   attr(:options, :list, required: true)
   attr(:selected, :list, required: true)
   attr(:class, :string, default: nil)
+  attr(:id, :string, default: "attribute-filter")
+
+  attr(:always_visible, :boolean,
+    default: false,
+    doc:
+      "Skip the every-value-is-dead hiding. In items mode the filter is a " <>
+        "primary control (Max, 2026-08-29): a search that currently kills " <>
+        "every value should show them greyed out, not vanish the button."
+  )
 
   attr(:counts, :map,
     default: %{},
@@ -446,9 +455,10 @@ defmodule PhoenixKitCatalogue.Web.Components do
 
   Values are toggles, and picking Blue and Oak narrows to the items
   carrying BOTH — which is what "blue oak doors" means. Shared by the
-  detail page (narrowing its items) and the index (narrowing to the
-  catalogues that CONTAIN such items), so it means the same thing
-  wherever it appears.
+  detail page and the index's items search mode, both narrowing items
+  directly, so it means the same thing wherever it appears (the index's
+  old "catalogues CONTAINING such items" reading left with the folder-
+  level filter, 2026-08-29).
 
   Each value carries what it would still match and is DISABLED at zero,
   so the filter cannot be walked into an empty list (Max, 2026-08-28).
@@ -465,7 +475,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
       |> assign(:usable?, usable_filter?(assigns))
 
     ~H"""
-    <div :if={@usable?} class={["dropdown", @class]}>
+    <div :if={@usable?} id={@id} class={["dropdown", @class]}>
       <%!-- `role="button"`, not a bare label: without it a screen reader
            reads the trigger as plain text and Enter does nothing — the
            dropdown only opened because Tab-focus happens to trip
@@ -548,6 +558,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
 
   defp selected_count(set, selected), do: Enum.count(set.values, &(&1.slug in selected))
 
+  defp usable_filter?(%{always_visible: true}), do: true
   defp usable_filter?(%{selected: selected}) when selected != [], do: true
 
   defp usable_filter?(%{options: options, counts: counts, selected: selected}) do

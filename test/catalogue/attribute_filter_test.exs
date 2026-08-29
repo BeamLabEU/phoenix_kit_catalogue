@@ -9,6 +9,8 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeFilterTest do
 
   alias PhoenixKitCatalogue.Catalogue
   alias PhoenixKitCatalogue.Catalogue.AttributeSets
+  alias PhoenixKitCatalogue.Schemas.ItemAttributeSet
+  alias PhoenixKitCatalogue.Test.Repo, as: TestRepo
   alias PhoenixKitCatalogue.Web.Components
 
   if Code.ensure_loaded?(PhoenixKitEntities.Managed) do
@@ -128,7 +130,7 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeFilterTest do
     end
 
     test "the page filters, and the filter is in the URL", ctx do
-      url = "/en/admin/catalogue/#{ctx.catalogue.uuid}?category=#{ctx.category.uuid}"
+      url = "/en/admin/catalogue/#{ctx.catalogue.uuid}?category=#{ctx.category.uuid}&mode=items"
 
       {:ok, view, html} = live(ctx.conn, url)
       assert html =~ "Blue oak door"
@@ -169,7 +171,7 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeFilterTest do
       {:ok, _view, html} =
         live(
           ctx.conn,
-          "/en/admin/catalogue/#{ctx.catalogue.uuid}?category=#{ctx.category.uuid}&attr=#{ctx.blue.slug}"
+          "/en/admin/catalogue/#{ctx.catalogue.uuid}?category=#{ctx.category.uuid}&mode=items&attr=#{ctx.blue.slug}"
         )
 
       assert html =~ "Blue oak door"
@@ -261,18 +263,25 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeFilterTest do
       })
 
       {:ok, view, html} =
-        live(ctx.conn, "/en/admin/catalogue/#{ctx.catalogue.uuid}?category=#{empty_cat.uuid}")
+        live(
+          ctx.conn,
+          "/en/admin/catalogue/#{ctx.catalogue.uuid}?category=#{empty_cat.uuid}&mode=items"
+        )
 
       assert html =~ "Plain item"
-      # Every value would return nothing here, so the button would only
-      # ever disappoint — it is not rendered.
-      refute has_element?(view, ~s|button[phx-click="toggle_attribute_filter"]|)
+      # Items mode keeps the control visible (it is a primary control
+      # there since 2026-08-29) — but every value is dead at this level,
+      # so each one is offered disabled, not clickable.
+      assert has_element?(view, ~s|button[phx-value-slug="#{ctx.blue.slug}"][disabled]|)
 
-      # …while the level that does carry values still offers it.
+      # …while the level that does carry values offers it live.
       {:ok, doors, _} =
-        live(ctx.conn, "/en/admin/catalogue/#{ctx.catalogue.uuid}?category=#{ctx.category.uuid}")
+        live(
+          ctx.conn,
+          "/en/admin/catalogue/#{ctx.catalogue.uuid}?category=#{ctx.category.uuid}&mode=items"
+        )
 
-      assert has_element?(doors, ~s|button[phx-value-slug="#{ctx.blue.slug}"]|)
+      assert has_element?(doors, ~s|button[phx-value-slug="#{ctx.blue.slug}"]:not([disabled])|)
     end
 
     test "the index counts catalogues, not items", ctx do
@@ -283,24 +292,40 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeFilterTest do
       assert counts[ctx.blue.slug] == 1
     end
 
-    test "the index narrows to the catalogues CONTAINING such items", ctx do
-      # One level up the same filter answers a different question: not
-      # "which items are blue" but "which catalogues have blue in them".
+    test "the index's items mode filters the items themselves", ctx do
+      # The filter used to mean "which catalogues have blue in them" —
+      # an item question grafted onto a catalogue list, which needed a
+      # disclaimer line. Since 2026-08-29 it lives in items mode and
+      # narrows the actual items.
       other = fixture_catalogue(%{name: "No Attributes Here"})
       fixture_item(%{name: "Plain thing", catalogue_uuid: other.uuid})
 
-      {:ok, view, html} = live(ctx.conn, "/en/admin/catalogue")
-      assert html =~ "Filter Cat"
-      assert html =~ "No Attributes Here"
+      {:ok, view, _html} = live(ctx.conn, "/en/admin/catalogue?mode=items")
+      html = render_async(view)
+      assert html =~ "Blue oak door"
+      assert html =~ "Plain thing"
 
       render_click(view, "toggle_attribute_filter", %{"slug" => ctx.blue.slug})
-      html = render(view)
+      html = render_async(view)
 
-      assert html =~ "Filter Cat"
-      refute html =~ "No Attributes Here"
+      assert html =~ "Blue oak door"
+      assert html =~ "Blue pine door"
+      refute html =~ "Plain thing"
 
       render_click(view, "clear_attribute_filter", %{})
-      assert render(view) =~ "No Attributes Here"
+      assert render_async(view) =~ "Plain thing"
+    end
+
+    test "the catalogues mode offers no attribute filter at all", ctx do
+      assert ctx.catalogue
+
+      # The control's own DOM id — the word "Attributes" and the swatch
+      # icon both also appear in the admin chrome, so they prove nothing.
+      {:ok, _view, html} = live(ctx.conn, "/en/admin/catalogue")
+      refute html =~ ~s(id="attribute-filter")
+
+      {:ok, _view, html} = live(ctx.conn, "/en/admin/catalogue?mode=items")
+      assert html =~ ~s(id="attribute-filter")
     end
 
     test "the index offers every set in use anywhere", ctx do
@@ -320,6 +345,64 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeFilterTest do
 
       colour = Enum.find(options, &(&1.name == "Colour"))
       assert Enum.sort(Enum.map(colour.values, & &1.title)) == ["Blue", "Red"]
+    end
+
+    test "a categories-type search hides the item-level filter", ctx do
+      # The filter narrows items; a categories-only result list cannot
+      # show its effect, so offering it there is a control that lies.
+      # "door" (singular) matters: it matches the items AND the "Doors"
+      # category — "doors" matches no item, and the filter would hide in
+      # All mode too, for the ordinary every-value-is-dead reason.
+      {:ok, view, _html} =
+        live(ctx.conn, "/en/admin/catalogue/#{ctx.catalogue.uuid}?q=door&type=categories")
+
+      refute render_async(view) =~ ~s(id="attribute-filter")
+
+      {:ok, view, _html} = live(ctx.conn, "/en/admin/catalogue/#{ctx.catalogue.uuid}?q=door")
+      assert render_async(view) =~ ~s(id="attribute-filter")
+    end
+
+    test "an attribute-set broadcast reloads an open items-mode index", ctx do
+      {:ok, view, _html} = live(ctx.conn, "/en/admin/catalogue?mode=items")
+      render_click(view, "toggle_attribute_filter", %{"slug" => ctx.blue.slug})
+      assert render_async(view) =~ "Blue oak door"
+
+      # Prune the selection straight in the DB — a context write would
+      # ALSO broadcast :item and mask what this test pins — then deliver
+      # only the :attribute_set message a set-level write sends. The open
+      # list must move on that kind alone, or a value archived elsewhere
+      # leaves an items search offering rows the filter no longer
+      # matches.
+      import Ecto.Query
+
+      {1, _} =
+        TestRepo.update_all(
+          from(a in ItemAttributeSet,
+            where: a.item_uuid == ^ctx.items.blue_oak.uuid and a.set_uuid == ^ctx.colour.uuid
+          ),
+          set: [data: %{"selected_value_slugs" => []}]
+        )
+
+      send(view.pid, {:catalogue_data_changed, :attribute_set, ctx.colour.uuid, nil})
+
+      refute render_async(view) =~ "Blue oak door"
+    end
+
+    test "items mode keeps the filter visible when a search kills every value", ctx do
+      # The dead-values rule used to hide the whole button; in items mode
+      # the filter is a primary control — greyed values, not a vanished
+      # button (Max, 2026-08-29).
+      other = fixture_catalogue(%{name: "No Attributes Here"})
+      fixture_item(%{name: "Plain thing", catalogue_uuid: other.uuid})
+
+      {:ok, _view, html} = live(ctx.conn, "/en/admin/catalogue?mode=items&q=plain")
+      assert html =~ ~s(id="attribute-filter")
+
+      # Same on the detail page's items mode, searched into nothing.
+      {:ok, view, _html} =
+        live(ctx.conn, "/en/admin/catalogue/#{ctx.catalogue.uuid}?mode=items&q=zzznothing")
+
+      assert render_async(view) =~ ~s(id="attribute-filter")
     end
 
     test "a repeated slug in the URL still toggles off in one click", ctx do
@@ -392,6 +475,33 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeFilterTest do
         # real answer, not "no constraint".
         assert Catalogue.attribute_value_match_counts(count: :catalogues, catalogue_uuids: []) ==
                  %{}
+      end
+
+      test "the index's items mode counts inside the drilled folder's subtree", ctx do
+        {:ok, parent} = Catalogue.create_folder(%{name: "Parent shelf"})
+        {:ok, child} = Catalogue.create_folder(%{name: "Child shelf", parent_uuid: parent.uuid})
+        {:ok, _} = Catalogue.move_catalogue_to_folder(ctx.catalogue, child.uuid)
+
+        # A second red item OUTSIDE the folder — an unscoped count would
+        # read 2.
+        other = fixture_catalogue(%{name: "Elsewhere"})
+        stray = fixture_item(%{name: "Stray red", catalogue_uuid: other.uuid})
+        {:ok, _} = Catalogue.attach_attribute_set(stray.uuid, ctx.colour.uuid)
+
+        :ok =
+          AttributeSets.set_attachment_selection(stray.uuid, ctx.colour.uuid, [ctx.red.slug])
+
+        {:ok, view, _html} =
+          live(ctx.conn, "/en/admin/catalogue?mode=items&folder=#{parent.uuid}")
+
+        render_async(view)
+        counts = :sys.get_state(view.pid).socket.assigns.attribute_value_counts
+
+        # Items mode stands where the user stands: "Filter Cat" sits in
+        # the SUBFOLDER, so its one red door counts; the stray red lives
+        # outside the drilled folder and must not. Level-only scoping
+        # would count nothing at all.
+        assert counts[ctx.red.slug] == 1
       end
 
       test "the trash counts its own items rather than contradicting itself", ctx do

@@ -35,7 +35,7 @@ defmodule PhoenixKitCatalogue.Web.DeadRenderSkeletonsTest do
     refute static =~ "No categories or items yet"
     assert static =~ "loading-spinner"
 
-    {:ok, _view, html} = live(conn, "/en/admin/catalogue/#{cat.uuid}")
+    {:ok, _view, html} = live(conn, "/en/admin/catalogue/#{cat.uuid}?mode=items")
     assert html =~ "Detail Item"
   end
 

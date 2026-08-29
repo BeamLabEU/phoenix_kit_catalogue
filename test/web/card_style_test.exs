@@ -39,7 +39,7 @@ defmodule PhoenixKitCatalogue.Web.CardStyleTest do
 
   test "item cards lead with the picture", %{conn: conn, catalogue: catalogue, category: category} do
     {:ok, view, _html} =
-      live(conn, "/en/admin/catalogue/#{catalogue.uuid}?category=#{category.uuid}")
+      live(conn, "/en/admin/catalogue/#{catalogue.uuid}?category=#{category.uuid}&mode=items")
 
     html = render(view)
 

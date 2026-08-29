@@ -18,10 +18,22 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     params: [
       current_category_uuid: [default: nil, url_key: "category"],
       search_query: [default: "", url_key: "q"],
+      # What the page LISTS: "" = the document outline (categories +
+      # this level's items, the default), "items" = every item in the
+      # current scope as one flat, searchable list — the index's
+      # Catalogues/Items switcher one level down (Max, 2026-08-29:
+      # "what if a person has 100 [categories] and wants to search them
+      # or the items in the catalogue").
+      search_mode: [default: "", url_key: "mode"],
+      # What the search returns: "" = everything (categories above items,
+      # the default), "categories" or "items" to narrow (Max, 2026-08-29).
+      search_type: [default: "", url_key: "type"],
       # Comma-joined attribute VALUE slugs ("blue,oak"). In the URL so a
       # filtered view is a link you can send someone.
       attribute_filter: [default: "", url_key: "attr"]
     ]
+
+  use Gettext, backend: PhoenixKitCatalogue.Gettext
 
   require Logger
 
@@ -45,11 +57,13 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   import PhoenixKitWeb.Components.Core.TableRowMenu
   import PhoenixKitWeb.Components.Core.ReorderModal, only: [reorder_modal: 1]
   import PhoenixKitWeb.Components.Core.SortSelector, only: [sort_selector: 1]
+  import PhoenixKitWeb.Components.Core.TreeTable, only: [tree_name_cell: 1]
 
   import PhoenixKitWeb.Components.Core.TableDefault,
     only: [
       table_default: 1,
       table_default_header: 1,
+      table_default_body: 1,
       table_default_row: 1,
       table_default_header_cell: 1,
       table_default_cell: 1,
@@ -140,6 +154,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         items_offset: 0,
         items_has_more: false,
         show_items_section: false,
+        category_tree_children: %{},
+        expanded_categories: MapSet.new(),
         # Per-status item counts for the current node — drive the four
         # per-status tab labels (active / inactive / discontinued / deleted).
         level_status_counts: %{},
@@ -205,6 +221,9 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         attribute_filter_options: [],
         attribute_value_counts: %{},
         prior_attribute_filter: "",
+        search_mode: "",
+        prior_search_mode: "",
+        search_type: "",
         search_results: nil,
         search_categories: [],
         category_trails: %{},
@@ -276,6 +295,23 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     filter_changed? = state.attribute_filter != socket.assigns[:prior_attribute_filter]
     socket = assign(socket, :prior_attribute_filter, state.attribute_filter)
 
+    # The Categories/Items page mode. Client-forgeable URL state —
+    # anything unknown means the default outline view. A mode change
+    # re-fetches the level: whether the item list loads at all depends
+    # on it (`show_items_section`). Compared against a PRIOR tracker,
+    # not the param assign — UrlState auto-assigns declared params
+    # before this callback runs, so the param assign always reads as
+    # "unchanged" (the same reason prior_category_uuid and
+    # prior_attribute_filter exist).
+    mode = if state.search_mode == "items", do: "items", else: ""
+    mode_changed? = mode != socket.assigns[:prior_search_mode]
+
+    socket =
+      socket
+      |> assign(:search_mode, mode)
+      |> assign(:prior_search_mode, mode)
+      |> assign(:search_type, normalize_search_type(state.search_type, cat_key))
+
     cond do
       not connected?(socket) ->
         socket
@@ -283,7 +319,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       cat_changed? ->
         load_url_state_level(socket, cat_key, state.search_query)
 
-      filter_changed? ->
+      filter_changed? or mode_changed? ->
         socket |> handle_url_state_search(state.search_query) |> reset_and_load()
 
       true ->
@@ -323,6 +359,39 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
   defp handle_url_state_search(socket, ""), do: clear_search(socket)
   defp handle_url_state_search(socket, query), do: run_search(socket, query)
+
+  # The items page mode: the level's OWN items through the full
+  # management surface (bulk, columns, sort, drag order) — the list the
+  # mixed view used to show below the categories, standing alone. A
+  # search still covers the subtree, items-only. Inert in the Deleted
+  # view (`?mode=` rides the URL for the trip back, same rule as the
+  # index's) — the trash keeps its own browse UI and the tabs that lead
+  # out of it.
+  defp items_mode?(assigns),
+    do: assigns.search_mode == "items" and assigns.view_mode != "deleted"
+
+  # What the search actually asks for: items mode always asks for items
+  # (the `?type=` chips are hidden and inert there); otherwise the
+  # chips' choice.
+  defp effective_search_type(assigns) do
+    if items_mode?(assigns), do: "items", else: assigns.search_type
+  end
+
+  # The result-type chips (All / Categories / Items). Client-forgeable
+  # URL state, so anything unknown means the default. A type change only
+  # re-asks the SEARCH — the catch-all branch above already does that on
+  # every patch — while the level under the results is untouched.
+  #
+  # The uncategorized bucket always searches as All: it holds no
+  # categories to find and hides the chips, so a "categories" type
+  # carried in from elsewhere would turn every search into "Nothing
+  # matches your search." with no visible control to escape (panel
+  # finding, 2026-08-29). Normalizing to "" also makes the next
+  # push_url_state drop the stale ?type= — the merge base is read back
+  # from the assign.
+  defp normalize_search_type(_type, "uncategorized"), do: ""
+  defp normalize_search_type(type, _cat_key) when type in ["categories", "items"], do: type
+  defp normalize_search_type(_type, _cat_key), do: ""
 
   defp normalize_category_key(nil), do: nil
   defp normalize_category_key(""), do: nil
@@ -629,6 +698,29 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   def handle_event("clear_search", _params, socket) do
     {:noreply, push_url_state(socket, search_query: "")}
   end
+
+  # The All / Categories / Items chips on the search results.
+  def handle_event("set_search_type", %{"type" => type}, socket)
+      when type in ["", "categories", "items"] do
+    {:noreply, push_url_state(socket, search_type: type)}
+  end
+
+  def handle_event("set_search_type", _params, socket), do: {:noreply, socket}
+
+  # The Categories/Items page-mode switcher. Not `replace:` — changing
+  # what the page lists is a step Back should undo.
+  # Switching to Categories also clears the drilled category: the
+  # outline browser lives at the root only — a category's own page is
+  # its ITEM list (Max, 2026-08-29).
+  def handle_event("set_search_mode", %{"mode" => "categories"}, socket) do
+    {:noreply, push_url_state(socket, search_mode: "", current_category_uuid: nil)}
+  end
+
+  def handle_event("set_search_mode", %{"mode" => "items"}, socket) do
+    {:noreply, push_url_state(socket, search_mode: "items")}
+  end
+
+  def handle_event("set_search_mode", _params, socket), do: {:noreply, socket}
 
   # ── Product-view card (opened by clicking a featured-image thumb) ──
   # Host-side mirror of ItemPicker's card handlers: no phx-target on the
@@ -1247,6 +1339,64 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   def handle_event("cancel_delete", _params, socket) do
     {:noreply, assign(socket, :confirm_delete, nil)}
   end
+
+  # ── Category tree browser (the index's folder tree, one level down) ──
+
+  def handle_event("toggle_category_expand", %{"uuid" => uuid}, socket) when is_binary(uuid) do
+    {:noreply,
+     update(socket, :expanded_categories, fn expanded ->
+       if MapSet.member?(expanded, uuid),
+         do: MapSet.delete(expanded, uuid),
+         else: MapSet.put(expanded, uuid)
+     end)}
+  end
+
+  # A middle drop on a row: nest the dragged category under it (or lift
+  # it to this level via the root zone). Cycle / cross-catalogue guards
+  # live in `Catalogue.move_category_under/3`.
+  def handle_event(
+        "move_to_folder",
+        %{"type" => "category", "uuid" => uuid, "target" => target},
+        socket
+      )
+      when is_binary(uuid) do
+    with true <- categories_tree_mode?(socket.assigns),
+         {:ok, _} <- Ecto.UUID.cast(uuid),
+         {:ok, target_uuid} <- resolve_tree_target(socket, target) do
+      {:noreply,
+       socket
+       |> apply_category_move(uuid, target_uuid, nil)
+       |> reset_and_load()}
+    else
+      _ -> {:noreply, socket}
+    end
+  end
+
+  def handle_event("move_to_folder", _params, socket), do: {:noreply, socket}
+
+  # An edge drop: re-parent if the level changed, then write the level's
+  # order — the dragged row spliced in where it landed.
+  def handle_event(
+        "drop_row",
+        %{"type" => "category", "uuid" => uuid, "parent" => parent, "entries" => entries},
+        socket
+      )
+      when is_binary(uuid) and is_list(entries) do
+    with true <- categories_tree_mode?(socket.assigns),
+         {:ok, _} <- Ecto.UUID.cast(uuid),
+         {:ok, target_uuid} <- resolve_tree_target(socket, parent),
+         {:ok, ordered_uuids} <- parse_category_entries(entries),
+         true <- uuid in ordered_uuids and ordered_uuids == Enum.uniq(ordered_uuids) do
+      {:noreply,
+       socket
+       |> apply_category_move(uuid, target_uuid, ordered_uuids)
+       |> reset_and_load()}
+    else
+      _ -> {:noreply, socket}
+    end
+  end
+
+  def handle_event("drop_row", _params, socket), do: {:noreply, socket}
 
   def handle_event("reorder_categories", %{"ordered_ids" => ordered_ids} = params, socket)
       when is_list(ordered_ids) do
@@ -2199,13 +2349,19 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     catalogue = Catalogue.fetch_catalogue!(uuid)
     current = socket.assigns.current_category
 
-    # Which sets this catalogue actually uses — the filter offers nothing
-    # where attributes are unused, so it costs those pages no space.
+    # Categories mode offers only the sets this catalogue actually uses.
+    # Items mode offers the FULL roster like the index's items mode — a
+    # catalogue whose items carry no sets otherwise showed no filter at
+    # all (Max, 2026-08-29); the counts stay catalogue-scoped, so unused
+    # values sit greyed out rather than vanishing the button.
     socket =
       assign(
         socket,
         :attribute_filter_options,
-        Catalogue.attribute_filter_options(uuid, lang: loc(socket))
+        Catalogue.attribute_filter_options(
+          if(items_mode?(socket.assigns), do: :all, else: uuid),
+          lang: loc(socket)
+        )
       )
 
     # Per-status item counts for the current node — drive the tab labels and
@@ -2241,19 +2397,23 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         do: load_level_children(uuid, current, cat_mode),
         else: {[], MapSet.new()}
 
+    child_categories = root_trash_categories(uuid, current, cat_mode, child_categories)
+    tab_status_counts = root_tab_counts(status_counts, uuid, current)
+
     {counts_map, subcat_counts} = level_count_maps(uuid, cat_mode, show_categories?)
 
     uncat_active = Catalogue.uncategorized_count_for_catalogue(uuid, mode: :active)
 
     node_total = node_total(socket, status_counts, status, current, uuid)
 
-    # Active root with categories shows only cards (its uncategorized items
-    # are reached via the Uncategorized card). Every other case — a drilled
-    # node, or any non-active tab, or an empty active root with loose items —
-    # shows the node's own item list.
+    # The Active tab's Categories mode is a pure CATEGORY BROWSER since
+    # 2026-08-29 (Max: "we just won't show the items in the categories")
+    # — the level's item list moved behind the Items mode switcher,
+    # management surface and all. The uncategorized bucket (loose items
+    # only) and the non-active status tabs (the trash must show trashed
+    # items) keep their lists regardless of mode.
     show_items_section =
-      current != nil or status != "active" or
-        (child_categories == [] and node_total > 0)
+      status != "active" or current == :uncategorized or items_mode?(socket.assigns)
 
     items =
       if show_items_section and node_total > 0,
@@ -2272,7 +2432,10 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     catalogue = Catalogue.localize_one(catalogue, loc(socket))
     child_categories = Catalogue.localize(child_categories, loc(socket))
 
+    category_tree_children = load_category_tree_children(uuid, status, loc(socket))
+
     socket
+    |> assign(:category_tree_children, category_tree_children)
     |> assign(
       page_title: if(current, do: current_node_label(current), else: catalogue.name),
       catalogue: catalogue,
@@ -2296,10 +2459,56 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       items_has_more: length(items) < node_total,
       show_items_section: show_items_section,
       level_status_counts: status_counts,
-      status_tabs: visible_status_tabs(status, status_counts)
+      status_tabs: visible_status_tabs(status, tab_status_counts)
     )
-    |> merge_row_indicators(items, child_categories)
+    |> merge_row_indicators(
+      items,
+      child_categories ++ List.flatten(Map.values(category_tree_children))
+    )
   end
+
+  # The trash is catalogue-wide at root (there is no drilling to reach
+  # a deleted SUBcategory any more): list every deleted category flat
+  # (panel finding, 2026-08-29).
+  defp root_trash_categories(uuid, nil, :deleted, _level_categories) do
+    uuid
+    |> Catalogue.list_category_tree(mode: :deleted)
+    |> Enum.map(fn {c, _depth} -> c end)
+    |> Enum.filter(&(&1.status == "deleted"))
+  end
+
+  defp root_trash_categories(_uuid, _current, _cat_mode, level_categories),
+    do: level_categories
+
+  # Deleted categories count into the root Deleted TAB so a trashed
+  # subcategory alone still surfaces it — tab counts only: node_total
+  # must keep counting ITEMS, or the item list's has-more math answers
+  # for rows that aren't items.
+  defp root_tab_counts(status_counts, uuid, nil) do
+    deleted_cats =
+      uuid
+      |> Catalogue.list_category_tree(mode: :deleted)
+      |> Enum.count(fn {c, _depth} -> c.status == "deleted" end)
+
+    if deleted_cats > 0,
+      do: Map.update(status_counts, "deleted", deleted_cats, &(&1 + deleted_cats)),
+      else: status_counts
+  end
+
+  defp root_tab_counts(status_counts, _uuid, _current), do: status_counts
+
+  # The whole catalogue's active category tree in ONE query, grouped by
+  # parent for the browser's collapsible walk. Orphan rows arrive
+  # parent-normalized to nil, so the grouping and the level view agree
+  # on what's a root.
+  defp load_category_tree_children(uuid, "active", locale) do
+    Catalogue.list_category_tree(uuid, mode: :active)
+    |> Enum.map(fn {c, _depth} -> c end)
+    |> Catalogue.localize(locale)
+    |> Enum.group_by(& &1.parent_uuid)
+  end
+
+  defp load_category_tree_children(_uuid, _status, _locale), do: %{}
 
   # Re-derives the paperclip (`file_counts`) and attribute-swatch
   # (`attribute_map`) entries for the rows just loaded. Both maps
@@ -2378,8 +2587,11 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   defp node_status_counts(%Category{uuid: u}, _catalogue_uuid),
     do: Catalogue.item_status_counts_for_category(u)
 
-  defp node_status_counts(_current, catalogue_uuid),
+  defp node_status_counts(:uncategorized, catalogue_uuid),
     do: Catalogue.item_status_counts_for_uncategorized(catalogue_uuid)
+
+  defp node_status_counts(nil, catalogue_uuid),
+    do: Catalogue.item_status_counts_for_catalogue(catalogue_uuid)
 
   # Loads the next page of the current node's own items (the bottom
   # sentinel during normal browsing — search paging is separate).
@@ -2418,7 +2630,10 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   # The item-fetch scope of a node: a category UUID, or `:uncategorized`
   # for the root (whose own items are the uncategorized ones) and the
   # uncategorized bucket.
-  defp node_scope(nil), do: :uncategorized
+  # With category drilling removed (Max, 2026-08-29) the root is the
+  # only level, so its item scope is the WHOLE catalogue — items mode,
+  # the non-active tabs, and the trash all answer for everything.
+  defp node_scope(nil), do: :catalogue
   defp node_scope(:uncategorized), do: :uncategorized
   defp node_scope(%Category{uuid: uuid}), do: uuid
 
@@ -2495,6 +2710,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     uuid = socket.assigns.catalogue_uuid
     current = socket.assigns.current_category
     slugs = active_attribute_slugs(socket)
+    type = effective_search_type(socket.assigns)
 
     socket = assign(socket, search_query: query, search_loading: true)
     stamp = search_stamp(socket, 0)
@@ -2502,19 +2718,35 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     socket
     # The facets answer for the list as it will be, search included —
     # a value still offered as live while the search has narrowed it
-    # away is the empty list this filter exists to prevent.
-    |> assign_attribute_counts(uuid)
+    # away is the empty list this filter exists to prevent. In a
+    # categories-type search the item side is neither queried nor shown
+    # and the filter control is hidden, so the count query is skipped
+    # with it (panel finding, 2026-08-29); the next type flip re-runs
+    # this whole function and refreshes them.
+    |> then(fn s ->
+      if type == "categories", do: s, else: assign_attribute_counts(s, uuid)
+    end)
     |> start_async(:search, fn ->
-      results = search_in_scope(uuid, current, query, @per_page, 0, slugs)
-      total = search_count_in_scope(uuid, current, query, slugs)
-      {stamp, results, total, categories_in_scope(uuid, current, query)}
+      # The type chips narrow what is ASKED, not just what is shown —
+      # a Categories search skips the item listing and count queries.
+      {results, total} =
+        if type == "categories",
+          do: {[], 0},
+          else:
+            {search_in_scope(uuid, current, query, @per_page, 0, slugs),
+             search_count_in_scope(uuid, current, query, slugs)}
+
+      categories =
+        if type == "items", do: [], else: categories_in_scope(uuid, current, query)
+
+      {stamp, results, total, categories}
     end)
   end
 
   # Everything a search result depends on, in one comparable value: the
-  # query, how far down the list it is, the level, and the attribute
-  # filter it ran under. The guards below drop a reply whose stamp no
-  # longer matches the socket.
+  # query, how far down the list it is, the level, the attribute filter
+  # and the result type it ran under. The guards below drop a reply
+  # whose stamp no longer matches the socket.
   #
   # Query and offset alone are not enough. Toggle an attribute while page
   # two is in flight and the replacement search resets the offset to the
@@ -2522,7 +2754,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   # and its rows, from the previous filter, are appended to the new list.
   defp search_stamp(socket, offset) do
     {socket.assigns.search_query, offset, active_attribute_slugs(socket),
-     level_node_key(socket.assigns.current_category)}
+     level_node_key(socket.assigns.current_category), effective_search_type(socket.assigns)}
   end
 
   # Search scope follows the drill level: catalogue-wide at root, the
@@ -2813,6 +3045,10 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
   # `status` is the exact item status of the current tab
   # ("active" | "inactive" | "discontinued" | "deleted").
+  defp card_total(:catalogue, catalogue_uuid, status, slugs) do
+    Catalogue.count_items_for_catalogue(catalogue_uuid, status: status, value_slugs: slugs)
+  end
+
   defp card_total(:uncategorized, catalogue_uuid, status, slugs) do
     Catalogue.uncategorized_count_for_catalogue(catalogue_uuid,
       status: status,
@@ -2822,6 +3058,13 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
   defp card_total(category_uuid, _catalogue_uuid, status, slugs) when is_binary(category_uuid) do
     Catalogue.item_count_for_category(category_uuid, status: status, value_slugs: slugs)
+  end
+
+  defp fetch_card_items(:catalogue, catalogue_uuid, status, limit, offset, sort_opts) do
+    Catalogue.list_catalogue_items_paged(
+      catalogue_uuid,
+      [status: status, offset: offset, limit: limit] ++ sort_opts
+    )
   end
 
   defp fetch_card_items(:uncategorized, catalogue_uuid, status, limit, offset, sort_opts) do
@@ -2915,11 +3158,14 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   # Active unselectable: instant flip back, stuck in the trash); ENTERING
   # a node auto-picks a populated tab (deliberate: an all-deleted category
   # opens on Deleted, not an empty Active).
-  defp pick_view_mode(socket, current, node_key, status_counts) do
-    cond do
-      is_nil(current) -> "active"
-      socket.assigns.view_mode_node == node_key -> socket.assigns.view_mode
-      true -> effective_view_mode(socket.assigns.view_mode, status_counts)
+  defp pick_view_mode(socket, _current, node_key, status_counts) do
+    # The root is a node like any other since the tabs went
+    # catalogue-wide (2026-08-29, panel finding: they rendered but every
+    # click bounced back to Active).
+    if socket.assigns.view_mode_node == node_key do
+      socket.assigns.view_mode
+    else
+      effective_view_mode(socket.assigns.view_mode, status_counts)
     end
   end
 
@@ -3064,15 +3310,52 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                 query={@search_query}
                 placeholder={search_placeholder(@current_category)}
               />
+              <%!-- What the page LISTS (Max, 2026-08-29): the document
+                    outline, or every item in the current scope as one
+                    flat searchable list — the index's switcher one
+                    level down. Hidden in the uncategorized bucket,
+                    which already lists only items. --%>
+              <div
+                :if={show_search_input and @current_category != :uncategorized}
+                class="join"
+                role="group"
+                aria-label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search for")}
+              >
+                <button
+                  type="button"
+                  phx-click="set_search_mode"
+                  phx-value-mode="categories"
+                  class={["btn btn-sm join-item", !items_mode?(assigns) && "btn-active"]}
+                >
+                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Categories")}
+                </button>
+                <button
+                  type="button"
+                  phx-click="set_search_mode"
+                  phx-value-mode="items"
+                  class={["btn btn-sm join-item", items_mode?(assigns) && "btn-active"]}
+                >
+                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Items")}
+                </button>
+              </div>
               <%!-- Attribute filter: "show me the blue doors" (Max,
                     2026-08-28). Only the sets this catalogue actually
                     uses are offered, so it stays empty and out of the way
-                    where attributes aren't used at all. --%>
+                    where attributes aren't used at all. Hidden while a
+                    categories-type search is showing: the filter is
+                    item-level, and an active control whose toggles
+                    provably change nothing on screen is a lie (panel
+                    finding, 2026-08-29). --%>
               <.attribute_filter
-                :if={@attribute_filter_options != []}
+                :if={
+                  @attribute_filter_options != [] and
+                    not (effective_search_type(assigns) == "categories" and
+                           (@search_results != nil or @search_loading))
+                }
                 options={@attribute_filter_options}
                 selected={active_attribute_slugs(assigns)}
                 counts={@attribute_value_counts}
+                always_visible={items_mode?(assigns)}
               />
               <div :if={@view_mode == "active"} class="ml-auto flex flex-wrap items-center gap-2">
                 <%!-- On every level (boss's call, 2026-08-18 — subcategories
@@ -3096,16 +3379,47 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         <%!-- Search results (Active mode; unchanged machinery) --%>
         <div :if={@search_results != nil or @search_loading} class="flex flex-col gap-4">
           <div class="flex flex-wrap items-center gap-2">
+            <%!-- What the search returns (Max, 2026-08-29). Hidden in the
+                  uncategorized bucket, which holds no categories to find,
+                  and in items mode, where the page mode already answers
+                  the question. Same switcher idiom as the index's. --%>
+            <div
+              :if={@current_category != :uncategorized and not items_mode?(assigns)}
+              class="join"
+              role="group"
+              aria-label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search for")}
+            >
+              <button
+                :for={
+                  {value, label} <- [
+                    {"", Gettext.gettext(PhoenixKitCatalogue.Gettext, "All")},
+                    {"categories", Gettext.gettext(PhoenixKitCatalogue.Gettext, "Categories")},
+                    {"items", Gettext.gettext(PhoenixKitCatalogue.Gettext, "Items")}
+                  ]
+                }
+                type="button"
+                phx-click="set_search_type"
+                phx-value-type={value}
+                class={["btn btn-xs join-item", @search_type == value && "btn-active"]}
+              >
+                {label}
+              </button>
+            </div>
             <%= if @search_loading and is_nil(@search_results) do %>
               <span class="text-sm text-base-content/60">
                 {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Searching for \"%{query}\"...", query: @search_query)}
               </span>
             <% else %>
               <%!-- The summary counts ITEMS. Suppress it when a search
-                    matched only categories, or the line reads "0 results"
-                    directly above the category it just found. --%>
+                    matched only categories — or asked only for them —
+                    or the line reads "0 results" directly above the
+                    category it just found. --%>
               <.search_results_summary
-                :if={@search_results != nil and (@search_total > 0 or @search_categories == [])}
+                :if={
+                  @search_results != nil and
+                    effective_search_type(assigns) != "categories" and
+                    (@search_total > 0 or @search_categories == [])
+                }
                 count={@search_total}
                 query={@search_query}
                 loaded={length(@search_results)}
@@ -3130,14 +3444,23 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               </span>
             </h3>
             <div class="flex flex-wrap gap-2">
+              <%!-- No drilling any more: a hit clears the search and
+                    REVEALS the category — the tree opens down to it. --%>
+              <%!-- A hit opens the chapter's content: that category's
+                    item list, search cleared. No folder icon —
+                    categories are chapters, not folders (Max,
+                    2026-08-29). --%>
               <.link
                 :for={category <- @search_categories}
                 patch={
-                  url_state_path(assigns, current_category_uuid: category.uuid, search_query: "")
+                  url_state_path(assigns,
+                    current_category_uuid: category.uuid,
+                    search_query: "",
+                    search_mode: "items"
+                  )
                 }
                 class="btn btn-sm btn-ghost gap-2 justify-start"
               >
-                <.icon name="hero-folder" class="w-4 h-4 text-warning shrink-0" />
                 <span class="font-medium">{category.name}</span>
                 <span :if={@category_trails[category.uuid]} class="text-xs text-base-content/40">
                   {@category_trails[category.uuid]}
@@ -3188,21 +3511,18 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                right-aligned rows. --%>
           <div
             :if={
-              @child_categories != [] or
+              @child_categories != [] or length(@status_tabs) > 1 or
                 (@show_items_section and
-                   (@items != [] or length(@status_tabs) > 1 or
-                      @search_results not in [nil, []]))
+                   (@items != [] or @search_results not in [nil, []]))
             }
             class="flex flex-wrap items-center gap-2"
           >
-            <%!-- One tab per populated item status — sharing the row with
-                 the sort/columns/view controls (no dedicated tab row).
-                 Renders only alongside an actual item list and only when
-                 there's more than one status to choose between. --%>
-            <div
-              :if={@show_items_section and length(@status_tabs) > 1}
-              class="flex items-center gap-0.5 flex-wrap"
-            >
+            <%!-- One tab per populated status — sharing the row with the
+                 sort/columns/view controls (no dedicated tab row). The
+                 tabs stay even though the Active tab is now a pure
+                 category browser: they are also the way into the
+                 inactive/discontinued views and the trash. --%>
+            <div :if={length(@status_tabs) > 1} class="flex items-center gap-0.5 flex-wrap">
               <button
                 :for={{status, label, count} <- @status_tabs}
                 type="button"
@@ -3221,7 +3541,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
             </div>
             <div class="ml-auto flex flex-wrap items-center justify-end gap-2">
             <.sort_selector
-              :if={@child_categories != []}
+              :if={@child_categories != [] and not items_mode?(assigns)}
               sort_by={@categories_sort_by}
               sort_dir={@categories_sort_dir}
               options={category_sort_options()}
@@ -3235,8 +3555,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                  unlabeled sort dropdowns side by side. --%>
             <.sort_selector
               :if={
-                @child_categories == [] and @show_items_section and @items != [] and
-                  @view_mode == "active"
+                (@child_categories == [] or items_mode?(assigns)) and @show_items_section and
+                  @items != [] and @view_mode == "active"
               }
               sort_by={@items_sort_by}
               sort_dir={@items_sort_dir}
@@ -3247,8 +3567,9 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
             />
             <button
               :if={
-                @child_categories == [] and @show_items_section and @items_total > 1 and
-                  @items_sort_by == :position and @view_mode == "active"
+                @show_items_section and @items_total > 1 and
+                  @items_sort_by == :position and @view_mode == "active" and
+                  (@current_category != nil or @child_categories == [])
               }
               type="button"
               phx-click="open_items_reorder_modal"
@@ -3262,7 +3583,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
             <button
               :if={
                 @view_mode == "active" and length(@child_categories) > 1 and
-                  @categories_sort_by == :position
+                  @categories_sort_by == :position and not items_mode?(assigns)
               }
               type="button"
               phx-click="open_categories_reorder_modal"
@@ -3274,7 +3595,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               </span>
             </button>
             <button
-              :if={@child_categories != [] and @view_mode == "active"}
+              :if={@child_categories != [] and @view_mode == "active" and not items_mode?(assigns)}
               type="button"
               phx-click="show_column_modal"
               phx-value-scope="detail_categories"
@@ -3300,13 +3621,6 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               <.view_toggle_instant view={@view_mode_pref} id="detail-view-pref" />
             </div>
           </div>
-          <%!-- The Uncategorized drill card only appears when there are
-               categories to drill past. With no categories, the items
-               render inline (see `show_items_section`), so the card would
-               be a redundant extra click. --%>
-          <% show_uncat_card =
-            is_nil(@current_category) and @view_mode == "active" and
-              @uncategorized_active_count > 0 and @child_categories != [] %>
 
           <.reorder_modal
             id="categories-reorder-modal"
@@ -3335,7 +3649,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                page control row; the toolbar's Reorder only appears for a
                2+ selection ("Reorder N selected"). --%>
           <.bulk_select_scope
-            :if={@child_categories != [] or show_uncat_card}
+            :if={@child_categories != [] and not items_mode?(assigns)}
             id={"categories-bulk-" <> (@current_category_uuid || "root") <> "-" <> Integer.to_string(@bulk_epoch)}
             total_count={length(@child_categories)}
             class="flex flex-col gap-2"
@@ -3387,7 +3701,31 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
             data-storage-key={view_storage_key()}
           >
             <div data-table-view class={@view_mode == "active" && "hidden md:block"}>
+              <%!-- Manual order gets the collapsible tree (the index's
+                   folder browser one level down — Max, 2026-08-29); any
+                   other sort falls back to the flat sortable table, the
+                   same split the index makes. --%>
+              <.categories_tree_table
+                :if={categories_tree_mode?(assigns)}
+                rows={
+                  category_tree_rows(
+                    @category_tree_children,
+                    normalize_category_key(@current_category_uuid),
+                    @expanded_categories
+                  )
+                }
+                catalogue={@catalogue}
+                current_uuid={normalize_category_key(@current_category_uuid)}
+                categories_columns={@categories_columns}
+                child_counts={@child_counts}
+                child_subcat_counts={@child_subcat_counts}
+                file_counts={@file_counts}
+                view_mode={@view_mode}
+                show_uncat={false}
+                uncategorized_active_count={@uncategorized_active_count}
+              />
               <.categories_table
+                :if={not categories_tree_mode?(assigns)}
                 categories_sort_by={@categories_sort_by}
                 categories_columns={@categories_columns}
                 child_subcat_counts={@child_subcat_counts}
@@ -3397,46 +3735,28 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                 children_with_subs={@children_with_subs}
                 view_mode={@view_mode}
                 file_counts={@file_counts}
-                show_uncat={show_uncat_card}
+                show_uncat={false}
                 uncategorized_active_count={@uncategorized_active_count}
               />
             </div>
 
             <div :if={@view_mode == "active"} data-card-view class="md:hidden">
-              <%!-- DnD only in manual order — same gate as the table
-                   branch's @draggable?; the server guard re-asserts it. --%>
-              <div
-                id="catalogue-child-categories-tiles"
-                class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3"
-                data-sortable={to_string(@categories_sort_by == :position)}
-                data-sortable-event="reorder_categories"
-                data-sortable-items=".sortable-item"
-                data-sortable-hide-source="false"
-                data-sortable-group="catalogue-child-categories-tiles"
-                data-sortable-handle=".pk-drag-handle"
-                phx-hook={if @categories_sort_by == :position, do: "SortableGrid"}
-              >
-                <%= for cat <- @child_categories do %>
-                  <.category_tile
-                    catalogue_uuid={@catalogue.uuid}
-                    category={cat}
-                    reorderable={@categories_sort_by == :position}
-                    count={Map.get(@child_counts, cat.uuid, 0)}
-                    categories_columns={@categories_columns}
-                    subcat_count={Map.get(@child_subcat_counts, cat.uuid, 0)}
-                    file_count={Map.get(@file_counts, cat.uuid, 0)}
-                    has_subs={MapSet.member?(@children_with_subs, cat.uuid)}
-                    view_mode={@view_mode}
-                    sibling_count={length(@child_categories)}
-                    has_files={Map.get(@file_counts, cat.uuid, 0) > 0}
-                  />
-                <% end %>
-                <.uncategorized_tile
-                  :if={show_uncat_card}
-                  catalogue_uuid={@catalogue.uuid}
-                  count={@uncategorized_active_count}
-                />
-              </div>
+              <%!-- Card twin of the tree (Max, 2026-08-29: "how about
+                   the nesting?"): a category with children renders as a
+                   BOX containing its subcategory cards, all the way
+                   down — the index's card-level idiom. Same
+                   CatalogueTreeDnD contract as the tree table. --%>
+              <.categories_card_level
+                catalogue={@catalogue}
+                tree_children={@category_tree_children}
+                root_uuid={normalize_category_key(@current_category_uuid)}
+                child_counts={@child_counts}
+                child_subcat_counts={@child_subcat_counts}
+                file_counts={@file_counts}
+                categories_columns={@categories_columns}
+                view_mode={@view_mode}
+                reorderable={@categories_sort_by == :position}
+              />
             </div>
           </div>
           </.bulk_select_scope>
@@ -3477,7 +3797,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
             supplier_costs={@supplier_costs}
             bulk_epoch={@bulk_epoch}
             items_columns={@items_columns}
-            controls_in_page_header={@child_categories == []}
+            controls_in_page_header={@child_categories == [] or items_mode?(assigns)}
+            reorder_allowed={@current_category != nil or @child_categories == []}
             :if={@show_items_section}
             items={@items}
             file_counts={@file_counts}
@@ -3495,13 +3816,22 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
             reorder_captured_uuids={@reorder_captured_uuids}
           />
 
-          <%!-- Level is completely empty (root/active with no categories
-               and no uncategorized items). The items section renders its
-               own empty message for drilled-in nodes. --%>
+          <%!-- No categories at this level. When items exist here, point
+               to Items mode — the browser deliberately doesn't show
+               them (Max, 2026-08-29); otherwise it's a fresh level. --%>
           <.empty_state
-            :if={@child_categories == [] and not show_uncat_card and not @show_items_section}
+            :if={
+              @child_categories == [] and not @show_items_section and
+                not items_mode?(assigns)
+            }
             variant="card"
-            title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "No categories or items yet. Add a category or item to get started.")}
+            title={
+              if @items_total > 0,
+                do:
+                  gettext("No subcategories here. Switch to Items to browse this level's items."),
+                else:
+                  Gettext.gettext(PhoenixKitCatalogue.Gettext, "No categories or items yet. Add a category or item to get started.")
+            }
           />
 
           <%!-- Bottom navigation (client request 2026-08-19): on small
@@ -3983,39 +4313,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
           <.table_default_header_cell>
             {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Name")}
           </.table_default_header_cell>
-          <%= for col <- @categories_columns do %>
-            <%= case col do %>
-              <% "items" -> %>
-                <.table_default_header_cell class="text-right">
-                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Items")}
-                </.table_default_header_cell>
-              <% "updated" -> %>
-                <.table_default_header_cell>
-                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Updated")}
-                </.table_default_header_cell>
-              <% "subcategories" -> %>
-                <.table_default_header_cell class="text-right">
-                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Subcategories")}
-                </.table_default_header_cell>
-              <% "description" -> %>
-                <.table_default_header_cell>
-                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Description")}
-                </.table_default_header_cell>
-              <% "files" -> %>
-                <.table_default_header_cell>
-                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Files")}
-                </.table_default_header_cell>
-              <% "status" -> %>
-                <.table_default_header_cell>
-                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Status")}
-                </.table_default_header_cell>
-              <% "created" -> %>
-                <.table_default_header_cell>
-                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Created")}
-                </.table_default_header_cell>
-              <% _ -> %>
-            <% end %>
-          <% end %>
+          <.category_header_cells columns={@categories_columns} />
           <.table_default_header_cell class="text-right">
             {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Actions")}
           </.table_default_header_cell>
@@ -4044,11 +4342,15 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
           <.table_default_cell class="font-medium">
             <div class="flex items-center gap-2 min-w-0">
               <.link
-                patch={Paths.category_browse(@catalogue.uuid, cat.uuid)}
-                class={["link link-hover font-medium", cat.status == "deleted" && "text-error/70"]}
+                :if={cat.status != "deleted"}
+                patch={Paths.category_browse(@catalogue.uuid, cat.uuid) <> "&mode=items"}
+                class="link link-hover font-medium"
               >
                 {cat.name}
               </.link>
+              <span :if={cat.status == "deleted"} class="font-medium text-error/70">
+                {cat.name}
+              </span>
               <span
                 :if={MapSet.member?(@children_with_subs, cat.uuid)}
                 class="badge badge-ghost badge-xs"
@@ -4061,87 +4363,15 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               </span>
             </div>
           </.table_default_cell>
-          <%= for col <- @categories_columns do %>
-            <%= case col do %>
-              <% "items" -> %>
-                <.table_default_cell class="text-right tabular-nums">
-                  {Map.get(@child_counts, cat.uuid, 0)}
-                </.table_default_cell>
-              <% "updated" -> %>
-                <.table_default_cell class="text-sm text-base-content/60">
-                  {Calendar.strftime(cat.updated_at, "%Y-%m-%d %H:%M")}
-                </.table_default_cell>
-              <% "subcategories" -> %>
-                <.table_default_cell class="text-right tabular-nums text-base-content/60">
-                  {Map.get(@child_subcat_counts, cat.uuid, 0)}
-                </.table_default_cell>
-              <% "description" -> %>
-                <.table_default_cell class="text-sm text-base-content/60 max-w-64">
-                  <span class="line-clamp-2">{cat.description || "—"}</span>
-                </.table_default_cell>
-              <% "files" -> %>
-                <.table_default_cell class="text-sm tabular-nums text-base-content/60">
-                  {Map.get(@file_counts, cat.uuid, 0)}
-                </.table_default_cell>
-              <% "status" -> %>
-                <.table_default_cell>
-                  <.status_badge status={cat.status} size={:xs} />
-                </.table_default_cell>
-              <% "created" -> %>
-                <.table_default_cell class="text-sm text-base-content/60">
-                  {Calendar.strftime(cat.inserted_at, "%Y-%m-%d %H:%M")}
-                </.table_default_cell>
-              <% _ -> %>
-            <% end %>
-          <% end %>
+          <.category_body_cells
+            columns={@categories_columns}
+            cat={cat}
+            child_counts={@child_counts}
+            child_subcat_counts={@child_subcat_counts}
+            file_counts={@file_counts}
+          />
           <.table_default_cell class="text-right whitespace-nowrap">
-            <.table_row_menu
-              :if={@view_mode == "active" and cat.status == "active"}
-              mode="auto"
-              id={"category-menu-#{cat.uuid}"}
-            >
-              <.table_row_menu_link
-                navigate={Paths.category_edit(cat.uuid)}
-                icon="hero-pencil"
-                label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")}
-              />
-              <.table_row_menu_link
-                patch={Paths.category_browse(@catalogue.uuid, cat.uuid)}
-                icon="hero-folder-open"
-                label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Open")}
-              />
-              <.table_row_menu_divider />
-              <.table_row_menu_button
-                phx-click="request_trash_category"
-                phx-value-uuid={cat.uuid}
-                icon="hero-trash"
-                label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")}
-                variant="error"
-              />
-            </.table_row_menu>
-            <.table_row_menu
-              :if={@view_mode == "deleted" and cat.status == "deleted"}
-              mode="auto"
-              id={"category-del-menu-#{cat.uuid}"}
-            >
-              <.table_row_menu_button
-                phx-click="restore_category"
-                phx-value-uuid={cat.uuid}
-                phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Restoring...")}
-                icon="hero-arrow-path"
-                label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Restore")}
-                variant="success"
-              />
-              <.table_row_menu_divider />
-              <.table_row_menu_button
-                phx-click="show_delete_confirm"
-                phx-value-uuid={cat.uuid}
-                phx-value-type="category"
-                icon="hero-trash"
-                label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete Forever")}
-                variant="error"
-              />
-            </.table_row_menu>
+            <.category_row_menu cat={cat} catalogue={@catalogue} view_mode={@view_mode} />
           </.table_default_cell>
         </.sortable_row>
         <tr :if={@show_uncat}>
@@ -4191,6 +4421,624 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     """
   end
 
+  # ── Shared category cells (flat table + tree table) ──────────────
+
+  attr(:columns, :list, required: true)
+
+  defp category_header_cells(assigns) do
+    ~H"""
+    <%= for col <- @columns do %>
+      <%= case col do %>
+        <% "items" -> %>
+          <.table_default_header_cell class="text-right">
+            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Items")}
+          </.table_default_header_cell>
+        <% "updated" -> %>
+          <.table_default_header_cell>
+            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Updated")}
+          </.table_default_header_cell>
+        <% "subcategories" -> %>
+          <.table_default_header_cell class="text-right">
+            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Subcategories")}
+          </.table_default_header_cell>
+        <% "description" -> %>
+          <.table_default_header_cell>
+            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Description")}
+          </.table_default_header_cell>
+        <% "files" -> %>
+          <.table_default_header_cell>
+            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Files")}
+          </.table_default_header_cell>
+        <% "status" -> %>
+          <.table_default_header_cell>
+            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Status")}
+          </.table_default_header_cell>
+        <% "created" -> %>
+          <.table_default_header_cell>
+            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Created")}
+          </.table_default_header_cell>
+        <% _ -> %>
+      <% end %>
+    <% end %>
+    """
+  end
+
+  attr(:columns, :list, required: true)
+  attr(:cat, :map, required: true)
+  attr(:child_counts, :map, required: true)
+  attr(:child_subcat_counts, :map, required: true)
+  attr(:file_counts, :map, required: true)
+
+  defp category_body_cells(assigns) do
+    ~H"""
+    <%= for col <- @columns do %>
+      <%= case col do %>
+        <% "items" -> %>
+          <.table_default_cell class="text-right tabular-nums">
+            {Map.get(@child_counts, @cat.uuid, 0)}
+          </.table_default_cell>
+        <% "updated" -> %>
+          <.table_default_cell class="text-sm text-base-content/60">
+            {Calendar.strftime(@cat.updated_at, "%Y-%m-%d %H:%M")}
+          </.table_default_cell>
+        <% "subcategories" -> %>
+          <.table_default_cell class="text-right tabular-nums text-base-content/60">
+            {Map.get(@child_subcat_counts, @cat.uuid, 0)}
+          </.table_default_cell>
+        <% "description" -> %>
+          <.table_default_cell class="text-sm text-base-content/60 max-w-64">
+            <span class="line-clamp-2">{@cat.description || "—"}</span>
+          </.table_default_cell>
+        <% "files" -> %>
+          <.table_default_cell class="text-sm tabular-nums text-base-content/60">
+            {Map.get(@file_counts, @cat.uuid, 0)}
+          </.table_default_cell>
+        <% "status" -> %>
+          <.table_default_cell>
+            <.status_badge status={@cat.status} size={:xs} />
+          </.table_default_cell>
+        <% "created" -> %>
+          <.table_default_cell class="text-sm text-base-content/60">
+            {Calendar.strftime(@cat.inserted_at, "%Y-%m-%d %H:%M")}
+          </.table_default_cell>
+        <% _ -> %>
+      <% end %>
+    <% end %>
+    """
+  end
+
+  attr(:cat, :map, required: true)
+  attr(:catalogue, :map, required: true)
+  attr(:view_mode, :string, required: true)
+
+  defp category_row_menu(assigns) do
+    ~H"""
+    <.table_row_menu
+      :if={@view_mode == "active" and @cat.status == "active"}
+      mode="auto"
+      id={"category-menu-#{@cat.uuid}"}
+    >
+      <.table_row_menu_link
+        navigate={Paths.category_edit(@cat.uuid)}
+        icon="hero-pencil"
+        label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")}
+      />
+      <.table_row_menu_link
+        navigate={Paths.category_new(@catalogue.uuid) <> "?parent_uuid=" <> @cat.uuid}
+        icon="hero-folder-plus"
+        label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "New subcategory")}
+      />
+      <.table_row_menu_divider />
+      <.table_row_menu_button
+        phx-click="request_trash_category"
+        phx-value-uuid={@cat.uuid}
+        icon="hero-trash"
+        label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")}
+        variant="error"
+      />
+    </.table_row_menu>
+    <.table_row_menu
+      :if={@view_mode == "deleted" and @cat.status == "deleted"}
+      mode="auto"
+      id={"category-del-menu-#{@cat.uuid}"}
+    >
+      <.table_row_menu_button
+        phx-click="restore_category"
+        phx-value-uuid={@cat.uuid}
+        phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Restoring...")}
+        icon="hero-arrow-path"
+        label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Restore")}
+        variant="success"
+      />
+      <.table_row_menu_divider />
+      <.table_row_menu_button
+        phx-click="show_delete_confirm"
+        phx-value-uuid={@cat.uuid}
+        phx-value-type="category"
+        icon="hero-trash"
+        label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete Forever")}
+        variant="error"
+      />
+    </.table_row_menu>
+    """
+  end
+
+  # ── Category tree table (the folder browser one level down) ──────
+  #
+  # The index's collapsible folder tree brought over to categories (Max,
+  # 2026-08-29: "bring over all the folder stuff… it will just be a
+  # category browser"): every level of the drilled node's subtree as
+  # collapsible rows, name click drills (re-roots via ?category=),
+  # chevron expands in place, and the CatalogueTreeDnD hook gives drag
+  # to reorder among siblings, nest into a row, or lift to this level.
+  attr(:rows, :list, required: true, doc: "[{cat, depth, has_children, expanded?}]")
+  attr(:catalogue, :map, required: true)
+  attr(:current_uuid, :any, required: true)
+  attr(:categories_columns, :list, required: true)
+  attr(:child_counts, :map, required: true)
+  attr(:child_subcat_counts, :map, required: true)
+  attr(:file_counts, :map, required: true)
+  attr(:view_mode, :string, required: true)
+  attr(:show_uncat, :boolean, required: true)
+  attr(:uncategorized_active_count, :integer, required: true)
+
+  defp categories_tree_table(assigns) do
+    cats = Enum.map(assigns.rows, fn {cat, _d, _h, _e} -> cat end)
+
+    assigns = assign(assigns, :photo_col?, any_media_thumb?(cats, assigns.file_counts))
+
+    ~H"""
+    <div :if={@rows == []} class="card bg-base-100 shadow">
+      <div class="card-body items-center text-center py-12">
+        <p class="text-base-content/60">
+          {gettext("No categories here yet.")}
+        </p>
+      </div>
+    </div>
+    <div
+      :if={@rows != [] or @show_uncat}
+      id="catalogue-categories-tree"
+      phx-hook="CatalogueTreeDnD"
+      class="relative overflow-x-auto"
+    >
+      <%!-- "Lift to this level" target — hidden until a drag starts,
+           overlaid over the header so revealing it never shifts the
+           rows under the cursor mid-drag (same trick as the index). --%>
+      <div
+        data-tree-rootzone="1"
+        data-tree-drop="root"
+        class="hidden absolute top-0 left-0 right-0 z-10 rounded-lg border-2 border-dashed border-primary/50 bg-base-100 py-2.5 text-center text-sm text-base-content/60"
+      >
+        <.icon name="hero-arrow-up-tray" class="w-4 h-4 inline-block mr-1 align-text-bottom" />
+        {gettext("Drop here to move to this level")}
+      </div>
+      <.table_default
+        id="catalogue-categories-tree-table"
+        size="sm"
+        wrapper_class="overflow-x-auto shadow-none rounded-none"
+      >
+        <.table_default_header>
+          <.table_default_row>
+            <.table_default_header_cell class="w-8"></.table_default_header_cell>
+            <.bulk_select_header_cell
+              id="categories-select-all"
+              aria_label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Select all categories")}
+            />
+            <.table_default_header_cell :if={@photo_col?} class="w-12 !pr-0 !py-1 [.pk-comfy_&]:w-22 [.pk-comfy_&]:!py-1.5"></.table_default_header_cell>
+            <.table_default_header_cell>
+              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Name")}
+            </.table_default_header_cell>
+            <.category_header_cells columns={@categories_columns} />
+            <.table_default_header_cell class="text-right">
+              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Actions")}
+            </.table_default_header_cell>
+          </.table_default_row>
+        </.table_default_header>
+        <.table_default_body>
+          <.table_default_row
+            :for={{cat, depth, has_children, expanded?} <- @rows}
+            data-tree-uuid={cat.uuid}
+            data-tree-type="category"
+            data-tree-parent={tree_parent_key(cat, @current_uuid)}
+            data-tree-drop={cat.uuid}
+          >
+            <.table_default_cell class="w-8 !pr-0">
+              <span
+                data-tree-item={"category:" <> cat.uuid}
+                class="pk-drag-handle cursor-grab text-base-content/30 hover:text-base-content/60"
+                title={gettext("Drag to reorder or nest")}
+              >
+                <.icon name="hero-bars-3" class="w-4 h-4" />
+              </span>
+            </.table_default_cell>
+            <.table_default_cell class="w-8">
+              <input
+                type="checkbox"
+                class="checkbox checkbox-xs"
+                data-bulk-role="row"
+                data-uuid={cat.uuid}
+              />
+            </.table_default_cell>
+            <.table_default_cell :if={@photo_col?} class="w-12 !pr-0 !py-1 [.pk-comfy_&]:w-22 [.pk-comfy_&]:!py-1.5">
+              <.featured_thumb resource={cat} has_files={Map.get(@file_counts, cat.uuid, 0) > 0} />
+            </.table_default_cell>
+            <.tree_name_cell
+              depth={depth}
+              expandable={has_children}
+              expanded={expanded?}
+              toggle_event="toggle_category_expand"
+              value={cat.uuid}
+              toggle_label={gettext("Toggle category")}
+              class="font-medium"
+            >
+              <%!-- The chevron unfolds the outline in place; the NAME
+                   opens the chapter's CONTENT — that category's item
+                   list ("how else are people supposed to get to the
+                   items" — Max, 2026-08-29). No folder icon: categories
+                   are chapters, not folders. --%>
+              <.link
+                patch={Paths.category_browse(@catalogue.uuid, cat.uuid) <> "&mode=items"}
+                class="link link-hover font-medium truncate"
+              >
+                {cat.name}
+              </.link>
+            </.tree_name_cell>
+            <.category_body_cells
+              columns={@categories_columns}
+              cat={cat}
+              child_counts={@child_counts}
+              child_subcat_counts={@child_subcat_counts}
+              file_counts={@file_counts}
+            />
+            <.table_default_cell class="text-right whitespace-nowrap">
+              <.category_row_menu cat={cat} catalogue={@catalogue} view_mode={@view_mode} />
+            </.table_default_cell>
+          </.table_default_row>
+          <tr :if={@show_uncat}>
+            <td class="w-8"></td>
+            <td class="w-8"></td>
+            <td :if={@photo_col?} class="w-12"></td>
+            <td class="font-medium">
+              <.link patch={Paths.uncategorized_browse(@catalogue.uuid)} class="link link-hover">
+                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Uncategorized")}
+              </.link>
+            </td>
+            <%= for col <- @categories_columns do %>
+              <%= case col do %>
+                <% "items" -> %>
+                  <td class="text-right tabular-nums">{@uncategorized_active_count}</td>
+                <% c when c in ~w(updated subcategories description files status created) -> %>
+                  <td></td>
+                <% _ -> %>
+              <% end %>
+            <% end %>
+            <td class="text-right">
+              <.table_row_menu mode="auto" id="category-menu-uncategorized-tree">
+                <.table_row_menu_link
+                  patch={Paths.uncategorized_browse(@catalogue.uuid)}
+                  icon="hero-folder-open"
+                  label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Open")}
+                />
+              </.table_row_menu>
+            </td>
+          </tr>
+        </.table_default_body>
+      </.table_default>
+    </div>
+    """
+  end
+
+  # The hook gathers a level by this key: "root" is the level the view
+  # is standing in (the drilled node, or the catalogue's top level).
+  defp tree_parent_key(%{parent_uuid: parent}, current_uuid)
+       when parent == current_uuid or is_nil(parent),
+       do: "root"
+
+  defp tree_parent_key(%{parent_uuid: parent}, _current_uuid), do: parent
+
+  # The browser shows the tree when there is a manual order to stand on
+  # — same rule as the index's folder tree. Any other sort falls back to
+  # the flat sortable table.
+  defp categories_tree_mode?(assigns) do
+    assigns.view_mode == "active" and assigns.categories_sort_by == :position
+  end
+
+  # The hook's "root" is the level the view stands in: the drilled
+  # category, or nil at the catalogue's top. The uncategorized bucket
+  # renders no tree, so a forged "root" there means the top level too.
+  defp resolve_tree_target(socket, "root") do
+    case socket.assigns.current_category_uuid do
+      "uncategorized" -> {:ok, nil}
+      other -> {:ok, other}
+    end
+  end
+
+  # Forgeable client input: anything that is not "root" or a well-formed
+  # uuid is rejected outright — normalizing it to nil would silently
+  # reparent the category to the catalogue root (panel finding).
+  defp resolve_tree_target(_socket, target) when is_binary(target) do
+    case Ecto.UUID.cast(target) do
+      {:ok, _} -> {:ok, target}
+      :error -> :error
+    end
+  end
+
+  defp resolve_tree_target(_socket, _target), do: :error
+
+  # "category:uuid" strings from the hook → validated uuid list. Any
+  # malformed entry rejects the whole payload (forgeable client input).
+  defp parse_category_entries(entries) do
+    parsed =
+      Enum.map(entries, fn entry ->
+        with true <- is_binary(entry),
+             ["category", uuid] <- String.split(entry, ":", parts: 2),
+             {:ok, _} <- Ecto.UUID.cast(uuid) do
+          uuid
+        else
+          _ -> :invalid
+        end
+      end)
+
+    if :invalid in parsed, do: :error, else: {:ok, parsed}
+  end
+
+  # Move (a no-op when the parent is unchanged), then write the level's
+  # order when an edge drop supplied one. A failed move skips the
+  # reorder — the flash carries the reason. The drop target stays
+  # expanded so the moved row remains visible.
+  defp apply_category_move(socket, uuid, target_uuid, ordered_uuids) do
+    catalogue_uuid = socket.assigns.catalogue_uuid
+
+    with %Category{catalogue_uuid: ^catalogue_uuid} = category <- Catalogue.get_category(uuid),
+         {:ok, _} <- Catalogue.move_category_under(category, target_uuid, actor_opts(socket)),
+         :ok <- maybe_reorder_level(socket, target_uuid, ordered_uuids) do
+      socket
+      |> maybe_expand_tree_target(target_uuid)
+      |> put_flash(:info, Gettext.gettext(PhoenixKitCatalogue.Gettext, "Category moved."))
+    else
+      {:error, reason} ->
+        put_flash(socket, :error, category_move_error(reason))
+
+      _ ->
+        put_flash(
+          socket,
+          :error,
+          Gettext.gettext(PhoenixKitCatalogue.Gettext, "Failed to move category.")
+        )
+    end
+  end
+
+  defp maybe_reorder_level(_socket, _target, nil), do: :ok
+
+  # Best-effort, and only against the authoritative level: the move has
+  # already committed, so a reorder that cannot apply (forged/partial
+  # entry list, orphan-promoted roots whose stored parent differs) is
+  # SKIPPED rather than reported as a failed move (panel findings). The
+  # sibling set comes from the server, not the payload.
+  defp maybe_reorder_level(socket, target_uuid, ordered_uuids) do
+    catalogue_uuid = socket.assigns.catalogue_uuid
+
+    server_level =
+      catalogue_uuid
+      |> Catalogue.list_child_categories(target_uuid)
+      |> MapSet.new(& &1.uuid)
+
+    if MapSet.equal?(MapSet.new(ordered_uuids), server_level) do
+      case Catalogue.reorder_categories(
+             catalogue_uuid,
+             target_uuid,
+             ordered_uuids,
+             actor_opts(socket)
+           ) do
+        :ok ->
+          :ok
+
+        {:error, reason} ->
+          Logger.warning(
+            "Category drop reorder skipped: reason=#{inspect(reason)} catalogue=#{catalogue_uuid} parent=#{inspect(target_uuid)}"
+          )
+
+          :ok
+      end
+    else
+      :ok
+    end
+  end
+
+  defp maybe_expand_tree_target(socket, nil), do: socket
+
+  defp maybe_expand_tree_target(socket, uuid),
+    do: update(socket, :expanded_categories, &MapSet.put(&1, uuid))
+
+  defp category_move_error(:would_create_cycle),
+    do: gettext("A category cannot move into its own subtree.")
+
+  defp category_move_error(:parent_not_found),
+    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Target category not found.")
+
+  defp category_move_error(:cross_catalogue),
+    do: gettext("Categories can only move within their own catalogue.")
+
+  defp category_move_error(_),
+    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Failed to move category.")
+
+  # Depth-first rows of the drilled node's subtree, skipping the
+  # children of collapsed rows: `{cat, depth, has_children, expanded?}`.
+  defp category_tree_rows(children_index, root_uuid, expanded) do
+    walk_category_level(children_index, root_uuid, 0, expanded)
+  end
+
+  defp walk_category_level(index, parent_uuid, depth, expanded) do
+    index
+    |> Map.get(parent_uuid, [])
+    |> Enum.flat_map(fn cat ->
+      has_children = Map.has_key?(index, cat.uuid)
+      expanded? = has_children and MapSet.member?(expanded, cat.uuid)
+      row = {cat, depth, has_children, expanded?}
+
+      if expanded? do
+        [row | walk_category_level(index, cat.uuid, depth + 1, expanded)]
+      else
+        [row]
+      end
+    end)
+  end
+
+  # ── Nested card level (the index's card-level idiom, for chapters) ──
+
+  attr(:catalogue, :map, required: true)
+  attr(:tree_children, :map, required: true)
+  attr(:root_uuid, :any, required: true)
+  attr(:child_counts, :map, required: true)
+  attr(:child_subcat_counts, :map, required: true)
+  attr(:file_counts, :map, required: true)
+  attr(:categories_columns, :list, required: true)
+  attr(:view_mode, :string, required: true)
+  attr(:reorderable, :boolean, required: true)
+
+  defp categories_card_level(assigns) do
+    assigns = assign(assigns, :roots, Map.get(assigns.tree_children, assigns.root_uuid, []))
+
+    ~H"""
+    <div
+      :if={@roots != []}
+      id="catalogue-categories-cards"
+      phx-hook="CatalogueTreeDnD"
+      class="relative"
+    >
+      <div
+        data-tree-rootzone="1"
+        data-tree-drop="root"
+        class="hidden absolute -top-1 left-0 right-0 z-10 rounded-lg border-2 border-dashed border-primary/50 bg-base-100 py-2.5 text-center text-sm text-base-content/60"
+      >
+        <.icon name="hero-arrow-up-tray" class="w-4 h-4 inline-block mr-1 align-text-bottom" />
+        {gettext("Drop here to move to this level")}
+      </div>
+      <.category_card_entries
+        entries={@roots}
+        parent_key="root"
+        catalogue={@catalogue}
+        tree_children={@tree_children}
+        child_counts={@child_counts}
+        child_subcat_counts={@child_subcat_counts}
+        file_counts={@file_counts}
+        categories_columns={@categories_columns}
+        view_mode={@view_mode}
+        reorderable={@reorderable}
+      />
+    </div>
+    """
+  end
+
+  attr(:entries, :list, required: true)
+  attr(:parent_key, :string, required: true)
+  attr(:catalogue, :map, required: true)
+  attr(:tree_children, :map, required: true)
+  attr(:child_counts, :map, required: true)
+  attr(:child_subcat_counts, :map, required: true)
+  attr(:file_counts, :map, required: true)
+  attr(:categories_columns, :list, required: true)
+  attr(:view_mode, :string, required: true)
+  attr(:reorderable, :boolean, required: true)
+
+  # One level's cards: leaves as tiles, parents as full-width BOXES with
+  # their children's grid inside, recursively — so the whole outline is
+  # visible in card view too (Max, 2026-08-29). Boxes and tiles share
+  # the tree-DnD contract: middle drop nests, edges reorder, the root
+  # strip lifts.
+  defp category_card_entries(assigns) do
+    ~H"""
+    <div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
+      <%= for cat <- @entries do %>
+        <%= if Map.get(@tree_children, cat.uuid, []) == [] do %>
+          <.category_tile
+            catalogue_uuid={@catalogue.uuid}
+            category={cat}
+            reorderable={@reorderable}
+            tree_parent={@parent_key}
+            count={Map.get(@child_counts, cat.uuid, 0)}
+            categories_columns={@categories_columns}
+            subcat_count={Map.get(@child_subcat_counts, cat.uuid, 0)}
+            file_count={Map.get(@file_counts, cat.uuid, 0)}
+            has_subs={false}
+            view_mode={@view_mode}
+            sibling_count={length(@entries)}
+            has_files={Map.get(@file_counts, cat.uuid, 0) > 0}
+          />
+        <% else %>
+          <div
+            data-tree-uuid={cat.uuid}
+            data-tree-type="category"
+            data-tree-parent={@parent_key}
+            data-tree-drop={cat.uuid}
+            class="col-span-full rounded-lg border border-base-300 bg-base-200/40 p-3 flex flex-col gap-2"
+          >
+            <div class="flex items-center gap-2 min-w-0">
+              <span
+                :if={@reorderable}
+                data-tree-item={"category:" <> cat.uuid}
+                class="pk-drag-handle cursor-grab active:cursor-grabbing text-base-content/40 hover:text-base-content/70"
+                title={gettext("Drag to reorder or nest")}
+              >
+                <.icon name="hero-bars-3" class="w-4 h-4" />
+              </span>
+              <input
+                type="checkbox"
+                class="checkbox checkbox-xs"
+                data-bulk-role="row"
+                data-uuid={cat.uuid}
+              />
+              <.link
+                patch={Paths.category_browse(@catalogue.uuid, cat.uuid) <> "&mode=items"}
+                class="font-medium truncate hover:text-primary"
+              >
+                {cat.name}
+              </.link>
+              <span class="badge badge-ghost badge-sm tabular-nums">
+                {Map.get(@child_counts, cat.uuid, 0)}
+              </span>
+              <div class="ml-auto">
+                <.table_row_menu mode="auto" id={"category-box-menu-#{cat.uuid}"}>
+                  <.table_row_menu_link
+                    navigate={Paths.category_edit(cat.uuid)}
+                    icon="hero-pencil"
+                    label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")}
+                  />
+                  <.table_row_menu_link
+                    navigate={Paths.category_new(@catalogue.uuid) <> "?parent_uuid=" <> cat.uuid}
+                    icon="hero-folder-plus"
+                    label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "New subcategory")}
+                  />
+                  <.table_row_menu_divider />
+                  <.table_row_menu_button
+                    phx-click="request_trash_category"
+                    phx-value-uuid={cat.uuid}
+                    icon="hero-trash"
+                    label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")}
+                    variant="error"
+                  />
+                </.table_row_menu>
+              </div>
+            </div>
+            <.category_card_entries
+              entries={Map.get(@tree_children, cat.uuid, [])}
+              parent_key={cat.uuid}
+              catalogue={@catalogue}
+              tree_children={@tree_children}
+              child_counts={@child_counts}
+              child_subcat_counts={@child_subcat_counts}
+              file_counts={@file_counts}
+              categories_columns={@categories_columns}
+              view_mode={@view_mode}
+              reorderable={@reorderable}
+            />
+          </div>
+        <% end %>
+      <% end %>
+    </div>
+    """
+  end
+
   # Tile form of the category card — the "card view" branch of the level's
   # categories. Same affordances as the row (drill, select, drag among
   # siblings, edit); the file indicator moves into the badge row because a
@@ -4206,15 +5054,15 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   attr(:subcat_count, :integer, default: 0)
   attr(:file_count, :integer, default: 0)
   attr(:reorderable, :boolean, default: true)
+  attr(:tree_parent, :string, default: "root")
 
   defp category_tile(assigns) do
     ~H"""
     <div
-      class={[
-        "group card card-sm bg-base-100 shadow hover:shadow-md transition-shadow overflow-hidden",
-        @view_mode == "active" and @category.status == "active" && "sortable-item"
-      ]}
-      data-id={@view_mode == "active" and @category.status == "active" && @category.uuid}
+      class="group card card-sm bg-base-100 shadow hover:shadow-md transition-shadow overflow-hidden"
+      data-tree-uuid={@view_mode == "active" and @category.status == "active" && @category.uuid}
+      data-tree-type={@view_mode == "active" and @category.status == "active" && "category"}
+      data-tree-parent={@view_mode == "active" and @category.status == "active" && @tree_parent}
     >
       <figure class="relative h-24 bg-base-200">
         <.featured_thumb resource={@category} class="w-full h-full" />
@@ -4231,19 +5079,17 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
           data-uuid={@category.uuid}
         />
         <span
-          :if={
-            @view_mode == "active" and @category.status == "active" and @sibling_count > 1 and
-              @reorderable
-          }
+          :if={@view_mode == "active" and @category.status == "active" and @reorderable}
+          data-tree-item={"category:" <> @category.uuid}
           class="pk-drag-handle cursor-grab active:cursor-grabbing absolute top-1.5 right-1.5 rounded bg-base-100/80 p-0.5 text-base-content/50 hover:text-base-content/80"
-          title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Drag to reorder (among siblings)")}
+          title={gettext("Drag to reorder or nest")}
         >
           <.icon name="hero-bars-3" class="w-4 h-4" />
         </span>
       </figure>
       <div class="card-body p-3 gap-1.5">
         <.link
-          patch={Paths.category_browse(@catalogue_uuid, @category.uuid)}
+          patch={Paths.category_browse(@catalogue_uuid, @category.uuid) <> "&mode=items"}
           class="font-medium truncate hover:text-primary"
         >
           {@category.name}
@@ -4318,9 +5164,9 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")}
             />
             <.table_row_menu_link
-              patch={Paths.category_browse(@catalogue_uuid, @category.uuid)}
-              icon="hero-folder-open"
-              label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Open")}
+              navigate={Paths.category_new(@catalogue_uuid) <> "?parent_uuid=" <> @category.uuid}
+              icon="hero-folder-plus"
+              label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "New subcategory")}
             />
             <.table_row_menu_divider />
             <.table_row_menu_button
@@ -4338,32 +5184,6 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   end
 
   # Tile form of the Uncategorized drill (root, active mode).
-  attr(:catalogue_uuid, :string, required: true)
-  attr(:count, :integer, required: true)
-
-  defp uncategorized_tile(assigns) do
-    ~H"""
-    <.link
-      patch={Paths.uncategorized_browse(@catalogue_uuid)}
-      class="card card-sm bg-base-100 shadow hover:shadow-md transition-shadow overflow-hidden"
-    >
-      <figure class="relative h-24 bg-base-200">
-        <.icon
-          name="hero-folder-open"
-          class="w-10 h-10 text-base-content/20 absolute inset-0 m-auto"
-        />
-      </figure>
-      <div class="card-body p-3 gap-1.5">
-        <span class="font-medium truncate">
-          {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Uncategorized")}
-        </span>
-        <span class="badge badge-ghost badge-sm w-fit">
-          {@count} {Gettext.gettext(PhoenixKitCatalogue.Gettext, "items")}
-        </span>
-      </div>
-    </.link>
-    """
-  end
 
   # The current node's own direct items.
   #
@@ -4405,12 +5225,22 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         "reorder and bulk actions."
   )
 
+  attr(:reorder_allowed, :boolean,
+    default: true,
+    doc:
+      "False when the list spans more than one position scope (the " <>
+        "catalogue-wide root list): positions are per category, so a " <>
+        "drag there would interleave unrelated sequences."
+  )
+
   defp level_items(assigns) do
     # `draggable?` controls the handle *column* (manual sort, not the deleted
     # list); `reorderable?` controls the actual grip + DnD, which needs ≥2
     # items. The column is kept even at a single item — rendered as an empty
     # spacer cell — so deleting down to one row doesn't shift the layout.
-    draggable? = assigns.items_sort_by == :position and assigns.view_mode != "deleted"
+    draggable? =
+      assigns.items_sort_by == :position and assigns.view_mode != "deleted" and
+        assigns.reorder_allowed
 
     assigns =
       assigns
