@@ -72,6 +72,7 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
         manufacturer: item.manufacturer_name || item.manufacturer_name_snapshot,
         category: presented_category(item, locale),
         photo_url: featured_photo_url(item),
+        thumb_url: featured_thumb_url(item),
         default_qty: Decimal.new(1)
       }
     end)
@@ -104,6 +105,18 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
   def featured_photo_url(item) do
     case item.data["featured_image_uuid"] do
       uuid when is_binary(uuid) and uuid != "" -> URLSigner.signed_url(uuid, @photo_variant)
+      _ -> nil
+    end
+  end
+
+  @doc """
+  Signed URL for the 150px `thumbnail` variant, or nil — for the 32-48px
+  row cells that were shipping the 800px `medium` into a thumb-sized img
+  (bandwidth, not quality; 2026-08-29 image sweep).
+  """
+  def featured_thumb_url(item) do
+    case item.data["featured_image_uuid"] do
+      uuid when is_binary(uuid) and uuid != "" -> URLSigner.signed_url(uuid, "thumbnail")
       _ -> nil
     end
   end
@@ -462,14 +475,14 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
         <%= case col do %>
           <% :thumb -> %>
             <img
-              :if={@item.photo_url}
-              src={@item.photo_url}
+              :if={@item.thumb_url}
+              src={@item.thumb_url}
               alt=""
               class="w-8 h-8 rounded object-cover bg-base-200"
               loading="lazy"
             />
             <div
-              :if={!@item.photo_url}
+              :if={!@item.thumb_url}
               class="w-8 h-8 rounded bg-base-200 flex items-center justify-center text-base-content/40 font-bold"
             >
               {String.first(@item.sku || @item.name || "?")}

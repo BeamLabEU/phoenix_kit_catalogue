@@ -5064,13 +5064,23 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       data-tree-type={@view_mode == "active" and @category.status == "active" && "category"}
       data-tree-parent={@view_mode == "active" and @category.status == "active" && @tree_parent}
     >
-      <figure class="relative h-24 bg-base-200">
-        <.featured_thumb resource={@category} class="w-full h-full" />
-        <.icon
-          :if={!featured_image_uuid(@category)}
-          name="hero-folder"
-          class="w-10 h-10 text-base-content/20 absolute inset-0 m-auto"
-        />
+      <%!-- The shared band (taller since 2026-08-29 — the h-24 sliver
+           cropped hard) with the card-grade variant: this tile was
+           stretching the 150px list thumbnail across the full card,
+           which is the blur the boss reported. The picture links where
+           the title does. --%>
+      <figure class={card_media_band()}>
+        <.link
+          patch={Paths.category_browse(@catalogue_uuid, @category.uuid) <> "&mode=items"}
+          class="block w-full h-full"
+        >
+          <.featured_thumb resource={@category} class="w-full h-full" variant="medium" />
+          <.icon
+            :if={!featured_image_uuid(@category)}
+            name="hero-folder"
+            class="w-10 h-10 text-base-content/20 absolute inset-0 m-auto"
+          />
+        </.link>
         <input
           :if={@view_mode == "active" and @category.status == "active"}
           type="checkbox"
@@ -5336,20 +5346,24 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                 in its corner, exactly as the categories grid above does it
                 (boss via Max, 2026-08-28). --%>
           <:card_media :let={item}>
-            <.card_media
-              resource={item}
-              has_files={Map.get(@file_counts, item.uuid, 0) > 0}
-              on_click="show_product_card"
-            >
-              <:overlay>
-                <input
-                  type="checkbox"
-                  class="checkbox checkbox-xs absolute top-1.5 left-1.5 bg-base-100/80"
-                  data-bulk-role="row"
-                  data-uuid={item.uuid}
-                />
-              </:overlay>
-            </.card_media>
+            <%!-- Band inside the slot — the pinned core ignores
+                 card_media_class, so the frame never applied. --%>
+            <figure class={card_media_band()}>
+              <.card_media
+                resource={item}
+                has_files={Map.get(@file_counts, item.uuid, 0) > 0}
+                on_click="show_product_card"
+              >
+                <:overlay>
+                  <input
+                    type="checkbox"
+                    class="checkbox checkbox-xs absolute top-1.5 left-1.5 bg-base-100/80"
+                    data-bulk-role="row"
+                    data-uuid={item.uuid}
+                  />
+                </:overlay>
+              </.card_media>
+            </figure>
           </:card_media>
           <:card_body :let={item}>
             <div class="flex items-center gap-2 font-medium text-sm">
