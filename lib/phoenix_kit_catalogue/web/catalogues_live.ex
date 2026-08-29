@@ -179,8 +179,13 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
 
   # Which mutation kinds warrant a reload for each tab. :item matters to
   # the attributes tab too — assignment changes ride the :item kind and
-  # move the "Items" usage counts.
-  defp reload_on?(:index, kind), do: kind in [:catalogue, :item, :category, :folder]
+  # move the "Items" usage counts. :attribute_set matters to the INDEX
+  # since items mode hosts the attribute filter: a value renamed or
+  # deleted elsewhere must move the options and facet counts, or an open
+  # items search keeps offering it (panel finding, 2026-08-29).
+  defp reload_on?(:index, kind),
+    do: kind in [:catalogue, :item, :category, :folder, :attribute_set]
+
   defp reload_on?(:attribute_groups, kind), do: kind in [:attribute_group, :attribute_set, :item]
   defp reload_on?(_tab, _kind), do: false
 
@@ -869,11 +874,16 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
 
   # A PubSub reload or empty-folder delete can leave `filters["folder"]`
   # pointing at a uuid that is no longer in the active tree — the
-  # structure view then hides and the flat filter matches nothing.
+  # structure view then hides and the flat filter matches nothing. The
+  # `__unfiled__` sentinel is spared: it is not stale, it MEANS "unfiled"
+  # (old URLs), and clearing it silently widened an items-mode search
+  # from unfiled catalogues to everywhere (panel finding, 2026-08-29).
   defp drop_stale_folder_filter(socket, folder_lookup) do
     folder = get_in(socket.assigns.view_configs, [:catalogues, :filters, "folder"])
 
-    if is_binary(folder) and folder != "" and not Map.has_key?(folder_lookup, folder) do
+    if is_binary(folder) and folder != "" and
+         folder != TableQuery.unfiled_folder_value() and
+         not Map.has_key?(folder_lookup, folder) do
       clear_folder_filter(socket)
     else
       socket

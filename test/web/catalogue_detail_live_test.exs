@@ -753,6 +753,22 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
       refute html =~ "Oak things"
     end
 
+    test "a sticky ?type=categories cannot dead-end the uncategorized bucket", %{conn: conn} do
+      catalogue = fixture_catalogue()
+      fixture_item(%{name: "Loose oak plank", catalogue_uuid: catalogue.uuid})
+
+      # The bucket holds no categories and hides the chips, so a type
+      # carried in from elsewhere used to turn every search into a false
+      # "Nothing matches your search." with no control to escape. The
+      # bucket always searches as All.
+      {:ok, view, _html} =
+        live(conn, url(catalogue.uuid) <> "?category=uncategorized&q=oak&type=categories")
+
+      html = render_async(view)
+      assert html =~ "Loose oak plank"
+      refute html =~ "Nothing matches"
+    end
+
     test "set_search_type patches ?type= and re-asks the search", %{conn: conn} do
       catalogue = fixture_catalogue()
       category = fixture_category(catalogue, %{name: "Oak category"})

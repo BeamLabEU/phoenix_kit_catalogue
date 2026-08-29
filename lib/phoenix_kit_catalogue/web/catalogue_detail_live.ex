@@ -285,7 +285,21 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     # only re-asks the SEARCH — the catch-all branch below already does
     # that on every patch, so no branch of its own — while the level
     # under the results is untouched.
-    type = if state.search_type in ["categories", "items"], do: state.search_type, else: ""
+    #
+    # The uncategorized bucket always searches as All: it holds no
+    # categories to find and hides the chips, so a "categories" type
+    # carried in from elsewhere would turn every search into "Nothing
+    # matches your search." with no visible control to escape (panel
+    # finding, 2026-08-29). Assigning "" also makes the next
+    # push_url_state drop the stale ?type= — the merge base is read back
+    # from this assign.
+    type =
+      cond do
+        cat_key == "uncategorized" -> ""
+        state.search_type in ["categories", "items"] -> state.search_type
+        true -> ""
+      end
+
     socket = assign(socket, :search_type, type)
 
     cond do
@@ -2523,11 +2537,17 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     socket
     # The facets answer for the list as it will be, search included —
     # a value still offered as live while the search has narrowed it
-    # away is the empty list this filter exists to prevent.
-    |> assign_attribute_counts(uuid)
+    # away is the empty list this filter exists to prevent. In a
+    # categories-type search the item side is neither queried nor shown
+    # and the filter control is hidden, so the count query is skipped
+    # with it (panel finding, 2026-08-29); the next type flip re-runs
+    # this whole function and refreshes them.
+    |> then(fn s ->
+      if type == "categories", do: s, else: assign_attribute_counts(s, uuid)
+    end)
     |> start_async(:search, fn ->
       # The type chips narrow what is ASKED, not just what is shown —
-      # a Categories search does not run the item queries at all.
+      # a Categories search skips the item listing and count queries.
       {results, total} =
         if type == "categories",
           do: {[], 0},
@@ -3098,9 +3118,17 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               <%!-- Attribute filter: "show me the blue doors" (Max,
                     2026-08-28). Only the sets this catalogue actually
                     uses are offered, so it stays empty and out of the way
-                    where attributes aren't used at all. --%>
+                    where attributes aren't used at all. Hidden while a
+                    categories-type search is showing: the filter is
+                    item-level, and an active control whose toggles
+                    provably change nothing on screen is a lie (panel
+                    finding, 2026-08-29). --%>
               <.attribute_filter
-                :if={@attribute_filter_options != []}
+                :if={
+                  @attribute_filter_options != [] and
+                    not (@search_type == "categories" and
+                           (@search_results != nil or @search_loading))
+                }
                 options={@attribute_filter_options}
                 selected={active_attribute_slugs(assigns)}
                 counts={@attribute_value_counts}
