@@ -357,15 +357,41 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
     end
   end
 
-  # Values for one or more sets, archived excluded, `%{set_uuid => values}`.
-  #
-  # The batched entities API filters status in SQL, which is what makes a
-  # `:limit` mean what it says. The fallback cannot: it limits first and
-  # drops archived after, so a set whose first rows are archived comes
-  # back short — asking for 5 and getting 3 reads as "there are only 3".
-  # It over-fetches to make that unlikely; the pin release removes the
-  # guesswork.
-  defp list_values_for(set_uuids, opts) do
+  @doc """
+  Values for MANY sets at once: `%{set_uuid => [value]}`, archived excluded.
+
+  The batched twin of `list_values/2`. A listing that shows a preview of each
+  set's values must not call the singular form per row — the sets listing did,
+  and paged 25 at a time, so opening the Attributes tab cost 25 queries and
+  repeated them on every attribute or item broadcast.
+
+  `:limit` is PER SET. The batched entities API filters status in SQL, which is
+  what makes that limit mean what it says; the fallback for an older entities
+  pin cannot, so it over-fetches and trims — asking for 5 and getting 3 reads
+  as "there are only 3".
+  """
+  @spec list_values_for([Ecto.UUID.t()], keyword()) :: %{optional(Ecto.UUID.t()) => [struct()]}
+  def list_values_for(set_uuids, opts \\ [])
+  def list_values_for([], _opts), do: %{}
+
+  def list_values_for(set_uuids, opts) when is_list(set_uuids) do
+    # Gated like its singular twin. This was private when it had one caller
+    # that had already asked; making it public — and delegating to it from
+    # `Catalogue.list_attribute_set_values_for/2` — put a read on the public
+    # surface that answers with live data while every sibling read degrades
+    # to empty with the feature off. The module's contract (see the moduledoc)
+    # is that reads degrade quietly: `[]`, `nil`, `%{}`, `0`.
+    #
+    # It also guards the fallback below: without entities loaded at all,
+    # `batch.list_by_entity/2` is a call into a module that is not there.
+    if entities_enabled?() do
+      do_list_values_for(set_uuids, opts)
+    else
+      %{}
+    end
+  end
+
+  defp do_list_values_for(set_uuids, opts) do
     batch = PhoenixKitEntities.EntityData
     limit = opts[:limit]
 
@@ -811,7 +837,7 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
       "set_uuid" => set_uuid
     })
 
-    PubSub.broadcast(:item, item_uuid, Helpers.item_catalogue_uuid(item_uuid))
+    maybe_broadcast_item(item_uuid, opts)
     {:ok, row}
   end
 
@@ -888,7 +914,7 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
         "set_uuid" => set_uuid
       })
 
-      PubSub.broadcast(:item, item_uuid, Helpers.item_catalogue_uuid(item_uuid))
+      maybe_broadcast_item(item_uuid, opts)
     end
 
     :ok
@@ -899,33 +925,77 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
   (no writes, no activity row) when the order already matches — this
   runs on every item save.
   """
-  @spec reorder_attachments(Ecto.UUID.t(), [Ecto.UUID.t()], keyword()) :: :ok
+  @spec reorder_attachments(Ecto.UUID.t(), [Ecto.UUID.t()], keyword()) :: :ok | {:error, term()}
   def reorder_attachments(item_uuid, set_uuids, opts \\ []) when is_list(set_uuids) do
     ordered = Enum.uniq(set_uuids)
-    current = item_uuid |> list_attachments() |> Enum.map(& &1.set_uuid)
 
-    if ordered == current do
-      :ok
-    else
-      ordered
-      |> Enum.with_index(1)
-      |> Enum.each(fn {set_uuid, idx} ->
-        from(a in ItemAttributeSet,
-          where: a.item_uuid == ^item_uuid and a.set_uuid == ^set_uuid
-        )
-        |> repo().update_all(set: [position: idx])
+    # Read, compare and write inside ONE transaction, under a per-item
+    # advisory lock. This was a check-then-act on a non-primary-key column
+    # with neither: two saves of the same item interleaved their per-row
+    # `update_all`s into a mixed order, and a mid-loop failure left half the
+    # attachments renumbered with no rollback. Every sibling reorder in this
+    # codebase wraps the loop; `lock_set/1` above is the same mechanism,
+    # keyed by set rather than by item.
+    result =
+      repo().transaction(fn ->
+        lock_item_attachments(item_uuid)
+        current = item_uuid |> list_attachments() |> Enum.map(& &1.set_uuid)
+
+        if ordered == current do
+          :unchanged
+        else
+          write_attachment_positions(item_uuid, ordered)
+          :reordered
+        end
       end)
 
-      # No single set is "the" resource for a whole-item reorder — the
-      # row links through metadata.item_uuid instead.
-      log_activity("attribute_set.attachments_reordered", opts, nil, %{
-        "item_uuid" => item_uuid,
-        "order" => ordered
-      })
+    case result do
+      {:ok, :unchanged} ->
+        :ok
 
-      PubSub.broadcast(:item, item_uuid, Helpers.item_catalogue_uuid(item_uuid))
-      :ok
+      {:ok, :reordered} ->
+        # No single set is "the" resource for a whole-item reorder — the
+        # row links through metadata.item_uuid instead.
+        log_activity("attribute_set.attachments_reordered", opts, nil, %{
+          "item_uuid" => item_uuid,
+          "order" => ordered
+        })
+
+        maybe_broadcast_item(item_uuid, opts)
+        :ok
+
+      {:error, reason} ->
+        {:error, reason}
     end
+  end
+
+  # `broadcast: false` for callers that make several of these changes in a
+  # row — an item save can attach, detach, reorder and set selections in one
+  # pass, and each of those broadcast separately AND ran its own
+  # `item_catalogue_uuid/1` SELECT to do it. Every open detail LiveView then
+  # re-ran `refresh_in_place/1` once per change. The importer already uses
+  # this convention (`import/executor.ex`), with one roll-up event at the end.
+  defp maybe_broadcast_item(item_uuid, opts) do
+    if Keyword.get(opts, :broadcast, true) do
+      PubSub.broadcast(:item, item_uuid, Helpers.item_catalogue_uuid(item_uuid))
+    end
+
+    :ok
+  end
+
+  defp write_attachment_positions(item_uuid, ordered) do
+    ordered
+    |> Enum.with_index(1)
+    |> Enum.each(fn {set_uuid, idx} ->
+      from(a in ItemAttributeSet,
+        where: a.item_uuid == ^item_uuid and a.set_uuid == ^set_uuid
+      )
+      |> repo().update_all(set: [position: idx])
+    end)
+  end
+
+  defp lock_item_attachments(item_uuid) do
+    repo().query!("SELECT pg_advisory_xact_lock(hashtextextended($1::text, 43))", [item_uuid])
   end
 
   @doc "The item's attachments in order."
@@ -1440,7 +1510,7 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
         "selected" => selection
       })
 
-      PubSub.broadcast(:item, item_uuid, Helpers.item_catalogue_uuid(item_uuid))
+      maybe_broadcast_item(item_uuid, opts)
       :ok
     else
       {:error, :not_attached}

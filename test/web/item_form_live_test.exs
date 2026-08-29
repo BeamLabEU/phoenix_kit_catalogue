@@ -120,6 +120,51 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLiveTest do
       assert item.catalogue_uuid == catalogue.uuid
     end
 
+    test "a forged catalogue_uuid cannot file the item under another catalogue",
+         %{conn: conn} do
+      catalogue = fixture_catalogue()
+      other = fixture_catalogue()
+
+      {:ok, view, _html} = live(conn, new_item_url(catalogue.uuid))
+
+      # Driven as a raw event, not through `form/3`: the point of the fix is
+      # that a LiveView event is not bound by the markup that produced it,
+      # and `form/3` refuses to send anything the rendered form does not
+      # offer. A forged submit does not come from the form.
+      {:error, {:live_redirect, _}} =
+        render_submit(view, "save", %{
+          "item" => base_item_params(%{"name" => "Forged", "catalogue_uuid" => other.uuid})
+        })
+
+      [item] = TestRepo.all(Item)
+      assert item.catalogue_uuid == catalogue.uuid
+      refute item.catalogue_uuid == other.uuid
+    end
+
+    test "a category from another catalogue is refused, not silently followed",
+         %{conn: conn} do
+      catalogue = fixture_catalogue()
+      other = fixture_catalogue()
+      foreign_category = fixture_category(other, %{name: "Elsewhere"})
+
+      {:ok, view, _html} = live(conn, new_item_url(catalogue.uuid))
+
+      # The longer route to the same field: `derive_catalogue_uuid/2` copies
+      # the CATEGORY's catalogue over whatever the server set, deliberately,
+      # so a forged category_uuid beats the server-side scope pin.
+      html =
+        render_submit(view, "save", %{
+          "item" =>
+            base_item_params(%{
+              "name" => "Smuggled",
+              "category_uuid" => foreign_category.uuid
+            })
+        })
+
+      assert html =~ "another catalogue"
+      assert TestRepo.all(Item) == []
+    end
+
     test "saves an uncategorized item (empty category_uuid)", %{conn: conn} do
       catalogue = fixture_catalogue()
       {:ok, view, _html} = live(conn, new_item_url(catalogue.uuid))
@@ -179,6 +224,34 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLiveTest do
 
       assert html =~ "Oak Panel"
       assert html =~ "OAK-18"
+    end
+
+    test "a forged catalogue_uuid cannot move an uncategorized item on edit",
+         %{conn: conn} do
+      catalogue = fixture_catalogue()
+      other = fixture_catalogue()
+
+      # UNCATEGORIZED on purpose: `derive_catalogue_uuid/2` overrides the
+      # field from the item's category, but with no category
+      # `put_catalogue_from_effective_category(attrs, nil)` returns attrs
+      # untouched — so nothing on the edit path contradicted a forged value.
+      # That is every smart item and every loose standard one.
+      item = fixture_item(%{name: "Loose", catalogue_uuid: catalogue.uuid})
+
+      {:ok, view, _html} = live(conn, edit_item_url(item.uuid))
+
+      render_submit(view, "save", %{
+        "item" =>
+          base_item_params(%{
+            "name" => "Loose",
+            "category_uuid" => "",
+            "catalogue_uuid" => other.uuid
+          })
+      })
+
+      reloaded = Catalogue.get_item(item.uuid)
+      assert reloaded.catalogue_uuid == catalogue.uuid
+      refute reloaded.catalogue_uuid == other.uuid
     end
 
     test "save updates the item and redirects back to its catalogue", %{conn: conn} do
