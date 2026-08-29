@@ -951,6 +951,84 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
       assert html =~ "Nested frame"
     end
 
+    test "subcategories stay visible on the inactive tab", %{conn: conn} do
+      catalogue = fixture_catalogue()
+      parent = fixture_category(catalogue, %{name: "Sleepy chapter"})
+      _child = fixture_category(catalogue, %{name: "Live sub", parent_uuid: parent.uuid})
+      dormant = fixture_item(%{name: "Dormant item", category_uuid: parent.uuid})
+      {:ok, _} = Catalogue.update_item(dormant, %{status: "inactive"})
+
+      # Only-inactive direct items auto-land the page on the Inactive
+      # tab — which used to hide the subcategories and the subtree
+      # toggle entirely (panel finding, 2026-08-29).
+      {:ok, _view, html} = live(conn, cat_url(catalogue.uuid, parent.uuid))
+      assert html =~ "Dormant item"
+      assert html =~ "Live sub"
+    end
+
+    test "no strategy reorder over a subtree list", %{conn: conn} do
+      catalogue = fixture_catalogue()
+      parent = fixture_category(catalogue, %{name: "Mixed chapter"})
+      child = fixture_category(catalogue, %{name: "Inner", parent_uuid: parent.uuid})
+      fixture_item(%{name: "Own one", category_uuid: parent.uuid})
+      fixture_item(%{name: "Nested one", category_uuid: child.uuid})
+
+      {:ok, view, _html} =
+        live(conn, cat_url(catalogue.uuid, parent.uuid) <> "&items=subtree")
+
+      # The event is refused — a strategy reorder would renumber only
+      # the direct scope of an interleaved list (panel finding).
+      render_click(view, "open_items_reorder_modal", %{})
+      refute :sys.get_state(view.pid).socket.assigns.show_items_reorder
+    end
+
+    test "a stale ?items=subtree does not leak into root or the bucket", %{conn: conn} do
+      catalogue = fixture_catalogue()
+      fixture_category(catalogue, %{name: "Any chapter"})
+
+      {:ok, view, _html} = live(conn, url(catalogue.uuid) <> "?items=subtree")
+      assert :sys.get_state(view.pid).socket.assigns.items_scope == ""
+    end
+
+    test "a root items-mode search settles even when the tab auto-flips", %{conn: conn} do
+      catalogue = fixture_catalogue()
+      gone = fixture_item(%{name: "Binned widget", catalogue_uuid: catalogue.uuid})
+      Catalogue.trash_item(gone)
+
+      # Only deleted items: the level load auto-picks the Deleted tab
+      # AFTER the search used to stamp itself for items mode — the reply
+      # then failed its own stamp and the spinner never cleared (panel
+      # finding). The search now runs after the level settles.
+      {:ok, view, _html} = live(conn, url(catalogue.uuid) <> "?mode=items&q=binned")
+      render_async(view)
+      refute :sys.get_state(view.pid).socket.assigns.search_loading
+    end
+
+    test "a descendant's change refreshes the open subtree list", %{conn: conn} do
+      catalogue = fixture_catalogue()
+      parent = fixture_category(catalogue, %{name: "Watched chapter"})
+      child = fixture_category(catalogue, %{name: "Leaf", parent_uuid: parent.uuid})
+      fixture_item(%{name: "Original nested", category_uuid: child.uuid})
+
+      {:ok, view, _html} =
+        live(conn, cat_url(catalogue.uuid, parent.uuid) <> "&items=subtree")
+
+      # Another tab changed an item in the CHILD — its refresh broadcast
+      # names the child's scope, which the parent's subtree list shows
+      # and used to drop (panel finding). The rename goes through the
+      # Repo so the ONLY signal the view gets is the refresh message.
+      late = fixture_item(%{name: "Placeholder name", category_uuid: child.uuid})
+      render_async(view)
+
+      late
+      |> Ecto.Changeset.change(name: "Late arrival")
+      |> PhoenixKit.RepoHelper.repo().update!()
+
+      other = spawn(fn -> :ok end)
+      send(view.pid, {:catalogue_card_refresh, catalogue.uuid, child.uuid, nil, nil, other})
+      assert render(view) =~ "Late arrival"
+    end
+
     test "no subcategories, no toggle", %{conn: conn} do
       catalogue = fixture_catalogue()
       leaf = fixture_category(catalogue, %{name: "Leaf chapter"})
