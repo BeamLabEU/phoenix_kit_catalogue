@@ -509,9 +509,10 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
       assert html =~ "COL-1"
       assert html =~ "Columns"
 
-      render_click(view, "show_column_modal", %{"scope" => "detail_items"})
+      render_click(view, "show_column_modal", %{})
       # Drop the SKU column — the editor is live, no Apply step.
-      updated = render_click(view, "remove_column", %{"column_id" => "sku"})
+      updated =
+        render_click(view, "remove_column", %{"column_id" => "sku", "scope" => "detail_items"})
 
       refute updated =~ "COL-1"
       assert updated =~ "Col item"
@@ -524,10 +525,46 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
       {:ok, view, html} = live(conn, url(catalogue.uuid))
       assert html =~ "Items"
 
-      render_click(view, "show_column_modal", %{"scope" => "detail_categories"})
-      updated = render_click(view, "add_column", %{"column_id" => "updated"})
+      render_click(view, "show_column_modal", %{})
+
+      updated =
+        render_click(view, "add_column", %{
+          "column_id" => "updated",
+          "scope" => "detail_categories"
+        })
 
       assert updated =~ "Updated"
+    end
+
+    test "both tables share one Columns button and one modal", %{conn: conn} do
+      catalogue = fixture_catalogue(%{name: "Merged cols"})
+      parent = fixture_category(catalogue, %{name: "Chapter with both"})
+      fixture_category(catalogue, %{name: "Sub chapter", parent_uuid: parent.uuid})
+      fixture_item(%{name: "Direct item", sku: "DIR-1", category_uuid: parent.uuid})
+
+      {:ok, view, html} = live(conn, cat_url(catalogue.uuid, parent.uuid))
+
+      # One button for the whole page — Max: two side-by-side "Columns"
+      # buttons "probobly should be in the same popup".
+      assert length(String.split(html, ~s(phx-click="show_column_modal"))) == 2
+
+      # The modal carries a section per table, each editing its own
+      # scope without touching the other.
+      opened = render_click(view, "show_column_modal", %{})
+      assert opened =~ "columns-shown-detail_categories"
+      assert opened =~ "columns-shown-detail_items"
+
+      updated =
+        render_click(view, "remove_column", %{"column_id" => "sku", "scope" => "detail_items"})
+
+      refute updated =~ "DIR-1"
+
+      assert :sys.get_state(view.pid).socket.assigns.categories_columns ==
+               PhoenixKitCatalogue.Web.TableConfig.default_columns(:detail_categories)
+
+      # Reset restores every section shown.
+      reset = render_click(view, "reset_columns", %{})
+      assert reset =~ "DIR-1"
     end
 
     test "detail sorts are shared across users and follow live", %{conn: conn} do
