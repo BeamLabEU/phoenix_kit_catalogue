@@ -78,6 +78,13 @@ defmodule PhoenixKitCatalogue.Web.TableQuery do
   def filter(rows, _scope, _), do: rows
 
   defp filter_match?(_scope, "folder", row, @unfiled_folder), do: is_nil(row[:folder_uuid])
+
+  # A set of uuids means "anywhere in this subtree" — the shape the
+  # LiveView passes while a search is on, so searching a drilled folder
+  # also finds catalogues filed in its subfolders.
+  defp filter_match?(_scope, "folder", row, %MapSet{} = uuids),
+    do: MapSet.member?(uuids, to_string(row[:folder_uuid]))
+
   defp filter_match?(_scope, "folder", row, val), do: to_string(row[:folder_uuid]) == val
 
   defp filter_match?(_scope, id, row, val) do
@@ -98,19 +105,9 @@ defmodule PhoenixKitCatalogue.Web.TableQuery do
   def sort(rows, _scope, _sort_by, _dir), do: rows
 
   # Tuples are `{label, value}` — the order Phoenix's `options_for_select`
-  # expects. The submitted value must be the uuid: `filter_match?/4` above
-  # compares it to `row[:folder_uuid]`.
+  # expects. Status options get the same translated label as the rest of
+  # the UI (Helpers.status_label/1) instead of the raw DB value.
   @spec enum_options([map()], TableConfig.scope(), String.t()) :: [{String.t(), String.t()}]
-  def enum_options(rows, _scope, "folder") do
-    rows
-    |> Enum.map(&{&1[:folder_name], to_string(&1[:folder_uuid])})
-    |> Enum.reject(fn {_, uuid} -> uuid in ["", "nil"] end)
-    |> Enum.uniq()
-    |> Enum.sort_by(fn {name, _u} -> String.downcase(name || "") end)
-  end
-
-  # Status options get the same translated label as the rest of the UI
-  # (Helpers.status_label/1) instead of the raw DB value.
   def enum_options(rows, scope, "status") do
     rows
     |> raw_enum_values(scope, "status")
