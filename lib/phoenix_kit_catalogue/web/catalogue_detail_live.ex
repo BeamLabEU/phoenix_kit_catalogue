@@ -3202,12 +3202,13 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               <.attribute_filter
                 :if={
                   @attribute_filter_options != [] and
-                    not (@search_type == "categories" and
+                    not (effective_search_type(assigns) == "categories" and
                            (@search_results != nil or @search_loading))
                 }
                 options={@attribute_filter_options}
                 selected={active_attribute_slugs(assigns)}
                 counts={@attribute_value_counts}
+                always_visible={items_mode?(assigns)}
               />
               <div :if={@view_mode == "active"} class="ml-auto flex flex-wrap items-center gap-2">
                 <%!-- On every level (boss's call, 2026-08-18 — subcategories

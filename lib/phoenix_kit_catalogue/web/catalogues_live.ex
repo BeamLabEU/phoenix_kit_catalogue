@@ -2845,6 +2845,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
                 options={@attribute_filter_options}
                 selected={active_attribute_slugs(assigns)}
                 counts={@attribute_value_counts}
+                always_visible
               />
             </:filters>
             <:actions>
