@@ -32,7 +32,8 @@ defmodule PhoenixKitCatalogue.Web.CardStyleTest do
 
   test "one band definition, so pages cannot drift apart" do
     # The frame lives in exactly one place; every card face passes it.
-    assert Components.card_media_band() =~ "h-24"
+    # Taller since 2026-08-29 (Max: more height, crop less).
+    assert Components.card_media_band() =~ "h-40"
     assert Components.card_media_band() =~ "bg-base-200"
     assert Components.card_media_frame() == %{card_media_class: Components.card_media_band()}
   end

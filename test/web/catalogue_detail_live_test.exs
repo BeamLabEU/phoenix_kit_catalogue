@@ -164,6 +164,29 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
       assert flat =~ "catalogue-child-categories"
     end
 
+    test "category card pictures are card-grade, framed, and link like the title",
+         %{conn: conn} do
+      catalogue = fixture_catalogue()
+      category = fixture_category(catalogue, %{name: "Pictured"})
+
+      {:ok, _} =
+        Catalogue.update_category(category, %{
+          data: %{"featured_image_uuid" => UUIDv7.generate()}
+        })
+
+      {:ok, _view, html} = live(conn, url(catalogue.uuid))
+
+      # The card face loads the 800px medium variant — the 150px list
+      # thumbnail stretched across a card was the blur the boss reported
+      # (2026-08-29). The tiny tree-row cell keeps the light thumbnail.
+      assert html =~ "/medium/"
+      assert html =~ "/thumbnail/"
+      # The shared band got taller, and the picture links where the
+      # title does: the items link appears for both name and image.
+      assert html =~ "h-40"
+      assert length(String.split(html, "category=#{category.uuid}&amp;mode=items")) - 1 >= 2
+    end
+
     test "the card view nests too: parents are boxes holding their children", %{conn: conn} do
       catalogue = fixture_catalogue()
       parent = fixture_category(catalogue, %{name: "Chapter A"})
