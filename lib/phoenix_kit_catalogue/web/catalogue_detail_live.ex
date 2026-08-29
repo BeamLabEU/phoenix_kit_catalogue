@@ -222,6 +222,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         attribute_value_counts: %{},
         prior_attribute_filter: "",
         search_mode: "",
+        prior_search_mode: "",
         search_type: "",
         search_results: nil,
         search_categories: [],
@@ -297,13 +298,18 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     # The Categories/Items page mode. Client-forgeable URL state —
     # anything unknown means the default outline view. A mode change
     # re-fetches the level: whether the item list loads at all depends
-    # on it (`show_items_section`).
+    # on it (`show_items_section`). Compared against a PRIOR tracker,
+    # not the param assign — UrlState auto-assigns declared params
+    # before this callback runs, so the param assign always reads as
+    # "unchanged" (the same reason prior_category_uuid and
+    # prior_attribute_filter exist).
     mode = if state.search_mode == "items", do: "items", else: ""
-    mode_changed? = mode != socket.assigns.search_mode
+    mode_changed? = mode != socket.assigns[:prior_search_mode]
 
     socket =
       socket
       |> assign(:search_mode, mode)
+      |> assign(:prior_search_mode, mode)
       |> assign(:search_type, normalize_search_type(state.search_type, cat_key))
 
     cond do
