@@ -293,19 +293,20 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeFilterTest do
       other = fixture_catalogue(%{name: "No Attributes Here"})
       fixture_item(%{name: "Plain thing", catalogue_uuid: other.uuid})
 
-      {:ok, view, html} = live(ctx.conn, "/en/admin/catalogue?mode=items")
+      {:ok, view, _html} = live(ctx.conn, "/en/admin/catalogue?mode=items")
+      html = render_async(view)
       assert html =~ "Blue oak door"
       assert html =~ "Plain thing"
 
       render_click(view, "toggle_attribute_filter", %{"slug" => ctx.blue.slug})
-      html = render(view)
+      html = render_async(view)
 
       assert html =~ "Blue oak door"
       assert html =~ "Blue pine door"
       refute html =~ "Plain thing"
 
       render_click(view, "clear_attribute_filter", %{})
-      assert render(view) =~ "Plain thing"
+      assert render_async(view) =~ "Plain thing"
     end
 
     test "the catalogues mode offers no attribute filter at all", ctx do
@@ -357,7 +358,7 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeFilterTest do
     test "an attribute-set broadcast reloads an open items-mode index", ctx do
       {:ok, view, _html} = live(ctx.conn, "/en/admin/catalogue?mode=items")
       render_click(view, "toggle_attribute_filter", %{"slug" => ctx.blue.slug})
-      assert render(view) =~ "Blue oak door"
+      assert render_async(view) =~ "Blue oak door"
 
       # Prune the selection straight in the DB — a context write would
       # ALSO broadcast :item and mask what this test pins — then deliver
@@ -377,7 +378,7 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeFilterTest do
 
       send(view.pid, {:catalogue_data_changed, :attribute_set, ctx.colour.uuid, nil})
 
-      refute render(view) =~ "Blue oak door"
+      refute render_async(view) =~ "Blue oak door"
     end
 
     test "items mode keeps the filter visible when a search kills every value", ctx do
@@ -486,6 +487,7 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeFilterTest do
         {:ok, view, _html} =
           live(ctx.conn, "/en/admin/catalogue?mode=items&folder=#{parent.uuid}")
 
+        render_async(view)
         counts = :sys.get_state(view.pid).socket.assigns.attribute_value_counts
 
         # Items mode stands where the user stands: "Filter Cat" sits in

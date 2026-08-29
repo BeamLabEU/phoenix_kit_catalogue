@@ -101,6 +101,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
        item_results: nil,
        item_total: 0,
        item_has_more: false,
+       item_loading: false,
        # Module-wide view preference (ViewConfig moduledoc) — the
        # attributes tab reads the same value the catalogues table does.
        view_mode: ViewConfig.load_view(socket.assigns[:phoenix_kit_current_user]),
@@ -480,6 +481,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         item_results: nil,
         item_total: 0,
         item_has_more: false,
+        item_loading: false,
         attribute_value_counts: %{}
       )
     end
@@ -494,6 +496,19 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       assigns.catalogue_view_mode == "active"
   end
 
+  # The question items mode is currently asking, in one comparable
+  # value — same discipline as the detail page's search_stamp. Replies
+  # from a superseded question are dropped by the handle_async guards;
+  # a load_data meanwhile (new rows, new scope) changes the stamp AND
+  # fires its own refresh, so the stale reply loses either way.
+  defp item_stamp(assigns, offset) do
+    {current_search(assigns), offset, active_attribute_slugs(assigns), item_scope_uuids(assigns)}
+  end
+
+  # Off the LV process: with a large catalogue ("what if we have a
+  # million items" — Max, 2026-08-29) the count + page + facet queries
+  # must not block every debounced keystroke. Same pattern as the
+  # detail page's async search.
   defp load_item_results(socket) do
     case item_scope_uuids(socket.assigns) do
       # An empty scope (a drilled folder holding no catalogues) is a real
@@ -505,66 +520,131 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
           item_results: [],
           item_total: 0,
           item_has_more: false,
+          item_loading: false,
           attribute_value_counts: %{}
         )
 
       scope ->
         query = current_search(socket.assigns)
         slugs = active_attribute_slugs(socket.assigns)
+        locale = socket.assigns[:current_locale]
+        stamp = item_stamp(socket.assigns, 0)
         opts = [catalogue_uuids: scope, value_slugs: slugs]
 
-        results =
-          query
-          |> Catalogue.search_items(Keyword.merge(opts, limit: @items_page, offset: 0))
-          |> localize_item_results(socket)
+        socket
+        |> assign(:item_loading, true)
+        |> start_async(:item_results, fn ->
+          results =
+            query
+            |> Catalogue.search_items(Keyword.merge(opts, limit: @items_page, offset: 0))
+            |> localize_item_results(locale)
 
-        total = Catalogue.count_search_items(query, opts)
-
-        assign(socket,
-          item_results: results,
-          item_total: total,
-          item_has_more: length(results) < total,
-          attribute_value_counts:
-            Catalogue.attribute_value_match_counts(
-              catalogue_uuids: scope,
-              search: query,
-              value_slugs: slugs
-            )
-        )
+          {stamp, results, Catalogue.count_search_items(query, opts),
+           Catalogue.attribute_value_match_counts(
+             catalogue_uuids: scope,
+             search: query,
+             value_slugs: slugs
+           )}
+        end)
     end
   end
 
-  # One more page, appended. Synchronous on purpose: LV serializes
-  # events, so there is no stale-reply race to stamp against here.
-  defp append_item_page(socket) do
+  @impl true
+  def handle_async(:item_results, {:ok, {stamp, results, total, counts}}, socket) do
+    # Only apply if the socket is still asking the same question; a
+    # superseding kickoff owns item_loading, so a stale reply changes
+    # nothing at all.
+    if items_mode?(socket.assigns) and item_stamp(socket.assigns, 0) == stamp do
+      {:noreply,
+       assign(socket,
+         item_results: results,
+         item_total: total,
+         item_has_more: length(results) < total,
+         item_loading: false,
+         attribute_value_counts: counts
+       )}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_async(:item_page, {:ok, {stamp, offset, page}}, socket) do
     loaded = socket.assigns.item_results || []
 
-    page =
-      current_search(socket.assigns)
-      |> Catalogue.search_items(
-        catalogue_uuids: item_scope_uuids(socket.assigns),
-        value_slugs: active_attribute_slugs(socket.assigns),
-        limit: @items_page,
-        offset: length(loaded)
-      )
-      |> localize_item_results(socket)
+    if items_mode?(socket.assigns) and item_stamp(socket.assigns, offset) == stamp and
+         length(loaded) == offset do
+      results = loaded ++ page
 
-    results = loaded ++ page
+      {:noreply,
+       assign(socket,
+         item_results: results,
+         # `page == []` guards a stale total (items deleted meanwhile)
+         # keeping the button alive forever.
+         item_has_more: page != [] and length(results) < socket.assigns.item_total,
+         item_loading: false
+       )}
+    else
+      {:noreply, socket}
+    end
+  end
 
-    assign(socket,
-      item_results: results,
-      # `page == []` guards a stale total (items deleted meanwhile)
-      # keeping the button alive forever.
-      item_has_more: page != [] and length(results) < socket.assigns.item_total
-    )
+  def handle_async(key, {:exit, reason}, socket) when key in [:item_results, :item_page] do
+    # :shutdown/:killed = a newer question superseded this one (start_async
+    # cancels the in-flight task under the same key) — the newer handler
+    # owns item_loading. Anything else: stop the spinner, tell the user.
+    case reason do
+      r when r in [:shutdown, :killed] ->
+        {:noreply, socket}
+
+      {:shutdown, _} ->
+        {:noreply, socket}
+
+      other ->
+        Logger.warning(
+          "Catalogues index items-mode task exited unexpectedly: key=#{key} reason=#{inspect(other)} query=#{inspect(current_search(socket.assigns))} actor_uuid=#{inspect(actor_uuid(socket))}"
+        )
+
+        {:noreply,
+         socket
+         |> assign(:item_loading, false)
+         |> put_flash(
+           :error,
+           Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search failed. Please try again.")
+         )}
+    end
+  end
+
+  # One more page, appended off-process; the `load_more_items` handler
+  # already refuses to fire while a load is in flight.
+  defp append_item_page(socket) do
+    offset = length(socket.assigns.item_results || [])
+    stamp = item_stamp(socket.assigns, offset)
+    query = current_search(socket.assigns)
+    scope = item_scope_uuids(socket.assigns)
+    slugs = active_attribute_slugs(socket.assigns)
+    locale = socket.assigns[:current_locale]
+
+    socket
+    |> assign(:item_loading, true)
+    |> start_async(:item_page, fn ->
+      page =
+        query
+        |> Catalogue.search_items(
+          catalogue_uuids: scope,
+          value_slugs: slugs,
+          limit: @items_page,
+          offset: offset
+        )
+        |> localize_item_results(locale)
+
+      {stamp, offset, page}
+    end)
   end
 
   # Items carry their catalogue and category preloaded; localize those
   # too, or the result row would show the canonical name next to a
   # catalogue row the index localized.
-  defp localize_item_results(items, socket) do
-    locale = socket.assigns[:current_locale]
-
+  defp localize_item_results(items, locale) do
     items
     |> Catalogue.localize(locale)
     |> Enum.map(fn item ->
@@ -2617,7 +2697,8 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   def handle_event("set_search_mode", _params, socket), do: {:noreply, socket}
 
   def handle_event("load_more_items", _params, socket) do
-    if items_mode?(socket.assigns) and socket.assigns.item_has_more do
+    if items_mode?(socket.assigns) and socket.assigns.item_has_more and
+         not socket.assigns.item_loading do
       {:noreply, append_item_page(socket)}
     else
       {:noreply, socket}
@@ -2974,11 +3055,21 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
             renaming_folder={@renaming_folder}
             file_counts={@catalogue_file_counts}
           />
+          <div
+            :if={items? and @item_results == nil and @item_loading}
+            class="flex flex-col gap-3"
+            aria-busy="true"
+          >
+            <div class="skeleton h-8 w-64"></div>
+            <div class="skeleton h-24 w-full"></div>
+            <div class="skeleton h-24 w-full"></div>
+          </div>
           <.item_search_results
             :if={items? and @item_results != nil}
             items={@item_results}
             total={@item_total}
             query={current_search(assigns)}
+            loading={@item_loading}
           />
           <.simple_table
             :if={not items? and !tree? and !card_level?}
@@ -3555,6 +3646,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   attr(:items, :list, required: true)
   attr(:total, :integer, required: true)
   attr(:query, :string, required: true)
+  attr(:loading, :boolean, default: false)
 
   # Cross-catalogue item results. Each row leads with the item, then
   # says WHERE it lives (catalogue, then category) — a hit here can come
@@ -3574,7 +3666,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         </p>
       </div>
     </div>
-    <div :if={@items != []} class="relative overflow-x-auto">
+    <div :if={@items != []} class={["relative overflow-x-auto transition-opacity", @loading && "opacity-50"]}>
       <table class="table table-zebra w-full">
         <thead>
           <tr>
@@ -3628,7 +3720,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       total={@total}
       on_load_more="load_more_items"
       noun_plural={Gettext.gettext(PhoenixKitCatalogue.Gettext, "items")}
-      infinite
+      infinite={not @loading}
       cursor={"item-results-#{length(@items)}"}
     />
     """
