@@ -75,6 +75,13 @@ defmodule PhoenixKitCatalogue.Web.TableConfig do
         sortable?: true,
         sort_key: &down(&1[:folder_name])
       ),
+      # Hidden by default (Max, 2026-08-29): search matches descriptions
+      # via the data JSONB, so this is how a "why is Hardware matching
+      # 'te'?" result explains itself — reveal it via Columns.
+      col("description", fn -> g("Description") end,
+        sortable?: true,
+        sort_key: &down(&1[:description])
+      ),
       col("items", fn -> g("Items") end,
         default?: true,
         sortable?: true,

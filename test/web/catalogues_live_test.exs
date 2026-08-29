@@ -703,6 +703,30 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
   end
 
   # ─────────────────────────────────────────────────────────────────
+  # Description column — Max, 2026-08-29
+  # ─────────────────────────────────────────────────────────────────
+
+  describe "description column" do
+    test "available via Columns, hidden by default", %{conn: conn} do
+      # Search matches descriptions through the data JSONB, so the column
+      # is how a match with no visible trace explains itself.
+      fixture_catalogue(%{
+        name: "Hardware",
+        description: "Fasteners, tools, and general hardware."
+      })
+
+      {:ok, view, html} = live(conn, @base)
+      refute html =~ "Fasteners, tools"
+
+      html = render_click(view, "add_column", %{"column_id" => "description"})
+      assert html =~ "Fasteners, tools"
+
+      html = render_click(view, "remove_column", %{"column_id" => "description"})
+      refute html =~ "Fasteners, tools"
+    end
+  end
+
+  # ─────────────────────────────────────────────────────────────────
   # Search-aware Deleted tab — Max, 2026-08-29
   # ─────────────────────────────────────────────────────────────────
 
