@@ -370,6 +370,11 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   # (Max: "we already see items and categories at the same time"), so
   # the Categories/Items question only exists at the top. Inert in the
   # Deleted view (`?mode=` rides the URL for the trip back).
+  # NOT flipped by the 2026-08-31 items-default change (unlike the
+  # index): the root's default search ALREADY returns items — matches in
+  # categories and items render as two lists — so the auto default here
+  # keeps that richer surface, and "items" stays the explicit
+  # item-management list.
   defp items_mode?(assigns) do
     assigns.search_mode == "items" and assigns.view_mode != "deleted" and
       is_nil(assigns.current_category)

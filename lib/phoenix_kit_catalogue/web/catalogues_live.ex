@@ -256,9 +256,15 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       |> assign(:active_tab, action)
       |> assign(:page_title, tab_title(action))
       |> assign(:attribute_filter, state.attribute_filter)
-      # Anything but the one other mode means the default — the value is
-      # client-forgeable URL state.
-      |> assign(:search_mode, if(state.search_mode == "items", do: "items", else: ""))
+      # Three states since 2026-08-31 (boss: searching finds items by
+      # default): "" is the AUTO default — the normal listing until a
+      # question exists, then item results; "items" is the explicit full
+      # item browser; "catalogues" is the explicit catalogue search. The
+      # value is client-forgeable URL state, hence the allowlist shape.
+      |> assign(
+        :search_mode,
+        if(state.search_mode in ["items", "catalogues"], do: state.search_mode, else: "")
+      )
       |> assign(:view_configs, Map.put(socket.assigns.view_configs, scope, cfg))
 
     socket =
@@ -491,9 +497,17 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   # catalogues whose items are deleted with them, and the attributes tab
   # has its own search. `?mode=` stays in the URL for the trip back,
   # same rule as `?attr=`.
+  #
+  # Since 2026-08-31 the DEFAULT ("" — auto) searches items (boss): with
+  # nothing to search for the page keeps its normal catalogues listing,
+  # and the item-results surface engages the moment a query or attribute
+  # filter exists. Explicit "items" is the full item browser as before;
+  # explicit "catalogues" keeps the search on this page's own rows.
   defp items_mode?(assigns) do
-    assigns[:active_tab] == :index and assigns.search_mode == "items" and
-      assigns.catalogue_view_mode == "active"
+    assigns[:active_tab] == :index and assigns.catalogue_view_mode == "active" and
+      (assigns.search_mode == "items" or
+         (assigns.search_mode == "" and
+            (assigns.search_query != "" or assigns.attribute_filter not in [nil, ""])))
   end
 
   # The question items mode is currently asking, in one comparable
@@ -2707,8 +2721,9 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   # page lists is a step Back should undo, unlike keystrokes.
   def handle_event("set_search_mode", %{"mode" => mode}, socket)
       when mode in ["catalogues", "items"] do
-    value = if mode == "items", do: "items", else: ""
-    {:noreply, push_url_state(socket, search_mode: value)}
+    # Both clicks write EXPLICIT modes — "" is reserved for the auto
+    # default a fresh landing gets (2026-08-31).
+    {:noreply, push_url_state(socket, search_mode: mode)}
   end
 
   def handle_event("set_search_mode", _params, socket), do: {:noreply, socket}
@@ -2907,11 +2922,15 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
                     page's own rows, or the items inside them. Both obey
                     the same "where the user stands" folder scope. --%>
               <div class="join" role="group" aria-label={gettext("Search for")}>
+                <%!-- Highlight follows the SEARCH semantic, not the body:
+                the auto default ("") searches items, so Items reads
+                active on a fresh landing even while the catalogues
+                listing still shows (2026-08-31). --%>
                 <button
                   type="button"
                   phx-click="set_search_mode"
                   phx-value-mode="catalogues"
-                  class={["btn btn-sm join-item", !items? && "btn-active"]}
+                  class={["btn btn-sm join-item", @search_mode == "catalogues" && "btn-active"]}
                 >
                   {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Catalogues")}
                 </button>
@@ -2919,7 +2938,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
                   type="button"
                   phx-click="set_search_mode"
                   phx-value-mode="items"
-                  class={["btn btn-sm join-item", items? && "btn-active"]}
+                  class={["btn btn-sm join-item", @search_mode != "catalogues" && "btn-active"]}
                 >
                   {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Items")}
                 </button>
