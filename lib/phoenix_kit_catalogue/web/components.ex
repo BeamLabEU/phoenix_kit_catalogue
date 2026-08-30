@@ -904,6 +904,101 @@ defmodule PhoenixKitCatalogue.Web.Components do
     """
   end
 
+  @doc """
+  The category tables' configurable header cells — one per entry of the
+  admin Columns modal's vocabulary, same order. Extracted with
+  `category_body_cells/1` from the catalogue detail page (2026-08-31) so
+  its flat table, its tree table and the item-selector popup's level
+  table all draw the same columns from one definition.
+  """
+  attr(:columns, :list, required: true)
+
+  def category_header_cells(assigns) do
+    ~H"""
+    <%= for col <- @columns do %>
+      <%= case col do %>
+        <% "items" -> %>
+          <.table_default_header_cell class="text-right">
+            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Items")}
+          </.table_default_header_cell>
+        <% "updated" -> %>
+          <.table_default_header_cell>
+            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Updated")}
+          </.table_default_header_cell>
+        <% "subcategories" -> %>
+          <.table_default_header_cell class="text-right">
+            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Subcategories")}
+          </.table_default_header_cell>
+        <% "description" -> %>
+          <.table_default_header_cell>
+            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Description")}
+          </.table_default_header_cell>
+        <% "files" -> %>
+          <.table_default_header_cell>
+            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Files")}
+          </.table_default_header_cell>
+        <% "status" -> %>
+          <.table_default_header_cell>
+            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Status")}
+          </.table_default_header_cell>
+        <% "created" -> %>
+          <.table_default_header_cell>
+            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Created")}
+          </.table_default_header_cell>
+        <% _ -> %>
+      <% end %>
+    <% end %>
+    """
+  end
+
+  @doc """
+  One category row's configurable data cells — the body twin of
+  `category_header_cells/1`, keyed off the same columns list.
+  """
+  attr(:columns, :list, required: true)
+  attr(:cat, :map, required: true)
+  attr(:child_counts, :map, required: true)
+  attr(:child_subcat_counts, :map, default: %{})
+  attr(:file_counts, :map, default: %{})
+
+  def category_body_cells(assigns) do
+    ~H"""
+    <%= for col <- @columns do %>
+      <%= case col do %>
+        <% "items" -> %>
+          <.table_default_cell class="text-right tabular-nums">
+            {Map.get(@child_counts, @cat.uuid, 0)}
+          </.table_default_cell>
+        <% "updated" -> %>
+          <.table_default_cell class="text-sm text-base-content/60">
+            {Calendar.strftime(@cat.updated_at, "%Y-%m-%d %H:%M")}
+          </.table_default_cell>
+        <% "subcategories" -> %>
+          <.table_default_cell class="text-right tabular-nums text-base-content/60">
+            {Map.get(@child_subcat_counts, @cat.uuid, 0)}
+          </.table_default_cell>
+        <% "description" -> %>
+          <.table_default_cell class="text-sm text-base-content/60 max-w-64">
+            <span class="line-clamp-2">{@cat.description || "—"}</span>
+          </.table_default_cell>
+        <% "files" -> %>
+          <.table_default_cell class="text-sm tabular-nums text-base-content/60">
+            {Map.get(@file_counts, @cat.uuid, 0)}
+          </.table_default_cell>
+        <% "status" -> %>
+          <.table_default_cell>
+            <.status_badge status={@cat.status} size={:xs} />
+          </.table_default_cell>
+        <% "created" -> %>
+          <.table_default_cell class="text-sm text-base-content/60">
+            {Calendar.strftime(@cat.inserted_at, "%Y-%m-%d %H:%M")}
+          </.table_default_cell>
+        <% _ -> %>
+      <% end %>
+    <% end %>
+    """
+  end
+
   # The thumb slot's visual: image (with an optional corner paperclip emblem)
   # or, with no image, the paperclip tile filling the same footprint so names
   # stay aligned across rows either way.

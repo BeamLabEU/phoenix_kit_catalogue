@@ -4561,91 +4561,10 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     """
   end
 
-  # ── Shared category cells (flat table + tree table) ──────────────
-
-  attr(:columns, :list, required: true)
-
-  defp category_header_cells(assigns) do
-    ~H"""
-    <%= for col <- @columns do %>
-      <%= case col do %>
-        <% "items" -> %>
-          <.table_default_header_cell class="text-right">
-            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Items")}
-          </.table_default_header_cell>
-        <% "updated" -> %>
-          <.table_default_header_cell>
-            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Updated")}
-          </.table_default_header_cell>
-        <% "subcategories" -> %>
-          <.table_default_header_cell class="text-right">
-            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Subcategories")}
-          </.table_default_header_cell>
-        <% "description" -> %>
-          <.table_default_header_cell>
-            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Description")}
-          </.table_default_header_cell>
-        <% "files" -> %>
-          <.table_default_header_cell>
-            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Files")}
-          </.table_default_header_cell>
-        <% "status" -> %>
-          <.table_default_header_cell>
-            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Status")}
-          </.table_default_header_cell>
-        <% "created" -> %>
-          <.table_default_header_cell>
-            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Created")}
-          </.table_default_header_cell>
-        <% _ -> %>
-      <% end %>
-    <% end %>
-    """
-  end
-
-  attr(:columns, :list, required: true)
-  attr(:cat, :map, required: true)
-  attr(:child_counts, :map, required: true)
-  attr(:child_subcat_counts, :map, required: true)
-  attr(:file_counts, :map, required: true)
-
-  defp category_body_cells(assigns) do
-    ~H"""
-    <%= for col <- @columns do %>
-      <%= case col do %>
-        <% "items" -> %>
-          <.table_default_cell class="text-right tabular-nums">
-            {Map.get(@child_counts, @cat.uuid, 0)}
-          </.table_default_cell>
-        <% "updated" -> %>
-          <.table_default_cell class="text-sm text-base-content/60">
-            {Calendar.strftime(@cat.updated_at, "%Y-%m-%d %H:%M")}
-          </.table_default_cell>
-        <% "subcategories" -> %>
-          <.table_default_cell class="text-right tabular-nums text-base-content/60">
-            {Map.get(@child_subcat_counts, @cat.uuid, 0)}
-          </.table_default_cell>
-        <% "description" -> %>
-          <.table_default_cell class="text-sm text-base-content/60 max-w-64">
-            <span class="line-clamp-2">{@cat.description || "—"}</span>
-          </.table_default_cell>
-        <% "files" -> %>
-          <.table_default_cell class="text-sm tabular-nums text-base-content/60">
-            {Map.get(@file_counts, @cat.uuid, 0)}
-          </.table_default_cell>
-        <% "status" -> %>
-          <.table_default_cell>
-            <.status_badge status={@cat.status} size={:xs} />
-          </.table_default_cell>
-        <% "created" -> %>
-          <.table_default_cell class="text-sm text-base-content/60">
-            {Calendar.strftime(@cat.inserted_at, "%Y-%m-%d %H:%M")}
-          </.table_default_cell>
-        <% _ -> %>
-      <% end %>
-    <% end %>
-    """
-  end
+  # ── Shared category cells ─────────────────────────────────────────
+  # `category_header_cells/1` + `category_body_cells/1` moved to
+  # `Components` (2026-08-31): the flat table, the tree table and the
+  # item-selector popup's level table draw them from one definition.
 
   attr(:cat, :map, required: true)
   attr(:catalogue, :map, required: true)
