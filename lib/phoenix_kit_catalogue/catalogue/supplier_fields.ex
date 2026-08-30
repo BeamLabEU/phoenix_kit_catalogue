@@ -100,6 +100,10 @@ defmodule PhoenixKitCatalogue.Catalogue.SupplierFields do
       "key" => "unit_cost",
       "label" => "Unit cost",
       "scale" => 4,
+      # Spinner arrows walk in cents; the 4-place scale stays available
+      # to anything typed by hand (2026-08-30 — supplier prices stepped
+      # 0.0001 at a time, which nobody wanted to click through).
+      "step" => "0.01",
       "min" => 0
     }
   ]

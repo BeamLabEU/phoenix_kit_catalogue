@@ -379,10 +379,20 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLiveTest do
       {:ok, view, _page} = live(conn, edit_item_url(item.uuid))
       html = render_click(view, "open_add_supplier", %{})
 
-      # scale 4 on the built-in definition, or the browser rejects the
-      # fourth decimal place the column stores.
-      assert html =~ ~s(step="0.0001")
-      assert Catalogue.supplier_builtin_field("unit_cost")["type"] == "decimal"
+      # The control's step is whatever entities derives from the built-in
+      # definition — asserted as delegation, not a literal, so this holds
+      # at every entities version: pre-"step" releases derive 0.0001 from
+      # the scale, releases with the override render the declared 0.01
+      # (cent arrows; scale 4 stays available to typed entry, since
+      # LiveView never runs the browser's step validation).
+      builtin = Catalogue.supplier_builtin_field("unit_cost")
+      assert html =~ ~s(step="#{PhoenixKitEntities.FieldTypes.decimal_step(builtin)}")
+
+      # Catalogue's side of the contract: cents on the arrows, 4-place
+      # storage — the boss's "too precise" report, 2026-08-30.
+      assert builtin["scale"] == 4
+      assert builtin["step"] == "0.01"
+      assert builtin["type"] == "decimal"
     end
 
     # The whole reason entities grew a `decimal` type: a price must reach
