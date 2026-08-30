@@ -1314,8 +1314,18 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
   end
 
   def handle_event("cancel", _params, socket) do
-    send(self(), {:item_selector_closed, %{id: socket.assigns.id}})
-    {:noreply, socket}
+    if socket.assigns.detail do
+      # Esc with the details popup stacked on top closes only the TOP
+      # popup (Max, 2026-08-31). Core's PkDialog now swallows the outer
+      # dialog's grouped cancel client-side; this is the server-side belt
+      # for hosts on an older core — their outer dialog closed natively,
+      # so keeping the selector assigned makes the hook's next sync
+      # reopen it with search, scroll and selection intact.
+      {:noreply, assign(socket, detail: nil)}
+    else
+      send(self(), {:item_selector_closed, %{id: socket.assigns.id}})
+      {:noreply, socket}
+    end
   end
 
   # A crafted payload with missing keys must degrade to a no-op, not a
@@ -1681,6 +1691,11 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
   defp confirmable_selection?(selection),
     do: Enum.any?(selection, fn {_uuid, entry} -> entry.available end)
 
+  # With the cart off by default there was no running tally anywhere —
+  # the Confirm button carries it (QoL sweep, 2026-08-31).
+  defp confirmable_count(selection),
+    do: Enum.count(selection, fn {_uuid, entry} -> entry.available end)
+
   defp selection_total(selection) do
     selection
     |> Enum.filter(fn {_u, e} -> e.available and e.item.price end)
@@ -1784,6 +1799,9 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
             >
               <label class="input flex items-center gap-2 w-full">
                 <span class="hero-magnifying-glass w-4 h-4 opacity-60"></span>
+                <%!-- autofocus: a freshly opened native dialog focuses its
+                first [autofocus] element — without one, focus lands on the
+                dialog itself and the first keystrokes go nowhere. --%>
                 <input
                   id={"#{@id}-search"}
                   type="text"
@@ -1792,8 +1810,21 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
                   placeholder={gettext("Search items…")}
                   phx-debounce="250"
                   autocomplete="off"
+                  autofocus
                   class="grow phx-change-loading:animate-pulse"
                 />
+                <button
+                  :if={@browse.search != ""}
+                  type="button"
+                  class="btn btn-ghost btn-xs btn-circle"
+                  phx-click="browse_search"
+                  phx-value-search=""
+                  phx-target={@myself}
+                  aria-label={gettext("Clear")}
+                  title={gettext("Clear")}
+                >
+                  <span class="hero-x-mark w-4 h-4"></span>
+                </button>
               </label>
             </form>
             <%!-- What the root LISTS — the admin page's switcher, same
@@ -1855,7 +1886,26 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
           both hidden in the DOM would duplicate qty-form ids. The level
           navigation (admin-style subcategory tiles, 2026-08-31 — replaces
           the flat chip strip) scrolls WITH the items, admin-page style. --%>
-          <div id={"#{@id}-scroll"} class="overflow-y-auto min-h-[16rem] max-h-[48vh] pr-1">
+          <div
+            id={"#{@id}-scroll"}
+            class="overflow-y-auto min-h-[16rem] max-h-[48vh] pr-1"
+            phx-hook=".ScrollTop"
+            data-scroll-key={"#{@browse.category_uuid}|#{@browse.search}|#{@root_mode}|#{@view}"}
+          >
+            <%!-- A drill, search, mode or view change lands the user on a NEW
+            list — carrying the old scroll offset over showed its middle.
+            Load-more keeps the offset (the key does not change). --%>
+            <script :type={Phoenix.LiveView.ColocatedHook} name=".ScrollTop">
+              export default {
+                mounted() { this.key = this.el.dataset.scrollKey },
+                updated() {
+                  if (this.el.dataset.scrollKey !== this.key) {
+                    this.key = this.el.dataset.scrollKey
+                    this.el.scrollTop = 0
+                  }
+                }
+              }
+            </script>
             <.subcategory_level
               :if={show_categories_block?(assigns)}
               id={"#{@id}-levelnav"}
@@ -2012,6 +2062,18 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
               <p class="text-base-content/60">{gettext("No items match your search.")}</p>
             </div>
 
+            <%!-- Auto-load: core's InfiniteScroll sentinel (component-aware
+            since 2026-08-31); the button below stays as the no-JS / recovery
+            fallback. Cursor = the list identity + length, so only a genuinely
+            new page re-arms it. --%>
+            <div
+              :if={not @browse.exhausted? and @browse.items != []}
+              id={"#{@id}-scroll-sentinel"}
+              phx-hook="InfiniteScroll"
+              data-load-more-event="load_more"
+              data-cursor={"#{@browse.category_uuid}|#{@browse.search}|#{length(@browse.items)}"}
+            >
+            </div>
             <div :if={not @browse.exhausted? and @browse.items != []} class="flex justify-center py-3">
               <%!-- The spinner rides LiveView's phx-click-loading class —
               INSTANT, client-applied. The old server-assign gate never
@@ -2127,6 +2189,9 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
                   <span class="loading loading-spinner loading-xs hidden phx-click-loading:inline-block">
                   </span>
                   {gettext("Confirm selection")}
+                  <span :if={confirmable_count(@selection) > 0}>
+                    ({confirmable_count(@selection)})
+                  </span>
                 </button>
               </div>
             </div>
