@@ -182,24 +182,53 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
   end
 
   describe "quantities" do
-    test "inc steps up; dec at the minimum deselects", %{conn: conn, cat: cat, screw: screw} do
+    # The native number control's spinner arrows land as debounced
+    # qty_change events carrying the NEW value (2026-08-30 — the custom
+    # −/+ buttons and their qty_inc/qty_dec events are gone).
+    test "a qty_change applies live; below-minimum change is ignored", %{
+      conn: conn,
+      cat: cat,
+      screw: screw
+    } do
       {:ok, view, _html} = open(conn, "c=#{cat.uuid}")
       uuid = to_string(screw.uuid)
 
       view |> picker() |> render_click("card_click", %{"uuid" => screw.uuid})
-      view |> picker() |> render_click("qty_inc", %{"uuid" => uuid})
+      view |> picker() |> render_click("qty_change", %{"uuid" => uuid, "value" => "2"})
       view |> picker() |> render_click("confirm", %{})
       html = render(view)
       assert html =~ "qty=2"
 
-      # Fresh mount: select, then minus at qty 1 removes the pick.
+      # Fresh mount: in click mode the arrows stop at qty_min, so a
+      # below-minimum change (crafted, or a browser quirk) is ignored —
+      # deselection is the row click or the tray's remove, not the arrows.
       {:ok, view, _html} = open(conn, "c=#{cat.uuid}")
       view |> picker() |> render_click("card_click", %{"uuid" => screw.uuid})
-      view |> picker() |> render_click("qty_dec", %{"uuid" => uuid})
+      view |> picker() |> render_click("qty_change", %{"uuid" => uuid, "value" => "0"})
       view |> picker() |> render_click("confirm", %{})
       html = render(view)
-      # The minus removed the only pick, so confirm is refused outright.
-      refute html =~ ~s(id="picked")
+      assert html =~ "qty=1"
+    end
+
+    # The live path must never reset the input mid-typing: "2." on the way
+    # to "2.5" parses invalid, is ignored, and leaves the revision alone
+    # (a bump would recreate the input and eat the keystrokes). The commit
+    # path (blur/Enter) keeps the revision-bump reset for settled garbage.
+    test "an in-progress qty_change is ignored without a revision bump", %{
+      conn: conn,
+      cat: cat,
+      screw: screw
+    } do
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&precision=1")
+      uuid = to_string(screw.uuid)
+
+      view |> picker() |> render_click("card_click", %{"uuid" => screw.uuid})
+      view |> picker() |> render_click("qty_change", %{"uuid" => uuid, "value" => "2."})
+
+      assert has_element?(view, "#picker-qty-#{uuid}-r0-input")
+
+      view |> picker() |> render_click("confirm", %{})
+      assert render(view) =~ "qty=1"
     end
 
     test "commit parses a decimal comma when precision allows", %{
@@ -1083,15 +1112,31 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
     } do
       {:ok, view, _html} = open(conn, "c=#{cat.uuid}&sel=quantity&min=0")
 
-      # Step up then back to zero: the line is gone, not a zero-qty pick.
-      view |> picker() |> render_click("qty_inc", %{"uuid" => screw.uuid})
-      view |> picker() |> render_click("qty_dec", %{"uuid" => screw.uuid})
+      # Arrow up then back to zero: the line is gone, not a zero-qty pick.
+      view |> picker() |> render_click("qty_change", %{"uuid" => screw.uuid, "value" => "1"})
+      view |> picker() |> render_click("qty_change", %{"uuid" => screw.uuid, "value" => "0"})
       view |> picker() |> render_click("confirm", %{})
       refute render(view) =~ ~s(id="picked")
 
       # Committing "0" on a selected row removes it too.
-      view |> picker() |> render_click("qty_inc", %{"uuid" => screw.uuid})
+      view |> picker() |> render_click("qty_change", %{"uuid" => screw.uuid, "value" => "1"})
       view |> picker() |> render_click("qty_commit", %{"uuid" => screw.uuid, "value" => "0"})
+      view |> picker() |> render_click("confirm", %{})
+      refute render(view) =~ ~s(id="picked")
+    end
+
+    # The arrows stop at min="0" in this mode even when qty_min is higher —
+    # so a zero arriving on a selected row must deselect, not be rejected
+    # as below-minimum and strand the row showing 0 while holding qty 1.
+    test "quantity-first with the default qty_min: zero still deselects", %{
+      conn: conn,
+      cat: cat,
+      screw: screw
+    } do
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&sel=quantity")
+
+      view |> picker() |> render_click("qty_change", %{"uuid" => screw.uuid, "value" => "1"})
+      view |> picker() |> render_click("qty_change", %{"uuid" => screw.uuid, "value" => "0"})
       view |> picker() |> render_click("confirm", %{})
       refute render(view) =~ ~s(id="picked")
     end
@@ -1140,13 +1185,14 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
     } do
       {:ok, view, html} = open(conn, "c=#{cat.uuid}&sel=quantity")
 
-      # Steppers at 0 on every rendered row; rows are not click-targets.
+      # Quantity controls at 0 on every rendered row; rows are not
+      # click-targets.
       assert has_element?(view, ~s(#picker-qty-#{screw.uuid}-r0-input[value="0"]))
       assert has_element?(view, ~s(#picker-qty-#{paint.uuid}-r0-input[value="0"]))
       refute html =~ ~s(phx-click="card_click")
 
-      # Plus on an unselected row selects at the minimum…
-      view |> picker() |> render_click("qty_inc", %{"uuid" => screw.uuid})
+      # An arrow up on an unselected row selects at that quantity…
+      view |> picker() |> render_click("qty_change", %{"uuid" => screw.uuid, "value" => "1"})
       # …and typing a positive quantity selects at that quantity.
       view |> picker() |> render_click("qty_commit", %{"uuid" => paint.uuid, "value" => "5"})
 
@@ -1169,9 +1215,9 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       view |> picker() |> render_click("confirm", %{})
       refute render(view) =~ ~s(id="picked")
 
-      # Up then down again removes the line entirely.
-      view |> picker() |> render_click("qty_inc", %{"uuid" => screw.uuid})
-      view |> picker() |> render_click("qty_dec", %{"uuid" => screw.uuid})
+      # Up then back down to zero removes the line entirely.
+      view |> picker() |> render_click("qty_change", %{"uuid" => screw.uuid, "value" => "1"})
+      view |> picker() |> render_click("qty_change", %{"uuid" => screw.uuid, "value" => "0"})
       view |> picker() |> render_click("confirm", %{})
       refute render(view) =~ ~s(id="picked")
     end
@@ -1186,9 +1232,10 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
 
       # card_click has no meaning in this mode — even crafted.
       view |> picker() |> render_click("card_click", %{"uuid" => screw.uuid})
-      # A stepper event for an item this modal never rendered is refused
-      # by the same presented gate that guards clicks.
-      view |> picker() |> render_click("qty_inc", %{"uuid" => forbidden.uuid})
+      # A quantity event for an item this modal never rendered is refused
+      # by the same presented gate that guards clicks — change and commit
+      # alike.
+      view |> picker() |> render_click("qty_change", %{"uuid" => forbidden.uuid, "value" => "1"})
       view |> picker() |> render_click("qty_commit", %{"uuid" => forbidden.uuid, "value" => "3"})
 
       view |> picker() |> render_click("confirm", %{})
@@ -1242,6 +1289,44 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       # out-of-scope.
       html = view |> picker() |> render_click("browse_category", %{"uuid" => child.uuid})
       assert html =~ "Nested Item"
+    end
+  end
+
+  describe "checkbox column (2026-08-30)" do
+    test "click mode leads with unchecked checkboxes; selecting checks the box", %{
+      conn: conn,
+      cat: cat,
+      screw: screw
+    } do
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}")
+
+      # Visible before the first pick — the affordance is the point.
+      assert has_element?(view, "#picker-row-#{screw.uuid} input[type=checkbox]")
+      refute has_element?(view, "#picker-row-#{screw.uuid} input[type=checkbox][checked]")
+
+      view |> picker() |> render_click("card_click", %{"uuid" => screw.uuid})
+
+      assert has_element?(view, "#picker-row-#{screw.uuid} input[type=checkbox][checked]")
+      # The checkbox replaces the name-cell check icon — one selected
+      # signal per row, not two a cell apart.
+      refute has_element?(view, "#picker-row-#{screw.uuid} .hero-check")
+    end
+
+    test "quantity mode renders no checkbox column", %{conn: conn, cat: cat, screw: screw} do
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&sel=quantity")
+
+      assert has_element?(view, "#picker-row-#{screw.uuid}")
+      refute has_element?(view, "#picker-row-#{screw.uuid} input[type=checkbox]")
+    end
+
+    test "the native control carries the mode's floor: qty_min in click mode, 0 in quantity mode",
+         %{conn: conn, cat: cat, screw: screw} do
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&min=2")
+      view |> picker() |> render_click("card_click", %{"uuid" => screw.uuid})
+      assert has_element?(view, ~s(#picker-qty-#{screw.uuid}-r0-input[min="2"]))
+
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&sel=quantity&min=2")
+      assert has_element?(view, ~s(#picker-qty-#{screw.uuid}-r0-input[min="0"]))
     end
   end
 end

@@ -398,6 +398,12 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
   """
   attr(:id, :string, required: true)
   attr(:columns, :list, required: true, doc: "subset of table_columns/0, display order")
+
+  attr(:checkbox, :boolean,
+    default: false,
+    doc: "renders a leftmost selection-checkbox column — pair with item_row's"
+  )
+
   slot(:inner_block, required: true)
 
   def item_table(assigns) do
@@ -410,6 +416,7 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
       <.table_default variant="zebra" size="sm">
         <.table_default_header>
           <tr>
+            <.table_default_header_cell :if={@checkbox} class="w-8"></.table_default_header_cell>
             <.table_default_header_cell
               :for={col <- @columns}
               class={[col_shape_class(col), col_responsive_class(col)]}
@@ -450,6 +457,16 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
   attr(:columns, :list, required: true, doc: "the same list the item_table got")
   attr(:selected, :boolean, default: false)
   attr(:clickable, :boolean, default: true)
+
+  attr(:checkbox, :boolean,
+    default: false,
+    doc:
+      "leftmost selection checkbox (2026-08-30): unchecked on every " <>
+        "selectable row so the affordance is visible before the first pick. " <>
+        "Display-only — the CELL carries the same card_click toggle as the " <>
+        "rest of the row, so there is no second selection pathway to guard."
+  )
+
   attr(:target, :any, default: nil)
   slot(:qty, doc: "rendered in the :qty cell when that column is present")
 
@@ -461,6 +478,21 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
       aria-selected={to_string(@selected)}
       class={@selected && "bg-primary/10"}
     >
+      <.table_default_cell
+        :if={@checkbox}
+        class={["w-8", @clickable && "cursor-pointer"]}
+        phx-click={if @clickable, do: "card_click"}
+        phx-value-uuid={if @clickable, do: @item.uuid}
+        phx-target={if @clickable, do: @target}
+      >
+        <input
+          type="checkbox"
+          class="checkbox checkbox-sm pointer-events-none align-middle"
+          checked={@selected}
+          tabindex="-1"
+          aria-hidden="true"
+        />
+      </.table_default_cell>
       <.table_default_cell
         :for={col <- @columns}
         class={[
@@ -489,7 +521,13 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
             </div>
           <% :name -> %>
             <div class="flex items-center gap-1.5 font-medium">
-              <.icon :if={@selected} name="hero-check" class="w-4 h-4 text-primary shrink-0" />
+              <%!-- With a checkbox column the check icon would say the same
+              thing twice one cell apart. --%>
+              <.icon
+                :if={@selected and not @checkbox}
+                name="hero-check"
+                class="w-4 h-4 text-primary shrink-0"
+              />
               <%!-- line-clamp, not truncate: nowrap would hand a long name
               the whole table width back and resurrect sideways scroll. --%>
               <span class="line-clamp-2">{@item.name}</span>
@@ -564,52 +602,61 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
   defp col_responsive_class(_), do: nil
 
   @doc """
-  Quantity stepper: minus / text input / plus. The input commits on blur or
-  Enter (`qty_commit` with `%{"uuid" =>, "value" =>}`) — never on keystroke,
-  so typing "2." on the way to "2.5" is not fought. The buttons dispatch
-  `qty_dec` / `qty_inc` immediately.
+  Quantity input: a native `<input type="number">` — the browser's own
+  spinner arrows, the same control the rest of the kit uses for numbers
+  (2026-08-30, replacing the custom −/+ join stepper).
 
-  Integer mode is `precision: 0` (the default); a decimal item is the same
-  component with `precision > 0` and a `unit` suffix — no redesign, which
-  is the point. All limits are re-enforced server-side; these attrs only
-  shape the keyboard.
+  Three event paths, one server vocabulary:
+
+    * `qty_change` (form `phx-change`, debounced) — fires for spinner
+      clicks and settled typing. Consumers should treat it as a LIVE
+      update: apply valid values, silently ignore incomplete ones
+      ("2." on the way to "2.5") — never reset the input from here, the
+      user may still be typing.
+    * `qty_commit` (blur / Enter) — the authoritative commit; a consumer
+      may reset rejected garbage here (the revision-bump pattern).
+    * Both carry `%{"uuid" =>, "value" =>}`.
+
+  Integer mode is `precision: 0` (the default; step 1); a decimal item is
+  the same control with `precision > 0` (step 0.1 / 0.01 / …) and a `unit`
+  suffix. `min`/`max` shape the arrows and keyboard only — all limits are
+  re-enforced server-side, exactly as before.
   """
   attr(:id, :string, required: true)
   attr(:uuid, :string, required: true)
   attr(:qty, :string, required: true, doc: "display string, already formatted")
   attr(:unit, :string, default: nil)
   attr(:precision, :integer, default: 0)
+  attr(:min, :string, default: nil, doc: "min attr for the control (arrows stop here)")
+  attr(:max, :string, default: nil)
   attr(:target, :any, default: nil)
   attr(:size, :string, default: "sm", values: ~w(xs sm))
 
   def qty_stepper(assigns) do
     ~H"""
-    <%!-- The form WRAPS the join (Enter still commits via phx-submit;
-         phx-blur commits on focus loss; the +/− are type="button" so they
-         never submit). With the input nested inside a join-item form
-         instead, the inline form aligned to the text BASELINE and the
-         input rendered with a visible offset below the buttons, its
-         corners unmerged. Direct join children keep everything flush. --%>
-    <form id={@id} phx-submit="qty_commit" phx-target={@target}>
+    <%!-- The form wraps the join (Enter commits via phx-submit; phx-blur
+         commits on focus loss). phx-change catches what blur never sees:
+         a spinner-arrow click changes the value without ever blurring,
+         and a modal closed right after would lose it. --%>
+    <form
+      id={@id}
+      phx-submit="qty_commit"
+      phx-change="qty_change"
+      phx-target={@target}
+    >
       <input type="hidden" name="uuid" value={@uuid} />
       <div class="join" role="group" aria-label={gettext("Quantity")}>
-        <button
-          type="button"
-          class={["btn join-item", btn_size(@size)]}
-          phx-click="qty_dec"
-          phx-value-uuid={@uuid}
-          phx-target={@target}
-          aria-label={gettext("Decrease quantity")}
-        >
-          −
-        </button>
         <input
           id={"#{@id}-input"}
-          type="text"
+          type="number"
           name="value"
           value={@qty}
+          min={@min}
+          max={@max}
+          step={qty_step(@precision)}
           inputmode={if @precision > 0, do: "decimal", else: "numeric"}
-          class={["input join-item w-14 text-center px-1", input_size(@size)]}
+          class={["input join-item text-center px-1", qty_width(@size), input_size(@size)]}
+          phx-debounce="400"
           phx-blur="qty_commit"
           phx-value-uuid={@uuid}
           phx-target={@target}
@@ -625,20 +672,22 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
         >
           {@unit}
         </span>
-        <button
-          type="button"
-          class={["btn join-item", btn_size(@size)]}
-          phx-click="qty_inc"
-          phx-value-uuid={@uuid}
-          phx-target={@target}
-          aria-label={gettext("Increase quantity")}
-        >
-          +
-        </button>
       </div>
     </form>
     """
   end
+
+  # Same derivation entities uses for decimal fields: one unit of the
+  # last displayed place.
+  defp qty_step(precision) when is_integer(precision) and precision > 0,
+    do: "0." <> String.duplicate("0", precision - 1) <> "1"
+
+  defp qty_step(_), do: "1"
+
+  # The native control renders its own spinner arrows inside the field,
+  # so it needs more room than the old bare text input.
+  defp qty_width("xs"), do: "w-16"
+  defp qty_width(_), do: "w-20"
 
   defp btn_size("xs"), do: "btn-xs"
   defp btn_size(_), do: "btn-sm"
