@@ -22,6 +22,14 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
   navigation. A category-less root has no switcher and simply lists the
   items.
 
+  Search is the admin's two-list surface: item results are the primary,
+  default list, and categories whose name matches (in any language)
+  render above them as navigation — a hit opens that category's page
+  with the search cleared. Hits are filtered to the scoped category
+  tree, cover only the drilled subtree when drilled, and stay away from
+  the root's Items mode (the admin's items-type search) and the
+  Uncategorized drill.
+
   ## Usage
 
       # In the parent LiveView's template. Mount it with :if — unmounting
@@ -237,6 +245,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
        detail: nil,
        confirmed: false,
        root_mode: "categories",
+       search_cat_hits: [],
        drafts: %{}
      )}
   end
@@ -847,7 +856,68 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
         socket.assigns.presented
       end
 
-    assign(socket, browse: browse, presented: presented)
+    socket = assign(socket, browse: browse, presented: presented)
+    assign(socket, :search_cat_hits, search_category_hits(socket))
+  end
+
+  # Matching categories for the admin search's two-list surface (Max,
+  # 2026-08-31: the popup search works like the admin's, items by
+  # default): item results stay the primary list, category hits render
+  # above as navigation. The same DB search the admin runs (every
+  # translation, capped 25, the drilled node's subtree when drilled) —
+  # but each hit must ALSO be in the popup's category tree, so a scoped
+  # embed can never offer a category outside its allow-list. Names and
+  # trails come from the tree, already viewer-translated. The root's
+  # Items mode hides the hits at RENDER (`visible_cat_hits/1`) — the
+  # mode toggle never refetches.
+  defp search_category_hits(socket) do
+    %{browse: browse, cat_tree: tree} = socket.assigns
+
+    with true <- browse.search != "",
+         true <- tree.index != %{},
+         false <- browse.category_uuid == :uncategorized,
+         [catalogue_uuid] <- browse.scope[:catalogue_uuids] do
+      catalogue_uuid
+      |> Catalogue.search_categories(browse.search, parent_uuid: browse.category_uuid)
+      |> Enum.map(&to_string(&1.uuid))
+      |> Enum.filter(&Map.has_key?(tree.index, &1))
+      |> Enum.map(fn uuid ->
+        %{uuid: uuid, name: tree.index[uuid].name, trail: tree_trail(tree, uuid)}
+      end)
+    else
+      _ -> []
+    end
+  rescue
+    # Hits are navigation, not data — degrade like the tree build does.
+    _ -> []
+  end
+
+  defp visible_cat_hits(assigns) do
+    if is_nil(assigns.browse.category_uuid) and assigns.root_mode == "items",
+      do: [],
+      else: assigns.search_cat_hits
+  end
+
+  # "Doors / Fronts" — the hit's ancestors, root-first, so two
+  # same-named subcategories stay distinguishable (the admin queries
+  # them; the popup already holds the scoped tree in memory). Stops
+  # naturally at the scope root: ancestors outside it are not in the
+  # index.
+  defp tree_trail(tree, uuid) do
+    case tree_ancestors(tree, uuid, []) do
+      [] -> nil
+      names -> Enum.join(names, " / ")
+    end
+  end
+
+  defp tree_ancestors(tree, uuid, acc) do
+    with %{parent_uuid: parent} when not is_nil(parent) <- tree.index[uuid],
+         parent = to_string(parent),
+         %{} = cat <- tree.index[parent] do
+      tree_ancestors(tree, parent, [cat.name | acc])
+    else
+      _ -> acc
+    end
   end
 
   # ── Preselection hydration ───────────────────────────────────────────
@@ -1080,6 +1150,19 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
 
   def handle_event("browse_search", %{"search" => q}, socket) do
     {browse, effect} = BrowseState.command(socket.assigns.browse, {:search, q})
+    {:noreply, socket |> assign(browse: browse) |> run_fetch(effect)}
+  end
+
+  # A category hit from the search results: open that category's page
+  # with the search CLEARED — the admin's "a hit opens the chapter's
+  # content" semantics. Scope enforcement is set_category's as always;
+  # a refused drill (crafted/stale uuid) falls back to just clearing
+  # the search so state and list never diverge.
+  def handle_event("open_category_hit", %{"uuid" => uuid}, socket) do
+    {browse, cleared} = BrowseState.command(socket.assigns.browse, {:search, ""})
+    {browse, effect} = BrowseState.command(browse, {:set_category, uuid})
+    effect = if effect == :noop, do: cleared, else: effect
+
     {:noreply, socket |> assign(browse: browse) |> run_fetch(effect)}
   end
 
@@ -1762,6 +1845,35 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
             >
               {gettext("Items")}
             </div>
+            <%!-- Matching CATEGORIES above the item results — the admin
+            search's two-list surface. Each hit opens that category's
+            page with the search cleared; the muted trail is its
+            ancestors, so two same-named subcategories stay apart. --%>
+            <div
+              :if={visible_cat_hits(assigns) != []}
+              id={"#{@id}-search-cats"}
+              class="flex flex-col gap-2 mb-3"
+            >
+              <h3 class="text-sm font-semibold text-base-content/70">
+                {gettext("Categories")}
+                <span class="text-xs font-normal text-base-content/40">
+                  ({length(visible_cat_hits(assigns))})
+                </span>
+              </h3>
+              <div class="flex flex-wrap gap-2">
+                <button
+                  :for={hit <- visible_cat_hits(assigns)}
+                  type="button"
+                  phx-click="open_category_hit"
+                  phx-value-uuid={hit.uuid}
+                  phx-target={@myself}
+                  class="btn btn-sm btn-ghost gap-2 justify-start"
+                >
+                  <span class="font-medium">{hit.name}</span>
+                  <span :if={hit.trail} class="text-xs text-base-content/40">{hit.trail}</span>
+                </button>
+              </div>
+            </div>
             <div :if={show_items_block?(assigns)}>
             <.item_grid :if={@view == "card"} id={"#{@id}-grid"}>
               <%= if @browse.loading? and @browse.items == [] do %>
@@ -1845,7 +1957,13 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
               <% end %>
             </.item_table>
 
-            <div :if={@browse.items == [] and not @browse.loading?} class="text-center py-12">
+            <div
+              :if={
+                @browse.items == [] and not @browse.loading? and
+                  visible_cat_hits(assigns) == []
+              }
+              class="text-center py-12"
+            >
               <div class="text-4xl mb-3 opacity-40">🔍</div>
               <p class="text-base-content/60">{gettext("No items match your search.")}</p>
             </div>

@@ -1900,6 +1900,90 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
     end
   end
 
+  describe "search category hits (the admin two-list surface)" do
+    # The popup search works like the admin's (Max, 2026-08-31): item
+    # results are the primary, default list; categories whose name (in
+    # any language) matches render above them as navigation.
+    setup %{cat: cat} do
+      parent = fixture_category(cat, %{name: "Fasteners"})
+      child = fixture_category(cat, %{name: "Bolts", parent_uuid: parent.uuid})
+
+      {:ok, _} =
+        Catalogue.create_item(%{
+          name: "Hex Bolt",
+          catalogue_uuid: cat.uuid,
+          category_uuid: child.uuid
+        })
+
+      %{parent: parent, child: child}
+    end
+
+    test "matching categories render above the item results; a hit opens the category with the search cleared",
+         %{conn: conn, cat: cat, child: child} do
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&sel=click")
+
+      html = view |> picker() |> render_change("browse_search", %{"search" => "bolt"})
+
+      # Items stay the primary results; the hit carries its ancestor
+      # trail so same-named subcategories stay apart.
+      assert html =~ "Hex Bolt"
+
+      assert has_element?(
+               view,
+               ~s(#picker-search-cats button[phx-value-uuid="#{child.uuid}"]),
+               "Bolts"
+             )
+
+      assert has_element?(view, "#picker-search-cats button", "Fasteners")
+
+      # The hit opens the chapter's content: search cleared, standing in
+      # Bolts with its own item listed — no hits strip any more.
+      html = view |> picker() |> render_click("open_category_hit", %{"uuid" => child.uuid})
+      assert html =~ "Hex Bolt"
+      refute has_element?(view, "#picker-search-cats")
+      refute has_element?(view, ~s(#picker-search[value="bolt"]))
+      assert has_element?(view, "#picker-levelnav", "Bolts")
+    end
+
+    test "hits respect the scope allow-list and the drilled subtree", %{
+      conn: conn,
+      cat: cat,
+      parent: parent,
+      child: child
+    } do
+      # Same catalogue, OUTSIDE the scoped parent's subtree — matches
+      # the query but must never be offered by a parent-scoped embed.
+      outside = fixture_category(cat, %{name: "Bolt Bin"})
+
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&cat_scope=#{parent.uuid}&sel=click")
+      view |> picker() |> render_change("browse_search", %{"search" => "bolt"})
+
+      assert has_element?(view, ~s(#picker-search-cats button[phx-value-uuid="#{child.uuid}"]))
+      refute has_element?(view, ~s(#picker-search-cats button[phx-value-uuid="#{outside.uuid}"]))
+
+      # Unscoped popup, drilled into the parent: hits cover only the
+      # subtree you stand in, like the admin's drilled search.
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&sel=click")
+      view |> picker() |> render_click("browse_category", %{"uuid" => parent.uuid})
+      view |> picker() |> render_change("browse_search", %{"search" => "bolt"})
+
+      assert has_element?(view, ~s(#picker-search-cats button[phx-value-uuid="#{child.uuid}"]))
+      refute has_element?(view, ~s(#picker-search-cats button[phx-value-uuid="#{outside.uuid}"]))
+    end
+
+    test "the root's Items mode searches items only — the admin's items-type search", %{
+      conn: conn,
+      cat: cat
+    } do
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&sel=click")
+      view |> picker() |> render_click("set_root_mode", %{"mode" => "items"})
+
+      html = view |> picker() |> render_change("browse_search", %{"search" => "bolt"})
+      assert html =~ "Hex Bolt"
+      refute has_element?(view, "#picker-search-cats")
+    end
+  end
+
   describe "per-user persistence" do
     # The view and hidden-column choices ride phoenix_kit_users.custom_fields
     # (ViewConfig's "__selector__" key, 2026-08-31 — boss: "save settings
