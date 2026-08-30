@@ -1453,6 +1453,29 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       assert render(view) =~ "close_detail"
     end
 
+    test "a cancel with the details stacked closes only the details", %{
+      conn: conn,
+      cat: cat,
+      screw: screw
+    } do
+      # Esc's server contract (Max, 2026-08-31: "Esc closes both popups,
+      # but only top one needs to go"): core's PkDialog relays the
+      # grouped cancel, and on the server a cancel arriving with @detail
+      # open must close the TOP popup only — the selector keeps its
+      # state. The second cancel closes the selector itself.
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&sel=click")
+
+      view |> picker() |> render_click("show_detail", %{"uuid" => to_string(screw.uuid)})
+      assert render(view) =~ "close_detail"
+
+      html = view |> picker() |> render_click("cancel", %{})
+      refute html =~ "close_detail"
+      refute has_element?(view, "#closed")
+
+      view |> picker() |> render_click("cancel", %{})
+      assert has_element?(view, "#closed")
+    end
+
     test "a foreign uuid is refused by the rendered-uuid gate", %{
       conn: conn,
       cat: cat,
