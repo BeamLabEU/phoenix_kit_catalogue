@@ -2763,6 +2763,9 @@ msgstr ""
 msgid "Supplier extra fields"
 msgstr ""
 
+msgid "Unit cost"
+msgstr ""
+
 msgid "Unit cost must be a number."
 msgstr ""
 

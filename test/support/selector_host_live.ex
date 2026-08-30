@@ -63,8 +63,10 @@ defmodule PhoenixKitCatalogue.Test.SelectorHostLive do
        show_tray: params["tray"] != "false",
        show_item_details: params["details"] != "false",
        title: params["title"],
+       per_page: params["pp"] && String.to_integer(params["pp"]),
        two: params["two"] == "true",
        browse: params["browse"] == "true",
+       browse_click: params["bclick"] != "false",
        clicked: nil,
        picked: nil,
        closed: false
@@ -112,8 +114,13 @@ defmodule PhoenixKitCatalogue.Test.SelectorHostLive do
     do: {:noreply, assign(socket, :show_prices, !socket.assigns.show_prices)}
 
   @impl true
-  def handle_info({:items_selected, payload}, socket),
-    do: {:noreply, assign(socket, picked: payload)}
+  def handle_info({:items_selected, payload}, socket) do
+    {:noreply,
+     assign(socket,
+       picked: payload,
+       picked_count: (socket.assigns[:picked_count] || 0) + 1
+     )}
+  end
 
   def handle_info({:catalogue_browse, %{event: :item_clicked, item: item}}, socket),
     do: {:noreply, assign(socket, clicked: item)}
@@ -130,7 +137,7 @@ defmodule PhoenixKitCatalogue.Test.SelectorHostLive do
         module={CatalogueBrowse}
         id="surface"
         scope={@scope}
-        on_item_click={true}
+        on_item_click={@browse_click}
       />
       <.live_component
         :if={@show and not @browse}
@@ -152,6 +159,7 @@ defmodule PhoenixKitCatalogue.Test.SelectorHostLive do
         show_tray={@show_tray}
         show_item_details={@show_item_details}
         title={@title}
+        per_page={@per_page}
       />
       <.live_component
         :if={@show and @two}
@@ -165,6 +173,7 @@ defmodule PhoenixKitCatalogue.Test.SelectorHostLive do
       <div :if={@clicked} id="clicked">{@clicked.name}|{@clicked.sku}</div>
       <div :if={@picked} id="picked">
         <span id="picked-count">{length(@picked.picks)}</span>
+        <span id="picked-messages">{@picked_count}</span>
         <div :for={pick <- @picked.picks} id={"pick-#{pick.uuid}"}>
           {pick.name}|{pick.sku}|qty={Decimal.to_string(pick.qty, :normal)}|decimal={inspect(match?(%Decimal{}, pick.qty))}|line={pick.line_total && Decimal.to_string(pick.line_total, :normal)}
         </div>

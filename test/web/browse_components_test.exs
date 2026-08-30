@@ -79,6 +79,119 @@ defmodule PhoenixKitCatalogue.Web.Components.BrowseTest do
     end
   end
 
+  describe "item_card/1 photo_click split (2026-08-31 delta pin)" do
+    test "with photo_click the figure is its own details button; the body keeps the select" do
+      item = %{
+        uuid: "u-1",
+        name: "Widget",
+        sku: "W-1",
+        price: nil,
+        unit: "piece",
+        photo_url: nil,
+        thumb_url: nil
+      }
+
+      html =
+        render_component(&Browse.item_card/1,
+          id: "c1",
+          item: item,
+          photo_click: "show_detail"
+        )
+
+      assert html =~ ~s(phx-click="show_detail")
+      assert html =~ ~s(phx-click="card_click")
+      # The two gestures carry distinct accessible names.
+      assert html =~ "View item details"
+
+      # Without photo_click: one button, no details affordance.
+      plain = render_component(&Browse.item_card/1, id: "c1", item: item)
+      refute plain =~ "show_detail"
+      refute plain =~ "View item details"
+    end
+  end
+
+  describe "item_table/1 + item_row/1 render contract (2026-08-31 delta pin)" do
+    defp row_item do
+      %{
+        uuid: "u-1",
+        name: "Widget",
+        sku: "W-1",
+        price: Decimal.new("2.50"),
+        base_price: Decimal.new("2.00"),
+        unit: "piece",
+        manufacturer: "Acme",
+        category: "Bolts",
+        photo_url: nil,
+        thumb_url: nil,
+        default_qty: Decimal.new(1)
+      }
+    end
+
+    test "the qty cell is never click-bound; data cells carry the select toggle" do
+      html =
+        render_component(&Browse.item_row/1,
+          id: "r1",
+          item: row_item(),
+          columns: [:thumb, :name, :qty]
+        )
+
+      # A quantity keystroke must never toggle the row underneath it:
+      # data cells are click-bound, the LAST cell (:qty) is not.
+      assert html =~ ~s(phx-click="card_click")
+      qty_cell = html |> String.split("<td") |> List.last()
+      refute qty_cell =~ "card_click"
+    end
+
+    test "thumb_click rides the thumb cell only; checkbox renders when asked" do
+      html =
+        render_component(&Browse.item_row/1,
+          id: "r1",
+          item: row_item(),
+          columns: [:thumb, :name],
+          checkbox: true,
+          thumb_click: "show_detail"
+        )
+
+      assert html =~ ~s(phx-click="show_detail")
+      assert html =~ ~s(input type="checkbox")
+      # Only the thumb cell carries the details event.
+      assert length(String.split(html, ~s(phx-click="show_detail"))) == 2
+    end
+
+    test "item_table renders the checkbox header cell in lockstep" do
+      with_box =
+        render_component(&Browse.item_table/1,
+          id: "t1",
+          columns: [:name],
+          checkbox: true,
+          inner_block: [%{inner_block: fn _, _ -> "" end}]
+        )
+
+      without =
+        render_component(&Browse.item_table/1,
+          id: "t1",
+          columns: [:name],
+          inner_block: [%{inner_block: fn _, _ -> "" end}]
+        )
+
+      assert length(String.split(with_box, "<th")) == length(String.split(without, "<th")) + 1
+    end
+  end
+
+  describe "shared resolvers (2026-08-31 delta pin)" do
+    test "resolve_view!/2 validates and defaults per caller" do
+      assert Browse.resolve_view!(nil, "card") == "card"
+      assert Browse.resolve_view!(:table, "card") == "table"
+      assert_raise ArgumentError, ~r/table.*card/, fn -> Browse.resolve_view!("grid", "card") end
+    end
+
+    test "resolve_columns!/2 rejects unknown entries loudly" do
+      assert_raise ArgumentError, ~r/unknown entries/, fn ->
+        Browse.resolve_columns!([:name, :bogus], %{show_sku: true, show_prices: true})
+      end
+    end
+  end
+
   describe "qty_stepper/1" do
     # 2026-08-30: a native <input type="number"> — browser spinner arrows,
     # no custom −/+ buttons.
@@ -169,7 +282,7 @@ defmodule PhoenixKitCatalogue.Web.Components.BrowseTest do
         manufacturer_name: nil,
         manufacturer_name_snapshot: "ACME",
         default_value: Decimal.new("2.5"),
-        data: %{"featured_image_uuid" => "photo-uuid"}
+        data: %{"featured_image_uuid" => "0198c2f0-0000-7000-8000-000000000001"}
       }
 
       [p] = Browse.present_items([item], "en")
@@ -180,10 +293,17 @@ defmodule PhoenixKitCatalogue.Web.Components.BrowseTest do
       # The signed URLs are computed here — the card never talks to
       # Storage. Two sizes: medium for the card faces, the 150px
       # thumbnail for the 32-48px row cells (2026-08-29 image sweep).
-      assert p.photo_url =~ "photo-uuid"
+      # The pointer must be UUID-shaped since the 2026-08-31 sweep — a
+      # garbage value yields nil rather than an attacker-shaped path.
+      assert p.photo_url =~ "0198c2f0-0000-7000-8000-000000000001"
       assert p.photo_url =~ "medium"
-      assert p.thumb_url =~ "photo-uuid"
+      assert p.thumb_url =~ "0198c2f0-0000-7000-8000-000000000001"
       assert p.thumb_url =~ "thumbnail"
+
+      garbage = %{item | data: %{"featured_image_uuid" => "../../etc/passwd"}}
+      [g] = Browse.present_items([garbage], "en")
+      assert g.photo_url == nil
+      assert g.thumb_url == nil
       # Starting qty is always 1. `default_value` is the smart-catalogue
       # fee fallback, not a pick quantity.
       assert Decimal.equal?(p.default_qty, Decimal.new(1))

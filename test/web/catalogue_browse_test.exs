@@ -100,6 +100,37 @@ defmodule PhoenixKitCatalogue.Web.Components.CatalogueBrowseTest do
     assert html =~ ~s(id="surface-grid")
   end
 
+  # 2026-08-31 sweep pins.
+  test "a decorative embed (on_item_click false, the default) sends nothing", %{
+    conn: conn,
+    cat: cat,
+    item: item
+  } do
+    {:ok, view, html} = live(conn, "/test/selector-host?browse=true&bclick=false&c=#{cat.uuid}")
+
+    # Cards render inert — and a crafted click is refused server-side,
+    # or a host with no handle_info clause would crash.
+    refute html =~ ~s(phx-click="card_click")
+    view |> with_target("#surface") |> render_click("card_click", %{"uuid" => item.uuid})
+    refute render(view) =~ ~s(id="clicked")
+  end
+
+  test "a crafted click for an item this surface never rendered is refused", %{
+    conn: conn,
+    cat: cat
+  } do
+    other = fixture_catalogue(%{name: "Elsewhere Cat"})
+    {:ok, foreign} = Catalogue.create_item(%{name: "Foreign", catalogue_uuid: other.uuid})
+
+    {:ok, view, _html} = live(conn, "/test/selector-host?browse=true&c=#{cat.uuid}")
+
+    view
+    |> with_target("#surface")
+    |> render_click("card_click", %{"uuid" => to_string(foreign.uuid)})
+
+    refute render(view) =~ ~s(id="clicked")
+  end
+
   # The subtree-expansion fix from the 2026-08-25 quorum review reached
   # only the modal; the widget compared literally and hid descendant
   # chips. Shared via Browse.expand_scope/1 (2026-08-30).

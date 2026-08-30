@@ -514,6 +514,11 @@ defmodule PhoenixKitCatalogue.Web.Components.ProductCard do
       _ -> nil
     end
   rescue
+    # Chrome-not-data degradation, same doctrine as the other rescues in
+    # this file: a broken markup/discount rule must not crash the
+    # client-facing card — the price row is simply omitted. The listing
+    # behind the card prices items on an unrescued path, so the two
+    # surfaces disagreeing IS the visible symptom pointing at the rule.
     _ -> nil
   end
 

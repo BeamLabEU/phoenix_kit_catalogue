@@ -112,14 +112,32 @@ defmodule PhoenixKitCatalogue.Catalogue.SupplierFields do
   The catalogue's own supplier field definitions, in entities format.
   Always available — these do not depend on the entities module being
   enabled, only on its field machinery being compiled in.
+
+  Labels are translated at CALL time (2026-08-31 sweep): the compile-time
+  map can only hold the msgid, and rendering it raw showed an English
+  "Unit cost" to et/ru admins. The runtime `Gettext.gettext/2` call form
+  is this repo's convention — the msgid is hand-maintained in the
+  catalogues, per AGENTS.md.
   """
   @spec builtin_fields() :: [map()]
-  def builtin_fields, do: @builtin_fields
+  def builtin_fields, do: Enum.map(@builtin_fields, &translate_builtin/1)
 
   @doc "One built-in field definition by key, or `nil`."
   @spec builtin_field(String.t()) :: map() | nil
-  def builtin_field(key) when is_binary(key),
-    do: Enum.find(@builtin_fields, &(&1["key"] == key))
+  def builtin_field(key) when is_binary(key) do
+    case Enum.find(@builtin_fields, &(&1["key"] == key)) do
+      nil -> nil
+      field -> translate_builtin(field)
+    end
+  end
+
+  # The label helper stays literal-per-key so the mapping is auditable
+  # against the hand-maintained catalogues (the extractor can't see any
+  # of this either way — hand-added msgids are the contract here).
+  defp translate_builtin(%{"key" => "unit_cost"} = field),
+    do: %{field | "label" => Gettext.gettext(PhoenixKitCatalogue.Gettext, "Unit cost")}
+
+  defp translate_builtin(field), do: field
 
   @doc """
   Casts a built-in field's raw form input through the entities pipeline.

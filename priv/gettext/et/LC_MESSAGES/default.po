@@ -2757,6 +2757,9 @@ msgstr "Kas eemaldada see väli? Tarnija ridadele juba salvestatud väärtused j
 msgid "Supplier extra fields"
 msgstr "Tarnija lisaväljad"
 
+msgid "Unit cost"
+msgstr "Ühikuhind"
+
 msgid "Unit cost must be a number."
 msgstr "Ühiku hind peab olema arv."
 
