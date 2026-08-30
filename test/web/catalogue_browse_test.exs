@@ -71,4 +71,60 @@ defmodule PhoenixKitCatalogue.Web.Components.CatalogueBrowseTest do
 
     assert html =~ "Widget"
   end
+
+  # 2026-08-30: the widget gained the modal's list view. Card grid stays
+  # the default so existing embeds render unchanged.
+  test "the view toggle switches to the admin-look table and back", %{
+    conn: conn,
+    cat: cat,
+    item: item
+  } do
+    {:ok, view, html} = live(conn, "/test/selector-host?browse=true&c=#{cat.uuid}")
+
+    # Default: grid, no table.
+    assert html =~ ~s(id="surface-grid")
+    refute html =~ ~s(id="surface-table")
+
+    html = view |> with_target("#surface") |> render_click("set_view", %{"mode" => "table"})
+    assert html =~ ~s(id="surface-table")
+    assert html =~ "Widget"
+    # No selection chrome in the table: no checkbox column, no qty cell.
+    refute html =~ "input type=\"checkbox\""
+    refute html =~ "qty_commit"
+
+    # Rows report the same generic message cards do.
+    view |> element("#surface-row-#{item.uuid} td", "Widget") |> render_click()
+    assert render(view) =~ ~s(id="clicked")
+
+    html = view |> with_target("#surface") |> render_click("set_view", %{"mode" => "card"})
+    assert html =~ ~s(id="surface-grid")
+  end
+
+  # The subtree-expansion fix from the 2026-08-25 quorum review reached
+  # only the modal; the widget compared literally and hid descendant
+  # chips. Shared via Browse.expand_scope/1 (2026-08-30).
+  test "a parent-category scope shows and accepts descendant chips", %{conn: conn, cat: cat} do
+    parent = fixture_category(cat, %{name: "Parent Cat"})
+    child = fixture_category(cat, %{name: "Child Cat", parent_uuid: parent.uuid})
+
+    {:ok, _nested} =
+      Catalogue.create_item(%{
+        name: "Nested Item",
+        catalogue_uuid: cat.uuid,
+        category_uuid: child.uuid
+      })
+
+    {:ok, view, html} =
+      live(conn, "/test/selector-host?browse=true&c=#{cat.uuid}&cat_scope=#{parent.uuid}")
+
+    assert html =~ "Child Cat"
+    assert html =~ "Nested Item"
+
+    html =
+      view
+      |> with_target("#surface")
+      |> render_click("browse_category", %{"uuid" => child.uuid})
+
+    assert html =~ "Nested Item"
+  end
 end

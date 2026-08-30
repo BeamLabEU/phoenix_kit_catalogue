@@ -122,6 +122,109 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
   end
 
   @doc """
+  Normalizes a uuid to its canonical string form. `Tree.subtree_uuids_for/1`
+  returns Postgres' raw 16-byte binaries; chips render and client events
+  carry strings, and comparing the two shapes silently never matches.
+  """
+  def normalize_uuid(nil), do: nil
+
+  def normalize_uuid(bin) when is_binary(bin) and byte_size(bin) == 16 do
+    case Ecto.UUID.load(bin) do
+      {:ok, uuid} -> uuid
+      :error -> bin
+    end
+  end
+
+  def normalize_uuid(other), do: to_string(other)
+
+  @doc """
+  Expands a scope's `:category_uuids` through the category tree, once, at
+  init — so chips, `BrowseState.category_allowed?/2` and preselect checks
+  all compare the same literal list the fetch layer queries. A
+  parent-category scope means "that category and its subtree"
+  (`include_descendants` defaults to true across the search vocabulary),
+  but every consumer compares literally — without this, descendant chips
+  vanish and narrowing to one is rejected as out of scope (2026-08-25
+  quorum review, finding 4; shared here 2026-08-30 so `CatalogueBrowse`
+  stops missing the fix the modal got).
+
+  Anything not shaped like an expandable scope passes through untouched
+  for `BrowseState.init/1` to validate loudly. Re-expanding is
+  idempotent, and a member's subtree cannot escape the root's subtree, so
+  narrowing stays inside the allow-list.
+  """
+  def expand_scope(scope) do
+    scope = if is_map(scope), do: scope, else: Map.new(scope)
+
+    case scope[:category_uuids] do
+      uuids when is_list(uuids) and uuids != [] ->
+        if Map.get(scope, :include_descendants, true) do
+          expanded = Enum.map(Catalogue.category_subtree_uuids(uuids), &normalize_uuid/1)
+          Map.put(scope, :category_uuids, expanded)
+        else
+          scope
+        end
+
+      _ ->
+        scope
+    end
+  end
+
+  @doc """
+  The chip row's categories for a scope, translated for the viewer.
+  Only meaningful when the scope names exactly one catalogue — with
+  several (or all), a flat chip row of every category across catalogues
+  is noise, and search does the narrowing instead. An
+  `:uncategorized_only` scope contradicts every category narrowing
+  (`search_items/2` raises on the combination), so it gets no chips.
+
+  Metadata-only read (`list_categories_metadata_for_catalogue/1`) — the
+  full listing preloads every item just to render chips. Any failure
+  degrades to `[]`: chips are navigation, not data.
+  """
+  def chip_categories(scope, locale)
+
+  def chip_categories(%{only: :uncategorized_only}, _locale), do: []
+
+  def chip_categories(%{catalogue_uuids: [catalogue_uuid]} = scope, locale) do
+    categories = Catalogue.list_categories_metadata_for_catalogue(catalogue_uuid)
+
+    categories =
+      case scope[:category_uuids] do
+        nil ->
+          categories
+
+        [] ->
+          categories
+
+        allowed ->
+          allowed = Enum.map(allowed, &to_string/1)
+          Enum.filter(categories, fn category -> to_string(category.uuid) in allowed end)
+      end
+
+    Enum.map(categories, fn category ->
+      %{uuid: to_string(category.uuid), name: chip_name(category, locale)}
+    end)
+  rescue
+    _ -> []
+  end
+
+  def chip_categories(_scope, _locale), do: []
+
+  defp chip_name(record, locale) do
+    translation =
+      try do
+        Catalogue.get_translation(record, locale)
+      rescue
+        _ -> %{}
+      end
+
+    Map.get(translation, "_name") ||
+      Map.get(translation, "name") ||
+      Map.get(record, :name)
+  end
+
+  @doc """
   Horizontally scrollable category filter chips: "All" plus one per
   category. Dispatches `browse_category` with `phx-value-uuid` ("" for All).
   """
@@ -388,6 +491,48 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
 
   @doc "The default column set — selling price with inline unit, no raw base price."
   def default_table_columns, do: @default_table_columns
+
+  @doc """
+  Validates a host-supplied view attr — `"table" | "card"` (atoms accepted),
+  raising on anything else. Both browse surfaces call this at init; each
+  passes its own default for nil.
+  """
+  def resolve_view!(nil, default), do: default
+  def resolve_view!(view, _default) when view in ["table", "card"], do: view
+  def resolve_view!(view, _default) when view in [:table, :card], do: to_string(view)
+
+  def resolve_view!(other, _default),
+    do: raise(ArgumentError, ~s(view must be "table" or "card", got: #{inspect(other)}))
+
+  @doc """
+  Resolves the granted column list — the host contract both browse
+  surfaces enforce. `nil` yields the default set minus what the
+  `show_sku`/`show_prices` display flags already opt out of; an explicit
+  non-empty list is taken verbatim, in order, and unknown entries raise —
+  a silently-dropped column is how a price ends up shown to the wrong
+  audience's sibling.
+  """
+  def resolve_columns!(nil, display) do
+    Enum.reject(
+      @default_table_columns,
+      &((&1 == :sku and not display.show_sku) or (&1 == :price and not display.show_prices))
+    )
+  end
+
+  def resolve_columns!(columns, _display) when is_list(columns) and columns != [] do
+    case Enum.reject(columns, &(&1 in @table_columns)) do
+      [] ->
+        columns
+
+      bad ->
+        raise ArgumentError,
+              "columns has unknown entries #{inspect(bad)} — " <>
+                "use #{inspect(@table_columns)}"
+    end
+  end
+
+  def resolve_columns!(other, _display),
+    do: raise(ArgumentError, "columns must be a non-empty list of atoms, got: #{inspect(other)}")
 
   @doc """
   The table twin of `item_grid`: an admin-look list for the same presented
