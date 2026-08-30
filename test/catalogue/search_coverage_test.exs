@@ -137,7 +137,10 @@ defmodule PhoenixKitCatalogue.Catalogue.SearchCoverageTest do
       {:ok, _} =
         Catalogue.update_catalogue(ctx.cat, %{data: %{"et" => %{"_name" => "Köögisari"}}})
 
-      {:ok, view, _html} = live(ctx.conn, "/en/admin/catalogue")
+      # ?mode=catalogues: the index's auto mode answers a query with ITEM
+      # results since the 2026-08-31 search-default flip — catalogue-name
+      # coverage lives behind the explicit switch.
+      {:ok, view, _html} = live(ctx.conn, "/en/admin/catalogue?mode=catalogues")
 
       assert render_change(view, "table_search", %{"query" => "Köögisari"}) =~ "Kitchen Range"
       refute render_change(view, "table_search", %{"query" => "_name"}) =~ "Kitchen Range"
@@ -198,7 +201,8 @@ defmodule PhoenixKitCatalogue.Catalogue.SearchCoverageTest do
       {:ok, _} =
         Catalogue.update_catalogue(ctx.cat, %{data: %{"et" => %{"_name" => "Köögisari"}}})
 
-      {:ok, view, _html} = live(ctx.conn, "/en/admin/catalogue")
+      # Explicit catalogues mode — see "structure is not content" above.
+      {:ok, view, _html} = live(ctx.conn, "/en/admin/catalogue?mode=catalogues")
 
       assert render_change(view, "table_search", %{"query" => "  kitchen  "}) =~ "Kitchen Range"
       assert render_change(view, "table_search", %{"query" => "Köögisari"}) =~ "Kitchen Range"
