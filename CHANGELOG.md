@@ -1,3 +1,89 @@
+## 0.24.0 - 2026-08-30
+
+### Added
+
+- **Admin-style browsing levels in the item selector** (#89) — the flat
+  category chip strip is replaced by one level of the admin pages'
+  category surface: `Components.category_card/1` tiles in card view, the
+  shared `category_header_cells/1` columns as a compact table in table
+  view, an `Up` button, and section headings. A root that has categories
+  carries the admin's `Categories | Items` either-or switcher; drilling
+  into a category shows its subcategories and its OWN items.
+  `BrowseState` gained `drill: :direct` (fixed at init, like the scope)
+  for those file-explorer semantics — a non-empty search still covers
+  the subtree of wherever you stand, because finding beats filing.
+- **Two-list search in the selector** (#89) — categories whose name
+  matches, in any language, render above the item results as
+  navigation; a hit opens that category with the search cleared. Hits
+  are intersected with the popup's own category tree, so a scoped embed
+  can never offer a category outside its allow-list, and they cover only
+  the drilled subtree when drilled.
+- **Per-user selector memory** (#89) — pass `current_user` and the
+  selector remembers the view and column visibility each user last
+  chose, stored beside the admin tables' preferences in `custom_fields`
+  (`ViewConfig.load_selector/1` / `save_selector/2`). The saved choice
+  beats the host's starting attrs, never the grant. No user, no
+  persistence.
+- **The `Uncategorized` bucket is back in the category browsers** (#89)
+  — the catalogue's loose items present like any subcategory, in the
+  detail page's tables and cards and in the selector's level, whenever
+  the bucket holds anything.
+- **`Set (kmpl)` as an item unit** (#89) — the Estonian set/komplekt,
+  stored as `"set"`, which `Item.unit_label/1` already knew.
+
+### Changed
+
+- **The selector's item details are their own popup** (#89) — a stacked
+  `ProductCard` modal over the selector instead of a panel covering the
+  browse region, so ESC and the backdrop close only the details and the
+  list underneath keeps its scroll, search and selection for free.
+  `ProductCard.product_card/1` gained an `:extra_actions` slot for the
+  mode-aware Add/quantity control.
+- **Clicking an item's title means the same as clicking its image**
+  (#89) — the "look closer" affordance now covers the name cell and the
+  card title, not just the thumbnail.
+- **New selector defaults** (#89) — `show_tray` is now `false` (the
+  quantity-first default already shows a number on every picked row, so
+  the cart is opt-in chrome) and `hidden_columns` defaults to
+  `[:breadcrumb]`, making the SKU/article column visible out of the box.
+  Hosts that want the previous behaviour pass `show_tray: true` /
+  `hidden_columns: [:sku, :breadcrumb]`.
+- **The catalogues index searches items by default** (#89) — the auto
+  mode (`?mode=` absent) keeps the normal catalogues listing until there
+  is a question, then answers it with item results. `?mode=catalogues`
+  is the explicit catalogue-name search; `?mode=items` the full item
+  browser, as before.
+- **Category card and table cells are shared definitions** (#89) —
+  `category_card/1`, `uncategorized_card/1`, `category_header_cells/1`
+  and `category_body_cells/1` moved from `CatalogueDetailLive` into
+  `Web.Components`, so the detail page's flat table, tree table and
+  tiles and the selector's level all render from one place. Admin-only
+  chrome rides the `:overlay` / `:menu` slots and `:rest`.
+- **The supplier `unit_cost` step is `"any"`** (#89) — `step` is a
+  browser validation constraint enforced before submit, so the previous
+  `"0.01"` made a typed 4-place value unsaveable. The scale stays 4.
+
+### Fixed
+
+- **The quantity stepper's form is `novalidate`** (#89) — `step`/`min`/
+  `max` are validation constraints, and a `phx-submit` form never
+  reaches LiveView while an input fails one, so Enter was silently dead
+  on a value the arrows could not reach. The server owns rounding and
+  clamping, as it always did.
+- **A selector card can no longer lose its only select target** (#89,
+  post-merge review) — with the details split on, the select toggle is
+  what is left of the card body, which is empty when neither SKU nor
+  price is shown. It now keeps a minimum hit area while clickable, so a
+  price-less, SKU-less item is still pickable in card view.
+- **`Up` never points outside the browse scope** (#89, post-merge
+  review) — a search hit can open the scoped root category itself, and
+  `Up` there named a parent `BrowseState` refuses, leaving the only way
+  back dead. An unreachable parent now climbs to the popup root.
+- **The selector's category search no longer re-runs while paging**
+  (#89, post-merge review) — `:load_more` changes neither the search nor
+  the level, so the hits are recomputed only on a fresh fetch instead of
+  once per scrolled page.
+
 ## 0.23.0 - 2026-08-30
 
 ### Added

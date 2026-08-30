@@ -1997,6 +1997,34 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       refute has_element?(view, ~s(#picker-search-cats button[phx-value-uuid="#{outside.uuid}"]))
     end
 
+    test "a hit on the scoped root itself leaves Up alive", %{conn: conn, cat: cat} do
+      # A scoped embed's OWN root category is inside the tree, so a
+      # search that matches its name offers it as a hit. Drilling there
+      # used to aim Up at the grandparent — outside the scope, refused
+      # by BrowseState — so the only way back up was a dead button.
+      top = fixture_category(cat, %{name: "Hardware"})
+      mid = fixture_category(cat, %{name: "Widgets", parent_uuid: top.uuid})
+      leaf = fixture_category(cat, %{name: "Widget Clips", parent_uuid: mid.uuid})
+
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&cat_scope=#{mid.uuid}&sel=click")
+      view |> picker() |> render_change("browse_search", %{"search" => "widget"})
+
+      assert has_element?(view, ~s(#picker-search-cats button[phx-value-uuid="#{mid.uuid}"]))
+      view |> picker() |> render_click("open_category_hit", %{"uuid" => mid.uuid})
+
+      assert has_element?(view, ~s(#picker-levelnav button[phx-value-uuid=""]), "Up")
+      refute has_element?(view, ~s(#picker-levelnav button[phx-value-uuid="#{top.uuid}"]))
+
+      # And the climb actually lands back on the popup root's tiles.
+      view |> picker() |> render_click("browse_category", %{"uuid" => ""})
+
+      assert has_element?(
+               view,
+               ~s(#picker-levelnav button[phx-value-uuid="#{leaf.uuid}"]),
+               "Widget Clips"
+             )
+    end
+
     test "the root's Items mode searches items only — the admin's items-type search", %{
       conn: conn,
       cat: cat

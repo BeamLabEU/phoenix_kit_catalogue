@@ -411,9 +411,18 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
             {@item.name}
           </span>
         </button>
+        <%!-- The min height is load-bearing: sku and price are both
+        conditional, so with neither shown (an embed that granted no
+        :price over items with no SKU) this button renders EMPTY, and a
+        card whose row isn't stretched then has no select target at all
+        — the title only opens details. Only while clickable, so the
+        quantity flavour's disabled button adds no blank strip. --%>
         <button
           type="button"
-          class="text-left w-full flex-1 flex flex-col gap-0.5 cursor-pointer disabled:cursor-default"
+          class={[
+            "text-left w-full flex-1 flex flex-col gap-0.5 cursor-pointer disabled:cursor-default",
+            @clickable && "min-h-[1.5rem]"
+          ]}
           phx-click={@clickable && "card_click"}
           phx-value-uuid={@item.uuid}
           phx-target={@target}
