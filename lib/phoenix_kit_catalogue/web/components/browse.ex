@@ -79,7 +79,7 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
     do: {:price, v}
 
   def smart_fee(%Item{base_price: nil, default_unit: "percent", default_value: %Decimal{} = v}),
-    do: {:note, Decimal.to_string(v, :normal) <> "%"}
+    do: {:note, Decimal.to_string(Decimal.normalize(v), :normal) <> "%"}
 
   def smart_fee(%Item{base_price: nil, default_unit: unit}) when unit in ["flat", "percent"],
     do: {:note, gettext("Computed")}
