@@ -48,6 +48,11 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
 
   defp picker(view), do: with_target(view, "#picker")
 
+  # A root that has categories opens as the admin-style category browser;
+  # tests that assert on the ROOT's flat item list switch it over first.
+  defp to_items_mode(view),
+    do: view |> picker() |> render_click("set_root_mode", %{"mode" => "items"})
+
   describe "scoped browsing" do
     test "renders only the scoped catalogue's items", %{conn: conn, cat: cat} do
       {:ok, _view, html} = open(conn, "c=#{cat.uuid}&sel=click")
@@ -948,6 +953,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
         })
 
       {:ok, view, _html} = open(conn, "c=#{cat.uuid}&sel=click")
+      to_items_mode(view)
 
       # Off by default, offered in the dropdown.
       refute render(view) =~ "Fasteners /"
@@ -1015,8 +1021,12 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       refute html =~ "Torx Driver"
       assert html =~ "M8 Screw"
 
-      # All restores everything.
+      # All returns to the ROOT, which is the category browser again —
+      # the flat list (and the categorized item) is one switch away.
       html = view |> picker() |> render_click("browse_category", %{"uuid" => ""})
+      refute html =~ "Torx Driver"
+
+      html = to_items_mode(view)
       assert html =~ "Torx Driver"
     end
 
@@ -1086,9 +1096,9 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
           category_uuid: child.uuid
         })
 
-      # Root of a parent-scoped popup: the whole subtree, unchanged.
-      {:ok, view, html} = open(conn, "c=#{cat.uuid}&cat_scope=#{parent.uuid}&sel=click")
-      assert html =~ "Deep Nested Item"
+      # Root of a parent-scoped popup, Items mode: the whole subtree.
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&cat_scope=#{parent.uuid}&sel=click")
+      assert to_items_mode(view) =~ "Deep Nested Item"
 
       # Drilling into the parent level: its own (zero) items, its child
       # as a tile to drill on.
@@ -1289,11 +1299,13 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       # scope to the table — the chips row legitimately shows the name
       # regardless of columns (navigation, not data).
       {:ok, view, _html} = open(conn, "c=#{cat.uuid}&sel=click")
+      to_items_mode(view)
       assert has_element?(view, "#picker-table th", "Category")
       assert has_element?(view, "#picker-table td", "Shelving")
 
       # A host that leaves it out shows neither header nor value.
       {:ok, view, _html} = open(conn, "c=#{cat.uuid}&cols=name,qty&sel=click")
+      to_items_mode(view)
       refute has_element?(view, "#picker-table th", "Category")
       refute has_element?(view, "#picker-table td", "Shelving")
     end
@@ -1311,9 +1323,9 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
 
       {:ok, view, html} = open(conn, "c=#{cat.uuid}&cat_scope=#{parent.uuid}&sel=click")
 
-      # The subtree is part of the scope, so its chips must be offered…
+      # The subtree is part of the scope, so its tiles must be offered…
       assert html =~ "Child Cat"
-      assert html =~ "Nested Item"
+      assert to_items_mode(view) =~ "Nested Item"
 
       # …and narrowing to a descendant is accepted, not rejected as
       # out-of-scope.
@@ -1806,9 +1818,9 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
     } do
       {:ok, view, _html} = open(conn, "c=#{cat.uuid}&sel=click")
 
-      # Table view (the default): the level renders as table ROWS — the
-      # admin tables' shared columns — not tiles; and categories/items
-      # are two headed sections, not one continuous list.
+      # Table view (the default): the root category browser renders as
+      # table ROWS — the admin tables' shared columns — not tiles. The
+      # switcher labels the root, so no section headings in a pure mode.
       assert has_element?(view, "#picker-levelnav-table")
 
       assert has_element?(
@@ -1817,8 +1829,8 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
                "Fasteners"
              )
 
-      assert has_element?(view, "#picker-levelnav div", "Categories")
-      assert has_element?(view, "#picker-items-heading", "Items")
+      assert has_element?(view, "#picker-root-mode button", "Categories")
+      refute has_element?(view, "#picker-items-heading")
 
       # Card view: the shared admin tiles, no table.
       view |> picker() |> render_click("set_view", %{"mode" => "card"})
@@ -1830,11 +1842,35 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
                "Fasteners"
              )
 
-      assert has_element?(view, "#picker-items-heading", "Items")
-
-      # Drilled, the heading names the level's children.
+      # Drilled: both sections, headed like the admin's.
       view |> picker() |> render_click("browse_category", %{"uuid" => parent.uuid})
       assert has_element?(view, "#picker-levelnav div", "Subcategories")
+      assert has_element?(view, "#picker-items-heading", "Items")
+    end
+
+    test "the root is either-or like the admin: category browser first, flat list one switch away",
+         %{conn: conn, cat: cat} do
+      {:ok, view, html} = open(conn, "c=#{cat.uuid}&sel=click")
+
+      # Categories mode (default): the outline only — no item rows, not
+      # even the seed items ("in the hardware catalogue there are 3
+      # items, why am I seeing 9" — Max, 2026-08-31: root showed the
+      # outline AND the flat list at once; the admin shows one or the
+      # other).
+      assert has_element?(view, "#picker-levelnav")
+      refute html =~ "M8-100"
+
+      # Items mode: everything in scope as one flat list, outline hidden.
+      html = to_items_mode(view)
+      assert html =~ "M8-100"
+      assert html =~ "Hex Bolt"
+      refute has_element?(view, "#picker-levelnav")
+
+      # And back. The switch is presentation only — nothing refetched,
+      # nothing deselected.
+      html = view |> picker() |> render_click("set_root_mode", %{"mode" => "categories"})
+      refute html =~ "M8-100"
+      assert has_element?(view, "#picker-levelnav")
     end
 
     test "the Uncategorized drill is a root tile", %{conn: conn, cat: cat} do

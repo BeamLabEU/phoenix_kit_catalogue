@@ -8,14 +8,19 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
 
   ## Browsing levels (admin-page semantics, 2026-08-31)
 
-  Categories present as one level of the same tiles the admin detail
-  page draws (`Components.category_card/1` — one shared definition):
-  the popup root shows the top-level categories (plus an Uncategorized
-  tile where the scope allows it) above the full in-scope item list;
-  drilling into a tile shows that level's child tiles, an Up button, and
-  the level's OWN items — while a non-empty search always covers the
-  subtree of wherever you stand (`BrowseState`'s `drill: :direct`).
-  Tiles hide while a search is active.
+  Categories present exactly the way the admin detail page presents
+  them, from the same shared definitions (`Components.category_card/1`
+  tiles in card view, the `category_header_cells/1` columns as a compact
+  table in table view). A root that has categories carries the admin's
+  Categories | Items switcher: Categories (the default) is the pure
+  category outline — top-level categories plus an Uncategorized entry
+  where the scope allows it — and Items is the flat list of everything
+  in scope. Drilling into a category shows both sections, headed like
+  the admin's: its child categories, an Up button, and the level's OWN
+  items — while a non-empty search always covers the subtree of wherever
+  you stand (`BrowseState`'s `drill: :direct`) and hides the level
+  navigation. A category-less root has no switcher and simply lists the
+  items.
 
   ## Usage
 
@@ -231,6 +236,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
        tray_open: false,
        detail: nil,
        confirmed: false,
+       root_mode: "categories",
        drafts: %{}
      )}
   end
@@ -616,6 +622,33 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
       (assigns.browse.category_uuid == nil and offer_uncategorized?(assigns.browse.scope))
   end
 
+  # The ROOT either-or (Max, 2026-08-31 — match the admin root exactly):
+  # a root with real categories browses EITHER the category outline OR
+  # the flat item list, driven by the same Categories | Items switcher
+  # the admin page has. Drilled levels always show both sections; a
+  # category-less root has no switcher and lists items as always, and a
+  # search shows results regardless of the mode.
+  defp root_mode_gate?(assigns) do
+    assigns.browse.search == "" and is_nil(assigns.browse.category_uuid) and
+      level_categories(assigns.cat_tree, nil) != []
+  end
+
+  defp show_categories_block?(assigns) do
+    show_level_nav?(assigns) and
+      not (root_mode_gate?(assigns) and assigns.root_mode == "items")
+  end
+
+  defp show_items_block?(assigns) do
+    not (root_mode_gate?(assigns) and assigns.root_mode == "categories")
+  end
+
+  # Both sections at once happens only on a drilled level — that is when
+  # the Items heading separates them (the admin's section idiom).
+  defp both_sections?(assigns) do
+    show_categories_block?(assigns) and show_items_block?(assigns) and
+      level_has_section?(assigns)
+  end
+
   # One level of the admin pages' categories surface + the Up affordance.
   # Like the admin's, the level follows the view toggle: card = the
   # shared `Shared.category_card/1` tiles, table = a compact table drawing
@@ -657,10 +690,14 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
         <span class="font-medium truncate">{level_name(@tree, @browse.category_uuid)}</span>
       </div>
       <div :if={@tiles != [] or @uncat?}>
-        <div class="text-sm font-semibold text-base-content/70 mb-2">
-          {if @browse.category_uuid,
-            do: gettext("Subcategories"),
-            else: gettext("Categories")}
+        <%!-- Only a drilled level heads this block — at the root the
+        Categories | Items switcher already names what is listed, the
+        admin's pure-browser idiom. --%>
+        <div
+          :if={@browse.category_uuid}
+          class="text-sm font-semibold text-base-content/70 mb-2"
+        >
+          {gettext("Subcategories")}
         </div>
         <div :if={@view == "card"} class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
           <Shared.category_card
@@ -1029,6 +1066,14 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
   @impl true
   def handle_event("set_view", %{"mode" => mode}, socket) when mode in ["table", "card"] do
     {:noreply, socket |> assign(:view, mode) |> persist_selector(%{view: mode})}
+  end
+
+  # The root's Categories | Items switcher (admin semantics). Pure
+  # presentation: the fetch and the selection are untouched, so switching
+  # never loses picks.
+  def handle_event("set_root_mode", %{"mode" => mode}, socket)
+      when mode in ["categories", "items"] do
+    {:noreply, assign(socket, :root_mode, mode)}
   end
 
   def handle_event("toggle_column", %{"col" => raw}, socket) do
@@ -1667,6 +1712,36 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
                 />
               </label>
             </form>
+            <%!-- What the root LISTS — the admin page's switcher, same
+            either-or: the category outline, or every in-scope item as
+            one flat list. Only at a root that has categories; drilled
+            levels show both sections and a search always shows results. --%>
+            <div
+              :if={root_mode_gate?(assigns)}
+              id={"#{@id}-root-mode"}
+              class="join"
+              role="group"
+              aria-label={gettext("Search for")}
+            >
+              <button
+                type="button"
+                phx-click="set_root_mode"
+                phx-value-mode="categories"
+                phx-target={@myself}
+                class={["btn btn-sm join-item", @root_mode == "categories" && "btn-active"]}
+              >
+                {gettext("Categories")}
+              </button>
+              <button
+                type="button"
+                phx-click="set_root_mode"
+                phx-value-mode="items"
+                phx-target={@myself}
+                class={["btn btn-sm join-item", @root_mode == "items" && "btn-active"]}
+              >
+                {gettext("Items")}
+              </button>
+            </div>
             <.column_toggle
               :if={@view == "table"}
               id={"#{@id}-column-toggle"}
@@ -1692,7 +1767,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
           the flat chip strip) scrolls WITH the items, admin-page style. --%>
           <div id={"#{@id}-scroll"} class="overflow-y-auto min-h-[16rem] max-h-[48vh] pr-1">
             <.subcategory_level
-              :if={show_level_nav?(assigns)}
+              :if={show_categories_block?(assigns)}
               id={"#{@id}-levelnav"}
               tree={@cat_tree}
               browse={@browse}
@@ -1700,17 +1775,19 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
               target={@myself}
               show_uncategorized={offer_uncategorized?(@browse.scope)}
             />
-            <%!-- The admin pages' section separation: when a categories
-            block rendered above, the items get their own heading — in
+            <%!-- The admin pages' section separation: on a drilled level
+            both sections show, so the items get their own heading — in
             both views, categories and items are two sections, not one
-            continuous grid. --%>
+            continuous grid. At the root the switcher shows one OR the
+            other, so no heading is needed. --%>
             <div
-              :if={show_level_nav?(assigns) and level_has_section?(assigns)}
+              :if={both_sections?(assigns)}
               id={"#{@id}-items-heading"}
               class="text-sm font-semibold text-base-content/70 mb-2"
             >
               {gettext("Items")}
             </div>
+            <div :if={show_items_block?(assigns)}>
             <.item_grid :if={@view == "card"} id={"#{@id}-grid"}>
               <%= if @browse.loading? and @browse.items == [] do %>
                 <.grid_skeleton id={"#{@id}-skeleton"} count={8} />
@@ -1809,6 +1886,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
                 <span :if={@browse.loading?} class="loading loading-spinner loading-xs"></span>
                 {gettext("Load more")}
               </button>
+            </div>
             </div>
           </div>
 
