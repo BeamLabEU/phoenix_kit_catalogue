@@ -5207,145 +5207,72 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   attr(:reorderable, :boolean, default: true)
   attr(:tree_parent, :string, default: "root")
 
+  # Renders through the shared `Components.category_card/1` (the popup's
+  # subcategory tiles use the same definition, 2026-08-31); this wrapper
+  # keeps the admin-only chrome — bulk checkbox, drag handle, row menu,
+  # tree-DnD data attributes — in the page that owns those behaviours.
   defp category_tile(assigns) do
+    assigns =
+      assign(
+        assigns,
+        :tree_active,
+        assigns.view_mode == "active" and assigns.category.status == "active"
+      )
+
     ~H"""
-    <div
-      class="group card card-sm bg-base-100 shadow hover:shadow-md transition-shadow overflow-hidden"
-      data-tree-uuid={@view_mode == "active" and @category.status == "active" && @category.uuid}
-      data-tree-type={@view_mode == "active" and @category.status == "active" && "category"}
-      data-tree-parent={@view_mode == "active" and @category.status == "active" && @tree_parent}
+    <.category_card
+      category={@category}
+      columns={@categories_columns}
+      count={@count}
+      subcat_count={@subcat_count}
+      file_count={@file_count}
+      has_subs={@has_subs}
+      has_files={@has_files}
+      patch={Paths.category_browse(@catalogue_uuid, @category.uuid)}
+      data-tree-uuid={@tree_active && @category.uuid}
+      data-tree-type={@tree_active && "category"}
+      data-tree-parent={@tree_active && @tree_parent}
     >
-      <%!-- The shared band (taller since 2026-08-29 — the h-24 sliver
-           cropped hard) with the card-grade variant: this tile was
-           stretching the 150px list thumbnail across the full card,
-           which is the blur the boss reported. The picture links where
-           the title does. --%>
-      <figure class={card_media_band()}>
-        <.link
-          patch={Paths.category_browse(@catalogue_uuid, @category.uuid)}
-          class="block w-full h-full"
-        >
-          <.featured_thumb
-            resource={@category}
-            class="w-full h-full"
-            variant="medium"
-            comfy_scale={false}
-          />
-          <.icon
-            :if={!featured_image_uuid(@category)}
-            name="hero-folder"
-            class="w-10 h-10 text-base-content/20 absolute inset-0 m-auto"
-          />
-        </.link>
+      <:overlay>
         <input
-          :if={@view_mode == "active" and @category.status == "active"}
+          :if={@tree_active}
           type="checkbox"
           class="checkbox checkbox-xs absolute top-1.5 left-1.5 bg-base-100/80"
           data-bulk-role="row"
           data-uuid={@category.uuid}
         />
         <span
-          :if={@view_mode == "active" and @category.status == "active" and @reorderable}
+          :if={@tree_active and @reorderable}
           data-tree-item={"category:" <> @category.uuid}
           class="pk-drag-handle cursor-grab active:cursor-grabbing absolute top-1.5 right-1.5 rounded bg-base-100/80 p-0.5 text-base-content/50 hover:text-base-content/80"
           title={gettext("Drag to reorder or nest")}
         >
           <.icon name="hero-bars-3" class="w-4 h-4" />
         </span>
-      </figure>
-      <div class="card-body p-3 gap-1.5">
-        <.link
-          patch={Paths.category_browse(@catalogue_uuid, @category.uuid)}
-          class="font-medium truncate hover:text-primary"
-        >
-          {@category.name}
-        </.link>
-        <%!-- Configured columns add their data to the card, mirroring the
-             table (Columns modal drives both). --%>
-        <div
-          :if={@categories_columns != []}
-          class="grid grid-cols-2 gap-x-3 gap-y-0.5 text-xs mt-1"
-        >
-          <%= for col <- @categories_columns do %>
-            <%= case col do %>
-              <% "items" -> %>
-                <div class="text-base-content/50">
-                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Items")}
-                </div>
-                <div class="tabular-nums">{@count}</div>
-              <% "subcategories" -> %>
-                <div class="text-base-content/50">
-                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Subcategories")}
-                </div>
-                <div class="tabular-nums">{@subcat_count}</div>
-              <% "description" -> %>
-                <div class="text-base-content/50">
-                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Description")}
-                </div>
-                <div class="line-clamp-2">{@category.description || "—"}</div>
-              <% "files" -> %>
-                <div class="text-base-content/50">
-                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Files")}
-                </div>
-                <div class="tabular-nums">{@file_count}</div>
-              <% "status" -> %>
-                <div class="text-base-content/50">
-                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Status")}
-                </div>
-                <div><.status_badge status={@category.status} size={:xs} /></div>
-              <% "updated" -> %>
-                <div class="text-base-content/50">
-                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Updated")}
-                </div>
-                <div>{Calendar.strftime(@category.updated_at, "%Y-%m-%d %H:%M")}</div>
-              <% "created" -> %>
-                <div class="text-base-content/50">
-                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Created")}
-                </div>
-                <div>{Calendar.strftime(@category.inserted_at, "%Y-%m-%d %H:%M")}</div>
-              <% _ -> %>
-            <% end %>
-          <% end %>
-        </div>
-        <div class="flex items-center gap-1.5">
-          <span
-            :if={@has_subs}
-            class="badge badge-ghost badge-xs"
-            title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Has subcategories")}
-          >
-            <.icon name="hero-rectangle-stack" class="w-3 h-3" />
-          </span>
-          <span
-            :if={@has_files}
-            class="badge badge-ghost badge-xs"
-            title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Files")}
-          >
-            <.icon name="hero-paper-clip" class="w-3 h-3 rotate-45" />
-          </span>
-          <div class="flex-1"></div>
-          <.table_row_menu mode="auto" id={"category-tile-menu-#{@category.uuid}"}>
-            <.table_row_menu_link
-              navigate={Paths.category_edit(@category.uuid)}
-              icon="hero-pencil"
-              label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")}
-            />
-            <.table_row_menu_link
-              navigate={Paths.category_new(@catalogue_uuid) <> "?parent_uuid=" <> @category.uuid}
-              icon="hero-folder-plus"
-              label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "New subcategory")}
-            />
-            <.table_row_menu_divider />
-            <.table_row_menu_button
-              phx-click="request_trash_category"
-              phx-value-uuid={@category.uuid}
-              icon="hero-trash"
-              label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")}
-              variant="error"
-            />
-          </.table_row_menu>
-        </div>
-      </div>
-    </div>
+      </:overlay>
+      <:menu>
+        <.table_row_menu mode="auto" id={"category-tile-menu-#{@category.uuid}"}>
+          <.table_row_menu_link
+            navigate={Paths.category_edit(@category.uuid)}
+            icon="hero-pencil"
+            label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")}
+          />
+          <.table_row_menu_link
+            navigate={Paths.category_new(@catalogue_uuid) <> "?parent_uuid=" <> @category.uuid}
+            icon="hero-folder-plus"
+            label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "New subcategory")}
+          />
+          <.table_row_menu_divider />
+          <.table_row_menu_button
+            phx-click="request_trash_category"
+            phx-value-uuid={@category.uuid}
+            icon="hero-trash"
+            label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")}
+            variant="error"
+          />
+        </.table_row_menu>
+      </:menu>
+    </.category_card>
     """
   end
 
