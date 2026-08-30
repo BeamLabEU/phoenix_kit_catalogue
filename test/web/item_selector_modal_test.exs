@@ -1434,6 +1434,58 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       # fields must not show it.
       refute html =~ "2.50"
     end
+
+    # 2026-08-31 external-review fixes.
+    test "an unavailable preselect's detail is refused — its body is what the scope excludes",
+         %{conn: conn, cat: cat, forbidden: forbidden} do
+      {:ok, view, _html} =
+        open(conn, "c=#{cat.uuid}&details=true&pre=#{forbidden.uuid}:1")
+
+      # The tray may name it (shown-but-excluded, by design)…
+      view |> picker() |> render_click("toggle_tray", %{})
+      assert render(view) =~ "Not available in this selection"
+
+      # …but a crafted show_detail must not open its full body.
+      view |> picker() |> render_click("show_detail", %{"uuid" => to_string(forbidden.uuid)})
+      refute has_element?(view, "#picker-detail")
+    end
+
+    test "a crafted NaN or Infinity quantity mutates nothing", %{
+      conn: conn,
+      cat: cat,
+      screw: screw
+    } do
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&sel=quantity")
+      uuid = to_string(screw.uuid)
+
+      view |> picker() |> render_click("qty_change", %{"uuid" => uuid, "value" => "2"})
+
+      for garbage <- ["NaN", "Infinity", "-Infinity"] do
+        view |> picker() |> render_click("qty_change", %{"uuid" => uuid, "value" => garbage})
+        view |> picker() |> render_click("qty_commit", %{"uuid" => uuid, "value" => garbage})
+      end
+
+      view |> picker() |> render_click("confirm", %{})
+      assert render(view) =~ "qty=2"
+    end
+
+    test "revoking show_prices while a detail is open rebuilds its fields", %{
+      conn: conn,
+      cat: cat,
+      screw: screw
+    } do
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&details=true")
+
+      view |> picker() |> render_click("show_detail", %{"uuid" => to_string(screw.uuid)})
+      assert view |> element("#picker-detail") |> render() =~ "2.50"
+
+      # The HOST re-renders with show_prices flipped off — the open
+      # detail must drop the price row, not keep the stale grant. (The
+      # list's :price COLUMN stays granted — grants are init-time; only
+      # the detail body re-reads the display flags.)
+      render_click(view, "toggle_prices", %{})
+      refute view |> element("#picker-detail") |> render() =~ "2.50"
+    end
   end
 
   describe "checkbox column (2026-08-30)" do

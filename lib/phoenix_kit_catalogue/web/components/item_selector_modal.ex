@@ -188,7 +188,21 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
       # A parent re-render must not clobber live selection state (the
       # classic LiveComponent update/2 trap) — after init, only cosmetic
       # props may refresh.
-      {:ok, assign(socket, Map.take(assigns, [:title, :show_prices, :show_sku]))}
+      prior_grants = Map.take(socket.assigns, [:show_prices, :show_sku])
+      socket = assign(socket, Map.take(assigns, [:title, :show_prices, :show_sku]))
+
+      # An open details page materialized its fields under the OLD
+      # display grants — a host revoking show_prices/show_sku mid-view
+      # must not leave the hidden values rendered (external review,
+      # 2026-08-31). Rebuild only on an actual flag change: it re-reads
+      # the item, and a parent render is not a reason for a query.
+      socket =
+        if socket.assigns.detail &&
+             Map.take(socket.assigns, [:show_prices, :show_sku]) != prior_grants,
+           do: open_detail(socket, socket.assigns.detail.uuid),
+           else: socket
+
+      {:ok, socket}
     else
       {:ok, initialize(socket, assigns)}
     end
@@ -551,6 +565,12 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
       nil ->
         nil
 
+      # A scope naming a soft-deleted record browses an empty list (the
+      # search joins exclude it) — a header proudly naming it over that
+      # emptiness reads as a bug, so fall back to the plain title.
+      %{status: "deleted"} ->
+        nil
+
       record ->
         %{
           name: translated_name(record, locale),
@@ -623,12 +643,15 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
 
   def handle_event("show_detail", %{"uuid" => uuid}, socket) do
     # Same rendered-uuid rule as selection: details open only for rows
-    # this component itself rendered (or holds in the tray). Refused
-    # outright when the host didn't opt in — the affordance doesn't
-    # render then, so only a crafted push lands here.
+    # this component itself rendered, or AVAILABLE tray entries. An
+    # unavailable preselect is scope-exempt by design — the tray may
+    # show its name — but its detail body (description, metadata, signed
+    # file URLs) is exactly what the host's scope excludes, so a crafted
+    # push for one must no-op (external review, 2026-08-31). Refused
+    # outright when the host didn't opt in.
     known? =
       is_map(socket.assigns.presented[uuid]) or
-        Map.has_key?(socket.assigns.selection, uuid)
+        match?(%{available: true}, socket.assigns.selection[uuid])
 
     if socket.assigns.show_item_details and known? do
       {:noreply, open_detail(socket, uuid)}
@@ -877,11 +900,18 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
 
   # A lenient zero probe for the quantity-first paths: parse_qty compares
   # against qty_min, but in that mode zero is the UNSELECTED state and must
-  # be recognisable whatever the minimum is. Non-numbers are not zero.
+  # be recognisable whatever the minimum is. Only FINITE non-positives
+  # qualify: Decimal.parse accepts "NaN" and "Infinity" as full matches,
+  # and neither compares greater-than-zero — without the guards a crafted
+  # NaN would deselect a row, mutating state from garbage input (external
+  # review, 2026-08-31).
   defp zero_qty?(raw) when is_binary(raw) do
     case Decimal.parse(String.trim(String.replace(raw, ",", "."))) do
-      {qty, ""} -> not Decimal.gt?(qty, 0)
-      _ -> false
+      {qty, ""} ->
+        not Decimal.nan?(qty) and not Decimal.inf?(qty) and not Decimal.gt?(qty, 0)
+
+      _ ->
+        false
     end
   end
 
@@ -1264,7 +1294,11 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
           </div>
 
           <%!-- The item-details page, covering the browse region. --%>
-          <div :if={@detail} class="absolute inset-0 z-10 bg-base-100 flex flex-col gap-2">
+          <div
+            :if={@detail}
+            id={"#{@id}-detail"}
+            class="absolute inset-0 z-10 bg-base-100 flex flex-col gap-2"
+          >
             <div class="flex items-center gap-2">
               <button
                 type="button"
