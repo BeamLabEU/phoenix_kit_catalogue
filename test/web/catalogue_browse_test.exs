@@ -72,6 +72,26 @@ defmodule PhoenixKitCatalogue.Web.Components.CatalogueBrowseTest do
     assert html =~ "Widget"
   end
 
+  # 2026-08-31 regression pin (PR #88 review): the table's default-hidden
+  # pair (:sku, :breadcrumb) is VISIBILITY, not a grant. Subtracting it
+  # from the grant instead also stripped the SKU line the cards had shown
+  # since this component shipped — and no host could get it back, since
+  # `show_sku: true` was already the default and only an explicit
+  # `columns` list (which also re-adds the table column) would restore it.
+  test "the default card view keeps its SKU line; the table starts without the column", %{
+    conn: conn,
+    cat: cat
+  } do
+    {:ok, view, html} = live(conn, "/test/selector-host?browse=true&c=#{cat.uuid}")
+
+    assert html =~ "W-1"
+
+    html = view |> with_target("#surface") |> render_click("set_view", %{"mode" => "table"})
+
+    assert html =~ "Widget"
+    refute html =~ "W-1"
+  end
+
   # 2026-08-30: the widget gained the modal's list view. Card grid stays
   # the default so existing embeds render unchanged.
   test "the view toggle switches to the admin-look table and back", %{

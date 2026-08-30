@@ -1,3 +1,115 @@
+## 0.23.0 - 2026-08-30
+
+### Added
+
+- **An item details page inside the selector popup** (#88) —
+  `ItemSelectorModal`'s `show_item_details` (default `true`) turns the
+  card photo and the table thumbnail into a "look closer" affordance that
+  covers the browse region with the full `ProductCard` body (photo/file
+  carousel, description, metadata, attributes) and a Back button. The
+  list stays mounted underneath, so search, chips, scroll and selection
+  survive the trip. A mode-aware control in the detail footer adds or
+  removes the item without going back first. Pass `false` for embeds that
+  must not expose the detail body — it honours `show_prices`/`show_sku`
+  and the granted `columns` either way.
+- **A context header on the selector** (#88) — `context_header` (default
+  `true`) shows the scoped category's (or, failing that, catalogue's)
+  featured image, translated name and description in the title area, so
+  the popup says what it is showing. Chrome only: an unresolvable or
+  multi-entry scope falls back to the plain title, and nothing here
+  widens what can be browsed.
+- **`show_tray`** (#88) — `false` drops the cart-count button and the
+  expandable review list for embeds where the selection is already
+  visible in place, such as a quantity-first order sheet. Cancel and
+  Confirm always stay.
+- **`hidden_columns`** (#88) — which GRANTED selector columns start
+  hidden (default `[:sku, :breadcrumb]`); the viewer re-shows them from
+  the Columns dropdown. Unknown or ungranted entries are ignored, so
+  hiding less than asked never widens anything.
+- **The list view reached `CatalogueBrowse`** (#88) — the embeddable
+  widget gained the modal's admin-look table and a view toggle beside the
+  search box, over the same fetch. The card grid stays its default.
+- **Shared browse helpers** (#88) — `Browse.expand_scope/1`,
+  `chip_categories/2`, `normalize_uuid/1`, `resolve_view!/2` and
+  `resolve_columns!/2`. `CatalogueBrowse` had been missing the
+  subtree-expansion fix the modal got: a parent-category scope hid its
+  descendant chips and rejected narrowing to one as out of scope.
+
+### Changed
+
+- **Quantities are a native `<input type="number">`** (#88) — browser
+  spinner arrows, the same control the rest of the kit uses for numbers,
+  replacing the custom −/+ join stepper. Arrow clicks and settled typing
+  apply live through a debounced `qty_change` that never resets
+  in-progress text; blur/Enter stays the authoritative `qty_commit` that
+  discards garbage. Decimal commas and server-side re-clamping are
+  unchanged.
+- **The selection flavour derives from the columns** (#88) — a visible
+  `:qty` column makes the popup quantity-first (every row shows its input
+  at 0, a positive number *is* the selection); without one it is the
+  checkbox flavour, with a leading checkbox column that shows the
+  "you can pick these" affordance before the first pick. A checked box
+  and a quantity input never share a row. `selection_mode: "click" |
+  "quantity"` still forces either explicitly.
+- **Supplier unit-cost arrows step in cents** (#88) — the built-in
+  `unit_cost` field declares `"step" => "0.01"` while keeping scale 4 for
+  typed entry. The arrows previously walked 0.0001 at a time. Requires an
+  entities release that reads the definition's `step` key; on an older
+  `~> 0.4` the arrows fall back to deriving the step from the scale.
+- **The built-in supplier field labels translate at call time** (#88) —
+  a compile-time map could only carry the msgid, so et/ru admins saw an
+  English "Unit cost".
+- **The Unit select's label matches its `<.input>` neighbours** (#88) —
+  hand-rolled locally because core's `<.select>` labels through
+  `FormFieldLabel`'s smaller `fieldset-legend` span, which visibly broke
+  the row in the item form's grid.
+
+### Fixed
+
+- **`CatalogueBrowse`'s default card view stopped rendering the SKU**
+  (#88 review) — the widget's default column list subtracted the modal's
+  default-hidden `:sku`/`:breadcrumb` pair from the *grant*, and the
+  cards read the grant. Card view is this component's default, so every
+  existing embed lost its SKU line, with no way back short of an explicit
+  `columns` list that also re-added the table column. Grant and
+  visibility are now separate, as they already were in the modal: the
+  cards read `columns`, the table reads the visibility-filtered list.
+- **A double-clicked Confirm delivered `{:items_selected, …}` twice**
+  (#88) — the second queued event ran before the host unmounted the
+  modal. A `confirmed` latch makes confirm, and immediate-mode notify,
+  once-only.
+- **`mode: :single` + `immediate` confirmed off the debounced live
+  value** (#88) — a slow typist's "15" closed the modal at quantity 1.
+  The live path no longer notifies; the authoritative commit does.
+- **The detail page honoured the display flags but not the columns
+  grant** (#88) — a client-safe `columns: [:thumb, :name, :qty]` embed
+  leaked price and SKU one thumbnail-click away. The table view likewise
+  ignored a mid-open `show_prices`/`show_sku` revocation the cards and
+  detail page honoured, and a stale detail could survive a failed
+  grant-change rebuild.
+- **`featured_image_uuid` reached a URL path shape-unchecked** (#88) —
+  it is free JSONB, so `../../etc/passwd` became a same-origin GET path
+  for every viewer. Both signed-URL builders now require the canonical
+  uuid form (`Ecto.UUID.cast/1` alone accepts any 16-byte binary, which
+  is exactly what the traversal string is).
+- **Garbage preselect keys crashed the host LiveView at mount** (#88) —
+  a non-UUID key raised `Ecto.Query.CastError` from the fetch, and raw
+  16-byte keys silently vanished from the tray. Keys now normalize
+  through `Ecto.UUID.cast/1`; garbage drops like any unresolvable uuid.
+  Relatedly, `resolve_columns!/2` now raises on duplicate entries as well
+  as unknown ones, and a non-numeric quantity raises a described
+  `ArgumentError` instead of a bare `FunctionClauseError`.
+- **`CatalogueBrowse` rendered the category twice per row** (#88) — the
+  `:breadcrumb` prefix beside the `:category` column, in the new table
+  view.
+
+### Removed
+
+- **The `qty_inc` / `qty_dec` events and the −/+ stepper buttons** (#88),
+  replaced by the native number input's arrows. Their `"Increase
+  quantity"` / `"Decrease quantity"` msgids are gone from the catalogues
+  (#88 review).
+
 ## 0.22.0 - 2026-08-29
 
 ### Added
