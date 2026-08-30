@@ -349,7 +349,8 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
         phx-click={@photo_click}
         phx-value-uuid={@item.uuid}
         phx-target={@target}
-        aria-label={@item.name}
+        aria-label={gettext("View item details")}
+        title={gettext("View item details")}
       >
         <.item_card_figure item={@item} selected={@selected} show_sku={@show_sku} />
       </button>
