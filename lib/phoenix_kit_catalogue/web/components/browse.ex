@@ -59,6 +59,34 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
   @photo_variant "medium"
 
   @doc """
+  What a surface can DISPLAY for a smart-catalogue fee item that has no
+  intrinsic price (the guide: a standalone `default_value` + `"flat"` IS
+  the price; percent fees and rule-priced items get their number at
+  order time, host-side):
+
+    * `{:price, %Decimal{}}` — a flat standalone fee; safe to use as the
+      price (line totals included).
+    * `{:note, text}` — display-only: `"12%"` for a percent fee, a
+      localized "Computed" for a rule-priced item with no displayable
+      number.
+    * `nil` — a plain item (priced or simply price-less).
+
+  Before this, smart items rendered a BLANK price everywhere
+  (2026-08-31 — tim-dev's rule-priced services, Nordic Line's fees).
+  """
+  @spec smart_fee(map() | struct()) :: {:price, Decimal.t()} | {:note, String.t()} | nil
+  def smart_fee(%Item{base_price: nil, default_unit: "flat", default_value: %Decimal{} = v}),
+    do: {:price, v}
+
+  def smart_fee(%Item{base_price: nil, default_unit: "percent", default_value: %Decimal{} = v}),
+    do: {:note, Decimal.to_string(v, :normal) <> "%"}
+
+  def smart_fee(%Item{base_price: nil, default_unit: unit}) when unit in ["flat", "percent"],
+    do: {:note, gettext("Computed")}
+
+  def smart_fee(_), do: nil
+
+  @doc """
   Denormalizes schema items into presented maps: translated name, signed
   featured-photo URL, selling price (`Catalogue.item_pricing/1`'s
   `final_price`, matching `ItemPicker`), and a starting quantity of 1.
@@ -73,6 +101,7 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
   def present_items(items, locale) do
     Enum.map(items, fn item ->
       translated = Translations.get_translation(item, locale)
+      {price, fee_note} = presented_price_and_fee(item)
 
       %{
         uuid: to_string(item.uuid),
@@ -84,7 +113,8 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
         # (tim-dev error report, 2026-08-31).
         name: translated["_name"] || translated["name"] || item.name,
         sku: item.sku,
-        price: presented_price(item),
+        price: price,
+        fee_note: fee_note,
         base_price: Map.get(item, :base_price),
         unit: item.unit,
         manufacturer: item.manufacturer_name || item.manufacturer_name_snapshot,
@@ -114,6 +144,16 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
   defp presented_price(%Item{} = item), do: Catalogue.item_pricing(item).final_price
   defp presented_price(%{base_price: price}), do: price
   defp presented_price(_), do: nil
+
+  # A flat standalone fee IS the price (line totals included); anything
+  # only representable as text rides fee_note instead.
+  defp presented_price_and_fee(item) do
+    case {presented_price(item), smart_fee(item)} do
+      {nil, {:price, fee}} -> {fee, nil}
+      {nil, {:note, note}} -> {nil, note}
+      {price, _} -> {price, nil}
+    end
+  end
 
   @doc """
   Signed URL for an item's featured photo (`#{@photo_variant}` variant), or
@@ -443,6 +483,12 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
               / {@item.unit}
             </span>
           </span>
+          <span
+            :if={@show_price && !@item.price && Map.get(@item, :fee_note)}
+            class="text-sm font-semibold"
+          >
+            {Map.get(@item, :fee_note)}
+          </span>
         </button>
       </div>
       <button
@@ -473,6 +519,12 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
             <span :if={@item.unit} class="text-xs font-normal text-base-content/60">
               / {@item.unit}
             </span>
+          </span>
+          <span
+            :if={@show_price && !@item.price && Map.get(@item, :fee_note)}
+            class="text-sm font-semibold"
+          >
+            {Map.get(@item, :fee_note)}
           </span>
         </div>
       </button>
@@ -878,7 +930,17 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
                 / {@item.unit}
               </span>
             </span>
-            <span :if={!@item.price && @item.unit} class="text-base-content/60">
+            <%!-- Smart fee with no numeric price: "12%" / Computed. --%>
+            <span
+              :if={!@item.price && Map.get(@item, :fee_note)}
+              class="font-semibold whitespace-nowrap"
+            >
+              {Map.get(@item, :fee_note)}
+            </span>
+            <span
+              :if={!@item.price && !Map.get(@item, :fee_note) && @item.unit}
+              class="text-base-content/60"
+            >
               {@item.unit}
             </span>
           <% :base_price -> %>

@@ -2845,6 +2845,9 @@ msgstr "Add to selection"
 msgid "Remove from selection"
 msgstr "Remove from selection"
 
+msgid "Computed"
+msgstr "Computed"
+
 #: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:1182
 #, elixir-autogen
 msgid "Confirm selection"
