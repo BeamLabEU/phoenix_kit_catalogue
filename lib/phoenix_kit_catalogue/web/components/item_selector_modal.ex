@@ -198,6 +198,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
   import PhoenixKitWeb.Components.Core.Modal, only: [modal: 1]
   import PhoenixKitCatalogue.Web.Components.Browse
 
+  alias PhoenixKit.Users.Auth
   alias PhoenixKitCatalogue.Catalogue
   alias PhoenixKitCatalogue.Catalogue.BrowseState
   alias PhoenixKitCatalogue.Catalogue.Tree
@@ -253,6 +254,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
 
   defp initialize(socket, assigns) do
     original_scope = assigns[:scope] || %{}
+    assigns = Map.put(assigns, :current_user, refresh_user(assigns[:current_user]))
 
     # BrowseState.init/1 validates the scope keys (atoms, search_items/2
     # vocabulary) so a string-keyed map cannot silently widen browsing.
@@ -411,6 +413,19 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
   defp prefs_hidden(stored, granted) when is_list(stored) do
     Enum.filter(granted, &(to_string(&1) in stored))
   end
+
+  # The host's current_user assign is a snapshot from the HOST's mount —
+  # a choice saved in a previous open of this selector (same page visit)
+  # is invisible to it, so a reopen would load yesterday's prefs and the
+  # next save would write over today's. Re-read the row at init; keep the
+  # snapshot when the re-read fails (a stub user in tests, no row).
+  defp refresh_user(%Auth.User{uuid: uuid} = user) do
+    Auth.get_user!(uuid)
+  rescue
+    _ -> user
+  end
+
+  defp refresh_user(other), do: other
 
   # Best-effort persistence: store what the user just chose and keep the
   # REFRESHED user on the socket — the save merges into the whole
