@@ -20,9 +20,13 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
   items — while a non-empty search always covers the subtree of wherever
   you stand (`BrowseState`'s `drill: :direct`) and hides the level
   navigation. A category-less root has no switcher and simply lists the
-  items. A MULTI-catalogue scope gets the same navigation with its root
-  grouped per catalogue (each offered catalogue's name over its top-level
-  categories); below the root, levels are catalogue-agnostic.
+  items. A MULTI-catalogue scope drills CATALOGUE-FIRST: the root lists
+  the offered catalogues as tiles (the switcher reads Catalogues |
+  Items), choosing one lands on that catalogue's own root — its top
+  categories, its Uncategorized bucket, its items — and Up climbs back
+  through the same chain. The catalogue choice narrows every fetch
+  within the scope's offered list (`BrowseState`'s `{:set_catalogue, _}`,
+  membership-checked like every narrowing).
 
   Search is the admin's two-list surface: item results are the primary,
   default list, and categories whose name matches (in any language)
@@ -556,15 +560,29 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
 
     roots = tree_roots(categories, children, original)
 
-    root_groups =
+    # Catalogue-first drill (Max, 2026-08-31: "for multiple catalogues we
+    # should first have the user choose a catalogue"): the ROOT level
+    # lists the offered catalogues themselves as tiles; drilling into one
+    # shows ITS top categories, exactly like a single-catalogue root.
+    catalogues =
       catalogue_uuids
       |> Enum.map(fn catalogue_uuid ->
-        group = Enum.filter(roots, &(to_string(&1.catalogue_uuid) == catalogue_uuid))
-        {catalogue_display_name(catalogue_uuid, locale), group}
-      end)
-      |> Enum.reject(fn {_name, group} -> group == [] end)
+        case Catalogue.get_catalogue(catalogue_uuid) do
+          nil ->
+            nil
 
-    counts =
+          catalogue ->
+            catalogue
+            |> Map.put(:name, translated_name(catalogue, locale) || catalogue.name)
+            |> Map.put(:uuid, to_string(catalogue.uuid))
+        end
+      end)
+      |> Enum.reject(&is_nil/1)
+
+    roots_by_catalogue =
+      Enum.group_by(roots, fn category -> to_string(category.catalogue_uuid) end)
+
+    category_counts =
       catalogue_uuids
       |> Enum.flat_map(fn catalogue_uuid ->
         catalogue_uuid
@@ -573,17 +591,30 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
       end)
       |> Map.new(fn {uuid, count} -> {to_string(uuid), count} end)
 
+    # Catalogue tiles show their total item count out of the same map the
+    # category tiles read — uuids never collide.
+    catalogue_counts =
+      Map.new(catalogue_uuids, fn catalogue_uuid ->
+        {catalogue_uuid, Catalogue.count_items_for_catalogue(catalogue_uuid)}
+      end)
+
     %{
       index: index,
       children: children,
       roots: roots,
-      root_groups: root_groups,
-      counts: counts,
-      uncategorized:
+      catalogues: catalogues,
+      roots_by_catalogue: roots_by_catalogue,
+      counts: Map.merge(category_counts, catalogue_counts),
+      # Uncategorized is offered per chosen catalogue, not on the
+      # catalogue list itself.
+      uncategorized_by_catalogue:
         if offer_uncategorized?(scope) do
-          catalogue_uuids
-          |> Enum.map(&Catalogue.uncategorized_count_for_catalogue/1)
-          |> Enum.sum()
+          Map.new(
+            catalogue_uuids,
+            &{&1, Catalogue.uncategorized_count_for_catalogue(&1)}
+          )
+        else
+          %{}
         end
     }
   rescue
@@ -626,16 +657,6 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
 
   defp build_category_tree(_scope, _original, _locale), do: @empty_cat_tree
 
-  # The group heading for a multi-catalogue root level, viewer-locale.
-  defp catalogue_display_name(catalogue_uuid, locale) do
-    case Catalogue.get_catalogue(catalogue_uuid) do
-      nil -> nil
-      catalogue -> translated_name(catalogue, locale) || catalogue.name
-    end
-  rescue
-    _ -> nil
-  end
-
   defp scope_categories(categories, nil), do: categories
   defp scope_categories(categories, []), do: categories
 
@@ -662,17 +683,66 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
     end
   end
 
-  # The current level's tiles / name / Up target. `up` is the
-  # browse_category value that climbs one level: a root tile's parent is
-  # the popup root (""), anything deeper its actual parent.
-  defp level_categories(tree, nil), do: tree.roots
-  defp level_categories(_tree, :uncategorized), do: []
-  defp level_categories(tree, uuid), do: Map.get(tree.children, uuid, [])
+  # The current level's tiles: category children when drilled, a chosen
+  # catalogue's top categories, the CATALOGUE list at a multi-catalogue
+  # root (catalogue-first drill), or a single-catalogue root's top
+  # categories.
+  defp level_entries(tree, browse) do
+    cond do
+      browse.category_uuid == :uncategorized -> []
+      is_binary(browse.category_uuid) -> Map.get(tree.children, browse.category_uuid, [])
+      is_binary(browse.catalogue_uuid) -> level_catalogue_roots(tree, browse.catalogue_uuid)
+      tree[:catalogues] -> tree.catalogues
+      true -> tree.roots
+    end
+  end
 
-  defp level_name(_tree, :uncategorized), do: gettext("Uncategorized")
+  defp level_catalogue_roots(tree, catalogue_uuid),
+    do: Map.get(tree[:roots_by_catalogue] || %{}, catalogue_uuid, [])
 
-  defp level_name(tree, uuid) when is_binary(uuid),
+  # Whether the current level lists CATALOGUES (the multi-catalogue root).
+  defp catalogues_level?(tree, browse) do
+    tree[:catalogues] != nil and is_nil(browse.catalogue_uuid) and
+      is_nil(browse.category_uuid)
+  end
+
+  # A tile's own children — drives the has-subs badge and the count.
+  defp tile_children(tree, browse, uuid) do
+    if catalogues_level?(tree, browse),
+      do: level_catalogue_roots(tree, uuid),
+      else: Map.get(tree.children, uuid, [])
+  end
+
+  # The Uncategorized offer for the CURRENT level: a single-catalogue
+  # root, or a chosen catalogue's level (its own loose items) — never the
+  # catalogue list.
+  defp level_uncategorized(tree, browse) do
+    cond do
+      browse.category_uuid != nil ->
+        nil
+
+      is_binary(browse.catalogue_uuid) ->
+        Map.get(tree[:uncategorized_by_catalogue] || %{}, browse.catalogue_uuid)
+
+      tree[:catalogues] ->
+        nil
+
+      true ->
+        tree[:uncategorized]
+    end
+  end
+
+  defp level_name(_tree, %{category_uuid: :uncategorized}), do: gettext("Uncategorized")
+
+  defp level_name(tree, %{category_uuid: uuid}) when is_binary(uuid),
     do: get_in(tree.index, [uuid, Access.key(:name)])
+
+  defp level_name(tree, %{catalogue_uuid: uuid}) when is_binary(uuid) do
+    case Enum.find(tree[:catalogues] || [], &(&1.uuid == uuid)) do
+      nil -> nil
+      catalogue -> catalogue.name
+    end
+  end
 
   defp level_name(_tree, _), do: nil
 
@@ -699,26 +769,28 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
   defp show_level_nav?(assigns) do
     assigns.browse.search == "" and
       (assigns.browse.category_uuid != nil or
-         level_categories(assigns.cat_tree, nil) != [])
+         assigns.browse.catalogue_uuid != nil or
+         level_entries(assigns.cat_tree, assigns.browse) != [])
   end
 
   # Whether the level renders a categories BLOCK (tiles or rows) — the
   # Items section heading only makes sense when there is a categories
   # section above it to be separate from.
   defp level_has_section?(assigns) do
-    level_categories(assigns.cat_tree, assigns.browse.category_uuid) != [] or
-      (assigns.browse.category_uuid == nil and offer_uncategorized?(assigns.browse.scope))
+    level_entries(assigns.cat_tree, assigns.browse) != [] or
+      (level_uncategorized(assigns.cat_tree, assigns.browse) || 0) > 0
   end
 
-  # The ROOT either-or (Max, 2026-08-31 — match the admin root exactly):
-  # a root with real categories browses EITHER the category outline OR
-  # the flat item list, driven by the same Categories | Items switcher
-  # the admin page has. Drilled levels always show both sections; a
-  # category-less root has no switcher and lists items as always, and a
+  # The root-level either-or (Max, 2026-08-31 — match the admin root
+  # exactly): a level with an outline to show browses EITHER that outline
+  # OR the flat item list, driven by the same Categories | Items switcher
+  # the admin page has. It applies wherever no CATEGORY is drilled — the
+  # multi-catalogue root (listing catalogues) and a chosen catalogue's
+  # level included; drilled category levels always show both sections; a
   # search shows results regardless of the mode.
   defp root_mode_gate?(assigns) do
     assigns.browse.search == "" and is_nil(assigns.browse.category_uuid) and
-      level_categories(assigns.cat_tree, nil) != []
+      level_entries(assigns.cat_tree, assigns.browse) != []
   end
 
   defp show_categories_block?(assigns) do
@@ -741,8 +813,12 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
   # Like the admin's, the level follows the view toggle: card = the
   # shared `Shared.category_card/1` tiles, table = a compact table drawing
   # the shared `Shared.category_header_cells/1`/`category_body_cells/1`
-  # columns. Drilling reuses the chips' old `browse_category` event, so
-  # BrowseState's scope enforcement is untouched.
+  # columns. A multi-catalogue scope drills CATALOGUE-FIRST (Max,
+  # 2026-08-31): the root lists the offered catalogues as tiles
+  # (`browse_catalogue`), a chosen catalogue's level then behaves exactly
+  # like a single-catalogue root. Category drilling reuses the chips' old
+  # `browse_category` event; scope enforcement lives in BrowseState for
+  # both commands.
   attr(:id, :string, required: true)
   attr(:tree, :map, required: true)
   attr(:browse, :any, required: true)
@@ -753,160 +829,147 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
   @level_columns ["items"]
 
   defp subcategory_level(assigns) do
-    tiles = level_categories(assigns.tree, assigns.browse.category_uuid)
+    tiles = level_entries(assigns.tree, assigns.browse)
+    catalogues? = catalogues_level?(assigns.tree, assigns.browse)
+    uncat_count = level_uncategorized(assigns.tree, assigns.browse)
 
-    # A multi-catalogue root renders grouped, one section per offered
-    # catalogue (tim-dev's wide picker); everything else is one unnamed
-    # group so the markup below stays a single shape.
-    groups =
-      if assigns.browse.category_uuid == nil and assigns.tree[:root_groups] do
-        assigns.tree.root_groups
-      else
-        [{nil, tiles}]
+    # Up: a drilled category climbs the category chain (level_up); a
+    # chosen catalogue's level climbs back to the catalogue list.
+    up =
+      cond do
+        assigns.browse.category_uuid != nil ->
+          {"browse_category", level_up(assigns.tree, assigns.browse.category_uuid)}
+
+        is_binary(assigns.browse.catalogue_uuid) ->
+          {"browse_catalogue", ""}
+
+        true ->
+          nil
       end
 
     assigns =
       assigns
       |> assign(:tiles, tiles)
-      |> assign(:groups, groups)
-      |> assign(
-        :uncat?,
-        assigns.browse.category_uuid == nil and assigns.show_uncategorized and
-          (assigns.tree[:uncategorized] || 0) > 0
-      )
+      |> assign(:catalogues?, catalogues?)
+      |> assign(:tile_event, if(catalogues?, do: "browse_catalogue", else: "browse_category"))
+      |> assign(:up, up)
+      |> assign(:uncat?, assigns.show_uncategorized and (uncat_count || 0) > 0)
+      |> assign(:uncat_count, uncat_count)
       |> assign(:photo_col?, Enum.any?(tiles, &Shared.featured_image_uuid/1))
       |> assign(:columns, @level_columns)
 
     ~H"""
     <div id={@id} class="flex flex-col gap-2 mb-4">
-      <div :if={@browse.category_uuid} class="flex items-center gap-2 min-w-0">
+      <div :if={@up} class="flex items-center gap-2 min-w-0">
         <button
           type="button"
           class="btn btn-ghost btn-xs phx-click-loading:animate-pulse"
-          phx-click="browse_category"
-          phx-value-uuid={level_up(@tree, @browse.category_uuid)}
+          phx-click={elem(@up, 0)}
+          phx-value-uuid={elem(@up, 1)}
           phx-target={@target}
         >
           <span class="hero-arrow-uturn-left w-4 h-4"></span>
           {gettext("Up")}
         </button>
-        <span class="font-medium truncate">{level_name(@tree, @browse.category_uuid)}</span>
+        <span class="font-medium truncate">{level_name(@tree, @browse)}</span>
       </div>
       <div :if={@tiles != [] or @uncat?}>
-        <%!-- Only a drilled level heads this block — at the root the
-        Categories | Items switcher already names what is listed, the
-        admin's pure-browser idiom. --%>
+        <%!-- Only a drilled category level heads this block — elsewhere
+        the switcher (Catalogues/Categories | Items) already names what
+        is listed, the admin's pure-browser idiom. --%>
         <div
           :if={@browse.category_uuid}
           class="text-sm font-semibold text-base-content/70 mb-2"
         >
           {gettext("Subcategories")}
         </div>
-        <div :if={@view == "card"} class="flex flex-col gap-3">
-          <div :for={{group_name, group_cats} <- @groups}>
-            <div :if={group_name} class="text-xs font-semibold text-base-content/50 mb-1.5">
-              {group_name}
-            </div>
-            <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-              <Shared.category_card
-                :for={category <- group_cats}
-                category={category}
-                columns={@columns}
-                count={Map.get(@tree.counts, category.uuid, 0)}
-                subcat_count={length(Map.get(@tree.children, category.uuid, []))}
-                has_subs={Map.get(@tree.children, category.uuid, []) != []}
-                phx_click="browse_category"
-                phx_target={@target}
-              />
-            </div>
-          </div>
+        <div :if={@view == "card"} class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+          <Shared.category_card
+            :for={tile <- @tiles}
+            category={tile}
+            columns={@columns}
+            count={Map.get(@tree.counts, tile.uuid, 0)}
+            subcat_count={length(tile_children(@tree, @browse, tile.uuid))}
+            has_subs={tile_children(@tree, @browse, tile.uuid) != []}
+            phx_click={@tile_event}
+            phx_target={@target}
+          />
           <%!-- Uncategorized is a drill with no Category record — the
-          shared tile takes the count directly (summed across catalogues
-          on a multi-catalogue root). Root only, same offer rule as the
-          old chip, hidden when the bucket is empty. --%>
-          <div :if={@uncat?} class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-            <Shared.uncategorized_card
-              count={@tree[:uncategorized]}
-              phx_click="browse_category"
-              phx_target={@target}
-            />
-          </div>
+          shared tile takes the count directly. Offered on the level that
+          OWNS the loose items (a single-catalogue root, or a chosen
+          catalogue's level), hidden when the bucket is empty. --%>
+          <Shared.uncategorized_card
+            :if={@uncat?}
+            count={@uncat_count}
+            phx_click="browse_category"
+            phx_target={@target}
+          />
         </div>
         <%!-- The id lives on a wrapper: core's table_default drops :id
         in its classic (no items) mode. --%>
         <div :if={@view == "table"} id={"#{@id}-table"}>
           <.table_default size="sm" wrapper_class="overflow-x-auto shadow-none rounded-none">
-          <.table_default_header>
-            <.table_default_row>
-              <.table_default_header_cell :if={@photo_col?} class="w-12 !pr-0 !py-1">
-              </.table_default_header_cell>
-              <.table_default_header_cell>{gettext("Name")}</.table_default_header_cell>
-              <Shared.category_header_cells columns={@columns} />
-            </.table_default_row>
-          </.table_default_header>
-          <.table_default_body>
-            <%= for {group_name, group_cats} <- @groups do %>
-              <tr :if={group_name}>
-                <td
-                  colspan={length(@columns) + if(@photo_col?, do: 2, else: 1)}
-                  class="text-xs font-semibold text-base-content/50 bg-base-200/40"
-                >
-                  {group_name}
-                </td>
-              </tr>
-              <.table_default_row :for={category <- group_cats}>
-              <.table_default_cell :if={@photo_col?} class="w-12 !pr-0 !py-1">
-                <Shared.featured_thumb resource={category} />
-              </.table_default_cell>
-              <.table_default_cell class="font-medium">
-                <div class="flex items-center gap-2 min-w-0">
+            <.table_default_header>
+              <.table_default_row>
+                <.table_default_header_cell :if={@photo_col?} class="w-12 !pr-0 !py-1">
+                </.table_default_header_cell>
+                <.table_default_header_cell>{gettext("Name")}</.table_default_header_cell>
+                <Shared.category_header_cells columns={@columns} />
+              </.table_default_row>
+            </.table_default_header>
+            <.table_default_body>
+              <.table_default_row :for={tile <- @tiles}>
+                <.table_default_cell :if={@photo_col?} class="w-12 !pr-0 !py-1">
+                  <Shared.featured_thumb resource={tile} />
+                </.table_default_cell>
+                <.table_default_cell class="font-medium">
+                  <div class="flex items-center gap-2 min-w-0">
+                    <button
+                      type="button"
+                      phx-click={@tile_event}
+                      phx-value-uuid={tile.uuid}
+                      phx-target={@target}
+                      class="link link-hover font-medium phx-click-loading:animate-pulse"
+                    >
+                      {tile.name}
+                    </button>
+                    <span
+                      :if={tile_children(@tree, @browse, tile.uuid) != []}
+                      class="badge badge-ghost badge-xs"
+                      title={gettext("Has subcategories")}
+                    >
+                      <span class="hero-rectangle-stack w-3 h-3"></span>
+                    </span>
+                  </div>
+                </.table_default_cell>
+                <Shared.category_body_cells
+                  columns={@columns}
+                  cat={tile}
+                  child_counts={@tree.counts}
+                />
+              </.table_default_row>
+              <.table_default_row :if={@uncat?}>
+                <.table_default_cell :if={@photo_col?} class="w-12 !pr-0 !py-1">
+                  <span class="w-8 h-8 rounded bg-base-200 flex items-center justify-center">
+                    <span class="hero-folder-open w-4 h-4 text-base-content/40"></span>
+                  </span>
+                </.table_default_cell>
+                <.table_default_cell class="font-medium">
                   <button
                     type="button"
                     phx-click="browse_category"
-                    phx-value-uuid={category.uuid}
+                    phx-value-uuid="__uncategorized__"
                     phx-target={@target}
                     class="link link-hover font-medium phx-click-loading:animate-pulse"
                   >
-                    {category.name}
+                    {gettext("Uncategorized")}
                   </button>
-                  <span
-                    :if={Map.get(@tree.children, category.uuid, []) != []}
-                    class="badge badge-ghost badge-xs"
-                    title={gettext("Has subcategories")}
-                  >
-                    <span class="hero-rectangle-stack w-3 h-3"></span>
-                  </span>
-                </div>
-              </.table_default_cell>
-              <Shared.category_body_cells
-                columns={@columns}
-                cat={category}
-                child_counts={@tree.counts}
-              />
+                </.table_default_cell>
+                <.table_default_cell class="text-right tabular-nums">
+                  {@uncat_count || 0}
+                </.table_default_cell>
               </.table_default_row>
-            <% end %>
-            <.table_default_row :if={@uncat?}>
-              <.table_default_cell :if={@photo_col?} class="w-12 !pr-0 !py-1">
-                <span class="w-8 h-8 rounded bg-base-200 flex items-center justify-center">
-                  <span class="hero-folder-open w-4 h-4 text-base-content/40"></span>
-                </span>
-              </.table_default_cell>
-              <.table_default_cell class="font-medium">
-                <button
-                  type="button"
-                  phx-click="browse_category"
-                  phx-value-uuid="__uncategorized__"
-                  phx-target={@target}
-                  class="link link-hover font-medium phx-click-loading:animate-pulse"
-                >
-                  {gettext("Uncategorized")}
-                </button>
-              </.table_default_cell>
-              <.table_default_cell class="text-right tabular-nums">
-                {@tree[:uncategorized] || 0}
-              </.table_default_cell>
-            </.table_default_row>
-          </.table_default_body>
+            </.table_default_body>
           </.table_default>
         </div>
       </div>
@@ -991,10 +1054,13 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
     with true <- browse.search != "",
          true <- tree.index != %{},
          false <- browse.category_uuid == :uncategorized,
-         uuids when is_list(uuids) and uuids != [] <- browse.scope[:catalogue_uuids] do
-      # One search per offered catalogue (multi-catalogue popups included
-      # — a drilled parent narrows the other catalogues' searches to
-      # nothing, harmlessly), capped like the admin's.
+         uuids when is_list(uuids) and uuids != [] <-
+           if(browse.catalogue_uuid,
+             do: [browse.catalogue_uuid],
+             else: browse.scope[:catalogue_uuids]
+           ) do
+      # One search per offered catalogue — narrowed to the chosen one
+      # when the user drilled catalogue-first — capped like the admin's.
       uuids
       |> Enum.flat_map(fn catalogue_uuid ->
         Catalogue.search_categories(normalize_uuid(catalogue_uuid), browse.search,
@@ -1269,6 +1335,15 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
         shown = [col | visible]
         {:noreply, put_visible_columns(socket, Enum.filter(granted, &(&1 in shown)))}
     end
+  end
+
+  # Catalogue-first drill on multi-catalogue scopes: "" climbs back to
+  # the catalogue list. Scope enforcement is BrowseState's — a uuid
+  # outside scope.catalogue_uuids is a :noop.
+  def handle_event("browse_catalogue", %{"uuid" => uuid}, socket) do
+    value = if uuid == "", do: nil, else: uuid
+    {browse, effect} = BrowseState.command(socket.assigns.browse, {:set_catalogue, value})
+    {:noreply, socket |> assign(browse: browse) |> run_fetch(effect)}
   end
 
   def handle_event("browse_search", %{"search" => q}, socket) do
@@ -1959,7 +2034,9 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
                   @root_mode == "categories" && "btn-active"
                 ]}
               >
-                {gettext("Categories")}
+                {if catalogues_level?(@cat_tree, @browse),
+                  do: gettext("Catalogues"),
+                  else: gettext("Categories")}
               </button>
               <button
                 type="button"
