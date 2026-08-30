@@ -80,15 +80,21 @@ defmodule PhoenixKitCatalogue.Web.Components.BrowseTest do
   end
 
   describe "qty_stepper/1" do
-    test "integer mode: numeric keyboard, no unit suffix" do
+    # 2026-08-30: a native <input type="number"> — browser spinner arrows,
+    # no custom −/+ buttons.
+    test "integer mode: native number control, step 1, numeric keyboard, no unit suffix" do
       html =
         render_component(&Browse.qty_stepper/1, id: "q1", uuid: "u-1", qty: "3", precision: 0)
 
+      assert html =~ ~s(type="number")
+      assert html =~ ~s(step="1")
       assert html =~ ~s(inputmode="numeric")
       refute html =~ "join-item pointer-events-none"
+      refute html =~ "qty_inc"
+      refute html =~ "qty_dec"
     end
 
-    test "decimal mode: decimal keyboard plus the unit suffix — same component" do
+    test "decimal mode: precision-derived step, decimal keyboard, unit suffix — same component" do
       html =
         render_component(&Browse.qty_stepper/1,
           id: "q1",
@@ -98,18 +104,42 @@ defmodule PhoenixKitCatalogue.Web.Components.BrowseTest do
           unit: "L"
         )
 
+      assert html =~ ~s(step="0.01")
       assert html =~ ~s(inputmode="decimal")
       assert html =~ ">L</span>" or html =~ "L\n"
       assert html =~ ~s(value="2.5")
     end
 
-    test "commit wiring: blur and submit both target qty_commit with the uuid" do
+    test "commit wiring: blur and submit target qty_commit, change targets qty_change" do
       html =
         render_component(&Browse.qty_stepper/1, id: "q1", uuid: "u-1", qty: "1", precision: 0)
 
       assert html =~ ~s(phx-blur="qty_commit")
       assert html =~ ~s(phx-submit="qty_commit")
+      assert html =~ ~s(phx-change="qty_change")
+      assert html =~ ~s(phx-debounce)
       assert html =~ ~s(name="uuid" value="u-1")
+    end
+
+    test "min and max shape the arrows when given, and are absent otherwise" do
+      bounded =
+        render_component(&Browse.qty_stepper/1,
+          id: "q1",
+          uuid: "u-1",
+          qty: "1",
+          precision: 0,
+          min: "0",
+          max: "99"
+        )
+
+      assert bounded =~ ~s(min="0")
+      assert bounded =~ ~s(max="99")
+
+      open =
+        render_component(&Browse.qty_stepper/1, id: "q1", uuid: "u-1", qty: "1", precision: 0)
+
+      refute open =~ ~s(min=)
+      refute open =~ ~s(max=)
     end
   end
 

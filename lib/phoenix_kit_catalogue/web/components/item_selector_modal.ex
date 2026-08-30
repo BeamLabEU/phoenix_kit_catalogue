@@ -72,11 +72,15 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
   ## Selection modes
 
   `selection_mode: "click"` (default) is the classic picker: clicking a
-  row/card toggles it, and the stepper appears once selected.
+  row/card toggles it, and the quantity control appears once selected.
+  The table view leads with a checkbox column — unchecked on every
+  selectable row, so the "you can pick these" affordance is visible
+  before the first pick (2026-08-30).
   `selection_mode: "quantity"` is the order-sheet flavour: EVERY rendered
-  row shows its stepper at 0, entering a positive quantity (plus button
-  or typing) IS the selection, stepping back to 0 removes it, and
-  rows/cards are not click-targets at all — no separate "select" step.
+  row shows its quantity control at 0, entering a positive quantity
+  (spinner arrows or typing) IS the selection, zero removes it, and
+  rows/cards are not click-targets at all — no separate "select" step,
+  and no checkbox column (a number above 0 already says "selected").
   The tray, Confirm, and every guard behave identically in both modes.
 
   ## Scope
@@ -103,10 +107,13 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
 
   ## Quantities
 
-  `qty_precision: 0` (default) is whole numbers; a positive precision
-  turns the same stepper decimal-capable ("2.5" of unit "L"). The input
-  commits on blur/Enter; decimal commas are accepted ("2,5" — ru/et
-  keyboards); all limits re-clamped server-side.
+  The control is a native `<input type="number">` (browser spinner
+  arrows — 2026-08-30). `qty_precision: 0` (default) is whole numbers
+  (step 1); a positive precision turns it decimal-capable ("2.5" of unit
+  "L", step 0.1). Arrow clicks and settled typing apply live (debounced
+  `qty_change`, which never resets in-progress text); blur/Enter is the
+  authoritative commit that discards garbage. Decimal commas are accepted
+  ("2,5" — ru/et keyboards); all limits re-clamped server-side.
   """
 
   use Phoenix.LiveComponent
@@ -668,11 +675,46 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
     end
   end
 
-  def handle_event("qty_inc", %{"uuid" => uuid}, socket),
-    do: {:noreply, step_qty(socket, uuid, :inc)}
+  # Live update from the native number control (spinner arrows, settled
+  # typing — debounced): apply what parses, silently ignore what doesn't.
+  # The user may still be typing ("2." on the way to "2.5"), so this path
+  # NEVER resets the input — no revision bump, no deselect-on-garbage.
+  # qty_commit (blur/Enter) stays the authoritative commit that may reset.
+  # Same presented/selection gates as qty_commit: crafted changes with
+  # foreign uuids die here without touching state.
+  def handle_event("qty_change", %{"uuid" => uuid, "value" => raw}, socket) do
+    cond do
+      Map.has_key?(socket.assigns.selection, uuid) ->
+        if socket.assigns.selection_mode == "quantity" and zero_qty?(raw) do
+          {:noreply, deselect(socket, uuid)}
+        else
+          case parse_qty(raw, socket.assigns) do
+            {:ok, qty} -> {:noreply, put_qty(socket, uuid, qty)}
+            :error -> {:noreply, socket}
+          end
+        end
 
-  def handle_event("qty_dec", %{"uuid" => uuid}, socket),
-    do: {:noreply, step_qty(socket, uuid, :dec)}
+      socket.assigns.selection_mode == "quantity" and is_map(socket.assigns.presented[uuid]) ->
+        case parse_qty(raw, socket.assigns) do
+          {:ok, qty} ->
+            if Decimal.gt?(qty, 0) do
+              {:noreply,
+               socket
+               |> select_entry(socket.assigns.presented[uuid])
+               |> put_qty(uuid, qty)
+               |> maybe_notify_immediate()}
+            else
+              {:noreply, socket}
+            end
+
+          :error ->
+            {:noreply, socket}
+        end
+
+      true ->
+        {:noreply, socket}
+    end
+  end
 
   def handle_event("qty_commit", %{"uuid" => uuid, "value" => raw}, socket) do
     # Only rows that are selected — or, quantity-first, RENDERED — get any
@@ -726,17 +768,17 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
   defp commit_qty(socket, uuid, raw) do
     socket = bump_qty_rev(socket, uuid)
 
-    case parse_qty(raw, socket.assigns) do
-      {:ok, qty} ->
-        # Quantity-first: zero IS the unselected state, so committing it on
-        # a selected row removes the line (possible only with qty_min: 0 —
-        # parse_qty rejects below-minimum input otherwise).
-        if socket.assigns.selection_mode == "quantity" and not Decimal.gt?(qty, 0),
-          do: deselect(socket, uuid),
-          else: put_qty(socket, uuid, qty)
-
-      :error ->
-        socket
+    # Quantity-first: zero IS the unselected state, whatever qty_min says —
+    # the native control's arrows stop at min="0" in this mode, so an
+    # arrowed-or-typed zero must remove the line even when qty_min > 0
+    # (parse_qty would reject it as below-minimum and strand the row).
+    if socket.assigns.selection_mode == "quantity" and zero_qty?(raw) do
+      deselect(socket, uuid)
+    else
+      case parse_qty(raw, socket.assigns) do
+        {:ok, qty} -> put_qty(socket, uuid, qty)
+        :error -> socket
+      end
     end
   end
 
@@ -797,40 +839,17 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
     )
   end
 
-  defp step_qty(socket, uuid, direction) do
-    case socket.assigns.selection[uuid] do
-      nil ->
-        # Quantity-first: plus on an unselected (but RENDERED — the
-        # presented gate applies to steppers exactly as to clicks) row is
-        # the selection itself, entering at the minimum quantity.
-        with "quantity" <- socket.assigns.selection_mode,
-             :inc <- direction,
-             %{} = item <- socket.assigns.presented[uuid] do
-          select(socket, item)
-        else
-          _ -> socket
-        end
-
-      %{qty: qty} ->
-        step = Decimal.new(1)
-        next = if direction == :inc, do: Decimal.add(qty, step), else: Decimal.sub(qty, step)
-
-        # Stepping below the minimum IS deselection — the minus button on
-        # a qty-1 card removes the pick, which is what a client expects.
-        # Quantity-first additionally treats zero itself as unselected
-        # (reachable only with qty_min: 0).
-        below_min? = Decimal.compare(next, socket.assigns.qty_min) == :lt
-
-        zero_in_qty_mode? =
-          socket.assigns.selection_mode == "quantity" and not Decimal.gt?(next, 0)
-
-        if below_min? or zero_in_qty_mode? do
-          deselect(socket, uuid)
-        else
-          put_qty(socket, uuid, next)
-        end
+  # A lenient zero probe for the quantity-first paths: parse_qty compares
+  # against qty_min, but in that mode zero is the UNSELECTED state and must
+  # be recognisable whatever the minimum is. Non-numbers are not zero.
+  defp zero_qty?(raw) when is_binary(raw) do
+    case Decimal.parse(String.trim(String.replace(raw, ",", "."))) do
+      {qty, ""} -> not Decimal.gt?(qty, 0)
+      _ -> false
     end
   end
+
+  defp zero_qty?(_), do: false
 
   defp put_qty(socket, uuid, qty) do
     case socket.assigns.selection[uuid] do
@@ -953,6 +972,18 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
   # See "qty_commit" — part of each stepper input's id, so bumping it
   # recreates the input and discards rejected garbage.
   defp qty_rev(assigns, uuid), do: assigns.drafts[uuid] || 0
+
+  # min/max attrs for the native number control: the down arrow stops at
+  # the mode's floor — zero in quantity-first (zero IS deselection there),
+  # the host's minimum otherwise. Shapes the arrows only; every limit is
+  # still re-clamped server-side.
+  defp qty_input_min(assigns) do
+    if assigns.selection_mode == "quantity", do: "0", else: format_qty(assigns.qty_min)
+  end
+
+  defp qty_input_max(assigns) do
+    assigns.qty_max && format_qty(assigns.qty_max)
+  end
 
   defp format_qty(%Decimal{} = qty), do: Decimal.to_string(Decimal.normalize(qty), :normal)
 
@@ -1081,6 +1112,8 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
                         qty={qty_display_or_zero(assigns, item.uuid)}
                         unit={if(@qty_precision > 0, do: item.uuid && item.unit)}
                         precision={@qty_precision}
+                        min={qty_input_min(assigns)}
+                        max={qty_input_max(assigns)}
                         target={@myself}
                         size="xs"
                       />
@@ -1094,10 +1127,13 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
               :if={@view == "table" and (@browse.items != [] or @browse.loading?)}
               id={"#{@id}-table"}
               columns={@visible_columns}
+              checkbox={@selection_mode != "quantity"}
             >
               <%= if @browse.loading? and @browse.items == [] do %>
                 <tr :for={i <- 1..5} id={"#{@id}-row-skeleton-#{i}"}>
-                  <td colspan={length(@visible_columns)}><div class="skeleton h-8 w-full"></div></td>
+                  <td colspan={length(@visible_columns) + if(@selection_mode != "quantity", do: 1, else: 0)}>
+                    <div class="skeleton h-8 w-full"></div>
+                  </td>
                 </tr>
               <% end %>
               <%= for item <- @browse.items do %>
@@ -1107,6 +1143,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
                   columns={@visible_columns}
                   selected={Map.has_key?(@selection, item.uuid)}
                   clickable={@selection_mode != "quantity"}
+                  checkbox={@selection_mode != "quantity"}
                   target={@myself}
                 >
                   <:qty>
@@ -1117,6 +1154,8 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
                       qty={qty_display_or_zero(assigns, item.uuid)}
                       unit={if(@qty_precision > 0, do: item.unit)}
                       precision={@qty_precision}
+                      min={qty_input_min(assigns)}
+                      max={qty_input_max(assigns)}
                       target={@myself}
                       size="xs"
                     />
@@ -1223,6 +1262,8 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
                   qty={qty_display(assigns, uuid)}
                   unit={if(@qty_precision > 0, do: entry.item.unit)}
                   precision={@qty_precision}
+                  min={qty_input_min(assigns)}
+                  max={qty_input_max(assigns)}
                   target={@myself}
                   size="xs"
                 />
