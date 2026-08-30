@@ -100,10 +100,15 @@ defmodule PhoenixKitCatalogue.Catalogue.SupplierFields do
       "key" => "unit_cost",
       "label" => "Unit cost",
       "scale" => 4,
-      # Spinner arrows walk in cents; the 4-place scale stays available
-      # to anything typed by hand (2026-08-30 — supplier prices stepped
-      # 0.0001 at a time, which nobody wanted to click through).
-      "step" => "0.01",
+      # "any": no stepping, so the arrows walk by 1 instead of crawling
+      # 0.0001 at a time, and every 4-place typed value stays SAVEABLE.
+      # The original "0.01" was wrong twice over (2026-08-31, entities
+      # 0.4.9 review): `step` is a validation constraint the browser
+      # enforces before a submit event ever fires, so a cent step made
+      # 12.3456 unsaveable — and entities now rejects any override that
+      # doesn't admit every value the scale allows, so "0.01" would just
+      # fall back to the crawling 0.0001 anyway.
+      "step" => "any",
       "min" => 0
     }
   ]

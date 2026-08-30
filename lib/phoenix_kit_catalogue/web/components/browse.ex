@@ -868,8 +868,10 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
 
   Integer mode is `precision: 0` (the default; step 1); a decimal item is
   the same control with `precision > 0` (step 0.1 / 0.01 / …) and a `unit`
-  suffix. `min`/`max` shape the arrows and keyboard only — all limits are
-  re-enforced server-side, exactly as before.
+  suffix. `min`/`max`/`step` shape the arrows and keyboard ONLY — the
+  form is `novalidate`, so they never gate the submit (a browser
+  validation failure would leave Enter silently dead), and every limit
+  is re-enforced server-side, exactly as before.
   """
   attr(:id, :string, required: true)
   attr(:uuid, :string, required: true)
@@ -886,12 +888,21 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
     <%!-- The form wraps the join (Enter commits via phx-submit; phx-blur
          commits on focus loss). phx-change catches what blur never sees:
          a spinner-arrow click changes the value without ever blurring,
-         and a modal closed right after would lose it. --%>
+         and a modal closed right after would lose it.
+
+         novalidate is load-bearing (2026-08-31): step/min/max are browser
+         VALIDATION constraints, and a phx-submit form never reaches
+         LiveView while an input fails one — so a typed "2.5" at
+         precision 0, or a value above max, left Enter silently dead
+         while blur committed fine. The server owns rounding and
+         clamping; the attrs stay purely to shape the arrows and the
+         mobile keyboard, which is what the doc promises. --%>
     <form
       id={@id}
       phx-submit="qty_commit"
       phx-change="qty_change"
       phx-target={@target}
+      novalidate
     >
       <input type="hidden" name="uuid" value={@uuid} />
       <div class="join" role="group" aria-label={gettext("Quantity")}>

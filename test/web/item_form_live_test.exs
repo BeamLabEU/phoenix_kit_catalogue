@@ -399,16 +399,18 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLiveTest do
       # The control's step is whatever entities derives from the built-in
       # definition — asserted as delegation, not a literal, so this holds
       # at every entities version: pre-"step" releases derive 0.0001 from
-      # the scale, releases with the override render the declared 0.01
-      # (cent arrows; scale 4 stays available to typed entry, since
-      # LiveView never runs the browser's step validation).
+      # the scale, 0.4.9+ honours the declared "any" (arrows walk by 1;
+      # every 4-place typed value stays saveable — `step` IS a browser
+      # validation constraint that gates the submit event, which is why
+      # the original cent step was wrong; entities 0.4.9 review).
       builtin = Catalogue.supplier_builtin_field("unit_cost")
       assert html =~ ~s(step="#{PhoenixKitEntities.FieldTypes.decimal_step(builtin)}")
 
-      # Catalogue's side of the contract: cents on the arrows, 4-place
-      # storage — the boss's "too precise" report, 2026-08-30.
+      # Catalogue's side of the contract: sane arrows, 4-place storage,
+      # nothing typed ever blocked — the boss's "too precise" report,
+      # 2026-08-30, corrected 2026-08-31.
       assert builtin["scale"] == 4
-      assert builtin["step"] == "0.01"
+      assert builtin["step"] == "any"
       assert builtin["type"] == "decimal"
     end
 
