@@ -168,9 +168,15 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
   signal, not two.
 
   `selection_mode: "click" | "quantity"` still forces a flavour
-  explicitly (forcing "click" with a visible `:qty` keeps the legacy
-  behaviour: control appears once selected, no checkbox column). The
-  tray, Confirm, and every guard behave identically in both modes.
+  explicitly, and the either-or holds even then (Max, 2026-08-31: a
+  checkmark means no number entry, and the check sits in the leftmost
+  column): forcing "click" with a visible `:qty` leads with the checkbox
+  column, quantities live in the tray, and the qty cell shows the picked
+  amount read-only. `inline_qty: true` is the deliberate opt-in for
+  hosts that really want both — it restores the legacy pairing (no
+  checkbox column, check icon/badge plus a stepper once selected).
+  Quantity mode ignores it. The tray, Confirm, and every guard behave
+  identically in all flavours.
 
   ## Scope
 
@@ -821,6 +827,12 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
       # detail body (description, metadata, attached files) passes
       # false, the same opt-out story as show_prices/show_sku.
       show_item_details: Map.get(assigns, :show_item_details, true),
+      # Click flavour + visible :qty is either-or by DEFAULT (checkbox
+      # column, quantities in the tray, the qty cell read-only); this
+      # opt-in restores the legacy checkmark+stepper pairing for hosts
+      # that really want both (Max, 2026-08-31). Quantity mode ignores
+      # it — the stepper is the selector there.
+      inline_qty: Map.get(assigns, :inline_qty, false) == true,
       title: assigns[:title]
     }
   end
@@ -1599,17 +1611,31 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
   # popup shows no :qty column — with a quantity input on every row, a
   # number above zero already reads "selected", and a checked box next
   # to it said the same thing twice.
-  defp checkbox?(assigns),
-    do: assigns.selection_mode != "quantity" and :qty not in assigns.visible_columns
+  #
+  # Click flavour with a visible :qty: the leftmost checkbox is the ONE
+  # selected signal (Max, 2026-08-31: "if there is a checkmark then no
+  # need for a number... the check should be in the most left column") —
+  # only the explicit inline_qty opt-in trades it for the legacy
+  # stepper-on-selected pairing.
+  defp checkbox?(assigns) do
+    assigns.selection_mode != "quantity" and
+      not (assigns.inline_qty and :qty in assigns.visible_columns)
+  end
 
-  # Whether a rendered row/card shows its stepper: any selected available
-  # entry — plus, in quantity-first mode, EVERY rendered row (rendered
-  # means in-scope by construction, and the stepper at 0 IS the selector).
+  # Whether a rendered row/card shows its stepper. Quantity-first mode:
+  # EVERY rendered row (rendered means in-scope by construction, and the
+  # stepper at 0 IS the selector). Click mode: only under the inline_qty
+  # opt-in, on selected available rows — by default the checkmark is the
+  # signal and quantities live in the tray (the qty cell shows the picked
+  # amount read-only).
   defp stepper?(assigns, uuid) do
     :qty in assigns.visible_columns and
       case assigns.selection[uuid] do
-        %{available: available} -> available
-        nil -> assigns.selection_mode == "quantity"
+        %{available: available} ->
+          available and (assigns.selection_mode == "quantity" or assigns.inline_qty)
+
+        nil ->
+          assigns.selection_mode == "quantity"
       end
   end
 
@@ -1952,6 +1978,18 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
                       target={@myself}
                       size="xs"
                     />
+                    <%!-- Click flavour, no inline_qty: the checkmark is the
+                    selected signal; the picked amount shows read-only and
+                    is edited in the tray or via the details popup. --%>
+                    <span
+                      :if={
+                        not stepper?(assigns, item.uuid) and
+                          Map.has_key?(@selection, item.uuid)
+                      }
+                      class="tabular-nums"
+                    >
+                      {qty_display(assigns, item.uuid)}
+                    </span>
                   </:qty>
                 </.item_row>
               <% end %>
