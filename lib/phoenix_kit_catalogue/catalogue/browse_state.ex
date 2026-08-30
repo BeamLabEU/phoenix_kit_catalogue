@@ -58,6 +58,7 @@ defmodule PhoenixKitCatalogue.Catalogue.BrowseState do
 
   defstruct scope: %{},
             search: "",
+            catalogue_uuid: nil,
             category_uuid: nil,
             page: 0,
             per_page: @default_per_page,
@@ -121,6 +122,10 @@ defmodule PhoenixKitCatalogue.Catalogue.BrowseState do
 
     * `:reset` — first load / clear everything back to the scope.
     * `{:search, q}` — replace the search string (no-op when unchanged).
+    * `{:set_catalogue, uuid | nil}` — narrow to ONE of the scope's
+      offered catalogues (multi-catalogue browsing drills catalogue
+      first), or back to all of them. Rejected with `:noop` outside
+      `scope.catalogue_uuids`. Also clears the category narrowing.
     * `{:set_category, uuid | :uncategorized | nil}` — narrow to one
       category, to the items WITHOUT one, or back to all within scope.
       Rejected with `:noop` when the uuid falls outside
@@ -130,7 +135,7 @@ defmodule PhoenixKitCatalogue.Catalogue.BrowseState do
     * `:load_more` — next page. No-op while loading or exhausted.
   """
   def command(state, :reset) do
-    fetch(%{state | search: "", category_uuid: nil})
+    fetch(%{state | search: "", catalogue_uuid: nil, category_uuid: nil})
   end
 
   def command(%{search: q} = state, {:search, q}), do: {state, :noop}
@@ -169,6 +174,31 @@ defmodule PhoenixKitCatalogue.Catalogue.BrowseState do
   end
 
   def command(state, {:set_category, _}), do: {state, :noop}
+
+  # Narrow to ONE of the scope's offered catalogues (the multi-catalogue
+  # popup's catalogue-first drill, 2026-08-31: "for multiple catalogues we
+  # should first have the user choose a catalogue"). Only meaningful — and
+  # only accepted — when the scope names several catalogues; the chosen
+  # one must be on that list, so a crafted event can never browse outside
+  # the allow-list. Choosing (or clearing) a catalogue also clears any
+  # category narrowing: the category belonged to the previous level.
+  def command(%{catalogue_uuid: uuid} = state, {:set_catalogue, uuid}), do: {state, :noop}
+
+  def command(state, {:set_catalogue, nil}) do
+    fetch(%{state | catalogue_uuid: nil, category_uuid: nil})
+  end
+
+  def command(state, {:set_catalogue, uuid}) when is_binary(uuid) do
+    offered = state.scope[:catalogue_uuids] || []
+
+    if uuid in Enum.map(offered, &to_string/1) do
+      fetch(%{state | catalogue_uuid: uuid, category_uuid: nil})
+    else
+      {state, :noop}
+    end
+  end
+
+  def command(state, {:set_catalogue, _}), do: {state, :noop}
 
   def command(%{loading?: true} = state, :load_more), do: {state, :noop}
   def command(%{exhausted?: true} = state, :load_more), do: {state, :noop}
@@ -224,6 +254,14 @@ defmodule PhoenixKitCatalogue.Catalogue.BrowseState do
   """
   def query_opts(state) do
     base = Map.take(state.scope, [:catalogue_uuids, :only, :statuses, :include_descendants])
+
+    # The catalogue drill narrows WITHIN the scope's offered list —
+    # membership was checked at command time, and overriding here keeps
+    # every fetch derived from validated state alone.
+    base =
+      if state.catalogue_uuid,
+        do: Map.put(base, :catalogue_uuids, [state.catalogue_uuid]),
+        else: base
 
     base =
       case state.category_uuid do

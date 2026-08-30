@@ -1991,7 +1991,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       %{doors: doors, tools: tools, sub: sub, drill: drill}
     end
 
-    test "the root groups each catalogue's top categories; drilling crosses catalogues", %{
+    test "the root lists CATALOGUES; drilling goes catalogue, category, subcategory", %{
       conn: conn,
       cat: cat,
       other: other,
@@ -2001,39 +2001,69 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
     } do
       {:ok, view, html} = open(conn, "c=#{cat.uuid}&c2=#{other.uuid}&sel=click")
 
-      # Grouped root: both catalogue names as section headings, both
-      # catalogues' root categories as tiles, the switcher present.
-      assert html =~ "Picker Catalogue"
-      assert html =~ "Forbidden Catalogue"
-      assert has_element?(view, ~s(#picker-levelnav button[phx-value-uuid="#{doors.uuid}"]))
-      assert has_element?(view, ~s(#picker-levelnav button[phx-value-uuid="#{tools.uuid}"]))
-      refute has_element?(view, ~s(#picker-levelnav button[phx-value-uuid="#{sub.uuid}"]))
-      assert has_element?(view, "#picker-root-mode")
+      # Catalogue-first (Max, 2026-08-31: "we should first have the user
+      # choose a catalogue"): the root shows catalogue tiles only — no
+      # category is offered yet — with the switcher labeled Catalogues.
+      assert has_element?(view, ~s(#picker-levelnav button[phx-value-uuid="#{cat.uuid}"]))
+      assert has_element?(view, ~s(#picker-levelnav button[phx-value-uuid="#{other.uuid}"]))
+      refute has_element?(view, ~s(#picker-levelnav button[phx-value-uuid="#{doors.uuid}"]))
+      refute has_element?(view, ~s(#picker-levelnav button[phx-value-uuid="#{tools.uuid}"]))
+      assert has_element?(view, "#picker-root-mode button", "Catalogues")
+      refute html =~ "__uncategorized__"
 
-      # Drill into the SECOND catalogue's category: child tile + Up.
-      view |> picker() |> render_click("browse_category", %{"uuid" => tools.uuid})
-      assert has_element?(view, ~s(#picker-levelnav button[phx-value-uuid="#{sub.uuid}"]))
+      # Choosing a catalogue shows ITS top categories + its own
+      # Uncategorized bucket, like a single-catalogue root.
+      view |> picker() |> render_click("browse_catalogue", %{"uuid" => other.uuid})
+      assert has_element?(view, ~s(#picker-levelnav button[phx-value-uuid="#{tools.uuid}"]))
+      refute has_element?(view, ~s(#picker-levelnav button[phx-value-uuid="#{doors.uuid}"]))
+      assert has_element?(view, ~s(#picker-levelnav button[phx-value-uuid="__uncategorized__"]))
       assert has_element?(view, ~s(#picker-levelnav button[phx-value-uuid=""]), "Up")
 
-      # And its leaf level lists the item.
+      # Category and subcategory levels work as in a single catalogue.
+      view |> picker() |> render_click("browse_category", %{"uuid" => tools.uuid})
+      assert has_element?(view, ~s(#picker-levelnav button[phx-value-uuid="#{sub.uuid}"]))
+
       html = view |> picker() |> render_click("browse_category", %{"uuid" => sub.uuid})
       assert html =~ "Power Drill"
+
+      # Up chain: subcategory -> category -> catalogue level -> root.
+      view |> picker() |> render_click("browse_category", %{"uuid" => tools.uuid})
+      view |> picker() |> render_click("browse_category", %{"uuid" => ""})
+      assert has_element?(view, ~s(#picker-levelnav button[phx-value-uuid="#{tools.uuid}"]))
+
+      view |> picker() |> render_click("browse_catalogue", %{"uuid" => ""})
+      assert has_element?(view, ~s(#picker-levelnav button[phx-value-uuid="#{cat.uuid}"]))
     end
 
-    test "the Uncategorized tile sums the offered catalogues' loose items", %{
+    test "a chosen catalogue narrows the items; a foreign catalogue uuid is refused", %{
       conn: conn,
       cat: cat,
-      other: other
+      other: other,
+      drill: drill
     } do
-      # seed: cat has 2 loose items (screw, paint); other has 1 (forbidden).
+      third = fixture_catalogue(%{name: "Unoffered Catalogue"})
+
+      {:ok, _} =
+        Catalogue.create_item(%{name: "Unoffered Item", catalogue_uuid: third.uuid})
+
       {:ok, view, _html} = open(conn, "c=#{cat.uuid}&c2=#{other.uuid}&sel=click")
 
-      assert has_element?(
-               view,
-               ~s(#picker-levelnav button[phx-value-uuid="__uncategorized__"])
-             )
+      # Items mode at the root: everything offered, nothing beyond.
+      html = view |> picker() |> render_click("set_root_mode", %{"mode" => "items"})
+      assert html =~ "M8 Screw"
+      assert html =~ drill.name
+      refute html =~ "Unoffered Item"
 
-      assert has_element?(view, "#picker-levelnav", "3")
+      # Chosen catalogue: its items only.
+      view |> picker() |> render_click("set_root_mode", %{"mode" => "categories"})
+      view |> picker() |> render_click("browse_catalogue", %{"uuid" => other.uuid})
+      html = view |> picker() |> render_click("set_root_mode", %{"mode" => "items"})
+      refute html =~ "M8 Screw"
+      assert html =~ "Forbidden Item"
+
+      # A crafted uuid outside the offered list is a no-op.
+      html = view |> picker() |> render_click("browse_catalogue", %{"uuid" => third.uuid})
+      refute html =~ "Unoffered Item"
     end
   end
 
