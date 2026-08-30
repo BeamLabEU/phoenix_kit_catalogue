@@ -9,6 +9,7 @@ defmodule PhoenixKitCatalogue.Web.Components.BrowseTest do
   import Phoenix.Component, only: [sigil_H: 2]
   import Phoenix.LiveViewTest, only: [rendered_to_string: 1, render_component: 2]
 
+  alias PhoenixKitCatalogue.Schemas.Item
   alias PhoenixKitCatalogue.Web.Components.Browse
 
   defp presented(over \\ %{}) do
@@ -130,6 +131,60 @@ defmodule PhoenixKitCatalogue.Web.Components.BrowseTest do
         thumb_url: nil,
         default_qty: Decimal.new(1)
       }
+    end
+
+    test "smart fees show where the price goes: flat IS the price, percent and rules display" do
+      # Smart-catalogue items rendered a BLANK price everywhere
+      # (2026-08-31 — tim-dev's rule-priced services). Flat standalone
+      # fees are real prices (line totals included); percent shows its
+      # number; rule-priced items say Computed.
+      flat = %Item{
+        uuid: "sf-1",
+        name: "Delivery",
+        unit: "piece",
+        base_price: nil,
+        default_value: Decimal.new("49.00"),
+        default_unit: "flat",
+        markup_percentage: nil,
+        discount_percentage: nil,
+        catalogue: nil,
+        category: nil,
+        data: %{}
+      }
+
+      percent = %Item{
+        flat
+        | uuid: "sf-2",
+          default_value: Decimal.new("12"),
+          default_unit: "percent"
+      }
+
+      computed = %Item{flat | uuid: "sf-3", default_value: nil, default_unit: "percent"}
+
+      [p_flat, p_percent, p_computed] = Browse.present_items([flat, percent, computed], "en")
+
+      assert Decimal.equal?(p_flat.price, Decimal.new("49.00"))
+      assert p_flat.fee_note == nil
+
+      assert p_percent.price == nil
+      assert p_percent.fee_note == "12%"
+
+      assert p_computed.price == nil
+      assert p_computed.fee_note == "Computed"
+
+      # The row shows the note in the price cell; the card shows it on
+      # the price line (and hides it with show_price=false, the same
+      # grant as prices).
+      row =
+        render_component(&Browse.item_row/1, id: "r1", item: p_percent, columns: [:name, :price])
+
+      assert row =~ "12%"
+
+      card = render_component(&Browse.item_card/1, id: "c1", item: p_percent)
+      assert card =~ "12%"
+
+      hidden = render_component(&Browse.item_card/1, id: "c1", item: p_percent, show_price: false)
+      refute hidden =~ "12%"
     end
 
     test "instant qty feedback: hook on the stepper, styling keyed off data-selected" do

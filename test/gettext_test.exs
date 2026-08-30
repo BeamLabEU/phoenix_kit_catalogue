@@ -643,6 +643,15 @@ defmodule PhoenixKitCatalogue.GettextTest do
       assert gettext_in("ru", msgid) == "Назад"
     end
 
+    # The smart-fee price placeholder for rule-priced items whose number
+    # only exists at order time (2026-08-31).
+    test "Computed" do
+      msgid = "Computed"
+      assert po_msgstr("en", msgid) != nil
+      assert gettext_in("et", msgid) == "Arvutuslik"
+      assert gettext_in("ru", msgid) == "Рассчитывается"
+    end
+
     # The kmpl (Estonian set/komplekt) unit option (boss, 2026-08-31).
     test "Set (kmpl)" do
       msgid = "Set (kmpl)"

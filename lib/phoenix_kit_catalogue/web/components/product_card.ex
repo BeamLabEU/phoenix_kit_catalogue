@@ -37,6 +37,8 @@ defmodule PhoenixKitCatalogue.Web.Components.ProductCard do
   import PhoenixKitWeb.Components.Core.Icon, only: [icon: 1]
   import PhoenixKitWeb.Components.Core.Modal, only: [modal: 1]
 
+  alias PhoenixKitCatalogue.Web.Components.Browse
+
   alias PhoenixKit.Modules.Storage
   alias PhoenixKit.Modules.Storage.URLSigner
   alias PhoenixKit.Utils.Format
@@ -401,7 +403,8 @@ defmodule PhoenixKitCatalogue.Web.Components.ProductCard do
   def build_fields(%Item{} = item, locale, opts) do
     [
       {Keyword.get(opts, :include_sku, true), {gettext("SKU"), item.sku}},
-      {Keyword.get(opts, :include_price, true), {gettext("Price"), format_price(item)}},
+      {Keyword.get(opts, :include_price, true),
+       {gettext("Price"), format_price(item) || fee_value(item)}},
       {true, {gettext("Unit"), unit_value(item)}},
       {true, {gettext("Description"), resolve_description(item, locale)}}
     ]
@@ -515,6 +518,18 @@ defmodule PhoenixKitCatalogue.Web.Components.ProductCard do
   defp to_display(%Decimal{} = value), do: Decimal.to_string(value, :normal)
   defp to_display(value) when is_number(value) or is_boolean(value), do: to_string(value)
   defp to_display(value), do: inspect(value)
+
+  # Smart-fee fallback for the Price row: "49.00" (flat), "12%", or a
+  # localized Computed — the same resolution the listing shows
+  # (Browse.smart_fee/1), so the card never disagrees with the row the
+  # click came from.
+  defp fee_value(item) do
+    case Browse.smart_fee(item) do
+      {:price, fee} -> Decimal.to_string(fee, :normal)
+      {:note, note} -> note
+      nil -> nil
+    end
+  end
 
   defp format_price(%Item{} = item) do
     case Catalogue.item_pricing(item).final_price do
