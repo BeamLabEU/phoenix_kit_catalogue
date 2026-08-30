@@ -367,6 +367,23 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLiveTest do
       end
     end
 
+    # 2026-08-31 delta pin: the Unit label is hand-rolled to Input's
+    # markup (label mb-2 + plain font-semibold span) because core's
+    # <.select> labelled through FormFieldLabel's fieldset-legend span,
+    # which rendered smaller than the Input labels beside it. Local
+    # until the core harmonisation releases; a revert re-breaks the row.
+    test "the Unit label matches its Input neighbours' markup", %{conn: conn} do
+      item =
+        fixture_item(%{
+          name: "Oak Panel",
+          category_uuid: fixture_category(fixture_catalogue()).uuid
+        })
+
+      {:ok, _view, html} = live(conn, edit_item_url(item.uuid))
+
+      assert html =~ ~r/<label class="label mb-2"[^>]*>\s*<span class="font-semibold">\s*Unit/
+    end
+
     # The price control comes from entities' `decimal` renderer, not a
     # hand-rolled number input — that is what keeps it exact.
     test "the price control is the entities decimal field", %{conn: conn} do
@@ -379,10 +396,20 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLiveTest do
       {:ok, view, _page} = live(conn, edit_item_url(item.uuid))
       html = render_click(view, "open_add_supplier", %{})
 
-      # scale 4 on the built-in definition, or the browser rejects the
-      # fourth decimal place the column stores.
-      assert html =~ ~s(step="0.0001")
-      assert Catalogue.supplier_builtin_field("unit_cost")["type"] == "decimal"
+      # The control's step is whatever entities derives from the built-in
+      # definition — asserted as delegation, not a literal, so this holds
+      # at every entities version: pre-"step" releases derive 0.0001 from
+      # the scale, releases with the override render the declared 0.01
+      # (cent arrows; scale 4 stays available to typed entry, since
+      # LiveView never runs the browser's step validation).
+      builtin = Catalogue.supplier_builtin_field("unit_cost")
+      assert html =~ ~s(step="#{PhoenixKitEntities.FieldTypes.decimal_step(builtin)}")
+
+      # Catalogue's side of the contract: cents on the arrows, 4-place
+      # storage — the boss's "too precise" report, 2026-08-30.
+      assert builtin["scale"] == 4
+      assert builtin["step"] == "0.01"
+      assert builtin["type"] == "decimal"
     end
 
     # The whole reason entities grew a `decimal` type: a price must reach
