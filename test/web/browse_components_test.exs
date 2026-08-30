@@ -232,6 +232,11 @@ defmodule PhoenixKitCatalogue.Web.Components.BrowseTest do
       assert html =~ ~s(phx-change="qty_change")
       assert html =~ ~s(phx-debounce)
       assert html =~ ~s(name="uuid" value="u-1")
+      # novalidate keeps Enter alive: step/min/max are validation
+      # constraints, and a phx-submit form never fires while one fails —
+      # the server owns rounding/clamping (2026-08-31, the entities-0.4.9
+      # lesson applied to this control).
+      assert html =~ "novalidate"
     end
 
     test "min and max shape the arrows when given, and are absent otherwise" do
