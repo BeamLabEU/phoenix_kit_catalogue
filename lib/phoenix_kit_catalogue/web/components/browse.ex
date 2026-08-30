@@ -277,7 +277,10 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
     <div id={@id} class="flex gap-1.5 overflow-x-auto pb-1" role="group" aria-label={gettext("Categories")}>
       <button
         type="button"
-        class={["btn btn-xs rounded-full", if(@active_uuid, do: "btn-ghost", else: "btn-primary")]}
+        class={[
+          "btn btn-xs rounded-full phx-click-loading:animate-pulse",
+          if(@active_uuid, do: "btn-ghost", else: "btn-primary")
+        ]}
         phx-click="browse_category"
         phx-value-uuid=""
         phx-target={@target}
@@ -288,7 +291,7 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
         :for={category <- @categories}
         type="button"
         class={[
-          "btn btn-xs rounded-full whitespace-nowrap",
+          "btn btn-xs rounded-full whitespace-nowrap phx-click-loading:animate-pulse",
           if(@active_uuid == to_string(category.uuid), do: "btn-primary", else: "btn-ghost")
         ]}
         phx-click="browse_category"
@@ -301,7 +304,7 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
         :if={@show_uncategorized}
         type="button"
         class={[
-          "btn btn-xs rounded-full whitespace-nowrap",
+          "btn btn-xs rounded-full whitespace-nowrap phx-click-loading:animate-pulse",
           if(@active_uuid == :uncategorized, do: "btn-primary", else: "btn-ghost")
         ]}
         phx-click="browse_category"
@@ -369,14 +372,15 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
 
   def item_card(assigns) do
     ~H"""
+    <%!-- Selected styling keys off data-selected (see item_row): the qty
+    hook flips the attribute instantly, the server render reconciles. --%>
     <div
       id={@id}
       class={[
         "card bg-base-100 border transition-shadow overflow-hidden",
-        if(@selected,
-          do: "border-primary ring-2 ring-primary/40",
-          else: "border-base-300 hover:shadow-md"
-        )
+        "border-base-300 hover:shadow-md",
+        "data-[selected=true]:border-primary data-[selected=true]:ring-2",
+        "data-[selected=true]:ring-primary/40"
       ]}
       data-selected={to_string(@selected)}
     >
@@ -386,7 +390,7 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
       <button
         :if={@photo_click}
         type="button"
-        class="w-full cursor-pointer"
+        class="w-full cursor-pointer phx-click-loading:animate-pulse"
         phx-click={@photo_click}
         phx-value-uuid={@item.uuid}
         phx-target={@target}
@@ -407,7 +411,7 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
       <div :if={@photo_click} class="card-body p-3 gap-0.5">
         <button
           type="button"
-          class="text-left cursor-pointer"
+          class="text-left cursor-pointer phx-click-loading:animate-pulse"
           phx-click={@photo_click}
           phx-value-uuid={@item.uuid}
           phx-target={@target}
@@ -419,7 +423,10 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
         </button>
         <button
           type="button"
-          class="text-left w-full flex-1 flex flex-col gap-0.5 cursor-pointer disabled:cursor-default"
+          class={[
+            "text-left w-full flex-1 flex flex-col gap-0.5",
+            "cursor-pointer disabled:cursor-default phx-click-loading:animate-pulse"
+          ]}
           phx-click={@clickable && "card_click"}
           phx-value-uuid={@item.uuid}
           phx-target={@target}
@@ -441,7 +448,7 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
       <button
         :if={!@photo_click}
         type="button"
-        class="text-left w-full cursor-pointer disabled:cursor-default"
+        class="text-left w-full cursor-pointer disabled:cursor-default phx-click-loading:animate-pulse"
         phx-click={@clickable && "card_click"}
         phx-value-uuid={@item.uuid}
         phx-target={@target}
@@ -533,7 +540,10 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
         phx-click={@event}
         phx-value-mode={m.mode}
         phx-target={@target}
-        class={["btn btn-sm join-item", @current == m.mode && "btn-active"]}
+        class={[
+          "btn btn-sm join-item phx-click-loading:animate-pulse",
+          @current == m.mode && "btn-active"
+        ]}
         title={m.label}
         aria-pressed={to_string(@current == m.mode)}
       >
@@ -573,7 +583,7 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
             phx-click={@event}
             phx-value-col={col}
             phx-target={@target}
-            class="justify-start gap-2"
+            class="justify-start gap-2 phx-click-loading:animate-pulse"
           >
             <input
               type="checkbox"
@@ -778,11 +788,14 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
 
   def item_row(assigns) do
     ~H"""
+    <%!-- Styling keys off data-selected (not a server-computed class):
+    the qty hook flips the attribute for INSTANT feedback and the next
+    server render reconciles it — one styling source either way. --%>
     <.table_default_row
       id={@id}
       data-selected={to_string(@selected)}
       aria-selected={to_string(@selected)}
-      class={@selected && "bg-primary/10"}
+      class="data-[selected=true]:bg-primary/10"
     >
       <.table_default_cell
         :if={@checkbox}
@@ -806,7 +819,7 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
         class={[
           row_cell_class(col),
           col_responsive_class(col),
-          event && "cursor-pointer"
+          event && "cursor-pointer phx-click-loading:animate-pulse"
         ]}
         phx-click={event}
         phx-value-uuid={if event, do: @item.uuid}
@@ -979,9 +992,39 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
       phx-submit="qty_commit"
       phx-change="qty_change"
       phx-target={@target}
+      phx-hook=".QtySignal"
       novalidate
     >
       <input type="hidden" name="uuid" value={@uuid} />
+      <%!-- Instant selected feedback (Max, 2026-08-31: "I add 1 and it
+      gets highlighted blue but only after a delay"): the debounce + round
+      trip stay authoritative for STATE, but the row/card highlight is
+      keyed off data-selected, which this hook flips the moment a keystroke
+      or arrow changes the value. The next server render reconciles the
+      attribute either way; garbage input changes nothing — the server
+      rejects it too. --%>
+      <script :type={Phoenix.LiveView.ColocatedHook} name=".QtySignal">
+        export default {
+          mounted() {
+            this.input = this.el.querySelector('input[type="number"]')
+            this.holder = this.el.closest("[data-selected]")
+            if (!this.input || !this.holder) return
+            this._onInput = () => {
+              const v = parseFloat(this.input.value.replace(",", "."))
+              if (Number.isNaN(v)) return
+              const sel = v > 0 ? "true" : "false"
+              this.holder.setAttribute("data-selected", sel)
+              if (this.holder.hasAttribute("aria-selected")) {
+                this.holder.setAttribute("aria-selected", sel)
+              }
+            }
+            this.input.addEventListener("input", this._onInput)
+          },
+          destroyed() {
+            if (this.input) this.input.removeEventListener("input", this._onInput)
+          }
+        }
+      </script>
       <div class="join" role="group" aria-label={gettext("Quantity")}>
         <input
           id={"#{@id}-input"}
