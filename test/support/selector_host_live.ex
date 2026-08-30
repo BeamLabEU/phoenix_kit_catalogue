@@ -9,6 +9,7 @@ defmodule PhoenixKitCatalogue.Test.SelectorHostLive do
   Query params:
 
     * `c`         — catalogue uuid for `scope.catalogue_uuids`
+    * `c2`        — second catalogue uuid (multi-catalogue scopes)
     * `pre`       — preselection, `uuid:qty[,uuid:qty…]`
     * `mode`      — "single" for `mode: :single`
     * `immediate` — "true" with single mode
@@ -86,14 +87,17 @@ defmodule PhoenixKitCatalogue.Test.SelectorHostLive do
 
   defp build_scope(params) do
     %{}
-    |> maybe_put_catalogue(params["c"])
+    |> maybe_put_catalogue(params["c"], params["c2"])
     |> maybe_put_category(params["cat_scope"])
     |> maybe_put_only(params["only"])
     |> maybe_put_statuses(params["statuses"])
   end
 
-  defp maybe_put_catalogue(scope, nil), do: scope
-  defp maybe_put_catalogue(scope, uuid), do: Map.put(scope, :catalogue_uuids, [uuid])
+  defp maybe_put_catalogue(scope, nil, _second), do: scope
+  defp maybe_put_catalogue(scope, uuid, nil), do: Map.put(scope, :catalogue_uuids, [uuid])
+
+  defp maybe_put_catalogue(scope, uuid, second),
+    do: Map.put(scope, :catalogue_uuids, [uuid, second])
 
   defp maybe_put_category(scope, nil), do: scope
   defp maybe_put_category(scope, uuid), do: Map.put(scope, :category_uuids, [uuid])

@@ -20,7 +20,9 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
   items — while a non-empty search always covers the subtree of wherever
   you stand (`BrowseState`'s `drill: :direct`) and hides the level
   navigation. A category-less root has no switcher and simply lists the
-  items.
+  items. A MULTI-catalogue scope gets the same navigation with its root
+  grouped per catalogue (each offered catalogue's name over its top-level
+  categories); below the root, levels are catalogue-agnostic.
 
   Search is the admin's two-list surface: item results are the primary,
   default list, and categories whose name matches (in any language)
@@ -519,13 +521,74 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
   #
   # The flat chip strip became one level of admin-look tiles: the level
   # you stand in shows its child categories (drill down) and its own
-  # items. Built once at init from the categories-metadata read — like
-  # chips, only meaningful when the scope names exactly ONE catalogue,
-  # and any failure degrades to the empty tree: tiles are navigation,
-  # not data.
+  # items. Built once at init from the categories-metadata read; any
+  # failure degrades to the empty tree: tiles are navigation, not data.
+  # A single-catalogue scope gets one flat root level; a MULTI-catalogue
+  # scope (tim-dev's wide order picker — 2026-08-31, "check why the
+  # categories and sub categories aren't showing") gets the same level
+  # navigation with the root grouped per catalogue (root_groups); below
+  # the root, drilling is catalogue-agnostic — category uuids are global
+  # and the fetch still re-ANDs catalogue_uuids.
   @empty_cat_tree %{index: %{}, children: %{}, roots: [], counts: %{}}
 
   defp build_category_tree(%{only: :uncategorized_only}, _original, _locale), do: @empty_cat_tree
+
+  defp build_category_tree(%{catalogue_uuids: uuids} = scope, original, locale)
+       when is_list(uuids) and length(uuids) > 1 do
+    catalogue_uuids = Enum.map(uuids, &normalize_uuid/1)
+
+    categories =
+      catalogue_uuids
+      |> Enum.flat_map(&Catalogue.list_categories_metadata_for_catalogue/1)
+      |> scope_categories(scope[:category_uuids])
+      |> Enum.map(fn category ->
+        category
+        |> Map.put(:name, translated_name(category, locale) || category.name)
+        |> Map.put(:uuid, to_string(category.uuid))
+      end)
+
+    index = Map.new(categories, &{&1.uuid, &1})
+
+    children =
+      Enum.group_by(categories, fn category ->
+        category.parent_uuid && to_string(category.parent_uuid)
+      end)
+
+    roots = tree_roots(categories, children, original)
+
+    root_groups =
+      catalogue_uuids
+      |> Enum.map(fn catalogue_uuid ->
+        group = Enum.filter(roots, &(to_string(&1.catalogue_uuid) == catalogue_uuid))
+        {catalogue_display_name(catalogue_uuid, locale), group}
+      end)
+      |> Enum.reject(fn {_name, group} -> group == [] end)
+
+    counts =
+      catalogue_uuids
+      |> Enum.flat_map(fn catalogue_uuid ->
+        catalogue_uuid
+        |> Catalogue.item_counts_by_category_for_catalogue()
+        |> Map.to_list()
+      end)
+      |> Map.new(fn {uuid, count} -> {to_string(uuid), count} end)
+
+    %{
+      index: index,
+      children: children,
+      roots: roots,
+      root_groups: root_groups,
+      counts: counts,
+      uncategorized:
+        if offer_uncategorized?(scope) do
+          catalogue_uuids
+          |> Enum.map(&Catalogue.uncategorized_count_for_catalogue/1)
+          |> Enum.sum()
+        end
+    }
+  rescue
+    _ -> @empty_cat_tree
+  end
 
   defp build_category_tree(%{catalogue_uuids: [catalogue_uuid]} = scope, original, locale) do
     categories =
@@ -562,6 +625,16 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
   end
 
   defp build_category_tree(_scope, _original, _locale), do: @empty_cat_tree
+
+  # The group heading for a multi-catalogue root level, viewer-locale.
+  defp catalogue_display_name(catalogue_uuid, locale) do
+    case Catalogue.get_catalogue(catalogue_uuid) do
+      nil -> nil
+      catalogue -> translated_name(catalogue, locale) || catalogue.name
+    end
+  rescue
+    _ -> nil
+  end
 
   defp scope_categories(categories, nil), do: categories
   defp scope_categories(categories, []), do: categories
@@ -682,9 +755,20 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
   defp subcategory_level(assigns) do
     tiles = level_categories(assigns.tree, assigns.browse.category_uuid)
 
+    # A multi-catalogue root renders grouped, one section per offered
+    # catalogue (tim-dev's wide picker); everything else is one unnamed
+    # group so the markup below stays a single shape.
+    groups =
+      if assigns.browse.category_uuid == nil and assigns.tree[:root_groups] do
+        assigns.tree.root_groups
+      else
+        [{nil, tiles}]
+      end
+
     assigns =
       assigns
       |> assign(:tiles, tiles)
+      |> assign(:groups, groups)
       |> assign(
         :uncat?,
         assigns.browse.category_uuid == nil and assigns.show_uncategorized and
@@ -718,26 +802,35 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
         >
           {gettext("Subcategories")}
         </div>
-        <div :if={@view == "card"} class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-          <Shared.category_card
-            :for={category <- @tiles}
-            category={category}
-            columns={@columns}
-            count={Map.get(@tree.counts, category.uuid, 0)}
-            subcat_count={length(Map.get(@tree.children, category.uuid, []))}
-            has_subs={Map.get(@tree.children, category.uuid, []) != []}
-            phx_click="browse_category"
-            phx_target={@target}
-          />
+        <div :if={@view == "card"} class="flex flex-col gap-3">
+          <div :for={{group_name, group_cats} <- @groups}>
+            <div :if={group_name} class="text-xs font-semibold text-base-content/50 mb-1.5">
+              {group_name}
+            </div>
+            <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+              <Shared.category_card
+                :for={category <- group_cats}
+                category={category}
+                columns={@columns}
+                count={Map.get(@tree.counts, category.uuid, 0)}
+                subcat_count={length(Map.get(@tree.children, category.uuid, []))}
+                has_subs={Map.get(@tree.children, category.uuid, []) != []}
+                phx_click="browse_category"
+                phx_target={@target}
+              />
+            </div>
+          </div>
           <%!-- Uncategorized is a drill with no Category record — the
-          shared tile takes the count directly. Root only, same offer
-          rule as the old chip, hidden when the bucket is empty. --%>
-          <Shared.uncategorized_card
-            :if={@uncat?}
-            count={@tree[:uncategorized]}
-            phx_click="browse_category"
-            phx_target={@target}
-          />
+          shared tile takes the count directly (summed across catalogues
+          on a multi-catalogue root). Root only, same offer rule as the
+          old chip, hidden when the bucket is empty. --%>
+          <div :if={@uncat?} class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+            <Shared.uncategorized_card
+              count={@tree[:uncategorized]}
+              phx_click="browse_category"
+              phx_target={@target}
+            />
+          </div>
         </div>
         <%!-- The id lives on a wrapper: core's table_default drops :id
         in its classic (no items) mode. --%>
@@ -752,7 +845,16 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
             </.table_default_row>
           </.table_default_header>
           <.table_default_body>
-            <.table_default_row :for={category <- @tiles}>
+            <%= for {group_name, group_cats} <- @groups do %>
+              <tr :if={group_name}>
+                <td
+                  colspan={length(@columns) + if(@photo_col?, do: 2, else: 1)}
+                  class="text-xs font-semibold text-base-content/50 bg-base-200/40"
+                >
+                  {group_name}
+                </td>
+              </tr>
+              <.table_default_row :for={category <- group_cats}>
               <.table_default_cell :if={@photo_col?} class="w-12 !pr-0 !py-1">
                 <Shared.featured_thumb resource={category} />
               </.table_default_cell>
@@ -781,7 +883,8 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
                 cat={category}
                 child_counts={@tree.counts}
               />
-            </.table_default_row>
+              </.table_default_row>
+            <% end %>
             <.table_default_row :if={@uncat?}>
               <.table_default_cell :if={@photo_col?} class="w-12 !pr-0 !py-1">
                 <span class="w-8 h-8 rounded bg-base-200 flex items-center justify-center">
@@ -888,11 +991,19 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
     with true <- browse.search != "",
          true <- tree.index != %{},
          false <- browse.category_uuid == :uncategorized,
-         [catalogue_uuid] <- browse.scope[:catalogue_uuids] do
-      catalogue_uuid
-      |> Catalogue.search_categories(browse.search, parent_uuid: browse.category_uuid)
+         uuids when is_list(uuids) and uuids != [] <- browse.scope[:catalogue_uuids] do
+      # One search per offered catalogue (multi-catalogue popups included
+      # — a drilled parent narrows the other catalogues' searches to
+      # nothing, harmlessly), capped like the admin's.
+      uuids
+      |> Enum.flat_map(fn catalogue_uuid ->
+        Catalogue.search_categories(normalize_uuid(catalogue_uuid), browse.search,
+          parent_uuid: browse.category_uuid
+        )
+      end)
       |> Enum.map(&to_string(&1.uuid))
       |> Enum.filter(&Map.has_key?(tree.index, &1))
+      |> Enum.take(25)
       |> Enum.map(fn uuid ->
         %{uuid: uuid, name: tree.index[uuid].name, trail: tree_trail(tree, uuid)}
       end)
