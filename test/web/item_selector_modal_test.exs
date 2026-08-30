@@ -226,7 +226,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       cat: cat,
       screw: screw
     } do
-      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&precision=1&sel=click")
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&precision=1&sel=click&iq=true")
       uuid = to_string(screw.uuid)
 
       view |> picker() |> render_click("card_click", %{"uuid" => screw.uuid})
@@ -505,7 +505,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
            cat: cat,
            screw: screw
          } do
-      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&sel=click")
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&sel=click&iq=true")
       uuid = to_string(screw.uuid)
 
       view |> picker() |> render_click("card_click", %{"uuid" => screw.uuid})
@@ -796,7 +796,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       cat: cat,
       screw: screw
     } do
-      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&sel=click")
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&sel=click&iq=true")
 
       # Row cells carry the same card_click binding the card face uses.
       # (The thumb AND name cells are the details affordance now, so
@@ -806,7 +806,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       |> render_click()
 
       assert has_element?(view, ~s(#picker-row-#{screw.uuid}[data-selected="true"]))
-      # The stepper appeared in the qty cell…
+      # The stepper appeared in the qty cell (the inline_qty opt-in)…
       assert has_element?(view, "#picker-qty-#{screw.uuid}-r0-input")
       # …and that cell is not click-bound, so stepping can't deselect.
       refute has_element?(view, ~s(#picker-row-#{screw.uuid} td:last-of-type[phx-click]))
@@ -1753,14 +1753,34 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       assert has_element?(view, "#picker-row-#{screw.uuid} input[type=checkbox][checked]")
     end
 
-    test "forcing click with a visible :qty keeps the legacy stepper-on-select, no checkbox", %{
+    test "forcing click with a visible :qty stays either-or: leftmost checkbox, read-only qty", %{
       conn: conn,
       cat: cat,
       screw: screw
     } do
+      # Max, 2026-08-31: "if there is a checkmark then no need for a
+      # number" — the old default paired a check icon with a
+      # stepper-on-select here.
       {:ok, view, _html} = open(conn, "c=#{cat.uuid}&sel=click")
 
-      # Either-or holds even when forced: qty visible → no checkbox.
+      assert has_element?(view, "#picker-row-#{screw.uuid} input[type=checkbox]")
+      refute has_element?(view, "#picker-qty-#{screw.uuid}-r0-input")
+
+      view |> picker() |> render_click("card_click", %{"uuid" => screw.uuid})
+      # Still no number ENTRY — the picked amount shows read-only.
+      refute has_element?(view, "#picker-qty-#{screw.uuid}-r0-input")
+      assert has_element?(view, "#picker-row-#{screw.uuid} input[type=checkbox][checked]")
+      assert has_element?(view, "#picker-row-#{screw.uuid} td:last-of-type span", "1")
+    end
+
+    test "inline_qty is the deliberate both-signals opt-in", %{
+      conn: conn,
+      cat: cat,
+      screw: screw
+    } do
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&sel=click&iq=true")
+
+      # The legacy pairing: no checkbox column, stepper once selected.
       refute has_element?(view, "#picker-row-#{screw.uuid} input[type=checkbox]")
       refute has_element?(view, "#picker-qty-#{screw.uuid}-r0-input")
 
@@ -1770,7 +1790,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
 
     test "the native control carries the mode's floor: qty_min in click mode, 0 in quantity mode",
          %{conn: conn, cat: cat, screw: screw} do
-      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&min=2&sel=click")
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&min=2&sel=click&iq=true")
       view |> picker() |> render_click("card_click", %{"uuid" => screw.uuid})
       assert has_element?(view, ~s(#picker-qty-#{screw.uuid}-r0-input[min="2"]))
 

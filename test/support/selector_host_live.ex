@@ -27,6 +27,7 @@ defmodule PhoenixKitCatalogue.Test.SelectorHostLive do
     * `title`     — explicit modal title
     * `loc`       — puts the HOST process gettext locale (nothing passed on)
     * `clocale`   — passed to the component as its `locale` attr
+    * `iq`        — "true" passes inline_qty (the legacy check+stepper opt-in)
   """
 
   use Phoenix.LiveView
@@ -72,6 +73,7 @@ defmodule PhoenixKitCatalogue.Test.SelectorHostLive do
        show_item_details: params["details"] != "false",
        title: params["title"],
        clocale: params["clocale"],
+       inline_qty: params["iq"] == "true",
        per_page: params["pp"] && String.to_integer(params["pp"]),
        two: params["two"] == "true",
        browse: params["browse"] == "true",
@@ -175,6 +177,7 @@ defmodule PhoenixKitCatalogue.Test.SelectorHostLive do
         show_item_details={@show_item_details}
         title={@title}
         locale={@clocale}
+        inline_qty={@inline_qty}
         per_page={@per_page}
         current_user={Map.get(assigns, :phoenix_kit_current_user)}
       />
