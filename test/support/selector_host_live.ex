@@ -160,6 +160,7 @@ defmodule PhoenixKitCatalogue.Test.SelectorHostLive do
         show_item_details={@show_item_details}
         title={@title}
         per_page={@per_page}
+        current_user={Map.get(assigns, :phoenix_kit_current_user)}
       />
       <.live_component
         :if={@show and @two}
