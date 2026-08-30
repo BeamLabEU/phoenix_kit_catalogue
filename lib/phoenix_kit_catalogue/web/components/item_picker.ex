@@ -68,9 +68,11 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
       `aria-disabled` and cannot be clicked; the select handler refuses
       them server-side too (a click can race the re-render that excluded
       its target). Use for "already picked in another row" state.
-    * `:locale` (required) — locale string for translated display
-      names (`"en"`, `"es"`, etc.). Resolved via
-      `Catalogue.get_translation/2`.
+    * `:locale` — locale string for translated display names (`"en"`,
+      `"et"`, etc.), resolved via `Catalogue.get_translation/2`. Omitted,
+      the process gettext locale applies (the fallback the selector and
+      browse widget share) — pass it only to force a language the
+      process is not already in.
     * `:placeholder` — input placeholder. Defaults to "Search items…".
     * `:empty_query_limit` — how many items to show when the query is
       empty (the "just focused" state). Defaults to `10`.
@@ -203,6 +205,17 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
 
   @impl true
   def update(assigns, socket) do
+    # A host that passes no :locale gets the process gettext locale, the
+    # same fallback ItemSelectorModal and CatalogueBrowse already use —
+    # this component alone stuck to its "en" mount default, so its
+    # dropdown, breadcrumbs AND its product-card popup stayed English on
+    # localized pages (tim-dev error report, 2026-08-31). Resolved per
+    # update so it also tracks a host whose process locale changes.
+    assigns =
+      Map.put_new_lazy(assigns, :locale, fn ->
+        Gettext.get_locale(PhoenixKitCatalogue.Gettext)
+      end)
+
     # If the selected_item UUID *changes* between updates, mirror the
     # new item's name into the input. No change (including first mount
     # with no selection) leaves `:query` alone so a mid-typing user

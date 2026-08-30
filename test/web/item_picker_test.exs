@@ -60,6 +60,54 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPickerTest do
     )
   end
 
+  describe "locale fallback (tim-dev error report, 2026-08-31)" do
+    test "without a :locale attr the process gettext locale applies" do
+      item = %{
+        fake_item("i-loc-1", "Steel screw")
+        | data: %{
+            "_primary_language" => "en",
+            "en" => %{"_name" => "Steel screw"},
+            "et" => %{"_name" => "Teraskruvi"}
+          }
+      }
+
+      # The Andi shape: the host process is in et, no attr passed. The
+      # picker used to default to a hardcoded "en" here — its dropdown,
+      # breadcrumbs and product-card popup all stayed English.
+      Gettext.put_locale("et")
+
+      html =
+        render_component(
+          ItemPicker,
+          base_assigns() |> Map.delete(:locale) |> Map.put(:selected_item, item)
+        )
+
+      assert html =~ "Teraskruvi"
+      refute html =~ "Steel screw"
+    end
+
+    test "an explicit :locale attr still wins" do
+      item = %{
+        fake_item("i-loc-2", "Steel screw")
+        | data: %{
+            "_primary_language" => "en",
+            "en" => %{"_name" => "Steel screw"},
+            "et" => %{"_name" => "Teraskruvi"}
+          }
+      }
+
+      Gettext.put_locale("et")
+
+      html =
+        render_component(
+          ItemPicker,
+          base_assigns() |> Map.put(:locale, "en") |> Map.put(:selected_item, item)
+        )
+
+      assert html =~ "Steel screw"
+    end
+  end
+
   describe "render shape (closed state)" do
     test "renders combobox input with required ARIA attrs" do
       html = render_component(ItemPicker, base_assigns())
