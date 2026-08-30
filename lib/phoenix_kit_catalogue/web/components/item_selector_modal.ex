@@ -42,22 +42,23 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
 
   ## Item details page
 
-  `show_item_details: true` (default `false`) turns the photo/thumbnail
-  into a "look closer" affordance — the same gesture `ItemPicker` ships —
-  opening the item's full details INSIDE the modal: the `ProductCard`
-  body (photo/file carousel, SKU, price, unit, description, metadata,
-  attributes), covering the browse region with a Back button. The list
-  stays mounted underneath — search, chips, scroll and selection are
-  exactly where the user left them. A mode-aware selection control sits
-  in the detail footer (Add/Remove in click mode, the quantity input in
-  quantity mode); opening never auto-selects.
+  `show_item_details` (default `true` since 2026-08-31) makes the
+  photo/thumbnail a "look closer" affordance — the same gesture
+  `ItemPicker` ships — opening the item's full details INSIDE the modal:
+  the `ProductCard` body (photo/file carousel, SKU, price, unit,
+  description, metadata, attributes), covering the browse region with a
+  Back button. The list stays mounted underneath — search, chips, scroll
+  and selection are exactly where the user left them. A mode-aware
+  selection control sits in the detail footer (Add/Remove in the
+  checkbox flavour, the quantity input in quantity mode); opening never
+  auto-selects.
 
-  Opt-in deliberately: the detail body shows description, metadata and
-  attached files — more than the columns contract granted — and it
-  repurposes a click that selects in existing embeds. It honours
-  `show_prices`/`show_sku`. With columns omitting `:thumb` the table view
-  has no entry point (cards keep theirs). Videos/FAQ sections are a
-  planned extension once the item data model carries them.
+  Pass `false` for embeds that must not expose the detail body —
+  description, metadata and attached files go beyond what the columns
+  contract granted, the same opt-out story as `show_prices`/`show_sku`
+  (both of which the page honours). With columns omitting `:thumb` the
+  table view has no entry point (cards keep theirs). Videos/FAQ sections
+  are a planned extension once the item data model carries them.
 
   ## Header and tray
 
@@ -105,19 +106,24 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
   large viewports (`xl`/`2xl`) beyond core Modal's 4xl cap. On phones the
   card grid remains the roomier alternative, one toggle away.
 
-  ## Selection modes
+  ## Selection modes — either quantities or checkboxes
 
-  `selection_mode: "click"` (default) is the classic picker: clicking a
-  row/card toggles it, and the quantity control appears once selected.
-  The table view leads with a checkbox column — unchecked on every
-  selectable row, so the "you can pick these" affordance is visible
-  before the first pick (2026-08-30).
-  `selection_mode: "quantity"` is the order-sheet flavour: EVERY rendered
-  row shows its quantity control at 0, entering a positive quantity
-  (spinner arrows or typing) IS the selection, zero removes it, and
-  rows/cards are not click-targets at all — no separate "select" step,
-  and no checkbox column (a number above 0 already says "selected").
-  The tray, Confirm, and every guard behave identically in both modes.
+  The two flavours are mutually exclusive, and the DEFAULT derives from
+  the columns (2026-08-31): a visible `:qty` column makes the popup
+  quantity-first — EVERY rendered row shows its quantity control at 0,
+  entering a positive quantity (spinner arrows or typing) IS the
+  selection, zero removes it, and rows/cards are not click-targets —
+  while a popup without `:qty` is the checkbox flavour: the table leads
+  with a checkbox column (unchecked on every selectable row, so the
+  "you can pick these" affordance is visible before the first pick),
+  clicking a row/card toggles it, and quantities are edited in the tray.
+  A checked box and a quantity input never share a row — one selected
+  signal, not two.
+
+  `selection_mode: "click" | "quantity"` still forces a flavour
+  explicitly (forcing "click" with a visible `:qty` keeps the legacy
+  behaviour: control appears once selected, no checkbox column). The
+  tray, Confirm, and every guard behave identically in both modes.
 
   ## Scope
 
@@ -227,7 +233,12 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
     limits = resolve_limits!(assigns, qty_precision)
     display = display_opts(assigns)
     columns = Browse.resolve_columns!(assigns[:columns], display)
-    selection_mode = resolve_selection_mode!(assigns[:selection_mode])
+
+    selection_mode =
+      resolve_selection_mode!(
+        assigns[:selection_mode],
+        visible_columns(columns, assigns[:hidden_columns])
+      )
 
     # Resolved from the ORIGINAL scope, before subtree expansion — the
     # host named a catalogue or category, and that record is the header.
@@ -291,11 +302,21 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
     limits
   end
 
-  defp resolve_selection_mode!(nil), do: "click"
-  defp resolve_selection_mode!(mode) when mode in ["click", "quantity"], do: mode
-  defp resolve_selection_mode!(mode) when mode in [:click, :quantity], do: to_string(mode)
+  # The default derives from the columns (2026-08-31 — "it's either or"):
+  # a visible :qty column IS the amount flavour — every row shows its
+  # input at 0 and a number above zero is the selection — while a popup
+  # without :qty is the checkbox flavour (row click toggles). A checked
+  # box AND a quantity input on the same row said "selected" twice.
+  # An explicit attr still forces either mode.
+  defp resolve_selection_mode!(nil, visible),
+    do: if(:qty in visible, do: "quantity", else: "click")
 
-  defp resolve_selection_mode!(other),
+  defp resolve_selection_mode!(mode, _visible) when mode in ["click", "quantity"], do: mode
+
+  defp resolve_selection_mode!(mode, _visible) when mode in [:click, :quantity],
+    do: to_string(mode)
+
+  defp resolve_selection_mode!(other, _visible),
     do:
       raise(
         ArgumentError,
@@ -368,12 +389,12 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
       # order sheets show a number above 0 on every picked row (2026-08-30,
       # the "shopping cart" flexibility ask). Cancel/Confirm always stay.
       show_tray: Map.get(assigns, :show_tray, true),
-      # The in-modal item details page (2026-08-30). Opt-in: the detail
-      # body shows description, metadata and attached files — more than
-      # the columns contract granted — and it repurposes the photo/thumb
-      # click, which selects in existing click-mode embeds. Panel split
-      # 2–2 on the default; opt-in won on the exposure argument.
-      show_item_details: Map.get(assigns, :show_item_details, false),
+      # The in-modal item details page (2026-08-30). ON by default per
+      # Max, 2026-08-31 — inspecting before picking is the popup's
+      # normal use. A client-facing embed that must not expose the
+      # detail body (description, metadata, attached files) passes
+      # false, the same opt-out story as show_prices/show_sku.
+      show_item_details: Map.get(assigns, :show_item_details, true),
       title: assigns[:title]
     }
   end
@@ -1015,6 +1036,13 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
     end
   end
 
+  # Either-or (2026-08-31): the checkbox column renders only when the
+  # popup shows no :qty column — with a quantity input on every row, a
+  # number above zero already reads "selected", and a checked box next
+  # to it said the same thing twice.
+  defp checkbox?(assigns),
+    do: assigns.selection_mode != "quantity" and :qty not in assigns.visible_columns
+
   # Whether a rendered row/card shows its stepper: any selected available
   # entry — plus, in quantity-first mode, EVERY rendered row (rendered
   # means in-scope by construction, and the stepper at 0 IS the selector).
@@ -1236,11 +1264,11 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
               :if={@view == "table" and (@browse.items != [] or @browse.loading?)}
               id={"#{@id}-table"}
               columns={@visible_columns}
-              checkbox={@selection_mode != "quantity"}
+              checkbox={checkbox?(assigns)}
             >
               <%= if @browse.loading? and @browse.items == [] do %>
                 <tr :for={i <- 1..5} id={"#{@id}-row-skeleton-#{i}"}>
-                  <td colspan={length(@visible_columns) + if(@selection_mode != "quantity", do: 1, else: 0)}>
+                  <td colspan={length(@visible_columns) + if(checkbox?(assigns), do: 1, else: 0)}>
                     <div class="skeleton h-8 w-full"></div>
                   </td>
                 </tr>
@@ -1252,7 +1280,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
                   columns={@visible_columns}
                   selected={Map.has_key?(@selection, item.uuid)}
                   clickable={@selection_mode != "quantity"}
-                  checkbox={@selection_mode != "quantity"}
+                  checkbox={checkbox?(assigns)}
                   thumb_click={if(@show_item_details, do: "show_detail")}
                   target={@myself}
                 >

@@ -48,7 +48,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
 
   describe "scoped browsing" do
     test "renders only the scoped catalogue's items", %{conn: conn, cat: cat} do
-      {:ok, _view, html} = open(conn, "c=#{cat.uuid}")
+      {:ok, _view, html} = open(conn, "c=#{cat.uuid}&sel=click")
 
       assert html =~ "M8 Screw"
       assert html =~ "White Paint"
@@ -56,7 +56,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
     end
 
     test "search narrows within the scope", %{conn: conn, cat: cat} do
-      {:ok, view, _html} = open(conn, "c=#{cat.uuid}")
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&sel=click")
 
       html = view |> picker() |> render_change("browse_search", %{"search" => "screw"})
 
@@ -69,7 +69,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       cat: cat,
       other: other
     } do
-      {:ok, view, _html} = open(conn, "c=#{cat.uuid}")
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&sel=click")
 
       # Every fetch re-ANDs scope.catalogue_uuids, so even a category value
       # from another catalogue can never surface its items.
@@ -105,7 +105,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
         })
 
       {:ok, view, html} =
-        live(conn, "/test/selector-host?c=#{cat.uuid}&cat_scope=#{allowed.uuid}")
+        live(conn, "/test/selector-host?c=#{cat.uuid}&cat_scope=#{allowed.uuid}&sel=click")
 
       assert html =~ "Allowed Widget"
       refute html =~ "Hidden Widget"
@@ -129,7 +129,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       cat: cat,
       screw: screw
     } do
-      {:ok, view, _html} = open(conn, "c=#{cat.uuid}")
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&sel=click")
 
       view |> picker() |> render_click("card_click", %{"uuid" => screw.uuid})
       view |> picker() |> render_click("confirm", %{})
@@ -146,7 +146,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       cat: cat,
       forbidden: forbidden
     } do
-      {:ok, view, _html} = open(conn, "c=#{cat.uuid}")
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&sel=click")
 
       view |> picker() |> render_click("card_click", %{"uuid" => forbidden.uuid})
       view |> picker() |> render_click("confirm", %{})
@@ -158,7 +158,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
     end
 
     test "clicking a selected card deselects it", %{conn: conn, cat: cat, screw: screw} do
-      {:ok, view, _html} = open(conn, "c=#{cat.uuid}")
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&sel=click")
 
       view |> picker() |> render_click("card_click", %{"uuid" => screw.uuid})
       view |> picker() |> render_click("card_click", %{"uuid" => screw.uuid})
@@ -171,7 +171,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
     end
 
     test "cancel sends the closed message and nothing else", %{conn: conn, cat: cat} do
-      {:ok, view, _html} = open(conn, "c=#{cat.uuid}")
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&sel=click")
 
       view |> picker() |> render_click("cancel", %{})
       html = render(view)
@@ -190,7 +190,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       cat: cat,
       screw: screw
     } do
-      {:ok, view, _html} = open(conn, "c=#{cat.uuid}")
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&sel=click")
       uuid = to_string(screw.uuid)
 
       view |> picker() |> render_click("card_click", %{"uuid" => screw.uuid})
@@ -202,7 +202,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       # Fresh mount: in click mode the arrows stop at qty_min, so a
       # below-minimum change (crafted, or a browser quirk) is ignored —
       # deselection is the row click or the tray's remove, not the arrows.
-      {:ok, view, _html} = open(conn, "c=#{cat.uuid}")
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&sel=click")
       view |> picker() |> render_click("card_click", %{"uuid" => screw.uuid})
       view |> picker() |> render_click("qty_change", %{"uuid" => uuid, "value" => "0"})
       view |> picker() |> render_click("confirm", %{})
@@ -219,7 +219,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       cat: cat,
       screw: screw
     } do
-      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&precision=1")
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&precision=1&sel=click")
       uuid = to_string(screw.uuid)
 
       view |> picker() |> render_click("card_click", %{"uuid" => screw.uuid})
@@ -236,7 +236,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       cat: cat,
       screw: screw
     } do
-      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&precision=2")
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&precision=2&sel=click")
       uuid = to_string(screw.uuid)
 
       view |> picker() |> render_click("card_click", %{"uuid" => screw.uuid})
@@ -249,7 +249,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
     end
 
     test "integer precision rounds a decimal commit", %{conn: conn, cat: cat, screw: screw} do
-      {:ok, view, _html} = open(conn, "c=#{cat.uuid}")
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&sel=click")
       uuid = to_string(screw.uuid)
 
       view |> picker() |> render_click("card_click", %{"uuid" => screw.uuid})
@@ -267,7 +267,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       cat: cat,
       screw: screw
     } do
-      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&max=99")
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&max=99&sel=click")
       uuid = to_string(screw.uuid)
 
       view |> picker() |> render_click("card_click", %{"uuid" => screw.uuid})
@@ -291,7 +291,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       cat: cat,
       screw: screw
     } do
-      {:ok, view, html} = open(conn, "c=#{cat.uuid}&pre=#{screw.uuid}:3")
+      {:ok, view, html} = open(conn, "c=#{cat.uuid}&pre=#{screw.uuid}:3&sel=click")
 
       # Already selected: the card shows its selected state on first render.
       assert html =~ ~s(data-selected="true")
@@ -306,7 +306,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       cat: cat,
       forbidden: forbidden
     } do
-      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&pre=#{forbidden.uuid}:2")
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&pre=#{forbidden.uuid}:2&sel=click")
 
       # The tray starts collapsed; expand it to see the rows. Visible and
       # flagged — the host's data is not silently dropped…
@@ -314,7 +314,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       assert html =~ "Forbidden Item"
       assert html =~ "Not available in this selection"
 
-      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&pre=#{forbidden.uuid}:2")
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&pre=#{forbidden.uuid}:2&sel=click")
       view |> picker() |> render_click("confirm", %{})
       html = render(view)
 
@@ -342,7 +342,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       {:ok, view, _html} =
         live(
           conn,
-          "/test/selector-host?c=#{cat.uuid}&only=uncategorized&pre=#{categorized.uuid}:2"
+          "/test/selector-host?c=#{cat.uuid}&only=uncategorized&pre=#{categorized.uuid}:2&sel=click"
         )
 
       view |> picker() |> render_click("confirm", %{})
@@ -364,7 +364,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       {:ok, view, _html} =
         live(
           conn,
-          "/test/selector-host?c=#{cat.uuid}&only=categorized&pre=#{loose.uuid}:2"
+          "/test/selector-host?c=#{cat.uuid}&only=categorized&pre=#{loose.uuid}:2&sel=click"
         )
 
       # Hydration of a nil category_uuid against a restriction list must
@@ -376,7 +376,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       {:ok, view, _html} =
         live(
           conn,
-          "/test/selector-host?c=#{cat.uuid}&only=categorized&pre=#{loose.uuid}:2"
+          "/test/selector-host?c=#{cat.uuid}&only=categorized&pre=#{loose.uuid}:2&sel=click"
         )
 
       view |> picker() |> render_click("confirm", %{})
@@ -400,7 +400,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       {:ok, view, _html} =
         live(
           conn,
-          "/test/selector-host?c=#{cat.uuid}&cat_scope=#{allowed.uuid}&pre=#{loose.uuid}:1"
+          "/test/selector-host?c=#{cat.uuid}&cat_scope=#{allowed.uuid}&pre=#{loose.uuid}:1&sel=click"
         )
 
       html = view |> picker() |> render_click("toggle_tray", %{})
@@ -410,7 +410,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       {:ok, view, _html} =
         live(
           conn,
-          "/test/selector-host?c=#{cat.uuid}&cat_scope=#{allowed.uuid}&pre=#{loose.uuid}:1"
+          "/test/selector-host?c=#{cat.uuid}&cat_scope=#{allowed.uuid}&pre=#{loose.uuid}:1&sel=click"
         )
 
       view |> picker() |> render_click("confirm", %{})
@@ -436,7 +436,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       {:ok, view, _html} =
         live(
           conn,
-          "/test/selector-host?c=#{cat.uuid}&cat_scope=#{parent.uuid}&pre=#{nested.uuid}:2"
+          "/test/selector-host?c=#{cat.uuid}&cat_scope=#{parent.uuid}&pre=#{nested.uuid}:2&sel=click"
         )
 
       view |> picker() |> render_click("confirm", %{})
@@ -455,7 +455,8 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
           status: "inactive"
         })
 
-      {:ok, _view, html} = live(conn, "/test/selector-host?c=#{cat.uuid}&statuses=active")
+      {:ok, _view, html} =
+        live(conn, "/test/selector-host?c=#{cat.uuid}&statuses=active&sel=click")
 
       refute html =~ "Sleepy Widget"
       assert html =~ "M8 Screw"
@@ -479,7 +480,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
           catalogue_uuid: cat.uuid
         })
 
-      {:ok, view, html} = open(conn, "c=#{cat.uuid}")
+      {:ok, view, html} = open(conn, "c=#{cat.uuid}&sel=click")
 
       assert html =~ "110.00"
       refute html =~ ">100.00<"
@@ -497,7 +498,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
            cat: cat,
            screw: screw
          } do
-      {:ok, view, _html} = open(conn, "c=#{cat.uuid}")
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&sel=click")
       uuid = to_string(screw.uuid)
 
       view |> picker() |> render_click("card_click", %{"uuid" => screw.uuid})
@@ -518,7 +519,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       cat: cat,
       screw: screw
     } do
-      {:ok, view, _html} = open(conn, "c=#{cat.uuid}")
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&sel=click")
       uuid = to_string(screw.uuid)
 
       view |> picker() |> render_click("card_click", %{"uuid" => screw.uuid})
@@ -531,7 +532,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
     end
 
     test "a crafted payload with missing keys is a no-op, not a crash", %{conn: conn, cat: cat} do
-      {:ok, view, _html} = open(conn, "c=#{cat.uuid}")
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&sel=click")
 
       view |> picker() |> render_click("card_click", %{})
       view |> picker() |> render_click("qty_commit", %{"value" => "5"})
@@ -544,7 +545,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
 
   describe "single mode" do
     test "a second pick replaces the first", %{conn: conn, cat: cat, screw: screw, paint: paint} do
-      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&mode=single")
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&mode=single&sel=click")
 
       view |> picker() |> render_click("card_click", %{"uuid" => screw.uuid})
       view |> picker() |> render_click("card_click", %{"uuid" => paint.uuid})
@@ -557,7 +558,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
     end
 
     test "immediate mode confirms on the tap itself", %{conn: conn, cat: cat, screw: screw} do
-      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&mode=single&immediate=true")
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&mode=single&immediate=true&sel=click")
 
       view |> picker() |> render_click("card_click", %{"uuid" => screw.uuid})
       html = render(view)
@@ -570,7 +571,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
 
   describe "multiple pickers on one page" do
     test "every element id stays unique", %{conn: conn, cat: cat} do
-      {:ok, _view, html} = open(conn, "c=#{cat.uuid}&two=true")
+      {:ok, _view, html} = open(conn, "c=#{cat.uuid}&two=true&sel=click")
 
       # \s anchor: phx-value-uuid="…" contains the substring id="…", which
       # a naive scan counts as an element id.
@@ -586,7 +587,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       conn: conn,
       cat: cat
     } do
-      {:ok, view, html} = open(conn, "c=#{cat.uuid}")
+      {:ok, view, html} = open(conn, "c=#{cat.uuid}&sel=click")
 
       # The attribute is the fix: a phx-change form WITHOUT phx-submit is
       # an "external form" to LiveView's client — Enter would run a native
@@ -607,7 +608,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
     test "an :uncategorized_only scope offers no category chips", %{conn: conn, cat: cat} do
       _category = fixture_category(cat, %{name: "Visible Cat"})
 
-      {:ok, _view, html} = open(conn, "c=#{cat.uuid}&only=uncategorized")
+      {:ok, _view, html} = open(conn, "c=#{cat.uuid}&only=uncategorized&sel=click")
 
       # Every chip would be an invalid action (search_items/2 raises on
       # the combination), so the whole row is suppressed.
@@ -618,7 +619,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       conn: conn,
       cat: cat
     } do
-      {:ok, view, _html} = open(conn, "c=#{cat.uuid}")
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&sel=click")
 
       html = view |> picker() |> render_click("browse_category", %{"uuid" => "garbage"})
 
@@ -636,7 +637,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
     } do
       # Above the absolute ceiling → capped; below the minimum → floored.
       {:ok, view, _html} =
-        open(conn, "c=#{cat.uuid}&pre=#{screw.uuid}:5000000,#{paint.uuid}:0")
+        open(conn, "c=#{cat.uuid}&pre=#{screw.uuid}:5000000,#{paint.uuid}:0&sel=click")
 
       view |> picker() |> render_click("confirm", %{})
       html = render(view)
@@ -652,7 +653,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       paint: paint
     } do
       {:ok, view, _html} =
-        open(conn, "c=#{cat.uuid}&pre=#{paint.uuid}:1,#{screw.uuid}:1&mode=single")
+        open(conn, "c=#{cat.uuid}&pre=#{paint.uuid}:1,#{screw.uuid}:1&mode=single&sel=click")
 
       view |> picker() |> render_click("confirm", %{})
       html = render(view)
@@ -661,7 +662,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
     end
 
     test "a crafted confirm with nothing selected is refused outright", %{conn: conn, cat: cat} do
-      {:ok, view, _html} = open(conn, "c=#{cat.uuid}")
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&sel=click")
 
       view |> picker() |> render_click("confirm", %{})
       html = render(view)
@@ -680,7 +681,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       # never return.
       {:ok, _} = Catalogue.update_catalogue(cat, %{status: "deleted"})
 
-      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&pre=#{screw.uuid}:2")
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&pre=#{screw.uuid}:2&sel=click")
 
       html = view |> picker() |> render_click("toggle_tray", %{})
       assert html =~ "Not available in this selection"
@@ -694,7 +695,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       cat: cat,
       screw: screw
     } do
-      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&min=0")
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&min=0&sel=click")
 
       view |> picker() |> render_click("card_click", %{"uuid" => screw.uuid})
       view |> picker() |> render_click("qty_commit", %{"uuid" => screw.uuid, "value" => "0"})
@@ -707,7 +708,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       conn: conn,
       cat: cat
     } do
-      {:ok, view, _html} = open(conn, "c=#{cat.uuid}")
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&sel=click")
 
       view
       |> picker()
@@ -723,7 +724,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       screw: screw,
       paint: paint
     } do
-      {:ok, view, _html} = open(conn, "c=#{cat.uuid}")
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&sel=click")
 
       # Narrow to paint only, then card_click the screw (rendered by the
       # PREVIOUS query, absent from this one): refused, so a later
@@ -744,7 +745,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       cat: cat,
       screw: screw
     } do
-      {:ok, view, html} = open(conn, "c=#{cat.uuid}")
+      {:ok, view, html} = open(conn, "c=#{cat.uuid}&sel=click")
 
       # Default: the admin-look list — rows, headers, no photo cards.
       assert html =~ ~s(id="picker-table")
@@ -767,13 +768,18 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       cat: cat,
       screw: screw
     } do
-      {:ok, view, html} = open(conn, "c=#{cat.uuid}&view=card")
+      {:ok, view, html} = open(conn, "c=#{cat.uuid}&view=card&sel=click")
 
       assert html =~ ~s(id="picker-card-#{screw.uuid}")
       refute html =~ ~s(id="picker-table")
 
-      # The card face's real binding, not the targeted shortcut.
-      view |> element("#picker-card-#{screw.uuid} > button") |> render_click()
+      # The card face's real binding, not the targeted shortcut. With
+      # details on by default the figure is its own button — target the
+      # select one.
+      view
+      |> element(~s(#picker-card-#{screw.uuid} > button[phx-click="card_click"]))
+      |> render_click()
+
       view |> picker() |> render_click("confirm", %{})
       assert render(view) =~ ~s(<span id="picked-count">1</span>)
     end
@@ -783,11 +789,13 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       cat: cat,
       screw: screw
     } do
-      {:ok, view, _html} = open(conn, "c=#{cat.uuid}")
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&sel=click")
 
       # Row cells carry the same card_click binding the card face uses.
+      # (The thumb cell is the details affordance now, so target a
+      # data cell — the name one.)
       view
-      |> element(~s(#picker-row-#{screw.uuid} td[phx-click="card_click"]:first-of-type))
+      |> element(~s(#picker-row-#{screw.uuid} td[phx-click="card_click"]), "M8 Screw")
       |> render_click()
 
       assert has_element?(view, ~s(#picker-row-#{screw.uuid}[data-selected="true"]))
@@ -807,7 +815,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
     } do
       # Client-safe embed: thumb + name + qty. No SKU, no price anywhere
       # in the list (2.50 is the screw's price).
-      {:ok, _view, html} = open(conn, "c=#{cat.uuid}&cols=thumb,name,qty")
+      {:ok, _view, html} = open(conn, "c=#{cat.uuid}&cols=thumb,name,qty&sel=click")
 
       assert html =~ ~s(id="picker-row-#{screw.uuid}")
       refute html =~ "SKU"
@@ -821,7 +829,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       cat: cat,
       screw: screw
     } do
-      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&cols=name,price")
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&cols=name,price&sel=click")
 
       view |> picker() |> render_click("card_click", %{"uuid" => screw.uuid})
 
@@ -831,13 +839,13 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
     end
 
     test "unknown column entries raise instead of silently dropping", %{conn: conn, cat: cat} do
-      exit_value = catch_exit(open(conn, "c=#{cat.uuid}&cols=name,bogus"))
+      exit_value = catch_exit(open(conn, "c=#{cat.uuid}&cols=name,bogus&sel=click"))
       assert inspect(exit_value) =~ "unknown entries"
     end
 
     test "show_prices/show_sku shape the DEFAULT columns", %{conn: conn, cat: cat} do
       # The host host-level opt-outs carry into the derived column set.
-      {:ok, _view, html} = open(conn, "c=#{cat.uuid}&hide_prices=true")
+      {:ok, _view, html} = open(conn, "c=#{cat.uuid}&hide_prices=true&sel=click")
 
       refute html =~ "Price"
       assert html =~ "SKU"
@@ -847,7 +855,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       conn: conn,
       cat: cat
     } do
-      {:ok, _view, html} = open(conn, "c=#{cat.uuid}")
+      {:ok, _view, html} = open(conn, "c=#{cat.uuid}&sel=click")
 
       # Low-priority columns carry their responsive stage on th AND td…
       # (unit rides inside the price cell and SKU starts hidden, so only
@@ -892,7 +900,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       conn: conn,
       cat: cat
     } do
-      {:ok, view, html} = open(conn, "c=#{cat.uuid}")
+      {:ok, view, html} = open(conn, "c=#{cat.uuid}&sel=click")
 
       # Hidden by default in the picker — but granted, so the dropdown
       # offers it and the data waits one click away.
@@ -911,7 +919,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
     end
 
     test "toggle_column refuses pinned and ungranted columns", %{conn: conn, cat: cat} do
-      {:ok, view, _html} = open(conn, "c=#{cat.uuid}")
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&sel=click")
 
       # :name is the last visible identity column here; :base_price was
       # never granted; garbage is garbage.
@@ -937,7 +945,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
           category_uuid: fasteners.uuid
         })
 
-      {:ok, view, _html} = open(conn, "c=#{cat.uuid}")
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&sel=click")
 
       # Off by default, offered in the dropdown.
       refute render(view) =~ "Fasteners /"
@@ -979,7 +987,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       conn: conn,
       cat: cat
     } do
-      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&hide=")
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&hide=&sel=click")
 
       assert has_element?(view, "#picker-table th", "SKU")
     end
@@ -996,7 +1004,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
           category_uuid: tools.uuid
         })
 
-      {:ok, view, html} = open(conn, "c=#{cat.uuid}")
+      {:ok, view, html} = open(conn, "c=#{cat.uuid}&sel=click")
       assert html =~ "Uncategorized"
 
       # Narrow to the loose items: the categorized one disappears, the
@@ -1024,11 +1032,11 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
         })
 
       # Category-restricted scope: uncategorized sits outside it.
-      {:ok, _view, html} = open(conn, "c=#{cat.uuid}&cat_scope=#{tools.uuid}")
+      {:ok, _view, html} = open(conn, "c=#{cat.uuid}&cat_scope=#{tools.uuid}&sel=click")
       refute html =~ "Uncategorized"
 
       # And a crafted event is refused by the reducer either way.
-      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&cat_scope=#{tools.uuid}")
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&cat_scope=#{tools.uuid}&sel=click")
       html = view |> picker() |> render_click("browse_category", %{"uuid" => "__uncategorized__"})
       assert html =~ "Torx Driver"
     end
@@ -1040,7 +1048,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
     } do
       # Host granted neither :price nor :sku. The table hides them; the
       # card view must not have them reappear.
-      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&cols=thumb,name,qty")
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&cols=thumb,name,qty&sel=click")
 
       html = view |> picker() |> render_click("set_view", %{"mode" => "card"})
       assert html =~ ~s(id="picker-card-#{screw.uuid}")
@@ -1049,7 +1057,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
 
       # And default-hidden SKU stays hidden on cards until the viewer
       # reveals it in the dropdown (visible drives both views).
-      {:ok, view, _html} = open(conn, "c=#{cat.uuid}")
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&sel=click")
       html = view |> picker() |> render_click("set_view", %{"mode" => "card"})
       refute html =~ "M8-100"
 
@@ -1070,7 +1078,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
           category_uuid: child.uuid
         })
 
-      {:ok, view, html} = open(conn, "c=#{cat.uuid}&cat_scope=#{parent.uuid}")
+      {:ok, view, html} = open(conn, "c=#{cat.uuid}&cat_scope=#{parent.uuid}&sel=click")
       assert html =~ "Deep Nested Item"
 
       # Clicking the PARENT chip must keep descendants' items — the scope
@@ -1085,7 +1093,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
     } do
       # precision 0: min 1 (ceiled) vs max 0.9 -> 0 (floored) — every qty
       # would silently collapse to 0. Config fails loud instead.
-      exit_value = catch_exit(open(conn, "c=#{cat.uuid}&max=0&min=1"))
+      exit_value = catch_exit(open(conn, "c=#{cat.uuid}&max=0&min=1&sel=click"))
       assert inspect(exit_value) =~ "rounds below"
     end
 
@@ -1161,7 +1169,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       cat: cat,
       screw: screw
     } do
-      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&cols=thumb,name,price")
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&cols=thumb,name,price&sel=click")
 
       view |> picker() |> render_click("card_click", %{"uuid" => screw.uuid})
       refute has_element?(view, "#picker-qty-#{screw.uuid}-r0-input")
@@ -1173,7 +1181,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
     end
 
     test "a qty_min above the safety ceiling is a config error", %{conn: conn, cat: cat} do
-      exit_value = catch_exit(open(conn, "c=#{cat.uuid}&min=2000000"))
+      exit_value = catch_exit(open(conn, "c=#{cat.uuid}&min=2000000&sel=click"))
       assert inspect(exit_value) =~ "safety ceiling"
     end
 
@@ -1258,12 +1266,12 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       # Default columns include Category, populated per row. Assertions
       # scope to the table — the chips row legitimately shows the name
       # regardless of columns (navigation, not data).
-      {:ok, view, _html} = open(conn, "c=#{cat.uuid}")
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&sel=click")
       assert has_element?(view, "#picker-table th", "Category")
       assert has_element?(view, "#picker-table td", "Shelving")
 
       # A host that leaves it out shows neither header nor value.
-      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&cols=name,qty")
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&cols=name,qty&sel=click")
       refute has_element?(view, "#picker-table th", "Category")
       refute has_element?(view, "#picker-table td", "Shelving")
     end
@@ -1279,7 +1287,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
           category_uuid: child.uuid
         })
 
-      {:ok, view, html} = open(conn, "c=#{cat.uuid}&cat_scope=#{parent.uuid}")
+      {:ok, view, html} = open(conn, "c=#{cat.uuid}&cat_scope=#{parent.uuid}&sel=click")
 
       # The subtree is part of the scope, so its chips must be offered…
       assert html =~ "Child Cat"
@@ -1297,7 +1305,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       conn: conn,
       cat: cat
     } do
-      {:ok, _view, html} = open(conn, "c=#{cat.uuid}")
+      {:ok, _view, html} = open(conn, "c=#{cat.uuid}&sel=click")
 
       assert html =~ "Picker Catalogue"
       refute html =~ "Select items"
@@ -1306,7 +1314,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
     test "a scoped category outranks its catalogue in the header", %{conn: conn, cat: cat} do
       shelving = fixture_category(cat, %{name: "Shelving Wall"})
 
-      {:ok, _view, html} = open(conn, "c=#{cat.uuid}&cat_scope=#{shelving.uuid}")
+      {:ok, _view, html} = open(conn, "c=#{cat.uuid}&cat_scope=#{shelving.uuid}&sel=click")
 
       assert html =~ "Shelving Wall"
     end
@@ -1315,11 +1323,11 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       conn: conn,
       cat: cat
     } do
-      {:ok, _view, html} = open(conn, "c=#{cat.uuid}&ch=false")
+      {:ok, _view, html} = open(conn, "c=#{cat.uuid}&ch=false&sel=click")
       assert html =~ "Select items"
       refute html =~ ~s(class="w-12 h-12 rounded-lg)
 
-      {:ok, _view, html} = open(conn, "c=#{cat.uuid}&title=Order+sheet")
+      {:ok, _view, html} = open(conn, "c=#{cat.uuid}&title=Order+sheet&sel=click")
       assert html =~ "Order sheet"
     end
 
@@ -1328,7 +1336,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       cat: cat,
       screw: screw
     } do
-      {:ok, view, html} = open(conn, "c=#{cat.uuid}&tray=false")
+      {:ok, view, html} = open(conn, "c=#{cat.uuid}&tray=false&sel=click")
 
       refute html =~ "toggle_tray"
       # Confirm still works without the tray chrome.
@@ -1342,13 +1350,17 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
   end
 
   describe "item details page (2026-08-30)" do
-    test "off by default: no affordance in the markup, crafted event refused", %{
+    # ON by default since 2026-08-31 (Max's call); false is the opt-out
+    # for embeds that must not expose the detail body.
+    test "on by default; details=false removes the affordance and refuses the event", %{
       conn: conn,
       cat: cat,
       screw: screw
     } do
-      {:ok, view, html} = open(conn, "c=#{cat.uuid}")
+      {:ok, _view, html} = open(conn, "c=#{cat.uuid}&sel=click")
+      assert html =~ ~s(phx-click="show_detail")
 
+      {:ok, view, html} = open(conn, "c=#{cat.uuid}&sel=click&details=false")
       refute html =~ "show_detail"
 
       view |> picker() |> render_click("show_detail", %{"uuid" => to_string(screw.uuid)})
@@ -1360,7 +1372,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       cat: cat,
       screw: screw
     } do
-      {:ok, view, html} = open(conn, "c=#{cat.uuid}&details=true")
+      {:ok, view, html} = open(conn, "c=#{cat.uuid}&details=true&sel=click")
 
       # The affordance is wired in the table rows.
       assert html =~ ~s(phx-click="show_detail")
@@ -1386,7 +1398,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       cat: cat,
       forbidden: forbidden
     } do
-      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&details=true")
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&details=true&sel=click")
 
       view |> picker() |> render_click("show_detail", %{"uuid" => to_string(forbidden.uuid)})
       html = render(view)
@@ -1399,7 +1411,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       cat: cat,
       screw: screw
     } do
-      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&details=true")
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&details=true&sel=click")
       uuid = to_string(screw.uuid)
 
       view |> picker() |> render_click("show_detail", %{"uuid" => uuid})
@@ -1427,7 +1439,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
     end
 
     test "the detail page honours show_prices", %{conn: conn, cat: cat, screw: screw} do
-      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&details=true&hide_prices=true")
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&details=true&hide_prices=true&sel=click")
 
       html = view |> picker() |> render_click("show_detail", %{"uuid" => to_string(screw.uuid)})
       # The screw has base_price 2.50; with prices hidden the detail
@@ -1439,7 +1451,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
     test "an unavailable preselect's detail is refused — its body is what the scope excludes",
          %{conn: conn, cat: cat, forbidden: forbidden} do
       {:ok, view, _html} =
-        open(conn, "c=#{cat.uuid}&details=true&pre=#{forbidden.uuid}:1")
+        open(conn, "c=#{cat.uuid}&details=true&pre=#{forbidden.uuid}:1&sel=click")
 
       # The tray may name it (shown-but-excluded, by design)…
       view |> picker() |> render_click("toggle_tray", %{})
@@ -1474,7 +1486,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       cat: cat,
       screw: screw
     } do
-      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&details=true")
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&details=true&sel=click")
 
       view |> picker() |> render_click("show_detail", %{"uuid" => to_string(screw.uuid)})
       assert view |> element("#picker-detail") |> render() =~ "2.50"
@@ -1494,7 +1506,9 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       cat: cat,
       screw: screw
     } do
-      {:ok, view, _html} = open(conn, "c=#{cat.uuid}")
+      # Either-or (2026-08-31): the checkbox flavour is the popup WITHOUT
+      # a :qty column — hiding it derives click mode with checkboxes.
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&hide=qty,sku,breadcrumb")
 
       # Visible before the first pick — the affordance is the point.
       assert has_element?(view, "#picker-row-#{screw.uuid} input[type=checkbox]")
@@ -1515,9 +1529,61 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       refute has_element?(view, "#picker-row-#{screw.uuid} input[type=checkbox]")
     end
 
+    # Either-or (2026-08-31): the default flavour derives from the
+    # columns — a visible :qty column IS the amount mode.
+    test "the default with a :qty column is quantity-first, no checkboxes", %{
+      conn: conn,
+      cat: cat,
+      screw: screw
+    } do
+      {:ok, view, html} = open(conn, "c=#{cat.uuid}")
+
+      # Inputs at 0 on every row, no checkbox, rows not click-targets.
+      assert has_element?(view, ~s(#picker-qty-#{screw.uuid}-r0-input[value="0"]))
+      refute has_element?(view, "#picker-row-#{screw.uuid} input[type=checkbox]")
+      refute html =~ ~s(phx-click="card_click")
+
+      # A number above zero IS the selection.
+      view
+      |> picker()
+      |> render_click("qty_change", %{"uuid" => to_string(screw.uuid), "value" => "2"})
+
+      view |> picker() |> render_click("confirm", %{})
+      assert render(view) =~ "qty=2"
+    end
+
+    test "the default without a :qty column is the checkbox flavour", %{
+      conn: conn,
+      cat: cat,
+      screw: screw
+    } do
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&cols=thumb,name,price")
+
+      assert has_element?(view, "#picker-row-#{screw.uuid} input[type=checkbox]")
+      refute has_element?(view, "#picker-qty-#{screw.uuid}-r0-input")
+
+      view |> picker() |> render_click("card_click", %{"uuid" => screw.uuid})
+      assert has_element?(view, "#picker-row-#{screw.uuid} input[type=checkbox][checked]")
+    end
+
+    test "forcing click with a visible :qty keeps the legacy stepper-on-select, no checkbox", %{
+      conn: conn,
+      cat: cat,
+      screw: screw
+    } do
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&sel=click")
+
+      # Either-or holds even when forced: qty visible → no checkbox.
+      refute has_element?(view, "#picker-row-#{screw.uuid} input[type=checkbox]")
+      refute has_element?(view, "#picker-qty-#{screw.uuid}-r0-input")
+
+      view |> picker() |> render_click("card_click", %{"uuid" => screw.uuid})
+      assert has_element?(view, ~s(#picker-qty-#{screw.uuid}-r0-input[value="1"]))
+    end
+
     test "the native control carries the mode's floor: qty_min in click mode, 0 in quantity mode",
          %{conn: conn, cat: cat, screw: screw} do
-      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&min=2")
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&min=2&sel=click")
       view |> picker() |> render_click("card_click", %{"uuid" => screw.uuid})
       assert has_element?(view, ~s(#picker-qty-#{screw.uuid}-r0-input[min="2"]))
 
