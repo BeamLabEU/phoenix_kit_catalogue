@@ -1969,6 +1969,74 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
     end
   end
 
+  describe "multi-catalogue level navigation (tim-dev wide picker, 2026-08-31)" do
+    # A scope naming SEVERAL catalogues used to get no tiles, no switcher,
+    # no category hits at all ("check why the categories and sub
+    # categories aren't showing up"). The root now groups each offered
+    # catalogue's top-level categories under the catalogue's name;
+    # drilling below the root works exactly like the single-catalogue
+    # tree — category uuids are global and the fetch re-ANDs the scope.
+    setup %{cat: cat, other: other} do
+      doors = fixture_category(cat, %{name: "Doors"})
+      tools = fixture_category(other, %{name: "Other Tools"})
+      sub = fixture_category(other, %{name: "Other Drills", parent_uuid: tools.uuid})
+
+      {:ok, drill} =
+        Catalogue.create_item(%{
+          name: "Power Drill",
+          catalogue_uuid: other.uuid,
+          category_uuid: sub.uuid
+        })
+
+      %{doors: doors, tools: tools, sub: sub, drill: drill}
+    end
+
+    test "the root groups each catalogue's top categories; drilling crosses catalogues", %{
+      conn: conn,
+      cat: cat,
+      other: other,
+      doors: doors,
+      tools: tools,
+      sub: sub
+    } do
+      {:ok, view, html} = open(conn, "c=#{cat.uuid}&c2=#{other.uuid}&sel=click")
+
+      # Grouped root: both catalogue names as section headings, both
+      # catalogues' root categories as tiles, the switcher present.
+      assert html =~ "Picker Catalogue"
+      assert html =~ "Forbidden Catalogue"
+      assert has_element?(view, ~s(#picker-levelnav button[phx-value-uuid="#{doors.uuid}"]))
+      assert has_element?(view, ~s(#picker-levelnav button[phx-value-uuid="#{tools.uuid}"]))
+      refute has_element?(view, ~s(#picker-levelnav button[phx-value-uuid="#{sub.uuid}"]))
+      assert has_element?(view, "#picker-root-mode")
+
+      # Drill into the SECOND catalogue's category: child tile + Up.
+      view |> picker() |> render_click("browse_category", %{"uuid" => tools.uuid})
+      assert has_element?(view, ~s(#picker-levelnav button[phx-value-uuid="#{sub.uuid}"]))
+      assert has_element?(view, ~s(#picker-levelnav button[phx-value-uuid=""]), "Up")
+
+      # And its leaf level lists the item.
+      html = view |> picker() |> render_click("browse_category", %{"uuid" => sub.uuid})
+      assert html =~ "Power Drill"
+    end
+
+    test "the Uncategorized tile sums the offered catalogues' loose items", %{
+      conn: conn,
+      cat: cat,
+      other: other
+    } do
+      # seed: cat has 2 loose items (screw, paint); other has 1 (forbidden).
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&c2=#{other.uuid}&sel=click")
+
+      assert has_element?(
+               view,
+               ~s(#picker-levelnav button[phx-value-uuid="__uncategorized__"])
+             )
+
+      assert has_element?(view, "#picker-levelnav", "3")
+    end
+  end
+
   describe "search category hits (the admin two-list surface)" do
     # The popup search works like the admin's (Max, 2026-08-31): item
     # results are the primary, default list; categories whose name (in
