@@ -670,7 +670,11 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
     assigns =
       assigns
       |> assign(:tiles, tiles)
-      |> assign(:uncat?, assigns.browse.category_uuid == nil and assigns.show_uncategorized)
+      |> assign(
+        :uncat?,
+        assigns.browse.category_uuid == nil and assigns.show_uncategorized and
+          (assigns.tree[:uncategorized] || 0) > 0
+      )
       |> assign(:photo_col?, Enum.any?(tiles, &Shared.featured_image_uuid/1))
       |> assign(:columns, @level_columns)
 
@@ -710,44 +714,15 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
             phx_click="browse_category"
             phx_target={@target}
           />
-          <%!-- Uncategorized is a drill with no Category record, so it
-          renders as its own tile in the shared card's clothes. Root only,
-          same offer rule as the old chip. --%>
-          <div
+          <%!-- Uncategorized is a drill with no Category record — the
+          shared tile takes the count directly. Root only, same offer
+          rule as the old chip, hidden when the bucket is empty. --%>
+          <Shared.uncategorized_card
             :if={@uncat?}
-            class="group card card-sm bg-base-100 shadow hover:shadow-md transition-shadow overflow-hidden"
-          >
-            <figure class={Shared.card_media_band()}>
-              <button
-                type="button"
-                phx-click="browse_category"
-                phx-value-uuid="__uncategorized__"
-                phx-target={@target}
-                class="block w-full h-full"
-              >
-                <span class="hero-folder-open w-10 h-10 text-base-content/20 absolute inset-0 m-auto">
-                </span>
-              </button>
-            </figure>
-            <div class="card-body p-3 gap-1.5">
-              <button
-                type="button"
-                phx-click="browse_category"
-                phx-value-uuid="__uncategorized__"
-                phx-target={@target}
-                class="font-medium truncate text-left hover:text-primary"
-              >
-                {gettext("Uncategorized")}
-              </button>
-              <div
-                :if={@tree[:uncategorized]}
-                class="grid grid-cols-2 gap-x-3 gap-y-0.5 text-xs mt-1"
-              >
-                <div class="text-base-content/50">{gettext("Items")}</div>
-                <div class="tabular-nums">{@tree.uncategorized}</div>
-              </div>
-            </div>
-          </div>
+            count={@tree[:uncategorized]}
+            phx_click="browse_category"
+            phx_target={@target}
+          />
         </div>
         <%!-- The id lives on a wrapper: core's table_default drops :id
         in its classic (no items) mode. --%>
