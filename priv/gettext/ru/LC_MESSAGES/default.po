@@ -2266,6 +2266,9 @@ msgstr "Строка %{row}: нет названия, создать нельз�
 msgid "Rows with errors (will be skipped):"
 msgstr "Строки с ошибками (будут пропущены):"
 
+msgid "Set (kmpl)"
+msgstr "Комплект (компл.)"
+
 msgid "Running meter"
 msgstr "Погонный метр"
 

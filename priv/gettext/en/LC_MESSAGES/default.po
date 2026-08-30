@@ -2257,6 +2257,9 @@ msgstr ""
 msgid "Rows with errors (will be skipped):"
 msgstr ""
 
+msgid "Set (kmpl)"
+msgstr "Set (kmpl)"
+
 msgid "Running meter"
 msgstr ""
 
