@@ -61,6 +61,7 @@ defmodule PhoenixKitCatalogue.Catalogue.BrowseState do
             category_uuid: nil,
             page: 0,
             per_page: @default_per_page,
+            drill: :subtree,
             items: [],
             known_uuids: MapSet.new(),
             total: nil,
@@ -77,13 +78,26 @@ defmodule PhoenixKitCatalogue.Catalogue.BrowseState do
       `:only`, `:statuses`, `:include_descendants`. Fixed for the state's
       lifetime. Unknown keys raise `ArgumentError`.
     * `:per_page` — page size (default #{@default_per_page}).
+    * `:drill` — what browsing INTO a category lists. `:subtree` (default)
+      keeps today's flat-chip semantics: the category and everything under
+      it. `:direct` is the admin detail page's file-explorer semantics (the
+      boss's 2026-08-30 ruling there): the level you are standing in shows
+      its OWN items, while a non-empty search still covers the subtree —
+      finding beats filing. Fixed at init like the scope.
   """
   def init(opts \\ []) do
+    drill = opts[:drill] || :subtree
+
+    if drill not in [:subtree, :direct] do
+      raise ArgumentError, "BrowseState drill must be :subtree or :direct, got: #{inspect(drill)}"
+    end
+
     %__MODULE__{
       scope: validate_scope!(Map.new(opts[:scope] || %{})),
       # Floored at 1: a 0 page size never satisfies `length(items) < per_page`,
       # so `exhausted?` could not latch and :load_more would page forever.
-      per_page: max(opts[:per_page] || @default_per_page, 1)
+      per_page: max(opts[:per_page] || @default_per_page, 1),
+      drill: drill
     }
   end
 
@@ -216,8 +230,18 @@ defmodule PhoenixKitCatalogue.Catalogue.BrowseState do
         # The uncategorized narrowing IS an :only — never combined with
         # category_uuids (the fetch layer raises on the contradiction, and
         # command/2 only admits it on scopes without their own :only).
-        :uncategorized -> Map.put(base, :only, :uncategorized_only)
-        _ -> Map.put(base, :category_uuids, effective_category_uuids(state))
+        :uncategorized ->
+          Map.put(base, :only, :uncategorized_only)
+
+        # A drilled level under :direct lists its OWN items; a search from
+        # there still covers the subtree (see the :drill doc on init/1).
+        uuid when is_binary(uuid) and state.drill == :direct and state.search == "" ->
+          base
+          |> Map.put(:category_uuids, [uuid])
+          |> Map.put(:include_descendants, false)
+
+        _ ->
+          Map.put(base, :category_uuids, effective_category_uuids(state))
       end
 
     base

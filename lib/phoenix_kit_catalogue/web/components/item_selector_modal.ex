@@ -2,8 +2,20 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
   @moduledoc """
   Catalogue item selector modal: the catalogue's analogue of core's
   `MediaSelectorModal`. A logged-in user browses the catalogue inside a
-  modal — search, category chips, photo-forward card grid — picks items,
-  sets a quantity per item, reviews the selection in a tray, and confirms.
+  modal — search, admin-style subcategory tiles, an admin-look table or
+  photo-forward card grid — picks items, sets a quantity per item, and
+  confirms.
+
+  ## Browsing levels (admin-page semantics, 2026-08-31)
+
+  Categories present as one level of the same tiles the admin detail
+  page draws (`Components.category_card/1` — one shared definition):
+  the popup root shows the top-level categories (plus an Uncategorized
+  tile where the scope allows it) above the full in-scope item list;
+  drilling into a tile shows that level's child tiles, an Up button, and
+  the level's OWN items — while a non-empty search always covers the
+  subtree of wherever you stand (`BrowseState`'s `drill: :direct`).
+  Tiles hide while a search is active.
 
   ## Usage
 
@@ -44,14 +56,13 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
 
   `show_item_details` (default `true` since 2026-08-31) makes the
   photo/thumbnail a "look closer" affordance — the same gesture
-  `ItemPicker` ships — opening the item's full details INSIDE the modal:
-  the `ProductCard` body (photo/file carousel, SKU, price, unit,
-  description, metadata, attributes), covering the browse region with a
-  Back button. The list stays mounted underneath — search, chips, scroll
-  and selection are exactly where the user left them. A mode-aware
-  selection control sits in the detail footer (Add/Remove in the
-  checkbox flavour, the quantity input in quantity mode); opening never
-  auto-selects.
+  `ItemPicker` ships — opening the item's full details as its OWN
+  `ProductCard` popup stacked over the selector (photo/file carousel,
+  SKU, price, unit, description, metadata, attributes). The selector
+  stays mounted underneath — search, tiles, scroll and selection are
+  exactly where the user left them. A mode-aware selection control sits
+  in the detail footer (Add/Remove in the checkbox flavour, the quantity
+  input in quantity mode); opening never auto-selects.
 
   Pass `false` for embeds that must not expose the detail body —
   description, metadata and attached files go beyond what the columns
@@ -71,19 +82,20 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
   multi-entry scope, or any resolution failure falls back to the plain
   title. Chrome, not data: nothing here widens what can be browsed.
 
-  `show_tray` (default true) controls the cart-count button and the
-  expandable review list at the bottom. Pass `false` for embeds where
-  the selection is already visible in place — a quantity-first order
-  sheet shows a number above 0 on every picked row. Cancel and Confirm
-  always stay.
+  `show_tray` (default FALSE since 2026-08-31) controls the cart-count
+  button and the expandable review list at the bottom. The quantity-first
+  default already shows a number above 0 on every picked row, so the
+  cart is opt-in chrome for hosts that want a review list. Cancel and
+  Confirm always stay.
 
   ## Views and columns
 
   Two presentations over the same fetch: `view: "table"` (the default — a
   compact admin-look list) and `view: "card"` (the photo-forward grid). A
-  toggle beside the search box switches them; the choice is transient and
-  the host attr only sets the STARTING view — like `scope`, it is read at
-  init and not refreshed by later parent renders.
+  toggle beside the search box switches them; the host attr only sets the
+  STARTING view — like `scope`, it is read at init and not refreshed by
+  later parent renders — and a user's own toggle wins over it on the next
+  open when `current_user` is passed (see Per-user persistence).
 
   Table columns are a host contract, because the popup can be
   client-facing: pass `columns` as a non-empty list from
@@ -101,11 +113,25 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
   popup derives the checkbox flavour; see Selection modes).
 
   `hidden_columns` sets which GRANTED columns start hidden (the viewer
-  re-shows them from the Columns dropdown): default `[:sku, :breadcrumb]`,
-  `[]` starts everything visible. Unknown or ungranted entries are
-  ignored — hiding less than asked never widens anything. The detail
-  page follows the GRANT (plus the flags), not the visibility: hiding a
-  granted `:price` doesn't strip it from details, un-granting it does.
+  re-shows them from the Columns dropdown): default `[:breadcrumb]` —
+  SKU is visible by default since 2026-08-31 (the boss: the article
+  number belongs on the list) — and `[]` starts everything visible.
+  Unknown or ungranted entries are ignored — hiding less than asked
+  never widens anything. The detail page follows the GRANT (plus the
+  flags), not the visibility: hiding a granted `:price` doesn't strip it
+  from details, un-granting it does.
+
+  ## Per-user persistence
+
+  Pass `current_user` (the `phoenix_kit_users` struct the host's
+  live_session already assigns) and the selector remembers the view and
+  column visibility each user last chose — stored beside the admin
+  tables' preferences in `custom_fields` (`ViewConfig.load_selector/1`),
+  one set per user across every selector embed. The saved choice beats
+  the host's STARTING attrs (`view`, `hidden_columns`), never the grant:
+  saved names outside `columns` are ignored, and quantity mode still
+  forces `:qty` visible. No user, no persistence — every choice simply
+  lives for the session.
 
   Granted columns are additionally staged by viewport so the modal never
   scrolls sideways: identity and the pick-driving numbers (thumb, name,
@@ -175,8 +201,10 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
   alias PhoenixKitCatalogue.Catalogue
   alias PhoenixKitCatalogue.Catalogue.BrowseState
   alias PhoenixKitCatalogue.Catalogue.Tree
+  alias PhoenixKitCatalogue.Web.Components, as: Shared
   alias PhoenixKitCatalogue.Web.Components.Browse
   alias PhoenixKitCatalogue.Web.Components.ProductCard
+  alias PhoenixKitCatalogue.Web.ViewConfig
 
   # A hard ceiling even when the host sets no qty_max: Decimal.parse
   # accepts "1e1000000" as a full match, and an absurd exponent is a
@@ -224,12 +252,17 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
   end
 
   defp initialize(socket, assigns) do
+    original_scope = assigns[:scope] || %{}
+
     # BrowseState.init/1 validates the scope keys (atoms, search_items/2
     # vocabulary) so a string-keyed map cannot silently widen browsing.
     browse =
       BrowseState.init(
-        scope: expand_scope(assigns[:scope] || %{}),
-        per_page: assigns[:per_page] || 24
+        scope: expand_scope(original_scope),
+        per_page: assigns[:per_page] || 24,
+        # Admin-page semantics (2026-08-31): a drilled level lists its own
+        # items; search still covers the subtree.
+        drill: :direct
       )
 
     {browse, effect} = BrowseState.command(browse, :reset)
@@ -241,44 +274,58 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
 
     limits = resolve_limits!(assigns, qty_precision)
     display = display_opts(assigns)
-    columns = Browse.resolve_columns!(assigns[:columns], display)
-
-    selection_mode =
-      resolve_selection_mode!(
-        assigns[:selection_mode],
-        visible_columns(columns, assigns[:hidden_columns])
-      )
-
-    # Resolved from the ORIGINAL scope, before subtree expansion — the
-    # host named a catalogue or category, and that record is the header.
-    header_context =
-      if Map.get(assigns, :context_header, true),
-        do: resolve_header_context(assigns[:scope] || %{}, locale),
-        else: nil
+    presentation = resolve_presentation!(assigns, display)
 
     socket =
       socket
       |> assign(display)
+      |> assign(presentation)
       |> assign(
         initialized: true,
         mode: mode,
         locale: locale,
-        header_context: header_context,
-        view: Browse.resolve_view!(assigns[:view], "table"),
-        columns: columns,
-        visible_columns:
-          resolve_visible_columns!(selection_mode, columns, assigns[:hidden_columns]),
-        selection_mode: selection_mode,
+        current_user: assigns[:current_user],
+        header_context: header_context(assigns, original_scope, locale),
         qty_precision: qty_precision,
         qty_min: limits.qty_min,
         qty_max: limits.qty_max,
-        categories: chip_categories(scope, locale),
+        cat_tree: build_category_tree(scope, original_scope, locale),
         presented: %{},
         selection: hydrate_preselection(assigns[:selected] || %{}, scope, locale, limits, mode),
         browse: browse
       )
 
     run_fetch(socket, effect)
+  end
+
+  # Resolved from the ORIGINAL scope, before subtree expansion — the
+  # host named a catalogue or category, and that record is the header.
+  defp header_context(assigns, original_scope, locale) do
+    if Map.get(assigns, :context_header, true),
+      do: resolve_header_context(original_scope, locale),
+      else: nil
+  end
+
+  # View / columns / selection flavour, as one resolution. Per-user saved
+  # choices (2026-08-31): a host may pass current_user (the phoenix_kit
+  # user struct) and the selector then remembers the view and column
+  # visibility the user last chose — the saved choice beats the host's
+  # STARTING attrs, never the grant. No user, no persistence, everything
+  # still works.
+  defp resolve_presentation!(assigns, display) do
+    columns = Browse.resolve_columns!(assigns[:columns], display)
+    prefs = ViewConfig.load_selector(assigns[:current_user])
+    hidden = prefs_hidden(prefs.hidden, columns) || assigns[:hidden_columns]
+
+    selection_mode =
+      resolve_selection_mode!(assigns[:selection_mode], visible_columns(columns, hidden))
+
+    %{
+      view: prefs.view || Browse.resolve_view!(assigns[:view], "table"),
+      columns: columns,
+      visible_columns: resolve_visible_columns!(selection_mode, columns, hidden),
+      selection_mode: selection_mode
+    }
   end
 
   # Bounds are normalized to the precision once, here: clamp/2 applies
@@ -356,6 +403,37 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
 
   defp resolve_visible_columns!(_mode, columns, hidden), do: visible_columns(columns, hidden)
 
+  # Saved hidden-column strings -> the granted atoms they still name;
+  # nil (never chosen) stays nil so the host attrs/defaults apply. An
+  # empty saved list is a real choice ("hide nothing").
+  defp prefs_hidden(nil, _granted), do: nil
+
+  defp prefs_hidden(stored, granted) when is_list(stored) do
+    Enum.filter(granted, &(to_string(&1) in stored))
+  end
+
+  # Best-effort persistence: store what the user just chose and keep the
+  # REFRESHED user on the socket — the save merges into the whole
+  # custom_fields map, so a stale snapshot would clobber the previous
+  # choice on the next save (the save_view_on/2 lesson in ViewConfig).
+  defp persist_selector(socket, choices) do
+    case ViewConfig.save_selector(socket.assigns.current_user, choices) do
+      {:ok, updated} -> assign(socket, current_user: updated)
+      _ -> socket
+    end
+  end
+
+  # A column toggle both applies and persists: what is saved is the
+  # HIDDEN set (granted minus visible, as strings), so the pref stays
+  # meaningful if the host's grant changes later.
+  defp put_visible_columns(socket, visible) do
+    hidden = Enum.map(socket.assigns.columns -- visible, &to_string/1)
+
+    socket
+    |> assign(:visible_columns, visible)
+    |> persist_selector(%{hidden: hidden})
+  end
+
   defp visible_columns(granted, hidden) do
     # SKU ("article") starts VISIBLE since 2026-08-31 (boss) — only the
     # breadcrumb prefix stays default-hidden. Hosts opt out via
@@ -387,9 +465,209 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
   # The popup is potentially client-facing, so columns are a host contract
   # (see Browse.resolve_columns!/2, shared with CatalogueBrowse).
 
-  # Scope subtree expansion + chip resolution are shared with
-  # CatalogueBrowse — see Browse.expand_scope/1 and Browse.chip_categories/2
-  # (imported).
+  # Scope subtree expansion is shared with CatalogueBrowse — see
+  # Browse.expand_scope/1 (imported).
+
+  # ── Category tree (admin-style subcategory tiles, 2026-08-31) ────────
+  #
+  # The flat chip strip became one level of admin-look tiles: the level
+  # you stand in shows its child categories (drill down) and its own
+  # items. Built once at init from the categories-metadata read — like
+  # chips, only meaningful when the scope names exactly ONE catalogue,
+  # and any failure degrades to the empty tree: tiles are navigation,
+  # not data.
+  @empty_cat_tree %{index: %{}, children: %{}, roots: [], counts: %{}}
+
+  defp build_category_tree(%{only: :uncategorized_only}, _original, _locale), do: @empty_cat_tree
+
+  defp build_category_tree(%{catalogue_uuids: [catalogue_uuid]} = scope, original, locale) do
+    categories =
+      Catalogue.list_categories_metadata_for_catalogue(catalogue_uuid)
+      |> scope_categories(scope[:category_uuids])
+      |> Enum.map(fn category ->
+        category
+        |> Map.put(:name, translated_name(category, locale) || category.name)
+        |> Map.put(:uuid, to_string(category.uuid))
+      end)
+
+    index = Map.new(categories, &{&1.uuid, &1})
+
+    children =
+      Enum.group_by(categories, fn category ->
+        category.parent_uuid && to_string(category.parent_uuid)
+      end)
+
+    %{
+      index: index,
+      children: children,
+      roots: tree_roots(categories, children, original),
+      counts:
+        catalogue_uuid
+        |> Catalogue.item_counts_by_category_for_catalogue()
+        |> Map.new(fn {uuid, count} -> {to_string(uuid), count} end),
+      uncategorized:
+        if(offer_uncategorized?(scope),
+          do: Catalogue.uncategorized_count_for_catalogue(catalogue_uuid)
+        )
+    }
+  rescue
+    _ -> @empty_cat_tree
+  end
+
+  defp build_category_tree(_scope, _original, _locale), do: @empty_cat_tree
+
+  defp scope_categories(categories, nil), do: categories
+  defp scope_categories(categories, []), do: categories
+
+  defp scope_categories(categories, allowed) do
+    allowed = Enum.map(allowed, &to_string/1)
+    Enum.filter(categories, &(to_string(&1.uuid) in allowed))
+  end
+
+  # What the popup's ROOT level lists as tiles. Unrestricted scope: the
+  # catalogue's top-level categories. One scoped category: you are
+  # standing IN it (the context header already presents it), so its
+  # children. Several: the scoped categories themselves.
+  defp tree_roots(categories, children, original) do
+    case List.wrap(original[:category_uuids]) do
+      [] ->
+        Map.get(children, nil, [])
+
+      [single] ->
+        Map.get(children, to_string(single), [])
+
+      several ->
+        several = Enum.map(several, &to_string/1)
+        Enum.filter(categories, &(&1.uuid in several))
+    end
+  end
+
+  # The current level's tiles / name / Up target. `up` is the
+  # browse_category value that climbs one level: a root tile's parent is
+  # the popup root (""), anything deeper its actual parent.
+  defp level_categories(tree, nil), do: tree.roots
+  defp level_categories(_tree, :uncategorized), do: []
+  defp level_categories(tree, uuid), do: Map.get(tree.children, uuid, [])
+
+  defp level_name(_tree, :uncategorized), do: gettext("Uncategorized")
+
+  defp level_name(tree, uuid) when is_binary(uuid),
+    do: get_in(tree.index, [uuid, Access.key(:name)])
+
+  defp level_name(_tree, _), do: nil
+
+  defp level_up(_tree, :uncategorized), do: ""
+
+  defp level_up(tree, uuid) when is_binary(uuid) do
+    case tree.index[uuid] do
+      %{parent_uuid: parent} when not is_nil(parent) ->
+        parent = to_string(parent)
+        if Enum.any?(tree.roots, &(&1.uuid == uuid)), do: "", else: parent
+
+      _ ->
+        ""
+    end
+  end
+
+  defp level_up(_tree, _), do: ""
+
+  # Whether the browse region renders the level navigation at all: always
+  # while drilled (the Up affordance must exist even in an empty level),
+  # at root only when there are tiles to show — a category-less catalogue
+  # keeps the plain flat list. Hidden while searching: search covers the
+  # subtree, so level navigation would lie about what is listed.
+  defp show_level_nav?(assigns) do
+    assigns.browse.search == "" and
+      (assigns.browse.category_uuid != nil or
+         level_categories(assigns.cat_tree, nil) != [])
+  end
+
+  # One level of admin-look subcategory tiles + the Up affordance —
+  # rendered from the SAME `Shared.category_card/1` the admin pages use
+  # (the extraction the tiles exist for). Drilling reuses the chips' old
+  # `browse_category` event, so BrowseState's scope enforcement is
+  # untouched.
+  attr(:id, :string, required: true)
+  attr(:tree, :map, required: true)
+  attr(:browse, :any, required: true)
+  attr(:target, :any, required: true)
+  attr(:show_uncategorized, :boolean, required: true)
+
+  defp subcategory_level(assigns) do
+    assigns =
+      assign(assigns, :tiles, level_categories(assigns.tree, assigns.browse.category_uuid))
+
+    ~H"""
+    <div id={@id} class="flex flex-col gap-2 mb-3">
+      <div :if={@browse.category_uuid} class="flex items-center gap-2 min-w-0">
+        <button
+          type="button"
+          class="btn btn-ghost btn-xs"
+          phx-click="browse_category"
+          phx-value-uuid={level_up(@tree, @browse.category_uuid)}
+          phx-target={@target}
+        >
+          <span class="hero-arrow-uturn-left w-4 h-4"></span>
+          {gettext("Up")}
+        </button>
+        <span class="font-medium truncate">{level_name(@tree, @browse.category_uuid)}</span>
+      </div>
+      <div :if={@tiles != [] or (@browse.category_uuid == nil and @show_uncategorized)}>
+        <div class="text-sm font-medium text-base-content/60 mb-2">{gettext("Subcategories")}</div>
+        <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+          <Shared.category_card
+            :for={category <- @tiles}
+            category={category}
+            columns={["items"]}
+            count={Map.get(@tree.counts, category.uuid, 0)}
+            subcat_count={length(Map.get(@tree.children, category.uuid, []))}
+            has_subs={Map.get(@tree.children, category.uuid, []) != []}
+            phx_click="browse_category"
+            phx_target={@target}
+          />
+          <%!-- Uncategorized is a drill with no Category record, so it
+          renders as its own tile in the shared card's clothes. Root only,
+          same offer rule as the old chip. --%>
+          <div
+            :if={@browse.category_uuid == nil and @show_uncategorized}
+            class="group card card-sm bg-base-100 shadow hover:shadow-md transition-shadow overflow-hidden"
+          >
+            <figure class={Shared.card_media_band()}>
+              <button
+                type="button"
+                phx-click="browse_category"
+                phx-value-uuid="__uncategorized__"
+                phx-target={@target}
+                class="block w-full h-full"
+              >
+                <span class="hero-folder-open w-10 h-10 text-base-content/20 absolute inset-0 m-auto">
+                </span>
+              </button>
+            </figure>
+            <div class="card-body p-3 gap-1.5">
+              <button
+                type="button"
+                phx-click="browse_category"
+                phx-value-uuid="__uncategorized__"
+                phx-target={@target}
+                class="font-medium truncate text-left hover:text-primary"
+              >
+                {gettext("Uncategorized")}
+              </button>
+              <div
+                :if={@tree[:uncategorized]}
+                class="grid grid-cols-2 gap-x-3 gap-y-0.5 text-xs mt-1"
+              >
+                <div class="text-base-content/50">{gettext("Items")}</div>
+                <div class="tabular-nums">{@tree.uncategorized}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    """
+  end
 
   defp display_opts(assigns) do
     %{
@@ -635,7 +913,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
 
   @impl true
   def handle_event("set_view", %{"mode" => mode}, socket) when mode in ["table", "card"] do
-    {:noreply, assign(socket, :view, mode)}
+    {:noreply, socket |> assign(:view, mode) |> persist_selector(%{view: mode})}
   end
 
   def handle_event("toggle_column", %{"col" => raw}, socket) do
@@ -655,13 +933,13 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
         if last_identity?(col, visible) do
           {:noreply, socket}
         else
-          {:noreply, assign(socket, :visible_columns, visible -- [col])}
+          {:noreply, put_visible_columns(socket, visible -- [col])}
         end
 
       true ->
         # Re-show in the GRANTED order, not appended at the end.
         shown = [col | visible]
-        {:noreply, assign(socket, :visible_columns, Enum.filter(granted, &(&1 in shown)))}
+        {:noreply, put_visible_columns(socket, Enum.filter(granted, &(&1 in shown)))}
     end
   end
 
@@ -1292,19 +1570,20 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
             />
           </div>
 
-          <.category_chips
-            :if={@categories != []}
-            id={"#{@id}-chips"}
-            categories={@categories}
-            active_uuid={@browse.category_uuid}
-            show_uncategorized={offer_uncategorized?(@browse.scope)}
-            target={@myself}
-          />
-
           <%!-- The scrollable results region: ONE data path (@browse.items),
           two renderers. Only the active view's branch is server-rendered —
-          both hidden in the DOM would duplicate qty-form ids. --%>
+          both hidden in the DOM would duplicate qty-form ids. The level
+          navigation (admin-style subcategory tiles, 2026-08-31 — replaces
+          the flat chip strip) scrolls WITH the items, admin-page style. --%>
           <div id={"#{@id}-scroll"} class="overflow-y-auto min-h-[16rem] max-h-[48vh] pr-1">
+            <.subcategory_level
+              :if={show_level_nav?(assigns)}
+              id={"#{@id}-levelnav"}
+              tree={@cat_tree}
+              browse={@browse}
+              target={@myself}
+              show_uncategorized={offer_uncategorized?(@browse.scope)}
+            />
             <.item_grid :if={@view == "card"} id={"#{@id}-grid"}>
               <%= if @browse.loading? and @browse.items == [] do %>
                 <.grid_skeleton id={"#{@id}-skeleton"} count={8} />

@@ -38,6 +38,13 @@ defmodule PhoenixKitCatalogue.Web.ViewConfig do
   # Not a scope name: the module-wide view lives beside the per-scope maps.
   @view_key "__view__"
 
+  # The item-selector popup's per-user choices (2026-08-31, boss: "save
+  # settings after a user changes them"): starting view + hidden columns,
+  # one set per user for every selector embed, same philosophy as the
+  # module-wide view above. Values are stored raw and validated by the
+  # consumer against its granted columns.
+  @selector_key "__selector__"
+
   # Shared sort for every admin: the catalogues index plus the detail
   # page's items/categories tables. Manufacturers/suppliers stay per-user.
   @global_sort_scopes [:catalogues, :detail_items, :detail_categories]
@@ -154,6 +161,56 @@ defmodule PhoenixKitCatalogue.Web.ViewConfig do
   end
 
   def save_view(_user, _view), do: {:error, :no_user}
+
+  @doc """
+  The user's saved item-selector choices: `%{view: "table" | "card" |
+  nil, hidden: [String.t()] | nil}`. `nil` halves mean "never chosen" —
+  the selector then uses its host attrs/defaults. Hidden entries come
+  back as the raw stored strings; the selector validates them against
+  its granted columns (a stale column name is simply ignored).
+  """
+  @spec load_selector(map() | nil) :: %{view: String.t() | nil, hidden: [String.t()] | nil}
+  def load_selector(user) do
+    stored =
+      case user do
+        %{custom_fields: cf} when is_map(cf) -> get_in(cf, [@root, @selector_key]) || %{}
+        _ -> %{}
+      end
+
+    view = stored["view"]
+    hidden = stored["hidden"]
+
+    %{
+      view: if(view in ["table", "card"], do: view),
+      hidden: if(is_list(hidden) and Enum.all?(hidden, &is_binary/1), do: hidden)
+    }
+  end
+
+  @doc """
+  Stores the selector choices (merge — a `nil` half keeps what is
+  saved). Best-effort like `save_view/2`: no user, no crash, the choice
+  just lives for the session.
+  """
+  @spec save_selector(map() | nil, %{
+          optional(:view) => String.t(),
+          optional(:hidden) => [String.t()]
+        }) ::
+          {:ok, map()} | {:error, term()}
+  def save_selector(%Auth.User{} = user, choices) do
+    current = user.custom_fields || %{}
+    root = Map.get(current, @root, %{})
+    stored = Map.get(root, @selector_key, %{})
+
+    stored =
+      stored
+      |> then(fn s -> if v = choices[:view], do: Map.put(s, "view", v), else: s end)
+      |> then(fn s -> if h = choices[:hidden], do: Map.put(s, "hidden", h), else: s end)
+
+    merged = Map.put(current, @root, Map.put(root, @selector_key, stored))
+    Auth.update_user_custom_fields(user, merged, ensure_definitions: false, broadcast: false)
+  end
+
+  def save_selector(_user, _choices), do: {:error, :no_user}
 
   @doc """
   `save_view/2` for a LiveView: stores the choice and puts the REFRESHED
