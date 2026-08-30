@@ -196,6 +196,17 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
   use Gettext, backend: PhoenixKitCatalogue.Gettext
 
   import PhoenixKitWeb.Components.Core.Modal, only: [modal: 1]
+
+  import PhoenixKitWeb.Components.Core.TableDefault,
+    only: [
+      table_default: 1,
+      table_default_header: 1,
+      table_default_header_cell: 1,
+      table_default_body: 1,
+      table_default_row: 1,
+      table_default_cell: 1
+    ]
+
   import PhoenixKitCatalogue.Web.Components.Browse
 
   alias PhoenixKit.Users.Auth
@@ -597,23 +608,41 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
          level_categories(assigns.cat_tree, nil) != [])
   end
 
-  # One level of admin-look subcategory tiles + the Up affordance —
-  # rendered from the SAME `Shared.category_card/1` the admin pages use
-  # (the extraction the tiles exist for). Drilling reuses the chips' old
-  # `browse_category` event, so BrowseState's scope enforcement is
-  # untouched.
+  # Whether the level renders a categories BLOCK (tiles or rows) — the
+  # Items section heading only makes sense when there is a categories
+  # section above it to be separate from.
+  defp level_has_section?(assigns) do
+    level_categories(assigns.cat_tree, assigns.browse.category_uuid) != [] or
+      (assigns.browse.category_uuid == nil and offer_uncategorized?(assigns.browse.scope))
+  end
+
+  # One level of the admin pages' categories surface + the Up affordance.
+  # Like the admin's, the level follows the view toggle: card = the
+  # shared `Shared.category_card/1` tiles, table = a compact table drawing
+  # the shared `Shared.category_header_cells/1`/`category_body_cells/1`
+  # columns. Drilling reuses the chips' old `browse_category` event, so
+  # BrowseState's scope enforcement is untouched.
   attr(:id, :string, required: true)
   attr(:tree, :map, required: true)
   attr(:browse, :any, required: true)
+  attr(:view, :string, required: true)
   attr(:target, :any, required: true)
   attr(:show_uncategorized, :boolean, required: true)
 
+  @level_columns ["items"]
+
   defp subcategory_level(assigns) do
+    tiles = level_categories(assigns.tree, assigns.browse.category_uuid)
+
     assigns =
-      assign(assigns, :tiles, level_categories(assigns.tree, assigns.browse.category_uuid))
+      assigns
+      |> assign(:tiles, tiles)
+      |> assign(:uncat?, assigns.browse.category_uuid == nil and assigns.show_uncategorized)
+      |> assign(:photo_col?, Enum.any?(tiles, &Shared.featured_image_uuid/1))
+      |> assign(:columns, @level_columns)
 
     ~H"""
-    <div id={@id} class="flex flex-col gap-2 mb-3">
+    <div id={@id} class="flex flex-col gap-2 mb-4">
       <div :if={@browse.category_uuid} class="flex items-center gap-2 min-w-0">
         <button
           type="button"
@@ -627,13 +656,17 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
         </button>
         <span class="font-medium truncate">{level_name(@tree, @browse.category_uuid)}</span>
       </div>
-      <div :if={@tiles != [] or (@browse.category_uuid == nil and @show_uncategorized)}>
-        <div class="text-sm font-medium text-base-content/60 mb-2">{gettext("Subcategories")}</div>
-        <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+      <div :if={@tiles != [] or @uncat?}>
+        <div class="text-sm font-semibold text-base-content/70 mb-2">
+          {if @browse.category_uuid,
+            do: gettext("Subcategories"),
+            else: gettext("Categories")}
+        </div>
+        <div :if={@view == "card"} class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
           <Shared.category_card
             :for={category <- @tiles}
             category={category}
-            columns={["items"]}
+            columns={@columns}
             count={Map.get(@tree.counts, category.uuid, 0)}
             subcat_count={length(Map.get(@tree.children, category.uuid, []))}
             has_subs={Map.get(@tree.children, category.uuid, []) != []}
@@ -644,7 +677,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
           renders as its own tile in the shared card's clothes. Root only,
           same offer rule as the old chip. --%>
           <div
-            :if={@browse.category_uuid == nil and @show_uncategorized}
+            :if={@uncat?}
             class="group card card-sm bg-base-100 shadow hover:shadow-md transition-shadow overflow-hidden"
           >
             <figure class={Shared.card_media_band()}>
@@ -678,6 +711,73 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
               </div>
             </div>
           </div>
+        </div>
+        <%!-- The id lives on a wrapper: core's table_default drops :id
+        in its classic (no items) mode. --%>
+        <div :if={@view == "table"} id={"#{@id}-table"}>
+          <.table_default size="sm" wrapper_class="overflow-x-auto shadow-none rounded-none">
+          <.table_default_header>
+            <.table_default_row>
+              <.table_default_header_cell :if={@photo_col?} class="w-12 !pr-0 !py-1">
+              </.table_default_header_cell>
+              <.table_default_header_cell>{gettext("Name")}</.table_default_header_cell>
+              <Shared.category_header_cells columns={@columns} />
+            </.table_default_row>
+          </.table_default_header>
+          <.table_default_body>
+            <.table_default_row :for={category <- @tiles}>
+              <.table_default_cell :if={@photo_col?} class="w-12 !pr-0 !py-1">
+                <Shared.featured_thumb resource={category} />
+              </.table_default_cell>
+              <.table_default_cell class="font-medium">
+                <div class="flex items-center gap-2 min-w-0">
+                  <button
+                    type="button"
+                    phx-click="browse_category"
+                    phx-value-uuid={category.uuid}
+                    phx-target={@target}
+                    class="link link-hover font-medium"
+                  >
+                    {category.name}
+                  </button>
+                  <span
+                    :if={Map.get(@tree.children, category.uuid, []) != []}
+                    class="badge badge-ghost badge-xs"
+                    title={gettext("Has subcategories")}
+                  >
+                    <span class="hero-rectangle-stack w-3 h-3"></span>
+                  </span>
+                </div>
+              </.table_default_cell>
+              <Shared.category_body_cells
+                columns={@columns}
+                cat={category}
+                child_counts={@tree.counts}
+              />
+            </.table_default_row>
+            <.table_default_row :if={@uncat?}>
+              <.table_default_cell :if={@photo_col?} class="w-12 !pr-0 !py-1">
+                <span class="w-8 h-8 rounded bg-base-200 flex items-center justify-center">
+                  <span class="hero-folder-open w-4 h-4 text-base-content/40"></span>
+                </span>
+              </.table_default_cell>
+              <.table_default_cell class="font-medium">
+                <button
+                  type="button"
+                  phx-click="browse_category"
+                  phx-value-uuid="__uncategorized__"
+                  phx-target={@target}
+                  class="link link-hover font-medium"
+                >
+                  {gettext("Uncategorized")}
+                </button>
+              </.table_default_cell>
+              <.table_default_cell class="text-right tabular-nums">
+                {@tree[:uncategorized] || 0}
+              </.table_default_cell>
+            </.table_default_row>
+          </.table_default_body>
+          </.table_default>
         </div>
       </div>
     </div>
@@ -1596,9 +1696,21 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
               id={"#{@id}-levelnav"}
               tree={@cat_tree}
               browse={@browse}
+              view={@view}
               target={@myself}
               show_uncategorized={offer_uncategorized?(@browse.scope)}
             />
+            <%!-- The admin pages' section separation: when a categories
+            block rendered above, the items get their own heading — in
+            both views, categories and items are two sections, not one
+            continuous grid. --%>
+            <div
+              :if={show_level_nav?(assigns) and level_has_section?(assigns)}
+              id={"#{@id}-items-heading"}
+              class="text-sm font-semibold text-base-content/70 mb-2"
+            >
+              {gettext("Items")}
+            </div>
             <.item_grid :if={@view == "card"} id={"#{@id}-grid"}>
               <%= if @browse.loading? and @browse.items == [] do %>
                 <.grid_skeleton id={"#{@id}-skeleton"} count={8} />

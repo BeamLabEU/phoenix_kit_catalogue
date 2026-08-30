@@ -1799,6 +1799,44 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       assert render(view) =~ "Hex Bolt"
     end
 
+    test "the level follows the view toggle: rows in table view, tiles in cards", %{
+      conn: conn,
+      cat: cat,
+      parent: parent
+    } do
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&sel=click")
+
+      # Table view (the default): the level renders as table ROWS — the
+      # admin tables' shared columns — not tiles; and categories/items
+      # are two headed sections, not one continuous list.
+      assert has_element?(view, "#picker-levelnav-table")
+
+      assert has_element?(
+               view,
+               ~s(#picker-levelnav-table button[phx-value-uuid="#{parent.uuid}"]),
+               "Fasteners"
+             )
+
+      assert has_element?(view, "#picker-levelnav div", "Categories")
+      assert has_element?(view, "#picker-items-heading", "Items")
+
+      # Card view: the shared admin tiles, no table.
+      view |> picker() |> render_click("set_view", %{"mode" => "card"})
+      refute has_element?(view, "#picker-levelnav-table")
+
+      assert has_element?(
+               view,
+               ~s(#picker-levelnav button[phx-value-uuid="#{parent.uuid}"]),
+               "Fasteners"
+             )
+
+      assert has_element?(view, "#picker-items-heading", "Items")
+
+      # Drilled, the heading names the level's children.
+      view |> picker() |> render_click("browse_category", %{"uuid" => parent.uuid})
+      assert has_element?(view, "#picker-levelnav div", "Subcategories")
+    end
+
     test "the Uncategorized drill is a root tile", %{conn: conn, cat: cat} do
       {:ok, view, _html} = open(conn, "c=#{cat.uuid}&sel=click")
 
