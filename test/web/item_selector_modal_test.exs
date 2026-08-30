@@ -1869,6 +1869,28 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       assert has_element?(view, "#picker-table th", "Name")
     end
 
+    test "a reopen on the SAME page sees choices saved moments ago", %{
+      conn: conn,
+      scope: scope,
+      cat: cat,
+      screw: screw
+    } do
+      conn = with_scope(conn, scope)
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&sel=click")
+
+      view |> picker() |> render_click("set_view", %{"mode" => "card"})
+
+      # The host's current_user assign now PREDATES the save (hosts don't
+      # refresh it on a modal close); the component re-reads the row at
+      # init, so a close + reopen without a page load still opens in
+      # cards — this is the demo-page bug from 2026-08-31.
+      render_click(view, "toggle_show")
+      render_click(view, "toggle_show")
+
+      assert render(view) =~ ~s(id="picker-card-#{screw.uuid}")
+      refute render(view) =~ ~s(id="picker-table")
+    end
+
     test "a saved hide loses to the grant: no stepper stripped, stale names ignored", %{
       conn: conn,
       scope: scope,

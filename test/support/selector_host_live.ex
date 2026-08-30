@@ -113,6 +113,12 @@ defmodule PhoenixKitCatalogue.Test.SelectorHostLive do
   def handle_event("toggle_prices", _params, socket),
     do: {:noreply, assign(socket, :show_prices, !socket.assigns.show_prices)}
 
+  # Unmount/remount the picker WITHOUT a fresh page mount — the host's
+  # own assigns (current_user included) stay as stale as a real host's
+  # would across a close + reopen.
+  def handle_event("toggle_show", _params, socket),
+    do: {:noreply, assign(socket, :show, !socket.assigns.show)}
+
   @impl true
   def handle_info({:items_selected, payload}, socket) do
     {:noreply,
