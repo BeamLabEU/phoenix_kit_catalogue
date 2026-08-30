@@ -350,9 +350,11 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
   attr(:photo_click, :string,
     default: nil,
     doc:
-      "event name for a click on the photo area — the \"view details\" " <>
-        "affordance (2026-08-30). When set, the figure becomes its own " <>
-        "button dispatching this with the uuid, and only the card BODY " <>
+      "event name for a click on the photo area OR the title — the " <>
+        "\"view details\" affordance (2026-08-30; the title joined the " <>
+        "photo 2026-08-31: clicking it means the same as clicking the " <>
+        "image). When set, figure and name become their own buttons " <>
+        "dispatching this with the uuid, and only the REST of the body " <>
         "carries the select toggle. Nil keeps the whole face one target."
   )
 
@@ -391,7 +393,47 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
           show_sku={@show_sku}
         />
       </button>
+      <%!-- With the details affordance on, the TITLE dispatches the same
+      event as the photo (Max, 2026-08-31: "clicking the title of an
+      image should be the same as clicking the image") — the two always
+      mean "look closer" together — and only the rest of the body keeps
+      the select toggle. --%>
+      <div :if={@photo_click} class="card-body p-3 gap-0.5">
+        <button
+          type="button"
+          class="text-left cursor-pointer"
+          phx-click={@photo_click}
+          phx-value-uuid={@item.uuid}
+          phx-target={@target}
+          title={gettext("View item details")}
+        >
+          <span class="font-medium text-sm leading-snug line-clamp-2" title={@item.name}>
+            {@item.name}
+          </span>
+        </button>
+        <button
+          type="button"
+          class="text-left w-full flex-1 flex flex-col gap-0.5 cursor-pointer disabled:cursor-default"
+          phx-click={@clickable && "card_click"}
+          phx-value-uuid={@item.uuid}
+          phx-target={@target}
+          disabled={!@clickable}
+          aria-pressed={@selected}
+          aria-label={@item.name}
+        >
+          <span :if={@show_sku && @item.sku} class="font-mono text-xs text-base-content/60">
+            {@item.sku}
+          </span>
+          <span :if={@show_price && @item.price} class="text-sm font-semibold">
+            {format_price(@item.price)}
+            <span :if={@item.unit} class="text-xs font-normal text-base-content/60">
+              / {@item.unit}
+            </span>
+          </span>
+        </button>
+      </div>
       <button
+        :if={!@photo_click}
         type="button"
         class="text-left w-full cursor-pointer disabled:cursor-default"
         phx-click={@clickable && "card_click"}
@@ -402,7 +444,6 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
         aria-label={@item.name}
       >
         <.item_card_figure
-          :if={!@photo_click}
           item={@item}
           selected={@selected and @selected_badge}
           show_sku={@show_sku}
@@ -710,10 +751,12 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
   attr(:thumb_click, :string,
     default: nil,
     doc:
-      "event name for a click on the :thumb cell — the \"view details\" " <>
-        "affordance (2026-08-30). When set, the thumb stops carrying the " <>
-        "row's select toggle and dispatches this instead, with the uuid. " <>
-        "Nil keeps the thumb a plain select cell like every other."
+      "event name for a click on the :thumb OR :name cell — the \"view " <>
+        "details\" affordance (2026-08-30; the name joined the thumb " <>
+        "2026-08-31: clicking the title means the same as clicking the " <>
+        "image). When set, those two cells stop carrying the row's select " <>
+        "toggle and dispatch this instead, with the uuid. Nil keeps them " <>
+        "plain select cells like every other."
   )
 
   attr(:selected_icon, :boolean,
@@ -829,12 +872,15 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
     """
   end
 
-  # Which event a row cell dispatches: the thumb carries the details
-  # affordance when the host enabled one; every other cell (bar :qty,
-  # whose stepper must never toggle the row underneath) carries the
-  # select toggle while the row is clickable.
+  # Which event a row cell dispatches: the thumb AND the name carry the
+  # details affordance when the host enabled one (Max, 2026-08-31:
+  # "clicking the title of an image should be the same as clicking the
+  # image"); every other cell (bar :qty, whose stepper must never toggle
+  # the row underneath) carries the select toggle while the row is
+  # clickable.
   defp cell_event(:qty, _assigns), do: nil
   defp cell_event(:thumb, %{thumb_click: event}) when is_binary(event), do: event
+  defp cell_event(:name, %{thumb_click: event}) when is_binary(event), do: event
   defp cell_event(_col, %{clickable: true}), do: "card_click"
   defp cell_event(_col, _assigns), do: nil
 
