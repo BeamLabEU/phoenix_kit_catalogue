@@ -2010,6 +2010,57 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
     end
   end
 
+  describe "content language (tim-dev error report, 2026-08-31)" do
+    # The host process carries the viewer's gettext locale and passes no
+    # :locale attr — exactly Andi's integration. The list used to read
+    # the wrong translation key ("name" where the editor stores "_name"),
+    # so names never translated; the detail popup resolved "_name" and
+    # came out right, which kept the miss invisible on single-language
+    # data.
+    test "the process locale reaches the list AND the inspection popup with no locale attr",
+         %{conn: conn, cat: cat, screw: screw} do
+      {:ok, _} =
+        Catalogue.update_item(screw, %{
+          data: %{
+            "_primary_language" => "en",
+            "en" => %{"_name" => "M8 Screw", "_description" => "Steel screw"},
+            "et" => %{"_name" => "M8 Kruvi", "_description" => "Teraskruvi"}
+          }
+        })
+
+      {:ok, view, html} = open(conn, "c=#{cat.uuid}&sel=click&loc=et")
+
+      # The list translates (this line is the fixed bug)…
+      assert html =~ "M8 Kruvi"
+      refute html =~ "M8 Screw"
+
+      # …and the inspection popup translates name and description.
+      html = view |> picker() |> render_click("show_detail", %{"uuid" => to_string(screw.uuid)})
+      assert html =~ "M8 Kruvi"
+      assert html =~ "Teraskruvi"
+    end
+
+    test "an explicit :locale attr still wins over the process locale", %{
+      conn: conn,
+      cat: cat,
+      screw: screw
+    } do
+      {:ok, _} =
+        Catalogue.update_item(screw, %{
+          data: %{
+            "_primary_language" => "en",
+            "en" => %{"_name" => "M8 Screw"},
+            "et" => %{"_name" => "M8 Kruvi"}
+          }
+        })
+
+      # Host process in et, component forced to en.
+      {:ok, _view, html} = open(conn, "c=#{cat.uuid}&sel=click&loc=et&clocale=en")
+      assert html =~ "M8 Screw"
+      refute html =~ "M8 Kruvi"
+    end
+  end
+
   describe "per-user persistence" do
     # The view and hidden-column choices ride phoenix_kit_users.custom_fields
     # (ViewConfig's "__selector__" key, 2026-08-31 — boss: "save settings

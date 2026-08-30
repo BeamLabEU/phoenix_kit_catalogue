@@ -76,7 +76,13 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
 
       %{
         uuid: to_string(item.uuid),
-        name: translated["name"] || item.name,
+        # "_name" is where the multilang editor stores translated names
+        # (like every record's; "name" kept for legacy flat data). This
+        # read used "name" alone, so list names NEVER translated — the
+        # detail popup resolved "_name" and came out right, which is how
+        # the miss stayed invisible until a real bilingual catalogue
+        # (tim-dev error report, 2026-08-31).
+        name: translated["_name"] || translated["name"] || item.name,
         sku: item.sku,
         price: presented_price(item),
         base_price: Map.get(item, :base_price),

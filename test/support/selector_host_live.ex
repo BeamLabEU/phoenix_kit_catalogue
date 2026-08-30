@@ -25,6 +25,8 @@ defmodule PhoenixKitCatalogue.Test.SelectorHostLive do
     * `ch`        — "false" turns the context header off
     * `tray`      — "false" hides the cart button + review tray
     * `title`     — explicit modal title
+    * `loc`       — puts the HOST process gettext locale (nothing passed on)
+    * `clocale`   — passed to the component as its `locale` attr
   """
 
   use Phoenix.LiveView
@@ -34,6 +36,12 @@ defmodule PhoenixKitCatalogue.Test.SelectorHostLive do
 
   @impl true
   def mount(params, _session, socket) do
+    # `loc` — the Andi/tim-dev shape (2026-08-31): the HOST process
+    # carries the viewer's gettext locale, and nothing locale-shaped is
+    # passed to the component; the component's process fallback must
+    # pick it up.
+    if loc = params["loc"], do: Gettext.put_locale(loc)
+
     scope = build_scope(params)
 
     selected =
@@ -63,6 +71,7 @@ defmodule PhoenixKitCatalogue.Test.SelectorHostLive do
        show_tray: params["tray"] != "false",
        show_item_details: params["details"] != "false",
        title: params["title"],
+       clocale: params["clocale"],
        per_page: params["pp"] && String.to_integer(params["pp"]),
        two: params["two"] == "true",
        browse: params["browse"] == "true",
@@ -165,6 +174,7 @@ defmodule PhoenixKitCatalogue.Test.SelectorHostLive do
         show_tray={@show_tray}
         show_item_details={@show_item_details}
         title={@title}
+        locale={@clocale}
         per_page={@per_page}
         current_user={Map.get(assigns, :phoenix_kit_current_user)}
       />
