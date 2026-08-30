@@ -1341,6 +1341,101 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
     end
   end
 
+  describe "item details page (2026-08-30)" do
+    test "off by default: no affordance in the markup, crafted event refused", %{
+      conn: conn,
+      cat: cat,
+      screw: screw
+    } do
+      {:ok, view, html} = open(conn, "c=#{cat.uuid}")
+
+      refute html =~ "show_detail"
+
+      view |> picker() |> render_click("show_detail", %{"uuid" => to_string(screw.uuid)})
+      refute render(view) =~ "close_detail"
+    end
+
+    test "thumb opens the details page; Back returns to the intact list", %{
+      conn: conn,
+      cat: cat,
+      screw: screw
+    } do
+      {:ok, view, html} = open(conn, "c=#{cat.uuid}&details=true")
+
+      # The affordance is wired in the table rows.
+      assert html =~ ~s(phx-click="show_detail")
+
+      # Narrow the search first — Back must land on the narrowed list.
+      view |> picker() |> render_change("browse_search", %{"search" => "screw"})
+
+      html = view |> picker() |> render_click("show_detail", %{"uuid" => to_string(screw.uuid)})
+      assert html =~ "M8 Screw"
+      assert html =~ "close_detail"
+      # The detail fields include the SKU row from ProductCard.
+      assert html =~ "M8-100"
+
+      html = view |> picker() |> render_click("close_detail", %{})
+      refute html =~ "close_detail"
+      # The narrowed search survived the round trip.
+      assert html =~ "M8 Screw"
+      refute html =~ "White Paint"
+    end
+
+    test "a foreign uuid is refused by the rendered-uuid gate", %{
+      conn: conn,
+      cat: cat,
+      forbidden: forbidden
+    } do
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&details=true")
+
+      view |> picker() |> render_click("show_detail", %{"uuid" => to_string(forbidden.uuid)})
+      html = render(view)
+      refute html =~ "close_detail"
+      refute html =~ "Forbidden Item"
+    end
+
+    test "click mode: Add from the detail footer lands in the confirm payload", %{
+      conn: conn,
+      cat: cat,
+      screw: screw
+    } do
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&details=true")
+      uuid = to_string(screw.uuid)
+
+      view |> picker() |> render_click("show_detail", %{"uuid" => uuid})
+      html = view |> picker() |> render_click("card_click", %{"uuid" => uuid})
+      # The footer flipped to the remove state.
+      assert html =~ "Remove from selection"
+
+      view |> picker() |> render_click("confirm", %{})
+      assert render(view) =~ "M8 Screw|M8-100|qty=1"
+    end
+
+    test "quantity mode: the detail footer's input selects at the typed quantity", %{
+      conn: conn,
+      cat: cat,
+      screw: screw
+    } do
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&details=true&sel=quantity")
+      uuid = to_string(screw.uuid)
+
+      view |> picker() |> render_click("show_detail", %{"uuid" => uuid})
+      view |> picker() |> render_click("qty_commit", %{"uuid" => uuid, "value" => "4"})
+      view |> picker() |> render_click("confirm", %{})
+
+      assert render(view) =~ "qty=4"
+    end
+
+    test "the detail page honours show_prices", %{conn: conn, cat: cat, screw: screw} do
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&details=true&hide_prices=true")
+
+      html = view |> picker() |> render_click("show_detail", %{"uuid" => to_string(screw.uuid)})
+      # The screw has base_price 2.50; with prices hidden the detail
+      # fields must not show it.
+      refute html =~ "2.50"
+    end
+  end
+
   describe "checkbox column (2026-08-30)" do
     test "click mode leads with unchecked checkboxes; selecting checks the box", %{
       conn: conn,
