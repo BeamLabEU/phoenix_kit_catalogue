@@ -744,6 +744,311 @@ defmodule PhoenixKitCatalogue.Web.Components do
   """
   def card_media_frame, do: %{card_media_class: card_media_band()}
 
+  @doc """
+  One category as the admin-look tile: the shared media band (featured
+  image or folder glyph), the linked name, a columns-driven facts grid
+  and the badge row — extracted from the catalogue detail page
+  (2026-08-31) so the item-selector popup presents subcategories exactly
+  the way the admin pages do, from ONE definition.
+
+  The tile is presentation only. Navigation comes in from the caller:
+  `patch` (the admin pages) or `phx_click`/`phx_target` (the popup's
+  drill event — the trigger then carries `phx-value-uuid`). Admin-only
+  chrome stays with the admin: the bulk checkbox and drag handle render
+  through the `:overlay` slot (inside the figure), the row menu through
+  `:menu` (end of the badge row), and the tree-DnD data attributes ride
+  `:rest` on the root.
+  """
+  attr(:category, :map, required: true)
+
+  attr(:name, :string,
+    default: nil,
+    doc: "Display name override (viewer-locale translation); falls back to category.name."
+  )
+
+  attr(:columns, :list,
+    default: ["items"],
+    doc: "Which facts the grid shows, in order — the admin Columns modal's vocabulary."
+  )
+
+  attr(:count, :integer, default: 0)
+  attr(:subcat_count, :integer, default: 0)
+  attr(:file_count, :integer, default: 0)
+  attr(:has_subs, :boolean, default: false)
+  attr(:has_files, :boolean, default: false)
+  attr(:patch, :string, default: nil)
+  attr(:phx_click, :string, default: nil)
+  attr(:phx_target, :any, default: nil)
+  attr(:rest, :global)
+  slot(:overlay)
+  slot(:menu)
+
+  def category_card(assigns) do
+    ~H"""
+    <div
+      class="group card card-sm bg-base-100 shadow hover:shadow-md transition-shadow overflow-hidden"
+      {@rest}
+    >
+      <%!-- The shared band (taller since 2026-08-29 — the h-24 sliver
+           cropped hard) with the card-grade variant: the tile was
+           stretching the 150px list thumbnail across the full card,
+           which is the blur the boss reported. The picture triggers
+           where the title does. --%>
+      <figure class={card_media_band()}>
+        <.category_card_trigger
+          patch={@patch}
+          phx_click={@phx_click}
+          phx_target={@phx_target}
+          uuid={@category.uuid}
+          class="block w-full h-full"
+        >
+          <.featured_thumb resource={@category} class="w-full h-full" variant="medium" comfy_scale={false} />
+          <.icon
+            :if={!featured_image_uuid(@category)}
+            name="hero-folder"
+            class="w-10 h-10 text-base-content/20 absolute inset-0 m-auto"
+          />
+        </.category_card_trigger>
+        {render_slot(@overlay)}
+      </figure>
+      <div class="card-body p-3 gap-1.5">
+        <.category_card_trigger
+          patch={@patch}
+          phx_click={@phx_click}
+          phx_target={@phx_target}
+          uuid={@category.uuid}
+          class="font-medium truncate text-left hover:text-primary"
+        >
+          {@name || @category.name}
+        </.category_card_trigger>
+        <%!-- Configured columns add their data to the card, mirroring the
+             table (the admin Columns modal drives both). --%>
+        <div :if={@columns != []} class="grid grid-cols-2 gap-x-3 gap-y-0.5 text-xs mt-1">
+          <%= for col <- @columns do %>
+            <%= case col do %>
+              <% "items" -> %>
+                <div class="text-base-content/50">{gettext("Items")}</div>
+                <div class="tabular-nums">{@count}</div>
+              <% "subcategories" -> %>
+                <div class="text-base-content/50">{gettext("Subcategories")}</div>
+                <div class="tabular-nums">{@subcat_count}</div>
+              <% "description" -> %>
+                <div class="text-base-content/50">{gettext("Description")}</div>
+                <div class="line-clamp-2">{@category.description || "—"}</div>
+              <% "files" -> %>
+                <div class="text-base-content/50">{gettext("Files")}</div>
+                <div class="tabular-nums">{@file_count}</div>
+              <% "status" -> %>
+                <div class="text-base-content/50">{gettext("Status")}</div>
+                <div><.status_badge status={@category.status} size={:xs} /></div>
+              <% "updated" -> %>
+                <div class="text-base-content/50">{gettext("Updated")}</div>
+                <div>{Calendar.strftime(@category.updated_at, "%Y-%m-%d %H:%M")}</div>
+              <% "created" -> %>
+                <div class="text-base-content/50">{gettext("Created")}</div>
+                <div>{Calendar.strftime(@category.inserted_at, "%Y-%m-%d %H:%M")}</div>
+              <% _ -> %>
+            <% end %>
+          <% end %>
+        </div>
+        <div class="flex items-center gap-1.5">
+          <span :if={@has_subs} class="badge badge-ghost badge-xs" title={gettext("Has subcategories")}>
+            <.icon name="hero-rectangle-stack" class="w-3 h-3" />
+          </span>
+          <span :if={@has_files} class="badge badge-ghost badge-xs" title={gettext("Files")}>
+            <.icon name="hero-paper-clip" class="w-3 h-3 rotate-45" />
+          </span>
+          <div class="flex-1"></div>
+          {render_slot(@menu)}
+        </div>
+      </div>
+    </div>
+    """
+  end
+
+  # The tile's navigation surface: a patch link for the admin pages, a
+  # phx-click button for the popup (LiveComponent target + the uuid the
+  # drill event reads). Neither given renders inert text — a tile is
+  # never the only way to a category, so a caller without navigation
+  # still gets the full look.
+  attr(:patch, :string, default: nil)
+  attr(:phx_click, :string, default: nil)
+  attr(:phx_target, :any, default: nil)
+  attr(:uuid, :any, default: nil)
+  attr(:class, :string, default: nil)
+  slot(:inner_block, required: true)
+
+  defp category_card_trigger(%{patch: patch} = assigns) when is_binary(patch) do
+    ~H"""
+    <.link patch={@patch} class={@class}>{render_slot(@inner_block)}</.link>
+    """
+  end
+
+  defp category_card_trigger(%{phx_click: click} = assigns) when is_binary(click) do
+    ~H"""
+    <button
+      type="button"
+      phx-click={@phx_click}
+      phx-value-uuid={@uuid}
+      phx-target={@phx_target}
+      class={@class}
+    >
+      {render_slot(@inner_block)}
+    </button>
+    """
+  end
+
+  defp category_card_trigger(assigns) do
+    ~H"""
+    <span class={@class}>{render_slot(@inner_block)}</span>
+    """
+  end
+
+  @doc """
+  The Uncategorized bucket in the shared category card's clothes — the
+  catalogue's loose items presented like any subcategory (Max,
+  2026-08-31: "show them, just like if we were inside a category and
+  there were sub categories"). No Category record backs it, so it takes
+  the items count directly; navigation comes in like `category_card/1`'s
+  (`patch` for the admin pages, `phx_click`/`phx_target` for the popup —
+  the trigger then carries `phx-value-uuid="__uncategorized__"`).
+  """
+  attr(:count, :integer, default: nil, doc: "Items count; nil hides the facts grid.")
+  attr(:patch, :string, default: nil)
+  attr(:phx_click, :string, default: nil)
+  attr(:phx_target, :any, default: nil)
+
+  def uncategorized_card(assigns) do
+    ~H"""
+    <div class="group card card-sm bg-base-100 shadow hover:shadow-md transition-shadow overflow-hidden">
+      <figure class={card_media_band()}>
+        <.category_card_trigger
+          patch={@patch}
+          phx_click={@phx_click}
+          phx_target={@phx_target}
+          uuid="__uncategorized__"
+          class="block w-full h-full"
+        >
+          <.icon
+            name="hero-folder-open"
+            class="w-10 h-10 text-base-content/20 absolute inset-0 m-auto"
+          />
+        </.category_card_trigger>
+      </figure>
+      <div class="card-body p-3 gap-1.5">
+        <.category_card_trigger
+          patch={@patch}
+          phx_click={@phx_click}
+          phx_target={@phx_target}
+          uuid="__uncategorized__"
+          class="font-medium truncate text-left hover:text-primary"
+        >
+          {gettext("Uncategorized")}
+        </.category_card_trigger>
+        <div :if={@count} class="grid grid-cols-2 gap-x-3 gap-y-0.5 text-xs mt-1">
+          <div class="text-base-content/50">{gettext("Items")}</div>
+          <div class="tabular-nums">{@count}</div>
+        </div>
+      </div>
+    </div>
+    """
+  end
+
+  @doc """
+  The category tables' configurable header cells — one per entry of the
+  admin Columns modal's vocabulary, same order. Extracted with
+  `category_body_cells/1` from the catalogue detail page (2026-08-31) so
+  its flat table, its tree table and the item-selector popup's level
+  table all draw the same columns from one definition.
+  """
+  attr(:columns, :list, required: true)
+
+  def category_header_cells(assigns) do
+    ~H"""
+    <%= for col <- @columns do %>
+      <%= case col do %>
+        <% "items" -> %>
+          <.table_default_header_cell class="text-right">
+            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Items")}
+          </.table_default_header_cell>
+        <% "updated" -> %>
+          <.table_default_header_cell>
+            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Updated")}
+          </.table_default_header_cell>
+        <% "subcategories" -> %>
+          <.table_default_header_cell class="text-right">
+            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Subcategories")}
+          </.table_default_header_cell>
+        <% "description" -> %>
+          <.table_default_header_cell>
+            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Description")}
+          </.table_default_header_cell>
+        <% "files" -> %>
+          <.table_default_header_cell>
+            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Files")}
+          </.table_default_header_cell>
+        <% "status" -> %>
+          <.table_default_header_cell>
+            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Status")}
+          </.table_default_header_cell>
+        <% "created" -> %>
+          <.table_default_header_cell>
+            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Created")}
+          </.table_default_header_cell>
+        <% _ -> %>
+      <% end %>
+    <% end %>
+    """
+  end
+
+  @doc """
+  One category row's configurable data cells — the body twin of
+  `category_header_cells/1`, keyed off the same columns list.
+  """
+  attr(:columns, :list, required: true)
+  attr(:cat, :map, required: true)
+  attr(:child_counts, :map, required: true)
+  attr(:child_subcat_counts, :map, default: %{})
+  attr(:file_counts, :map, default: %{})
+
+  def category_body_cells(assigns) do
+    ~H"""
+    <%= for col <- @columns do %>
+      <%= case col do %>
+        <% "items" -> %>
+          <.table_default_cell class="text-right tabular-nums">
+            {Map.get(@child_counts, @cat.uuid, 0)}
+          </.table_default_cell>
+        <% "updated" -> %>
+          <.table_default_cell class="text-sm text-base-content/60">
+            {Calendar.strftime(@cat.updated_at, "%Y-%m-%d %H:%M")}
+          </.table_default_cell>
+        <% "subcategories" -> %>
+          <.table_default_cell class="text-right tabular-nums text-base-content/60">
+            {Map.get(@child_subcat_counts, @cat.uuid, 0)}
+          </.table_default_cell>
+        <% "description" -> %>
+          <.table_default_cell class="text-sm text-base-content/60 max-w-64">
+            <span class="line-clamp-2">{@cat.description || "—"}</span>
+          </.table_default_cell>
+        <% "files" -> %>
+          <.table_default_cell class="text-sm tabular-nums text-base-content/60">
+            {Map.get(@file_counts, @cat.uuid, 0)}
+          </.table_default_cell>
+        <% "status" -> %>
+          <.table_default_cell>
+            <.status_badge status={@cat.status} size={:xs} />
+          </.table_default_cell>
+        <% "created" -> %>
+          <.table_default_cell class="text-sm text-base-content/60">
+            {Calendar.strftime(@cat.inserted_at, "%Y-%m-%d %H:%M")}
+          </.table_default_cell>
+        <% _ -> %>
+      <% end %>
+    <% end %>
+    """
+  end
+
   # The thumb slot's visual: image (with an optional corner paperclip emblem)
   # or, with no image, the paperclip tile filling the same footprint so names
   # stay aligned across rows either way.

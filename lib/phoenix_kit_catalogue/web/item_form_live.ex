@@ -2719,7 +2719,10 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                     options={[
                       {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Piece"), "piece"},
                       {Gettext.gettext(PhoenixKitCatalogue.Gettext, "m² (square meter)"), "m2"},
-                      {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Running meter"), "running_meter"}
+                      {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Running meter"), "running_meter"},
+                      # kmpl = the Estonian set/komplekt (boss, 2026-08-31);
+                      # stored as "set", the vocabulary unit_label/1 knows.
+                      {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Set (kmpl)"), "set"}
                     ]}
                   />
                 </div>

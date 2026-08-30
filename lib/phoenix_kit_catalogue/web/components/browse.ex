@@ -339,12 +339,22 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
   attr(:show_price, :boolean, default: true)
   attr(:show_sku, :boolean, default: true)
 
+  attr(:selected_badge, :boolean,
+    default: true,
+    doc:
+      "the corner check badge on a selected card. Off in quantity mode " <>
+        "(2026-08-31): a number above zero already says selected, and " <>
+        "the extra check chrome read as \"checkboxes are still there\"."
+  )
+
   attr(:photo_click, :string,
     default: nil,
     doc:
-      "event name for a click on the photo area — the \"view details\" " <>
-        "affordance (2026-08-30). When set, the figure becomes its own " <>
-        "button dispatching this with the uuid, and only the card BODY " <>
+      "event name for a click on the photo area OR the title — the " <>
+        "\"view details\" affordance (2026-08-30; the title joined the " <>
+        "photo 2026-08-31: clicking it means the same as clicking the " <>
+        "image). When set, figure and name become their own buttons " <>
+        "dispatching this with the uuid, and only the REST of the body " <>
         "carries the select toggle. Nil keeps the whole face one target."
   )
 
@@ -377,9 +387,53 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
         aria-label={gettext("View item details")}
         title={gettext("View item details")}
       >
-        <.item_card_figure item={@item} selected={@selected} show_sku={@show_sku} />
+        <.item_card_figure
+          item={@item}
+          selected={@selected and @selected_badge}
+          show_sku={@show_sku}
+        />
       </button>
+      <%!-- With the details affordance on, the TITLE dispatches the same
+      event as the photo (Max, 2026-08-31: "clicking the title of an
+      image should be the same as clicking the image") — the two always
+      mean "look closer" together — and only the rest of the body keeps
+      the select toggle. --%>
+      <div :if={@photo_click} class="card-body p-3 gap-0.5">
+        <button
+          type="button"
+          class="text-left cursor-pointer"
+          phx-click={@photo_click}
+          phx-value-uuid={@item.uuid}
+          phx-target={@target}
+          title={gettext("View item details")}
+        >
+          <span class="font-medium text-sm leading-snug line-clamp-2" title={@item.name}>
+            {@item.name}
+          </span>
+        </button>
+        <button
+          type="button"
+          class="text-left w-full flex-1 flex flex-col gap-0.5 cursor-pointer disabled:cursor-default"
+          phx-click={@clickable && "card_click"}
+          phx-value-uuid={@item.uuid}
+          phx-target={@target}
+          disabled={!@clickable}
+          aria-pressed={@selected}
+          aria-label={@item.name}
+        >
+          <span :if={@show_sku && @item.sku} class="font-mono text-xs text-base-content/60">
+            {@item.sku}
+          </span>
+          <span :if={@show_price && @item.price} class="text-sm font-semibold">
+            {format_price(@item.price)}
+            <span :if={@item.unit} class="text-xs font-normal text-base-content/60">
+              / {@item.unit}
+            </span>
+          </span>
+        </button>
+      </div>
       <button
+        :if={!@photo_click}
         type="button"
         class="text-left w-full cursor-pointer disabled:cursor-default"
         phx-click={@clickable && "card_click"}
@@ -389,7 +443,11 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
         aria-pressed={@selected}
         aria-label={@item.name}
       >
-        <.item_card_figure :if={!@photo_click} item={@item} selected={@selected} show_sku={@show_sku} />
+        <.item_card_figure
+          item={@item}
+          selected={@selected and @selected_badge}
+          show_sku={@show_sku}
+        />
         <div class="card-body p-3 gap-0.5">
           <span class="font-medium text-sm leading-snug line-clamp-2" title={@item.name}>
             {@item.name}
@@ -693,10 +751,20 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
   attr(:thumb_click, :string,
     default: nil,
     doc:
-      "event name for a click on the :thumb cell — the \"view details\" " <>
-        "affordance (2026-08-30). When set, the thumb stops carrying the " <>
-        "row's select toggle and dispatches this instead, with the uuid. " <>
-        "Nil keeps the thumb a plain select cell like every other."
+      "event name for a click on the :thumb OR :name cell — the \"view " <>
+        "details\" affordance (2026-08-30; the name joined the thumb " <>
+        "2026-08-31: clicking the title means the same as clicking the " <>
+        "image). When set, those two cells stop carrying the row's select " <>
+        "toggle and dispatch this instead, with the uuid. Nil keeps them " <>
+        "plain select cells like every other."
+  )
+
+  attr(:selected_icon, :boolean,
+    default: true,
+    doc:
+      "the name-cell check icon on a selected row (already absent when a " <>
+        "checkbox column shows it instead). Off in quantity mode " <>
+        "(2026-08-31): the number above zero is the selected signal."
   )
 
   attr(:target, :any, default: nil)
@@ -759,7 +827,7 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
               <%!-- With a checkbox column the check icon would say the same
               thing twice one cell apart. --%>
               <.icon
-                :if={@selected and not @checkbox}
+                :if={@selected and not @checkbox and @selected_icon}
                 name="hero-check"
                 class="w-4 h-4 text-primary shrink-0"
               />
@@ -804,12 +872,15 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
     """
   end
 
-  # Which event a row cell dispatches: the thumb carries the details
-  # affordance when the host enabled one; every other cell (bar :qty,
-  # whose stepper must never toggle the row underneath) carries the
-  # select toggle while the row is clickable.
+  # Which event a row cell dispatches: the thumb AND the name carry the
+  # details affordance when the host enabled one (Max, 2026-08-31:
+  # "clicking the title of an image should be the same as clicking the
+  # image"); every other cell (bar :qty, whose stepper must never toggle
+  # the row underneath) carries the select toggle while the row is
+  # clickable.
   defp cell_event(:qty, _assigns), do: nil
   defp cell_event(:thumb, %{thumb_click: event}) when is_binary(event), do: event
+  defp cell_event(:name, %{thumb_click: event}) when is_binary(event), do: event
   defp cell_event(_col, %{clickable: true}), do: "card_click"
   defp cell_event(_col, _assigns), do: nil
 
@@ -868,8 +939,10 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
 
   Integer mode is `precision: 0` (the default; step 1); a decimal item is
   the same control with `precision > 0` (step 0.1 / 0.01 / …) and a `unit`
-  suffix. `min`/`max` shape the arrows and keyboard only — all limits are
-  re-enforced server-side, exactly as before.
+  suffix. `min`/`max`/`step` shape the arrows and keyboard ONLY — the
+  form is `novalidate`, so they never gate the submit (a browser
+  validation failure would leave Enter silently dead), and every limit
+  is re-enforced server-side, exactly as before.
   """
   attr(:id, :string, required: true)
   attr(:uuid, :string, required: true)
@@ -886,12 +959,21 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
     <%!-- The form wraps the join (Enter commits via phx-submit; phx-blur
          commits on focus loss). phx-change catches what blur never sees:
          a spinner-arrow click changes the value without ever blurring,
-         and a modal closed right after would lose it. --%>
+         and a modal closed right after would lose it.
+
+         novalidate is load-bearing (2026-08-31): step/min/max are browser
+         VALIDATION constraints, and a phx-submit form never reaches
+         LiveView while an input fails one — so a typed "2.5" at
+         precision 0, or a value above max, left Enter silently dead
+         while blur committed fine. The server owns rounding and
+         clamping; the attrs stay purely to shape the arrows and the
+         mobile keyboard, which is what the doc promises. --%>
     <form
       id={@id}
       phx-submit="qty_commit"
       phx-change="qty_change"
       phx-target={@target}
+      novalidate
     >
       <input type="hidden" name="uuid" value={@uuid} />
       <div class="join" role="group" aria-label={gettext("Quantity")}>

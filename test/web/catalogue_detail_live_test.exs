@@ -77,20 +77,34 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
       assert html =~ "Search items by name, description, or SKU"
     end
 
-    test "no Uncategorized drill card — loose items live in Items mode",
+    test "the Uncategorized bucket presents like a subcategory in the browser",
          %{conn: conn} do
       catalogue = fixture_catalogue()
       fixture_category(catalogue, %{name: "A Category"})
       fixture_item(%{name: "Loose Item", catalogue_uuid: catalogue.uuid})
 
-      # The card drilled into the bucket; with drilling gone (Max,
-      # 2026-08-29) the loose items are part of the catalogue-wide
-      # Items mode instead.
+      # Reversed 2026-08-31 (Max: "show them, just like if we were
+      # inside a category and there were sub categories" — the browser
+      # hiding the bucket made a 9-item catalogue read as 3): the root
+      # browser offers the bucket as an entry alongside the categories.
       {:ok, _view, html} = live(conn, url(catalogue.uuid))
-      refute html =~ "?category=uncategorized"
+      assert html =~ "?category=uncategorized"
+      assert html =~ "Uncategorized"
 
+      # Items mode still lists the loose items catalogue-wide.
       {:ok, _view, html} = live(conn, url(catalogue.uuid) <> "?mode=items")
       assert html =~ "Loose Item"
+    end
+
+    test "an empty Uncategorized bucket stays out of the browser", %{conn: conn} do
+      catalogue = fixture_catalogue()
+      cat = fixture_category(catalogue, %{name: "A Category"})
+      fixture_item(%{name: "Filed Item", catalogue_uuid: catalogue.uuid, category_uuid: cat.uuid})
+
+      # Nothing loose: a virtual empty folder would be noise (real
+      # categories still show at zero — the user created those).
+      {:ok, _view, html} = live(conn, url(catalogue.uuid))
+      refute html =~ "?category=uncategorized"
     end
 
     test "with no categories, the catalogue's loose items live behind Items mode",
