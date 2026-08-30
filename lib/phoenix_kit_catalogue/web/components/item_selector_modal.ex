@@ -357,7 +357,10 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
   defp resolve_visible_columns!(_mode, columns, hidden), do: visible_columns(columns, hidden)
 
   defp visible_columns(granted, hidden) do
-    hidden = if is_list(hidden), do: hidden, else: [:sku, :breadcrumb]
+    # SKU ("article") starts VISIBLE since 2026-08-31 (boss) — only the
+    # breadcrumb prefix stays default-hidden. Hosts opt out via
+    # hidden_columns as before.
+    hidden = if is_list(hidden), do: hidden, else: [:breadcrumb]
     Enum.reject(granted, &(&1 in hidden))
   end
 
@@ -393,11 +396,11 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
       immediate: assigns[:immediate] || false,
       show_prices: Map.get(assigns, :show_prices, true),
       show_sku: Map.get(assigns, :show_sku, true),
-      # The cart-count button + expandable review list. Off for embeds
-      # where the selection is already visible in place — quantity-first
-      # order sheets show a number above 0 on every picked row (2026-08-30,
-      # the "shopping cart" flexibility ask). Cancel/Confirm always stay.
-      show_tray: Map.get(assigns, :show_tray, true),
+      # The cart-count button + expandable review list. OFF by default
+      # (boss, 2026-08-31): the qty-first default shows a number above 0
+      # on every picked row, so the cart is opt-in chrome for hosts that
+      # want a review list. Cancel/Confirm always stay.
+      show_tray: Map.get(assigns, :show_tray, false),
       # The in-modal item details page (2026-08-30). ON by default per
       # Max, 2026-08-31 — inspecting before picking is the popup's
       # normal use. A client-facing embed that must not expose the
@@ -1239,13 +1242,10 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
         </:title>
 
         <div class="flex flex-col gap-3">
-          <%!-- The browse region: search, chips, results. `relative` so the
-          item-details page can COVER it (2026-08-30) — the list stays
-          mounted underneath with its scroll position and every assign
-          intact, and Back is just removing the cover. One dialog, one top
-          layer, no nested-dialog focus fights. The tray stays outside,
-          visible under both. --%>
-          <div class="relative flex flex-col gap-3">
+          <%!-- The browse region: search, chips, results. The item-details
+          popup stacks OVER the whole selector as its own dialog (boss,
+          2026-08-31), so nothing here is touched while it is open. --%>
+          <div class="flex flex-col gap-3">
           <%!-- Header: search + chips. --%>
           <%!-- phx-submit is load-bearing: a phx-change form WITHOUT it is
           treated by LiveView's client as an external form — Enter would
@@ -1321,6 +1321,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
                   clickable={@selection_mode != "quantity"}
                   show_price={@show_prices and :price in @visible_columns}
                   show_sku={@show_sku and :sku in @visible_columns}
+                  selected_badge={@selection_mode != "quantity"}
                   photo_click={if(@show_item_details, do: "show_detail")}
                   target={@myself}
                 >
@@ -1364,6 +1365,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
                   selected={Map.has_key?(@selection, item.uuid)}
                   clickable={@selection_mode != "quantity"}
                   checkbox={@cbx}
+                  selected_icon={@selection_mode != "quantity"}
                   thumb_click={if(@show_item_details, do: "show_detail")}
                   target={@myself}
                 >
@@ -1404,38 +1406,26 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
             </div>
           </div>
 
-          <%!-- The item-details page, covering the browse region. --%>
-          <div
+          <%!-- Item details as their OWN popup over the selector (boss,
+          2026-08-31 — was a cover panel over the browse region). A
+          stacked dialog: native top-layer ordering puts it above the
+          selector, ESC/backdrop close only it, and the list underneath
+          is never touched — scroll, search and selection all survive
+          for free. The mode-aware control rides the modal's action row:
+          inspection without "add" is a dead end, and the same events
+          and uuid gates as the list apply. Never auto-selects on open. --%>
+          <ProductCard.product_card
             :if={@detail}
             id={"#{@id}-detail"}
-            class="absolute inset-0 z-10 bg-base-100 flex flex-col gap-2"
+            show={true}
+            target={@myself}
+            item_name={@detail.name}
+            images={@detail.images}
+            fields={@detail.fields}
+            files={@detail.files}
+            on_close="close_detail"
           >
-            <div class="flex items-center gap-2">
-              <button
-                type="button"
-                class="btn btn-ghost btn-sm gap-1"
-                phx-click="close_detail"
-                phx-target={@myself}
-              >
-                <span class="hero-arrow-left w-4 h-4"></span>
-                {gettext("Back")}
-              </button>
-              <span class="font-semibold truncate">{@detail.name}</span>
-            </div>
-            <div class="flex-1 min-h-0 overflow-y-auto pr-1">
-              <ProductCard.product_card_body
-                target={@myself}
-                item_name={@detail.name}
-                images={@detail.images}
-                fields={@detail.fields}
-                files={@detail.files}
-              />
-            </div>
-            <%!-- Mode-aware selection control: inspection without "add"
-            is a dead end (back, hunt the same row again). Same events,
-            same uuid gates as the list — this page can only show rows
-            the component rendered. Never auto-selects on open. --%>
-            <div class="flex items-center justify-end gap-3 border-t border-base-300 pt-2">
+            <:extra_actions>
               <.qty_stepper
                 :if={@selection_mode == "quantity"}
                 id={"#{@id}-detail-qty-#{@detail.uuid}-r#{qty_rev(assigns, @detail.uuid)}"}
@@ -1465,8 +1455,8 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
                   {gettext("Add to selection")}
                 <% end %>
               </button>
-            </div>
-          </div>
+            </:extra_actions>
+          </ProductCard.product_card>
           </div>
 
           <%!-- Selection tray. --%>

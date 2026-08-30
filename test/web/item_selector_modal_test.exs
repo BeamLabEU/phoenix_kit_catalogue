@@ -896,26 +896,26 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       refute html =~ "11.00"
     end
 
-    test "SKU starts hidden; the Columns dropdown reveals it within the granted set", %{
+    test "SKU (article) starts VISIBLE; the Columns dropdown can hide it", %{
       conn: conn,
       cat: cat
     } do
+      # Default-visible since 2026-08-31 (boss: "make article by
+      # default"); only :breadcrumb starts hidden now.
       {:ok, view, html} = open(conn, "c=#{cat.uuid}&sel=click")
 
-      # Hidden by default in the picker — but granted, so the dropdown
-      # offers it and the data waits one click away.
+      assert has_element?(view, "#picker-table th", "SKU")
+      assert html =~ "M8-100"
+      refute has_element?(view, "#picker-table th", "Category prefix")
+
+      # Hiding removes header and data both; re-showing brings them back.
+      view |> picker() |> render_click("toggle_column", %{"col" => "sku"})
       refute has_element?(view, "#picker-table th", "SKU")
-      assert has_element?(view, ~s(#picker-column-toggle [phx-value-col="sku"]))
-      _ = html
+      refute render(view) =~ "M8-100"
 
       view |> picker() |> render_click("toggle_column", %{"col" => "sku"})
       assert has_element?(view, "#picker-table th", "SKU")
       assert render(view) =~ "M8-100"
-
-      # And hiding it again removes header and data both.
-      view |> picker() |> render_click("toggle_column", %{"col" => "sku"})
-      refute has_element?(view, "#picker-table th", "SKU")
-      refute render(view) =~ "M8-100"
     end
 
     test "toggle_column refuses pinned and ungranted columns", %{conn: conn, cat: cat} do
@@ -1055,11 +1055,12 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       refute html =~ "2.50"
       refute html =~ "M8-100"
 
-      # And default-hidden SKU stays hidden on cards until the viewer
-      # reveals it in the dropdown (visible drives both views).
+      # A viewer-HIDDEN column stays hidden on cards too (visible drives
+      # both views) — sku is default-visible now, so hide it first.
       {:ok, view, _html} = open(conn, "c=#{cat.uuid}&sel=click")
+      view |> picker() |> render_click("toggle_column", %{"col" => "sku"})
       html = view |> picker() |> render_click("set_view", %{"mode" => "card"})
-      refute html =~ "M8-100"
+      refute html =~ ~s(class="font-mono text-xs text-base-content/60">M8-100)
 
       view |> picker() |> render_click("set_view", %{"mode" => "table"})
       view |> picker() |> render_click("toggle_column", %{"col" => "sku"})
@@ -1459,7 +1460,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
 
       # …but a crafted show_detail must not open its full body.
       view |> picker() |> render_click("show_detail", %{"uuid" => to_string(forbidden.uuid)})
-      refute has_element?(view, "#picker-detail")
+      refute has_element?(view, "#picker-detail-card")
     end
 
     test "a crafted NaN or Infinity quantity mutates nothing", %{
@@ -1508,14 +1509,14 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       {:ok, view, _html} = open(conn, "c=#{cat.uuid}&details=true&sel=click")
 
       view |> picker() |> render_click("show_detail", %{"uuid" => to_string(screw.uuid)})
-      assert view |> element("#picker-detail") |> render() =~ "2.50"
+      assert view |> element("#picker-detail-card") |> render() =~ "2.50"
 
       # The HOST re-renders with show_prices flipped off — the open
       # detail must drop the price row, not keep the stale grant. (The
       # list's :price COLUMN stays granted — grants are init-time; only
       # the detail body re-reads the display flags.)
       render_click(view, "toggle_prices", %{})
-      refute view |> element("#picker-detail") |> render() =~ "2.50"
+      refute view |> element("#picker-detail-card") |> render() =~ "2.50"
     end
   end
 
@@ -1605,7 +1606,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
 
       view |> picker() |> render_click("show_detail", %{"uuid" => to_string(screw.uuid)})
 
-      detail = view |> element("#picker-detail") |> render()
+      detail = view |> element("#picker-detail-card") |> render()
       refute detail =~ "2.50"
       refute detail =~ "M8-100"
     end
