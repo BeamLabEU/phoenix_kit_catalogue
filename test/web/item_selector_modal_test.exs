@@ -781,10 +781,10 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       refute html =~ ~s(id="picker-table")
 
       # The card face's real binding, not the targeted shortcut. With
-      # details on by default the figure is its own button — target the
-      # select one.
+      # details on by default the figure AND the title are their own
+      # buttons — target the select one (the rest of the body).
       view
-      |> element(~s(#picker-card-#{screw.uuid} > button[phx-click="card_click"]))
+      |> element(~s(#picker-card-#{screw.uuid} button[phx-click="card_click"]))
       |> render_click()
 
       view |> picker() |> render_click("confirm", %{})
@@ -799,10 +799,10 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       {:ok, view, _html} = open(conn, "c=#{cat.uuid}&sel=click")
 
       # Row cells carry the same card_click binding the card face uses.
-      # (The thumb cell is the details affordance now, so target a
-      # data cell — the name one.)
+      # (The thumb AND name cells are the details affordance now, so
+      # target a data cell — the sku one.)
       view
-      |> element(~s(#picker-row-#{screw.uuid} td[phx-click="card_click"]), "M8 Screw")
+      |> element(~s(#picker-row-#{screw.uuid} td[phx-click="card_click"]), "M8-100")
       |> render_click()
 
       assert has_element?(view, ~s(#picker-row-#{screw.uuid}[data-selected="true"]))
@@ -1425,6 +1425,32 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       # The narrowed search survived the round trip.
       assert html =~ "M8 Screw"
       refute html =~ "White Paint"
+    end
+
+    test "clicking the title is the same as clicking the image — both open details", %{
+      conn: conn,
+      cat: cat,
+      screw: screw
+    } do
+      # Quantity mode (the default) — where the title used to be dead.
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}")
+
+      # Table: the NAME cell carries the same details binding the thumb does.
+      view
+      |> element(~s(#picker-row-#{screw.uuid} td[phx-click="show_detail"]), "M8 Screw")
+      |> render_click()
+
+      assert render(view) =~ "close_detail"
+      view |> picker() |> render_click("close_detail", %{})
+
+      # Cards: the TITLE is its own details button beside the figure's.
+      view |> picker() |> render_click("set_view", %{"mode" => "card"})
+
+      view
+      |> element(~s(#picker-card-#{screw.uuid} button[phx-click="show_detail"]), "M8 Screw")
+      |> render_click()
+
+      assert render(view) =~ "close_detail"
     end
 
     test "a foreign uuid is refused by the rendered-uuid gate", %{
