@@ -243,7 +243,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
       {:ok, _folder} = Catalogue.create_folder(%{name: "Hidden while searching"})
       fixture_catalogue(%{name: "Searchable catalogue"})
 
-      {:ok, _view, html} = live(conn, "#{@base}?q=searchable")
+      {:ok, _view, html} = live(conn, "#{@base}?q=searchable&mode=catalogues")
 
       refute html =~ "catalogues-tree-table"
       assert html =~ "Searchable catalogue"
@@ -606,7 +606,9 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
       fixture_catalogue(%{name: "Zephyr"})
       fixture_catalogue(%{name: "Quokka"})
 
-      {:ok, _view, html} = live(conn, "#{@base}?q=zeph")
+      # Explicit catalogues mode since 2026-08-31 — the auto default
+      # searches ITEMS.
+      {:ok, _view, html} = live(conn, "#{@base}?q=zeph&mode=catalogues")
 
       assert html =~ "Zephyr"
       refute html =~ "Quokka"
@@ -616,15 +618,17 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
       fixture_catalogue(%{name: "Zephyr"})
       fixture_catalogue(%{name: "Quokka"})
 
-      {:ok, view, _html} = live(conn, @base)
+      {:ok, view, _html} = live(conn, "#{@base}?mode=catalogues")
 
       html = render_change(view, "table_search", %{"query" => "quo"})
-      assert_patch(view, "#{@base}?q=quo")
+      path = assert_patch(view)
+      assert path =~ "q=quo"
       assert html =~ "Quokka"
       refute html =~ "Zephyr"
 
       html = render_change(view, "table_search", %{"query" => ""})
-      assert_patch(view, @base)
+      path = assert_patch(view)
+      refute path =~ "q="
       assert html =~ "Zephyr"
     end
 
@@ -632,7 +636,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
       fixture_catalogue(%{name: "Zephyr Werke"})
       fixture_catalogue(%{name: "Quokka GmbH"})
 
-      {:ok, _view, html} = live(conn, "#{@base}?q=quokka")
+      {:ok, _view, html} = live(conn, "#{@base}?q=quokka&mode=catalogues")
 
       assert html =~ "Quokka GmbH"
       refute html =~ "Zephyr Werke"
@@ -661,7 +665,8 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
       {:ok, _} = Catalogue.move_catalogue_to_folder(deep, child.uuid)
       _outside = fixture_catalogue(%{name: "Verso outside"})
 
-      {:ok, _view, html} = live(conn, "#{@base}?folder=#{parent.uuid}&q=verso")
+      {:ok, _view, html} =
+        live(conn, "#{@base}?folder=#{parent.uuid}&q=verso&mode=catalogues")
 
       # The catalogue in the subfolder is VISIBLE in the tree behind the
       # search, so the search must find it too — not just direct children.
@@ -693,7 +698,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
     test "a search patch leaves the tab itself intact", %{conn: conn} do
       fixture_catalogue(%{name: "Zephyr Werke"})
 
-      {:ok, view, _html} = live(conn, "#{@base}")
+      {:ok, view, _html} = live(conn, "#{@base}?mode=catalogues")
 
       html = render_change(view, "table_search", %{"query" => "zephyr"})
 
@@ -738,10 +743,10 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
 
       # Nothing in the trash matches "zephyr" — a "Deleted (1)" here is
       # an invitation into an empty list.
-      {:ok, _view, html} = live(conn, "#{@base}?q=zephyr")
+      {:ok, _view, html} = live(conn, "#{@base}?q=zephyr&mode=catalogues")
       refute html =~ "Deleted ("
 
-      {:ok, _view, html} = live(conn, "#{@base}?q=binned")
+      {:ok, _view, html} = live(conn, "#{@base}?q=binned&mode=catalogues")
       assert html =~ "Deleted (1)"
 
       # No search: the global count, as before.
@@ -754,10 +759,10 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
       {:ok, folder} = Catalogue.create_folder(%{name: "Old shelf"})
       {:ok, _} = Catalogue.trash_folder(folder)
 
-      {:ok, _view, html} = live(conn, "#{@base}?q=shelf")
+      {:ok, _view, html} = live(conn, "#{@base}?q=shelf&mode=catalogues")
       assert html =~ "Deleted (1)"
 
-      {:ok, _view, html} = live(conn, "#{@base}?q=live")
+      {:ok, _view, html} = live(conn, "#{@base}?q=live&mode=catalogues")
       refute html =~ "Deleted ("
     end
 
@@ -766,7 +771,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
       binned = fixture_catalogue(%{name: "Binned thing"})
       Catalogue.trash_catalogue(binned)
 
-      {:ok, view, _html} = live(conn, "#{@base}?q=binned")
+      {:ok, view, _html} = live(conn, "#{@base}?q=binned&mode=catalogues")
       html = render_click(view, "switch_catalogue_view", %{"mode" => "deleted"})
 
       # The query survives the switch (Max, 2026-08-29) and filters the
@@ -804,6 +809,31 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
   end
 
   describe "items search mode" do
+    # The 2026-08-31 default flip (boss): a fresh landing types a query
+    # and gets ITEM results; catalogue-name search is the explicit mode.
+    test "the auto default searches items; explicit catalogues searches catalogues", %{
+      conn: conn
+    } do
+      cat = fixture_catalogue(%{name: "Zephyr Catalogue"})
+      fixture_item(%{name: "Zephyr widget", catalogue_uuid: cat.uuid})
+
+      # No mode in the URL + a query = item results (and the Items chip
+      # reads active even before typing).
+      {:ok, view, html} = live(conn, @base)
+      assert html =~ ~r/phx-value-mode="items"\n?[^>]*btn-active/
+
+      {:ok, view2, _html} = live(conn, "#{@base}?q=zephyr")
+      html = render_async(view2)
+      assert html =~ "Zephyr widget"
+      refute html =~ "catalogues-tree-table"
+      _ = view
+
+      # Explicit catalogues mode: the same query searches this page's rows.
+      {:ok, _view3, html} = live(conn, "#{@base}?q=zephyr&mode=catalogues")
+      assert html =~ "Zephyr Catalogue"
+      refute html =~ "Zephyr widget"
+    end
+
     test "lists items across catalogues with their catalogue and category", %{conn: conn} do
       cat_a = fixture_catalogue(%{name: "Alpha Catalogue"})
       cat_b = fixture_catalogue(%{name: "Beta Catalogue"})
@@ -832,8 +862,10 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
       render_click(view, "set_search_mode", %{"mode" => "items"})
       assert_patch(view, "#{@base}?mode=items")
 
+      # Both directions are explicit now — "" is the auto default a
+      # fresh landing gets (2026-08-31).
       render_click(view, "set_search_mode", %{"mode" => "catalogues"})
-      assert_patch(view, @base)
+      assert_patch(view, "#{@base}?mode=catalogues")
     end
 
     test "?q= searches the items, not the catalogues", %{conn: conn} do

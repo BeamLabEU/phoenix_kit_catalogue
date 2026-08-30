@@ -2257,6 +2257,9 @@ msgstr "Rida %{row}: nimi puudub, ei saa luua"
 msgid "Rows with errors (will be skipped):"
 msgstr "Vigadega read (jäetakse vahele):"
 
+msgid "Set (kmpl)"
+msgstr "Komplekt (kmpl)"
+
 msgid "Running meter"
 msgstr "Jooksev meeter"
 

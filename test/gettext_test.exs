@@ -643,6 +643,14 @@ defmodule PhoenixKitCatalogue.GettextTest do
       assert gettext_in("ru", msgid) == "Назад"
     end
 
+    # The kmpl (Estonian set/komplekt) unit option (boss, 2026-08-31).
+    test "Set (kmpl)" do
+      msgid = "Set (kmpl)"
+      assert po_msgstr("en", msgid) != nil
+      assert gettext_in("et", msgid) == "Komplekt (kmpl)"
+      assert gettext_in("ru", msgid) == "Комплект (компл.)"
+    end
+
     # The built-in supplier field's label, translated at call time in
     # SupplierFields.builtin_fields/0 (a compile-time map can only carry
     # the msgid).

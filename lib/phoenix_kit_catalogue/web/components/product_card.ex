@@ -82,6 +82,13 @@ defmodule PhoenixKitCatalogue.Web.Components.ProductCard do
   attr(:files, :list, default: [])
   attr(:on_close, :string, default: "card_close")
 
+  slot(:extra_actions,
+    doc:
+      "rendered in the modal's action row before Close — the item " <>
+        "selector puts its mode-aware Add/quantity control here " <>
+        "(2026-08-31, details as their own popup)."
+  )
+
   def product_card(assigns) do
     ~H"""
     <.modal show={@show} id={"#{@id}-card"} on_close={@on_close} max_width="3xl">
@@ -96,6 +103,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ProductCard do
       />
 
       <:actions>
+        {render_slot(@extra_actions)}
         <button type="button" class="btn btn-ghost" phx-click={@on_close} phx-target={@target}>
           {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Close")}
         </button>

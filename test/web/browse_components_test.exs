@@ -142,20 +142,23 @@ defmodule PhoenixKitCatalogue.Web.Components.BrowseTest do
       refute qty_cell =~ "card_click"
     end
 
-    test "thumb_click rides the thumb cell only; checkbox renders when asked" do
+    test "thumb_click rides the thumb AND name cells; checkbox renders when asked" do
       html =
         render_component(&Browse.item_row/1,
           id: "r1",
           item: row_item(),
-          columns: [:thumb, :name],
+          columns: [:thumb, :name, :sku],
           checkbox: true,
           thumb_click: "show_detail"
         )
 
       assert html =~ ~s(phx-click="show_detail")
       assert html =~ ~s(input type="checkbox")
-      # Only the thumb cell carries the details event.
-      assert length(String.split(html, ~s(phx-click="show_detail"))) == 2
+      # Exactly the thumb and name cells carry the details event (Max,
+      # 2026-08-31: clicking the title means the same as clicking the
+      # image); the sku cell keeps the select toggle.
+      assert length(String.split(html, ~s(phx-click="show_detail"))) == 3
+      assert html =~ ~s(phx-click="card_click")
     end
 
     test "item_table renders the checkbox header cell in lockstep" do
@@ -232,6 +235,11 @@ defmodule PhoenixKitCatalogue.Web.Components.BrowseTest do
       assert html =~ ~s(phx-change="qty_change")
       assert html =~ ~s(phx-debounce)
       assert html =~ ~s(name="uuid" value="u-1")
+      # novalidate keeps Enter alive: step/min/max are validation
+      # constraints, and a phx-submit form never fires while one fails —
+      # the server owns rounding/clamping (2026-08-31, the entities-0.4.9
+      # lesson applied to this control).
+      assert html =~ "novalidate"
     end
 
     test "min and max shape the arrows when given, and are absent otherwise" do
