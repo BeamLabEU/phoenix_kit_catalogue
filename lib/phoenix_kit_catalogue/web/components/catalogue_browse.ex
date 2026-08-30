@@ -19,11 +19,20 @@ defmodule PhoenixKitCatalogue.Web.Components.CatalogueBrowse do
   `view: "table"`, the admin-look list. A toggle beside the search box
   switches them; the attr only sets the starting view.
 
-  Table columns are the same host contract the modal enforces
-  (`Browse.table_columns/0`, unknown entries raise). Omitted, the default
-  set applies minus what `show_sku`/`show_prices` opt out of — and minus
-  `:qty`, which is selection chrome this surface doesn't have (a host
-  that explicitly asks for `:qty` gets an empty cell).
+  `columns` is the same host contract the modal enforces
+  (`Browse.table_columns/0`, unknown entries raise) and it is a GRANT:
+  the cards read it too, so a column the host didn't grant can't
+  reappear by flipping the view. Omitted, the default set applies minus
+  what `show_sku`/`show_prices` opt out of, and minus `:qty` — selection
+  chrome this surface doesn't have (a host that explicitly asks for
+  `:qty` gets an empty cell).
+
+  The TABLE additionally starts without the modal's default-hidden pair
+  (`:sku`, `:breadcrumb`): without the modal's Columns dropdown they'd
+  render outright, and `:breadcrumb` beside the `:category` column shows
+  the category twice per row. That is visibility, not grant — the cards
+  keep their SKU line, which is what `show_sku` has always controlled.
+  An explicit `columns` list is taken verbatim on both surfaces.
 
   ## Messages to the host
 
@@ -82,6 +91,8 @@ defmodule PhoenixKitCatalogue.Web.Components.CatalogueBrowse do
         show_sku: Map.get(assigns, :show_sku, true)
       }
 
+      columns = resolve_columns(assigns[:columns], display)
+
       socket =
         socket
         |> assign(display)
@@ -91,7 +102,8 @@ defmodule PhoenixKitCatalogue.Web.Components.CatalogueBrowse do
           on_item_click: assigns[:on_item_click] || false,
           show_search: Map.get(assigns, :show_search, true),
           view: Browse.resolve_view!(assigns[:view], "card"),
-          columns: resolve_columns(assigns[:columns], display),
+          columns: columns,
+          visible_columns: visible_columns(assigns[:columns], columns),
           categories: Browse.chip_categories(browse.scope, locale),
           browse: browse
         )
@@ -100,17 +112,25 @@ defmodule PhoenixKitCatalogue.Web.Components.CatalogueBrowse do
     end
   end
 
-  # The shared contract, minus what this surface has no use for by
-  # default: :qty (no selection here) and the modal's default-HIDDEN pair
-  # (:sku, :breadcrumb — without the modal's visibility layer they'd
-  # render outright, and :breadcrumb next to the :category column showed
-  # the category twice per row; 2026-08-31 sweep). An explicit list is
-  # taken verbatim (Browse.resolve_columns!/2 raises on unknown entries
-  # either way).
-  defp resolve_columns(nil, display),
-    do: Browse.resolve_columns!(nil, display) -- [:qty, :sku, :breadcrumb]
+  # The GRANT — the shared contract minus :qty, which is selection chrome
+  # this surface has none of. Cards and table both read from here, so a
+  # view toggle can never widen what the host allowed. An explicit list
+  # is taken verbatim (Browse.resolve_columns!/2 raises on unknown
+  # entries either way).
+  defp resolve_columns(nil, display), do: Browse.resolve_columns!(nil, display) -- [:qty]
 
   defp resolve_columns(columns, display), do: Browse.resolve_columns!(columns, display)
+
+  # What the TABLE renders: the grant minus the modal's default-HIDDEN
+  # pair (:sku, :breadcrumb — without the modal's Columns dropdown they'd
+  # render outright, and :breadcrumb next to the :category column showed
+  # the category twice per row; 2026-08-31 sweep). VISIBILITY, not grant:
+  # subtracting them from the grant instead also stripped the cards' SKU
+  # line, which show_sku has controlled since this component shipped and
+  # which no host could restore without an explicit columns list.
+  defp visible_columns(nil, granted), do: granted -- [:sku, :breadcrumb]
+
+  defp visible_columns(_explicit, granted), do: granted
 
   # Same synchronous fetch discipline as ItemSelectorModal — see the note
   # there. The duplication of this small executor between the two LCs is
@@ -224,8 +244,10 @@ defmodule PhoenixKitCatalogue.Web.Components.CatalogueBrowse do
           <.grid_skeleton id={"#{@id}-skeleton"} count={8} />
         <% end %>
         <%= for item <- @browse.items do %>
-          <%!-- Cards honour the same columns contract as the table — a
-          toggle must not resurrect a price the host didn't grant. --%>
+          <%!-- Cards honour the GRANT, not the table's visibility list —
+          a toggle must not resurrect a price the host didn't grant, and
+          the table's default-hidden SKU must not vanish from the cards
+          show_sku still asks for. --%>
           <.item_card
             id={"#{@id}-card-#{item.uuid}"}
             item={item}
@@ -240,18 +262,18 @@ defmodule PhoenixKitCatalogue.Web.Components.CatalogueBrowse do
       <.item_table
         :if={@view == "table" and (@browse.items != [] or @browse.loading?)}
         id={"#{@id}-table"}
-        columns={@columns}
+        columns={@visible_columns}
       >
         <%= if @browse.loading? and @browse.items == [] do %>
           <tr :for={i <- 1..5} id={"#{@id}-row-skeleton-#{i}"}>
-            <td colspan={length(@columns)}><div class="skeleton h-8 w-full"></div></td>
+            <td colspan={length(@visible_columns)}><div class="skeleton h-8 w-full"></div></td>
           </tr>
         <% end %>
         <%= for item <- @browse.items do %>
           <.item_row
             id={"#{@id}-row-#{item.uuid}"}
             item={item}
-            columns={@columns}
+            columns={@visible_columns}
             clickable={@on_item_click}
             target={@myself}
           />
