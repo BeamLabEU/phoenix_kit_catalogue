@@ -22,6 +22,9 @@ defmodule PhoenixKitCatalogue.Test.SelectorHostLive do
                     (unknown names map to :invalid_column so the modal's
                     own validation raise can be exercised)
     * `two`       — "true" mounts a SECOND picker (id-uniqueness tests)
+    * `ch`        — "false" turns the context header off
+    * `tray`      — "false" hides the cart button + review tray
+    * `title`     — explicit modal title
   """
 
   use Phoenix.LiveView
@@ -56,8 +59,14 @@ defmodule PhoenixKitCatalogue.Test.SelectorHostLive do
        cols: parse_cols(params["cols"]),
        hide: params["hide"] && parse_cols(params["hide"]) |> List.wrap(),
        show_prices: params["hide_prices"] != "true",
+       context_header: params["ch"] != "false",
+       show_tray: params["tray"] != "false",
+       show_item_details: params["details"] != "false",
+       title: params["title"],
+       per_page: params["pp"] && String.to_integer(params["pp"]),
        two: params["two"] == "true",
        browse: params["browse"] == "true",
+       browse_click: params["bclick"] != "false",
        clicked: nil,
        picked: nil,
        closed: false
@@ -101,8 +110,17 @@ defmodule PhoenixKitCatalogue.Test.SelectorHostLive do
     do: Map.put(scope, :statuses, String.split(raw, ",", trim: true))
 
   @impl true
-  def handle_info({:items_selected, payload}, socket),
-    do: {:noreply, assign(socket, picked: payload)}
+  def handle_event("toggle_prices", _params, socket),
+    do: {:noreply, assign(socket, :show_prices, !socket.assigns.show_prices)}
+
+  @impl true
+  def handle_info({:items_selected, payload}, socket) do
+    {:noreply,
+     assign(socket,
+       picked: payload,
+       picked_count: (socket.assigns[:picked_count] || 0) + 1
+     )}
+  end
 
   def handle_info({:catalogue_browse, %{event: :item_clicked, item: item}}, socket),
     do: {:noreply, assign(socket, clicked: item)}
@@ -119,7 +137,7 @@ defmodule PhoenixKitCatalogue.Test.SelectorHostLive do
         module={CatalogueBrowse}
         id="surface"
         scope={@scope}
-        on_item_click={true}
+        on_item_click={@browse_click}
       />
       <.live_component
         :if={@show and not @browse}
@@ -137,6 +155,11 @@ defmodule PhoenixKitCatalogue.Test.SelectorHostLive do
         columns={@cols}
         hidden_columns={@hide}
         show_prices={@show_prices}
+        context_header={@context_header}
+        show_tray={@show_tray}
+        show_item_details={@show_item_details}
+        title={@title}
+        per_page={@per_page}
       />
       <.live_component
         :if={@show and @two}
@@ -150,6 +173,7 @@ defmodule PhoenixKitCatalogue.Test.SelectorHostLive do
       <div :if={@clicked} id="clicked">{@clicked.name}|{@clicked.sku}</div>
       <div :if={@picked} id="picked">
         <span id="picked-count">{length(@picked.picks)}</span>
+        <span id="picked-messages">{@picked_count}</span>
         <div :for={pick <- @picked.picks} id={"pick-#{pick.uuid}"}>
           {pick.name}|{pick.sku}|qty={Decimal.to_string(pick.qty, :normal)}|decimal={inspect(match?(%Decimal{}, pick.qty))}|line={pick.line_total && Decimal.to_string(pick.line_total, :normal)}
         </div>

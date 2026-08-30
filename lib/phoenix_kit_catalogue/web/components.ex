@@ -36,14 +36,19 @@ defmodule PhoenixKitCatalogue.Web.Components do
       `search_items/2` opts, reports `{:items_selected, %{picks: …}}` /
       `{:item_selector_closed, _}` to the host LV.
     * `Components.CatalogueBrowse` — LiveComponent: the same browse
-      surface (search + category chips + card grid) without selection
-      chrome, for embedding a catalogue view on any logged-in page.
+      surface (search + category chips + card grid or admin-look table,
+      toggleable since 2026-08-30) without selection chrome, for
+      embedding a catalogue view on any logged-in page.
       Reports `{:catalogue_browse, %{event: :item_clicked, …}}`.
     * `Components.Browse` — the pure function components both are built
-      from (`item_card/1`, `item_grid/1`, `category_chips/1`,
-      `qty_stepper/1`, `grid_skeleton/1`, `present_items/2`) for hosts
-      that want to compose their own surface with
-      `Catalogue.BrowseState`.
+      from (`item_card/1`, `item_grid/1`, `item_table/1`, `item_row/1`,
+      `category_chips/1`, `qty_stepper/1`, `view_toggle/1`,
+      `column_toggle/1`, `grid_skeleton/1`, `present_items/2`, plus the
+      shared scope/column resolvers) for hosts that want to compose
+      their own surface with `Catalogue.BrowseState`. ⚠️ `Browse` has
+      its own `item_table/1` and `view_toggle/1`, colliding with THIS
+      module's same-named admin components — don't import both wholesale;
+      import Browse with `only:`/`except:` or call it qualified.
 
   Several of these (`search_input`, `search_results_summary`,
   `view_mode_toggle`) are deliberately generic — no

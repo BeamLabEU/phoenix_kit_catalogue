@@ -2757,6 +2757,9 @@ msgstr ""
 msgid "Supplier extra fields"
 msgstr ""
 
+msgid "Unit cost"
+msgstr "Unit cost"
+
 msgid "Unit cost must be a number."
 msgstr ""
 
@@ -2842,6 +2845,12 @@ msgstr ""
 #, elixir-autogen
 msgid "Select items"
 msgstr ""
+
+msgid "Add to selection"
+msgstr "Add to selection"
+
+msgid "Remove from selection"
+msgstr "Remove from selection"
 
 #: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:1182
 #, elixir-autogen

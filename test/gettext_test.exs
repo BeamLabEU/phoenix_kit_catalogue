@@ -617,6 +617,47 @@ defmodule PhoenixKitCatalogue.GettextTest do
       assert gettext_in("et", msgid) == "Otsingule vastavaid tooteid pole."
       assert gettext_in("ru", msgid) == "Нет позиций, соответствующих запросу."
     end
+
+    # The item-details page's mode-aware footer control (2026-08-30).
+    test "Add to selection" do
+      msgid = "Add to selection"
+      assert po_msgstr("en", msgid) != nil
+      assert gettext_in("et", msgid) == "Lisa valikusse"
+      assert gettext_in("ru", msgid) == "Добавить в выбор"
+    end
+
+    test "Remove from selection" do
+      msgid = "Remove from selection"
+      assert po_msgstr("en", msgid) != nil
+      assert gettext_in("et", msgid) == "Eemalda valikust"
+      assert gettext_in("ru", msgid) == "Убрать из выбора"
+    end
+
+    # The details page's Back button (2026-08-31 sweep caught the
+    # missing pin — its two sibling msgids from the same feature were
+    # pinned, this one wasn't).
+    test "Back" do
+      msgid = "Back"
+      assert po_msgstr("en", msgid) != nil
+      assert gettext_in("et", msgid) == "Tagasi"
+      assert gettext_in("ru", msgid) == "Назад"
+    end
+
+    # The built-in supplier field's label, translated at call time in
+    # SupplierFields.builtin_fields/0 (a compile-time map can only carry
+    # the msgid).
+    test "Unit cost" do
+      msgid = "Unit cost"
+      assert po_msgstr("en", msgid) != nil
+      assert gettext_in("et", msgid) == "Ühikuhind"
+      assert gettext_in("ru", msgid) == "Цена за единицу"
+
+      # The label is resolved at CALL time for the process locale.
+      Gettext.put_locale(PhoenixKitCatalogue.Gettext, "et")
+
+      assert PhoenixKitCatalogue.Catalogue.supplier_builtin_field("unit_cost")["label"] ==
+               "Ühikuhind"
+    end
   end
 
   describe "import failed-step strings are present in every locale" do

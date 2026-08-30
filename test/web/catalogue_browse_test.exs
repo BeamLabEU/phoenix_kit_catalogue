@@ -71,4 +71,91 @@ defmodule PhoenixKitCatalogue.Web.Components.CatalogueBrowseTest do
 
     assert html =~ "Widget"
   end
+
+  # 2026-08-30: the widget gained the modal's list view. Card grid stays
+  # the default so existing embeds render unchanged.
+  test "the view toggle switches to the admin-look table and back", %{
+    conn: conn,
+    cat: cat,
+    item: item
+  } do
+    {:ok, view, html} = live(conn, "/test/selector-host?browse=true&c=#{cat.uuid}")
+
+    # Default: grid, no table.
+    assert html =~ ~s(id="surface-grid")
+    refute html =~ ~s(id="surface-table")
+
+    html = view |> with_target("#surface") |> render_click("set_view", %{"mode" => "table"})
+    assert html =~ ~s(id="surface-table")
+    assert html =~ "Widget"
+    # No selection chrome in the table: no checkbox column, no qty cell.
+    refute html =~ "input type=\"checkbox\""
+    refute html =~ "qty_commit"
+
+    # Rows report the same generic message cards do.
+    view |> element("#surface-row-#{item.uuid} td", "Widget") |> render_click()
+    assert render(view) =~ ~s(id="clicked")
+
+    html = view |> with_target("#surface") |> render_click("set_view", %{"mode" => "card"})
+    assert html =~ ~s(id="surface-grid")
+  end
+
+  # 2026-08-31 sweep pins.
+  test "a decorative embed (on_item_click false, the default) sends nothing", %{
+    conn: conn,
+    cat: cat,
+    item: item
+  } do
+    {:ok, view, html} = live(conn, "/test/selector-host?browse=true&bclick=false&c=#{cat.uuid}")
+
+    # Cards render inert — and a crafted click is refused server-side,
+    # or a host with no handle_info clause would crash.
+    refute html =~ ~s(phx-click="card_click")
+    view |> with_target("#surface") |> render_click("card_click", %{"uuid" => item.uuid})
+    refute render(view) =~ ~s(id="clicked")
+  end
+
+  test "a crafted click for an item this surface never rendered is refused", %{
+    conn: conn,
+    cat: cat
+  } do
+    other = fixture_catalogue(%{name: "Elsewhere Cat"})
+    {:ok, foreign} = Catalogue.create_item(%{name: "Foreign", catalogue_uuid: other.uuid})
+
+    {:ok, view, _html} = live(conn, "/test/selector-host?browse=true&c=#{cat.uuid}")
+
+    view
+    |> with_target("#surface")
+    |> render_click("card_click", %{"uuid" => to_string(foreign.uuid)})
+
+    refute render(view) =~ ~s(id="clicked")
+  end
+
+  # The subtree-expansion fix from the 2026-08-25 quorum review reached
+  # only the modal; the widget compared literally and hid descendant
+  # chips. Shared via Browse.expand_scope/1 (2026-08-30).
+  test "a parent-category scope shows and accepts descendant chips", %{conn: conn, cat: cat} do
+    parent = fixture_category(cat, %{name: "Parent Cat"})
+    child = fixture_category(cat, %{name: "Child Cat", parent_uuid: parent.uuid})
+
+    {:ok, _nested} =
+      Catalogue.create_item(%{
+        name: "Nested Item",
+        catalogue_uuid: cat.uuid,
+        category_uuid: child.uuid
+      })
+
+    {:ok, view, html} =
+      live(conn, "/test/selector-host?browse=true&c=#{cat.uuid}&cat_scope=#{parent.uuid}")
+
+    assert html =~ "Child Cat"
+    assert html =~ "Nested Item"
+
+    html =
+      view
+      |> with_target("#surface")
+      |> render_click("browse_category", %{"uuid" => child.uuid})
+
+    assert html =~ "Nested Item"
+  end
 end

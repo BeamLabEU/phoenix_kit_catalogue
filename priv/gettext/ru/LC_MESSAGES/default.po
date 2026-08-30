@@ -2766,6 +2766,9 @@ msgstr "Удалить это поле? Значения, уже сохранё�
 msgid "Supplier extra fields"
 msgstr "Дополнительные поля поставщика"
 
+msgid "Unit cost"
+msgstr "Цена за единицу"
+
 msgid "Unit cost must be a number."
 msgstr "Цена за единицу должна быть числом."
 
@@ -2851,6 +2854,12 @@ msgstr "Загрузить ещё"
 #, elixir-autogen
 msgid "Select items"
 msgstr "Выберите позиции"
+
+msgid "Add to selection"
+msgstr "Добавить в выбор"
+
+msgid "Remove from selection"
+msgstr "Убрать из выбора"
 
 #: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:1182
 #, elixir-autogen

@@ -2701,16 +2701,28 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                     )}
                   </span>
                 </div>
-                <.select
-                  field={@form[:unit]}
-                  label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Unit")}
-                  class="transition-colors focus-within:select-primary"
-                  options={[
-                    {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Piece"), "piece"},
-                    {Gettext.gettext(PhoenixKitCatalogue.Gettext, "m² (square meter)"), "m2"},
-                    {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Running meter"), "running_meter"}
-                  ]}
-                />
+                <div>
+                  <%!-- Label hand-rolled to match `<.input>`'s (label mb-2 +
+                       plain font-semibold span): core's `<.select>` labels
+                       through FormFieldLabel, whose `fieldset-legend` span
+                       renders smaller — and in this grid of inputs the Unit
+                       field visibly broke the row. Candidate core fix noted
+                       in the 2026-08-30 report; local until that lands. --%>
+                  <label class="label mb-2" for={@form[:unit].id}>
+                    <span class="font-semibold">
+                      {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Unit")}
+                    </span>
+                  </label>
+                  <.select
+                    field={@form[:unit]}
+                    class="transition-colors focus-within:select-primary"
+                    options={[
+                      {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Piece"), "piece"},
+                      {Gettext.gettext(PhoenixKitCatalogue.Gettext, "m² (square meter)"), "m2"},
+                      {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Running meter"), "running_meter"}
+                    ]}
+                  />
+                </div>
                 <div class="fieldset">
                   <.input
                     field={@form[:markup_percentage]}
