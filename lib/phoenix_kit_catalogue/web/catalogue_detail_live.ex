@@ -3852,7 +3852,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                 child_subcat_counts={@child_subcat_counts}
                 file_counts={@file_counts}
                 view_mode={@view_mode}
-                show_uncat={false}
+                show_uncat={show_uncat_entry?(assigns)}
                 uncategorized_active_count={@uncategorized_active_count}
               />
               <.categories_table
@@ -3866,7 +3866,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                 children_with_subs={@children_with_subs}
                 view_mode={@view_mode}
                 file_counts={@file_counts}
-                show_uncat={false}
+                show_uncat={show_uncat_entry?(assigns)}
                 uncategorized_active_count={@uncategorized_active_count}
               />
             </div>
@@ -3887,6 +3887,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                 categories_columns={@categories_columns}
                 view_mode={@view_mode}
                 reorderable={@categories_sort_by == :position}
+                show_uncat={show_uncat_entry?(assigns)}
+                uncategorized_active_count={@uncategorized_active_count}
               />
             </div>
           </div>
@@ -4813,6 +4815,17 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     not items_mode?(assigns) or match?(%Category{}, assigns.current_category)
   end
 
+  # The root's loose items presented like any subcategory (Max,
+  # 2026-08-31: "show them, just like if we were inside a category and
+  # there were sub categories") — the category browser gets an
+  # Uncategorized entry when the bucket holds anything. Root only (the
+  # bucket is catalogue-level) and active mode only (the trash lists
+  # items, not buckets).
+  defp show_uncat_entry?(assigns) do
+    assigns.view_mode == "active" and is_nil(assigns.current_category) and
+      assigns.uncategorized_active_count > 0
+  end
+
   # The hook's "root" is the level the view stands in: the drilled
   # category, or nil at the catalogue's top. The uncategorized bucket
   # renders no tree, so a forged "root" there means the top level too.
@@ -4965,13 +4978,15 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   attr(:categories_columns, :list, required: true)
   attr(:view_mode, :string, required: true)
   attr(:reorderable, :boolean, required: true)
+  attr(:show_uncat, :boolean, default: false)
+  attr(:uncategorized_active_count, :integer, default: 0)
 
   defp categories_card_level(assigns) do
     assigns = assign(assigns, :roots, Map.get(assigns.tree_children, assigns.root_uuid, []))
 
     ~H"""
     <div
-      :if={@roots != []}
+      :if={@roots != [] or @show_uncat}
       id="catalogue-categories-cards"
       phx-hook="CatalogueTreeDnD"
       class="relative"
@@ -4995,7 +5010,15 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         categories_columns={@categories_columns}
         view_mode={@view_mode}
         reorderable={@reorderable}
-      />
+      >
+        <:trailing>
+          <.uncategorized_card
+            :if={@show_uncat}
+            count={@uncategorized_active_count}
+            patch={Paths.uncategorized_browse(@catalogue.uuid)}
+          />
+        </:trailing>
+      </.category_card_entries>
     </div>
     """
   end
@@ -5010,6 +5033,12 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   attr(:categories_columns, :list, required: true)
   attr(:view_mode, :string, required: true)
   attr(:reorderable, :boolean, required: true)
+
+  slot(:trailing,
+    doc:
+      "Rendered inside the grid after the level's cards — the root level " <>
+        "appends the Uncategorized tile here."
+  )
 
   # One level's cards: leaves as tiles, parents as full-width BOXES with
   # their children's grid inside, recursively — so the whole outline is
@@ -5105,6 +5134,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
           </div>
         <% end %>
       <% end %>
+      {render_slot(@trailing)}
     </div>
     """
   end

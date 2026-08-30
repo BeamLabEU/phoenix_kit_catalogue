@@ -905,6 +905,56 @@ defmodule PhoenixKitCatalogue.Web.Components do
   end
 
   @doc """
+  The Uncategorized bucket in the shared category card's clothes — the
+  catalogue's loose items presented like any subcategory (Max,
+  2026-08-31: "show them, just like if we were inside a category and
+  there were sub categories"). No Category record backs it, so it takes
+  the items count directly; navigation comes in like `category_card/1`'s
+  (`patch` for the admin pages, `phx_click`/`phx_target` for the popup —
+  the trigger then carries `phx-value-uuid="__uncategorized__"`).
+  """
+  attr(:count, :integer, default: nil, doc: "Items count; nil hides the facts grid.")
+  attr(:patch, :string, default: nil)
+  attr(:phx_click, :string, default: nil)
+  attr(:phx_target, :any, default: nil)
+
+  def uncategorized_card(assigns) do
+    ~H"""
+    <div class="group card card-sm bg-base-100 shadow hover:shadow-md transition-shadow overflow-hidden">
+      <figure class={card_media_band()}>
+        <.category_card_trigger
+          patch={@patch}
+          phx_click={@phx_click}
+          phx_target={@phx_target}
+          uuid="__uncategorized__"
+          class="block w-full h-full"
+        >
+          <.icon
+            name="hero-folder-open"
+            class="w-10 h-10 text-base-content/20 absolute inset-0 m-auto"
+          />
+        </.category_card_trigger>
+      </figure>
+      <div class="card-body p-3 gap-1.5">
+        <.category_card_trigger
+          patch={@patch}
+          phx_click={@phx_click}
+          phx_target={@phx_target}
+          uuid="__uncategorized__"
+          class="font-medium truncate text-left hover:text-primary"
+        >
+          {gettext("Uncategorized")}
+        </.category_card_trigger>
+        <div :if={@count} class="grid grid-cols-2 gap-x-3 gap-y-0.5 text-xs mt-1">
+          <div class="text-base-content/50">{gettext("Items")}</div>
+          <div class="tabular-nums">{@count}</div>
+        </div>
+      </div>
+    </div>
+    """
+  end
+
+  @doc """
   The category tables' configurable header cells — one per entry of the
   admin Columns modal's vocabulary, same order. Extracted with
   `category_body_cells/1` from the catalogue detail page (2026-08-31) so
