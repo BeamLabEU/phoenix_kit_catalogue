@@ -40,6 +40,23 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
       cancel/ESC/backdrop, AND after a confirm. Reset the `:if` assign
       here.
 
+  ## Header and tray
+
+  With `context_header` (default true) the modal's title area shows WHAT
+  is being browsed: when the scope names exactly one category (or,
+  failing that, one catalogue), its featured image, translated name and
+  description render as the header — the category wins as the more
+  specific. An explicit `title` attr still names the modal (the context
+  adds image/description around it); `context_header: false`, a
+  multi-entry scope, or any resolution failure falls back to the plain
+  title. Chrome, not data: nothing here widens what can be browsed.
+
+  `show_tray` (default true) controls the cart-count button and the
+  expandable review list at the bottom. Pass `false` for embeds where
+  the selection is already visible in place — a quantity-first order
+  sheet shows a number above 0 on every picked row. Cancel and Confirm
+  always stay.
+
   ## Views and columns
 
   Two presentations over the same fetch: `view: "table"` (the default — a
@@ -174,8 +191,15 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
 
     limits = resolve_limits!(assigns, qty_precision)
     display = display_opts(assigns)
-    columns = resolve_columns!(assigns[:columns], display)
+    columns = Browse.resolve_columns!(assigns[:columns], display)
     selection_mode = resolve_selection_mode!(assigns[:selection_mode])
+
+    # Resolved from the ORIGINAL scope, before subtree expansion — the
+    # host named a catalogue or category, and that record is the header.
+    header_context =
+      if Map.get(assigns, :context_header, true),
+        do: resolve_header_context(assigns[:scope] || %{}, locale),
+        else: nil
 
     socket =
       socket
@@ -184,7 +208,8 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
         initialized: true,
         mode: mode,
         locale: locale,
-        view: resolve_view!(assigns[:view]),
+        header_context: header_context,
+        view: Browse.resolve_view!(assigns[:view], "table"),
         columns: columns,
         visible_columns:
           resolve_visible_columns!(selection_mode, columns, assigns[:hidden_columns]),
@@ -230,17 +255,6 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
 
     limits
   end
-
-  defp resolve_view!(nil), do: "table"
-  defp resolve_view!(view) when view in ["table", "card"], do: view
-  defp resolve_view!(view) when view in [:table, :card], do: to_string(view)
-
-  defp resolve_view!(other),
-    do:
-      raise(
-        ArgumentError,
-        ~s(ItemSelectorModal view must be "table" or "card", got: #{inspect(other)})
-      )
 
   defp resolve_selection_mode!(nil), do: "click"
   defp resolve_selection_mode!(mode) when mode in ["click", "quantity"], do: mode
@@ -302,75 +316,23 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
     col in @identity_columns and Enum.filter(@identity_columns, &(&1 in visible)) == [col]
   end
 
-  # The popup is potentially client-facing, so columns are a host contract:
-  # nothing renders that the embed didn't ask for. With no explicit list,
-  # the full vocabulary applies minus whatever show_sku/show_prices already
-  # opt out of; an explicit list is taken verbatim, in order, and unknown
-  # entries raise — a silently-dropped column is how a price ends up shown
-  # to the wrong audience's sibling.
-  defp resolve_columns!(nil, display) do
-    Enum.reject(
-      Browse.default_table_columns(),
-      &((&1 == :sku and not display.show_sku) or (&1 == :price and not display.show_prices))
-    )
-  end
+  # The popup is potentially client-facing, so columns are a host contract
+  # (see Browse.resolve_columns!/2, shared with CatalogueBrowse).
 
-  defp resolve_columns!(columns, _display) when is_list(columns) and columns != [] do
-    case Enum.reject(columns, &(&1 in Browse.table_columns())) do
-      [] ->
-        columns
-
-      bad ->
-        raise ArgumentError,
-              "ItemSelectorModal columns has unknown entries #{inspect(bad)} — " <>
-                "use #{inspect(Browse.table_columns())}"
-    end
-  end
-
-  defp resolve_columns!(other, _display),
-    do:
-      raise(
-        ArgumentError,
-        "ItemSelectorModal columns must be a non-empty list of atoms, got: #{inspect(other)}"
-      )
-
-  # A parent-category scope means "that category and its subtree"
-  # (include_descendants defaults to true across the search vocabulary),
-  # but chips and `BrowseState.category_allowed?/2` compare literally — so
-  # descendant chips vanished from the row and narrowing to one was
-  # rejected as out of scope. Expand the subtree ONCE here and hand every
-  # consumer (query, chips, allowed?, in_scope?) the same literal list.
-  # Anything not shaped like an expandable scope passes through untouched
-  # for BrowseState.init/1 to validate loudly.
-  defp expand_scope(scope) do
-    scope = if is_map(scope), do: scope, else: Map.new(scope)
-
-    case scope[:category_uuids] do
-      uuids when is_list(uuids) and uuids != [] ->
-        if Map.get(scope, :include_descendants, true) do
-          # subtree_uuids_for/1 returns Postgres' raw 16-byte binaries;
-          # normalize to the string form chips render and client events
-          # carry, or membership checks compare apples to bytes. The flag
-          # STAYS true: flipping it made a parent-chip click fetch only the
-          # parent's direct items (children vanished). Re-expanding the full
-          # list is idempotent, and a member's subtree cannot escape the
-          # root's subtree, so narrowing stays inside the allow-list.
-          expanded = Enum.map(Tree.subtree_uuids_for(uuids), &normalize_uuid/1)
-          Map.put(scope, :category_uuids, expanded)
-        else
-          scope
-        end
-
-      _ ->
-        scope
-    end
-  end
+  # Scope subtree expansion + chip resolution are shared with
+  # CatalogueBrowse — see Browse.expand_scope/1 and Browse.chip_categories/2
+  # (imported).
 
   defp display_opts(assigns) do
     %{
       immediate: assigns[:immediate] || false,
       show_prices: Map.get(assigns, :show_prices, true),
       show_sku: Map.get(assigns, :show_sku, true),
+      # The cart-count button + expandable review list. Off for embeds
+      # where the selection is already visible in place — quantity-first
+      # order sheets show a number above 0 on every picked row (2026-08-30,
+      # the "shopping cart" flexibility ask). Cancel/Confirm always stay.
+      show_tray: Map.get(assigns, :show_tray, true),
       title: assigns[:title]
     }
   end
@@ -525,60 +487,9 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
     end
   end
 
-  defp normalize_uuid(nil), do: nil
-
-  defp normalize_uuid(bin) when is_binary(bin) and byte_size(bin) == 16 do
-    case Ecto.UUID.load(bin) do
-      {:ok, uuid} -> uuid
-      :error -> bin
-    end
-  end
-
-  defp normalize_uuid(other), do: to_string(other)
-
   defp only_ok?(:uncategorized_only, item), do: is_nil(item.category_uuid)
   defp only_ok?(:categorized_only, item), do: not is_nil(item.category_uuid)
   defp only_ok?(_other, _item), do: true
-
-  # Chips only make sense inside one catalogue — with several (or all),
-  # a flat chip row of every category across catalogues is noise, and
-  # search does the narrowing instead.
-  #
-  # Metadata-only: `list_categories_for_catalogue/1` preloads every item
-  # in every item category, which is a full-catalogue load just to render
-  # chips. Names go through `translated_name/2` — chips face the viewer,
-  # and the primary-language column ignored their locale (PR #76 review,
-  # finding 14).
-  # An :uncategorized_only scope contradicts every category narrowing —
-  # search_items/2 raises on the combination — so offering chips would
-  # offer only invalid actions (BrowseState rejects them too; see
-  # category_allowed?/2).
-  defp chip_categories(%{only: :uncategorized_only}, _locale), do: []
-
-  defp chip_categories(%{catalogue_uuids: [catalogue_uuid]} = scope, locale) do
-    categories = Catalogue.list_categories_metadata_for_catalogue(catalogue_uuid)
-
-    categories =
-      case scope[:category_uuids] do
-        nil ->
-          categories
-
-        [] ->
-          categories
-
-        allowed ->
-          allowed = Enum.map(allowed, &to_string/1)
-          Enum.filter(categories, fn category -> to_string(category.uuid) in allowed end)
-      end
-
-    Enum.map(categories, fn category ->
-      %{uuid: to_string(category.uuid), name: translated_name(category, locale)}
-    end)
-  rescue
-    _ -> []
-  end
-
-  defp chip_categories(_scope, _locale), do: []
 
   defp translated_name(record, locale) do
     translation =
@@ -591,6 +502,37 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
     Map.get(translation, "_name") ||
       Map.get(translation, "name") ||
       Map.get(record, :name)
+  end
+
+  # The scoped record IS the modal's subject, so the header shows it:
+  # image + name + description (2026-08-30). The category wins over the
+  # catalogue when the scope names exactly one of each — more specific is
+  # what the user is looking at. Header chrome, not data: any failure
+  # (unknown uuid, unloadable image, multi-entry scopes) resolves to nil
+  # and the plain title renders instead.
+  defp resolve_header_context(scope, locale) do
+    scope = if is_map(scope), do: scope, else: Map.new(scope)
+
+    record =
+      case {scope[:category_uuids], scope[:catalogue_uuids]} do
+        {[uuid], _} -> Catalogue.get_category(normalize_uuid(uuid))
+        {_, [uuid]} -> Catalogue.get_catalogue(normalize_uuid(uuid))
+        _ -> nil
+      end
+
+    case record do
+      nil ->
+        nil
+
+      record ->
+        %{
+          name: translated_name(record, locale),
+          description: Catalogue.translated_description(record, locale),
+          image_url: Browse.featured_thumb_url(record)
+        }
+    end
+  rescue
+    _ -> nil
   end
 
   # ── Events: browsing ─────────────────────────────────────────────────
@@ -736,8 +678,13 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
   def handle_event("remove_pick", %{"uuid" => uuid}, socket),
     do: {:noreply, deselect(socket, uuid)}
 
-  def handle_event("toggle_tray", _params, socket),
-    do: {:noreply, assign(socket, tray_open: !socket.assigns.tray_open)}
+  def handle_event("toggle_tray", _params, socket) do
+    # No-op when the tray is disabled: the render gate already hides it,
+    # this just keeps a crafted toggle from flipping invisible state.
+    if socket.assigns.show_tray,
+      do: {:noreply, assign(socket, tray_open: !socket.assigns.tray_open)},
+      else: {:noreply, socket}
+  end
 
   # ── Events: closing ──────────────────────────────────────────────────
 
@@ -1024,7 +971,32 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
         class="xl:max-w-6xl 2xl:max-w-7xl"
         max_height="85vh"
       >
-        <:title>{modal_title(@title)}</:title>
+        <:title>
+          <%!-- Context header (2026-08-30): the scoped catalogue/category's
+          image, name and description instead of a bare "Select items" —
+          the modal says what it is showing. context_header={false} or an
+          unresolvable scope falls back to the plain title. An explicit
+          title attr still names the modal; the context then only adds
+          the image and description around it. --%>
+          <div :if={@header_context} class="flex items-center gap-3 min-w-0">
+            <img
+              :if={@header_context.image_url}
+              src={@header_context.image_url}
+              alt=""
+              class="w-12 h-12 rounded-lg object-cover bg-base-200 shrink-0"
+            />
+            <div class="min-w-0">
+              <div class="truncate">{@title || @header_context.name || modal_title(nil)}</div>
+              <div
+                :if={@header_context.description}
+                class="text-sm font-normal text-base-content/60 truncate"
+              >
+                {@header_context.description}
+              </div>
+            </div>
+          </div>
+          <span :if={!@header_context}>{modal_title(@title)}</span>
+        </:title>
 
         <div class="flex flex-col gap-3">
           <%!-- Header: search + chips. --%>
@@ -1186,7 +1158,12 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
           <%!-- Selection tray. --%>
           <div :if={@mode != :single or not @immediate} class="border-t border-base-300 pt-3">
             <div class="flex items-center justify-between gap-3">
+              <%!-- show_tray={false}: no cart button, no review list — the
+              host's rows already show the selection. The spacer keeps
+              Cancel/Confirm on the right. --%>
+              <span :if={!@show_tray}></span>
               <button
+                :if={@show_tray}
                 type="button"
                 class="btn btn-ghost btn-sm gap-2"
                 phx-click="toggle_tray"
@@ -1223,7 +1200,10 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
               </div>
             </div>
 
-            <div :if={@tray_open and @selection != %{}} class="mt-3 max-h-[26vh] overflow-y-auto">
+            <div
+              :if={@show_tray and @tray_open and @selection != %{}}
+              class="mt-3 max-h-[26vh] overflow-y-auto"
+            >
               <div
                 :for={
                   {uuid, entry} <-

@@ -1272,7 +1272,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       parent = fixture_category(cat, %{name: "Parent Cat"})
       child = fixture_category(cat, %{name: "Child Cat", parent_uuid: parent.uuid})
 
-      {:ok, nested} =
+      {:ok, _nested} =
         Catalogue.create_item(%{
           name: "Nested Item",
           catalogue_uuid: cat.uuid,
@@ -1289,6 +1289,55 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       # out-of-scope.
       html = view |> picker() |> render_click("browse_category", %{"uuid" => child.uuid})
       assert html =~ "Nested Item"
+    end
+  end
+
+  describe "context header and tray flexibility (2026-08-30)" do
+    test "the header shows the scoped catalogue instead of a bare title", %{
+      conn: conn,
+      cat: cat
+    } do
+      {:ok, _view, html} = open(conn, "c=#{cat.uuid}")
+
+      assert html =~ "Picker Catalogue"
+      refute html =~ "Select items"
+    end
+
+    test "a scoped category outranks its catalogue in the header", %{conn: conn, cat: cat} do
+      shelving = fixture_category(cat, %{name: "Shelving Wall"})
+
+      {:ok, _view, html} = open(conn, "c=#{cat.uuid}&cat_scope=#{shelving.uuid}")
+
+      assert html =~ "Shelving Wall"
+    end
+
+    test "context_header off falls back to the plain title; explicit title wins", %{
+      conn: conn,
+      cat: cat
+    } do
+      {:ok, _view, html} = open(conn, "c=#{cat.uuid}&ch=false")
+      assert html =~ "Select items"
+      refute html =~ ~s(class="w-12 h-12 rounded-lg)
+
+      {:ok, _view, html} = open(conn, "c=#{cat.uuid}&title=Order+sheet")
+      assert html =~ "Order sheet"
+    end
+
+    test "show_tray off hides the cart button and refuses its toggle", %{
+      conn: conn,
+      cat: cat,
+      screw: screw
+    } do
+      {:ok, view, html} = open(conn, "c=#{cat.uuid}&tray=false")
+
+      refute html =~ "toggle_tray"
+      # Confirm still works without the tray chrome.
+      view |> picker() |> render_click("card_click", %{"uuid" => screw.uuid})
+      view |> picker() |> render_click("toggle_tray", %{})
+      refute render(view) =~ "remove_pick"
+
+      view |> picker() |> render_click("confirm", %{})
+      assert render(view) =~ ~s(id="picked")
     end
   end
 

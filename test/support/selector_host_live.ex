@@ -22,6 +22,9 @@ defmodule PhoenixKitCatalogue.Test.SelectorHostLive do
                     (unknown names map to :invalid_column so the modal's
                     own validation raise can be exercised)
     * `two`       — "true" mounts a SECOND picker (id-uniqueness tests)
+    * `ch`        — "false" turns the context header off
+    * `tray`      — "false" hides the cart button + review tray
+    * `title`     — explicit modal title
   """
 
   use Phoenix.LiveView
@@ -56,6 +59,9 @@ defmodule PhoenixKitCatalogue.Test.SelectorHostLive do
        cols: parse_cols(params["cols"]),
        hide: params["hide"] && parse_cols(params["hide"]) |> List.wrap(),
        show_prices: params["hide_prices"] != "true",
+       context_header: params["ch"] != "false",
+       show_tray: params["tray"] != "false",
+       title: params["title"],
        two: params["two"] == "true",
        browse: params["browse"] == "true",
        clicked: nil,
@@ -137,6 +143,9 @@ defmodule PhoenixKitCatalogue.Test.SelectorHostLive do
         columns={@cols}
         hidden_columns={@hide}
         show_prices={@show_prices}
+        context_header={@context_header}
+        show_tray={@show_tray}
+        title={@title}
       />
       <.live_component
         :if={@show and @two}
