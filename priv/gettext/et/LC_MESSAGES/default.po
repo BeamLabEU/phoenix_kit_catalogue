@@ -2843,6 +2843,12 @@ msgstr "Laadi veel"
 msgid "Select items"
 msgstr "Vali tooted"
 
+msgid "Add to selection"
+msgstr "Lisa valikusse"
+
+msgid "Remove from selection"
+msgstr "Eemalda valikust"
+
 #: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:1182
 #, elixir-autogen
 msgid "Confirm selection"

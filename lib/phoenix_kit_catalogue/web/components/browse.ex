@@ -313,6 +313,16 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
   attr(:clickable, :boolean, default: true)
   attr(:show_price, :boolean, default: true)
   attr(:show_sku, :boolean, default: true)
+
+  attr(:photo_click, :string,
+    default: nil,
+    doc:
+      "event name for a click on the photo area — the \"view details\" " <>
+        "affordance (2026-08-30). When set, the figure becomes its own " <>
+        "button dispatching this with the uuid, and only the card BODY " <>
+        "carries the select toggle. Nil keeps the whole face one target."
+  )
+
   attr(:target, :any, default: nil)
   slot(:footer)
 
@@ -329,6 +339,20 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
       ]}
       data-selected={to_string(@selected)}
     >
+      <%!-- Details affordance split (2026-08-30): with photo_click set the
+      figure is its own button ("photo means look closer") and the body
+      keeps the select toggle — the two gestures never share a target. --%>
+      <button
+        :if={@photo_click}
+        type="button"
+        class="w-full cursor-pointer"
+        phx-click={@photo_click}
+        phx-value-uuid={@item.uuid}
+        phx-target={@target}
+        aria-label={@item.name}
+      >
+        <.item_card_figure item={@item} selected={@selected} show_sku={@show_sku} />
+      </button>
       <button
         type="button"
         class="text-left w-full cursor-pointer disabled:cursor-default"
@@ -339,33 +363,7 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
         aria-pressed={@selected}
         aria-label={@item.name}
       >
-        <figure class="relative aspect-square bg-base-200">
-          <img
-            :if={@item.photo_url}
-            src={@item.photo_url}
-            alt={@item.name}
-            class="w-full h-full object-cover"
-            loading="lazy"
-            decoding="async"
-          />
-          <%!-- No photo: a deliberate tile (SKU initial), not a broken image.
-          The SKU line honors show_sku — the placeholder must not leak what
-          the card body hides. --%>
-          <div
-            :if={!@item.photo_url}
-            class="w-full h-full flex flex-col items-center justify-center text-base-content/40"
-          >
-            <span class="text-4xl font-bold">{String.first(@item.sku || @item.name || "?")}</span>
-            <span :if={@show_sku && @item.sku} class="font-mono text-xs mt-1">{@item.sku}</span>
-          </div>
-          <span
-            :if={@selected}
-            class="absolute top-2 right-2 badge badge-primary badge-sm gap-1"
-            aria-hidden="true"
-          >
-            <.icon name="hero-check" class="w-3 h-3" />
-          </span>
-        </figure>
+        <.item_card_figure :if={!@photo_click} item={@item} selected={@selected} show_sku={@show_sku} />
         <div class="card-body p-3 gap-0.5">
           <span class="font-medium text-sm leading-snug line-clamp-2" title={@item.name}>
             {@item.name}
@@ -383,6 +381,42 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
       </button>
       {render_slot(@footer)}
     </div>
+    """
+  end
+
+  attr(:item, :map, required: true)
+  attr(:selected, :boolean, required: true)
+  attr(:show_sku, :boolean, required: true)
+
+  defp item_card_figure(assigns) do
+    ~H"""
+    <figure class="relative aspect-square bg-base-200">
+      <img
+        :if={@item.photo_url}
+        src={@item.photo_url}
+        alt={@item.name}
+        class="w-full h-full object-cover"
+        loading="lazy"
+        decoding="async"
+      />
+      <%!-- No photo: a deliberate tile (SKU initial), not a broken image.
+      The SKU line honors show_sku — the placeholder must not leak what
+      the card body hides. --%>
+      <div
+        :if={!@item.photo_url}
+        class="w-full h-full flex flex-col items-center justify-center text-base-content/40"
+      >
+        <span class="text-4xl font-bold">{String.first(@item.sku || @item.name || "?")}</span>
+        <span :if={@show_sku && @item.sku} class="font-mono text-xs mt-1">{@item.sku}</span>
+      </div>
+      <span
+        :if={@selected}
+        class="absolute top-2 right-2 badge badge-primary badge-sm gap-1"
+        aria-hidden="true"
+      >
+        <.icon name="hero-check" class="w-3 h-3" />
+      </span>
+    </figure>
     """
   end
 
@@ -612,6 +646,15 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
         "rest of the row, so there is no second selection pathway to guard."
   )
 
+  attr(:thumb_click, :string,
+    default: nil,
+    doc:
+      "event name for a click on the :thumb cell — the \"view details\" " <>
+        "affordance (2026-08-30). When set, the thumb stops carrying the " <>
+        "row's select toggle and dispatches this instead, with the uuid. " <>
+        "Nil keeps the thumb a plain select cell like every other."
+  )
+
   attr(:target, :any, default: nil)
   slot(:qty, doc: "rendered in the :qty cell when that column is present")
 
@@ -643,11 +686,12 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
         class={[
           row_cell_class(col),
           col_responsive_class(col),
-          col != :qty and @clickable && "cursor-pointer"
+          cell_event(col, assigns) && "cursor-pointer"
         ]}
-        phx-click={if col != :qty and @clickable, do: "card_click"}
-        phx-value-uuid={if col != :qty and @clickable, do: @item.uuid}
-        phx-target={if col != :qty and @clickable, do: @target}
+        phx-click={cell_event(col, assigns)}
+        phx-value-uuid={if cell_event(col, assigns), do: @item.uuid}
+        phx-target={if cell_event(col, assigns), do: @target}
+        aria-label={col == :thumb && @thumb_click && @item.name}
       >
         <%= case col do %>
           <% :thumb -> %>
@@ -713,6 +757,15 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
     </.table_default_row>
     """
   end
+
+  # Which event a row cell dispatches: the thumb carries the details
+  # affordance when the host enabled one; every other cell (bar :qty,
+  # whose stepper must never toggle the row underneath) carries the
+  # select toggle while the row is clickable.
+  defp cell_event(:qty, _assigns), do: nil
+  defp cell_event(:thumb, %{thumb_click: event}) when is_binary(event), do: event
+  defp cell_event(_col, %{clickable: true}), do: "card_click"
+  defp cell_event(_col, _assigns), do: nil
 
   defp row_cell_class(:thumb), do: "w-10"
   defp row_cell_class(:name), do: "w-full"

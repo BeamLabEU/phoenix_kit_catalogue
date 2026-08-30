@@ -617,6 +617,21 @@ defmodule PhoenixKitCatalogue.GettextTest do
       assert gettext_in("et", msgid) == "Otsingule vastavaid tooteid pole."
       assert gettext_in("ru", msgid) == "Нет позиций, соответствующих запросу."
     end
+
+    # The item-details page's mode-aware footer control (2026-08-30).
+    test "Add to selection" do
+      msgid = "Add to selection"
+      assert po_msgstr("en", msgid) != nil
+      assert gettext_in("et", msgid) == "Lisa valikusse"
+      assert gettext_in("ru", msgid) == "Добавить в выбор"
+    end
+
+    test "Remove from selection" do
+      msgid = "Remove from selection"
+      assert po_msgstr("en", msgid) != nil
+      assert gettext_in("et", msgid) == "Eemalda valikust"
+      assert gettext_in("ru", msgid) == "Убрать из выбора"
+    end
   end
 
   describe "import failed-step strings are present in every locale" do

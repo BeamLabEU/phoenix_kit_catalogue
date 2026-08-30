@@ -40,6 +40,25 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
       cancel/ESC/backdrop, AND after a confirm. Reset the `:if` assign
       here.
 
+  ## Item details page
+
+  `show_item_details: true` (default `false`) turns the photo/thumbnail
+  into a "look closer" affordance — the same gesture `ItemPicker` ships —
+  opening the item's full details INSIDE the modal: the `ProductCard`
+  body (photo/file carousel, SKU, price, unit, description, metadata,
+  attributes), covering the browse region with a Back button. The list
+  stays mounted underneath — search, chips, scroll and selection are
+  exactly where the user left them. A mode-aware selection control sits
+  in the detail footer (Add/Remove in click mode, the quantity input in
+  quantity mode); opening never auto-selects.
+
+  Opt-in deliberately: the detail body shows description, metadata and
+  attached files — more than the columns contract granted — and it
+  repurposes a click that selects in existing embeds. It honours
+  `show_prices`/`show_sku`. With columns omitting `:thumb` the table view
+  has no entry point (cards keep theirs). Videos/FAQ sections are a
+  planned extension once the item data model carries them.
+
   ## Header and tray
 
   With `context_header` (default true) the modal's title area shows WHAT
@@ -143,6 +162,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
   alias PhoenixKitCatalogue.Catalogue.BrowseState
   alias PhoenixKitCatalogue.Catalogue.Tree
   alias PhoenixKitCatalogue.Web.Components.Browse
+  alias PhoenixKitCatalogue.Web.Components.ProductCard
 
   # A hard ceiling even when the host sets no qty_max: Decimal.parse
   # accepts "1e1000000" as a full match, and an absurd exponent is a
@@ -155,6 +175,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
      assign(socket,
        initialized: false,
        tray_open: false,
+       detail: nil,
        drafts: %{}
      )}
   end
@@ -333,6 +354,12 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
       # order sheets show a number above 0 on every picked row (2026-08-30,
       # the "shopping cart" flexibility ask). Cancel/Confirm always stay.
       show_tray: Map.get(assigns, :show_tray, true),
+      # The in-modal item details page (2026-08-30). Opt-in: the detail
+      # body shows description, metadata and attached files — more than
+      # the columns contract granted — and it repurposes the photo/thumb
+      # click, which selects in existing click-mode embeds. Panel split
+      # 2–2 on the default; opt-in won on the exposure argument.
+      show_item_details: Map.get(assigns, :show_item_details, false),
       title: assigns[:title]
     }
   end
@@ -592,6 +619,27 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
     {:noreply, socket |> assign(browse: browse) |> run_fetch(effect)}
   end
 
+  # ── Events: item details page ────────────────────────────────────────
+
+  def handle_event("show_detail", %{"uuid" => uuid}, socket) do
+    # Same rendered-uuid rule as selection: details open only for rows
+    # this component itself rendered (or holds in the tray). Refused
+    # outright when the host didn't opt in — the affordance doesn't
+    # render then, so only a crafted push lands here.
+    known? =
+      is_map(socket.assigns.presented[uuid]) or
+        Map.has_key?(socket.assigns.selection, uuid)
+
+    if socket.assigns.show_item_details and known? do
+      {:noreply, open_detail(socket, uuid)}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_event("close_detail", _params, socket),
+    do: {:noreply, assign(socket, detail: nil)}
+
   # ── Events: selection ────────────────────────────────────────────────
 
   def handle_event("card_click", %{"uuid" => uuid}, socket) do
@@ -627,31 +675,10 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
   def handle_event("qty_change", %{"uuid" => uuid, "value" => raw}, socket) do
     cond do
       Map.has_key?(socket.assigns.selection, uuid) ->
-        if socket.assigns.selection_mode == "quantity" and zero_qty?(raw) do
-          {:noreply, deselect(socket, uuid)}
-        else
-          case parse_qty(raw, socket.assigns) do
-            {:ok, qty} -> {:noreply, put_qty(socket, uuid, qty)}
-            :error -> {:noreply, socket}
-          end
-        end
+        {:noreply, change_selected_qty(socket, uuid, raw)}
 
       socket.assigns.selection_mode == "quantity" and is_map(socket.assigns.presented[uuid]) ->
-        case parse_qty(raw, socket.assigns) do
-          {:ok, qty} ->
-            if Decimal.gt?(qty, 0) do
-              {:noreply,
-               socket
-               |> select_entry(socket.assigns.presented[uuid])
-               |> put_qty(uuid, qty)
-               |> maybe_notify_immediate()}
-            else
-              {:noreply, socket}
-            end
-
-          :error ->
-            {:noreply, socket}
-        end
+        {:noreply, change_first_qty(socket, uuid, raw)}
 
       true ->
         {:noreply, socket}
@@ -708,6 +735,39 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
   # A crafted payload with missing keys must degrade to a no-op, not a
   # FunctionClauseError that takes the whole LiveView down.
   def handle_event(_event, _params, socket), do: {:noreply, socket}
+
+  # Selected row, live path: apply what parses, ignore what doesn't. In
+  # quantity mode zero deselects whatever qty_min says (see commit_qty).
+  defp change_selected_qty(socket, uuid, raw) do
+    if socket.assigns.selection_mode == "quantity" and zero_qty?(raw) do
+      deselect(socket, uuid)
+    else
+      case parse_qty(raw, socket.assigns) do
+        {:ok, qty} -> put_qty(socket, uuid, qty)
+        :error -> socket
+      end
+    end
+  end
+
+  # Quantity-first, unselected row: a positive live value IS the
+  # selection, exactly like commit_first_qty but without the revision
+  # machinery — nothing to reset on the live path.
+  defp change_first_qty(socket, uuid, raw) do
+    case parse_qty(raw, socket.assigns) do
+      {:ok, qty} ->
+        if Decimal.gt?(qty, 0) do
+          socket
+          |> select_entry(socket.assigns.presented[uuid])
+          |> put_qty(uuid, qty)
+          |> maybe_notify_immediate()
+        else
+          socket
+        end
+
+      :error ->
+        socket
+    end
+  end
 
   # Selected row: bump the per-row revision so the input's id changes —
   # morphdom will not reset typed garbage (or "01") when the value attr is
@@ -784,6 +844,35 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
       selection: Map.delete(socket.assigns.selection, uuid),
       drafts: Map.delete(socket.assigns.drafts, uuid)
     )
+  end
+
+  # One query, soft-deleted rows already excluded — an item deleted
+  # between render and click quietly stays on the list.
+  defp open_detail(socket, uuid) do
+    case Catalogue.list_items_by_uuids([uuid]) do
+      [item] ->
+        locale = socket.assigns.locale
+
+        assign(socket,
+          detail: %{
+            uuid: uuid,
+            name: ProductCard.resolve_name(item, locale),
+            images: ProductCard.resolve_images(item),
+            # The detail page honours the same display grants as the list:
+            # a host that hid prices or SKUs must not have them reappear
+            # one thumbnail-click away.
+            fields:
+              ProductCard.build_fields(item, locale,
+                include_price: socket.assigns.show_prices,
+                include_sku: socket.assigns.show_sku
+              ),
+            files: ProductCard.resolve_files(item)
+          }
+        )
+
+      _ ->
+        socket
+    end
   end
 
   # A lenient zero probe for the quantity-first paths: parse_qty compares
@@ -920,6 +1009,16 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
   # recreates the input and discards rejected garbage.
   defp qty_rev(assigns, uuid), do: assigns.drafts[uuid] || 0
 
+  # The detail row's unit, read from what the component already holds —
+  # the presented page (usual) or a tray entry (a preselect not on the
+  # current page).
+  defp detail_unit(%{presented: presented, selection: selection, detail: %{uuid: uuid}}) do
+    case presented[uuid] || (selection[uuid] && selection[uuid].item) do
+      %{unit: unit} -> unit
+      _ -> nil
+    end
+  end
+
   # min/max attrs for the native number control: the down arrow stops at
   # the mode's floor — zero in quantity-first (zero IS deselection there),
   # the host's minimum otherwise. Shapes the arrows only; every limit is
@@ -999,6 +1098,13 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
         </:title>
 
         <div class="flex flex-col gap-3">
+          <%!-- The browse region: search, chips, results. `relative` so the
+          item-details page can COVER it (2026-08-30) — the list stays
+          mounted underneath with its scroll position and every assign
+          intact, and Back is just removing the cover. One dialog, one top
+          layer, no nested-dialog focus fights. The tray stays outside,
+          visible under both. --%>
+          <div class="relative flex flex-col gap-3">
           <%!-- Header: search + chips. --%>
           <%!-- phx-submit is load-bearing: a phx-change form WITHOUT it is
           treated by LiveView's client as an external form — Enter would
@@ -1074,6 +1180,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
                   clickable={@selection_mode != "quantity"}
                   show_price={@show_prices and :price in @visible_columns}
                   show_sku={@show_sku and :sku in @visible_columns}
+                  photo_click={if(@show_item_details, do: "show_detail")}
                   target={@myself}
                 >
                   <:footer>
@@ -1116,6 +1223,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
                   selected={Map.has_key?(@selection, item.uuid)}
                   clickable={@selection_mode != "quantity"}
                   checkbox={@selection_mode != "quantity"}
+                  thumb_click={if(@show_item_details, do: "show_detail")}
                   target={@myself}
                 >
                   <:qty>
@@ -1153,6 +1261,67 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
                 {gettext("Load more")}
               </button>
             </div>
+          </div>
+
+          <%!-- The item-details page, covering the browse region. --%>
+          <div :if={@detail} class="absolute inset-0 z-10 bg-base-100 flex flex-col gap-2">
+            <div class="flex items-center gap-2">
+              <button
+                type="button"
+                class="btn btn-ghost btn-sm gap-1"
+                phx-click="close_detail"
+                phx-target={@myself}
+              >
+                <span class="hero-arrow-left w-4 h-4"></span>
+                {gettext("Back")}
+              </button>
+              <span class="font-semibold truncate">{@detail.name}</span>
+            </div>
+            <div class="flex-1 min-h-0 overflow-y-auto pr-1">
+              <ProductCard.product_card_body
+                target={@myself}
+                item_name={@detail.name}
+                images={@detail.images}
+                fields={@detail.fields}
+                files={@detail.files}
+              />
+            </div>
+            <%!-- Mode-aware selection control: inspection without "add"
+            is a dead end (back, hunt the same row again). Same events,
+            same uuid gates as the list — this page can only show rows
+            the component rendered. Never auto-selects on open. --%>
+            <div class="flex items-center justify-end gap-3 border-t border-base-300 pt-2">
+              <.qty_stepper
+                :if={@selection_mode == "quantity"}
+                id={"#{@id}-detail-qty-#{@detail.uuid}-r#{qty_rev(assigns, @detail.uuid)}"}
+                uuid={@detail.uuid}
+                qty={qty_display_or_zero(assigns, @detail.uuid)}
+                unit={if(@qty_precision > 0, do: detail_unit(assigns))}
+                precision={@qty_precision}
+                min={qty_input_min(assigns)}
+                max={qty_input_max(assigns)}
+                target={@myself}
+                size="sm"
+              />
+              <button
+                :if={@selection_mode != "quantity"}
+                type="button"
+                class={[
+                  "btn btn-sm",
+                  if(Map.has_key?(@selection, @detail.uuid), do: "btn-ghost", else: "btn-primary")
+                ]}
+                phx-click="card_click"
+                phx-value-uuid={@detail.uuid}
+                phx-target={@myself}
+              >
+                <%= if Map.has_key?(@selection, @detail.uuid) do %>
+                  {gettext("Remove from selection")}
+                <% else %>
+                  {gettext("Add to selection")}
+                <% end %>
+              </button>
+            </div>
+          </div>
           </div>
 
           <%!-- Selection tray. --%>

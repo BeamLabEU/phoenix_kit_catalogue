@@ -61,6 +61,7 @@ defmodule PhoenixKitCatalogue.Test.SelectorHostLive do
        show_prices: params["hide_prices"] != "true",
        context_header: params["ch"] != "false",
        show_tray: params["tray"] != "false",
+       show_item_details: params["details"] == "true",
        title: params["title"],
        two: params["two"] == "true",
        browse: params["browse"] == "true",
@@ -145,6 +146,7 @@ defmodule PhoenixKitCatalogue.Test.SelectorHostLive do
         show_prices={@show_prices}
         context_header={@context_header}
         show_tray={@show_tray}
+        show_item_details={@show_item_details}
         title={@title}
       />
       <.live_component

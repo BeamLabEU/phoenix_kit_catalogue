@@ -2852,6 +2852,12 @@ msgstr "Загрузить ещё"
 msgid "Select items"
 msgstr "Выберите позиции"
 
+msgid "Add to selection"
+msgstr "Добавить в выбор"
+
+msgid "Remove from selection"
+msgstr "Убрать из выбора"
+
 #: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:1182
 #, elixir-autogen
 msgid "Confirm selection"
