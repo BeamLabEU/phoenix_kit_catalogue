@@ -339,6 +339,14 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
   attr(:show_price, :boolean, default: true)
   attr(:show_sku, :boolean, default: true)
 
+  attr(:selected_badge, :boolean,
+    default: true,
+    doc:
+      "the corner check badge on a selected card. Off in quantity mode " <>
+        "(2026-08-31): a number above zero already says selected, and " <>
+        "the extra check chrome read as \"checkboxes are still there\"."
+  )
+
   attr(:photo_click, :string,
     default: nil,
     doc:
@@ -377,7 +385,11 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
         aria-label={gettext("View item details")}
         title={gettext("View item details")}
       >
-        <.item_card_figure item={@item} selected={@selected} show_sku={@show_sku} />
+        <.item_card_figure
+          item={@item}
+          selected={@selected and @selected_badge}
+          show_sku={@show_sku}
+        />
       </button>
       <button
         type="button"
@@ -389,7 +401,12 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
         aria-pressed={@selected}
         aria-label={@item.name}
       >
-        <.item_card_figure :if={!@photo_click} item={@item} selected={@selected} show_sku={@show_sku} />
+        <.item_card_figure
+          :if={!@photo_click}
+          item={@item}
+          selected={@selected and @selected_badge}
+          show_sku={@show_sku}
+        />
         <div class="card-body p-3 gap-0.5">
           <span class="font-medium text-sm leading-snug line-clamp-2" title={@item.name}>
             {@item.name}
@@ -699,6 +716,14 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
         "Nil keeps the thumb a plain select cell like every other."
   )
 
+  attr(:selected_icon, :boolean,
+    default: true,
+    doc:
+      "the name-cell check icon on a selected row (already absent when a " <>
+        "checkbox column shows it instead). Off in quantity mode " <>
+        "(2026-08-31): the number above zero is the selected signal."
+  )
+
   attr(:target, :any, default: nil)
   slot(:qty, doc: "rendered in the :qty cell when that column is present")
 
@@ -759,7 +784,7 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
               <%!-- With a checkbox column the check icon would say the same
               thing twice one cell apart. --%>
               <.icon
-                :if={@selected and not @checkbox}
+                :if={@selected and not @checkbox and @selected_icon}
                 name="hero-check"
                 class="w-4 h-4 text-primary shrink-0"
               />
