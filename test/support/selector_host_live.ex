@@ -108,6 +108,10 @@ defmodule PhoenixKitCatalogue.Test.SelectorHostLive do
     do: Map.put(scope, :statuses, String.split(raw, ",", trim: true))
 
   @impl true
+  def handle_event("toggle_prices", _params, socket),
+    do: {:noreply, assign(socket, :show_prices, !socket.assigns.show_prices)}
+
+  @impl true
   def handle_info({:items_selected, payload}, socket),
     do: {:noreply, assign(socket, picked: payload)}
 
