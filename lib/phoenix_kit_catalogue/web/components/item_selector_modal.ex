@@ -698,7 +698,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
       <div :if={@browse.category_uuid} class="flex items-center gap-2 min-w-0">
         <button
           type="button"
-          class="btn btn-ghost btn-xs"
+          class="btn btn-ghost btn-xs phx-click-loading:animate-pulse"
           phx-click="browse_category"
           phx-value-uuid={level_up(@tree, @browse.category_uuid)}
           phx-target={@target}
@@ -763,7 +763,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
                     phx-click="browse_category"
                     phx-value-uuid={category.uuid}
                     phx-target={@target}
-                    class="link link-hover font-medium"
+                    class="link link-hover font-medium phx-click-loading:animate-pulse"
                   >
                     {category.name}
                   </button>
@@ -794,7 +794,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
                   phx-click="browse_category"
                   phx-value-uuid="__uncategorized__"
                   phx-target={@target}
-                  class="link link-hover font-medium"
+                  class="link link-hover font-medium phx-click-loading:animate-pulse"
                 >
                   {gettext("Uncategorized")}
                 </button>
@@ -1792,7 +1792,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
                   placeholder={gettext("Search items…")}
                   phx-debounce="250"
                   autocomplete="off"
-                  class="grow"
+                  class="grow phx-change-loading:animate-pulse"
                 />
               </label>
             </form>
@@ -1812,7 +1812,10 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
                 phx-click="set_root_mode"
                 phx-value-mode="categories"
                 phx-target={@myself}
-                class={["btn btn-sm join-item", @root_mode == "categories" && "btn-active"]}
+                class={[
+                  "btn btn-sm join-item phx-click-loading:animate-pulse",
+                  @root_mode == "categories" && "btn-active"
+                ]}
               >
                 {gettext("Categories")}
               </button>
@@ -1821,7 +1824,10 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
                 phx-click="set_root_mode"
                 phx-value-mode="items"
                 phx-target={@myself}
-                class={["btn btn-sm join-item", @root_mode == "items" && "btn-active"]}
+                class={[
+                  "btn btn-sm join-item phx-click-loading:animate-pulse",
+                  @root_mode == "items" && "btn-active"
+                ]}
               >
                 {gettext("Items")}
               </button>
@@ -1893,7 +1899,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
                   phx-click="open_category_hit"
                   phx-value-uuid={hit.uuid}
                   phx-target={@myself}
-                  class="btn btn-sm btn-ghost gap-2 justify-start"
+                  class="btn btn-sm btn-ghost gap-2 justify-start phx-click-loading:animate-pulse"
                 >
                   <span class="font-medium">{hit.name}</span>
                   <span :if={hit.trail} class="text-xs text-base-content/40">{hit.trail}</span>
@@ -2007,14 +2013,18 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
             </div>
 
             <div :if={not @browse.exhausted? and @browse.items != []} class="flex justify-center py-3">
+              <%!-- The spinner rides LiveView's phx-click-loading class —
+              INSTANT, client-applied. The old server-assign gate never
+              showed: the fetch is synchronous, so loading? is never true
+              in an observable render. --%>
               <button
                 type="button"
-                class="btn btn-ghost btn-sm"
+                class="btn btn-ghost btn-sm phx-click-loading:pointer-events-none"
                 phx-click="load_more"
                 phx-target={@myself}
-                disabled={@browse.loading?}
               >
-                <span :if={@browse.loading?} class="loading loading-spinner loading-xs"></span>
+                <span class="loading loading-spinner loading-xs hidden phx-click-loading:inline-block">
+                </span>
                 {gettext("Load more")}
               </button>
             </div>
@@ -2109,11 +2119,13 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
                 </button>
                 <button
                   type="button"
-                  class="btn btn-primary btn-sm"
+                  class="btn btn-primary btn-sm phx-click-loading:pointer-events-none"
                   phx-click="confirm"
                   phx-target={@myself}
                   disabled={not confirmable_selection?(@selection)}
                 >
+                  <span class="loading loading-spinner loading-xs hidden phx-click-loading:inline-block">
+                  </span>
                   {gettext("Confirm selection")}
                 </button>
               </div>

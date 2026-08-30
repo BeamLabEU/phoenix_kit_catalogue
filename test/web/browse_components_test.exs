@@ -51,15 +51,20 @@ defmodule PhoenixKitCatalogue.Web.Components.BrowseTest do
       assert html =~ "object-cover"
     end
 
-    test "selected state draws the ring and badge; unselected draws neither" do
+    test "selected state rides data-selected; the badge stays server-drawn" do
+      # Since 2026-08-31 the ring/border classes are data-[selected=true]
+      # variants present on EVERY card — the attribute drives the look, so
+      # the qty hook can flip it instantly (Max: highlight "only after a
+      # delay").
       selected =
         render_component(&Browse.item_card/1, id: "c1", item: presented(), selected: true)
 
       plain = render_component(&Browse.item_card/1, id: "c1", item: presented())
 
-      assert selected =~ "ring-2"
+      assert selected =~ ~s(data-selected="true")
       assert selected =~ "hero-check"
-      refute plain =~ "ring-2"
+      assert plain =~ ~s(data-selected="false")
+      assert plain =~ "data-[selected=true]:ring-2"
       refute plain =~ "hero-check"
     end
 
@@ -125,6 +130,41 @@ defmodule PhoenixKitCatalogue.Web.Components.BrowseTest do
         thumb_url: nil,
         default_qty: Decimal.new(1)
       }
+    end
+
+    test "instant qty feedback: hook on the stepper, styling keyed off data-selected" do
+      # Max, 2026-08-31: "I add 1 and it gets highlighted blue but only
+      # after a delay" — the QtySignal hook flips data-selected locally,
+      # so the row/card highlight must key off the ATTRIBUTE, not a
+      # server-computed class.
+      stepper =
+        render_component(&Browse.qty_stepper/1,
+          id: "q1",
+          uuid: "u-1",
+          qty: "0",
+          precision: 0
+        )
+
+      # The colocated hook's rendered name is the expanded module form.
+      assert stepper =~ "QtySignal"
+
+      row =
+        render_component(&Browse.item_row/1,
+          id: "r1",
+          item: row_item(),
+          columns: [:name, :qty]
+        )
+
+      assert row =~ "data-selected"
+      assert row =~ "data-[selected=true]:bg-primary/10"
+
+      card =
+        render_component(&Browse.item_card/1,
+          id: "c1",
+          item: row_item()
+        )
+
+      assert card =~ "data-[selected=true]:border-primary"
     end
 
     test "the qty cell is never click-bound; data cells carry the select toggle" do
