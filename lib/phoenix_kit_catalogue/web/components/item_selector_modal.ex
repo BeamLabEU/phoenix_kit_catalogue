@@ -603,7 +603,15 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
     case tree.index[uuid] do
       %{parent_uuid: parent} when not is_nil(parent) ->
         parent = to_string(parent)
-        if Enum.any?(tree.roots, &(&1.uuid == uuid)), do: "", else: parent
+
+        # The popup root ("") whenever the parent is not a level this
+        # popup can stand in: a root tile's parent by definition, and a
+        # parent OUTSIDE the scope tree — a search hit can drill to a
+        # scoped root category itself, whose real parent BrowseState
+        # then refuses, leaving Up dead and the only way back with it.
+        if Enum.any?(tree.roots, &(&1.uuid == uuid)) or not Map.has_key?(tree.index, parent),
+          do: "",
+          else: parent
 
       _ ->
         ""
@@ -857,7 +865,16 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
       end
 
     socket = assign(socket, browse: browse, presented: presented)
-    assign(socket, :search_cat_hits, search_category_hits(socket))
+
+    # Only a FRESH fetch can have moved the question the category hits
+    # answer: :load_more leaves search and level untouched, so paging a
+    # long result list must not re-run the JSONB category search once
+    # per scrolled page.
+    if Keyword.get(opts, :offset, 0) == 0 do
+      assign(socket, :search_cat_hits, search_category_hits(socket))
+    else
+      socket
+    end
   end
 
   # Matching categories for the admin search's two-list surface (Max,
