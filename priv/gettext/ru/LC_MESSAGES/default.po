@@ -2766,6 +2766,9 @@ msgstr "Удалить это поле? Значения, уже сохранё�
 msgid "Supplier extra fields"
 msgstr "Дополнительные поля поставщика"
 
+msgid "Unit cost"
+msgstr "Цена за единицу"
+
 msgid "Unit cost must be a number."
 msgstr "Цена за единицу должна быть числом."
 

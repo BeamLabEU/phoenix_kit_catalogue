@@ -100,11 +100,15 @@ defmodule PhoenixKitCatalogue.Web.Components.CatalogueBrowse do
     end
   end
 
-  # The shared contract, with this surface's one difference: no selection
-  # means no :qty in the DEFAULT set. An explicit list is taken verbatim
-  # (Browse.resolve_columns!/2 raises on unknown entries either way).
+  # The shared contract, minus what this surface has no use for by
+  # default: :qty (no selection here) and the modal's default-HIDDEN pair
+  # (:sku, :breadcrumb — without the modal's visibility layer they'd
+  # render outright, and :breadcrumb next to the :category column showed
+  # the category twice per row; 2026-08-31 sweep). An explicit list is
+  # taken verbatim (Browse.resolve_columns!/2 raises on unknown entries
+  # either way).
   defp resolve_columns(nil, display),
-    do: Browse.resolve_columns!(nil, display) -- [:qty]
+    do: Browse.resolve_columns!(nil, display) -- [:qty, :sku, :breadcrumb]
 
   defp resolve_columns(columns, display), do: Browse.resolve_columns!(columns, display)
 

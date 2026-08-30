@@ -367,6 +367,23 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLiveTest do
       end
     end
 
+    # 2026-08-31 delta pin: the Unit label is hand-rolled to Input's
+    # markup (label mb-2 + plain font-semibold span) because core's
+    # <.select> labelled through FormFieldLabel's fieldset-legend span,
+    # which rendered smaller than the Input labels beside it. Local
+    # until the core harmonisation releases; a revert re-breaks the row.
+    test "the Unit label matches its Input neighbours' markup", %{conn: conn} do
+      item =
+        fixture_item(%{
+          name: "Oak Panel",
+          category_uuid: fixture_category(fixture_catalogue()).uuid
+        })
+
+      {:ok, _view, html} = live(conn, edit_item_url(item.uuid))
+
+      assert html =~ ~r/<label class="label mb-2"[^>]*>\s*<span class="font-semibold">\s*Unit/
+    end
+
     # The price control comes from entities' `decimal` renderer, not a
     # hand-rolled number input — that is what keeps it exact.
     test "the price control is the entities decimal field", %{conn: conn} do

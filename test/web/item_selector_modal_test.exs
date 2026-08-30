@@ -1481,6 +1481,25 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       assert render(view) =~ "qty=2"
     end
 
+    # Direct pin on the ProductCard.build_fields/3 grants the detail page
+    # relies on (2026-08-31 delta audit — the LV test above covers price
+    # only; sku needs its own).
+    test "build_fields/3 honours include_price and include_sku", %{screw: screw} do
+      alias PhoenixKitCatalogue.Web.Components.ProductCard
+
+      item = Catalogue.get_item!(to_string(screw.uuid))
+
+      full = ProductCard.build_fields(item, "en")
+      assert Enum.any?(full, fn {_l, v} -> v == "M8-100" end)
+      assert Enum.any?(full, fn {_l, v} -> v =~ "2.50" end)
+
+      no_sku = ProductCard.build_fields(item, "en", include_sku: false)
+      refute Enum.any?(no_sku, fn {_l, v} -> v == "M8-100" end)
+
+      no_price = ProductCard.build_fields(item, "en", include_price: false)
+      refute Enum.any?(no_price, fn {_l, v} -> v =~ "2.50" end)
+    end
+
     test "revoking show_prices while a detail is open rebuilds its fields", %{
       conn: conn,
       cat: cat,
@@ -1497,6 +1516,114 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       # the detail body re-reads the display flags.)
       render_click(view, "toggle_prices", %{})
       refute view |> element("#picker-detail") |> render() =~ "2.50"
+    end
+  end
+
+  describe "2026-08-31 quality-sweep pins" do
+    test "load_more accretes the presented gate — page-2 rows stay selectable", %{
+      conn: conn,
+      cat: cat
+    } do
+      {:ok, third} =
+        Catalogue.create_item(%{name: "Za Last Item", sku: "ZZZ-1", catalogue_uuid: cat.uuid})
+
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&pp=2")
+
+      # Page 1 holds 2 of 3 items; the third arrives via load_more…
+      refute has_element?(view, "#picker-row-#{third.uuid}")
+      view |> picker() |> render_click("load_more", %{})
+      assert has_element?(view, "#picker-row-#{third.uuid}")
+
+      # …and is fully interactive: the presented gate must have accreted
+      # page 2, or every event for it is refused and the grid below the
+      # fold is dead while shipping green.
+      view
+      |> picker()
+      |> render_click("qty_change", %{"uuid" => to_string(third.uuid), "value" => "3"})
+
+      view |> picker() |> render_click("confirm", %{})
+      assert render(view) =~ "Za Last Item|ZZZ-1|qty=3"
+    end
+
+    test "the tray's remove drops exactly the named pick and its draft state", %{
+      conn: conn,
+      cat: cat,
+      screw: screw,
+      paint: paint
+    } do
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&sel=click")
+
+      view |> picker() |> render_click("card_click", %{"uuid" => screw.uuid})
+      view |> picker() |> render_click("card_click", %{"uuid" => paint.uuid})
+      view |> picker() |> render_click("remove_pick", %{"uuid" => to_string(screw.uuid)})
+      view |> picker() |> render_click("confirm", %{})
+
+      html = render(view)
+      assert html =~ ~s(<span id="picked-count">1</span>)
+      assert html =~ "White Paint"
+      refute html =~ "M8 Screw|M8-100|qty="
+    end
+
+    test "a double-clicked confirm delivers the picks exactly once", %{
+      conn: conn,
+      cat: cat,
+      screw: screw
+    } do
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&sel=click")
+
+      view |> picker() |> render_click("card_click", %{"uuid" => screw.uuid})
+      view |> picker() |> render_click("confirm", %{})
+      view |> picker() |> render_click("confirm", %{})
+
+      assert render(view) =~ ~s(<span id="picked-messages">1</span>)
+    end
+
+    test "immediate mode confirms on the COMMIT, never on the debounced live value", %{
+      conn: conn,
+      cat: cat,
+      screw: screw
+    } do
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&sel=quantity&mode=single&immediate=true")
+      uuid = to_string(screw.uuid)
+
+      # The live path selects but must not confirm — a debounce firing
+      # mid-typing ("1" on the way to "15") would close the modal early.
+      view |> picker() |> render_click("qty_change", %{"uuid" => uuid, "value" => "1"})
+      refute render(view) =~ ~s(id="picked")
+
+      view |> picker() |> render_click("qty_commit", %{"uuid" => uuid, "value" => "15"})
+      assert render(view) =~ "qty=15"
+    end
+
+    test "the detail page honours the columns GRANT, not only the flags", %{
+      conn: conn,
+      cat: cat,
+      screw: screw
+    } do
+      # The client-safe shape: no :price, no :sku granted.
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&cols=thumb,name,qty")
+
+      view |> picker() |> render_click("show_detail", %{"uuid" => to_string(screw.uuid)})
+
+      detail = view |> element("#picker-detail") |> render()
+      refute detail =~ "2.50"
+      refute detail =~ "M8-100"
+    end
+
+    test "garbage preselect keys drop instead of crashing the host at mount", %{
+      conn: conn,
+      cat: cat,
+      screw: screw
+    } do
+      {:ok, view, _html} =
+        open(conn, "c=#{cat.uuid}&sel=click&pre=not-a-uuid:1,#{screw.uuid}:2")
+
+      # The valid key hydrated; the garbage one is "unresolvable" and
+      # dropped — previously it raised Ecto.Query.CastError in update/2.
+      view |> picker() |> render_click("confirm", %{})
+      html = render(view)
+      assert html =~ ~s(<span id="picked-count">1</span>)
+      assert html =~ "qty=2"
     end
   end
 

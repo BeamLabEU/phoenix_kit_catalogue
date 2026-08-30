@@ -45,7 +45,10 @@ defmodule PhoenixKitCatalogue.Web.Components do
       `category_chips/1`, `qty_stepper/1`, `view_toggle/1`,
       `column_toggle/1`, `grid_skeleton/1`, `present_items/2`, plus the
       shared scope/column resolvers) for hosts that want to compose
-      their own surface with `Catalogue.BrowseState`.
+      their own surface with `Catalogue.BrowseState`. ⚠️ `Browse` has
+      its own `item_table/1` and `view_toggle/1`, colliding with THIS
+      module's same-named admin components — don't import both wholesale;
+      import Browse with `only:`/`except:` or call it qualified.
 
   Several of these (`search_input`, `search_results_summary`,
   `view_mode_toggle`) are deliberately generic — no

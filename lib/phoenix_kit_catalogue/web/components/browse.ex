@@ -8,8 +8,13 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
   Everything here is a pure function component: state in, events out. Each
   interactive component takes a `target` (`phx-target`) so it works inside
   a LiveComponent as well as straight in a LiveView — leave it `nil` and
-  events go to the host LV. Event names are fixed (documented per
-  component) so one `handle_event/3` vocabulary serves every embedding.
+  events go to the host LV. Most event names are fixed (documented per
+  component) so one `handle_event/3` vocabulary serves every embedding;
+  `view_toggle`/`column_toggle` take an `event` attr and
+  `item_card`/`item_row` let the host name the details event
+  (`photo_click`/`thumb_click`). The search box and the load-more button
+  are NOT components here — the two shipped surfaces hand-roll that
+  markup (see their templates for the copyable shape).
 
   The data these render is a *presented item* — a plain map produced by
   `present_items/2`, which resolves translations and the featured-photo URL
@@ -18,8 +23,14 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
       items
       |> Browse.present_items(locale)
       # => [%{uuid: "…", name: "…", sku: "…", price: %Decimal{}|nil,
-      #       unit: "piece", photo_url: "/…/medium/…"|nil,
-      #       manufacturer: "…"|nil, default_qty: %Decimal{1}}]
+      #       base_price: %Decimal{}|nil, unit: "piece",
+      #       photo_url: "/…/medium/…"|nil, thumb_url: "/…/thumbnail/…"|nil,
+      #       manufacturer: "…"|nil, category: "…"|nil,
+      #       default_qty: %Decimal{1}}]
+
+  `item_row/1`'s default columns read `thumb_url`, `category` and
+  `base_price` too — a host hand-building presented maps needs the full
+  shape above, not a subset.
 
   Pair them with `PhoenixKitCatalogue.Catalogue.BrowseState` for the
   fetch/paging state machine; the moduledoc there shows the loop.
@@ -58,6 +69,7 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
   Runs once per fetched page — never call translation or URL helpers from
   a template; a quantity keystroke re-renders every card.
   """
+  @spec present_items([map() | struct()], String.t() | nil) :: [map()]
   def present_items(items, locale) do
     Enum.map(items, fn item ->
       translated = Translations.get_translation(item, locale)
@@ -101,22 +113,32 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
   Signed URL for an item's featured photo (`#{@photo_variant}` variant), or
   nil. Signing is pure computation — no Storage roundtrip — so this is safe
   per item; it lives here so every surface resolves photos one way.
+
+  The pointer comes from free-form JSONB, so it is shape-checked before
+  it reaches a URL path: a non-UUID value (import garbage, a crafted
+  admin write) renders no image instead of sending every viewer's
+  browser a GET to an attacker-shaped path (2026-08-31 sweep).
   """
-  def featured_photo_url(item) do
-    case item.data["featured_image_uuid"] do
-      uuid when is_binary(uuid) and uuid != "" -> URLSigner.signed_url(uuid, @photo_variant)
-      _ -> nil
-    end
-  end
+  @spec featured_photo_url(map()) :: String.t() | nil
+  def featured_photo_url(item), do: signed_featured_url(item, @photo_variant)
 
   @doc """
   Signed URL for the 150px `thumbnail` variant, or nil — for the 32-48px
   row cells that were shipping the 800px `medium` into a thumb-sized img
-  (bandwidth, not quality; 2026-08-29 image sweep).
+  (bandwidth, not quality; 2026-08-29 image sweep). Same shape check as
+  `featured_photo_url/1`.
   """
-  def featured_thumb_url(item) do
-    case item.data["featured_image_uuid"] do
-      uuid when is_binary(uuid) and uuid != "" -> URLSigner.signed_url(uuid, "thumbnail")
+  @spec featured_thumb_url(map()) :: String.t() | nil
+  def featured_thumb_url(item), do: signed_featured_url(item, "thumbnail")
+
+  # Canonical-form-only: Ecto.UUID.cast/1 also accepts ANY 16-byte
+  # binary ("../../etc/passwd" is one), so equality with the cast result
+  # is the actual guard — JSONB only ever stores the dashed string form.
+  defp signed_featured_url(item, variant) do
+    with uuid when is_binary(uuid) and uuid != "" <- item.data["featured_image_uuid"],
+         {:ok, ^uuid} <- Ecto.UUID.cast(uuid) do
+      URLSigner.signed_url(uuid, variant)
+    else
       _ -> nil
     end
   end
@@ -126,6 +148,7 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
   returns Postgres' raw 16-byte binaries; chips render and client events
   carry strings, and comparing the two shapes silently never matches.
   """
+  @spec normalize_uuid(term()) :: String.t() | nil
   def normalize_uuid(nil), do: nil
 
   def normalize_uuid(bin) when is_binary(bin) and byte_size(bin) == 16 do
@@ -153,6 +176,7 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
   idempotent, and a member's subtree cannot escape the root's subtree, so
   narrowing stays inside the allow-list.
   """
+  @spec expand_scope(map() | keyword()) :: map()
   def expand_scope(scope) do
     scope = if is_map(scope), do: scope, else: Map.new(scope)
 
@@ -182,6 +206,7 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
   full listing preloads every item just to render chips. Any failure
   degrades to `[]`: chips are navigation, not data.
   """
+  @spec chip_categories(map(), String.t() | nil) :: [%{uuid: String.t(), name: String.t() | nil}]
   def chip_categories(scope, locale)
 
   def chip_categories(%{only: :uncategorized_only}, _locale), do: []
@@ -522,9 +547,11 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
   @default_table_columns ~w(thumb breadcrumb name sku manufacturer category price qty)a
 
   @doc "The legal `item_table`/`item_row` column atoms, in canonical order."
+  @spec table_columns() :: [atom()]
   def table_columns, do: @table_columns
 
   @doc "The default column set — selling price with inline unit, no raw base price."
+  @spec default_table_columns() :: [atom()]
   def default_table_columns, do: @default_table_columns
 
   @doc """
@@ -532,6 +559,7 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
   raising on anything else. Both browse surfaces call this at init; each
   passes its own default for nil.
   """
+  @spec resolve_view!(term(), String.t()) :: String.t()
   def resolve_view!(nil, default), do: default
   def resolve_view!(view, _default) when view in ["table", "card"], do: view
   def resolve_view!(view, _default) when view in [:table, :card], do: to_string(view)
@@ -547,6 +575,11 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
   a silently-dropped column is how a price ends up shown to the wrong
   audience's sibling.
   """
+  @spec resolve_columns!(term(), %{
+          :show_sku => boolean(),
+          :show_prices => boolean(),
+          optional(atom()) => term()
+        }) :: [atom()]
   def resolve_columns!(nil, display) do
     Enum.reject(
       @default_table_columns,
@@ -557,6 +590,13 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
   def resolve_columns!(columns, _display) when is_list(columns) and columns != [] do
     case Enum.reject(columns, &(&1 in @table_columns)) do
       [] ->
+        # Duplicates render the column twice (two cells dispatching the
+        # same click) — a contract that raises on unknown atoms must not
+        # silently accept that shape either.
+        if Enum.uniq(columns) != columns do
+          raise ArgumentError, "columns has duplicate entries: #{inspect(columns)}"
+        end
+
         columns
 
       bad ->
@@ -643,8 +683,11 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
     doc:
       "leftmost selection checkbox (2026-08-30): unchecked on every " <>
         "selectable row so the affordance is visible before the first pick. " <>
-        "Display-only — the CELL carries the same card_click toggle as the " <>
-        "rest of the row, so there is no second selection pathway to guard."
+        "Display-only — while the row is clickable the CELL carries the " <>
+        "same card_click toggle as the rest of the row (no second " <>
+        "selection pathway to guard); with clickable={false} it is inert " <>
+        "chrome. Pass the same value to item_table's checkbox attr or the " <>
+        "header and body column counts skew."
   )
 
   attr(:thumb_click, :string,
@@ -682,16 +725,18 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
           aria-hidden="true"
         />
       </.table_default_cell>
+      <%!-- One cell_event/2 evaluation per cell, not four — the class,
+      click, value and target below must stay in sync by construction. --%>
       <.table_default_cell
-        :for={col <- @columns}
+        :for={{col, event} <- Enum.map(@columns, &{&1, cell_event(&1, assigns)})}
         class={[
           row_cell_class(col),
           col_responsive_class(col),
-          cell_event(col, assigns) && "cursor-pointer"
+          event && "cursor-pointer"
         ]}
-        phx-click={cell_event(col, assigns)}
-        phx-value-uuid={if cell_event(col, assigns), do: @item.uuid}
-        phx-target={if cell_event(col, assigns), do: @target}
+        phx-click={event}
+        phx-value-uuid={if event, do: @item.uuid}
+        phx-target={if event, do: @target}
         aria-label={col == :thumb && @thumb_click && @item.name}
       >
         <%= case col do %>
@@ -813,7 +858,12 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
       ("2." on the way to "2.5") — never reset the input from here, the
       user may still be typing.
     * `qty_commit` (blur / Enter) — the authoritative commit; a consumer
-      may reset rejected garbage here (the revision-bump pattern).
+      may reset rejected garbage here via the revision-bump pattern: put
+      a per-row revision counter in the `id` you pass (the shipped
+      surfaces use `"...-qty-\#{uuid}-r\#{rev}"`) and bump it on commit —
+      the id change makes morphdom recreate the input with the server
+      value, which a plain re-assign cannot do when the value attr is
+      unchanged. A stable `id` leaves typed garbage stuck in the field.
     * Both carry `%{"uuid" =>, "value" =>}`.
 
   Integer mode is `precision: 0` (the default; step 1); a decimal item is
@@ -918,6 +968,7 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
   in `Web.Components`): which currency a price is in is host business the
   catalogue has never decided.
   """
+  @spec format_price(term()) :: String.t() | nil
   def format_price(%Decimal{} = d), do: Decimal.to_string(Decimal.round(d, 2), :normal)
   def format_price(_), do: nil
 end

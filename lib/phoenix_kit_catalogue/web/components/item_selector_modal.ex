@@ -97,7 +97,15 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
   column for price-free lists.
   Omitted, the full set applies minus what `show_sku: false` /
   `show_prices: false` already opt out of. Omitting `:qty` hides the
-  inline stepper — quantities are then edited in the tray only.
+  inline stepper — quantities are then edited in the tray only (and the
+  popup derives the checkbox flavour; see Selection modes).
+
+  `hidden_columns` sets which GRANTED columns start hidden (the viewer
+  re-shows them from the Columns dropdown): default `[:sku, :breadcrumb]`,
+  `[]` starts everything visible. Unknown or ungranted entries are
+  ignored — hiding less than asked never widens anything. The detail
+  page follows the GRANT (plus the flags), not the visibility: hiding a
+  granted `:price` doesn't strip it from details, un-granting it does.
 
   Granted columns are additionally staged by viewport so the modal never
   scrolls sideways: identity and the pick-driving numbers (thumb, name,
@@ -182,6 +190,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
        initialized: false,
        tray_open: false,
        detail: nil,
+       confirmed: false,
        drafts: %{}
      )}
   end
@@ -205,7 +214,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
       socket =
         if socket.assigns.detail &&
              Map.take(socket.assigns, [:show_prices, :show_sku]) != prior_grants,
-           do: open_detail(socket, socket.assigns.detail.uuid),
+           do: open_detail(socket, socket.assigns.detail.uuid, :close),
            else: socket
 
       {:ok, socket}
@@ -453,6 +462,22 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
 
   defp hydrate_preselection(selected, scope, locale, limits, mode) do
     expanded_categories = expand_scope_categories(scope)
+
+    # Key hygiene (2026-08-31 sweep): a non-UUID key would raise
+    # Ecto.Query.CastError out of the fetch and take the host LV down at
+    # mount, and a raw 16-byte binary key queries fine but never matches
+    # the string-keyed lookup below — the preselect silently vanished.
+    # Normalize to canonical strings; garbage keys are "unresolvable"
+    # and drop, exactly like a deleted uuid (documented behaviour).
+    selected =
+      selected
+      |> Enum.flat_map(fn {uuid, qty} ->
+        case Ecto.UUID.cast(uuid) do
+          {:ok, canonical} -> [{canonical, qty}]
+          :error -> []
+        end
+      end)
+      |> Map.new()
 
     items_by_uuid =
       selected
@@ -763,12 +788,18 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
     # Same predicate that disables the button: a crafted confirm with
     # nothing confirmable must not deliver `{picks: []}` to a host that
     # trusts the button state. The modal simply stays open.
-    if confirmable_selection?(socket.assigns.selection) do
+    # The `confirmed` latch closes the double-click window (2026-08-31
+    # sweep): the second queued confirm event can reach this handler
+    # before the host processes the close message and unmounts us —
+    # without the latch the host received `{:items_selected, …}` twice
+    # and an order sheet wrote its lines twice.
+    if confirmable_selection?(socket.assigns.selection) and not socket.assigns.confirmed do
       send(self(), {:items_selected, confirm_payload(socket.assigns)})
       send(self(), {:item_selector_closed, %{id: socket.assigns.id}})
+      {:noreply, assign(socket, confirmed: true)}
+    else
+      {:noreply, socket}
     end
-
-    {:noreply, socket}
   end
 
   def handle_event("cancel", _params, socket) do
@@ -795,7 +826,11 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
 
   # Quantity-first, unselected row: a positive live value IS the
   # selection, exactly like commit_first_qty but without the revision
-  # machinery — nothing to reset on the live path.
+  # machinery — and WITHOUT the immediate notify (2026-08-31 sweep):
+  # qty_commit is the authoritative commit, and confirming the whole
+  # modal off a debounced mid-typing value closed it at qty 1 while the
+  # user was still typing 15. Selection applies live; immediate mode
+  # confirms on blur/Enter.
   defp change_first_qty(socket, uuid, raw) do
     case parse_qty(raw, socket.assigns) do
       {:ok, qty} ->
@@ -803,7 +838,6 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
           socket
           |> select_entry(socket.assigns.presented[uuid])
           |> put_qty(uuid, qty)
-          |> maybe_notify_immediate()
         else
           socket
         end
@@ -827,8 +861,16 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
       deselect(socket, uuid)
     else
       case parse_qty(raw, socket.assigns) do
-        {:ok, qty} -> put_qty(socket, uuid, qty)
-        :error -> socket
+        {:ok, qty} ->
+          # maybe_notify_immediate/1 self-gates on single+immediate and
+          # the confirm latch — a no-op everywhere else. It sits on the
+          # COMMIT path because the live path stopped notifying
+          # (2026-08-31 sweep: a debounced mid-typing value must not
+          # confirm-and-close the modal).
+          socket |> put_qty(uuid, qty) |> maybe_notify_immediate()
+
+        :error ->
+          socket
       end
     end
   end
@@ -873,14 +915,17 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
 
   # Split from select_entry/2 so quantity-first commits can put the TYPED
   # quantity in place first — notifying inside the entry placement sent the
-  # default quantity and dropped what the user typed.
+  # default quantity and dropped what the user typed. Shares the confirm
+  # latch: a second click racing the host's unmount must not double-send.
   defp maybe_notify_immediate(socket) do
-    if socket.assigns.mode == :single and socket.assigns.immediate do
+    if socket.assigns.mode == :single and socket.assigns.immediate and
+         not socket.assigns.confirmed do
       send(self(), {:items_selected, confirm_payload(socket.assigns)})
       send(self(), {:item_selector_closed, %{id: socket.assigns.id}})
+      assign(socket, confirmed: true)
+    else
+      socket
     end
-
-    socket
   end
 
   defp deselect(socket, uuid) do
@@ -890,9 +935,12 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
     )
   end
 
-  # One query, soft-deleted rows already excluded — an item deleted
-  # between render and click quietly stays on the list.
-  defp open_detail(socket, uuid) do
+  # One query, soft-deleted rows already excluded. On a miss, the caller
+  # picks the behaviour: `:keep` (show_detail — an item deleted between
+  # render and click quietly stays on the list, detail was nil anyway)
+  # or `:close` (the grant-change rebuild — a detail materialized under
+  # OLD grants must not survive a failed refresh; 2026-08-31 sweep).
+  defp open_detail(socket, uuid, on_miss \\ :keep) do
     case Catalogue.list_items_by_uuids([uuid]) do
       [item] ->
         locale = socket.assigns.locale
@@ -902,20 +950,23 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
             uuid: uuid,
             name: ProductCard.resolve_name(item, locale),
             images: ProductCard.resolve_images(item),
-            # The detail page honours the same display grants as the list:
-            # a host that hid prices or SKUs must not have them reappear
-            # one thumbnail-click away.
+            # The detail page honours the same display grants as the list —
+            # the flags AND the columns contract: a host that granted
+            # columns without :price (the client-safe embed) must not have
+            # the price reappear one thumbnail-click away (2026-08-31
+            # sweep). Granted columns, not visible ones: visibility is the
+            # viewer's toggle, the grant is the host's contract.
             fields:
               ProductCard.build_fields(item, locale,
-                include_price: socket.assigns.show_prices,
-                include_sku: socket.assigns.show_sku
+                include_price: socket.assigns.show_prices and :price in socket.assigns.columns,
+                include_sku: socket.assigns.show_sku and :sku in socket.assigns.columns
               ),
             files: ProductCard.resolve_files(item)
           }
         )
 
       _ ->
-        socket
+        if on_miss == :close, do: assign(socket, detail: nil), else: socket
     end
   end
 
@@ -999,6 +1050,15 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
       {d, ""} -> d
       _ -> raise ArgumentError, "not a quantity: #{inspect(n)}"
     end
+  end
+
+  # Host-contract violations raise DESCRIBED errors everywhere else in
+  # initialize/2 — an atom or nil quantity in `selected`/`qty_min` must
+  # not surface as a bare FunctionClauseError (2026-08-31 sweep).
+  defp to_decimal(other) do
+    raise ArgumentError,
+          "not a quantity: #{inspect(other)} — ItemSelectorModal quantities " <>
+            "must be Decimals, integers, floats or numeric strings"
   end
 
   # ── Confirm payload ──────────────────────────────────────────────────
@@ -1110,10 +1170,33 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
   defp modal_title(nil), do: gettext("Select items")
   defp modal_title(title), do: title
 
+  # The table renders off the visible columns filtered by the LIVE
+  # display flags, exactly as the card branch gates its price/SKU — so a
+  # host revoking show_prices mid-open drops the table's price column
+  # too, not only the cards' (2026-08-31 sweep). Grants stay init-time;
+  # the flags are the cosmetic-live layer.
+  defp effective_columns(assigns) do
+    Enum.reject(assigns.visible_columns, fn
+      :price -> not assigns.show_prices
+      :base_price -> not assigns.show_prices
+      :sku -> not assigns.show_sku
+      _ -> false
+    end)
+  end
+
   # ── Render ───────────────────────────────────────────────────────────
 
   @impl true
   def render(assigns) do
+    # Row-invariant values, computed once per render instead of once per
+    # row × call site (2026-08-31 sweep).
+    assigns =
+      assigns
+      |> assign(:eff_columns, effective_columns(assigns))
+      |> assign(:cbx, checkbox?(assigns))
+      |> assign(:qmin, qty_input_min(assigns))
+      |> assign(:qmax, qty_input_max(assigns))
+
     ~H"""
     <div id={@id}>
       <%!-- max_width caps at 4xl in core Modal; the responsive variants in
@@ -1247,10 +1330,10 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
                         id={"#{@id}-qty-#{item.uuid}-r#{qty_rev(assigns, item.uuid)}"}
                         uuid={item.uuid}
                         qty={qty_display_or_zero(assigns, item.uuid)}
-                        unit={if(@qty_precision > 0, do: item.uuid && item.unit)}
+                        unit={if(@qty_precision > 0, do: item.unit)}
                         precision={@qty_precision}
-                        min={qty_input_min(assigns)}
-                        max={qty_input_max(assigns)}
+                        min={@qmin}
+                        max={@qmax}
                         target={@myself}
                         size="xs"
                       />
@@ -1263,12 +1346,12 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
             <.item_table
               :if={@view == "table" and (@browse.items != [] or @browse.loading?)}
               id={"#{@id}-table"}
-              columns={@visible_columns}
-              checkbox={checkbox?(assigns)}
+              columns={@eff_columns}
+              checkbox={@cbx}
             >
               <%= if @browse.loading? and @browse.items == [] do %>
                 <tr :for={i <- 1..5} id={"#{@id}-row-skeleton-#{i}"}>
-                  <td colspan={length(@visible_columns) + if(checkbox?(assigns), do: 1, else: 0)}>
+                  <td colspan={length(@eff_columns) + if(@cbx, do: 1, else: 0)}>
                     <div class="skeleton h-8 w-full"></div>
                   </td>
                 </tr>
@@ -1277,10 +1360,10 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
                 <.item_row
                   id={"#{@id}-row-#{item.uuid}"}
                   item={item}
-                  columns={@visible_columns}
+                  columns={@eff_columns}
                   selected={Map.has_key?(@selection, item.uuid)}
                   clickable={@selection_mode != "quantity"}
-                  checkbox={checkbox?(assigns)}
+                  checkbox={@cbx}
                   thumb_click={if(@show_item_details, do: "show_detail")}
                   target={@myself}
                 >
@@ -1292,8 +1375,8 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
                       qty={qty_display_or_zero(assigns, item.uuid)}
                       unit={if(@qty_precision > 0, do: item.unit)}
                       precision={@qty_precision}
-                      min={qty_input_min(assigns)}
-                      max={qty_input_max(assigns)}
+                      min={@qmin}
+                      max={@qmax}
                       target={@myself}
                       size="xs"
                     />
@@ -1360,8 +1443,8 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
                 qty={qty_display_or_zero(assigns, @detail.uuid)}
                 unit={if(@qty_precision > 0, do: detail_unit(assigns))}
                 precision={@qty_precision}
-                min={qty_input_min(assigns)}
-                max={qty_input_max(assigns)}
+                min={@qmin}
+                max={@qmax}
                 target={@myself}
                 size="sm"
               />
@@ -1473,8 +1556,8 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
                   qty={qty_display(assigns, uuid)}
                   unit={if(@qty_precision > 0, do: entry.item.unit)}
                   precision={@qty_precision}
-                  min={qty_input_min(assigns)}
-                  max={qty_input_max(assigns)}
+                  min={@qmin}
+                  max={@qmax}
                   target={@myself}
                   size="xs"
                 />
