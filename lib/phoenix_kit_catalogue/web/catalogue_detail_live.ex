@@ -4382,7 +4382,17 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
             />
           </.table_default_cell>
           <.table_default_cell :if={@photo_col?} class="w-12 !pr-0 !py-1 [.pk-comfy_&]:w-22 [.pk-comfy_&]:!py-1.5">
-            <.featured_thumb resource={cat} has_files={Map.get(@file_counts, cat.uuid, 0) > 0} />
+            <%!-- The image enters the category exactly like the name
+            (boss, 2026-08-31); a deleted row keeps the bare thumb like
+            its name stays unlinked. --%>
+            <.link :if={cat.status != "deleted"} patch={Paths.category_browse(@catalogue.uuid, cat.uuid)}>
+              <.featured_thumb resource={cat} has_files={Map.get(@file_counts, cat.uuid, 0) > 0} />
+            </.link>
+            <.featured_thumb
+              :if={cat.status == "deleted"}
+              resource={cat}
+              has_files={Map.get(@file_counts, cat.uuid, 0) > 0}
+            />
           </.table_default_cell>
           <.table_default_cell class="font-medium">
             <div class="flex items-center gap-2 min-w-0">
@@ -4624,7 +4634,9 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               />
             </.table_default_cell>
             <.table_default_cell :if={@photo_col?} class="w-12 !pr-0 !py-1 [.pk-comfy_&]:w-22 [.pk-comfy_&]:!py-1.5">
-              <.featured_thumb resource={cat} has_files={Map.get(@file_counts, cat.uuid, 0) > 0} />
+              <.link patch={Paths.category_browse(@catalogue.uuid, cat.uuid)}>
+                <.featured_thumb resource={cat} has_files={Map.get(@file_counts, cat.uuid, 0) > 0} />
+              </.link>
             </.table_default_cell>
             <.tree_name_cell
               depth={depth}
