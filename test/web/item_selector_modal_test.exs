@@ -1096,14 +1096,22 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       assert html =~ "M8-100"
     end
 
-    test "root covers the subtree; a drilled level lists its own items; search covers the subtree again",
+    test "a scoped category's popup OPENS standing in it: own items + child tiles",
          %{conn: conn, cat: cat} do
-      # Admin-page semantics since 2026-08-31 (the tiles rework): standing
-      # in a category shows ITS items — subtree coverage belongs to the
-      # popup root and to search. (Before the tiles, chips were flat and a
-      # parent chip had to mean the whole subtree; that pin lived here.)
+      # Boss, 2026-08-31 (the trashcans report): a category-scoped popup
+      # is the drilled level from the first paint — its child tiles AND
+      # the items filed directly on it. Subtree coverage belongs to
+      # search; there is no synthetic outline above the floor, so no
+      # Back either.
       parent = fixture_category(cat, %{name: "Parent Scope"})
       child = fixture_category(cat, %{name: "Child Scope", parent_uuid: parent.uuid})
+
+      {:ok, _} =
+        Catalogue.create_item(%{
+          name: "Direct On Parent",
+          catalogue_uuid: cat.uuid,
+          category_uuid: parent.uuid
+        })
 
       {:ok, _} =
         Catalogue.create_item(%{
@@ -1112,27 +1120,29 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
           category_uuid: child.uuid
         })
 
-      # Root of a parent-scoped popup, Items mode: the whole subtree.
-      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&cat_scope=#{parent.uuid}&sel=click&rs=true")
-      assert to_items_mode(view) =~ "Deep Nested Item"
+      {:ok, view, html} = open(conn, "c=#{cat.uuid}&cat_scope=#{parent.uuid}&sel=click")
 
-      # Drilling into the parent level: its own (zero) items, its child
-      # as a tile to drill on.
-      html = view |> picker() |> render_click("browse_category", %{"uuid" => parent.uuid})
+      # The floor: own items + the child tile, header names the level,
+      # no Back (nowhere further back in this popup).
+      assert html =~ "Direct On Parent"
       refute html =~ "Deep Nested Item"
       assert html =~ "Child Scope"
+      assert has_element?(view, "h3", "Parent Scope")
+      refute has_element?(view, "#picker-back")
 
-      # A search from the drilled level still finds down the subtree.
+      # A search still finds down the subtree…
       html = view |> picker() |> render_change("browse_search", %{"search" => "deep"})
       assert html =~ "Deep Nested Item"
 
-      # Clearing the search returns to the level's own listing.
+      # …and clearing it returns to the floor's own listing.
       html = view |> picker() |> render_change("browse_search", %{"search" => ""})
       refute html =~ "Deep Nested Item"
+      assert html =~ "Direct On Parent"
 
-      # And the child level lists the item directly.
+      # The child level lists its item, and Back climbs to the floor.
       html = view |> picker() |> render_click("browse_category", %{"uuid" => child.uuid})
       assert html =~ "Deep Nested Item"
+      assert has_element?(view, ~s(#picker-back[phx-value-uuid="#{parent.uuid}"]))
     end
 
     test "qty bounds that invert after precision rounding raise at init", %{
@@ -1337,11 +1347,10 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
           category_uuid: child.uuid
         })
 
-      {:ok, view, html} = open(conn, "c=#{cat.uuid}&cat_scope=#{parent.uuid}&sel=click&rs=true")
+      {:ok, view, html} = open(conn, "c=#{cat.uuid}&cat_scope=#{parent.uuid}&sel=click")
 
       # The subtree is part of the scope, so its tiles must be offered…
       assert html =~ "Child Cat"
-      assert to_items_mode(view) =~ "Nested Item"
 
       # …and narrowing to a descendant is accepted, not rejected as
       # out-of-scope.
@@ -2388,32 +2397,36 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       refute has_element?(view, ~s(#picker-search-cats button[phx-value-uuid="#{outside.uuid}"]))
     end
 
-    test "a hit on the scoped root itself leaves Up alive", %{conn: conn, cat: cat} do
-      # A scoped embed's OWN root category is inside the tree, so a
-      # search that matches its name offers it as a hit. Drilling there
-      # used to aim Up at the grandparent — outside the scope, refused
-      # by BrowseState — so the only way back up was a dead button.
+    test "the scoped floor: hits cover descendants only, Back climbs home to it", %{
+      conn: conn,
+      cat: cat
+    } do
+      # A category-scoped popup OPENS standing in its category (boss,
+      # 2026-08-31), so the old drill-to-the-standing-root hit scenario
+      # dissolved: hits offer the subtree BELOW the floor, never the
+      # floor itself or its out-of-scope ancestors — and Back at the
+      # floor stays hidden (the grandparent-aimed dead button this test
+      # used to guard against cannot render at all).
       top = fixture_category(cat, %{name: "Hardware"})
       mid = fixture_category(cat, %{name: "Widgets", parent_uuid: top.uuid})
       leaf = fixture_category(cat, %{name: "Widget Clips", parent_uuid: mid.uuid})
 
       {:ok, view, _html} = open(conn, "c=#{cat.uuid}&cat_scope=#{mid.uuid}&sel=click")
+      refute has_element?(view, "#picker-back")
+
       view |> picker() |> render_change("browse_search", %{"search" => "widget"})
 
-      assert has_element?(view, ~s(#picker-search-cats button[phx-value-uuid="#{mid.uuid}"]))
-      view |> picker() |> render_click("open_category_hit", %{"uuid" => mid.uuid})
+      assert has_element?(view, ~s(#picker-search-cats button[phx-value-uuid="#{leaf.uuid}"]))
+      refute has_element?(view, ~s(#picker-search-cats button[phx-value-uuid="#{mid.uuid}"]))
+      refute has_element?(view, ~s(#picker-search-cats button[phx-value-uuid="#{top.uuid}"]))
 
-      assert has_element?(view, ~s(#picker-back[phx-value-uuid=""]))
-      refute has_element?(view, ~s(#picker-back[phx-value-uuid="#{top.uuid}"]))
+      # Drilling a hit works, and Back names the floor, not the
+      # out-of-scope grandparent.
+      view |> picker() |> render_click("open_category_hit", %{"uuid" => leaf.uuid})
+      assert has_element?(view, ~s(#picker-back[phx-value-uuid="#{mid.uuid}"]))
 
-      # And the climb actually lands back on the popup root's tiles.
-      view |> picker() |> render_click("browse_category", %{"uuid" => ""})
-
-      assert has_element?(
-               view,
-               ~s(#picker-levelnav button[phx-value-uuid="#{leaf.uuid}"]),
-               "Widget Clips"
-             )
+      view |> picker() |> render_click("browse_category", %{"uuid" => mid.uuid})
+      refute has_element?(view, "#picker-back")
     end
 
     test "the root's Items mode (opt-in) searches items only — the admin's items-type search", %{
