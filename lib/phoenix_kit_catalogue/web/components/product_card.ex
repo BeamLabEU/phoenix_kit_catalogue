@@ -42,7 +42,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ProductCard do
   alias PhoenixKit.Modules.Storage
   alias PhoenixKit.Modules.Storage.URLSigner
   alias PhoenixKit.Utils.Format
-  alias PhoenixKitCatalogue.{Catalogue, Metadata}
+  alias PhoenixKitCatalogue.{Attachments, Catalogue, Metadata}
   alias PhoenixKitCatalogue.Schemas.Item
 
   # ── Render ───────────────────────────────────────────────────────
@@ -344,7 +344,14 @@ defmodule PhoenixKitCatalogue.Web.Components.ProductCard do
   """
   @spec resolve_images(Item.t() | term()) :: [%{uuid: String.t(), name: String.t() | nil}]
   def resolve_images(%Item{data: data}) when is_map(data) do
-    folder_images = list_folder_images(read_uuid(data, "files_folder_uuid"))
+    folder_images =
+      data
+      |> read_uuid("files_folder_uuid")
+      |> list_folder_images()
+      # The editor's saved drag order (data["media_order"]) drives the
+      # carousel too — the client reordered these on purpose (boss,
+      # 2026-08-31). Unknown files keep their inserted_at tail order.
+      |> Attachments.apply_media_order(Map.get(data, "media_order") || [])
 
     # The featured pointer can dangle (file trashed/deleted after it was set),
     # which would render a broken <img>. Only keep it when it still resolves to
@@ -367,8 +374,13 @@ defmodule PhoenixKitCatalogue.Web.Components.ProductCard do
           [%{uuid: String.t(), name: String.t() | nil, size: integer() | nil, pdf?: boolean()}]
   def resolve_files(%Item{data: data}) when is_map(data) do
     case read_uuid(data, "files_folder_uuid") do
-      nil -> []
-      folder_uuid -> list_folder_files(folder_uuid)
+      nil ->
+        []
+
+      folder_uuid ->
+        folder_uuid
+        |> list_folder_files()
+        |> Attachments.apply_media_order(Map.get(data, "media_order") || [])
     end
   end
 

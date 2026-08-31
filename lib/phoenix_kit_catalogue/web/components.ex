@@ -86,6 +86,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
 
   require Logger
 
+  import PhoenixKitWeb.Components.Core.DraggableList, only: [draggable_list: 1]
   import PhoenixKitWeb.Components.Core.Icon, only: [icon: 1]
   import PhoenixKitWeb.Components.Core.Input, only: [input: 1]
   import PhoenixKitWeb.Components.Core.Select, only: [select: 1]
@@ -319,11 +320,32 @@ defmodule PhoenixKitCatalogue.Web.Components do
             </p>
           </div>
         <% else %>
-          <ul class="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <li
-              :for={file <- @files_state.files}
-              class="flex items-center gap-3 rounded-md border border-base-300 bg-base-200/30 p-3"
-            >
+          <%!-- Drag to reorder (boss, 2026-08-31: the client reorders
+          images after adding them). Core's SortableGrid-backed list;
+          the handle restricts drag initiation so the file links and
+          the remove button keep working. Order persists on save via
+          inject_attachment_data (data["media_order"]) and drives the
+          detail popup's carousel and file list too. --%>
+          <.draggable_list
+            id="attachment-files-grid"
+            items={@files_state.files}
+            item_id={&to_string(&1.uuid)}
+            on_reorder="reorder_files"
+            layout={:grid}
+            cols="grid-cols-1 md:grid-cols-2"
+            gap="gap-3"
+            draggable={length(@files_state.files) > 1}
+            sortable_handle=".pk-drag-handle"
+          >
+            <:item :let={file}>
+              <div class="flex items-center gap-3 rounded-md border border-base-300 bg-base-200/30 p-3">
+                <span
+                  :if={length(@files_state.files) > 1}
+                  class="pk-drag-handle shrink-0 cursor-grab text-base-content/30 hover:text-base-content/60"
+                  title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Drag to reorder")}
+                >
+                  <.icon name="hero-bars-3" class="w-4 h-4" />
+                </span>
               <%= if file.file_type == "image" do %>
                 <a
                   href={URLSigner.signed_url(file.uuid, "original")}
@@ -366,9 +388,10 @@ defmodule PhoenixKitCatalogue.Web.Components do
                 title={@remove_title}
               >
                 <.icon name="hero-x-mark" class="w-4 h-4" />
-              </button>
-            </li>
-          </ul>
+                </button>
+              </div>
+            </:item>
+          </.draggable_list>
         <% end %>
       </div>
     </div>
