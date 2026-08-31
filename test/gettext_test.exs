@@ -42,9 +42,6 @@ defmodule PhoenixKitCatalogue.GettextTest do
           {"A category cannot move into its own subtree.",
            "Категорию нельзя переместить в её собственное поддерево.",
            "Kategooriat ei saa viia tema enda alampuusse."},
-          {"No subcategories here. Switch to Items to browse this level's items.",
-           "Здесь нет подкатегорий. Переключитесь на Позиции, чтобы просмотреть позиции этого уровня.",
-           "Siin pole alamkategooriaid. Vali Tooted, et sirvida selle taseme tooteid."},
           # Written as the macro inside a HEEx attribute on purpose: the
           # runtime form is NOT extracted from attribute interpolation, which
           # is how these two were in the catalogues but absent from a
@@ -641,6 +638,15 @@ defmodule PhoenixKitCatalogue.GettextTest do
       assert po_msgstr("en", msgid) != nil
       assert gettext_in("et", msgid) == "Tagasi"
       assert gettext_in("ru", msgid) == "Назад"
+    end
+
+    # The opt-in root switcher's group label — it flips what the level
+    # LISTS, so it must not claim to be a search control (2026-08-31).
+    test "Browse" do
+      msgid = "Browse"
+      assert po_msgstr("en", msgid) != nil
+      assert gettext_in("et", msgid) == "Sirvi"
+      assert gettext_in("ru", msgid) == "Обзор"
     end
 
     # The smart-fee price placeholder for rule-priced items whose number

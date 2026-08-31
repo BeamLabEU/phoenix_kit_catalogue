@@ -48,8 +48,9 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
 
   defp picker(view), do: with_target(view, "#picker")
 
-  # A root that has categories opens as the admin-style category browser;
-  # tests that assert on the ROOT's flat item list switch it over first.
+  # The root either-or is opt-in since 2026-08-31 (root_switcher) — a
+  # test that asserts on the ROOT's flat item list must open with
+  # `rs=true` and switch over first.
   defp to_items_mode(view),
     do: view |> picker() |> render_click("set_root_mode", %{"mode" => "items"})
 
@@ -967,7 +968,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
           category_uuid: fasteners.uuid
         })
 
-      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&sel=click")
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&sel=click&rs=true")
       to_items_mode(view)
 
       # Off by default, offered in the dropdown.
@@ -1027,7 +1028,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
           category_uuid: tools.uuid
         })
 
-      {:ok, view, html} = open(conn, "c=#{cat.uuid}&sel=click")
+      {:ok, view, html} = open(conn, "c=#{cat.uuid}&sel=click&rs=true")
       assert html =~ "Uncategorized"
 
       # Narrow to the loose items: the categorized one disappears, the
@@ -1112,7 +1113,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
         })
 
       # Root of a parent-scoped popup, Items mode: the whole subtree.
-      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&cat_scope=#{parent.uuid}&sel=click")
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&cat_scope=#{parent.uuid}&sel=click&rs=true")
       assert to_items_mode(view) =~ "Deep Nested Item"
 
       # Drilling into the parent level: its own (zero) items, its child
@@ -1313,7 +1314,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       # Default columns include Category, populated per row. Assertions
       # scope to the table — the chips row legitimately shows the name
       # regardless of columns (navigation, not data).
-      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&sel=click")
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&sel=click&rs=true")
       to_items_mode(view)
       assert has_element?(view, "#picker-table th", "Category")
       assert has_element?(view, "#picker-table td", "Shelving")
@@ -1336,7 +1337,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
           category_uuid: child.uuid
         })
 
-      {:ok, view, html} = open(conn, "c=#{cat.uuid}&cat_scope=#{parent.uuid}&sel=click")
+      {:ok, view, html} = open(conn, "c=#{cat.uuid}&cat_scope=#{parent.uuid}&sel=click&rs=true")
 
       # The subtree is part of the scope, so its tiles must be offered…
       assert html =~ "Child Cat"
@@ -1937,7 +1938,8 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
                "Fasteners"
              )
 
-      assert has_element?(view, "#picker-root-mode button", "Categories")
+      # No switcher by default (Max, 2026-08-31): a root is just a level.
+      refute has_element?(view, "#picker-root-mode")
       refute has_element?(view, "#picker-items-heading")
 
       # Card view: the shared admin tiles, no table.
@@ -1956,9 +1958,43 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       assert has_element?(view, "#picker-items-heading", "Items")
     end
 
-    test "the root is either-or like the admin: category browser first, flat list one switch away",
+    test "a root is just a level: tiles only, no switcher, no page-1 fetch, flip refused",
          %{conn: conn, cat: cat} do
+      # Max, 2026-08-31: the switcher read as a search-mode control while
+      # flipping the browse listing — dropped from the default. The root
+      # renders the outline alone; items come from drilling or searching.
       {:ok, view, html} = open(conn, "c=#{cat.uuid}&sel=click")
+
+      assert has_element?(view, "#picker-levelnav")
+      refute has_element?(view, "#picker-root-mode")
+      # The skipped fetch is observable: no item markup at the root at
+      # all — not even hidden rows.
+      refute html =~ "M8-100"
+      refute html =~ "Hex Bolt"
+
+      # A crafted set_root_mode must not reveal the unfetched (empty)
+      # item block.
+      html = view |> picker() |> render_click("set_root_mode", %{"mode" => "items"})
+      assert has_element?(view, "#picker-levelnav")
+      refute html =~ "M8-100"
+
+      # Drilling fetches and lists as always.
+      html = view |> picker() |> render_click("browse_category", %{"uuid" => "__uncategorized__"})
+      assert html =~ "M8 Screw"
+
+      # And climbing back up returns to the tiles-only root.
+      html = view |> picker() |> render_click("browse_category", %{"uuid" => ""})
+      refute html =~ "M8-100"
+      assert has_element?(view, "#picker-levelnav")
+
+      # Search still answers with items from the root.
+      html = view |> picker() |> render_change("browse_search", %{"search" => "bolt"})
+      assert html =~ "Hex Bolt"
+    end
+
+    test "root_switcher: true restores the admin either-or — flat list one switch away",
+         %{conn: conn, cat: cat} do
+      {:ok, view, html} = open(conn, "c=#{cat.uuid}&sel=click&rs=true")
 
       # Categories mode (default): the outline only — no item rows, not
       # even the seed items ("in the hardware catalogue there are 3
@@ -2047,7 +2083,9 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       assert has_element?(view, ~s(#picker-levelnav button[phx-value-uuid="#{other.uuid}"]))
       refute has_element?(view, ~s(#picker-levelnav button[phx-value-uuid="#{doors.uuid}"]))
       refute has_element?(view, ~s(#picker-levelnav button[phx-value-uuid="#{tools.uuid}"]))
-      assert has_element?(view, "#picker-root-mode button", "Catalogues")
+      # No switcher by default; with root_switcher it reads Catalogues
+      # (pinned below).
+      refute has_element?(view, "#picker-root-mode")
       refute html =~ "__uncategorized__"
 
       # Choosing a catalogue shows ITS top categories + its own
@@ -2085,7 +2123,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       {:ok, _} =
         Catalogue.create_item(%{name: "Unoffered Item", catalogue_uuid: third.uuid})
 
-      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&c2=#{other.uuid}&sel=click")
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&c2=#{other.uuid}&sel=click&rs=true")
 
       # Items mode at the root: everything offered, nothing beyond.
       html = view |> picker() |> render_click("set_root_mode", %{"mode" => "items"})
@@ -2105,6 +2143,15 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       html = view |> picker() |> render_click("browse_catalogue", %{"uuid" => third.uuid})
       refute html =~ "Unoffered Item"
       assert html =~ "Forbidden Item"
+    end
+
+    test "with root_switcher the multi-catalogue switcher reads Catalogues", %{
+      conn: conn,
+      cat: cat,
+      other: other
+    } do
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&c2=#{other.uuid}&sel=click&rs=true")
+      assert has_element?(view, "#picker-root-mode button", "Catalogues")
     end
 
     test "a crafted category from ANOTHER offered catalogue is refused while drilled", %{
@@ -2250,11 +2297,11 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
              )
     end
 
-    test "the root's Items mode searches items only — the admin's items-type search", %{
+    test "the root's Items mode (opt-in) searches items only — the admin's items-type search", %{
       conn: conn,
       cat: cat
     } do
-      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&sel=click")
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&sel=click&rs=true")
       view |> picker() |> render_click("set_root_mode", %{"mode" => "items"})
 
       html = view |> picker() |> render_change("browse_search", %{"search" => "bolt"})

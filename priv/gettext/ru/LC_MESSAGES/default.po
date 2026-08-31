@@ -2854,6 +2854,9 @@ msgstr "Добавить в выбор"
 msgid "Remove from selection"
 msgstr "Убрать из выбора"
 
+msgid "Browse"
+msgstr "Обзор"
+
 msgid "Computed"
 msgstr "Рассчитывается"
 
