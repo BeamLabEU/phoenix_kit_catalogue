@@ -1905,17 +1905,15 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
                "Bolts"
              )
 
-      # Up from a root-level tile returns to the popup root.
-      assert has_element?(view, ~s(#picker-levelnav button[phx-value-uuid=""]), "Up")
+      # Back (in the modal header since 2026-08-31) from a root-level
+      # tile returns to the popup root.
+      assert has_element?(view, ~s(#picker-back[phx-value-uuid=""]))
 
       view |> picker() |> render_click("browse_category", %{"uuid" => child.uuid})
 
-      # Up from the child names its actual parent; the level lists its item.
-      assert has_element?(
-               view,
-               ~s(#picker-levelnav button[phx-value-uuid="#{parent.uuid}"]),
-               "Up"
-             )
+      # Back from the child names its actual parent; the level lists its
+      # item.
+      assert has_element?(view, ~s(#picker-back[phx-value-uuid="#{parent.uuid}"]))
 
       assert render(view) =~ "Hex Bolt"
     end
@@ -1990,6 +1988,19 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       # Search still answers with items from the root.
       html = view |> picker() |> render_change("browse_search", %{"search" => "bolt"})
       assert html =~ "Hex Bolt"
+    end
+
+    test "tile triggers carry a pointer cursor in both views", %{conn: conn, cat: cat} do
+      # A bare <button> gets NO pointer cursor from the browser — the
+      # admin's tiles point because they are patch <a> links; the
+      # popup's identical-looking tiles are buttons and didn't (Max,
+      # 2026-08-31: "the mouse doesn't change on hovering").
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&sel=click")
+
+      assert view |> element("#picker-levelnav") |> render() =~ "cursor-pointer"
+
+      view |> picker() |> render_click("set_view", %{"mode" => "card"})
+      assert view |> element("#picker-levelnav") |> render() =~ "cursor-pointer"
     end
 
     test "root_switcher: true restores the admin either-or — flat list one switch away",
@@ -2094,7 +2105,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       assert has_element?(view, ~s(#picker-levelnav button[phx-value-uuid="#{tools.uuid}"]))
       refute has_element?(view, ~s(#picker-levelnav button[phx-value-uuid="#{doors.uuid}"]))
       assert has_element?(view, ~s(#picker-levelnav button[phx-value-uuid="__uncategorized__"]))
-      assert has_element?(view, ~s(#picker-levelnav button[phx-value-uuid=""]), "Up")
+      assert has_element?(view, ~s(#picker-back[phx-value-uuid=""]))
 
       # Category and subcategory levels work as in a single catalogue.
       view |> picker() |> render_click("browse_category", %{"uuid" => tools.uuid})
@@ -2223,7 +2234,29 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       assert html =~ "Hex Bolt"
       refute has_element?(view, "#picker-search-cats")
       refute has_element?(view, ~s(#picker-search[value="bolt"]))
-      assert has_element?(view, "#picker-levelnav", "Bolts")
+      assert has_element?(view, "h3", "Bolts")
+      assert has_element?(view, "#picker-back")
+    end
+
+    test "the header names where you stand and carries Back (Max, 2026-08-31)", %{
+      conn: conn,
+      cat: cat,
+      parent: parent
+    } do
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&sel=click")
+
+      # Root: no Back, the host-scoped context (or plain title) stands.
+      refute has_element?(view, "#picker-back")
+
+      # Drilled: the header names the level and offers the way back.
+      view |> picker() |> render_click("browse_category", %{"uuid" => parent.uuid})
+      assert has_element?(view, "h3", "Fasteners")
+      assert has_element?(view, "#picker-back")
+
+      # Back climbs; the header follows.
+      view |> picker() |> render_click("browse_category", %{"uuid" => ""})
+      refute has_element?(view, "h3", "Fasteners")
+      refute has_element?(view, "#picker-back")
     end
 
     test "a whitespace-only query is no search: level navigation and drill stand", %{
@@ -2284,8 +2317,8 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       assert has_element?(view, ~s(#picker-search-cats button[phx-value-uuid="#{mid.uuid}"]))
       view |> picker() |> render_click("open_category_hit", %{"uuid" => mid.uuid})
 
-      assert has_element?(view, ~s(#picker-levelnav button[phx-value-uuid=""]), "Up")
-      refute has_element?(view, ~s(#picker-levelnav button[phx-value-uuid="#{top.uuid}"]))
+      assert has_element?(view, ~s(#picker-back[phx-value-uuid=""]))
+      refute has_element?(view, ~s(#picker-back[phx-value-uuid="#{top.uuid}"]))
 
       # And the climb actually lands back on the popup root's tiles.
       view |> picker() |> render_click("browse_category", %{"uuid" => ""})

@@ -217,7 +217,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ProductCard do
           :for={{img, idx} <- Enum.with_index(@images)}
           type="button"
           class={[
-            "shrink-0 rounded border-2 overflow-hidden transition-colors hover:border-primary",
+            "shrink-0 cursor-pointer rounded border-2 overflow-hidden transition-colors hover:border-primary",
             (idx == 0 && "border-primary") || "border-base-300"
           ]}
           aria-label={
@@ -238,7 +238,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ProductCard do
         <button
           :for={{file, idx} <- Enum.with_index(@files, length(@images))}
           type="button"
-          class="shrink-0 w-[68px] h-[68px] rounded border-2 border-base-300 hover:border-primary transition-colors flex flex-col items-center justify-center gap-0.5 bg-base-200"
+          class="shrink-0 cursor-pointer w-[68px] h-[68px] rounded border-2 border-base-300 hover:border-primary transition-colors flex flex-col items-center justify-center gap-0.5 bg-base-200"
           aria-label={file.name}
           title={file.name}
           onclick={jump_js(idx)}

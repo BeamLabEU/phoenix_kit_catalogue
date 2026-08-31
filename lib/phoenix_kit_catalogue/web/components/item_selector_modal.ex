@@ -347,6 +347,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
         mode: mode,
         locale: locale,
         current_user: assigns[:current_user],
+        context_header?: Map.get(assigns, :context_header, true),
         header_context: header_context(assigns, original_scope, locale),
         qty_precision: qty_precision,
         qty_min: limits.qty_min,
@@ -772,20 +773,6 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
     end
   end
 
-  defp level_name(_tree, %{category_uuid: :uncategorized}), do: gettext("Uncategorized")
-
-  defp level_name(tree, %{category_uuid: uuid}) when is_binary(uuid),
-    do: get_in(tree.index, [uuid, Access.key(:name)])
-
-  defp level_name(tree, %{catalogue_uuid: uuid}) when is_binary(uuid) do
-    case Enum.find(tree[:catalogues] || [], &(&1.uuid == uuid)) do
-      nil -> nil
-      catalogue -> catalogue.name
-    end
-  end
-
-  defp level_name(_tree, _), do: nil
-
   defp level_up(_tree, :uncategorized), do: ""
 
   defp level_up(tree, uuid) when is_binary(uuid) do
@@ -877,6 +864,24 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
   # like a single-catalogue root. Category drilling reuses the chips' old
   # `browse_category` event; scope enforcement lives in BrowseState for
   # both commands.
+  # Back: a drilled category climbs the category chain (level_up); a
+  # chosen catalogue's level climbs back to the catalogue list. Nil at
+  # the root — nowhere further back. Rendered in the modal HEADER (Max,
+  # 2026-08-31: the header says where you are, so the way back lives
+  # there too).
+  defp back_target(tree, browse) do
+    cond do
+      browse.category_uuid != nil ->
+        {"browse_category", level_up(tree, browse.category_uuid)}
+
+      is_binary(browse.catalogue_uuid) ->
+        {"browse_catalogue", ""}
+
+      true ->
+        nil
+    end
+  end
+
   attr(:id, :string, required: true)
   attr(:tree, :map, required: true)
   attr(:browse, :any, required: true)
@@ -891,26 +896,11 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
     catalogues? = catalogues_level?(assigns.tree, assigns.browse)
     uncat_count = level_uncategorized(assigns.tree, assigns.browse)
 
-    # Up: a drilled category climbs the category chain (level_up); a
-    # chosen catalogue's level climbs back to the catalogue list.
-    up =
-      cond do
-        assigns.browse.category_uuid != nil ->
-          {"browse_category", level_up(assigns.tree, assigns.browse.category_uuid)}
-
-        is_binary(assigns.browse.catalogue_uuid) ->
-          {"browse_catalogue", ""}
-
-        true ->
-          nil
-      end
-
     assigns =
       assigns
       |> assign(:tiles, tiles)
       |> assign(:catalogues?, catalogues?)
       |> assign(:tile_event, if(catalogues?, do: "browse_catalogue", else: "browse_category"))
-      |> assign(:up, up)
       |> assign(:uncat?, assigns.show_uncategorized and (uncat_count || 0) > 0)
       |> assign(:uncat_count, uncat_count)
       |> assign(:photo_col?, Enum.any?(tiles, &Shared.featured_image_uuid/1))
@@ -918,19 +908,8 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
 
     ~H"""
     <div id={@id} class="flex flex-col gap-2 mb-4">
-      <div :if={@up} class="flex items-center gap-2 min-w-0">
-        <button
-          type="button"
-          class="btn btn-ghost btn-xs phx-click-loading:animate-pulse"
-          phx-click={elem(@up, 0)}
-          phx-value-uuid={elem(@up, 1)}
-          phx-target={@target}
-        >
-          <span class="hero-arrow-uturn-left w-4 h-4"></span>
-          {gettext("Up")}
-        </button>
-        <span class="font-medium truncate">{level_name(@tree, @browse)}</span>
-      </div>
+      <%!-- The way back lives in the modal HEADER now, beside the live
+      context that names this level (Max, 2026-08-31). --%>
       <div :if={@tiles != [] or @uncat?}>
         <%!-- Only a drilled category level heads this block — a root's
         tiles need no heading (the pure-browser idiom; with the opt-in
@@ -987,7 +966,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
                       phx-click={@tile_event}
                       phx-value-uuid={tile.uuid}
                       phx-target={@target}
-                      class="link link-hover font-medium phx-click-loading:animate-pulse"
+                      class="link link-hover font-medium cursor-pointer phx-click-loading:animate-pulse"
                     >
                       {tile.name}
                     </button>
@@ -1018,7 +997,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
                     phx-click="browse_category"
                     phx-value-uuid="__uncategorized__"
                     phx-target={@target}
-                    class="link link-hover font-medium phx-click-loading:animate-pulse"
+                    class="link link-hover font-medium cursor-pointer phx-click-loading:animate-pulse"
                   >
                     {gettext("Uncategorized")}
                   </button>
@@ -2015,6 +1994,55 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
   defp modal_title(nil), do: gettext("Select items")
   defp modal_title(title), do: title
 
+  # At the root the host's explicit title keeps winning (the 2026-08-30
+  # contract); a DRILLED level names itself — that is the whole point of
+  # the live header.
+  defp header_title(ctx, back, title) do
+    cond do
+      back && ctx && ctx.name -> ctx.name
+      ctx -> title || ctx.name || modal_title(nil)
+      true -> modal_title(title)
+    end
+  end
+
+  # What the header names RIGHT NOW (Max, 2026-08-31: "use the header
+  # to show where you are"): the drilled category, the Uncategorized
+  # bucket, the chosen catalogue — falling back to the host-scoped
+  # record from init when nothing is drilled. Records come from the
+  # tree already in memory, so navigating costs no extra queries.
+  defp live_header_context(assigns) do
+    %{browse: browse, cat_tree: tree} = assigns
+
+    cond do
+      browse.category_uuid == :uncategorized ->
+        %{name: gettext("Uncategorized"), description: nil, image_url: nil}
+
+      is_binary(browse.category_uuid) ->
+        record_header(tree.index[browse.category_uuid])
+
+      is_binary(browse.catalogue_uuid) ->
+        record_header(Enum.find(tree[:catalogues] || [], &(&1.uuid == browse.catalogue_uuid)))
+
+      true ->
+        assigns.header_context
+    end
+  end
+
+  # Tree records carry viewer-translated names already; description and
+  # thumb ride the same record. Chrome, not data — any surprise shape
+  # degrades to the plain title, like resolve_header_context/2.
+  defp record_header(nil), do: nil
+
+  defp record_header(record) do
+    %{
+      name: record.name,
+      description: Map.get(record, :description),
+      image_url: Browse.featured_thumb_url(record)
+    }
+  rescue
+    _ -> nil
+  end
+
   # The table renders off the visible columns filtered by the LIVE
   # display flags, exactly as the card branch gates its price/SKU — so a
   # host revoking show_prices mid-open drops the table's price column
@@ -2062,30 +2090,44 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
         max_height="85vh"
       >
         <:title>
-          <%!-- Context header (2026-08-30): the scoped catalogue/category's
-          image, name and description instead of a bare "Select items" —
-          the modal says what it is showing. context_header={false} or an
-          unresolvable scope falls back to the plain title. An explicit
-          title attr still names the modal; the context then only adds
-          the image and description around it. --%>
-          <div :if={@header_context} class="flex items-center gap-3 min-w-0">
+          <%!-- Context header, LIVE since 2026-08-31 (Max: "use the header
+          to show where you are"): it names the level being browsed — the
+          drilled category or chosen catalogue — falling back to the
+          host-scoped record (2026-08-30) and then the plain title.
+          context_header={false} keeps it static. The way back lives here
+          too, as Back (Max: "the up button should be back instead"). --%>
+          <% ctx = if @context_header?, do: live_header_context(assigns), else: @header_context %>
+          <% back = if @context_header?, do: back_target(@cat_tree, @browse) %>
+          <div class="flex items-center gap-3 min-w-0">
+            <button
+              :if={back}
+              type="button"
+              id={"#{@id}-back"}
+              class="btn btn-ghost btn-sm btn-circle shrink-0 phx-click-loading:animate-pulse"
+              phx-click={elem(back, 0)}
+              phx-value-uuid={elem(back, 1)}
+              phx-target={@myself}
+              aria-label={gettext("Back")}
+              title={gettext("Back")}
+            >
+              <span class="hero-arrow-left w-5 h-5"></span>
+            </button>
             <img
-              :if={@header_context.image_url}
-              src={@header_context.image_url}
+              :if={ctx && ctx.image_url}
+              src={ctx.image_url}
               alt=""
               class="w-12 h-12 rounded-lg object-cover bg-base-200 shrink-0"
             />
             <div class="min-w-0">
-              <div class="truncate">{@title || @header_context.name || modal_title(nil)}</div>
+              <div class="truncate">{header_title(ctx, back, @title)}</div>
               <div
-                :if={@header_context.description}
+                :if={ctx && ctx.description}
                 class="text-sm font-normal text-base-content/60 truncate"
               >
-                {@header_context.description}
+                {ctx.description}
               </div>
             </div>
           </div>
-          <span :if={!@header_context}>{modal_title(@title)}</span>
         </:title>
 
         <div class="flex flex-col gap-3">
