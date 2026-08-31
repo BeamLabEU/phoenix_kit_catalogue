@@ -891,7 +891,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
       phx-click={@phx_click}
       phx-value-uuid={@uuid}
       phx-target={@phx_target}
-      class={[@class, "phx-click-loading:animate-pulse"]}
+      class={[@class, "cursor-pointer phx-click-loading:animate-pulse"]}
     >
       {render_slot(@inner_block)}
     </button>
