@@ -40,6 +40,37 @@ mix deps.get
 
 The module auto-discovers via beam scanning. Enable it in **Admin > Modules**.
 
+### JavaScript hooks (required for the interactive components)
+
+The module ships its LiveView hooks as **colocated hooks** — the item
+picker's keyboard handling, the selector popup's instant quantity
+highlight and scroll reset, and its auto-load sentinel. `mix compile`
+writes their manifest to
+`_build/<env>/phoenix-colocated/phoenix_kit_catalogue/`, and the host
+app must import and register it in `assets/js/app.js`:
+
+```javascript
+import {hooks as catalogueHooks} from "phoenix-colocated/phoenix_kit_catalogue"
+
+const liveSocket = new LiveSocket("/live", Socket, {
+  // ...
+  hooks: {...window.PhoenixKitHooks, ...catalogueHooks, /* your hooks */},
+})
+```
+
+Phoenix 1.8 projects resolve the `phoenix-colocated/*` import out of the
+box (their esbuild config puts the build directory on `NODE_PATH`). On
+an older setup, add it to the esbuild profile in `config/config.exs`:
+
+```elixir
+env: %{"NODE_PATH" => [Path.expand("../deps", __DIR__), Mix.Project.build_path()]}
+```
+
+Without the import the components still render and work server-side,
+but everything the hooks add is silently absent — the browser console
+logs `unknown hook found` for `.ItemPicker`, `.QtySignal`, `.ScrollTop`
+and `.AutoLoad`.
+
 ## Data Model
 
 ```
@@ -272,6 +303,30 @@ Import into any LiveView:
 ```elixir
 import PhoenixKitCatalogue.Web.Components
 ```
+
+### `ItemSelectorModal` (the item-picking popup)
+
+The full picker: level navigation (catalogue-first on multi-catalogue
+scopes), search with category hits, quantity/click selection flavours,
+stacked item details, per-user view/column memory.
+
+```heex
+<.live_component
+  module={PhoenixKitCatalogue.Web.Components.ItemSelectorModal}
+  id="item-selector"
+  show={@show_selector}
+  scope={%{catalogue_uuids: [@catalogue.uuid]}}
+  selected={@picked}
+  current_user={@phoenix_kit_current_scope && @phoenix_kit_current_scope.user}
+/>
+```
+
+**Pass `current_user`** (the phoenix_kit user struct — on any admin page
+it is one `@phoenix_kit_current_scope.user` away): it powers the
+per-user memory for the view and column choices. Without it the popup
+still works, but every column/view toggle silently resets on the next
+open — the most-missed attr in real integrations (2026-08-31). The
+component moduledoc documents the full attr and event contract.
 
 ### `item_table/1`
 

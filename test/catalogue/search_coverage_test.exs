@@ -208,4 +208,33 @@ defmodule PhoenixKitCatalogue.Catalogue.SearchCoverageTest do
       assert render_change(view, "table_search", %{"query" => "Köögisari"}) =~ "Kitchen Range"
     end
   end
+
+  describe "order: :position (admin document order, 2026-08-31)" do
+    test "browse fetches read position order; the default stays name order" do
+      cat = fixture_catalogue(%{name: "Ordered Range"})
+      grouping = fixture_category(cat, %{name: "Grouping"})
+
+      # Names invert the positions, so the two orders are distinguishable.
+      z_first =
+        fixture_item(%{name: "Zed First", catalogue_uuid: cat.uuid, category_uuid: grouping.uuid})
+
+      a_last =
+        fixture_item(%{
+          name: "Alpha Last",
+          catalogue_uuid: cat.uuid,
+          category_uuid: grouping.uuid
+        })
+
+      {:ok, _} = Catalogue.update_item(Catalogue.get_item!(z_first.uuid), %{position: 1})
+      {:ok, _} = Catalogue.update_item(Catalogue.get_item!(a_last.uuid), %{position: 2})
+
+      opts = [category_uuids: [grouping.uuid], include_descendants: false]
+
+      by_position = Catalogue.search_items("", opts ++ [order: :position])
+      assert Enum.map(by_position, & &1.name) == ["Zed First", "Alpha Last"]
+
+      by_name = Catalogue.search_items("", opts)
+      assert Enum.map(by_name, & &1.name) == ["Alpha Last", "Zed First"]
+    end
+  end
 end

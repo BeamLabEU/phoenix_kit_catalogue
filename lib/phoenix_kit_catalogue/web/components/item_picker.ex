@@ -68,9 +68,11 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
       `aria-disabled` and cannot be clicked; the select handler refuses
       them server-side too (a click can race the re-render that excluded
       its target). Use for "already picked in another row" state.
-    * `:locale` (required) — locale string for translated display
-      names (`"en"`, `"es"`, etc.). Resolved via
-      `Catalogue.get_translation/2`.
+    * `:locale` — locale string for translated display names (`"en"`,
+      `"et"`, etc.), resolved via `Catalogue.get_translation/2`. Omitted,
+      the process gettext locale applies (the fallback the selector and
+      browse widget share) — pass it only to force a language the
+      process is not already in.
     * `:placeholder` — input placeholder. Defaults to "Search items…".
     * `:empty_query_limit` — how many items to show when the query is
       empty (the "just focused" state). Defaults to `10`.
@@ -203,6 +205,23 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
 
   @impl true
   def update(assigns, socket) do
+    # A host that passes no :locale gets the process gettext locale, the
+    # same fallback ItemSelectorModal and CatalogueBrowse already use —
+    # this component alone stuck to its "en" mount default, so its
+    # dropdown, breadcrumbs AND its product-card popup stayed English on
+    # localized pages (tim-dev error report, 2026-08-31). Resolved per
+    # update so it also tracks a host whose process locale changes.
+    # `||`, not put_new: `locale={@locale}` with a nil assign is the
+    # common host shape, and a present-but-nil key would skip a
+    # put_new fallback — silent English on a localized page, the exact
+    # bug this fixes (external review, 2026-08-31).
+    assigns =
+      Map.put(
+        assigns,
+        :locale,
+        assigns[:locale] || Gettext.get_locale(PhoenixKitCatalogue.Gettext)
+      )
+
     # If the selected_item UUID *changes* between updates, mirror the
     # new item's name into the input. No change (including first mount
     # with no selection) leaves `:query` alone so a mid-typing user
@@ -551,13 +570,8 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
 
   defp item_display_name(nil, _locale), do: nil
 
-  defp item_display_name(%Item{} = item, locale) do
-    translation = safe_get_translation(item, locale)
-
-    Map.get(translation, "_name") ||
-      Map.get(translation, "name") ||
-      item.name
-  end
+  defp item_display_name(%Item{} = item, locale),
+    do: Catalogue.translated_name(item, locale)
 
   # Full path: catalogue / every ancestor category (root → direct parent) /
   # the item's own category. `category_paths` (built by `ensure_category_paths/2`)
@@ -593,19 +607,10 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
     |> Enum.join(" / ")
   end
 
-  defp translated_name(record, locale) do
-    translation = safe_get_translation(record, locale)
-
-    Map.get(translation, "_name") ||
-      Map.get(translation, "name") ||
-      Map.get(record, :name)
-  end
-
-  defp safe_get_translation(record, locale) do
-    Catalogue.get_translation(record, locale)
-  rescue
-    _ -> %{}
-  end
+  # Presence-guarded and rescue-safe via the canonical helper — the
+  # ad-hoc copies of this chain let a stored blank override blank the
+  # display (external review, 2026-08-31).
+  defp translated_name(record, locale), do: Catalogue.translated_name(record, locale)
 
   defp format_price_display(_item, nil), do: nil
 

@@ -134,6 +134,81 @@ defmodule PhoenixKitCatalogue.Catalogue.BrowseStateTest do
       assert BrowseState.init(per_page: 0).per_page == 1
       assert BrowseState.init(per_page: 24).per_page == 24
     end
+
+    test "set_catalogue narrows within a multi-catalogue scope and rejects outsiders" do
+      state = BrowseState.init(scope: %{catalogue_uuids: ["cat-a", "cat-b"]})
+
+      assert {drilled, {:fetch, opts, _}} =
+               BrowseState.command(state, {:set_catalogue, "cat-b"})
+
+      assert Map.new(opts)[:catalogue_uuids] == ["cat-b"]
+      assert drilled.catalogue_uuid == "cat-b"
+
+      assert {^state, :noop} = BrowseState.command(state, {:set_catalogue, "cat-evil"})
+      assert {^state, :noop} = BrowseState.command(state, {:set_catalogue, 123})
+
+      # Clearing restores the full offered list.
+      opts = opts_map(BrowseState.command(drilled, {:set_catalogue, nil}))
+      assert opts[:catalogue_uuids] == ["cat-a", "cat-b"]
+    end
+
+    test "set_catalogue is refused on a singleton scope — no catalogue level exists there" do
+      # The documented contract: only accepted when the scope names
+      # SEVERAL catalogues. A crafted accept on [A] would strand the
+      # presentation in a level it never renders tiles for
+      # (external review, 2026-08-31).
+      state = BrowseState.init(scope: %{catalogue_uuids: ["cat-a"]})
+      assert {^state, :noop} = BrowseState.command(state, {:set_catalogue, "cat-a"})
+
+      unscoped = BrowseState.init(scope: %{})
+      assert {^unscoped, :noop} = BrowseState.command(unscoped, {:set_catalogue, "cat-a"})
+    end
+
+    test "browse listings in ONE catalogue read in the admin's position order" do
+      # Max, 2026-08-31: the popup and the admin showed different item
+      # orders — the admin's default is document order (position, name),
+      # the fetch layer's is name. Single-catalogue BROWSE fetches now
+      # ask for :position; several catalogues keep name order (position
+      # is per-catalogue scope, interleaving it is meaningless), and a
+      # live SEARCH stays name-ordered everywhere, like the admin's
+      # results.
+      single = BrowseState.init(scope: %{catalogue_uuids: ["cat-1"]}, drill: :direct)
+      assert opts_map(BrowseState.command(single, :reset))[:order] == :position
+
+      assert opts_map(BrowseState.command(single, {:set_category, Ecto.UUID.generate()}))[
+               :order
+             ] == :position
+
+      # Searching switches to name order; clearing it restores position.
+      opts = opts_map(BrowseState.command(single, {:search, "screw"}))
+      refute Map.has_key?(opts, :order)
+
+      # A multi-catalogue ROOT keeps name order…
+      multi = BrowseState.init(scope: %{catalogue_uuids: ["cat-1", "cat-2"]})
+      refute Map.has_key?(opts_map(BrowseState.command(multi, :reset)), :order)
+
+      # …but drilling catalogue-first into one restores document order.
+      assert opts_map(BrowseState.command(multi, {:set_catalogue, "cat-2"}))[:order] ==
+               :position
+    end
+
+    test "a whitespace-only search keeps the :direct level's own-items listing" do
+      # The fetch layer trims "   " to no text filter, so treating it as
+      # a live search would flip the level to subtree listing for a query
+      # that filters nothing (external review, 2026-08-31).
+      uuid = Ecto.UUID.generate()
+      state = BrowseState.init(scope: %{}, drill: :direct)
+      {state, _} = BrowseState.command(state, {:set_category, uuid})
+
+      opts = opts_map(BrowseState.command(state, {:search, "   "}))
+      assert opts[:category_uuids] == [uuid]
+      assert opts[:include_descendants] == false
+
+      # A real query still covers the subtree — finding beats filing.
+      opts = opts_map(BrowseState.command(state, {:search, "screw"}))
+      assert opts[:category_uuids] == [uuid]
+      refute Map.has_key?(opts, :include_descendants)
+    end
   end
 
   describe "paging" do
