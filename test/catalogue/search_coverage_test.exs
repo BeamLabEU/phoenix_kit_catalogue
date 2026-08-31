@@ -236,5 +236,50 @@ defmodule PhoenixKitCatalogue.Catalogue.SearchCoverageTest do
       by_name = Catalogue.search_items("", opts)
       assert Enum.map(by_name, & &1.name) == ["Alpha Last", "Zed First"]
     end
+
+    # `i.position` is per-(catalogue, category), so a listing that spans
+    # SEVERAL categories — every CatalogueBrowse level (drill: :subtree
+    # is the BrowseState default) and the selector popup's opt-in flat
+    # root — must lead with the CATEGORY's position or the per-category
+    # ordinals interleave: all the 1s, then all the 2s. The pin above
+    # uses one category, where the two chains are indistinguishable.
+    test "a listing spanning several categories walks category by category, not ordinal by ordinal" do
+      cat = fixture_catalogue(%{name: "Two Section Range"})
+      first = fixture_category(cat, %{name: "First Section", position: 1})
+      second = fixture_category(cat, %{name: "Second Section", position: 2})
+
+      for {category, names} <- [{first, ["F One", "F Two"]}, {second, ["S One", "S Two"]}] do
+        names
+        |> Enum.with_index(1)
+        |> Enum.each(fn {name, position} ->
+          item =
+            fixture_item(%{
+              name: name,
+              catalogue_uuid: cat.uuid,
+              category_uuid: category.uuid
+            })
+
+          {:ok, _} = Catalogue.update_item(Catalogue.get_item!(item.uuid), %{position: position})
+        end)
+      end
+
+      # A loose item has no category position at all — it sorts last,
+      # exactly as search_items_in_catalogue/3 places it.
+      loose = fixture_item(%{name: "Loose End", catalogue_uuid: cat.uuid})
+      {:ok, _} = Catalogue.update_item(Catalogue.get_item!(loose.uuid), %{position: 1})
+
+      names =
+        ""
+        |> Catalogue.search_items(catalogue_uuids: [cat.uuid], order: :position)
+        |> Enum.map(& &1.name)
+
+      assert names == ["F One", "F Two", "S One", "S Two", "Loose End"]
+
+      # The same chain the admin's catalogue-wide read walks.
+      assert names ==
+               cat.uuid
+               |> Catalogue.search_items_in_catalogue("")
+               |> Enum.map(& &1.name)
+    end
   end
 end
