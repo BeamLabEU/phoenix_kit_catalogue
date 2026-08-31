@@ -2,6 +2,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   @moduledoc "Create/edit form for catalogue items with multilang support."
 
   use Phoenix.LiveView
+  use Gettext, backend: PhoenixKitCatalogue.Gettext
   use PhoenixKitAI.Components.AITranslate.Embed
 
   require Logger
@@ -1871,10 +1872,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
          put_flash(
            socket,
            :error,
-           Gettext.gettext(
-             PhoenixKitCatalogue.Gettext,
-             "That category belongs to another catalogue."
-           )
+           gettext("That category belongs to another catalogue.")
          )}
     end
   end
@@ -1927,10 +1925,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
          put_flash(
            socket,
            :error,
-           Gettext.gettext(
-             PhoenixKitCatalogue.Gettext,
-             "That category belongs to another catalogue."
-           )
+           gettext("That category belongs to another catalogue.")
          )}
     end
   end

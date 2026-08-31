@@ -58,7 +58,17 @@ defmodule PhoenixKitCatalogue.GettextTest do
           {"Multiple values", "Несколько значений", "Mitu väärtust"},
           {"Fixed value", "Фиксированное значение", "Kindel väärtus"},
           {"Previous page", "Предыдущая страница", "Eelmine leht"},
-          {"Next page", "Следующая страница", "Järgmine leht"}
+          {"Next page", "Следующая страница", "Järgmine leht"},
+          # The 2026-08-31 boss report (English "New subcategory" in the
+          # Russian admin): all three were runtime-form calls, which the
+          # extractor cannot see, so no catalogue ever held them.
+          {"New subcategory", "Новая подкатегория", "Uus alamkategooria"},
+          {"That category belongs to another catalogue.",
+           "Эта категория принадлежит другому каталогу.",
+           "See kategooria kuulub teise kataloogi."},
+          {"Drag-reorder needs the Manual sort — choose it in the sort selector.",
+           "Для перетаскивания выберите ручную сортировку в списке сортировки.",
+           "Lohistades järjestamiseks vali sortimise valikust käsitsi järjestus."}
         ] do
       Gettext.put_locale(PhoenixKitCatalogue.Gettext, "ru")
       assert Gettext.gettext(PhoenixKitCatalogue.Gettext, msgid) == ru
