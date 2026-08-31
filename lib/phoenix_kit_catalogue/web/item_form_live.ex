@@ -504,6 +504,9 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   def handle_event("cancel_upload", %{"ref" => ref}, socket),
     do: Attachments.cancel_attachment_upload(socket, ref)
 
+  def handle_event("reorder_files", %{"ordered_ids" => ids}, socket),
+    do: {:noreply, Attachments.handle_reorder_files(socket, ids)}
+
   def handle_event("remove_file", %{"uuid" => uuid}, socket),
     do: Attachments.trash_file(socket, uuid)
 
@@ -2475,27 +2478,6 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
     >
       <div class="flex flex-col mx-auto max-w-2xl px-4 py-8 gap-6">
 
-      <%!-- PDF search button — visible on edit only. Opens a modal that
-           searches the PDF library for any page mentioning the item's
-           translated names. --%>
-      <div :if={@action == :edit} class="flex items-center justify-between bg-base-200 rounded-lg p-3 gap-3">
-        <div class="text-sm">
-          <div class="font-medium">
-            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Find this item in PDFs")}
-          </div>
-          <div class="text-xs text-base-content/60">
-            {Gettext.gettext(
-              PhoenixKitCatalogue.Gettext,
-              "Searches the entire PDF library for the item's name across all enabled languages."
-            )}
-          </div>
-        </div>
-        <.button type="button" phx-click="open_pdf_search" size="sm">
-          <.icon name="hero-magnifying-glass" class="w-4 h-4" />
-          {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search PDFs")}
-        </.button>
-      </div>
-
       <.live_component
         :if={@action == :edit}
         module={PhoenixKitCatalogue.Web.Components.PdfSearchModal}
@@ -3481,6 +3463,32 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
             {if @uploads.attachment_files.entries != [],
               do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Waiting for uploads..."),
               else: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Save & Exit")}
+          </.button>
+        </div>
+
+        <%!-- PDF search — edit only, at the BOTTOM under the save row
+        (boss, 2026-08-31; it opened the form at the top). Opens a modal
+        that searches the PDF library for any page mentioning the item's
+        translated names. Inside the form is fine: the trigger is
+        type="button" and the modal component renders its own dialog. --%>
+        <div
+          :if={@action == :edit}
+          class="flex items-center justify-between bg-base-200 rounded-lg p-3 gap-3 mt-4"
+        >
+          <div class="text-sm">
+            <div class="font-medium">
+              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Find this item in PDFs")}
+            </div>
+            <div class="text-xs text-base-content/60">
+              {Gettext.gettext(
+                PhoenixKitCatalogue.Gettext,
+                "Searches the entire PDF library for the item's name across all enabled languages."
+              )}
+            </div>
+          </div>
+          <.button type="button" phx-click="open_pdf_search" size="sm">
+            <.icon name="hero-magnifying-glass" class="w-4 h-4" />
+            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search PDFs")}
           </.button>
         </div>
       </.form>
