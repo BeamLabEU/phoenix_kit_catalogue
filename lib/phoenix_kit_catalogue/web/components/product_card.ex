@@ -168,7 +168,6 @@ defmodule PhoenixKitCatalogue.Web.Components.ProductCard do
             <iframe
               :if={file.pdf?}
               src={URLSigner.signed_url(file.uuid, "original")}
-              loading="lazy"
               title={file.name}
               class="w-full h-[50vh] hidden sm:block"
             >
@@ -231,7 +230,6 @@ defmodule PhoenixKitCatalogue.Web.Components.ProductCard do
           <img
             src={URLSigner.signed_url(img.uuid, "thumbnail")}
             alt=""
-            loading="lazy"
             class="w-16 h-16 object-cover"
           />
         </button>

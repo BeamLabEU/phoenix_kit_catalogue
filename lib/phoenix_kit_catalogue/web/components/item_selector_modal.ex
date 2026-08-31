@@ -2717,7 +2717,6 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
                   src={entry.item.thumb_url}
                   alt=""
                   class="w-10 h-10 rounded object-cover bg-base-200"
-                  loading="lazy"
                 />
                 <div
                   :if={!entry.item.thumb_url}

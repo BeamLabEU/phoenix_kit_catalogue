@@ -535,7 +535,6 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
         src={@item.photo_url}
         alt={@item.name}
         class="w-full h-full object-cover"
-        loading="lazy"
         decoding="async"
       />
       <%!-- No photo: a deliberate tile (SKU initial), not a broken image.
@@ -875,7 +874,6 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
               src={@item.thumb_url}
               alt=""
               class="w-8 h-8 rounded object-cover bg-base-200"
-              loading="lazy"
             />
             <div
               :if={!@item.thumb_url}
