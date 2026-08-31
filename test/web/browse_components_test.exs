@@ -221,6 +221,44 @@ defmodule PhoenixKitCatalogue.Web.Components.BrowseTest do
       refute hidden =~ "12%"
     end
 
+    test "smart_fee crosses the {unit, value} product — the margins hid a clause once" do
+      flat_base = %Item{
+        uuid: "sfx-1",
+        name: "Fee",
+        unit: "piece",
+        base_price: nil,
+        default_value: Decimal.new("49.00"),
+        default_unit: "flat",
+        markup_percentage: nil,
+        discount_percentage: nil,
+        catalogue: nil,
+        category: nil,
+        data: %{}
+      }
+
+      # A DB numeric arrives with its scale — the display must normalize
+      # (the "12.0000%" regression this pins, and the flat twin).
+      db_percent = %Item{
+        flat_base
+        | default_value: Decimal.new("12.0000"),
+          default_unit: "percent"
+      }
+
+      assert Browse.smart_fee(db_percent) == {:note, "12%"}
+
+      # Flat with NO value: a fee item missing its number says Computed —
+      # the same words the percent twin uses.
+      assert Browse.smart_fee(%Item{flat_base | default_value: nil}) ==
+               {:note, "Computed"}
+
+      # A PRICED item carrying fee fields is a plain item — the fee
+      # fallback must never override a real price.
+      assert Browse.smart_fee(%Item{flat_base | base_price: Decimal.new("10.00")}) == nil
+
+      # A fee-less unit with no price is simply price-less, not Computed.
+      assert Browse.smart_fee(%Item{flat_base | default_unit: nil, default_value: nil}) == nil
+    end
+
     test "instant qty feedback: hook on the stepper, styling keyed off data-selected" do
       # Max, 2026-08-31: "I add 1 and it gets highlighted blue but only
       # after a delay" — the QtySignal hook flips data-selected locally,

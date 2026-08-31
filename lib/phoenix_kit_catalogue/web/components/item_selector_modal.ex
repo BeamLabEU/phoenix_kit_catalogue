@@ -62,14 +62,23 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
       `[]`. Each pick is a map with `:uuid`, `:qty`
       (**always** a `Decimal`, integers included — hosts write one clause),
       `:unit`, and a display snapshot: `:name`, `:sku`, `:price`,
-      `:line_total` (`price × qty`, nil when the item has no price) and
-      `:photo_url` (a signed URL — it expires, render it, never persist
-      it). The snapshot is for rendering the host's own summary without a
-      re-query; it is NOT an order record — re-read and re-price items
-      server-side when the selection becomes something real.
+      `:line_total` (`price × qty`, nil when the item has no price),
+      `:fee_note` (`Browse.smart_fee/1`'s display text — `"12%"` or a
+      localized "Computed" — for a smart-catalogue fee with no numeric
+      price; nil otherwise. `price: nil` + a `fee_note` means "fee,
+      compute it order-side", not "free") and `:photo_url` (a signed
+      URL — it expires, render it, never persist it). The snapshot is
+      for rendering the host's own summary without a re-query; it is
+      NOT an order record — re-read and re-price items server-side when
+      the selection becomes something real.
     * `handle_info({:item_selector_closed, %{id: id}}, socket)` — fired on
       cancel/ESC/backdrop, AND after a confirm. Reset the `:if` assign
-      here.
+      here. One exception: with the item-details popup stacked open, the
+      first cancel closes only the details — no message fires — and the
+      next one closes the selector as usual. (Keeping Esc to the TOP
+      popup client-side also needs the host's vendored core
+      `phoenix_kit.js` from core > 2.13.17; on older bundles both
+      dialogs close visually and this message still fires once.)
 
   ## Item details page
 
@@ -177,10 +186,14 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
   explicitly, and the either-or holds even then (Max, 2026-08-31: a
   checkmark means no number entry, and the check sits in the leftmost
   column): forcing "click" with a visible `:qty` leads with the checkbox
-  column, quantities live in the tray, and the qty cell shows the picked
-  amount read-only. `inline_qty: true` is the deliberate opt-in for
-  hosts that really want both — it restores the legacy pairing (no
-  checkbox column, check icon/badge plus a stepper once selected).
+  column and the qty cell shows the picked amount READ-ONLY — meaningful
+  for preselects a host hands in at other quantities; user picks land at
+  the minimum. A host that wants users EDITING quantities in this
+  flavour must open a surface for it: `inline_qty: true` (below) or
+  `show_tray: true` (off by default). `inline_qty: true` is the
+  deliberate opt-in for hosts that really want both — it restores the
+  legacy pairing (no checkbox column, check icon/badge plus a stepper
+  once selected).
   Quantity mode ignores it. The tray, Confirm, and every guard behave
   identically in all flavours.
 
@@ -235,6 +248,8 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
   import PhoenixKitCatalogue.Web.Components.Browse
 
   alias PhoenixKit.Users.Auth
+  require Logger
+
   alias PhoenixKitCatalogue.Catalogue
   alias PhoenixKitCatalogue.Catalogue.BrowseState
   alias PhoenixKitCatalogue.Catalogue.Tree
@@ -529,10 +544,10 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
   # failure degrades to the empty tree: tiles are navigation, not data.
   # A single-catalogue scope gets one flat root level; a MULTI-catalogue
   # scope (tim-dev's wide order picker — 2026-08-31, "check why the
-  # categories and sub categories aren't showing") gets the same level
-  # navigation with the root grouped per catalogue (root_groups); below
-  # the root, drilling is catalogue-agnostic — category uuids are global
-  # and the fetch still re-ANDs catalogue_uuids.
+  # categories and sub categories aren't showing") drills CATALOGUE-FIRST:
+  # the root lists the catalogues as tiles, drilling into one shows its
+  # top categories. Below that, drilling is catalogue-agnostic — category
+  # uuids are global and the fetch still re-ANDs catalogue_uuids.
   @empty_cat_tree %{index: %{}, children: %{}, roots: [], counts: %{}}
 
   defp build_category_tree(%{only: :uncategorized_only}, _original, _locale), do: @empty_cat_tree
@@ -540,25 +555,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
   defp build_category_tree(%{catalogue_uuids: uuids} = scope, original, locale)
        when is_list(uuids) and length(uuids) > 1 do
     catalogue_uuids = Enum.map(uuids, &normalize_uuid/1)
-
-    categories =
-      catalogue_uuids
-      |> Enum.flat_map(&Catalogue.list_categories_metadata_for_catalogue/1)
-      |> scope_categories(scope[:category_uuids])
-      |> Enum.map(fn category ->
-        category
-        |> Map.put(:name, translated_name(category, locale) || category.name)
-        |> Map.put(:uuid, to_string(category.uuid))
-      end)
-
-    index = Map.new(categories, &{&1.uuid, &1})
-
-    children =
-      Enum.group_by(categories, fn category ->
-        category.parent_uuid && to_string(category.parent_uuid)
-      end)
-
-    roots = tree_roots(categories, children, original)
+    base = category_tree_base(catalogue_uuids, scope, original, locale)
 
     # Catalogue-first drill (Max, 2026-08-31: "for multiple catalogues we
     # should first have the user choose a catalogue"): the ROOT level
@@ -579,9 +576,6 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
       end)
       |> Enum.reject(&is_nil/1)
 
-    roots_by_catalogue =
-      Enum.group_by(roots, fn category -> to_string(category.catalogue_uuid) end)
-
     category_counts =
       catalogue_uuids
       |> Enum.flat_map(fn catalogue_uuid ->
@@ -598,12 +592,10 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
         {catalogue_uuid, Catalogue.count_items_for_catalogue(catalogue_uuid)}
       end)
 
-    %{
-      index: index,
-      children: children,
-      roots: roots,
+    Map.merge(base, %{
       catalogues: catalogues,
-      roots_by_catalogue: roots_by_catalogue,
+      roots_by_catalogue:
+        Enum.group_by(base.roots, fn category -> to_string(category.catalogue_uuid) end),
       counts: Map.merge(category_counts, catalogue_counts),
       # Uncategorized is offered per chosen catalogue, not on the
       # catalogue list itself.
@@ -616,32 +608,15 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
         else
           %{}
         end
-    }
+    })
   rescue
-    _ -> @empty_cat_tree
+    error -> degraded_tree(error, __STACKTRACE__)
   end
 
   defp build_category_tree(%{catalogue_uuids: [catalogue_uuid]} = scope, original, locale) do
-    categories =
-      Catalogue.list_categories_metadata_for_catalogue(catalogue_uuid)
-      |> scope_categories(scope[:category_uuids])
-      |> Enum.map(fn category ->
-        category
-        |> Map.put(:name, translated_name(category, locale) || category.name)
-        |> Map.put(:uuid, to_string(category.uuid))
-      end)
+    base = category_tree_base([catalogue_uuid], scope, original, locale)
 
-    index = Map.new(categories, &{&1.uuid, &1})
-
-    children =
-      Enum.group_by(categories, fn category ->
-        category.parent_uuid && to_string(category.parent_uuid)
-      end)
-
-    %{
-      index: index,
-      children: children,
-      roots: tree_roots(categories, children, original),
+    Map.merge(base, %{
       counts:
         catalogue_uuid
         |> Catalogue.item_counts_by_category_for_catalogue()
@@ -650,12 +625,52 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
         if(offer_uncategorized?(scope),
           do: Catalogue.uncategorized_count_for_catalogue(catalogue_uuid)
         )
-    }
+    })
   rescue
-    _ -> @empty_cat_tree
+    error -> degraded_tree(error, __STACKTRACE__)
   end
 
   defp build_category_tree(_scope, _original, _locale), do: @empty_cat_tree
+
+  # The level maps both tree shapes build identically: translated
+  # categories, the uuid index, the children grouping, and the root
+  # tiles (the two clauses used to carry this verbatim twice —
+  # external review, 2026-08-31).
+  defp category_tree_base(catalogue_uuids, scope, original, locale) do
+    categories =
+      catalogue_uuids
+      |> Enum.flat_map(&Catalogue.list_categories_metadata_for_catalogue/1)
+      |> scope_categories(scope[:category_uuids])
+      |> Enum.map(fn category ->
+        category
+        |> Map.put(:name, translated_name(category, locale) || category.name)
+        |> Map.put(:uuid, to_string(category.uuid))
+      end)
+
+    children =
+      Enum.group_by(categories, fn category ->
+        category.parent_uuid && to_string(category.parent_uuid)
+      end)
+
+    %{
+      index: Map.new(categories, &{&1.uuid, &1}),
+      children: children,
+      roots: tree_roots(categories, children, original)
+    }
+  end
+
+  # Tiles are navigation, not data, so any tree-build failure degrades
+  # to the empty tree — but LOGGED: a silent rescue here once made a
+  # DB hiccup indistinguishable from the "categories aren't showing"
+  # bug it degraded around (external review, 2026-08-31).
+  defp degraded_tree(error, stacktrace) do
+    Logger.warning(
+      "ItemSelectorModal category tree degraded to empty: " <>
+        Exception.format(:error, error, stacktrace)
+    )
+
+    @empty_cat_tree
+  end
 
   defp scope_categories(categories, nil), do: categories
   defp scope_categories(categories, []), do: categories
@@ -699,6 +714,24 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
 
   defp level_catalogue_roots(tree, catalogue_uuid),
     do: Map.get(tree[:roots_by_catalogue] || %{}, catalogue_uuid, [])
+
+  # Under the catalogue-first drill a crafted category event could wed
+  # the drilled catalogue A to catalogue B's category — a contradictory
+  # (empty, dead-end) level the UI never offers: tiles and search hits
+  # are both narrowed to the drilled catalogue. BrowseState can't refuse
+  # it (its allow-list is category-global); the component holds the
+  # category→catalogue knowledge, so the gate lives here (external
+  # review, 2026-08-31). Categories the tree doesn't know pass through —
+  # BrowseState's own scope check owns those.
+  defp cross_catalogue_category?(tree, browse, uuid) when is_binary(uuid) do
+    is_binary(browse.catalogue_uuid) and
+      case tree.index[uuid] do
+        %{catalogue_uuid: catalogue_uuid} -> to_string(catalogue_uuid) != browse.catalogue_uuid
+        _ -> false
+      end
+  end
+
+  defp cross_catalogue_category?(_tree, _browse, _value), do: false
 
   # Whether the current level lists CATALOGUES (the multi-catalogue root).
   defp catalogues_level?(tree, browse) do
@@ -769,13 +802,20 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
 
   defp level_up(_tree, _), do: ""
 
+  # A whitespace-only query is NO search — the fetch layer trims it to
+  # no filter, and BrowseState's :direct drill treats it the same way
+  # (see query_opts/1), so the navigation gates must agree or the level
+  # tiles vanish for a query that lists exactly the level's own items
+  # (external review, 2026-08-31).
+  defp searching?(browse), do: String.trim(browse.search) != ""
+
   # Whether the browse region renders the level navigation at all: always
   # while drilled (the Up affordance must exist even in an empty level),
   # at root only when there are tiles to show — a category-less catalogue
   # keeps the plain flat list. Hidden while searching: search covers the
   # subtree, so level navigation would lie about what is listed.
   defp show_level_nav?(assigns) do
-    assigns.browse.search == "" and
+    not searching?(assigns.browse) and
       (assigns.browse.category_uuid != nil or
          assigns.browse.catalogue_uuid != nil or
          level_entries(assigns.cat_tree, assigns.browse) != [])
@@ -797,7 +837,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
   # level included; drilled category levels always show both sections; a
   # search shows results regardless of the mode.
   defp root_mode_gate?(assigns) do
-    assigns.browse.search == "" and is_nil(assigns.browse.category_uuid) and
+    not searching?(assigns.browse) and is_nil(assigns.browse.category_uuid) and
       level_entries(assigns.cat_tree, assigns.browse) != []
   end
 
@@ -1059,16 +1099,18 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
   # 2026-08-31: the popup search works like the admin's, items by
   # default): item results stay the primary list, category hits render
   # above as navigation. The same DB search the admin runs (every
-  # translation, capped 25, the drilled node's subtree when drilled) —
-  # but each hit must ALSO be in the popup's category tree, so a scoped
-  # embed can never offer a category outside its allow-list. Names and
-  # trails come from the tree, already viewer-translated. The root's
-  # Items mode hides the hits at RENDER (`visible_cat_hits/1`) — the
-  # mode toggle never refetches.
+  # translation, capped at @search_hit_cap like the admin's, the drilled
+  # node's subtree when drilled) — but each hit must ALSO be in the
+  # popup's category tree, so a scoped embed can never offer a category
+  # outside its allow-list. Names and trails come from the tree, already
+  # viewer-translated. The root's Items mode hides the hits at RENDER
+  # (`visible_cat_hits/1`) — the mode toggle never refetches.
+  @search_hit_cap 25
+
   defp search_category_hits(socket) do
     %{browse: browse, cat_tree: tree} = socket.assigns
 
-    with true <- browse.search != "",
+    with true <- searching?(browse),
          true <- tree.index != %{},
          false <- browse.category_uuid == :uncategorized,
          uuids when is_list(uuids) and uuids != [] <-
@@ -1086,7 +1128,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
       end)
       |> Enum.map(&to_string(&1.uuid))
       |> Enum.filter(&Map.has_key?(tree.index, &1))
-      |> Enum.take(25)
+      |> Enum.take(@search_hit_cap)
       |> Enum.map(fn uuid ->
         %{uuid: uuid, name: tree.index[uuid].name, trail: tree_trail(tree, uuid)}
       end)
@@ -1262,18 +1304,10 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
   defp only_ok?(:categorized_only, item), do: not is_nil(item.category_uuid)
   defp only_ok?(_other, _item), do: true
 
-  defp translated_name(record, locale) do
-    translation =
-      try do
-        Catalogue.get_translation(record, locale)
-      rescue
-        _ -> %{}
-      end
-
-    Map.get(translation, "_name") ||
-      Map.get(translation, "name") ||
-      Map.get(record, :name)
-  end
+  # Presence-guarded ("" never wins) and rescue-safe via the canonical
+  # helper — the ad-hoc copies of this chain let a stored blank override
+  # blank the display (external review, 2026-08-31).
+  defp translated_name(record, locale), do: Catalogue.translated_name(record, locale)
 
   # The scoped record IS the modal's subject, so the header shows it:
   # image + name + description (2026-08-30). The category wins over the
@@ -1375,8 +1409,16 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
   # the search so state and list never diverge.
   def handle_event("open_category_hit", %{"uuid" => uuid}, socket) do
     {browse, cleared} = BrowseState.command(socket.assigns.browse, {:search, ""})
-    {browse, effect} = BrowseState.command(browse, {:set_category, uuid})
-    effect = if effect == :noop, do: cleared, else: effect
+
+    {browse, effect} =
+      if cross_catalogue_category?(socket.assigns.cat_tree, browse, uuid) do
+        {browse, cleared}
+      else
+        case BrowseState.command(browse, {:set_category, uuid}) do
+          {browse, :noop} -> {browse, cleared}
+          drilled -> drilled
+        end
+      end
 
     {:noreply, socket |> assign(browse: browse) |> run_fetch(effect)}
   end
@@ -1389,9 +1431,13 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
         other -> other
       end
 
-    cmd = {:set_category, value}
-    {browse, effect} = BrowseState.command(socket.assigns.browse, cmd)
-    {:noreply, socket |> assign(browse: browse) |> run_fetch(effect)}
+    if cross_catalogue_category?(socket.assigns.cat_tree, socket.assigns.browse, value) do
+      {:noreply, socket}
+    else
+      cmd = {:set_category, value}
+      {browse, effect} = BrowseState.command(socket.assigns.browse, cmd)
+      {:noreply, socket |> assign(browse: browse) |> run_fetch(effect)}
+    end
   end
 
   def handle_event("load_more", _params, socket) do
@@ -1804,6 +1850,10 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
           sku: item.sku,
           price: item.price,
           line_total: item.price && Decimal.mult(item.price, qty),
+          # Without this a percent/computed fee pick arrived as
+          # price: nil, line_total: nil — indistinguishable from a
+          # free item (external review, 2026-08-31).
+          fee_note: Map.get(item, :fee_note),
           photo_url: item.photo_url
         }
       end)
@@ -1891,8 +1941,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
 
   defp selection_count(selection), do: map_size(selection)
 
-  defp confirmable_selection?(selection),
-    do: Enum.any?(selection, fn {_uuid, entry} -> entry.available end)
+  defp confirmable_selection?(selection), do: confirmable_count(selection) > 0
 
   # With the cart off by default there was no running tally anywhere —
   # the Confirm button carries it (QoL sweep, 2026-08-31).
@@ -1939,6 +1988,11 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
       |> assign(:cbx, checkbox?(assigns))
       |> assign(:qmin, qty_input_min(assigns))
       |> assign(:qmax, qty_input_max(assigns))
+      # The instant-highlight hook's accept-set inputs: the SERVER's
+      # selection floor (qmin is "0" in quantity mode so the arrows can
+      # reach deselect) and whether a typed 0 previews as deselected.
+      |> assign(:qfloor, format_qty(assigns.qty_min))
+      |> assign(:qzero_desel, assigns.selection_mode == "quantity")
 
     ~H"""
     <div id={@id}>
@@ -2095,11 +2149,12 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
             id={"#{@id}-scroll"}
             class="overflow-y-auto min-h-[16rem] max-h-[48vh] pr-1"
             phx-hook=".ScrollTop"
-            data-scroll-key={"#{@browse.category_uuid}|#{@browse.search}|#{@root_mode}|#{@view}"}
+            data-scroll-key={"#{@browse.catalogue_uuid}|#{@browse.category_uuid}|#{@browse.search}|#{@root_mode}|#{@view}"}
           >
-            <%!-- A drill, search, mode or view change lands the user on a NEW
-            list — carrying the old scroll offset over showed its middle.
-            Load-more keeps the offset (the key does not change). --%>
+            <%!-- A drill (catalogue or category), search, mode or view change
+            lands the user on a NEW list — carrying the old scroll offset
+            over showed its middle. Load-more keeps the offset (the key
+            does not change). --%>
             <script :type={Phoenix.LiveView.ColocatedHook} name=".ScrollTop">
               export default {
                 mounted() { this.key = this.el.dataset.scrollKey },
@@ -2192,6 +2247,8 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
                         precision={@qty_precision}
                         min={@qmin}
                         max={@qmax}
+                        select_floor={@qfloor}
+                        zero_deselects={@qzero_desel}
                         target={@myself}
                         size="xs"
                       />
@@ -2236,6 +2293,8 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
                       precision={@qty_precision}
                       min={@qmin}
                       max={@qmax}
+                      select_floor={@qfloor}
+                      zero_deselects={@qzero_desel}
                       target={@myself}
                       size="xs"
                     />
@@ -2267,17 +2326,58 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
               <p class="text-base-content/60">{gettext("No items match your search.")}</p>
             </div>
 
-            <%!-- Auto-load: core's InfiniteScroll sentinel (component-aware
-            since 2026-08-31); the button below stays as the no-JS / recovery
-            fallback. Cursor = the list identity + length, so only a genuinely
-            new page re-arms it. --%>
+            <%!-- Auto-load sentinel. COLOCATED, not core's InfiniteScroll:
+            that hook routes its push to the root LiveView on every
+            published core (the CID-aware routing is unreleased), which
+            crashes hosts without a load_more clause and silently drives
+            hosts that have one (external review, 2026-08-31). This one
+            pushes via pushEventTo(this.el), which resolves through the
+            sentinel's own phx-target — the component — on every core.
+            The button below stays as the no-JS / recovery fallback.
+            Cursor = the full list identity (catalogue drill included) +
+            length, so only a genuinely new page re-arms it; a no-op load
+            releases the guard via the watchdog, worst case a brief stall
+            the button recovers. --%>
             <div
               :if={not @browse.exhausted? and @browse.items != []}
               id={"#{@id}-scroll-sentinel"}
-              phx-hook="InfiniteScroll"
-              data-load-more-event="load_more"
-              data-cursor={"#{@browse.category_uuid}|#{@browse.search}|#{length(@browse.items)}"}
+              phx-hook=".AutoLoad"
+              phx-target={@myself}
+              data-cursor={"#{@browse.catalogue_uuid}|#{@browse.category_uuid}|#{@browse.search}|#{length(@browse.items)}"}
             >
+              <script :type={Phoenix.LiveView.ColocatedHook} name=".AutoLoad">
+                export default {
+                  maybeLoad() {
+                    if (this.loading) return
+                    this.loading = true
+                    this.pushEventTo(this.el, "load_more", {})
+                    clearTimeout(this.loadTimer)
+                    this.loadTimer = setTimeout(() => { this.loading = false }, 2000)
+                  },
+                  mounted() {
+                    this.intersecting = false
+                    this.loading = false
+                    this.lastCursor = this.el.dataset.cursor
+                    this.observer = new IntersectionObserver((entries) => {
+                      this.intersecting = entries[0].isIntersecting
+                      if (this.intersecting) this.maybeLoad()
+                    }, {rootMargin: "200px"})
+                    this.observer.observe(this.el)
+                  },
+                  updated() {
+                    if (this.el.dataset.cursor !== this.lastCursor) {
+                      this.lastCursor = this.el.dataset.cursor
+                      this.loading = false
+                      clearTimeout(this.loadTimer)
+                      if (this.intersecting) this.maybeLoad()
+                    }
+                  },
+                  destroyed() {
+                    clearTimeout(this.loadTimer)
+                    if (this.observer) this.observer.disconnect()
+                  }
+                }
+              </script>
             </div>
             <div :if={not @browse.exhausted? and @browse.items != []} class="flex justify-center py-3">
               <%!-- The spinner rides LiveView's phx-click-loading class —
@@ -2327,6 +2427,8 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
                 precision={@qty_precision}
                 min={@qmin}
                 max={@qmax}
+                select_floor={@qfloor}
+                zero_deselects={@qzero_desel}
                 target={@myself}
                 size="sm"
               />
@@ -2445,6 +2547,8 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
                   precision={@qty_precision}
                   min={@qmin}
                   max={@qmax}
+                  select_floor={@qfloor}
+                  zero_deselects={@qzero_desel}
                   target={@myself}
                   size="xs"
                 />
