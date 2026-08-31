@@ -3456,7 +3456,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               :if={is_nil(@current_category)}
               class="join"
               role="group"
-              aria-label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search for")}
+              aria-label={gettext("Search for")}
             >
               <button
                 :for={
@@ -4520,7 +4520,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       <.table_row_menu_link
         navigate={Paths.category_new(@catalogue.uuid) <> "?parent_uuid=" <> @cat.uuid}
         icon="hero-folder-plus"
-        label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "New subcategory")}
+        label={gettext("New subcategory")}
       />
       <.table_row_menu_divider />
       <.table_row_menu_button
@@ -5030,7 +5030,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                   <.table_row_menu_link
                     navigate={Paths.category_new(@catalogue.uuid) <> "?parent_uuid=" <> cat.uuid}
                     icon="hero-folder-plus"
-                    label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "New subcategory")}
+                    label={gettext("New subcategory")}
                   />
                   <.table_row_menu_divider />
                   <.table_row_menu_button
@@ -5133,7 +5133,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
           <.table_row_menu_link
             navigate={Paths.category_new(@catalogue_uuid) <> "?parent_uuid=" <> @category.uuid}
             icon="hero-folder-plus"
-            label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "New subcategory")}
+            label={gettext("New subcategory")}
           />
           <.table_row_menu_divider />
           <.table_row_menu_button
