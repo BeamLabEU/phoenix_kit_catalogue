@@ -558,9 +558,51 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
   # uuids are global and the fetch still re-ANDs catalogue_uuids.
   @empty_cat_tree %{index: %{}, children: %{}, roots: [], counts: %{}}
 
-  defp build_category_tree(%{only: :uncategorized_only}, _original, _locale), do: @empty_cat_tree
+  defp build_category_tree(scope, original, locale) do
+    scope
+    |> derive_tree_catalogues(original)
+    |> do_build_category_tree(original, locale)
+  end
 
-  defp build_category_tree(%{catalogue_uuids: uuids} = scope, original, locale)
+  # A scope may name only CATEGORIES (tim-dev's per-category narrow
+  # pickers pass category_uuids: [cat], catalogue_uuids: nil) — the
+  # clauses below key the tree off catalogue_uuids, so that shape fell
+  # through to the EMPTY tree and the popup showed no subcategory tiles
+  # at all (error report, 2026-08-31: WASTE SORTERS' children missing
+  # while the data was fine). The catalogue is implied by the scoped
+  # categories themselves — derive it, for the TREE ONLY: the browse
+  # scope, and every fetch derived from it, stays exactly what the host
+  # passed. Only a single unambiguous catalogue is injected; a scope
+  # whose categories span several keeps today's flat no-tree behaviour
+  # rather than inventing a catalogue-first root the host never asked
+  # for.
+  defp derive_tree_catalogues(scope, original) do
+    if scope[:catalogue_uuids] in [nil, []] do
+      derived =
+        original[:category_uuids]
+        |> List.wrap()
+        |> Enum.map(&Catalogue.get_category(normalize_uuid(&1)))
+        |> Enum.reject(&is_nil/1)
+        |> Enum.map(&to_string(&1.catalogue_uuid))
+        |> Enum.uniq()
+
+      case derived do
+        [catalogue_uuid] -> Map.put(scope, :catalogue_uuids, [catalogue_uuid])
+        _ -> scope
+      end
+    else
+      scope
+    end
+  rescue
+    # Tiles are navigation, not data — garbage in the host scope crashes
+    # elsewhere on its own terms, never here.
+    _ -> scope
+  end
+
+  defp do_build_category_tree(%{only: :uncategorized_only}, _original, _locale),
+    do: @empty_cat_tree
+
+  defp do_build_category_tree(%{catalogue_uuids: uuids} = scope, original, locale)
        when is_list(uuids) and length(uuids) > 1 do
     catalogue_uuids = Enum.map(uuids, &normalize_uuid/1)
     base = category_tree_base(catalogue_uuids, scope, original, locale)
@@ -621,7 +663,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
     error -> degraded_tree(error, __STACKTRACE__)
   end
 
-  defp build_category_tree(%{catalogue_uuids: [catalogue_uuid]} = scope, original, locale) do
+  defp do_build_category_tree(%{catalogue_uuids: [catalogue_uuid]} = scope, original, locale) do
     base = category_tree_base([catalogue_uuid], scope, original, locale)
 
     Map.merge(base, %{
@@ -638,7 +680,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
     error -> degraded_tree(error, __STACKTRACE__)
   end
 
-  defp build_category_tree(_scope, _original, _locale), do: @empty_cat_tree
+  defp do_build_category_tree(_scope, _original, _locale), do: @empty_cat_tree
 
   # The level maps both tree shapes build identically: translated
   # categories, the uuid index, the children grouping, and the root

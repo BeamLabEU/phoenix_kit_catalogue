@@ -2238,6 +2238,46 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       assert has_element?(view, "#picker-back")
     end
 
+    test "a CATEGORY-ONLY scope still gets the subcategory tiles", %{
+      conn: conn,
+      cat: cat
+    } do
+      # tim-dev's per-category narrow pickers pass category_uuids with
+      # catalogue_uuids: nil — the tree builder keyed off the catalogue
+      # and handed that shape the EMPTY tree, so WASTE SORTERS' healthy
+      # children never rendered (error report, 2026-08-31). The
+      # catalogue is implied by the scoped category; the tree derives it.
+      sorters = fixture_category(cat, %{name: "Waste Sorters"})
+      franke = fixture_category(cat, %{name: "Franke Sorter", parent_uuid: sorters.uuid})
+      blanco = fixture_category(cat, %{name: "Blanco", parent_uuid: sorters.uuid})
+
+      {:ok, _} =
+        Catalogue.create_item(%{
+          name: "Franke 90L",
+          catalogue_uuid: cat.uuid,
+          category_uuid: franke.uuid
+        })
+
+      # No c= param: the scope names ONLY the category, like Andi's.
+      {:ok, view, _html} = open(conn, "cat_scope=#{sorters.uuid}&sel=click")
+
+      assert has_element?(view, ~s(#picker-levelnav button[phx-value-uuid="#{franke.uuid}"]))
+      assert has_element?(view, ~s(#picker-levelnav button[phx-value-uuid="#{blanco.uuid}"]))
+
+      # Drilling one works, lists its item, and Back climbs home.
+      html = view |> picker() |> render_click("browse_category", %{"uuid" => franke.uuid})
+      assert html =~ "Franke 90L"
+      assert has_element?(view, "h3", "Franke Sorter")
+
+      view |> picker() |> render_click("browse_category", %{"uuid" => ""})
+      assert has_element?(view, ~s(#picker-levelnav button[phx-value-uuid="#{blanco.uuid}"]))
+
+      # The derived catalogue feeds the TREE only — the fetch stays on
+      # the host's category scope (out-of-scope items never appear).
+      html = view |> picker() |> render_change("browse_search", %{"search" => "m8"})
+      refute html =~ "M8 Screw"
+    end
+
     test "the header names where you stand and carries Back (Max, 2026-08-31)", %{
       conn: conn,
       cat: cat,
