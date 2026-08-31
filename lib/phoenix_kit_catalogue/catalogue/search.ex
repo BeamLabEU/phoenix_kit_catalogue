@@ -52,21 +52,29 @@ defmodule PhoenixKitCatalogue.Catalogue.Search do
     offset = Keyword.get(opts, :offset, 0)
     preloads = Helpers.merge_preloads([:catalogue, category: :catalogue], opts)
 
-    # Ordering note: `i.position` is intentionally NOT in the global
-    # `search_items/2` order_by. `position` is per-`(catalogue_uuid,
+    # Ordering: name by DEFAULT — `position` is per-`(catalogue_uuid,
     # category_uuid)` scope, so interleaving across catalogues by raw
-    # position is meaningless. Single-catalogue search (see
-    # `search_items_in_catalogue/3` below) keeps `i.position` because
-    # the scope is narrow enough for it to be coherent.
+    # position is meaningless. A caller whose scope is coherent for it
+    # (one catalogue — the popup's browse listings since 2026-08-31,
+    # matching the admin's document order; Max: "the default look would
+    # be the same") passes `order: :position` and gets the admin's
+    # exact chain (position, name, uuid — `apply_item_order/2`'s
+    # default).
     query
     |> search_items_base(opts)
-    |> order_by([i, _cat, _c], asc: i.name, asc: i.uuid)
+    |> apply_search_order(Keyword.get(opts, :order, :name))
     |> limit(^limit)
     |> offset(^offset)
     |> preload(^preloads)
     |> repo().all()
     |> Manufacturers.hydrate()
   end
+
+  defp apply_search_order(query, :position),
+    do: order_by(query, [i, _cat, _c], asc: i.position, asc: i.name, asc: i.uuid)
+
+  defp apply_search_order(query, _name),
+    do: order_by(query, [i, _cat, _c], asc: i.name, asc: i.uuid)
 
   @doc """
   Returns the total number of items matching `search_items/2`'s filters.
