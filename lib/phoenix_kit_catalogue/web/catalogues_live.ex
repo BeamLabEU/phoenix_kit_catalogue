@@ -1687,10 +1687,12 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
                     :if={@photo_col?}
                     class="w-12 !pr-0 !py-1 [.pk-comfy_&]:w-22 [.pk-comfy_&]:!py-1.5"
                   >
-                    <.featured_thumb
-                      resource={c_row}
-                      has_files={Map.get(@file_counts, c_row.uuid, 0) > 0}
-                    />
+                    <.link navigate={Paths.catalogue_detail(c_row.uuid)} draggable="false">
+                      <.featured_thumb
+                        resource={c_row}
+                        has_files={Map.get(@file_counts, c_row.uuid, 0) > 0}
+                      />
+                    </.link>
                   </.table_default_cell>
                   <.tree_name_cell
                     depth={depth}
@@ -3900,7 +3902,18 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
           <.drag_handle_cell :if={@reorderable?} />
           <td :if={!@reorderable?} class="w-8"></td>
           <.table_default_cell :if={@photo_col?} class="w-12 !pr-0 !py-1 [.pk-comfy_&]:w-22 [.pk-comfy_&]:!py-1.5">
-            <.featured_thumb resource={row} has_files={Map.get(@file_counts, row.uuid, 0) > 0} />
+            <.link
+              :if={@scope == :catalogues and row.status != "trashed"}
+              navigate={Paths.catalogue_detail(row.uuid)}
+              draggable="false"
+            >
+              <.featured_thumb resource={row} has_files={Map.get(@file_counts, row.uuid, 0) > 0} />
+            </.link>
+            <.featured_thumb
+              :if={@scope != :catalogues or row.status == "trashed"}
+              resource={row}
+              has_files={Map.get(@file_counts, row.uuid, 0) > 0}
+            />
           </.table_default_cell>
           <.table_default_cell :for={c <- @cols} class={c.align == :right && "text-right"}>
             {render_cell(@scope, c.id, row)}
@@ -3913,7 +3926,18 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       <.table_default_body :if={!@draggable}>
         <.table_default_row :for={row <- @rows}>
           <.table_default_cell :if={@photo_col?} class="w-12 !pr-0 !py-1 [.pk-comfy_&]:w-22 [.pk-comfy_&]:!py-1.5">
-            <.featured_thumb resource={row} has_files={Map.get(@file_counts, row.uuid, 0) > 0} />
+            <.link
+              :if={@scope == :catalogues and row.status != "trashed"}
+              navigate={Paths.catalogue_detail(row.uuid)}
+              draggable="false"
+            >
+              <.featured_thumb resource={row} has_files={Map.get(@file_counts, row.uuid, 0) > 0} />
+            </.link>
+            <.featured_thumb
+              :if={@scope != :catalogues or row.status == "trashed"}
+              resource={row}
+              has_files={Map.get(@file_counts, row.uuid, 0) > 0}
+            />
           </.table_default_cell>
           <.table_default_cell :for={c <- @cols} class={c.align == :right && "text-right"}>
             {render_cell(@scope, c.id, row)}
