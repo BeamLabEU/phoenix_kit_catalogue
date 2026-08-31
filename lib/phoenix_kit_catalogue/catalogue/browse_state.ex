@@ -293,9 +293,26 @@ defmodule PhoenixKitCatalogue.Catalogue.BrowseState do
       end
 
     base
+    |> put_browse_order(state, blank_search?)
     |> Map.put(:limit, state.per_page)
     |> Map.put(:offset, state.page * state.per_page)
     |> Enum.reject(fn {_k, v} -> is_nil(v) end)
+  end
+
+  # BROWSE listings scoped to exactly one catalogue read in the admin's
+  # document order (position, name — Max, 2026-08-31: "the default look
+  # would be the same"); position is per-(catalogue, category) scope, so
+  # a fetch spanning several catalogues keeps the name order, and a live
+  # SEARCH stays name-ordered everywhere like the admin's results.
+  defp put_browse_order(base, state, blank_search?) do
+    single_catalogue? =
+      is_binary(state.catalogue_uuid) or match?([_], state.scope[:catalogue_uuids])
+
+    if blank_search? and single_catalogue? do
+      Map.put(base, :order, :position)
+    else
+      base
+    end
   end
 
   # nil scope restriction + no chip -> nil (all); chip -> [chip];
