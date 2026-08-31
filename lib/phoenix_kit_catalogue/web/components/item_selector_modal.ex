@@ -327,7 +327,19 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
         drill: :direct
       )
 
-    {browse, effect} = BrowseState.command(browse, :reset)
+    # A scope naming exactly ONE category means the popup OPENS standing
+    # in it — a drilled level: its child tiles AND its own direct items
+    # (boss, 2026-08-31: the trashcans category showed its subcategories
+    # but not the items filed directly on it). Before the root switcher
+    # retired, those items hid behind the Items flat mode; now the
+    # drilled level is simply the floor. Back stays hidden there.
+    scoped_root = scoped_root_category(original_scope)
+
+    {browse, effect} =
+      case scoped_root do
+        nil -> BrowseState.command(browse, :reset)
+        uuid -> BrowseState.command(browse, {:set_category, uuid})
+      end
 
     locale = assigns[:locale] || Gettext.get_locale(PhoenixKitCatalogue.Gettext)
     qty_precision = assigns[:qty_precision] || 0
@@ -352,6 +364,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
         qty_precision: qty_precision,
         qty_min: limits.qty_min,
         qty_max: limits.qty_max,
+        scoped_root_category: scoped_root,
         cat_tree: build_category_tree(scope, original_scope, locale),
         presented: %{},
         selection: hydrate_preselection(assigns[:selected] || %{}, scope, locale, limits, mode),
@@ -359,6 +372,13 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
       )
 
     run_fetch(socket, effect)
+  end
+
+  defp scoped_root_category(original_scope) do
+    case List.wrap(original_scope[:category_uuids]) do
+      [single] -> to_string(normalize_uuid(single))
+      _ -> nil
+    end
   end
 
   # Resolved from the ORIGINAL scope, before subtree expansion — the
@@ -908,13 +928,26 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
   # both commands.
   # Back: a drilled category climbs the category chain (level_up); a
   # chosen catalogue's level climbs back to the catalogue list. Nil at
-  # the root — nowhere further back. Rendered in the modal HEADER (Max,
-  # 2026-08-31: the header says where you are, so the way back lives
-  # there too).
-  defp back_target(tree, browse) do
+  # the root — nowhere further back — and at a SCOPED category's own
+  # level, which is this popup's floor (the host said "this category";
+  # a Back to a synthetic outline above it would loop the same tiles).
+  # Rendered in the modal HEADER (Max, 2026-08-31: the header says
+  # where you are, so the way back lives there too).
+  defp back_target(assigns) do
+    %{browse: browse, cat_tree: tree} = assigns
+
     cond do
+      browse.category_uuid != nil and browse.category_uuid == assigns.scoped_root_category ->
+        nil
+
       browse.category_uuid != nil ->
-        {"browse_category", level_up(tree, browse.category_uuid)}
+        # "" climbs to the popup root — which for a scoped popup IS the
+        # scoped category's own level (the auto-drilled floor), not the
+        # retired synthetic outline above it.
+        case {level_up(tree, browse.category_uuid), assigns.scoped_root_category} do
+          {"", floor} when is_binary(floor) -> {"browse_category", floor}
+          {target, _} -> {"browse_category", target}
+        end
 
       is_binary(browse.catalogue_uuid) ->
         {"browse_catalogue", ""}
@@ -2160,7 +2193,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
           context_header={false} keeps it static. The way back lives here
           too, as Back (Max: "the up button should be back instead"). --%>
           <% ctx = if @context_header?, do: live_header_context(assigns), else: @header_context %>
-          <% back = if @context_header?, do: back_target(@cat_tree, @browse) %>
+          <% back = if @context_header?, do: back_target(assigns) %>
           <div class="flex items-center gap-3 min-w-0">
             <button
               :if={back}
