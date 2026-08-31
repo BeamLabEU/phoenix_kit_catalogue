@@ -39,7 +39,7 @@ defmodule PhoenixKitCatalogue.Web.Components.BrowseTest do
       assert html =~ ">M</span>"
     end
 
-    test "a photo renders lazily inside the fixed square frame" do
+    test "a photo renders eagerly inside the fixed square frame" do
       html =
         render_component(&Browse.item_card/1,
           id: "c1",
@@ -47,7 +47,10 @@ defmodule PhoenixKitCatalogue.Web.Components.BrowseTest do
         )
 
       assert html =~ ~s(src="/signed/medium/x")
-      assert html =~ ~s(loading="lazy")
+      # No loading="lazy": lazy images patched into an open top-layer
+      # <dialog> can stay unloaded in Chromium ("photos invisible in the
+      # popup", 2026-08-31), and a capped modal page saves nothing lazy.
+      refute html =~ ~s(loading="lazy")
       assert html =~ "aspect-square"
       assert html =~ "object-cover"
     end
