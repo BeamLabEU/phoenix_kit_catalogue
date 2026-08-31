@@ -2447,6 +2447,20 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
                         size="xs"
                       />
                     </div>
+                    <%!-- Same read-only amount the table row carries in the
+                    click flavour without inline_qty: the checkmark is the
+                    selected signal, but a host that preselected at qty 3
+                    must see the 3 in BOTH views (the row got this and the
+                    card did not). --%>
+                    <div
+                      :if={
+                        :qty in @visible_columns and not stepper?(assigns, item.uuid) and
+                          Map.has_key?(@selection, item.uuid)
+                      }
+                      class="p-2 pt-0 text-center text-sm tabular-nums text-base-content/70"
+                    >
+                      {qty_display(assigns, item.uuid)}
+                    </div>
                   </:footer>
                 </.item_card>
               <% end %>

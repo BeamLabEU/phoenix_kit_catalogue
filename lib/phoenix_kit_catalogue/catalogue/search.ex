@@ -57,9 +57,12 @@ defmodule PhoenixKitCatalogue.Catalogue.Search do
     # position is meaningless. A caller whose scope is coherent for it
     # (one catalogue — the popup's browse listings since 2026-08-31,
     # matching the admin's document order; Max: "the default look would
-    # be the same") passes `order: :position` and gets the admin's
-    # exact chain (position, name, uuid — `apply_item_order/2`'s
-    # default).
+    # be the same") passes `order: :position` and gets the chain
+    # `search_items_in_catalogue/3` uses: category position first, then
+    # the item's own. Leading with `i.position` alone is NOT the admin's
+    # order once a listing spans several categories — the per-category
+    # ordinals interleave (all the 1s, then all the 2s), which is the
+    # same incoherence this note warns about one level down.
     query
     |> search_items_base(opts)
     |> apply_search_order(Keyword.get(opts, :order, :name))
@@ -70,8 +73,19 @@ defmodule PhoenixKitCatalogue.Catalogue.Search do
     |> Manufacturers.hydrate()
   end
 
+  # Category position first (uncategorized last), then the item's own —
+  # byte-for-byte `search_items_in_catalogue/3`'s chain, so a
+  # catalogue-wide browse listing reads exactly like the admin's. For a
+  # single-category or category-less scope the leading key is constant
+  # and this is identical to ordering by `i.position` alone.
   defp apply_search_order(query, :position),
-    do: order_by(query, [i, _cat, _c], asc: i.position, asc: i.name, asc: i.uuid)
+    do:
+      order_by(query, [i, _cat, c],
+        asc_nulls_last: c.position,
+        asc: i.position,
+        asc: i.name,
+        asc: i.uuid
+      )
 
   defp apply_search_order(query, _name),
     do: order_by(query, [i, _cat, _c], asc: i.name, asc: i.uuid)

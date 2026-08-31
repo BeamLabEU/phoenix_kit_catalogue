@@ -1866,6 +1866,25 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       assert has_element?(view, "#picker-row-#{screw.uuid} td:last-of-type span", "1")
     end
 
+    test "the read-only amount reaches CARD view too, not just the table row", %{
+      conn: conn,
+      cat: cat,
+      screw: screw
+    } do
+      # The row carried the picked amount from the start; the card
+      # footer only got the stepper, so a host preselecting at another
+      # quantity saw the number in one view and not the other.
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&sel=click")
+      view |> picker() |> render_click("card_click", %{"uuid" => screw.uuid})
+      html = view |> picker() |> render_click("set_view", %{"mode" => "card"})
+
+      assert html =~ ~s(id="picker-card-#{screw.uuid}")
+      # Still no number ENTRY in this flavour…
+      refute has_element?(view, "#picker-qty-#{screw.uuid}-r0-input")
+      # …but the amount is visible on the card.
+      assert has_element?(view, "#picker-card-#{screw.uuid} div.tabular-nums", "1")
+    end
+
     test "inline_qty is the deliberate both-signals opt-in", %{
       conn: conn,
       cat: cat,
