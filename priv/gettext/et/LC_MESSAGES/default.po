@@ -2845,6 +2845,9 @@ msgstr "Lisa valikusse"
 msgid "Remove from selection"
 msgstr "Eemalda valikust"
 
+msgid "Browse"
+msgstr "Sirvi"
+
 msgid "Computed"
 msgstr "Arvutuslik"
 

@@ -2845,6 +2845,9 @@ msgstr "Add to selection"
 msgid "Remove from selection"
 msgstr "Remove from selection"
 
+msgid "Browse"
+msgstr "Browse"
+
 msgid "Computed"
 msgstr "Computed"
 

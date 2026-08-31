@@ -11,29 +11,36 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
   Categories present exactly the way the admin detail page presents
   them, from the same shared definitions (`Components.category_card/1`
   tiles in card view, the `category_header_cells/1` columns as a compact
-  table in table view). A root that has categories carries the admin's
-  Categories | Items switcher: Categories (the default) is the pure
-  category outline — top-level categories plus an Uncategorized entry
-  where the scope allows it — and Items is the flat list of everything
-  in scope. Drilling into a category shows both sections, headed like
-  the admin's: its child categories, an Up button, and the level's OWN
-  items — while a non-empty search always covers the subtree of wherever
-  you stand (`BrowseState`'s `drill: :direct`) and hides the level
-  navigation. A category-less root has no switcher and simply lists the
-  items. A MULTI-catalogue scope drills CATALOGUE-FIRST: the root lists
-  the offered catalogues as tiles (the switcher reads Catalogues |
-  Items), choosing one lands on that catalogue's own root — its top
-  categories, its Uncategorized bucket, its items — and Up climbs back
-  through the same chain. The catalogue choice narrows every fetch
-  within the scope's offered list (`BrowseState`'s `{:set_catalogue, _}`,
-  membership-checked like every narrowing).
+  table in table view). A root is just a level (Max, 2026-08-31): with
+  categories it lists the pure outline — top-level categories plus an
+  Uncategorized entry where the scope allows it — and items come from
+  entering a folder or searching; page 1 is not even fetched there.
+  Drilling into a category shows both sections, headed like the
+  admin's: its child categories, an Up button, and the level's OWN
+  items — while a non-empty search always covers the subtree of
+  wherever you stand (`BrowseState`'s `drill: :direct`) and hides the
+  level navigation. A category-less root simply lists the items. A
+  MULTI-catalogue scope drills CATALOGUE-FIRST: the root lists the
+  offered catalogues as tiles, choosing one lands on that catalogue's
+  own root — its top categories, its Uncategorized bucket — and Up
+  climbs back through the same chain. The catalogue choice narrows
+  every fetch within the scope's offered list (`BrowseState`'s
+  `{:set_catalogue, _}`, membership-checked like every narrowing).
+
+  `root_switcher: true` restores the admin-style Categories | Items
+  either-or at such roots (Catalogues | Items at a multi-catalogue
+  root): Items is the flat no-query list of everything at that level.
+  Off by default — the control read as a search-mode toggle while
+  flipping the browse listing (both Max and the external UX review
+  tripped over it), and search finds items better than the flat list
+  browses them.
 
   Search is the admin's two-list surface: item results are the primary,
   default list, and categories whose name matches (in any language)
   render above them as navigation — a hit opens that category's page
   with the search cleared. Hits are filtered to the scoped category
   tree, cover only the drilled subtree when drilled, and stay away from
-  the root's Items mode (the admin's items-type search) and the
+  the opt-in root Items mode (the admin's items-type search) and the
   Uncategorized drill.
 
   ## Usage
@@ -829,13 +836,16 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
       (level_uncategorized(assigns.cat_tree, assigns.browse) || 0) > 0
   end
 
-  # The root-level either-or (Max, 2026-08-31 — match the admin root
-  # exactly): a level with an outline to show browses EITHER that outline
-  # OR the flat item list, driven by the same Categories | Items switcher
-  # the admin page has. It applies wherever no CATEGORY is drilled — the
-  # multi-catalogue root (listing catalogues) and a chosen catalogue's
-  # level included; drilled category levels always show both sections; a
-  # search shows results regardless of the mode.
+  # The root-level either-or: a level with an outline to show browses
+  # EITHER that outline OR the flat item list. It applies wherever no
+  # CATEGORY is drilled — the multi-catalogue root (listing catalogues)
+  # and a chosen catalogue's level included; drilled category levels
+  # always show both sections; a search shows results regardless of the
+  # mode. The Items side is reachable only under the opt-in
+  # root_switcher (Max, 2026-08-31 — a root is just a level); without
+  # it root_mode is pinned to "categories", so the gate simply hides
+  # the item block at tile levels, and tiles_only_level?/1 skips their
+  # pointless page-1 fetch.
   defp root_mode_gate?(assigns) do
     not searching?(assigns.browse) and is_nil(assigns.browse.category_uuid) and
       level_entries(assigns.cat_tree, assigns.browse) != []
@@ -922,9 +932,9 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
         <span class="font-medium truncate">{level_name(@tree, @browse)}</span>
       </div>
       <div :if={@tiles != [] or @uncat?}>
-        <%!-- Only a drilled category level heads this block — elsewhere
-        the switcher (Catalogues/Categories | Items) already names what
-        is listed, the admin's pure-browser idiom. --%>
+        <%!-- Only a drilled category level heads this block — a root's
+        tiles need no heading (the pure-browser idiom; with the opt-in
+        switcher its labels name the listing anyway). --%>
         <div
           :if={@browse.category_uuid}
           class="text-sm font-semibold text-base-content/70 mb-2"
@@ -1047,6 +1057,15 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
       # that really want both (Max, 2026-08-31). Quantity mode ignores
       # it — the stepper is the selector there.
       inline_qty: Map.get(assigns, :inline_qty, false) == true,
+      # The root Categories|Items (or Catalogues|Items) either-or,
+      # OFF by default (Max, 2026-08-31): a root is just a level — it
+      # lists its tiles, and items come from entering a folder or
+      # searching. The switcher looked like the index's search-mode
+      # control while doing something else entirely (both Max and the
+      # panel's UX seat tripped over it), and its flat no-query list is
+      # served better by search. Opt-in for hosts that want the flat
+      # browse mode.
+      root_switcher: Map.get(assigns, :root_switcher, false) == true,
       title: assigns[:title]
     }
   end
@@ -1058,7 +1077,33 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
   # moving this into start_async later is a drop-in, not a redesign.
   defp run_fetch(socket, :noop), do: socket
 
-  defp run_fetch(socket, {:fetch, opts, gen}) do
+  defp run_fetch(socket, {:fetch, _opts, gen} = effect) do
+    # A tiles-only root (no switcher, no query, no drill) renders no item
+    # block, so page 1 would be fetched only to be thrown away — the wart
+    # the boss's #89 review recorded as the price of the instant Items
+    # switch. No switch, no price: ingest an empty exhausted page and
+    # keep the state machine's bookkeeping honest.
+    if tiles_only_level?(socket.assigns) do
+      %{browse: browse} = socket.assigns
+
+      assign(socket,
+        browse: BrowseState.ingest(browse, gen, [], 0),
+        presented: %{},
+        search_cat_hits: []
+      )
+    else
+      run_item_fetch(socket, effect)
+    end
+  end
+
+  defp tiles_only_level?(%{root_switcher: false, browse: browse} = assigns) do
+    not searching?(browse) and is_nil(browse.category_uuid) and
+      level_entries(assigns.cat_tree, browse) != []
+  end
+
+  defp tiles_only_level?(_assigns), do: false
+
+  defp run_item_fetch(socket, {:fetch, opts, gen}) do
     %{browse: browse, locale: locale} = socket.assigns
 
     items = Catalogue.search_items(browse.search, opts)
@@ -1358,7 +1403,15 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
   # never loses picks.
   def handle_event("set_root_mode", %{"mode" => mode}, socket)
       when mode in ["categories", "items"] do
-    {:noreply, assign(socket, :root_mode, mode)}
+    # Without the opt-in switcher there is no legal way to leave
+    # "categories" — a crafted flip would reveal an item block whose
+    # fetch was skipped (empty, dead). Refused like every other event
+    # the UI never offered.
+    if socket.assigns.root_switcher do
+      {:noreply, assign(socket, :root_mode, mode)}
+    else
+      {:noreply, socket}
+    end
   end
 
   def handle_event("toggle_column", %{"col" => raw}, socket) do
@@ -2088,12 +2141,15 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
             either-or: the category outline, or every in-scope item as
             one flat list. Only at a root that has categories; drilled
             levels show both sections and a search always shows results. --%>
+            <%!-- Opt-in only (root_switcher) — see display_opts/1. Its
+            aria-label says Browse, not Search: it flips what the LEVEL
+            lists, which is exactly the confusion that demoted it. --%>
             <div
-              :if={root_mode_gate?(assigns)}
+              :if={@root_switcher and root_mode_gate?(assigns)}
               id={"#{@id}-root-mode"}
               class="join"
               role="group"
-              aria-label={gettext("Search for")}
+              aria-label={gettext("Browse")}
             >
               <button
                 type="button"
