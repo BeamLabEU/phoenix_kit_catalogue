@@ -998,8 +998,20 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
             </.table_default_header>
             <.table_default_body>
               <.table_default_row :for={tile <- @tiles}>
+                <%!-- The image enters the level exactly like the name
+                (Max, 2026-08-31: "image and title... should be
+                clickable to enter them"). --%>
                 <.table_default_cell :if={@photo_col?} class="w-12 !pr-0 !py-1">
-                  <Shared.featured_thumb resource={tile} />
+                  <button
+                    type="button"
+                    phx-click={@tile_event}
+                    phx-value-uuid={tile.uuid}
+                    phx-target={@target}
+                    class="block cursor-pointer phx-click-loading:animate-pulse"
+                    aria-label={tile.name}
+                  >
+                    <Shared.featured_thumb resource={tile} />
+                  </button>
                 </.table_default_cell>
                 <.table_default_cell class="font-medium">
                   <div class="flex items-center gap-2 min-w-0">
@@ -1029,9 +1041,18 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
               </.table_default_row>
               <.table_default_row :if={@uncat?}>
                 <.table_default_cell :if={@photo_col?} class="w-12 !pr-0 !py-1">
-                  <span class="w-8 h-8 rounded bg-base-200 flex items-center justify-center">
-                    <span class="hero-folder-open w-4 h-4 text-base-content/40"></span>
-                  </span>
+                  <button
+                    type="button"
+                    phx-click="browse_category"
+                    phx-value-uuid="__uncategorized__"
+                    phx-target={@target}
+                    class="cursor-pointer phx-click-loading:animate-pulse"
+                    aria-label={gettext("Uncategorized")}
+                  >
+                    <span class="w-8 h-8 rounded bg-base-200 flex items-center justify-center">
+                      <span class="hero-folder-open w-4 h-4 text-base-content/40"></span>
+                    </span>
+                  </button>
                 </.table_default_cell>
                 <.table_default_cell class="font-medium">
                   <button

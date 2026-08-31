@@ -1443,30 +1443,51 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       refute html =~ "White Paint"
     end
 
-    test "clicking the title is the same as clicking the image — both open details", %{
+    test "only the THUMBNAIL opens details; the title selects instead", %{
       conn: conn,
       cat: cat,
       screw: screw
     } do
-      # Quantity mode (the default) — where the title used to be dead.
-      {:ok, view, _html} = open(conn, "c=#{cat.uuid}")
+      # Boss, 2026-08-31 — supersedes the earlier title-joins-the-photo
+      # ruling: the look-closer gesture is the image alone.
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&sel=click")
 
-      # Table: the NAME cell carries the same details binding the thumb does.
+      # Table: the NAME cell does NOT carry the details binding…
+      refute has_element?(
+               view,
+               ~s(#picker-row-#{screw.uuid} td[phx-click="show_detail"]),
+               "M8 Screw"
+             )
+
+      # …it follows the row's select behaviour in click mode.
       view
-      |> element(~s(#picker-row-#{screw.uuid} td[phx-click="show_detail"]), "M8 Screw")
+      |> element(~s(#picker-row-#{screw.uuid} td[phx-click="card_click"]), "M8 Screw")
       |> render_click()
 
-      assert render(view) =~ "close_detail"
-      view |> picker() |> render_click("close_detail", %{})
+      view |> picker() |> render_click("confirm", %{})
+      assert render(view) =~ "M8 Screw|M8-100|qty=1"
+    end
 
-      # Cards: the TITLE is its own details button beside the figure's.
+    test "in card view the title sits inside the select button, not the details one", %{
+      conn: conn,
+      cat: cat,
+      screw: screw
+    } do
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&sel=click")
       view |> picker() |> render_click("set_view", %{"mode" => "card"})
 
+      refute has_element?(
+               view,
+               ~s(#picker-card-#{screw.uuid} button[phx-click="show_detail"]),
+               "M8 Screw"
+             )
+
       view
-      |> element(~s(#picker-card-#{screw.uuid} button[phx-click="show_detail"]), "M8 Screw")
+      |> element(~s(#picker-card-#{screw.uuid} button[phx-click="card_click"]), "M8 Screw")
       |> render_click()
 
-      assert render(view) =~ "close_detail"
+      view |> picker() |> render_click("confirm", %{})
+      assert render(view) =~ "M8 Screw|M8-100|qty=1"
     end
 
     test "a cancel with the details stacked closes only the details", %{
@@ -2276,6 +2297,31 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       # the host's category scope (out-of-scope items never appear).
       html = view |> picker() |> render_change("browse_search", %{"search" => "m8"})
       refute html =~ "M8 Screw"
+    end
+
+    test "a tile's IMAGE enters the level like its name does", %{
+      conn: conn,
+      cat: cat
+    } do
+      # Max, 2026-08-31: "for the categories and catalogues… image and
+      # title should be clickable to enter them." The table view's thumb
+      # cell used to be inert.
+      pictured =
+        fixture_category(cat, %{
+          name: "Pictured",
+          data: %{"featured_image_uuid" => Ecto.UUID.generate()}
+        })
+
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&sel=click")
+
+      # The thumb cell's button carries the same drill event + uuid the
+      # name button does — two triggers per pictured tile.
+      html = view |> element("#picker-levelnav-table") |> render()
+      assert length(String.split(html, ~s(phx-value-uuid="#{pictured.uuid}"))) == 3
+
+      # And the uncategorized row's folder icon drills the bucket —
+      # two triggers there as well.
+      assert length(String.split(html, ~s(phx-value-uuid="__uncategorized__"))) == 3
     end
 
     test "the header names where you stand and carries Back (Max, 2026-08-31)", %{

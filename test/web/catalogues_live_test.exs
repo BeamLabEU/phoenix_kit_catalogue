@@ -908,23 +908,25 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
       refute html =~ "Outer widget"
     end
 
-    test "a result links into its catalogue, drilled and still searched", %{conn: conn} do
+    test "a result links straight to the item's EDIT page", %{conn: conn} do
       cat = fixture_catalogue(%{name: "Container"})
       {:ok, category} = Catalogue.create_category(%{name: "Doors", catalogue_uuid: cat.uuid})
 
-      fixture_item(%{
-        name: "Oak door",
-        catalogue_uuid: cat.uuid,
-        category_uuid: category.uuid
-      })
+      item =
+        fixture_item(%{
+          name: "Oak door",
+          catalogue_uuid: cat.uuid,
+          category_uuid: category.uuid
+        })
 
       {:ok, view, _html} = live(conn, "#{@base}?q=oak")
       html = render_async(view)
 
-      # Landing drilled into the category with the query applied puts the
-      # item in sight on arrival instead of buried in its level.
-      assert html =~ "category=#{category.uuid}"
-      assert html =~ "q=oak"
+      # Whoever searched an item by name wants THAT item (boss,
+      # 2026-08-31) — not its category's page with the query re-applied
+      # and every sibling around it.
+      assert html =~ "/items/#{item.uuid}/edit"
+      refute html =~ "category=#{category.uuid}"
     end
 
     test "the unfiled sentinel scopes items mode to unfiled catalogues", %{conn: conn} do
