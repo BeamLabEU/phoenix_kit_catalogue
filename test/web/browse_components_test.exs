@@ -106,8 +106,10 @@ defmodule PhoenixKitCatalogue.Web.Components.BrowseTest do
 
       assert html =~ ~s(phx-click="show_detail")
       assert html =~ ~s(phx-click="card_click")
-      # The two gestures carry distinct accessible names.
-      assert html =~ "View item details"
+      # Exactly ONE details trigger — the figure; the title sits inside
+      # the select button (boss, 2026-08-31: only the thumbnail is the
+      # look-closer gesture).
+      assert length(String.split(html, ~s(phx-click="show_detail"))) == 2
 
       # Without photo_click: one button, no details affordance.
       plain = render_component(&Browse.item_card/1, id: "c1", item: item)
@@ -115,7 +117,7 @@ defmodule PhoenixKitCatalogue.Web.Components.BrowseTest do
       refute plain =~ "View item details"
     end
 
-    test "the select toggle keeps a hit area when sku and price both hide" do
+    test "the select toggle always carries the title — it can never render empty" do
       item = %{
         uuid: "u-1",
         name: "Widget",
@@ -126,9 +128,10 @@ defmodule PhoenixKitCatalogue.Web.Components.BrowseTest do
         thumb_url: nil
       }
 
-      # With the details split on, the title opens details and the select
-      # toggle is only what is LEFT of the body — nothing at all here. It
-      # must still be hittable, or the card cannot be picked in card view.
+      # With details on, the body (title included) IS the select button
+      # (boss, 2026-08-31) — so even with sku and price both hidden the
+      # card keeps a real select target, which retired the #89 review's
+      # min-height patch for the empty-button case.
       html =
         render_component(&Browse.item_card/1,
           id: "c1",
@@ -138,15 +141,8 @@ defmodule PhoenixKitCatalogue.Web.Components.BrowseTest do
         )
 
       assert html =~ ~s(phx-click="card_click")
-      assert html =~ "min-h-[1.5rem]"
-
-      # The quantity flavour's disabled toggle adds no blank strip.
-      refute render_component(&Browse.item_card/1,
-               id: "c1",
-               item: item,
-               clickable: false,
-               photo_click: "show_detail"
-             ) =~ "min-h-[1.5rem]"
+      assert html =~ "Widget"
+      refute html =~ "min-h-[1.5rem]"
     end
   end
 
@@ -309,7 +305,7 @@ defmodule PhoenixKitCatalogue.Web.Components.BrowseTest do
       refute qty_cell =~ "card_click"
     end
 
-    test "thumb_click rides the thumb AND name cells; checkbox renders when asked" do
+    test "thumb_click rides ONLY the thumb cell; checkbox renders when asked" do
       html =
         render_component(&Browse.item_row/1,
           id: "r1",
@@ -321,10 +317,11 @@ defmodule PhoenixKitCatalogue.Web.Components.BrowseTest do
 
       assert html =~ ~s(phx-click="show_detail")
       assert html =~ ~s(input type="checkbox")
-      # Exactly the thumb and name cells carry the details event (Max,
-      # 2026-08-31: clicking the title means the same as clicking the
-      # image); the sku cell keeps the select toggle.
-      assert length(String.split(html, ~s(phx-click="show_detail"))) == 3
+      # Exactly the thumb cell carries the details event (boss,
+      # 2026-08-31: only the thumbnail is the look-closer gesture —
+      # supersedes the title-joins-the-photo ruling); the name and sku
+      # cells follow the row's select behaviour.
+      assert length(String.split(html, ~s(phx-click="show_detail"))) == 2
       assert html =~ ~s(phx-click="card_click")
     end
 

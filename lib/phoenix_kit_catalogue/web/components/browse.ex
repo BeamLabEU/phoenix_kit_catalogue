@@ -442,40 +442,17 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
           show_sku={@show_sku}
         />
       </button>
-      <%!-- With the details affordance on, the TITLE dispatches the same
-      event as the photo (Max, 2026-08-31: "clicking the title of an
-      image should be the same as clicking the image") — the two always
-      mean "look closer" together — and only the rest of the body keeps
-      the select toggle. --%>
+      <%!-- Only the THUMBNAIL is the look-closer gesture (boss,
+      2026-08-31 — supersedes the earlier title-joins-the-photo ruling):
+      the body, TITLE INCLUDED, is the select surface. With the name
+      always inside it the select button can never render empty, which
+      also retires the #89 review's min-height patch for that case. --%>
       <div :if={@photo_click} class="card-body p-3 gap-0.5">
-        <button
-          type="button"
-          class="text-left cursor-pointer phx-click-loading:animate-pulse"
-          phx-click={@photo_click}
-          phx-value-uuid={@item.uuid}
-          phx-target={@target}
-          title={gettext("View item details")}
-        >
-          <%!-- No title on the span: the innermost tooltip wins, so a
-          name here hid the button's affordance hint exactly where
-          users hover — the full name is one click away on the detail
-          page (external review, 2026-08-31). --%>
-          <span class="font-medium text-sm leading-snug line-clamp-2">
-            {@item.name}
-          </span>
-        </button>
-        <%!-- The min height is load-bearing: sku and price are both
-        conditional, so with neither shown (an embed that granted no
-        :price over items with no SKU) this button renders EMPTY, and a
-        card whose row isn't stretched then has no select target at all
-        — the title only opens details. Only while clickable, so the
-        quantity flavour's disabled button adds no blank strip. --%>
         <button
           type="button"
           class={[
             "text-left w-full flex-1 flex flex-col gap-0.5",
-            "cursor-pointer disabled:cursor-default phx-click-loading:animate-pulse",
-            @clickable && "min-h-[1.5rem]"
+            "cursor-pointer disabled:cursor-default phx-click-loading:animate-pulse"
           ]}
           phx-click={@clickable && "card_click"}
           phx-value-uuid={@item.uuid}
@@ -484,6 +461,9 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
           aria-pressed={@selected}
           aria-label={@item.name}
         >
+          <span class="font-medium text-sm leading-snug line-clamp-2" title={@item.name}>
+            {@item.name}
+          </span>
           <span :if={@show_sku && @item.sku} class="font-mono text-xs text-base-content/60">
             {@item.sku}
           </span>
@@ -969,9 +949,11 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
   # image"); every other cell (bar :qty, whose stepper must never toggle
   # the row underneath) carries the select toggle while the row is
   # clickable.
+  # Only the THUMBNAIL opens details (boss, 2026-08-31 — supersedes the
+  # earlier ruling that the name cell joined it); every other cell,
+  # name included, follows the row's select behaviour.
   defp cell_event(:qty, _assigns), do: nil
   defp cell_event(:thumb, %{thumb_click: event}) when is_binary(event), do: event
-  defp cell_event(:name, %{thumb_click: event}) when is_binary(event), do: event
   defp cell_event(_col, %{clickable: true}), do: "card_click"
   defp cell_event(_col, _assigns), do: nil
 

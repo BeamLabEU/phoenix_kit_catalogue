@@ -3719,15 +3719,10 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     """
   end
 
-  # Into the catalogue, drilled to the item's own category (or the
-  # uncategorized bucket), carrying the query along.
-  defp item_result_path(item, query) do
-    params =
-      [category: item.category_uuid || "uncategorized"] ++
-        if(query == "", do: [], else: [q: query])
-
-    Paths.catalogue_detail(item.catalogue_uuid) <> "?" <> URI.encode_query(params)
-  end
+  # Straight to the item's EDIT page (boss, 2026-08-31): whoever
+  # searched an item by name wants THAT item, not its category's page
+  # with the query re-applied and every sibling around it.
+  defp item_result_path(item, _query), do: Paths.item_edit(item.uuid)
 
   # ── Toolbar private component ────────────────────────────────────
 
