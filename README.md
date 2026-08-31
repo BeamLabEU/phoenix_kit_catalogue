@@ -40,6 +40,37 @@ mix deps.get
 
 The module auto-discovers via beam scanning. Enable it in **Admin > Modules**.
 
+### JavaScript hooks (required for the interactive components)
+
+The module ships its LiveView hooks as **colocated hooks** — the item
+picker's keyboard handling, the selector popup's instant quantity
+highlight and scroll reset, and its auto-load sentinel. `mix compile`
+writes their manifest to
+`_build/<env>/phoenix-colocated/phoenix_kit_catalogue/`, and the host
+app must import and register it in `assets/js/app.js`:
+
+```javascript
+import {hooks as catalogueHooks} from "phoenix-colocated/phoenix_kit_catalogue"
+
+const liveSocket = new LiveSocket("/live", Socket, {
+  // ...
+  hooks: {...window.PhoenixKitHooks, ...catalogueHooks, /* your hooks */},
+})
+```
+
+Phoenix 1.8 projects resolve the `phoenix-colocated/*` import out of the
+box (their esbuild config puts the build directory on `NODE_PATH`). On
+an older setup, add it to the esbuild profile in `config/config.exs`:
+
+```elixir
+env: %{"NODE_PATH" => [Path.expand("../deps", __DIR__), Mix.Project.build_path()]}
+```
+
+Without the import the components still render and work server-side,
+but everything the hooks add is silently absent — the browser console
+logs `unknown hook found` for `.ItemPicker`, `.QtySignal`, `.ScrollTop`
+and `.AutoLoad`.
+
 ## Data Model
 
 ```

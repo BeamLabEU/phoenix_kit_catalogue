@@ -23,6 +23,7 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
       items
       |> Browse.present_items(locale)
       # => [%{uuid: "…", name: "…", sku: "…", price: %Decimal{}|nil,
+      #       fee_note: "12%"|"Computed"|nil,
       #       base_price: %Decimal{}|nil, unit: "piece",
       #       photo_url: "/…/medium/…"|nil, thumb_url: "/…/thumbnail/…"|nil,
       #       manufacturer: "…"|nil, category: "…"|nil,
@@ -30,7 +31,9 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
 
   `item_row/1`'s default columns read `thumb_url`, `category` and
   `base_price` too — a host hand-building presented maps needs the full
-  shape above, not a subset.
+  shape above, not a subset (`fee_note` is the one key read
+  `Map.get`-safely, so legacy hand-built maps merely lose the smart-fee
+  display rather than crash).
 
   Pair them with `PhoenixKitCatalogue.Catalogue.BrowseState` for the
   fetch/paging state machine; the moduledoc there shows the loop.
@@ -67,9 +70,12 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
     * `{:price, %Decimal{}}` — a flat standalone fee; safe to use as the
       price (line totals included).
     * `{:note, text}` — display-only: `"12%"` for a percent fee, a
-      localized "Computed" for a rule-priced item with no displayable
-      number.
-    * `nil` — a plain item (priced or simply price-less).
+      localized "Computed" for a fee item (`default_unit` set) whose
+      number is missing.
+    * `nil` — a plain item (priced or simply price-less). An item priced
+      purely by catalogue RULES with no fee fields of its own lands here
+      too: the rules live on the catalogue, not the row, so the two are
+      indistinguishable at presentation time.
 
   Before this, smart items rendered a BLANK price everywhere
   (2026-08-31 — tim-dev's rule-priced services, Nordic Line's fees).
@@ -89,7 +95,10 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
   @doc """
   Denormalizes schema items into presented maps: translated name, signed
   featured-photo URL, selling price (`Catalogue.item_pricing/1`'s
-  `final_price`, matching `ItemPicker`), and a starting quantity of 1.
+  `final_price`, matching `ItemPicker`), a `:fee_note` (`smart_fee/1`'s
+  display text for fee items with no numeric price — nil otherwise, and
+  optional in hand-built maps, hence the `Map.get` reads downstream),
+  and a starting quantity of 1.
 
   `Item.default_value` is the smart-catalogue fee fallback (percent/flat),
   not a pick quantity — do not use it as a stepper default.
@@ -100,18 +109,19 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
   @spec present_items([map() | struct()], String.t() | nil) :: [map()]
   def present_items(items, locale) do
     Enum.map(items, fn item ->
-      translated = Translations.get_translation(item, locale)
       {price, fee_note} = presented_price_and_fee(item)
 
       %{
         uuid: to_string(item.uuid),
-        # "_name" is where the multilang editor stores translated names
-        # (like every record's; "name" kept for legacy flat data). This
-        # read used "name" alone, so list names NEVER translated — the
-        # detail popup resolved "_name" and came out right, which is how
-        # the miss stayed invisible until a real bilingual catalogue
+        # Translations.translated_name/2 reads "_name" — where the
+        # multilang editor stores translated names — then legacy "name",
+        # then the primary column, presence-guarding each so a stored
+        # blank override can't blank the list. This read used a bare
+        # "name" lookup, so list names NEVER translated — the detail
+        # popup resolved "_name" and came out right, which is how the
+        # miss stayed invisible until a real bilingual catalogue
         # (tim-dev error report, 2026-08-31).
-        name: translated["_name"] || translated["name"] || item.name,
+        name: Translations.translated_name(item, locale),
         sku: item.sku,
         price: price,
         fee_note: fee_note,
@@ -282,18 +292,7 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
 
   def chip_categories(_scope, _locale), do: []
 
-  defp chip_name(record, locale) do
-    translation =
-      try do
-        Catalogue.get_translation(record, locale)
-      rescue
-        _ -> %{}
-      end
-
-    Map.get(translation, "_name") ||
-      Map.get(translation, "name") ||
-      Map.get(record, :name)
-  end
+  defp chip_name(record, locale), do: Translations.translated_name(record, locale)
 
   @doc """
   Horizontally scrollable category filter chips: "All" plus one per
@@ -457,7 +456,11 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
           phx-target={@target}
           title={gettext("View item details")}
         >
-          <span class="font-medium text-sm leading-snug line-clamp-2" title={@item.name}>
+          <%!-- No title on the span: the innermost tooltip wins, so a
+          name here hid the button's affordance hint exactly where
+          users hover — the full name is one click away on the detail
+          page (external review, 2026-08-31). --%>
+          <span class="font-medium text-sm leading-snug line-clamp-2">
             {@item.name}
           </span>
         </button>
@@ -1039,6 +1042,29 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
   attr(:precision, :integer, default: 0)
   attr(:min, :string, default: nil, doc: "min attr for the control (arrows stop here)")
   attr(:max, :string, default: nil)
+
+  attr(:select_floor, :string,
+    default: nil,
+    doc: """
+    the smallest value the SERVER accepts as a selection (the host's
+    qty_min) — may differ from `min`, which is "0" in quantity mode so
+    the down arrow can reach the deselect state. The instant-highlight
+    hook flips to selected only at/above it; a value the server will
+    reject changes nothing, because a rejection produces no diff to
+    undo a premature flip (external review, 2026-08-31). Nil falls back
+    to `min`.
+    """
+  )
+
+  attr(:zero_deselects, :boolean,
+    default: false,
+    doc: """
+    whether a typed 0 previews as DESELECTED (quantity mode's contract).
+    In click+inline_qty mode the server clamps 0 back to the minimum
+    and keeps the row selected, so the preview must not un-highlight.
+    """
+  )
+
   attr(:target, :any, default: nil)
   attr(:size, :string, default: "sm", values: ~w(xs sm))
 
@@ -1062,16 +1088,22 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
       phx-change="qty_change"
       phx-target={@target}
       phx-hook=".QtySignal"
+      data-select-floor={@select_floor}
+      data-zero-deselects={to_string(@zero_deselects)}
       novalidate
     >
       <input type="hidden" name="uuid" value={@uuid} />
       <%!-- Instant selected feedback (Max, 2026-08-31: "I add 1 and it
       gets highlighted blue but only after a delay"): the debounce + round
       trip stay authoritative for STATE, but the row/card highlight is
-      keyed off data-selected, which this hook flips the moment a keystroke
-      or arrow changes the value. The next server render reconciles the
-      attribute either way; garbage input changes nothing — the server
-      rejects it too. --%>
+      keyed off data-selected, which this hook flips the moment a
+      keystroke or arrow changes the value. The flip mirrors the ACCEPT
+      SET, not `> 0`: a value the server rejects (below the select
+      floor) must not flip, because the rejection changes no server
+      state and so produces no diff to undo a premature flip — the row
+      would stay wrongly highlighted until the next real diff (external
+      review, 2026-08-31). Values inside the accept set reconcile on
+      the next server render as before. --%>
       <script :type={Phoenix.LiveView.ColocatedHook} name=".QtySignal">
         export default {
           mounted() {
@@ -1081,7 +1113,19 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
             this._onInput = () => {
               const v = parseFloat(this.input.value.replace(",", "."))
               if (Number.isNaN(v)) return
-              const sel = v > 0 ? "true" : "false"
+              const floor = parseFloat(this.el.dataset.selectFloor || this.input.min)
+              let sel = null
+              if (v <= 0) {
+                // 0 previews as deselected only where the server treats
+                // it that way (quantity mode); elsewhere it clamps back
+                // to the minimum and keeps the selection.
+                if (this.el.dataset.zeroDeselects === "true") sel = "false"
+              } else if (!(floor > 0) || v >= floor) {
+                sel = "true"
+              }
+              // 0 < v < floor: the server will reject — leave the
+              // current state alone.
+              if (sel === null) return
               this.holder.setAttribute("data-selected", sel)
               if (this.holder.hasAttribute("aria-selected")) {
                 this.holder.setAttribute("aria-selected", sel)
@@ -1090,7 +1134,7 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
             this.input.addEventListener("input", this._onInput)
           },
           destroyed() {
-            if (this.input) this.input.removeEventListener("input", this._onInput)
+            if (this._onInput) this.input.removeEventListener("input", this._onInput)
           }
         }
       </script>

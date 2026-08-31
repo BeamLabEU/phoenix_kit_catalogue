@@ -376,13 +376,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ProductCard do
 
   @doc "Resolves the item's display name for the given locale (translation, then bare name)."
   @spec resolve_name(Item.t() | term(), String.t()) :: String.t() | nil
-  def resolve_name(%Item{} = item, locale) do
-    translation = safe_translation(item, locale)
-
-    Map.get(translation, "_name") ||
-      Map.get(translation, "name") ||
-      item.name
-  end
+  def resolve_name(%Item{} = item, locale), do: Catalogue.translated_name(item, locale)
 
   def resolve_name(_, _), do: nil
 
@@ -525,7 +519,10 @@ defmodule PhoenixKitCatalogue.Web.Components.ProductCard do
   # click came from.
   defp fee_value(item) do
     case Browse.smart_fee(item) do
-      {:price, fee} -> Decimal.to_string(fee, :normal)
+      # Browse.format_price/1, not raw to_string — a DB numeric arrives
+      # as 49.0000 and the card must not disagree with the listing's
+      # "49.00" (external review, 2026-08-31).
+      {:price, fee} -> Browse.format_price(fee)
       {:note, note} -> note
       nil -> nil
     end
@@ -552,13 +549,8 @@ defmodule PhoenixKitCatalogue.Web.Components.ProductCard do
     end
   end
 
-  defp resolve_description(%Item{} = item, locale) do
-    translation = safe_translation(item, locale)
-
-    Map.get(translation, "_description") ||
-      Map.get(translation, "description") ||
-      item.description
-  end
+  defp resolve_description(%Item{} = item, locale),
+    do: Catalogue.translated_description(item, locale)
 
   defp metadata_fields(%Item{} = item) do
     state = Metadata.build_state(:item, item)
@@ -578,12 +570,6 @@ defmodule PhoenixKitCatalogue.Web.Components.ProductCard do
     # data). Dropping the metadata block is far better than crashing the card;
     # the scalar fields still render.
     _ -> []
-  end
-
-  defp safe_translation(record, locale) do
-    Catalogue.get_translation(record, locale)
-  rescue
-    _ -> %{}
   end
 
   # Both call sites sit inside `resolve_images(%Item{data: data}) when

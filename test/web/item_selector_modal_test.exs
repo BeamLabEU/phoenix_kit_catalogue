@@ -521,6 +521,21 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       refute html =~ ~s(id="picker-qty-#{uuid}-r0")
     end
 
+    test "quantity mode ignores inline_qty — the documented disjunct has a pin", %{
+      conn: conn,
+      cat: cat,
+      screw: screw
+    } do
+      # In click mode the stepper appears only on SELECTED rows under
+      # iq=true; in quantity mode every rendered row carries it at 0
+      # regardless of iq. Deleting/inverting the inline_qty half of
+      # stepper?/2 for quantity mode used to fail nothing (external
+      # review, 2026-08-31).
+      {:ok, _view, html} = open(conn, "c=#{cat.uuid}&iq=true")
+
+      assert html =~ ~s(id="picker-qty-#{screw.uuid}-r0")
+    end
+
     test "exponent quantities are rejected, not parsed to 1e9", %{
       conn: conn,
       cat: cat,
@@ -1628,6 +1643,30 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       assert render(view) =~ "Za Last Item|ZZZ-1|qty=3"
     end
 
+    test "the auto-load sentinel is the colocated hook targeting the component", %{
+      conn: conn,
+      cat: cat
+    } do
+      {:ok, _} =
+        Catalogue.create_item(%{name: "Page Two Item", sku: "P2-1", catalogue_uuid: cat.uuid})
+
+      {:ok, view, html} = open(conn, "c=#{cat.uuid}&pp=2")
+
+      # Core's InfiniteScroll routed its push to the ROOT LiveView on
+      # every published core — a host without a load_more clause crashed
+      # and remounted, dropping the popup and every pick (external
+      # review, 2026-08-31). The colocated .AutoLoad pushes through the
+      # sentinel's own phx-target instead, so both attributes ARE the
+      # contract.
+      assert has_element?(view, "#picker-scroll-sentinel[phx-target]")
+      assert html =~ "AutoLoad"
+      refute html =~ ~s(phx-hook="InfiniteScroll")
+
+      # The cursor carries the full list identity — the catalogue drill
+      # included, so drilling re-arms it even on equal page lengths.
+      assert has_element?(view, ~s(#picker-scroll-sentinel[data-cursor]))
+    end
+
     test "the tray's remove drops exactly the named pick and its draft state", %{
       conn: conn,
       cat: cat,
@@ -2061,9 +2100,37 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       refute html =~ "M8 Screw"
       assert html =~ "Forbidden Item"
 
-      # A crafted uuid outside the offered list is a no-op.
+      # A crafted uuid outside the offered list is a no-op — the drilled
+      # catalogue stands (its item still listed, the outsider's absent).
       html = view |> picker() |> render_click("browse_catalogue", %{"uuid" => third.uuid})
       refute html =~ "Unoffered Item"
+      assert html =~ "Forbidden Item"
+    end
+
+    test "a crafted category from ANOTHER offered catalogue is refused while drilled", %{
+      conn: conn,
+      cat: cat,
+      other: other,
+      doors: doors,
+      tools: tools,
+      sub: sub
+    } do
+      # The tiles and search hits never offer B's categories while
+      # drilled into A; a crafted event naming one would wed A to B's
+      # category — a contradictory, empty dead-end level (external
+      # review, 2026-08-31). The component refuses it like BrowseState
+      # refuses out-of-scope uuids.
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&c2=#{other.uuid}&sel=click")
+
+      view |> picker() |> render_click("browse_catalogue", %{"uuid" => cat.uuid})
+      assert has_element?(view, ~s(#picker-levelnav button[phx-value-uuid="#{doors.uuid}"]))
+
+      view |> picker() |> render_click("browse_category", %{"uuid" => tools.uuid})
+
+      # Still standing at cat's catalogue level — the crafted drill did
+      # nothing (tools' subcategory tile would render if it had).
+      assert has_element?(view, ~s(#picker-levelnav button[phx-value-uuid="#{doors.uuid}"]))
+      refute has_element?(view, ~s(#picker-levelnav button[phx-value-uuid="#{sub.uuid}"]))
     end
   end
 
@@ -2110,6 +2177,23 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       refute has_element?(view, "#picker-search-cats")
       refute has_element?(view, ~s(#picker-search[value="bolt"]))
       assert has_element?(view, "#picker-levelnav", "Bolts")
+    end
+
+    test "a whitespace-only query is no search: level navigation and drill stand", %{
+      conn: conn,
+      cat: cat,
+      parent: parent
+    } do
+      # The fetch layer trims "   " to no text filter, so treating it as
+      # live search flipped a :direct level to subtree listing and hid
+      # the tiles for a query that filters nothing (external review,
+      # 2026-08-31).
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&sel=click")
+      assert has_element?(view, ~s(#picker-levelnav button[phx-value-uuid="#{parent.uuid}"]))
+
+      view |> picker() |> render_change("browse_search", %{"search" => "   "})
+      assert has_element?(view, ~s(#picker-levelnav button[phx-value-uuid="#{parent.uuid}"]))
+      refute has_element?(view, "#picker-search-cats")
     end
 
     test "hits respect the scope allow-list and the drilled subtree", %{

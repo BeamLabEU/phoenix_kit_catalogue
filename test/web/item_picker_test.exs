@@ -86,6 +86,31 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPickerTest do
       refute html =~ "Steel screw"
     end
 
+    test "an explicit locale={nil} falls back too — the common host shape" do
+      # `locale={@locale}` with a nil assign passes the key PRESENT and
+      # nil; a put_new-style fallback skipped it and the page silently
+      # dropped to untranslated names (external review, 2026-08-31).
+      item = %{
+        fake_item("i-loc-3", "Steel screw")
+        | data: %{
+            "_primary_language" => "en",
+            "en" => %{"_name" => "Steel screw"},
+            "et" => %{"_name" => "Teraskruvi"}
+          }
+      }
+
+      Gettext.put_locale("et")
+
+      html =
+        render_component(
+          ItemPicker,
+          base_assigns() |> Map.put(:locale, nil) |> Map.put(:selected_item, item)
+        )
+
+      assert html =~ "Teraskruvi"
+      refute html =~ "Steel screw"
+    end
+
     test "an explicit :locale attr still wins" do
       item = %{
         fake_item("i-loc-2", "Steel screw")

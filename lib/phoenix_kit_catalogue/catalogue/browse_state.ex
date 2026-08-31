@@ -191,7 +191,11 @@ defmodule PhoenixKitCatalogue.Catalogue.BrowseState do
   def command(state, {:set_catalogue, uuid}) when is_binary(uuid) do
     offered = state.scope[:catalogue_uuids] || []
 
-    if uuid in Enum.map(offered, &to_string/1) do
+    # `length(offered) > 1` enforces the documented "several catalogues"
+    # contract: on a singleton scope there is no catalogue level, so a
+    # crafted accept would strand the presentation in a state it never
+    # renders tiles for (external review, 2026-08-31).
+    if length(offered) > 1 and uuid in Enum.map(offered, &to_string/1) do
       fetch(%{state | catalogue_uuid: uuid, category_uuid: nil})
     else
       {state, :noop}
@@ -263,6 +267,12 @@ defmodule PhoenixKitCatalogue.Catalogue.BrowseState do
         do: Map.put(base, :catalogue_uuids, [state.catalogue_uuid]),
         else: base
 
+    # A whitespace-only query is NO search: the fetch layer trims it to
+    # no text filter, so treating it as live search here would silently
+    # flip a :direct level to subtree listing — descendants appearing
+    # for a query that filters nothing (external review, 2026-08-31).
+    blank_search? = String.trim(state.search) == ""
+
     base =
       case state.category_uuid do
         # The uncategorized narrowing IS an :only — never combined with
@@ -273,7 +283,7 @@ defmodule PhoenixKitCatalogue.Catalogue.BrowseState do
 
         # A drilled level under :direct lists its OWN items; a search from
         # there still covers the subtree (see the :drill doc on init/1).
-        uuid when is_binary(uuid) and state.drill == :direct and state.search == "" ->
+        uuid when is_binary(uuid) and state.drill == :direct and blank_search? ->
           base
           |> Map.put(:category_uuids, [uuid])
           |> Map.put(:include_descendants, false)

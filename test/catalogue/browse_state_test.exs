@@ -134,6 +134,53 @@ defmodule PhoenixKitCatalogue.Catalogue.BrowseStateTest do
       assert BrowseState.init(per_page: 0).per_page == 1
       assert BrowseState.init(per_page: 24).per_page == 24
     end
+
+    test "set_catalogue narrows within a multi-catalogue scope and rejects outsiders" do
+      state = BrowseState.init(scope: %{catalogue_uuids: ["cat-a", "cat-b"]})
+
+      assert {drilled, {:fetch, opts, _}} =
+               BrowseState.command(state, {:set_catalogue, "cat-b"})
+
+      assert Map.new(opts)[:catalogue_uuids] == ["cat-b"]
+      assert drilled.catalogue_uuid == "cat-b"
+
+      assert {^state, :noop} = BrowseState.command(state, {:set_catalogue, "cat-evil"})
+      assert {^state, :noop} = BrowseState.command(state, {:set_catalogue, 123})
+
+      # Clearing restores the full offered list.
+      opts = opts_map(BrowseState.command(drilled, {:set_catalogue, nil}))
+      assert opts[:catalogue_uuids] == ["cat-a", "cat-b"]
+    end
+
+    test "set_catalogue is refused on a singleton scope — no catalogue level exists there" do
+      # The documented contract: only accepted when the scope names
+      # SEVERAL catalogues. A crafted accept on [A] would strand the
+      # presentation in a level it never renders tiles for
+      # (external review, 2026-08-31).
+      state = BrowseState.init(scope: %{catalogue_uuids: ["cat-a"]})
+      assert {^state, :noop} = BrowseState.command(state, {:set_catalogue, "cat-a"})
+
+      unscoped = BrowseState.init(scope: %{})
+      assert {^unscoped, :noop} = BrowseState.command(unscoped, {:set_catalogue, "cat-a"})
+    end
+
+    test "a whitespace-only search keeps the :direct level's own-items listing" do
+      # The fetch layer trims "   " to no text filter, so treating it as
+      # a live search would flip the level to subtree listing for a query
+      # that filters nothing (external review, 2026-08-31).
+      uuid = Ecto.UUID.generate()
+      state = BrowseState.init(scope: %{}, drill: :direct)
+      {state, _} = BrowseState.command(state, {:set_category, uuid})
+
+      opts = opts_map(BrowseState.command(state, {:search, "   "}))
+      assert opts[:category_uuids] == [uuid]
+      assert opts[:include_descendants] == false
+
+      # A real query still covers the subtree — finding beats filing.
+      opts = opts_map(BrowseState.command(state, {:search, "screw"}))
+      assert opts[:category_uuids] == [uuid]
+      refute Map.has_key?(opts, :include_descendants)
+    end
   end
 
   describe "paging" do
