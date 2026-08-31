@@ -309,19 +309,27 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     {socket, toggles_changed?} = track_url_toggles(socket, state, cat_key)
     socket = assign(socket, :search_type, normalize_search_type(state.search_type, cat_key))
 
-    cond do
-      not connected?(socket) ->
-        socket
+    socket =
+      cond do
+        not connected?(socket) ->
+          socket
 
-      cat_changed? ->
-        load_url_state_level(socket, cat_key, state.search_query)
+        cat_changed? ->
+          load_url_state_level(socket, cat_key, state.search_query)
 
-      filter_changed? or toggles_changed? ->
-        socket |> handle_url_state_search(state.search_query) |> reset_and_load()
+        filter_changed? or toggles_changed? ->
+          socket |> handle_url_state_search(state.search_query) |> reset_and_load()
 
-      true ->
-        handle_url_state_search(socket, state.search_query)
-    end
+        true ->
+          handle_url_state_search(socket, state.search_query)
+      end
+
+    # Publish the FULL current URL (query included) as url_path: the layout
+    # hands it to core's language switcher as current_path, and a bare path
+    # meant switching languages threw you out of the drilled category
+    # (boss, 2026-08-31). Core's tab matching strips queries, and UrlState
+    # keeps its own bare-path base, so nothing else shifts.
+    assign(socket, :url_path, url_state_path(socket, %{}))
   end
 
   # Resolves the category UUID from URL state, loads the level, then
