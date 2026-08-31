@@ -304,6 +304,30 @@ Import into any LiveView:
 import PhoenixKitCatalogue.Web.Components
 ```
 
+### `ItemSelectorModal` (the item-picking popup)
+
+The full picker: level navigation (catalogue-first on multi-catalogue
+scopes), search with category hits, quantity/click selection flavours,
+stacked item details, per-user view/column memory.
+
+```heex
+<.live_component
+  module={PhoenixKitCatalogue.Web.Components.ItemSelectorModal}
+  id="item-selector"
+  show={@show_selector}
+  scope={%{catalogue_uuids: [@catalogue.uuid]}}
+  selected={@picked}
+  current_user={@phoenix_kit_current_scope && @phoenix_kit_current_scope.user}
+/>
+```
+
+**Pass `current_user`** (the phoenix_kit user struct — on any admin page
+it is one `@phoenix_kit_current_scope.user` away): it powers the
+per-user memory for the view and column choices. Without it the popup
+still works, but every column/view toggle silently resets on the next
+open — the most-missed attr in real integrations (2026-08-31). The
+component moduledoc documents the full attr and event contract.
+
 ### `item_table/1`
 
 Data-driven item table with opt-in columns, actions, and card view:
