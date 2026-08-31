@@ -114,6 +114,40 @@ defmodule PhoenixKitCatalogue.Web.Components.BrowseTest do
       refute plain =~ "show_detail"
       refute plain =~ "View item details"
     end
+
+    test "the select toggle keeps a hit area when sku and price both hide" do
+      item = %{
+        uuid: "u-1",
+        name: "Widget",
+        sku: nil,
+        price: nil,
+        unit: nil,
+        photo_url: nil,
+        thumb_url: nil
+      }
+
+      # With the details split on, the title opens details and the select
+      # toggle is only what is LEFT of the body — nothing at all here. It
+      # must still be hittable, or the card cannot be picked in card view.
+      html =
+        render_component(&Browse.item_card/1,
+          id: "c1",
+          item: item,
+          clickable: true,
+          photo_click: "show_detail"
+        )
+
+      assert html =~ ~s(phx-click="card_click")
+      assert html =~ "min-h-[1.5rem]"
+
+      # The quantity flavour's disabled toggle adds no blank strip.
+      refute render_component(&Browse.item_card/1,
+               id: "c1",
+               item: item,
+               clickable: false,
+               photo_click: "show_detail"
+             ) =~ "min-h-[1.5rem]"
+    end
   end
 
   describe "item_table/1 + item_row/1 render contract (2026-08-31 delta pin)" do
