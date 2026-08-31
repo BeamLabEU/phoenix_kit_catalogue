@@ -270,7 +270,14 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     # Expansion AFTER load_data: on a deep link the first call is also
     # the one that populates folder_lookup — expanding before it would
     # no-op and leave the ancestor chain collapsed when the user goes Up.
-    maybe_expand_url_folder(socket, scope, state.current_folder)
+    socket = maybe_expand_url_folder(socket, scope, state.current_folder)
+
+    # Publish the FULL current URL (query included) as url_path: the layout
+    # hands it to core's language switcher as current_path, and a bare path
+    # meant switching languages threw you out of the drilled category
+    # (boss, 2026-08-31). Core's tab matching strips queries, and UrlState
+    # keeps its own bare-path base, so nothing else shifts.
+    assign(socket, :url_path, url_state_path(socket, %{}))
   end
 
   # Maps the active UI tab to a TableConfig/ViewConfig scope.
