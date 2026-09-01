@@ -60,6 +60,8 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
   alias PhoenixKitCatalogue.Schemas.Item
   alias PhoenixKitCatalogue.Web.ViewConfig
 
+  require Logger
+
   @photo_variant "medium"
 
   @doc """
@@ -258,12 +260,12 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
   admin detail page sorts by, so the popup's listings and the admin's
   agree by construction. `load_global_sort/1` validates the field against
   the sortable column ids, so `String.to_existing_atom/1` is safe.
+
+  Falls back to Manual (`{:position, :asc}`, the scope's default sort) if
+  the setting read fails — see `read_global_sort/1`.
   """
   @spec global_items_order() :: {atom(), :asc | :desc}
-  def global_items_order do
-    {by, dir} = ViewConfig.load_global_sort(:detail_items)
-    {String.to_existing_atom(by), dir}
-  end
+  def global_items_order, do: read_global_sort(:detail_items)
 
   @doc """
   The module's shared CATEGORY sort (`catalogue_sort_detail_categories`),
@@ -271,9 +273,26 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
   they read like the admin detail page's categories table.
   """
   @spec global_categories_order() :: {atom(), :asc | :desc}
-  def global_categories_order do
-    {by, dir} = ViewConfig.load_global_sort(:detail_categories)
+  def global_categories_order, do: read_global_sort(:detail_categories)
+
+  # The shared sort is a Settings (DB) read, and it feeds surfaces whose
+  # contract is that a DB hiccup degrades rather than crashes — the
+  # popup's tiles are navigation, not data (see
+  # `ItemSelectorModal.build_category_tree/3`'s rescue, which this read
+  # sits outside of). Fall back to the scope's own default, Manual, so a
+  # settings failure costs the shared order and nothing else. LOGGED, so
+  # it never masquerades as "the sort setting isn't sticking".
+  defp read_global_sort(scope) do
+    {by, dir} = ViewConfig.load_global_sort(scope)
     {String.to_existing_atom(by), dir}
+  rescue
+    error ->
+      Logger.warning(
+        "Catalogue shared sort for #{inspect(scope)} fell back to Manual: " <>
+          Exception.format(:error, error, __STACKTRACE__)
+      )
+
+      {:position, :asc}
   end
 
   @doc """

@@ -1,3 +1,39 @@
+## 0.26.0 - 2026-09-01
+
+### Added
+
+- **One shared sort for the whole module** (#94) — the item-selector popup and
+  the `CatalogueBrowse` embed now order by the same `catalogue_sort_*` settings
+  the admin pages sort by, instead of their own hardcoded order. `BrowseState`
+  gained an `:order` (`{field, :asc | :desc}`, fixed at init like the scope and
+  validated against the sortable `:detail_items` column ids), `Browse.global_items_order/0`
+  and `Browse.global_categories_order/0` read the shared settings, and the
+  popup's listings, category tiles, catalogue tiles and the embed's chip row
+  all follow. A live search stays name-ordered, which is what the admin's own
+  search does.
+- **Directional item orders in `Catalogue.search_items/2`** (#94) — `order:
+  {field, dir}` for `name` / `sku` / `base_price` / `status` reproduces the
+  admin's `item_order_by/3` chain, uuid tie-break included, so browse paging
+  stays deterministic. `order: {:position, _}` folds into the existing
+  category-position chain and ignores the direction, like the admin's Manual
+  sort.
+
+### Fixed
+
+- **Date columns sorted structurally, not chronologically** (#94) —
+  `Enum.sort_by/2`'s default term order compares `DateTime` structs
+  field-alphabetically (day before month), so `Updated` / `Created` sorts put
+  Jan 2nd after Feb 1st. Fixed in the catalogues, suppliers, manufacturers and
+  attribute-groups tables (`TableConfig`), in the detail page's categories sort,
+  and — found in the post-merge review — in `Catalogue.reorder_items_by/4`'s
+  `:created_asc` / `:created_desc` strategies, the one place that *persists* the
+  wrong order into `position`.
+- **A settings failure no longer crashes the selector popup** (#94) — the
+  shared-sort read is a `Settings` (database) call that landed outside
+  `ItemSelectorModal`'s tree-degradation guard. It now falls back to Manual
+  (`{:position, :asc}`, the scope's own default) and logs, keeping the popup's
+  "tiles are navigation, not data" contract.
+
 ## 0.25.0 - 2026-08-31
 
 ### Added

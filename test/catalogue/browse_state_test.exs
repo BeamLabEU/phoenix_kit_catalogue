@@ -9,6 +9,7 @@ defmodule PhoenixKitCatalogue.Catalogue.BrowseStateTest do
   use ExUnit.Case, async: true
 
   alias PhoenixKitCatalogue.Catalogue.BrowseState
+  alias PhoenixKitCatalogue.Web.TableConfig
 
   defp item(uuid), do: %{uuid: uuid}
 
@@ -330,6 +331,23 @@ defmodule PhoenixKitCatalogue.Catalogue.BrowseStateTest do
       long = String.duplicate("a", 5_000)
       {state, {:fetch, _, _}} = BrowseState.command(BrowseState.init(), {:search, long})
       assert String.length(state.search) == 200
+    end
+  end
+
+  describe "the shared sort's vocabulary" do
+    test "every sortable :detail_items column is an accepted browse order" do
+      # Two lists that must stay in sync. TableConfig's sortable ids are
+      # exactly what the `catalogue_sort_detail_items` setting may name,
+      # and `init/1` RAISES on a field it does not know — so a new
+      # sortable column would crash every popup and embed the moment an
+      # admin picked it, not at the point it was added. Fail here instead.
+      for %{id: id} <- Enum.filter(TableConfig.columns(:detail_items), & &1.sortable?),
+          dir <- [:asc, :desc] do
+        order = {String.to_existing_atom(id), dir}
+
+        assert %BrowseState{order: ^order} =
+                 BrowseState.init(scope: %{catalogue_uuids: ["cat-1"]}, order: order)
+      end
     end
   end
 
