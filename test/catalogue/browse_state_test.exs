@@ -192,6 +192,52 @@ defmodule PhoenixKitCatalogue.Catalogue.BrowseStateTest do
                :position
     end
 
+    test "the module's shared sort rides every browse fetch; search still wins" do
+      # Client, 2026-09-01: one order for the whole module, the popup
+      # included. The components pass the shared sort as init `:order`.
+      state =
+        BrowseState.init(scope: %{catalogue_uuids: ["cat-1"]}, order: {:name, :desc})
+
+      assert opts_map(BrowseState.command(state, :reset))[:order] == {:name, :desc}
+
+      # A field sort is coherent across catalogues — unlike position, a
+      # multi-catalogue root applies it too.
+      multi =
+        BrowseState.init(
+          scope: %{catalogue_uuids: ["cat-1", "cat-2"]},
+          order: {:base_price, :asc}
+        )
+
+      assert opts_map(BrowseState.command(multi, :reset))[:order] == {:base_price, :asc}
+
+      # A live search stays name-ordered, like the admin's results.
+      opts = opts_map(BrowseState.command(state, {:search, "screw"}))
+      refute Map.has_key?(opts, :order)
+
+      # Manual keeps the single-catalogue guard and the direction-less
+      # :position opt (the admin's Manual sort has no direction either).
+      manual = BrowseState.init(scope: %{catalogue_uuids: ["cat-1"]}, order: {:position, :asc})
+      assert opts_map(BrowseState.command(manual, :reset))[:order] == :position
+
+      manual_multi =
+        BrowseState.init(
+          scope: %{catalogue_uuids: ["cat-1", "cat-2"]},
+          order: {:position, :asc}
+        )
+
+      refute Map.has_key?(opts_map(BrowseState.command(manual_multi, :reset)), :order)
+
+      # Junk raises at init — a bad field must not sail into the fetch
+      # layer as a no-op sort.
+      assert_raise ArgumentError, ~r/order must be/, fn ->
+        BrowseState.init(order: {:markup, :asc})
+      end
+
+      assert_raise ArgumentError, ~r/order must be/, fn ->
+        BrowseState.init(order: "name:desc")
+      end
+    end
+
     test "a whitespace-only search keeps the :direct level's own-items listing" do
       # The fetch layer trims "   " to no text filter, so treating it as
       # a live search would flip the level to subtree listing for a query

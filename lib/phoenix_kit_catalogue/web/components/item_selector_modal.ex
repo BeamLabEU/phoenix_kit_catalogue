@@ -324,7 +324,12 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
         per_page: assigns[:per_page] || 24,
         # Admin-page semantics (2026-08-31): a drilled level lists its own
         # items; search still covers the subtree.
-        drill: :direct
+        drill: :direct,
+        # The module's shared sort (client, 2026-09-01): the popup lists
+        # items in the same order the admin detail page does. Read once at
+        # init, like the tree — a modal open while an admin re-sorts
+        # elsewhere keeps the order it opened with.
+        order: Browse.global_items_order()
       )
 
     # A scope naming exactly ONE category means the popup OPENS standing
@@ -582,7 +587,116 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
     scope
     |> derive_tree_catalogues(original)
     |> do_build_category_tree(original, locale)
+    |> order_tree_tiles(Browse.global_categories_order())
   end
+
+  # Tiles follow the module's shared category sort (client, 2026-09-01:
+  # one order everywhere) — the exact semantics of the admin detail
+  # page's `sort_categories/4`, counts included. Manual keeps the query's
+  # position order (and, like the admin's, has no direction). Catalogue
+  # tiles at a multi-catalogue root follow the index's shared sort where
+  # the tile carries the data; its data-less sorts (folder, description,
+  # markup…) keep the admin index's manual baseline instead.
+  defp order_tree_tiles(tree, {by, dir}) do
+    counts = tree[:counts] || %{}
+
+    sorted_roots = sort_tiles(tree.roots, by, dir, counts)
+
+    tree
+    |> Map.put(:roots, sorted_roots)
+    |> Map.put(
+      :children,
+      Map.new(tree.children, fn {parent, kids} -> {parent, sort_tiles(kids, by, dir, counts)} end)
+    )
+    |> then(fn t ->
+      # The multi-catalogue clause groups roots per catalogue for the
+      # drilled level — regroup from the sorted list (group_by keeps
+      # element order within groups).
+      if Map.has_key?(t, :roots_by_catalogue) do
+        Map.put(
+          t,
+          :roots_by_catalogue,
+          Enum.group_by(sorted_roots, fn category -> to_string(category.catalogue_uuid) end)
+        )
+      else
+        t
+      end
+    end)
+    |> order_catalogue_tiles()
+  end
+
+  defp sort_tiles(categories, by, dir, counts) do
+    sorted = tile_sorted(categories, by, counts)
+
+    # Reverse, not a :desc sorter — byte-for-byte the admin detail page's
+    # descend (Manual has no direction there, so none here either).
+    if by != :position and dir == :desc, do: Enum.reverse(sorted), else: sorted
+  end
+
+  # Manual: the admin's exact key — position, lowercased-name tie-break
+  # (`sort_categories/4`'s) — never the raw SQL order.
+  defp tile_sorted(categories, :position, _counts),
+    do: Enum.sort_by(categories, &{&1.position, String.downcase(&1.name || "")})
+
+  defp tile_sorted(categories, :name, _counts),
+    do: Enum.sort_by(categories, &String.downcase(&1.name || ""))
+
+  defp tile_sorted(categories, :items, counts),
+    do: Enum.sort_by(categories, &Map.get(counts, &1.uuid, 0))
+
+  # The DateTime sorter, not term order — structurally, DateTime structs
+  # compare field-alphabetically (day before month).
+  defp tile_sorted(categories, :updated, _counts),
+    do: Enum.sort_by(categories, & &1.updated_at, DateTime)
+
+  defp tile_sorted(categories, _by, _counts), do: categories
+
+  defp order_catalogue_tiles(%{catalogues: catalogues} = tree) do
+    {by, dir} = ViewConfig.load_global_sort(:catalogues)
+    %{tree | catalogues: sort_catalogue_tiles(catalogues, by, dir, tree[:counts] || %{})}
+  end
+
+  defp order_catalogue_tiles(tree), do: tree
+
+  # Stable directional sorts, like the index's `TableQuery.sort/4` (which
+  # passes the direction into `Enum.sort_by/3` — no reverse), with the
+  # index's sort keys wherever the tile (a full Catalogue struct) carries
+  # the data. Only the folder sort lives outside the struct — it and
+  # Manual keep the index's manual baseline (position, lowercased name;
+  # the index's Manual has no direction either).
+  defp sort_catalogue_tiles(catalogues, "name", dir, _counts),
+    do: Enum.sort_by(catalogues, &String.downcase(&1.name || ""), dir)
+
+  defp sort_catalogue_tiles(catalogues, "items", dir, counts),
+    do: Enum.sort_by(catalogues, &Map.get(counts, &1.uuid, 0), dir)
+
+  defp sort_catalogue_tiles(catalogues, "status", dir, _counts),
+    do: Enum.sort_by(catalogues, &String.downcase(&1.status || ""), dir)
+
+  defp sort_catalogue_tiles(catalogues, "kind", dir, _counts),
+    do: Enum.sort_by(catalogues, &String.downcase(&1.kind || ""), dir)
+
+  defp sort_catalogue_tiles(catalogues, "description", dir, _counts),
+    do: Enum.sort_by(catalogues, &String.downcase(&1.description || ""), dir)
+
+  defp sort_catalogue_tiles(catalogues, "markup", dir, _counts),
+    do: Enum.sort_by(catalogues, &decimal_key(&1.markup_percentage), dir)
+
+  defp sort_catalogue_tiles(catalogues, "discount", dir, _counts),
+    do: Enum.sort_by(catalogues, &decimal_key(&1.discount_percentage), dir)
+
+  defp sort_catalogue_tiles(catalogues, "updated", dir, _counts),
+    do: Enum.sort_by(catalogues, & &1.updated_at, {dir, DateTime})
+
+  defp sort_catalogue_tiles(catalogues, "created", dir, _counts),
+    do: Enum.sort_by(catalogues, & &1.inserted_at, {dir, DateTime})
+
+  defp sort_catalogue_tiles(catalogues, _by, _dir, _counts),
+    do: Enum.sort_by(catalogues, &{&1.position, String.downcase(&1.name || "")})
+
+  defp decimal_key(%Decimal{} = d), do: Decimal.to_float(d)
+  defp decimal_key(n) when is_number(n), do: n
+  defp decimal_key(_), do: 0.0
 
   # A scope may name only CATEGORIES (tim-dev's per-category narrow
   # pickers pass category_uuids: [cat], catalogue_uuids: nil) — the
