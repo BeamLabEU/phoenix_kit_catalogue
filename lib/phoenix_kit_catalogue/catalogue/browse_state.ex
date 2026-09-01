@@ -56,6 +56,11 @@ defmodule PhoenixKitCatalogue.Catalogue.BrowseState do
   # restriction and silently widen browsing — fail loud at init instead.
   @scope_keys [:catalogue_uuids, :category_uuids, :only, :statuses, :include_descendants]
 
+  # The fields the module's shared item sort can name — TableConfig's
+  # sortable :detail_items ids, as atoms (`Search.apply_search_order/2`
+  # has a clause per entry).
+  @order_fields ~w(position name sku base_price status)a
+
   defstruct scope: %{},
             search: "",
             catalogue_uuid: nil,
@@ -63,6 +68,7 @@ defmodule PhoenixKitCatalogue.Catalogue.BrowseState do
             page: 0,
             per_page: @default_per_page,
             drill: :subtree,
+            order: nil,
             items: [],
             known_uuids: MapSet.new(),
             total: nil,
@@ -85,6 +91,14 @@ defmodule PhoenixKitCatalogue.Catalogue.BrowseState do
       boss's 2026-08-30 ruling there): the level you are standing in shows
       its OWN items, while a non-empty search still covers the subtree —
       finding beats filing. Fixed at init like the scope.
+    * `:order` — `{field, :asc | :desc}` browse-listing sort (the module's
+      shared sort; the client's 2026-09-01 ask: one order everywhere, the
+      popup included). Fields: #{inspect(@order_fields)}. Applies to
+      blank-search browse fetches only — a live search stays name-ordered,
+      like the admin's. `{:position, _}` keeps the single-catalogue guard
+      (position is per-(catalogue, category); across catalogues it is
+      noise) and ignores the direction, like the admin's Manual sort. `nil`
+      (default) behaves as `{:position, :asc}`.
   """
   def init(opts \\ []) do
     drill = opts[:drill] || :subtree
@@ -93,12 +107,22 @@ defmodule PhoenixKitCatalogue.Catalogue.BrowseState do
       raise ArgumentError, "BrowseState drill must be :subtree or :direct, got: #{inspect(drill)}"
     end
 
+    order = opts[:order]
+
+    unless is_nil(order) or
+             match?({f, d} when f in @order_fields and d in [:asc, :desc], order) do
+      raise ArgumentError,
+            "BrowseState order must be {field, :asc | :desc} with field in " <>
+              "#{inspect(@order_fields)}, got: #{inspect(order)}"
+    end
+
     %__MODULE__{
       scope: validate_scope!(Map.new(opts[:scope] || %{})),
       # Floored at 1: a 0 page size never satisfies `length(items) < per_page`,
       # so `exhausted?` could not latch and :load_more would page forever.
       per_page: max(opts[:per_page] || @default_per_page, 1),
-      drill: drill
+      drill: drill,
+      order: order
     }
   end
 
@@ -308,10 +332,21 @@ defmodule PhoenixKitCatalogue.Catalogue.BrowseState do
     single_catalogue? =
       is_binary(state.catalogue_uuid) or match?([_], state.scope[:catalogue_uuids])
 
-    if blank_search? and single_catalogue? do
-      Map.put(base, :order, :position)
-    else
-      base
+    cond do
+      # A live search stays name-ordered regardless of the browse sort —
+      # the admin's search behaves the same way.
+      not blank_search? ->
+        base
+
+      # Manual order (and the legacy nil default): only where position is
+      # coherent — one catalogue. Direction is ignored, like the admin's
+      # Manual sort (its selector hides the toggle).
+      is_nil(state.order) or match?({:position, _}, state.order) ->
+        if single_catalogue?, do: Map.put(base, :order, :position), else: base
+
+      # Field sorts (name/sku/price/status) are coherent across any scope.
+      true ->
+        Map.put(base, :order, state.order)
     end
   end
 

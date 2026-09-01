@@ -2598,4 +2598,44 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       assert has_element?(view, "#picker-table th", "Name")
     end
   end
+
+  describe "the module's shared sort (client, 2026-09-01: one order everywhere)" do
+    defp appears_before?(html, first, second) do
+      {i1, _} = :binary.match(html, first)
+      {i2, _} = :binary.match(html, second)
+      i1 < i2
+    end
+
+    test "listings follow catalogue_sort_detail_items", %{conn: conn, cat: cat} do
+      # The seed items tie on position, so the default document order
+      # falls to name asc — a name:desc setting must flip them.
+      {:ok, _} = ViewConfig.save_global_sort(:detail_items, "name", :desc)
+
+      {:ok, _view, html} = open(conn, "c=#{cat.uuid}")
+      assert appears_before?(html, "White Paint", "M8 Screw")
+
+      # Back to the default: document order (name asc on the tie).
+      {:ok, _} = ViewConfig.save_global_sort(:detail_items, "position", :asc)
+
+      {:ok, _view, html} = open(conn, "c=#{cat.uuid}")
+      assert appears_before?(html, "M8 Screw", "White Paint")
+    end
+
+    test "category tiles follow catalogue_sort_detail_categories", %{conn: conn, cat: cat} do
+      # Positions invert the names, so which order is active is readable
+      # from which tile renders first.
+      fixture_category(cat, %{name: "Alpha Section", position: 2})
+      fixture_category(cat, %{name: "Zed Section", position: 1})
+
+      {:ok, _view, html} = open(conn, "c=#{cat.uuid}")
+      assert appears_before?(html, "Zed Section", "Alpha Section")
+
+      {:ok, _} = ViewConfig.save_global_sort(:detail_categories, "name", :asc)
+
+      {:ok, _view, html} = open(conn, "c=#{cat.uuid}")
+      assert appears_before?(html, "Alpha Section", "Zed Section")
+
+      {:ok, _} = ViewConfig.save_global_sort(:detail_categories, "position", :asc)
+    end
+  end
 end
