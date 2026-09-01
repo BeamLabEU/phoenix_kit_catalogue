@@ -328,6 +328,13 @@ still works, but every column/view toggle silently resets on the next
 open — the most-missed attr in real integrations (2026-08-31). The
 component moduledoc documents the full attr and event contract.
 
+**Ordering is the module's shared sort.** The popup's listings, its
+category tiles, and its catalogue tiles follow the same
+`catalogue_sort_*` settings the admin pages sort by (the admin's sort
+selector writes them), so the picker reads in the same order as the
+admin — one order for the whole module. A live search stays
+name-ordered, like the admin's results.
+
 ### `item_table/1`
 
 Data-driven item table with opt-in columns, actions, and card view:

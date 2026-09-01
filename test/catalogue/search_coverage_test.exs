@@ -281,5 +281,54 @@ defmodule PhoenixKitCatalogue.Catalogue.SearchCoverageTest do
                |> Catalogue.search_items_in_catalogue("")
                |> Enum.map(& &1.name)
     end
+
+    test "{field, dir} orders read the admin's directional sorts" do
+      # Client, 2026-09-01: the module's shared sort names one of the
+      # admin's directional fields, and browse fetches carry it as
+      # `order: {field, dir}` — same chain as `item_order_by/3`, uuid
+      # tie-broken.
+      cat = fixture_catalogue(%{name: "Directional Range"})
+      grouping = fixture_category(cat, %{name: "Grouping"})
+
+      cheap =
+        fixture_item(%{
+          name: "Bravo Cheap",
+          sku: "SKU-1",
+          base_price: Decimal.new("1.00"),
+          catalogue_uuid: cat.uuid,
+          category_uuid: grouping.uuid
+        })
+
+      dear =
+        fixture_item(%{
+          name: "Alpha Dear",
+          sku: "SKU-2",
+          base_price: Decimal.new("9.00"),
+          catalogue_uuid: cat.uuid,
+          category_uuid: grouping.uuid
+        })
+
+      # Positions invert the names so {:position, _} is distinguishable
+      # from every field sort.
+      {:ok, _} = Catalogue.update_item(Catalogue.get_item!(cheap.uuid), %{position: 1})
+      {:ok, _} = Catalogue.update_item(Catalogue.get_item!(dear.uuid), %{position: 2})
+
+      opts = [category_uuids: [grouping.uuid], include_descendants: false]
+
+      fetch = fn order ->
+        Enum.map(Catalogue.search_items("", opts ++ [order: order]), & &1.name)
+      end
+
+      assert fetch.({:name, :asc}) == ["Alpha Dear", "Bravo Cheap"]
+      assert fetch.({:name, :desc}) == ["Bravo Cheap", "Alpha Dear"]
+      # SKUs invert the names, so this cannot be satisfied by the name
+      # fallback (the non-distinguishing shape the first pin had).
+      assert fetch.({:sku, :asc}) == ["Bravo Cheap", "Alpha Dear"]
+      assert fetch.({:sku, :desc}) == ["Alpha Dear", "Bravo Cheap"]
+      assert fetch.({:base_price, :desc}) == ["Alpha Dear", "Bravo Cheap"]
+      assert fetch.({:base_price, :asc}) == ["Bravo Cheap", "Alpha Dear"]
+      # Manual ignores the direction, exactly like the admin's.
+      assert fetch.({:position, :desc}) == ["Bravo Cheap", "Alpha Dear"]
+    end
   end
 end

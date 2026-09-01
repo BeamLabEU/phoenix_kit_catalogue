@@ -58,6 +58,7 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
   alias PhoenixKitCatalogue.Catalogue
   alias PhoenixKitCatalogue.Catalogue.Translations
   alias PhoenixKitCatalogue.Schemas.Item
+  alias PhoenixKitCatalogue.Web.ViewConfig
 
   @photo_variant "medium"
 
@@ -248,6 +249,31 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
       _ ->
         scope
     end
+  end
+
+  @doc """
+  The module's shared item sort, in `BrowseState.init/1`'s `:order` shape
+  (the client's 2026-09-01 ask: one order for the whole module, and the
+  popup uses it). Reads the same `catalogue_sort_detail_items` setting the
+  admin detail page sorts by, so the popup's listings and the admin's
+  agree by construction. `load_global_sort/1` validates the field against
+  the sortable column ids, so `String.to_existing_atom/1` is safe.
+  """
+  @spec global_items_order() :: {atom(), :asc | :desc}
+  def global_items_order do
+    {by, dir} = ViewConfig.load_global_sort(:detail_items)
+    {String.to_existing_atom(by), dir}
+  end
+
+  @doc """
+  The module's shared CATEGORY sort (`catalogue_sort_detail_categories`),
+  as `{atom_field, dir}` — what the popup's category tiles order by, so
+  they read like the admin detail page's categories table.
+  """
+  @spec global_categories_order() :: {atom(), :asc | :desc}
+  def global_categories_order do
+    {by, dir} = ViewConfig.load_global_sort(:detail_categories)
+    {String.to_existing_atom(by), dir}
   end
 
   @doc """
