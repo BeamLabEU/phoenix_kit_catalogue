@@ -2637,5 +2637,17 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
 
       {:ok, _} = ViewConfig.save_global_sort(:detail_categories, "position", :asc)
     end
+
+    test "manual category tiles tie-break on the lowercased name", %{conn: conn, cat: cat} do
+      # Equal positions force the tie-break; the names are cased so a raw
+      # C-collation query order ("Zebra" < "apple" by byte) differs from
+      # the admin's lowercased key ("apple" < "zebra"). On an en_US-collated
+      # DB both agree - the pin still guards "no in-memory sort at all".
+      fixture_category(cat, %{name: "Zebra Tie", position: 5})
+      fixture_category(cat, %{name: "apple tie", position: 5})
+
+      {:ok, _view, html} = open(conn, "c=#{cat.uuid}")
+      assert appears_before?(html, "apple tie", "Zebra Tie")
+    end
   end
 end

@@ -293,7 +293,7 @@ defmodule PhoenixKitCatalogue.Catalogue.SearchCoverageTest do
       cheap =
         fixture_item(%{
           name: "Bravo Cheap",
-          sku: "SKU-2",
+          sku: "SKU-1",
           base_price: Decimal.new("1.00"),
           catalogue_uuid: cat.uuid,
           category_uuid: grouping.uuid
@@ -302,7 +302,7 @@ defmodule PhoenixKitCatalogue.Catalogue.SearchCoverageTest do
       dear =
         fixture_item(%{
           name: "Alpha Dear",
-          sku: "SKU-1",
+          sku: "SKU-2",
           base_price: Decimal.new("9.00"),
           catalogue_uuid: cat.uuid,
           category_uuid: grouping.uuid
@@ -321,7 +321,10 @@ defmodule PhoenixKitCatalogue.Catalogue.SearchCoverageTest do
 
       assert fetch.({:name, :asc}) == ["Alpha Dear", "Bravo Cheap"]
       assert fetch.({:name, :desc}) == ["Bravo Cheap", "Alpha Dear"]
-      assert fetch.({:sku, :asc}) == ["Alpha Dear", "Bravo Cheap"]
+      # SKUs invert the names, so this cannot be satisfied by the name
+      # fallback (the non-distinguishing shape the first pin had).
+      assert fetch.({:sku, :asc}) == ["Bravo Cheap", "Alpha Dear"]
+      assert fetch.({:sku, :desc}) == ["Alpha Dear", "Bravo Cheap"]
       assert fetch.({:base_price, :desc}) == ["Alpha Dear", "Bravo Cheap"]
       assert fetch.({:base_price, :asc}) == ["Bravo Cheap", "Alpha Dear"]
       # Manual ignores the direction, exactly like the admin's.
