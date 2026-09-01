@@ -5630,7 +5630,9 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         :position -> Enum.sort_by(categories, &{&1.position, String.downcase(&1.name || "")})
         :name -> Enum.sort_by(categories, &String.downcase(&1.name || ""))
         :items -> Enum.sort_by(categories, &Map.get(counts, &1.uuid, 0))
-        :updated -> Enum.sort_by(categories, & &1.updated_at)
+        # The DateTime sorter, not term order — structurally, DateTime
+        # structs compare field-alphabetically (day before month).
+        :updated -> Enum.sort_by(categories, & &1.updated_at, DateTime)
       end
 
     if sort_by != :position and dir == :desc, do: Enum.reverse(sorted), else: sorted

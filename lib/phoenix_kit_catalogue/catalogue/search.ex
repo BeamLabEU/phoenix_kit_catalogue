@@ -87,6 +87,15 @@ defmodule PhoenixKitCatalogue.Catalogue.Search do
         asc: i.uuid
       )
 
+  defp apply_search_order(query, {:position, _dir}), do: apply_search_order(query, :position)
+
+  # Directional field sorts — the admin's `item_order_by/3` vocabulary
+  # (the module's shared sort names one of these when it isn't Manual),
+  # same uuid tie-break so paging stays deterministic.
+  defp apply_search_order(query, {field, dir})
+       when field in ~w(name sku base_price status)a and dir in [:asc, :desc],
+       do: order_by(query, [i, _cat, _c], [{^dir, field(i, ^field)}, {:asc, i.uuid}])
+
   defp apply_search_order(query, _name),
     do: order_by(query, [i, _cat, _c], asc: i.name, asc: i.uuid)
 
