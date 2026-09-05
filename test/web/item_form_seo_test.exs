@@ -52,11 +52,26 @@ defmodule PhoenixKitCatalogue.Web.ItemFormSeoTest do
       assert saved.slug["en-US"] == "vase"
     end
 
-    test "on the fr-FR tab, seo_title submits as lang_seo_title and round-trips with the fr-FR slug",
+    test "on the fr-FR tab, seo_title submits as lang_seo_title, round-trips with the fr-FR slug, and keeps the existing en-US slug",
          %{conn: conn} do
+      # Mutation-proof regression: `apply_slug/2` merges the submitted
+      # language's slug ONTO the existing map (`Enum.into(incoming,
+      # existing_slug)`), not INTO a fresh one — a save from a secondary
+      # tab must not wipe out slugs the primary (or any other) language
+      # already has.
       enable_multilang!()
       catalogue = fixture_catalogue()
-      item = fixture_item(%{catalogue_uuid: catalogue.uuid, name: "Vase"})
+
+      # A custom en-US slug that does NOT match what auto-generation
+      # would independently derive from the name ("vase") — otherwise a
+      # regression that wipes it would be masked by `maybe_generate/3`
+      # coincidentally regenerating the same value.
+      item =
+        fixture_item(%{
+          catalogue_uuid: catalogue.uuid,
+          name: "Vase",
+          slug: %{"en-US" => "custom-legacy-slug"}
+        })
 
       {:ok, view, _html} = live(conn, edit_item_url(item.uuid))
       render_click(view, "switch_language", %{"lang" => "fr-FR"})
@@ -82,6 +97,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormSeoTest do
 
       assert Translations.get_translation(saved, "fr-FR")["_seo_title"] == "Acheter Vase"
       assert saved.slug["fr-FR"] == "vase-fr"
+      assert saved.slug["en-US"] == "custom-legacy-slug"
     end
 
     test "an item form with no ecommerce extension still renders the slug and seo inputs", %{
