@@ -33,6 +33,7 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
   alias PhoenixKitCatalogue.Attachments
   alias PhoenixKitCatalogue.Catalogue
   alias PhoenixKitCatalogue.Catalogue.Slugs
+  alias PhoenixKitCatalogue.Extensions
   alias PhoenixKitCatalogue.Paths
   alias PhoenixKitCatalogue.Schemas.Category
 
@@ -126,7 +127,7 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
        parent_move_target: category && category.parent_uuid,
        move_target: nil
      )
-     |> assign(current_tab: :details)
+     |> assign(current_tab: :details, extensions: Extensions.sections(:category))
      |> Attachments.mount_attachments(category)
      |> Attachments.allow_attachment_upload()
      |> assign_changeset(changeset)
@@ -207,6 +208,29 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
       else: "#{form_prefix}[lang_#{field}]"
   end
 
+  # See the identical helpers in `PhoenixKitCatalogue.Web.ItemFormLive` —
+  # same extension-slot wiring, `:category` instead of `:item`.
+  defp category_data(form), do: form[:data].value || %{}
+
+  defp absorb_category_extensions(category_params, socket) do
+    data =
+      Map.get(category_params, "data") ||
+        Ecto.Changeset.get_field(socket.assigns.changeset, :data) || %{}
+
+    case Extensions.absorb(:category, category_params, data) do
+      {:ok, merged} -> {Map.put(category_params, "data", merged), nil}
+      {:error, {_mod, _errors} = error} -> {Map.put(category_params, "data", data), error}
+    end
+  end
+
+  defp add_extension_error(changeset, nil), do: changeset
+
+  defp add_extension_error(changeset, {mod, errors}) do
+    Enum.reduce(errors, changeset, fn {field, msg}, cs ->
+      Ecto.Changeset.add_error(cs, :data, msg, extension: mod.key(), field: field)
+    end)
+  end
+
   # AI-translate modal events handled by `use ...AITranslate.Embed`.
 
   # "switch_language" is handled by the core `mount_multilang/1` auto hook
@@ -229,10 +253,13 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
       )
       |> apply_slug(socket)
 
+    {params, extension_error} = absorb_category_extensions(params, socket)
+
     changeset =
       socket.assigns.category
       |> Catalogue.change_category(params)
       |> Map.put(:action, :validate)
+      |> add_extension_error(extension_error)
 
     {:noreply, assign_changeset(socket, changeset)}
   end
@@ -248,9 +275,23 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
         preserve_fields: @preserve_fields
       )
       |> apply_slug(socket)
-      |> Attachments.inject_attachment_data(socket)
 
-    save_category(socket, socket.assigns.action, category_params, save_mode(params))
+    {category_params, extension_error} = absorb_category_extensions(category_params, socket)
+
+    case extension_error do
+      nil ->
+        category_params = Attachments.inject_attachment_data(category_params, socket)
+        save_category(socket, socket.assigns.action, category_params, save_mode(params))
+
+      error ->
+        changeset =
+          socket.assigns.category
+          |> Catalogue.change_category(category_params)
+          |> Map.put(:action, :validate)
+          |> add_extension_error(error)
+
+        {:noreply, assign_changeset(socket, changeset)}
+    end
   end
 
   # ── Attachments (featured image modal only) ──────────────────────
@@ -660,6 +701,23 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
                  level (next_category_position at mount) and ordering is
                  drag-managed on the catalogue detail page — same as
                  catalogues and items. --%>
+
+            <%!-- Extension slot (spec §2 principle 8, §4 row C4) — other
+                 registered modules (e.g. phoenix_kit_ecommerce) add a
+                 section here. Empty and invisible when nothing is
+                 registered/enabled; catalogue never names an implementer. --%>
+            <%= for ext <- @extensions do %>
+              {ext.category_section(%{
+                form: @form,
+                category: @category,
+                data: category_data(@form),
+                current_language: @current_lang,
+                # See the identical comment in `ItemFormLive` — this map is
+                # a plain function-call argument, not built through
+                # `<.component />`, so it needs its own change-tracking key.
+                __changed__: %{}
+              })}
+            <% end %>
 
             <%!-- Actions --%>
             <div class="divider my-0"></div>
