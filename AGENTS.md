@@ -31,7 +31,7 @@ Implemented via `pk_dep/3` in `mix.exs` — **never hand-edit a `phoenix_kit*` d
 
 ## Hard boundaries (deliberate — do not add)
 
-- **No DB migrations in this repo.** Every table is created by versioned migrations in core `phoenix_kit`. Adding a column means a core migration first, then schema + changeset here.
+- **This module owns its migration chain** (`PhoenixKitCatalogue.Migrations`, registered via `migration_module/0`; core's `mix phoenix_kit.update` discovers and runs it). V01 is purely ADOPTIVE — every one of the eighteen `phoenix_kit_cat_*` tables already exists on live installs, created by core V135/V149/V173/V177 and reshaped by V146/V151/V178/V179/V180, so V01 changes no shape and only stamps the `pkc_schema:1` marker. **A new column now means a new chain version here (V2+), not a core migration** — and because core's `ExpectedSchema` manifest still audits these tables, a shape-changing version must follow the excluded-object protocol before it ships. Statements stay idempotent (`IF NOT EXISTS` / guarded `DO $$`) and `down/1` never drops a table.
 - **No authorization in the context.** Mutating functions accept `actor_uuid` only for activity logging. Permission gating happens at the LiveView mount layer (`live_session :phoenix_kit_admin`, `:catalogue` permission key).
 - **Admin-only.** No public routes, JSON endpoints, or webhook receivers. The single HTTP endpoint is the admin-gated, stateless export download (`get /admin/catalogue/export/download`, behind `:phoenix_kit_require_admin`).
 - **Soft-delete is the only history mechanism** (`status` field). The activity log is the audit trail; there is no per-item versioning.
