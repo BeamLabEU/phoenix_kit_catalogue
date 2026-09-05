@@ -74,6 +74,12 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
   require Logger
 
+  # Slug projection tables read by `get_item_by_slug/3` / `get_category_by_slug/3`
+  # (owned by `PhoenixKitCatalogue.Catalogue.Slugs`'s generation rule, kept in
+  # sync by the `trg_cat_item_slugs` / `trg_cat_category_slugs` triggers).
+  @item_slugs_table "phoenix_kit_cat_item_slugs"
+  @category_slugs_table "phoenix_kit_cat_category_slugs"
+
   defp repo, do: PhoenixKit.RepoHelper.repo()
 
   # `log_activity/1` was extracted to `PhoenixKitCatalogue.Catalogue.ActivityLog`
@@ -1466,6 +1472,23 @@ defmodule PhoenixKitCatalogue.Catalogue do
   @doc "Fetches a category by UUID. Raises `Ecto.NoResultsError` if not found."
   @spec get_category!(Ecto.UUID.t()) :: Category.t()
   def get_category!(uuid), do: repo().get!(Category, uuid)
+
+  @doc """
+  Fetches a category by its per-language `slug`.
+
+  Tries an exact match in `lang`'s base language first (`"en-US"` folds
+  to `"en"`). Returns `{:error, :not_found}` on a miss unless
+  `opts[:any_lang]` is `true`, in which case a miss falls back to any
+  language and the result is a 3-tuple carrying the language the slug
+  actually matched in.
+  """
+  @spec get_category_by_slug(String.t(), String.t(), keyword()) ::
+          {:ok, Category.t()} | {:ok, Category.t(), String.t()} | {:error, :not_found}
+  def get_category_by_slug(slug, lang, opts \\ []) do
+    find_by_slug(@category_slugs_table, "category_uuid", slug, lang, opts, fn uuid, _opts ->
+      get_category(uuid)
+    end)
+  end
 
   @doc """
   Creates a category within a catalogue.
@@ -4296,6 +4319,77 @@ defmodule PhoenixKitCatalogue.Catalogue do
     |> repo().preload(Helpers.merge_preloads([:catalogue, :category], opts))
     |> Manufacturers.hydrate()
   end
+
+  @doc """
+  Fetches an item by its per-language `slug`.
+
+  Tries an exact match in `lang`'s base language first (`"en-US"` folds
+  to `"en"`). Returns `{:error, :not_found}` on a miss unless
+  `opts[:any_lang]` is `true`, in which case a miss falls back to any
+  language and the result is a 3-tuple carrying the language the slug
+  actually matched in. Any other option (e.g. `:preload`) is forwarded
+  to `get_item/2`.
+  """
+  @spec get_item_by_slug(String.t(), String.t(), keyword()) ::
+          {:ok, Item.t()} | {:ok, Item.t(), String.t()} | {:error, :not_found}
+  def get_item_by_slug(slug, lang, opts \\ []) do
+    find_by_slug(@item_slugs_table, "item_uuid", slug, lang, opts, &get_item/2)
+  end
+
+  # Shared by `get_item_by_slug/3` and `get_category_by_slug/3`. Looks up
+  # the projected uuid for `slug` in `lang`'s base language, optionally
+  # falling back to any language (`opts[:any_lang]`), then resolves it
+  # through `get_fun` (which also receives every other option, e.g.
+  # `:preload`). A resolved uuid whose row has since disappeared (a
+  # deleted item/category racing the projection's `ON DELETE CASCADE`)
+  # is treated the same as a lookup miss.
+  defp find_by_slug(table, uuid_column, slug, lang, opts, get_fun) do
+    any_lang? = Keyword.get(opts, :any_lang, false)
+    fetch_opts = Keyword.drop(opts, [:any_lang])
+    base = base_lang(lang)
+
+    found =
+      case query_slug(table, uuid_column, base, slug) do
+        nil when any_lang? -> query_slug(table, uuid_column, nil, slug)
+        result -> result
+      end
+
+    case found do
+      nil ->
+        {:error, :not_found}
+
+      {uuid, matched_lang} ->
+        case get_fun.(uuid, fetch_opts) do
+          nil -> {:error, :not_found}
+          struct when matched_lang == base -> {:ok, struct}
+          struct -> {:ok, struct, matched_lang}
+        end
+    end
+  end
+
+  defp base_lang(lang), do: lang |> String.split("-") |> List.first() |> String.downcase()
+
+  defp query_slug(table, uuid_column, nil, slug) do
+    %{rows: rows} =
+      repo().query!("SELECT #{uuid_column}::text, lang FROM #{table} WHERE value = $1 LIMIT 1", [
+        slug
+      ])
+
+    one_row(rows)
+  end
+
+  defp query_slug(table, uuid_column, lang, slug) do
+    %{rows: rows} =
+      repo().query!(
+        "SELECT #{uuid_column}::text, lang FROM #{table} WHERE lang = $1 AND value = $2 LIMIT 1",
+        [lang, slug]
+      )
+
+    one_row(rows)
+  end
+
+  defp one_row([[uuid, lang]]), do: {uuid, lang}
+  defp one_row(_), do: nil
 
   @doc """
   Bulk-fetches items by a list of UUIDs. Excludes soft-deleted items.

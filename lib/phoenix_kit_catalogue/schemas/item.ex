@@ -74,6 +74,10 @@ defmodule PhoenixKitCatalogue.Schemas.Item do
     field(:status, :string, default: "active")
     field(:position, :integer, default: 0)
     field(:data, :map, default: %{})
+    # Per-language public URL slug (lang -> value), projected for
+    # uniqueness by the `trg_cat_item_slugs` trigger into
+    # `phoenix_kit_cat_item_slugs`. See `PhoenixKitCatalogue.Catalogue.Slugs`.
+    field(:slug, :map, default: %{})
 
     belongs_to(:catalogue, PhoenixKitCatalogue.Schemas.Catalogue,
       foreign_key: :catalogue_uuid,
@@ -141,7 +145,8 @@ defmodule PhoenixKitCatalogue.Schemas.Item do
     :manufacturer_uuid,
     :manufacturer_source,
     :manufacturer_name_snapshot,
-    :data
+    :data,
+    :slug
   ]
 
   @spec changeset(t() | Ecto.Changeset.t(t()), map()) :: Ecto.Changeset.t(t())
@@ -164,6 +169,10 @@ defmodule PhoenixKitCatalogue.Schemas.Item do
     |> validate_inclusion(:default_unit, @default_units ++ [nil])
     |> foreign_key_constraint(:catalogue_uuid)
     |> foreign_key_constraint(:category_uuid)
+    |> unique_constraint(:slug,
+      name: "phoenix_kit_cat_item_slugs_pkey",
+      message: "is already taken in this language"
+    )
   end
 
   @doc """
