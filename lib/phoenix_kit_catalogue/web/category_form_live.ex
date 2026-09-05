@@ -9,6 +9,7 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
   import PhoenixKitWeb.Components.MultilangForm
   import PhoenixKitWeb.Components.Core.Button, only: [button: 1]
   import PhoenixKitWeb.Components.Core.Icon, only: [icon: 1]
+  import PhoenixKitWeb.Components.Core.Input, only: [input: 1]
   import PhoenixKitWeb.Components.Core.Modal, only: [confirm_modal: 1]
   import PhoenixKitWeb.Components.Core.Select, only: [select: 1]
   import PhoenixKitCatalogue.Web.Components, only: [attachments_files_panel: 1]
@@ -26,14 +27,16 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
       ai_translate_modal: 1
     ]
 
+  alias PhoenixKit.Utils.Multilang
   alias PhoenixKit.Utils.Routes
   alias PhoenixKit.Utils.Values
   alias PhoenixKitCatalogue.Attachments
   alias PhoenixKitCatalogue.Catalogue
+  alias PhoenixKitCatalogue.Catalogue.Slugs
   alias PhoenixKitCatalogue.Paths
   alias PhoenixKitCatalogue.Schemas.Category
 
-  @translatable_fields ["name", "description"]
+  @translatable_fields ["name", "description", "seo_title", "seo_description"]
 
   # Primary-language columns survive validates/saves fired from a
   # secondary language tab (same shape as the attribute-group fix —
@@ -166,6 +169,44 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
     |> assign(:form, to_form(changeset))
   end
 
+  # See the identical helper in `PhoenixKitCatalogue.Web.ItemFormLive` —
+  # `slug` is a flat `lang -> value` map and the form only ever renders
+  # one language's input at a time, so a plain cast would drop every
+  # other language's slug. Non-blank submitted values are merged onto
+  # the existing map; a blank submission leaves the existing value alone
+  # (write-once) and `Slugs.maybe_generate/3` fills any language present
+  # in `data` that still has none.
+  defp apply_slug(params, socket) do
+    existing_slug = Ecto.Changeset.get_field(socket.assigns.changeset, :slug) || %{}
+
+    merged_slug =
+      case params["slug"] do
+        incoming when is_map(incoming) ->
+          incoming
+          |> Enum.filter(fn {_lang, value} -> is_binary(value) and value != "" end)
+          |> Enum.into(existing_slug)
+
+        _ ->
+          existing_slug
+      end
+
+    generated_slug =
+      socket.assigns.category
+      |> Catalogue.change_category(Map.put(params, "slug", merged_slug))
+      |> Slugs.maybe_generate(:slug, from: :name)
+      |> Ecto.Changeset.get_field(:slug)
+
+    Map.put(params, "slug", generated_slug || merged_slug)
+  end
+
+  defp slug_lang(assigns), do: assigns.current_lang || Multilang.primary_language()
+
+  defp translatable_param_name(assigns, form_prefix, field) do
+    if assigns.current_lang == assigns.primary_language,
+      do: "#{form_prefix}[#{field}]",
+      else: "#{form_prefix}[lang_#{field}]"
+  end
+
   # AI-translate modal events handled by `use ...AITranslate.Embed`.
 
   # "switch_language" is handled by the core `mount_multilang/1` auto hook
@@ -186,6 +227,7 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
         changeset: socket.assigns.changeset,
         preserve_fields: @preserve_fields
       )
+      |> apply_slug(socket)
 
     changeset =
       socket.assigns.category
@@ -205,6 +247,7 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
         changeset: socket.assigns.changeset,
         preserve_fields: @preserve_fields
       )
+      |> apply_slug(socket)
       |> Attachments.inject_attachment_data(socket)
 
     save_category(socket, socket.assigns.action, category_params, save_mode(params))
@@ -560,12 +603,40 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
                 required class="w-full"
               />
 
+              <.input
+                field={@form[:slug]}
+                name={"category[slug][#{slug_lang(assigns)}]"}
+                value={Map.get(@form[:slug].value || %{}, slug_lang(assigns), "")}
+                type="text"
+                label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "URL slug")}
+                placeholder={
+                  Gettext.gettext(PhoenixKitCatalogue.Gettext, "auto-generated from the name")
+                }
+                class="w-full"
+              />
+
               <.translatable_field
                 field_name="description" form_prefix="category" changeset={@changeset}
                 schema_field={:description} multilang_enabled={@multilang_enabled}
                 current_lang={@current_lang} primary_language={@primary_language}
                 lang_data={@lang_data} label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Description")} type="textarea"
                 placeholder={Gettext.gettext(PhoenixKitCatalogue.Gettext, "What kinds of items belong in this category...")}
+                class="w-full"
+              />
+
+              <.input
+                type="text"
+                name={translatable_param_name(assigns, "category", "seo_title")}
+                value={Map.get(@lang_data, "_seo_title") || ""}
+                label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "SEO title")}
+                class="w-full"
+              />
+
+              <.input
+                type="text"
+                name={translatable_param_name(assigns, "category", "seo_description")}
+                value={Map.get(@lang_data, "_seo_description") || ""}
+                label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "SEO description")}
                 class="w-full"
               />
             </div>

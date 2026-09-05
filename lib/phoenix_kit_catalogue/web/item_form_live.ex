@@ -57,6 +57,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   alias PhoenixKitCatalogue.Catalogue.Helpers
   alias PhoenixKitCatalogue.Catalogue.ItemSupplierInfos
   alias PhoenixKitCatalogue.Catalogue.PubSub
+  alias PhoenixKitCatalogue.Catalogue.Slugs
   alias PhoenixKitCatalogue.Catalogue.Suppliers
   alias PhoenixKitCatalogue.Metadata
   alias PhoenixKitCatalogue.Paths
@@ -104,7 +105,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   @compile {:no_warn_undefined, PhoenixKitComments.Web.CommentsComponent}
   @compile {:no_warn_undefined, PhoenixKitCRM.Paths}
 
-  @translatable_fields ["name", "description"]
+  @translatable_fields ["name", "description", "seo_title", "seo_description"]
   @preserve_fields %{
     # Translatable primaries: submitted only on the primary tab, so a
     # secondary-tab validate/save must re-inject them or :new loses them.
@@ -310,6 +311,54 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
     socket
     |> assign(:changeset, changeset)
     |> assign(:form, to_form(changeset))
+  end
+
+  # `slug` is a flat `lang -> value` map (see
+  # `PhoenixKitCatalogue.Catalogue.Slugs`'s moduledoc): the form only ever
+  # renders ONE language's input at a time (the active tab), so a plain
+  # cast of `item[slug]` would replace the whole map with just that one
+  # entry and silently drop every other language's slug. Non-blank
+  # submitted values are merged onto the existing map (an explicit edit,
+  # even a slug-breaking one — the unique_constraint below still catches
+  # a collision); a blank submission is treated as "no change" rather
+  # than clearing the language's existing slug, then `Slugs.maybe_generate/3`
+  # fills any language present in `data` that still has no slug at all.
+  defp apply_slug(params, socket) do
+    existing_slug = Ecto.Changeset.get_field(socket.assigns.changeset, :slug) || %{}
+
+    merged_slug =
+      case params["slug"] do
+        incoming when is_map(incoming) ->
+          incoming
+          |> Enum.filter(fn {_lang, value} -> is_binary(value) and value != "" end)
+          |> Enum.into(existing_slug)
+
+        _ ->
+          existing_slug
+      end
+
+    generated_slug =
+      socket.assigns.item
+      |> Catalogue.change_item(Map.put(params, "slug", merged_slug))
+      |> Slugs.maybe_generate(:slug, from: :name)
+      |> Ecto.Changeset.get_field(:slug)
+
+    Map.put(params, "slug", generated_slug || merged_slug)
+  end
+
+  # The language key the slug input is rendered/submitted under: the
+  # active tab when multilang is on, else the site's primary language —
+  # `slug` always keys by a real language code, active-multilang-toggle
+  # or not (see the design amendment in the Slugs moduledoc).
+  defp slug_lang(assigns), do: assigns.current_lang || Multilang.primary_language()
+
+  # Mirrors `extract_translatable_data/4`'s naming for a field that isn't
+  # in `@translatable_fields`' DB-column counterpart (seo_title/
+  # seo_description have none — they only ever live under `data`).
+  defp translatable_param_name(assigns, form_prefix, field) do
+    if assigns.current_lang == assigns.primary_language,
+      do: "#{form_prefix}[#{field}]",
+      else: "#{form_prefix}[lang_#{field}]"
   end
 
   # Smart-catalogue picker state: only populated when the parent
@@ -530,6 +579,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
         changeset: socket.assigns.changeset,
         preserve_fields: @preserve_fields
       )
+      |> apply_slug(socket)
 
     changeset =
       socket.assigns.item
@@ -553,6 +603,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
         changeset: socket.assigns.changeset,
         preserve_fields: @preserve_fields
       )
+      |> apply_slug(socket)
       |> Metadata.inject_into_data(socket.assigns.meta_state, :item)
       |> Attachments.inject_attachment_data(socket)
 
@@ -2613,6 +2664,18 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                 class="w-full"
               />
 
+              <.input
+                field={@form[:slug]}
+                name={"item[slug][#{slug_lang(assigns)}]"}
+                value={Map.get(@form[:slug].value || %{}, slug_lang(assigns), "")}
+                type="text"
+                label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "URL slug")}
+                placeholder={
+                  Gettext.gettext(PhoenixKitCatalogue.Gettext, "auto-generated from the name")
+                }
+                class="w-full"
+              />
+
               <.translatable_field
                 field_name="description"
                 form_prefix="item"
@@ -2630,6 +2693,22 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                     "Product specifications, dimensions, materials..."
                   )
                 }
+                class="w-full"
+              />
+
+              <.input
+                type="text"
+                name={translatable_param_name(assigns, "item", "seo_title")}
+                value={Map.get(@lang_data, "_seo_title") || ""}
+                label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "SEO title")}
+                class="w-full"
+              />
+
+              <.input
+                type="text"
+                name={translatable_param_name(assigns, "item", "seo_description")}
+                value={Map.get(@lang_data, "_seo_description") || ""}
+                label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "SEO description")}
                 class="w-full"
               />
             </div>
