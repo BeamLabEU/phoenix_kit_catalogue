@@ -67,6 +67,131 @@ defmodule PhoenixKitCatalogue.MigrationsTest do
     end
   end
 
+  # Verbatim from `psql \d <table>` on the live decor3dprint_test database
+  # (18 tables, read-only cross-check — no writes) — all 40 index names
+  # this chain owns. A prior version of "every CREATE INDEX ... is
+  # guarded" above stayed green with all 40 deleted, because it only
+  # scans statements that already exist; this pins the actual set.
+  @indexes ~w(
+    phoenix_kit_cat_attribute_values_attr_key_index
+    phoenix_kit_cat_attribute_values_attr_position_index
+    phoenix_kit_cat_attribute_values_default_index
+    phoenix_kit_cat_attributes_group_key_index
+    phoenix_kit_cat_attributes_group_position_index
+    phoenix_kit_cat_catalogues_folder_uuid_index
+    phoenix_kit_cat_catalogues_kind_smart_index
+    phoenix_kit_cat_catalogues_status_index
+    phoenix_kit_cat_categories_catalogue_uuid_index
+    phoenix_kit_cat_categories_catalogue_uuid_position_index
+    phoenix_kit_cat_categories_parent_index
+    phoenix_kit_cat_categories_status_index
+    phoenix_kit_cat_folders_parent_uuid_position_index
+    phoenix_kit_cat_folders_status_index
+    phoenix_kit_cat_item_attr_groups_group_index
+    phoenix_kit_cat_item_attr_groups_item_index
+    phoenix_kit_cat_item_attribute_sets_set_uuid_index
+    phoenix_kit_cat_item_catalogue_rules_item_index
+    phoenix_kit_cat_item_catalogue_rules_pair_index
+    phoenix_kit_cat_item_catalogue_rules_referenced_index
+    phoenix_kit_cat_item_supplier_info_current_pair_uniq
+    phoenix_kit_cat_item_supplier_info_item_index
+    phoenix_kit_cat_item_supplier_info_primary_uniq
+    phoenix_kit_cat_item_supplier_info_supplier_index
+    phoenix_kit_cat_items_catalogue_uuid_index
+    phoenix_kit_cat_items_catalogue_uuid_status_index
+    phoenix_kit_cat_items_category_uuid_index
+    phoenix_kit_cat_items_manufacturer_uuid_index
+    phoenix_kit_cat_items_primary_supplier_uuid_index
+    phoenix_kit_cat_items_status_index
+    phoenix_kit_cat_manufacturer_suppliers_manufacturer_uuid_suppli
+    phoenix_kit_cat_manufacturers_crm_company_uuid_index
+    phoenix_kit_cat_manufacturers_status_index
+    phoenix_kit_cat_pdf_extractions_extraction_status_index
+    phoenix_kit_cat_pdf_page_contents_text_trgm_index
+    phoenix_kit_cat_pdf_pages_content_hash_index
+    phoenix_kit_cat_pdfs_file_uuid_index
+    phoenix_kit_cat_pdfs_status_index
+    phoenix_kit_cat_suppliers_crm_company_uuid_index
+    phoenix_kit_cat_suppliers_status_index
+  )
+
+  # Same source, all 50 constraint names (18 PKs + 19 FKs + 13 CHECKs).
+  @constraints ~w(
+    phoenix_kit_cat_catalogues_pkey
+    phoenix_kit_cat_folders_pkey
+    phoenix_kit_cat_categories_pkey
+    phoenix_kit_cat_manufacturers_pkey
+    phoenix_kit_cat_suppliers_pkey
+    phoenix_kit_cat_manufacturer_suppliers_pkey
+    phoenix_kit_cat_items_pkey
+    phoenix_kit_cat_item_catalogue_rules_pkey
+    phoenix_kit_cat_item_supplier_info_pkey
+    phoenix_kit_cat_pdf_page_contents_pkey
+    phoenix_kit_cat_pdfs_pkey
+    phoenix_kit_cat_pdf_pages_pkey
+    phoenix_kit_cat_pdf_extractions_pkey
+    phoenix_kit_cat_attribute_groups_pkey
+    phoenix_kit_cat_attributes_pkey
+    phoenix_kit_cat_attribute_values_pkey
+    phoenix_kit_cat_item_attribute_groups_pkey
+    phoenix_kit_cat_item_attribute_sets_pkey
+    phoenix_kit_cat_attribute_values_attribute_uuid_fkey
+    phoenix_kit_cat_attributes_group_uuid_fkey
+    phoenix_kit_cat_catalogues_folder_uuid_fkey
+    phoenix_kit_cat_categories_catalogue_uuid_fkey
+    phoenix_kit_cat_categories_parent_uuid_fkey
+    phoenix_kit_cat_folders_parent_uuid_fkey
+    phoenix_kit_cat_item_attribute_groups_attribute_group_uuid_fkey
+    phoenix_kit_cat_item_attribute_groups_item_uuid_fkey
+    phoenix_kit_cat_item_attribute_sets_item_uuid_fkey
+    phoenix_kit_cat_item_catalogue_r_referenced_catalogue_uuid_fkey
+    phoenix_kit_cat_item_catalogue_rules_item_uuid_fkey
+    phoenix_kit_cat_item_supplier_info_item_uuid_fkey
+    phoenix_kit_cat_items_catalogue_uuid_fkey
+    phoenix_kit_cat_items_category_uuid_fkey
+    phoenix_kit_cat_items_primary_supplier_uuid_fkey
+    phoenix_kit_cat_pdf_extractions_file_uuid_fkey
+    phoenix_kit_cat_pdf_pages_content_hash_fkey
+    phoenix_kit_cat_pdf_pages_file_uuid_fkey
+    phoenix_kit_cat_pdfs_file_uuid_fkey
+    phoenix_kit_cat_catalogues_discount_pct_check
+    phoenix_kit_cat_catalogues_kind_check
+    phoenix_kit_cat_manufacturer_suppliers_mfr_source_check
+    phoenix_kit_cat_manufacturer_suppliers_sup_source_check
+    phoenix_kit_cat_items_default_value_check
+    phoenix_kit_cat_items_discount_pct_check
+    phoenix_kit_cat_items_manufacturer_source_check
+    phoenix_kit_cat_item_catalogue_rules_value_check
+    phoenix_kit_cat_item_supplier_info_supplier_source_check
+    phoenix_kit_cat_attribute_groups_status_check
+    phoenix_kit_cat_attributes_kind_check
+    phoenix_kit_cat_attributes_status_check
+    phoenix_kit_cat_attribute_values_status_check
+  )
+
+  test "every pinned index name appears inside a CREATE ... IF NOT EXISTS statement" do
+    stmts = Migrations.up_statements("public")
+
+    for name <- @indexes do
+      assert Enum.any?(stmts, &(&1 =~ ~r/CREATE (UNIQUE )?INDEX IF NOT EXISTS #{name}\b/)),
+             "missing guarded index #{name}"
+    end
+
+    assert length(@indexes) ==
+             Enum.count(stmts, &(&1 =~ ~r/CREATE (UNIQUE )?INDEX IF NOT EXISTS/))
+  end
+
+  test "every pinned constraint name appears inside a guarded DO $$ block" do
+    stmts = Migrations.up_statements("public")
+
+    for name <- @constraints do
+      assert Enum.any?(stmts, fn s -> s =~ ~r/DO \$\$/ and s =~ ~r/ADD CONSTRAINT #{name}\b/ end),
+             "missing guarded constraint #{name}"
+    end
+
+    assert length(@constraints) == Enum.count(stmts, &(&1 =~ ~r/DO \$\$/))
+  end
+
   test "down only rewrites the marker" do
     assert Migrations.down_statements("public", 0) ==
              ["COMMENT ON TABLE public.phoenix_kit_cat_catalogues IS NULL"]

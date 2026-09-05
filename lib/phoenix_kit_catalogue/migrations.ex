@@ -17,16 +17,32 @@ defmodule PhoenixKitCatalogue.Migrations do
   attributes, attribute_values, item_attribute_groups; V177:
   item_attribute_sets):
 
-    * on existing installs every table is already there, the
-      `CREATE TABLE IF NOT EXISTS` / guarded `DO $$ ... pg_constraint ...
-      $$` blocks all find their targets already in place and are no-ops
-      — the only new object is the `pkc_schema:1` marker. From then on
-      this chain owns every adopted table's future shape;
+    * on an install already at core's V180+ shape (crm_company_uuid,
+      manufacturer_source/supplier_source, the item/manufacturer_suppliers
+      FKs V179–V180 drop) every table is already there, the `CREATE TABLE
+      IF NOT EXISTS` / guarded `DO $$ ... pg_constraint ... $$` blocks all
+      find their targets already in place and are no-ops — the only new
+      object is the `pkc_schema:1` marker. From then on this chain owns
+      every adopted table's future shape;
     * on a hypothetical fresh install whose core baseline no longer
       creates these tables, the same statements create them —
       shape-identical to core's live V182 schema (authority: a
       `pg_dump --schema-only` of the live database), with core's exact
       table/constraint/index names.
+
+  `CREATE TABLE IF NOT EXISTS` adoption is a presence check only — it
+  does not repair a table whose columns have drifted from core's current
+  shape on a host stuck below core V180 (the guarded `ADD CONSTRAINT`
+  blocks below DO repair a missing constraint on an existing table, but
+  they cannot add a missing *column* like `crm_company_uuid` or
+  `manufacturer_source`). That risk is contained, not eliminated: core's
+  own migration chain always runs ahead of this one (`mix
+  phoenix_kit.update` applies core's chain first), so by the time V01
+  runs, every adopted table is already at core's current shape on any
+  host this chain actually executes against — the `pk_dep(:phoenix_kit,
+  "~> 2.13.11")` floor in `mix.exs` exists precisely so a host can always
+  reach that shape (see the comment there for why 2.13.4–2.13.10, which
+  ship the shape, are excluded: V180 itself crashes on those releases).
 
   Because V01 changes no shape, core's `ExpectedSchema` manifest (which
   still audits these tables' shapes) stays accurate and no core release
@@ -115,9 +131,13 @@ defmodule PhoenixKitCatalogue.Migrations do
   `COMMENT`) so it is safe to replay on an install where core already
   created some or all of these tables, and on a fresh install with none
   of them. Order: every `CREATE TABLE`, then every primary-key guard,
-  then every foreign-key guard, then every index, then the marker — table
-  declaration order only matters for self-documentation (FK targets are
-  guarded, not required to pre-exist at CREATE TABLE time).
+  then every foreign-key guard, then every CHECK-constraint guard, then
+  every index, then the marker — table declaration order only matters
+  for self-documentation (FK targets are guarded, not required to
+  pre-exist at CREATE TABLE time). The 13 CHECK constraints also ride
+  inline inside their `CREATE TABLE IF NOT EXISTS` (harmless — Postgres
+  no-ops the whole statement on an existing table); the guards below are
+  what actually repair a pre-existing table that is missing one.
   """
   @spec up_statements(String.t()) :: [String.t()]
   def up_statements(prefix \\ "public") do
@@ -128,6 +148,7 @@ defmodule PhoenixKitCatalogue.Migrations do
       tables(p),
       primary_keys(prefix, p),
       foreign_keys(prefix, p),
+      checks(prefix, p),
       indexes(p),
       "COMMENT ON TABLE #{p}#{@version_table} IS '#{@marker_prefix}#{@current_version}'"
     ])
@@ -638,6 +659,93 @@ defmodule PhoenixKitCatalogue.Migrations do
         "phoenix_kit_cat_pdfs",
         "phoenix_kit_cat_pdfs_file_uuid_fkey",
         "ALTER TABLE #{p}phoenix_kit_cat_pdfs ADD CONSTRAINT phoenix_kit_cat_pdfs_file_uuid_fkey FOREIGN KEY (file_uuid) REFERENCES #{p}phoenix_kit_files(uuid) ON DELETE RESTRICT"
+      )
+    ]
+  end
+
+  # ── CHECK constraint guards (core's exact names/expressions; also ride
+  # inline inside CREATE TABLE above — these repair a pre-existing table
+  # that's missing one) ────────────────────────────────────────────────
+
+  defp checks(prefix, p) do
+    [
+      guarded_constraint(
+        prefix,
+        "phoenix_kit_cat_catalogues",
+        "phoenix_kit_cat_catalogues_discount_pct_check",
+        "ALTER TABLE #{p}phoenix_kit_cat_catalogues ADD CONSTRAINT phoenix_kit_cat_catalogues_discount_pct_check CHECK (((discount_percentage >= (0)::numeric) AND (discount_percentage <= (100)::numeric)))"
+      ),
+      guarded_constraint(
+        prefix,
+        "phoenix_kit_cat_catalogues",
+        "phoenix_kit_cat_catalogues_kind_check",
+        "ALTER TABLE #{p}phoenix_kit_cat_catalogues ADD CONSTRAINT phoenix_kit_cat_catalogues_kind_check CHECK (((kind)::text = ANY (ARRAY[('standard'::character varying)::text, ('smart'::character varying)::text])))"
+      ),
+      guarded_constraint(
+        prefix,
+        "phoenix_kit_cat_manufacturer_suppliers",
+        "phoenix_kit_cat_manufacturer_suppliers_mfr_source_check",
+        "ALTER TABLE #{p}phoenix_kit_cat_manufacturer_suppliers ADD CONSTRAINT phoenix_kit_cat_manufacturer_suppliers_mfr_source_check CHECK (((manufacturer_source)::text = ANY ((ARRAY['local'::character varying, 'crm_company'::character varying, 'crm_contact'::character varying])::text[])))"
+      ),
+      guarded_constraint(
+        prefix,
+        "phoenix_kit_cat_manufacturer_suppliers",
+        "phoenix_kit_cat_manufacturer_suppliers_sup_source_check",
+        "ALTER TABLE #{p}phoenix_kit_cat_manufacturer_suppliers ADD CONSTRAINT phoenix_kit_cat_manufacturer_suppliers_sup_source_check CHECK (((supplier_source)::text = ANY ((ARRAY['local'::character varying, 'crm_company'::character varying, 'crm_contact'::character varying])::text[])))"
+      ),
+      guarded_constraint(
+        prefix,
+        "phoenix_kit_cat_items",
+        "phoenix_kit_cat_items_default_value_check",
+        "ALTER TABLE #{p}phoenix_kit_cat_items ADD CONSTRAINT phoenix_kit_cat_items_default_value_check CHECK (((default_value IS NULL) OR (default_value >= (0)::numeric)))"
+      ),
+      guarded_constraint(
+        prefix,
+        "phoenix_kit_cat_items",
+        "phoenix_kit_cat_items_discount_pct_check",
+        "ALTER TABLE #{p}phoenix_kit_cat_items ADD CONSTRAINT phoenix_kit_cat_items_discount_pct_check CHECK (((discount_percentage IS NULL) OR ((discount_percentage >= (0)::numeric) AND (discount_percentage <= (100)::numeric))))"
+      ),
+      guarded_constraint(
+        prefix,
+        "phoenix_kit_cat_items",
+        "phoenix_kit_cat_items_manufacturer_source_check",
+        "ALTER TABLE #{p}phoenix_kit_cat_items ADD CONSTRAINT phoenix_kit_cat_items_manufacturer_source_check CHECK (((manufacturer_source)::text = ANY ((ARRAY['local'::character varying, 'crm_company'::character varying])::text[])))"
+      ),
+      guarded_constraint(
+        prefix,
+        "phoenix_kit_cat_item_catalogue_rules",
+        "phoenix_kit_cat_item_catalogue_rules_value_check",
+        "ALTER TABLE #{p}phoenix_kit_cat_item_catalogue_rules ADD CONSTRAINT phoenix_kit_cat_item_catalogue_rules_value_check CHECK (((value IS NULL) OR (value >= (0)::numeric)))"
+      ),
+      guarded_constraint(
+        prefix,
+        "phoenix_kit_cat_item_supplier_info",
+        "phoenix_kit_cat_item_supplier_info_supplier_source_check",
+        "ALTER TABLE #{p}phoenix_kit_cat_item_supplier_info ADD CONSTRAINT phoenix_kit_cat_item_supplier_info_supplier_source_check CHECK (((supplier_source)::text = ANY (ARRAY[('crm_company'::character varying)::text, ('crm_contact'::character varying)::text, ('local'::character varying)::text])))"
+      ),
+      guarded_constraint(
+        prefix,
+        "phoenix_kit_cat_attribute_groups",
+        "phoenix_kit_cat_attribute_groups_status_check",
+        "ALTER TABLE #{p}phoenix_kit_cat_attribute_groups ADD CONSTRAINT phoenix_kit_cat_attribute_groups_status_check CHECK (((status)::text = ANY ((ARRAY['active'::character varying, 'archived'::character varying])::text[])))"
+      ),
+      guarded_constraint(
+        prefix,
+        "phoenix_kit_cat_attributes",
+        "phoenix_kit_cat_attributes_kind_check",
+        "ALTER TABLE #{p}phoenix_kit_cat_attributes ADD CONSTRAINT phoenix_kit_cat_attributes_kind_check CHECK (((kind)::text = ANY ((ARRAY['fixed'::character varying, 'multi'::character varying])::text[])))"
+      ),
+      guarded_constraint(
+        prefix,
+        "phoenix_kit_cat_attributes",
+        "phoenix_kit_cat_attributes_status_check",
+        "ALTER TABLE #{p}phoenix_kit_cat_attributes ADD CONSTRAINT phoenix_kit_cat_attributes_status_check CHECK (((status)::text = ANY ((ARRAY['active'::character varying, 'archived'::character varying])::text[])))"
+      ),
+      guarded_constraint(
+        prefix,
+        "phoenix_kit_cat_attribute_values",
+        "phoenix_kit_cat_attribute_values_status_check",
+        "ALTER TABLE #{p}phoenix_kit_cat_attribute_values ADD CONSTRAINT phoenix_kit_cat_attribute_values_status_check CHECK (((status)::text = ANY ((ARRAY['active'::character varying, 'archived'::character varying])::text[])))"
       )
     ]
   end
