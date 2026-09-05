@@ -1,3 +1,48 @@
+## 0.27.0 - 2026-09-05
+
+### Added
+
+- **Module-owned V1 migration chain** (#95) — `PhoenixKitCatalogue.Migrations`
+  implements the decentralized-migrations protocol core's
+  `mix phoenix_kit.update` discovers via `migration_module/0`
+  (`current_version/0` + `migrated_version_runtime/1` + idempotent `up/1` +
+  version-aware `down/1`). V01 is purely ADOPTIVE: all eighteen
+  `phoenix_kit_cat_*` tables already exist on live installs, so every
+  `CREATE TABLE IF NOT EXISTS`, guarded `DO $$ … pg_constraint … $$` block and
+  `CREATE INDEX IF NOT EXISTS` is a no-op and the only new object is the
+  `pkc_schema:1` marker on `phoenix_kit_cat_catalogues`. On a fresh install
+  whose core baseline no longer creates these tables, the same statements build
+  them with core's exact object names. `down/1` only rewrites the marker — it
+  never drops a table.
+- **A drift lock against core's schema manifest** (#95) — two tests resolve
+  `PhoenixKit.Migrations.ExpectedSchema` and assert that every one of the 275
+  `:required` objects it tags `owner: :catalogue` is emitted by
+  `up_statements/1`, and that the 3 `:legacy_optional` foreign keys core's
+  V179/V180 dropped are *not* re-created. Without this a core release that
+  reshapes an adopted table would leave the chain silently building the older
+  shape on fresh installs, with the suite still green.
+
+### Fixed
+
+- **`PhoenixKitCatalogue.version/0` reported `0.25.0` on 0.26.0** — the two
+  version sources `AGENTS.md` requires bumping together drifted apart at the
+  0.26.0 release. `mix precommit` does not run the suite, so the pin in
+  `test/phoenix_kit_catalogue_test.exs` that exists to catch exactly this never
+  ran before publish. Both sources now read `0.27.0`.
+
+### Changed
+
+- **`AGENTS.md`'s "No DB migrations in this repo" hard boundary is gone** — it
+  became false with this PR and would have sent the next contributor to write a
+  core migration for a column this module now owns. Replaced with the chain's
+  actual rules: a new column means a new chain version here (V2+), a
+  shape-changing version must clear the excluded-object protocol first,
+  statements stay idempotent, and `down/1` never drops.
+- **`Migrations`' moduledoc now names all nine core versions** that shape the
+  adopted tables, not just the four that create them (V146/V151/V178/V179/V180
+  reshape them), and states why `foreign_keys/2` deliberately omits the three
+  foreign keys V179/V180 dropped.
+
 ## 0.26.0 - 2026-09-01
 
 ### Added
