@@ -9,6 +9,7 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormSeoTest do
   """
   use PhoenixKitCatalogue.LiveCase
 
+  alias PhoenixKit.Modules.Languages
   alias PhoenixKitCatalogue.Catalogue
   alias PhoenixKitCatalogue.Catalogue.Translations
 
@@ -17,8 +18,8 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormSeoTest do
   defp edit_category_url(uuid), do: "#{@base}/categories/#{uuid}/edit"
 
   defp enable_multilang! do
-    {:ok, _} = PhoenixKit.Modules.Languages.enable_system()
-    {:ok, _} = PhoenixKit.Modules.Languages.add_language("fr-FR")
+    {:ok, _} = Languages.enable_system()
+    {:ok, _} = Languages.add_language("fr-FR")
     :ok
   end
 
@@ -62,6 +63,46 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormSeoTest do
       assert html =~ ~s(name="category[seo_title]")
       assert html =~ ~s(name="category[seo_description]")
     end
+
+    test "two categories sharing a name and a meta data namespace both save with their own distinct slug",
+         %{conn: conn} do
+      # Regression for the review finding on `Slugs.present_languages/1` —
+      # see the identical item-form test's comment for the mechanism.
+      enable_multilang!()
+      catalogue = fixture_catalogue()
+
+      data = %{
+        "_primary_language" => "en-US",
+        "en-US" => %{"_name" => "Vases"},
+        "meta" => %{"brand" => "Acme"}
+      }
+
+      category_a = fixture_category(catalogue, %{name: "Vases", data: data})
+      category_b = fixture_category(catalogue, %{name: "Vases", data: data})
+
+      {:ok, view_a, _html} = live(conn, edit_category_url(category_a.uuid))
+
+      view_a
+      |> form("form[action=\"#\"][phx-submit=save]", %{
+        "category" => %{"name" => "Vases", "slug" => %{"en-US" => "red-vases"}}
+      })
+      |> render_submit()
+
+      {:ok, view_b, _html} = live(conn, edit_category_url(category_b.uuid))
+
+      # A successful save live-redirects (no html to inspect); the
+      # collision this guards against instead re-renders the form with a
+      # constraint error and stays put — proven wrong below by both
+      # categories' real slugs actually persisting as submitted.
+      view_b
+      |> form("form[action=\"#\"][phx-submit=save]", %{
+        "category" => %{"name" => "Vases", "slug" => %{"en-US" => "blue-vases"}}
+      })
+      |> render_submit()
+
+      assert Catalogue.get_category!(category_a.uuid).slug["en-US"] == "red-vases"
+      assert Catalogue.get_category!(category_b.uuid).slug["en-US"] == "blue-vases"
+    end
   end
 
   describe "slug uniqueness" do
@@ -85,8 +126,8 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormSeoTest do
         })
         |> render_submit()
 
-      assert has_element?(view, "[phx-feedback-for='category[slug][en-US]'] .text-error") or
-               html =~ "already taken"
+      assert has_element?(view, "[phx-feedback-for='category[slug][en-US]'] .text-error")
+      assert html =~ "already taken"
 
       reloaded = Catalogue.get_category!(category.uuid)
       refute reloaded.slug["en-US"] == "vases"

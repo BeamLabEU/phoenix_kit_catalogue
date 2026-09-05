@@ -2,6 +2,7 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
   @moduledoc "Create/edit form for categories within a catalogue."
 
   use Phoenix.LiveView
+  use Gettext, backend: PhoenixKitCatalogue.Gettext
   use PhoenixKitAI.Components.AITranslate.Embed
 
   require Logger
@@ -649,10 +650,8 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
                 name={"category[slug][#{slug_lang(assigns)}]"}
                 value={Map.get(@form[:slug].value || %{}, slug_lang(assigns), "")}
                 type="text"
-                label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "URL slug")}
-                placeholder={
-                  Gettext.gettext(PhoenixKitCatalogue.Gettext, "auto-generated from the name")
-                }
+                label={gettext("URL slug")}
+                placeholder={gettext("auto-generated from the name")}
                 class="w-full"
               />
 
@@ -669,7 +668,7 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
                 type="text"
                 name={translatable_param_name(assigns, "category", "seo_title")}
                 value={Map.get(@lang_data, "_seo_title") || ""}
-                label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "SEO title")}
+                label={gettext("SEO title")}
                 class="w-full"
               />
 
@@ -677,7 +676,7 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
                 type="text"
                 name={translatable_param_name(assigns, "category", "seo_description")}
                 value={Map.get(@lang_data, "_seo_description") || ""}
-                label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "SEO description")}
+                label={gettext("SEO description")}
                 class="w-full"
               />
             </div>

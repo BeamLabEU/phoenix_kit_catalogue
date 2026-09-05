@@ -134,11 +134,15 @@ defmodule PhoenixKitCatalogue.Migrations do
     _ -> 0
   end
 
-  @doc "Applies every chain version up to `current_version/0` (idempotent)."
+  @doc "Applies every chain version up to `target` (`:version` in `opts`, default `current_version/0`); idempotent."
   def up(opts \\ []) do
-    opts
-    |> validated_prefix()
-    |> up_statements()
+    prefix = validated_prefix(opts)
+
+    target =
+      if is_list(opts), do: Keyword.get(opts, :version, @current_version), else: @current_version
+
+    prefix
+    |> up_statements(target)
     |> Enum.each(&execute/1)
   end
 
@@ -167,16 +171,30 @@ defmodule PhoenixKitCatalogue.Migrations do
   since Postgres no-ops the whole statement on an existing table — the
   guards are what actually repair a pre-existing table missing one).
   V2 statements follow, then the version marker last.
+
+  `target` selects how much of the chain to emit (default
+  `current_version/0`): `1` is the pure V1 adoption step (the owned
+  tables/keys/checks/indexes below); `2` additionally adds V2's
+  per-language `slug` column, its trigger projections, and the
+  attribute-set GIN index. Mirrors `phoenix_kit_billing`'s version-aware
+  `up_statements/2` — the wrapper migration core's update task generates
+  calls this with an explicit `:version`, and a stale wrapper asking for
+  `1` must not receive `2`'s objects.
   """
-  @spec up_statements(String.t()) :: [String.t()]
-  def up_statements(prefix \\ "public") do
+  @spec up_statements(String.t(), pos_integer()) :: [String.t()]
+  def up_statements(prefix \\ "public", target \\ @current_version)
+
+  def up_statements(prefix, target) when is_integer(target) and target >= 1 do
     prefix = validated_prefix(prefix: prefix)
     p = "#{prefix}."
+    target = min(target, @current_version)
+
+    v2 = if target >= 2, do: v2_statements(p), else: []
 
     List.flatten([
       v1_statements(prefix, p),
-      v2_statements(p),
-      "COMMENT ON TABLE #{p}#{@version_table} IS '#{@marker_prefix}#{@current_version}'"
+      v2,
+      "COMMENT ON TABLE #{p}#{@version_table} IS '#{@marker_prefix}#{target}'"
     ])
   end
 

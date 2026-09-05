@@ -48,6 +48,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Slugs do
   @head_split ~r/\s+[-–—]\s+|\|/u
   @tail_digits ~r/-(\d+)$/
   @hash_len 12
+  @lang_key ~r/^[a-z]{2}-[A-Z]{2}$/
 
   @doc """
   A URL slug derived from `title`, generated in `lang`.
@@ -122,17 +123,30 @@ defmodule PhoenixKitCatalogue.Catalogue.Slugs do
     end
   end
 
-  # Only a genuinely multilang `data` (one carrying `_primary_language`)
-  # has languages to fill. Flat `data` (the vast majority of items and
-  # categories, which never touch the multilang form) has none — this is
-  # what keeps slug generation additive: a record that was never
-  # translated gets no slug at all, rather than one silently derived
-  # from its plain `:name` on every save.
+  # A genuinely multilang `data` (one carrying `_primary_language`) has
+  # one real per-language key for every language it stores translations
+  # for, PLUS whatever sibling namespaces other code keeps at the same
+  # top level (`"meta"`, an extension's `data["ecommerce"]`, …) — those
+  # are not languages and must never reach `fill_language/4`, or two
+  # unrelated items sharing a namespace key would collide on a slug
+  # generated FOR that key and only one could ever save. Filtering to
+  # the `xx-YY` shape every real language code has (see
+  # `PhoenixKit.Utils.Multilang`'s moduledoc) keeps this correct without
+  # having to know every namespace some other module might add.
+  #
+  # Flat `data` (no `_primary_language` — an item/category that has
+  # never been touched through the multilang form) still gets exactly
+  # one slug, in the site's primary language: the item/category forms
+  # always render the slug input and promise "auto-generated from the
+  # name" regardless of whether multilang is on, so a save with a blank
+  # slug must fill it.
   defp present_languages(data) do
     if Multilang.multilang_data?(data) do
-      Map.keys(data) -- ["_primary_language"]
+      data
+      |> Map.keys()
+      |> Enum.filter(&(&1 =~ @lang_key))
     else
-      []
+      [Multilang.primary_language()]
     end
   end
 

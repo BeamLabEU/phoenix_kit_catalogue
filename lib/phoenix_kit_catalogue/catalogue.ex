@@ -82,6 +82,17 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
   defp repo, do: PhoenixKit.RepoHelper.repo()
 
+  # Same source of truth as `PhoenixKit.SchemaPrefix` (`config :phoenix_kit,
+  # prefix: ...`), for the one place in this module that reaches the slug
+  # projection tables with raw SQL instead of a schema-backed Ecto query —
+  # a named-schema install must not silently query `public`.
+  defp qualified(table) do
+    case Application.get_env(:phoenix_kit, :prefix) do
+      prefix when is_binary(prefix) and prefix not in ["", "public"] -> "#{prefix}.#{table}"
+      _ -> table
+    end
+  end
+
   # `log_activity/1` was extracted to `PhoenixKitCatalogue.Catalogue.ActivityLog`
   # so the per-section submodules can share it without circular imports.
   # Internal callers in the remaining sections still use this thin
@@ -1477,10 +1488,12 @@ defmodule PhoenixKitCatalogue.Catalogue do
   Fetches a category by its per-language `slug`.
 
   Tries an exact match in `lang`'s base language first (`"en-US"` folds
-  to `"en"`). Returns `{:error, :not_found}` on a miss unless
-  `opts[:any_lang]` is `true`, in which case a miss falls back to any
-  language and the result is a 3-tuple carrying the language the slug
-  actually matched in.
+  to `"en"`), falling back to any language when `opts[:any_lang]` is
+  `true`. The result is `{:error, :not_found}` on a miss; a hit is a
+  2-tuple by default, or — whenever `opts[:any_lang]` is `true`, even
+  when the base language itself matched — a 3-tuple carrying the
+  language the slug actually matched in, so a caller that opted into
+  the fallback can always destructure the same shape.
   """
   @spec get_category_by_slug(String.t(), String.t(), keyword()) ::
           {:ok, Category.t()} | {:ok, Category.t(), String.t()} | {:error, :not_found}
@@ -4324,11 +4337,13 @@ defmodule PhoenixKitCatalogue.Catalogue do
   Fetches an item by its per-language `slug`.
 
   Tries an exact match in `lang`'s base language first (`"en-US"` folds
-  to `"en"`). Returns `{:error, :not_found}` on a miss unless
-  `opts[:any_lang]` is `true`, in which case a miss falls back to any
-  language and the result is a 3-tuple carrying the language the slug
-  actually matched in. Any other option (e.g. `:preload`) is forwarded
-  to `get_item/2`.
+  to `"en"`), falling back to any language when `opts[:any_lang]` is
+  `true`. The result is `{:error, :not_found}` on a miss; a hit is a
+  2-tuple by default, or — whenever `opts[:any_lang]` is `true`, even
+  when the base language itself matched — a 3-tuple carrying the
+  language the slug actually matched in, so a caller that opted into
+  the fallback can always destructure the same shape. Any other option
+  (e.g. `:preload`) is forwarded to `get_item/2`.
   """
   @spec get_item_by_slug(String.t(), String.t(), keyword()) ::
           {:ok, Item.t()} | {:ok, Item.t(), String.t()} | {:error, :not_found}
@@ -4361,8 +4376,8 @@ defmodule PhoenixKitCatalogue.Catalogue do
       {uuid, matched_lang} ->
         case get_fun.(uuid, fetch_opts) do
           nil -> {:error, :not_found}
-          struct when matched_lang == base -> {:ok, struct}
-          struct -> {:ok, struct, matched_lang}
+          struct when any_lang? -> {:ok, struct, matched_lang}
+          struct -> {:ok, struct}
         end
     end
   end
@@ -4371,9 +4386,10 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
   defp query_slug(table, uuid_column, nil, slug) do
     %{rows: rows} =
-      repo().query!("SELECT #{uuid_column}::text, lang FROM #{table} WHERE value = $1 LIMIT 1", [
-        slug
-      ])
+      repo().query!(
+        "SELECT #{uuid_column}::text, lang FROM #{qualified(table)} WHERE value = $1 ORDER BY lang LIMIT 1",
+        [slug]
+      )
 
     one_row(rows)
   end
@@ -4381,7 +4397,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
   defp query_slug(table, uuid_column, lang, slug) do
     %{rows: rows} =
       repo().query!(
-        "SELECT #{uuid_column}::text, lang FROM #{table} WHERE lang = $1 AND value = $2 LIMIT 1",
+        "SELECT #{uuid_column}::text, lang FROM #{qualified(table)} WHERE lang = $1 AND value = $2 LIMIT 1",
         [lang, slug]
       )
 
