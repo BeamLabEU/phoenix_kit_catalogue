@@ -120,4 +120,78 @@ defmodule PhoenixKitCatalogue.SlugProjectionTest do
       end
     end
   end
+
+  describe "get_item_by_slug/3" do
+    test "finds an item by its exact base-language slug, in either language" do
+      catalogue = create_catalogue()
+
+      item =
+        create_item(catalogue, %{
+          slug: %{"en-US" => "red-vase", "fr-FR" => "vase-rouge"}
+        })
+
+      assert {:ok, found_en} = Catalogue.get_item_by_slug("red-vase", "en-US")
+      assert found_en.uuid == item.uuid
+
+      assert {:ok, found_fr} = Catalogue.get_item_by_slug("vase-rouge", "fr")
+      assert found_fr.uuid == item.uuid
+    end
+
+    test "returns {:error, :not_found} for an unknown slug or the wrong language" do
+      catalogue = create_catalogue()
+      create_item(catalogue, %{slug: %{"fr-FR" => "vase-rouge"}})
+
+      assert Catalogue.get_item_by_slug("no-such-slug", "en-US") == {:error, :not_found}
+      # "vase-rouge" exists, but only under "fr" — not under "en".
+      assert Catalogue.get_item_by_slug("vase-rouge", "en-US") == {:error, :not_found}
+    end
+
+    test "any_lang: true falls back to any language and names the match" do
+      catalogue = create_catalogue()
+      item = create_item(catalogue, %{slug: %{"fr-FR" => "vase-rouge"}})
+
+      assert {:ok, found, "fr"} =
+               Catalogue.get_item_by_slug("vase-rouge", "en-US", any_lang: true)
+
+      assert found.uuid == item.uuid
+    end
+
+    test "forwards options other than :any_lang to get_item/2" do
+      catalogue = create_catalogue()
+      item = create_item(catalogue, %{slug: %{"en-US" => "red-vase"}})
+
+      assert {:ok, found} =
+               Catalogue.get_item_by_slug("red-vase", "en-US", preload: [:catalogue])
+
+      assert found.uuid == item.uuid
+      assert %PhoenixKitCatalogue.Schemas.Catalogue{} = found.catalogue
+    end
+  end
+
+  describe "get_category_by_slug/3" do
+    test "finds a category by its exact base-language slug" do
+      catalogue = create_catalogue()
+      category = create_category(catalogue, %{slug: %{"en-US" => "vases"}})
+
+      assert {:ok, found} = Catalogue.get_category_by_slug("vases", "en-US")
+      assert found.uuid == category.uuid
+    end
+
+    test "returns {:error, :not_found} for an unknown slug" do
+      catalogue = create_catalogue()
+      create_category(catalogue)
+
+      assert Catalogue.get_category_by_slug("no-such-slug", "en-US") == {:error, :not_found}
+    end
+
+    test "any_lang: true falls back to any language and names the match" do
+      catalogue = create_catalogue()
+      category = create_category(catalogue, %{slug: %{"fr-FR" => "vases-fr"}})
+
+      assert {:ok, found, "fr"} =
+               Catalogue.get_category_by_slug("vases-fr", "en-US", any_lang: true)
+
+      assert found.uuid == category.uuid
+    end
+  end
 end
