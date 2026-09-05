@@ -43,6 +43,9 @@ defmodule PhoenixKitCatalogue do
   def module_key, do: "catalogue"
 
   @impl PhoenixKit.Module
+  def migration_module, do: PhoenixKitCatalogue.Migrations
+
+  @impl PhoenixKit.Module
   def module_name, do: "Catalogue"
 
   @impl PhoenixKit.Module
