@@ -1,0 +1,590 @@
+<html lang="en" data-theme="light" class="[scrollbar-gutter:stable]"><head><meta charset="utf-8"/><meta name="csrf-token" content="C"/><title>Test</title></head><body class="bg-base-100 antialiased transition-colors"><div id="phx-ID" data-phx-main="" data-phx-session="S" data-phx-static="S"><style data-phoenix-kit-themes="">
+  [data-theme=phoenix-dark]
+{
+  --color-accent: oklch(74.22% 0.209 6.35);
+  --color-accent-content: oklch(20% 0.02 6.35);
+  --color-base-100: oklch(25.33% 0.024 265.76);
+  --color-base-200: oklch(23.45% 0.022 265.76);
+  --color-base-300: oklch(21.68% 0.02 265.76);
+  --color-base-content: oklch(85% 0.02 265.76);
+  --color-error: oklch(71.76% 0.221 22.18);
+  --color-error-content: oklch(20% 0.02 22.18);
+  --color-info: oklch(72.06% 0.191 231.6);
+  --color-info-content: oklch(20% 0.02 231.6);
+  --color-neutral: oklch(32.77% 0.033 264.54);
+  --color-neutral-content: oklch(85% 0.02 264.54);
+  --color-primary: oklch(57.38% 0.233 262.08);
+  --color-primary-content: oklch(98% 0.02 262.08);
+  --color-secondary: oklch(75.61% 0.194 333.67);
+  --color-secondary-content: oklch(20% 0.02 333.67);
+  --color-success: oklch(64.8% 0.15 160);
+  --color-success-content: oklch(20% 0.02 160);
+  --color-warning: oklch(84.71% 0.199 83.87);
+  --color-warning-content: oklch(20% 0.02 83.87);
+  color-scheme: dark;
+}
+
+[data-theme=phoenix-light]
+{
+  --color-accent: oklch(74.22% 0.209 6.35);
+  --color-accent-content: oklch(20% 0.02 6.35);
+  --color-base-100: oklch(100% 0 0);
+  --color-base-200: oklch(96% 0 0);
+  --color-base-300: oklch(92% 0.005 286.88);
+  --color-base-content: oklch(20% 0.02 269.31);
+  --color-error: oklch(71.76% 0.221 22.18);
+  --color-error-content: oklch(20% 0.02 22.18);
+  --color-info: oklch(72.06% 0.191 231.6);
+  --color-info-content: oklch(20% 0.02 231.6);
+  --color-neutral: oklch(23.04% 0.065 269.31);
+  --color-neutral-content: oklch(98% 0.02 269.31);
+  --color-primary: oklch(57.38% 0.233 262.08);
+  --color-primary-content: oklch(98% 0.02 262.08);
+  --color-secondary: oklch(75.61% 0.194 333.67);
+  --color-secondary-content: oklch(20% 0.02 333.67);
+  --color-success: oklch(64.8% 0.15 160);
+  --color-success-content: oklch(20% 0.02 160);
+  --color-warning: oklch(84.71% 0.199 83.87);
+  --color-warning-content: oklch(20% 0.02 83.87);
+  color-scheme: light;
+}
+</style><script>
+  (function () {
+    // One instance per page — a host layout and a kit layout can
+    // both render this; a second copy would double the storage listener.
+    if (window.__pkThemeBootstrap) return;
+    window.__pkThemeBootstrap = true;
+
+    var KEY = 'phx:theme';
+    var LEGACY_KEY = 'phoenix_kit_theme';
+    var LIGHT = 'phoenix-light';
+    var DARK = 'phoenix-dark';
+    var BASES = {"corporate":"light","pastel":"light","abyss":"dark","retro":"light","nord":"dark","black":"dark","lemonade":"light","synthwave":"dark","night":"dark","business":"dark","lofi":"light","valentine":"light","autumn":"light","sunset":"dark","dark":"dark","aqua":"light","phoenix-dark":"dark","wireframe":"light","light":"light","coffee":"dark","dracula":"dark","phoenix-light":"light","bumblebee":"light","fantasy":"light","forest":"dark","cmyk":"light","cupcake":"light","luxury":"dark","acid":"light","garden":"light","winter":"light","silk":"light","emerald":"light","caramellatte":"light","cyberpunk":"light","dim":"dark","halloween":"dark"};
+
+    function resolve(theme) {
+      if (!theme || theme === 'system') {
+        return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches
+          ? DARK
+          : LIGHT;
+      }
+      return theme;
+    }
+
+    function apply(theme) {
+      var resolved = resolve(theme);
+      var el = document.documentElement;
+      el.setAttribute('data-theme', resolved);
+      el.style.colorScheme = BASES[resolved] || 'light';
+    }
+
+    var saved = null;
+    try {
+      saved = localStorage.getItem(KEY);
+      // The deleted static phoenix_kit_themes.js wrote this older key.
+      // Promote it once so an upgrade does not reset the saved choice.
+      if (!saved) {
+        var legacy = localStorage.getItem(LEGACY_KEY);
+        if (legacy) {
+          saved = legacy;
+          localStorage.setItem(KEY, legacy);
+        }
+      }
+    } catch (e) {
+      /* storage blocked: fall through to system */
+    }
+
+    apply(saved);
+
+    // A theme picked in another tab follows into this one.
+    window.addEventListener('storage', function (e) {
+      if (e.key === KEY || e.key === LEGACY_KEY) apply(e.newValue);
+    });
+  })();
+</script><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><meta name="csrf-token" content="C"/><title data-default="PhoenixKit Admin">
+      Edit Snapshot Item
+    </title><link phx-track-static="" rel="stylesheet" href="/assets/css/app.css"/><script>
+  window.PHOENIX_KIT_PREFIX = "/";
+  try{["localStorage","sessionStorage"].forEach(function(s){var t=window[s];Object.keys(t).filter(function(k){return k.indexOf("phx")!==-1&&k.indexOf("phx:")!==0}).forEach(function(k){t.removeItem(k)})})}catch(e){}
+  // Suppress topbar on initial WebSocket connect — the dead render already shows
+  // all content, so the connect-phase topbar is just visual noise. LiveView fires
+  // page-loading-start with kind:"initial" for the connect and kind:"redirect"/"patch"
+  // for actual navigations. We only suppress "initial" start events; the stop event
+  // must NOT be suppressed since the topbar was never shown and suppressing stop
+  // could prevent the parent app's topbar.hide() from running.
+  window.addEventListener("phx:page-loading-start",function(e){if(e.detail&&e.detail.kind==="initial")e.stopImmediatePropagation()},true);
+</script><main class="min-h-screen bg-base-100 transition-colors"><div id="flash-group"></div><script>
+  window.PHOENIX_KIT_PREFIX = "/";
+  try{["localStorage","sessionStorage"].forEach(function(s){var t=window[s];Object.keys(t).filter(function(k){return k.indexOf("phx")!==-1&&k.indexOf("phx:")!==0}).forEach(function(k){t.removeItem(k)})})}catch(e){}
+  // Suppress topbar on initial WebSocket connect — the dead render already shows
+  // all content, so the connect-phase topbar is just visual noise. LiveView fires
+  // page-loading-start with kind:"initial" for the connect and kind:"redirect"/"patch"
+  // for actual navigations. We only suppress "initial" start events; the stop event
+  // must NOT be suppressed since the topbar was never shown and suppressing stop
+  // could prevent the parent app's topbar.hide() from running.
+  window.addEventListener("phx:page-loading-start",function(e){if(e.detail&&e.detail.kind==="initial")e.stopImmediatePropagation()},true);
+</script><style data-phoenix-kit-themes="">
+  [data-theme=phoenix-dark]
+{
+  --color-accent: oklch(74.22% 0.209 6.35);
+  --color-accent-content: oklch(20% 0.02 6.35);
+  --color-base-100: oklch(25.33% 0.024 265.76);
+  --color-base-200: oklch(23.45% 0.022 265.76);
+  --color-base-300: oklch(21.68% 0.02 265.76);
+  --color-base-content: oklch(85% 0.02 265.76);
+  --color-error: oklch(71.76% 0.221 22.18);
+  --color-error-content: oklch(20% 0.02 22.18);
+  --color-info: oklch(72.06% 0.191 231.6);
+  --color-info-content: oklch(20% 0.02 231.6);
+  --color-neutral: oklch(32.77% 0.033 264.54);
+  --color-neutral-content: oklch(85% 0.02 264.54);
+  --color-primary: oklch(57.38% 0.233 262.08);
+  --color-primary-content: oklch(98% 0.02 262.08);
+  --color-secondary: oklch(75.61% 0.194 333.67);
+  --color-secondary-content: oklch(20% 0.02 333.67);
+  --color-success: oklch(64.8% 0.15 160);
+  --color-success-content: oklch(20% 0.02 160);
+  --color-warning: oklch(84.71% 0.199 83.87);
+  --color-warning-content: oklch(20% 0.02 83.87);
+  color-scheme: dark;
+}
+
+[data-theme=phoenix-light]
+{
+  --color-accent: oklch(74.22% 0.209 6.35);
+  --color-accent-content: oklch(20% 0.02 6.35);
+  --color-base-100: oklch(100% 0 0);
+  --color-base-200: oklch(96% 0 0);
+  --color-base-300: oklch(92% 0.005 286.88);
+  --color-base-content: oklch(20% 0.02 269.31);
+  --color-error: oklch(71.76% 0.221 22.18);
+  --color-error-content: oklch(20% 0.02 22.18);
+  --color-info: oklch(72.06% 0.191 231.6);
+  --color-info-content: oklch(20% 0.02 231.6);
+  --color-neutral: oklch(23.04% 0.065 269.31);
+  --color-neutral-content: oklch(98% 0.02 269.31);
+  --color-primary: oklch(57.38% 0.233 262.08);
+  --color-primary-content: oklch(98% 0.02 262.08);
+  --color-secondary: oklch(75.61% 0.194 333.67);
+  --color-secondary-content: oklch(20% 0.02 333.67);
+  --color-success: oklch(64.8% 0.15 160);
+  --color-success-content: oklch(20% 0.02 160);
+  --color-warning: oklch(84.71% 0.199 83.87);
+  --color-warning-content: oklch(20% 0.02 83.87);
+  color-scheme: light;
+}
+</style><style>
+  /* Custom sidebar control for desktop - override lg:drawer-open grid layout when closed */
+  @media (min-width: 1024px) {
+    /* Override the grid to collapse sidebar column when closed */
+    #admin-drawer.sidebar-closed {
+      grid-template-columns: 0 1fr !important;
+      transition: grid-template-columns 300ms ease-in-out;
+    }
+    #admin-drawer.sidebar-closed .drawer-side {
+      /* -100%, not -16rem: the drawer-side is wider than the w-64 aside
+         when its scrollbar gutter is reserved — a fixed offset would
+         leave the gutter strip peeking out when closed. */
+      transform: translateX(-100%);
+      transition: transform 300ms ease-in-out;
+      overflow: hidden;
+    }
+    #admin-drawer:not(.sidebar-closed) {
+      transition: grid-template-columns 300ms ease-in-out;
+    }
+    #admin-drawer:not(.sidebar-closed).drawer.lg\:drawer-open .drawer-side {
+      transform: translateX(0);
+      transition: transform 300ms ease-in-out;
+    }
+  }
+</style><header class="bg-base-100 shadow-sm border-b border-base-300 fixed top-0 left-0 right-0 z-50"><div class="flex items-center justify-between h-16 px-4"><div class="flex items-center gap-3 min-w-0"><div class="flex items-center gap-1 min-w-0"><a href="/" class="font-bold text-base-content hover:opacity-80 transition-opacity truncate hidden lg:inline">
+          PhoenixKit
+        </a><a href="/" title="PhoenixKit" class="lg:hidden font-bold text-base-content/50 hover:text-base-content transition-opacity shrink-0">
+          …
+        </a><span class="flex items-center gap-1.5 min-w-0"><span class="text-base-content/30 shrink-0">/</span><span class="hidden sm:flex items-center gap-1.5 shrink-0"><a href="/en/admin/catalogue/UUID" data-phx-link="redirect" data-phx-link-state="push" class="font-semibold text-base-content/60 hover:text-base-content transition-opacity">
+              Snapshot Catalogue
+            </a><span class="text-base-content/30">/</span></span><span class="font-semibold text-base-content truncate min-w-0">Edit Snapshot Item</span><span class="text-sm text-base-content/50 truncate hidden md:inline">
+            Update item details, pricing, and classification.
+          </span></span></div></div><div class="flex items-center gap-3"><div class="flex flex-col gap-3 w-full "><div class="relative w-full" data-theme-dropdown=""><details class="dropdown dropdown-end dropdown-bottom" id="admin-theme-dropdown"><summary class="btn btn-sm btn-ghost btn-circle"><span class="hero-swatch w-5 h-5"></span></summary><ul class="dropdown-content w-72 min-w-0 rounded-box border border-base-200 bg-base-100 p-2 shadow-xl z-[60] mt-2 max-h-[80vh] overflow-y-auto overflow-x-hidden list-none space-y-1" tabindex="0" phx-click-away="[[&quot;remove_attr&quot;,{&quot;to&quot;:&quot;#admin-theme-dropdown&quot;,&quot;attr&quot;:&quot;open&quot;}]]"><li class="w-full"><button type="button" phx-click="[[&quot;dispatch&quot;,{&quot;event&quot;:&quot;phx:set-theme&quot;,&quot;detail&quot;:{&quot;theme&quot;:&quot;system&quot;}}]]" data-phx-theme="system" data-tip="system" data-theme-target="system" data-theme-role="dropdown-option" role="option" aria-pressed="false" class="w-full group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition hover:bg-base-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer"><div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-base-200 bg-base-100 shadow-sm"><svg class="size-4 opacity-90" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg></div><span class="flex-1 text-left font-medium text-base-content truncate">
+                System
+              </span><span data-theme-active-indicator=""><svg width="24" height="24" class="size-4 text-primary opacity-0 scale-75 transition-all" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path></svg></span></button></li><li class="w-full"><button type="button" phx-click="[[&quot;dispatch&quot;,{&quot;event&quot;:&quot;phx:set-theme&quot;,&quot;detail&quot;:{&quot;theme&quot;:&quot;phoenix-light&quot;}}]]" data-phx-theme="phoenix-light" data-tip="phoenix-light" data-theme-target="phoenix-light" data-theme-role="dropdown-option" role="option" aria-pressed="false" class="w-full group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition hover:bg-base-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer"><div data-theme="phoenix-light" class="grid h-8 w-8 shrink-0 grid-cols-2 gap-0.5 rounded-md border border-base-200 bg-base-100 p-0.5 shadow-sm"><div class="rounded-full bg-base-content"></div><div class="rounded-full bg-primary"></div><div class="rounded-full bg-secondary"></div><div class="rounded-full bg-accent"></div></div><span class="flex-1 text-left font-medium text-base-content truncate">
+                Phoenix Light
+              </span><span data-theme-active-indicator=""><svg width="24" height="24" class="size-4 text-primary opacity-0 scale-75 transition-all" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path></svg></span></button></li><li class="w-full"><button type="button" phx-click="[[&quot;dispatch&quot;,{&quot;event&quot;:&quot;phx:set-theme&quot;,&quot;detail&quot;:{&quot;theme&quot;:&quot;phoenix-dark&quot;}}]]" data-phx-theme="phoenix-dark" data-tip="phoenix-dark" data-theme-target="phoenix-dark" data-theme-role="dropdown-option" role="option" aria-pressed="false" class="w-full group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition hover:bg-base-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer"><div data-theme="phoenix-dark" class="grid h-8 w-8 shrink-0 grid-cols-2 gap-0.5 rounded-md border border-base-200 bg-base-100 p-0.5 shadow-sm"><div class="rounded-full bg-base-content"></div><div class="rounded-full bg-primary"></div><div class="rounded-full bg-secondary"></div><div class="rounded-full bg-accent"></div></div><span class="flex-1 text-left font-medium text-base-content truncate">
+                Phoenix Dark
+              </span><span data-theme-active-indicator=""><svg width="24" height="24" class="size-4 text-primary opacity-0 scale-75 transition-all" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path></svg></span></button></li><li class="w-full"><button type="button" phx-click="[[&quot;dispatch&quot;,{&quot;event&quot;:&quot;phx:set-theme&quot;,&quot;detail&quot;:{&quot;theme&quot;:&quot;light&quot;}}]]" data-phx-theme="light" data-tip="light" data-theme-target="light" data-theme-role="dropdown-option" role="option" aria-pressed="false" class="w-full group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition hover:bg-base-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer"><div data-theme="light" class="grid h-8 w-8 shrink-0 grid-cols-2 gap-0.5 rounded-md border border-base-200 bg-base-100 p-0.5 shadow-sm"><div class="rounded-full bg-base-content"></div><div class="rounded-full bg-primary"></div><div class="rounded-full bg-secondary"></div><div class="rounded-full bg-accent"></div></div><span class="flex-1 text-left font-medium text-base-content truncate">
+                Light
+              </span><span data-theme-active-indicator=""><svg width="24" height="24" class="size-4 text-primary opacity-0 scale-75 transition-all" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path></svg></span></button></li><li class="w-full"><button type="button" phx-click="[[&quot;dispatch&quot;,{&quot;event&quot;:&quot;phx:set-theme&quot;,&quot;detail&quot;:{&quot;theme&quot;:&quot;dark&quot;}}]]" data-phx-theme="dark" data-tip="dark" data-theme-target="dark" data-theme-role="dropdown-option" role="option" aria-pressed="false" class="w-full group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition hover:bg-base-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer"><div data-theme="dark" class="grid h-8 w-8 shrink-0 grid-cols-2 gap-0.5 rounded-md border border-base-200 bg-base-100 p-0.5 shadow-sm"><div class="rounded-full bg-base-content"></div><div class="rounded-full bg-primary"></div><div class="rounded-full bg-secondary"></div><div class="rounded-full bg-accent"></div></div><span class="flex-1 text-left font-medium text-base-content truncate">
+                Dark
+              </span><span data-theme-active-indicator=""><svg width="24" height="24" class="size-4 text-primary opacity-0 scale-75 transition-all" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path></svg></span></button></li><li class="w-full"><button type="button" phx-click="[[&quot;dispatch&quot;,{&quot;event&quot;:&quot;phx:set-theme&quot;,&quot;detail&quot;:{&quot;theme&quot;:&quot;cupcake&quot;}}]]" data-phx-theme="cupcake" data-tip="cupcake" data-theme-target="cupcake" data-theme-role="dropdown-option" role="option" aria-pressed="false" class="w-full group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition hover:bg-base-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer"><div data-theme="cupcake" class="grid h-8 w-8 shrink-0 grid-cols-2 gap-0.5 rounded-md border border-base-200 bg-base-100 p-0.5 shadow-sm"><div class="rounded-full bg-base-content"></div><div class="rounded-full bg-primary"></div><div class="rounded-full bg-secondary"></div><div class="rounded-full bg-accent"></div></div><span class="flex-1 text-left font-medium text-base-content truncate">
+                Cupcake
+              </span><span data-theme-active-indicator=""><svg width="24" height="24" class="size-4 text-primary opacity-0 scale-75 transition-all" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path></svg></span></button></li><li class="w-full"><button type="button" phx-click="[[&quot;dispatch&quot;,{&quot;event&quot;:&quot;phx:set-theme&quot;,&quot;detail&quot;:{&quot;theme&quot;:&quot;bumblebee&quot;}}]]" data-phx-theme="bumblebee" data-tip="bumblebee" data-theme-target="bumblebee" data-theme-role="dropdown-option" role="option" aria-pressed="false" class="w-full group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition hover:bg-base-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer"><div data-theme="bumblebee" class="grid h-8 w-8 shrink-0 grid-cols-2 gap-0.5 rounded-md border border-base-200 bg-base-100 p-0.5 shadow-sm"><div class="rounded-full bg-base-content"></div><div class="rounded-full bg-primary"></div><div class="rounded-full bg-secondary"></div><div class="rounded-full bg-accent"></div></div><span class="flex-1 text-left font-medium text-base-content truncate">
+                Bumblebee
+              </span><span data-theme-active-indicator=""><svg width="24" height="24" class="size-4 text-primary opacity-0 scale-75 transition-all" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path></svg></span></button></li><li class="w-full"><button type="button" phx-click="[[&quot;dispatch&quot;,{&quot;event&quot;:&quot;phx:set-theme&quot;,&quot;detail&quot;:{&quot;theme&quot;:&quot;emerald&quot;}}]]" data-phx-theme="emerald" data-tip="emerald" data-theme-target="emerald" data-theme-role="dropdown-option" role="option" aria-pressed="false" class="w-full group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition hover:bg-base-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer"><div data-theme="emerald" class="grid h-8 w-8 shrink-0 grid-cols-2 gap-0.5 rounded-md border border-base-200 bg-base-100 p-0.5 shadow-sm"><div class="rounded-full bg-base-content"></div><div class="rounded-full bg-primary"></div><div class="rounded-full bg-secondary"></div><div class="rounded-full bg-accent"></div></div><span class="flex-1 text-left font-medium text-base-content truncate">
+                Emerald
+              </span><span data-theme-active-indicator=""><svg width="24" height="24" class="size-4 text-primary opacity-0 scale-75 transition-all" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path></svg></span></button></li><li class="w-full"><button type="button" phx-click="[[&quot;dispatch&quot;,{&quot;event&quot;:&quot;phx:set-theme&quot;,&quot;detail&quot;:{&quot;theme&quot;:&quot;corporate&quot;}}]]" data-phx-theme="corporate" data-tip="corporate" data-theme-target="corporate" data-theme-role="dropdown-option" role="option" aria-pressed="false" class="w-full group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition hover:bg-base-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer"><div data-theme="corporate" class="grid h-8 w-8 shrink-0 grid-cols-2 gap-0.5 rounded-md border border-base-200 bg-base-100 p-0.5 shadow-sm"><div class="rounded-full bg-base-content"></div><div class="rounded-full bg-primary"></div><div class="rounded-full bg-secondary"></div><div class="rounded-full bg-accent"></div></div><span class="flex-1 text-left font-medium text-base-content truncate">
+                Corporate
+              </span><span data-theme-active-indicator=""><svg width="24" height="24" class="size-4 text-primary opacity-0 scale-75 transition-all" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path></svg></span></button></li><li class="w-full"><button type="button" phx-click="[[&quot;dispatch&quot;,{&quot;event&quot;:&quot;phx:set-theme&quot;,&quot;detail&quot;:{&quot;theme&quot;:&quot;synthwave&quot;}}]]" data-phx-theme="synthwave" data-tip="synthwave" data-theme-target="synthwave" data-theme-role="dropdown-option" role="option" aria-pressed="false" class="w-full group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition hover:bg-base-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer"><div data-theme="synthwave" class="grid h-8 w-8 shrink-0 grid-cols-2 gap-0.5 rounded-md border border-base-200 bg-base-100 p-0.5 shadow-sm"><div class="rounded-full bg-base-content"></div><div class="rounded-full bg-primary"></div><div class="rounded-full bg-secondary"></div><div class="rounded-full bg-accent"></div></div><span class="flex-1 text-left font-medium text-base-content truncate">
+                Synthwave
+              </span><span data-theme-active-indicator=""><svg width="24" height="24" class="size-4 text-primary opacity-0 scale-75 transition-all" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path></svg></span></button></li><li class="w-full"><button type="button" phx-click="[[&quot;dispatch&quot;,{&quot;event&quot;:&quot;phx:set-theme&quot;,&quot;detail&quot;:{&quot;theme&quot;:&quot;retro&quot;}}]]" data-phx-theme="retro" data-tip="retro" data-theme-target="retro" data-theme-role="dropdown-option" role="option" aria-pressed="false" class="w-full group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition hover:bg-base-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer"><div data-theme="retro" class="grid h-8 w-8 shrink-0 grid-cols-2 gap-0.5 rounded-md border border-base-200 bg-base-100 p-0.5 shadow-sm"><div class="rounded-full bg-base-content"></div><div class="rounded-full bg-primary"></div><div class="rounded-full bg-secondary"></div><div class="rounded-full bg-accent"></div></div><span class="flex-1 text-left font-medium text-base-content truncate">
+                Retro
+              </span><span data-theme-active-indicator=""><svg width="24" height="24" class="size-4 text-primary opacity-0 scale-75 transition-all" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path></svg></span></button></li><li class="w-full"><button type="button" phx-click="[[&quot;dispatch&quot;,{&quot;event&quot;:&quot;phx:set-theme&quot;,&quot;detail&quot;:{&quot;theme&quot;:&quot;cyberpunk&quot;}}]]" data-phx-theme="cyberpunk" data-tip="cyberpunk" data-theme-target="cyberpunk" data-theme-role="dropdown-option" role="option" aria-pressed="false" class="w-full group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition hover:bg-base-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer"><div data-theme="cyberpunk" class="grid h-8 w-8 shrink-0 grid-cols-2 gap-0.5 rounded-md border border-base-200 bg-base-100 p-0.5 shadow-sm"><div class="rounded-full bg-base-content"></div><div class="rounded-full bg-primary"></div><div class="rounded-full bg-secondary"></div><div class="rounded-full bg-accent"></div></div><span class="flex-1 text-left font-medium text-base-content truncate">
+                Cyberpunk
+              </span><span data-theme-active-indicator=""><svg width="24" height="24" class="size-4 text-primary opacity-0 scale-75 transition-all" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path></svg></span></button></li><li class="w-full"><button type="button" phx-click="[[&quot;dispatch&quot;,{&quot;event&quot;:&quot;phx:set-theme&quot;,&quot;detail&quot;:{&quot;theme&quot;:&quot;valentine&quot;}}]]" data-phx-theme="valentine" data-tip="valentine" data-theme-target="valentine" data-theme-role="dropdown-option" role="option" aria-pressed="false" class="w-full group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition hover:bg-base-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer"><div data-theme="valentine" class="grid h-8 w-8 shrink-0 grid-cols-2 gap-0.5 rounded-md border border-base-200 bg-base-100 p-0.5 shadow-sm"><div class="rounded-full bg-base-content"></div><div class="rounded-full bg-primary"></div><div class="rounded-full bg-secondary"></div><div class="rounded-full bg-accent"></div></div><span class="flex-1 text-left font-medium text-base-content truncate">
+                Valentine
+              </span><span data-theme-active-indicator=""><svg width="24" height="24" class="size-4 text-primary opacity-0 scale-75 transition-all" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path></svg></span></button></li><li class="w-full"><button type="button" phx-click="[[&quot;dispatch&quot;,{&quot;event&quot;:&quot;phx:set-theme&quot;,&quot;detail&quot;:{&quot;theme&quot;:&quot;halloween&quot;}}]]" data-phx-theme="halloween" data-tip="halloween" data-theme-target="halloween" data-theme-role="dropdown-option" role="option" aria-pressed="false" class="w-full group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition hover:bg-base-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer"><div data-theme="halloween" class="grid h-8 w-8 shrink-0 grid-cols-2 gap-0.5 rounded-md border border-base-200 bg-base-100 p-0.5 shadow-sm"><div class="rounded-full bg-base-content"></div><div class="rounded-full bg-primary"></div><div class="rounded-full bg-secondary"></div><div class="rounded-full bg-accent"></div></div><span class="flex-1 text-left font-medium text-base-content truncate">
+                Halloween
+              </span><span data-theme-active-indicator=""><svg width="24" height="24" class="size-4 text-primary opacity-0 scale-75 transition-all" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path></svg></span></button></li><li class="w-full"><button type="button" phx-click="[[&quot;dispatch&quot;,{&quot;event&quot;:&quot;phx:set-theme&quot;,&quot;detail&quot;:{&quot;theme&quot;:&quot;garden&quot;}}]]" data-phx-theme="garden" data-tip="garden" data-theme-target="garden" data-theme-role="dropdown-option" role="option" aria-pressed="false" class="w-full group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition hover:bg-base-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer"><div data-theme="garden" class="grid h-8 w-8 shrink-0 grid-cols-2 gap-0.5 rounded-md border border-base-200 bg-base-100 p-0.5 shadow-sm"><div class="rounded-full bg-base-content"></div><div class="rounded-full bg-primary"></div><div class="rounded-full bg-secondary"></div><div class="rounded-full bg-accent"></div></div><span class="flex-1 text-left font-medium text-base-content truncate">
+                Garden
+              </span><span data-theme-active-indicator=""><svg width="24" height="24" class="size-4 text-primary opacity-0 scale-75 transition-all" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path></svg></span></button></li><li class="w-full"><button type="button" phx-click="[[&quot;dispatch&quot;,{&quot;event&quot;:&quot;phx:set-theme&quot;,&quot;detail&quot;:{&quot;theme&quot;:&quot;forest&quot;}}]]" data-phx-theme="forest" data-tip="forest" data-theme-target="forest" data-theme-role="dropdown-option" role="option" aria-pressed="false" class="w-full group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition hover:bg-base-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer"><div data-theme="forest" class="grid h-8 w-8 shrink-0 grid-cols-2 gap-0.5 rounded-md border border-base-200 bg-base-100 p-0.5 shadow-sm"><div class="rounded-full bg-base-content"></div><div class="rounded-full bg-primary"></div><div class="rounded-full bg-secondary"></div><div class="rounded-full bg-accent"></div></div><span class="flex-1 text-left font-medium text-base-content truncate">
+                Forest
+              </span><span data-theme-active-indicator=""><svg width="24" height="24" class="size-4 text-primary opacity-0 scale-75 transition-all" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path></svg></span></button></li><li class="w-full"><button type="button" phx-click="[[&quot;dispatch&quot;,{&quot;event&quot;:&quot;phx:set-theme&quot;,&quot;detail&quot;:{&quot;theme&quot;:&quot;aqua&quot;}}]]" data-phx-theme="aqua" data-tip="aqua" data-theme-target="aqua" data-theme-role="dropdown-option" role="option" aria-pressed="false" class="w-full group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition hover:bg-base-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer"><div data-theme="aqua" class="grid h-8 w-8 shrink-0 grid-cols-2 gap-0.5 rounded-md border border-base-200 bg-base-100 p-0.5 shadow-sm"><div class="rounded-full bg-base-content"></div><div class="rounded-full bg-primary"></div><div class="rounded-full bg-secondary"></div><div class="rounded-full bg-accent"></div></div><span class="flex-1 text-left font-medium text-base-content truncate">
+                Aqua
+              </span><span data-theme-active-indicator=""><svg width="24" height="24" class="size-4 text-primary opacity-0 scale-75 transition-all" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path></svg></span></button></li><li class="w-full"><button type="button" phx-click="[[&quot;dispatch&quot;,{&quot;event&quot;:&quot;phx:set-theme&quot;,&quot;detail&quot;:{&quot;theme&quot;:&quot;lofi&quot;}}]]" data-phx-theme="lofi" data-tip="lofi" data-theme-target="lofi" data-theme-role="dropdown-option" role="option" aria-pressed="false" class="w-full group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition hover:bg-base-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer"><div data-theme="lofi" class="grid h-8 w-8 shrink-0 grid-cols-2 gap-0.5 rounded-md border border-base-200 bg-base-100 p-0.5 shadow-sm"><div class="rounded-full bg-base-content"></div><div class="rounded-full bg-primary"></div><div class="rounded-full bg-secondary"></div><div class="rounded-full bg-accent"></div></div><span class="flex-1 text-left font-medium text-base-content truncate">
+                Lo-Fi
+              </span><span data-theme-active-indicator=""><svg width="24" height="24" class="size-4 text-primary opacity-0 scale-75 transition-all" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path></svg></span></button></li><li class="w-full"><button type="button" phx-click="[[&quot;dispatch&quot;,{&quot;event&quot;:&quot;phx:set-theme&quot;,&quot;detail&quot;:{&quot;theme&quot;:&quot;pastel&quot;}}]]" data-phx-theme="pastel" data-tip="pastel" data-theme-target="pastel" data-theme-role="dropdown-option" role="option" aria-pressed="false" class="w-full group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition hover:bg-base-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer"><div data-theme="pastel" class="grid h-8 w-8 shrink-0 grid-cols-2 gap-0.5 rounded-md border border-base-200 bg-base-100 p-0.5 shadow-sm"><div class="rounded-full bg-base-content"></div><div class="rounded-full bg-primary"></div><div class="rounded-full bg-secondary"></div><div class="rounded-full bg-accent"></div></div><span class="flex-1 text-left font-medium text-base-content truncate">
+                Pastel
+              </span><span data-theme-active-indicator=""><svg width="24" height="24" class="size-4 text-primary opacity-0 scale-75 transition-all" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path></svg></span></button></li><li class="w-full"><button type="button" phx-click="[[&quot;dispatch&quot;,{&quot;event&quot;:&quot;phx:set-theme&quot;,&quot;detail&quot;:{&quot;theme&quot;:&quot;fantasy&quot;}}]]" data-phx-theme="fantasy" data-tip="fantasy" data-theme-target="fantasy" data-theme-role="dropdown-option" role="option" aria-pressed="false" class="w-full group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition hover:bg-base-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer"><div data-theme="fantasy" class="grid h-8 w-8 shrink-0 grid-cols-2 gap-0.5 rounded-md border border-base-200 bg-base-100 p-0.5 shadow-sm"><div class="rounded-full bg-base-content"></div><div class="rounded-full bg-primary"></div><div class="rounded-full bg-secondary"></div><div class="rounded-full bg-accent"></div></div><span class="flex-1 text-left font-medium text-base-content truncate">
+                Fantasy
+              </span><span data-theme-active-indicator=""><svg width="24" height="24" class="size-4 text-primary opacity-0 scale-75 transition-all" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path></svg></span></button></li><li class="w-full"><button type="button" phx-click="[[&quot;dispatch&quot;,{&quot;event&quot;:&quot;phx:set-theme&quot;,&quot;detail&quot;:{&quot;theme&quot;:&quot;wireframe&quot;}}]]" data-phx-theme="wireframe" data-tip="wireframe" data-theme-target="wireframe" data-theme-role="dropdown-option" role="option" aria-pressed="false" class="w-full group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition hover:bg-base-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer"><div data-theme="wireframe" class="grid h-8 w-8 shrink-0 grid-cols-2 gap-0.5 rounded-md border border-base-200 bg-base-100 p-0.5 shadow-sm"><div class="rounded-full bg-base-content"></div><div class="rounded-full bg-primary"></div><div class="rounded-full bg-secondary"></div><div class="rounded-full bg-accent"></div></div><span class="flex-1 text-left font-medium text-base-content truncate">
+                Wireframe
+              </span><span data-theme-active-indicator=""><svg width="24" height="24" class="size-4 text-primary opacity-0 scale-75 transition-all" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path></svg></span></button></li><li class="w-full"><button type="button" phx-click="[[&quot;dispatch&quot;,{&quot;event&quot;:&quot;phx:set-theme&quot;,&quot;detail&quot;:{&quot;theme&quot;:&quot;black&quot;}}]]" data-phx-theme="black" data-tip="black" data-theme-target="black" data-theme-role="dropdown-option" role="option" aria-pressed="false" class="w-full group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition hover:bg-base-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer"><div data-theme="black" class="grid h-8 w-8 shrink-0 grid-cols-2 gap-0.5 rounded-md border border-base-200 bg-base-100 p-0.5 shadow-sm"><div class="rounded-full bg-base-content"></div><div class="rounded-full bg-primary"></div><div class="rounded-full bg-secondary"></div><div class="rounded-full bg-accent"></div></div><span class="flex-1 text-left font-medium text-base-content truncate">
+                Black
+              </span><span data-theme-active-indicator=""><svg width="24" height="24" class="size-4 text-primary opacity-0 scale-75 transition-all" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path></svg></span></button></li><li class="w-full"><button type="button" phx-click="[[&quot;dispatch&quot;,{&quot;event&quot;:&quot;phx:set-theme&quot;,&quot;detail&quot;:{&quot;theme&quot;:&quot;luxury&quot;}}]]" data-phx-theme="luxury" data-tip="luxury" data-theme-target="luxury" data-theme-role="dropdown-option" role="option" aria-pressed="false" class="w-full group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition hover:bg-base-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer"><div data-theme="luxury" class="grid h-8 w-8 shrink-0 grid-cols-2 gap-0.5 rounded-md border border-base-200 bg-base-100 p-0.5 shadow-sm"><div class="rounded-full bg-base-content"></div><div class="rounded-full bg-primary"></div><div class="rounded-full bg-secondary"></div><div class="rounded-full bg-accent"></div></div><span class="flex-1 text-left font-medium text-base-content truncate">
+                Luxury
+              </span><span data-theme-active-indicator=""><svg width="24" height="24" class="size-4 text-primary opacity-0 scale-75 transition-all" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path></svg></span></button></li><li class="w-full"><button type="button" phx-click="[[&quot;dispatch&quot;,{&quot;event&quot;:&quot;phx:set-theme&quot;,&quot;detail&quot;:{&quot;theme&quot;:&quot;dracula&quot;}}]]" data-phx-theme="dracula" data-tip="dracula" data-theme-target="dracula" data-theme-role="dropdown-option" role="option" aria-pressed="false" class="w-full group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition hover:bg-base-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer"><div data-theme="dracula" class="grid h-8 w-8 shrink-0 grid-cols-2 gap-0.5 rounded-md border border-base-200 bg-base-100 p-0.5 shadow-sm"><div class="rounded-full bg-base-content"></div><div class="rounded-full bg-primary"></div><div class="rounded-full bg-secondary"></div><div class="rounded-full bg-accent"></div></div><span class="flex-1 text-left font-medium text-base-content truncate">
+                Dracula
+              </span><span data-theme-active-indicator=""><svg width="24" height="24" class="size-4 text-primary opacity-0 scale-75 transition-all" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path></svg></span></button></li><li class="w-full"><button type="button" phx-click="[[&quot;dispatch&quot;,{&quot;event&quot;:&quot;phx:set-theme&quot;,&quot;detail&quot;:{&quot;theme&quot;:&quot;cmyk&quot;}}]]" data-phx-theme="cmyk" data-tip="cmyk" data-theme-target="cmyk" data-theme-role="dropdown-option" role="option" aria-pressed="false" class="w-full group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition hover:bg-base-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer"><div data-theme="cmyk" class="grid h-8 w-8 shrink-0 grid-cols-2 gap-0.5 rounded-md border border-base-200 bg-base-100 p-0.5 shadow-sm"><div class="rounded-full bg-base-content"></div><div class="rounded-full bg-primary"></div><div class="rounded-full bg-secondary"></div><div class="rounded-full bg-accent"></div></div><span class="flex-1 text-left font-medium text-base-content truncate">
+                CMYK
+              </span><span data-theme-active-indicator=""><svg width="24" height="24" class="size-4 text-primary opacity-0 scale-75 transition-all" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path></svg></span></button></li><li class="w-full"><button type="button" phx-click="[[&quot;dispatch&quot;,{&quot;event&quot;:&quot;phx:set-theme&quot;,&quot;detail&quot;:{&quot;theme&quot;:&quot;autumn&quot;}}]]" data-phx-theme="autumn" data-tip="autumn" data-theme-target="autumn" data-theme-role="dropdown-option" role="option" aria-pressed="false" class="w-full group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition hover:bg-base-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer"><div data-theme="autumn" class="grid h-8 w-8 shrink-0 grid-cols-2 gap-0.5 rounded-md border border-base-200 bg-base-100 p-0.5 shadow-sm"><div class="rounded-full bg-base-content"></div><div class="rounded-full bg-primary"></div><div class="rounded-full bg-secondary"></div><div class="rounded-full bg-accent"></div></div><span class="flex-1 text-left font-medium text-base-content truncate">
+                Autumn
+              </span><span data-theme-active-indicator=""><svg width="24" height="24" class="size-4 text-primary opacity-0 scale-75 transition-all" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path></svg></span></button></li><li class="w-full"><button type="button" phx-click="[[&quot;dispatch&quot;,{&quot;event&quot;:&quot;phx:set-theme&quot;,&quot;detail&quot;:{&quot;theme&quot;:&quot;business&quot;}}]]" data-phx-theme="business" data-tip="business" data-theme-target="business" data-theme-role="dropdown-option" role="option" aria-pressed="false" class="w-full group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition hover:bg-base-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer"><div data-theme="business" class="grid h-8 w-8 shrink-0 grid-cols-2 gap-0.5 rounded-md border border-base-200 bg-base-100 p-0.5 shadow-sm"><div class="rounded-full bg-base-content"></div><div class="rounded-full bg-primary"></div><div class="rounded-full bg-secondary"></div><div class="rounded-full bg-accent"></div></div><span class="flex-1 text-left font-medium text-base-content truncate">
+                Business
+              </span><span data-theme-active-indicator=""><svg width="24" height="24" class="size-4 text-primary opacity-0 scale-75 transition-all" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path></svg></span></button></li><li class="w-full"><button type="button" phx-click="[[&quot;dispatch&quot;,{&quot;event&quot;:&quot;phx:set-theme&quot;,&quot;detail&quot;:{&quot;theme&quot;:&quot;acid&quot;}}]]" data-phx-theme="acid" data-tip="acid" data-theme-target="acid" data-theme-role="dropdown-option" role="option" aria-pressed="false" class="w-full group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition hover:bg-base-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer"><div data-theme="acid" class="grid h-8 w-8 shrink-0 grid-cols-2 gap-0.5 rounded-md border border-base-200 bg-base-100 p-0.5 shadow-sm"><div class="rounded-full bg-base-content"></div><div class="rounded-full bg-primary"></div><div class="rounded-full bg-secondary"></div><div class="rounded-full bg-accent"></div></div><span class="flex-1 text-left font-medium text-base-content truncate">
+                Acid
+              </span><span data-theme-active-indicator=""><svg width="24" height="24" class="size-4 text-primary opacity-0 scale-75 transition-all" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path></svg></span></button></li><li class="w-full"><button type="button" phx-click="[[&quot;dispatch&quot;,{&quot;event&quot;:&quot;phx:set-theme&quot;,&quot;detail&quot;:{&quot;theme&quot;:&quot;lemonade&quot;}}]]" data-phx-theme="lemonade" data-tip="lemonade" data-theme-target="lemonade" data-theme-role="dropdown-option" role="option" aria-pressed="false" class="w-full group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition hover:bg-base-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer"><div data-theme="lemonade" class="grid h-8 w-8 shrink-0 grid-cols-2 gap-0.5 rounded-md border border-base-200 bg-base-100 p-0.5 shadow-sm"><div class="rounded-full bg-base-content"></div><div class="rounded-full bg-primary"></div><div class="rounded-full bg-secondary"></div><div class="rounded-full bg-accent"></div></div><span class="flex-1 text-left font-medium text-base-content truncate">
+                Lemonade
+              </span><span data-theme-active-indicator=""><svg width="24" height="24" class="size-4 text-primary opacity-0 scale-75 transition-all" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path></svg></span></button></li><li class="w-full"><button type="button" phx-click="[[&quot;dispatch&quot;,{&quot;event&quot;:&quot;phx:set-theme&quot;,&quot;detail&quot;:{&quot;theme&quot;:&quot;night&quot;}}]]" data-phx-theme="night" data-tip="night" data-theme-target="night" data-theme-role="dropdown-option" role="option" aria-pressed="false" class="w-full group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition hover:bg-base-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer"><div data-theme="night" class="grid h-8 w-8 shrink-0 grid-cols-2 gap-0.5 rounded-md border border-base-200 bg-base-100 p-0.5 shadow-sm"><div class="rounded-full bg-base-content"></div><div class="rounded-full bg-primary"></div><div class="rounded-full bg-secondary"></div><div class="rounded-full bg-accent"></div></div><span class="flex-1 text-left font-medium text-base-content truncate">
+                Night
+              </span><span data-theme-active-indicator=""><svg width="24" height="24" class="size-4 text-primary opacity-0 scale-75 transition-all" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path></svg></span></button></li><li class="w-full"><button type="button" phx-click="[[&quot;dispatch&quot;,{&quot;event&quot;:&quot;phx:set-theme&quot;,&quot;detail&quot;:{&quot;theme&quot;:&quot;coffee&quot;}}]]" data-phx-theme="coffee" data-tip="coffee" data-theme-target="coffee" data-theme-role="dropdown-option" role="option" aria-pressed="false" class="w-full group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition hover:bg-base-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer"><div data-theme="coffee" class="grid h-8 w-8 shrink-0 grid-cols-2 gap-0.5 rounded-md border border-base-200 bg-base-100 p-0.5 shadow-sm"><div class="rounded-full bg-base-content"></div><div class="rounded-full bg-primary"></div><div class="rounded-full bg-secondary"></div><div class="rounded-full bg-accent"></div></div><span class="flex-1 text-left font-medium text-base-content truncate">
+                Coffee
+              </span><span data-theme-active-indicator=""><svg width="24" height="24" class="size-4 text-primary opacity-0 scale-75 transition-all" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path></svg></span></button></li><li class="w-full"><button type="button" phx-click="[[&quot;dispatch&quot;,{&quot;event&quot;:&quot;phx:set-theme&quot;,&quot;detail&quot;:{&quot;theme&quot;:&quot;winter&quot;}}]]" data-phx-theme="winter" data-tip="winter" data-theme-target="winter" data-theme-role="dropdown-option" role="option" aria-pressed="false" class="w-full group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition hover:bg-base-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer"><div data-theme="winter" class="grid h-8 w-8 shrink-0 grid-cols-2 gap-0.5 rounded-md border border-base-200 bg-base-100 p-0.5 shadow-sm"><div class="rounded-full bg-base-content"></div><div class="rounded-full bg-primary"></div><div class="rounded-full bg-secondary"></div><div class="rounded-full bg-accent"></div></div><span class="flex-1 text-left font-medium text-base-content truncate">
+                Winter
+              </span><span data-theme-active-indicator=""><svg width="24" height="24" class="size-4 text-primary opacity-0 scale-75 transition-all" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path></svg></span></button></li><li class="w-full"><button type="button" phx-click="[[&quot;dispatch&quot;,{&quot;event&quot;:&quot;phx:set-theme&quot;,&quot;detail&quot;:{&quot;theme&quot;:&quot;dim&quot;}}]]" data-phx-theme="dim" data-tip="dim" data-theme-target="dim" data-theme-role="dropdown-option" role="option" aria-pressed="false" class="w-full group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition hover:bg-base-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer"><div data-theme="dim" class="grid h-8 w-8 shrink-0 grid-cols-2 gap-0.5 rounded-md border border-base-200 bg-base-100 p-0.5 shadow-sm"><div class="rounded-full bg-base-content"></div><div class="rounded-full bg-primary"></div><div class="rounded-full bg-secondary"></div><div class="rounded-full bg-accent"></div></div><span class="flex-1 text-left font-medium text-base-content truncate">
+                Dim
+              </span><span data-theme-active-indicator=""><svg width="24" height="24" class="size-4 text-primary opacity-0 scale-75 transition-all" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path></svg></span></button></li><li class="w-full"><button type="button" phx-click="[[&quot;dispatch&quot;,{&quot;event&quot;:&quot;phx:set-theme&quot;,&quot;detail&quot;:{&quot;theme&quot;:&quot;nord&quot;}}]]" data-phx-theme="nord" data-tip="nord" data-theme-target="nord" data-theme-role="dropdown-option" role="option" aria-pressed="false" class="w-full group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition hover:bg-base-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer"><div data-theme="nord" class="grid h-8 w-8 shrink-0 grid-cols-2 gap-0.5 rounded-md border border-base-200 bg-base-100 p-0.5 shadow-sm"><div class="rounded-full bg-base-content"></div><div class="rounded-full bg-primary"></div><div class="rounded-full bg-secondary"></div><div class="rounded-full bg-accent"></div></div><span class="flex-1 text-left font-medium text-base-content truncate">
+                Nord
+              </span><span data-theme-active-indicator=""><svg width="24" height="24" class="size-4 text-primary opacity-0 scale-75 transition-all" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path></svg></span></button></li><li class="w-full"><button type="button" phx-click="[[&quot;dispatch&quot;,{&quot;event&quot;:&quot;phx:set-theme&quot;,&quot;detail&quot;:{&quot;theme&quot;:&quot;sunset&quot;}}]]" data-phx-theme="sunset" data-tip="sunset" data-theme-target="sunset" data-theme-role="dropdown-option" role="option" aria-pressed="false" class="w-full group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition hover:bg-base-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer"><div data-theme="sunset" class="grid h-8 w-8 shrink-0 grid-cols-2 gap-0.5 rounded-md border border-base-200 bg-base-100 p-0.5 shadow-sm"><div class="rounded-full bg-base-content"></div><div class="rounded-full bg-primary"></div><div class="rounded-full bg-secondary"></div><div class="rounded-full bg-accent"></div></div><span class="flex-1 text-left font-medium text-base-content truncate">
+                Sunset
+              </span><span data-theme-active-indicator=""><svg width="24" height="24" class="size-4 text-primary opacity-0 scale-75 transition-all" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path></svg></span></button></li><li class="w-full"><button type="button" phx-click="[[&quot;dispatch&quot;,{&quot;event&quot;:&quot;phx:set-theme&quot;,&quot;detail&quot;:{&quot;theme&quot;:&quot;caramellatte&quot;}}]]" data-phx-theme="caramellatte" data-tip="caramellatte" data-theme-target="caramellatte" data-theme-role="dropdown-option" role="option" aria-pressed="false" class="w-full group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition hover:bg-base-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer"><div data-theme="caramellatte" class="grid h-8 w-8 shrink-0 grid-cols-2 gap-0.5 rounded-md border border-base-200 bg-base-100 p-0.5 shadow-sm"><div class="rounded-full bg-base-content"></div><div class="rounded-full bg-primary"></div><div class="rounded-full bg-secondary"></div><div class="rounded-full bg-accent"></div></div><span class="flex-1 text-left font-medium text-base-content truncate">
+                Caramel Latte
+              </span><span data-theme-active-indicator=""><svg width="24" height="24" class="size-4 text-primary opacity-0 scale-75 transition-all" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path></svg></span></button></li><li class="w-full"><button type="button" phx-click="[[&quot;dispatch&quot;,{&quot;event&quot;:&quot;phx:set-theme&quot;,&quot;detail&quot;:{&quot;theme&quot;:&quot;abyss&quot;}}]]" data-phx-theme="abyss" data-tip="abyss" data-theme-target="abyss" data-theme-role="dropdown-option" role="option" aria-pressed="false" class="w-full group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition hover:bg-base-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer"><div data-theme="abyss" class="grid h-8 w-8 shrink-0 grid-cols-2 gap-0.5 rounded-md border border-base-200 bg-base-100 p-0.5 shadow-sm"><div class="rounded-full bg-base-content"></div><div class="rounded-full bg-primary"></div><div class="rounded-full bg-secondary"></div><div class="rounded-full bg-accent"></div></div><span class="flex-1 text-left font-medium text-base-content truncate">
+                Abyss
+              </span><span data-theme-active-indicator=""><svg width="24" height="24" class="size-4 text-primary opacity-0 scale-75 transition-all" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path></svg></span></button></li><li class="w-full"><button type="button" phx-click="[[&quot;dispatch&quot;,{&quot;event&quot;:&quot;phx:set-theme&quot;,&quot;detail&quot;:{&quot;theme&quot;:&quot;silk&quot;}}]]" data-phx-theme="silk" data-tip="silk" data-theme-target="silk" data-theme-role="dropdown-option" role="option" aria-pressed="false" class="w-full group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition hover:bg-base-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer"><div data-theme="silk" class="grid h-8 w-8 shrink-0 grid-cols-2 gap-0.5 rounded-md border border-base-200 bg-base-100 p-0.5 shadow-sm"><div class="rounded-full bg-base-content"></div><div class="rounded-full bg-primary"></div><div class="rounded-full bg-secondary"></div><div class="rounded-full bg-accent"></div></div><span class="flex-1 text-left font-medium text-base-content truncate">
+                Silk
+              </span><span data-theme-active-indicator=""><svg width="24" height="24" class="size-4 text-primary opacity-0 scale-75 transition-all" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path></svg></span></button></li></ul></details></div></div><a href="/en/users/log-in" class="btn btn-primary btn-sm">
+    Login
+  </a></div></div></header><div id="admin-drawer" class="drawer "><input id="admin-mobile-menu" type="checkbox" class="drawer-toggle"/><div class="drawer-content flex min-h-screen flex-col bg-base-100 transition-colors pt-16"><div class="flex-1"><div class="flex flex-col mx-auto max-w-2xl px-4 py-8 gap-6"><div data-phx-component="1" id="pdf-search-modal"></div><div role="tablist" class="tabs tabs-border"><button type="button" phx-click="switch_tab" phx-value-tab="details" class="tab tab-active"><span class="hero-document-text w-4 h-4 mr-1"></span>
+      Details
+    </button><button type="button" phx-click="switch_tab" phx-value-tab="metadata" class="tab "><span class="hero-swatch w-4 h-4 mr-1"></span>
+      Attributes
+      
+    </button><button type="button" phx-click="switch_tab" phx-value-tab="sourcing" class="tab "><span class="hero-building-storefront w-4 h-4 mr-1"></span>
+      Suppliers and Manufacturer
+      
+    </button><button type="button" phx-click="switch_tab" phx-value-tab="files" class="tab "><span class="hero-paper-clip w-4 h-4 mr-1"></span>
+      Photos and Files
+      
+      
+    </button></div><dialog data-phx-component="2" id="media-selector-modal-backdrop-item-form-media-selector" class="fixed inset-0 z-[10001] m-0 h-full max-h-none w-full max-w-none overflow-y-auto border-0 bg-base-300/80 p-0 backdrop-blur-sm" phx-hook="PkDialog" data-show="false" data-close-event="close_modal" phx-click="close_modal" phx-target="2" aria-labelledby="media-selector-modal-title-item-form-media-selector"><div class="min-h-screen px-2 py-2 sm:px-4 sm:py-6 flex items-center justify-center"><div class="bg-base-100 rounded-lg shadow-2xl max-w-7xl w-full max-h-[90vh] overflow-hidden flex flex-col" phx-click="noop" phx-target="2"><header class="border-b border-base-200 px-3 py-3 sm:px-6 sm:py-4"><div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"><div><h2 id="media-selector-modal-title-item-form-media-selector" class="text-xl sm:text-2xl font-bold text-base-content">
+              Select Featured Image
+            </h2><p class="text-base-content/70 text-sm mt-1">
+              Click on an image to select it
+
+
+            </p></div><div class="flex gap-2 sm:shrink-0"><button type="button" phx-click="close_modal" phx-target="2" class="btn btn-outline btn-sm flex-1 sm:flex-none">
+              Cancel
+            </button><button type="button" phx-click="confirm_selection" phx-target="2" class="btn btn-primary btn-sm flex-1 sm:flex-none" disabled=""><span class="hero-check w-4 h-4"></span> Confirm
+            </button></div></div></header><div class="flex-1 overflow-y-auto px-3 py-3 sm:px-6 sm:py-4 space-y-4"><div class="card bg-base-200 shadow-md "><div class="card-body p-4"><h3 class="font-semibold text-sm mb-3 flex items-center gap-2"><span class="hero-arrow-up-tray w-4 h-4"></span> Upload New Files
+            </h3><form id="item-form-media-selector-upload-form" phx-change="validate" phx-submit="save" phx-target="2"><div class="border-2 border-dashed border-base-300 rounded-lg p-3 sm:p-6 text-center transition-colors cursor-pointer hover:border-primary hover:bg-primary/5" phx-drop-target="phx-ID"><label for="phx-ID" class="cursor-pointer block"><div class="flex flex-col items-center gap-2"><span class="hero-cloud-arrow-up w-8 h-8 text-primary"></span><div><p class="font-semibold text-base-content text-sm">
+                          Drag files here or click to browse
+                        </p><p class="text-xs text-base-content/70 mt-1">
+                          Images
+                        </p></div></div></label><input id="phx-ID" type="file" name="media_files" accept=".jpg,.jpeg,.png,.gif,.webp,.svg,.bmp,.avif,.heic,.heif" data-phx-hook="Phoenix.LiveFileUpload" data-phx-upload-ref="phx-ID" data-phx-active-refs="" data-phx-done-refs="" data-phx-preflighted-refs="" data-phx-auto-upload="" class="hidden" multiple=""/></div></form></div></div><div class="space-y-4"><div class="text-center py-10"><span class="hero-photo w-12 h-12 mx-auto mb-3 text-base-content/30"></span><p class="text-sm text-base-content/70 mb-1">No images yet</p><p class="text-xs text-base-content/50">
+                  Upload your first one using the area above
+                </p></div></div></div></div></div></dialog><form action="#" method="post" phx-submit="save" phx-change="validate" id="item-form"><input name="_method" type="hidden" hidden="" value="put"/><input name="_csrf_token" type="hidden" hidden="" value="C"/><div class="card bg-base-100 shadow-lg "><div id="form-fields" data-translatable="fields" class=""><div class="card-body flex flex-col gap-5 pb-0"><div class="flex flex-col gap-1" phx-feedback-for="item[name]"><label for="item_name" class="label"><span class="font-semibold">
+      Name
+      
+        *
+      
+    </span></label><input type="text" name="item[name]" id="item_name" value="Snapshot Item" class="input w-full w-full" placeholder="e.g., Oak Panel 18mm" phx-debounce="300" required=""/></div><div phx-feedback-for="item[slug][en-US]" class=""><label class="label mb-2" for="item_slug"><span class="font-semibold">URL slug</span></label><input type="text" name="item[slug][en-US]" id="item_slug" value="" class="input w-full transition-colors focus:input-primary w-full" placeholder="auto-generated from the name"/></div><div class="flex flex-col gap-1" phx-feedback-for="item[description]"><label for="item_description" class="label"><span class="font-semibold">
+      Description
+      
+    </span></label><textarea name="item[description]" id="item_description" class="textarea w-full w-full" rows="3" phx-debounce="300"></textarea></div><div phx-feedback-for="item[seo_title]" class=""><label class="label mb-2"><span class="font-semibold">SEO title</span></label><input type="text" name="item[seo_title]" value="" class="input w-full transition-colors focus:input-primary w-full"/></div><div phx-feedback-for="item[seo_description]" class=""><label class="label mb-2"><span class="font-semibold">SEO description</span></label><input type="text" name="item[seo_description]" value="" class="input w-full transition-colors focus:input-primary w-full"/></div></div></div><div class="card-body flex flex-col gap-5 pt-0"><div class="flex flex-col gap-5"><div class="divider my-0"></div><h2 class="text-base font-semibold text-base-content/80 flex items-center gap-2"><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"></path></svg>
+            Pricing &amp; Identification
+          </h2><div class="grid grid-cols-1 md:grid-cols-3 gap-4"><div phx-feedback-for="item[sku]" class=""><label class="label mb-2" for="item_sku"><span class="font-semibold">SKU</span></label><input type="text" name="item[sku]" id="item_sku" value="SNAP-1" class="input w-full transition-colors focus:input-primary font-mono" placeholder="e.g., KF-001"/></div><div class="fieldset"><div phx-feedback-for="item[base_price]" class=""><label class="label mb-2" for="item_base_price"><span class="font-semibold">Base Price</span></label><input type="number" name="item[base_price]" id="item_base_price" class="input w-full transition-colors focus:input-primary " min="0" step="0.01" placeholder="0.00"/></div><span class="fieldset-label text-base-content/50 mt-1">
+                Cost/purchase price before catalogue markup.
+              </span></div><div><label class="label mb-2" for="item_unit"><span class="font-semibold">
+                  Unit
+                </span></label><div phx-feedback-for="item[unit]"><label class="select w-full transition-colors focus-within:select-primary"><select id="item_unit" name="item[unit]"><option selected="" value="piece">Piece</option><option value="m2">m² (square meter)</option><option value="running_meter">Running meter</option><option value="set">Set (kmpl)</option></select></label></div></div><div class="fieldset"><div phx-feedback-for="item[markup_percentage]" class=""><label class="label mb-2" for="item_markup_percentage"><span class="font-semibold">Markup Override (%)</span></label><input type="number" name="item[markup_percentage]" id="item_markup_percentage" class="input w-full transition-colors focus:input-primary " min="0" step="0.01" placeholder="Inherit: 0.00%"/></div><span class="fieldset-label text-base-content/50 mt-1">
+                Leave blank to inherit the catalogue&#39;s markup. Set (including 0) to override just this item.
+              </span></div><div class="fieldset"><div phx-feedback-for="item[discount_percentage]" class=""><label class="label mb-2" for="item_discount_percentage"><span class="font-semibold">Discount Override (%)</span></label><input type="number" name="item[discount_percentage]" id="item_discount_percentage" class="input w-full transition-colors focus:input-primary " max="100" min="0" step="0.01" placeholder="Inherit: 0.00%"/></div><span class="fieldset-label text-base-content/50 mt-1">
+                Leave blank to inherit the catalogue&#39;s discount. Set (including 0) to override just this item.
+              </span></div></div></div><div class="flex flex-col gap-5"><div class="divider my-0"></div><h2 class="text-base font-semibold text-base-content/80 flex items-center gap-2"><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>
+            Classification
+          </h2><div class="grid grid-cols-1 gap-4"><div phx-feedback-for="item[category_uuid]"><label for="item_category_uuid" class="label mb-2 block"><span class="font-semibold">
+    
+    Category
+  
+  </span></label><label class="select w-full transition-colors focus-within:select-primary"><select id="item_category_uuid" name="item[category_uuid]"><option value="">-- No category --</option></select></label></div></div></div><div class="fieldset"><div phx-feedback-for="item[status]"><label for="item_status" class="label mb-2 block"><span class="font-semibold">
+    
+    Status
+  
+  </span></label><label class="select w-full transition-colors focus-within:select-primary"><select id="item_status" name="item[status]"><option selected="" value="active">Active</option><option value="inactive">Inactive</option><option value="discontinued">Discontinued</option></select></label></div><span class="fieldset-label text-base-content/50 mt-1">
+            Discontinued items are kept for reference but hidden from active listings.
+          </span></div></div></div><div class="flex flex-col gap-4 hidden"><div class="card bg-base-100 shadow-lg"><div class="card-body flex flex-col gap-4"><div class="flex items-center justify-between gap-4"><div class="flex flex-col gap-0.5 min-w-0"><h2 class="text-base font-semibold text-base-content/80 flex items-center gap-2"><span class="hero-swatch w-4 h-4"></span>
+                Attribute group
+              </h2><p class="text-xs text-base-content/50">
+                Pick a group to give this item its options — colors, trims, surfaces. Applied when you save.
+              </p></div><a href="/en/admin/catalogue/attributes" data-phx-link="redirect" data-phx-link-state="push" class="btn btn-ghost btn-xs shrink-0">
+              Manage groups
+            </a></div><div phx-feedback-for="attribute_group_uuid"><label class="select w-full w-full transition-colors focus-within:select-primary"><select name="attribute_group_uuid"><option value="">— No attribute group —</option></select></label></div></div></div></div><div class="card bg-base-100 shadow-lg hidden"><div class="card-body flex flex-col gap-5"><div class="flex flex-col gap-3"><h2 class="text-base font-semibold text-base-content/80 flex items-center gap-2"><span class="hero-building-office w-4 h-4"></span>
+            Manufacturer
+          </h2><div phx-feedback-for="item[manufacturer_uuid]"><label class="select w-full transition-colors focus-within:select-primary"><select id="item_manufacturer_uuid" name="item[manufacturer_uuid]"><option value="">-- No manufacturer --</option></select></label></div></div><div class="flex flex-col gap-4"><div class="divider my-0"></div><div class="flex items-center justify-between gap-2"><h2 class="text-base font-semibold text-base-content/80 flex items-center gap-2"><span class="hero-building-storefront w-4 h-4"></span>
+            Suppliers
+          </h2><div class="flex items-center gap-2"><button type="button" class="btn btn-primary btn-sm phx-submit-loading:opacity-75" phx-click="open_add_supplier"><span class="hero-plus w-4 h-4"></span>
+              Add Supplier
+            
+</button></div></div><div class="text-sm text-base-content/50 italic py-2">
+          No suppliers linked yet.
+        </div></div></div></div><div class="mb-4 hidden"><div class="card bg-base-100 shadow-lg "><div class="card-body flex flex-col gap-3"><div class="flex items-center justify-between"><h2 class="text-base font-semibold text-base-content/80 flex items-center gap-2"><span class="hero-photo w-4 h-4"></span>
+        Featured Image
+      </h2><span class="text-xs text-base-content/50">Shown in lists and detail views.</span></div><div class="flex items-center justify-between py-4 border border-dashed border-base-300 rounded-md px-4"><div class="flex items-center gap-3 text-base-content/60"><span class="hero-photo w-6 h-6"></span><span class="text-sm">
+            No featured image set.
+          </span></div><button type="button" phx-click="open_featured_image_picker" class="btn btn-sm btn-primary"><span class="hero-plus w-4 h-4 mr-1"></span>
+          Set featured image
+        </button></div></div></div><div class="card bg-base-100 shadow-lg"><div class="card-body flex flex-col gap-4"><div class="flex flex-col gap-0.5"><h2 class="text-base font-semibold text-base-content/80 flex items-center gap-2"><span class="hero-paper-clip w-4 h-4"></span>
+        Attached Files
+        
+      </h2><p class="text-xs text-base-content/50">Spec sheets, drawings, photos. Any file type is accepted.</p></div><label for="phx-ID" class="flex flex-col items-center justify-center gap-2 py-6 border-2 border-dashed border-base-300 rounded-md bg-base-200/20 hover:bg-base-200/40 transition-colors cursor-pointer" phx-drop-target="phx-ID"><span class="hero-cloud-arrow-up w-8 h-8 text-base-content/40"></span><div class="text-sm text-base-content/60"><span class="font-medium text-primary">
+          Click to upload
+        </span><span> or drag &amp; drop</span></div><input id="phx-ID" type="file" name="attachment_files" data-phx-hook="Phoenix.LiveFileUpload" data-phx-upload-ref="phx-ID" data-phx-active-refs="" data-phx-done-refs="" data-phx-preflighted-refs="" data-phx-auto-upload="" class="hidden" multiple=""/></label><div class="flex flex-col items-center gap-2 py-10 text-center border border-dashed border-base-300 rounded-md"><span class="hero-paper-clip w-8 h-8 text-base-content/30"></span><p class="text-sm text-base-content/50">
+          No files attached yet.
+        </p></div></div></div></div><div class="flex justify-end gap-3 pt-2"><a href="/en/admin/catalogue/UUID" data-phx-link="redirect" data-phx-link-state="push" class="btn btn-ghost phx-submit-loading:opacity-75">
+  
+        Cancel
+      
+</a><button type="submit" class="btn btn-primary phx-submit-loading:opacity-75 btn-outline" name="save_action" value="stay" phx-disable-with="Saving...">
+  
+        Save
+      
+</button><button type="submit" class="btn btn-primary phx-submit-loading:opacity-75" name="save_action" value="exit" phx-disable-with="Saving...">
+  
+        Save &amp; Exit
+      
+</button></div><div class="flex items-center justify-between bg-base-200 rounded-lg p-3 gap-3 mt-4"><div class="text-sm"><div class="font-medium">
+          Find this item in PDFs
+        </div><div class="text-xs text-base-content/60">
+          Searches the entire PDF library for the item&#39;s name across all enabled languages.
+        </div></div><button type="button" class="btn btn-primary btn-sm phx-submit-loading:opacity-75" phx-click="open_pdf_search"><span class="hero-magnifying-glass w-4 h-4"></span>
+        Search PDFs
+      
+</button></div></form></div></div><div id="pk-collapse-pad" data-pk-collapse-pad="" aria-hidden="true" class="shrink-0" phx-mounted="[[&quot;ignore_attrs&quot;,{&quot;attrs&quot;:[&quot;style&quot;]}]]"></div></div></div><script>
+  // Mobile drawer and burger menu navigation
+  document.addEventListener('DOMContentLoaded', function() {
+    const drawerToggle = document.getElementById('admin-mobile-menu');
+    const adminDrawer = document.getElementById('admin-drawer');
+    const burgerMenuButton = document.querySelector('label[for="admin-mobile-menu"]');
+
+    // Close mobile drawer on navigation
+    const mainNavLinks = document.querySelectorAll('.drawer-side a');
+
+    mainNavLinks.forEach(link => {
+      link.addEventListener('click', () => {
+        if (drawerToggle && window.innerWidth < 1024) {
+          drawerToggle.checked = false;
+        }
+      });
+    });
+
+    // Handle burger menu toggle for desktop
+    if (burgerMenuButton && adminDrawer) {
+      burgerMenuButton.addEventListener('click', () => {
+        // On desktop (>= 1024px), toggle the sidebar-closed class
+        if (window.innerWidth >= 1024) {
+          adminDrawer.classList.toggle('sidebar-closed');
+        }
+        // On mobile, default checkbox behavior handles it
+      });
+    }
+  });
+</script><script>
+  (function () {
+    // One instance per page, whichever layout renders first.
+    if (window.__pkThemeController) return;
+    window.__pkThemeController = true;
+
+    const STORAGE_KEY = 'phx:theme';
+    const themeBaseMap = {"corporate":"light","pastel":"light","abyss":"dark","retro":"light","nord":"dark","black":"dark","lemonade":"light","synthwave":"dark","night":"dark","business":"dark","lofi":"light","valentine":"light","autumn":"light","sunset":"dark","dark":"dark","aqua":"light","phoenix-dark":"dark","wireframe":"light","light":"light","coffee":"dark","dracula":"dark","phoenix-light":"light","bumblebee":"light","fantasy":"light","forest":"dark","cmyk":"light","cupcake":"light","luxury":"dark","acid":"light","garden":"light","winter":"light","silk":"light","emerald":"light","caramellatte":"light","cyberpunk":"light","dim":"dark","halloween":"dark"};
+    const themeLabels = {"corporate":"Corporate","pastel":"Pastel","abyss":"Abyss","retro":"Retro","nord":"Nord","black":"Black","lemonade":"Lemonade","synthwave":"Synthwave","night":"Night","business":"Business","lofi":"Lo-Fi","valentine":"Valentine","autumn":"Autumn","sunset":"Sunset","dark":"Dark","aqua":"Aqua","phoenix-dark":"Phoenix Dark","wireframe":"Wireframe","light":"Light","coffee":"Coffee","dracula":"Dracula","phoenix-light":"Phoenix Light","bumblebee":"Bumblebee","fantasy":"Fantasy","forest":"Forest","system":"System","cmyk":"CMYK","cupcake":"Cupcake","luxury":"Luxury","acid":"Acid","garden":"Garden","winter":"Winter","silk":"Silk","emerald":"Emerald","caramellatte":"Caramel Latte","cyberpunk":"Cyberpunk","dim":"Dim","halloween":"Halloween"};
+    // The CONFIGURED light/dark pair "system" resolves to.
+    const systemPair = { light: 'phoenix-light', dark: 'phoenix-dark' };
+    const media = window.matchMedia?.('(prefers-color-scheme: dark)') || null;
+
+    let dispatching = false;
+
+    // localStorage can throw wholesale (sandboxed iframes, storage-blocked
+    // modes). Guarded here so a throw degrades to non-persistent theming
+    // instead of killing init before any listener attaches.
+    const LEGACY_KEY = 'phoenix_kit_theme';
+
+    const storage = {
+      get() {
+        try {
+          return localStorage.getItem(STORAGE_KEY) || localStorage.getItem(LEGACY_KEY);
+        } catch (e) {
+          return null;
+        }
+      },
+      set(value) {
+        try {
+          localStorage.setItem(STORAGE_KEY, value);
+        } catch (e) {}
+      },
+      remove() {
+        try {
+          localStorage.removeItem(STORAGE_KEY);
+        } catch (e) {}
+      }
+    };
+
+    function resolve(theme) {
+      if (theme !== 'system') return theme;
+      return media && media.matches ? systemPair.dark : systemPair.light;
+    }
+
+    function toTitle(value) {
+      return value
+        .split('-')
+        .map((s) => s.charAt(0).toUpperCase() + s.slice(1))
+        .join(' ');
+    }
+
+    // Stamp the theme on the document and mirror it into every picker —
+    // labels, dropdown option indicators, and the pair toggle. Does NOT
+    // persist or dispatch; that is setTheme's half.
+    function apply(theme) {
+      const resolved = resolve(theme);
+
+      [document.documentElement, document.body].forEach((el) => {
+        if (!el) return;
+        el.setAttribute('data-theme', resolved);
+        el.style.colorScheme = themeBaseMap[resolved] || 'light';
+      });
+
+      document.querySelectorAll('[data-theme-current-label]').forEach((el) => {
+        el.textContent = themeLabels[theme] || toTitle(theme);
+      });
+
+      document.querySelectorAll('[data-theme-target]').forEach((btn) => {
+        const targets = (btn.dataset.themeTarget || '')
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean);
+        const isActive = targets.includes(theme) || targets.includes(resolved);
+
+        if (btn.dataset.themeRole === 'toggle') {
+          // The persistent pair toggle: aria-pressed = dark half on, and
+          // data-phx-theme always points at the OTHER theme — it is what
+          // the button's JS.dispatch carries, so the click needs no
+          // state of its own. Icon visibility is CSS (keyed off
+          // html[data-theme], rendered next to the button), correct from
+          // the first paint with no JS involved.
+          const isDark = resolved === btn.dataset.themeDark;
+          btn.setAttribute('aria-pressed', String(isDark));
+          btn.dataset.phxTheme = isDark ? btn.dataset.themeLight : btn.dataset.themeDark;
+        } else if (btn.dataset.themeRole === 'dropdown-option') {
+          btn.classList.toggle('bg-base-200', isActive);
+          btn.classList.toggle('ring-2', isActive);
+          btn.classList.toggle('ring-primary/70', isActive);
+          btn.setAttribute('aria-selected', String(isActive));
+          btn.querySelectorAll('[data-theme-active-indicator]').forEach((icon) => {
+            icon.classList.toggle('opacity-100', isActive);
+            icon.classList.toggle('scale-100', isActive);
+            icon.classList.toggle('scale-75', !isActive);
+          });
+        }
+      });
+    }
+
+    // announce=false when the change arrived as a window event: it
+    // already bubbled past every host listener, and re-dispatching made
+    // hosts hear each selection twice.
+    function setTheme(theme, announce) {
+      apply(theme);
+
+      if (theme === 'system') {
+        storage.remove();
+      } else {
+        storage.set(theme);
+      }
+
+      if (announce && !dispatching) {
+        dispatching = true;
+        try {
+          window.dispatchEvent(new CustomEvent('phx:set-theme', { detail: { theme } }));
+        } catch (error) {
+          console.warn('PhoenixKit theme controller: unable to dispatch phx:set-theme', error);
+        } finally {
+          dispatching = false;
+        }
+      }
+    }
+
+    function init() {
+      // apply, not setTheme: initialization reflects the saved choice
+      // into the UI but should neither rewrite storage nor announce a
+      // change nobody made.
+      apply(storage.get() || 'system');
+
+      // Follow the OS while in system mode.
+      media?.addEventListener('change', () => {
+        if ((storage.get() || 'system') === 'system') apply('system');
+      });
+
+      // A theme picked in another tab: ThemeBootstrap already restamps
+      // the attribute pre-paint on fresh loads; this keeps LIVE pages'
+      // pickers in sync too. apply, not setTheme — the other tab
+      // already persisted.
+      window.addEventListener('storage', (e) => {
+        if (e.key === STORAGE_KEY) apply(e.newValue || 'system');
+      });
+
+      // LiveView patches rebuild picker markup mid-session, wiping the
+      // client-written state (aria-pressed, data-phx-theme, icon
+      // visibility) back to its SSR defaults. Re-stamp after every
+      // completed navigation/patch.
+      window.addEventListener('phx:page-loading-stop', () => apply(storage.get() || 'system'));
+
+      // Theme selections: every picker element (dropdown options and the
+      // pair toggle alike) dispatches phx:set-theme itself via
+      // JS.dispatch, carrying the theme in detail or data-phx-theme.
+      // Skip our own re-dispatches — see the guard in setTheme.
+      window.addEventListener('phx:set-theme', (e) => {
+        const theme = e?.detail?.theme ?? e?.target?.dataset?.phxTheme;
+        if (theme && !dispatching) setTheme(theme, false);
+      });
+
+      // Legacy event name — nothing in the kit emits it anymore, kept
+      // only so hosts that adopted it keep working. Announced, so host
+      // listeners for the modern event still hear the change.
+      document.addEventListener('phx:set-admin-theme', (e) => {
+        if (e?.detail?.theme) setTheme(e.detail.theme, true);
+      });
+    }
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', init);
+    } else {
+      init();
+    }
+  })();
+</script></main></div></body></html>

@@ -95,12 +95,30 @@ defmodule PhoenixKitCatalogue.MixProject do
 
   defp deps do
     [
-      # 2.8 is the floor: the folder-explorer / header work needs
-      # `page_crumbs` on `app_layout`, `Core.ColumnSettings`, and
-      # `table_row_menu_link`'s `patch` attr, plus the UrlState path-param
-      # leak fix (phoenix_kit #719). 2.3–2.7 compile this package with
-      # warnings-as-errors failures.
-      pk_dep(:phoenix_kit, "~> 2.8"),
+      # 2.13.11 is the floor. Two stacked reasons:
+      #   - 2.8 was needed for the folder-explorer / header work
+      #     (`page_crumbs` on `app_layout`, `Core.ColumnSettings`,
+      #     `table_row_menu_link`'s `patch` attr, the UrlState path-param
+      #     leak fix — phoenix_kit #719). 2.3–2.7 compile this package with
+      #     warnings-as-errors failures.
+      #   - The V01 adoption chain (`PhoenixKitCatalogue.Migrations`)
+      #     transcribes core's V178–V180 shape (crm_company_uuid,
+      #     manufacturer_source/supplier_source, the dropped FKs) —
+      #     first shipped in phoenix_kit 2.13.4 (CHANGELOG "## 2.13.4",
+      #     #743). But 2.13.4 through 2.13.10 crash applying V180 itself
+      #     (a bare LOCK TABLE outside a transaction, 25P01
+      #     no_active_sql_transaction — every install with a
+      #     phoenix_kit_cat_manufacturer_suppliers table hits it, adopted
+      #     or not), fixed only in 2.13.11 (CHANGELOG "## 2.13.11"). A
+      #     floor of 2.13.4 would let `mix deps.get` resolve to a version
+      #     whose own migration chain can't reach the shape we assume, so
+      #     the floor is the first release that both ships the shape AND
+      #     can actually get a host there. Patch-precise floor, so a
+      #     two-segment `~> 2.13` (which would still admit the crashing
+      #     2.13.4–2.13.10) won't do — the compound form keeps the
+      #     conventional open ceiling at the next major instead of
+      #     collapsing to one minor (see CorePinConformanceTest).
+      pk_dep(:phoenix_kit, ">= 2.13.11 and < 3.0.0"),
       # mdex_native (pulled in transitively through phoenix_kit's mdex dep)
       # builds from source when MDEX_NATIVE_BUILD=1 is set in the
       # environment; that path requires rustler itself, not just
