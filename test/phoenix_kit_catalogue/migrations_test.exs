@@ -24,8 +24,8 @@ defmodule PhoenixKitCatalogue.MigrationsTest do
     phoenix_kit_cat_item_attribute_sets
   )
 
-  test "chain is V1 and marks phoenix_kit_cat_catalogues" do
-    assert Migrations.current_version() == 1
+  test "chain is V2 and marks phoenix_kit_cat_catalogues" do
+    assert Migrations.current_version() == 2
     assert Migrations.version_table() == "phoenix_kit_cat_catalogues"
   end
 
@@ -38,7 +38,7 @@ defmodule PhoenixKitCatalogue.MigrationsTest do
     end
 
     assert List.last(stmts) ==
-             "COMMENT ON TABLE public.phoenix_kit_cat_catalogues IS 'pkc_schema:1'"
+             "COMMENT ON TABLE public.phoenix_kit_cat_catalogues IS 'pkc_schema:2'"
   end
 
   test "no statement can destroy data, in either direction" do
@@ -47,10 +47,29 @@ defmodule PhoenixKitCatalogue.MigrationsTest do
     for s <- all do
       # `ON DELETE CASCADE|RESTRICT|SET NULL` is core's own FK referential
       # action, copied verbatim from the dump authority — not a DROP/
-      # TRUNCATE/DELETE statement. Strip it before scanning for the real
-      # destructive verbs the Global Constraints forbid.
+      # TRUNCATE/DELETE statement. The slug projection sync function's
+      # own `DELETE FROM <projection> WHERE <owner>_uuid = NEW.uuid` is
+      # the one allowed DELETE (core's own `ShopSlugProjection`
+      # precedent) — it only ever clears rows of the projection it is
+      # about to re-insert, never a base table. `DROP TRIGGER IF
+      # EXISTS ... ON <table>` drops a schema object (the trigger),
+      # never data, and is the Global Constraints' own idempotent-chain
+      # idiom for replacing a trigger definition. Strip all three
+      # before scanning for the real destructive verbs the Global
+      # Constraints forbid.
       scanned =
-        Regex.replace(~r/ON DELETE (CASCADE|RESTRICT|SET NULL|SET DEFAULT|NO ACTION)/i, s, "")
+        s
+        |> (&Regex.replace(
+              ~r/ON DELETE (CASCADE|RESTRICT|SET NULL|SET DEFAULT|NO ACTION)/i,
+              &1,
+              ""
+            )).()
+        |> (&Regex.replace(
+              ~r/DELETE FROM \S+phoenix_kit_cat_(item|category)_slugs WHERE \S+_uuid = NEW\.uuid;/i,
+              &1,
+              ""
+            )).()
+        |> (&Regex.replace(~r/DROP TRIGGER IF EXISTS \S+ ON \S+/i, &1, "")).()
 
       refute scanned =~ ~r/\b(DROP|TRUNCATE|DELETE)\b/i, "destructive statement: #{s}"
       refute scanned =~ ~r/ALTER TABLE .* DROP/i, "destructive statement: #{s}"
@@ -113,6 +132,9 @@ defmodule PhoenixKitCatalogue.MigrationsTest do
     phoenix_kit_cat_pdfs_status_index
     phoenix_kit_cat_suppliers_crm_company_uuid_index
     phoenix_kit_cat_suppliers_status_index
+    phoenix_kit_cat_item_slugs_item_uuid_idx
+    phoenix_kit_cat_category_slugs_category_uuid_idx
+    phoenix_kit_cat_item_attribute_sets_selected_values_gin
   )
 
   # Same source, all 50 constraint names (18 PKs + 19 FKs + 13 CHECKs).
@@ -198,6 +220,38 @@ defmodule PhoenixKitCatalogue.MigrationsTest do
 
     assert Migrations.down_statements("public", 1) ==
              ["COMMENT ON TABLE public.phoenix_kit_cat_catalogues IS 'pkc_schema:1'"]
+  end
+
+  @v2_tables ~w(phoenix_kit_cat_item_slugs phoenix_kit_cat_category_slugs)
+  @v2_functions ~w(sync_cat_item_slugs sync_cat_category_slugs)
+  @v2_triggers ~w(trg_cat_item_slugs trg_cat_category_slugs)
+
+  test "V2 adds the slug column, the projections and the GIN index" do
+    joined = Enum.join(Migrations.up_statements("public"), "\n")
+
+    for t <- ~w(phoenix_kit_cat_items phoenix_kit_cat_categories) do
+      assert joined =~
+               "ALTER TABLE public.#{t} ADD COLUMN IF NOT EXISTS slug jsonb DEFAULT '{}'::jsonb NOT NULL"
+    end
+
+    for t <- @v2_tables, do: assert(joined =~ "CREATE TABLE IF NOT EXISTS public.#{t} (")
+
+    for f <- @v2_functions,
+        do: assert(joined =~ "CREATE OR REPLACE FUNCTION public.#{f}() RETURNS trigger")
+
+    for tr <- @v2_triggers, do: assert(joined =~ "CREATE TRIGGER #{tr}\n")
+
+    assert joined =~
+             "CREATE INDEX IF NOT EXISTS phoenix_kit_cat_item_attribute_sets_selected_values_gin ON public.phoenix_kit_cat_item_attribute_sets USING gin ((data -> 'selected_value_slugs'))"
+
+    assert List.last(Migrations.up_statements("public")) ==
+             "COMMENT ON TABLE public.phoenix_kit_cat_catalogues IS 'pkc_schema:2'"
+  end
+
+  test "down to 1 only re-stamps the marker" do
+    assert Migrations.down_statements("public", 1) == [
+             "COMMENT ON TABLE public.phoenix_kit_cat_catalogues IS 'pkc_schema:1'"
+           ]
   end
 
   test "prefix is validated before it reaches DDL" do

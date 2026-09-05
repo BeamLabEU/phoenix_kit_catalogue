@@ -50,6 +50,33 @@ defmodule PhoenixKitCatalogue.Migrations do
   must follow the excluded-object protocol described in the Legal
   chain's extraction report before it ships.
 
+  ## What V2 is
+
+  V2 adds shape on top of two core-known tables (`phoenix_kit_cat_items`,
+  `phoenix_kit_cat_categories`): a `slug jsonb NOT NULL DEFAULT '{}'`
+  column on each. Core's `ExpectedSchema` repair only ever audits the
+  columns it manifests for a table — it treats an extra, unmanifested
+  column as an `:info` finding, never a mismatch to repair away — so
+  this is safe without a core release. The rest of V2 (the two
+  `phoenix_kit_cat_item_slugs` / `phoenix_kit_cat_category_slugs`
+  projection tables, their sync triggers, and the attribute-set GIN
+  index) creates objects core's manifest never names at all, which is
+  outside the manifest's reach by construction. Contrast the case that
+  WOULD require a core release first: altering the shape of a table
+  column core's manifest actually declares — see
+  `phoenix_kit_legal`'s `dev_docs/reports/2026-08-10-consent-logs-extraction.md`
+  for that scenario.
+
+  The two projection tables exist so a slug can be looked up (and its
+  per-language uniqueness enforced) without scanning every item/category
+  row's `slug` jsonb — the same shape core's own `ShopSlugProjection`
+  used before catalogue absorbed the shop tables. A trigger
+  (`AFTER INSERT OR UPDATE OF slug`) keeps each projection in sync with
+  its owning table; the projection's own `DELETE FROM <projection>` at
+  the top of the sync function is the one DELETE this chain is allowed
+  to emit (it deletes only projection rows it is about to
+  re-insert — never a base table row).
+
   ## What `down/1` is NOT
 
   `down/1` unstamps the version marker; it NEVER drops any of the
@@ -66,7 +93,7 @@ defmodule PhoenixKitCatalogue.Migrations do
 
   use Ecto.Migration
 
-  @current_version 1
+  @current_version 2
   @marker_prefix "pkc_schema:"
   @version_table "phoenix_kit_cat_catalogues"
 
@@ -128,16 +155,18 @@ defmodule PhoenixKitCatalogue.Migrations do
   @doc """
   The SQL `up/1` executes, as data — the testable single source. Every
   statement is idempotent (`IF NOT EXISTS` / guarded `DO $$` block /
-  `COMMENT`) so it is safe to replay on an install where core already
-  created some or all of these tables, and on a fresh install with none
-  of them. Order: every `CREATE TABLE`, then every primary-key guard,
-  then every foreign-key guard, then every CHECK-constraint guard, then
-  every index, then the marker — table declaration order only matters
-  for self-documentation (FK targets are guarded, not required to
-  pre-exist at CREATE TABLE time). The 13 CHECK constraints also ride
-  inline inside their `CREATE TABLE IF NOT EXISTS` (harmless — Postgres
-  no-ops the whole statement on an existing table); the guards below are
-  what actually repair a pre-existing table that is missing one.
+  `CREATE OR REPLACE FUNCTION` / `DROP TRIGGER IF EXISTS` + `CREATE
+  TRIGGER` / `COMMENT`) so it is safe to replay on an install where
+  core already created some or all of these tables, and on a fresh
+  install with none of them. V1 order: every `CREATE TABLE`, then every
+  primary-key guard, then every foreign-key guard, then every
+  CHECK-constraint guard, then every index (table declaration order
+  only matters for self-documentation — FK targets are guarded, not
+  required to pre-exist at CREATE TABLE time; the 13 CHECK constraints
+  also ride inline inside their `CREATE TABLE IF NOT EXISTS`, harmless
+  since Postgres no-ops the whole statement on an existing table — the
+  guards are what actually repair a pre-existing table missing one).
+  V2 statements follow, then the version marker last.
   """
   @spec up_statements(String.t()) :: [String.t()]
   def up_statements(prefix \\ "public") do
@@ -145,13 +174,94 @@ defmodule PhoenixKitCatalogue.Migrations do
     p = "#{prefix}."
 
     List.flatten([
+      v1_statements(prefix, p),
+      v2_statements(p),
+      "COMMENT ON TABLE #{p}#{@version_table} IS '#{@marker_prefix}#{@current_version}'"
+    ])
+  end
+
+  defp v1_statements(prefix, p) do
+    [
       tables(p),
       primary_keys(prefix, p),
       foreign_keys(prefix, p),
       checks(prefix, p),
-      indexes(p),
-      "COMMENT ON TABLE #{p}#{@version_table} IS '#{@marker_prefix}#{@current_version}'"
-    ])
+      indexes(p)
+    ]
+  end
+
+  # ── V2: per-language slug column + trigger projections + GIN index ──
+
+  defp v2_statements(p) do
+    [
+      "ALTER TABLE #{p}phoenix_kit_cat_items ADD COLUMN IF NOT EXISTS slug jsonb DEFAULT '{}'::jsonb NOT NULL",
+      "ALTER TABLE #{p}phoenix_kit_cat_categories ADD COLUMN IF NOT EXISTS slug jsonb DEFAULT '{}'::jsonb NOT NULL",
+      slug_projection_statements(p,
+        projection: "phoenix_kit_cat_item_slugs",
+        owner: "phoenix_kit_cat_items",
+        owner_uuid_column: "item_uuid",
+        sync_function: "sync_cat_item_slugs",
+        trigger: "trg_cat_item_slugs"
+      ),
+      slug_projection_statements(p,
+        projection: "phoenix_kit_cat_category_slugs",
+        owner: "phoenix_kit_cat_categories",
+        owner_uuid_column: "category_uuid",
+        sync_function: "sync_cat_category_slugs",
+        trigger: "trg_cat_category_slugs"
+      ),
+      "CREATE INDEX IF NOT EXISTS phoenix_kit_cat_item_attribute_sets_selected_values_gin ON #{p}phoenix_kit_cat_item_attribute_sets USING gin ((data -> 'selected_value_slugs'))"
+    ]
+  end
+
+  # One projection: table + its FK index + sync trigger function +
+  # trigger + a one-time backfill INSERT (idempotent via `ON CONFLICT
+  # DO NOTHING`) so items/categories that already carry a `slug` before
+  # this version runs get projected immediately, not only on their next
+  # write.
+  defp slug_projection_statements(p, opts) do
+    projection = Keyword.fetch!(opts, :projection)
+    owner = Keyword.fetch!(opts, :owner)
+    owner_uuid_column = Keyword.fetch!(opts, :owner_uuid_column)
+    sync_function = Keyword.fetch!(opts, :sync_function)
+    trigger = Keyword.fetch!(opts, :trigger)
+
+    [
+      """
+      CREATE TABLE IF NOT EXISTS #{p}#{projection} (
+        lang text NOT NULL,
+        value text NOT NULL,
+        #{owner_uuid_column} uuid NOT NULL REFERENCES #{p}#{owner}(uuid) ON DELETE CASCADE,
+        PRIMARY KEY (lang, value)
+      )
+      """,
+      "CREATE INDEX IF NOT EXISTS #{projection}_#{owner_uuid_column}_idx ON #{p}#{projection} (#{owner_uuid_column})",
+      """
+      CREATE OR REPLACE FUNCTION #{p}#{sync_function}() RETURNS trigger
+      LANGUAGE plpgsql AS $$
+      BEGIN
+        DELETE FROM #{p}#{projection} WHERE #{owner_uuid_column} = NEW.uuid;
+        INSERT INTO #{p}#{projection} (lang, value, #{owner_uuid_column})
+        SELECT DISTINCT lower(split_part(e.key, '-', 1)), e.value, NEW.uuid
+          FROM jsonb_each_text(COALESCE(NEW.slug, '{}'::jsonb)) e
+         WHERE e.value <> '';
+        RETURN NEW;
+      END $$
+      """,
+      "DROP TRIGGER IF EXISTS #{trigger} ON #{p}#{owner}",
+      """
+      CREATE TRIGGER #{trigger}
+        AFTER INSERT OR UPDATE OF slug ON #{p}#{owner}
+        FOR EACH ROW EXECUTE FUNCTION #{p}#{sync_function}()
+      """,
+      """
+      INSERT INTO #{p}#{projection} (lang, value, #{owner_uuid_column})
+      SELECT DISTINCT lower(split_part(e.key, '-', 1)), e.value, t.uuid
+        FROM #{p}#{owner} t, jsonb_each_text(COALESCE(t.slug, '{}'::jsonb)) e
+       WHERE e.value <> ''
+      ON CONFLICT (lang, value) DO NOTHING
+      """
+    ]
   end
 
   @doc "The SQL `down/1` executes, as data (marker bookkeeping only)."
