@@ -11,6 +11,7 @@ defmodule PhoenixKitCatalogue.AttachmentsApiTest do
 
   import PhoenixKitCatalogue.LiveCase, only: [fixture_catalogue: 1, fixture_item: 1]
 
+  alias Ecto.Adapters.SQL
   alias PhoenixKit.Modules.Storage
   alias PhoenixKit.Modules.Storage.File, as: StorageFile
   alias PhoenixKitCatalogue.Attachments
@@ -74,6 +75,27 @@ defmodule PhoenixKitCatalogue.AttachmentsApiTest do
              ) == 1
     end
 
+    test "a file already owned by another folder gets a FolderLink instead of being moved",
+         %{item: item, user_uuid: user_uuid} do
+      {:ok, other_folder} = Storage.create_folder(%{name: "Other Folder #{item.uuid}"})
+      a = insert_file!(user_uuid, other_folder.uuid, "a.jpg")
+
+      assert {:ok, updated} = Attachments.attach_files(item, [a])
+
+      item_folder_uuid = updated.data["files_folder_uuid"]
+      assert item_folder_uuid != other_folder.uuid
+
+      # The file's home folder is untouched — it appears in the item's
+      # folder only via a `FolderLink` shortcut.
+      assert Repo.get!(StorageFile, a).folder_uuid == other_folder.uuid
+
+      assert Repo.exists?(
+               from(fl in PhoenixKit.Modules.Storage.FolderLink,
+                 where: fl.file_uuid == ^a and fl.folder_uuid == ^item_folder_uuid
+               )
+             )
+    end
+
     test "an unknown uuid errors and persists nothing", %{item: item, user_uuid: user_uuid} do
       a = insert_file!(user_uuid, nil, "a.jpg")
       bogus = Ecto.UUID.generate()
@@ -99,7 +121,7 @@ defmodule PhoenixKitCatalogue.AttachmentsApiTest do
   defp insert_user! do
     user_uuid = UUIDv7.generate()
 
-    Ecto.Adapters.SQL.query!(
+    SQL.query!(
       Repo,
       """
       INSERT INTO phoenix_kit_users

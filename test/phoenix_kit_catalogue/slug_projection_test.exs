@@ -1,4 +1,11 @@
 defmodule PhoenixKitCatalogue.SlugProjectionTest do
+  @moduledoc """
+  Block 1, Task 1 (trigger projections) and Task 2 (`get_item_by_slug/3`
+  / `get_category_by_slug/3` lookups): the DB-level slug -> uuid
+  projections `sync_cat_item_slugs()`/`sync_cat_category_slugs()`
+  maintain, and the lookups built on top of them.
+  """
+
   # async: false — one test deliberately triggers a Postgrex.Error
   # (duplicate slug) inside its sandboxed connection; keeping the case
   # serial avoids any cross-test interaction with that aborted
@@ -165,6 +172,26 @@ defmodule PhoenixKitCatalogue.SlugProjectionTest do
 
       assert found.uuid == item.uuid
       assert %PhoenixKitCatalogue.Schemas.Catalogue{} = found.catalogue
+    end
+
+    test "any_lang: true names the match even when the base language itself matched" do
+      catalogue = create_catalogue()
+      item = create_item(catalogue, %{slug: %{"en-US" => "red-vase"}})
+
+      assert {:ok, found, "en"} =
+               Catalogue.get_item_by_slug("red-vase", "en-US", any_lang: true)
+
+      assert found.uuid == item.uuid
+    end
+
+    test "qualifies the projection table with the configured schema prefix" do
+      Application.put_env(:phoenix_kit, :prefix, "nonexistent_pkc_schema")
+
+      on_exit(fn -> Application.delete_env(:phoenix_kit, :prefix) end)
+
+      assert_raise Postgrex.Error, ~r/nonexistent_pkc_schema\.phoenix_kit_cat_item_slugs/, fn ->
+        Catalogue.get_item_by_slug("whatever", "en-US")
+      end
     end
   end
 

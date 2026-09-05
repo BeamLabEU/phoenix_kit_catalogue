@@ -258,6 +258,24 @@ defmodule PhoenixKitCatalogue.MigrationsTest do
     assert_raise ArgumentError, fn -> Migrations.up_statements("public; DROP") end
   end
 
+  test "up_statements(prefix, 1) emits only V1 and stamps pkc_schema:1" do
+    stmts = Migrations.up_statements("public", 1)
+    joined = Enum.join(stmts, "\n")
+
+    for t <- @v2_tables, do: refute(joined =~ t)
+    for f <- @v2_functions, do: refute(joined =~ f)
+    for tr <- @v2_triggers, do: refute(joined =~ tr)
+    refute joined =~ "ADD COLUMN IF NOT EXISTS slug"
+    refute joined =~ "phoenix_kit_cat_item_attribute_sets_selected_values_gin"
+
+    assert List.last(stmts) ==
+             "COMMENT ON TABLE public.phoenix_kit_cat_catalogues IS 'pkc_schema:1'"
+  end
+
+  test "up_statements/2 defaults target to current_version/0" do
+    assert Migrations.up_statements("public") == Migrations.up_statements("public", 2)
+  end
+
   test "the module registers the chain" do
     assert PhoenixKitCatalogue.migration_module() == Migrations
   end
