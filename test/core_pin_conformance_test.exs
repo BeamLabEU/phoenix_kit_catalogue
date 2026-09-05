@@ -13,19 +13,25 @@ defmodule PhoenixKitCatalogue.CorePinConformanceTest do
   outright, with no degraded mode. Nothing else in this repo's own test run
   would notice, which is why the check is a test rather than a convention.
 
-  The floor is `~> 2.8` (raised from `~> 2.3` in 0.16.0): the folder explorer
-  and header crumbs use `page_crumbs`, `Core.ColumnSettings`, and
-  `table_row_menu_link`'s `patch` attr, which ship in core 2.8 (#719). A
-  lower two-segment pin would `mix deps.get` fine but fail
-  `compile --warnings-as-errors` against 2.7, so the floor is a real
-  requirement — the check still admits every core minor from 2.8 up, it
-  just won't let the pin drop below that floor or narrow to one minor.
+  The floor is `>= 2.13.11 and < 3.0.0` (raised from `~> 2.8`, addressing
+  a catalogue V01 review finding): the V01 adoption chain
+  (`PhoenixKitCatalogue.Migrations`) transcribes core's V178–V180 shape
+  (`crm_company_uuid`, `manufacturer_source`/`supplier_source`, the
+  dropped FKs), which first ships in core 2.13.4 (#743) — but 2.13.4
+  through 2.13.10 crash applying V180 itself (a bare `LOCK TABLE` outside
+  a transaction), fixed only in 2.13.11. A lower pin would let
+  `mix deps.get` resolve to a core release whose own migration chain
+  can't reach the shape this module assumes. `~> 2.13.11` (three-segment)
+  would fall right back into the trap this test exists to catch — it
+  admits only the 2.13 minor — so the floor is the compound form instead:
+  patch-precise at the bottom, still open through every later 2.x minor
+  at the top, same as `~> 2.8` was before it.
   """
 
-  @must_admit ["2.8.0", "2.8.7", "2.9.0", "2.15.4"]
-  @must_reject ["1.7.236", "2.3.0", "2.7.9", "3.0.0"]
+  @must_admit ["2.13.11", "2.13.15", "2.14.0", "2.20.0"]
+  @must_reject ["1.7.236", "2.3.0", "2.8.0", "2.13.4", "2.13.10", "3.0.0"]
 
-  test "the :phoenix_kit requirement admits every core >= 2.8 minor and nothing else" do
+  test "the :phoenix_kit requirement admits every core >= 2.13.11 minor and nothing else" do
     requirement = core_requirement()
 
     assert match?({:ok, _parsed}, Version.parse_requirement(requirement)),
@@ -35,7 +41,8 @@ defmodule PhoenixKitCatalogue.CorePinConformanceTest do
       assert Version.match?(version, requirement),
              "`:phoenix_kit` requirement #{inspect(requirement)} rejects core #{version}. " <>
                "A pin that excludes a core minor breaks `mix deps.get` for every host " <>
-               "running this module alongside that core. Keep it a two-segment `~> 2.8`."
+               "running this module alongside that core. Keep the floor patch-precise " <>
+               "and the ceiling open (`>= 2.13.11 and < 3.0.0`), never a three-segment `~>`."
     end
 
     for version <- @must_reject do
