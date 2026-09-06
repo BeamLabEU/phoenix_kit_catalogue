@@ -26,6 +26,7 @@ defmodule PhoenixKitCatalogue.Web.Settings do
 
   alias PhoenixKit.Settings
   alias PhoenixKit.Utils.Multilang
+  alias PhoenixKitCatalogue.Workers.TranslationSweepWorker
 
   @module_key "catalogue"
 
@@ -41,10 +42,20 @@ defmodule PhoenixKitCatalogue.Web.Settings do
   @spec sweep_enabled?() :: boolean()
   def sweep_enabled?, do: Settings.get_boolean_setting(@enabled_key, false)
 
-  @doc "Toggles the automatic sweep."
+  @doc """
+  Toggles the automatic sweep. Flipping it ON seeds the sweep's
+  self-rescheduling chain (`TranslationSweepWorker.ensure_scheduled/0`) —
+  the boot-time bootstrap only seeds it when already enabled (additive
+  for hosts that never opt in), so this write is what starts the chain
+  the first time an operator turns the sweep on.
+  """
   @spec update_sweep_enabled(boolean()) :: {:ok, struct()} | {:error, term()}
   def update_sweep_enabled(enabled?) when is_boolean(enabled?) do
-    Settings.update_boolean_setting_with_module(@enabled_key, enabled?, @module_key)
+    with {:ok, setting} <-
+           Settings.update_boolean_setting_with_module(@enabled_key, enabled?, @module_key) do
+      if enabled?, do: TranslationSweepWorker.ensure_scheduled()
+      {:ok, setting}
+    end
   end
 
   @doc "Minutes between sweep ticks."

@@ -94,17 +94,31 @@ defmodule PhoenixKitCatalogue.AITranslatable do
 
   @impl true
   def source_fields(resource, source_lang) do
-    lang_data = Multilang.get_language_data(resource.data || %{}, source_lang)
-
-    fields =
-      for field <- Map.keys(field_columns(resource)),
-          value = field_value(resource, field, lang_data),
-          is_binary(value) and String.trim(value) != "",
-          into: %{},
-          do: {field, value}
-
+    fields = source_fields_pure(resource, source_lang)
     maybe_capture_fingerprint(resource, fields)
     fields
+  end
+
+  @doc """
+  Same extraction as `source_fields/2`, WITHOUT the process-dictionary
+  capture side effect — for callers that read the source without being
+  the read step of an actual translation job (`TranslationStatus.state/2`/
+  `list/2`, and the write-time fingerprint fallback below). Calling
+  `source_fields/2` from either would stash a fingerprint keyed by
+  `resource_type`/`uuid` in the CALLING process, clobbering (or being
+  clobbered by) whatever `put_translation/4` later reads back via
+  `TranslationStatus.captured_fingerprint/2` for an unrelated job running
+  in the same process — see `TranslationStatus`'s moduledoc.
+  """
+  @spec source_fields_pure(struct(), String.t()) :: map()
+  def source_fields_pure(resource, source_lang) do
+    lang_data = Multilang.get_language_data(resource.data || %{}, source_lang)
+
+    for field <- Map.keys(field_columns(resource)),
+        value = field_value(resource, field, lang_data),
+        is_binary(value) and String.trim(value) != "",
+        into: %{},
+        do: {field, value}
   end
 
   # Only item/category carry a freshness model (`TranslationStatus`) — the
@@ -280,7 +294,9 @@ defmodule PhoenixKitCatalogue.AITranslatable do
   defp put_fingerprint(new_data, resource_type, fresh, target_lang) do
     fp =
       TranslationStatus.captured_fingerprint(resource_type, fresh.uuid) ||
-        fresh |> source_fields(Multilang.primary_language()) |> TranslationStatus.fingerprint()
+        fresh
+        |> source_fields_pure(Multilang.primary_language())
+        |> TranslationStatus.fingerprint()
 
     Map.update(
       new_data,

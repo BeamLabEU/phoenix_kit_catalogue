@@ -12,6 +12,42 @@ defmodule PhoenixKitCatalogue.AITranslatableSetsTest do
   alias PhoenixKitCatalogue.AITranslatable.Sets
   alias PhoenixKitCatalogue.Catalogue.AttributeSets
 
+  # Ecto's default `telemetry_prefix` for `PhoenixKitCatalogue.Test.Repo`
+  # (no override in `test/support/test_repo.ex`): the module split,
+  # underscored — `[:phoenix_kit_catalogue, :test, :repo]` — with `:query`
+  # appended by `Ecto.Adapters.SQL` for every executed statement.
+  @query_event [:phoenix_kit_catalogue, :test, :repo, :query]
+
+  # Attaches a telemetry handler for the duration of `fun.()`, returns
+  # every SQL statement text observed. Used to assert `Sets.put_translation/4`
+  # issues an actual `FOR UPDATE` lock, not just a plain re-read.
+  defp query_texts(fun) do
+    handler_id = {:query_texts, self(), System.unique_integer()}
+    test_pid = self()
+
+    :telemetry.attach(
+      handler_id,
+      @query_event,
+      fn _event, _measurements, %{query: query}, _config -> send(test_pid, {:query, query}) end,
+      nil
+    )
+
+    try do
+      fun.()
+      collect_query_texts([])
+    after
+      :telemetry.detach(handler_id)
+    end
+  end
+
+  defp collect_query_texts(acc) do
+    receive do
+      {:query, query} -> collect_query_texts([query | acc])
+    after
+      0 -> acc
+    end
+  end
+
   if Code.ensure_loaded?(PhoenixKitEntities.Managed) do
     alias PhoenixKitEntities.EntityData
 
@@ -154,6 +190,13 @@ defmodule PhoenixKitCatalogue.AITranslatableSetsTest do
         assert unchanged.uuid == set.uuid
         refute PhoenixKitEntities.get_entity(set.uuid).settings["translations"]
       end
+
+      test "re-reads the row under an actual FOR UPDATE lock, not a plain SELECT" do
+        set = create_set!()
+
+        assert query_texts(fn -> Sets.put_translation(set, "fr-FR", %{"label" => "X"}, []) end)
+               |> Enum.any?(&(&1 =~ ~r/FOR UPDATE/i))
+      end
     end
 
     describe "put_translation/4 — value title" do
@@ -195,12 +238,71 @@ defmodule PhoenixKitCatalogue.AITranslatableSetsTest do
         assert EntityData.get_title_translation(reloaded, "en-US") == "Oak"
       end
 
+      test "re-reads the row under an actual FOR UPDATE lock, not a plain SELECT" do
+        set = create_set!()
+        value = create_value!(set, "Oak")
+
+        assert query_texts(fn ->
+                 Sets.put_translation(value, "fr-FR", %{"title" => "Chêne"}, [])
+               end)
+               |> Enum.any?(&(&1 =~ ~r/FOR UPDATE/i))
+      end
+
       test "no-ops when fields carries no \"title\" key" do
         set = create_set!()
         value = create_value!(set, "Oak")
         assert {:ok, unchanged} = Sets.put_translation(value, "fr-FR", %{}, [])
         assert unchanged.uuid == value.uuid
         refute EntityData.get(value.uuid).data["fr-FR"]
+      end
+    end
+
+    describe "put_translation/4 — broadcast (after the FOR UPDATE transaction commits)" do
+      test "set label: broadcasts entity_updated exactly once on a successful write" do
+        set = create_set!()
+        :ok = PhoenixKitEntities.Events.subscribe_to_entities()
+
+        assert {:ok, _} = Sets.put_translation(set, "fr-FR", %{"label" => "Couleurs"}, [])
+
+        assert_receive {:entity_updated, uuid}, 500
+        assert uuid == set.uuid
+        refute_receive {:entity_updated, _}, 50
+      end
+
+      test "set label: no broadcast when the locked transaction rolls back" do
+        set = create_set!()
+        :ok = PhoenixKitEntities.Events.subscribe_to_entities()
+        {:ok, _} = AttributeSets.delete_set(set)
+
+        assert {:error, :resource_not_found} =
+                 Sets.put_translation(set, "fr-FR", %{"label" => "Couleurs"}, [])
+
+        refute_receive {:entity_updated, _}, 100
+      end
+
+      test "value title: broadcasts data_updated exactly once on a successful write" do
+        set = create_set!()
+        value = create_value!(set, "Oak")
+        :ok = PhoenixKitEntities.Events.subscribe_to_all_data()
+
+        assert {:ok, _} = Sets.put_translation(value, "fr-FR", %{"title" => "Chêne"}, [])
+
+        assert_receive {:data_updated, entity_uuid, data_uuid}, 500
+        assert entity_uuid == set.uuid
+        assert data_uuid == value.uuid
+        refute_receive {:data_updated, _, _}, 50
+      end
+
+      test "value title: no broadcast when the locked transaction rolls back" do
+        set = create_set!()
+        value = create_value!(set, "Oak")
+        :ok = PhoenixKitEntities.Events.subscribe_to_all_data()
+        {:ok, _} = AttributeSets.delete_value(set, value)
+
+        assert {:error, :resource_not_found} =
+                 Sets.put_translation(value, "fr-FR", %{"title" => "Chêne"}, [])
+
+        refute_receive {:data_updated, _, _}, 100
       end
     end
   end

@@ -4,96 +4,3377 @@ msgstr ""
 "Language: de\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
 
+## Tab labels
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:504
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:529
+#, elixir-autogen
+msgid "Catalogue"
+msgstr ""
+
+#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2417
+#, elixir-autogen
+msgid "Catalogues"
+msgstr ""
+
+msgid "Manufacturers"
+msgstr ""
+
+msgid "Suppliers"
+msgstr ""
+
+msgid "Import"
+msgstr ""
+
+msgid "Export"
+msgstr ""
+
+msgid "Events"
+msgstr ""
+
+msgid "PDFs"
+msgstr ""
+
+msgid "PDF"
+msgstr ""
+
+msgid "New Catalogue"
+msgstr ""
+
+msgid "Edit Catalogue"
+msgstr ""
+
+msgid "New Manufacturer"
+msgstr ""
+
+msgid "Edit Manufacturer"
+msgstr ""
+
+msgid "New Supplier"
+msgstr ""
+
+msgid "Edit Supplier"
+msgstr ""
+
+msgid "New Category"
+msgstr ""
+
+msgid "Edit Category"
+msgstr ""
+
+msgid "New Item"
+msgstr ""
+
+msgid "Edit Item"
+msgstr ""
+
+## Page titles / form headings
+msgid "Edit %{name}"
+msgstr ""
+
+msgid "Create a new product catalogue to organize categories and items."
+msgstr ""
+
+msgid "Update catalogue details and settings."
+msgstr ""
+
+msgid "Add a new manufacturer to your catalogue system."
+msgstr ""
+
+msgid "Update manufacturer details and supplier links."
+msgstr ""
+
+msgid "Add a new supplier to your catalogue system."
+msgstr ""
+
+msgid "Update supplier details and manufacturer links."
+msgstr ""
+
+msgid "Add a new category to organize items within this catalogue."
+msgstr ""
+
+msgid "Update category details and ordering."
+msgstr ""
+
+msgid "Create a new category — fill in the details below"
+msgstr ""
+
+## Status labels
+msgid "Active"
+msgstr ""
+
+msgid "Inactive"
+msgstr ""
+
+msgid "Archived"
+msgstr ""
+
+msgid "Deleted"
+msgstr ""
+
+msgid "Discontinued"
+msgstr ""
+
+msgid "Toggle folder"
+msgstr ""
+
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2958
+#, elixir-autogen
+msgid "Clear search and filters to see the folder tree."
+msgstr ""
+
+msgid "Up"
+msgstr ""
+
+msgid "Drop here to move to root (unfiled)"
+msgstr ""
+
+msgid "Drag to reorder or move into a folder"
+msgstr ""
+
+msgid "This will permanently delete this folder. Only empty folders can be deleted. This cannot be undone."
+msgstr ""
+
+msgid "Only empty folders can be deleted — move its contents out first."
+msgstr ""
+
+msgid "Empty folder"
+msgstr ""
+
+#: lib/phoenix_kit_catalogue/web/components.ex:856
+#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:1110
+#, elixir-autogen
+msgid "Subcategories"
+msgstr ""
+
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:478
+#, elixir-autogen
+msgid "Unknown"
+msgstr ""
+
+## PDF status labels
+msgid "Pending"
+msgstr ""
+
+msgid "Extracting"
+msgstr ""
+
+msgid "Extracted"
+msgstr ""
+
+msgid "Scanned (no text)"
+msgstr ""
+
+msgid "Failed"
+msgstr ""
+
+## Metadata field labels
+msgid "Color"
+msgstr ""
+
+msgid "Weight"
+msgstr ""
+
+msgid "Width"
+msgstr ""
+
+msgid "Height"
+msgstr ""
+
+msgid "Depth"
+msgstr ""
+
+msgid "Material"
+msgstr ""
+
+msgid "Finish"
+msgstr ""
+
+msgid "Brand"
+msgstr ""
+
+msgid "Collection"
+msgstr ""
+
+msgid "Season"
+msgstr ""
+
+msgid "Region"
+msgstr ""
+
+msgid "Vendor Reference"
+msgstr ""
+
+## Error messages
+msgid "Cannot move a category under itself or one of its descendants."
+msgstr ""
+
+msgid "Target belongs to a different catalogue. Move the category to the target catalogue first."
+msgstr ""
+
+msgid "Parent category not found."
+msgstr ""
+
+msgid "Categories must share the same parent to be reordered."
+msgstr ""
+
+msgid "Category not found."
+msgstr ""
+
+msgid "Catalogue not found."
+msgstr ""
+
+msgid "Item is already in this catalogue."
+msgstr ""
+
+msgid "You must be logged in to upload files."
+msgstr ""
+
+msgid "Unsupported file format."
+msgstr ""
+
+msgid "Unsupported file format. Please upload .xlsx or .csv."
+msgstr ""
+
+msgid "Not found."
+msgstr ""
+
+msgid "Missing item name."
+msgstr ""
+
+msgid "CSV file is empty."
+msgstr ""
+
+msgid "Cannot restore — the parent catalogue is deleted. Restore the catalogue first."
+msgstr ""
+
+msgid "Cannot delete: %{count} smart items still reference this catalogue."
+msgstr ""
+
+msgid "Each catalogue can only be referenced once per item."
+msgstr ""
+
+msgid "Invalid price: %{raw}"
+msgstr ""
+
+msgid "Invalid markup: %{raw}"
+msgstr ""
+
+msgid "Sheet '%{sheet}' is empty."
+msgstr ""
+
+msgid "Failed to read sheet '%{sheet}'."
+msgstr ""
+
+msgid "Failed to open XLSX file."
+msgstr ""
+
+msgid "Failed to read XLSX file."
+msgstr ""
+
+msgid "Failed to parse CSV file."
+msgstr ""
+
+msgid "Unexpected error: %{reason}"
+msgstr ""
+
+## Time-ago strings
+msgid "just now"
+msgstr ""
+
+msgid "%{n}m ago"
+msgstr ""
+
+msgid "%{n}h ago"
+msgstr ""
+
+msgid "%{n}d ago"
+msgstr ""
+
+msgid "%b %d, %Y"
+msgstr ""
+
+## Flash messages
+msgid "Catalogue created."
+msgstr ""
+
+msgid "Catalogue updated."
+msgstr ""
+
+msgid "Catalogue moved to deleted."
+msgstr ""
+
+msgid "Catalogue restored."
+msgstr ""
+
+msgid "Catalogue permanently deleted."
+msgstr ""
+
+msgid "Manufacturer created."
+msgstr ""
+
+msgid "Manufacturer not found."
+msgstr ""
+
+msgid "Manufacturer updated."
+msgstr ""
+
+msgid "Supplier created."
+msgstr ""
+
+msgid "Supplier not found."
+msgstr ""
+
+msgid "Supplier updated."
+msgstr ""
+
+msgid "Category created."
+msgstr ""
+
+msgid "Category updated."
+msgstr ""
+
+msgid "Category moved to deleted."
+msgstr ""
+
+msgid "Category restored."
+msgstr ""
+
+msgid "Category permanently deleted."
+msgstr ""
+
+msgid "Category moved."
+msgstr ""
+
+msgid "Category moved to another catalogue."
+msgstr ""
+
+msgid "Item created."
+msgstr ""
+
+msgid "Item updated."
+msgstr ""
+
+msgid "Item moved to deleted."
+msgstr ""
+
+msgid "Item restored."
+msgstr ""
+
+msgid "Item permanently deleted."
+msgstr ""
+
+msgid "Item moved."
+msgstr ""
+
+msgid "Item not found."
+msgstr ""
+
+msgid "Failed to delete catalogue."
+msgstr ""
+
+msgid "Failed to delete category."
+msgstr ""
+
+msgid "Failed to delete categories."
+msgstr ""
+
+msgid "Failed to delete item."
+msgstr ""
+
+msgid "Failed to delete manufacturer."
+msgstr ""
+
+msgid "Failed to delete supplier."
+msgstr ""
+
+msgid "Failed to move category."
+msgstr ""
+
+msgid "Failed to move item."
+msgstr ""
+
+msgid "Failed to reorder categories."
+msgstr ""
+
+msgid "Failed to reorder items."
+msgstr ""
+
+msgid "Failed to restore catalogue."
+msgstr ""
+
+msgid "Failed to restore category."
+msgstr ""
+
+msgid "Failed to restore item."
+msgstr ""
+
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2135
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2573
+#, elixir-autogen
+msgid "Failed to save the new order."
+msgstr ""
+
+msgid "PDF moved to trash."
+msgstr ""
+
+msgid "PDF permanently deleted."
+msgstr ""
+
+msgid "PDF restored."
+msgstr ""
+
+msgid "PDF not found."
+msgstr ""
+
+msgid "Could not move the PDF to trash."
+msgstr ""
+
+msgid "Could not permanently delete the PDF."
+msgstr ""
+
+msgid "Could not restore the PDF."
+msgstr ""
+
+## UI strings - general
+#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2320
+#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2321
+#, elixir-autogen
+msgid "Back"
+msgstr ""
+
+#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2809
+#, elixir-autogen
+msgid "Cancel"
+msgstr ""
+
+msgid "Save Changes"
+msgstr ""
+
+msgid "Delete"
+msgstr ""
+
+msgid "Restore"
+msgstr ""
+
+msgid "Delete Forever"
+msgstr ""
+
+msgid "Edit"
+msgstr ""
+
+#: lib/phoenix_kit_catalogue/web/components/browse.ex:622
+#, elixir-autogen
+msgid "View"
+msgstr ""
+
+msgid "Create Catalogue"
+msgstr ""
+
+msgid "Create Category"
+msgstr ""
+
+msgid "Create Manufacturer"
+msgstr ""
+
+msgid "Create Supplier"
+msgstr ""
+
+msgid "Create Item"
+msgstr ""
+
+msgid "Add Category"
+msgstr ""
+
+msgid "Add Item"
+msgstr ""
+
+#: lib/phoenix_kit_catalogue/web/components/browse.ex:819
+#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:1142
+#, elixir-autogen
+msgid "Name"
+msgstr ""
+
+#: lib/phoenix_kit_catalogue/web/components.ex:859
+#, elixir-autogen
+msgid "Description"
+msgstr ""
+
+#: lib/phoenix_kit_catalogue/web/components.ex:865
+#, elixir-autogen
+msgid "Status"
+msgstr "Zustand"
+
+msgid "Details"
+msgstr ""
+
+msgid "Metadata"
+msgstr ""
+
+#: lib/phoenix_kit_catalogue/web/components.ex:862
+#: lib/phoenix_kit_catalogue/web/components.ex:881
+#, elixir-autogen
+msgid "Files"
+msgstr ""
+
+msgid "Notes"
+msgstr ""
+
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:639
+#, elixir-autogen
+msgid "Actions"
+msgstr ""
+
+msgid "Search..."
+msgstr ""
+
+msgid "Search items..."
+msgstr ""
+
+msgid "Upload"
+msgstr ""
+
+msgid "Download"
+msgstr ""
+
+msgid "Move"
+msgstr ""
+
+msgid "Position"
+msgstr ""
+
+msgid "Confirm"
+msgstr ""
+
+msgid "Loading..."
+msgstr ""
+
+msgid "Saving..."
+msgstr ""
+
+msgid "Deleting..."
+msgstr ""
+
+msgid "Featured Image"
+msgstr ""
+
+msgid "No featured image set."
+msgstr ""
+
+msgid "Change"
+msgstr ""
+
+#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2885
+#, elixir-autogen
+msgid "Remove"
+msgstr ""
+
+msgid "Set featured image"
+msgstr ""
+
+msgid "Open original"
+msgstr ""
+
+msgid "Add metadata"
+msgstr ""
+
+msgid "— Pick a field —"
+msgstr ""
+
+msgid "Legacy"
+msgstr ""
+
+msgid "Attached Files"
+msgstr ""
+
+msgid "No files attached yet."
+msgstr ""
+
+msgid "Drag file here or click to browse"
+msgstr ""
+
+msgid "Click to upload"
+msgstr ""
+
+msgid "or drag & drop"
+msgstr ""
+
+msgid "File is too large (max 10MB)"
+msgstr ""
+
+msgid "File type not accepted."
+msgstr ""
+
+msgid "Only PDF files are accepted."
+msgstr ""
+
+#: lib/phoenix_kit_catalogue/web/components/browse.ex:822
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:462
+#, elixir-autogen
+msgid "Category"
+msgstr ""
+
+#: lib/phoenix_kit_catalogue/web/components/browse.ex:361
+#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2418
+#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2508
+#, elixir-autogen
+msgid "Categories"
+msgstr ""
+
+#: lib/phoenix_kit_catalogue/web/components/browse.ex:821
+#, elixir-autogen
+msgid "Manufacturer"
+msgstr ""
+
+msgid "Supplier"
+msgstr ""
+
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:461
+#, elixir-autogen
+msgid "Item"
+msgstr ""
+
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:3067
+#: lib/phoenix_kit_catalogue/web/components.ex:853
+#: lib/phoenix_kit_catalogue/web/components.ex:972
+#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2430
+#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2496
+#, elixir-autogen
+msgid "Items"
+msgstr ""
+
+#: lib/phoenix_kit_catalogue/web/components/browse.ex:820
+#, elixir-autogen
+msgid "SKU"
+msgstr ""
+
+#: lib/phoenix_kit_catalogue/web/components/browse.ex:824
+#, elixir-autogen
+msgid "Price"
+msgstr ""
+
+msgid "Base Price"
+msgstr ""
+
+msgid "Final Price"
+msgstr ""
+
+#: lib/phoenix_kit_catalogue/web/components/browse.ex:823
+#, elixir-autogen
+msgid "Unit"
+msgstr ""
+
+msgid "Unit of Measure"
+msgstr ""
+
+msgid "Kind"
+msgstr ""
+
+msgid "Smart"
+msgstr ""
+
+msgid "Standard — items priced directly"
+msgstr ""
+
+msgid "Smart — items reference other catalogues"
+msgstr ""
+
+msgid "Markup %"
+msgstr ""
+
+msgid "Discount"
+msgstr ""
+
+msgid "Table view"
+msgstr ""
+
+#: lib/phoenix_kit_catalogue/web/components/catalogue_browse.ex:245
+#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2444
+#, elixir-autogen
+msgid "Card view"
+msgstr ""
+
+#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2385
+#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2386
+#, elixir-autogen
+msgid "Clear"
+msgstr ""
+
+msgid "Clear all"
+msgstr ""
+
+msgid "Trash"
+msgstr ""
+
+msgid "Trash is empty."
+msgstr ""
+
+msgid "No catalogues yet."
+msgstr ""
+
+msgid "No categories yet. Add one to start organizing items."
+msgstr ""
+
+msgid "No manufacturers yet."
+msgstr ""
+
+msgid "No suppliers yet."
+msgstr ""
+
+msgid "No items found"
+msgstr ""
+
+msgid "No events recorded yet"
+msgstr ""
+
+msgid "No PDFs uploaded yet."
+msgstr ""
+
+msgid "Upload PDF"
+msgstr ""
+
+msgid "PDF library"
+msgstr ""
+
+msgid "PDF search"
+msgstr ""
+
+msgid "Find this item in PDFs"
+msgstr ""
+
+msgid "Pages"
+msgstr ""
+
+msgid "Import Complete"
+msgstr ""
+
+msgid "Import Another"
+msgstr ""
+
+msgid "Confirm Import"
+msgstr ""
+
+msgid "Back to Mapping"
+msgstr ""
+
+msgid "Import Items"
+msgstr ""
+
+msgid "Export Items"
+msgstr ""
+
+msgid "Destination"
+msgstr ""
+
+msgid "Format"
+msgstr ""
+
+msgid "Select a format..."
+msgstr ""
+
+msgid "Add the catalogue name to the item name"
+msgstr ""
+
+msgid "Map Columns"
+msgstr ""
+
+msgid "All events loaded"
+msgstr ""
+
+msgid "Events: %{count}"
+msgstr ""
+
+msgid "Danger Zone"
+msgstr ""
+
+msgid "Permanently Delete Catalogue"
+msgstr ""
+
+msgid "Permanently Delete Category"
+msgstr ""
+
+msgid "Permanently Delete Item"
+msgstr ""
+
+#: lib/phoenix_kit_catalogue/web/components.ex:871
+#, elixir-autogen
+msgid "Created"
+msgstr ""
+
+#: lib/phoenix_kit_catalogue/web/components.ex:868
+#, elixir-autogen
+msgid "Updated"
+msgstr ""
+
+#: lib/phoenix_kit_catalogue/web/components.ex:969
+#: lib/phoenix_kit_catalogue/web/components/browse.ex:398
+#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:1197
+#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:1212
+#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2228
+#, elixir-autogen
+msgid "Uncategorized"
+msgstr ""
+
+msgid "Linked Manufacturers"
+msgstr ""
+
+msgid "Linked Suppliers"
+msgstr ""
+
+msgid "Scope"
+msgstr ""
+
+msgid "Catalogue Rules"
+msgstr ""
+
+msgid "View Catalogue"
+msgstr ""
+
+msgid "View details"
+msgstr ""
+
+msgid "Back to library"
+msgstr ""
+
+msgid "Search PDFs"
+msgstr ""
+
+## Plural forms
+#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2795
+#, elixir-autogen
+msgid "%{count} item"
+msgid_plural "%{count} items"
+msgstr[0] ""
+msgstr[1] ""
+
+msgid "%{count} category"
+msgid_plural "%{count} categories"
+msgstr[0] ""
+msgstr[1] ""
+
+msgid "%{count} catalogue"
+msgid_plural "%{count} catalogues"
+msgstr[0] ""
+msgstr[1] ""
+
+msgid "%{active} of %{total} catalogue selected"
+msgid_plural "%{active} of %{total} catalogues selected"
+msgstr[0] ""
+msgstr[1] ""
+
+msgid "%{count} result for \"%{query}\""
+msgid_plural "%{count} results for \"%{query}\""
+msgstr[0] ""
+msgstr[1] ""
+
+msgid "%{count} PDFs"
+msgid_plural "%{count} PDFs"
+msgstr[0] ""
+msgstr[1] ""
+
+msgid "%{count} events"
+msgid_plural "%{count} events"
+msgstr[0] ""
+msgstr[1] ""
+
+msgid "%{count} pages"
+msgid_plural "%{count} pages"
+msgstr[0] ""
+msgstr[1] ""
+
+msgid "%{count} selected"
+msgid_plural "%{count} selected"
+msgstr[0] ""
+msgstr[1] ""
+
+msgid "Deleted %{count} categories."
+msgstr ""
+
+msgid "Deleted %{count} items."
+msgstr ""
+
+msgid "Restored %{count} categories."
+msgstr ""
+
+msgid "Restored %{count} items."
+msgstr ""
+
+msgid "Moved %{count} items."
+msgstr ""
+
+msgid "Permanently deleted %{count} items."
+msgstr ""
+
+## Catalogue table toolbar
+#: lib/phoenix_kit_catalogue/web/components/browse.ex:659
+#, elixir-autogen
+msgid "Columns"
+msgstr ""
+
+msgid "Shown"
+msgstr ""
+
+msgid "Available"
+msgstr ""
+
+msgid "Reset"
+msgstr ""
+
+msgid "Apply"
+msgstr ""
+
+msgid "Toggle sort direction"
+msgstr ""
+
+## Catalogue table columns
+msgid "Folder"
+msgstr ""
+
+msgid "Discount %"
+msgstr ""
+
+msgid "Contact Info"
+msgstr ""
+
+msgid "Website"
+msgstr ""
+
+#: lib/phoenix_kit_catalogue/web/table_config.ex:66
+#: lib/phoenix_kit_catalogue/web/table_config.ex:162
+#: lib/phoenix_kit_catalogue/web/table_config.ex:183
+#, elixir-autogen
+msgid "Manual order"
+msgstr ""
+
+## Catalogue index toolbar / filters
+msgid "Folders"
+msgstr ""
+
+msgid "All folders"
+msgstr ""
+
+msgid "All statuses"
+msgstr ""
+
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2142
+#, elixir-autogen
+msgid "Clear search and filters to drag-and-drop reorder."
+msgstr ""
+
+## Folder management modal
+msgid "Nothing in the trash."
+msgstr ""
+
+msgid "New Folder"
+msgstr ""
+
+msgid "New folder"
+msgstr ""
+
+msgid "New subfolder"
+msgstr ""
+
+msgid "Move to folder"
+msgstr ""
+
+msgid "Rename"
+msgstr ""
+
+msgid "Permanently Delete Folder"
+msgstr ""
+
+msgid "Creating..."
+msgstr ""
+
+msgid "Moving..."
+msgstr ""
+
+msgid "Restoring..."
+msgstr ""
+
+msgid "— Root (unfiled) —"
+msgstr ""
+
+msgid "Choose a destination folder for this folder."
+msgstr ""
+
+msgid "Choose a destination folder for this catalogue."
+msgstr ""
+
+msgid "Can't move a folder into itself or one of its subfolders."
+msgstr ""
+
+msgid "That folder is in the trash."
+msgstr ""
+
+msgid "That folder no longer exists."
+msgstr ""
+
+msgid "This will permanently delete this folder. Subfolders are moved to root and catalogues filed here are unfiled — neither is deleted. This cannot be undone."
+msgstr ""
+
+msgid "Folder moved."
+msgstr ""
+
+msgid "Folder not found."
+msgstr ""
+
+msgid "Folder permanently deleted."
+msgstr ""
+
+msgid "Failed to create folder."
+msgstr ""
+
+msgid "Failed to delete folder."
+msgstr ""
+
+msgid "Failed to restore folder."
+msgstr ""
+
+msgid "Failed to move folder."
+msgstr ""
+
+msgid "Failed to move catalogue."
+msgstr ""
+
+msgid "Failed to move."
+msgstr ""
+
+msgid "Unexpected request. Please try again."
+msgstr ""
+
+## Catalogue confirm-delete dialogs
+msgid "Catalogue moved."
+msgstr ""
+
+msgid "Delete Manufacturer"
+msgstr ""
+
+msgid "Delete Supplier"
+msgstr ""
+
+msgid "This will permanently delete this catalogue, all its categories, and all items. This cannot be undone."
+msgstr ""
+
+msgid "This will permanently delete this manufacturer. Items referencing it will lose the association."
+msgstr ""
+
+msgid "This will permanently delete this supplier. Manufacturer links will be removed."
+msgstr ""
+
+msgid "No results found."
+msgstr ""
+
+## Supplier-info junction UI (V149 wave)
+msgid "Add Supplier"
+msgstr ""
+
+msgid "Supplier SKU"
+msgstr ""
+
+msgid "Unit Cost"
+msgstr ""
+
+msgid "Lead Time (days)"
+msgstr ""
+
+msgid "Min. Order Qty"
+msgstr ""
+
+msgid "No suppliers linked yet."
+msgstr ""
+
+msgid "Lead (d)"
+msgstr ""
+
+msgid "MOQ"
+msgstr ""
+
+msgid "Primary"
+msgstr ""
+
+msgid "Make primary"
+msgstr ""
+
+msgid "Remove this supplier link?"
+msgstr ""
+
+msgid "-- Select supplier --"
+msgstr ""
+
+msgid "Please select a supplier."
+msgstr ""
+
+msgid "Supplier added."
+msgstr ""
+
+msgid "Failed to add supplier."
+msgstr ""
+
+msgid "Failed to set primary supplier."
+msgstr ""
+
+msgid "Supplier removed."
+msgstr ""
+
+msgid "Failed to remove supplier."
+msgstr ""
+
+msgid "History"
+msgstr ""
+
+msgid "Price History"
+msgstr ""
+
+msgid "No price history."
+msgstr ""
+
+msgid "Currency"
+msgstr ""
+
+msgid "Valid From"
+msgstr ""
+
+msgid "Valid To"
+msgstr ""
+
+msgid "Current"
+msgstr ""
+
+## Import — PRO100 sync skip reasons
+msgid "Row %{row}: belongs to %{group}, not to this catalogue"
+msgstr ""
+
+## Media picker
+msgid "Select Featured Image"
+msgstr ""
+
+## Product card
+#: lib/phoenix_kit_catalogue/web/components/browse.ex:481
+#: lib/phoenix_kit_catalogue/web/components/browse.ex:482
+#, elixir-autogen
+msgid "View item details"
+msgstr ""
+
+msgid "Show this image"
+msgstr ""
+
+msgid "Close"
+msgstr ""
+
+msgid "Open"
+msgstr ""
+
+msgid "Hide"
+msgstr ""
+
+msgid "Previous"
+msgstr ""
+
+msgid "Next"
+msgstr ""
+
+msgid "Show image %{number}"
+msgstr ""
+
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:3800
+#, elixir-autogen
+msgid "Reorder all"
+msgstr ""
+
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:3619
+#, elixir-autogen
+msgid "catalogue"
+msgstr ""
+
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:3620
+#, elixir-autogen
+msgid "catalogues"
+msgstr ""
+
+msgid "category"
+msgstr ""
+
+msgid "categories"
+msgstr ""
+
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2106
+#, elixir-autogen
+msgid "Catalogues reordered."
+msgstr ""
+
+msgid "Categories reordered."
+msgstr ""
+
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2111
+#, elixir-autogen
+msgid "Failed to reorder."
+msgstr ""
+
+msgid "Photos and Files"
+msgstr ""
+
+#: lib/phoenix_kit_catalogue/web/components.ex:1550
+#: lib/phoenix_kit_catalogue/web/components.ex:1612
+#, elixir-autogen
+msgid "Comfortable view"
+msgstr ""
+
+#: lib/phoenix_kit_catalogue/web/components.ex:1559
+#: lib/phoenix_kit_catalogue/web/components.ex:1620
+#, elixir-autogen
+msgid "Compact view"
+msgstr ""
+
+msgid "Save"
+msgstr ""
+
+msgid "Save & Exit"
+msgstr ""
+
+msgid "Attributes"
+msgstr ""
+
+msgid "Archive"
+msgstr ""
+
+msgid "Add"
+msgstr ""
+
+msgid "New Attribute Group"
+msgstr ""
+
+msgid "Edit Attribute Group"
+msgstr ""
+
+msgid "Delete Attribute Group"
+msgstr ""
+
+msgid "Attribute group not found."
+msgstr ""
+
+msgid "Attribute group created."
+msgstr ""
+
+msgid "Attribute group updated."
+msgstr ""
+
+msgid "Attribute group deleted."
+msgstr ""
+
+msgid "Failed to delete attribute group."
+msgstr ""
+
+msgid "Failed to update attribute group."
+msgstr ""
+
+msgid "This group is used by items — archive it instead."
+msgstr ""
+
+msgid "No attribute groups yet. Create one to define reusable options like colors and finishes."
+msgstr ""
+
+msgid "This will permanently delete this group with all its attributes and values. Groups used by items cannot be deleted — archive them instead."
+msgstr ""
+
+msgid "e.g., Idea doors"
+msgstr ""
+
+msgid "Define a reusable set of options — colors, trims, surfaces — that items can inherit."
+msgstr ""
+
+msgid "Manage this group's attributes, values, and translations."
+msgstr ""
+
+msgid "No attributes yet. Add one below — e.g. Color, Trim, Surface."
+msgstr ""
+
+msgid "Failed to add attribute."
+msgstr ""
+
+msgid "Failed to add value."
+msgstr ""
+
+msgid "Delete attribute"
+msgstr ""
+
+msgid "This removes the attribute and all its values from the group."
+msgstr ""
+
+msgid "Add value..."
+msgstr ""
+
+msgid "New attribute name..."
+msgstr ""
+
+msgid "Default value"
+msgstr ""
+
+msgid "Make default"
+msgstr ""
+
+msgid "Remove value"
+msgstr ""
+
+msgid "You are editing translations. Empty fields fall back to the primary language; new attributes and values are always created in the primary language."
+msgstr ""
+
+msgid "Attribute group"
+msgstr ""
+
+msgid "Pick a group to give this item its options — colors, trims, surfaces. Applied when you save."
+msgstr ""
+
+msgid "Manage groups"
+msgstr ""
+
+msgid "— No attribute group —"
+msgstr ""
+
+msgid "archived"
+msgstr ""
+
+msgid "No values defined yet."
+msgstr ""
+
+msgid "This group has no attributes yet."
+msgstr ""
+
+msgid "View old values (%{count})"
+msgstr ""
+
+msgid "Hand-typed metadata from before attribute groups. Kept so nothing is lost — move what matters into a group, then clear these."
+msgstr ""
+
+msgid "Has attribute group"
+msgstr ""
+
+msgid "AI translate names & values"
+msgstr ""
+
+msgid "AI-translate all attribute names and values that are missing a language."
+msgstr ""
+
+msgid "Queued %{count} AI translations for attributes and values."
+msgstr ""
+
+msgid "Nothing to translate."
+msgstr ""
+
+msgid "Select an AI endpoint and prompt in the translate dialog first."
+msgstr ""
+
+msgid "Add value"
+msgstr ""
+
+msgid "Search PDF contents"
+msgstr ""
+
+msgid "Search inside every PDF…"
+msgstr ""
+
+msgid "Type at least 2 characters to search the text of every PDF."
+msgstr ""
+
+msgid "No pages match your search."
+msgstr ""
+
+msgid "Search by filename…"
+msgstr ""
+
+msgid "Attribute sets need the Entities module enabled."
+msgstr ""
+
+msgid "New Attribute Set"
+msgstr ""
+
+msgid "Invalid value for %{field}."
+msgstr ""
+
+msgid "A field with this name already exists."
+msgstr ""
+
+msgid "Failed to add field."
+msgstr ""
+
+msgid "Name is required."
+msgstr ""
+
+msgid "Attribute set created."
+msgstr ""
+
+msgid "Failed to create the set — is the name unique?"
+msgstr ""
+
+msgid "Attribute set updated."
+msgstr ""
+
+msgid "Failed to update the set."
+msgstr ""
+
+msgid "A set is one dimension from one vendor — Ikea colors, HomeDepot trims. Items attach any number of sets."
+msgstr ""
+
+msgid "Manage this set's values and extra fields."
+msgstr ""
+
+msgid "e.g., Ikea colors"
+msgstr ""
+
+msgid "Key: %{key} — stable, referenced by items and orders."
+msgstr ""
+
+msgid "Values"
+msgstr ""
+
+msgid "No values yet. Add one below — e.g. Oak, White, Anthracite."
+msgstr ""
+
+msgid "Extra fields"
+msgstr ""
+
+msgid "Extra info every value carries — price per liter, drying time. Each value above gets an input per field."
+msgstr ""
+
+msgid "Remove field"
+msgstr ""
+
+msgid "New field name..."
+msgstr ""
+
+msgid "Text"
+msgstr ""
+
+msgid "Number"
+msgstr ""
+
+msgid "Yes / No"
+msgstr ""
+
+msgid "Date"
+msgstr ""
+
+msgid "Remove extra field"
+msgstr ""
+
+msgid "The field disappears from every value. Data already entered is kept but hidden until a field with the same name is re-added."
+msgstr ""
+
+msgid "Attribute set deleted."
+msgstr ""
+
+msgid "This set is attached to items — detach it everywhere first."
+msgstr ""
+
+msgid "Failed to delete attribute set."
+msgstr ""
+
+msgid "Migrated: %{sets} sets, %{values} values, %{attachments} item attachments."
+msgstr ""
+
+msgid "Migration failed — nothing was lost; check the logs and re-run."
+msgstr ""
+
+msgid "Attribute sets"
+msgstr ""
+
+msgid "One dimension from one vendor — Ikea colors, HomeDepot trims. Items attach any number of sets."
+msgstr ""
+
+msgid "New Set"
+msgstr ""
+
+msgid "No sets yet. Create one, or migrate your legacy groups below."
+msgstr ""
+
+msgid "Legacy attribute groups"
+msgstr ""
+
+msgid "The old system. Migration copies every group's attributes into sets and re-attaches items — nothing is deleted."
+msgstr ""
+
+msgid "Migrate to sets"
+msgstr ""
+
+msgid "Delete Attribute Set"
+msgstr ""
+
+msgid "This deletes the set and all its values. Sets attached to items cannot be deleted."
+msgstr ""
+
+msgid "Migrate groups to sets"
+msgstr ""
+
+msgid "Each group attribute becomes its own set, values keep their keys, and every item's group assignment is re-attached as sets. The old groups stay untouched and re-running is safe."
+msgstr ""
+
+msgid "Migrate"
+msgstr ""
+
+msgid "Attach any number of sets — Ikea colors, HomeDepot trims. Applied when you save."
+msgstr ""
+
+msgid "Manage sets"
+msgstr ""
+
+msgid "unavailable"
+msgstr ""
+
+msgid "Detach set"
+msgstr ""
+
+msgid "Attach a set..."
+msgstr ""
+
+msgid "No sets exist yet — create one under Manage sets."
+msgstr ""
+
+msgid "Attribute group (legacy)"
+msgstr ""
+
+msgid "Unknown set"
+msgstr ""
+
+msgid "This set was deleted in another session."
+msgstr ""
+
+msgid "No sets yet. Create one to define the options items can attach."
+msgstr ""
+
+msgid "Attribute groups have been replaced by sets — your groups were migrated automatically."
+msgstr ""
+
+msgid "Text area"
+msgstr ""
+
+msgid "Select"
+msgstr ""
+
+msgid "Image"
+msgstr ""
+
+msgid "Video"
+msgstr ""
+
+msgid "Options, comma-separated (Select)"
+msgstr ""
+
+msgid "Select fields need options — list them comma-separated."
+msgstr ""
+
+msgid "Select Image"
+msgstr ""
+
+msgid "Select Video"
+msgstr ""
+
+msgid "Value"
+msgstr ""
+
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:567
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:635
+#, elixir-autogen
+msgid "Type"
+msgstr ""
+
+msgid "Add field"
+msgstr ""
+
+msgid "Edit field"
+msgstr ""
+
+msgid "Add extra field"
+msgstr ""
+
+msgid "Edit extra field"
+msgstr ""
+
+msgid "e.g. Price per liter"
+msgstr ""
+
+msgid "Shown as a label on every value."
+msgstr ""
+
+msgid "Key: %{key}"
+msgstr ""
+
+msgid "Type can't be changed. Remove the field and add a new one if you need a different type."
+msgstr ""
+
+msgid "Choices"
+msgstr ""
+
+msgid "Each value picks one of these from a dropdown."
+msgstr ""
+
+msgid "Remove choice"
+msgstr ""
+
+msgid "Add choice"
+msgstr ""
+
+msgid "Renaming or removing a choice clears that pick on values that used it."
+msgstr ""
+
+msgid "Add at least one choice."
+msgstr ""
+
+msgid "Failed to save the field."
+msgstr ""
+
+msgid "Save field"
+msgstr ""
+
+msgid "Each value gets a text input."
+msgstr ""
+
+msgid "Each value gets a multi-line text box."
+msgstr ""
+
+msgid "Each value gets a number input."
+msgstr ""
+
+msgid "Each value gets a yes/no toggle."
+msgstr ""
+
+msgid "Each value gets a date picker."
+msgstr ""
+
+msgid "Each value gets an image picked from the media library."
+msgstr ""
+
+msgid "Each value gets a video picked from the media library."
+msgstr ""
+
+msgid "Attach sets, then tick what applies: one tick — this exact item; several — the options it comes in; none — the whole set. Applied when you save."
+msgstr ""
+
+msgid "This exact item."
+msgstr ""
+
+msgid "Available in %{count} of %{total} options."
+msgstr ""
+
+msgid "Up one level"
+msgstr ""
+
+msgid "All categories"
+msgstr ""
+
+msgid "All catalogues"
+msgstr ""
+
+msgid " or drag & drop"
+msgstr ""
+
+msgid "%b %d, %Y %H:%M"
+msgstr ""
+
+msgid "%{count} items already exist in this catalogue with identical data."
+msgstr ""
+
+msgid "%{count} items will be moved to the Deleted view. They can be restored later."
+msgstr ""
+
+msgid "%{count} items will be permanently deleted. This cannot be undone."
+msgstr ""
+
+msgid "%{count} rows in your file are identical duplicates."
+msgstr ""
+
+msgid "%{count}d ago"
+msgstr ""
+
+msgid "%{count}h ago"
+msgstr ""
+
+msgid "%{count}m ago"
+msgstr ""
+
+msgid "%{total} catalogues available — none selected"
+msgstr ""
+
+msgid "-- No category --"
+msgstr ""
+
+msgid "-- No manufacturer --"
+msgstr ""
+
+msgid "-- Select catalogue --"
+msgstr ""
+
+msgid "-- Select category --"
+msgstr ""
+
+msgid "0.00"
+msgstr ""
+
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2779
+#, elixir-autogen
+msgid "A → Z by name"
+msgstr ""
+
+msgid "Action"
+msgstr ""
+
+msgid "Add a new product or material to the catalogue."
+msgstr ""
+
+msgid "All Actions"
+msgstr ""
+
+msgid "All Types"
+msgstr ""
+
+msgid "All columns are already mapped. Free one up by setting it to '— Skip —' in the column mapping section below, or by switching another picker (Category, Manufacturer, or Supplier) out of 'Use a column' mode."
+msgstr ""
+
+msgid "Applied on top of the sale price to compute the final price. 0..100. Individual items can override this."
+msgstr ""
+
+msgid "Applied to all item base prices to calculate sale prices. Leave blank for no markup."
+msgstr ""
+
+msgid "Applying..."
+msgstr ""
+
+msgid "Archived catalogues are hidden from active views."
+msgstr ""
+
+msgid "Article Code"
+msgstr ""
+
+msgid "Attach any metadata fields that apply to this catalogue. Blank values are dropped on save."
+msgstr ""
+
+msgid "Attach any metadata fields that apply. Blank values are dropped on save."
+msgstr ""
+
+msgid "Brief description of this manufacturer..."
+msgstr ""
+
+msgid "Brief description of this supplier..."
+msgstr ""
+
+msgid "Brief description of what this catalogue contains..."
+msgstr ""
+
+msgid "Brochures, spec sheets, datasheets. Any file type is accepted."
+msgstr ""
+
+msgid "By default the importer only matches existing categories by their name in the current import language. Turn this on to also match translations in any other language — useful for multilingual catalogues where the same category is named differently in each language."
+msgstr ""
+
+msgid "Catalogue and all its contents permanently deleted."
+msgstr ""
+
+msgid "Categories that will be created:"
+msgstr ""
+
+msgid "Categories to create:"
+msgstr ""
+
+msgid "Category and all its items permanently deleted."
+msgstr ""
+
+msgid "Changes"
+msgstr ""
+
+msgid "Choose where each column should be imported to."
+msgstr ""
+
+msgid "Classification"
+msgstr ""
+
+msgid "Clearing..."
+msgstr ""
+
+msgid "Click to toggle manufacturer associations."
+msgstr ""
+
+msgid "Click to toggle supplier associations."
+msgstr ""
+
+msgid "Close modal"
+msgstr ""
+
+msgid "Contact & Web"
+msgstr ""
+
+msgid "Continue"
+msgstr ""
+
+msgid "Continue to Confirm"
+msgstr ""
+
+msgid "Cost/purchase price before catalogue markup."
+msgstr ""
+
+msgid "Could not create the new category. Please check the form and try again."
+msgstr ""
+
+msgid "Could not create the new manufacturer. Please check the form and try again."
+msgstr ""
+
+msgid "Could not create the new supplier. Please check the form and try again."
+msgstr ""
+
+msgid "Could not load more matches. Please try again."
+msgstr ""
+
+msgid "Could not prepare the files folder."
+msgstr ""
+
+msgid "Could not remove file."
+msgstr ""
+
+msgid "Could not save the uploaded file. Please try again or contact support if it persists."
+msgstr ""
+
+msgid "Could not start extraction. The :catalogue_pdf Oban queue may not be running."
+msgstr ""
+
+msgid "Create Categories"
+msgstr ""
+
+msgid "Create a new manufacturer — fill in the details below"
+msgstr ""
+
+msgid "Create a new supplier — link to all touched manufacturers"
+msgstr ""
+
+msgid "Create one first"
+msgstr ""
+
+msgid "Default Unit"
+msgstr ""
+
+msgid "Default Value"
+msgstr ""
+
+msgid "Delete category and items"
+msgstr ""
+
+msgid "Delete category — what about the items?"
+msgstr ""
+
+msgid "Delete forever"
+msgstr ""
+
+msgid "Delete items along with the category"
+msgstr ""
+
+msgid "Delete selected items?"
+msgstr ""
+
+msgid "Deleting…"
+msgstr ""
+
+msgid "Discontinued items are kept for reference but hidden from active listings."
+msgstr ""
+
+msgid "Discount Override (%)"
+msgstr ""
+
+msgid "Discount Percentage"
+msgstr ""
+
+msgid "Drag to reorder"
+msgstr ""
+
+msgid "Drag to reorder (among siblings)"
+msgstr ""
+
+msgid "Each catalogue can only appear once in the rules list."
+msgstr ""
+
+msgid "Email or phone"
+msgstr ""
+
+msgid "Errors"
+msgstr ""
+
+msgid "Extraction failed"
+msgstr ""
+
+msgid "File"
+msgstr ""
+
+msgid "File format does not match the selected format."
+msgstr ""
+
+msgid "File has too many rows to import. Please split it into smaller files."
+msgstr ""
+
+msgid "File is too large to import. Please split it into smaller files."
+msgstr ""
+
+msgid "File is too large."
+msgstr ""
+
+msgid "File type not supported. Use .xlsx or .csv"
+msgstr ""
+
+msgid "Filename"
+msgstr ""
+
+msgid "Flags"
+msgstr ""
+
+msgid "Flat"
+msgstr ""
+
+msgid "Flat amount"
+msgstr ""
+
+#: lib/phoenix_kit_catalogue/web/components.ex:878
+#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:1177
+#, elixir-autogen
+msgid "Has subcategories"
+msgstr ""
+
+msgid "Import %{count} Items"
+msgstr ""
+
+msgid "Import Into Category"
+msgstr ""
+
+msgid "Import Language"
+msgstr ""
+
+msgid "Import all — create everything including duplicates"
+msgstr ""
+
+msgid "Import failed: %{reason}"
+msgstr ""
+
+msgid "Importing..."
+msgstr ""
+
+msgid "Inactive manufacturers won't appear in item dropdowns."
+msgstr ""
+
+msgid "Inactive suppliers won't appear in manufacturer linking."
+msgstr ""
+
+msgid "Inherit catalogue discount"
+msgstr ""
+
+msgid "Inherit catalogue markup"
+msgstr ""
+
+msgid "Inherit: %{discount}%"
+msgstr ""
+
+msgid "Inherit: %{markup}%"
+msgstr ""
+
+msgid "Inherit: %{value}"
+msgstr ""
+
+msgid "Internal notes about this manufacturer..."
+msgstr ""
+
+msgid "Internal notes about this supplier..."
+msgstr ""
+
+msgid "Item Name"
+msgstr ""
+
+msgid "Items can only be moved within this catalogue."
+msgstr ""
+
+msgid "Items keep their catalogue but lose their category."
+msgstr ""
+
+msgid "Items move to the Deleted view alongside the category. Both can be restored later."
+msgstr ""
+
+msgid "Items reordered."
+msgstr ""
+
+msgid "Items stay in this catalogue but are no longer attached to any category."
+msgstr ""
+
+msgid "Leave blank to inherit the catalogue's discount. Set (including 0) to override just this item."
+msgstr ""
+
+msgid "Leave blank to inherit the catalogue's markup. Set (including 0) to override just this item."
+msgstr ""
+
+msgid "Link to Supplier"
+msgstr ""
+
+msgid "Loading…"
+msgstr ""
+
+msgid "Logo URL"
+msgstr ""
+
+msgid "Lower numbers appear first."
+msgstr ""
+
+msgid "Make items uncategorized"
+msgstr ""
+
+msgid "Manual"
+msgstr ""
+
+msgid "Manufacturer created but failed to link some suppliers."
+msgstr ""
+
+msgid "Manufacturer updated but failed to sync supplier links."
+msgstr ""
+
+msgid "Manufacturers that will be created or matched:"
+msgstr ""
+
+msgid "Map"
+msgstr ""
+
+msgid "Map each value to a system unit:"
+msgstr ""
+
+msgid "Markup Override (%)"
+msgstr ""
+
+msgid "Markup Percentage"
+msgstr ""
+
+msgid "Match across all languages"
+msgstr ""
+
+msgid "Move items"
+msgstr ""
+
+msgid "Move items and delete category"
+msgstr ""
+
+msgid "Move items to another category"
+msgstr ""
+
+msgid "Move selected items"
+msgstr ""
+
+msgid "Move this PDF to trash?"
+msgstr ""
+
+msgid "Move this category and all its items to a different catalogue."
+msgstr ""
+
+msgid "Move this item into a different smart catalogue. Its catalogue rules stay attached."
+msgstr ""
+
+msgid "Move this item to a category in any catalogue."
+msgstr ""
+
+msgid "Move to Another Catalogue"
+msgstr ""
+
+msgid "Move to Another Category"
+msgstr ""
+
+msgid "Move to Another Parent"
+msgstr ""
+
+msgid "Move to Another Smart Catalogue"
+msgstr ""
+
+msgid "Name *"
+msgstr ""
+
+msgid "New Categories"
+msgstr ""
+
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2781
+#, elixir-autogen
+msgid "Newest first"
+msgstr ""
+
+msgid "No PDF mentions this item by name."
+msgstr ""
+
+msgid "No PDFs matching your search."
+msgstr ""
+
+msgid "No categories available — use Uncategorized instead."
+msgstr ""
+
+msgid "No categories or items yet. Add a category or item to get started."
+msgstr ""
+
+msgid "No category — import items without a category"
+msgstr ""
+
+msgid "No discontinued items here."
+msgstr ""
+
+msgid "No extractable text"
+msgstr ""
+
+msgid "No inactive items here."
+msgstr ""
+
+msgid "No items in this category."
+msgstr ""
+
+#: lib/phoenix_kit_catalogue/web/components/catalogue_browse.ex:303
+#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2648
+#, elixir-autogen
+msgid "No items match your search."
+msgstr ""
+
+msgid "No manufacturer — items imported without a maker"
+msgstr ""
+
+msgid "No metadata attached yet. Pick a field below to add one."
+msgstr ""
+
+msgid "No other catalogues available to reference yet."
+msgstr ""
+
+msgid "No other categories available — use Uncategorized instead."
+msgstr ""
+
+msgid "No stuck extractions to re-queue."
+msgstr ""
+
+msgid "No supplier — leave manufacturers unlinked"
+msgstr ""
+
+msgid "No uncategorized items."
+msgstr ""
+
+msgid "Nothing deleted here."
+msgstr ""
+
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2782
+#, elixir-autogen
+msgid "Oldest first"
+msgstr ""
+
+msgid "Only one file allowed"
+msgstr ""
+
+msgid "Open the PDF in a new tab"
+msgstr ""
+
+msgid "PDF files only. Identical content is deduplicated; same file uploaded again under a new name shares one underlying file + extraction."
+msgstr ""
+
+msgid "PRO100 Sync Preview"
+msgstr ""
+
+msgid "Parent category"
+msgstr ""
+
+msgid "Parent must live in the same catalogue."
+msgstr ""
+
+msgid "Percent (%)"
+msgstr ""
+
+msgid "Permanently delete selected items?"
+msgstr ""
+
+msgid "Permanently delete this PDF? If no other library entry references the same file content, the underlying file will be queued for hard deletion."
+msgstr ""
+
+msgid "Pick a parent to nest this category inside, or leave blank to keep it at the top level. You can move it later."
+msgstr ""
+
+msgid "Pick a strategy before applying."
+msgstr ""
+
+msgid "Pick a target category in this catalogue. The category being deleted and its subtree are excluded."
+msgstr ""
+
+msgid "Pick where %{count} items should go."
+msgstr ""
+
+msgid "Pick which catalogues this item applies to and set a value + unit per catalogue. Rows left blank inherit the defaults below."
+msgstr ""
+
+msgid "Piece"
+msgstr ""
+
+msgid "Please give the new category a name before continuing."
+msgstr ""
+
+msgid "Please give the new manufacturer a name before continuing."
+msgstr ""
+
+msgid "Please give the new supplier a name before continuing."
+msgstr ""
+
+msgid "Please select a catalogue first."
+msgstr ""
+
+msgid "Please select a format."
+msgstr ""
+
+msgid "Please upload a file."
+msgstr ""
+
+msgid "Pricing & Identification"
+msgstr ""
+
+msgid "Product specifications, dimensions, materials..."
+msgstr ""
+
+msgid "Re-queue any PDFs whose text extraction never ran or got stuck (e.g. after the job queue was down)."
+msgstr ""
+
+msgid "Re-queued %{count} stuck extraction(s)."
+msgstr ""
+
+msgid "Re-queued %{count} stuck extraction(s); %{skipped} already running."
+msgstr ""
+
+msgid "Re-queued %{ok}; %{failed} could not be queued — the :catalogue_pdf queue may not be running."
+msgstr ""
+
+msgid "Re-queued text extraction."
+msgstr ""
+
+msgid "Re-queuing…"
+msgstr ""
+
+msgid "Remove from catalogue"
+msgstr ""
+
+msgid "Remove from category"
+msgstr ""
+
+msgid "Remove from item"
+msgstr ""
+
+msgid "Remove this file from the catalogue? If it's not attached to any other resource, it will be moved to trash (admins can restore)."
+msgstr ""
+
+msgid "Remove this file from the category? If it's not attached to any other resource, it will be moved to trash (admins can restore)."
+msgstr ""
+
+msgid "Remove this file from the item? If it's not attached to any other item, it will be moved to trash (admins can restore)."
+msgstr ""
+
+msgid "Removing..."
+msgstr ""
+
+msgid "Reparent this category within its catalogue. Its subtree comes along."
+msgstr ""
+
+msgid "Replace"
+msgstr ""
+
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:634
+#, elixir-autogen
+msgid "Resource"
+msgstr ""
+
+msgid "Restoring…"
+msgstr ""
+
+msgid "Retry"
+msgstr ""
+
+msgid "Retry extraction"
+msgstr ""
+
+msgid "Retry stuck"
+msgstr ""
+
+msgid "Retrying…"
+msgstr ""
+
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2783
+#, elixir-autogen
+msgid "Reverse current order"
+msgstr ""
+
+msgid "Row %{row}: %{msg}"
+msgstr ""
+
+msgid "Row %{row}: %{reason}"
+msgstr ""
+
+msgid "Row %{row}: multiple items match (%{matches})"
+msgstr ""
+
+msgid "Row %{row}: no id, cannot be created"
+msgstr ""
+
+msgid "Row %{row}: no matching item found"
+msgstr ""
+
+msgid "Row %{row}: no matching item, not created"
+msgstr ""
+
+msgid "Row %{row}: no name, cannot be created"
+msgstr ""
+
+msgid "Rows with errors (will be skipped):"
+msgstr ""
+
+msgid "Set (kmpl)"
+msgstr ""
+
+msgid "Running meter"
+msgstr ""
+
+msgid "Sample Data (first 5 rows)"
+msgstr ""
+
+msgid "Search failed. Please try again."
+msgstr ""
+
+msgid "Search is temporarily unavailable. Please try again in a moment."
+msgstr ""
+
+msgid "Search items by name, description, or SKU..."
+msgstr ""
+
+#: lib/phoenix_kit_catalogue/web/components/catalogue_browse.ex:233
+#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2372
+#, elixir-autogen
+msgid "Search items…"
+msgstr ""
+
+msgid "Search uncategorized items..."
+msgstr ""
+
+msgid "Search within this category..."
+msgstr ""
+
+msgid "Searched for: %{name}"
+msgstr ""
+
+msgid "Searches the entire PDF library for the item's name across all enabled languages."
+msgstr ""
+
+msgid "Searching for \"%{query}\"..."
+msgstr ""
+
+msgid "Searching…"
+msgstr ""
+
+msgid "Select a catalogue..."
+msgstr ""
+
+msgid "Select a column..."
+msgstr ""
+
+msgid "Select all items"
+msgstr ""
+
+msgid "Selected image could not be loaded."
+msgstr ""
+
+msgid "Selected items share positions. Apply \"Reorder all\" first to normalise."
+msgstr ""
+
+msgid "Set Manufacturer"
+msgstr ""
+
+msgid "Sheet:"
+msgstr ""
+
+msgid "Show %{n} more"
+msgstr ""
+
+msgid "Showing %{loaded} of %{count} results for \"%{query}\""
+msgstr ""
+
+msgid "Showing first 20 of %{count} items."
+msgstr ""
+
+msgid "Shown in lists and detail views."
+msgstr ""
+
+msgid "Shown on catalogue listings and category landing pages."
+msgstr ""
+
+msgid "Shown on catalogue listings and detail views."
+msgstr ""
+
+msgid "Shown on listings and detail views."
+msgstr ""
+
+msgid "Size"
+msgstr ""
+
+msgid "Skip duplicates — only import new, unique items"
+msgstr ""
+
+msgid "Skipped"
+msgstr ""
+
+msgid "Smart catalogues hold items like \"Delivery\" whose cost is a per-catalogue %/flat rule picked from other catalogues. Items here reference other catalogues instead of carrying a base price of their own."
+msgstr ""
+
+msgid "Smart rule"
+msgstr ""
+
+msgid "Some categories couldn't be restored. The catalogue may be deleted — restore it first."
+msgstr ""
+
+msgid "Source"
+msgstr ""
+
+msgid "Spec sheets, drawings, photos. Any file type is accepted."
+msgstr ""
+
+msgid "Standard catalogues hold items priced directly — each item has its own base price, markup, and discount. This is the normal flow for materials, products, or anything with a fixed price tag."
+msgstr ""
+
+msgid "Starting import..."
+msgstr ""
+
+msgid "Still uploading — please wait a moment."
+msgstr ""
+
+msgid "Supplier created but failed to link some manufacturers."
+msgstr ""
+
+msgid "Supplier updated but failed to sync manufacturer links."
+msgstr ""
+
+msgid "Suppliers that will be created or matched:"
+msgstr ""
+
+msgid "Supports .xlsx, .csv, .txt, .json files (max 10MB)"
+msgstr ""
+
+msgid "Sync Complete"
+msgstr ""
+
+msgid "Target Catalogue"
+msgstr ""
+
+msgid "Target category not found."
+msgstr ""
+
+msgid "Text extraction in progress. This page will refresh automatically when it completes."
+msgstr ""
+
+msgid "The file is empty."
+msgstr ""
+
+msgid "This PDF appears to be scanned. OCR support is planned for a future iteration."
+msgstr ""
+
+msgid "This catalogue was just deleted."
+msgstr ""
+
+msgid "This category and all its items will be permanently deleted. This cannot be undone."
+msgstr ""
+
+msgid "This item was imported in %{lang}. Please fill in the %{primary} translation and save to set it as the primary language."
+msgstr ""
+
+msgid "This item will be permanently deleted. This cannot be undone."
+msgstr ""
+
+msgid "This will permanently delete this catalogue, all its categories, and all items within them."
+msgstr ""
+
+msgid "This will permanently delete this catalogue, all its categories, and all items within them. This cannot be undone."
+msgstr ""
+
+msgid "This will permanently delete this category and all its items."
+msgstr ""
+
+msgid "This will permanently delete this category and all its items. This cannot be undone."
+msgstr ""
+
+msgid "To create"
+msgstr ""
+
+msgid "Too many files at once."
+msgstr ""
+
+msgid "Too many files."
+msgstr ""
+
+msgid "Trashed"
+msgstr ""
+
+msgid "Trashing…"
+msgstr ""
+
+msgid "Type to refine search…"
+msgstr ""
+
+msgid "Unfiled (root)"
+msgstr ""
+
+msgid "Update item details, pricing, and classification."
+msgstr ""
+
+msgid "Updates"
+msgstr ""
+
+msgid "Upload & Parse"
+msgstr ""
+
+msgid "Upload error: %{reason}"
+msgstr ""
+
+msgid "Upload failed for %{name}."
+msgstr ""
+
+msgid "Upload failed for an unexpected reason. Please try again."
+msgstr ""
+
+msgid "Uploaded"
+msgstr ""
+
+msgid "Uploading..."
+msgstr ""
+
+msgid "Use a column — create categories from column values"
+msgstr ""
+
+msgid "Use a column — create or match manufacturers from column values"
+msgstr ""
+
+msgid "Use a column — link per-row supplier to row's manufacturer"
+msgstr ""
+
+msgid "Used for any selected catalogue that doesn't have its own unit."
+msgstr ""
+
+msgid "Used for any selected catalogue that doesn't have its own value. If no catalogues are selected, this is the item's standalone fee (e.g. $50 flat)."
+msgstr ""
+
+msgid "Validating..."
+msgstr ""
+
+msgid "Waiting for uploads..."
+msgstr ""
+
+msgid "What kinds of items belong in this category..."
+msgstr ""
+
+msgid "Which column contains the category names?"
+msgstr ""
+
+msgid "Which column contains the manufacturer names?"
+msgstr ""
+
+msgid "Which column contains the supplier names?"
+msgstr ""
+
+msgid "You must map at least one column to 'Item Name'. Scroll down to the column mapping section and pick the column that holds item names."
+msgstr ""
+
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2780
+#, elixir-autogen
+msgid "Z → A by name"
+msgstr ""
+
+msgid "all catalogues"
+msgstr ""
+
+msgid "all categories"
+msgstr ""
+
+msgid "and its subtree contain %{count} active items. Choose where they should go before the category is deleted."
+msgstr ""
+
+msgid "columns"
+msgstr ""
+
+msgid "e.g., 10.0"
+msgstr ""
+
+msgid "e.g., 15.0"
+msgstr ""
+
+msgid "e.g., 5"
+msgstr ""
+
+msgid "e.g., ABC-001"
+msgstr ""
+
+msgid "e.g., Acme Distributors"
+msgstr ""
+
+msgid "e.g., Blum"
+msgstr ""
+
+msgid "e.g., Blum, Hettich"
+msgstr ""
+
+msgid "e.g., Cabinet Frames"
+msgstr ""
+
+msgid "e.g., KF-001"
+msgstr ""
+
+msgid "e.g., Kitchen Furniture"
+msgstr ""
+
+msgid "e.g., Oak Panel 18mm"
+msgstr ""
+
+msgid "e.g., Regional Distributors Inc."
+msgstr ""
+
+msgid "https://..."
+msgstr ""
+
+msgid "item"
+msgstr ""
+
+msgid "items"
+msgstr ""
+
+msgid "m²"
+msgstr ""
+
+msgid "m² (square meter)"
+msgstr ""
+
+msgid "page %{n}"
+msgstr ""
+
+msgid "pair"
+msgstr ""
+
+msgid "pc"
+msgstr ""
+
+msgid "price?"
+msgstr ""
+
+msgid "rm"
+msgstr ""
+
+msgid "rows"
+msgstr ""
+
+msgid "service data only"
+msgstr ""
+
+msgid "set"
+msgstr ""
+
+msgid "sheet"
+msgstr ""
+
+msgid "unit"
+msgstr ""
+
+msgid "unit?"
+msgstr ""
+
+msgid "— Skip —"
+msgstr ""
+
+msgid "— Top level (no parent) —"
+msgstr ""
+
+msgid "— no category —"
+msgstr ""
+
+msgid "…and %{count} more"
+msgstr ""
+
+msgid "Edit Attribute Set"
+msgstr ""
+
+msgid "Could not save the change."
+msgstr ""
+
+msgid "This set's configuration is invalid. Contact an administrator."
+msgstr ""
+
+msgid "The attribute sets module is not enabled."
+msgstr ""
+
+msgid "Invalid selection mode."
+msgstr ""
+
+msgid "This set is not attached to the item."
+msgstr ""
+
+msgid "Unsupported field type."
+msgstr ""
+
+msgid "Unknown field."
+msgstr ""
+
+msgid "Invalid value."
+msgstr ""
+
+msgid "…"
+msgstr ""
+
+msgid "CRM Company"
+msgstr ""
+
+msgid "Details come from CRM wherever this is used. The fields above are no longer shown to anyone."
+msgstr ""
+
+msgid "Linked to"
+msgstr ""
+
+msgid "The linked CRM company could not be found. Unlink to edit locally again."
+msgstr ""
+
+msgid "Unlink"
+msgstr ""
+
+msgid "No CRM companies yet."
+msgstr ""
+
+msgid "Select a CRM company..."
+msgstr ""
+
+msgid "Link"
+msgstr ""
+
+msgid "Linking..."
+msgstr ""
+
+msgid "Link this supplier to the CRM company it represents. The company gains the supplier role, and its details are then used everywhere this supplier appears."
+msgstr ""
+
+msgid "Link this manufacturer to the CRM company it represents. Link only a real company — a brand you never deal with belongs in the catalogue alone."
+msgstr ""
+
+msgid "Choose a CRM company first."
+msgstr ""
+
+msgid "Linked to CRM."
+msgstr ""
+
+msgid "Unlinked from CRM."
+msgstr ""
+
+msgid "The CRM module is not available."
+msgstr ""
+
+msgid "That CRM company no longer exists."
+msgstr ""
+
+msgid "That CRM company is already linked to another record."
+msgstr ""
+
+msgid "Could not give that CRM company the role, so nothing was linked."
+msgstr ""
+
+msgid "Someone else changed this link first. Reload the page and try again."
+msgstr ""
+
+msgid "Suppliers and Manufacturer"
+msgstr ""
+
+msgid "A field was removed while this was open. Close and reopen the form."
+msgstr ""
+
+msgid "Add supplier"
+msgstr ""
+
+msgid "Changing the cost closes the current price and starts a new one, kept in History."
+msgstr ""
+
+msgid "Could not save the supplier."
+msgstr ""
+
+msgid "Done"
+msgstr ""
+
+msgid "Edit supplier"
+msgstr ""
+
+msgid "Extra fields need the Entities module, which is turned off."
+msgstr ""
+
+msgid "Extra info every supplier row carries — incoterm, carton quantity, certification expiry. These apply to every item, not just this one."
+msgstr ""
+
+msgid "Failed to remove the field."
+msgstr ""
+
+msgid "Field removed."
+msgstr ""
+
+msgid "Fields"
+msgstr ""
+
+msgid "No"
+msgstr ""
+
+msgid "No extra fields yet."
+msgstr ""
+
+msgid "One of the extra fields has invalid input."
+msgstr ""
+
+msgid "Remove this field? Values already saved on supplier rows stay in the database but stop being shown."
+msgstr ""
+
+msgid "Supplier extra fields"
+msgstr ""
+
+msgid "Unit cost"
+msgstr ""
+
+msgid "Unit cost must be a number."
+msgstr ""
+
+msgid "Yes"
+msgstr ""
+
+msgid "e.g. Incoterm"
+msgstr ""
+
+msgid "Comments"
+msgstr ""
+
+msgid "About this supplier for this item only. The company's own comments stay on its CRM page."
+msgstr ""
+
+msgid "Add a comment"
+msgstr ""
+
+msgid "No comments yet."
+msgstr ""
+
+msgid "Open comments"
+msgstr ""
+
+msgid "Show all %{count} comments"
+msgstr ""
+
+msgid "This supplier is already on the item. Edit the existing row instead."
+msgstr ""
+
+msgid "That selection is not in this catalogue."
+msgstr ""
+
+msgid "That id is not valid."
+msgstr ""
+
+msgid "Could not copy the files folder."
+msgstr ""
+
+msgid "This supplier row is no longer current."
+msgstr ""
+
+msgid "Cannot move items into a category that is being deleted."
+msgstr ""
+
+msgid "contact"
+msgstr ""
+
+msgid "imported"
+msgstr ""
+
+msgid "Open the company"
+msgstr ""
+
+#: lib/phoenix_kit_catalogue/web/components/browse.ex:372
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:480
+#, elixir-autogen
+msgid "All"
+msgstr ""
+
+#: lib/phoenix_kit_catalogue/web/components/browse.ex:1166
+#: lib/phoenix_kit_catalogue/web/components/browse.ex:1181
+#, elixir-autogen
+msgid "Quantity"
+msgstr ""
+
+#: lib/phoenix_kit_catalogue/web/components/catalogue_browse.ex:315
+#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2717
+#, elixir-autogen
+msgid "Load more"
+msgstr ""
+
+#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2204
+#, elixir-autogen
+msgid "Select items"
+msgstr ""
+
+#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2771
+#, elixir-autogen
+msgid "Add to selection"
+msgstr ""
+
+#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2769
+#, elixir-autogen
+msgid "Remove from selection"
+msgstr ""
+
+#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2404
+#, elixir-autogen
+msgid "Browse"
+msgstr ""
+
+#: lib/phoenix_kit_catalogue/web/catalogue_detail_live.ex
+msgid "Drag-reorder needs the Manual sort — choose it in the sort selector."
+msgstr ""
+
+#: lib/phoenix_kit_catalogue/web/components/browse.ex:94
+#, elixir-autogen
+msgid "Computed"
+msgstr ""
+
+#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2820
+#, elixir-autogen
+msgid "Confirm selection"
+msgstr ""
+
+#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2859
+#, elixir-autogen
+msgid "Not available in this selection"
+msgstr ""
+
+msgid "Shown on category landing pages."
+msgstr ""
+
+msgid "Import Failed"
+msgstr ""
+
+msgid "The import stopped unexpectedly before it finished. Rows written before the failure were kept. Check the server log for details."
+msgstr ""
+
+msgid "Move selected categories"
+msgstr ""
+
+msgid "Move categories"
+msgstr ""
+
+msgid "Pick where %{count} categories should go. Each one brings its subcategories and items along."
+msgstr ""
+
+msgid "Make them top-level categories"
+msgstr ""
+
+msgid "They leave their parent and sit at the root of this catalogue."
+msgstr ""
+
+msgid "Nest them under another category"
+msgstr ""
+
+msgid "No category can take them — only the top level is left."
+msgstr ""
+
+msgid "Moved %{count} categories."
+msgstr ""
+
+msgid "%{count} categories could not be moved."
+msgstr ""
+
+msgid "Select all categories"
+msgstr ""
+
+msgid "Duplicate"
+msgstr ""
+
+msgid "Duplicate selected items"
+msgstr ""
+
+msgid "Duplicate selected categories"
+msgstr ""
+
+msgid "Duplicate items"
+msgstr ""
+
+msgid "Duplicate categories"
+msgstr ""
+
+msgid "%{count} items will be copied with their files, attribute sets, supplier rows and catalogue rules. Comments are not copied."
+msgstr ""
+
+msgid "%{count} categories will be copied with their subcategories and items."
+msgstr ""
+
+msgid "Each copy is named after its original with \"(copy)\" added and placed right after it."
+msgstr ""
+
+msgid "Duplicated %{count} items."
+msgstr ""
+
+msgid "Duplicated %{count} categories."
+msgstr ""
+
+msgid "%{count} items could not be duplicated."
+msgstr ""
+
+msgid "%{count} categories could not be duplicated."
+msgstr ""
+
+msgid "%{name} (copy)"
+msgstr ""
+
+msgid "Supplier price"
+msgstr ""
+
+#: lib/phoenix_kit_catalogue/web/components/catalogue_browse.ex:244
+#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2443
+#, elixir-autogen, elixir-format
+msgid "List view"
+msgstr ""
+
+#: lib/phoenix_kit_catalogue/web/components/browse.ex:826
+#, elixir-autogen, elixir-format
+msgid "Qty"
+msgstr ""
+
+#: lib/phoenix_kit_catalogue/web/components/browse.ex:825
+#, elixir-autogen, elixir-format
+msgid "Base price"
+msgstr ""
+
+#: lib/phoenix_kit_catalogue/web/components/browse.ex:691
+#, elixir-autogen, elixir-format
+msgid "Category prefix"
+msgstr ""
+
+#: lib/phoenix_kit_catalogue/web/components/browse.ex:690
+#, elixir-autogen, elixir-format
+msgid "Photo"
+msgstr ""
+
+msgid "Edit values"
+msgstr ""
+
+msgid "Set settings"
+msgstr ""
+
+msgid "None yet — add them in Entities."
+msgstr ""
+
+msgid "No items attached."
+msgstr ""
+
+msgid "New attribute set"
+msgstr ""
+
+msgid "Create and edit in Entities"
+msgstr ""
+
+msgid "You'll be taken straight to adding the set's values in Entities."
+msgstr ""
+
+msgid "Could not create the set — check the name."
+msgstr ""
+
+msgid "Could not create the set."
+msgstr ""
+
+msgid "One dimension from one vendor — a color range, a trim series. Items attach any number of sets. Sets are edited in the Entities module."
+msgstr ""
+
+## Attribute sets viewer listing (2026-08-27 scale pass)
+msgid "Search sets and values…"
+msgstr ""
+
+msgid "No sets match your search."
+msgstr ""
+
+msgid "Page %{page} of %{max} — %{total} sets"
+msgstr ""
+
+msgid "No values yet"
+msgstr ""
+
+msgid "Creating…"
+msgstr ""
+
+# Set items popup (2026-08-28)
+msgid "View items"
+msgstr ""
+
+# Catalogue search covers categories too (2026-08-28)
+msgid "Nothing matches your search."
+msgstr ""
+
+# Attribute filter (2026-08-28)
+msgid "Clear filters"
+msgstr ""
+
+# Attribute filter: dead values (2026-08-28)
+msgid "Nothing matches this together with the filters already on"
+msgstr ""
+
+msgid "Attribute set not found."
+msgstr ""
+
+msgid "Multiple values"
+msgstr ""
+
+msgid "Fixed value"
+msgstr ""
+
+msgid "Previous page"
+msgstr ""
+
+msgid "Next page"
+msgstr ""
+
+msgid "Create %{count} unmatched position"
+msgid_plural "Create %{count} unmatched positions"
+msgstr[0] ""
+msgstr[1] ""
+
+msgid "%{count} row skipped"
+msgid_plural "%{count} rows skipped"
+msgstr[0] ""
+msgstr[1] ""
+
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:3667
+#, elixir-autogen, elixir-format
+msgid "No items match."
+msgstr ""
+
+#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:3710
+#, elixir-autogen, elixir-format
+msgid "View in catalogue"
+msgstr ""
+
+#: lib/phoenix_kit_catalogue/web/catalogue_detail_live.ex:4861
+#, elixir-autogen, elixir-format
+msgid "A category cannot move into its own subtree."
+msgstr ""
+
+#: lib/phoenix_kit_catalogue/web/catalogue_detail_live.ex:4867
+#, elixir-autogen, elixir-format
+msgid "Categories can only move within their own catalogue."
+msgstr ""
+
+#: lib/phoenix_kit_catalogue/web/catalogue_detail_live.ex:4643
+#: lib/phoenix_kit_catalogue/web/catalogue_detail_live.ex:5004
+#: lib/phoenix_kit_catalogue/web/catalogue_detail_live.ex:5121
+#, elixir-autogen, elixir-format
+msgid "Drag to reorder or nest"
+msgstr ""
+
+#: lib/phoenix_kit_catalogue/web/catalogue_detail_live.ex:4607
+#: lib/phoenix_kit_catalogue/web/catalogue_detail_live.ex:4924
+#, elixir-autogen, elixir-format
+msgid "Drop here to move to this level"
+msgstr ""
+
+#: lib/phoenix_kit_catalogue/web/catalogue_detail_live.ex:4588
+#, elixir-autogen, elixir-format
+msgid "No categories here yet."
+msgstr ""
+
+#: lib/phoenix_kit_catalogue/web/catalogue_detail_live.ex:4667
+#, elixir-autogen, elixir-format
+msgid "Toggle category"
+msgstr ""
+
+#: lib/phoenix_kit_catalogue/web/catalogue_detail_live.ex:3406
+#, elixir-autogen, elixir-format
+msgid "Include subcategory items"
+msgstr ""
+
+#: lib/phoenix_kit_catalogue/web/catalogue_detail_live.ex:4523
+#: lib/phoenix_kit_catalogue/web/catalogue_detail_live.ex:5033
+#: lib/phoenix_kit_catalogue/web/catalogue_detail_live.ex:5136
+#, elixir-autogen, elixir-format
+msgid "New subcategory"
+msgstr ""
+
+#: lib/phoenix_kit_catalogue/web/catalogue_detail_live.ex:3459
+#, elixir-autogen, elixir-format
+msgid "Search for"
+msgstr ""
+
+#: lib/phoenix_kit_catalogue/web/item_form_live.ex:1981
+#: lib/phoenix_kit_catalogue/web/item_form_live.ex:2034
+#, elixir-autogen, elixir-format
+msgid "That category belongs to another catalogue."
+msgstr ""
+
+#: lib/phoenix_kit_catalogue/web/category_form_live.ex:679
+#: lib/phoenix_kit_catalogue/web/item_form_live.ex:2764
+#, elixir-autogen, elixir-format
+msgid "SEO description"
+msgstr ""
+
+#: lib/phoenix_kit_catalogue/web/category_form_live.ex:671
+#: lib/phoenix_kit_catalogue/web/item_form_live.ex:2756
+#, elixir-autogen, elixir-format
+msgid "SEO title"
+msgstr ""
+
+#: lib/phoenix_kit_catalogue/web/category_form_live.ex:653
+#: lib/phoenix_kit_catalogue/web/item_form_live.ex:2727
+#, elixir-autogen, elixir-format
+msgid "URL slug"
+msgstr ""
+
+#: lib/phoenix_kit_catalogue/web/category_form_live.ex:654
+#: lib/phoenix_kit_catalogue/web/item_form_live.ex:2728
+#, elixir-autogen, elixir-format
+msgid "auto-generated from the name"
+msgstr ""
+
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:529
+#, elixir-autogen, elixir-format
 msgid "%{count} rows"
 msgstr "%{count} Zeilen"
 
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:326
+#, elixir-autogen, elixir-format
 msgid "A translation job for this row is already queued."
 msgstr "Für diese Zeile ist bereits ein Übersetzungsauftrag in der Warteschlange."
 
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:510
+#, elixir-autogen, elixir-format
 msgid "AI translation is not configured"
 msgstr "KI-Übersetzung ist nicht konfiguriert"
 
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:580
+#, elixir-autogen, elixir-format
 msgid "All languages"
 msgstr "Alle Sprachen"
 
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:468
+#, elixir-autogen, elixir-format
 msgid "All types"
 msgstr "Alle Typen"
 
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:515
+#, elixir-autogen, elixir-format
 msgid "Configure AI"
 msgstr "KI konfigurieren"
 
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:335
+#, elixir-autogen, elixir-format
 msgid "Could not queue the translation."
 msgstr "Die Übersetzung konnte nicht in die Warteschlange gestellt werden."
 
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:194
+#, elixir-autogen, elixir-format
 msgid "Could not update the translation baseline."
 msgstr "Die Übersetzungsbasis konnte nicht aktualisiert werden."
 
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:479
+#, elixir-autogen, elixir-format
 msgid "Fresh"
 msgstr "Aktuell"
 
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:578
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:636
+#, elixir-autogen, elixir-format
 msgid "Language"
 msgstr "Sprache"
 
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:179
+#, elixir-autogen, elixir-format
 msgid "Marked the current source as the translation baseline."
 msgstr "Die aktuelle Quelle wurde als Übersetzungsbasis markiert."
 
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:476
+#, elixir-autogen, elixir-format
 msgid "Missing"
 msgstr "Fehlt"
 
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:628
+#, elixir-autogen, elixir-format
 msgid "No rows match the current filter."
 msgstr "Keine Zeile entspricht dem aktuellen Filter."
 
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:392
+#, elixir-autogen, elixir-format
 msgid "Nothing matched the current filter."
 msgstr "Nichts entspricht dem aktuellen Filter."
 
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:491
+#, elixir-autogen, elixir-format
 msgid "Queue translation for %{count} row(s)?"
 msgstr "Übersetzung für %{count} Zeile(n) in die Warteschlange stellen?"
 
-msgid "Queued %{count} translation(s)."
-msgstr "%{count} Übersetzung(en) in die Warteschlange gestellt."
-
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:409
+#, elixir-autogen, elixir-format
 msgid "Queued %{ok}; %{failed} could not be queued."
 msgstr "%{ok} in die Warteschlange gestellt; %{failed} konnten nicht eingereiht werden."
 
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:620
+#, elixir-autogen, elixir-format
 msgid "Retranslate all stale"
 msgstr "Alle veralteten neu übersetzen"
 
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:593
+#, elixir-autogen, elixir-format
 msgid "Search by name…"
 msgstr "Nach Namen suchen…"
 
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:463
+#, elixir-autogen, elixir-format
 msgid "Set label"
 msgstr "Set-Bezeichnung"
 
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:512
+#, elixir-autogen, elixir-format
 msgid "Set up an AI endpoint before translating catalogue content."
 msgstr "Richten Sie einen KI-Endpunkt ein, bevor Sie Kataloginhalte übersetzen."
 
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:464
+#, elixir-autogen, elixir-format
 msgid "Set value"
 msgstr "Set-Wert"
 
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:477
+#, elixir-autogen, elixir-format
 msgid "Stale"
 msgstr "Veraltet"
 
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:680
+#, elixir-autogen, elixir-format
 msgid "Stamp fresh"
 msgstr "Als aktuell markieren"
 
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:637
+#, elixir-autogen, elixir-format
 msgid "State"
 msgstr "Zustand"
 
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:189
+#, elixir-autogen, elixir-format
 msgid "This row has no translation yet — nothing to stamp."
 msgstr "Diese Zeile hat noch keine Übersetzung — nichts zu markieren."
 
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:669
+#, elixir-autogen, elixir-format
 msgid "Translate"
 msgstr "Übersetzen"
 
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:611
+#, elixir-autogen, elixir-format
 msgid "Translate all missing"
 msgstr "Alle fehlenden übersetzen"
 
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:331
+#, elixir-autogen, elixir-format
 msgid "Translation queued."
 msgstr "Übersetzung in die Warteschlange gestellt."
 
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:124
+#, elixir-autogen, elixir-format
 msgid "Translations"
 msgstr "Übersetzungen"
 
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:656
+#, elixir-autogen, elixir-format
 msgid "queued"
 msgstr "wartet"
 
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:421
+#, elixir-autogen, elixir-format
+msgid "More rows match — click again to queue the next batch."
+msgstr "Es gibt weitere passende Zeilen — erneut klicken, um den nächsten Stapel in die Warteschlange zu stellen."
+
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:397
+#, elixir-autogen, elixir-format
+msgid "Queued %{count} translation."
+msgid_plural "Queued %{count} translations."
+msgstr[0] "%{count} Übersetzung in die Warteschlange gestellt."
+msgstr[1] "%{count} Übersetzungen in die Warteschlange gestellt."

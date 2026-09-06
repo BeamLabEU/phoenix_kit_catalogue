@@ -65,12 +65,23 @@ defmodule PhoenixKitCatalogue.Workers.TranslationSweepWorker do
   # then exits. `restart: :temporary` — a failed attempt just means no
   # chain until the next boot or manual `ensure_scheduled/0` call; nothing
   # here is worth restart-looping over.
+  #
+  # Gated on `ensure_scheduled_if_enabled/0` rather than the unconditional
+  # `ensure_scheduled/0`: the Global Constraints of the block-6 plan
+  # require this feature to be additive for every OTHER catalogue
+  # consumer — a host that never turns the sweep on must not get a
+  # perpetual hourly no-op Oban job from merely upgrading the dependency.
+  # A host that DOES enable it gets the chain from
+  # `Web.Settings.update_sweep_enabled/1` instead (see there), and once
+  # started, the chain keeps re-scheduling itself regardless of the
+  # setting's later value — same self-healing property, just deferred
+  # until the feature is actually opted into.
   @doc false
   @spec child_spec(keyword()) :: Supervisor.child_spec()
   def child_spec(_opts) do
     %{
       id: __MODULE__.Bootstrap,
-      start: {Task, :start_link, [&__MODULE__.ensure_scheduled/0]},
+      start: {Task, :start_link, [&__MODULE__.ensure_scheduled_if_enabled/0]},
       restart: :temporary
     }
   end
@@ -95,6 +106,20 @@ defmodule PhoenixKitCatalogue.Workers.TranslationSweepWorker do
   @spec ensure_scheduled() :: {:ok, Oban.Job.t()} | {:error, term()}
   def ensure_scheduled, do: schedule_next_tick()
 
+  @doc """
+  Boot-time gate for `ensure_scheduled/0`: seeds the chain only if the
+  sweep is already enabled, so a host that has never turned it on gets no
+  ticking job row. `Web.Settings.update_sweep_enabled/1` calls
+  `ensure_scheduled/0` unconditionally when it flips the setting to
+  `true`, so the chain always starts exactly when a host first opts in —
+  at boot (already enabled from a previous save) or from that save
+  itself.
+  """
+  @spec ensure_scheduled_if_enabled() :: {:ok, Oban.Job.t()} | {:error, term()} | :skipped
+  def ensure_scheduled_if_enabled do
+    if SweepSettings.sweep_enabled?(), do: ensure_scheduled(), else: :skipped
+  end
+
   defp schedule_next_tick do
     interval_seconds = SweepSettings.sweep_interval_minutes() * 60
 
@@ -102,7 +127,13 @@ defmodule PhoenixKitCatalogue.Workers.TranslationSweepWorker do
     |> new(unique: @unique_opts, schedule_in: interval_seconds)
     |> Oban.insert()
   rescue
-    e in [DBConnection.ConnectionError, Postgrex.Error, Ecto.QueryError, ArgumentError] ->
+    e in [
+      DBConnection.ConnectionError,
+      Postgrex.Error,
+      Ecto.QueryError,
+      ArgumentError,
+      RuntimeError
+    ] ->
       Logger.warning(
         "TranslationSweepWorker: could not schedule the next tick: #{Exception.message(e)}"
       )
@@ -196,14 +227,13 @@ defmodule PhoenixKitCatalogue.Workers.TranslationSweepWorker do
   def endpoint_and_prompts do
     with true <- Translations.available?(),
          endpoint_uuid when is_binary(endpoint_uuid) <- Translations.default_endpoint_uuid(),
-         {:ok, catalogue_prompt_uuid} <- AIPrompt.ensure_prompt() do
-      shared_prompt_uuid = Translations.default_prompt_uuid()
-
+         {:ok, catalogue_prompt_uuid} <- AIPrompt.ensure_prompt(),
+         {:ok, sets_prompt_uuid} <- AIPrompt.ensure_sets_prompt() do
       prompts = %{
         "catalogue_item" => catalogue_prompt_uuid,
         "catalogue_category" => catalogue_prompt_uuid,
-        "catalogue_set_label" => shared_prompt_uuid,
-        "catalogue_set_value" => shared_prompt_uuid
+        "catalogue_set_label" => sets_prompt_uuid,
+        "catalogue_set_value" => sets_prompt_uuid
       }
 
       {:ok, endpoint_uuid, prompts}

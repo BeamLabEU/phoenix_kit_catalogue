@@ -15,13 +15,20 @@ defmodule PhoenixKitCatalogue.AITranslatable.Sets do
   jobs (de/fr) on the same set or value serialize on the row lock instead of
   each overwriting the other's translation from a stale in-memory struct.
 
-  The merge itself is NOT duplicated here — it re-uses the entities
-  package's own translation helpers
+  The merge logic mirrors the entities package's own translation helpers
   (`PhoenixKitEntities.set_entity_translation/3`,
-  `PhoenixKitEntities.EntityData.set_title_translation/3`) against the
-  freshly-locked row. Both already satisfy the "never drop other languages"
-  contract this adapter needs; only the lock was missing, and the
-  surrounding transaction supplies exactly that.
+  `PhoenixKitEntities.EntityData.set_title_translation/3` — "never drop
+  other languages"), but does NOT call them directly: both route through
+  `update_entity/3`/`EntityData.update/2`, which broadcast (PubSub),
+  activity-log, and fire an async mirror-export Task right after their own
+  `repo().update/1` — INSIDE this adapter's still-open `FOR UPDATE`
+  transaction. A subscriber reacting to that broadcast would either block
+  on the lock or read pre-commit state, and a later failure in this
+  transaction (the fingerprint write, previously a second bare update)
+  would roll back a write whose broadcast/log/export already went out.
+  So the merge here is a bare `Ecto.Changeset.change/2` + `repo().update/1`
+  on the locked row, folding the fingerprint into the SAME write; each
+  `put_*` function broadcasts exactly once, after the transaction commits.
   """
 
   @behaviour PhoenixKitAI.Translatable
@@ -33,6 +40,7 @@ defmodule PhoenixKitCatalogue.AITranslatable.Sets do
   alias PhoenixKitCatalogue.TranslationStatus
   alias PhoenixKitEntities, as: Entities
   alias PhoenixKitEntities.EntityData
+  alias PhoenixKitEntities.Events
   alias PhoenixKitEntities.Managed
 
   @owner "catalogue"
@@ -69,17 +77,33 @@ defmodule PhoenixKitCatalogue.AITranslatable.Sets do
 
   @impl true
   def source_fields(%Entities{} = set, source_lang) do
-    label = Entities.get_entity_translation(set, source_lang)["display_name"]
-    fields = put_if_present(%{}, "label", label)
+    fields = source_fields_pure(set, source_lang)
     TranslationStatus.capture_fingerprint("catalogue_set_label", set.uuid, fields)
     fields
   end
 
   def source_fields(%EntityData{} = value, source_lang) do
-    title = EntityData.get_title_translation(value, source_lang)
-    fields = put_if_present(%{}, "title", title)
+    fields = source_fields_pure(value, source_lang)
     TranslationStatus.capture_fingerprint("catalogue_set_value", value.uuid, fields)
     fields
+  end
+
+  @doc """
+  Same extraction as `source_fields/2`, WITHOUT the process-dictionary
+  capture side effect — see `AITranslatable.source_fields_pure/2` for why
+  a read-only caller (`TranslationStatus.state/2`/`list/2`, and the
+  write-time fingerprint fallback below) must not go through the capturing
+  `@impl` callback.
+  """
+  @spec source_fields_pure(struct(), String.t()) :: map()
+  def source_fields_pure(%Entities{} = set, source_lang) do
+    label = Entities.get_entity_translation(set, source_lang)["display_name"]
+    put_if_present(%{}, "label", label)
+  end
+
+  def source_fields_pure(%EntityData{} = value, source_lang) do
+    title = EntityData.get_title_translation(value, source_lang)
+    put_if_present(%{}, "title", title)
   end
 
   defp put_if_present(map, key, value) when is_binary(value) do
@@ -103,47 +127,101 @@ defmodule PhoenixKitCatalogue.AITranslatable.Sets do
     end
   end
 
+  # Bare-changeset merge (no `Entities.set_entity_translation/3`/
+  # `update_entity/3` — see the moduledoc): folds the "never drop other
+  # languages" merge AND the fingerprint into the single write the locked
+  # transaction makes, then broadcasts once after it commits.
   defp put_set_label(set, target_lang, label) do
-    locked_update(Entities, set.uuid, fn fresh ->
-      with {:ok, updated} <-
-             Entities.set_entity_translation(fresh, target_lang, %{"display_name" => label}) do
-        write_fingerprint(updated, fresh, target_lang)
-      end
-    end)
+    case locked_update(Entities, set.uuid, &merge_label(&1, target_lang, label)) do
+      {:ok, updated} = result ->
+        Events.broadcast_entity_updated(updated.uuid)
+        result
+
+      error ->
+        error
+    end
   end
 
   defp put_value_title(value, target_lang, title) do
-    locked_update(EntityData, value.uuid, fn fresh ->
-      with {:ok, updated} <- EntityData.set_title_translation(fresh, target_lang, title) do
-        write_fingerprint(updated, fresh, target_lang)
-      end
-    end)
+    case locked_update(EntityData, value.uuid, &merge_title(&1, target_lang, title)) do
+      {:ok, updated} = result ->
+        Events.broadcast_data_updated(updated.entity_uuid, updated.uuid)
+        result
+
+      error ->
+        error
+    end
   end
 
-  # Persists the freshness fingerprint alongside the translation `updated`
-  # just wrote — a SEPARATE bare-changeset update, never routed back
-  # through `Entities.update_entity/3` or `EntityData.update/3` (both
-  # already broadcast + logged the translation write above; going through
-  # either again would double both for one `put_translation/4` call).
-  # `fresh` is the row this adapter read `FOR UPDATE` before either write,
-  # so its own current source is the correct write-time fallback — see
-  # `TranslationStatus`.
-  defp write_fingerprint(%Entities{} = updated, fresh, target_lang),
-    do: persist_fingerprint(updated, fresh, target_lang, :settings, "catalogue_set_label")
+  # Mirrors `PhoenixKitEntities.set_entity_translation/3`'s merge (existing
+  # translation for `target_lang`, overlaid with `attrs`, empty values
+  # dropped, the whole language entry removed when it goes empty) against
+  # the FRESHLY LOCKED row, then folds the fingerprint into the same
+  # `settings` write.
+  defp merge_label(fresh, target_lang, label) do
+    settings = fresh.settings || %{}
+    translations = Map.get(settings, "translations", %{})
+    existing = Map.get(translations, target_lang, %{})
+    merged = Map.merge(existing, %{"display_name" => label})
 
-  defp write_fingerprint(%EntityData{} = updated, fresh, target_lang),
-    do: persist_fingerprint(updated, fresh, target_lang, :metadata, "catalogue_set_value")
+    cleaned =
+      merged |> Enum.reject(fn {_k, v} -> is_nil(v) or v == "" end) |> Map.new()
 
-  defp persist_fingerprint(updated, fresh, target_lang, field, resource_type) do
-    fp =
-      TranslationStatus.captured_fingerprint(resource_type, updated.uuid) ||
-        fresh |> source_fields(Multilang.primary_language()) |> TranslationStatus.fingerprint()
+    updated_translations =
+      if map_size(cleaned) == 0,
+        do: Map.delete(translations, target_lang),
+        else: Map.put(translations, target_lang, cleaned)
 
-    current = Map.get(updated, field) || %{}
-    fingerprints = current |> Map.get("translation_fingerprints", %{}) |> Map.put(target_lang, fp)
-    new_value = Map.put(current, "translation_fingerprints", fingerprints)
+    new_settings =
+      if map_size(updated_translations) == 0,
+        do: Map.delete(settings, "translations"),
+        else: Map.put(settings, "translations", updated_translations)
 
-    updated |> Ecto.Changeset.change(%{field => new_value}) |> repo().update()
+    fp = fingerprint_for("catalogue_set_label", fresh, target_lang)
+    final_settings = put_fingerprint(new_settings, target_lang, fp)
+
+    fresh |> Ecto.Changeset.change(%{settings: final_settings}) |> repo().update()
+  end
+
+  # Mirrors `PhoenixKitEntities.EntityData.set_title_translation/3`
+  # (merges `_title` into the existing per-language override, and syncs
+  # the `title` column too when `target_lang` is the primary language)
+  # against the FRESHLY LOCKED row, then folds the fingerprint into the
+  # same `metadata` write.
+  defp merge_title(fresh, target_lang, title) do
+    existing_lang_data = Multilang.get_raw_language_data(fresh.data, target_lang)
+    merged_lang_data = Map.put(existing_lang_data, "_title", title)
+    updated_data = Multilang.put_language_data(fresh.data, target_lang, merged_lang_data)
+
+    primary = (fresh.data || %{})["_primary_language"] || Multilang.primary_language()
+
+    fp = fingerprint_for("catalogue_set_value", fresh, target_lang)
+    final_metadata = put_fingerprint(fresh.metadata || %{}, target_lang, fp)
+
+    attrs = %{data: updated_data, metadata: final_metadata}
+    attrs = if target_lang == primary, do: Map.put(attrs, :title, title), else: attrs
+
+    fresh |> Ecto.Changeset.change(attrs) |> repo().update()
+  end
+
+  # The fingerprint `source_fields/2` captured for THIS job
+  # (`TranslationStatus.captured_fingerprint/2`), falling back to hashing
+  # `fresh`'s own current source — via the PURE extraction, never the
+  # capturing `source_fields/2` — when nothing was captured (a direct
+  # `put_translation/4` call that skipped `source_fields/2`: a test, a CLI
+  # write).
+  defp fingerprint_for(resource_type, fresh, _target_lang) do
+    TranslationStatus.captured_fingerprint(resource_type, fresh.uuid) ||
+      fresh
+      |> source_fields_pure(Multilang.primary_language())
+      |> TranslationStatus.fingerprint()
+  end
+
+  defp put_fingerprint(container, target_lang, fp) do
+    fingerprints =
+      container |> Map.get("translation_fingerprints", %{}) |> Map.put(target_lang, fp)
+
+    Map.put(container, "translation_fingerprints", fingerprints)
   end
 
   # Re-reads `uuid` FOR UPDATE inside a fresh transaction, then hands the
