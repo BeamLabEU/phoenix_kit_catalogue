@@ -1,0 +1,201 @@
+defmodule PhoenixKitCatalogue.Workers.TranslationSweepWorker do
+  @moduledoc """
+  Opt-in, self-rescheduling Oban worker that tops up catalogue AI
+  translations: on every tick it enqueues one `PhoenixKitAI.TranslateWorker`
+  job per (resource, target language) pair currently `:missing` or
+  `:stale` — `:unknown` is never picked up automatically (design source
+  doc §4.1: an operator decides that pair's fate explicitly).
+
+  Settings (`PhoenixKitCatalogue.Web.Settings`, Task 4):
+
+    * `catalogue_translation_sweep_enabled` — off by default; a disabled
+      tick still reschedules its successor, it just does no work.
+    * `catalogue_translation_sweep_interval_minutes` — gap to the next tick.
+    * `catalogue_translation_sweep_langs` — target languages to consider.
+    * `catalogue_translation_sweep_max_per_run` — enqueue cap for one tick,
+      counted in jobs (across every resource type) not resources.
+
+  ## Self-rescheduling
+
+  The very first action of `perform/1` is scheduling the NEXT tick —
+  before any of the tick's own work runs — so a crashed or slow tick
+  never breaks the chain. Uniqueness (`period: :infinity`, `states:
+  [:available, :scheduled]`) keeps at most one pending tick in the
+  queue at a time; the explicit state list (rather than Oban's default,
+  which references `:suspended`) sidesteps the `22P02` landmine
+  `PhoenixKitAI.Translations` and `PhoenixKitCatalogue.Workers.PdfExtractor`
+  already document for hosts whose `oban_job_state` enum predates that
+  value. `max_attempts: 1` — retrying a missed tick is pointless, the
+  next one is already scheduled.
+
+  `ensure_scheduled/0` seeds the very first tick at boot (see
+  `PhoenixKitCatalogue.children/0`) and is safe to call again any time
+  (e.g. a future settings save) — the same uniqueness collapses repeat
+  calls to the one pending job.
+  """
+
+  use Oban.Worker, queue: :default, max_attempts: 1
+
+  require Logger
+
+  alias PhoenixKit.Utils.Multilang
+  alias PhoenixKitAI.Translations
+  alias PhoenixKitCatalogue.AIPrompt
+  alias PhoenixKitCatalogue.TranslationStatus
+  alias PhoenixKitCatalogue.Web.Settings, as: SweepSettings
+
+  # `TranslationStatus.list/2` type ↔ the `ai_translatables/0` resource_type
+  # string `PhoenixKitAI.Translations.enqueue/1` expects.
+  @resource_types %{
+    item: "catalogue_item",
+    category: "catalogue_category",
+    set_label: "catalogue_set_label",
+    set_value: "catalogue_set_value"
+  }
+
+  @unique_opts [period: :infinity, states: [:available, :scheduled]]
+
+  # Boot-time bootstrap, mirroring `AttributeSets.child_spec/1` /
+  # `SupplierFields.child_spec/1`: a one-shot `Task` (not a GenServer —
+  # there's nothing to keep alive) that seeds the first scheduled tick and
+  # then exits. `restart: :temporary` — a failed attempt just means no
+  # chain until the next boot or manual `ensure_scheduled/0` call; nothing
+  # here is worth restart-looping over.
+  @doc false
+  @spec child_spec(keyword()) :: Supervisor.child_spec()
+  def child_spec(_opts) do
+    %{
+      id: __MODULE__.Bootstrap,
+      start: {Task, :start_link, [&__MODULE__.ensure_scheduled/0]},
+      restart: :temporary
+    }
+  end
+
+  @impl Oban.Worker
+  def perform(_job) do
+    _ = schedule_next_tick()
+
+    if SweepSettings.sweep_enabled?() do
+      sweep()
+    end
+
+    :ok
+  end
+
+  @doc """
+  Ensures exactly one sweep tick is available/scheduled. Called from the
+  boot-time task registered in `children/0`; concurrent callers (boot,
+  a future settings save, the tick itself) all collapse onto the same
+  unique row.
+  """
+  @spec ensure_scheduled() :: {:ok, Oban.Job.t()} | {:error, term()}
+  def ensure_scheduled, do: schedule_next_tick()
+
+  defp schedule_next_tick do
+    interval_seconds = SweepSettings.sweep_interval_minutes() * 60
+
+    %{}
+    |> new(unique: @unique_opts, schedule_in: interval_seconds)
+    |> Oban.insert()
+  rescue
+    e in [DBConnection.ConnectionError, Postgrex.Error, Ecto.QueryError, ArgumentError] ->
+      Logger.warning(
+        "TranslationSweepWorker: could not schedule the next tick: #{Exception.message(e)}"
+      )
+
+      {:error, :schedule_failed}
+  catch
+    :exit, reason ->
+      Logger.warning(
+        "TranslationSweepWorker: could not schedule the next tick: #{inspect(reason)}"
+      )
+
+      {:error, :schedule_failed}
+  end
+
+  defp sweep do
+    case endpoint_and_prompts() do
+      {:ok, endpoint_uuid, prompts} ->
+        langs = SweepSettings.sweep_langs()
+        max = SweepSettings.sweep_max_per_run()
+
+        langs
+        |> candidates(max)
+        |> Enum.each(&enqueue_row(&1, endpoint_uuid, prompts))
+
+      :unavailable ->
+        :ok
+    end
+  end
+
+  # Up to `max` (resource, lang) rows across every catalogue translatable
+  # type, `:missing` or `:stale` only — `:unknown` is excluded by the state
+  # filter, never reaching this list at all.
+  defp candidates(langs, max) do
+    @resource_types
+    |> Map.keys()
+    |> Enum.flat_map(fn type ->
+      TranslationStatus.list(type, langs: langs, state: [:missing, :stale], per_page: max)
+    end)
+    |> Enum.take(max)
+  end
+
+  defp enqueue_row(%{type: type, uuid: uuid, lang: lang}, endpoint_uuid, prompts) do
+    resource_type = Map.fetch!(@resource_types, type)
+
+    case Map.get(prompts, resource_type) do
+      nil ->
+        Logger.warning(
+          "TranslationSweepWorker: no prompt configured for #{resource_type} — skipping #{uuid}/#{lang}"
+        )
+
+      prompt_uuid ->
+        do_enqueue(resource_type, uuid, lang, endpoint_uuid, prompt_uuid)
+    end
+  end
+
+  defp do_enqueue(resource_type, uuid, lang, endpoint_uuid, prompt_uuid) do
+    params = %{
+      resource_type: resource_type,
+      resource_uuid: uuid,
+      endpoint_uuid: endpoint_uuid,
+      prompt_uuid: prompt_uuid,
+      source_lang: Multilang.primary_language(),
+      target_lang: lang,
+      actor_uuid: nil
+    }
+
+    case Translations.enqueue(params) do
+      {:ok, _} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning(
+          "TranslationSweepWorker: enqueue failed for #{resource_type}/#{uuid}/#{lang}: " <>
+            inspect(reason)
+        )
+    end
+  end
+
+  # `Translations.available?/0` alone isn't enough (it doesn't verify the
+  # configured default endpoint still exists/is enabled) — same double
+  # check the design source calls for (§4.3 step 2).
+  defp endpoint_and_prompts do
+    with true <- Translations.available?(),
+         endpoint_uuid when is_binary(endpoint_uuid) <- Translations.default_endpoint_uuid(),
+         {:ok, catalogue_prompt_uuid} <- AIPrompt.ensure_prompt() do
+      shared_prompt_uuid = Translations.default_prompt_uuid()
+
+      prompts = %{
+        "catalogue_item" => catalogue_prompt_uuid,
+        "catalogue_category" => catalogue_prompt_uuid,
+        "catalogue_set_label" => shared_prompt_uuid,
+        "catalogue_set_value" => shared_prompt_uuid
+      }
+
+      {:ok, endpoint_uuid, prompts}
+    else
+      _ -> :unavailable
+    end
+  end
+end
