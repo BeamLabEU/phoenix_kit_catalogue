@@ -46,6 +46,7 @@ defmodule PhoenixKitCatalogue.AITranslatable do
   alias PhoenixKit.Utils.Multilang
   alias PhoenixKitCatalogue.Catalogue
   alias PhoenixKitCatalogue.Catalogue.PubSub
+  alias PhoenixKitCatalogue.Catalogue.Slugs
   alias PhoenixKitCatalogue.Schemas.{Attribute, AttributeGroup, AttributeValue, Category, Item}
   alias PhoenixKitCatalogue.Schemas.Catalogue, as: CatalogueSchema
   alias PhoenixKitCatalogue.TranslationStatus
@@ -208,10 +209,58 @@ defmodule PhoenixKitCatalogue.AITranslatable do
       |> force_put_language(target_lang, lang_fields)
       |> maybe_put_fingerprint(fresh, target_lang)
 
-    case update_fn.(fresh, %{data: new_data}, opts) do
+    attrs = %{data: new_data} |> maybe_generate_slug(fresh, target_lang, fields)
+
+    case update_fn.(fresh, attrs, opts) do
       {:ok, updated} -> updated
       {:error, reason} -> repo.rollback(reason)
     end
+  end
+
+  # Slugs are write-once (see `Slugs`'s moduledoc): a translation job
+  # fills in a still-blank slug for its target language from the
+  # translated name, but never touches a language that already has one —
+  # a retranslation must not move a URL that may already be published or
+  # bookmarked. Only items/categories carry a `:slug` column; every other
+  # resource type is untouched.
+  defp maybe_generate_slug(attrs, %Item{} = fresh, target_lang, fields),
+    do: generate_slug(attrs, fresh, target_lang, fields, &Catalogue.get_item_by_slug/2)
+
+  defp maybe_generate_slug(attrs, %Category{} = fresh, target_lang, fields),
+    do: generate_slug(attrs, fresh, target_lang, fields, &Catalogue.get_category_by_slug/2)
+
+  defp maybe_generate_slug(attrs, _fresh, _target_lang, _fields), do: attrs
+
+  defp generate_slug(attrs, fresh, target_lang, fields, lookup_fun) do
+    slug_map = fresh.slug || %{}
+    name = fields["name"]
+
+    if nonempty(name) and not nonempty(Map.get(slug_map, target_lang)) do
+      default_slug = Slugs.default_lang_slug(fresh.data || %{}, slug_map)
+      base = Slugs.from_title(name, target_lang, default_slug: default_slug)
+      slug = unique_slug(base, target_lang, lookup_fun)
+      Map.put(attrs, :slug, Map.put(slug_map, target_lang, slug))
+    else
+      attrs
+    end
+  end
+
+  # Probes the global slug projection (`get_item_by_slug/2` /
+  # `get_category_by_slug/2`) for `base` in `target_lang`, retrying with a
+  # `-2`, `-3`, … suffix on a collision with another resource's slug. A
+  # genuine race (two jobs landing on the same free slug at once) still
+  # surfaces as the DB's own `unique_constraint` changeset error on save —
+  # this is a proactive check, not a lock.
+  defp unique_slug(base, target_lang, lookup_fun) do
+    Stream.iterate(1, &(&1 + 1))
+    |> Enum.reduce_while(nil, fn n, _acc ->
+      candidate = if n == 1, do: base, else: "#{base}-#{n}"
+
+      case lookup_fun.(candidate, target_lang) do
+        {:error, :not_found} -> {:halt, candidate}
+        _found -> {:cont, candidate}
+      end
+    end)
   end
 
   # Records the freshness fingerprint alongside the translation, in the
