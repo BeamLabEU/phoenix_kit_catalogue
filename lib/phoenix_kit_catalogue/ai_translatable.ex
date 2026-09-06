@@ -48,6 +48,7 @@ defmodule PhoenixKitCatalogue.AITranslatable do
   alias PhoenixKitCatalogue.Catalogue.PubSub
   alias PhoenixKitCatalogue.Schemas.{Attribute, AttributeGroup, AttributeValue, Category, Item}
   alias PhoenixKitCatalogue.Schemas.Catalogue, as: CatalogueSchema
+  alias PhoenixKitCatalogue.TranslationStatus
 
   # Engine-facing field names (plain strings) ↔ their schema columns, per
   # resource shape. The AI engine speaks the string keys; `column_value/2`
@@ -94,12 +95,26 @@ defmodule PhoenixKitCatalogue.AITranslatable do
   def source_fields(resource, source_lang) do
     lang_data = Multilang.get_language_data(resource.data || %{}, source_lang)
 
-    for field <- Map.keys(field_columns(resource)),
-        value = field_value(resource, field, lang_data),
-        is_binary(value) and String.trim(value) != "",
-        into: %{},
-        do: {field, value}
+    fields =
+      for field <- Map.keys(field_columns(resource)),
+          value = field_value(resource, field, lang_data),
+          is_binary(value) and String.trim(value) != "",
+          into: %{},
+          do: {field, value}
+
+    maybe_capture_fingerprint(resource, fields)
+    fields
   end
+
+  # Only item/category carry a freshness model (`TranslationStatus`) — the
+  # catalogue and attribute resources have no fingerprint storage key.
+  defp maybe_capture_fingerprint(%Item{uuid: uuid}, fields),
+    do: TranslationStatus.capture_fingerprint("catalogue_item", uuid, fields)
+
+  defp maybe_capture_fingerprint(%Category{uuid: uuid}, fields),
+    do: TranslationStatus.capture_fingerprint("catalogue_category", uuid, fields)
+
+  defp maybe_capture_fingerprint(_resource, _fields), do: :ok
 
   # Prefer the multilang `_`-prefixed override, then a legacy plain key,
   # then the resource's primary column (rows created without multilang data
@@ -186,12 +201,44 @@ defmodule PhoenixKitCatalogue.AITranslatable do
     # Re-prefix plain engine field names to the multilang `_`-form the form
     # reads (`_name`/`_description`), so the translation shows.
     lang_fields = Map.new(fields, fn {k, v} -> {"_" <> k, v} end)
-    new_data = force_put_language(fresh.data || %{}, target_lang, lang_fields)
+
+    new_data =
+      fresh.data
+      |> Kernel.||(%{})
+      |> force_put_language(target_lang, lang_fields)
+      |> maybe_put_fingerprint(fresh, target_lang)
 
     case update_fn.(fresh, %{data: new_data}, opts) do
       {:ok, updated} -> updated
       {:error, reason} -> repo.rollback(reason)
     end
+  end
+
+  # Records the freshness fingerprint alongside the translation, in the
+  # SAME write: the fingerprint `source_fields/2` captured for THIS job
+  # (`TranslationStatus.captured_fingerprint/2`), falling back to hashing
+  # `fresh`'s own current source when nothing was captured — a direct
+  # `put_translation/4` call that skipped `source_fields/2` (a test, a CLI
+  # write). See `TranslationStatus` for the storage-key convention.
+  defp maybe_put_fingerprint(new_data, %Item{} = fresh, target_lang),
+    do: put_fingerprint(new_data, "catalogue_item", fresh, target_lang)
+
+  defp maybe_put_fingerprint(new_data, %Category{} = fresh, target_lang),
+    do: put_fingerprint(new_data, "catalogue_category", fresh, target_lang)
+
+  defp maybe_put_fingerprint(new_data, _fresh, _target_lang), do: new_data
+
+  defp put_fingerprint(new_data, resource_type, fresh, target_lang) do
+    fp =
+      TranslationStatus.captured_fingerprint(resource_type, fresh.uuid) ||
+        fresh |> source_fields(Multilang.primary_language()) |> TranslationStatus.fingerprint()
+
+    Map.update(
+      new_data,
+      "_translation_fingerprints",
+      %{target_lang => fp},
+      &Map.put(&1, target_lang, fp)
+    )
   end
 
   @doc """
