@@ -29,6 +29,8 @@ defmodule PhoenixKitCatalogue.AITranslatable.Sets do
   import Ecto.Query
 
   alias PhoenixKit.RepoHelper
+  alias PhoenixKit.Utils.Multilang
+  alias PhoenixKitCatalogue.TranslationStatus
   alias PhoenixKitEntities, as: Entities
   alias PhoenixKitEntities.EntityData
   alias PhoenixKitEntities.Managed
@@ -68,12 +70,16 @@ defmodule PhoenixKitCatalogue.AITranslatable.Sets do
   @impl true
   def source_fields(%Entities{} = set, source_lang) do
     label = Entities.get_entity_translation(set, source_lang)["display_name"]
-    put_if_present(%{}, "label", label)
+    fields = put_if_present(%{}, "label", label)
+    TranslationStatus.capture_fingerprint("catalogue_set_label", set.uuid, fields)
+    fields
   end
 
   def source_fields(%EntityData{} = value, source_lang) do
     title = EntityData.get_title_translation(value, source_lang)
-    put_if_present(%{}, "title", title)
+    fields = put_if_present(%{}, "title", title)
+    TranslationStatus.capture_fingerprint("catalogue_set_value", value.uuid, fields)
+    fields
   end
 
   defp put_if_present(map, key, value) when is_binary(value) do
@@ -99,14 +105,45 @@ defmodule PhoenixKitCatalogue.AITranslatable.Sets do
 
   defp put_set_label(set, target_lang, label) do
     locked_update(Entities, set.uuid, fn fresh ->
-      Entities.set_entity_translation(fresh, target_lang, %{"display_name" => label})
+      with {:ok, updated} <-
+             Entities.set_entity_translation(fresh, target_lang, %{"display_name" => label}) do
+        write_fingerprint(updated, fresh, target_lang)
+      end
     end)
   end
 
   defp put_value_title(value, target_lang, title) do
     locked_update(EntityData, value.uuid, fn fresh ->
-      EntityData.set_title_translation(fresh, target_lang, title)
+      with {:ok, updated} <- EntityData.set_title_translation(fresh, target_lang, title) do
+        write_fingerprint(updated, fresh, target_lang)
+      end
     end)
+  end
+
+  # Persists the freshness fingerprint alongside the translation `updated`
+  # just wrote — a SEPARATE bare-changeset update, never routed back
+  # through `Entities.update_entity/3` or `EntityData.update/3` (both
+  # already broadcast + logged the translation write above; going through
+  # either again would double both for one `put_translation/4` call).
+  # `fresh` is the row this adapter read `FOR UPDATE` before either write,
+  # so its own current source is the correct write-time fallback — see
+  # `TranslationStatus`.
+  defp write_fingerprint(%Entities{} = updated, fresh, target_lang),
+    do: persist_fingerprint(updated, fresh, target_lang, :settings, "catalogue_set_label")
+
+  defp write_fingerprint(%EntityData{} = updated, fresh, target_lang),
+    do: persist_fingerprint(updated, fresh, target_lang, :metadata, "catalogue_set_value")
+
+  defp persist_fingerprint(updated, fresh, target_lang, field, resource_type) do
+    fp =
+      TranslationStatus.captured_fingerprint(resource_type, updated.uuid) ||
+        fresh |> source_fields(Multilang.primary_language()) |> TranslationStatus.fingerprint()
+
+    current = Map.get(updated, field) || %{}
+    fingerprints = current |> Map.get("translation_fingerprints", %{}) |> Map.put(target_lang, fp)
+    new_value = Map.put(current, "translation_fingerprints", fingerprints)
+
+    updated |> Ecto.Changeset.change(%{field => new_value}) |> repo().update()
   end
 
   # Re-reads `uuid` FOR UPDATE inside a fresh transaction, then hands the
