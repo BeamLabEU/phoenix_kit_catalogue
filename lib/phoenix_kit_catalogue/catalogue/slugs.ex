@@ -150,10 +150,19 @@ defmodule PhoenixKitCatalogue.Catalogue.Slugs do
     end
   end
 
-  # The primary language's own slug (falling back to the first non-blank
-  # value present) — the source of the numeric identity tail every other
-  # language's generated slug carries.
-  defp default_lang_slug(data, slug_map) do
+  @doc """
+  The primary language's own slug (falling back to the first non-blank
+  value present) — the source of the numeric identity tail every other
+  language's generated slug carries via `from_title/3`'s `:default_slug`
+  option.
+
+  Public so a caller generating a slug outside `maybe_generate/3` (the AI
+  translation adapter's write-once slug fill, in practice) derives the
+  same default-language slug this module's own form-driven path would,
+  rather than re-deriving primary-language detection by hand.
+  """
+  @spec default_lang_slug(map(), map()) :: String.t() | nil
+  def default_lang_slug(data, slug_map) do
     primary =
       if Multilang.multilang_data?(data),
         do: Map.get(data, "_primary_language"),

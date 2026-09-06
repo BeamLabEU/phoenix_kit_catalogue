@@ -197,6 +197,58 @@ defmodule PhoenixKitCatalogue.AITranslatableTest do
     end
   end
 
+  describe "put_translation/4 write-once slugs" do
+    test "generates a slug for the target language from the translated name when it has none" do
+      item = create_item(%{name: "Widget"})
+
+      assert {:ok, _} =
+               AITranslatable.put_translation(item, "fr-FR", %{"name" => "Vase en Bois"}, [])
+
+      reloaded = Catalogue.get_item(item.uuid)
+      assert reloaded.slug["fr-FR"] == "vase-en-bois"
+    end
+
+    test "leaves an existing slug for the target language untouched" do
+      item = create_item(%{name: "Widget", slug: %{"fr-FR" => "custom-slug"}})
+
+      assert {:ok, _} =
+               AITranslatable.put_translation(item, "fr-FR", %{"name" => "Vase en Bois"}, [])
+
+      reloaded = Catalogue.get_item(item.uuid)
+      assert reloaded.slug["fr-FR"] == "custom-slug"
+    end
+
+    test "does not generate a slug when the translation carries no name" do
+      item = create_item(%{name: "Widget"})
+
+      assert {:ok, _} =
+               AITranslatable.put_translation(item, "fr-FR", %{"seo_title" => "Acheter"}, [])
+
+      reloaded = Catalogue.get_item(item.uuid)
+      refute Map.has_key?(reloaded.slug, "fr-FR")
+    end
+
+    test "retries with a numeric suffix on a collision with another item's slug" do
+      _taken = create_item(%{name: "Taken", slug: %{"fr-FR" => "vase"}})
+      item = create_item(%{name: "Widget"})
+
+      assert {:ok, _} = AITranslatable.put_translation(item, "fr-FR", %{"name" => "Vase"}, [])
+
+      reloaded = Catalogue.get_item(item.uuid)
+      assert reloaded.slug["fr-FR"] == "vase-2"
+    end
+
+    test "generates a slug for a category the same way" do
+      category = create_category(%{name: "Cards"})
+
+      assert {:ok, _} =
+               AITranslatable.put_translation(category, "fr-FR", %{"name" => "Cartes"}, [])
+
+      reloaded = Catalogue.get_category(category.uuid)
+      assert reloaded.slug["fr-FR"] == "cartes"
+    end
+  end
+
   describe "force_put_language/3" do
     test "merges rather than wholesale-replacing the lang subtree" do
       data = %{"_primary_language" => "en", "es" => %{"_name" => "Hola", "_keep" => "x"}}
