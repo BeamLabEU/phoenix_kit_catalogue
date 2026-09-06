@@ -53,6 +53,10 @@ defmodule PhoenixKitCatalogue.Workers.TranslationSweepWorker do
     set_value: "catalogue_set_value"
   }
 
+  @doc "The `ai_translatables/0` resource_type string for a `TranslationStatus.list/2` type atom."
+  @spec resource_type_for(:item | :category | :set_label | :set_value) :: String.t()
+  def resource_type_for(type), do: Map.fetch!(@resource_types, type)
+
   @unique_opts [period: :infinity, states: [:available, :scheduled]]
 
   # Boot-time bootstrap, mirroring `AttributeSets.child_spec/1` /
@@ -177,10 +181,19 @@ defmodule PhoenixKitCatalogue.Workers.TranslationSweepWorker do
     end
   end
 
-  # `Translations.available?/0` alone isn't enough (it doesn't verify the
-  # configured default endpoint still exists/is enabled) — same double
-  # check the design source calls for (§4.3 step 2).
-  defp endpoint_and_prompts do
+  @doc """
+  Resolves the AI endpoint and per-resource-type prompt uuids, the same way
+  every sweep tick does: `Translations.available?/0` ALONE isn't enough (it
+  doesn't verify the configured default endpoint still exists/is enabled) —
+  the double check the design source calls for (§4.3 step 2).
+
+  Public so `Web.TranslationsLive`'s manual "Translate" / bulk actions share
+  this exact resolution path with the automatic sweep tick, rather than
+  re-deriving which prompt belongs to which resource type a second time.
+  """
+  @spec endpoint_and_prompts() ::
+          {:ok, String.t(), %{String.t() => String.t()}} | :unavailable
+  def endpoint_and_prompts do
     with true <- Translations.available?(),
          endpoint_uuid when is_binary(endpoint_uuid) <- Translations.default_endpoint_uuid(),
          {:ok, catalogue_prompt_uuid} <- AIPrompt.ensure_prompt() do
