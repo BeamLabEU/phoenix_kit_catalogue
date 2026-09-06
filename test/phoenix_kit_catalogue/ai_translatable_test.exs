@@ -91,6 +91,47 @@ defmodule PhoenixKitCatalogue.AITranslatableTest do
 
       assert AITranslatable.source_fields(item, "fr")["name"] == "Plain"
     end
+
+    test "includes seo_title when set in the primary language" do
+      item = %Item{
+        name: "Column",
+        data: %{
+          "_primary_language" => primary(),
+          primary() => %{"_seo_title" => "Buy Vase", "_seo_description" => "A nice vase"}
+        }
+      }
+
+      fields = AITranslatable.source_fields(item, primary())
+      assert fields["seo_title"] == "Buy Vase"
+      assert fields["seo_description"] == "A nice vase"
+    end
+
+    test "omits summary when it is blank" do
+      item = %Item{
+        name: "Column",
+        data: %{"_primary_language" => primary(), primary() => %{"_summary" => ""}}
+      }
+
+      refute Map.has_key?(AITranslatable.source_fields(item, primary()), "summary")
+    end
+
+    test "includes summary when set" do
+      item = %Item{
+        name: "Column",
+        data: %{"_primary_language" => primary(), primary() => %{"_summary" => "Short blurb"}}
+      }
+
+      assert AITranslatable.source_fields(item, primary())["summary"] == "Short blurb"
+    end
+
+    test "category also exposes summary/seo_title/seo_description" do
+      category = %PhoenixKitCatalogue.Schemas.Category{
+        name: "Cards",
+        data: %{"_primary_language" => primary(), primary() => %{"_seo_title" => "Shop cards"}}
+      }
+
+      assert AITranslatable.source_fields(category, primary())["seo_title"] == "Shop cards"
+    end
   end
 
   describe "put_translation/4" do
@@ -111,6 +152,22 @@ defmodule PhoenixKitCatalogue.AITranslatableTest do
       reloaded = Catalogue.get_item(item.uuid)
       assert reloaded.data["es"]["_name"] == "Artilugio"
       assert reloaded.data["es"]["_description"] == "Una cosa"
+    end
+
+    test "stores seo_title alongside name under the multilang `_`-prefixed keys" do
+      item = create_item()
+
+      assert {:ok, _} =
+               AITranslatable.put_translation(
+                 item,
+                 "fr-FR",
+                 %{"name" => "Vase", "seo_title" => "Acheter"},
+                 []
+               )
+
+      reloaded = Catalogue.get_item(item.uuid)
+      assert reloaded.data["fr-FR"]["_name"] == "Vase"
+      assert reloaded.data["fr-FR"]["_seo_title"] == "Acheter"
     end
 
     test "force-stores a value even when it equals the source (no blank-drop)" do
@@ -137,6 +194,58 @@ defmodule PhoenixKitCatalogue.AITranslatableTest do
 
       reloaded = Catalogue.get_category(category.uuid)
       assert reloaded.data["es"]["_name"] == "Tarjetas"
+    end
+  end
+
+  describe "put_translation/4 write-once slugs" do
+    test "generates a slug for the target language from the translated name when it has none" do
+      item = create_item(%{name: "Widget"})
+
+      assert {:ok, _} =
+               AITranslatable.put_translation(item, "fr-FR", %{"name" => "Vase en Bois"}, [])
+
+      reloaded = Catalogue.get_item(item.uuid)
+      assert reloaded.slug["fr-FR"] == "vase-en-bois"
+    end
+
+    test "leaves an existing slug for the target language untouched" do
+      item = create_item(%{name: "Widget", slug: %{"fr-FR" => "custom-slug"}})
+
+      assert {:ok, _} =
+               AITranslatable.put_translation(item, "fr-FR", %{"name" => "Vase en Bois"}, [])
+
+      reloaded = Catalogue.get_item(item.uuid)
+      assert reloaded.slug["fr-FR"] == "custom-slug"
+    end
+
+    test "does not generate a slug when the translation carries no name" do
+      item = create_item(%{name: "Widget"})
+
+      assert {:ok, _} =
+               AITranslatable.put_translation(item, "fr-FR", %{"seo_title" => "Acheter"}, [])
+
+      reloaded = Catalogue.get_item(item.uuid)
+      refute Map.has_key?(reloaded.slug, "fr-FR")
+    end
+
+    test "retries with a numeric suffix on a collision with another item's slug" do
+      _taken = create_item(%{name: "Taken", slug: %{"fr-FR" => "vase"}})
+      item = create_item(%{name: "Widget"})
+
+      assert {:ok, _} = AITranslatable.put_translation(item, "fr-FR", %{"name" => "Vase"}, [])
+
+      reloaded = Catalogue.get_item(item.uuid)
+      assert reloaded.slug["fr-FR"] == "vase-2"
+    end
+
+    test "generates a slug for a category the same way" do
+      category = create_category(%{name: "Cards"})
+
+      assert {:ok, _} =
+               AITranslatable.put_translation(category, "fr-FR", %{"name" => "Cartes"}, [])
+
+      reloaded = Catalogue.get_category(category.uuid)
+      assert reloaded.slug["fr-FR"] == "cartes"
     end
   end
 

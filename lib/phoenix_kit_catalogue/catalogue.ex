@@ -74,7 +74,24 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
   require Logger
 
+  # Slug projection tables read by `get_item_by_slug/3` / `get_category_by_slug/3`
+  # (owned by `PhoenixKitCatalogue.Catalogue.Slugs`'s generation rule, kept in
+  # sync by the `trg_cat_item_slugs` / `trg_cat_category_slugs` triggers).
+  @item_slugs_table "phoenix_kit_cat_item_slugs"
+  @category_slugs_table "phoenix_kit_cat_category_slugs"
+
   defp repo, do: PhoenixKit.RepoHelper.repo()
+
+  # Same source of truth as `PhoenixKit.SchemaPrefix` (`config :phoenix_kit,
+  # prefix: ...`), for the one place in this module that reaches the slug
+  # projection tables with raw SQL instead of a schema-backed Ecto query —
+  # a named-schema install must not silently query `public`.
+  defp qualified(table) do
+    case Application.get_env(:phoenix_kit, :prefix) do
+      prefix when is_binary(prefix) and prefix not in ["", "public"] -> "#{prefix}.#{table}"
+      _ -> table
+    end
+  end
 
   # `log_activity/1` was extracted to `PhoenixKitCatalogue.Catalogue.ActivityLog`
   # so the per-section submodules can share it without circular imports.
@@ -1466,6 +1483,25 @@ defmodule PhoenixKitCatalogue.Catalogue do
   @doc "Fetches a category by UUID. Raises `Ecto.NoResultsError` if not found."
   @spec get_category!(Ecto.UUID.t()) :: Category.t()
   def get_category!(uuid), do: repo().get!(Category, uuid)
+
+  @doc """
+  Fetches a category by its per-language `slug`.
+
+  Tries an exact match in `lang`'s base language first (`"en-US"` folds
+  to `"en"`), falling back to any language when `opts[:any_lang]` is
+  `true`. The result is `{:error, :not_found}` on a miss; a hit is a
+  2-tuple by default, or — whenever `opts[:any_lang]` is `true`, even
+  when the base language itself matched — a 3-tuple carrying the
+  language the slug actually matched in, so a caller that opted into
+  the fallback can always destructure the same shape.
+  """
+  @spec get_category_by_slug(String.t(), String.t(), keyword()) ::
+          {:ok, Category.t()} | {:ok, Category.t(), String.t()} | {:error, :not_found}
+  def get_category_by_slug(slug, lang, opts \\ []) do
+    find_by_slug(@category_slugs_table, "category_uuid", slug, lang, opts, fn uuid, _opts ->
+      get_category(uuid)
+    end)
+  end
 
   @doc """
   Creates a category within a catalogue.
@@ -4298,6 +4334,80 @@ defmodule PhoenixKitCatalogue.Catalogue do
   end
 
   @doc """
+  Fetches an item by its per-language `slug`.
+
+  Tries an exact match in `lang`'s base language first (`"en-US"` folds
+  to `"en"`), falling back to any language when `opts[:any_lang]` is
+  `true`. The result is `{:error, :not_found}` on a miss; a hit is a
+  2-tuple by default, or — whenever `opts[:any_lang]` is `true`, even
+  when the base language itself matched — a 3-tuple carrying the
+  language the slug actually matched in, so a caller that opted into
+  the fallback can always destructure the same shape. Any other option
+  (e.g. `:preload`) is forwarded to `get_item/2`.
+  """
+  @spec get_item_by_slug(String.t(), String.t(), keyword()) ::
+          {:ok, Item.t()} | {:ok, Item.t(), String.t()} | {:error, :not_found}
+  def get_item_by_slug(slug, lang, opts \\ []) do
+    find_by_slug(@item_slugs_table, "item_uuid", slug, lang, opts, &get_item/2)
+  end
+
+  # Shared by `get_item_by_slug/3` and `get_category_by_slug/3`. Looks up
+  # the projected uuid for `slug` in `lang`'s base language, optionally
+  # falling back to any language (`opts[:any_lang]`), then resolves it
+  # through `get_fun` (which also receives every other option, e.g.
+  # `:preload`). A resolved uuid whose row has since disappeared (a
+  # deleted item/category racing the projection's `ON DELETE CASCADE`)
+  # is treated the same as a lookup miss.
+  defp find_by_slug(table, uuid_column, slug, lang, opts, get_fun) do
+    any_lang? = Keyword.get(opts, :any_lang, false)
+    fetch_opts = Keyword.drop(opts, [:any_lang])
+    base = base_lang(lang)
+
+    found =
+      case query_slug(table, uuid_column, base, slug) do
+        nil when any_lang? -> query_slug(table, uuid_column, nil, slug)
+        result -> result
+      end
+
+    case found do
+      nil ->
+        {:error, :not_found}
+
+      {uuid, matched_lang} ->
+        case get_fun.(uuid, fetch_opts) do
+          nil -> {:error, :not_found}
+          struct when any_lang? -> {:ok, struct, matched_lang}
+          struct -> {:ok, struct}
+        end
+    end
+  end
+
+  defp base_lang(lang), do: lang |> String.split("-") |> List.first() |> String.downcase()
+
+  defp query_slug(table, uuid_column, nil, slug) do
+    %{rows: rows} =
+      repo().query!(
+        "SELECT #{uuid_column}::text, lang FROM #{qualified(table)} WHERE value = $1 ORDER BY lang LIMIT 1",
+        [slug]
+      )
+
+    one_row(rows)
+  end
+
+  defp query_slug(table, uuid_column, lang, slug) do
+    %{rows: rows} =
+      repo().query!(
+        "SELECT #{uuid_column}::text, lang FROM #{qualified(table)} WHERE lang = $1 AND value = $2 LIMIT 1",
+        [lang, slug]
+      )
+
+    one_row(rows)
+  end
+
+  defp one_row([[uuid, lang]]), do: {uuid, lang}
+  defp one_row(_), do: nil
+
+  @doc """
   Bulk-fetches items by a list of UUIDs. Excludes soft-deleted items.
   Result order matches the input UUID order; missing UUIDs are dropped
   (no `nil` placeholders, no error). Duplicate input UUIDs collapse to
@@ -5504,6 +5614,8 @@ defmodule PhoenixKitCatalogue.Catalogue do
   defdelegate get_translation(record, lang_code), to: Translations
   defdelegate translated_name(record, locale), to: Translations
   defdelegate translated_description(record, locale), to: Translations
+  defdelegate translated_seo_title(record, locale), to: Translations
+  defdelegate translated_seo_description(record, locale), to: Translations
   defdelegate localize(records, locale), to: Translations
   defdelegate localize_one(record, locale), to: Translations
 

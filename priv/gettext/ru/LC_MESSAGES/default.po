@@ -5,10 +5,13 @@ msgstr ""
 "Plural-Forms: nplurals=3; plural=(n%10==1 && n%100!=11 ? 0 : n%10>=2 && n%10<=4 && (n%100<10 || n%100>=20) ? 1 : 2);\n"
 
 ## Tab labels
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:504
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:529
+#, elixir-autogen
 msgid "Catalogue"
 msgstr "Каталог"
 
-#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2303
+#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2417
 #, elixir-autogen
 msgid "Catalogues"
 msgstr "Каталоги"
@@ -138,11 +141,13 @@ msgid "Empty folder"
 msgstr "Пустая папка"
 
 #: lib/phoenix_kit_catalogue/web/components.ex:856
-#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:996
+#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:1110
 #, elixir-autogen
 msgid "Subcategories"
 msgstr "Подкатегории"
 
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:478
+#, elixir-autogen
 msgid "Unknown"
 msgstr "Неизвестно"
 
@@ -431,13 +436,13 @@ msgid "Could not restore the PDF."
 msgstr "Не удалось восстановить PDF."
 
 ## UI strings
-#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2206
-#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2207
+#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2320
+#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2321
 #, elixir-autogen
 msgid "Back"
 msgstr "Назад"
 
-#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2681
+#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2809
 #, elixir-autogen
 msgid "Cancel"
 msgstr "Отмена"
@@ -457,7 +462,7 @@ msgstr "Удалить навсегда"
 msgid "Edit"
 msgstr "Редактировать"
 
-#: lib/phoenix_kit_catalogue/web/components/browse.ex:578
+#: lib/phoenix_kit_catalogue/web/components/browse.ex:622
 #, elixir-autogen
 msgid "View"
 msgstr "Просмотр"
@@ -483,8 +488,8 @@ msgstr "Добавить категорию"
 msgid "Add Item"
 msgstr "Добавить позицию"
 
-#: lib/phoenix_kit_catalogue/web/components/browse.ex:775
-#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:1028
+#: lib/phoenix_kit_catalogue/web/components/browse.ex:819
+#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:1142
 #, elixir-autogen
 msgid "Name"
 msgstr "Название"
@@ -514,6 +519,8 @@ msgstr "Файлы"
 msgid "Notes"
 msgstr "Заметки"
 
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:639
+#, elixir-autogen
 msgid "Actions"
 msgstr "Действия"
 
@@ -556,7 +563,7 @@ msgstr "Главное изображение не задано."
 msgid "Change"
 msgstr "Изменить"
 
-#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2758
+#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2885
 #, elixir-autogen
 msgid "Remove"
 msgstr "Удалить"
@@ -600,19 +607,20 @@ msgstr "Тип файла не поддерживается."
 msgid "Only PDF files are accepted."
 msgstr "Принимаются только PDF-файлы."
 
-#: lib/phoenix_kit_catalogue/web/components/browse.ex:778
+#: lib/phoenix_kit_catalogue/web/components/browse.ex:822
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:462
 #, elixir-autogen
 msgid "Category"
 msgstr "Категория"
 
-#: lib/phoenix_kit_catalogue/web/components/browse.ex:316
-#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2304
-#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2394
+#: lib/phoenix_kit_catalogue/web/components/browse.ex:361
+#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2418
+#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2508
 #, elixir-autogen
 msgid "Categories"
 msgstr "Категории"
 
-#: lib/phoenix_kit_catalogue/web/components/browse.ex:777
+#: lib/phoenix_kit_catalogue/web/components/browse.ex:821
 #, elixir-autogen
 msgid "Manufacturer"
 msgstr "Производитель"
@@ -620,24 +628,26 @@ msgstr "Производитель"
 msgid "Supplier"
 msgstr "Поставщик"
 
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:461
+#, elixir-autogen
 msgid "Item"
 msgstr "Позиция"
 
 #: lib/phoenix_kit_catalogue/web/catalogues_live.ex:3067
 #: lib/phoenix_kit_catalogue/web/components.ex:853
 #: lib/phoenix_kit_catalogue/web/components.ex:972
-#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2316
-#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2382
+#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2430
+#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2496
 #, elixir-autogen
 msgid "Items"
 msgstr "Позиции"
 
-#: lib/phoenix_kit_catalogue/web/components/browse.ex:776
+#: lib/phoenix_kit_catalogue/web/components/browse.ex:820
 #, elixir-autogen
 msgid "SKU"
 msgstr "Артикул"
 
-#: lib/phoenix_kit_catalogue/web/components/browse.ex:780
+#: lib/phoenix_kit_catalogue/web/components/browse.ex:824
 #, elixir-autogen
 msgid "Price"
 msgstr "Цена"
@@ -648,7 +658,7 @@ msgstr "Базовая цена"
 msgid "Final Price"
 msgstr "Итоговая цена"
 
-#: lib/phoenix_kit_catalogue/web/components/browse.ex:779
+#: lib/phoenix_kit_catalogue/web/components/browse.ex:823
 #, elixir-autogen
 msgid "Unit"
 msgstr "Единица"
@@ -677,14 +687,14 @@ msgstr "Скидка"
 msgid "Table view"
 msgstr "Таблица"
 
-#: lib/phoenix_kit_catalogue/web/components/catalogue_browse.ex:227
-#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2330
+#: lib/phoenix_kit_catalogue/web/components/catalogue_browse.ex:245
+#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2444
 #, elixir-autogen
 msgid "Card view"
 msgstr "Карточки"
 
-#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2271
-#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2272
+#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2385
+#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2386
 #, elixir-autogen
 msgid "Clear"
 msgstr "Очистить"
@@ -796,10 +806,10 @@ msgid "Updated"
 msgstr "Обновлён"
 
 #: lib/phoenix_kit_catalogue/web/components.ex:969
-#: lib/phoenix_kit_catalogue/web/components/browse.ex:353
-#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:1083
-#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:1098
-#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2114
+#: lib/phoenix_kit_catalogue/web/components/browse.ex:398
+#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:1197
+#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:1212
+#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2228
 #, elixir-autogen
 msgid "Uncategorized"
 msgstr "Без категории"
@@ -829,7 +839,7 @@ msgid "Search PDFs"
 msgstr "Поиск в PDF"
 
 ## Plural forms (Russian: 3 forms)
-#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2667
+#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2795
 #, elixir-autogen
 msgid "%{count} item"
 msgid_plural "%{count} items"
@@ -904,7 +914,7 @@ msgid "Permanently deleted %{count} items."
 msgstr "Окончательно удалено %{count} позиций."
 
 ## Catalogue table toolbar
-#: lib/phoenix_kit_catalogue/web/components/browse.ex:615
+#: lib/phoenix_kit_catalogue/web/components/browse.ex:659
 #, elixir-autogen
 msgid "Columns"
 msgstr "Колонки"
@@ -1147,8 +1157,8 @@ msgid "Select Featured Image"
 msgstr "Выбрать главное изображение"
 
 ## Product card
-#: lib/phoenix_kit_catalogue/web/components/browse.ex:436
-#: lib/phoenix_kit_catalogue/web/components/browse.ex:437
+#: lib/phoenix_kit_catalogue/web/components/browse.ex:481
+#: lib/phoenix_kit_catalogue/web/components/browse.ex:482
 #, elixir-autogen
 msgid "View item details"
 msgstr "Показать карточку товара"
@@ -1568,6 +1578,9 @@ msgstr "Выберите видео"
 msgid "Value"
 msgstr "Значение"
 
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:567
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:635
+#, elixir-autogen
 msgid "Type"
 msgstr "Тип"
 
@@ -1922,7 +1935,7 @@ msgid "Flat amount"
 msgstr "Фиксированная сумма"
 
 #: lib/phoenix_kit_catalogue/web/components.ex:878
-#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:1063
+#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:1177
 #, elixir-autogen
 msgid "Has subcategories"
 msgstr "Содержит подкатегории"
@@ -2112,8 +2125,8 @@ msgstr "Неактивных позиций нет."
 msgid "No items in this category."
 msgstr "В этой категории нет позиций."
 
-#: lib/phoenix_kit_catalogue/web/components/catalogue_browse.ex:285
-#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2520
+#: lib/phoenix_kit_catalogue/web/components/catalogue_browse.ex:303
+#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2648
 #, elixir-autogen
 msgid "No items match your search."
 msgstr "Нет позиций, соответствующих запросу."
@@ -2261,6 +2274,8 @@ msgstr "Переместите эту категорию под другого �
 msgid "Replace"
 msgstr "Заменить"
 
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:634
+#, elixir-autogen
 msgid "Resource"
 msgstr "Ресурс"
 
@@ -2326,8 +2341,8 @@ msgstr "Поиск временно недоступен. Попробуйте �
 msgid "Search items by name, description, or SKU..."
 msgstr "Ищите позиции по названию, описанию или артикулу..."
 
-#: lib/phoenix_kit_catalogue/web/components/catalogue_browse.ex:215
-#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2258
+#: lib/phoenix_kit_catalogue/web/components/catalogue_browse.ex:233
+#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2372
 #, elixir-autogen
 msgid "Search items…"
 msgstr "Поиск позиций…"
@@ -2868,39 +2883,40 @@ msgstr "импортирован"
 msgid "Open the company"
 msgstr "Открыть компанию"
 
-#: lib/phoenix_kit_catalogue/web/components/browse.ex:327
+#: lib/phoenix_kit_catalogue/web/components/browse.ex:372
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:480
 #, elixir-autogen
 msgid "All"
 msgstr "Все"
 
-#: lib/phoenix_kit_catalogue/web/components/browse.ex:1123
-#: lib/phoenix_kit_catalogue/web/components/browse.ex:1138
+#: lib/phoenix_kit_catalogue/web/components/browse.ex:1166
+#: lib/phoenix_kit_catalogue/web/components/browse.ex:1181
 #, elixir-autogen
 msgid "Quantity"
 msgstr "Количество"
 
-#: lib/phoenix_kit_catalogue/web/components/catalogue_browse.ex:297
-#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2589
+#: lib/phoenix_kit_catalogue/web/components/catalogue_browse.ex:315
+#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2717
 #, elixir-autogen
 msgid "Load more"
 msgstr "Загрузить ещё"
 
-#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2090
+#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2204
 #, elixir-autogen
 msgid "Select items"
 msgstr "Выберите позиции"
 
-#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2643
+#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2771
 #, elixir-autogen
 msgid "Add to selection"
 msgstr "Добавить в выбор"
 
-#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2641
+#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2769
 #, elixir-autogen
 msgid "Remove from selection"
 msgstr "Убрать из выбора"
 
-#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2290
+#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2404
 #, elixir-autogen
 msgid "Browse"
 msgstr "Обзор"
@@ -2909,17 +2925,17 @@ msgstr "Обзор"
 msgid "Drag-reorder needs the Manual sort — choose it in the sort selector."
 msgstr "Для перетаскивания выберите ручную сортировку в списке сортировки."
 
-#: lib/phoenix_kit_catalogue/web/components/browse.ex:91
+#: lib/phoenix_kit_catalogue/web/components/browse.ex:94
 #, elixir-autogen
 msgid "Computed"
 msgstr "Рассчитывается"
 
-#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2692
+#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2820
 #, elixir-autogen
 msgid "Confirm selection"
 msgstr "Подтвердить выбор"
 
-#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2732
+#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2859
 #, elixir-autogen
 msgid "Not available in this selection"
 msgstr "Недоступно в этом выборе"
@@ -3005,28 +3021,28 @@ msgstr "%{name} (копия)"
 msgid "Supplier price"
 msgstr "Цена поставщика"
 
-#: lib/phoenix_kit_catalogue/web/components/catalogue_browse.ex:226
-#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2329
+#: lib/phoenix_kit_catalogue/web/components/catalogue_browse.ex:244
+#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2443
 #, elixir-autogen, elixir-format
 msgid "List view"
 msgstr "Список"
 
-#: lib/phoenix_kit_catalogue/web/components/browse.ex:782
+#: lib/phoenix_kit_catalogue/web/components/browse.ex:826
 #, elixir-autogen, elixir-format
 msgid "Qty"
 msgstr "Кол-во"
 
-#: lib/phoenix_kit_catalogue/web/components/browse.ex:781
+#: lib/phoenix_kit_catalogue/web/components/browse.ex:825
 #, elixir-autogen, elixir-format
 msgid "Base price"
 msgstr "Базовая цена"
 
-#: lib/phoenix_kit_catalogue/web/components/browse.ex:647
+#: lib/phoenix_kit_catalogue/web/components/browse.ex:691
 #, elixir-autogen, elixir-format
 msgid "Category prefix"
 msgstr "Префикс категории"
 
-#: lib/phoenix_kit_catalogue/web/components/browse.ex:646
+#: lib/phoenix_kit_catalogue/web/components/browse.ex:690
 #, elixir-autogen, elixir-format
 msgid "Photo"
 msgstr "Фото"
@@ -3181,8 +3197,196 @@ msgstr "Новая подкатегория"
 msgid "Search for"
 msgstr "Что искать"
 
-#: lib/phoenix_kit_catalogue/web/item_form_live.ex:1875
-#: lib/phoenix_kit_catalogue/web/item_form_live.ex:1928
+#: lib/phoenix_kit_catalogue/web/item_form_live.ex:1981
+#: lib/phoenix_kit_catalogue/web/item_form_live.ex:2034
 #, elixir-autogen, elixir-format
 msgid "That category belongs to another catalogue."
 msgstr "Эта категория принадлежит другому каталогу."
+
+#: lib/phoenix_kit_catalogue/web/category_form_live.ex:679
+#: lib/phoenix_kit_catalogue/web/item_form_live.ex:2764
+#, elixir-autogen, elixir-format
+msgid "SEO description"
+msgstr "SEO-описание"
+
+#: lib/phoenix_kit_catalogue/web/category_form_live.ex:671
+#: lib/phoenix_kit_catalogue/web/item_form_live.ex:2756
+#, elixir-autogen, elixir-format
+msgid "SEO title"
+msgstr "SEO-заголовок"
+
+#: lib/phoenix_kit_catalogue/web/category_form_live.ex:653
+#: lib/phoenix_kit_catalogue/web/item_form_live.ex:2727
+#, elixir-autogen, elixir-format
+msgid "URL slug"
+msgstr "URL-слаг"
+
+#: lib/phoenix_kit_catalogue/web/category_form_live.ex:654
+#: lib/phoenix_kit_catalogue/web/item_form_live.ex:2728
+#, elixir-autogen, elixir-format
+msgid "auto-generated from the name"
+msgstr "создаётся автоматически из названия"
+
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:529
+#, elixir-autogen, elixir-format
+msgid "%{count} rows"
+msgstr "%{count} строк"
+
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:326
+#, elixir-autogen, elixir-format
+msgid "A translation job for this row is already queued."
+msgstr "Задание на перевод для этой строки уже в очереди."
+
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:510
+#, elixir-autogen, elixir-format
+msgid "AI translation is not configured"
+msgstr "Перевод ИИ не настроен"
+
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:580
+#, elixir-autogen, elixir-format
+msgid "All languages"
+msgstr "Все языки"
+
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:468
+#, elixir-autogen, elixir-format
+msgid "All types"
+msgstr "Все типы"
+
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:515
+#, elixir-autogen, elixir-format
+msgid "Configure AI"
+msgstr "Настроить ИИ"
+
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:335
+#, elixir-autogen, elixir-format
+msgid "Could not queue the translation."
+msgstr "Не удалось поставить перевод в очередь."
+
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:194
+#, elixir-autogen, elixir-format
+msgid "Could not update the translation baseline."
+msgstr "Не удалось обновить эталон перевода."
+
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:479
+#, elixir-autogen, elixir-format
+msgid "Fresh"
+msgstr "Свежий"
+
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:578
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:636
+#, elixir-autogen, elixir-format
+msgid "Language"
+msgstr "Язык"
+
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:179
+#, elixir-autogen, elixir-format
+msgid "Marked the current source as the translation baseline."
+msgstr "Текущий источник отмечен как эталон перевода."
+
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:476
+#, elixir-autogen, elixir-format
+msgid "Missing"
+msgstr "Отсутствует"
+
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:628
+#, elixir-autogen, elixir-format
+msgid "No rows match the current filter."
+msgstr "Ни одна строка не соответствует текущему фильтру."
+
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:392
+#, elixir-autogen, elixir-format
+msgid "Nothing matched the current filter."
+msgstr "Ничего не соответствует текущему фильтру."
+
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:491
+#, elixir-autogen, elixir-format
+msgid "Queue translation for %{count} row(s)?"
+msgstr "Поставить в очередь перевод для %{count} строк(и)?"
+
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:409
+#, elixir-autogen, elixir-format
+msgid "Queued %{ok}; %{failed} could not be queued."
+msgstr "В очередь поставлено %{ok}; %{failed} не удалось поставить в очередь."
+
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:620
+#, elixir-autogen, elixir-format
+msgid "Retranslate all stale"
+msgstr "Перевести заново всё устаревшее"
+
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:593
+#, elixir-autogen, elixir-format
+msgid "Search by name…"
+msgstr "Поиск по названию…"
+
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:463
+#, elixir-autogen, elixir-format
+msgid "Set label"
+msgstr "Название набора"
+
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:512
+#, elixir-autogen, elixir-format
+msgid "Set up an AI endpoint before translating catalogue content."
+msgstr "Перед переводом содержимого каталога настройте конечную точку ИИ."
+
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:464
+#, elixir-autogen, elixir-format
+msgid "Set value"
+msgstr "Значение набора"
+
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:477
+#, elixir-autogen, elixir-format
+msgid "Stale"
+msgstr "Устаревший"
+
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:680
+#, elixir-autogen, elixir-format
+msgid "Stamp fresh"
+msgstr "Отметить как свежий"
+
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:637
+#, elixir-autogen, elixir-format
+msgid "State"
+msgstr "Состояние"
+
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:189
+#, elixir-autogen, elixir-format
+msgid "This row has no translation yet — nothing to stamp."
+msgstr "У этой строки пока нет перевода — нечего отмечать."
+
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:669
+#, elixir-autogen, elixir-format
+msgid "Translate"
+msgstr "Перевести"
+
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:611
+#, elixir-autogen, elixir-format
+msgid "Translate all missing"
+msgstr "Перевести всё отсутствующее"
+
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:331
+#, elixir-autogen, elixir-format
+msgid "Translation queued."
+msgstr "Перевод поставлен в очередь."
+
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:124
+#, elixir-autogen, elixir-format
+msgid "Translations"
+msgstr "Переводы"
+
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:656
+#, elixir-autogen, elixir-format
+msgid "queued"
+msgstr "в очереди"
+
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:421
+#, elixir-autogen, elixir-format
+msgid "More rows match — click again to queue the next batch."
+msgstr "Есть ещё подходящие строки — нажмите ещё раз, чтобы поставить в очередь следующую партию."
+
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:397
+#, elixir-autogen, elixir-format
+msgid "Queued %{count} translation."
+msgid_plural "Queued %{count} translations."
+msgstr[0] "В очередь поставлен %{count} перевод."
+msgstr[1] "В очередь поставлено %{count} перевода."
+msgstr[2] "В очередь поставлено %{count} переводов."

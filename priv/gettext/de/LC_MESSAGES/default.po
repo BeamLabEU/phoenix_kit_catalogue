@@ -1,13 +1,8 @@
-## This file is a PO Template file.
-##
-## "msgid"s here are often extracted from source code.
-## Add new translations manually or run "mix gettext.extract" to add
-## stale messages to this file.
-##
-## Run "mix gettext.merge priv/gettext --locale LOCALE" to merge
-## this template with a particular locale's PO file.
+## "default" domain translations for de locale.
 msgid ""
 msgstr ""
+"Language: de\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
 
 ## Tab labels
 #: lib/phoenix_kit_catalogue/web/translations_live.ex:504
@@ -507,7 +502,7 @@ msgstr ""
 #: lib/phoenix_kit_catalogue/web/components.ex:865
 #, elixir-autogen
 msgid "Status"
-msgstr ""
+msgstr "Zustand"
 
 msgid "Details"
 msgstr ""
@@ -3044,7 +3039,6 @@ msgstr ""
 msgid "Photo"
 msgstr ""
 
-## Attribute sets viewer (2026-08-27 — editing moved to Entities)
 msgid "Edit values"
 msgstr ""
 
@@ -3225,162 +3219,162 @@ msgstr ""
 #: lib/phoenix_kit_catalogue/web/translations_live.ex:529
 #, elixir-autogen, elixir-format
 msgid "%{count} rows"
-msgstr ""
+msgstr "%{count} Zeilen"
 
 #: lib/phoenix_kit_catalogue/web/translations_live.ex:326
 #, elixir-autogen, elixir-format
 msgid "A translation job for this row is already queued."
-msgstr ""
+msgstr "Für diese Zeile ist bereits ein Übersetzungsauftrag in der Warteschlange."
 
 #: lib/phoenix_kit_catalogue/web/translations_live.ex:510
 #, elixir-autogen, elixir-format
 msgid "AI translation is not configured"
-msgstr ""
+msgstr "KI-Übersetzung ist nicht konfiguriert"
 
 #: lib/phoenix_kit_catalogue/web/translations_live.ex:580
 #, elixir-autogen, elixir-format
 msgid "All languages"
-msgstr ""
+msgstr "Alle Sprachen"
 
 #: lib/phoenix_kit_catalogue/web/translations_live.ex:468
 #, elixir-autogen, elixir-format
 msgid "All types"
-msgstr ""
+msgstr "Alle Typen"
 
 #: lib/phoenix_kit_catalogue/web/translations_live.ex:515
 #, elixir-autogen, elixir-format
 msgid "Configure AI"
-msgstr ""
+msgstr "KI konfigurieren"
 
 #: lib/phoenix_kit_catalogue/web/translations_live.ex:335
 #, elixir-autogen, elixir-format
 msgid "Could not queue the translation."
-msgstr ""
+msgstr "Die Übersetzung konnte nicht in die Warteschlange gestellt werden."
 
 #: lib/phoenix_kit_catalogue/web/translations_live.ex:194
 #, elixir-autogen, elixir-format
 msgid "Could not update the translation baseline."
-msgstr ""
+msgstr "Die Übersetzungsbasis konnte nicht aktualisiert werden."
 
 #: lib/phoenix_kit_catalogue/web/translations_live.ex:479
 #, elixir-autogen, elixir-format
 msgid "Fresh"
-msgstr ""
+msgstr "Aktuell"
 
 #: lib/phoenix_kit_catalogue/web/translations_live.ex:578
 #: lib/phoenix_kit_catalogue/web/translations_live.ex:636
 #, elixir-autogen, elixir-format
 msgid "Language"
-msgstr ""
+msgstr "Sprache"
 
 #: lib/phoenix_kit_catalogue/web/translations_live.ex:179
 #, elixir-autogen, elixir-format
 msgid "Marked the current source as the translation baseline."
-msgstr ""
+msgstr "Die aktuelle Quelle wurde als Übersetzungsbasis markiert."
 
 #: lib/phoenix_kit_catalogue/web/translations_live.ex:476
 #, elixir-autogen, elixir-format
 msgid "Missing"
-msgstr ""
+msgstr "Fehlt"
 
 #: lib/phoenix_kit_catalogue/web/translations_live.ex:628
 #, elixir-autogen, elixir-format
 msgid "No rows match the current filter."
-msgstr ""
+msgstr "Keine Zeile entspricht dem aktuellen Filter."
 
 #: lib/phoenix_kit_catalogue/web/translations_live.ex:392
 #, elixir-autogen, elixir-format
 msgid "Nothing matched the current filter."
-msgstr ""
+msgstr "Nichts entspricht dem aktuellen Filter."
 
 #: lib/phoenix_kit_catalogue/web/translations_live.ex:491
 #, elixir-autogen, elixir-format
 msgid "Queue translation for %{count} row(s)?"
-msgstr ""
+msgstr "Übersetzung für %{count} Zeile(n) in die Warteschlange stellen?"
 
 #: lib/phoenix_kit_catalogue/web/translations_live.ex:409
 #, elixir-autogen, elixir-format
 msgid "Queued %{ok}; %{failed} could not be queued."
-msgstr ""
+msgstr "%{ok} in die Warteschlange gestellt; %{failed} konnten nicht eingereiht werden."
 
 #: lib/phoenix_kit_catalogue/web/translations_live.ex:620
 #, elixir-autogen, elixir-format
 msgid "Retranslate all stale"
-msgstr ""
+msgstr "Alle veralteten neu übersetzen"
 
 #: lib/phoenix_kit_catalogue/web/translations_live.ex:593
 #, elixir-autogen, elixir-format
 msgid "Search by name…"
-msgstr ""
+msgstr "Nach Namen suchen…"
 
 #: lib/phoenix_kit_catalogue/web/translations_live.ex:463
 #, elixir-autogen, elixir-format
 msgid "Set label"
-msgstr ""
+msgstr "Set-Bezeichnung"
 
 #: lib/phoenix_kit_catalogue/web/translations_live.ex:512
 #, elixir-autogen, elixir-format
 msgid "Set up an AI endpoint before translating catalogue content."
-msgstr ""
+msgstr "Richten Sie einen KI-Endpunkt ein, bevor Sie Kataloginhalte übersetzen."
 
 #: lib/phoenix_kit_catalogue/web/translations_live.ex:464
 #, elixir-autogen, elixir-format
 msgid "Set value"
-msgstr ""
+msgstr "Set-Wert"
 
 #: lib/phoenix_kit_catalogue/web/translations_live.ex:477
 #, elixir-autogen, elixir-format
 msgid "Stale"
-msgstr ""
+msgstr "Veraltet"
 
 #: lib/phoenix_kit_catalogue/web/translations_live.ex:680
 #, elixir-autogen, elixir-format
 msgid "Stamp fresh"
-msgstr ""
+msgstr "Als aktuell markieren"
 
 #: lib/phoenix_kit_catalogue/web/translations_live.ex:637
 #, elixir-autogen, elixir-format
 msgid "State"
-msgstr ""
+msgstr "Zustand"
 
 #: lib/phoenix_kit_catalogue/web/translations_live.ex:189
 #, elixir-autogen, elixir-format
 msgid "This row has no translation yet — nothing to stamp."
-msgstr ""
+msgstr "Diese Zeile hat noch keine Übersetzung — nichts zu markieren."
 
 #: lib/phoenix_kit_catalogue/web/translations_live.ex:669
 #, elixir-autogen, elixir-format
 msgid "Translate"
-msgstr ""
+msgstr "Übersetzen"
 
 #: lib/phoenix_kit_catalogue/web/translations_live.ex:611
 #, elixir-autogen, elixir-format
 msgid "Translate all missing"
-msgstr ""
+msgstr "Alle fehlenden übersetzen"
 
 #: lib/phoenix_kit_catalogue/web/translations_live.ex:331
 #, elixir-autogen, elixir-format
 msgid "Translation queued."
-msgstr ""
+msgstr "Übersetzung in die Warteschlange gestellt."
 
 #: lib/phoenix_kit_catalogue/web/translations_live.ex:124
 #, elixir-autogen, elixir-format
 msgid "Translations"
-msgstr ""
+msgstr "Übersetzungen"
 
 #: lib/phoenix_kit_catalogue/web/translations_live.ex:656
 #, elixir-autogen, elixir-format
 msgid "queued"
-msgstr ""
+msgstr "wartet"
 
 #: lib/phoenix_kit_catalogue/web/translations_live.ex:421
 #, elixir-autogen, elixir-format
 msgid "More rows match — click again to queue the next batch."
-msgstr ""
+msgstr "Es gibt weitere passende Zeilen — erneut klicken, um den nächsten Stapel in die Warteschlange zu stellen."
 
 #: lib/phoenix_kit_catalogue/web/translations_live.ex:397
 #, elixir-autogen, elixir-format
 msgid "Queued %{count} translation."
 msgid_plural "Queued %{count} translations."
-msgstr[0] ""
-msgstr[1] ""
+msgstr[0] "%{count} Übersetzung in die Warteschlange gestellt."
+msgstr[1] "%{count} Übersetzungen in die Warteschlange gestellt."

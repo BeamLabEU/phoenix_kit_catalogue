@@ -237,15 +237,45 @@ defmodule PhoenixKitCatalogue.Web.Helpers do
   # storage (multilang `data`, `_`-prefixed keys) is in
   # `PhoenixKitCatalogue.AITranslateBinding`.
 
+  # Item/category source fields include `summary`/`seo_title`/
+  # `seo_description` (block-6 plan, Task 1) — the shared
+  # `phoenixkit-translate-content` prompt `FormGlue` preselects by default
+  # has no slot for those, so the in-form AI-translate button would fail
+  # every dispatch with `{:missing_fields, [...]}`. Only these two resource
+  # types carry that widened field set; `catalogue`/attribute-group/value
+  # forms still translate fine on the shared prompt (`name`/`description`
+  # only) and are left alone.
+  @item_and_category_resource_types ~w(catalogue_item catalogue_category)
+
   @doc "See `FormGlue.assign_ai_translation/4` — wires the catalogue binding."
-  def assign_ai_translation(socket, resource_type, resource),
-    do:
-      FormGlue.assign_ai_translation(
-        socket,
-        resource_type,
-        resource,
-        PhoenixKitCatalogue.AITranslateBinding
-      )
+  def assign_ai_translation(socket, resource_type, resource) do
+    socket
+    |> FormGlue.assign_ai_translation(
+      resource_type,
+      resource,
+      PhoenixKitCatalogue.AITranslateBinding
+    )
+    |> maybe_preselect_catalogue_prompt(resource_type)
+  end
+
+  defp maybe_preselect_catalogue_prompt(socket, resource_type)
+       when resource_type in @item_and_category_resource_types do
+    if socket.assigns[:ai_translation_available?] and Phoenix.LiveView.connected?(socket) do
+      case PhoenixKitCatalogue.AIPrompt.ensure_prompt() do
+        {:ok, uuid} ->
+          socket
+          |> Phoenix.Component.assign(:ai_prompts, PhoenixKitAI.Translations.list_prompts())
+          |> Phoenix.Component.assign(:ai_selected_prompt, uuid)
+
+        {:error, _reason} ->
+          socket
+      end
+    else
+      socket
+    end
+  end
+
+  defp maybe_preselect_catalogue_prompt(socket, _resource_type), do: socket
 
   defdelegate toggle_ai_modal(socket), to: FormGlue
   defdelegate select_ai_endpoint(socket, uuid), to: FormGlue
