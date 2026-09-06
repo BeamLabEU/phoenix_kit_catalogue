@@ -139,10 +139,15 @@ defmodule PhoenixKitCatalogue do
     # SupplierFields registers its own guard under its own owner key —
     # its blueprint is NOT an attribute set and must not land in either
     # of the set registries above.
+    #
+    # TranslationSweepWorker seeds its own self-rescheduling chain
+    # (`ensure_scheduled/0`) the same way — a temporary boot task, not a
+    # long-lived process.
     [
       PhoenixKitCatalogue.Catalogue.AttributeSets,
       PhoenixKitCatalogue.Catalogue.AttributeSets.OrphanPruner,
-      PhoenixKitCatalogue.Catalogue.SupplierFields
+      PhoenixKitCatalogue.Catalogue.SupplierFields,
+      PhoenixKitCatalogue.Workers.TranslationSweepWorker
     ]
   end
 
