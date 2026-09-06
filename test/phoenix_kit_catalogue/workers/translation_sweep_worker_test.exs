@@ -18,8 +18,11 @@ defmodule PhoenixKitCatalogue.Workers.TranslationSweepWorkerTest do
   use Oban.Testing, repo: PhoenixKitCatalogue.Test.Repo
 
   alias PhoenixKitAI.TranslateWorker
+  alias PhoenixKitAI.Translations
+  alias PhoenixKitCatalogue.AIPrompt
   alias PhoenixKitCatalogue.AITranslatable
   alias PhoenixKitCatalogue.Catalogue
+  alias PhoenixKitCatalogue.Catalogue.AttributeSets
   alias PhoenixKitCatalogue.TranslationStatus
   alias PhoenixKitCatalogue.Web.Settings, as: SweepSettings
   alias PhoenixKitCatalogue.Workers.TranslationSweepWorker
@@ -148,6 +151,61 @@ defmodule PhoenixKitCatalogue.Workers.TranslationSweepWorkerTest do
       assert {:ok, _job} = TranslationSweepWorker.ensure_scheduled()
 
       assert length(sweep_worker_jobs()) == 1
+    end
+  end
+
+  describe "ensure_scheduled_if_enabled/0" do
+    test "seeds no chain while the sweep has never been enabled" do
+      assert TranslationSweepWorker.ensure_scheduled_if_enabled() == :skipped
+      assert sweep_worker_jobs() == []
+    end
+
+    test "seeds the chain once the sweep is enabled" do
+      SweepSettings.update_sweep_enabled(true)
+
+      assert {:ok, _job} = TranslationSweepWorker.ensure_scheduled_if_enabled()
+      assert length(sweep_worker_jobs()) == 1
+    end
+  end
+
+  describe "endpoint_and_prompts/0" do
+    test "resolves a distinct prompt for catalogue_set_label than the shared default" do
+      assert {:ok, _endpoint_uuid, prompts} = TranslationSweepWorker.endpoint_and_prompts()
+
+      shared_default = Translations.default_prompt_uuid()
+      {:ok, sets_prompt_uuid} = AIPrompt.ensure_sets_prompt()
+
+      assert prompts["catalogue_set_label"] == sets_prompt_uuid
+      assert prompts["catalogue_set_value"] == sets_prompt_uuid
+      refute prompts["catalogue_set_label"] == shared_default
+      refute prompts["catalogue_set_value"] == shared_default
+    end
+  end
+
+  if Code.ensure_loaded?(PhoenixKitEntities.Managed) do
+    describe "perform/1 — attribute-set labels" do
+      setup do
+        AttributeSets.register_deletion_guard()
+        PhoenixKit.Settings.update_setting("entities_enabled", "true")
+        on_exit(fn -> PhoenixKit.Settings.update_setting("entities_enabled", "false") end)
+        :ok
+      end
+
+      test "enqueues a set-label job whose prompt_uuid is NOT the shared default prompt" do
+        SweepSettings.update_sweep_enabled(true)
+
+        {:ok, set} =
+          AttributeSets.create_set(%{name: "Ikea colors"}, actor_uuid: Ecto.UUID.generate())
+
+        assert :ok = TranslationSweepWorker.perform(%Oban.Job{})
+
+        jobs = translate_worker_jobs()
+        assert [%{args: %{"resource_uuid" => uuid, "prompt_uuid" => prompt_uuid}}] = jobs
+        assert uuid == set.uuid
+
+        refute prompt_uuid == Translations.default_prompt_uuid()
+        assert {:ok, prompt_uuid} == AIPrompt.ensure_sets_prompt()
+      end
     end
   end
 end

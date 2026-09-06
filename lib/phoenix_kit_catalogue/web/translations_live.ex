@@ -69,14 +69,21 @@ defmodule PhoenixKitCatalogue.Web.TranslationsLive do
   alias PhoenixKitCatalogue.Paths
   alias PhoenixKitCatalogue.TranslationStatus
   alias PhoenixKitCatalogue.Web.Helpers
+  alias PhoenixKitCatalogue.Web.Settings, as: SweepSettings
   alias PhoenixKitCatalogue.Web.TableQuery
   alias PhoenixKitCatalogue.Workers.TranslationSweepWorker
 
-  # Upper bound on how many (resource, lang) rows one filter scope loads —
-  # generous enough that the page never silently truncates on this fork's
-  # actual catalogue size; there is no pager in this first cut (not asked
-  # for by the block-6 plan's Task 5 interfaces).
-  @per_page 1000
+  # Upper bound on how many (resource, lang) rows ONE TYPE contributes to
+  # one filter scope (each type is listed separately in `load_rows/2` and
+  # `bulk_enqueue/2` — this is a per-type cap, not a combined one). Sized
+  # above item_count × target_language_count for this fork's actual
+  # catalogue (665 items × 2 languages = 1330; the old 1000 silently
+  # dropped 330 item rows from both the table AND the header counts,
+  # since both are derived from the same capped list). Still a fixed
+  # bound, not real pagination — there is no pager in this first cut (not
+  # asked for by the block-6 plan's Task 5 interfaces); revisit with one
+  # if the catalogue grows another order of magnitude.
+  @per_page 5000
 
   @all_types [:item, :category, :set_label, :set_value]
   @all_states ~w(missing stale unknown fresh)
@@ -104,6 +111,7 @@ defmodule PhoenixKitCatalogue.Web.TranslationsLive do
             prompts: prompts,
             languages: default_languages(),
             in_flight: MapSet.new(),
+            refresh_scheduled?: false,
             rows: [],
             counts: %{},
             total: 0
@@ -151,8 +159,10 @@ defmodule PhoenixKitCatalogue.Web.TranslationsLive do
 
   @impl true
   def handle_event("translate", %{"type" => type_str, "uuid" => uuid, "lang" => lang}, socket) do
-    type = String.to_existing_atom(type_str)
-    {:noreply, enqueue_one(socket, type, uuid, lang)}
+    case row_type(type_str) do
+      {:ok, type} -> {:noreply, enqueue_one(socket, type, uuid, lang)}
+      :error -> {:noreply, socket}
+    end
   end
 
   @impl true
@@ -161,15 +171,17 @@ defmodule PhoenixKitCatalogue.Web.TranslationsLive do
         %{"type" => type_str, "uuid" => uuid, "lang" => lang},
         socket
       ) do
-    type = String.to_existing_atom(type_str)
-
     socket =
-      with {:ok, resource} <- fetch_resource(type, uuid),
+      with {:ok, type} <- row_type(type_str),
+           {:ok, resource} <- fetch_resource(type, uuid),
            {:ok, _updated} <- TranslationStatus.stamp_fresh(resource, lang) do
         socket
         |> put_flash(:info, gettext("Marked the current source as the translation baseline."))
         |> refresh_rows()
       else
+        :error ->
+          socket
+
         {:error, :no_translation} ->
           put_flash(
             socket,
@@ -198,6 +210,24 @@ defmodule PhoenixKitCatalogue.Web.TranslationsLive do
   end
 
   # ── PubSub (in-flight tracking) ──────────────────────────────────────
+  #
+  # `Translations.subscribe/0` (mount/3) is the GLOBAL `:ai_translation`
+  # topic — every module's translation jobs land here, not just
+  # catalogue's — and a bulk run enqueues hundreds of jobs in a burst.
+  # Two guards keep that from recomputing the whole listing (full
+  # `list_items/0`, one `list_values/1` per set, a sha256 per resource
+  # per language) on every single message:
+  #
+  #   1. Only a catalogue resource type triggers a refresh at all —
+  #      another module's translation completing is irrelevant here.
+  #   2. Refreshes COALESCE: the first qualifying message in a quiet
+  #      period schedules one `:coalesced_refresh` after
+  #      `@refresh_debounce_ms`; every message that arrives before it
+  #      fires just updates `:in_flight` (cheap) and folds into that
+  #      same pending refresh instead of running its own.
+
+  @refresh_debounce_ms 250
+  @catalogue_resource_types ~w(catalogue_item catalogue_category catalogue_set_label catalogue_set_value)
 
   @impl true
   def handle_info({:ai_translation, :translation_started, payload}, socket) do
@@ -206,17 +236,33 @@ defmodule PhoenixKitCatalogue.Web.TranslationsLive do
 
   def handle_info({:ai_translation, event, payload}, socket)
       when event in [:translation_completed, :translation_failed] do
+    socket = track_in_flight(socket, payload, false)
+
     socket =
-      socket
-      |> track_in_flight(payload, false)
-      |> refresh_rows()
+      if catalogue_payload?(payload), do: schedule_coalesced_refresh(socket), else: socket
 
     {:noreply, socket}
+  end
+
+  def handle_info(:coalesced_refresh, socket) do
+    {:noreply, socket |> assign(:refresh_scheduled?, false) |> refresh_rows()}
   end
 
   def handle_info(msg, socket) do
     Logger.debug("TranslationsLive ignored unhandled message: #{inspect(msg)}")
     {:noreply, socket}
+  end
+
+  defp catalogue_payload?(%{resource_type: type}), do: type in @catalogue_resource_types
+  defp catalogue_payload?(_payload), do: false
+
+  defp schedule_coalesced_refresh(socket) do
+    if socket.assigns[:refresh_scheduled?] do
+      socket
+    else
+      Process.send_after(self(), :coalesced_refresh, @refresh_debounce_ms)
+      assign(socket, :refresh_scheduled?, true)
+    end
   end
 
   # ── Data loading ─────────────────────────────────────────────────────
@@ -294,12 +340,21 @@ defmodule PhoenixKitCatalogue.Web.TranslationsLive do
     langs = target_langs(socket.assigns.lang)
     types = target_types(socket.assigns.type)
 
-    rows =
+    matched =
       types
       |> Enum.flat_map(
         &TranslationStatus.list(&1, langs: langs, state: target_state, per_page: @per_page)
       )
       |> TableQuery.search(socket.assigns.search, & &1.name)
+
+    # Caps how many rows one click enqueues SYNCHRONOUSLY in this LiveView
+    # process (each row does a dedup query + an Oban insert) — reuses the
+    # sweep's own per-tick cap rather than inventing a second knob; a
+    # filter matching more than that gets queued a batch at a time, one
+    # click per batch, same as the sweep already self-throttles per tick.
+    cap = SweepSettings.sweep_max_per_run()
+    rows = Enum.take(matched, cap)
+    truncated? = length(matched) > cap
 
     {socket, enqueued, errors} =
       Enum.reduce(rows, {socket, 0, 0}, fn row, {sock, ok, err} ->
@@ -310,7 +365,7 @@ defmodule PhoenixKitCatalogue.Web.TranslationsLive do
       end)
 
     socket
-    |> flash_bulk_result(enqueued, errors)
+    |> flash_bulk_result(enqueued, errors, truncated?)
     |> refresh_rows()
   end
 
@@ -333,26 +388,53 @@ defmodule PhoenixKitCatalogue.Web.TranslationsLive do
     end
   end
 
-  defp flash_bulk_result(socket, 0, 0) do
+  defp flash_bulk_result(socket, 0, 0, _truncated?) do
     put_flash(socket, :info, gettext("Nothing matched the current filter."))
   end
 
-  defp flash_bulk_result(socket, enqueued, 0) do
-    put_flash(socket, :info, gettext("Queued %{count} translation(s).", count: enqueued))
+  defp flash_bulk_result(socket, enqueued, 0, truncated?) do
+    message =
+      ngettext(
+        "Queued %{count} translation.",
+        "Queued %{count} translations.",
+        enqueued,
+        count: enqueued
+      )
+
+    put_flash(socket, :info, append_truncated_notice(message, truncated?))
   end
 
-  defp flash_bulk_result(socket, enqueued, errors) do
-    put_flash(
-      socket,
-      :warning,
+  defp flash_bulk_result(socket, enqueued, errors, truncated?) do
+    message =
       gettext("Queued %{ok}; %{failed} could not be queued.", ok: enqueued, failed: errors)
-    )
+
+    put_flash(socket, :warning, append_truncated_notice(message, truncated?))
+  end
+
+  # More rows matched than the sweep's per-tick cap allows one bulk click
+  # to enqueue synchronously — tell the operator the filter still has
+  # more to queue, rather than letting "Queued N" read as "that was all
+  # of them".
+  defp append_truncated_notice(message, false), do: message
+
+  defp append_truncated_notice(message, true) do
+    message <> " " <> gettext("More rows match — click again to queue the next batch.")
   end
 
   defp fetch_resource(:item, uuid), do: AITranslatable.fetch("catalogue_item", uuid)
   defp fetch_resource(:category, uuid), do: AITranslatable.fetch("catalogue_category", uuid)
   defp fetch_resource(:set_label, uuid), do: Sets.fetch("catalogue_set_label", uuid)
   defp fetch_resource(:set_value, uuid), do: Sets.fetch("catalogue_set_value", uuid)
+
+  # Client-supplied `phx-value-type` — a crafted event must not reach
+  # `String.to_existing_atom/1` (ArgumentError on an unrecognized string)
+  # or `resource_type_for/1`'s `Map.fetch!` (KeyError), either of which
+  # would kill the LiveView.
+  defp row_type("item"), do: {:ok, :item}
+  defp row_type("category"), do: {:ok, :category}
+  defp row_type("set_label"), do: {:ok, :set_label}
+  defp row_type("set_value"), do: {:ok, :set_value}
+  defp row_type(_other), do: :error
 
   # ── In-flight tracking ───────────────────────────────────────────────
 

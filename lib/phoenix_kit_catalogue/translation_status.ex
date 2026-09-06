@@ -192,10 +192,21 @@ defmodule PhoenixKitCatalogue.TranslationStatus do
 
   defp current_fingerprint(resource), do: resource |> current_source_fields() |> fingerprint()
 
-  defp current_source_fields(%Item{} = r), do: AITranslatable.source_fields(r, source_lang())
-  defp current_source_fields(%Category{} = r), do: AITranslatable.source_fields(r, source_lang())
-  defp current_source_fields(%Entities{} = r), do: Sets.source_fields(r, source_lang())
-  defp current_source_fields(%EntityData{} = r), do: Sets.source_fields(r, source_lang())
+  # PURE variants only — this is a read-only path (`state/2`/`list/2`), not
+  # the read step of a translation job. `AITranslatable.source_fields/2` /
+  # `Sets.source_fields/2` (the `@impl` callbacks the AI engine calls) also
+  # stash the fingerprint in the CALLING process's dictionary; going
+  # through them here would silently corrupt whatever `put_translation/4`
+  # later reads back for an actual job sharing this process (e.g. a
+  # LiveView computing a row's state, then dispatching a translation).
+  defp current_source_fields(%Item{} = r),
+    do: AITranslatable.source_fields_pure(r, source_lang())
+
+  defp current_source_fields(%Category{} = r),
+    do: AITranslatable.source_fields_pure(r, source_lang())
+
+  defp current_source_fields(%Entities{} = r), do: Sets.source_fields_pure(r, source_lang())
+  defp current_source_fields(%EntityData{} = r), do: Sets.source_fields_pure(r, source_lang())
 
   # ── Listing ───────────────────────────────────────────────────────
 
@@ -242,8 +253,14 @@ defmodule PhoenixKitCatalogue.TranslationStatus do
 
   defp resources_for(:set_label, _catalogue_uuid), do: AttributeSets.list_sets()
 
+  # One batched query for every set's values (`list_values_for/2`, the
+  # same call the Attributes tab's preview already uses to avoid N+1),
+  # not `list_values/1` per set — this runs on every page render, every
+  # translation-completed broadcast, and every sweep tick.
   defp resources_for(:set_value, _catalogue_uuid) do
-    AttributeSets.list_sets() |> Enum.flat_map(&AttributeSets.list_values/1)
+    sets = AttributeSets.list_sets()
+    values_by_set = sets |> Enum.map(& &1.uuid) |> AttributeSets.list_values_for()
+    sets |> Enum.flat_map(&Map.get(values_by_set, &1.uuid, []))
   end
 
   defp rows_for(type, resource, langs) do

@@ -123,5 +123,55 @@ defmodule PhoenixKitCatalogue.Web.TranslationsLiveTest do
       assert [%{args: %{"resource_type" => "catalogue_item", "resource_uuid" => uuid}}] = jobs
       assert uuid == item.uuid
     end
+
+    test "a crafted phx-value-type does not crash the LiveView", %{conn: conn} do
+      item = create_item!("Widget")
+      {:ok, view, _html} = live(conn, @base <> "?lang=#{@lang}")
+
+      html =
+        render_click(view, "translate", %{"type" => "bogus", "uuid" => item.uuid, "lang" => @lang})
+
+      assert Process.alive?(view.pid)
+      assert html =~ item.name
+      assert translate_worker_jobs() == []
+    end
+
+    test "an unrelated module's translation_completed event does not crash the page", %{
+      conn: conn
+    } do
+      item = create_item!("Widget")
+      {:ok, view, _html} = live(conn, @base <> "?lang=#{@lang}")
+
+      send(
+        view.pid,
+        {:ai_translation, :translation_completed,
+         %{resource_type: "some_other_module_thing", resource_uuid: "x", target_lang: @lang}}
+      )
+
+      html = render(view)
+      assert Process.alive?(view.pid)
+      assert html =~ item.name
+    end
+
+    test "a catalogue translation_completed event refreshes the rows after the debounce window",
+         %{conn: conn} do
+      item = create_item!("Widget")
+      {:ok, _} = AITranslatable.put_translation(item, @lang, %{"name" => "Widget FR"}, [])
+      {:ok, view, html} = live(conn, @base <> "?lang=#{@lang}")
+      assert html =~ "Fresh"
+
+      # The source changes after the page's first render — until the
+      # debounced refresh runs, the page still shows the stale state.
+      {:ok, _} = Catalogue.update_item(Catalogue.get_item(item.uuid), %{name: "Widget Mk2"})
+
+      send(
+        view.pid,
+        {:ai_translation, :translation_completed,
+         %{resource_type: "catalogue_item", resource_uuid: item.uuid, target_lang: @lang}}
+      )
+
+      Process.sleep(400)
+      assert render(view) =~ "Stale"
+    end
   end
 end

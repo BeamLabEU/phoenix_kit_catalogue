@@ -161,6 +161,36 @@ defmodule PhoenixKitCatalogue.TranslationStatusTest do
       assert stored_fp == TranslationStatus.fingerprint(%{"name" => "Widget"})
       refute stored_fp == TranslationStatus.fingerprint(%{"name" => "Mutated"})
     end
+
+    test "state/2, a read-only check, does not clobber a fingerprint an in-flight RETRANSLATION job already captured" do
+      # `state/2` only reaches the fingerprint-computing branch once a
+      # translation already exists for the pair (the :missing branch
+      # short-circuits first) — so this reproduces the retranslate case:
+      # a resource already translated once, whose source changes again.
+      item = create_item(%{name: "Widget"})
+      {:ok, _} = AITranslatable.put_translation(item, "fr", %{"name" => "Widget FR"}, [])
+
+      {:ok, v2} = item.uuid |> Catalogue.get_item() |> Catalogue.update_item(%{name: "Widget V2"})
+
+      # Job B's actual read step for the retranslation.
+      _ = AITranslatable.source_fields(v2, primary())
+
+      {:ok, v3} = Catalogue.update_item(v2, %{name: "Widget V3"})
+
+      # Something else in the SAME process — e.g. the admin translations
+      # page re-checking freshness against the now-latest source — calls
+      # the read-only `state/2` in between. It must not go through the
+      # capturing `source_fields/2` internally and overwrite what job B
+      # already stashed for this uuid.
+      assert TranslationStatus.state(v3, "fr") == :stale
+
+      {:ok, _} = AITranslatable.put_translation(v3, "fr", %{"name" => "Widget V2 FR"}, [])
+
+      reloaded = Catalogue.get_item(item.uuid)
+      stored_fp = reloaded.data["_translation_fingerprints"]["fr"]
+      assert stored_fp == TranslationStatus.fingerprint(%{"name" => "Widget V2"})
+      refute stored_fp == TranslationStatus.fingerprint(%{"name" => "Widget V3"})
+    end
   end
 
   if Code.ensure_loaded?(PhoenixKitEntities.Managed) do
@@ -196,6 +226,21 @@ defmodule PhoenixKitCatalogue.TranslationStatusTest do
         assert TranslationStatus.state(renamed, "fr-FR") == :stale
       end
 
+      test "set label: stamp_fresh flips an unknown pair to fresh" do
+        set = create_set!("Ikea colors")
+
+        # Translated outside `put_translation/4` — no fingerprint
+        # recorded, so the pair is `:unknown`, not `:missing`/`:stale`.
+        {:ok, translated} =
+          PhoenixKitEntities.set_entity_translation(set, "fr-FR", %{"display_name" => "Couleurs"})
+
+        assert TranslationStatus.state(translated, "fr-FR") == :unknown
+
+        assert {:ok, _} = TranslationStatus.stamp_fresh(translated, "fr-FR")
+        reloaded = PhoenixKitEntities.get_entity(set.uuid)
+        assert TranslationStatus.state(reloaded, "fr-FR") == :fresh
+      end
+
       test "value title: missing → fresh → stale, and stamp_fresh flips it back" do
         set = create_set!()
         value = create_value!(set, "Oak")
@@ -211,6 +256,39 @@ defmodule PhoenixKitCatalogue.TranslationStatusTest do
         assert {:ok, _} = TranslationStatus.stamp_fresh(renamed, "fr-FR")
         reloaded = PhoenixKitEntities.EntityData.get(value.uuid)
         assert TranslationStatus.state(reloaded, "fr-FR") == :fresh
+      end
+    end
+
+    describe "list/2 — sets" do
+      setup do
+        AttributeSets.register_deletion_guard()
+        PhoenixKit.Settings.update_setting("entities_enabled", "true")
+        on_exit(fn -> PhoenixKit.Settings.update_setting("entities_enabled", "false") end)
+        :ok
+      end
+
+      test "lists set-label rows across every set" do
+        set_a = create_set!("Ikea colors")
+        set_b = create_set!("Ikea sizes")
+
+        rows = TranslationStatus.list(:set_label, langs: ["fr-FR"])
+        uuids = Enum.map(rows, & &1.uuid)
+
+        assert set_a.uuid in uuids
+        assert set_b.uuid in uuids
+      end
+
+      test "lists set-value rows for every set's values, not just the first (batched query)" do
+        set_a = create_set!("Ikea colors")
+        set_b = create_set!("Ikea sizes")
+        value_a = create_value!(set_a, "Oak")
+        value_b = create_value!(set_b, "Large")
+
+        rows = TranslationStatus.list(:set_value, langs: ["fr-FR"])
+        uuids = Enum.map(rows, & &1.uuid)
+
+        assert value_a.uuid in uuids
+        assert value_b.uuid in uuids
       end
     end
   end
