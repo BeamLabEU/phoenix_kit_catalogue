@@ -230,7 +230,9 @@ defmodule PhoenixKitCatalogue do
         # (e.g. "catalogue/:uuid/edit") never match a real URL, so the
         # parent "Catalogue" tab is the only thing that lights up on
         # detail/form pages — which looks wrong in the sidebar.
-        match: {:regex, ~r"^/admin/catalogue(/(?!attributes|import|export|events|pdfs).*)?$"},
+        match:
+          {:regex,
+           ~r"^/admin/catalogue(/(?!attributes|import|export|events|pdfs|translations).*)?$"},
         parent: :admin_catalogue,
         live_view: {PhoenixKitCatalogue.Web.CataloguesLive, :index}
       },
@@ -355,6 +357,21 @@ defmodule PhoenixKitCatalogue do
         parent: :admin_catalogue,
         visible: false,
         live_view: {PhoenixKitCatalogue.Web.PdfDetailLive, :show}
+      },
+      # Translations — visible subtab (block-6 plan, Task 5). Literal
+      # "translations" segment; must stay before `catalogue/:uuid` below.
+      %Tab{
+        id: :admin_catalogue_translations,
+        label: "Translations",
+        gettext_backend: PhoenixKitCatalogue.Gettext,
+        gettext_domain: "default",
+        icon: "hero-language",
+        path: "catalogue/translations",
+        priority: 692,
+        level: :admin,
+        permission: module_key(),
+        parent: :admin_catalogue,
+        live_view: {PhoenixKitCatalogue.Web.TranslationsLive, :index}
       },
       # Static paths MUST come before wildcard :uuid paths
       # so Phoenix router matches them first.

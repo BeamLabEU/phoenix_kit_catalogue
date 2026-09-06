@@ -1,0 +1,99 @@
+## "default" domain translations for de locale.
+msgid ""
+msgstr ""
+"Language: de\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+msgid "%{count} rows"
+msgstr "%{count} Zeilen"
+
+msgid "A translation job for this row is already queued."
+msgstr "Für diese Zeile ist bereits ein Übersetzungsauftrag in der Warteschlange."
+
+msgid "AI translation is not configured"
+msgstr "KI-Übersetzung ist nicht konfiguriert"
+
+msgid "All languages"
+msgstr "Alle Sprachen"
+
+msgid "All types"
+msgstr "Alle Typen"
+
+msgid "Configure AI"
+msgstr "KI konfigurieren"
+
+msgid "Could not queue the translation."
+msgstr "Die Übersetzung konnte nicht in die Warteschlange gestellt werden."
+
+msgid "Could not update the translation baseline."
+msgstr "Die Übersetzungsbasis konnte nicht aktualisiert werden."
+
+msgid "Fresh"
+msgstr "Aktuell"
+
+msgid "Language"
+msgstr "Sprache"
+
+msgid "Marked the current source as the translation baseline."
+msgstr "Die aktuelle Quelle wurde als Übersetzungsbasis markiert."
+
+msgid "Missing"
+msgstr "Fehlt"
+
+msgid "No rows match the current filter."
+msgstr "Keine Zeile entspricht dem aktuellen Filter."
+
+msgid "Nothing matched the current filter."
+msgstr "Nichts entspricht dem aktuellen Filter."
+
+msgid "Queue translation for %{count} row(s)?"
+msgstr "Übersetzung für %{count} Zeile(n) in die Warteschlange stellen?"
+
+msgid "Queued %{count} translation(s)."
+msgstr "%{count} Übersetzung(en) in die Warteschlange gestellt."
+
+msgid "Queued %{ok}; %{failed} could not be queued."
+msgstr "%{ok} in die Warteschlange gestellt; %{failed} konnten nicht eingereiht werden."
+
+msgid "Retranslate all stale"
+msgstr "Alle veralteten neu übersetzen"
+
+msgid "Search by name…"
+msgstr "Nach Namen suchen…"
+
+msgid "Set label"
+msgstr "Set-Bezeichnung"
+
+msgid "Set up an AI endpoint before translating catalogue content."
+msgstr "Richten Sie einen KI-Endpunkt ein, bevor Sie Kataloginhalte übersetzen."
+
+msgid "Set value"
+msgstr "Set-Wert"
+
+msgid "Stale"
+msgstr "Veraltet"
+
+msgid "Stamp fresh"
+msgstr "Als aktuell markieren"
+
+msgid "State"
+msgstr "Zustand"
+
+msgid "This row has no translation yet — nothing to stamp."
+msgstr "Diese Zeile hat noch keine Übersetzung — nichts zu markieren."
+
+msgid "Translate"
+msgstr "Übersetzen"
+
+msgid "Translate all missing"
+msgstr "Alle fehlenden übersetzen"
+
+msgid "Translation queued."
+msgstr "Übersetzung in die Warteschlange gestellt."
+
+msgid "Translations"
+msgstr "Übersetzungen"
+
+msgid "queued"
+msgstr "wartet"
+

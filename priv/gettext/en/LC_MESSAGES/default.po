@@ -5,6 +5,9 @@ msgstr ""
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
 
 ## Tab labels
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:422
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:447
+#, elixir-autogen
 msgid "Catalogue"
 msgstr "Catalogue"
 
@@ -143,6 +146,8 @@ msgstr "Empty folder"
 msgid "Subcategories"
 msgstr "Subcategories"
 
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:396
+#, elixir-autogen
 msgid "Unknown"
 msgstr "Unknown"
 
@@ -514,6 +519,8 @@ msgstr "Files"
 msgid "Notes"
 msgstr "Notes"
 
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:557
+#, elixir-autogen
 msgid "Actions"
 msgstr "Actions"
 
@@ -601,6 +608,7 @@ msgid "Only PDF files are accepted."
 msgstr "Only PDF files are accepted."
 
 #: lib/phoenix_kit_catalogue/web/components/browse.ex:822
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:380
 #, elixir-autogen
 msgid "Category"
 msgstr "Category"
@@ -620,6 +628,8 @@ msgstr "Manufacturer"
 msgid "Supplier"
 msgstr "Supplier"
 
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:379
+#, elixir-autogen
 msgid "Item"
 msgstr "Item"
 
@@ -1559,6 +1569,9 @@ msgstr ""
 msgid "Value"
 msgstr ""
 
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:485
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:553
+#, elixir-autogen
 msgid "Type"
 msgstr ""
 
@@ -2252,6 +2265,8 @@ msgstr ""
 msgid "Replace"
 msgstr ""
 
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:552
+#, elixir-autogen
 msgid "Resource"
 msgstr ""
 
@@ -2860,6 +2875,7 @@ msgid "Open the company"
 msgstr ""
 
 #: lib/phoenix_kit_catalogue/web/components/browse.ex:372
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:398
 #, elixir-autogen
 msgid "All"
 msgstr ""
@@ -3199,3 +3215,159 @@ msgstr "URL slug"
 #, elixir-autogen, elixir-format
 msgid "auto-generated from the name"
 msgstr "auto-generated from the name"
+
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:447
+#, elixir-autogen, elixir-format
+msgid "%{count} rows"
+msgstr "%{count} rows"
+
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:280
+#, elixir-autogen, elixir-format
+msgid "A translation job for this row is already queued."
+msgstr "A translation job for this row is already queued."
+
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:428
+#, elixir-autogen, elixir-format
+msgid "AI translation is not configured"
+msgstr "AI translation is not configured"
+
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:498
+#, elixir-autogen, elixir-format
+msgid "All languages"
+msgstr "All languages"
+
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:386
+#, elixir-autogen, elixir-format
+msgid "All types"
+msgstr "All types"
+
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:433
+#, elixir-autogen, elixir-format
+msgid "Configure AI"
+msgstr "Configure AI"
+
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:289
+#, elixir-autogen, elixir-format
+msgid "Could not queue the translation."
+msgstr "Could not queue the translation."
+
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:182
+#, elixir-autogen, elixir-format
+msgid "Could not update the translation baseline."
+msgstr "Could not update the translation baseline."
+
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:397
+#, elixir-autogen, elixir-format
+msgid "Fresh"
+msgstr "Fresh"
+
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:496
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:554
+#, elixir-autogen, elixir-format
+msgid "Language"
+msgstr "Language"
+
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:170
+#, elixir-autogen, elixir-format
+msgid "Marked the current source as the translation baseline."
+msgstr "Marked the current source as the translation baseline."
+
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:394
+#, elixir-autogen, elixir-format
+msgid "Missing"
+msgstr "Missing"
+
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:546
+#, elixir-autogen, elixir-format
+msgid "No rows match the current filter."
+msgstr "No rows match the current filter."
+
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:337
+#, elixir-autogen, elixir-format
+msgid "Nothing matched the current filter."
+msgstr "Nothing matched the current filter."
+
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:409
+#, elixir-autogen, elixir-format
+msgid "Queue translation for %{count} row(s)?"
+msgstr "Queue translation for %{count} row(s)?"
+
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:341
+#, elixir-autogen, elixir-format
+msgid "Queued %{count} translation(s)."
+msgstr "Queued %{count} translation(s)."
+
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:348
+#, elixir-autogen, elixir-format
+msgid "Queued %{ok}; %{failed} could not be queued."
+msgstr "Queued %{ok}; %{failed} could not be queued."
+
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:538
+#, elixir-autogen, elixir-format
+msgid "Retranslate all stale"
+msgstr "Retranslate all stale"
+
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:511
+#, elixir-autogen, elixir-format
+msgid "Search by name…"
+msgstr "Search by name…"
+
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:381
+#, elixir-autogen, elixir-format
+msgid "Set label"
+msgstr "Set label"
+
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:430
+#, elixir-autogen, elixir-format
+msgid "Set up an AI endpoint before translating catalogue content."
+msgstr "Set up an AI endpoint before translating catalogue content."
+
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:382
+#, elixir-autogen, elixir-format
+msgid "Set value"
+msgstr "Set value"
+
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:395
+#, elixir-autogen, elixir-format
+msgid "Stale"
+msgstr "Stale"
+
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:598
+#, elixir-autogen, elixir-format
+msgid "Stamp fresh"
+msgstr "Stamp fresh"
+
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:555
+#, elixir-autogen, elixir-format
+msgid "State"
+msgstr "State"
+
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:177
+#, elixir-autogen, elixir-format
+msgid "This row has no translation yet — nothing to stamp."
+msgstr "This row has no translation yet — nothing to stamp."
+
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:587
+#, elixir-autogen, elixir-format
+msgid "Translate"
+msgstr "Translate"
+
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:529
+#, elixir-autogen, elixir-format
+msgid "Translate all missing"
+msgstr "Translate all missing"
+
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:285
+#, elixir-autogen, elixir-format
+msgid "Translation queued."
+msgstr "Translation queued."
+
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:116
+#, elixir-autogen, elixir-format
+msgid "Translations"
+msgstr "Translations"
+
+#: lib/phoenix_kit_catalogue/web/translations_live.ex:574
+#, elixir-autogen, elixir-format
+msgid "queued"
+msgstr "queued"

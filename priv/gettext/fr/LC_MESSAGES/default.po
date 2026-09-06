@@ -1,0 +1,99 @@
+## "default" domain translations for fr locale.
+msgid ""
+msgstr ""
+"Language: fr\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+msgid "%{count} rows"
+msgstr "%{count} lignes"
+
+msgid "A translation job for this row is already queued."
+msgstr "Une tâche de traduction pour cette ligne est déjà en file d'attente."
+
+msgid "AI translation is not configured"
+msgstr "La traduction IA n'est pas configurée"
+
+msgid "All languages"
+msgstr "Toutes les langues"
+
+msgid "All types"
+msgstr "Tous les types"
+
+msgid "Configure AI"
+msgstr "Configurer l'IA"
+
+msgid "Could not queue the translation."
+msgstr "Impossible de mettre la traduction en file d'attente."
+
+msgid "Could not update the translation baseline."
+msgstr "Impossible de mettre à jour la référence de traduction."
+
+msgid "Fresh"
+msgstr "À jour"
+
+msgid "Language"
+msgstr "Langue"
+
+msgid "Marked the current source as the translation baseline."
+msgstr "La source actuelle a été marquée comme référence de traduction."
+
+msgid "Missing"
+msgstr "Manquant"
+
+msgid "No rows match the current filter."
+msgstr "Aucune ligne ne correspond au filtre actuel."
+
+msgid "Nothing matched the current filter."
+msgstr "Rien ne correspond au filtre actuel."
+
+msgid "Queue translation for %{count} row(s)?"
+msgstr "Mettre en file d'attente la traduction pour %{count} ligne(s) ?"
+
+msgid "Queued %{count} translation(s)."
+msgstr "%{count} traduction(s) mise(s) en file d'attente."
+
+msgid "Queued %{ok}; %{failed} could not be queued."
+msgstr "%{ok} mise(s) en file d'attente ; %{failed} n'ont pas pu être mises en file d'attente."
+
+msgid "Retranslate all stale"
+msgstr "Retraduire tout ce qui est obsolète"
+
+msgid "Search by name…"
+msgstr "Rechercher par nom…"
+
+msgid "Set label"
+msgstr "Libellé de l'ensemble"
+
+msgid "Set up an AI endpoint before translating catalogue content."
+msgstr "Configurez un point de terminaison IA avant de traduire le contenu du catalogue."
+
+msgid "Set value"
+msgstr "Valeur de l'ensemble"
+
+msgid "Stale"
+msgstr "Obsolète"
+
+msgid "Stamp fresh"
+msgstr "Marquer comme à jour"
+
+msgid "State"
+msgstr "État"
+
+msgid "This row has no translation yet — nothing to stamp."
+msgstr "Cette ligne n'a pas encore de traduction — rien à marquer."
+
+msgid "Translate"
+msgstr "Traduire"
+
+msgid "Translate all missing"
+msgstr "Traduire tout ce qui manque"
+
+msgid "Translation queued."
+msgstr "Traduction mise en file d'attente."
+
+msgid "Translations"
+msgstr "Traductions"
+
+msgid "queued"
+msgstr "en attente"
+

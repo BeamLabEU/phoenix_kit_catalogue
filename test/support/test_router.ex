@@ -61,6 +61,10 @@ defmodule PhoenixKitCatalogue.Test.Router do
       live("/pdfs", PdfLibraryLive, :index)
       live("/pdfs/:uuid", PdfDetailLive, :show)
 
+      # Translation freshness admin page (literal "/translations" prefix;
+      # declared before the "/:uuid" catch-all for the same reason as PDFs).
+      live("/translations", TranslationsLive, :index)
+
       # Catalogue detail (last so it doesn't swallow the static routes above)
       live("/:uuid", CatalogueDetailLive, :show)
     end
