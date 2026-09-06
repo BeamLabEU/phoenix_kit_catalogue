@@ -91,6 +91,47 @@ defmodule PhoenixKitCatalogue.AITranslatableTest do
 
       assert AITranslatable.source_fields(item, "fr")["name"] == "Plain"
     end
+
+    test "includes seo_title when set in the primary language" do
+      item = %Item{
+        name: "Column",
+        data: %{
+          "_primary_language" => primary(),
+          primary() => %{"_seo_title" => "Buy Vase", "_seo_description" => "A nice vase"}
+        }
+      }
+
+      fields = AITranslatable.source_fields(item, primary())
+      assert fields["seo_title"] == "Buy Vase"
+      assert fields["seo_description"] == "A nice vase"
+    end
+
+    test "omits summary when it is blank" do
+      item = %Item{
+        name: "Column",
+        data: %{"_primary_language" => primary(), primary() => %{"_summary" => ""}}
+      }
+
+      refute Map.has_key?(AITranslatable.source_fields(item, primary()), "summary")
+    end
+
+    test "includes summary when set" do
+      item = %Item{
+        name: "Column",
+        data: %{"_primary_language" => primary(), primary() => %{"_summary" => "Short blurb"}}
+      }
+
+      assert AITranslatable.source_fields(item, primary())["summary"] == "Short blurb"
+    end
+
+    test "category also exposes summary/seo_title/seo_description" do
+      category = %PhoenixKitCatalogue.Schemas.Category{
+        name: "Cards",
+        data: %{"_primary_language" => primary(), primary() => %{"_seo_title" => "Shop cards"}}
+      }
+
+      assert AITranslatable.source_fields(category, primary())["seo_title"] == "Shop cards"
+    end
   end
 
   describe "put_translation/4" do
@@ -111,6 +152,22 @@ defmodule PhoenixKitCatalogue.AITranslatableTest do
       reloaded = Catalogue.get_item(item.uuid)
       assert reloaded.data["es"]["_name"] == "Artilugio"
       assert reloaded.data["es"]["_description"] == "Una cosa"
+    end
+
+    test "stores seo_title alongside name under the multilang `_`-prefixed keys" do
+      item = create_item()
+
+      assert {:ok, _} =
+               AITranslatable.put_translation(
+                 item,
+                 "fr-FR",
+                 %{"name" => "Vase", "seo_title" => "Acheter"},
+                 []
+               )
+
+      reloaded = Catalogue.get_item(item.uuid)
+      assert reloaded.data["fr-FR"]["_name"] == "Vase"
+      assert reloaded.data["fr-FR"]["_seo_title"] == "Acheter"
     end
 
     test "force-stores a value even when it equals the source (no blank-drop)" do

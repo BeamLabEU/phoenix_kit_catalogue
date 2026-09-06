@@ -4,8 +4,10 @@ defmodule PhoenixKitCatalogue.AITranslatable do
   the small per-module hook into PhoenixKitAI's generic AI-translation pipeline.
 
   Serves three resource types (`"catalogue"`, `"catalogue_category"`,
-  `"catalogue_item"`), each translating `name` + `description`. Source text
-  and translations live in the shared `data` JSONB via
+  `"catalogue_item"`). The catalogue translates `name` + `description`;
+  items and categories additionally carry `summary`, `seo_title`, and
+  `seo_description` — multilang-only fields with no schema column. Source
+  text and translations live in the shared `data` JSONB via
   `PhoenixKit.Utils.Multilang` (primary value as base, per-language
   overrides), so AI-filled languages round-trip through the multilang form
   unchanged.
@@ -53,9 +55,27 @@ defmodule PhoenixKitCatalogue.AITranslatable do
   # display text; groups and attributes only a `name`. (The attribute rows
   # have no in-form AI button yet — registration serves the programmatic /
   # bulk enqueue paths.)
+  #
+  # Items and categories additionally carry `summary`/`seo_title`/
+  # `seo_description` — multilang-only fields with no schema column (hence
+  # the `_`-prefixed atom placeholders below, never resolved by
+  # `Map.get/2` since no struct has such a field). `field_value/3` only
+  # falls through to `column_value/2` for them when the primary-language
+  # `data` subtree has no override either, in which case there genuinely
+  # is no source text and `column_value/2` must say so via `nil`.
+  @item_and_category_fields %{
+    "name" => :name,
+    "description" => :description,
+    "summary" => :_summary,
+    "seo_title" => :_seo_title,
+    "seo_description" => :_seo_description
+  }
+
   defp field_columns(%AttributeValue{}), do: %{"value" => :value}
   defp field_columns(%Attribute{}), do: %{"name" => :name}
   defp field_columns(%AttributeGroup{}), do: %{"name" => :name}
+  defp field_columns(%Item{}), do: @item_and_category_fields
+  defp field_columns(%Category{}), do: @item_and_category_fields
   defp field_columns(_resource), do: %{"name" => :name, "description" => :description}
 
   @impl true
@@ -94,6 +114,12 @@ defmodule PhoenixKitCatalogue.AITranslatable do
 
   defp nonempty(v) when is_binary(v), do: String.trim(v) != ""
   defp nonempty(_), do: false
+
+  # The multilang-only fields have no schema column to fall back to — an
+  # absent override means there is no source text for them at all.
+  defp column_value(_resource, field)
+       when field in ["summary", "seo_title", "seo_description"],
+       do: nil
 
   defp column_value(resource, field) do
     Map.get(resource, Map.fetch!(field_columns(resource), field))
