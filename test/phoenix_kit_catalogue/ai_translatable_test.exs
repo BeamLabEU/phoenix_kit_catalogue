@@ -355,12 +355,13 @@ defmodule PhoenixKitCatalogue.AITranslatableTest do
     end
 
     test "cuts from a bare Note: marker" do
-      value = "Objet\nNote: description and summary were not provided."
+      value = "Objet\nNote: the description field was skipped."
       assert AITranslatable.strip_ai_note(value) == "Objet"
     end
 
     test "cuts a trailing note paragraph from a multi-paragraph description" do
-      value = "Ce produit est magnifique.\n\nIl est fait de bois.\n\n(Note: SEO fields omitted.)"
+      value =
+        "Ce produit est magnifique.\n\nIl est fait de bois.\n\n(Note: the SEO field was skipped.)"
 
       assert AITranslatable.strip_ai_note(value) ==
                "Ce produit est magnifique.\n\nIl est fait de bois."
@@ -372,6 +373,89 @@ defmodule PhoenixKitCatalogue.AITranslatableTest do
 
     test "passes through non-binary values unchanged" do
       assert AITranslatable.strip_ai_note(nil) == nil
+    end
+
+    test "cuts a trailing enumerated 'Notes:' paragraph" do
+      value = "Objet decoratif\n\nNotes:\n1. The `Label` field was left as-is."
+      assert AITranslatable.strip_ai_note(value) == "Objet decoratif"
+    end
+
+    test "cuts a trailing 'Note that ...' paragraph with no colon" do
+      value = "Objet decoratif\n\nNote that the \"Label\" field was not translated."
+      assert AITranslatable.strip_ai_note(value) == "Objet decoratif"
+    end
+
+    test "does not cut 'Please note:' appearing mid-sentence" do
+      value = "Please note: sizes vary slightly by batch."
+      assert AITranslatable.strip_ai_note(value) == value
+    end
+
+    test "does not cut the French 'Veuillez noter' aside" do
+      value = "Fait main. Veuillez noter : les couleurs peuvent varier."
+      assert AITranslatable.strip_ai_note(value) == value
+    end
+
+    test "does not cut a legitimate German 'Hinweis:' paragraph" do
+      value = "Handgefertigt.\n\nHinweis: Farben können variieren."
+      assert AITranslatable.strip_ai_note(value) == value
+    end
+
+    test "does not cut a legitimate care-instructions 'Note:' paragraph" do
+      value = "Handmade wooden vase.\n\nNote: hand wash only."
+      assert AITranslatable.strip_ai_note(value) == value
+    end
+
+    test "does not cut a legitimate bare (Note: parenthetical" do
+      value = "Cozy wool scarf (Note: 100% merino wool)."
+      assert AITranslatable.strip_ai_note(value) == value
+    end
+
+    test "cuts a parenthetical note naming a skipped quoted field with a placeholder" do
+      value =
+        "Vase\n\n(Note: The \"Title\" field was skipped as it contained only a placeholder " <>
+          "{{title}} with no actual value bound to it.)"
+
+      assert AITranslatable.strip_ai_note(value) == "Vase"
+    end
+
+    test "cuts a note describing a template-slot field in backticks" do
+      value =
+        "Vase\n\nNote: Since `Title: {{title}}` is a template slot (indicated by the double " <>
+          "curly braces) and not a real value, it is skipped silently as per the rules. Only " <>
+          "the `Label` field with an actual value is translated."
+
+      assert AITranslatable.strip_ai_note(value) == "Vase"
+    end
+
+    test "cuts an enumerated Notes: list naming a skipped placeholder field in backticks" do
+      value =
+        "Objet decoratif\n\nNotes:\n1. The `Label` field was skipped because it contains a " <>
+          "placeholder."
+
+      assert AITranslatable.strip_ai_note(value) == "Objet decoratif"
+    end
+
+    test "does not cut a legitimate 'Note:' paragraph that quotes color names" do
+      value = "Ceramic mug.\n\nNote: available in \"Blue\" and \"Red\" glazes."
+      assert AITranslatable.strip_ai_note(value) == value
+    end
+
+    test "does not cut a legitimate 'Note:' paragraph that backtick-quotes a material" do
+      value = "Cast iron skillet.\n\nNote: use `cast iron` pan for best results."
+      assert AITranslatable.strip_ai_note(value) == value
+    end
+
+    test "does not cut a legitimate 'Note:' paragraph using {{...}} for a size chart" do
+      value = "Merino wool scarf.\n\nNote: fits sizes {{S,M,L}} as shown."
+      assert AITranslatable.strip_ai_note(value) == value
+    end
+
+    test "does not cut marketing copy about the listing itself using 'is/not translated'" do
+      value =
+        "Elegant scarf.\n\nNote: every listing in our shop is translated by hand and not " <>
+          "translated by any automatic tool, to keep the wording natural."
+
+      assert AITranslatable.strip_ai_note(value) == value
     end
   end
 

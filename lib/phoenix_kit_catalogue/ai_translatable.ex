@@ -197,42 +197,87 @@ defmodule PhoenixKitCatalogue.AITranslatable do
   Despite the prompt's explicit "output only the markers, no commentary"
   rule (`PhoenixKitCatalogue.AIPrompt`), a model asked to translate a
   resource that only has a `name` (no description/summary/SEO) has been
-  observed to append text like `"\\n\\n(Note: I've omitted the fields
-  with placeholder values ... as per the rules...)"` straight onto the
-  translated marker's value — which then feeds the slug rule
+  observed to append an aside straight onto the translated marker's value
+  — as its own paragraph (`"\\n\\n(Note: I've omitted the fields with
+  placeholder values ... as per the rules...)"`, `"\\n\\nNotes:\\n1. The
+  \`Label\` field ..."`, `"\\n\\nNote that the \\"Label\\" field ..."`) or as
+  a bare parenthetical tacked onto the same line (`"Cartes (Note: skipped
+  description as instructed)"`) — which then feeds the slug rule
   (`generate_slug/5`) and produces a slug with a trailing "-note-i-ve-
   omitted" segment. This is a defensive backstop for when the prompt
-  alone isn't obeyed: cuts everything from the first occurrence of any
-  known note marker onward and trims the result.
+  alone isn't obeyed: cuts everything from the start of the first such
+  aside onward and trims the result.
+
+  Narrow by construction, though not airtight: two of its own trigger
+  words ("field", "placeholder") can appear in an ordinary product aside
+  that happens to open with "Note:" (a sizing disclaimer mentioning a
+  "placeholder" dimension, a personalization note about a "name field") —
+  a residual false-positive this design accepts because those two bare
+  words are also how three of the real leaked notes below are caught, and
+  tightening them further (e.g. requiring nearby punctuation) loses that
+  detection. Locating the
+  candidate aside is only half the check: it must start its own line
+  (optionally wrapped in a leading paren) or open a bare `(Note:` anywhere
+  on the line — never "note" appearing mid-sentence (`"Please note: sizes
+  vary"`, `"Veuillez noter : ..."`). But an anchor alone isn't enough — a
+  genuine product aside can start the exact same way (`"Note: hand wash
+  only."`, `"(Note: 100% merino wool)."`, `"Note: use \`cast iron\` pan for
+  best results."`, `"Note: fits sizes {{S,M,L}} as shown."`, `"Note:
+  available in \"Blue\" and \"Red\" glazes."`), and ordinary product copy
+  can contain backticks, `{{...}}`, or a quoted capitalized word for its
+  own reasons — none of those are reliable evidence of a leaked note by
+  themselves. So the candidate is only cut when its text names the
+  translation machinery in plain words — a `"field"`, a `"placeholder"`,
+  a `"template slot"` — or uses one of the model's stock phrases for
+  skipping one (`"was skipped"`, `"no actual value"`, `"as per the
+  rules"`, `"as instructed"`, …). Lacking any of those, the value is left
+  untouched.
   """
+  # Anchors the start of a candidate leaked aside, the same way as before:
+  #   1. a "Note"/"Notes" paragraph starting its own line, optionally
+  #      wrapped in a leading "(" — `\n\n(Note: ...)`, `\n\nNotes:\n1. ...`,
+  #      `\nNote that the ... field ...`;
+  #   2. a bare `(Note:` opened anywhere on the same line — `Cartes
+  #      (Note: skipped description as instructed)`.
+  # Requiring the paragraph break (or the literal `(Note:` open-paren) as
+  # the anchor is what keeps this from firing on "Please note: ..."
+  # running text or an unrelated parenthetical/enumerated paragraph.
+  @note_anchor_regex ~r/\n\s*\(?\s*Notes?\b[:\-–]?\s|\(Note:/i
+
+  # Whether the candidate aside actually talks about the translation
+  # process — the tell that separates a leaked model note from legitimate
+  # product copy that merely happens to start with "Note:". Deliberately
+  # does NOT trigger on backticks, quoted capitalized words, or `{{...}}`
+  # alone — ordinary product copy uses all three (a quoted color name, a
+  # backtick-quoted material, a `{{...}}` size chart) with no relation to
+  # the translation pipeline. Instead requires plain-word evidence: a
+  # named "field"/"placeholder"/"template slot", or one of the model's
+  # stock phrases for explaining why it skipped one. "is translated" /
+  # "not translated" alone are deliberately excluded — they read just as
+  # naturally as marketing copy about the listing itself.
+  @note_content_regex ~r/\b(?:field|placeholder|template\s+slot|was\s+skipped|
+    is\s+skipped|no\s+actual\s+value|not\s+a\s+real\s+value|as\s+per\s+the\s+rules|
+    as\s+instructed)\b/xi
+
   @spec strip_ai_note(String.t()) :: String.t()
   def strip_ai_note(value) when is_binary(value) do
-    case earliest_note_marker_index(value) do
-      nil -> value
-      idx -> value |> binary_part(0, idx) |> String.trim_trailing()
+    case Regex.run(@note_anchor_regex, value, return: :index) do
+      [{start, _len} | _] ->
+        tail = binary_part(value, start, byte_size(value) - start)
+
+        if Regex.match?(@note_content_regex, tail) do
+          binary_part(value, 0, start)
+        else
+          value
+        end
+
+      nil ->
+        value
     end
+    |> String.trim()
   end
 
   def strip_ai_note(value), do: value
-
-  @note_markers ["\n\n(Note", "\nNote:", "(Note:", " (Note "]
-
-  defp earliest_note_marker_index(value) do
-    @note_markers
-    |> Enum.map(&note_marker_index(value, &1))
-    |> Enum.reject(&is_nil/1)
-    |> case do
-      [] -> nil
-      indices -> Enum.min(indices)
-    end
-  end
-
-  defp note_marker_index(value, marker) do
-    case :binary.match(value, marker) do
-      {idx, _len} -> idx
-      :nomatch -> nil
-    end
-  end
 
   defp sanitize_fields(fields) when is_map(fields) do
     Map.new(fields, fn {k, v} -> {k, strip_ai_note(v)} end)
