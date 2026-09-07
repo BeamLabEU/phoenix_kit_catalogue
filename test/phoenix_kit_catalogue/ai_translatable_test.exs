@@ -355,12 +355,13 @@ defmodule PhoenixKitCatalogue.AITranslatableTest do
     end
 
     test "cuts from a bare Note: marker" do
-      value = "Objet\nNote: description and summary were not provided."
+      value = "Objet\nNote: the description field was skipped."
       assert AITranslatable.strip_ai_note(value) == "Objet"
     end
 
     test "cuts a trailing note paragraph from a multi-paragraph description" do
-      value = "Ce produit est magnifique.\n\nIl est fait de bois.\n\n(Note: SEO fields omitted.)"
+      value =
+        "Ce produit est magnifique.\n\nIl est fait de bois.\n\n(Note: the SEO field was skipped.)"
 
       assert AITranslatable.strip_ai_note(value) ==
                "Ce produit est magnifique.\n\nIl est fait de bois."
@@ -397,6 +398,41 @@ defmodule PhoenixKitCatalogue.AITranslatableTest do
     test "does not cut a legitimate German 'Hinweis:' paragraph" do
       value = "Handgefertigt.\n\nHinweis: Farben können variieren."
       assert AITranslatable.strip_ai_note(value) == value
+    end
+
+    test "does not cut a legitimate care-instructions 'Note:' paragraph" do
+      value = "Handmade wooden vase.\n\nNote: hand wash only."
+      assert AITranslatable.strip_ai_note(value) == value
+    end
+
+    test "does not cut a legitimate bare (Note: parenthetical" do
+      value = "Cozy wool scarf (Note: 100% merino wool)."
+      assert AITranslatable.strip_ai_note(value) == value
+    end
+
+    test "cuts a parenthetical note naming a skipped quoted field with a placeholder" do
+      value =
+        "Vase\n\n(Note: The \"Title\" field was skipped as it contained only a placeholder " <>
+          "{{title}} with no actual value bound to it.)"
+
+      assert AITranslatable.strip_ai_note(value) == "Vase"
+    end
+
+    test "cuts a note describing a template-slot field in backticks" do
+      value =
+        "Vase\n\nNote: Since `Title: {{title}}` is a template slot (indicated by the double " <>
+          "curly braces) and not a real value, it is skipped silently as per the rules. Only " <>
+          "the `Label` field with an actual value is translated."
+
+      assert AITranslatable.strip_ai_note(value) == "Vase"
+    end
+
+    test "cuts an enumerated Notes: list naming a skipped placeholder field in backticks" do
+      value =
+        "Objet decoratif\n\nNotes:\n1. The `Label` field was skipped because it contains a " <>
+          "placeholder."
+
+      assert AITranslatable.strip_ai_note(value) == "Objet decoratif"
     end
   end
 
