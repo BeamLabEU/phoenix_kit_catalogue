@@ -214,12 +214,17 @@ defmodule PhoenixKitCatalogue.AITranslatable do
   on the line — never "note" appearing mid-sentence (`"Please note: sizes
   vary"`, `"Veuillez noter : ..."`). But an anchor alone isn't enough — a
   genuine product aside can start the exact same way (`"Note: hand wash
-  only."`, `"(Note: 100% merino wool)."`), so the candidate is only cut
-  when its text also talks about the translation process itself: it names
-  a field in quotes/backticks or a `{{...}}` template slot, or uses one of
-  the model's stock phrases for skipping one (`"was skipped"`, `"no
-  actual value"`, `"as per the rules"`, …). Lacking any of those, the
-  value is left untouched.
+  only."`, `"(Note: 100% merino wool)."`, `"Note: use \`cast iron\` pan for
+  best results."`, `"Note: fits sizes {{S,M,L}} as shown."`, `"Note:
+  available in \"Blue\" and \"Red\" glazes."`), and ordinary product copy
+  can contain backticks, `{{...}}`, or a quoted capitalized word for its
+  own reasons — none of those are reliable evidence of a leaked note by
+  themselves. So the candidate is only cut when its text names the
+  translation machinery in plain words — a `"field"`, a `"placeholder"`,
+  a `"template slot"` — or uses one of the model's stock phrases for
+  skipping one (`"was skipped"`, `"no actual value"`, `"as per the
+  rules"`, `"as instructed"`, …). Lacking any of those, the value is left
+  untouched.
   """
   # Anchors the start of a candidate leaked aside, the same way as before:
   #   1. a "Note"/"Notes" paragraph starting its own line, optionally
@@ -234,13 +239,18 @@ defmodule PhoenixKitCatalogue.AITranslatable do
 
   # Whether the candidate aside actually talks about the translation
   # process — the tell that separates a leaked model note from legitimate
-  # product copy that merely happens to start with "Note:". Matches a
-  # field name in backticks or quotes (`` `Label` ``, `"Title"`), a
-  # `{{...}}` template placeholder, or one of the model's stock phrases
-  # for explaining a skipped/placeholder field.
-  @note_content_regex ~r/`|\{\{.*?\}\}|["'][A-Z]\w*["']|was\s+skipped|is\s+skipped|
-    template\s+slot|no\s+actual\s+value|as\s+per\s+the\s+rules|as\s+instructed|
-    not\s+a\s+real\s+value|is\s+translated|not\s+translated|placeholder/xi
+  # product copy that merely happens to start with "Note:". Deliberately
+  # does NOT trigger on backticks, quoted capitalized words, or `{{...}}`
+  # alone — ordinary product copy uses all three (a quoted color name, a
+  # backtick-quoted material, a `{{...}}` size chart) with no relation to
+  # the translation pipeline. Instead requires plain-word evidence: a
+  # named "field"/"placeholder"/"template slot", or one of the model's
+  # stock phrases for explaining why it skipped one. "is translated" /
+  # "not translated" alone are deliberately excluded — they read just as
+  # naturally as marketing copy about the listing itself.
+  @note_content_regex ~r/\b(?:field|placeholder|template\s+slot|was\s+skipped|
+    is\s+skipped|no\s+actual\s+value|not\s+a\s+real\s+value|as\s+per\s+the\s+rules|
+    as\s+instructed)\b/xi
 
   @spec strip_ai_note(String.t()) :: String.t()
   def strip_ai_note(value) when is_binary(value) do
