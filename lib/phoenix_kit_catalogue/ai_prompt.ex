@@ -61,14 +61,20 @@ defmodule PhoenixKitCatalogue.AIPrompt do
   - The translated seo_title must stay at or under 70 characters.
   - A field below whose value still looks like an unfilled template slot —
     its own field name wrapped in a pair of double curly braces, with no
-    real text — was never bound by the caller: skip it silently, do not
-    emit a marker for it, and do not translate that literal text.
-  - Output ONLY the structured markers below — no commentary, no preface,
-    no closing remarks.
+    real text — was never bound by the caller. As far as you are
+    concerned, that field DOES NOT EXIST: skip it silently, do not emit a
+    marker for it, do not translate that literal text, and NEVER mention,
+    list, count, or comment on it or any other missing/omitted/skipped
+    field anywhere in your response.
+  - Output ONLY the marker lines and their translated text described
+    below. Nothing else — no commentary, no preface, no closing remarks,
+    no notes, no parenthetical asides, no explanations of what you did or
+    did not translate. The response must end immediately after the last
+    marker's translated value.
 
   OUTPUT FORMAT — for each field below that has a real (non-placeholder,
   non-blank) value, emit ONE marker named after the field (uppercase),
-  followed by the translation:
+  followed by the translation, and nothing else:
 
       ---<FIELD_NAME_UPPERCASE>---
       [translated value]
@@ -102,14 +108,20 @@ defmodule PhoenixKitCatalogue.AIPrompt do
     their abbreviations.
   - A field below whose value still looks like an unfilled template slot —
     its own field name wrapped in a pair of double curly braces, with no
-    real text — was never bound by the caller: skip it silently, do not
-    emit a marker for it, and do not translate that literal text.
-  - Output ONLY the structured markers below — no commentary, no preface,
-    no closing remarks.
+    real text — was never bound by the caller. As far as you are
+    concerned, that field DOES NOT EXIST: skip it silently, do not emit a
+    marker for it, do not translate that literal text, and NEVER mention,
+    list, count, or comment on it or any other missing/omitted/skipped
+    field anywhere in your response.
+  - Output ONLY the marker lines and their translated text described
+    below. Nothing else — no commentary, no preface, no closing remarks,
+    no notes, no parenthetical asides, no explanations of what you did or
+    did not translate. The response must end immediately after the last
+    marker's translated value.
 
   OUTPUT FORMAT — for each field below that has a real (non-placeholder,
   non-blank) value, emit ONE marker named after the field (uppercase),
-  followed by the translation:
+  followed by the translation, and nothing else:
 
       ---<FIELD_NAME_UPPERCASE>---
       [translated value]

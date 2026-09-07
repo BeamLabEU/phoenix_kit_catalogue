@@ -197,6 +197,15 @@ defmodule PhoenixKitCatalogue.AITranslatableSetsTest do
         assert query_texts(fn -> Sets.put_translation(set, "fr-FR", %{"label" => "X"}, []) end)
                |> Enum.any?(&(&1 =~ ~r/FOR UPDATE/i))
       end
+
+      test "strips a leaked AI note from the translated label" do
+        set = create_set!()
+        noisy = "Couleurs\n\n(Note: no other fields were provided.)"
+        assert {:ok, _} = Sets.put_translation(set, "fr-FR", %{"label" => noisy}, [])
+
+        reloaded = PhoenixKitEntities.get_entity(set.uuid)
+        assert reloaded.settings["translations"]["fr-FR"]["display_name"] == "Couleurs"
+      end
     end
 
     describe "put_translation/4 — value title" do
@@ -246,6 +255,16 @@ defmodule PhoenixKitCatalogue.AITranslatableSetsTest do
                  Sets.put_translation(value, "fr-FR", %{"title" => "Chêne"}, [])
                end)
                |> Enum.any?(&(&1 =~ ~r/FOR UPDATE/i))
+      end
+
+      test "strips a leaked AI note from the translated title" do
+        set = create_set!()
+        value = create_value!(set, "Oak")
+        noisy = "Chêne\n\n(Note: no other fields were provided.)"
+        assert {:ok, _} = Sets.put_translation(value, "fr-FR", %{"title" => noisy}, [])
+
+        reloaded = EntityData.get(value.uuid)
+        assert reloaded.data["fr-FR"]["_title"] == "Chêne"
       end
 
       test "no-ops when fields carries no \"title\" key" do

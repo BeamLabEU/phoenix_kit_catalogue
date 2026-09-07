@@ -37,6 +37,7 @@ defmodule PhoenixKitCatalogue.AITranslatable.Sets do
 
   alias PhoenixKit.RepoHelper
   alias PhoenixKit.Utils.Multilang
+  alias PhoenixKitCatalogue.AITranslatable
   alias PhoenixKitCatalogue.TranslationStatus
   alias PhoenixKitEntities, as: Entities
   alias PhoenixKitEntities.EntityData
@@ -115,14 +116,14 @@ defmodule PhoenixKitCatalogue.AITranslatable.Sets do
   @impl true
   def put_translation(%Entities{} = set, target_lang, fields, _opts) do
     case Map.fetch(fields, "label") do
-      {:ok, label} -> put_set_label(set, target_lang, label)
+      {:ok, label} -> put_set_label(set, target_lang, AITranslatable.strip_ai_note(label))
       :error -> {:ok, set}
     end
   end
 
   def put_translation(%EntityData{} = value, target_lang, fields, _opts) do
     case Map.fetch(fields, "title") do
-      {:ok, title} -> put_value_title(value, target_lang, title)
+      {:ok, title} -> put_value_title(value, target_lang, AITranslatable.strip_ai_note(title))
       :error -> {:ok, value}
     end
   end

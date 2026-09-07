@@ -195,6 +195,77 @@ defmodule PhoenixKitCatalogue.AITranslatableTest do
       reloaded = Catalogue.get_category(category.uuid)
       assert reloaded.data["es"]["_name"] == "Tarjetas"
     end
+
+    test "preserves foreign top-level `data` keys on a category's first translation" do
+      foreign_data = %{
+        "_primary_language" => "en-US",
+        "ecommerce" => %{"shopify" => %{"collection_id" => "gid://1"}},
+        "meta" => %{"k" => "v"}
+      }
+
+      category = create_category(%{data: foreign_data})
+
+      assert {:ok, updated} =
+               AITranslatable.put_translation(category, "fr-FR", %{"name" => "Cartes"}, [])
+
+      assert updated.data["ecommerce"] == foreign_data["ecommerce"]
+      assert updated.data["meta"] == foreign_data["meta"]
+      assert updated.data["fr-FR"]["_name"] == "Cartes"
+      assert is_binary(updated.data["_translation_fingerprints"]["fr-FR"])
+
+      reloaded = Catalogue.get_category(category.uuid)
+      assert reloaded.data["ecommerce"] == foreign_data["ecommerce"]
+      assert reloaded.data["meta"] == foreign_data["meta"]
+    end
+
+    test "preserves foreign top-level `data` keys on an item's first translation" do
+      foreign_data = %{
+        "_primary_language" => "en-US",
+        "ecommerce" => %{"shopify" => %{"collection_id" => "gid://1"}},
+        "meta" => %{"k" => "v"}
+      }
+
+      item = create_item(%{data: foreign_data})
+
+      assert {:ok, updated} =
+               AITranslatable.put_translation(item, "fr-FR", %{"name" => "Objet"}, [])
+
+      assert updated.data["ecommerce"] == foreign_data["ecommerce"]
+      assert updated.data["meta"] == foreign_data["meta"]
+      assert updated.data["fr-FR"]["_name"] == "Objet"
+
+      reloaded = Catalogue.get_item(item.uuid)
+      assert reloaded.data["ecommerce"] == foreign_data["ecommerce"]
+      assert reloaded.data["meta"] == foreign_data["meta"]
+    end
+
+    test "preserves foreign top-level `data` keys even without a pre-existing `_primary_language` marker" do
+      foreign_data = %{"ecommerce" => %{"x" => 1}, "meta" => %{"k" => "v"}}
+      category = create_category(%{data: foreign_data})
+
+      assert {:ok, updated} =
+               AITranslatable.put_translation(category, "fr-FR", %{"name" => "Cartes"}, [])
+
+      assert updated.data["ecommerce"] == %{"x" => 1}
+      assert updated.data["meta"] == %{"k" => "v"}
+      assert updated.data["fr-FR"]["_name"] == "Cartes"
+    end
+
+    test "strips a leaked AI note from a translated name so it never reaches the field or the slug" do
+      item = create_item(%{name: "Widget"})
+
+      noisy_name =
+        "Vase en Bois\n\n(Note: I've omitted the fields with placeholder values " <>
+          "({{description}}, {{summary}}) as per the rules.)"
+
+      assert {:ok, updated} =
+               AITranslatable.put_translation(item, "fr-FR", %{"name" => noisy_name}, [])
+
+      assert updated.data["fr-FR"]["_name"] == "Vase en Bois"
+      refute updated.data["fr-FR"]["_name"] =~ "Note"
+      assert updated.slug["fr-FR"] == "vase-en-bois"
+      refute updated.slug["fr-FR"] =~ "note"
+    end
   end
 
   describe "put_translation/4 write-once slugs" do
@@ -262,6 +333,38 @@ defmodule PhoenixKitCatalogue.AITranslatableTest do
       merged = AITranslatable.force_put_language(%{}, "es", %{"_name" => "Hola"})
       assert merged["es"]["_name"] == "Hola"
       assert Map.has_key?(merged, "_primary_language")
+    end
+  end
+
+  describe "strip_ai_note/1" do
+    test "cuts a trailing note preceded by a blank line" do
+      value = "Vase en Bois\n\n(Note: I've omitted the fields with placeholder values.)"
+      assert AITranslatable.strip_ai_note(value) == "Vase en Bois"
+    end
+
+    test "cuts from a bare (Note marker with no preceding blank line" do
+      value = "Cartes (Note: skipped description as instructed)"
+      assert AITranslatable.strip_ai_note(value) == "Cartes"
+    end
+
+    test "cuts from a bare Note: marker" do
+      value = "Objet\nNote: description and summary were not provided."
+      assert AITranslatable.strip_ai_note(value) == "Objet"
+    end
+
+    test "cuts a trailing note paragraph from a multi-paragraph description" do
+      value = "Ce produit est magnifique.\n\nIl est fait de bois.\n\n(Note: SEO fields omitted.)"
+
+      assert AITranslatable.strip_ai_note(value) ==
+               "Ce produit est magnifique.\n\nIl est fait de bois."
+    end
+
+    test "leaves clean text untouched" do
+      assert AITranslatable.strip_ai_note("Vase en Bois") == "Vase en Bois"
+    end
+
+    test "passes through non-binary values unchanged" do
+      assert AITranslatable.strip_ai_note(nil) == nil
     end
   end
 

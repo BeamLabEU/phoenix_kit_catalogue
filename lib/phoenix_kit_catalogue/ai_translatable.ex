@@ -73,6 +73,16 @@ defmodule PhoenixKitCatalogue.AITranslatable do
     "seo_description" => :_seo_description
   }
 
+  # Every plain field key this adapter round-trips through `data` (the
+  # union of all `field_columns/1` shapes above) plus its multilang
+  # `_`-prefixed override form — the only keys legacy flat `data` could
+  # legitimately hold as field content. Used by `force_put_language/3` to
+  # tell field content apart from unrelated top-level namespaces (an
+  # ecommerce sync's `data["ecommerce"]`, extension metadata, …) sharing
+  # the same JSONB column.
+  @legacy_field_names ~w(name description summary seo_title seo_description value)
+  @legacy_field_keys @legacy_field_names ++ Enum.map(@legacy_field_names, &("_" <> &1))
+
   defp field_columns(%AttributeValue{}), do: %{"value" => :value}
   defp field_columns(%Attribute{}), do: %{"name" => :name}
   defp field_columns(%AttributeGroup{}), do: %{"name" => :name}
@@ -157,6 +167,7 @@ defmodule PhoenixKitCatalogue.AITranslatable do
 
   @impl true
   def put_translation(resource, target_lang, fields, opts) do
+    fields = sanitize_fields(fields)
     repo = RepoHelper.repo()
     {schema, update_fn} = persist_target(resource)
     uuid = resource.uuid
@@ -178,6 +189,53 @@ defmodule PhoenixKitCatalogue.AITranslatable do
       end
     end)
     |> tap_broadcast()
+  end
+
+  @doc """
+  Strips a model's leaked "note" aside from a translated field value.
+
+  Despite the prompt's explicit "output only the markers, no commentary"
+  rule (`PhoenixKitCatalogue.AIPrompt`), a model asked to translate a
+  resource that only has a `name` (no description/summary/SEO) has been
+  observed to append text like `"\\n\\n(Note: I've omitted the fields
+  with placeholder values ... as per the rules...)"` straight onto the
+  translated marker's value — which then feeds the slug rule
+  (`generate_slug/5`) and produces a slug with a trailing "-note-i-ve-
+  omitted" segment. This is a defensive backstop for when the prompt
+  alone isn't obeyed: cuts everything from the first occurrence of any
+  known note marker onward and trims the result.
+  """
+  @spec strip_ai_note(String.t()) :: String.t()
+  def strip_ai_note(value) when is_binary(value) do
+    case earliest_note_marker_index(value) do
+      nil -> value
+      idx -> value |> binary_part(0, idx) |> String.trim_trailing()
+    end
+  end
+
+  def strip_ai_note(value), do: value
+
+  @note_markers ["\n\n(", "(Note", "Note:"]
+
+  defp earliest_note_marker_index(value) do
+    @note_markers
+    |> Enum.map(&note_marker_index(value, &1))
+    |> Enum.reject(&is_nil/1)
+    |> case do
+      [] -> nil
+      indices -> Enum.min(indices)
+    end
+  end
+
+  defp note_marker_index(value, marker) do
+    case :binary.match(value, marker) do
+      {idx, _len} -> idx
+      :nomatch -> nil
+    end
+  end
+
+  defp sanitize_fields(fields) when is_map(fields) do
+    Map.new(fields, fn {k, v} -> {k, strip_ai_note(v)} end)
   end
 
   defp tap_broadcast({:ok, updated} = ok) do
@@ -319,6 +377,17 @@ defmodule PhoenixKitCatalogue.AITranslatable do
   Force-storing populates the field and keeps the missing-count honest.
 
   `full_field_data` is the already-`_`-prefixed map for `lang`.
+
+  When `existing_data` is still flat (pre-multilang, no `_primary_language`
+  marker), only the KNOWN translatable field keys (`@legacy_field_keys`,
+  plain or `_`-prefixed — the legacy shape `field_value/3` already reads
+  as a fallback) are nested under the primary-language subtree. Any other
+  top-level key is left untouched at the top level. `data` on a
+  category/item is shared with unrelated namespaces (an ecommerce sync's
+  `data["ecommerce"]`, extension metadata, …); wholesale-nesting the
+  entire map on the first-ever translation would silently move those
+  foreign keys out from under the top-level readers that expect them
+  there.
   """
   @spec force_put_language(map(), String.t(), map()) :: map()
   def force_put_language(existing_data, lang, full_field_data) do
@@ -331,9 +400,12 @@ defmodule PhoenixKitCatalogue.AITranslatable do
         else: Multilang.primary_language()
 
     base =
-      if multilang?,
-        do: existing_data,
-        else: %{"_primary_language" => primary, primary => existing_data}
+      if multilang? do
+        existing_data
+      else
+        {legacy_fields, foreign} = Map.split(existing_data, @legacy_field_keys)
+        Map.merge(foreign, %{"_primary_language" => primary, primary => legacy_fields})
+      end
 
     # Always MERGE into the lang subtree (never wholesale-replace) so other
     # keys in that language are preserved — important if `lang` ever resolves
