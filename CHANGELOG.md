@@ -1,3 +1,66 @@
+## 0.28.0 - 2026-09-07
+
+### Added
+
+- **Per-language slugs, SEO fields, form extension slot (#96, chain V2)** —
+  `PhoenixKitCatalogue.Migrations` V2 adds a `slug jsonb` column to items and
+  categories plus two lookup/uniqueness projection tables and sync triggers,
+  so a slug can be resolved and enforced unique per language without
+  scanning every row's jsonb. Items and categories gained `seo_title` /
+  `seo_description` fields (stored under multilang `data`, no DB column).
+  `PhoenixKitCatalogue.Extension`/`Extensions` let a sibling module
+  contribute a form section (e.g. shop pricing) without this repo knowing
+  about it. `Attachments.attach_files/3` links already-uploaded Storage
+  files to an item without a mounted LiveView.
+- **AI translation: freshness states, opt-in sweep, admin page (#97)** —
+  `TranslationStatus` tracks a fingerprint-based freshness state
+  (missing/stale/unknown/fresh) per resource and target language.
+  `Workers.TranslationSweepWorker` is a second, opt-in (config-gated),
+  self-rescheduling Oban job that enqueues translations for stale content.
+  A new admin page (`/admin/catalogue/translations`) lists translation
+  state across items, categories, and attribute-set labels/values, with
+  per-row and bulk translate/stamp-fresh actions. Slug generation now runs
+  after translation, so a translated name gets its own per-language slug.
+  AI-translation adapters cover item/category SEO+summary fields and
+  attribute-set labels/values.
+
+### Fixed
+
+- **SEO title/description were silently dropped on single-language
+  installs** — `merge_translatable_params/4` (core) only folds
+  `seo_title`/`seo_description` into `data` inside its
+  `multilang_enabled` branch; since those two fields have no DB column,
+  a single-language install (multilang off, the common case) lost
+  whatever was typed into them on every save with no error. Both
+  `ItemFormLive` and `CategoryFormLive` now fold the fields into `data`
+  directly when multilang is disabled.
+- **`Attachments.attach_files/3` dropped `actor_uuid`** — the one
+  non-LiveView mutation path recorded every activity-log entry with a
+  `nil` actor. Now forwards `opts[:actor_uuid]`.
+- **`TranslationsLive.mount/3` did unconditional DB reads/writes** —
+  `TranslationSweepWorker.endpoint_and_prompts/0` (which can upsert a
+  default AI prompt) ran on every mount, including the disconnected
+  dead render, double-firing on every page visit. Now gated behind
+  `connected?/1`, matching the existing guard in `Web.Helpers`.
+
+### Changed
+
+- **`AGENTS.md`'s "Only one background job" hard boundary corrected** —
+  it named only `Workers.PdfExtractor` after #97 added a second,
+  opt-in Oban worker (`Workers.TranslationSweepWorker`). Both are now
+  listed.
+
+### Known limitations
+
+- **`de`/`fr` gettext catalogues are ~96% untranslated** — #97 added
+  `priv/gettext/{de,fr}/LC_MESSAGES/default.po`, but only the ~30 strings
+  the PR itself introduced carry real translations; every pre-existing
+  string falls back to the English msgid (`gettext/1`'s designed
+  fallback, so nothing crashes or renders blank — just English under a
+  `de`/`fr` locale). `test/gettext_test.exs` pins non-fallback behavior
+  for `ru`/`et` but not `de`/`fr`. Needs a dedicated translation pass
+  before either locale should be considered supported.
+
 ## 0.27.0 - 2026-09-05
 
 ### Added

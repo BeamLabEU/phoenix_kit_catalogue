@@ -81,10 +81,12 @@ defmodule PhoenixKitCatalogue.Migrations do
 
   V2 adds shape on top of two core-known tables (`phoenix_kit_cat_items`,
   `phoenix_kit_cat_categories`): a `slug jsonb NOT NULL DEFAULT '{}'`
-  column on each. Core's `ExpectedSchema` repair only ever audits the
-  columns it manifests for a table — it treats an extra, unmanifested
-  column as an `:info` finding, never a mismatch to repair away — so
-  this is safe without a core release. The rest of V2 (the two
+  column on each. Core's `ExpectedSchema` resolver only ever iterates
+  the manifest's *declared* objects — it never enumerates a table's
+  actual columns to notice one that isn't manifested, so an extra
+  column is not inspected at all (not classified as an `:info`
+  finding; simply outside what the resolver looks at) — so this is
+  safe without a core release. The rest of V2 (the two
   `phoenix_kit_cat_item_slugs` / `phoenix_kit_cat_category_slugs`
   projection tables, their sync triggers, and the attribute-set GIN
   index) creates objects core's manifest never names at all, which is

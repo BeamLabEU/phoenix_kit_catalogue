@@ -35,7 +35,7 @@ Implemented via `pk_dep/3` in `mix.exs` — **never hand-edit a `phoenix_kit*` d
 - **No authorization in the context.** Mutating functions accept `actor_uuid` only for activity logging. Permission gating happens at the LiveView mount layer (`live_session :phoenix_kit_admin`, `:catalogue` permission key).
 - **Admin-only.** No public routes, JSON endpoints, or webhook receivers. The single HTTP endpoint is the admin-gated, stateless export download (`get /admin/catalogue/export/download`, behind `:phoenix_kit_require_admin`).
 - **Soft-delete is the only history mechanism** (`status` field). The activity log is the audit trail; there is no per-item versioning.
-- **Only one background job:** `Workers.PdfExtractor` on Oban queue `:catalogue_pdf` (the host must configure that queue). Everything else runs inline — imports via `start_async/1` from the LiveView, change propagation via PubSub.
+- **Two background jobs, both opt-in by config:** `Workers.PdfExtractor` on Oban queue `:catalogue_pdf` (the host must configure that queue), and `Workers.TranslationSweepWorker` on queue `:default` (self-rescheduling; only seeds its chain when an operator enables the AI-translation sweep setting via `Web.Settings`). Everything else runs inline — imports via `start_async/1` from the LiveView, change propagation via PubSub.
 
 ## Architecture in one minute
 
