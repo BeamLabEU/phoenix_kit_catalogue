@@ -103,7 +103,7 @@ Key invariants to preserve:
 SemVer. The version lives in **two places** — bump both: `mix.exs` `@version` and `PhoenixKitCatalogue.version/0`. `test/phoenix_kit_catalogue_test.exs` pins them equal, so a missed bump fails the test.
 
 - Update `CHANGELOG.md` before releasing, using [Keep a Changelog](https://keepachangelog.com/) categories (`Added`, `Changed`, `Fixed`, `Removed`).
-- Tags are bare version numbers (`git tag 0.1.1`). Create the GitHub release with `gh release create` titled `<version> - <date>`, notes from the changelog section. Never tag before all changes are committed **and pushed**.
+- Tags are `v`-prefixed (`git tag v0.28.0`), matching every release since v0.20.0 — despite this file previously saying bare version numbers, which was only ever true through v0.19.x. Recent releases do not create a GitHub release (no `gh release create`); the CHANGELOG entry is the release note. Never tag before all changes are committed **and pushed**, and never tag before `mix hex.publish` succeeds.
 - Commit messages start with `Add`, `Update`, `Fix`, `Remove`, or `Merge`.
 - Run `mix precommit` before committing.
 - PR review files go in `dev_docs/pull_requests/{year}/{pr_number}-{slug}/{AGENT}_REVIEW.md` (see `dev_docs/pull_requests/README.md`).
