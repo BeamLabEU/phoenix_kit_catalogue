@@ -457,6 +457,14 @@ defmodule PhoenixKitCatalogue.AITranslatableTest do
 
       assert AITranslatable.strip_ai_note(value) == value
     end
+
+    test "does not let a trigger word in a later unrelated paragraph cut a legitimate Note: aside" do
+      value =
+        "Nice scarf.\n\nNote: hand wash only.\n\nComes with a reusable gift box; the box's " <>
+          "engraving field allows personalization."
+
+      assert AITranslatable.strip_ai_note(value) == value
+    end
   end
 
   describe "attribute resources" do

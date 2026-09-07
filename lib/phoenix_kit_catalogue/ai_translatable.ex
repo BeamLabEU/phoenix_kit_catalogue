@@ -231,7 +231,10 @@ defmodule PhoenixKitCatalogue.AITranslatable do
   a `"template slot"` — or uses one of the model's stock phrases for
   skipping one (`"was skipped"`, `"no actual value"`, `"as per the
   rules"`, `"as instructed"`, …). Lacking any of those, the value is left
-  untouched.
+  untouched. That content check only inspects the anchored aside's own
+  paragraph (up to the next blank line or the end of the value) — a
+  trigger word in some later, unrelated paragraph never reaches back to
+  implicate an earlier, legitimate "Note:" aside.
   """
   # Anchors the start of a candidate leaked aside, the same way as before:
   #   1. a "Note"/"Notes" paragraph starting its own line, optionally
@@ -262,10 +265,23 @@ defmodule PhoenixKitCatalogue.AITranslatable do
   @spec strip_ai_note(String.t()) :: String.t()
   def strip_ai_note(value) when is_binary(value) do
     case Regex.run(@note_anchor_regex, value, return: :index) do
-      [{start, _len} | _] ->
-        tail = binary_part(value, start, byte_size(value) - start)
+      [{start, len} | _] ->
+        after_anchor = start + len
+        search_from = binary_part(value, after_anchor, byte_size(value) - after_anchor)
 
-        if Regex.match?(@note_content_regex, tail) do
+        # Only the anchored aside's own paragraph is evidence — a trigger
+        # word in a later, unrelated paragraph must not retroactively
+        # implicate an earlier legitimate "Note:" aside and cut everything
+        # (including that later paragraph) off the end of the value.
+        aside_end =
+          case :binary.match(search_from, "\n\n") do
+            {idx, _len} -> after_anchor + idx
+            :nomatch -> byte_size(value)
+          end
+
+        aside = binary_part(value, start, aside_end - start)
+
+        if Regex.match?(@note_content_regex, aside) do
           binary_part(value, 0, start)
         else
           value
