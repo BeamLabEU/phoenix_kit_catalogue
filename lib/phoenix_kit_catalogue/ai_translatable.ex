@@ -208,7 +208,14 @@ defmodule PhoenixKitCatalogue.AITranslatable do
   alone isn't obeyed: cuts everything from the start of the first such
   aside onward and trims the result.
 
-  Deliberately narrow so it never touches legitimate copy. Locating the
+  Narrow by construction, though not airtight: two of its own trigger
+  words ("field", "placeholder") can appear in an ordinary product aside
+  that happens to open with "Note:" (a sizing disclaimer mentioning a
+  "placeholder" dimension, a personalization note about a "name field") —
+  a residual false-positive this design accepts because those two bare
+  words are also how three of the real leaked notes below are caught, and
+  tightening them further (e.g. requiring nearby punctuation) loses that
+  detection. Locating the
   candidate aside is only half the check: it must start its own line
   (optionally wrapped in a leading paren) or open a bare `(Note:` anywhere
   on the line — never "note" appearing mid-sentence (`"Please note: sizes
