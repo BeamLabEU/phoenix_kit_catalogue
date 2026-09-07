@@ -200,7 +200,7 @@ defmodule PhoenixKitCatalogue.AITranslatableSetsTest do
 
       test "strips a leaked AI note from the translated label" do
         set = create_set!()
-        noisy = "Couleurs\n\n(Note: no other fields were provided.)"
+        noisy = "Couleurs\n\n(Note: the description field was skipped.)"
         assert {:ok, _} = Sets.put_translation(set, "fr-FR", %{"label" => noisy}, [])
 
         reloaded = PhoenixKitEntities.get_entity(set.uuid)
@@ -260,7 +260,7 @@ defmodule PhoenixKitCatalogue.AITranslatableSetsTest do
       test "strips a leaked AI note from the translated title" do
         set = create_set!()
         value = create_value!(set, "Oak")
-        noisy = "Chêne\n\n(Note: no other fields were provided.)"
+        noisy = "Chêne\n\n(Note: the description field was skipped.)"
         assert {:ok, _} = Sets.put_translation(value, "fr-FR", %{"title" => noisy}, [])
 
         reloaded = EntityData.get(value.uuid)
