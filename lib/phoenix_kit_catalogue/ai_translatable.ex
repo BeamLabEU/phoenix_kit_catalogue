@@ -208,28 +208,55 @@ defmodule PhoenixKitCatalogue.AITranslatable do
   alone isn't obeyed: cuts everything from the start of the first such
   aside onward and trims the result.
 
-  Deliberately narrow so it never touches legitimate copy: it only fires
-  on a "Note"/"Notes" paragraph that starts its own line (optionally
-  wrapped in a leading paren) or on a bare `(Note:` opened anywhere on
-  the line — never on "note" appearing mid-sentence (`"Please note:
-  sizes vary"`, `"Veuillez noter : ..."`) or on unrelated parenthetical /
-  enumerated content.
+  Deliberately narrow so it never touches legitimate copy. Locating the
+  candidate aside is only half the check: it must start its own line
+  (optionally wrapped in a leading paren) or open a bare `(Note:` anywhere
+  on the line — never "note" appearing mid-sentence (`"Please note: sizes
+  vary"`, `"Veuillez noter : ..."`). But an anchor alone isn't enough — a
+  genuine product aside can start the exact same way (`"Note: hand wash
+  only."`, `"(Note: 100% merino wool)."`), so the candidate is only cut
+  when its text also talks about the translation process itself: it names
+  a field in quotes/backticks or a `{{...}}` template slot, or uses one of
+  the model's stock phrases for skipping one (`"was skipped"`, `"no
+  actual value"`, `"as per the rules"`, …). Lacking any of those, the
+  value is left untouched.
   """
-  # Two forms of leaked model aside, both cut to the end of the value:
+  # Anchors the start of a candidate leaked aside, the same way as before:
   #   1. a "Note"/"Notes" paragraph starting its own line, optionally
   #      wrapped in a leading "(" — `\n\n(Note: ...)`, `\n\nNotes:\n1. ...`,
   #      `\nNote that the ... field ...`;
   #   2. a bare `(Note:` opened anywhere on the same line — `Cartes
   #      (Note: skipped description as instructed)`.
   # Requiring the paragraph break (or the literal `(Note:` open-paren) as
-  # the anchor is what keeps this from eating "Please note: ..." running
-  # text or an unrelated parenthetical/enumerated paragraph.
-  @note_marker_regex ~r/(?:\n\s*\(?\s*Notes?\b[:\-–]?\s|\(Note:).*\z/is
+  # the anchor is what keeps this from firing on "Please note: ..."
+  # running text or an unrelated parenthetical/enumerated paragraph.
+  @note_anchor_regex ~r/\n\s*\(?\s*Notes?\b[:\-–]?\s|\(Note:/i
+
+  # Whether the candidate aside actually talks about the translation
+  # process — the tell that separates a leaked model note from legitimate
+  # product copy that merely happens to start with "Note:". Matches a
+  # field name in backticks or quotes (`` `Label` ``, `"Title"`), a
+  # `{{...}}` template placeholder, or one of the model's stock phrases
+  # for explaining a skipped/placeholder field.
+  @note_content_regex ~r/`|\{\{.*?\}\}|["'][A-Z]\w*["']|was\s+skipped|is\s+skipped|
+    template\s+slot|no\s+actual\s+value|as\s+per\s+the\s+rules|as\s+instructed|
+    not\s+a\s+real\s+value|is\s+translated|not\s+translated|placeholder/xi
 
   @spec strip_ai_note(String.t()) :: String.t()
   def strip_ai_note(value) when is_binary(value) do
-    value
-    |> String.replace(@note_marker_regex, "")
+    case Regex.run(@note_anchor_regex, value, return: :index) do
+      [{start, _len} | _] ->
+        tail = binary_part(value, start, byte_size(value) - start)
+
+        if Regex.match?(@note_content_regex, tail) do
+          binary_part(value, 0, start)
+        else
+          value
+        end
+
+      nil ->
+        value
+    end
     |> String.trim()
   end
 
