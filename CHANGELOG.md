@@ -1,3 +1,25 @@
+## 0.28.1 - 2026-09-07
+
+### Fixed
+
+- **`strip_ai_note/1` false-positive shape checks improved, plus a
+  truncation bug in its own fix (#98)** — the leaked-AI-note backstop now
+  also catches an enumerated `Notes:` paragraph and a colon-less `Note
+  that ...` aside, and requires plain translation-process language
+  ("field", "placeholder", "was skipped", ...) before cutting anything, so
+  legitimate product asides that merely open with "Note:" (care
+  instructions, sizing disclaimers, color names) are left alone. That
+  content check itself scanned to the end of the string rather than just
+  the anchored aside's own paragraph — a trigger word in a later,
+  unrelated paragraph could cut a legitimate note plus everything after
+  it. Now bounded to the anchored paragraph.
+- **Admin item/category/catalogue forms were clamped to a narrow
+  `max-w-2xl` column (#99)** — now use the host's full-width `container`
+  class, matching the rest of the admin UI.
+- **Attributes tab's prev/next pagination replaced with core's
+  `<.load_more>` (#99)** — an append-only "Showing N of M" + button model,
+  consistent with how other lists in the admin UI page.
+
 ## 0.28.0 - 2026-09-07
 
 ### Added
