@@ -215,7 +215,7 @@ defmodule PhoenixKitCatalogue.AITranslatable do
 
   def strip_ai_note(value), do: value
 
-  @note_markers ["\n\n(", "(Note", "Note:"]
+  @note_markers ["\n\n(Note", "\nNote:", "(Note:", " (Note "]
 
   defp earliest_note_marker_index(value) do
     @note_markers

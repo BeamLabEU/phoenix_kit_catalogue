@@ -337,6 +337,13 @@ defmodule PhoenixKitCatalogue.AITranslatableTest do
   end
 
   describe "strip_ai_note/1" do
+    test "keeps legitimate parenthetical and enumerated copy intact" do
+      text =
+        "Care instructions.\n\n(1) Keep away from heat.\n\n(see the FAQ) Note: hand wash only"
+
+      assert AITranslatable.strip_ai_note(text) == text
+    end
+
     test "cuts a trailing note preceded by a blank line" do
       value = "Vase en Bois\n\n(Note: I've omitted the fields with placeholder values.)"
       assert AITranslatable.strip_ai_note(value) == "Vase en Bois"
