@@ -197,42 +197,43 @@ defmodule PhoenixKitCatalogue.AITranslatable do
   Despite the prompt's explicit "output only the markers, no commentary"
   rule (`PhoenixKitCatalogue.AIPrompt`), a model asked to translate a
   resource that only has a `name` (no description/summary/SEO) has been
-  observed to append text like `"\\n\\n(Note: I've omitted the fields
-  with placeholder values ... as per the rules...)"` straight onto the
-  translated marker's value — which then feeds the slug rule
+  observed to append an aside straight onto the translated marker's value
+  — as its own paragraph (`"\\n\\n(Note: I've omitted the fields with
+  placeholder values ... as per the rules...)"`, `"\\n\\nNotes:\\n1. The
+  \`Label\` field ..."`, `"\\n\\nNote that the \\"Label\\" field ..."`) or as
+  a bare parenthetical tacked onto the same line (`"Cartes (Note: skipped
+  description as instructed)"`) — which then feeds the slug rule
   (`generate_slug/5`) and produces a slug with a trailing "-note-i-ve-
   omitted" segment. This is a defensive backstop for when the prompt
-  alone isn't obeyed: cuts everything from the first occurrence of any
-  known note marker onward and trims the result.
+  alone isn't obeyed: cuts everything from the start of the first such
+  aside onward and trims the result.
+
+  Deliberately narrow so it never touches legitimate copy: it only fires
+  on a "Note"/"Notes" paragraph that starts its own line (optionally
+  wrapped in a leading paren) or on a bare `(Note:` opened anywhere on
+  the line — never on "note" appearing mid-sentence (`"Please note:
+  sizes vary"`, `"Veuillez noter : ..."`) or on unrelated parenthetical /
+  enumerated content.
   """
+  # Two forms of leaked model aside, both cut to the end of the value:
+  #   1. a "Note"/"Notes" paragraph starting its own line, optionally
+  #      wrapped in a leading "(" — `\n\n(Note: ...)`, `\n\nNotes:\n1. ...`,
+  #      `\nNote that the ... field ...`;
+  #   2. a bare `(Note:` opened anywhere on the same line — `Cartes
+  #      (Note: skipped description as instructed)`.
+  # Requiring the paragraph break (or the literal `(Note:` open-paren) as
+  # the anchor is what keeps this from eating "Please note: ..." running
+  # text or an unrelated parenthetical/enumerated paragraph.
+  @note_marker_regex ~r/(?:\n\s*\(?\s*Notes?\b[:\-–]?\s|\(Note:).*\z/is
+
   @spec strip_ai_note(String.t()) :: String.t()
   def strip_ai_note(value) when is_binary(value) do
-    case earliest_note_marker_index(value) do
-      nil -> value
-      idx -> value |> binary_part(0, idx) |> String.trim_trailing()
-    end
+    value
+    |> String.replace(@note_marker_regex, "")
+    |> String.trim()
   end
 
   def strip_ai_note(value), do: value
-
-  @note_markers ["\n\n(Note", "\nNote:", "(Note:", " (Note "]
-
-  defp earliest_note_marker_index(value) do
-    @note_markers
-    |> Enum.map(&note_marker_index(value, &1))
-    |> Enum.reject(&is_nil/1)
-    |> case do
-      [] -> nil
-      indices -> Enum.min(indices)
-    end
-  end
-
-  defp note_marker_index(value, marker) do
-    case :binary.match(value, marker) do
-      {idx, _len} -> idx
-      :nomatch -> nil
-    end
-  end
 
   defp sanitize_fields(fields) when is_map(fields) do
     Map.new(fields, fn {k, v} -> {k, strip_ai_note(v)} end)

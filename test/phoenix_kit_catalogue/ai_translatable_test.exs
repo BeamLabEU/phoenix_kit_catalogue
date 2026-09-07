@@ -373,6 +373,31 @@ defmodule PhoenixKitCatalogue.AITranslatableTest do
     test "passes through non-binary values unchanged" do
       assert AITranslatable.strip_ai_note(nil) == nil
     end
+
+    test "cuts a trailing enumerated 'Notes:' paragraph" do
+      value = "Objet decoratif\n\nNotes:\n1. The `Label` field was left as-is."
+      assert AITranslatable.strip_ai_note(value) == "Objet decoratif"
+    end
+
+    test "cuts a trailing 'Note that ...' paragraph with no colon" do
+      value = "Objet decoratif\n\nNote that the \"Label\" field was not translated."
+      assert AITranslatable.strip_ai_note(value) == "Objet decoratif"
+    end
+
+    test "does not cut 'Please note:' appearing mid-sentence" do
+      value = "Please note: sizes vary slightly by batch."
+      assert AITranslatable.strip_ai_note(value) == value
+    end
+
+    test "does not cut the French 'Veuillez noter' aside" do
+      value = "Fait main. Veuillez noter : les couleurs peuvent varier."
+      assert AITranslatable.strip_ai_note(value) == value
+    end
+
+    test "does not cut a legitimate German 'Hinweis:' paragraph" do
+      value = "Handgefertigt.\n\nHinweis: Farben können variieren."
+      assert AITranslatable.strip_ai_note(value) == value
+    end
   end
 
   describe "attribute resources" do
