@@ -8,7 +8,7 @@ msgstr ""
 msgid "Catalogue"
 msgstr "Catalogue"
 
-#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2303
+#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2417
 #, elixir-autogen
 msgid "Catalogues"
 msgstr "Catalogues"
@@ -138,7 +138,7 @@ msgid "Empty folder"
 msgstr "Empty folder"
 
 #: lib/phoenix_kit_catalogue/web/components.ex:856
-#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:996
+#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:1110
 #, elixir-autogen
 msgid "Subcategories"
 msgstr "Subcategories"
@@ -431,13 +431,13 @@ msgid "Could not restore the PDF."
 msgstr "Could not restore the PDF."
 
 ## UI strings
-#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2206
-#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2207
+#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2320
+#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2321
 #, elixir-autogen
 msgid "Back"
 msgstr "Back"
 
-#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2681
+#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2809
 #, elixir-autogen
 msgid "Cancel"
 msgstr "Cancel"
@@ -457,7 +457,7 @@ msgstr "Delete Forever"
 msgid "Edit"
 msgstr "Edit"
 
-#: lib/phoenix_kit_catalogue/web/components/browse.ex:578
+#: lib/phoenix_kit_catalogue/web/components/browse.ex:622
 #, elixir-autogen
 msgid "View"
 msgstr "View"
@@ -483,8 +483,8 @@ msgstr "Add Category"
 msgid "Add Item"
 msgstr "Add Item"
 
-#: lib/phoenix_kit_catalogue/web/components/browse.ex:775
-#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:1028
+#: lib/phoenix_kit_catalogue/web/components/browse.ex:819
+#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:1142
 #, elixir-autogen
 msgid "Name"
 msgstr "Name"
@@ -556,7 +556,7 @@ msgstr "No featured image set."
 msgid "Change"
 msgstr "Change"
 
-#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2758
+#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2885
 #, elixir-autogen
 msgid "Remove"
 msgstr "Remove"
@@ -600,19 +600,19 @@ msgstr "File type not accepted."
 msgid "Only PDF files are accepted."
 msgstr "Only PDF files are accepted."
 
-#: lib/phoenix_kit_catalogue/web/components/browse.ex:778
+#: lib/phoenix_kit_catalogue/web/components/browse.ex:822
 #, elixir-autogen
 msgid "Category"
 msgstr "Category"
 
-#: lib/phoenix_kit_catalogue/web/components/browse.ex:316
-#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2304
-#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2394
+#: lib/phoenix_kit_catalogue/web/components/browse.ex:361
+#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2418
+#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2508
 #, elixir-autogen
 msgid "Categories"
 msgstr "Categories"
 
-#: lib/phoenix_kit_catalogue/web/components/browse.ex:777
+#: lib/phoenix_kit_catalogue/web/components/browse.ex:821
 #, elixir-autogen
 msgid "Manufacturer"
 msgstr "Manufacturer"
@@ -626,18 +626,18 @@ msgstr "Item"
 #: lib/phoenix_kit_catalogue/web/catalogues_live.ex:3067
 #: lib/phoenix_kit_catalogue/web/components.ex:853
 #: lib/phoenix_kit_catalogue/web/components.ex:972
-#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2316
-#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2382
+#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2430
+#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2496
 #, elixir-autogen
 msgid "Items"
 msgstr "Items"
 
-#: lib/phoenix_kit_catalogue/web/components/browse.ex:776
+#: lib/phoenix_kit_catalogue/web/components/browse.ex:820
 #, elixir-autogen
 msgid "SKU"
 msgstr "SKU"
 
-#: lib/phoenix_kit_catalogue/web/components/browse.ex:780
+#: lib/phoenix_kit_catalogue/web/components/browse.ex:824
 #, elixir-autogen
 msgid "Price"
 msgstr "Price"
@@ -648,7 +648,7 @@ msgstr "Base Price"
 msgid "Final Price"
 msgstr "Final Price"
 
-#: lib/phoenix_kit_catalogue/web/components/browse.ex:779
+#: lib/phoenix_kit_catalogue/web/components/browse.ex:823
 #, elixir-autogen
 msgid "Unit"
 msgstr "Unit"
@@ -677,14 +677,14 @@ msgstr "Discount"
 msgid "Table view"
 msgstr "Table view"
 
-#: lib/phoenix_kit_catalogue/web/components/catalogue_browse.ex:227
-#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2330
+#: lib/phoenix_kit_catalogue/web/components/catalogue_browse.ex:245
+#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2444
 #, elixir-autogen
 msgid "Card view"
 msgstr "Card view"
 
-#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2271
-#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2272
+#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2385
+#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2386
 #, elixir-autogen
 msgid "Clear"
 msgstr "Clear"
@@ -796,10 +796,10 @@ msgid "Updated"
 msgstr "Updated"
 
 #: lib/phoenix_kit_catalogue/web/components.ex:969
-#: lib/phoenix_kit_catalogue/web/components/browse.ex:353
-#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:1083
-#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:1098
-#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2114
+#: lib/phoenix_kit_catalogue/web/components/browse.ex:398
+#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:1197
+#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:1212
+#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2228
 #, elixir-autogen
 msgid "Uncategorized"
 msgstr "Uncategorized"
@@ -829,7 +829,7 @@ msgid "Search PDFs"
 msgstr "Search PDFs"
 
 ## Plural forms
-#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2667
+#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2795
 #, elixir-autogen
 msgid "%{count} item"
 msgid_plural "%{count} items"
@@ -895,7 +895,7 @@ msgid "Permanently deleted %{count} items."
 msgstr "Permanently deleted %{count} items."
 
 ## Catalogue table toolbar
-#: lib/phoenix_kit_catalogue/web/components/browse.ex:615
+#: lib/phoenix_kit_catalogue/web/components/browse.ex:659
 #, elixir-autogen
 msgid "Columns"
 msgstr "Columns"
@@ -1138,8 +1138,8 @@ msgid "Select Featured Image"
 msgstr "Select Featured Image"
 
 ## Product card
-#: lib/phoenix_kit_catalogue/web/components/browse.ex:436
-#: lib/phoenix_kit_catalogue/web/components/browse.ex:437
+#: lib/phoenix_kit_catalogue/web/components/browse.ex:481
+#: lib/phoenix_kit_catalogue/web/components/browse.ex:482
 #, elixir-autogen
 msgid "View item details"
 msgstr "View item details"
@@ -1913,7 +1913,7 @@ msgid "Flat amount"
 msgstr ""
 
 #: lib/phoenix_kit_catalogue/web/components.ex:878
-#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:1063
+#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:1177
 #, elixir-autogen
 msgid "Has subcategories"
 msgstr ""
@@ -2103,8 +2103,8 @@ msgstr ""
 msgid "No items in this category."
 msgstr ""
 
-#: lib/phoenix_kit_catalogue/web/components/catalogue_browse.ex:285
-#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2520
+#: lib/phoenix_kit_catalogue/web/components/catalogue_browse.ex:303
+#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2648
 #, elixir-autogen
 msgid "No items match your search."
 msgstr ""
@@ -2317,8 +2317,8 @@ msgstr ""
 msgid "Search items by name, description, or SKU..."
 msgstr ""
 
-#: lib/phoenix_kit_catalogue/web/components/catalogue_browse.ex:215
-#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2258
+#: lib/phoenix_kit_catalogue/web/components/catalogue_browse.ex:233
+#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2372
 #, elixir-autogen
 msgid "Search items…"
 msgstr ""
@@ -2859,39 +2859,39 @@ msgstr ""
 msgid "Open the company"
 msgstr ""
 
-#: lib/phoenix_kit_catalogue/web/components/browse.ex:327
+#: lib/phoenix_kit_catalogue/web/components/browse.ex:372
 #, elixir-autogen
 msgid "All"
 msgstr ""
 
-#: lib/phoenix_kit_catalogue/web/components/browse.ex:1123
-#: lib/phoenix_kit_catalogue/web/components/browse.ex:1138
+#: lib/phoenix_kit_catalogue/web/components/browse.ex:1166
+#: lib/phoenix_kit_catalogue/web/components/browse.ex:1181
 #, elixir-autogen
 msgid "Quantity"
 msgstr ""
 
-#: lib/phoenix_kit_catalogue/web/components/catalogue_browse.ex:297
-#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2589
+#: lib/phoenix_kit_catalogue/web/components/catalogue_browse.ex:315
+#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2717
 #, elixir-autogen
 msgid "Load more"
 msgstr ""
 
-#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2090
+#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2204
 #, elixir-autogen
 msgid "Select items"
 msgstr ""
 
-#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2643
+#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2771
 #, elixir-autogen
 msgid "Add to selection"
 msgstr "Add to selection"
 
-#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2641
+#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2769
 #, elixir-autogen
 msgid "Remove from selection"
 msgstr "Remove from selection"
 
-#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2290
+#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2404
 #, elixir-autogen
 msgid "Browse"
 msgstr "Browse"
@@ -2900,17 +2900,17 @@ msgstr "Browse"
 msgid "Drag-reorder needs the Manual sort — choose it in the sort selector."
 msgstr "Drag-reorder needs the Manual sort — choose it in the sort selector."
 
-#: lib/phoenix_kit_catalogue/web/components/browse.ex:91
+#: lib/phoenix_kit_catalogue/web/components/browse.ex:94
 #, elixir-autogen
 msgid "Computed"
 msgstr "Computed"
 
-#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2692
+#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2820
 #, elixir-autogen
 msgid "Confirm selection"
 msgstr ""
 
-#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2732
+#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2859
 #, elixir-autogen
 msgid "Not available in this selection"
 msgstr ""
@@ -2996,28 +2996,28 @@ msgstr ""
 msgid "Supplier price"
 msgstr ""
 
-#: lib/phoenix_kit_catalogue/web/components/catalogue_browse.ex:226
-#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2329
+#: lib/phoenix_kit_catalogue/web/components/catalogue_browse.ex:244
+#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2443
 #, elixir-autogen, elixir-format
 msgid "List view"
 msgstr "List view"
 
-#: lib/phoenix_kit_catalogue/web/components/browse.ex:782
+#: lib/phoenix_kit_catalogue/web/components/browse.ex:826
 #, elixir-autogen, elixir-format
 msgid "Qty"
 msgstr "Qty"
 
-#: lib/phoenix_kit_catalogue/web/components/browse.ex:781
+#: lib/phoenix_kit_catalogue/web/components/browse.ex:825
 #, elixir-autogen, elixir-format
 msgid "Base price"
 msgstr "Base price"
 
-#: lib/phoenix_kit_catalogue/web/components/browse.ex:647
+#: lib/phoenix_kit_catalogue/web/components/browse.ex:691
 #, elixir-autogen, elixir-format
 msgid "Category prefix"
 msgstr "Category prefix"
 
-#: lib/phoenix_kit_catalogue/web/components/browse.ex:646
+#: lib/phoenix_kit_catalogue/web/components/browse.ex:690
 #, elixir-autogen, elixir-format
 msgid "Photo"
 msgstr "Photo"
@@ -3170,8 +3170,32 @@ msgstr "New Category"
 msgid "Search for"
 msgstr ""
 
-#: lib/phoenix_kit_catalogue/web/item_form_live.ex:1875
-#: lib/phoenix_kit_catalogue/web/item_form_live.ex:1928
+#: lib/phoenix_kit_catalogue/web/item_form_live.ex:1981
+#: lib/phoenix_kit_catalogue/web/item_form_live.ex:2034
 #, elixir-autogen, elixir-format
 msgid "That category belongs to another catalogue."
 msgstr ""
+
+#: lib/phoenix_kit_catalogue/web/category_form_live.ex:679
+#: lib/phoenix_kit_catalogue/web/item_form_live.ex:2764
+#, elixir-autogen, elixir-format
+msgid "SEO description"
+msgstr "SEO description"
+
+#: lib/phoenix_kit_catalogue/web/category_form_live.ex:671
+#: lib/phoenix_kit_catalogue/web/item_form_live.ex:2756
+#, elixir-autogen, elixir-format
+msgid "SEO title"
+msgstr "SEO title"
+
+#: lib/phoenix_kit_catalogue/web/category_form_live.ex:653
+#: lib/phoenix_kit_catalogue/web/item_form_live.ex:2727
+#, elixir-autogen, elixir-format
+msgid "URL slug"
+msgstr "URL slug"
+
+#: lib/phoenix_kit_catalogue/web/category_form_live.ex:654
+#: lib/phoenix_kit_catalogue/web/item_form_live.ex:2728
+#, elixir-autogen, elixir-format
+msgid "auto-generated from the name"
+msgstr "auto-generated from the name"

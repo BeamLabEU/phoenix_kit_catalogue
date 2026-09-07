@@ -527,6 +527,84 @@ defmodule PhoenixKitCatalogue.Attachments do
 
   defp file_uuids(files), do: files |> Enum.map(& &1.uuid) |> Enum.sort()
 
+  # ── Non-LiveView API ─────────────────────────────────────────────
+
+  @doc """
+  Links already-uploaded Storage files to `item`'s attachment folder
+  without a mounted LiveView. Resolves (or creates) the item's
+  deterministic folder — the same name rule `mount_attachments/2` uses
+  — then home-adopts or folder-links each file (`assign_file_to_folder/2`
+  under the hood), and persists `data["featured_image_uuid"]`
+  (`opts[:featured]`, default the first uuid) and `data["media_order"]`
+  (`opts[:order]`, default `file_uuids` as given) via
+  `PhoenixKitCatalogue.Catalogue.update_item/2`.
+
+  An unknown uuid returns `{:error, {:file_not_found, uuid}}` before any
+  write happens — the item and its folder are left untouched.
+  """
+  @spec attach_files(Item.t(), [String.t()], keyword()) :: {:ok, Item.t()} | {:error, term()}
+  def attach_files(%Item{} = item, file_uuids, opts \\ []) when is_list(file_uuids) do
+    with {:ok, files} <- resolve_attach_files(file_uuids),
+         {:ok, folder_uuid} <- ensure_item_folder(item) do
+      Enum.each(files, &assign_file_to_folder(&1, folder_uuid))
+
+      data =
+        item
+        |> resource_data()
+        |> Map.put("files_folder_uuid", folder_uuid)
+        |> put_or_delete(
+          "featured_image_uuid",
+          Keyword.get(opts, :featured, List.first(file_uuids))
+        )
+        |> put_or_delete("media_order", Keyword.get(opts, :order, file_uuids))
+
+      PhoenixKitCatalogue.Catalogue.update_item(item, %{data: data})
+    end
+  end
+
+  defp resolve_attach_files(file_uuids) do
+    file_uuids
+    |> Enum.reduce_while({:ok, []}, fn uuid, {:ok, acc} ->
+      case safe_get_file(uuid) do
+        nil -> {:halt, {:error, {:file_not_found, uuid}}}
+        file -> {:cont, {:ok, [file | acc]}}
+      end
+    end)
+    |> case do
+      {:ok, files} -> {:ok, Enum.reverse(files)}
+      error -> error
+    end
+  end
+
+  defp ensure_item_folder(%Item{} = item) do
+    case read_string(resource_data(item), "files_folder_uuid") do
+      folder_uuid when is_binary(folder_uuid) ->
+        {:ok, folder_uuid}
+
+      _ ->
+        case folder_name_for(item) do
+          {:ok, name} -> find_or_create_named_folder(name)
+          :pending -> {:error, :item_not_persisted}
+        end
+    end
+  end
+
+  defp find_or_create_named_folder(name) do
+    case find_folder_by_name(name) do
+      %{uuid: uuid} ->
+        {:ok, uuid}
+
+      nil ->
+        case Storage.create_folder(%{name: name}) do
+          {:ok, folder} -> {:ok, folder.uuid}
+          {:error, reason} -> {:error, reason}
+        end
+    end
+  end
+
+  defp put_or_delete(map, _key, nil), do: map
+  defp put_or_delete(map, key, value), do: Map.put(map, key, value)
+
   # ── Save-time helpers ────────────────────────────────────────────
 
   @doc """

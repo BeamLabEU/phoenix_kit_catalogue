@@ -57,7 +57,9 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   alias PhoenixKitCatalogue.Catalogue.Helpers
   alias PhoenixKitCatalogue.Catalogue.ItemSupplierInfos
   alias PhoenixKitCatalogue.Catalogue.PubSub
+  alias PhoenixKitCatalogue.Catalogue.Slugs
   alias PhoenixKitCatalogue.Catalogue.Suppliers
+  alias PhoenixKitCatalogue.Extensions
   alias PhoenixKitCatalogue.Metadata
   alias PhoenixKitCatalogue.Paths
   alias PhoenixKitCatalogue.Schemas.Item
@@ -104,7 +106,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   @compile {:no_warn_undefined, PhoenixKitComments.Web.CommentsComponent}
   @compile {:no_warn_undefined, PhoenixKitCRM.Paths}
 
-  @translatable_fields ["name", "description"]
+  @translatable_fields ["name", "description", "seo_title", "seo_description"]
   @preserve_fields %{
     # Translatable primaries: submitted only on the primary tab, so a
     # secondary-tab validate/save must re-inject them or :new loses them.
@@ -290,7 +292,8 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
       move_target: nil,
       current_tab: :details,
       meta_state: Metadata.build_state(:item, item),
-      show_pdf_search: false
+      show_pdf_search: false,
+      extensions: Extensions.sections(:item)
     )
     |> mount_supplier_rows(action, item)
     |> Attachments.mount_attachments(item)
@@ -310,6 +313,87 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
     socket
     |> assign(:changeset, changeset)
     |> assign(:form, to_form(changeset))
+  end
+
+  # `slug` is a flat `lang -> value` map (see
+  # `PhoenixKitCatalogue.Catalogue.Slugs`'s moduledoc): the form only ever
+  # renders ONE language's input at a time (the active tab), so a plain
+  # cast of `item[slug]` would replace the whole map with just that one
+  # entry and silently drop every other language's slug. Non-blank
+  # submitted values are merged onto the existing map (an explicit edit,
+  # even a slug-breaking one — the unique_constraint below still catches
+  # a collision); a blank submission is treated as "no change" rather
+  # than clearing the language's existing slug, then `Slugs.maybe_generate/3`
+  # fills any language present in `data` that still has no slug at all.
+  defp apply_slug(params, socket) do
+    existing_slug = Ecto.Changeset.get_field(socket.assigns.changeset, :slug) || %{}
+
+    merged_slug =
+      case params["slug"] do
+        incoming when is_map(incoming) ->
+          incoming
+          |> Enum.filter(fn {_lang, value} -> is_binary(value) and value != "" end)
+          |> Enum.into(existing_slug)
+
+        _ ->
+          existing_slug
+      end
+
+    generated_slug =
+      socket.assigns.item
+      |> Catalogue.change_item(Map.put(params, "slug", merged_slug))
+      |> Slugs.maybe_generate(:slug, from: :name)
+      |> Ecto.Changeset.get_field(:slug)
+
+    Map.put(params, "slug", generated_slug || merged_slug)
+  end
+
+  # The language key the slug input is rendered/submitted under: the
+  # active tab when multilang is on, else the site's primary language —
+  # `slug` always keys by a real language code, active-multilang-toggle
+  # or not (see the design amendment in the Slugs moduledoc).
+  defp slug_lang(assigns), do: assigns.current_lang || Multilang.primary_language()
+
+  # Mirrors `extract_translatable_data/4`'s naming for a field that isn't
+  # in `@translatable_fields`' DB-column counterpart (seo_title/
+  # seo_description have none — they only ever live under `data`).
+  defp translatable_param_name(assigns, form_prefix, field) do
+    if assigns.current_lang == assigns.primary_language,
+      do: "#{form_prefix}[#{field}]",
+      else: "#{form_prefix}[lang_#{field}]"
+  end
+
+  # Current `data` value for the registered extensions' sections — read off
+  # the form so a mid-edit validate (multilang merges, metadata, an
+  # extension's own submitted values) shows immediately, not just the
+  # last-persisted value.
+  defp item_data(form), do: form[:data].value || %{}
+
+  # Folds every registered extension's namespace into `item_params["data"]`
+  # (see `PhoenixKitCatalogue.Extensions.absorb/3`). The base is whatever
+  # `data` already carries at this point in the pipeline (multilang merge
+  # output when multilang is on, else the item's/changeset's current
+  # value) so an extension's write never clobbers a sibling namespace.
+  # Returns `{item_params, nil}` on success or `{item_params, {mod,
+  # errors}}` on the first extension that rejects its submission — the
+  # `data` key is left at its pre-absorb value in that case.
+  defp absorb_item_extensions(item_params, socket) do
+    data =
+      Map.get(item_params, "data") ||
+        Ecto.Changeset.get_field(socket.assigns.changeset, :data) || %{}
+
+    case Extensions.absorb(:item, item_params, data) do
+      {:ok, merged} -> {Map.put(item_params, "data", merged), nil}
+      {:error, {_mod, _errors} = error} -> {Map.put(item_params, "data", data), error}
+    end
+  end
+
+  defp add_extension_error(changeset, nil), do: changeset
+
+  defp add_extension_error(changeset, {mod, errors}) do
+    Enum.reduce(errors, changeset, fn {field, msg}, cs ->
+      Ecto.Changeset.add_error(cs, :data, msg, extension: mod.key(), field: field)
+    end)
   end
 
   # Smart-catalogue picker state: only populated when the parent
@@ -530,11 +614,15 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
         changeset: socket.assigns.changeset,
         preserve_fields: @preserve_fields
       )
+      |> apply_slug(socket)
+
+    {item_params, extension_error} = absorb_item_extensions(item_params, socket)
 
     changeset =
       socket.assigns.item
       |> Catalogue.change_item(item_params)
       |> Map.put(:action, :validate)
+      |> add_extension_error(extension_error)
 
     {:noreply, assign_changeset(socket, changeset)}
   end
@@ -553,10 +641,28 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
         changeset: socket.assigns.changeset,
         preserve_fields: @preserve_fields
       )
-      |> Metadata.inject_into_data(socket.assigns.meta_state, :item)
-      |> Attachments.inject_attachment_data(socket)
+      |> apply_slug(socket)
 
-    save_item(socket, socket.assigns.action, item_params, save_mode(params))
+    {item_params, extension_error} = absorb_item_extensions(item_params, socket)
+
+    case extension_error do
+      nil ->
+        item_params =
+          item_params
+          |> Metadata.inject_into_data(socket.assigns.meta_state, :item)
+          |> Attachments.inject_attachment_data(socket)
+
+        save_item(socket, socket.assigns.action, item_params, save_mode(params))
+
+      error ->
+        changeset =
+          socket.assigns.item
+          |> Catalogue.change_item(item_params)
+          |> Map.put(:action, :validate)
+          |> add_extension_error(error)
+
+        {:noreply, assign_changeset(socket, changeset)}
+    end
   end
 
   # ── Smart-catalogue rule picker events ──────────────────────────
@@ -2613,6 +2719,16 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                 class="w-full"
               />
 
+              <.input
+                field={@form[:slug]}
+                name={"item[slug][#{slug_lang(assigns)}]"}
+                value={Map.get(@form[:slug].value || %{}, slug_lang(assigns), "")}
+                type="text"
+                label={gettext("URL slug")}
+                placeholder={gettext("auto-generated from the name")}
+                class="w-full"
+              />
+
               <.translatable_field
                 field_name="description"
                 form_prefix="item"
@@ -2630,6 +2746,22 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                     "Product specifications, dimensions, materials..."
                   )
                 }
+                class="w-full"
+              />
+
+              <.input
+                type="text"
+                name={translatable_param_name(assigns, "item", "seo_title")}
+                value={Map.get(@lang_data, "_seo_title") || ""}
+                label={gettext("SEO title")}
+                class="w-full"
+              />
+
+              <.input
+                type="text"
+                name={translatable_param_name(assigns, "item", "seo_description")}
+                value={Map.get(@lang_data, "_seo_description") || ""}
+                label={gettext("SEO description")}
                 class="w-full"
               />
             </div>
@@ -3127,6 +3259,25 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
               }
             />
           </details>
+
+          <%!-- Extension slot (spec §2 principle 8, §4 row C4) — other
+               registered modules (e.g. phoenix_kit_ecommerce) add a
+               section here. Empty and invisible when nothing is
+               registered/enabled; catalogue never names an implementer. --%>
+          <%= for ext <- @extensions do %>
+            {ext.item_section(%{
+              form: @form,
+              item: @item,
+              data: item_data(@form),
+              current_language: @current_lang,
+              # Not a real socket assign — this map is a plain function call
+              # argument, not built through `<.component />`, so it needs
+              # its own change-tracking key for `Phoenix.Component.assign/3`
+              # (used by e.g. `ItemCommerce`'s Shop section) to accept it.
+              # Same trick `Phoenix.LiveViewTest.render_component/2` uses.
+              __changed__: %{}
+            })}
+          <% end %>
         </div>
 
         <%!-- Featured image — on the Files tab, matching the catalogue

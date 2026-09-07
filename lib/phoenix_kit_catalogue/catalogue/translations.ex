@@ -72,6 +72,31 @@ defmodule PhoenixKitCatalogue.Catalogue.Translations do
   end
 
   @doc """
+  The SEO title override for `locale`, or `nil` when unset.
+
+  Unlike `translated_name/2`, there is no DB-column fallback — `seo_title`
+  only ever lives under the multilang `data` override (`"_seo_title"`),
+  same storage shape as `_name`/`_description` but with no primary-column
+  counterpart.
+  """
+  @spec translated_seo_title(map() | nil, String.t() | nil) :: String.t() | nil
+  def translated_seo_title(nil, _locale), do: nil
+  def translated_seo_title(_record, nil), do: nil
+
+  def translated_seo_title(record, locale) do
+    record |> safe_translation(locale) |> Map.get("_seo_title") |> presence()
+  end
+
+  @doc "Same contract as `translated_seo_title/2`, for `_seo_description`."
+  @spec translated_seo_description(map() | nil, String.t() | nil) :: String.t() | nil
+  def translated_seo_description(nil, _locale), do: nil
+  def translated_seo_description(_record, nil), do: nil
+
+  def translated_seo_description(record, locale) do
+    record |> safe_translation(locale) |> Map.get("_seo_description") |> presence()
+  end
+
+  @doc """
   Replaces `:name` (and `:description` where present) on each record
   with the `locale`-resolved display text, so list/detail surfaces can
   render `record.name` untouched and still honor the viewer's locale.
