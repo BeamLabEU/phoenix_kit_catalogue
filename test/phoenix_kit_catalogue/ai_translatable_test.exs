@@ -434,6 +434,29 @@ defmodule PhoenixKitCatalogue.AITranslatableTest do
 
       assert AITranslatable.strip_ai_note(value) == "Objet decoratif"
     end
+
+    test "does not cut a legitimate 'Note:' paragraph that quotes color names" do
+      value = "Ceramic mug.\n\nNote: available in \"Blue\" and \"Red\" glazes."
+      assert AITranslatable.strip_ai_note(value) == value
+    end
+
+    test "does not cut a legitimate 'Note:' paragraph that backtick-quotes a material" do
+      value = "Cast iron skillet.\n\nNote: use `cast iron` pan for best results."
+      assert AITranslatable.strip_ai_note(value) == value
+    end
+
+    test "does not cut a legitimate 'Note:' paragraph using {{...}} for a size chart" do
+      value = "Merino wool scarf.\n\nNote: fits sizes {{S,M,L}} as shown."
+      assert AITranslatable.strip_ai_note(value) == value
+    end
+
+    test "does not cut marketing copy about the listing itself using 'is/not translated'" do
+      value =
+        "Elegant scarf.\n\nNote: every listing in our shop is translated by hand and not " <>
+          "translated by any automatic tool, to keep the wording natural."
+
+      assert AITranslatable.strip_ai_note(value) == value
+    end
   end
 
   describe "attribute resources" do
