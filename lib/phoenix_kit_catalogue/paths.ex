@@ -68,6 +68,11 @@ defmodule PhoenixKitCatalogue.Paths do
 
   def events, do: Routes.path("#{@base}/events")
 
+  # ── Translations ─────────────────────────────────────────────────
+
+  @spec translations() :: String.t()
+  def translations, do: Routes.path("#{@base}/translations")
+
   # ── Manufacturers ────────────────────────────────────────────────
 
   # ── Suppliers ────────────────────────────────────────────────────

@@ -91,6 +91,47 @@ defmodule PhoenixKitCatalogue.AITranslatableTest do
 
       assert AITranslatable.source_fields(item, "fr")["name"] == "Plain"
     end
+
+    test "includes seo_title when set in the primary language" do
+      item = %Item{
+        name: "Column",
+        data: %{
+          "_primary_language" => primary(),
+          primary() => %{"_seo_title" => "Buy Vase", "_seo_description" => "A nice vase"}
+        }
+      }
+
+      fields = AITranslatable.source_fields(item, primary())
+      assert fields["seo_title"] == "Buy Vase"
+      assert fields["seo_description"] == "A nice vase"
+    end
+
+    test "omits summary when it is blank" do
+      item = %Item{
+        name: "Column",
+        data: %{"_primary_language" => primary(), primary() => %{"_summary" => ""}}
+      }
+
+      refute Map.has_key?(AITranslatable.source_fields(item, primary()), "summary")
+    end
+
+    test "includes summary when set" do
+      item = %Item{
+        name: "Column",
+        data: %{"_primary_language" => primary(), primary() => %{"_summary" => "Short blurb"}}
+      }
+
+      assert AITranslatable.source_fields(item, primary())["summary"] == "Short blurb"
+    end
+
+    test "category also exposes summary/seo_title/seo_description" do
+      category = %PhoenixKitCatalogue.Schemas.Category{
+        name: "Cards",
+        data: %{"_primary_language" => primary(), primary() => %{"_seo_title" => "Shop cards"}}
+      }
+
+      assert AITranslatable.source_fields(category, primary())["seo_title"] == "Shop cards"
+    end
   end
 
   describe "put_translation/4" do
@@ -111,6 +152,22 @@ defmodule PhoenixKitCatalogue.AITranslatableTest do
       reloaded = Catalogue.get_item(item.uuid)
       assert reloaded.data["es"]["_name"] == "Artilugio"
       assert reloaded.data["es"]["_description"] == "Una cosa"
+    end
+
+    test "stores seo_title alongside name under the multilang `_`-prefixed keys" do
+      item = create_item()
+
+      assert {:ok, _} =
+               AITranslatable.put_translation(
+                 item,
+                 "fr-FR",
+                 %{"name" => "Vase", "seo_title" => "Acheter"},
+                 []
+               )
+
+      reloaded = Catalogue.get_item(item.uuid)
+      assert reloaded.data["fr-FR"]["_name"] == "Vase"
+      assert reloaded.data["fr-FR"]["_seo_title"] == "Acheter"
     end
 
     test "force-stores a value even when it equals the source (no blank-drop)" do
@@ -138,6 +195,129 @@ defmodule PhoenixKitCatalogue.AITranslatableTest do
       reloaded = Catalogue.get_category(category.uuid)
       assert reloaded.data["es"]["_name"] == "Tarjetas"
     end
+
+    test "preserves foreign top-level `data` keys on a category's first translation" do
+      foreign_data = %{
+        "_primary_language" => "en-US",
+        "ecommerce" => %{"shopify" => %{"collection_id" => "gid://1"}},
+        "meta" => %{"k" => "v"}
+      }
+
+      category = create_category(%{data: foreign_data})
+
+      assert {:ok, updated} =
+               AITranslatable.put_translation(category, "fr-FR", %{"name" => "Cartes"}, [])
+
+      assert updated.data["ecommerce"] == foreign_data["ecommerce"]
+      assert updated.data["meta"] == foreign_data["meta"]
+      assert updated.data["fr-FR"]["_name"] == "Cartes"
+      assert is_binary(updated.data["_translation_fingerprints"]["fr-FR"])
+
+      reloaded = Catalogue.get_category(category.uuid)
+      assert reloaded.data["ecommerce"] == foreign_data["ecommerce"]
+      assert reloaded.data["meta"] == foreign_data["meta"]
+    end
+
+    test "preserves foreign top-level `data` keys on an item's first translation" do
+      foreign_data = %{
+        "_primary_language" => "en-US",
+        "ecommerce" => %{"shopify" => %{"collection_id" => "gid://1"}},
+        "meta" => %{"k" => "v"}
+      }
+
+      item = create_item(%{data: foreign_data})
+
+      assert {:ok, updated} =
+               AITranslatable.put_translation(item, "fr-FR", %{"name" => "Objet"}, [])
+
+      assert updated.data["ecommerce"] == foreign_data["ecommerce"]
+      assert updated.data["meta"] == foreign_data["meta"]
+      assert updated.data["fr-FR"]["_name"] == "Objet"
+
+      reloaded = Catalogue.get_item(item.uuid)
+      assert reloaded.data["ecommerce"] == foreign_data["ecommerce"]
+      assert reloaded.data["meta"] == foreign_data["meta"]
+    end
+
+    test "preserves foreign top-level `data` keys even without a pre-existing `_primary_language` marker" do
+      foreign_data = %{"ecommerce" => %{"x" => 1}, "meta" => %{"k" => "v"}}
+      category = create_category(%{data: foreign_data})
+
+      assert {:ok, updated} =
+               AITranslatable.put_translation(category, "fr-FR", %{"name" => "Cartes"}, [])
+
+      assert updated.data["ecommerce"] == %{"x" => 1}
+      assert updated.data["meta"] == %{"k" => "v"}
+      assert updated.data["fr-FR"]["_name"] == "Cartes"
+    end
+
+    test "strips a leaked AI note from a translated name so it never reaches the field or the slug" do
+      item = create_item(%{name: "Widget"})
+
+      noisy_name =
+        "Vase en Bois\n\n(Note: I've omitted the fields with placeholder values " <>
+          "({{description}}, {{summary}}) as per the rules.)"
+
+      assert {:ok, updated} =
+               AITranslatable.put_translation(item, "fr-FR", %{"name" => noisy_name}, [])
+
+      assert updated.data["fr-FR"]["_name"] == "Vase en Bois"
+      refute updated.data["fr-FR"]["_name"] =~ "Note"
+      assert updated.slug["fr-FR"] == "vase-en-bois"
+      refute updated.slug["fr-FR"] =~ "note"
+    end
+  end
+
+  describe "put_translation/4 write-once slugs" do
+    test "generates a slug for the target language from the translated name when it has none" do
+      item = create_item(%{name: "Widget"})
+
+      assert {:ok, _} =
+               AITranslatable.put_translation(item, "fr-FR", %{"name" => "Vase en Bois"}, [])
+
+      reloaded = Catalogue.get_item(item.uuid)
+      assert reloaded.slug["fr-FR"] == "vase-en-bois"
+    end
+
+    test "leaves an existing slug for the target language untouched" do
+      item = create_item(%{name: "Widget", slug: %{"fr-FR" => "custom-slug"}})
+
+      assert {:ok, _} =
+               AITranslatable.put_translation(item, "fr-FR", %{"name" => "Vase en Bois"}, [])
+
+      reloaded = Catalogue.get_item(item.uuid)
+      assert reloaded.slug["fr-FR"] == "custom-slug"
+    end
+
+    test "does not generate a slug when the translation carries no name" do
+      item = create_item(%{name: "Widget"})
+
+      assert {:ok, _} =
+               AITranslatable.put_translation(item, "fr-FR", %{"seo_title" => "Acheter"}, [])
+
+      reloaded = Catalogue.get_item(item.uuid)
+      refute Map.has_key?(reloaded.slug, "fr-FR")
+    end
+
+    test "retries with a numeric suffix on a collision with another item's slug" do
+      _taken = create_item(%{name: "Taken", slug: %{"fr-FR" => "vase"}})
+      item = create_item(%{name: "Widget"})
+
+      assert {:ok, _} = AITranslatable.put_translation(item, "fr-FR", %{"name" => "Vase"}, [])
+
+      reloaded = Catalogue.get_item(item.uuid)
+      assert reloaded.slug["fr-FR"] == "vase-2"
+    end
+
+    test "generates a slug for a category the same way" do
+      category = create_category(%{name: "Cards"})
+
+      assert {:ok, _} =
+               AITranslatable.put_translation(category, "fr-FR", %{"name" => "Cartes"}, [])
+
+      reloaded = Catalogue.get_category(category.uuid)
+      assert reloaded.slug["fr-FR"] == "cartes"
+    end
   end
 
   describe "force_put_language/3" do
@@ -153,6 +333,45 @@ defmodule PhoenixKitCatalogue.AITranslatableTest do
       merged = AITranslatable.force_put_language(%{}, "es", %{"_name" => "Hola"})
       assert merged["es"]["_name"] == "Hola"
       assert Map.has_key?(merged, "_primary_language")
+    end
+  end
+
+  describe "strip_ai_note/1" do
+    test "keeps legitimate parenthetical and enumerated copy intact" do
+      text =
+        "Care instructions.\n\n(1) Keep away from heat.\n\n(see the FAQ) Note: hand wash only"
+
+      assert AITranslatable.strip_ai_note(text) == text
+    end
+
+    test "cuts a trailing note preceded by a blank line" do
+      value = "Vase en Bois\n\n(Note: I've omitted the fields with placeholder values.)"
+      assert AITranslatable.strip_ai_note(value) == "Vase en Bois"
+    end
+
+    test "cuts from a bare (Note marker with no preceding blank line" do
+      value = "Cartes (Note: skipped description as instructed)"
+      assert AITranslatable.strip_ai_note(value) == "Cartes"
+    end
+
+    test "cuts from a bare Note: marker" do
+      value = "Objet\nNote: description and summary were not provided."
+      assert AITranslatable.strip_ai_note(value) == "Objet"
+    end
+
+    test "cuts a trailing note paragraph from a multi-paragraph description" do
+      value = "Ce produit est magnifique.\n\nIl est fait de bois.\n\n(Note: SEO fields omitted.)"
+
+      assert AITranslatable.strip_ai_note(value) ==
+               "Ce produit est magnifique.\n\nIl est fait de bois."
+    end
+
+    test "leaves clean text untouched" do
+      assert AITranslatable.strip_ai_note("Vase en Bois") == "Vase en Bois"
+    end
+
+    test "passes through non-binary values unchanged" do
+      assert AITranslatable.strip_ai_note(nil) == nil
     end
   end
 

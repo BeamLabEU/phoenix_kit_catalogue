@@ -234,7 +234,8 @@ defmodule PhoenixKitCatalogueTest do
       assert PhoenixKitCatalogue.children() == [
                PhoenixKitCatalogue.Catalogue.AttributeSets,
                PhoenixKitCatalogue.Catalogue.AttributeSets.OrphanPruner,
-               PhoenixKitCatalogue.Catalogue.SupplierFields
+               PhoenixKitCatalogue.Catalogue.SupplierFields,
+               PhoenixKitCatalogue.Workers.TranslationSweepWorker
              ]
     end
 
