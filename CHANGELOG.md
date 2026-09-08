@@ -1,3 +1,28 @@
+## 0.28.2 - 2026-09-08
+
+### Changed
+
+- `version/0` now reads `mix.exs`'s `@version` at compile time instead of
+  duplicating it as a literal string, removing the two-places-in-sync release
+  footgun (#100).
+- Bumped `phoenix_kit` (2.17.0 → 2.22.0), `phoenix_kit_ai` (0.19.2 → 0.19.3),
+  `phoenix_kit_comments` (0.4.5 → 0.4.7), and `phoenix_kit_entities`
+  (0.4.10 → 0.4.12) to their latest published versions.
+
+### Fixed
+
+- Duplicated SEO-field-fold closure in the category/item form LiveViews
+  extracted into a shared private helper; behavior unchanged (#100).
+- A `function_exported?/3` test assertion intermittently read a merely
+  unloaded module as one lacking the function; now loads the module first
+  (#100).
+- `test_helper.exs` now also replays `phoenix_kit_entities`' migration
+  chain, so a future entities schema change surfaces as an entities test
+  failure instead of an unrelated `undefined_column` error here (#100).
+- Added an in-repo guard that refuses to run the test suite against a small
+  set of known live databases, protecting against a leaked `PGDATABASE`
+  pointing a bare `mix test` at a real dev database (#101).
+
 ## 0.28.1 - 2026-09-07
 
 ### Fixed
