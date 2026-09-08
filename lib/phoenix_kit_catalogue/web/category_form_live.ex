@@ -225,15 +225,19 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
         Map.get(params, "data") ||
           Ecto.Changeset.get_field(socket.assigns.changeset, :data) || %{}
 
-      data =
-        Enum.reduce(["seo_title", "seo_description"], data, fn field, acc ->
-          case Map.get(params, field) do
-            value when is_binary(value) -> Map.put(acc, "_#{field}", value)
-            _ -> acc
-          end
-        end)
+      data = Enum.reduce(["seo_title", "seo_description"], data, &put_seo_field(&1, &2, params))
 
       Map.put(params, "data", data)
+    end
+  end
+
+  # One SEO field folded into the single-language `data` map, keyed with the
+  # leading underscore the multilang reader expects. A field the form did not
+  # submit leaves `data` untouched.
+  defp put_seo_field(field, data, params) do
+    case Map.get(params, field) do
+      value when is_binary(value) -> Map.put(data, "_#{field}", value)
+      _ -> data
     end
   end
 

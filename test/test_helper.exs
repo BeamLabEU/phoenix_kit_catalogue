@@ -74,6 +74,16 @@ repo_available =
       # anywhere.
       PhoenixKit.Migration.ensure_current(PhoenixKitCatalogue.Test.Repo, log: false)
 
+      # Then entities' chain, because attribute sets are entity blueprints
+      # read through `PhoenixKitEntities`' own schemas. Its V1 is adoptive, so
+      # this is a no-op today — it is here so it stays one. The moment
+      # entities ships a version that adds a column, a harness that never ran
+      # its chain fails on an `undefined_column` raised from a query this
+      # module did not write, nowhere near anything about entities.
+      for stmt <- PhoenixKitEntities.Migrations.up_statements("public") do
+        PhoenixKitCatalogue.Test.Repo.query!(stmt)
+      end
+
       # This module's own V2 chain (slug column + projections + GIN
       # index) — `up/1` uses `execute/1`, which only works inside an
       # `Ecto.Migration` run, so replay the statements directly through
