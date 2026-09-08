@@ -18,6 +18,10 @@ defmodule PhoenixKitCatalogue.Schemas.Category do
     field(:position, :integer, default: 0)
     field(:status, :string, default: "active")
     field(:data, :map, default: %{})
+    # Per-language public URL slug (lang -> value), projected for
+    # uniqueness by the `trg_cat_category_slugs` trigger into
+    # `phoenix_kit_cat_category_slugs`. See `PhoenixKitCatalogue.Catalogue.Slugs`.
+    field(:slug, :map, default: %{})
 
     belongs_to(:catalogue, PhoenixKitCatalogue.Schemas.Catalogue,
       foreign_key: :catalogue_uuid,
@@ -48,7 +52,7 @@ defmodule PhoenixKitCatalogue.Schemas.Category do
   end
 
   @required_fields [:name, :catalogue_uuid]
-  @optional_fields [:description, :position, :status, :data, :parent_uuid]
+  @optional_fields [:description, :position, :status, :data, :parent_uuid, :slug]
 
   def changeset(category, attrs) do
     category
@@ -58,6 +62,10 @@ defmodule PhoenixKitCatalogue.Schemas.Category do
     |> validate_inclusion(:status, @statuses)
     |> validate_not_self_parent()
     |> foreign_key_constraint(:parent_uuid)
+    |> unique_constraint(:slug,
+      name: "phoenix_kit_cat_category_slugs_pkey",
+      message: "is already taken in this language"
+    )
   end
 
   defp validate_not_self_parent(changeset) do

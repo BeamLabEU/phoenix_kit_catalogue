@@ -476,7 +476,26 @@ All forms support multilingual content when the Languages module is enabled.
 
 ## Database & Migrations
 
-This package contains **no database migrations**. All tables (`phoenix_kit_cat_*`) and migrations are managed by the parent [phoenix_kit](https://github.com/BeamLabEU/phoenix_kit) project. This module only defines Ecto schemas that map to those tables.
+This package owns a small versioned migration chain of its own
+(`PhoenixKitCatalogue.Migrations`), discovered by `mix phoenix_kit.update`
+via `migration_module/0` — the same decentralized-migrations protocol
+`phoenix_kit_crm` and the core Legal module use.
+
+**V1 is adoptive, not creative.** All eighteen `phoenix_kit_cat_*` tables
+were originally created by [phoenix_kit](https://github.com/BeamLabEU/phoenix_kit)
+core itself (V135 through V180). V1 transcribes that shape verbatim
+(`CREATE TABLE IF NOT EXISTS` / guarded `ADD CONSTRAINT` / guarded
+`CREATE INDEX IF NOT EXISTS`, core's exact names) and stamps a
+`pkc_schema:1` marker (a `COMMENT ON TABLE`) on `phoenix_kit_cat_catalogues`
+to record that this chain has taken over. From then on, this module — not
+core — owns the future shape of these tables. `down/1` only unstamps the
+marker; it never drops a table or touches data.
+
+Because it is adoptive, V1 changes no shape and is effectively a no-op on
+any host already at core's current schema — which `mix.exs`'s
+`pk_dep(:phoenix_kit, ...)` floor exists to guarantee. See the moduledoc
+on `PhoenixKitCatalogue.Migrations` for the exact floor reasoning and its
+caveats.
 
 ## Tests
 

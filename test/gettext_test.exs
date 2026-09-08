@@ -693,6 +693,31 @@ defmodule PhoenixKitCatalogue.GettextTest do
     end
   end
 
+  # Block 1, Task 3: the item/category forms' per-language slug input and
+  # translatable seo_title/seo_description labels/placeholder.
+  describe "slug + SEO form strings are present in every locale" do
+    test "URL slug and its placeholder" do
+      assert po_msgstr("en", "URL slug") == "URL slug"
+      assert gettext_in("et", "URL slug") == "URL-slugi"
+      assert gettext_in("ru", "URL slug") == "URL-слаг"
+
+      msgid = "auto-generated from the name"
+      assert po_msgstr("en", msgid) == msgid
+      assert gettext_in("et", msgid) == "genereeritakse automaatselt nimest"
+      assert gettext_in("ru", msgid) == "создаётся автоматически из названия"
+    end
+
+    test "SEO title and SEO description" do
+      assert po_msgstr("en", "SEO title") == "SEO title"
+      assert gettext_in("et", "SEO title") == "SEO pealkiri"
+      assert gettext_in("ru", "SEO title") == "SEO-заголовок"
+
+      assert po_msgstr("en", "SEO description") == "SEO description"
+      assert gettext_in("et", "SEO description") == "SEO kirjeldus"
+      assert gettext_in("ru", "SEO description") == "SEO-описание"
+    end
+  end
+
   describe "import failed-step strings are present in every locale" do
     test "Import Failed" do
       msgid = "Import Failed"

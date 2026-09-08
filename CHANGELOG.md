@@ -1,3 +1,158 @@
+## 0.28.2 - 2026-09-08
+
+### Changed
+
+- `version/0` now reads `mix.exs`'s `@version` at compile time instead of
+  duplicating it as a literal string, removing the two-places-in-sync release
+  footgun (#100).
+- Bumped `phoenix_kit` (2.17.0 → 2.22.0), `phoenix_kit_ai` (0.19.2 → 0.19.3),
+  `phoenix_kit_comments` (0.4.5 → 0.4.7), and `phoenix_kit_entities`
+  (0.4.10 → 0.4.12) to their latest published versions.
+
+### Fixed
+
+- Duplicated SEO-field-fold closure in the category/item form LiveViews
+  extracted into a shared private helper; behavior unchanged (#100).
+- A `function_exported?/3` test assertion intermittently read a merely
+  unloaded module as one lacking the function; now loads the module first
+  (#100).
+- `test_helper.exs` now also replays `phoenix_kit_entities`' migration
+  chain, so a future entities schema change surfaces as an entities test
+  failure instead of an unrelated `undefined_column` error here (#100).
+- Added an in-repo guard that refuses to run the test suite against a small
+  set of known live databases, protecting against a leaked `PGDATABASE`
+  pointing a bare `mix test` at a real dev database (#101).
+
+## 0.28.1 - 2026-09-07
+
+### Fixed
+
+- **`strip_ai_note/1` false-positive shape checks improved, plus a
+  truncation bug in its own fix (#98)** — the leaked-AI-note backstop now
+  also catches an enumerated `Notes:` paragraph and a colon-less `Note
+  that ...` aside, and requires plain translation-process language
+  ("field", "placeholder", "was skipped", ...) before cutting anything, so
+  legitimate product asides that merely open with "Note:" (care
+  instructions, sizing disclaimers, color names) are left alone. That
+  content check itself scanned to the end of the string rather than just
+  the anchored aside's own paragraph — a trigger word in a later,
+  unrelated paragraph could cut a legitimate note plus everything after
+  it. Now bounded to the anchored paragraph.
+- **Admin item/category/catalogue forms were clamped to a narrow
+  `max-w-2xl` column (#99)** — now use the host's full-width `container`
+  class, matching the rest of the admin UI.
+- **Attributes tab's prev/next pagination replaced with core's
+  `<.load_more>` (#99)** — an append-only "Showing N of M" + button model,
+  consistent with how other lists in the admin UI page.
+
+## 0.28.0 - 2026-09-07
+
+### Added
+
+- **Per-language slugs, SEO fields, form extension slot (#96, chain V2)** —
+  `PhoenixKitCatalogue.Migrations` V2 adds a `slug jsonb` column to items and
+  categories plus two lookup/uniqueness projection tables and sync triggers,
+  so a slug can be resolved and enforced unique per language without
+  scanning every row's jsonb. Items and categories gained `seo_title` /
+  `seo_description` fields (stored under multilang `data`, no DB column).
+  `PhoenixKitCatalogue.Extension`/`Extensions` let a sibling module
+  contribute a form section (e.g. shop pricing) without this repo knowing
+  about it. `Attachments.attach_files/3` links already-uploaded Storage
+  files to an item without a mounted LiveView.
+- **AI translation: freshness states, opt-in sweep, admin page (#97)** —
+  `TranslationStatus` tracks a fingerprint-based freshness state
+  (missing/stale/unknown/fresh) per resource and target language.
+  `Workers.TranslationSweepWorker` is a second, opt-in (config-gated),
+  self-rescheduling Oban job that enqueues translations for stale content.
+  A new admin page (`/admin/catalogue/translations`) lists translation
+  state across items, categories, and attribute-set labels/values, with
+  per-row and bulk translate/stamp-fresh actions. Slug generation now runs
+  after translation, so a translated name gets its own per-language slug.
+  AI-translation adapters cover item/category SEO+summary fields and
+  attribute-set labels/values.
+
+### Fixed
+
+- **SEO title/description were silently dropped on single-language
+  installs** — `merge_translatable_params/4` (core) only folds
+  `seo_title`/`seo_description` into `data` inside its
+  `multilang_enabled` branch; since those two fields have no DB column,
+  a single-language install (multilang off, the common case) lost
+  whatever was typed into them on every save with no error. Both
+  `ItemFormLive` and `CategoryFormLive` now fold the fields into `data`
+  directly when multilang is disabled.
+- **`Attachments.attach_files/3` dropped `actor_uuid`** — the one
+  non-LiveView mutation path recorded every activity-log entry with a
+  `nil` actor. Now forwards `opts[:actor_uuid]`.
+- **`TranslationsLive.mount/3` did unconditional DB reads/writes** —
+  `TranslationSweepWorker.endpoint_and_prompts/0` (which can upsert a
+  default AI prompt) ran on every mount, including the disconnected
+  dead render, double-firing on every page visit. Now gated behind
+  `connected?/1`, matching the existing guard in `Web.Helpers`.
+
+### Changed
+
+- **`AGENTS.md`'s "Only one background job" hard boundary corrected** —
+  it named only `Workers.PdfExtractor` after #97 added a second,
+  opt-in Oban worker (`Workers.TranslationSweepWorker`). Both are now
+  listed.
+
+### Known limitations
+
+- **`de`/`fr` gettext catalogues are ~96% untranslated** — #97 added
+  `priv/gettext/{de,fr}/LC_MESSAGES/default.po`, but only the ~30 strings
+  the PR itself introduced carry real translations; every pre-existing
+  string falls back to the English msgid (`gettext/1`'s designed
+  fallback, so nothing crashes or renders blank — just English under a
+  `de`/`fr` locale). `test/gettext_test.exs` pins non-fallback behavior
+  for `ru`/`et` but not `de`/`fr`. Needs a dedicated translation pass
+  before either locale should be considered supported.
+
+## 0.27.0 - 2026-09-05
+
+### Added
+
+- **Module-owned V1 migration chain** (#95) — `PhoenixKitCatalogue.Migrations`
+  implements the decentralized-migrations protocol core's
+  `mix phoenix_kit.update` discovers via `migration_module/0`
+  (`current_version/0` + `migrated_version_runtime/1` + idempotent `up/1` +
+  version-aware `down/1`). V01 is purely ADOPTIVE: all eighteen
+  `phoenix_kit_cat_*` tables already exist on live installs, so every
+  `CREATE TABLE IF NOT EXISTS`, guarded `DO $$ … pg_constraint … $$` block and
+  `CREATE INDEX IF NOT EXISTS` is a no-op and the only new object is the
+  `pkc_schema:1` marker on `phoenix_kit_cat_catalogues`. On a fresh install
+  whose core baseline no longer creates these tables, the same statements build
+  them with core's exact object names. `down/1` only rewrites the marker — it
+  never drops a table.
+- **A drift lock against core's schema manifest** (#95) — two tests resolve
+  `PhoenixKit.Migrations.ExpectedSchema` and assert that every one of the 275
+  `:required` objects it tags `owner: :catalogue` is emitted by
+  `up_statements/1`, and that the 3 `:legacy_optional` foreign keys core's
+  V179/V180 dropped are *not* re-created. Without this a core release that
+  reshapes an adopted table would leave the chain silently building the older
+  shape on fresh installs, with the suite still green.
+
+### Fixed
+
+- **`PhoenixKitCatalogue.version/0` reported `0.25.0` on 0.26.0** — the two
+  version sources `AGENTS.md` requires bumping together drifted apart at the
+  0.26.0 release. `mix precommit` does not run the suite, so the pin in
+  `test/phoenix_kit_catalogue_test.exs` that exists to catch exactly this never
+  ran before publish. Both sources now read `0.27.0`.
+
+### Changed
+
+- **`AGENTS.md`'s "No DB migrations in this repo" hard boundary is gone** — it
+  became false with this PR and would have sent the next contributor to write a
+  core migration for a column this module now owns. Replaced with the chain's
+  actual rules: a new column means a new chain version here (V2+), a
+  shape-changing version must clear the excluded-object protocol first,
+  statements stay idempotent, and `down/1` never drops.
+- **`Migrations`' moduledoc now names all nine core versions** that shape the
+  adopted tables, not just the four that create them (V146/V151/V178/V179/V180
+  reshape them), and states why `foreign_keys/2` deliberately omits the three
+  foreign keys V179/V180 dropped.
+
 ## 0.26.0 - 2026-09-01
 
 ### Added

@@ -2,6 +2,7 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
   @moduledoc "Create/edit form for categories within a catalogue."
 
   use Phoenix.LiveView
+  use Gettext, backend: PhoenixKitCatalogue.Gettext
   use PhoenixKitAI.Components.AITranslate.Embed
 
   require Logger
@@ -9,6 +10,7 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
   import PhoenixKitWeb.Components.MultilangForm
   import PhoenixKitWeb.Components.Core.Button, only: [button: 1]
   import PhoenixKitWeb.Components.Core.Icon, only: [icon: 1]
+  import PhoenixKitWeb.Components.Core.Input, only: [input: 1]
   import PhoenixKitWeb.Components.Core.Modal, only: [confirm_modal: 1]
   import PhoenixKitWeb.Components.Core.Select, only: [select: 1]
   import PhoenixKitCatalogue.Web.Components, only: [attachments_files_panel: 1]
@@ -26,14 +28,17 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
       ai_translate_modal: 1
     ]
 
+  alias PhoenixKit.Utils.Multilang
   alias PhoenixKit.Utils.Routes
   alias PhoenixKit.Utils.Values
   alias PhoenixKitCatalogue.Attachments
   alias PhoenixKitCatalogue.Catalogue
+  alias PhoenixKitCatalogue.Catalogue.Slugs
+  alias PhoenixKitCatalogue.Extensions
   alias PhoenixKitCatalogue.Paths
   alias PhoenixKitCatalogue.Schemas.Category
 
-  @translatable_fields ["name", "description"]
+  @translatable_fields ["name", "description", "seo_title", "seo_description"]
 
   # Primary-language columns survive validates/saves fired from a
   # secondary language tab (same shape as the attribute-group fix —
@@ -123,7 +128,7 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
        parent_move_target: category && category.parent_uuid,
        move_target: nil
      )
-     |> assign(current_tab: :details)
+     |> assign(current_tab: :details, extensions: Extensions.sections(:category))
      |> Attachments.mount_attachments(category)
      |> Attachments.allow_attachment_upload()
      |> assign_changeset(changeset)
@@ -166,6 +171,99 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
     |> assign(:form, to_form(changeset))
   end
 
+  # See the identical helper in `PhoenixKitCatalogue.Web.ItemFormLive` —
+  # `slug` is a flat `lang -> value` map and the form only ever renders
+  # one language's input at a time, so a plain cast would drop every
+  # other language's slug. Non-blank submitted values are merged onto
+  # the existing map; a blank submission leaves the existing value alone
+  # (write-once) and `Slugs.maybe_generate/3` fills any language present
+  # in `data` that still has none.
+  defp apply_slug(params, socket) do
+    existing_slug = Ecto.Changeset.get_field(socket.assigns.changeset, :slug) || %{}
+
+    merged_slug =
+      case params["slug"] do
+        incoming when is_map(incoming) ->
+          incoming
+          |> Enum.filter(fn {_lang, value} -> is_binary(value) and value != "" end)
+          |> Enum.into(existing_slug)
+
+        _ ->
+          existing_slug
+      end
+
+    generated_slug =
+      socket.assigns.category
+      |> Catalogue.change_category(Map.put(params, "slug", merged_slug))
+      |> Slugs.maybe_generate(:slug, from: :name)
+      |> Ecto.Changeset.get_field(:slug)
+
+    Map.put(params, "slug", generated_slug || merged_slug)
+  end
+
+  defp slug_lang(assigns), do: assigns.current_lang || Multilang.primary_language()
+
+  defp translatable_param_name(assigns, form_prefix, field) do
+    if assigns.current_lang == assigns.primary_language,
+      do: "#{form_prefix}[#{field}]",
+      else: "#{form_prefix}[lang_#{field}]"
+  end
+
+  # `seo_title`/`seo_description` have no DB column — they only ever live
+  # under `data["_seo_title"]`/`data["_seo_description"]`. When multilang
+  # is enabled, `merge_translatable_params/4` (via `@translatable_fields`)
+  # already folds them in. When it's disabled, that helper leaves `params`
+  # untouched entirely (it only writes `data` inside its `multilang_enabled`
+  # branch), so on a single-language install the two fields would
+  # otherwise be silently dropped by `cast/2` on every save. Mirrors
+  # `extract_translatable_data/4`'s own logic for the primary-language case.
+  defp merge_seo_params(params, socket) do
+    if socket.assigns.multilang_enabled do
+      params
+    else
+      data =
+        Map.get(params, "data") ||
+          Ecto.Changeset.get_field(socket.assigns.changeset, :data) || %{}
+
+      data = Enum.reduce(["seo_title", "seo_description"], data, &put_seo_field(&1, &2, params))
+
+      Map.put(params, "data", data)
+    end
+  end
+
+  # One SEO field folded into the single-language `data` map, keyed with the
+  # leading underscore the multilang reader expects. A field the form did not
+  # submit leaves `data` untouched.
+  defp put_seo_field(field, data, params) do
+    case Map.get(params, field) do
+      value when is_binary(value) -> Map.put(data, "_#{field}", value)
+      _ -> data
+    end
+  end
+
+  # See the identical helpers in `PhoenixKitCatalogue.Web.ItemFormLive` —
+  # same extension-slot wiring, `:category` instead of `:item`.
+  defp category_data(form), do: form[:data].value || %{}
+
+  defp absorb_category_extensions(category_params, socket) do
+    data =
+      Map.get(category_params, "data") ||
+        Ecto.Changeset.get_field(socket.assigns.changeset, :data) || %{}
+
+    case Extensions.absorb(:category, category_params, data) do
+      {:ok, merged} -> {Map.put(category_params, "data", merged), nil}
+      {:error, {_mod, _errors} = error} -> {Map.put(category_params, "data", data), error}
+    end
+  end
+
+  defp add_extension_error(changeset, nil), do: changeset
+
+  defp add_extension_error(changeset, {mod, errors}) do
+    Enum.reduce(errors, changeset, fn {field, msg}, cs ->
+      Ecto.Changeset.add_error(cs, :data, msg, extension: mod.key(), field: field)
+    end)
+  end
+
   # AI-translate modal events handled by `use ...AITranslate.Embed`.
 
   # "switch_language" is handled by the core `mount_multilang/1` auto hook
@@ -186,11 +284,16 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
         changeset: socket.assigns.changeset,
         preserve_fields: @preserve_fields
       )
+      |> merge_seo_params(socket)
+      |> apply_slug(socket)
+
+    {params, extension_error} = absorb_category_extensions(params, socket)
 
     changeset =
       socket.assigns.category
       |> Catalogue.change_category(params)
       |> Map.put(:action, :validate)
+      |> add_extension_error(extension_error)
 
     {:noreply, assign_changeset(socket, changeset)}
   end
@@ -205,9 +308,25 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
         changeset: socket.assigns.changeset,
         preserve_fields: @preserve_fields
       )
-      |> Attachments.inject_attachment_data(socket)
+      |> merge_seo_params(socket)
+      |> apply_slug(socket)
 
-    save_category(socket, socket.assigns.action, category_params, save_mode(params))
+    {category_params, extension_error} = absorb_category_extensions(category_params, socket)
+
+    case extension_error do
+      nil ->
+        category_params = Attachments.inject_attachment_data(category_params, socket)
+        save_category(socket, socket.assigns.action, category_params, save_mode(params))
+
+      error ->
+        changeset =
+          socket.assigns.category
+          |> Catalogue.change_category(category_params)
+          |> Map.put(:action, :validate)
+          |> add_extension_error(error)
+
+        {:noreply, assign_changeset(socket, changeset)}
+    end
   end
 
   # ── Attachments (featured image modal only) ──────────────────────
@@ -483,7 +602,7 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
       current_path={assigns[:url_path] || Paths.catalogue_detail(@catalogue_uuid)}
       current_locale={assigns[:current_locale]}
     >
-      <div class="flex flex-col mx-auto max-w-2xl px-4 py-8 gap-6">
+      <div class="container flex flex-col mx-auto px-4 py-6 gap-6">
       <%!-- Media selector — folder-scoped featured-image picker. --%>
       <.live_component
         module={PhoenixKitWeb.Live.Components.MediaSelectorModal}
@@ -560,12 +679,38 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
                 required class="w-full"
               />
 
+              <.input
+                field={@form[:slug]}
+                name={"category[slug][#{slug_lang(assigns)}]"}
+                value={Map.get(@form[:slug].value || %{}, slug_lang(assigns), "")}
+                type="text"
+                label={gettext("URL slug")}
+                placeholder={gettext("auto-generated from the name")}
+                class="w-full"
+              />
+
               <.translatable_field
                 field_name="description" form_prefix="category" changeset={@changeset}
                 schema_field={:description} multilang_enabled={@multilang_enabled}
                 current_lang={@current_lang} primary_language={@primary_language}
                 lang_data={@lang_data} label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Description")} type="textarea"
                 placeholder={Gettext.gettext(PhoenixKitCatalogue.Gettext, "What kinds of items belong in this category...")}
+                class="w-full"
+              />
+
+              <.input
+                type="text"
+                name={translatable_param_name(assigns, "category", "seo_title")}
+                value={Map.get(@lang_data, "_seo_title") || ""}
+                label={gettext("SEO title")}
+                class="w-full"
+              />
+
+              <.input
+                type="text"
+                name={translatable_param_name(assigns, "category", "seo_description")}
+                value={Map.get(@lang_data, "_seo_description") || ""}
+                label={gettext("SEO description")}
                 class="w-full"
               />
             </div>
@@ -589,6 +734,23 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
                  level (next_category_position at mount) and ordering is
                  drag-managed on the catalogue detail page — same as
                  catalogues and items. --%>
+
+            <%!-- Extension slot (spec §2 principle 8, §4 row C4) — other
+                 registered modules (e.g. phoenix_kit_ecommerce) add a
+                 section here. Empty and invisible when nothing is
+                 registered/enabled; catalogue never names an implementer. --%>
+            <%= for ext <- @extensions do %>
+              {ext.category_section(%{
+                form: @form,
+                category: @category,
+                data: category_data(@form),
+                current_language: @current_lang,
+                # See the identical comment in `ItemFormLive` — this map is
+                # a plain function-call argument, not built through
+                # `<.component />`, so it needs its own change-tracking key.
+                __changed__: %{}
+              })}
+            <% end %>
 
             <%!-- Actions --%>
             <div class="divider my-0"></div>

@@ -31,6 +31,8 @@ defmodule PhoenixKitCatalogue do
 
   use PhoenixKit.Module
 
+  @version Mix.Project.config()[:version]
+
   alias PhoenixKit.Dashboard.Tab
   alias PhoenixKit.Settings
   alias PhoenixKitCatalogue.Catalogue.ActivityLog
@@ -41,6 +43,9 @@ defmodule PhoenixKitCatalogue do
 
   @impl PhoenixKit.Module
   def module_key, do: "catalogue"
+
+  @impl PhoenixKit.Module
+  def migration_module, do: PhoenixKitCatalogue.Migrations
 
   @impl PhoenixKit.Module
   def module_name, do: "Catalogue"
@@ -94,7 +99,7 @@ defmodule PhoenixKitCatalogue do
   # ===========================================================================
 
   @impl PhoenixKit.Module
-  def version, do: "0.25.0"
+  def version, do: @version
 
   @impl PhoenixKit.Module
   def route_module, do: PhoenixKitCatalogue.Web.Routes
@@ -136,10 +141,15 @@ defmodule PhoenixKitCatalogue do
     # SupplierFields registers its own guard under its own owner key —
     # its blueprint is NOT an attribute set and must not land in either
     # of the set registries above.
+    #
+    # TranslationSweepWorker seeds its own self-rescheduling chain
+    # (`ensure_scheduled/0`) the same way — a temporary boot task, not a
+    # long-lived process.
     [
       PhoenixKitCatalogue.Catalogue.AttributeSets,
       PhoenixKitCatalogue.Catalogue.AttributeSets.OrphanPruner,
-      PhoenixKitCatalogue.Catalogue.SupplierFields
+      PhoenixKitCatalogue.Catalogue.SupplierFields,
+      PhoenixKitCatalogue.Workers.TranslationSweepWorker
     ]
   end
 
@@ -161,7 +171,9 @@ defmodule PhoenixKitCatalogue do
       {"catalogue_item", PhoenixKitCatalogue.AITranslatable},
       {"catalogue_attribute_group", PhoenixKitCatalogue.AITranslatable},
       {"catalogue_attribute", PhoenixKitCatalogue.AITranslatable},
-      {"catalogue_attribute_value", PhoenixKitCatalogue.AITranslatable}
+      {"catalogue_attribute_value", PhoenixKitCatalogue.AITranslatable},
+      {"catalogue_set_label", PhoenixKitCatalogue.AITranslatable.Sets},
+      {"catalogue_set_value", PhoenixKitCatalogue.AITranslatable.Sets}
     ]
   end
 
@@ -220,7 +232,9 @@ defmodule PhoenixKitCatalogue do
         # (e.g. "catalogue/:uuid/edit") never match a real URL, so the
         # parent "Catalogue" tab is the only thing that lights up on
         # detail/form pages — which looks wrong in the sidebar.
-        match: {:regex, ~r"^/admin/catalogue(/(?!attributes|import|export|events|pdfs).*)?$"},
+        match:
+          {:regex,
+           ~r"^/admin/catalogue(/(?!attributes|import|export|events|pdfs|translations).*)?$"},
         parent: :admin_catalogue,
         live_view: {PhoenixKitCatalogue.Web.CataloguesLive, :index}
       },
@@ -345,6 +359,21 @@ defmodule PhoenixKitCatalogue do
         parent: :admin_catalogue,
         visible: false,
         live_view: {PhoenixKitCatalogue.Web.PdfDetailLive, :show}
+      },
+      # Translations — visible subtab (block-6 plan, Task 5). Literal
+      # "translations" segment; must stay before `catalogue/:uuid` below.
+      %Tab{
+        id: :admin_catalogue_translations,
+        label: "Translations",
+        gettext_backend: PhoenixKitCatalogue.Gettext,
+        gettext_domain: "default",
+        icon: "hero-language",
+        path: "catalogue/translations",
+        priority: 692,
+        level: :admin,
+        permission: module_key(),
+        parent: :admin_catalogue,
+        live_view: {PhoenixKitCatalogue.Web.TranslationsLive, :index}
       },
       # Static paths MUST come before wildcard :uuid paths
       # so Phoenix router matches them first.
