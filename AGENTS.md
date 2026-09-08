@@ -178,9 +178,6 @@ PHOENIX_KIT_COMMENTS_PATH=../phoenix_kit_comments mix test
 
 ### Landmines
 
-- Local Postgres on the Mac has no `postgres` role — run the suite as
-  `PGUSER=maxdon mix test`, or every DB-backed test fails as a pool timeout that
-  looks like flakiness.
 - A `<select phx-change=…>` outside a `<form>` never reaches the server. Wrap it
   in a form, and drive it in tests via `render_change` through the form.
 - A client-side echo of a stale param can freeze a derived field (a slug that
