@@ -4352,7 +4352,13 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       )
       |> assign(
         :photo_col?,
-        any_media_thumb?(assigns.child_categories, assigns.file_counts)
+        # The managed "Image" column (opt-in via the Columns modal) and
+        # this automatic one show the same `featured_image_uuid` — with
+        # both on, a row gets the same picture twice. The managed
+        # column wins once it's turned on; this one is the fallback for
+        # everyone who hasn't opted in (owner's call, 2026-09-09).
+        any_media_thumb?(assigns.child_categories, assigns.file_counts) and
+          "image" not in assigns.categories_columns
       )
       |> assign(:extension_columns, TableConfig.extension_columns(:detail_categories))
 
@@ -4577,7 +4583,13 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
     assigns =
       assigns
-      |> assign(:photo_col?, any_media_thumb?(cats, assigns.file_counts))
+      |> assign(
+        :photo_col?,
+        # See the matching comment on `categories_table/1` above — same
+        # managed-"Image"-column-suppresses-the-automatic-one rule.
+        any_media_thumb?(cats, assigns.file_counts) and
+          "image" not in assigns.categories_columns
+      )
       |> assign(:extension_columns, TableConfig.extension_columns(:detail_categories))
 
     ~H"""
@@ -4907,7 +4919,14 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   attr(:uncategorized_active_count, :integer, default: 0)
 
   defp categories_card_level(assigns) do
-    assigns = assign(assigns, :roots, Map.get(assigns.tree_children, assigns.root_uuid, []))
+    assigns =
+      assigns
+      |> assign(:roots, Map.get(assigns.tree_children, assigns.root_uuid, []))
+      # Same "fetch once per page render, pass down" discipline as
+      # `categories_table/1` / `categories_tree_table/1` — this is the
+      # card view's own entry point into a `categories_columns` render
+      # pass, so it owns the fetch here.
+      |> assign(:extension_columns, TableConfig.extension_columns(:detail_categories))
 
     ~H"""
     <div
@@ -4933,6 +4952,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         child_subcat_counts={@child_subcat_counts}
         file_counts={@file_counts}
         categories_columns={@categories_columns}
+        extension_columns={@extension_columns}
         view_mode={@view_mode}
         reorderable={@reorderable}
       >
@@ -4956,6 +4976,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   attr(:child_subcat_counts, :map, required: true)
   attr(:file_counts, :map, required: true)
   attr(:categories_columns, :list, required: true)
+  attr(:extension_columns, :map, default: %{})
   attr(:view_mode, :string, required: true)
   attr(:reorderable, :boolean, required: true)
 
@@ -4982,6 +5003,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
             tree_parent={@parent_key}
             count={Map.get(@child_counts, cat.uuid, 0)}
             categories_columns={@categories_columns}
+            extension_columns={@extension_columns}
             subcat_count={Map.get(@child_subcat_counts, cat.uuid, 0)}
             file_count={Map.get(@file_counts, cat.uuid, 0)}
             has_subs={false}
@@ -5053,6 +5075,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               child_subcat_counts={@child_subcat_counts}
               file_counts={@file_counts}
               categories_columns={@categories_columns}
+              extension_columns={@extension_columns}
               view_mode={@view_mode}
               reorderable={@reorderable}
             />
@@ -5076,6 +5099,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   attr(:sibling_count, :integer, required: true)
   attr(:has_files, :boolean, default: false)
   attr(:categories_columns, :list, default: ["items"])
+  attr(:extension_columns, :map, default: %{})
   attr(:subcat_count, :integer, default: 0)
   attr(:file_count, :integer, default: 0)
   attr(:reorderable, :boolean, default: true)
@@ -5097,6 +5121,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     <.category_card
       category={@category}
       columns={@categories_columns}
+      extension_columns={@extension_columns}
       count={@count}
       subcat_count={@subcat_count}
       file_count={@file_count}
@@ -5219,7 +5244,15 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       # header — so a full page of 100 items ran 101 full-list scans per
       # render, on a page that re-renders on every PubSub event, sort and
       # scroll page.
-      |> assign(:photo_col?, any_media_thumb?(assigns.items, assigns.file_counts))
+      # The managed "Image" column (opt-in via the Columns modal) shows
+      # the same `featured_image_uuid` as this automatic column — with
+      # both on, a row got the same picture twice. The managed column
+      # wins once it's turned on (owner's call, 2026-09-09).
+      |> assign(
+        :photo_col?,
+        any_media_thumb?(assigns.items, assigns.file_counts) and
+          "image" not in assigns.items_columns
+      )
       |> assign(:extension_columns, TableConfig.extension_columns(:detail_items))
 
     ~H"""
@@ -5408,7 +5441,11 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                   <% "created" -> %>
                     <div class="text-base-content/60">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Created")}</div>
                     <div>{Calendar.strftime(item.inserted_at, "%Y-%m-%d %H:%M")}</div>
-                  <% _ -> %>
+                  <% other -> %>
+                    <%= if ext = Map.get(@extension_columns, other) do %>
+                      <div class="text-base-content/60">{ext.label.()}</div>
+                      <div>{ext.render.(item)}</div>
+                    <% end %>
                 <% end %>
               <% end %>
             </div>
