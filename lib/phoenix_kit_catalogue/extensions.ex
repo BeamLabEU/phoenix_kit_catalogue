@@ -98,4 +98,52 @@ defmodule PhoenixKitCatalogue.Extensions do
 
   defp as_map(map) when is_map(map), do: map
   defp as_map(_), do: %{}
+
+  @doc """
+  Enabled extensions' contributed columns for the catalogue admin's
+  configurable `:detail_items` / `:detail_categories` tables (spec §2
+  principle 8, §4 row C4's column follow-up — the "Columns" modal on
+  `CatalogueDetailLive`).
+
+  Each contributed id is namespaced under its extension's `key/0`
+  (`"<key>:<id>"`) so it can never collide with
+  `PhoenixKitCatalogue.Web.TableConfig`'s own ids or another
+  extension's. Same resilience contract as `sections/1` and `absorb/3`:
+  a missing, disabled, or raising extension — or one whose
+  `item_columns/0`/`category_columns/0` returns a malformed entry —
+  contributes nothing rather than breaking the page.
+  """
+  @spec columns(:detail_items | :detail_categories) :: [PhoenixKitCatalogue.Extension.column()]
+  def columns(kind) when kind in [:detail_items, :detail_categories] do
+    callback = columns_callback(kind)
+
+    all()
+    |> Enum.filter(&function_exported?(&1, callback, 0))
+    |> Enum.flat_map(&extension_columns(&1, callback))
+  end
+
+  defp columns_callback(:detail_items), do: :item_columns
+  defp columns_callback(:detail_categories), do: :category_columns
+
+  defp extension_columns(ext, callback) do
+    case apply(ext, callback, []) do
+      list when is_list(list) ->
+        list
+        |> Enum.filter(&valid_column?/1)
+        |> Enum.map(&namespace_column(ext, &1))
+
+      _ ->
+        []
+    end
+  rescue
+    _ -> []
+  end
+
+  defp valid_column?(%{id: id, label: label, render: render})
+       when is_binary(id) and is_function(label, 0) and is_function(render, 1),
+       do: true
+
+  defp valid_column?(_), do: false
+
+  defp namespace_column(ext, col), do: %{col | id: ext.key() <> ":" <> col.id}
 end
