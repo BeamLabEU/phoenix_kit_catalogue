@@ -4354,6 +4354,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         :photo_col?,
         any_media_thumb?(assigns.child_categories, assigns.file_counts)
       )
+      |> assign(:extension_columns, TableConfig.extension_columns(:detail_categories))
 
     ~H"""
     <%!-- Plain table (no `items`): the level's OWN card/table wrapper
@@ -4378,7 +4379,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
           <.table_default_header_cell>
             {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Name")}
           </.table_default_header_cell>
-          <.category_header_cells columns={@categories_columns} />
+          <.category_header_cells columns={@categories_columns} extension_columns={@extension_columns} />
           <.table_default_header_cell class="text-right">
             {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Actions")}
           </.table_default_header_cell>
@@ -4444,6 +4445,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
             child_counts={@child_counts}
             child_subcat_counts={@child_subcat_counts}
             file_counts={@file_counts}
+            extension_columns={@extension_columns}
           />
           <.table_default_cell class="text-right whitespace-nowrap">
             <.category_row_menu cat={cat} catalogue={@catalogue} view_mode={@view_mode} />
@@ -4462,23 +4464,17 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Uncategorized")}
             </.link>
           </td>
+          <%!-- One <td> per configured column, matching a real row: any id
+               this level doesn't special-case (a future catalogue column,
+               or a shop-extension column) still gets an empty <td> here
+               rather than none — a skipped cell would shift every
+               following column out of alignment with the header. --%>
           <%= for col <- @categories_columns do %>
             <%= case col do %>
               <% "items" -> %>
                 <td class="text-right tabular-nums">{@uncategorized_active_count}</td>
-              <% "updated" -> %>
-                <td></td>
-              <% "subcategories" -> %>
-                <td></td>
-              <% "description" -> %>
-                <td></td>
-              <% "files" -> %>
-                <td></td>
-              <% "status" -> %>
-                <td></td>
-              <% "created" -> %>
-                <td></td>
               <% _ -> %>
+                <td></td>
             <% end %>
           <% end %>
           <td class="text-right">
@@ -4579,7 +4575,10 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   defp categories_tree_table(assigns) do
     cats = Enum.map(assigns.rows, fn {cat, _d, _h, _e} -> cat end)
 
-    assigns = assign(assigns, :photo_col?, any_media_thumb?(cats, assigns.file_counts))
+    assigns =
+      assigns
+      |> assign(:photo_col?, any_media_thumb?(cats, assigns.file_counts))
+      |> assign(:extension_columns, TableConfig.extension_columns(:detail_categories))
 
     ~H"""
     <div :if={@rows == []} class="card bg-base-100 shadow">
@@ -4622,7 +4621,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
             <.table_default_header_cell>
               {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Name")}
             </.table_default_header_cell>
-            <.category_header_cells columns={@categories_columns} />
+            <.category_header_cells columns={@categories_columns} extension_columns={@extension_columns} />
             <.table_default_header_cell class="text-right">
               {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Actions")}
             </.table_default_header_cell>
@@ -4685,6 +4684,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               child_counts={@child_counts}
               child_subcat_counts={@child_subcat_counts}
               file_counts={@file_counts}
+              extension_columns={@extension_columns}
             />
             <.table_default_cell class="text-right whitespace-nowrap">
               <.category_row_menu cat={cat} catalogue={@catalogue} view_mode={@view_mode} />
@@ -4699,13 +4699,14 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                 {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Uncategorized")}
               </.link>
             </td>
+            <%!-- See the matching comment in `categories_table/1` above:
+                 always one <td> per configured column. --%>
             <%= for col <- @categories_columns do %>
               <%= case col do %>
                 <% "items" -> %>
                   <td class="text-right tabular-nums">{@uncategorized_active_count}</td>
-                <% c when c in ~w(updated subcategories description files status created) -> %>
-                  <td></td>
                 <% _ -> %>
+                  <td></td>
               <% end %>
             <% end %>
             <td class="text-right">
@@ -5219,6 +5220,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       # render, on a page that re-renders on every PubSub event, sort and
       # scroll page.
       |> assign(:photo_col?, any_media_thumb?(assigns.items, assigns.file_counts))
+      |> assign(:extension_columns, TableConfig.extension_columns(:detail_items))
 
     ~H"""
     <div class="flex flex-col gap-2">
@@ -5365,6 +5367,9 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                   <% "sku" -> %>
                     <div class="text-base-content/60">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "SKU")}</div>
                     <div class="font-mono text-base-content/60">{item.sku || "—"}</div>
+                  <% "image" -> %>
+                    <div class="text-base-content/60">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Image")}</div>
+                    <div><.image_column_cell resource={item} /></div>
                   <% "price" -> %>
                     <div class="text-base-content/60">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Price")}</div>
                     <div class="font-semibold">
@@ -5438,6 +5443,10 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                     <.sort_header_cell field={:sku} sort={%{by: @items_sort_by, dir: @items_sort_dir}} event="toggle_sort_items">
                       {Gettext.gettext(PhoenixKitCatalogue.Gettext, "SKU")}
                     </.sort_header_cell>
+                  <% "image" -> %>
+                    <.table_default_header_cell>
+                      {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Image")}
+                    </.table_default_header_cell>
                   <% "price" -> %>
                     <.sort_header_cell field={:base_price} sort={%{by: @items_sort_by, dir: @items_sort_dir}} event="toggle_sort_items">
                       {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Price")}
@@ -5474,7 +5483,10 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                     <.table_default_header_cell>
                       {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Created")}
                     </.table_default_header_cell>
-                  <% _ -> %>
+                  <% other -> %>
+                    <%= if ext = Map.get(@extension_columns, other) do %>
+                      <.table_default_header_cell>{ext.label.()}</.table_default_header_cell>
+                    <% end %>
                 <% end %>
               <% end %>
               <.table_default_header_cell class="text-right whitespace-nowrap">
@@ -5506,6 +5518,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                 has_attributes={Map.has_key?(@attribute_map, item.uuid)}
                 file_count={Map.get(@file_counts, item.uuid, 0)}
                 columns={@items_columns}
+                extension_columns={@extension_columns}
                 supplier_costs={Map.get(@supplier_costs, item.uuid, [])}
               />
               <.item_row_menu

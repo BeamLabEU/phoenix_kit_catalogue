@@ -9,6 +9,7 @@ defmodule PhoenixKitCatalogue.ExtensionsTest do
   use ExUnit.Case, async: false
 
   alias PhoenixKitCatalogue.Extensions
+  alias PhoenixKitCatalogue.Test.BrokenColumnsModule
   alias PhoenixKitCatalogue.Test.FakeExtension
   alias PhoenixKitCatalogue.Test.FakeModule
 
@@ -21,6 +22,8 @@ defmodule PhoenixKitCatalogue.ExtensionsTest do
     assert Extensions.all() == []
     assert Extensions.sections(:item) == []
     assert Extensions.sections(:category) == []
+    assert Extensions.columns(:detail_items) == []
+    assert Extensions.columns(:detail_categories) == []
   end
 
   describe "with FakeExtension registered" do
@@ -56,6 +59,16 @@ defmodule PhoenixKitCatalogue.ExtensionsTest do
       assert Extensions.sections(:category) == [FakeExtension]
     end
 
+    test "columns/1 namespaces the contributed id under the extension's key" do
+      [col] = Extensions.columns(:detail_items)
+      assert col.id == "fake:status"
+      assert col.label.() == "Fake status"
+      assert is_function(col.render, 1)
+
+      [cat_col] = Extensions.columns(:detail_categories)
+      assert cat_col.id == "fake:status"
+    end
+
     test "absorb/3 casts a valid submission under the extension's key" do
       assert Extensions.absorb(:item, %{"fake" => %{"note" => "hi"}}, %{}) ==
                {:ok, %{"fake" => %{"note" => "hi"}}}
@@ -76,6 +89,27 @@ defmodule PhoenixKitCatalogue.ExtensionsTest do
                "_name" => "x",
                "fake" => %{"note" => "old"}
              }) == {:ok, %{"_name" => "x", "fake" => %{"note" => "hi"}}}
+    end
+  end
+
+  describe "with a registered module whose item_columns/0 raises" do
+    setup do
+      :ok = PhoenixKit.ModuleRegistry.register(BrokenColumnsModule)
+
+      # Same cleanup as the FakeModule setup above — see its comment.
+      on_exit(fn ->
+        :persistent_term.put(
+          {PhoenixKit, :registered_modules},
+          List.delete(PhoenixKit.ModuleRegistry.all_modules(), BrokenColumnsModule)
+        )
+      end)
+
+      :ok
+    end
+
+    test "columns/1 contributes nothing instead of crashing" do
+      assert Extensions.columns(:detail_items) == []
+      assert Extensions.columns(:detail_categories) == []
     end
   end
 end

@@ -29,6 +29,25 @@ defmodule PhoenixKitCatalogue.Test.FakeExtension do
   @impl true
   def cast_category(params, current), do: cast(params, current)
 
+  # `id: "status"` deliberately collides with the catalogue's own
+  # "status" column id — `PhoenixKitCatalogue.Extensions.columns/1` must
+  # namespace it under `key/0` ("fake:status") before it ever reaches
+  # `PhoenixKitCatalogue.Web.TableConfig`, so a naive implementation
+  # that forgot to namespace would show up here as a collision.
+  @impl true
+  def item_columns, do: [%{id: "status", label: fn -> "Fake status" end, render: &column/1}]
+
+  @impl true
+  def category_columns, do: [%{id: "status", label: fn -> "Fake status" end, render: &column/1}]
+
+  defp column(record) do
+    assigns = %{record: record}
+
+    ~H"""
+    <span id={"ext-fake-status-#{@record.uuid}"}>fake-status</span>
+    """
+  end
+
   defp section(assigns, form_prefix) do
     note =
       assigns
@@ -88,4 +107,37 @@ defmodule PhoenixKitCatalogue.Test.FakeModule do
   alias PhoenixKitCatalogue.Test.FakeExtension
 
   def catalogue_extensions, do: [FakeExtension]
+end
+
+defmodule PhoenixKitCatalogue.Test.BrokenColumnsExtension do
+  @moduledoc """
+  A `PhoenixKitCatalogue.Extension` implementer whose `item_columns/0`
+  and `category_columns/0` raise — exercises
+  `PhoenixKitCatalogue.Extensions.columns/1`'s resilience contract (a
+  raising extension contributes nothing rather than crashing the
+  Columns modal or the table render), the same way `contributed_by/1`
+  already tolerates a raising `catalogue_extensions/0`.
+  """
+
+  @behaviour PhoenixKitCatalogue.Extension
+
+  @impl true
+  def key, do: "broken"
+
+  @impl true
+  def enabled?, do: true
+
+  @impl true
+  def item_columns, do: raise("boom")
+
+  @impl true
+  def category_columns, do: raise("boom")
+end
+
+defmodule PhoenixKitCatalogue.Test.BrokenColumnsModule do
+  @moduledoc "Registry carrier for `BrokenColumnsExtension` (see `FakeModule`)."
+
+  alias PhoenixKitCatalogue.Test.BrokenColumnsExtension
+
+  def catalogue_extensions, do: [BrokenColumnsExtension]
 end
