@@ -794,6 +794,14 @@ defmodule PhoenixKitCatalogue.Web.Components do
     doc: "Which facts the grid shows, in order — the admin Columns modal's vocabulary."
   )
 
+  attr(:extension_columns, :map,
+    default: %{},
+    doc:
+      "`TableConfig.extension_columns(:detail_categories)` — shop-extension " <>
+        "columns keyed by their (namespaced) id, same map `category_header_cells/1` " <>
+        "and `category_body_cells/1` take. Fetch ONCE per page render and pass down."
+  )
+
   attr(:count, :integer, default: 0)
   attr(:subcat_count, :integer, default: 0)
   attr(:file_count, :integer, default: 0)
@@ -873,7 +881,11 @@ defmodule PhoenixKitCatalogue.Web.Components do
               <% "created" -> %>
                 <div class="text-base-content/50">{gettext("Created")}</div>
                 <div>{Calendar.strftime(@category.inserted_at, "%Y-%m-%d %H:%M")}</div>
-              <% _ -> %>
+              <% other -> %>
+                <%= if ext = Map.get(@extension_columns, other) do %>
+                  <div class="text-base-content/50">{ext.label.()}</div>
+                  <div>{ext.render.(@category)}</div>
+                <% end %>
             <% end %>
           <% end %>
         </div>

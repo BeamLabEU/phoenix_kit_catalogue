@@ -8,10 +8,14 @@ defmodule PhoenixKitCatalogue.ExtensionsTest do
   """
   use ExUnit.Case, async: false
 
+  import ExUnit.CaptureLog
+
   alias PhoenixKitCatalogue.Extensions
   alias PhoenixKitCatalogue.Test.BrokenColumnsModule
+  alias PhoenixKitCatalogue.Test.DelimiterModule
   alias PhoenixKitCatalogue.Test.FakeExtension
   alias PhoenixKitCatalogue.Test.FakeModule
+  alias PhoenixKitCatalogue.Test.HostileRenderModule
 
   setup do
     start_supervised!(PhoenixKit.ModuleRegistry)
@@ -110,6 +114,113 @@ defmodule PhoenixKitCatalogue.ExtensionsTest do
     test "columns/1 contributes nothing instead of crashing" do
       assert Extensions.columns(:detail_items) == []
       assert Extensions.columns(:detail_categories) == []
+    end
+  end
+
+  describe "with HostileRenderExtension registered (per-row render/label failures)" do
+    setup do
+      :ok = PhoenixKit.ModuleRegistry.register(HostileRenderModule)
+
+      # Same cleanup as the FakeModule setup above — see its comment.
+      on_exit(fn ->
+        :persistent_term.put(
+          {PhoenixKit, :registered_modules},
+          List.delete(PhoenixKit.ModuleRegistry.all_modules(), HostileRenderModule)
+        )
+      end)
+
+      :ok
+    end
+
+    defp col(id) do
+      Extensions.columns(:detail_items) |> Enum.find(&(&1.id == "hostile:" <> id))
+    end
+
+    test "discovery lets every column through — the shape check can't see what render/label do" do
+      ids = Extensions.columns(:detail_items) |> Enum.map(& &1.id)
+
+      assert "hostile:raises" in ids
+      assert "hostile:throws" in ids
+      assert "hostile:exits" in ids
+      assert "hostile:unrenderable" in ids
+      assert "hostile:label_raises" in ids
+      assert "hostile:ok" in ids
+    end
+
+    test "a raising render/1 degrades to a safe fallback instead of crashing the caller" do
+      log = capture_log(fn -> assert col("raises").render.(%{uuid: "x"}) == nil end)
+      assert log =~ "hostile:raises"
+      assert log =~ "cell render exploded"
+    end
+
+    test "a throwing render/1 degrades to a safe fallback instead of crashing the caller" do
+      log = capture_log(fn -> assert col("throws").render.(%{uuid: "x"}) == nil end)
+      assert log =~ "hostile:throws"
+    end
+
+    test "an exiting render/1 degrades to a safe fallback instead of crashing the caller" do
+      log = capture_log(fn -> assert col("exits").render.(%{uuid: "x"}) == nil end)
+      assert log =~ "hostile:exits"
+    end
+
+    test "a render/1 returning a non-HTML-safe value degrades to a safe fallback" do
+      log = capture_log(fn -> assert col("unrenderable").render.(%{uuid: "x"}) == nil end)
+      assert log =~ "hostile:unrenderable"
+    end
+
+    test "a raising label/0 degrades to a safe fallback instead of crashing the caller" do
+      log = capture_log(fn -> assert col("label_raises").label.() == "" end)
+      assert log =~ "hostile:label_raises"
+      assert log =~ "label render exploded"
+    end
+
+    test "a well-behaved sibling column is unaffected" do
+      assert col("ok").label.() == "OK"
+      assert is_struct(col("ok").render.(%{uuid: "sibling-uuid"}), Phoenix.LiveView.Rendered)
+    end
+
+    test "logs once per column per Extensions.columns/1 call, not once per invocation" do
+      render = col("raises").render
+
+      log =
+        capture_log(fn ->
+          for _ <- 1..5, do: render.(%{uuid: "x"})
+        end)
+
+      assert Enum.count(String.split(log, "cell render exploded")) - 1 == 1
+    end
+
+    test "a fresh Extensions.columns/1 call (a new render pass) logs again" do
+      capture_log(fn -> col("raises").render.(%{uuid: "x"}) end)
+
+      log = capture_log(fn -> col("raises").render.(%{uuid: "x"}) end)
+      assert log =~ "hostile:raises"
+    end
+  end
+
+  describe "with DelimiterModule registered (namespace delimiter guard)" do
+    setup do
+      :ok = PhoenixKit.ModuleRegistry.register(DelimiterModule)
+
+      on_exit(fn ->
+        :persistent_term.put(
+          {PhoenixKit, :registered_modules},
+          List.delete(PhoenixKit.ModuleRegistry.all_modules(), DelimiterModule)
+        )
+      end)
+
+      :ok
+    end
+
+    test "a column id carrying the delimiter is dropped, not namespaced ambiguously" do
+      ids = Extensions.columns(:detail_items) |> Enum.map(& &1.id)
+      refute "badid:a:b" in ids
+    end
+
+    test "a key carrying the delimiter drops every column that extension contributes" do
+      ids = Extensions.columns(:detail_items) |> Enum.map(& &1.id)
+      refute Enum.any?(ids, &String.starts_with?(&1, "bad:key"))
+      assert ids == []
     end
   end
 end

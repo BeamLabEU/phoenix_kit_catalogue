@@ -82,4 +82,150 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailImageColumnTest do
     assert updated =~ "/small/"
     assert updated =~ category.data["featured_image_uuid"]
   end
+
+  describe "the managed Image column and the automatic photo column never both show the same picture" do
+    # `URLSigner.signed_url/2` embeds the storage variant in the path
+    # (`/file/{uuid}/{variant}/{token}`) — the automatic column always
+    # requests `"thumbnail"` (`featured_thumb/1`'s default), the
+    # managed column always `"small"` (`image_column_cell/1`), so the
+    # two are distinguishable in rendered HTML by variant alone.
+
+    test "column off: the automatic photo column shows the item's image once", %{conn: conn} do
+      catalogue = fixture_catalogue(%{name: "Img no-dup off items"})
+      item = fixture_item(%{name: "Widget", catalogue_uuid: catalogue.uuid})
+
+      {:ok, item} =
+        Catalogue.update_item(item, %{data: %{"featured_image_uuid" => UUIDv7.generate()}})
+
+      uuid = item.data["featured_image_uuid"]
+
+      {:ok, _view, html} = live(conn, url(catalogue.uuid) <> "?mode=items")
+
+      assert (html |> String.split("/thumbnail/") |> length()) - 1 == 1
+      assert html =~ uuid
+      refute html =~ "/small/"
+    end
+
+    test "column on: the managed column shows the item's image once per view, the automatic column is gone",
+         %{conn: conn} do
+      catalogue = fixture_catalogue(%{name: "Img no-dup on items"})
+      item = fixture_item(%{name: "Widget", catalogue_uuid: catalogue.uuid})
+
+      {:ok, item} =
+        Catalogue.update_item(item, %{data: %{"featured_image_uuid" => UUIDv7.generate()}})
+
+      uuid = item.data["featured_image_uuid"]
+
+      {:ok, view, _html} = live(conn, url(catalogue.uuid) <> "?mode=items")
+      render_click(view, "show_column_modal", %{})
+
+      updated =
+        render_click(view, "add_column", %{"column_id" => "image", "scope" => "detail_items"})
+
+      # Twice, not once: the desktop table cell and the mobile card
+      # facts grid both render the managed column on one page load
+      # (see the "extension columns in card view" coverage) — the
+      # thing under test here is that the AUTOMATIC column contributes
+      # no extra copies on top of those two.
+      assert (updated |> String.split("/file/#{uuid}/small/") |> length()) - 1 == 2
+      refute updated =~ "/file/#{uuid}/thumbnail/"
+    end
+
+    test "no featured image, column off: no image is rendered for the item", %{conn: conn} do
+      catalogue = fixture_catalogue(%{name: "Img no-dup none-off items"})
+      fixture_item(%{name: "Widget", catalogue_uuid: catalogue.uuid})
+
+      {:ok, _view, html} = live(conn, url(catalogue.uuid) <> "?mode=items")
+
+      refute html =~ "/thumbnail/"
+      refute html =~ "/small/"
+    end
+
+    test "no featured image, column on: no image is rendered for the item", %{conn: conn} do
+      catalogue = fixture_catalogue(%{name: "Img no-dup none-on items"})
+      fixture_item(%{name: "Widget", catalogue_uuid: catalogue.uuid})
+
+      {:ok, view, _html} = live(conn, url(catalogue.uuid) <> "?mode=items")
+      render_click(view, "show_column_modal", %{})
+
+      updated =
+        render_click(view, "add_column", %{"column_id" => "image", "scope" => "detail_items"})
+
+      assert updated =~ "Widget"
+      refute updated =~ "/thumbnail/"
+      refute updated =~ "/small/"
+    end
+
+    test "column off: the automatic photo column shows the category's image once", %{conn: conn} do
+      catalogue = fixture_catalogue(%{name: "Img no-dup off categories"})
+      category = fixture_category(catalogue, %{name: "Configurable"})
+
+      {:ok, category} =
+        Catalogue.update_category(category, %{
+          data: %{"featured_image_uuid" => UUIDv7.generate()}
+        })
+
+      uuid = category.data["featured_image_uuid"]
+
+      {:ok, _view, html} = live(conn, url(catalogue.uuid))
+
+      assert (html |> String.split("/thumbnail/") |> length()) - 1 == 1
+      assert html =~ uuid
+      refute html =~ "/small/"
+    end
+
+    test "column on: the managed column shows the category's image once per view, the automatic column is gone",
+         %{conn: conn} do
+      catalogue = fixture_catalogue(%{name: "Img no-dup on categories"})
+      category = fixture_category(catalogue, %{name: "Configurable"})
+
+      {:ok, category} =
+        Catalogue.update_category(category, %{
+          data: %{"featured_image_uuid" => UUIDv7.generate()}
+        })
+
+      uuid = category.data["featured_image_uuid"]
+
+      {:ok, view, _html} = live(conn, url(catalogue.uuid))
+      render_click(view, "show_column_modal", %{})
+
+      updated =
+        render_click(view, "add_column", %{
+          "column_id" => "image",
+          "scope" => "detail_categories"
+        })
+
+      # Twice, not once — see the matching comment on the items test above.
+      assert (updated |> String.split("/file/#{uuid}/small/") |> length()) - 1 == 2
+      refute updated =~ "/file/#{uuid}/thumbnail/"
+    end
+
+    test "no featured image, column off: no image is rendered for the category", %{conn: conn} do
+      catalogue = fixture_catalogue(%{name: "Img no-dup none-off categories"})
+      fixture_category(catalogue, %{name: "Configurable"})
+
+      {:ok, _view, html} = live(conn, url(catalogue.uuid))
+
+      refute html =~ "/thumbnail/"
+      refute html =~ "/small/"
+    end
+
+    test "no featured image, column on: no image is rendered for the category", %{conn: conn} do
+      catalogue = fixture_catalogue(%{name: "Img no-dup none-on categories"})
+      fixture_category(catalogue, %{name: "Configurable"})
+
+      {:ok, view, _html} = live(conn, url(catalogue.uuid))
+      render_click(view, "show_column_modal", %{})
+
+      updated =
+        render_click(view, "add_column", %{
+          "column_id" => "image",
+          "scope" => "detail_categories"
+        })
+
+      assert updated =~ "Configurable"
+      refute updated =~ "/thumbnail/"
+      refute updated =~ "/small/"
+    end
+  end
 end
