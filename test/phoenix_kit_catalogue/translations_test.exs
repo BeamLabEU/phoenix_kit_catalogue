@@ -158,11 +158,26 @@ defmodule PhoenixKitCatalogue.Catalogue.TranslationsTest do
       assert Translations.translated_name(record, "en-US") == "Column Title"
     end
 
-    test "degenerate: non-multilang flat data does not crash" do
-      record = %{name: "Consistent Value", data: %{"name" => "Consistent Value"}}
+    test "degenerate: flat non-multilang data, bare key disagrees with column, at the primary locale, column wins" do
+      # `data` has no `"_primary_language"` key at all — flat, legacy
+      # shape. `Multilang.get_language_data/2` gates on
+      # `multilang_data?/1` the same way and returns such a map
+      # UNCHANGED for every locale, so `resolved_bucket_key/3` could
+      # never find a `primary` match here — without the
+      # `multilang_data?/1` gate in `primary_locale?/2`, this record
+      # would ALWAYS take the secondary branch and let the bare `"name"`
+      # key shadow the column, for every locale, forever.
+      record = %{name: "Fresh Column", data: %{"name" => "Stale Flat Bucket"}}
 
       assert Translations.translated_name(record, Multilang.primary_language()) ==
-               "Consistent Value"
+               "Fresh Column"
+    end
+
+    test "degenerate: empty data map falls back to the column" do
+      record = %{name: "Fresh Column", data: %{}}
+
+      assert Translations.translated_name(record, Multilang.primary_language()) ==
+               "Fresh Column"
     end
 
     test "degenerate: plain map with no :name key falls back to the bucket" do
@@ -303,11 +318,18 @@ defmodule PhoenixKitCatalogue.Catalogue.TranslationsTest do
       assert Translations.translated_description(record, "en-US") == "Column Description"
     end
 
-    test "degenerate: non-multilang flat data does not crash" do
-      record = %{description: "Consistent Value", data: %{"description" => "Consistent Value"}}
+    test "degenerate: flat non-multilang data, bare key disagrees with column, at the primary locale, column wins" do
+      record = %{description: "Fresh Column", data: %{"description" => "Stale Flat Bucket"}}
 
       assert Translations.translated_description(record, Multilang.primary_language()) ==
-               "Consistent Value"
+               "Fresh Column"
+    end
+
+    test "degenerate: empty data map falls back to the column" do
+      record = %{description: "Fresh Column", data: %{}}
+
+      assert Translations.translated_description(record, Multilang.primary_language()) ==
+               "Fresh Column"
     end
 
     test "degenerate: plain map with no :description key falls back to the bucket" do
