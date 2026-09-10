@@ -1,3 +1,47 @@
+## 0.28.3 - 2026-09-10
+
+### Added
+
+- Managed, off-by-default "Image" column on the catalogue detail page's
+  item and category tables, and a duck-typed `item_columns/0` /
+  `category_columns/0` slot on `PhoenixKitCatalogue.Extension` so a sibling
+  module (e.g. an ecommerce shop) can contribute its own column to those
+  tables — namespaced under the extension's key, degrading to a blank
+  label/empty cell rather than breaking the page if a contributed
+  `label`/`render` misbehaves (#103).
+- `PhoenixKitCatalogue.TranslationStatus.stamp_fresh/3` and
+  `reset_baseline/3`: field-narrowed variants of the existing
+  resource-level operator actions, for acting on one translated field
+  without vouching for or resetting the rest (#104).
+
+### Changed
+
+- AI-translation freshness fingerprints are now tracked per (resource,
+  language, field) instead of per (resource, language): a re-translate that
+  only changed one field no longer clobbers a hand-corrected sibling field
+  in the same job. A pre-existing whole-resource fingerprint reads as
+  `:unknown` per field rather than `:stale`, so upgrading does not
+  auto-enqueue every already-translated item/category for re-translation
+  (#104).
+- Bumped `phoenix_kit` (2.22.0 → 2.22.15) and its transitive `ranch`
+  (2.2.1 → 2.3.0).
+
+### Fixed
+
+- `Catalogue.Translations.translated_name/2` / `translated_description/2`
+  now read the primary-language column before the translation bucket at
+  the record's own primary locale (falling back to the bucket only when
+  the column is blank), so a writer that updates only the column (e.g. a
+  Shopify sync) is no longer shadowed forever by a stale bucket entry.
+  Primary-locale detection is dialect-aware (a bare base code or sibling
+  dialect resolves to the same bucket `PhoenixKit.Utils.Multilang` would
+  pick) and gated on `multilang_data?/1` so flat, pre-multilang data still
+  prefers the column (#105).
+- The managed "Image" column no longer duplicates the picture in the
+  catalogue detail page's card view — the card's own media band already
+  shows it, so the column is now a no-op there instead of repeating it in
+  the facts grid (post-#103 fix).
+
 ## 0.28.2 - 2026-09-08
 
 ### Changed
