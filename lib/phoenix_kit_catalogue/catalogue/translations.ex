@@ -45,6 +45,13 @@ defmodule PhoenixKitCatalogue.Catalogue.Translations do
   (either the `"_name"` shape the shared multilang helper writes or the
   legacy bare `"name"`), falling back to the primary-language column.
   Safe on records without translations and on plain maps.
+
+  When `locale` IS the record's own primary language, the column is
+  read FIRST and the bucket is only a fallback for a blank column — a
+  writer that legitimately updates only the column (e.g. the Shopify
+  sync) must not be shadowed forever by a stale primary-language bucket
+  entry. Every other locale is unchanged: bucket override first, then
+  the column.
   """
   @spec translated_name(map() | nil, String.t() | nil) :: String.t() | nil
   def translated_name(nil, _locale), do: nil
@@ -53,9 +60,15 @@ defmodule PhoenixKitCatalogue.Catalogue.Translations do
   def translated_name(record, locale) do
     translation = safe_translation(record, locale)
 
-    presence(Map.get(translation, "_name")) ||
-      presence(Map.get(translation, "name")) ||
-      Map.get(record, :name)
+    if primary_locale?(record, locale) do
+      presence(Map.get(record, :name)) ||
+        presence(Map.get(translation, "_name")) ||
+        presence(Map.get(translation, "name"))
+    else
+      presence(Map.get(translation, "_name")) ||
+        presence(Map.get(translation, "name")) ||
+        Map.get(record, :name)
+    end
   end
 
   @doc "Same contract as `translated_name/2`, for `:description`."
@@ -66,9 +79,15 @@ defmodule PhoenixKitCatalogue.Catalogue.Translations do
   def translated_description(record, locale) do
     translation = safe_translation(record, locale)
 
-    presence(Map.get(translation, "_description")) ||
-      presence(Map.get(translation, "description")) ||
-      Map.get(record, :description)
+    if primary_locale?(record, locale) do
+      presence(Map.get(record, :description)) ||
+        presence(Map.get(translation, "_description")) ||
+        presence(Map.get(translation, "description"))
+    else
+      presence(Map.get(translation, "_description")) ||
+        presence(Map.get(translation, "description")) ||
+        Map.get(record, :description)
+    end
   end
 
   @doc """
@@ -142,6 +161,27 @@ defmodule PhoenixKitCatalogue.Catalogue.Translations do
   rescue
     _ -> %{}
   end
+
+  # `locale` IS the record's own primary language: `data["_primary_language"]`,
+  # falling back to the system default when the key is absent (same idiom
+  # as `AiTranslatable.Sets.merge_title/3`). Never raises: `record_data/1`
+  # only reads `:data` off a map, and `primary_from_data/1` only reads a
+  # string key off a map — both fall through to `nil`/`Multilang.primary_language/0`
+  # for anything else (missing key, `nil` data, a flat non-multilang map,
+  # a non-map `record`).
+  defp primary_locale?(record, locale) do
+    is_binary(locale) and locale == record_primary_language(record)
+  end
+
+  defp record_primary_language(record) do
+    record |> record_data() |> primary_from_data() || Multilang.primary_language()
+  end
+
+  defp record_data(record) when is_map(record), do: Map.get(record, :data)
+  defp record_data(_record), do: nil
+
+  defp primary_from_data(data) when is_map(data), do: Map.get(data, "_primary_language")
+  defp primary_from_data(_data), do: nil
 
   defp presence(value) when is_binary(value) do
     if String.trim(value) == "", do: nil, else: value
