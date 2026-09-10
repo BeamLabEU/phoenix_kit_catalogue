@@ -206,10 +206,24 @@ defmodule PhoenixKitCatalogue.Catalogue.Translations do
   # before this module existed.
   defp primary_locale?(record, locale) when is_binary(locale) do
     primary = record_primary_language(record)
+    data = record_data(record)
 
-    case record_data(record) do
-      %{} = data -> resolved_bucket_key(data, locale, primary) == primary
-      _ -> locale == primary
+    if Multilang.multilang_data?(data) do
+      resolved_bucket_key(data, locale, primary) == primary
+    else
+      # Flat, pre-multilang `data` (a legacy bare `"name"`/`"description"`
+      # key, no override yet, or no `:data` at all) has no per-locale
+      # buckets to resolve — `Multilang.get_language_data/2` itself
+      # gates on the SAME `multilang_data?/1` check
+      # (`deps/phoenix_kit/lib/phoenix_kit/utils/multilang.ex:81`) and
+      # returns a flat map UNCHANGED for every locale, so
+      # `resolved_bucket_key/3` would always land on `nil` here — never
+      # `primary` — and this record would NEVER get the column-first
+      # treatment, even when `locale` IS genuinely the primary language,
+      # letting a stale flat `"name"` shadow a fresh column exactly like
+      # before this module's fix existed. `multilang_data?/1` is already
+      # safe on `nil` and non-map `data`, so no separate case is needed.
+      locale == primary
     end
   end
 
