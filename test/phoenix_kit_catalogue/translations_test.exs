@@ -95,6 +95,55 @@ defmodule PhoenixKitCatalogue.Catalogue.TranslationsTest do
                "Fresh Column (record's own primary)"
     end
 
+    test "a bare base-code caller against a dialect primary still gets the column (the bug, dialect-imprecise)" do
+      # `locale` is a bare base code ("en"), the record's primary is a
+      # full dialect ("en-US") — no own "en" bucket entry, so
+      # `Multilang.get_language_data/2` resolves "en" through to the
+      # "en-US" bucket via its base-code fallback. Column must still win.
+      record = %{
+        name: "Fresh Column",
+        data: %{
+          "_primary_language" => "en-US",
+          "en-US" => %{"_name" => "Stale Bucket"}
+        }
+      }
+
+      assert Translations.translated_name(record, "en") == "Fresh Column"
+    end
+
+    test "a full-dialect caller against a base-code primary still gets the column (the reverse)" do
+      # The record's own primary is stored as a bare base code ("en"),
+      # the caller asks with a full dialect ("en-US") that has no own
+      # bucket entry — still resolves to the primary bucket.
+      record = %{
+        name: "Fresh Column",
+        data: %{
+          "_primary_language" => "en",
+          "en" => %{"_name" => "Stale Bucket"}
+        }
+      }
+
+      assert Translations.translated_name(record, "en-US") == "Fresh Column"
+    end
+
+    test "a genuine sibling dialect with its own bucket is NOT treated as primary" do
+      # Two distinct dialects of the same base both have their own
+      # entries: "en-US" (primary) and "en-GB" (a real, independently
+      # maintained translation). Requesting "en-GB" must keep reading
+      # ITS OWN bucket, never the column — this is the opposite-direction
+      # bug the dialect-aware fix must not introduce.
+      record = %{
+        name: "Column Value",
+        data: %{
+          "_primary_language" => "en-US",
+          "en-US" => %{"_name" => "EN-US Bucket"},
+          "en-GB" => %{"_name" => "EN-GB Bucket"}
+        }
+      }
+
+      assert Translations.translated_name(record, "en-GB") == "EN-GB Bucket"
+    end
+
     test "degenerate: nil record" do
       assert Translations.translated_name(nil, "en-US") == nil
     end
@@ -201,6 +250,43 @@ defmodule PhoenixKitCatalogue.Catalogue.TranslationsTest do
 
       assert Translations.translated_description(record, own_primary) ==
                "Fresh Column (record's own primary)"
+    end
+
+    test "a bare base-code caller against a dialect primary still gets the column (the bug, dialect-imprecise)" do
+      record = %{
+        description: "Fresh Column",
+        data: %{
+          "_primary_language" => "en-US",
+          "en-US" => %{"_description" => "Stale Bucket"}
+        }
+      }
+
+      assert Translations.translated_description(record, "en") == "Fresh Column"
+    end
+
+    test "a full-dialect caller against a base-code primary still gets the column (the reverse)" do
+      record = %{
+        description: "Fresh Column",
+        data: %{
+          "_primary_language" => "en",
+          "en" => %{"_description" => "Stale Bucket"}
+        }
+      }
+
+      assert Translations.translated_description(record, "en-US") == "Fresh Column"
+    end
+
+    test "a genuine sibling dialect with its own bucket is NOT treated as primary" do
+      record = %{
+        description: "Column Value",
+        data: %{
+          "_primary_language" => "en-US",
+          "en-US" => %{"_description" => "EN-US Bucket"},
+          "en-GB" => %{"_description" => "EN-GB Bucket"}
+        }
+      }
+
+      assert Translations.translated_description(record, "en-GB") == "EN-GB Bucket"
     end
 
     test "degenerate: nil record" do
