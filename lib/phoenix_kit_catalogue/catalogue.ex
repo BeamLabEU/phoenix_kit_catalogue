@@ -1550,17 +1550,34 @@ defmodule PhoenixKitCatalogue.Catalogue do
     end
   end
 
-  @doc "Updates a category with the given attributes."
+  @doc """
+  Updates a category with the given attributes.
+
+  Pass `:data_owned_keys` (a list of top-level `data` keys) when the
+  caller only owns PART of `data` — e.g. a form that only rendered a
+  subset of it. See `update_item/3`'s doc for the full rationale; the
+  mechanism is identical.
+  """
   @spec update_category(Category.t(), map(), keyword()) ::
           {:ok, Category.t()} | {:error, Ecto.Changeset.t(Category.t())}
   def update_category(%Category{} = category, attrs, opts \\ []) do
-    changeset =
-      category
-      |> Category.changeset(attrs)
-      |> validate_parent_in_same_catalogue()
+    result =
+      repo().transaction(fn ->
+        attrs = narrow_data_ownership(Category, category.uuid, attrs, opts)
 
-    case repo().update(changeset) do
-      {:ok, updated} = ok ->
+        changeset =
+          category
+          |> Category.changeset(attrs)
+          |> validate_parent_in_same_catalogue()
+
+        case repo().update(changeset) do
+          {:ok, updated} -> updated
+          {:error, changeset} -> repo().rollback(changeset)
+        end
+      end)
+
+    case result do
+      {:ok, updated} ->
         log_activity(
           %{
             action: "category.updated",
@@ -1574,10 +1591,41 @@ defmodule PhoenixKitCatalogue.Catalogue do
           opts
         )
 
-        ok
+        {:ok, updated}
 
-      error ->
+      {:error, _changeset} = error ->
         error
+    end
+  end
+
+  # Shared by `update_item/3` and `update_category/3`'s `:data_owned_keys`
+  # option — see `update_item/3`'s doc for the full rationale. `nil` (no
+  # option passed) is a no-op so every existing caller keeps the plain
+  # full-replace behavior.
+  #
+  # Must run INSIDE the caller's transaction: the `FOR UPDATE` lock this
+  # takes only protects against a concurrent writer landing between our
+  # read and the eventual `repo().update()` if both happen on the same
+  # connection/transaction.
+  defp narrow_data_ownership(schema, uuid, attrs, opts) when is_map(attrs) do
+    case Keyword.get(opts, :data_owned_keys) do
+      nil -> attrs
+      owned_keys -> splice_owned_data(schema, uuid, attrs, owned_keys)
+    end
+  end
+
+  defp splice_owned_data(schema, uuid, attrs, owned_keys) do
+    query = from(r in schema, where: r.uuid == ^uuid, lock: "FOR UPDATE")
+
+    case repo().one(query) do
+      nil ->
+        attrs
+
+      %{data: fresh_data} ->
+        incoming_data = Helpers.fetch_attr(attrs, :data) || %{}
+        owned = Map.take(incoming_data, owned_keys)
+        merged = Map.merge(fresh_data || %{}, owned)
+        Helpers.put_attr(attrs, :data, merged)
     end
   end
 
@@ -4596,7 +4644,28 @@ defmodule PhoenixKitCatalogue.Catalogue do
     end
   end
 
-  @doc "Updates an item with the given attributes."
+  @doc """
+  Updates an item with the given attributes.
+
+  ## `:data_owned_keys`
+
+  A caller (typically a form) that only rendered/edited PART of `data`
+  can pass `:data_owned_keys` — a list of `data`'s top-level keys it
+  actually owns. When set, this function re-reads the row `FOR UPDATE`
+  inside its transaction and, for each owned key, takes that key's
+  value from `attrs["data"]` (falling back to the fresh row's own value
+  when the key is absent from `attrs["data"]` — an owned key is never
+  written as a deletion by mere absence). Every key NOT listed keeps the
+  freshest DB value untouched, no matter what stale copy `attrs["data"]`
+  happens to carry for it — the whole point: a form built from a
+  page-load snapshot can no longer clobber a key some other process
+  wrote after that snapshot was taken (translation fingerprints, a sync,
+  …).
+
+  Omit the option (or pass `nil`) for the previous behavior: `data` is
+  replaced wholesale by whatever `attrs["data"]` contains, same as a
+  plain `Ecto.Changeset.cast/4` on a `:map` field.
+  """
   @spec update_item(Item.t(), map(), keyword()) ::
           {:ok, Item.t()} | {:error, Ecto.Changeset.t(Item.t())}
   def update_item(%Item{} = item, attrs, opts \\ []) do
@@ -4604,6 +4673,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
     result =
       repo().transaction(fn ->
+        attrs = narrow_data_ownership(Item, item.uuid, attrs, opts)
         attrs = if skip_derive?, do: attrs, else: derive_catalogue_uuid(item, attrs)
 
         case item |> Item.changeset(attrs) |> repo().update() do
