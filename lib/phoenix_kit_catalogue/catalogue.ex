@@ -1624,9 +1624,29 @@ defmodule PhoenixKitCatalogue.Catalogue do
       %{data: fresh_data} ->
         incoming_data = Helpers.fetch_attr(attrs, :data) || %{}
         owned = Map.take(incoming_data, owned_keys)
-        merged = Map.merge(fresh_data || %{}, owned)
+        merged = apply_owned_data(fresh_data || %{}, owned)
         Helpers.put_attr(attrs, :data, merged)
     end
+  end
+
+  # An owned key present in `owned` with a non-`nil` value overwrites the
+  # fresh row's value for that key — the caller's normal write. An owned
+  # key present with an EXPLICIT `nil` is a "clear this" marker (see
+  # `PhoenixKitCatalogue.Attachments.inject_featured_image/2` /
+  # `inject_media_order/2`, which write `nil` rather than simply omitting
+  # the key) and comes out of the result entirely — the record must end
+  # up looking exactly like one that never had the key, not one holding
+  # a JSON `null` (`Schemas.Item`/`Schemas.Category`'s changeset enforces
+  # the same thing at cast time; doing it here too keeps this function's
+  # own contract self-evident). A key `owned` doesn't mention at all —
+  # because the caller's `attrs["data"]` never mentioned it — is left
+  # untouched, distinct from an explicit `nil`: that's the whole point of
+  # `:data_owned_keys` (see `update_item/3`'s doc).
+  defp apply_owned_data(fresh_data, owned) do
+    Enum.reduce(owned, fresh_data, fn
+      {key, nil}, acc -> Map.delete(acc, key)
+      {key, value}, acc -> Map.put(acc, key, value)
+    end)
   end
 
   # Guards both create_category/2 and update_category/3 against a

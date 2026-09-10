@@ -91,6 +91,22 @@ defmodule PhoenixKitCatalogue.Web.Helpers do
   attachments keys (`"meta"`, `"files_folder_uuid"`,
   `"featured_image_uuid"`, `"media_order"`), category passes the
   attachments subset only (no metadata on categories).
+
+  ## Known gap: read at Save time, not at page-load time
+
+  This is computed fresh from LIVE global settings at the moment the
+  form calls it (mount and every validate re-derive it too, but only
+  the Save-time call feeds `update_item/3`/`update_category/3`). If an
+  operator flips a setting this depends on — `shop_enabled` (adds/drops
+  the `"ecommerce"` extension key), or enables/disables multilang —
+  in the narrow window between this form's page load and the user's
+  Save, the computed set can include a key the form never actually
+  rendered this session. `:data_owned_keys` would then let that key's
+  stale in-memory snapshot (whatever `attrs["data"]` happens to carry
+  for it, inherited from page load) overwrite the row's current value
+  for it — the very bug this option exists to prevent, just for a
+  key that changed ownership out from under the open form instead of
+  one nobody owns. Narrow window, not fixed here.
   """
   @spec data_owned_keys(Phoenix.LiveView.Socket.t(), [String.t()]) :: [String.t()]
   def data_owned_keys(socket, extra_keys \\ []) do
