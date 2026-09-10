@@ -5401,8 +5401,13 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                     <div class="text-base-content/60">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "SKU")}</div>
                     <div class="font-mono text-base-content/60">{item.sku || "—"}</div>
                   <% "image" -> %>
-                    <div class="text-base-content/60">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Image")}</div>
-                    <div><.image_column_cell resource={item} /></div>
+                    <%!-- No-op here, deliberately: this card's media band
+                         above (`<.card_media>`) already shows this same
+                         `featured_image_uuid` unconditionally, so repeating
+                         it as a fact would show the same picture twice in
+                         one card — unlike the table, which has no such
+                         band and needs the managed column to show a
+                         picture at all. --%>
                   <% "price" -> %>
                     <div class="text-base-content/60">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Price")}</div>
                     <div class="font-semibold">

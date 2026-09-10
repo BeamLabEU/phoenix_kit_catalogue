@@ -861,8 +861,12 @@ defmodule PhoenixKitCatalogue.Web.Components do
                 <div class="text-base-content/50">{gettext("Items")}</div>
                 <div class="tabular-nums">{@count}</div>
               <% "image" -> %>
-                <div class="text-base-content/50">{gettext("Image")}</div>
-                <div><.image_column_cell resource={@category} /></div>
+                <%!-- No-op here, deliberately: the card's media band above
+                     (`<.featured_thumb>`) already shows this same
+                     `featured_image_uuid` unconditionally, so repeating it
+                     as a fact would show the same picture twice in one
+                     card — unlike the table, which has no such band and
+                     needs the managed column to show a picture at all. --%>
               <% "subcategories" -> %>
                 <div class="text-base-content/50">{gettext("Subcategories")}</div>
                 <div class="tabular-nums">{@subcat_count}</div>

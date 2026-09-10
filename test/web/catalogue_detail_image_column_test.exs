@@ -122,13 +122,17 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailImageColumnTest do
       updated =
         render_click(view, "add_column", %{"column_id" => "image", "scope" => "detail_items"})
 
-      # Twice, not once: the desktop table cell and the mobile card
-      # facts grid both render the managed column on one page load
-      # (see the "extension columns in card view" coverage) — the
-      # thing under test here is that the AUTOMATIC column contributes
-      # no extra copies on top of those two.
-      assert (updated |> String.split("/file/#{uuid}/small/") |> length()) - 1 == 2
+      # Once, not twice: the desktop table cell renders the managed
+      # column; the mobile card's own facts grid skips "image" as a
+      # no-op (its media band above already shows this same picture at
+      # the "medium" variant — see components.ex's `item_card`/
+      # `category_card` "image" clause) rather than showing it a
+      # second time via the "small" variant down in the facts grid.
+      assert (updated |> String.split("/file/#{uuid}/small/") |> length()) - 1 == 1
       refute updated =~ "/file/#{uuid}/thumbnail/"
+      # The card's own media band is untouched by this — it still shows
+      # the picture, just not a second time via the managed column.
+      assert updated =~ "/file/#{uuid}/medium/"
     end
 
     test "no featured image, column off: no image is rendered for the item", %{conn: conn} do
@@ -195,9 +199,12 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailImageColumnTest do
           "scope" => "detail_categories"
         })
 
-      # Twice, not once — see the matching comment on the items test above.
-      assert (updated |> String.split("/file/#{uuid}/small/") |> length()) - 1 == 2
+      # Once, not twice — see the matching comment on the items test above.
+      assert (updated |> String.split("/file/#{uuid}/small/") |> length()) - 1 == 1
       refute updated =~ "/file/#{uuid}/thumbnail/"
+      # The card's own media band is untouched by this — it still shows
+      # the picture, just not a second time via the managed column.
+      assert updated =~ "/file/#{uuid}/medium/"
     end
 
     test "no featured image, column off: no image is rendered for the category", %{conn: conn} do
