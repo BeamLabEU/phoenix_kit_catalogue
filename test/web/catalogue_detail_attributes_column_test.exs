@@ -131,8 +131,11 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailAttributesColumnTest do
 
   # Cuts the enclosing `<tr>…</tr>` around one item's name so assertions
   # stay scoped to that table row instead of matching anywhere on the
-  # page (the card view renders the same item as `<div>`s with no `<tr>`,
-  # so this only ever matches the table row markup).
+  # page. This relies on the table being rendered BEFORE the card markup
+  # in `table_default`, so the FIRST occurrence of the name is the table
+  # cell; if that order ever flips, `last_tag_start/2` falls back to 0
+  # and the window stops meaning a row (the test then fails loudly
+  # rather than passing by accident).
   defp row_segment(html, needle) do
     case :binary.match(html, needle) do
       {idx, _len} ->
