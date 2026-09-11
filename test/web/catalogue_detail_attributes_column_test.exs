@@ -62,10 +62,11 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailAttributesColumnTest do
       with_set_row = row_segment(html, "With set")
       assert with_set_row =~ "Punane"
 
-      # The unattached item's row still falls back to the dash.
+      # The unattached item's row carries no attribute label — "—" alone
+      # isn't distinctive (other empty cells in the row render it too).
       without_set_row = row_segment(html, "Without set")
-      assert without_set_row =~ "—"
       refute without_set_row =~ "Punane"
+      refute without_set_row =~ "Door color"
 
       # The name-adjacent swatch indicator (presence only) is untouched.
       assert has_element?(view, ~s|[title="Has attribute group"]|)
@@ -128,16 +129,33 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailAttributesColumnTest do
     end
   end
 
-  # Cuts a rough window of HTML around one item's name so assertions
-  # stay scoped to that row instead of matching anywhere on the page.
+  # Cuts the enclosing `<tr>…</tr>` around one item's name so assertions
+  # stay scoped to that table row instead of matching anywhere on the
+  # page (the card view renders the same item as `<div>`s with no `<tr>`,
+  # so this only ever matches the table row markup).
   defp row_segment(html, needle) do
     case :binary.match(html, needle) do
       {idx, _len} ->
-        start = max(idx - 200, 0)
-        binary_part(html, start, min(2000, byte_size(html) - start))
+        row_start = last_tag_start(html, idx)
+        row_end = row_end(html, idx)
+        binary_part(html, row_start, row_end - row_start)
 
       :nomatch ->
         flunk("expected #{inspect(needle)} in rendered HTML")
+    end
+  end
+
+  defp last_tag_start(html, idx) do
+    case html |> :binary.matches("<tr") |> Enum.filter(fn {s, _} -> s <= idx end) do
+      [] -> 0
+      matches -> matches |> List.last() |> elem(0)
+    end
+  end
+
+  defp row_end(html, idx) do
+    case :binary.match(html, "</tr>", scope: {idx, byte_size(html) - idx}) do
+      {end_idx, end_len} -> end_idx + end_len
+      :nomatch -> byte_size(html)
     end
   end
 end
