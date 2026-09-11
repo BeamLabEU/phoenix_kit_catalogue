@@ -120,6 +120,59 @@ defmodule PhoenixKitCatalogue.Web.ItemFormSetsTest do
       assert html =~ "Form colors"
       refute html =~ "phx-change=\"select_attribute_group\""
     end
+
+    test "an archived set is not offered for new attachments", %{conn: conn, item: item} do
+      {:ok, archived} = Catalogue.create_attribute_set(%{name: "Retired trims"})
+      {:ok, _} = Catalogue.archive_attribute_set(archived)
+
+      {:ok, view, html} = open(conn, item)
+
+      refute assigns(view).available_sets |> Enum.any?(&(&1.uuid == archived.uuid))
+      refute html =~ "Retired trims"
+    end
+
+    test "an already-attached set that gets archived keeps showing (badged) and stays detachable",
+         %{conn: conn, item: item, set: set} do
+      {:ok, _} = Catalogue.attach_attribute_set(item.uuid, set.uuid)
+      {:ok, _} = Catalogue.archive_attribute_set(set)
+
+      {:ok, view, html} = open(conn, item)
+
+      assert html =~ "Form colors"
+      assert html =~ "Archived"
+      assert assigns(view).staged_set_uuids == [set.uuid]
+
+      render_click(view, "detach_set", %{"uuid" => set.uuid})
+      assert assigns(view).staged_set_uuids == []
+
+      save(view)
+      assert Catalogue.list_attribute_set_attachments(item.uuid) == []
+    end
+
+    test "a selected value archived after being picked stays selected and renders as archived",
+         %{conn: conn, item: item, set: set, red: red, blue: blue} do
+      {:ok, _} = Catalogue.attach_attribute_set(item.uuid, set.uuid)
+      :ok = Catalogue.set_attribute_set_selection(item.uuid, set.uuid, [red.slug, blue.slug])
+
+      {:ok, _} =
+        PhoenixKitEntities.EntityData.update(red, %{status: "archived"}, activity_log: false)
+
+      {:ok, view, html} = open(conn, item)
+
+      # Both slugs survive hydration — archiving Red must not silently
+      # drop it from the item's staged selection.
+      assert assigns(view).staged_selections[set.uuid] == MapSet.new([red.slug, blue.slug])
+      # Rendered read-only and marked archived, not as a live checkbox.
+      assert html =~ "Red"
+      assert html =~ "Selected, but archived"
+
+      save(view)
+
+      assert %{sets: [%{selected: selected}]} =
+               Catalogue.resolve_attribute_sets_for_item(item.uuid)
+
+      assert Enum.sort(selected) == Enum.sort([red.slug, blue.slug])
+    end
   else
     @tag :skip
     test "entities package lacks the Managed contract — suite skipped" do

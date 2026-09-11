@@ -80,13 +80,19 @@ defmodule PhoenixKitCatalogue.Web.Components.AttributeSetItemsModal do
     set = socket.assigns.set
     locale = socket.assigns.locale
 
-    # The FULL value list in one query: item selections reference value
-    # slugs anywhere in the set, so label resolution needs the whole
-    # slug → title map (the chip strip on the listing stays capped).
-    label_map =
-      set.uuid
-      |> Catalogue.list_attribute_set_values(lang: locale)
-      |> Map.new(&{&1.slug, &1.title})
+    # The FULL value list (active AND hidden) in one resolve: item
+    # selections reference value slugs anywhere in the set, and an
+    # archived/trashed value stays a real selection (§3c, 2026-09-11
+    # direction) — dropping it from the label map here would silently
+    # blank its chip, the exact bug hidden_values exists to fix.
+    {values, hidden_values} =
+      case Catalogue.resolve_attribute_set(set.uuid, lang: locale) do
+        %{values: v, hidden_values: h} -> {v, h}
+        _ -> {[], []}
+      end
+
+    label_map = Map.new(values ++ hidden_values, &{&1.key, &1.label})
+    hidden_keys = MapSet.new(hidden_values, & &1.key)
 
     search = socket.assigns.search
     total = Catalogue.count_attribute_set_attached_items(set.uuid, search: search)
@@ -107,9 +113,14 @@ defmodule PhoenixKitCatalogue.Web.Components.AttributeSetItemsModal do
         Map.merge(entry, %{
           status: item.status,
           catalogue_name: catalogue_name(item, locale),
-          # Ghost rule: slugs whose value no longer exists are dropped,
-          # exactly like every other selection reader.
-          selected: slugs |> Enum.filter(&Map.has_key?(label_map, &1)) |> Enum.map(&label_map[&1])
+          # Ghost rule: slugs whose value is gone FOR GOOD are dropped,
+          # exactly like every other selection reader. A hidden
+          # (archived/trashed) value's slug is not a ghost — it renders,
+          # marked so the chip below can badge it.
+          selected:
+            slugs
+            |> Enum.filter(&Map.has_key?(label_map, &1))
+            |> Enum.map(&%{label: label_map[&1], hidden?: MapSet.member?(hidden_keys, &1)})
         })
       end)
 
@@ -221,8 +232,15 @@ defmodule PhoenixKitCatalogue.Web.Components.AttributeSetItemsModal do
                   }> / </span><span :if={row.category}>{row.category}</span>
                 </div>
                 <div :if={row.selected != []} class="flex flex-wrap gap-1 mt-1">
-                  <span :for={label <- row.selected} class="badge badge-outline badge-xs">
-                    {label}
+                  <span
+                    :for={v <- row.selected}
+                    class={["badge badge-xs", if(v.hidden?, do: "badge-ghost", else: "badge-outline")]}
+                    title={
+                      if v.hidden?,
+                        do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Archived value")
+                    }
+                  >
+                    {v.label}
                   </span>
                 </div>
               </div>
