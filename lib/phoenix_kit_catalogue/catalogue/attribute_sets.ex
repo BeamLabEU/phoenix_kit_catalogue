@@ -1646,8 +1646,17 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
     uuid |> String.replace("-", "") |> binary_part(0, 8)
   end
 
+  # `list_values/2` (and its `list_values_for/2` base) excludes archived
+  # AND trashed rows by design — a display read must not show them. Top-up
+  # existence must NOT reuse that read: the legacy group row lives forever
+  # (adoption-only, never deleted) and `auto_migrate_legacy/0` re-runs on
+  # every Attributes-tab visit, so a value trashed or archived after
+  # migration would come back "missing" on the very next visit and get
+  # recreated published — the bug this guards against (values resurrected
+  # minutes after being trashed/archived, 2026-08-30 incident). Existence
+  # here means "a row with this slug exists in ANY status".
   defp ensure_migrated_value(set, value, opts) do
-    existing = list_values(set) |> Enum.any?(&(&1.slug == value.key))
+    existing = set |> migrated_value_slugs() |> MapSet.member?(value.key)
 
     if existing do
       false
@@ -1655,6 +1664,21 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
       {:ok, _} = create_value(set, %{label: value.value, slug: value.key}, opts)
       true
     end
+  end
+
+  defp migrated_value_slugs(set) do
+    batch = PhoenixKitEntities.EntityData
+
+    rows =
+      if Code.ensure_loaded?(batch) and function_exported?(batch, :list_by_entities, 2) do
+        # credo:disable-for-next-line Credo.Check.Refactor.Apply
+        apply(batch, :list_by_entities, [[set.uuid], [include_trashed: true, preload: []]])
+        |> Map.get(set.uuid, [])
+      else
+        batch.list_by_entity(set.uuid, include_trashed: true)
+      end
+
+    MapSet.new(rows, & &1.slug)
   end
 
   defp migrate_assignments(set_map, opts) do
