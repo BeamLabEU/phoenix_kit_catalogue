@@ -1557,12 +1557,7 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
 
     Enum.reduce(full.attributes, acc, fn attribute, {set_map, counts} ->
       {set, created?} = find_or_create_migrated_set(group, attribute, opts)
-
-      value_count =
-        Enum.count(attribute.values, fn value ->
-          ensure_migrated_value(set, value, opts)
-        end)
-
+      value_count = ensure_migrated_values(set, attribute.values, opts)
       default = Enum.find(attribute.values, & &1.is_default)
 
       # Top-up, not created-only: a crash between creating the set and
@@ -1646,6 +1641,23 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
     uuid |> String.replace("-", "") |> binary_part(0, 8)
   end
 
+  # One batched existence read per attribute/set (not one per value):
+  # `known_slugs` starts from the set's current rows and grows with each
+  # value created in this pass, so two values in the same attribute
+  # never race each other into a duplicate either. Returns the count of
+  # values actually created.
+  defp ensure_migrated_values(set, values, opts) do
+    {count, _known_slugs} =
+      Enum.reduce(values, {0, migrated_value_slugs(set)}, fn value, {count, known} ->
+        case ensure_migrated_value(set, value, known, opts) do
+          {:created, updated_known} -> {count + 1, updated_known}
+          :existing -> {count, known}
+        end
+      end)
+
+    count
+  end
+
   # `list_values/2` (and its `list_values_for/2` base) excludes archived
   # AND trashed rows by design — a display read must not show them. Top-up
   # existence must NOT reuse that read: the legacy group row lives forever
@@ -1654,31 +1666,42 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
   # migration would come back "missing" on the very next visit and get
   # recreated published — the bug this guards against (values resurrected
   # minutes after being trashed/archived, 2026-08-30 incident). Existence
-  # here means "a row with this slug exists in ANY status".
-  defp ensure_migrated_value(set, value, opts) do
-    existing = set |> migrated_value_slugs() |> MapSet.member?(value.key)
-
-    if existing do
-      false
+  # means "a row with this slug exists in ANY status" — the caller
+  # (`ensure_migrated_values/3`) passes a `known_slugs` set fetched once
+  # per attribute/set, not re-queried per value.
+  @spec ensure_migrated_value(struct(), map(), MapSet.t(), keyword()) ::
+          {:created, MapSet.t()} | :existing
+  defp ensure_migrated_value(set, value, known_slugs, opts) do
+    if MapSet.member?(known_slugs, value.key) do
+      :existing
     else
       {:ok, _} = create_value(set, %{label: value.value, slug: value.key}, opts)
-      true
+      {:created, MapSet.put(known_slugs, value.key)}
     end
   end
 
+  # Every caller of this module's public API already gates on
+  # `entities_enabled?()` (`ensure_enabled/0` at the top of
+  # `migrate_groups_to_sets/1`), but the check is repeated here rather
+  # than assumed — a future caller of this private helper must not
+  # silently call into an unloaded/disabled entities pin.
   defp migrated_value_slugs(set) do
-    batch = PhoenixKitEntities.EntityData
+    if entities_enabled?() do
+      batch = PhoenixKitEntities.EntityData
 
-    rows =
-      if Code.ensure_loaded?(batch) and function_exported?(batch, :list_by_entities, 2) do
-        # credo:disable-for-next-line Credo.Check.Refactor.Apply
-        apply(batch, :list_by_entities, [[set.uuid], [include_trashed: true, preload: []]])
-        |> Map.get(set.uuid, [])
-      else
-        batch.list_by_entity(set.uuid, include_trashed: true)
-      end
+      rows =
+        if Code.ensure_loaded?(batch) and function_exported?(batch, :list_by_entities, 2) do
+          # credo:disable-for-next-line Credo.Check.Refactor.Apply
+          apply(batch, :list_by_entities, [[set.uuid], [include_trashed: true, preload: []]])
+          |> Map.get(set.uuid, [])
+        else
+          batch.list_by_entity(set.uuid, include_trashed: true)
+        end
 
-    MapSet.new(rows, & &1.slug)
+      MapSet.new(rows, & &1.slug)
+    else
+      MapSet.new()
+    end
   end
 
   defp migrate_assignments(set_map, opts) do

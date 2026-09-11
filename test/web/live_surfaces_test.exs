@@ -202,7 +202,7 @@ defmodule PhoenixKitCatalogue.Web.LiveSurfacesTest do
     end
   end
 
-  describe "F2 — detail indicators clear when the last file / the group goes away" do
+  describe "F2 — detail indicators clear when the last file / the attribute set goes away" do
     if Code.ensure_loaded?(PhoenixKitEntities.Managed) do
       test "detaching an item's attribute set drops the swatch", %{conn: conn} do
         AttributeSets.register_deletion_guard()
