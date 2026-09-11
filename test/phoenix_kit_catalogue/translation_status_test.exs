@@ -605,6 +605,23 @@ defmodule PhoenixKitCatalogue.TranslationStatusTest do
         assert value_a.uuid in uuids
         assert value_b.uuid in uuids
       end
+
+      test "an archived set's label row survives — still a live string needing translation" do
+        set = create_set!("Ikea archived colors")
+        {:ok, archived} = AttributeSets.archive_set(set)
+
+        uuids = TranslationStatus.list(:set_label, langs: ["fr-FR"]) |> Enum.map(& &1.uuid)
+        assert archived.uuid in uuids
+      end
+
+      test "an archived set's value rows survive too — not just the set's own label" do
+        set = create_set!("Ikea archived sizes")
+        value = create_value!(set, "Large")
+        {:ok, _archived} = AttributeSets.archive_set(set)
+
+        uuids = TranslationStatus.list(:set_value, langs: ["fr-FR"]) |> Enum.map(& &1.uuid)
+        assert value.uuid in uuids
+      end
     end
   end
 

@@ -551,14 +551,18 @@ defmodule PhoenixKitCatalogue.TranslationStatus do
   defp resources_for(:category, catalogue_uuid),
     do: Catalogue.list_categories_for_catalogue(catalogue_uuid)
 
-  defp resources_for(:set_label, _catalogue_uuid), do: AttributeSets.list_sets()
+  # `status: :all` — an archived set's name and its values' labels stay
+  # live user strings (rendered on the product card and item form via
+  # `hidden_values`, §3c) and must stay reachable for translation;
+  # `list_sets/1`'s default excludes archived sets.
+  defp resources_for(:set_label, _catalogue_uuid), do: AttributeSets.list_sets(status: :all)
 
   # One batched query for every set's values (`list_values_for/2`, the
   # same call the Attributes tab's preview already uses to avoid N+1),
   # not `list_values/1` per set — this runs on every page render, every
   # translation-completed broadcast, and every sweep tick.
   defp resources_for(:set_value, _catalogue_uuid) do
-    sets = AttributeSets.list_sets()
+    sets = AttributeSets.list_sets(status: :all)
     values_by_set = sets |> Enum.map(& &1.uuid) |> AttributeSets.list_values_for()
     sets |> Enum.flat_map(&Map.get(values_by_set, &1.uuid, []))
   end
