@@ -1154,12 +1154,30 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
       selections = socket.assigns.staged_selections
       current = Map.get(selections, set_uuid, MapSet.new())
 
-      current =
-        if MapSet.member?(current, key),
-          do: MapSet.delete(current, key),
-          else: MapSet.put(current, key)
+      cond do
+        # Un-ticking — the hidden chip's × button relies on this: a
+        # value already selected may always be dropped, active or not.
+        MapSet.member?(current, key) ->
+          new_current = MapSet.delete(current, key)
 
-      {:noreply, assign(socket, :staged_selections, Map.put(selections, set_uuid, current))}
+          {:noreply,
+           assign(socket, :staged_selections, Map.put(selections, set_uuid, new_current))}
+
+        # Ticking a NEW value — must be active. A hidden (archived)
+        # key reaching here is a forged payload: the checkboxes never
+        # offer it, and invariant 2 says archived values aren't
+        # offered for a new pick (§3c). `known_value_key?/2` above
+        # widens the gate to active-or-hidden only so the × button
+        # above can fire; ticking on must not ride that same gate.
+        active_value_key?(preview, key) ->
+          new_current = MapSet.put(current, key)
+
+          {:noreply,
+           assign(socket, :staged_selections, Map.put(selections, set_uuid, new_current))}
+
+        true ->
+          {:noreply, socket}
+      end
     else
       _ -> {:noreply, socket}
     end
@@ -1168,10 +1186,16 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   # A togglable key must be a REAL value of the set — active (offered
   # by the checkboxes) or hidden (a selected-but-archived chip, §3c).
   # Active-only would make the hidden chip's remove control a no-op:
-  # the click event would land here and be silently refused.
+  # the click event would land here and be silently refused. Whether
+  # a hidden key may actually flip the selection ON is decided above,
+  # per current membership — this gate only screens out junk keys.
   defp known_value_key?(preview, key) do
     Enum.any?(preview.values, &(&1.key == key)) or
       Enum.any?(preview.hidden_values, &(&1.key == key))
+  end
+
+  defp active_value_key?(preview, key) do
+    Enum.any?(preview.values, &(&1.key == key))
   end
 
   defp parse_tab("metadata"), do: :metadata

@@ -174,6 +174,40 @@ defmodule PhoenixKitCatalogue.Web.ItemFormSetsTest do
       assert Enum.sort(selected) == Enum.sort([red.slug, blue.slug])
     end
 
+    test "a forged toggle cannot select an unselected archived value", %{
+      conn: conn,
+      item: item,
+      set: set,
+      red: red,
+      blue: blue
+    } do
+      {:ok, _} = Catalogue.attach_attribute_set(item.uuid, set.uuid)
+      :ok = Catalogue.set_attribute_set_selection(item.uuid, set.uuid, [blue.slug])
+
+      {:ok, _} =
+        PhoenixKitEntities.EntityData.update(red, %{status: "archived"}, activity_log: false)
+
+      {:ok, view, _html} = open(conn, item)
+
+      assert assigns(view).staged_selections[set.uuid] == MapSet.new([blue.slug])
+
+      # `known_value_key?/2` widens the gate to `values ++ hidden_values`
+      # so the hidden chip's × button can remove an already-selected
+      # archived value. A forged click on an UNselected archived value
+      # must not ride that same gate into adding it — invariant 2 says
+      # an archived value is never offered for a NEW pick, and the
+      # checkboxes already honor that; the write path must too.
+      render_click(view, "toggle_value_selection", %{"set" => set.uuid, "key" => red.slug})
+      assert assigns(view).staged_selections[set.uuid] == MapSet.new([blue.slug])
+
+      save(view)
+
+      assert %{sets: [%{selected: selected}]} =
+               Catalogue.resolve_attribute_sets_for_item(item.uuid)
+
+      assert selected == [blue.slug]
+    end
+
     test "a hidden selected value can be un-selected, and keeps its swatch thumb", %{
       conn: conn,
       item: item,
