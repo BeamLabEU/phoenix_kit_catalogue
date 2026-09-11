@@ -614,6 +614,39 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSetsTest do
         assert {:ok, restored} = Catalogue.restore_attribute_set(archived)
         assert restored.status == "published"
       end
+
+      test "archive_set refuses a uuid that isn't a catalogue set — never falls back to the caller's struct" do
+        # The bug this replaces: `get_set(set.uuid) || set` fell back to
+        # the caller's own struct whenever the uuid didn't resolve to a
+        # catalogue-owned set, and `do_archive_set/2` then flipped ITS
+        # status through the owner bypass regardless — a public API meant
+        # to touch only attribute sets could flip the status of ANY
+        # entity handed to it, managed by catalogue or not.
+        {:ok, foreign} =
+          PhoenixKitEntities.create_entity(%{
+            name: "some_unrelated_entity",
+            display_name: "Unrelated",
+            display_name_plural: "Unrelated",
+            created_by_uuid: Ecto.UUID.generate()
+          })
+
+        assert {:error, :not_found} = AttributeSets.archive_set(foreign)
+        assert PhoenixKitEntities.get_entity(foreign.uuid).status == "published"
+      end
+
+      test "restore_set refuses a uuid that isn't a catalogue set — never falls back to the caller's struct" do
+        {:ok, foreign} =
+          PhoenixKitEntities.create_entity(%{
+            name: "some_other_unrelated_entity",
+            display_name: "Unrelated",
+            display_name_plural: "Unrelated",
+            status: "archived",
+            created_by_uuid: Ecto.UUID.generate()
+          })
+
+        assert {:error, :not_found} = AttributeSets.restore_set(foreign)
+        assert PhoenixKitEntities.get_entity(foreign.uuid).status == "archived"
+      end
     end
 
     describe "managed_path (2026-09-11 direction, step 2)" do
