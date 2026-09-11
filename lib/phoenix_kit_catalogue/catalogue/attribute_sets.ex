@@ -368,6 +368,14 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
   disabled `entities` system refuses even the idempotent path — a
   writer never reports success while its own foundation is off.
 
+  Unlike `update_set/3`, a re-read that comes back `nil` (uuid deleted,
+  or simply not a catalogue-owned set) is `{:error, :not_found}`, never
+  a fallback to the caller's struct: this writer changes `:status`,
+  exactly what `Managed.validate_mutation/3`'s identity-rename guard
+  protects, and `on_behalf_of` rides the owner constant unconditionally
+  above — falling back to an unverified struct would carry someone
+  else's entity past that guard on the owner bypass alone.
+
   `on_behalf_of` rides the owner constant only, not the caller's
   `opts` — same as every other writer in this module. That means
   `:actor_uuid` is not forwarded to entities' own activity log, which
@@ -379,7 +387,10 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
   @spec archive_set(struct(), keyword()) :: {:ok, struct()} | {:error, term()}
   def archive_set(set, opts \\ []) do
     with :ok <- ensure_enabled() do
-      do_archive_set(get_set(set.uuid) || set, opts)
+      case get_set(set.uuid) do
+        nil -> {:error, :not_found}
+        set -> do_archive_set(set, opts)
+      end
     end
   end
 
@@ -406,7 +417,10 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
   @spec restore_set(struct(), keyword()) :: {:ok, struct()} | {:error, term()}
   def restore_set(set, opts \\ []) do
     with :ok <- ensure_enabled() do
-      do_restore_set(get_set(set.uuid) || set, opts)
+      case get_set(set.uuid) do
+        nil -> {:error, :not_found}
+        set -> do_restore_set(set, opts)
+      end
     end
   end
 
