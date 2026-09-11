@@ -1644,7 +1644,8 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
 
       resolved_sets =
         Map.new(set_uuids, fn set_uuid ->
-          {set_uuid, build_resolved_set(set_uuid, opts, values_by_set, hidden_by_set)}
+          {set_uuid,
+           build_resolved_set(get_set(set_uuid, opts), opts, values_by_set, hidden_by_set)}
         end)
 
       attachments
@@ -1726,14 +1727,16 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
     # Existence/contract checked BEFORE paying for the values/hidden
     # listing reads — a random or stale uuid must not pay for two full
     # `entity_data` reads just to learn `get_set/2` would have said
-    # nil. `build_resolved_set/4` re-checks both internally too (it is
-    # shared with `resolve_for_items/2`, whose batching works the other
-    # way around — see that function's doc); the duplicate check here
-    # is one cheap single-entity read, not the listing cost it guards.
+    # nil. The fetched `set` rides straight into `build_resolved_set/4`
+    # below instead of being re-fetched there: `get_entity/2` preloads
+    # `:creator` and re-reads the settings row, so a second lookup here
+    # would cost 3 queries for nothing. `resolve_for_items/2` has no
+    # `set` to hand in (many sets, one batched pass) and still fetches
+    # per set at its own call site — see that function's doc.
     with %{} = set <- get_set(set_uuid, opts),
          {:ok, _contract} <- contract(set) do
       build_resolved_set(
-        set_uuid,
+        set,
         opts,
         list_values_for([set_uuid], opts),
         list_hidden_values_for([set_uuid], opts)
@@ -1743,39 +1746,52 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
     end
   end
 
-  # Shared by `resolve_set/2` (one set, called with single-entry maps)
-  # and `resolve_for_items/2` (many sets, called with maps already
-  # batched across every distinct set in the read) — the values/hidden
-  # lookups happen in the CALLER so a listing pays for them once, not
-  # once per set (see `resolve_for_items/2`'s doc).
-  defp build_resolved_set(set_uuid, opts, values_by_set, hidden_by_set) do
-    with %{} = set <- get_set(set_uuid, opts),
-         {:ok, %{kind: kind, default: default}} <- contract(set) do
-      values = values_by_set |> Map.get(set_uuid, []) |> Enum.map(&value_shape/1)
-      hidden_values = hidden_by_set |> Map.get(set_uuid, []) |> Enum.map(&value_shape/1)
+  # Shared by `resolve_set/2` (one set, already fetched, passed straight
+  # in) and `resolve_for_items/2` (many sets, each fetched at its own
+  # call site since there's no single `set` to reuse) — the values/
+  # hidden lookups happen in the CALLER so a listing pays for them
+  # once, not once per set (see `resolve_for_items/2`'s doc).
+  defp build_resolved_set(nil, _opts, _values_by_set, _hidden_by_set), do: nil
 
-      fields =
-        Enum.map(set.fields_definition || [], fn f ->
-          %{key: f["key"], label: f["label"], type: f["type"]}
-        end)
+  defp build_resolved_set(set, _opts, values_by_set, hidden_by_set) do
+    case contract(set) do
+      {:ok, %{kind: kind, default: default}} ->
+        values = values_by_set |> Map.get(set.uuid, []) |> Enum.map(&value_shape/1)
 
-      %{
-        uuid: set_uuid,
-        key: set.name,
-        name: set.display_name,
-        status: set.status,
-        kind: kind,
-        default: default,
-        values: values,
-        hidden_values: hidden_values,
-        fields: fields
-      }
-    else
-      nil ->
-        nil
+        # A trashed/archived value can leave more than one row behind
+        # under the same slug (e.g. a live value plus stale trashed
+        # copies) — the live row in `values` stays authoritative; a
+        # hidden row sharing its key would otherwise sit right next to
+        # it in the pool every consumer builds as `values ++
+        # hidden_values`, and "last wins" map-building would let the
+        # hidden copy's stale label overwrite the live one's.
+        value_keys = MapSet.new(values, & &1.key)
+
+        hidden_values =
+          hidden_by_set
+          |> Map.get(set.uuid, [])
+          |> Enum.map(&value_shape/1)
+          |> Enum.reject(&(&1.key in value_keys))
+
+        fields =
+          Enum.map(set.fields_definition || [], fn f ->
+            %{key: f["key"], label: f["label"], type: f["type"]}
+          end)
+
+        %{
+          uuid: set.uuid,
+          key: set.name,
+          name: set.display_name,
+          status: set.status,
+          kind: kind,
+          default: default,
+          values: values,
+          hidden_values: hidden_values,
+          fields: fields
+        }
 
       {:error, :contract_broken} ->
-        Logger.warning("AttributeSets: contract broken for set #{inspect(set_uuid)} — skipped")
+        Logger.warning("AttributeSets: contract broken for set #{inspect(set.uuid)} — skipped")
         nil
     end
   end
@@ -1834,8 +1850,10 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
   the join row's reserved `data`) — the boss's two modes: ONE slug says
   "this exact object is Red", several say "this object comes in these
   options", empty clears the statement. Unknown slugs are dropped
-  against the set's current values; `{:error, :not_attached}` when the
-  item doesn't attach the set.
+  against the set's current AND hidden values (`valid_selection/2`,
+  §3c) — a value archived/trashed after being picked keeps its slug
+  here too, only a slug gone for good drops; `{:error, :not_attached}`
+  when the item doesn't attach the set.
   """
   @spec set_attachment_selection(Ecto.UUID.t(), Ecto.UUID.t(), [String.t()], keyword()) ::
           :ok | {:error, term()}
@@ -2098,10 +2116,21 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
   # slug with no matching value record would let `resolve_set/2` hand
   # every consumer a ghost default, exactly the guessed fallback the
   # contract doctrine forbids. nil (no default) is always valid.
+  #
+  # Checked against active AND hidden (archived/trashed) values, not
+  # just active ones — a hidden value is still a real record (§3c
+  # doctrine), and an active-only check would make ANY unrelated
+  # `update_set/3` (e.g. a plain rename) start failing with
+  # `:contract_broken` the moment the default happens to get archived.
   defp validate_default_slug(_set, nil), do: :ok
 
   defp validate_default_slug(set, slug) do
-    if slug in Enum.map(list_values(set), & &1.slug) do
+    live_slugs = list_values(set) |> Enum.map(& &1.slug)
+
+    hidden_slugs =
+      list_hidden_values_for([set.uuid]) |> Map.get(set.uuid, []) |> Enum.map(& &1.slug)
+
+    if slug in live_slugs or slug in hidden_slugs do
       :ok
     else
       {:error, :contract_broken}
