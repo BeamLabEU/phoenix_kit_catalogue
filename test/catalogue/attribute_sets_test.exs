@@ -448,6 +448,18 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSetsTest do
         assert AttributeSets.resolve_set(Ecto.UUID.generate()) == nil
       end
 
+      test "resolve_set of a missing uuid skips the values/hidden-values reads" do
+        # Existence is checked BEFORE paying for the values/hidden-values
+        # listing reads — a random uuid must cost zero `entity_data`
+        # queries, not the two full listing reads `get_set/2` would have
+        # made pointless anyway.
+        entity_data_queries =
+          query_texts(fn -> AttributeSets.resolve_set(Ecto.UUID.generate()) end)
+          |> Enum.count(&(&1 =~ "phoenix_kit_entity_data"))
+
+        assert entity_data_queries == 0
+      end
+
       test "orphan pruning clears attachments to vanished blueprints" do
         set = create_set!("Ikea handles")
         item = fixture_item(%{name: "Door"})
@@ -523,6 +535,50 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSetsTest do
         assert_activity_logged("attribute_set.restored", resource_uuid: set.uuid)
       end
 
+      test "restore_set re-reads before deciding idempotency, not the caller's stale struct" do
+        set = create_set!("Ikea stale restore")
+        # `stale` still claims status "published" after this point.
+        stale = set
+
+        {:ok, _} = AttributeSets.archive_set(set)
+
+        # The bug this replaces: the old idempotency clause pattern-matched
+        # on `stale.status` itself ("published" != "archived"), so it
+        # returned {:ok, stale} as a silent no-op — reporting "published"
+        # while the DB stayed "archived". Re-reading before deciding must
+        # see the real "archived" row and perform the write for real.
+        assert {:ok, restored} = AttributeSets.restore_set(stale)
+        assert restored.status == "published"
+        assert AttributeSets.get_set(set.uuid).status == "published"
+        assert_activity_logged("attribute_set.restored", resource_uuid: set.uuid)
+      end
+
+      test "archive_set re-reads before deciding idempotency, not the caller's stale struct" do
+        set = create_set!("Ikea stale archive")
+
+        {:ok, archived_stale} = AttributeSets.archive_set(set)
+        {:ok, _} = AttributeSets.restore_set(archived_stale)
+        # `archived_stale` still claims status "archived", though the set
+        # is "published" again in the DB.
+
+        assert {:ok, re_archived} = AttributeSets.archive_set(archived_stale)
+        assert re_archived.status == "archived"
+        assert AttributeSets.get_set(set.uuid).status == "archived"
+      end
+
+      test "archive_set/restore_set refuse :entities_disabled even on the idempotent path" do
+        set = create_set!("Ikea disabled idempotent")
+        {:ok, archived} = AttributeSets.archive_set(set)
+
+        PhoenixKit.Settings.update_setting("entities_enabled", "false")
+
+        # The bug this replaces: the idempotency clause matched BEFORE
+        # `ensure_enabled/0` ran, so an already-archived/restored set kept
+        # reporting success while the feature itself was off.
+        assert {:error, :entities_disabled} = AttributeSets.archive_set(archived)
+        assert {:error, :entities_disabled} = AttributeSets.restore_set(archived)
+      end
+
       test "list_sets/1 defaults to non-archived, :archived and :all opt in" do
         active = create_set!("Active set")
         archived = create_set!("Archived set")
@@ -578,6 +634,27 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSetsTest do
                  PhoenixKitEntities.update_entity(set, %{
                    settings: Map.put(set.settings, "managed_path", "/x")
                  })
+      end
+
+      test "a locked key touched alongside managed_path is still rejected" do
+        set = create_set!("Path guard set, locked key")
+
+        # The positive test above only proves a BRAND NEW top-level key
+        # passes — `touches_locked_keys?/2` allows any new key
+        # unconditionally, so that alone wouldn't tell placement apart
+        # from the key simply not being "kind"/"default_value_slug".
+        # This is the other half: a generic (non-owner) caller that
+        # rides the SAME settings write to also touch a real locked key
+        # (`settings["catalogue"]["kind"]`) must still be refused.
+        tampered_catalogue = Map.put(set.settings["catalogue"], "kind", "fixed")
+
+        new_settings =
+          set.settings
+          |> Map.put("managed_path", "/x")
+          |> Map.put("catalogue", tampered_catalogue)
+
+        assert {:error, :locked_key} =
+                 PhoenixKitEntities.update_entity(set, %{settings: new_settings})
       end
 
       test "backfill_managed_path stamps existing sets idempotently" do

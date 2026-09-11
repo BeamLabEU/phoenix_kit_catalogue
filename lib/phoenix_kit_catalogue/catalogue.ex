@@ -5803,6 +5803,10 @@ defmodule PhoenixKitCatalogue.Catalogue do
     to: AttributeSets,
     as: :list_values_for
 
+  defdelegate list_attribute_set_hidden_values_for(set_uuids, opts \\ []),
+    to: AttributeSets,
+    as: :list_hidden_values_for
+
   defdelegate get_attribute_set_value(set, value_uuid), to: AttributeSets, as: :get_value
 
   defdelegate update_attribute_set_value(set, value, attrs, opts \\ []),
