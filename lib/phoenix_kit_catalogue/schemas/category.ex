@@ -18,6 +18,10 @@ defmodule PhoenixKitCatalogue.Schemas.Category do
     field(:position, :integer, default: 0)
     field(:status, :string, default: "active")
     field(:data, :map, default: %{})
+    # Per-language public URL slug (lang -> value), projected for
+    # uniqueness by the `trg_cat_category_slugs` trigger into
+    # `phoenix_kit_cat_category_slugs`. See `PhoenixKitCatalogue.Catalogue.Slugs`.
+    field(:slug, :map, default: %{})
 
     belongs_to(:catalogue, PhoenixKitCatalogue.Schemas.Catalogue,
       foreign_key: :catalogue_uuid,
@@ -48,17 +52,32 @@ defmodule PhoenixKitCatalogue.Schemas.Category do
   end
 
   @required_fields [:name, :catalogue_uuid]
-  @optional_fields [:description, :position, :status, :data, :parent_uuid]
+  @optional_fields [:description, :position, :status, :data, :parent_uuid, :slug]
 
   def changeset(category, attrs) do
     category
     |> cast(attrs, @required_fields ++ @optional_fields)
+    |> update_change(:data, &drop_nil_data_values/1)
     |> validate_required(@required_fields)
     |> validate_length(:name, min: 1, max: 255)
     |> validate_inclusion(:status, @statuses)
     |> validate_not_self_parent()
     |> foreign_key_constraint(:parent_uuid)
+    |> unique_constraint(:slug,
+      name: "phoenix_kit_cat_category_slugs_pkey",
+      message: "is already taken in this language"
+    )
   end
+
+  # See the identical helper (and its full rationale) in
+  # `PhoenixKitCatalogue.Schemas.Item.changeset/2` — `nil` is never a
+  # legitimate stored value for a top-level `data` key; a caller that
+  # wants one gone (see `Attachments.inject_featured_image/2`) means
+  # "this key doesn't exist", not "JSON null".
+  defp drop_nil_data_values(data) when is_map(data),
+    do: Map.reject(data, fn {_k, v} -> is_nil(v) end)
+
+  defp drop_nil_data_values(other), do: other
 
   defp validate_not_self_parent(changeset) do
     uuid = get_field(changeset, :uuid)

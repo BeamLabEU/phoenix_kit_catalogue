@@ -32,32 +32,38 @@ PhoenixKitCatalogue.Test.LiveDatabaseGuard.check!(db_name)
 # the client first — a machine without libpq installed must fall through to
 # `:try_connect` (and from there to the exclusion notice below), not abort the
 # whole run before a single test loads.
-psql_listing =
-  if System.find_executable("psql"),
-    do: System.cmd("psql", ["-lqt"], stderr_to_stdout: true),
-    else: {"", 1}
-
+# The preflight ships in core, and this module's core floor (`~> 2.0`)
+# predates it — so it is used when the running core has it, and otherwise
+# this falls through to exactly the previous behaviour.
 db_check =
-  case psql_listing do
-    {output, 0} ->
-      exists =
-        output
-        |> String.split("\n")
-        |> Enum.any?(fn line ->
-          line |> String.split("|") |> List.first("") |> String.trim() == db_name
-        end)
+  if Code.ensure_loaded?(PhoenixKit.TestSupport.PostgresPreflight) do
+    # One classified connection attempt, with the repo's OWN credentials and
+    # transport, before anything starts the pool.
+    #
+    # This replaces a `psql -lqt` listing. That check asked the wrong question:
+    # it ran as the shell's user over a unix socket, so it reported "the
+    # database is there" and said nothing about whether the CONFIGURED role
+    # could reach it over TCP. When it could not, the answer arrived minutes
+    # later as a pool checkout timeout that reads like a flaky test.
+    case PhoenixKit.TestSupport.PostgresPreflight.check(
+           Application.get_env(:phoenix_kit_catalogue, PhoenixKitCatalogue.Test.Repo, [])
+         ) do
+      :ok ->
+        :exists
 
-      if exists, do: :exists, else: :not_found
-
-    _ ->
-      :try_connect
+      {:error, _reason, message} ->
+        IO.puts(:stderr, "\n" <> message)
+        :not_found
+    end
+  else
+    :try_connect
   end
 
 repo_available =
   if db_check == :not_found do
     IO.puts("""
-    \n⚠  Test database "#{db_name}" not found — integration tests will be excluded.
-       Run `mix test.setup` to create the test database.
+    \n⚠  Cannot reach test database "#{db_name}" — integration tests will be excluded.
+       The reason is printed above.
     """)
 
     false
@@ -80,6 +86,27 @@ repo_available =
       # anywhere.
       PhoenixKit.Migration.ensure_current(PhoenixKitCatalogue.Test.Repo, log: false)
 
+      # Then entities' chain, because attribute sets are entity blueprints
+      # read through `PhoenixKitEntities`' own schemas. Its V1 is adoptive, so
+      # this is a no-op today — it is here so it stays one. The moment
+      # entities ships a version that adds a column, a harness that never ran
+      # its chain fails on an `undefined_column` raised from a query this
+      # module did not write, nowhere near anything about entities.
+      for stmt <- PhoenixKitEntities.Migrations.up_statements("public") do
+        PhoenixKitCatalogue.Test.Repo.query!(stmt)
+      end
+
+      # This module's own V2 chain (slug column + projections + GIN
+      # index) — `up/1` uses `execute/1`, which only works inside an
+      # `Ecto.Migration` run, so replay the statements directly through
+      # the repo instead. All of them are idempotent, so re-running the
+      # full V1 ∪ V2 set on an install already at V2 is a no-op.
+      if PhoenixKitCatalogue.Migrations.migrated_version_runtime(prefix: "public") < 2 do
+        for stmt <- PhoenixKitCatalogue.Migrations.up_statements("public") do
+          PhoenixKitCatalogue.Test.Repo.query!(stmt)
+        end
+      end
+
       Ecto.Adapters.SQL.Sandbox.mode(PhoenixKitCatalogue.Test.Repo, :manual)
       true
     rescue
@@ -92,7 +119,7 @@ repo_available =
       e in [DBConnection.ConnectionError, Postgrex.Error] ->
         IO.puts("""
         \n⚠  Could not connect to test database — integration tests will be excluded.
-           Run `mix test.setup` to create the test database.
+           The reason is printed above.
            Error: #{Exception.message(e)}
         """)
 
@@ -101,7 +128,7 @@ repo_available =
       :exit, reason ->
         IO.puts("""
         \n⚠  Could not connect to test database — integration tests will be excluded.
-           Run `mix test.setup` to create the test database.
+           The reason is printed above.
            Error: #{inspect(reason)}
         """)
 

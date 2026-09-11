@@ -175,7 +175,14 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
     changeset =
       socket.assigns.catalogue
       |> Catalogue.change_catalogue(catalogue_params)
-      |> Map.put(:action, socket.assigns.changeset.action)
+      # `:validate`, not whatever the previous changeset carried. The seed
+      # changeset comes from `Catalogue.change_catalogue/1` in mount, whose
+      # action is nil — and `to_form/1` drops errors entirely on a nil-action
+      # changeset. Copying it forward meant EVERY inline validation error on
+      # this form was invisible until the first failed save handed back a repo
+      # changeset carrying :insert/:update. Every sibling form here already
+      # hardcodes :validate.
+      |> Map.put(:action, :validate)
 
     {:noreply, assign_changeset(socket, changeset)}
   end
@@ -206,6 +213,9 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
 
   def handle_event("cancel_upload", %{"ref" => ref}, socket),
     do: Attachments.cancel_attachment_upload(socket, ref)
+
+  def handle_event("reorder_files", %{"ordered_ids" => ids}, socket),
+    do: {:noreply, Attachments.handle_reorder_files(socket, ids)}
 
   def handle_event("remove_file", %{"uuid" => uuid}, socket),
     do: Attachments.trash_file(socket, uuid)
@@ -354,7 +364,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
       current_path={assigns[:url_path] || Paths.index()}
       current_locale={assigns[:current_locale]}
     >
-      <div class="flex flex-col mx-auto max-w-2xl px-4 py-8 gap-6">
+      <div class="container flex flex-col mx-auto px-4 py-6 gap-6">
       <%!-- Media selector — folder-scoped featured-image picker.
            Reconfigured per open; the Files tab below hosts the
            inline dropzone for everything else. --%>
@@ -410,7 +420,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
         </button>
       </div>
 
-      <.form for={@form} action="#" phx-change="validate" phx-submit="save">
+      <.form for={@form} id="catalogue-form" action="#" phx-change="validate" phx-submit="save">
         <%!-- Details tab — name, description, kind, pricing, status --%>
         <div class={"card bg-base-100 shadow-lg #{if @current_tab != :details, do: "hidden"}"}>
           <%!-- Bundled tabs + AI row (phoenix_kit_ai's canonical placement;

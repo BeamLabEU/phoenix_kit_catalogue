@@ -208,9 +208,9 @@ defmodule PhoenixKitCatalogueTest do
   describe "version/0" do
     test "stays in sync with mix.exs @version" do
       # Don't pin a literal here (it goes stale every release) and don't accept
-      # any shape (a regex let the runtime `version/0` drift to 0.2.0 while the
-      # package was 0.8.0). Assert equality with the mix.exs version — the single
-      # source of truth — so the three-places sync rule (AGENTS.md) is enforced.
+      # any shape (a regex once let the runtime `version/0` drift a whole minor
+      # behind the package). Assert equality with the mix.exs version — the
+      # single source of truth `version/0` reads at compile time.
       assert PhoenixKitCatalogue.version() == Mix.Project.config()[:version]
     end
   end
@@ -234,7 +234,8 @@ defmodule PhoenixKitCatalogueTest do
       assert PhoenixKitCatalogue.children() == [
                PhoenixKitCatalogue.Catalogue.AttributeSets,
                PhoenixKitCatalogue.Catalogue.AttributeSets.OrphanPruner,
-               PhoenixKitCatalogue.Catalogue.SupplierFields
+               PhoenixKitCatalogue.Catalogue.SupplierFields,
+               PhoenixKitCatalogue.Workers.TranslationSweepWorker
              ]
     end
 

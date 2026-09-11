@@ -114,14 +114,17 @@ defmodule PhoenixKitCatalogue.AttachmentsTest do
 
   describe "inject_attachment_data/2 — folder + featured image threading" do
     test "no folder_uuid + no featured_image still ensures data key exists" do
-      # The current implementation always passes through
-      # `inject_featured_image(params, nil)` which writes an empty
-      # data map. Pin the behaviour explicitly — non-data keys are
-      # preserved untouched.
+      # `inject_featured_image/2` and `inject_media_order/2` both run
+      # unconditionally and, with nothing set, write an explicit `nil`
+      # "clear this" marker rather than omitting the key — the signal
+      # `Catalogue.update_item/3`'s `:data_owned_keys` splicing (and the
+      # Item/Category changesets, as a backstop) read as "drop this key",
+      # not "leave it alone". Pin the behaviour explicitly — non-data
+      # keys are preserved untouched.
       socket = build_fake_socket(folder: nil, featured: nil)
       result = Attachments.inject_attachment_data(%{"name" => "X"}, socket)
       assert result["name"] == "X"
-      assert result["data"] == %{}
+      assert result["data"] == %{"featured_image_uuid" => nil, "media_order" => nil}
     end
 
     test "folder_uuid lands in params['data']['files_folder_uuid']" do
@@ -170,6 +173,71 @@ defmodule PhoenixKitCatalogue.AttachmentsTest do
 
       assert get_in(result, ["data", "files_folder_uuid"]) == folder
       assert get_in(result, ["data", "featured_image_uuid"]) == featured
+    end
+  end
+
+  describe "media order (boss, 2026-08-31: reorder images after adding)" do
+    defp file_map(uuid), do: %{uuid: uuid}
+
+    test "apply_media_order/2 sorts by the saved order, unknowns keep tail order" do
+      [a, b, c, d] = for _ <- 1..4, do: Ecto.UUID.generate()
+      files = [file_map(a), file_map(b), file_map(c), file_map(d)]
+
+      # c and a saved first; b/d unknown to the order keep their
+      # relative (inserted_at) positions after them.
+      ordered = Attachments.apply_media_order(files, [c, a])
+      assert Enum.map(ordered, & &1.uuid) == [c, a, b, d]
+
+      # nil/empty order is the identity — legacy records unchanged.
+      assert Attachments.apply_media_order(files, []) == files
+      assert Attachments.apply_media_order(files, nil) == files
+    end
+
+    test "handle_reorder_files/2 reorders the grid and drops crafted ids" do
+      [a, b, c] = for _ <- 1..3, do: Ecto.UUID.generate()
+
+      socket = %Phoenix.LiveView.Socket{
+        assigns: %{
+          __changed__: %{},
+          files_state: %{files: [file_map(a), file_map(b), file_map(c)]},
+          media_order: []
+        }
+      }
+
+      out = Attachments.handle_reorder_files(socket, [c, Ecto.UUID.generate(), a])
+
+      # Crafted unknown id vanished; the file the payload missed (b)
+      # kept its place at the tail — nothing lost, nothing invented.
+      assert Enum.map(out.assigns.files_state.files, & &1.uuid) == [c, a, b]
+      assert out.assigns.media_order == [c, a, b]
+
+      # A garbage payload is a no-op.
+      assert Attachments.handle_reorder_files(socket, "junk") == socket
+    end
+
+    test "inject_attachment_data/2 persists the grid order into data['media_order']" do
+      [a, b] = for _ <- 1..2, do: Ecto.UUID.generate()
+
+      socket = %Phoenix.LiveView.Socket{
+        assigns: %{
+          files_folder_uuid: nil,
+          featured_image_uuid: nil,
+          files_state: %{files: [file_map(b), file_map(a)]}
+        }
+      }
+
+      result = Attachments.inject_attachment_data(%{"name" => "X"}, socket)
+      assert get_in(result, ["data", "media_order"]) == [b, a]
+
+      # No files: a stale saved order is cleared, like the featured
+      # pointer — signaled as an explicit `nil` marker (not an absent
+      # key; see `Catalogue.update_item/3`'s `:data_owned_keys` doc for
+      # why the two are not interchangeable).
+      empty_socket = put_in(socket.assigns.files_state, %{files: []})
+      params = %{"name" => "X", "data" => %{"media_order" => ["stale"]}}
+      result = Attachments.inject_attachment_data(params, empty_socket)
+      assert Map.has_key?(result["data"], "media_order")
+      assert result["data"]["media_order"] == nil
     end
   end
 

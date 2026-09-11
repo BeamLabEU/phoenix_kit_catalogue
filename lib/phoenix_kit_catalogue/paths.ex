@@ -68,6 +68,11 @@ defmodule PhoenixKitCatalogue.Paths do
 
   def events, do: Routes.path("#{@base}/events")
 
+  # ── Translations ─────────────────────────────────────────────────
+
+  @spec translations() :: String.t()
+  def translations, do: Routes.path("#{@base}/translations")
+
   # ── Manufacturers ────────────────────────────────────────────────
 
   # ── Suppliers ────────────────────────────────────────────────────
@@ -79,9 +84,6 @@ defmodule PhoenixKitCatalogue.Paths do
   def attribute_group_edit(uuid), do: Routes.path("#{@base}/attributes/#{uuid}/edit")
 
   # ── Attribute sets (2026-08-18 rework) ───────────────────────────
-
-  def attribute_set_new, do: Routes.path("#{@base}/attributes/sets/new")
-  def attribute_set_edit(uuid), do: Routes.path("#{@base}/attributes/sets/#{uuid}/edit")
 
   # ── Categories ───────────────────────────────────────────────────
 

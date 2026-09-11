@@ -618,6 +618,80 @@ defmodule PhoenixKitCatalogue.CatalogueTest do
       assert "would create a cycle" in errors_on(changeset).parent_uuid
     end
 
+    test "update_category/3 :data_owned_keys — without the option, data is a full replace (unchanged default behavior)" do
+      cat = create_catalogue()
+      category = create_category(cat)
+      {:ok, category} = Catalogue.update_category(category, %{data: %{"keep" => "me"}})
+
+      {:ok, updated} = Catalogue.update_category(category, %{data: %{"other" => "value"}})
+
+      refute Map.has_key?(updated.data, "keep")
+      assert updated.data["other"] == "value"
+    end
+
+    test "update_category/3 :data_owned_keys — an owned key is written from the caller's attrs" do
+      cat = create_catalogue()
+      category = create_category(cat)
+
+      assert {:ok, updated} =
+               Catalogue.update_category(category, %{data: %{"en" => %{"_name" => "Hi"}}},
+                 data_owned_keys: ["en"]
+               )
+
+      assert updated.data["en"]["_name"] == "Hi"
+    end
+
+    test "update_category/3 :data_owned_keys — an unowned key changed by someone else after the caller's snapshot survives the save" do
+      cat = create_catalogue()
+      category = create_category(cat)
+      {:ok, category} = Catalogue.update_category(category, %{data: %{"fingerprint" => "old"}})
+      stale_snapshot = category.data
+
+      {:ok, category} =
+        Catalogue.update_category(category, %{
+          data: Map.put(category.data, "fingerprint", "fresh")
+        })
+
+      assert {:ok, updated} =
+               Catalogue.update_category(
+                 category,
+                 %{data: Map.put(stale_snapshot, "en", %{"_name" => "Hi"})},
+                 data_owned_keys: ["en"]
+               )
+
+      assert updated.data["fingerprint"] == "fresh"
+      assert updated.data["en"]["_name"] == "Hi"
+    end
+
+    test "update_category/3 :data_owned_keys — an owned key absent from the caller's attrs is left untouched, not deleted" do
+      cat = create_catalogue()
+      category = create_category(cat)
+
+      {:ok, category} =
+        Catalogue.update_category(category, %{data: %{"fake" => %{"note" => "keep"}}})
+
+      assert {:ok, updated} =
+               Catalogue.update_category(category, %{data: %{}}, data_owned_keys: ["fake"])
+
+      assert updated.data["fake"] == %{"note" => "keep"}
+    end
+
+    test "update_category/3 :data_owned_keys — still rejects a bad parent while owning a data key (validate_parent_in_same_catalogue still runs)" do
+      cat_a = create_catalogue(%{name: "A"})
+      cat_b = create_catalogue(%{name: "B"})
+      child = create_category(cat_a, %{name: "Child"})
+      foreign_parent = create_category(cat_b, %{name: "Foreign"})
+
+      assert {:error, changeset} =
+               Catalogue.update_category(
+                 child,
+                 %{parent_uuid: foreign_parent.uuid, data: %{"en" => %{"_name" => "Hi"}}},
+                 data_owned_keys: ["en"]
+               )
+
+      assert "must belong to the same catalogue" in errors_on(changeset).parent_uuid
+    end
+
     test "next_category_position/2 scopes by (catalogue, parent)" do
       cat = create_catalogue()
       parent = create_category(cat, %{name: "Parent", position: 0})
@@ -810,6 +884,18 @@ defmodule PhoenixKitCatalogue.CatalogueTest do
       assert Catalogue.get_category(child.uuid).parent_uuid == root.uuid
       assert Catalogue.get_category(child.uuid).catalogue_uuid == cat_dst.uuid
       assert Catalogue.get_item(item.uuid).catalogue_uuid == cat_dst.uuid
+    end
+  end
+
+  describe "search_items/2 query trimming" do
+    test "a trailing space still matches (query is trimmed at the base)" do
+      # Several input layers (BrowseState among them) pass the raw
+      # string through — the shared base trims it (Max, 2026-08-28).
+      item = create_item(%{name: "Teak Bench"})
+
+      results = Catalogue.search_items("Teak Bench ")
+      assert Enum.any?(results, &(&1.uuid == item.uuid))
+      assert Catalogue.count_search_items(" Teak ") >= 1
     end
   end
 
@@ -1112,6 +1198,109 @@ defmodule PhoenixKitCatalogue.CatalogueTest do
       assert {:ok, updated} = Catalogue.update_item(item, form_params)
       assert updated.catalogue_uuid == cat_b.uuid
       assert updated.category_uuid == category_b.uuid
+    end
+
+    test "update_item/3 :data_owned_keys — without the option, data is a full replace (unchanged default behavior)" do
+      item = create_item()
+      {:ok, item} = Catalogue.update_item(item, %{data: %{"keep" => "me"}})
+
+      {:ok, updated} = Catalogue.update_item(item, %{data: %{"other" => "value"}})
+
+      refute Map.has_key?(updated.data, "keep")
+      assert updated.data["other"] == "value"
+    end
+
+    test "update_item/3 :data_owned_keys — an owned key is written from the caller's attrs" do
+      item = create_item()
+
+      assert {:ok, updated} =
+               Catalogue.update_item(item, %{data: %{"en" => %{"_name" => "Hi"}}},
+                 data_owned_keys: ["en"]
+               )
+
+      assert updated.data["en"]["_name"] == "Hi"
+    end
+
+    test "update_item/3 :data_owned_keys — an unowned key changed by someone else after the caller's snapshot survives the save" do
+      item = create_item()
+      {:ok, item} = Catalogue.update_item(item, %{data: %{"fingerprint" => "old"}})
+      # The caller's own snapshot, taken before the concurrent write below.
+      stale_snapshot = item.data
+
+      # A concurrent writer (a translation worker, a Shopify sync) lands
+      # on the row after the caller's snapshot was taken.
+      {:ok, item} =
+        Catalogue.update_item(item, %{data: Map.put(item.data, "fingerprint", "fresh")})
+
+      # The caller now saves from its STALE snapshot, owning only "en" —
+      # "fingerprint" must survive untouched, not revert to "old".
+      assert {:ok, updated} =
+               Catalogue.update_item(
+                 item,
+                 %{data: Map.put(stale_snapshot, "en", %{"_name" => "Hi"})},
+                 data_owned_keys: ["en"]
+               )
+
+      assert updated.data["fingerprint"] == "fresh"
+      assert updated.data["en"]["_name"] == "Hi"
+    end
+
+    test "update_item/3 :data_owned_keys — an owned key absent from the caller's attrs is left untouched, not deleted" do
+      item = create_item()
+      {:ok, item} = Catalogue.update_item(item, %{data: %{"fake" => %{"note" => "keep me"}}})
+
+      assert {:ok, updated} =
+               Catalogue.update_item(item, %{data: %{}}, data_owned_keys: ["fake"])
+
+      assert updated.data["fake"] == %{"note" => "keep me"}
+    end
+
+    test "update_item/3 :data_owned_keys — an unowned key absent from the caller's attrs is left alone" do
+      item = create_item()
+      {:ok, item} = Catalogue.update_item(item, %{data: %{"untouched" => "value"}})
+
+      assert {:ok, updated} =
+               Catalogue.update_item(item, %{data: %{}}, data_owned_keys: ["fake"])
+
+      assert updated.data["untouched"] == "value"
+    end
+
+    test "update_item/3 :data_owned_keys — works with string-keyed attrs (form params shape)" do
+      item = create_item()
+      {:ok, item} = Catalogue.update_item(item, %{data: %{"keep" => "value"}})
+
+      assert {:ok, updated} =
+               Catalogue.update_item(item, %{"data" => %{"en" => %{"_name" => "Hi"}}},
+                 data_owned_keys: ["en"]
+               )
+
+      assert updated.data["en"]["_name"] == "Hi"
+      assert updated.data["keep"] == "value"
+    end
+
+    test "update_item/3 :data_owned_keys — multiple owned keys are each spliced in independently" do
+      item = create_item()
+
+      {:ok, item} =
+        Catalogue.update_item(item, %{
+          data: %{
+            "en" => %{"_name" => "Old"},
+            "es" => %{"_name" => "Viejo"},
+            "meta" => %{"color" => "red"}
+          }
+        })
+
+      assert {:ok, updated} =
+               Catalogue.update_item(
+                 item,
+                 %{data: %{"en" => %{"_name" => "New"}, "es" => %{"_name" => "Viejo"}}},
+                 data_owned_keys: ["en", "es"]
+               )
+
+      assert updated.data["en"]["_name"] == "New"
+      assert updated.data["es"]["_name"] == "Viejo"
+      # "meta" was never owned, never mentioned — survives untouched.
+      assert updated.data["meta"] == %{"color" => "red"}
     end
 
     test "create_item/1 derives catalogue_uuid from string-keyed form params" do
@@ -2523,6 +2712,27 @@ defmodule PhoenixKitCatalogue.CatalogueTest do
       assert Catalogue.item_count_for_category(cat_b.uuid) == 1
     end
 
+    # The "include subcategory items" toggle is a SEARCH refinement (Max,
+    # 2026-08-30); the BROWSE list and the count under a category header
+    # stay on the level the user is standing on. Pinned so a future
+    # subtree option cannot silently widen the browse path again.
+    test "the level listing and count stay direct-only, never the subtree" do
+      cat = create_catalogue()
+      parent = create_category(cat, %{name: "Parent"})
+      child = create_category(cat, %{name: "Child", parent_uuid: parent.uuid})
+
+      create_item(%{name: "Direct", category_uuid: parent.uuid})
+      create_item(%{name: "Nested", category_uuid: child.uuid})
+
+      assert Catalogue.item_count_for_category(parent.uuid) == 1
+
+      assert [%{name: "Direct"}] =
+               Catalogue.list_items_for_category_paged(parent.uuid)
+
+      # The subtree question belongs to search, and there it still works.
+      assert Catalogue.count_search_items("", category_uuids: [parent.uuid]) == 2
+    end
+
     test "item_counts_by_category_for_catalogue/2 returns a grouped map" do
       cat = create_catalogue()
       cat_a = create_category(cat, %{name: "A"})
@@ -2695,6 +2905,15 @@ defmodule PhoenixKitCatalogue.CatalogueTest do
     # second-precision and UUIDv7 is random within a millisecond, so
     # same-instant fixtures have no deterministic creation order — back-
     # date them so `:created_*` reorders are pinnable.
+    defp stamp_item(item, %DateTime{} = ts) do
+      Repo.update_all(
+        from(i in PhoenixKitCatalogue.Schemas.Item, where: i.uuid == ^item.uuid),
+        set: [inserted_at: DateTime.truncate(ts, :second)]
+      )
+
+      item
+    end
+
     defp backdate_item(item, seconds_ago) do
       ts = DateTime.utc_now() |> DateTime.add(-seconds_ago, :second) |> DateTime.truncate(:second)
 
@@ -2756,6 +2975,39 @@ defmodule PhoenixKitCatalogue.CatalogueTest do
 
       assert item_positions(ctx.category.uuid) == [{"Third", 1}, {"Second", 2}, {"First", 3}]
       assert first.uuid
+    end
+
+    test ":created_* order chronologically, not structurally", ctx do
+      # `Enum.sort_by/2`'s default term order compares DateTime structs
+      # field-alphabetically — day before month — so a bare
+      # `& &1.inserted_at` key put Jan 2nd AFTER Feb 1st. Seconds-apart
+      # fixtures cannot see it; the distinguishing shape is two dates
+      # straddling a month boundary with inverted days.
+      newer = create_item(%{name: "Newer", category_uuid: ctx.category.uuid})
+      older = create_item(%{name: "Older", category_uuid: ctx.category.uuid})
+
+      stamp_item(newer, ~U[2026-02-01 00:00:00Z])
+      stamp_item(older, ~U[2026-01-02 00:00:00Z])
+
+      assert :ok =
+               Catalogue.reorder_items_by(
+                 ctx.catalogue.uuid,
+                 ctx.category.uuid,
+                 :created_asc,
+                 :all
+               )
+
+      assert item_positions(ctx.category.uuid) == [{"Older", 1}, {"Newer", 2}]
+
+      assert :ok =
+               Catalogue.reorder_items_by(
+                 ctx.catalogue.uuid,
+                 ctx.category.uuid,
+                 :created_desc,
+                 :all
+               )
+
+      assert item_positions(ctx.category.uuid) == [{"Newer", 1}, {"Older", 2}]
     end
 
     test ":all + :reverse flips the current position order", ctx do
@@ -2966,30 +3218,36 @@ defmodule PhoenixKitCatalogue.CatalogueTest do
     end
 
     test "localize/2 swaps names for the locale and falls back to primary" do
+      # "de" deliberately does NOT share a base with this test env's
+      # default primary language ("en-US") — see
+      # translations.ex's `primary_locale?/2`. A viewer locale that
+      # resolves to the record's OWN primary now reads the column
+      # first, so this test needs a genuinely secondary locale to
+      # exercise the override path it's named for.
       cat = create_catalogue(%{name: "Kataloog"})
 
       {:ok, cat} =
-        Catalogue.set_translation(cat, "en", %{"_name" => "Catalogue EN"}, fn c, a ->
+        Catalogue.set_translation(cat, "de", %{"_name" => "Catalogue DE"}, fn c, a ->
           Catalogue.update_catalogue(c, a)
         end)
 
       plain = create_catalogue(%{name: "Plain"})
 
-      [localized, untouched] = Catalogue.localize([cat, plain], "en")
-      assert localized.name == "Catalogue EN"
+      [localized, untouched] = Catalogue.localize([cat, plain], "de")
+      assert localized.name == "Catalogue DE"
       assert untouched.name == "Plain"
 
       # nil locale and records without :data pass through unchanged.
       assert Catalogue.localize([cat], nil) == [cat]
-      assert Catalogue.localize_one(%{no_data: true}, "en") == %{no_data: true}
+      assert Catalogue.localize_one(%{no_data: true}, "de") == %{no_data: true}
 
       # Blank overrides fall back to the primary column.
       {:ok, blank} =
-        Catalogue.set_translation(plain, "en", %{"_name" => "  "}, fn c, a ->
+        Catalogue.set_translation(plain, "de", %{"_name" => "  "}, fn c, a ->
           Catalogue.update_catalogue(c, a)
         end)
 
-      assert Catalogue.localize_one(blank, "en").name == "Plain"
+      assert Catalogue.localize_one(blank, "de").name == "Plain"
     end
 
     test "get_translation/2 returns empty map for missing language" do

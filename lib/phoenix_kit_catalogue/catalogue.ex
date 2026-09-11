@@ -70,11 +70,28 @@ defmodule PhoenixKitCatalogue.Catalogue do
   }
 
   alias PhoenixKit.Utils.Values
-  alias PhoenixKitCatalogue.Schemas.{Catalogue, Category, Folder, Item}
+  alias PhoenixKitCatalogue.Schemas.{Catalogue, Category, Folder, Item, ItemAttributeSet}
 
   require Logger
 
+  # Slug projection tables read by `get_item_by_slug/3` / `get_category_by_slug/3`
+  # (owned by `PhoenixKitCatalogue.Catalogue.Slugs`'s generation rule, kept in
+  # sync by the `trg_cat_item_slugs` / `trg_cat_category_slugs` triggers).
+  @item_slugs_table "phoenix_kit_cat_item_slugs"
+  @category_slugs_table "phoenix_kit_cat_category_slugs"
+
   defp repo, do: PhoenixKit.RepoHelper.repo()
+
+  # Same source of truth as `PhoenixKit.SchemaPrefix` (`config :phoenix_kit,
+  # prefix: ...`), for the one place in this module that reaches the slug
+  # projection tables with raw SQL instead of a schema-backed Ecto query —
+  # a named-schema install must not silently query `public`.
+  defp qualified(table) do
+    case Application.get_env(:phoenix_kit, :prefix) do
+      prefix when is_binary(prefix) and prefix not in ["", "public"] -> "#{prefix}.#{table}"
+      _ -> table
+    end
+  end
 
   # `log_activity/1` was extracted to `PhoenixKitCatalogue.Catalogue.ActivityLog`
   # so the per-section submodules can share it without circular imports.
@@ -954,6 +971,12 @@ defmodule PhoenixKitCatalogue.Catalogue do
   items starting at `:offset`. Preloads `:catalogue` and `:manufacturer`
   so the table cell renderers can access them without extra queries.
 
+  DIRECT items only — never the subtree. The detail page's "include
+  subcategory items" toggle is a SEARCH refinement (Max, 2026-08-30:
+  it "should only do something when searching"); the browse list always
+  shows the level you are standing on. Widening a subtree search is
+  `Catalogue.search_items_in_category/3`'s `:include_descendants`.
+
   ## Options
 
     * `:mode` — `:active` (default, excludes deleted items) or `:deleted`
@@ -972,6 +995,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
     query =
       from(i in Item,
+        as: :item,
         where: i.category_uuid == ^category_uuid,
         offset: ^offset,
         limit: ^limit,
@@ -979,10 +1003,89 @@ defmodule PhoenixKitCatalogue.Catalogue do
       )
 
     query
+    |> filter_by_attribute_values(opts)
     |> apply_item_status_filter(opts, mode)
     |> apply_item_order(opts)
     |> repo().all()
     |> Manufacturers.hydrate()
+  end
+
+  @doc """
+  Lists a page of a catalogue's items ACROSS all its categories — the
+  detail page's Items mode since category drilling was removed (Max,
+  2026-08-29): with no level to stand in, the mode lists the whole
+  catalogue. Same options as `list_items_for_category_paged/2`. The
+  default (position) order is the DOCUMENT order — category position,
+  then item position — the same walk the export uses.
+  """
+  @spec list_catalogue_items_paged(Ecto.UUID.t(), keyword()) :: [Item.t()]
+  def list_catalogue_items_paged(catalogue_uuid, opts \\ []) do
+    mode = Keyword.get(opts, :mode, :active)
+    offset = Keyword.get(opts, :offset, 0)
+    limit = Keyword.get(opts, :limit, 50)
+    preloads = Helpers.merge_preloads([:catalogue, category: :catalogue], opts)
+
+    query =
+      from(i in Item,
+        as: :item,
+        left_join: c in Category,
+        on: i.category_uuid == c.uuid,
+        where: i.catalogue_uuid == ^catalogue_uuid,
+        offset: ^offset,
+        limit: ^limit,
+        preload: ^preloads
+      )
+
+    query
+    |> filter_by_attribute_values(opts)
+    |> apply_item_status_filter(opts, mode)
+    |> apply_catalogue_item_order(opts)
+    |> repo().all()
+    |> Manufacturers.hydrate()
+  end
+
+  @doc "Total item count for `list_catalogue_items_paged/2`'s filters."
+  @spec count_items_for_catalogue(Ecto.UUID.t(), keyword()) :: non_neg_integer()
+  def count_items_for_catalogue(catalogue_uuid, opts \\ []) do
+    mode = Keyword.get(opts, :mode, :active)
+
+    from(i in Item, as: :item, where: i.catalogue_uuid == ^catalogue_uuid)
+    |> filter_by_attribute_values(opts)
+    |> apply_item_status_filter(opts, mode)
+    |> repo().aggregate(:count)
+  end
+
+  @doc "Per-status item counts for a whole catalogue: `%{\"active\" => n, …}`."
+  @spec item_status_counts_for_catalogue(Ecto.UUID.t()) :: %{
+          optional(String.t()) => non_neg_integer()
+        }
+  def item_status_counts_for_catalogue(catalogue_uuid) do
+    from(i in Item,
+      where: i.catalogue_uuid == ^catalogue_uuid,
+      group_by: i.status,
+      select: {i.status, count(i.uuid)}
+    )
+    |> repo().all()
+    |> Map.new()
+  end
+
+  # Position on a catalogue-wide list means the DOCUMENT order (category
+  # position, then item position) — bare `i.position` interleaves
+  # per-category sequences into noise. Every other sort defers to the
+  # shared whitelist.
+  defp apply_catalogue_item_order(query, opts) do
+    case Keyword.get(opts, :sort_by, :position) do
+      :position ->
+        order_by(query, [i, c],
+          asc_nulls_last: c.position,
+          asc: i.position,
+          asc: i.name,
+          asc: i.uuid
+        )
+
+      _ ->
+        apply_item_order(query, opts)
+    end
   end
 
   # Status filter shared by the item list/count queries. `:status` (an
@@ -1027,6 +1130,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
     query =
       from(i in Item,
+        as: :item,
         where: i.catalogue_uuid == ^catalogue_uuid and is_nil(i.category_uuid),
         offset: ^offset,
         limit: ^limit,
@@ -1034,6 +1138,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
       )
 
     query
+    |> filter_by_attribute_values(opts)
     |> apply_item_status_filter(opts, mode)
     |> apply_item_order(opts)
     |> repo().all()
@@ -1075,10 +1180,52 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
     query =
       from(i in Item,
+        as: :item,
         where: i.catalogue_uuid == ^catalogue_uuid and is_nil(i.category_uuid)
       )
 
-    query |> apply_item_status_filter(opts, mode) |> repo().aggregate(:count)
+    query
+    |> filter_by_attribute_values(opts)
+    |> apply_item_status_filter(opts, mode)
+    |> repo().aggregate(:count)
+  end
+
+  @doc """
+  Narrows an item query to the items carrying ALL of the given attribute
+  VALUE slugs — "the blue doors", and with two slugs "the blue oak doors"
+  (Max, 2026-08-28).
+
+  The slugs are what an item's attachment row stores in
+  `data["selected_value_slugs"]`, so this reads the selection the item
+  form writes. AND semantics: each slug adds its own EXISTS, because
+  narrowing is what a filter is for — an OR would widen the list as you
+  pick more.
+
+  Pass `value_slugs: [...]` to the paged listings and the counts; an
+  empty list is no filter.
+  """
+  @spec filter_by_attribute_values(Ecto.Query.t(), keyword()) :: Ecto.Query.t()
+  def filter_by_attribute_values(query, opts) do
+    opts
+    |> Keyword.get(:value_slugs, [])
+    |> List.wrap()
+    |> Enum.filter(&(is_binary(&1) and &1 != ""))
+    |> Enum.uniq()
+    |> Enum.reduce(query, fn slug, acc ->
+      # `?` is the JSONB "key/element exists" operator; doubled here
+      # because Ecto reads a single one as a parameter placeholder.
+      from(i in acc,
+        where:
+          exists(
+            from(a in ItemAttributeSet,
+              where: a.item_uuid == parent_as(:item).uuid,
+              where: fragment("jsonb_typeof(? -> 'selected_value_slugs') = 'array'", a.data),
+              where: fragment("? -> 'selected_value_slugs' \\? ?", a.data, ^slug),
+              select: 1
+            )
+          )
+      )
+    end)
   end
 
   @doc """
@@ -1088,6 +1235,10 @@ defmodule PhoenixKitCatalogue.Catalogue do
   category header (the number in `"Category Name (N items)"`) without
   loading the items themselves.
 
+  Counts the DIRECT items only, matching `list_items_for_category_paged/2`
+  — the number under a header has to be the number of rows the header
+  opens onto.
+
   ## Options
 
     * `:mode` — `:active` (default) or `:deleted`
@@ -1096,9 +1247,12 @@ defmodule PhoenixKitCatalogue.Catalogue do
   def item_count_for_category(category_uuid, opts \\ []) do
     mode = Keyword.get(opts, :mode, :active)
 
-    query = from(i in Item, where: i.category_uuid == ^category_uuid)
+    query = from(i in Item, as: :item, where: i.category_uuid == ^category_uuid)
 
-    query |> apply_item_status_filter(opts, mode) |> repo().aggregate(:count)
+    query
+    |> filter_by_attribute_values(opts)
+    |> apply_item_status_filter(opts, mode)
+    |> repo().aggregate(:count)
   end
 
   @doc """
@@ -1331,6 +1485,25 @@ defmodule PhoenixKitCatalogue.Catalogue do
   def get_category!(uuid), do: repo().get!(Category, uuid)
 
   @doc """
+  Fetches a category by its per-language `slug`.
+
+  Tries an exact match in `lang`'s base language first (`"en-US"` folds
+  to `"en"`), falling back to any language when `opts[:any_lang]` is
+  `true`. The result is `{:error, :not_found}` on a miss; a hit is a
+  2-tuple by default, or — whenever `opts[:any_lang]` is `true`, even
+  when the base language itself matched — a 3-tuple carrying the
+  language the slug actually matched in, so a caller that opted into
+  the fallback can always destructure the same shape.
+  """
+  @spec get_category_by_slug(String.t(), String.t(), keyword()) ::
+          {:ok, Category.t()} | {:ok, Category.t(), String.t()} | {:error, :not_found}
+  def get_category_by_slug(slug, lang, opts \\ []) do
+    find_by_slug(@category_slugs_table, "category_uuid", slug, lang, opts, fn uuid, _opts ->
+      get_category(uuid)
+    end)
+  end
+
+  @doc """
   Creates a category within a catalogue.
 
   ## Required attributes
@@ -1377,17 +1550,34 @@ defmodule PhoenixKitCatalogue.Catalogue do
     end
   end
 
-  @doc "Updates a category with the given attributes."
+  @doc """
+  Updates a category with the given attributes.
+
+  Pass `:data_owned_keys` (a list of top-level `data` keys) when the
+  caller only owns PART of `data` — e.g. a form that only rendered a
+  subset of it. See `update_item/3`'s doc for the full rationale; the
+  mechanism is identical.
+  """
   @spec update_category(Category.t(), map(), keyword()) ::
           {:ok, Category.t()} | {:error, Ecto.Changeset.t(Category.t())}
   def update_category(%Category{} = category, attrs, opts \\ []) do
-    changeset =
-      category
-      |> Category.changeset(attrs)
-      |> validate_parent_in_same_catalogue()
+    result =
+      repo().transaction(fn ->
+        attrs = narrow_data_ownership(Category, category.uuid, attrs, opts)
 
-    case repo().update(changeset) do
-      {:ok, updated} = ok ->
+        changeset =
+          category
+          |> Category.changeset(attrs)
+          |> validate_parent_in_same_catalogue()
+
+        case repo().update(changeset) do
+          {:ok, updated} -> updated
+          {:error, changeset} -> repo().rollback(changeset)
+        end
+      end)
+
+    case result do
+      {:ok, updated} ->
         log_activity(
           %{
             action: "category.updated",
@@ -1401,11 +1591,62 @@ defmodule PhoenixKitCatalogue.Catalogue do
           opts
         )
 
-        ok
+        {:ok, updated}
 
-      error ->
+      {:error, _changeset} = error ->
         error
     end
+  end
+
+  # Shared by `update_item/3` and `update_category/3`'s `:data_owned_keys`
+  # option — see `update_item/3`'s doc for the full rationale. `nil` (no
+  # option passed) is a no-op so every existing caller keeps the plain
+  # full-replace behavior.
+  #
+  # Must run INSIDE the caller's transaction: the `FOR UPDATE` lock this
+  # takes only protects against a concurrent writer landing between our
+  # read and the eventual `repo().update()` if both happen on the same
+  # connection/transaction.
+  defp narrow_data_ownership(schema, uuid, attrs, opts) when is_map(attrs) do
+    case Keyword.get(opts, :data_owned_keys) do
+      nil -> attrs
+      owned_keys -> splice_owned_data(schema, uuid, attrs, owned_keys)
+    end
+  end
+
+  defp splice_owned_data(schema, uuid, attrs, owned_keys) do
+    query = from(r in schema, where: r.uuid == ^uuid, lock: "FOR UPDATE")
+
+    case repo().one(query) do
+      nil ->
+        attrs
+
+      %{data: fresh_data} ->
+        incoming_data = Helpers.fetch_attr(attrs, :data) || %{}
+        owned = Map.take(incoming_data, owned_keys)
+        merged = apply_owned_data(fresh_data || %{}, owned)
+        Helpers.put_attr(attrs, :data, merged)
+    end
+  end
+
+  # An owned key present in `owned` with a non-`nil` value overwrites the
+  # fresh row's value for that key — the caller's normal write. An owned
+  # key present with an EXPLICIT `nil` is a "clear this" marker (see
+  # `PhoenixKitCatalogue.Attachments.inject_featured_image/2` /
+  # `inject_media_order/2`, which write `nil` rather than simply omitting
+  # the key) and comes out of the result entirely — the record must end
+  # up looking exactly like one that never had the key, not one holding
+  # a JSON `null` (`Schemas.Item`/`Schemas.Category`'s changeset enforces
+  # the same thing at cast time; doing it here too keeps this function's
+  # own contract self-evident). A key `owned` doesn't mention at all —
+  # because the caller's `attrs["data"]` never mentioned it — is left
+  # untouched, distinct from an explicit `nil`: that's the whole point of
+  # `:data_owned_keys` (see `update_item/3`'s doc).
+  defp apply_owned_data(fresh_data, owned) do
+    Enum.reduce(owned, fresh_data, fn
+      {key, nil}, acc -> Map.delete(acc, key)
+      {key, value}, acc -> Map.put(acc, key, value)
+    end)
   end
 
   # Guards both create_category/2 and update_category/3 against a
@@ -3935,14 +4176,22 @@ defmodule PhoenixKitCatalogue.Catalogue do
       |> Enum.sort_by(&downcase_or_empty(&1.name), :desc)
       |> Enum.map(& &1.uuid)
 
+  # The DateTime sorter, not term order — structurally, DateTime structs
+  # compare field-alphabetically (day before month), so a bare
+  # `& &1.inserted_at` key put Jan 2nd AFTER Feb 1st. The category-side
+  # strategies (`order_categories_for_strategy/2`) already sort this way.
   defp item_strategy_order(rows, :created_asc),
-    do: rows |> Enum.sort_by(& &1.uuid) |> Enum.sort_by(& &1.inserted_at) |> Enum.map(& &1.uuid)
+    do:
+      rows
+      |> Enum.sort_by(& &1.uuid)
+      |> Enum.sort_by(& &1.inserted_at, {:asc, DateTime})
+      |> Enum.map(& &1.uuid)
 
   defp item_strategy_order(rows, :created_desc),
     do:
       rows
       |> Enum.sort_by(& &1.uuid, :desc)
-      |> Enum.sort_by(& &1.inserted_at, :desc)
+      |> Enum.sort_by(& &1.inserted_at, {:desc, DateTime})
       |> Enum.map(& &1.uuid)
 
   defp downcase_or_empty(nil), do: ""
@@ -4153,6 +4402,80 @@ defmodule PhoenixKitCatalogue.Catalogue do
   end
 
   @doc """
+  Fetches an item by its per-language `slug`.
+
+  Tries an exact match in `lang`'s base language first (`"en-US"` folds
+  to `"en"`), falling back to any language when `opts[:any_lang]` is
+  `true`. The result is `{:error, :not_found}` on a miss; a hit is a
+  2-tuple by default, or — whenever `opts[:any_lang]` is `true`, even
+  when the base language itself matched — a 3-tuple carrying the
+  language the slug actually matched in, so a caller that opted into
+  the fallback can always destructure the same shape. Any other option
+  (e.g. `:preload`) is forwarded to `get_item/2`.
+  """
+  @spec get_item_by_slug(String.t(), String.t(), keyword()) ::
+          {:ok, Item.t()} | {:ok, Item.t(), String.t()} | {:error, :not_found}
+  def get_item_by_slug(slug, lang, opts \\ []) do
+    find_by_slug(@item_slugs_table, "item_uuid", slug, lang, opts, &get_item/2)
+  end
+
+  # Shared by `get_item_by_slug/3` and `get_category_by_slug/3`. Looks up
+  # the projected uuid for `slug` in `lang`'s base language, optionally
+  # falling back to any language (`opts[:any_lang]`), then resolves it
+  # through `get_fun` (which also receives every other option, e.g.
+  # `:preload`). A resolved uuid whose row has since disappeared (a
+  # deleted item/category racing the projection's `ON DELETE CASCADE`)
+  # is treated the same as a lookup miss.
+  defp find_by_slug(table, uuid_column, slug, lang, opts, get_fun) do
+    any_lang? = Keyword.get(opts, :any_lang, false)
+    fetch_opts = Keyword.drop(opts, [:any_lang])
+    base = base_lang(lang)
+
+    found =
+      case query_slug(table, uuid_column, base, slug) do
+        nil when any_lang? -> query_slug(table, uuid_column, nil, slug)
+        result -> result
+      end
+
+    case found do
+      nil ->
+        {:error, :not_found}
+
+      {uuid, matched_lang} ->
+        case get_fun.(uuid, fetch_opts) do
+          nil -> {:error, :not_found}
+          struct when any_lang? -> {:ok, struct, matched_lang}
+          struct -> {:ok, struct}
+        end
+    end
+  end
+
+  defp base_lang(lang), do: lang |> String.split("-") |> List.first() |> String.downcase()
+
+  defp query_slug(table, uuid_column, nil, slug) do
+    %{rows: rows} =
+      repo().query!(
+        "SELECT #{uuid_column}::text, lang FROM #{qualified(table)} WHERE value = $1 ORDER BY lang LIMIT 1",
+        [slug]
+      )
+
+    one_row(rows)
+  end
+
+  defp query_slug(table, uuid_column, lang, slug) do
+    %{rows: rows} =
+      repo().query!(
+        "SELECT #{uuid_column}::text, lang FROM #{qualified(table)} WHERE lang = $1 AND value = $2 LIMIT 1",
+        [lang, slug]
+      )
+
+    one_row(rows)
+  end
+
+  defp one_row([[uuid, lang]]), do: {uuid, lang}
+  defp one_row(_), do: nil
+
+  @doc """
   Bulk-fetches items by a list of UUIDs. Excludes soft-deleted items.
   Result order matches the input UUID order; missing UUIDs are dropped
   (no `nil` placeholders, no error). Duplicate input UUIDs collapse to
@@ -4341,7 +4664,28 @@ defmodule PhoenixKitCatalogue.Catalogue do
     end
   end
 
-  @doc "Updates an item with the given attributes."
+  @doc """
+  Updates an item with the given attributes.
+
+  ## `:data_owned_keys`
+
+  A caller (typically a form) that only rendered/edited PART of `data`
+  can pass `:data_owned_keys` — a list of `data`'s top-level keys it
+  actually owns. When set, this function re-reads the row `FOR UPDATE`
+  inside its transaction and, for each owned key, takes that key's
+  value from `attrs["data"]` (falling back to the fresh row's own value
+  when the key is absent from `attrs["data"]` — an owned key is never
+  written as a deletion by mere absence). Every key NOT listed keeps the
+  freshest DB value untouched, no matter what stale copy `attrs["data"]`
+  happens to carry for it — the whole point: a form built from a
+  page-load snapshot can no longer clobber a key some other process
+  wrote after that snapshot was taken (translation fingerprints, a sync,
+  …).
+
+  Omit the option (or pass `nil`) for the previous behavior: `data` is
+  replaced wholesale by whatever `attrs["data"]` contains, same as a
+  plain `Ecto.Changeset.cast/4` on a `:map` field.
+  """
   @spec update_item(Item.t(), map(), keyword()) ::
           {:ok, Item.t()} | {:error, Ecto.Changeset.t(Item.t())}
   def update_item(%Item{} = item, attrs, opts \\ []) do
@@ -4349,6 +4693,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
     result =
       repo().transaction(fn ->
+        attrs = narrow_data_ownership(Item, item.uuid, attrs, opts)
         attrs = if skip_derive?, do: attrs, else: derive_catalogue_uuid(item, attrs)
 
         case item |> Item.changeset(attrs) |> repo().update() do
@@ -5330,6 +5675,10 @@ defmodule PhoenixKitCatalogue.Catalogue do
   defdelegate search_items(query, opts \\ []), to: Search
   defdelegate count_search_items(query, opts \\ []), to: Search
   defdelegate search_items_in_catalogue(catalogue_uuid, query, opts \\ []), to: Search
+
+  defdelegate search_categories(catalogue_uuid, query, opts \\ []), to: Search
+  defdelegate match_search_text(query, term), to: Search, as: :match_text
+  defdelegate category_subtree_uuids(roots), to: Tree, as: :subtree_uuids_for
   defdelegate count_search_items_in_catalogue(catalogue_uuid, query), to: Search
   defdelegate search_items_in_category(category_uuid, query, opts \\ []), to: Search
   defdelegate count_search_items_in_category(category_uuid, query), to: Search
@@ -5355,6 +5704,8 @@ defmodule PhoenixKitCatalogue.Catalogue do
   defdelegate get_translation(record, lang_code), to: Translations
   defdelegate translated_name(record, locale), to: Translations
   defdelegate translated_description(record, locale), to: Translations
+  defdelegate translated_seo_title(record, locale), to: Translations
+  defdelegate translated_seo_description(record, locale), to: Translations
   defdelegate localize(records, locale), to: Translations
   defdelegate localize_one(record, locale), to: Translations
 
@@ -5416,11 +5767,40 @@ defmodule PhoenixKitCatalogue.Catalogue do
   defdelegate update_attribute_set(set, attrs, opts \\ []), to: AttributeSets, as: :update_set
   defdelegate delete_attribute_set(set, opts \\ []), to: AttributeSets, as: :delete_set
 
+  defdelegate attribute_value_match_counts(opts \\ []),
+    to: AttributeSets,
+    as: :value_match_counts
+
+  defdelegate attribute_filter_options(catalogue_uuid, opts \\ []),
+    to: AttributeSets,
+    as: :filter_options
+
+  defdelegate attribute_set_uuids_matching_value(set_uuids, term),
+    to: AttributeSets,
+    as: :set_uuids_matching_value
+
+  defdelegate list_attribute_set_attached_items(set_uuid, opts \\ []),
+    to: AttributeSets,
+    as: :list_attached_items
+
+  defdelegate count_attribute_set_attached_items(set_uuid, opts \\ []),
+    to: AttributeSets,
+    as: :count_attached_items
+
+  defdelegate attribute_set_valid_selection(slugs, resolved_set),
+    to: AttributeSets,
+    as: :valid_selection
+
   defdelegate create_attribute_set_value(set, attrs, opts \\ []),
     to: AttributeSets,
     as: :create_value
 
   defdelegate list_attribute_set_values(set, opts \\ []), to: AttributeSets, as: :list_values
+
+  defdelegate list_attribute_set_values_for(set_uuids, opts \\ []),
+    to: AttributeSets,
+    as: :list_values_for
+
   defdelegate get_attribute_set_value(set, value_uuid), to: AttributeSets, as: :get_value
 
   defdelegate update_attribute_set_value(set, value, attrs, opts \\ []),
@@ -5516,6 +5896,8 @@ defmodule PhoenixKitCatalogue.Catalogue do
   defdelegate prune_orphan_attribute_set_attachments(set_uuid),
     to: AttributeSets,
     as: :prune_orphan_attachments
+
+  defdelegate attribute_set_value_counts(set_uuids), to: AttributeSets, as: :value_counts
 
   defdelegate attribute_set_attachment_counts(set_uuids),
     to: AttributeSets,

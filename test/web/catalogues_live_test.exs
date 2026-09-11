@@ -243,7 +243,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
       {:ok, _folder} = Catalogue.create_folder(%{name: "Hidden while searching"})
       fixture_catalogue(%{name: "Searchable catalogue"})
 
-      {:ok, _view, html} = live(conn, "#{@base}?q=searchable")
+      {:ok, _view, html} = live(conn, "#{@base}?q=searchable&mode=catalogues")
 
       refute html =~ "catalogues-tree-table"
       assert html =~ "Searchable catalogue"
@@ -489,7 +489,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
       Catalogue.trash_catalogue(trashed)
 
       {:ok, view, _html} = live(conn, @base)
-      render_click(view, "set_filter", %{"column_id" => "folder", "value" => folder.uuid})
+      render_click(view, "navigate_folder", %{"uuid" => folder.uuid})
 
       # The unfiled trashed catalogue must be visible despite the filter.
       deleted = render_click(view, "switch_catalogue_view", %{"mode" => "deleted"})
@@ -606,7 +606,9 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
       fixture_catalogue(%{name: "Zephyr"})
       fixture_catalogue(%{name: "Quokka"})
 
-      {:ok, _view, html} = live(conn, "#{@base}?q=zeph")
+      # Explicit catalogues mode since 2026-08-31 — the auto default
+      # searches ITEMS.
+      {:ok, _view, html} = live(conn, "#{@base}?q=zeph&mode=catalogues")
 
       assert html =~ "Zephyr"
       refute html =~ "Quokka"
@@ -616,15 +618,17 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
       fixture_catalogue(%{name: "Zephyr"})
       fixture_catalogue(%{name: "Quokka"})
 
-      {:ok, view, _html} = live(conn, @base)
+      {:ok, view, _html} = live(conn, "#{@base}?mode=catalogues")
 
       html = render_change(view, "table_search", %{"query" => "quo"})
-      assert_patch(view, "#{@base}?q=quo")
+      path = assert_patch(view)
+      assert path =~ "q=quo"
       assert html =~ "Quokka"
       refute html =~ "Zephyr"
 
       html = render_change(view, "table_search", %{"query" => ""})
-      assert_patch(view, @base)
+      path = assert_patch(view)
+      refute path =~ "q="
       assert html =~ "Zephyr"
     end
 
@@ -632,10 +636,60 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
       fixture_catalogue(%{name: "Zephyr Werke"})
       fixture_catalogue(%{name: "Quokka GmbH"})
 
-      {:ok, _view, html} = live(conn, "#{@base}?q=quokka")
+      {:ok, _view, html} = live(conn, "#{@base}?q=quokka&mode=catalogues")
 
       assert html =~ "Quokka GmbH"
       refute html =~ "Zephyr Werke"
+    end
+
+    # The folder select left the toolbar (Max, 2026-08-29): search works
+    # where the user stands, and scope is chosen by navigating folders.
+    test "the toolbar offers no folder select, only the status filter", %{conn: conn} do
+      {:ok, folder} = Catalogue.create_folder(%{name: "Some folder"})
+      filed = fixture_catalogue(%{name: "Filed catalogue"})
+      {:ok, _} = Catalogue.move_catalogue_to_folder(filed, folder.uuid)
+
+      {:ok, _view, html} = live(conn, @base)
+
+      refute html =~ "filter-form-folder"
+      assert html =~ "filter-form-status"
+    end
+
+    test "searching a drilled folder covers its whole subtree", %{conn: conn} do
+      {:ok, parent} = Catalogue.create_folder(%{name: "Parent folder"})
+      {:ok, child} = Catalogue.create_folder(%{name: "Child folder", parent_uuid: parent.uuid})
+
+      direct = fixture_catalogue(%{name: "Verso direct"})
+      {:ok, _} = Catalogue.move_catalogue_to_folder(direct, parent.uuid)
+      deep = fixture_catalogue(%{name: "Verso deep"})
+      {:ok, _} = Catalogue.move_catalogue_to_folder(deep, child.uuid)
+      _outside = fixture_catalogue(%{name: "Verso outside"})
+
+      {:ok, _view, html} =
+        live(conn, "#{@base}?folder=#{parent.uuid}&q=verso&mode=catalogues")
+
+      # The catalogue in the subfolder is VISIBLE in the tree behind the
+      # search, so the search must find it too — not just direct children.
+      assert html =~ "Verso direct"
+      assert html =~ "Verso deep"
+      # Where the user is not: a match elsewhere stays out of this scope.
+      refute html =~ "Verso outside"
+    end
+
+    test "the location row survives the search's flat table", %{conn: conn} do
+      {:ok, folder} = Catalogue.create_folder(%{name: "Standing here"})
+      filed = fixture_catalogue(%{name: "Filed catalogue"})
+      {:ok, _} = Catalogue.move_catalogue_to_folder(filed, folder.uuid)
+
+      {:ok, _view, html} = live(conn, "#{@base}?folder=#{folder.uuid}&q=filed")
+
+      # The tree is gone while searching; the Up + folder-name row is the
+      # only sign of where the search is looking, so it must stay. The Up
+      # button's icon is the marker — the folder NAME also appears in the
+      # flat table's Folder column, so it proves nothing here.
+      refute html =~ "catalogues-tree-table"
+      assert html =~ "Standing here"
+      assert html =~ "hero-arrow-uturn-left"
     end
 
     # `tab_changed?` keeps the search patch from re-running load_data — the
@@ -644,12 +698,282 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
     test "a search patch leaves the tab itself intact", %{conn: conn} do
       fixture_catalogue(%{name: "Zephyr Werke"})
 
-      {:ok, view, _html} = live(conn, "#{@base}")
+      {:ok, view, _html} = live(conn, "#{@base}?mode=catalogues")
 
       html = render_change(view, "table_search", %{"query" => "zephyr"})
 
       assert html =~ "Zephyr Werke"
       assert html =~ "New Catalogue"
+    end
+  end
+
+  # ─────────────────────────────────────────────────────────────────
+  # Description column — Max, 2026-08-29
+  # ─────────────────────────────────────────────────────────────────
+
+  describe "description column" do
+    test "available via Columns, hidden by default", %{conn: conn} do
+      # Search matches descriptions through the data JSONB, so the column
+      # is how a match with no visible trace explains itself.
+      fixture_catalogue(%{
+        name: "Hardware",
+        description: "Fasteners, tools, and general hardware."
+      })
+
+      {:ok, view, html} = live(conn, @base)
+      refute html =~ "Fasteners, tools"
+
+      html = render_click(view, "add_column", %{"column_id" => "description"})
+      assert html =~ "Fasteners, tools"
+
+      html = render_click(view, "remove_column", %{"column_id" => "description"})
+      refute html =~ "Fasteners, tools"
+    end
+  end
+
+  # ─────────────────────────────────────────────────────────────────
+  # Search-aware Deleted tab — Max, 2026-08-29
+  # ─────────────────────────────────────────────────────────────────
+
+  describe "search-aware Deleted tab" do
+    test "shows in a search only when the trash holds a match", %{conn: conn} do
+      fixture_catalogue(%{name: "Zephyr live"})
+      binned = fixture_catalogue(%{name: "Binned thing"})
+      Catalogue.trash_catalogue(binned)
+
+      # Nothing in the trash matches "zephyr" — a "Deleted (1)" here is
+      # an invitation into an empty list.
+      {:ok, _view, html} = live(conn, "#{@base}?q=zephyr&mode=catalogues")
+      refute html =~ "Deleted ("
+
+      {:ok, _view, html} = live(conn, "#{@base}?q=binned&mode=catalogues")
+      assert html =~ "Deleted (1)"
+
+      # No search: the global count, as before.
+      {:ok, _view, html} = live(conn, @base)
+      assert html =~ "Deleted (1)"
+    end
+
+    test "a matching trashed folder counts too", %{conn: conn} do
+      fixture_catalogue(%{name: "Live one"})
+      {:ok, folder} = Catalogue.create_folder(%{name: "Old shelf"})
+      {:ok, _} = Catalogue.trash_folder(folder)
+
+      {:ok, _view, html} = live(conn, "#{@base}?q=shelf&mode=catalogues")
+      assert html =~ "Deleted (1)"
+
+      {:ok, _view, html} = live(conn, "#{@base}?q=live&mode=catalogues")
+      refute html =~ "Deleted ("
+    end
+
+    test "switching to Deleted keeps the query, and the way back stays open", %{conn: conn} do
+      fixture_catalogue(%{name: "Zephyr live"})
+      binned = fixture_catalogue(%{name: "Binned thing"})
+      Catalogue.trash_catalogue(binned)
+
+      {:ok, view, _html} = live(conn, "#{@base}?q=binned&mode=catalogues")
+      html = render_click(view, "switch_catalogue_view", %{"mode" => "deleted"})
+
+      # The query survives the switch (Max, 2026-08-29) and filters the
+      # trash list.
+      assert html =~ ~s(value="binned")
+      assert html =~ "Binned thing"
+      refute html =~ "Zephyr live"
+
+      # Searching for something the trash lacks while STANDING in
+      # Deleted: the tab row stays — hiding it would trap the user.
+      html = render_change(view, "table_search", %{"query" => "zephyr"})
+      assert html =~ "Deleted (0)"
+      refute html =~ "Binned thing"
+    end
+  end
+
+  # ─────────────────────────────────────────────────────────────────
+  # Items search mode (?mode=items) — Max, 2026-08-29
+  # ─────────────────────────────────────────────────────────────────
+
+  describe "view toggle" do
+    test "the card/comfy/table toggle renders on the index toolbar", %{conn: conn} do
+      # Regression pin: the items-mode toolbar rework silently dropped
+      # the <:view_toggle> slot and the switcher vanished for hours
+      # before anyone noticed (2026-08-29).
+      fixture_catalogue(%{name: "Toggleable"})
+
+      {:ok, _view, html} = live(conn, @base)
+      assert html =~ ~s(phx-click="set_view")
+
+      # The catalogues listing (and its tools) stays through a query —
+      # item results render BELOW it since 2026-08-31, they don't
+      # replace it.
+      {:ok, _view, html} = live(conn, "#{@base}?q=toggle")
+      assert html =~ ~s(phx-click="set_view")
+    end
+  end
+
+  describe "item results section" do
+    # One surface since 2026-08-31 (Max): a query filters the catalogue
+    # listing AND renders matching items below it — the popup search's
+    # two-list idiom. No modes, no switcher, no `?mode=` state.
+    test "a query shows matching catalogues above matching items", %{
+      conn: conn
+    } do
+      cat = fixture_catalogue(%{name: "Zephyr Catalogue"})
+      fixture_item(%{name: "Zephyr widget", catalogue_uuid: cat.uuid})
+      fixture_catalogue(%{name: "Unrelated Catalogue"})
+
+      # No switcher anywhere on the toolbar.
+      {:ok, _view, html} = live(conn, @base)
+      refute html =~ "set_search_mode"
+
+      {:ok, view, _html} = live(conn, "#{@base}?q=zephyr")
+      html = render_async(view)
+      # Both halves, one page: the matching catalogue row stays as
+      # navigation, the matching item renders in the results below.
+      assert html =~ "Zephyr Catalogue"
+      assert html =~ "Zephyr widget"
+      refute html =~ "Unrelated Catalogue"
+    end
+
+    test "a whitespace-only query engages nothing", %{conn: conn} do
+      fixture_catalogue(%{name: "Quiet Catalogue"})
+
+      {:ok, view, _html} = live(conn, "#{@base}?q=%20%20")
+      html = render_async(view)
+      assert html =~ "Quiet Catalogue"
+      refute html =~ "item-result-"
+    end
+
+    test "lists items across catalogues with their catalogue and category", %{conn: conn} do
+      cat_a = fixture_catalogue(%{name: "Alpha Catalogue"})
+      cat_b = fixture_catalogue(%{name: "Beta Catalogue"})
+      {:ok, doors} = Catalogue.create_category(%{name: "Doors", catalogue_uuid: cat_a.uuid})
+      fixture_item(%{name: "Oak door", catalogue_uuid: cat_a.uuid, category_uuid: doors.uuid})
+      fixture_item(%{name: "Pine shelf", catalogue_uuid: cat_b.uuid})
+
+      fixture_item(%{name: "Oak shelf", catalogue_uuid: cat_b.uuid})
+
+      {:ok, view, _html} = live(conn, "#{@base}?q=oak")
+      html = render_async(view)
+
+      assert html =~ "Oak door"
+      assert html =~ "Oak shelf"
+      # Context columns — a hit can come from anywhere, so each row says
+      # which catalogue and category it lives in.
+      assert html =~ "Alpha Catalogue"
+      assert html =~ "Doors"
+    end
+
+    test "a legacy ?mode= URL is ignored, not an error", %{conn: conn} do
+      cat = fixture_catalogue(%{name: "Anything"})
+      fixture_item(%{name: "Anything widget", catalogue_uuid: cat.uuid})
+
+      # Old bookmarks carry the retired mode key; the page simply reads
+      # its real state (query/attr) and lists as always.
+      {:ok, view, _html} = live(conn, "#{@base}?mode=items")
+      html = render_async(view)
+      assert html =~ "Anything"
+      refute html =~ "item-result-"
+
+      {:ok, view, _html} = live(conn, "#{@base}?mode=catalogues&q=anything")
+      html = render_async(view)
+      assert html =~ "Anything widget"
+      _ = view
+    end
+
+    test "?q= searches the items, not the catalogues", %{conn: conn} do
+      cat = fixture_catalogue(%{name: "Container"})
+      fixture_item(%{name: "Findable widget", catalogue_uuid: cat.uuid})
+      fixture_item(%{name: "Other thing", catalogue_uuid: cat.uuid})
+
+      {:ok, view, _html} = live(conn, "#{@base}?q=findable")
+      html = render_async(view)
+
+      assert html =~ "Findable widget"
+      refute html =~ "Other thing"
+    end
+
+    test "a drilled folder scopes the items to its subtree", %{conn: conn} do
+      {:ok, parent} = Catalogue.create_folder(%{name: "Parent shelf"})
+      {:ok, child} = Catalogue.create_folder(%{name: "Child shelf", parent_uuid: parent.uuid})
+      inside = fixture_catalogue(%{name: "Inside"})
+      {:ok, _} = Catalogue.move_catalogue_to_folder(inside, child.uuid)
+      outside = fixture_catalogue(%{name: "Outside"})
+      fixture_item(%{name: "Inner widget", catalogue_uuid: inside.uuid})
+      fixture_item(%{name: "Outer widget", catalogue_uuid: outside.uuid})
+
+      {:ok, view, _html} = live(conn, "#{@base}?q=widget&folder=#{parent.uuid}")
+      html = render_async(view)
+
+      assert html =~ "Inner widget"
+      refute html =~ "Outer widget"
+    end
+
+    test "a result links straight to the item's EDIT page", %{conn: conn} do
+      cat = fixture_catalogue(%{name: "Container"})
+      {:ok, category} = Catalogue.create_category(%{name: "Doors", catalogue_uuid: cat.uuid})
+
+      item =
+        fixture_item(%{
+          name: "Oak door",
+          catalogue_uuid: cat.uuid,
+          category_uuid: category.uuid
+        })
+
+      {:ok, view, _html} = live(conn, "#{@base}?q=oak")
+      html = render_async(view)
+
+      # Whoever searched an item by name wants THAT item (boss,
+      # 2026-08-31) — not its category's page with the query re-applied
+      # and every sibling around it.
+      assert html =~ "/items/#{item.uuid}/edit"
+      refute html =~ "category=#{category.uuid}"
+    end
+
+    test "the unfiled sentinel scopes items mode to unfiled catalogues", %{conn: conn} do
+      {:ok, folder} = Catalogue.create_folder(%{name: "Filed away"})
+      filed = fixture_catalogue(%{name: "Filed"})
+      {:ok, _} = Catalogue.move_catalogue_to_folder(filed, folder.uuid)
+      unfiled = fixture_catalogue(%{name: "Unfiled"})
+      fixture_item(%{name: "Filed widget", catalogue_uuid: filed.uuid})
+      fixture_item(%{name: "Unfiled widget", catalogue_uuid: unfiled.uuid})
+
+      # The sentinel is legacy-URL-only, but it must still MEAN unfiled:
+      # drop_stale_folder_filter used to clear it as "not a real folder",
+      # silently widening the search to everywhere.
+      {:ok, view, _html} = live(conn, "#{@base}?q=widget&folder=__unfiled__")
+      html = render_async(view)
+
+      assert html =~ "Unfiled widget"
+      refute html =~ "Filed widget"
+    end
+
+    test "load_more_items appends the next page", %{conn: conn} do
+      cat = fixture_catalogue(%{name: "Big"})
+
+      for n <- 1..55 do
+        fixture_item(%{
+          name: "Widget #{String.pad_leading("#{n}", 2, "0")}",
+          catalogue_uuid: cat.uuid
+        })
+      end
+
+      {:ok, view, _html} = live(conn, "#{@base}?q=widget")
+      html = render_async(view)
+
+      # Name-ordered, one page of 50: 01 is on it, 55 is not yet.
+      assert html =~ "Widget 01"
+      refute html =~ "Widget 55"
+
+      render_click(view, "load_more_items", %{})
+      html = render_async(view)
+      assert html =~ "Widget 55"
+
+      # Million-items paranoia (Max, 2026-08-29): the pages must tile —
+      # 55 rows loaded, none twice. Ordering carries a uuid tiebreak, so
+      # OFFSET cannot shuffle equal keys across page boundaries.
+      results = :sys.get_state(view.pid).socket.assigns.item_results
+      assert length(results) == 55
+      assert results |> Enum.map(& &1.uuid) |> Enum.uniq() |> length() == 55
     end
   end
 

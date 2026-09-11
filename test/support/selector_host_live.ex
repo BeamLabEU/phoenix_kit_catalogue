@@ -9,12 +9,27 @@ defmodule PhoenixKitCatalogue.Test.SelectorHostLive do
   Query params:
 
     * `c`         — catalogue uuid for `scope.catalogue_uuids`
+    * `c2`        — second catalogue uuid (multi-catalogue scopes)
     * `pre`       — preselection, `uuid:qty[,uuid:qty…]`
     * `mode`      — "single" for `mode: :single`
     * `immediate` — "true" with single mode
     * `precision` — qty_precision (default 0)
+    * `min`       — qty_min
     * `max`       — qty_max
+    * `view`      — starting view, "table" | "card" (nil = component default)
+    * `sel`       — selection_mode, "click" | "quantity"
+    * `hide`      — comma list for hidden_columns; empty string = hide nothing
+    * `cols`      — comma list of table columns, e.g. "thumb,name,qty"
+                    (unknown names map to :invalid_column so the modal's
+                    own validation raise can be exercised)
     * `two`       — "true" mounts a SECOND picker (id-uniqueness tests)
+    * `ch`        — "false" turns the context header off
+    * `tray`      — "false" hides the cart button + review tray
+    * `title`     — explicit modal title
+    * `loc`       — puts the HOST process gettext locale (nothing passed on)
+    * `clocale`   — passed to the component as its `locale` attr
+    * `iq`        — "true" passes inline_qty (the legacy check+stepper opt-in)
+    * `rs`        — "true" passes root_switcher (the opt-in root either-or)
   """
 
   use Phoenix.LiveView
@@ -24,6 +39,12 @@ defmodule PhoenixKitCatalogue.Test.SelectorHostLive do
 
   @impl true
   def mount(params, _session, socket) do
+    # `loc` — the Andi/tim-dev shape (2026-08-31): the HOST process
+    # carries the viewer's gettext locale, and nothing locale-shaped is
+    # passed to the component; the component's process fallback must
+    # pick it up.
+    if loc = params["loc"], do: Gettext.put_locale(loc)
+
     scope = build_scope(params)
 
     selected =
@@ -42,9 +63,24 @@ defmodule PhoenixKitCatalogue.Test.SelectorHostLive do
        mode: if(params["mode"] == "single", do: :single, else: :multiple),
        immediate: params["immediate"] == "true",
        precision: String.to_integer(params["precision"] || "0"),
+       min: params["min"] && String.to_integer(params["min"]),
        max: params["max"] && String.to_integer(params["max"]),
+       view: params["view"],
+       sel: params["sel"],
+       cols: parse_cols(params["cols"]),
+       hide: params["hide"] && parse_cols(params["hide"]) |> List.wrap(),
+       show_prices: params["hide_prices"] != "true",
+       context_header: params["ch"] != "false",
+       show_tray: params["tray"] != "false",
+       show_item_details: params["details"] != "false",
+       title: params["title"],
+       clocale: params["clocale"],
+       inline_qty: params["iq"] == "true",
+       root_switcher: params["rs"] == "true",
+       per_page: params["pp"] && String.to_integer(params["pp"]),
        two: params["two"] == "true",
        browse: params["browse"] == "true",
+       browse_click: params["bclick"] != "false",
        clicked: nil,
        picked: nil,
        closed: false
@@ -53,14 +89,17 @@ defmodule PhoenixKitCatalogue.Test.SelectorHostLive do
 
   defp build_scope(params) do
     %{}
-    |> maybe_put_catalogue(params["c"])
+    |> maybe_put_catalogue(params["c"], params["c2"])
     |> maybe_put_category(params["cat_scope"])
     |> maybe_put_only(params["only"])
     |> maybe_put_statuses(params["statuses"])
   end
 
-  defp maybe_put_catalogue(scope, nil), do: scope
-  defp maybe_put_catalogue(scope, uuid), do: Map.put(scope, :catalogue_uuids, [uuid])
+  defp maybe_put_catalogue(scope, nil, _second), do: scope
+  defp maybe_put_catalogue(scope, uuid, nil), do: Map.put(scope, :catalogue_uuids, [uuid])
+
+  defp maybe_put_catalogue(scope, uuid, second),
+    do: Map.put(scope, :catalogue_uuids, [uuid, second])
 
   defp maybe_put_category(scope, nil), do: scope
   defp maybe_put_category(scope, uuid), do: Map.put(scope, :category_uuids, [uuid])
@@ -69,14 +108,42 @@ defmodule PhoenixKitCatalogue.Test.SelectorHostLive do
   defp maybe_put_only(scope, "categorized"), do: Map.put(scope, :only, :categorized_only)
   defp maybe_put_only(scope, _), do: scope
 
+  @col_atoms Map.new(
+               ~w(thumb breadcrumb name sku manufacturer category unit price base_price qty),
+               &{&1, String.to_atom(&1)}
+             )
+
+  defp parse_cols(nil), do: nil
+
+  defp parse_cols(raw) do
+    raw
+    |> String.split(",", trim: true)
+    |> Enum.map(&(@col_atoms[&1] || :invalid_column))
+  end
+
   defp maybe_put_statuses(scope, nil), do: scope
 
   defp maybe_put_statuses(scope, raw),
     do: Map.put(scope, :statuses, String.split(raw, ",", trim: true))
 
   @impl true
-  def handle_info({:items_selected, payload}, socket),
-    do: {:noreply, assign(socket, picked: payload)}
+  def handle_event("toggle_prices", _params, socket),
+    do: {:noreply, assign(socket, :show_prices, !socket.assigns.show_prices)}
+
+  # Unmount/remount the picker WITHOUT a fresh page mount — the host's
+  # own assigns (current_user included) stay as stale as a real host's
+  # would across a close + reopen.
+  def handle_event("toggle_show", _params, socket),
+    do: {:noreply, assign(socket, :show, !socket.assigns.show)}
+
+  @impl true
+  def handle_info({:items_selected, payload}, socket) do
+    {:noreply,
+     assign(socket,
+       picked: payload,
+       picked_count: (socket.assigns[:picked_count] || 0) + 1
+     )}
+  end
 
   def handle_info({:catalogue_browse, %{event: :item_clicked, item: item}}, socket),
     do: {:noreply, assign(socket, clicked: item)}
@@ -93,7 +160,7 @@ defmodule PhoenixKitCatalogue.Test.SelectorHostLive do
         module={CatalogueBrowse}
         id="surface"
         scope={@scope}
-        on_item_click={true}
+        on_item_click={@browse_click}
       />
       <.live_component
         :if={@show and not @browse}
@@ -104,7 +171,22 @@ defmodule PhoenixKitCatalogue.Test.SelectorHostLive do
         mode={@mode}
         immediate={@immediate}
         qty_precision={@precision}
+        qty_min={@min}
         qty_max={@max}
+        view={@view}
+        selection_mode={@sel}
+        columns={@cols}
+        hidden_columns={@hide}
+        show_prices={@show_prices}
+        context_header={@context_header}
+        show_tray={@show_tray}
+        show_item_details={@show_item_details}
+        title={@title}
+        locale={@clocale}
+        inline_qty={@inline_qty}
+        root_switcher={@root_switcher}
+        per_page={@per_page}
+        current_user={Map.get(assigns, :phoenix_kit_current_user)}
       />
       <.live_component
         :if={@show and @two}
@@ -118,6 +200,7 @@ defmodule PhoenixKitCatalogue.Test.SelectorHostLive do
       <div :if={@clicked} id="clicked">{@clicked.name}|{@clicked.sku}</div>
       <div :if={@picked} id="picked">
         <span id="picked-count">{length(@picked.picks)}</span>
+        <span id="picked-messages">{@picked_count}</span>
         <div :for={pick <- @picked.picks} id={"pick-#{pick.uuid}"}>
           {pick.name}|{pick.sku}|qty={Decimal.to_string(pick.qty, :normal)}|decimal={inspect(match?(%Decimal{}, pick.qty))}|line={pick.line_total && Decimal.to_string(pick.line_total, :normal)}
         </div>

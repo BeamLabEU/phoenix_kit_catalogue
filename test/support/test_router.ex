@@ -38,10 +38,6 @@ defmodule PhoenixKitCatalogue.Test.Router do
       live("/attributes/new", AttributeGroupFormLive, :new)
       live("/attributes/:uuid/edit", AttributeGroupFormLive, :edit)
 
-      # Attribute SET CRUD (2026-08-18 rework)
-      live("/attributes/sets/new", AttributeSetFormLive, :new)
-      live("/attributes/sets/:uuid/edit", AttributeSetFormLive, :edit)
-
       # Catalogue CRUD
       live("/new", CatalogueFormLive, :new)
       live("/:uuid/edit", CatalogueFormLive, :edit)
@@ -64,6 +60,10 @@ defmodule PhoenixKitCatalogue.Test.Router do
       # catch-all so it isn't swallowed by CatalogueDetailLive).
       live("/pdfs", PdfLibraryLive, :index)
       live("/pdfs/:uuid", PdfDetailLive, :show)
+
+      # Translation freshness admin page (literal "/translations" prefix;
+      # declared before the "/:uuid" catch-all for the same reason as PDFs).
+      live("/translations", TranslationsLive, :index)
 
       # Catalogue detail (last so it doesn't swallow the static routes above)
       live("/:uuid", CatalogueDetailLive, :show)

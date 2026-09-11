@@ -103,9 +103,11 @@ defmodule PhoenixKitCatalogue.Attachments do
       socket
       |> assign(:attachments_resource, resource)
       |> assign_files_folder(resource)
-      # Featured image must be set before files_state so the merge can
-      # surface it even if it's in a different folder (e.g. the file was
-      # moved to another resource's folder after being featured here).
+      # Featured image and the stored media order must be set before
+      # files_state so the list can merge the featured file in AND come
+      # out in the user's saved order (boss, 2026-08-31: the client
+      # reorders images after adding them).
+      |> assign(:media_order, read_list(resource_data(resource), "media_order"))
       |> assign_featured_image_state(resource)
 
     socket =
@@ -138,8 +140,55 @@ defmodule PhoenixKitCatalogue.Attachments do
   end
 
   defp assign_files_state(socket) do
-    assign(socket, :files_state, %{files: compute_files_list(socket)})
+    files =
+      socket
+      |> compute_files_list()
+      |> apply_media_order(socket.assigns[:media_order])
+
+    assign(socket, :files_state, %{files: files})
   end
+
+  @doc """
+  Sorts a file list by an ordered-uuid list (the record's
+  `data["media_order"]`, written by the editor's drag reorder — boss,
+  2026-08-31). Files the order doesn't know keep their relative
+  position at the tail (new uploads land after the ordered ones), and a
+  nil/empty order is the identity — legacy records sort as before
+  (folder `inserted_at`).
+  """
+  def apply_media_order(files, order) when is_list(order) and order != [] do
+    index = order |> Enum.with_index() |> Map.new()
+    tail_base = length(order)
+
+    files
+    |> Enum.with_index()
+    |> Enum.sort_by(fn {file, position} ->
+      {Map.get(index, to_string(file.uuid), tail_base), position}
+    end)
+    |> Enum.map(&elem(&1, 0))
+  end
+
+  def apply_media_order(files, _order), do: files
+
+  @doc """
+  The `"reorder_files"` event handler body, shared by the three form
+  LiveViews: reorders the files grid to the client's `ordered_ids` and
+  remembers the order for `inject_attachment_data/2` to persist at
+  save. Crafted ids are harmless — unknown ids are dropped, known files
+  the payload missed keep their place at the tail, so the list can
+  never lose or invent a file.
+  """
+  def handle_reorder_files(socket, ordered_ids) when is_list(ordered_ids) do
+    files = socket.assigns.files_state.files
+    order = Enum.map(ordered_ids, &to_string/1)
+    reordered = apply_media_order(files, order)
+
+    socket
+    |> assign(:media_order, Enum.map(reordered, &to_string(&1.uuid)))
+    |> assign(:files_state, %{files: reordered})
+  end
+
+  def handle_reorder_files(socket, _payload), do: socket
 
   # Files list = everything in the resource's folder + the featured
   # image if it lives elsewhere. Cross-resource duplicate-moves can
@@ -268,12 +317,14 @@ defmodule PhoenixKitCatalogue.Attachments do
     case do_detach(uuid, folder_uuid) do
       detached when detached in [:ok, :noop] ->
         new_files = Enum.reject(socket.assigns.files_state.files, &(&1.uuid == uuid))
+        new_order = Enum.map(new_files, &to_string(&1.uuid))
         # Only a real write is announced — a miss changed nothing.
         if detached == :ok, do: broadcast_resource_changed(socket)
 
         {:noreply,
          socket
          |> assign(:files_state, %{files: new_files})
+         |> assign(:media_order, new_order)
          |> maybe_clear_featured_if_matches(uuid)}
 
       {:error, reason} ->
@@ -476,6 +527,89 @@ defmodule PhoenixKitCatalogue.Attachments do
 
   defp file_uuids(files), do: files |> Enum.map(& &1.uuid) |> Enum.sort()
 
+  # ── Non-LiveView API ─────────────────────────────────────────────
+
+  @doc """
+  Links already-uploaded Storage files to `item`'s attachment folder
+  without a mounted LiveView. Resolves (or creates) the item's
+  deterministic folder — the same name rule `mount_attachments/2` uses
+  — then home-adopts or folder-links each file (`assign_file_to_folder/2`
+  under the hood), and persists `data["featured_image_uuid"]`
+  (`opts[:featured]`, default the first uuid) and `data["media_order"]`
+  (`opts[:order]`, default `file_uuids` as given) via
+  `PhoenixKitCatalogue.Catalogue.update_item/3`. Pass `opts[:actor_uuid]`
+  so the write is attributed in the activity log, same as every other
+  mutating context call — this is the one non-LiveView entry point, so
+  there is no mount-time actor to fall back on.
+
+  An unknown uuid returns `{:error, {:file_not_found, uuid}}` before any
+  write happens — the item and its folder are left untouched.
+  """
+  @spec attach_files(Item.t(), [String.t()], keyword()) :: {:ok, Item.t()} | {:error, term()}
+  def attach_files(%Item{} = item, file_uuids, opts \\ []) when is_list(file_uuids) do
+    with {:ok, files} <- resolve_attach_files(file_uuids),
+         {:ok, folder_uuid} <- ensure_item_folder(item) do
+      Enum.each(files, &assign_file_to_folder(&1, folder_uuid))
+
+      data =
+        item
+        |> resource_data()
+        |> Map.put("files_folder_uuid", folder_uuid)
+        |> put_or_delete(
+          "featured_image_uuid",
+          Keyword.get(opts, :featured, List.first(file_uuids))
+        )
+        |> put_or_delete("media_order", Keyword.get(opts, :order, file_uuids))
+
+      PhoenixKitCatalogue.Catalogue.update_item(item, %{data: data},
+        actor_uuid: opts[:actor_uuid]
+      )
+    end
+  end
+
+  defp resolve_attach_files(file_uuids) do
+    file_uuids
+    |> Enum.reduce_while({:ok, []}, fn uuid, {:ok, acc} ->
+      case safe_get_file(uuid) do
+        nil -> {:halt, {:error, {:file_not_found, uuid}}}
+        file -> {:cont, {:ok, [file | acc]}}
+      end
+    end)
+    |> case do
+      {:ok, files} -> {:ok, Enum.reverse(files)}
+      error -> error
+    end
+  end
+
+  defp ensure_item_folder(%Item{} = item) do
+    case read_string(resource_data(item), "files_folder_uuid") do
+      folder_uuid when is_binary(folder_uuid) ->
+        {:ok, folder_uuid}
+
+      _ ->
+        case folder_name_for(item) do
+          {:ok, name} -> find_or_create_named_folder(name)
+          :pending -> {:error, :item_not_persisted}
+        end
+    end
+  end
+
+  defp find_or_create_named_folder(name) do
+    case find_folder_by_name(name) do
+      %{uuid: uuid} ->
+        {:ok, uuid}
+
+      nil ->
+        case Storage.create_folder(%{name: name}) do
+          {:ok, folder} -> {:ok, folder.uuid}
+          {:error, reason} -> {:error, reason}
+        end
+    end
+  end
+
+  defp put_or_delete(map, _key, nil), do: map
+  defp put_or_delete(map, key, value), do: Map.put(map, key, value)
+
   # ── Save-time helpers ────────────────────────────────────────────
 
   @doc """
@@ -486,6 +620,7 @@ defmodule PhoenixKitCatalogue.Attachments do
     params
     |> inject_files_folder(socket.assigns[:files_folder_uuid])
     |> inject_featured_image(socket.assigns[:featured_image_uuid])
+    |> inject_media_order(socket.assigns[:files_state])
   end
 
   @doc """
@@ -716,7 +851,11 @@ defmodule PhoenixKitCatalogue.Attachments do
       {:ok, {:error, :no_user}}
     else
       file_checksum = UsersAuth.calculate_file_hash(path)
-      ext = entry.client_name |> Path.extname() |> String.trim_leading(".") |> String.downcase()
+      # `client_name` is browser-supplied and only checked against `:accept`,
+      # so strip any path before it reaches Storage as a filename. (`ext` was
+      # already safe — `Path.extname/1` cannot return a separator.)
+      client_name = Path.basename(entry.client_name || "")
+      ext = client_name |> Path.extname() |> String.trim_leading(".") |> String.downcase()
       file_type = file_type_from_mime(entry.client_type)
 
       case Storage.store_file_in_buckets(
@@ -725,7 +864,7 @@ defmodule PhoenixKitCatalogue.Attachments do
              user_uuid,
              file_checksum,
              ext,
-             entry.client_name
+             client_name
            ) do
         {:ok, file} ->
           _ = assign_file_to_folder(file, folder_uuid)
@@ -819,14 +958,38 @@ defmodule PhoenixKitCatalogue.Attachments do
     Map.put(params, "data", Map.put(data, "files_folder_uuid", folder_uuid))
   end
 
+  # `nil`, not `Map.delete/2` — an EXPLICIT "clear this" the caller can
+  # act on, as opposed to simply never mentioning the key at all (which
+  # `Catalogue.update_item/3` / `update_category/3`'s `:data_owned_keys`
+  # splicing reads as "this form didn't touch it, leave the DB row's own
+  # value alone" — see that option's doc). Every changeset that ever
+  # touches `:data` (`Schemas.Item`/`Schemas.Category`) drops a `nil`
+  # top-level entry before it reaches storage, so the stored shape ends
+  # up identical to a record that never had the key — not a JSON `null`.
   defp inject_featured_image(params, nil) do
     data = ensure_data_map(params)
-    Map.put(params, "data", Map.delete(data, "featured_image_uuid"))
+    Map.put(params, "data", Map.put(data, "featured_image_uuid", nil))
   end
 
   defp inject_featured_image(params, uuid) when is_binary(uuid) do
     data = ensure_data_map(params)
     Map.put(params, "data", Map.put(data, "featured_image_uuid", uuid))
+  end
+
+  # The full current grid order, not just the dragged subset — new
+  # uploads get persisted positions too, and the save is what makes the
+  # order real (same lifecycle as the featured pointer). Only written
+  # once the user HAS files: a legacy record without any stays untouched.
+  defp inject_media_order(params, %{files: [_ | _] = files}) do
+    data = ensure_data_map(params)
+    Map.put(params, "data", Map.put(data, "media_order", Enum.map(files, &to_string(&1.uuid))))
+  end
+
+  # `nil` marker, not `Map.delete/2` — see `inject_featured_image/2`'s
+  # comment just above.
+  defp inject_media_order(params, _files_state) do
+    data = ensure_data_map(params)
+    Map.put(params, "data", Map.put(data, "media_order", nil))
   end
 
   defp ensure_data_map(params) do
@@ -838,6 +1001,15 @@ defmodule PhoenixKitCatalogue.Attachments do
 
   defp resource_data(%{data: data}) when is_map(data), do: data
   defp resource_data(_), do: %{}
+
+  # No non-map fallback: resource_data/1 always yields a map (dialyzer
+  # flags the dead clause), and a stored non-list value degrades to [].
+  defp read_list(data, key) when is_map(data) do
+    case Map.get(data, key) do
+      list when is_list(list) -> Enum.map(list, &to_string/1)
+      _ -> []
+    end
+  end
 
   defp read_string(data, key) when is_map(data) do
     case Map.get(data, key) do

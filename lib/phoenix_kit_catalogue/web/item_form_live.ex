@@ -2,6 +2,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   @moduledoc "Create/edit form for catalogue items with multilang support."
 
   use Phoenix.LiveView
+  use Gettext, backend: PhoenixKitCatalogue.Gettext
   use PhoenixKitAI.Components.AITranslate.Embed
 
   require Logger
@@ -38,7 +39,8 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
     only: [
       actor_opts: 1,
       assign_ai_translation: 3,
-      ai_translate_config: 1
+      ai_translate_config: 1,
+      data_owned_keys: 2
     ]
 
   import PhoenixKitAI.Components.AITranslate,
@@ -56,7 +58,9 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   alias PhoenixKitCatalogue.Catalogue.Helpers
   alias PhoenixKitCatalogue.Catalogue.ItemSupplierInfos
   alias PhoenixKitCatalogue.Catalogue.PubSub
+  alias PhoenixKitCatalogue.Catalogue.Slugs
   alias PhoenixKitCatalogue.Catalogue.Suppliers
+  alias PhoenixKitCatalogue.Extensions
   alias PhoenixKitCatalogue.Metadata
   alias PhoenixKitCatalogue.Paths
   alias PhoenixKitCatalogue.Schemas.Item
@@ -103,7 +107,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   @compile {:no_warn_undefined, PhoenixKitComments.Web.CommentsComponent}
   @compile {:no_warn_undefined, PhoenixKitCRM.Paths}
 
-  @translatable_fields ["name", "description"]
+  @translatable_fields ["name", "description", "seo_title", "seo_description"]
   @preserve_fields %{
     # Translatable primaries: submitted only on the primary tab, so a
     # secondary-tab validate/save must re-inject them or :new loses them.
@@ -121,6 +125,13 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
     "manufacturer_uuid" => :manufacturer_uuid
   }
 
+  # Top-level `data` keys this form writes OUTSIDE the shared multilang/
+  # extension pipeline `data_owned_keys/2` already covers — see
+  # `Metadata.inject_into_data/3` and `Attachments.inject_attachment_data/2`.
+  # Threaded into `Catalogue.update_item/3`'s `:data_owned_keys` option at
+  # the save call site below.
+  @item_extra_owned_data_keys ~w(meta files_folder_uuid featured_image_uuid media_order)
+
   # PhoenixKit auto-applies its admin chrome layout to external module admin
   # views via socket.private[:live_layout]. Opt out here so this view can
   # self-wrap with LayoutWrapper.app_layout and push its title/subtitle into
@@ -135,6 +146,15 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   def mount(params, _session, socket) do
     action = socket.assigns.live_action
 
+    # Subscribe BEFORE the read below, not after it. Supplier rows, the files
+    # grid and the category options come from the DB and are not owned by this
+    # form, so a write landing between the read and the subscribe was dropped
+    # and the form rendered stale until the next unrelated event. Every other
+    # LiveView in this module subscribes first and says so; this one read
+    # first and subscribed inside the success branch. Subscribing on the
+    # not-found path too is harmless — that branch navigates away immediately.
+    if connected?(socket), do: PubSub.subscribe()
+
     case load_item(action, params) do
       {nil, _, _} ->
         {:ok,
@@ -143,11 +163,6 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
          |> push_navigate(to: Paths.index())}
 
       {item, changeset, catalogue_uuid} ->
-        # Supplier rows, the files grid and the category options are read
-        # from the DB, not owned by the form — follow other sessions' writes
-        # to them (see the `:catalogue_data_changed` clauses).
-        if connected?(socket), do: PubSub.subscribe()
-
         {:ok,
          socket
          |> assign(:return_to, safe_return_to(params["return_to"]))
@@ -285,7 +300,8 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
       move_target: nil,
       current_tab: :details,
       meta_state: Metadata.build_state(:item, item),
-      show_pdf_search: false
+      show_pdf_search: false,
+      extensions: Extensions.sections(:item)
     )
     |> mount_supplier_rows(action, item)
     |> Attachments.mount_attachments(item)
@@ -305,6 +321,119 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
     socket
     |> assign(:changeset, changeset)
     |> assign(:form, to_form(changeset))
+  end
+
+  # `slug` is a flat `lang -> value` map (see
+  # `PhoenixKitCatalogue.Catalogue.Slugs`'s moduledoc): the form only ever
+  # renders ONE language's input at a time (the active tab), so a plain
+  # cast of `item[slug]` would replace the whole map with just that one
+  # entry and silently drop every other language's slug. Non-blank
+  # submitted values are merged onto the existing map (an explicit edit,
+  # even a slug-breaking one — the unique_constraint below still catches
+  # a collision); a blank submission is treated as "no change" rather
+  # than clearing the language's existing slug, then `Slugs.maybe_generate/3`
+  # fills any language present in `data` that still has no slug at all.
+  defp apply_slug(params, socket) do
+    existing_slug = Ecto.Changeset.get_field(socket.assigns.changeset, :slug) || %{}
+
+    merged_slug =
+      case params["slug"] do
+        incoming when is_map(incoming) ->
+          incoming
+          |> Enum.filter(fn {_lang, value} -> is_binary(value) and value != "" end)
+          |> Enum.into(existing_slug)
+
+        _ ->
+          existing_slug
+      end
+
+    generated_slug =
+      socket.assigns.item
+      |> Catalogue.change_item(Map.put(params, "slug", merged_slug))
+      |> Slugs.maybe_generate(:slug, from: :name)
+      |> Ecto.Changeset.get_field(:slug)
+
+    Map.put(params, "slug", generated_slug || merged_slug)
+  end
+
+  # The language key the slug input is rendered/submitted under: the
+  # active tab when multilang is on, else the site's primary language —
+  # `slug` always keys by a real language code, active-multilang-toggle
+  # or not (see the design amendment in the Slugs moduledoc).
+  defp slug_lang(assigns), do: assigns.current_lang || Multilang.primary_language()
+
+  # Mirrors `extract_translatable_data/4`'s naming for a field that isn't
+  # in `@translatable_fields`' DB-column counterpart (seo_title/
+  # seo_description have none — they only ever live under `data`).
+  defp translatable_param_name(assigns, form_prefix, field) do
+    if assigns.current_lang == assigns.primary_language,
+      do: "#{form_prefix}[#{field}]",
+      else: "#{form_prefix}[lang_#{field}]"
+  end
+
+  # `seo_title`/`seo_description` have no DB column — they only ever live
+  # under `data["_seo_title"]`/`data["_seo_description"]`. When multilang
+  # is enabled, `merge_translatable_params/4` (via `@translatable_fields`)
+  # already folds them in. When it's disabled, that helper leaves `params`
+  # untouched entirely (it only writes `data` inside its `multilang_enabled`
+  # branch), so on a single-language install the two fields would
+  # otherwise be silently dropped by `cast/2` on every save. Mirrors
+  # `extract_translatable_data/4`'s own logic for the primary-language case.
+  defp merge_seo_params(params, socket) do
+    if socket.assigns.multilang_enabled do
+      params
+    else
+      data =
+        Map.get(params, "data") ||
+          Ecto.Changeset.get_field(socket.assigns.changeset, :data) || %{}
+
+      data = Enum.reduce(["seo_title", "seo_description"], data, &put_seo_field(&1, &2, params))
+
+      Map.put(params, "data", data)
+    end
+  end
+
+  # One SEO field folded into the single-language `data` map, keyed with the
+  # leading underscore the multilang reader expects. A field the form did not
+  # submit leaves `data` untouched.
+  defp put_seo_field(field, data, params) do
+    case Map.get(params, field) do
+      value when is_binary(value) -> Map.put(data, "_#{field}", value)
+      _ -> data
+    end
+  end
+
+  # Current `data` value for the registered extensions' sections — read off
+  # the form so a mid-edit validate (multilang merges, metadata, an
+  # extension's own submitted values) shows immediately, not just the
+  # last-persisted value.
+  defp item_data(form), do: form[:data].value || %{}
+
+  # Folds every registered extension's namespace into `item_params["data"]`
+  # (see `PhoenixKitCatalogue.Extensions.absorb/3`). The base is whatever
+  # `data` already carries at this point in the pipeline (multilang merge
+  # output when multilang is on, else the item's/changeset's current
+  # value) so an extension's write never clobbers a sibling namespace.
+  # Returns `{item_params, nil}` on success or `{item_params, {mod,
+  # errors}}` on the first extension that rejects its submission — the
+  # `data` key is left at its pre-absorb value in that case.
+  defp absorb_item_extensions(item_params, socket) do
+    data =
+      Map.get(item_params, "data") ||
+        Ecto.Changeset.get_field(socket.assigns.changeset, :data) || %{}
+
+    case Extensions.absorb(:item, item_params, data) do
+      {:ok, merged} -> {Map.put(item_params, "data", merged), nil}
+      {:error, {_mod, _errors} = error} -> {Map.put(item_params, "data", data), error}
+    end
+  end
+
+  defp add_extension_error(changeset, nil), do: changeset
+
+  defp add_extension_error(changeset, {mod, errors}) do
+    Enum.reduce(errors, changeset, fn {field, msg}, cs ->
+      Ecto.Changeset.add_error(cs, :data, msg, extension: mod.key(), field: field)
+    end)
   end
 
   # Smart-catalogue picker state: only populated when the parent
@@ -500,6 +629,9 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   def handle_event("cancel_upload", %{"ref" => ref}, socket),
     do: Attachments.cancel_attachment_upload(socket, ref)
 
+  def handle_event("reorder_files", %{"ordered_ids" => ids}, socket),
+    do: {:noreply, Attachments.handle_reorder_files(socket, ids)}
+
   def handle_event("remove_file", %{"uuid" => uuid}, socket),
     do: Attachments.trash_file(socket, uuid)
 
@@ -522,11 +654,16 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
         changeset: socket.assigns.changeset,
         preserve_fields: @preserve_fields
       )
+      |> merge_seo_params(socket)
+      |> apply_slug(socket)
+
+    {item_params, extension_error} = absorb_item_extensions(item_params, socket)
 
     changeset =
       socket.assigns.item
       |> Catalogue.change_item(item_params)
       |> Map.put(:action, :validate)
+      |> add_extension_error(extension_error)
 
     {:noreply, assign_changeset(socket, changeset)}
   end
@@ -545,10 +682,29 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
         changeset: socket.assigns.changeset,
         preserve_fields: @preserve_fields
       )
-      |> Metadata.inject_into_data(socket.assigns.meta_state, :item)
-      |> Attachments.inject_attachment_data(socket)
+      |> merge_seo_params(socket)
+      |> apply_slug(socket)
 
-    save_item(socket, socket.assigns.action, item_params, save_mode(params))
+    {item_params, extension_error} = absorb_item_extensions(item_params, socket)
+
+    case extension_error do
+      nil ->
+        item_params =
+          item_params
+          |> Metadata.inject_into_data(socket.assigns.meta_state, :item)
+          |> Attachments.inject_attachment_data(socket)
+
+        save_item(socket, socket.assigns.action, item_params, save_mode(params))
+
+      error ->
+        changeset =
+          socket.assigns.item
+          |> Catalogue.change_item(item_params)
+          |> Map.put(:action, :validate)
+          |> add_extension_error(error)
+
+        {:noreply, assign_changeset(socket, changeset)}
+    end
   end
 
   # ── Smart-catalogue rule picker events ──────────────────────────
@@ -1776,13 +1932,57 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
 
   # actor_opts/1 imported from PhoenixKitCatalogue.Web.Helpers
 
+  # `put/3`, not `put_new/3`: the catalogue is the SERVER's scope, taken from
+  # the URL, and a client-supplied `catalogue_uuid` in the form payload must
+  # not win it. `:catalogue_uuid` is in the cast allowlist, so with `put_new`
+  # a forged submit filed the record under a different catalogue than the one
+  # being edited.
+  #
+  # On BOTH paths. The first version of this pinned only `:new`, and edit is
+  # where it matters more: `derive_catalogue_uuid/2` overrides the field from
+  # the item's category, but `put_catalogue_from_effective_category(attrs,
+  # nil)` returns attrs untouched — so for an item with no category (every
+  # smart item, and any uncategorized standard one) nothing overrode a forged
+  # value, and the move was recorded as a plain `item.updated` rather than
+  # going through `move_item_to_catalogue/3`.
+  defp scope_to_catalogue(params, socket) do
+    case socket.assigns[:catalogue_uuid] do
+      nil -> params
+      catalogue_uuid -> Map.put(params, "catalogue_uuid", catalogue_uuid)
+    end
+  end
+
+  # The pin above is not sufficient on its own: `category_uuid` reaches the
+  # same field by a longer route. `derive_catalogue_uuid/2` looks the
+  # submitted category up and copies ITS catalogue over whatever the server
+  # just set — deliberately, because a category move should carry its items.
+  # So a forged `category_uuid` naming a category in another catalogue beats
+  # the scope. A category outside this form's catalogue is not a category
+  # this form can offer, so it is refused rather than silently dropped.
+  defp validate_category_scope(params, socket) do
+    scope = socket.assigns[:catalogue_uuid]
+    category_uuid = params["category_uuid"] |> to_string() |> String.trim()
+
+    cond do
+      scope == nil or category_uuid == "" ->
+        :ok
+
+      match?(%{catalogue_uuid: ^scope}, Catalogue.get_category(category_uuid)) ->
+        :ok
+
+      true ->
+        {:error, :category_outside_catalogue}
+    end
+  end
+
   defp save_item(socket, :new, params, mode) do
     params =
       params
-      |> Map.put_new("catalogue_uuid", socket.assigns.catalogue_uuid)
+      |> scope_to_catalogue(socket)
       |> put_manufacturer_source(socket.assigns.manufacturers)
 
-    with {:ok, item} <- Catalogue.create_item(params, actor_opts(socket)),
+    with :ok <- validate_category_scope(params, socket),
+         {:ok, item} <- Catalogue.create_item(params, actor_opts(socket)),
          {:ok, _rules} <- maybe_put_rules(socket, item),
          :ok <- Attachments.maybe_rename_pending_folder(socket, item) do
       apply_attribute_assignment(socket, item)
@@ -1814,6 +2014,14 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
              "Each catalogue can only appear once in the rules list."
            )
          )}
+
+      {:error, :category_outside_catalogue} ->
+        {:noreply,
+         put_flash(
+           socket,
+           :error,
+           gettext("That category belongs to another catalogue.")
+         )}
     end
   end
 
@@ -1828,9 +2036,17 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
         params
       end
 
-    params = put_manufacturer_source(params, socket.assigns.manufacturers)
+    params =
+      params
+      |> scope_to_catalogue(socket)
+      |> put_manufacturer_source(socket.assigns.manufacturers)
 
-    with {:ok, item} <- Catalogue.update_item(socket.assigns.item, params, actor_opts(socket)),
+    update_opts =
+      actor_opts(socket) ++
+        [data_owned_keys: data_owned_keys(socket, @item_extra_owned_data_keys)]
+
+    with :ok <- validate_category_scope(params, socket),
+         {:ok, item} <- Catalogue.update_item(socket.assigns.item, params, update_opts),
          {:ok, _rules} <- maybe_put_rules(socket, item) do
       apply_attribute_assignment(socket, item)
 
@@ -1854,6 +2070,14 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
              PhoenixKitCatalogue.Gettext,
              "Each catalogue can only appear once in the rules list."
            )
+         )}
+
+      {:error, :category_outside_catalogue} ->
+        {:noreply,
+         put_flash(
+           socket,
+           :error,
+           gettext("That category belongs to another catalogue.")
          )}
     end
   end
@@ -2247,15 +2471,24 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   defp apply_attribute_sets(socket, item) do
     if socket.assigns[:sets_enabled] do
       staged = socket.assigns.staged_set_uuids
-      current = Enum.map(Catalogue.list_attribute_set_attachments(item.uuid), & &1.set_uuid)
+      attachments = Catalogue.list_attribute_set_attachments(item.uuid)
+      current = Enum.map(attachments, & &1.set_uuid)
+
+      # One roll-up broadcast at the end instead of one per change. A save
+      # can detach, attach, reorder and write a selection per set — each of
+      # which broadcast `:item` separately and ran its own
+      # `item_catalogue_uuid/1` SELECT to build the payload, so every open
+      # detail LiveView re-ran `refresh_in_place/1` once per staged set.
+      # Same convention the importer uses for its per-row writes.
+      opts = [broadcast: false] ++ actor_opts(socket)
 
       Enum.each(current -- staged, fn uuid ->
-        Catalogue.detach_attribute_set(item.uuid, uuid, actor_opts(socket))
+        Catalogue.detach_attribute_set(item.uuid, uuid, opts)
       end)
 
-      Enum.each(staged -- current, &attach_staged_set(socket, item.uuid, &1))
+      Enum.each(staged -- current, &attach_staged_set(item.uuid, &1, opts))
 
-      Catalogue.reorder_attribute_sets(item.uuid, staged, actor_opts(socket))
+      Catalogue.reorder_attribute_sets(item.uuid, staged, opts)
 
       # Selections write AFTER attach so new attachments exist; the
       # context validates keys against the set's current values.
@@ -2265,15 +2498,45 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
           |> Map.get(set_uuid, MapSet.new())
           |> MapSet.to_list()
 
-        Catalogue.set_attribute_set_selection(item.uuid, set_uuid, slugs, actor_opts(socket))
+        Catalogue.set_attribute_set_selection(item.uuid, set_uuid, slugs, opts)
       end)
+
+      # Only when something actually moved. Each individual write already
+      # declined to broadcast when it changed nothing; rolling them up into
+      # one unconditional broadcast handed every open detail LiveView a
+      # second `:item` event on a name-only save — on top of the one
+      # `update_item/3` had just sent — and made it re-run `refresh_in_place/1`
+      # twice. That is the load this roll-up exists to remove.
+      if sets_changed?(current, staged, attachments, socket) do
+        PubSub.broadcast(:item, item.uuid, item.catalogue_uuid)
+      end
     end
 
     :ok
   end
 
-  defp attach_staged_set(socket, item_uuid, set_uuid) do
-    case Catalogue.attach_attribute_set(item_uuid, set_uuid, actor_opts(socket)) do
+  # Attachment membership AND order (`current` comes back in position order,
+  # so an unequal list covers attach, detach and reorder alike), plus the
+  # per-set value selections, which change without the attachment list moving.
+  defp sets_changed?(current, staged, attachments, socket) do
+    current != staged or selections_changed?(staged, attachments, socket)
+  end
+
+  defp selections_changed?(staged, attachments, socket) do
+    stored =
+      Map.new(attachments, fn attachment ->
+        slugs = (attachment.data || %{})["selected_value_slugs"]
+        {attachment.set_uuid, MapSet.new(List.wrap(slugs))}
+      end)
+
+    Enum.any?(staged, fn set_uuid ->
+      staged_slugs = Map.get(socket.assigns.staged_selections, set_uuid, MapSet.new())
+      staged_slugs != Map.get(stored, set_uuid, MapSet.new())
+    end)
+  end
+
+  defp attach_staged_set(item_uuid, set_uuid, opts) do
+    case Catalogue.attach_attribute_set(item_uuid, set_uuid, opts) do
       {:ok, _} ->
         :ok
 
@@ -2360,28 +2623,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
       current_path={assigns[:url_path] || (if @catalogue_uuid, do: Paths.catalogue_detail(@catalogue_uuid), else: Paths.index())}
       current_locale={assigns[:current_locale]}
     >
-      <div class="flex flex-col mx-auto max-w-2xl px-4 py-8 gap-6">
-
-      <%!-- PDF search button — visible on edit only. Opens a modal that
-           searches the PDF library for any page mentioning the item's
-           translated names. --%>
-      <div :if={@action == :edit} class="flex items-center justify-between bg-base-200 rounded-lg p-3 gap-3">
-        <div class="text-sm">
-          <div class="font-medium">
-            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Find this item in PDFs")}
-          </div>
-          <div class="text-xs text-base-content/60">
-            {Gettext.gettext(
-              PhoenixKitCatalogue.Gettext,
-              "Searches the entire PDF library for the item's name across all enabled languages."
-            )}
-          </div>
-        </div>
-        <.button type="button" phx-click="open_pdf_search" size="sm">
-          <.icon name="hero-magnifying-glass" class="w-4 h-4" />
-          {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search PDFs")}
-        </.button>
-      </div>
+      <div class="container flex flex-col mx-auto px-4 py-6 gap-6">
 
       <.live_component
         :if={@action == :edit}
@@ -2451,6 +2693,11 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
         >
           <.icon name="hero-paper-clip" class="w-4 h-4 mr-1" />
           {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Photos and Files")}
+          <%!-- Same badge the catalogue/category editors carry — the
+          item editor was the one missing it (Max, 2026-08-31). --%>
+          <span :if={@files_state.files != []} class="badge badge-sm badge-ghost ml-2">
+            {length(@files_state.files)}
+          </span>
         </button>
       </div>
 
@@ -2470,7 +2717,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
         phoenix_kit_current_user={assigns[:phoenix_kit_current_user]}
       />
 
-      <.form for={@form} action="#" phx-change="validate" phx-submit="save">
+      <.form for={@form} id="item-form" action="#" phx-change="validate" phx-submit="save">
         <div class={"card bg-base-100 shadow-lg #{if @current_tab != :details, do: "hidden"}"}>
           <%!-- Bundled tabs + AI row (phoenix_kit_ai's canonical placement). --%>
           <.ai_multilang_tabs
@@ -2518,6 +2765,16 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                 class="w-full"
               />
 
+              <.input
+                field={@form[:slug]}
+                name={"item[slug][#{slug_lang(assigns)}]"}
+                value={Map.get(@form[:slug].value || %{}, slug_lang(assigns), "")}
+                type="text"
+                label={gettext("URL slug")}
+                placeholder={gettext("auto-generated from the name")}
+                class="w-full"
+              />
+
               <.translatable_field
                 field_name="description"
                 form_prefix="item"
@@ -2535,6 +2792,22 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                     "Product specifications, dimensions, materials..."
                   )
                 }
+                class="w-full"
+              />
+
+              <.input
+                type="text"
+                name={translatable_param_name(assigns, "item", "seo_title")}
+                value={Map.get(@lang_data, "_seo_title") || ""}
+                label={gettext("SEO title")}
+                class="w-full"
+              />
+
+              <.input
+                type="text"
+                name={translatable_param_name(assigns, "item", "seo_description")}
+                value={Map.get(@lang_data, "_seo_description") || ""}
+                label={gettext("SEO description")}
                 class="w-full"
               />
             </div>
@@ -2588,16 +2861,31 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                     )}
                   </span>
                 </div>
-                <.select
-                  field={@form[:unit]}
-                  label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Unit")}
-                  class="transition-colors focus-within:select-primary"
-                  options={[
-                    {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Piece"), "piece"},
-                    {Gettext.gettext(PhoenixKitCatalogue.Gettext, "m² (square meter)"), "m2"},
-                    {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Running meter"), "running_meter"}
-                  ]}
-                />
+                <div>
+                  <%!-- Label hand-rolled to match `<.input>`'s (label mb-2 +
+                       plain font-semibold span): core's `<.select>` labels
+                       through FormFieldLabel, whose `fieldset-legend` span
+                       renders smaller — and in this grid of inputs the Unit
+                       field visibly broke the row. Candidate core fix noted
+                       in the 2026-08-30 report; local until that lands. --%>
+                  <label class="label mb-2" for={@form[:unit].id}>
+                    <span class="font-semibold">
+                      {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Unit")}
+                    </span>
+                  </label>
+                  <.select
+                    field={@form[:unit]}
+                    class="transition-colors focus-within:select-primary"
+                    options={[
+                      {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Piece"), "piece"},
+                      {Gettext.gettext(PhoenixKitCatalogue.Gettext, "m² (square meter)"), "m2"},
+                      {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Running meter"), "running_meter"},
+                      # kmpl = the Estonian set/komplekt (boss, 2026-08-31);
+                      # stored as "set", the vocabulary unit_label/1 knows.
+                      {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Set (kmpl)"), "set"}
+                    ]}
+                  />
+                </div>
                 <div class="fieldset">
                   <.input
                     field={@form[:markup_percentage]}
@@ -3017,6 +3305,25 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
               }
             />
           </details>
+
+          <%!-- Extension slot (spec §2 principle 8, §4 row C4) — other
+               registered modules (e.g. phoenix_kit_ecommerce) add a
+               section here. Empty and invisible when nothing is
+               registered/enabled; catalogue never names an implementer. --%>
+          <%= for ext <- @extensions do %>
+            {ext.item_section(%{
+              form: @form,
+              item: @item,
+              data: item_data(@form),
+              current_language: @current_lang,
+              # Not a real socket assign — this map is a plain function call
+              # argument, not built through `<.component />`, so it needs
+              # its own change-tracking key for `Phoenix.Component.assign/3`
+              # (used by e.g. `ItemCommerce`'s Shop section) to accept it.
+              # Same trick `Phoenix.LiveViewTest.render_component/2` uses.
+              __changed__: %{}
+            })}
+          <% end %>
         </div>
 
         <%!-- Featured image — on the Files tab, matching the catalogue
@@ -3348,6 +3655,32 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
             {if @uploads.attachment_files.entries != [],
               do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Waiting for uploads..."),
               else: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Save & Exit")}
+          </.button>
+        </div>
+
+        <%!-- PDF search — edit only, at the BOTTOM under the save row
+        (boss, 2026-08-31; it opened the form at the top). Opens a modal
+        that searches the PDF library for any page mentioning the item's
+        translated names. Inside the form is fine: the trigger is
+        type="button" and the modal component renders its own dialog. --%>
+        <div
+          :if={@action == :edit}
+          class="flex items-center justify-between bg-base-200 rounded-lg p-3 gap-3 mt-4"
+        >
+          <div class="text-sm">
+            <div class="font-medium">
+              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Find this item in PDFs")}
+            </div>
+            <div class="text-xs text-base-content/60">
+              {Gettext.gettext(
+                PhoenixKitCatalogue.Gettext,
+                "Searches the entire PDF library for the item's name across all enabled languages."
+              )}
+            </div>
+          </div>
+          <.button type="button" phx-click="open_pdf_search" size="sm">
+            <.icon name="hero-magnifying-glass" class="w-4 h-4" />
+            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search PDFs")}
           </.button>
         </div>
       </.form>
