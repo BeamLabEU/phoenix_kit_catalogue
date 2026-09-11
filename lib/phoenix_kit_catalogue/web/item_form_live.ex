@@ -3215,7 +3215,10 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                         />
                         <span class="text-sm">{value.label}</span>
                       </label>
-                      <span :if={preview.values == []} class="text-xs text-base-content/40">
+                      <span
+                        :if={preview.values == [] and preview.hidden_values == []}
+                        class="text-xs text-base-content/40"
+                      >
                         {Gettext.gettext(PhoenixKitCatalogue.Gettext, "No values defined yet.")}
                       </span>
                     </div>

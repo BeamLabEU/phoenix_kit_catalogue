@@ -116,6 +116,25 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSetsTest do
         assert {:ok, %{default: nil}} = AttributeSets.contract(AttributeSets.get_set(set.uuid))
       end
 
+      test "update_set still accepts an ARCHIVED default — a hidden value is still real (§3c)" do
+        set = create_set!("Ikea trims archived default", "fixed")
+
+        {:ok, gold} =
+          AttributeSets.create_value(set, %{label: "Gold"}, actor_uuid: Ecto.UUID.generate())
+
+        {:ok, set} = AttributeSets.update_set(set, %{default_value_slug: gold.slug})
+
+        {:ok, _} =
+          PhoenixKitEntities.EntityData.update(gold, %{status: "archived"}, activity_log: false)
+
+        # An unrelated rename must not start failing just because the
+        # set's default happens to point at an archived (still real,
+        # still resolvable via `hidden_values`) value.
+        assert {:ok, renamed} = AttributeSets.update_set(set, %{name: "Ikea trims v2"})
+        assert {:ok, %{default: slug}} = AttributeSets.contract(renamed)
+        assert slug == gold.slug
+      end
+
       test "contract rejects tampered blueprints instead of guessing" do
         set = create_set!("Ikea widths")
         broken = put_in(set.settings, ["catalogue", "kind"], "banana")
@@ -938,6 +957,33 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSetsTest do
         )
       end
 
+      test "a TRASHED value's slug is also not an orphan — the other half of archived-or-trashed" do
+        # The test above only exercises the archived half of "leaves
+        # archived/trashed ones alone" — `EntityData.list_by_entity/2`
+        # doesn't exclude archived by default anyway, so that half would
+        # pass even if `sweep_orphan_value_slugs/1` dropped
+        # `include_trashed: true` entirely. Trash Blue here instead, the
+        # one status that flag actually gates.
+        actor = Ecto.UUID.generate()
+        set = create_set!("Ikea veneers trashed")
+        {:ok, red} = AttributeSets.create_value(set, %{label: "Red"}, actor_uuid: actor)
+        {:ok, blue} = AttributeSets.create_value(set, %{label: "Blue"}, actor_uuid: actor)
+
+        item = fixture_item(%{name: "Door"})
+        {:ok, _} = AttributeSets.attach_set(item.uuid, set.uuid)
+
+        :ok =
+          AttributeSets.set_attachment_selection(item.uuid, set.uuid, [red.slug, blue.slug])
+
+        {:ok, _} = PhoenixKitEntities.EntityData.trash(blue)
+
+        assert AttributeSets.prune_orphan_value_slugs(set.uuid) == 0
+
+        [attachment] = AttributeSets.list_attachments(item.uuid)
+        selected = attachment.data["selected_value_slugs"]
+        assert Enum.sort(selected) == Enum.sort([red.slug, blue.slug])
+      end
+
       test "no-op for a uuid that isn't a catalogue set" do
         assert AttributeSets.prune_orphan_value_slugs(Ecto.UUID.generate()) == 0
         assert AttributeSets.prune_orphan_value_slugs("not-a-uuid") == 0
@@ -989,6 +1035,50 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSetsTest do
 
         assert Enum.map(resolved.values, & &1.key) == [oak.slug]
         assert Enum.map(resolved.hidden_values, & &1.key) == [ash.slug]
+      end
+
+      test "resolve_set carries a TRASHED value in hidden_values too, not just archived" do
+        set = create_set!("Ikea finishes trashed")
+        {:ok, oak} = AttributeSets.create_value(set, %{label: "Oak"})
+        {:ok, ash} = AttributeSets.create_value(set, %{label: "Ash"})
+
+        {:ok, _} = PhoenixKitEntities.EntityData.trash(ash)
+
+        resolved = AttributeSets.resolve_set(set.uuid)
+
+        assert Enum.map(resolved.values, & &1.key) == [oak.slug]
+        assert Enum.map(resolved.hidden_values, & &1.key) == [ash.slug]
+      end
+
+      test "a live value's slug wins over a trashed duplicate sharing the same key" do
+        # A trashed value's slug isn't checked for uniqueness against new
+        # values (`value_slug/3` only compares against active ones), so
+        # the same slug can end up on more than one row: a live value
+        # plus one or more stale trashed copies underneath it. Every
+        # consumer builds its lookup pool as `values ++ hidden_values`
+        # (product card, attribute-set items modal, item form) — a
+        # duplicate key there means "last wins", and the stale trashed
+        # row's label would silently shadow the live one's.
+        set = create_set!("Ikea slug collision")
+
+        {:ok, old} =
+          AttributeSets.create_value(set, %{label: "Old Red", slug: "punane"})
+
+        {:ok, _} = PhoenixKitEntities.EntityData.trash(old)
+
+        {:ok, live} =
+          AttributeSets.create_value(set, %{label: "New Red", slug: "punane"})
+
+        assert old.slug == live.slug
+
+        resolved = AttributeSets.resolve_set(set.uuid)
+
+        assert Enum.map(resolved.values, & &1.key) == ["punane"]
+        assert Enum.map(resolved.values, & &1.label) == ["New Red"]
+        # The trashed duplicate is dropped entirely, not just shadowed —
+        # the live row already carries the key, so it stays the ONLY
+        # source of that key in the resolved pool.
+        assert resolved.hidden_values == []
       end
 
       test "a selected value that gets archived is not silently dropped from resolve" do
