@@ -521,4 +521,30 @@ defmodule PhoenixKitCatalogue.Web.ComponentsTest do
       end
     end
   end
+
+  describe "attribute_cell_text/1" do
+    test "no attachment: nil or [] → nil" do
+      assert attribute_cell_text(nil) == nil
+      assert attribute_cell_text([]) == nil
+    end
+
+    test "one set, one selected value → the label" do
+      assert attribute_cell_text([%{name: "Color", labels: ["Red"]}]) == "Red"
+    end
+
+    test "one set, several selected values → joined by \", \"" do
+      assert attribute_cell_text([%{name: "Color", labels: ["Red", "Blue"]}]) == "Red, Blue"
+    end
+
+    test "a set with no selection falls back to the set's own name" do
+      assert attribute_cell_text([%{name: "Trim finish", labels: []}]) == "Trim finish"
+    end
+
+    test "several sets → joined by \"; \", each independently formatted" do
+      assert attribute_cell_text([
+               %{name: "Color", labels: ["Red", "Blue"]},
+               %{name: "Trim finish", labels: []}
+             ]) == "Red, Blue; Trim finish"
+    end
+  end
 end

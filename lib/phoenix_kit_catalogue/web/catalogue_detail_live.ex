@@ -2593,8 +2593,6 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   # name plus the labels of its currently SELECTED values (empty
   # selection = "whole set applies", the label list is left empty and
   # `Components.attribute_cell_text/1` falls back to the set's name).
-  defp build_attribute_map([], _locale), do: %{}
-
   defp build_attribute_map(item_uuids, locale) do
     item_uuids
     |> Catalogue.resolve_attribute_sets(lang: locale)
