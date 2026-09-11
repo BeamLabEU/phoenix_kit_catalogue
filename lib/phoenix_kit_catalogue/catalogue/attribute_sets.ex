@@ -359,45 +359,65 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
   the generic entities admin. Allowed even while the set is attached to
   items; that is the whole point of soft-delete over `delete_set/2`'s
   hard `{:error, :set_in_use}` refusal — ties stay intact, values stay
-  resolvable (`resolve_set/2`'s `hidden_values`, §3c). Idempotent: an
-  already-archived set is returned as-is, no duplicate activity row or
-  broadcast.
+  resolvable (`resolve_set/2`'s `hidden_values`, §3c).
+
+  Idempotent: an already-archived set is returned as-is, no duplicate
+  activity row or broadcast — checked against a FRESH re-read
+  (`get_set/2`), not the caller's possibly-stale struct, same doctrine
+  as `update_set/3`. `ensure_enabled/0` still runs first, so a
+  disabled `entities` system refuses even the idempotent path — a
+  writer never reports success while its own foundation is off.
+
+  `on_behalf_of` rides the owner constant only, not the caller's
+  `opts` — same as every other writer in this module. That means
+  `:actor_uuid` is not forwarded to entities' own activity log, which
+  then attributes the change to the blueprint's original creator
+  rather than the acting admin; the catalogue's own
+  `"attribute_set.archived"` entry below still records the real actor
+  from `opts`.
   """
   @spec archive_set(struct(), keyword()) :: {:ok, struct()} | {:error, term()}
-  def archive_set(set, opts \\ [])
-  def archive_set(%{status: "archived"} = set, _opts), do: {:ok, set}
-
-  def archive_set(set, opts) do
+  def archive_set(set, opts \\ []) do
     with :ok <- ensure_enabled() do
-      set
-      |> PhoenixKitEntities.update_entity(%{status: "archived"}, on_behalf_of: @owner)
-      |> tap_log("attribute_set.archived", opts, & &1.uuid, fn s ->
-        %{"name" => s.display_name, "slug" => s.name}
-      end)
+      do_archive_set(get_set(set.uuid) || set, opts)
     end
+  end
+
+  defp do_archive_set(%{status: "archived"} = set, _opts), do: {:ok, set}
+
+  defp do_archive_set(set, opts) do
+    set
+    |> PhoenixKitEntities.update_entity(%{status: "archived"}, on_behalf_of: @owner)
+    |> tap_log("attribute_set.archived", opts, & &1.uuid, fn s ->
+      %{"name" => s.display_name, "slug" => s.name}
+    end)
   end
 
   @doc """
   Restores an archived set back to `"published"`. See `archive_set/2`
-  for the owner bypass and idempotency (a set that isn't `"archived"`
-  is returned as-is). The target is hardcoded, not "whatever status it
-  had before archiving" — this module only ever produces `"published"`
-  or `"archived"`, so there is no other prior state to restore TO. A
-  `"draft"` status doesn't exist here today; if one is ever introduced,
-  restoring a draft-then-archived set would wrongly publish it.
+  for the owner bypass, the idempotency check against a fresh re-read,
+  and the `on_behalf_of`/actor-attribution note. The target is
+  hardcoded, not "whatever status it had before archiving" — this
+  module only ever produces `"published"` or `"archived"`, so there is
+  no other prior state to restore TO. A `"draft"` status doesn't exist
+  here today; if one is ever introduced, restoring a draft-then-archived
+  set would wrongly publish it.
   """
   @spec restore_set(struct(), keyword()) :: {:ok, struct()} | {:error, term()}
-  def restore_set(set, opts \\ [])
-  def restore_set(%{status: status} = set, _opts) when status != "archived", do: {:ok, set}
-
-  def restore_set(set, opts) do
+  def restore_set(set, opts \\ []) do
     with :ok <- ensure_enabled() do
-      set
-      |> PhoenixKitEntities.update_entity(%{status: "published"}, on_behalf_of: @owner)
-      |> tap_log("attribute_set.restored", opts, & &1.uuid, fn s ->
-        %{"name" => s.display_name, "slug" => s.name}
-      end)
+      do_restore_set(get_set(set.uuid) || set, opts)
     end
+  end
+
+  defp do_restore_set(%{status: status} = set, _opts) when status != "archived", do: {:ok, set}
+
+  defp do_restore_set(set, opts) do
+    set
+    |> PhoenixKitEntities.update_entity(%{status: "published"}, on_behalf_of: @owner)
+    |> tap_log("attribute_set.restored", opts, & &1.uuid, fn s ->
+      %{"name" => s.display_name, "slug" => s.name}
+    end)
   end
 
   @doc """
@@ -674,7 +694,10 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
         |> maybe_put_extras(value, extras)
 
       value
-      |> PhoenixKitEntities.EntityData.update(entity_attrs, activity_log: false)
+      |> PhoenixKitEntities.EntityData.update(entity_attrs,
+        on_behalf_of: @owner,
+        activity_log: false
+      )
       |> tap_log("attribute_set.value_updated", opts, & &1.entity_uuid, fn v ->
         %{"set" => set.name, "value" => v.slug}
       end)
@@ -1686,12 +1709,24 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
   """
   @spec resolve_set(Ecto.UUID.t(), keyword()) :: map() | nil
   def resolve_set(set_uuid, opts \\ []) do
-    build_resolved_set(
-      set_uuid,
-      opts,
-      list_values_for([set_uuid], opts),
-      list_hidden_values_for([set_uuid], opts)
-    )
+    # Existence/contract checked BEFORE paying for the values/hidden
+    # listing reads — a random or stale uuid must not pay for two full
+    # `entity_data` reads just to learn `get_set/2` would have said
+    # nil. `build_resolved_set/4` re-checks both internally too (it is
+    # shared with `resolve_for_items/2`, whose batching works the other
+    # way around — see that function's doc); the duplicate check here
+    # is one cheap single-entity read, not the listing cost it guards.
+    with %{} = set <- get_set(set_uuid, opts),
+         {:ok, _contract} <- contract(set) do
+      build_resolved_set(
+        set_uuid,
+        opts,
+        list_values_for([set_uuid], opts),
+        list_hidden_values_for([set_uuid], opts)
+      )
+    else
+      _ -> nil
+    end
   end
 
   # Shared by `resolve_set/2` (one set, called with single-entry maps)

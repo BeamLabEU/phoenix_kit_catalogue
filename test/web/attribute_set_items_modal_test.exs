@@ -194,6 +194,40 @@ defmodule PhoenixKitCatalogue.Web.AttributeSetItemsModalTest do
       assert has_element?(view, "##{modal_id(set)}-item-#{item.uuid}", "Broken Red")
     end
 
+    test "a broken contract's fallback still shows an archived selection's chip", %{conn: conn} do
+      {:ok, set} = Catalogue.create_attribute_set(%{name: "Popup broken+hidden"})
+      {:ok, red} = Catalogue.create_attribute_set_value(set, %{label: "Ghosted Red"})
+
+      item = fixture_item(%{name: "Broken-hidden door"})
+      {:ok, _} = Catalogue.attach_attribute_set(item.uuid, set.uuid)
+      :ok = AttributeSets.set_attachment_selection(item.uuid, set.uuid, [red.slug])
+
+      {:ok, _} =
+        PhoenixKitEntities.EntityData.update(red, %{status: "archived"}, activity_log: false)
+
+      # Same contract tamper as the test above, but this time the
+      # item's selected value is ALSO archived. `list_attribute_set_values/2`
+      # (the fallback's active-only half) excludes it, so the fallback
+      # must reach for the hidden half too or this chip blanks —
+      # exactly the §3c bug the happy path already fixed, just hit via
+      # the broken-contract fallback this time.
+      set = AttributeSets.get_set(set.uuid)
+
+      {:ok, _} =
+        PhoenixKitEntities.update_entity(
+          set,
+          %{settings: put_in(set.settings, ["catalogue", "kind"], "not_a_real_kind")},
+          on_behalf_of: "catalogue"
+        )
+
+      assert AttributeSets.resolve_set(set.uuid) == nil
+
+      {:ok, view, _html} = live(conn, "/en/admin/catalogue/attributes")
+      render_click(view, "open_set_items_modal", %{"uuid" => set.uuid})
+
+      assert has_element?(view, "##{modal_id(set)}-item-#{item.uuid}", "Ghosted Red")
+    end
+
     test "closing unmounts the popup; reopening starts fresh", %{conn: conn} do
       {:ok, set} = Catalogue.create_attribute_set(%{name: "Popup close"})
       item = fixture_item(%{name: "Close item"})
