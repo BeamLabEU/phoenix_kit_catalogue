@@ -276,7 +276,10 @@ defmodule PhoenixKitCatalogue.Web.AttributeSetsSurfacesTest do
         refute html =~ "restore_attribute_set"
 
         html = render_click(view, "archive_attribute_set", %{"uuid" => set.uuid})
-        assert html =~ "archived"
+        # The full flash text — "archived" alone also matches the
+        # "Archived" row badge AND the ever-present
+        # `toggle_attr_sets_show_archived` phx-click attribute.
+        assert html =~ "Attribute set archived."
         assert Catalogue.get_attribute_set(set.uuid).status == "archived"
         # Archived, so it drops off the default (non-archived) listing.
         refute html =~ "Lifecycle colors"
@@ -288,7 +291,7 @@ defmodule PhoenixKitCatalogue.Web.AttributeSetsSurfacesTest do
 
         html = render_click(view, "restore_attribute_set", %{"uuid" => set.uuid})
         assert Catalogue.get_attribute_set(set.uuid).status == "published"
-        assert html =~ "restored"
+        assert html =~ "Attribute set restored."
       end
 
       test "archiving is offered even while the set is attached to items", %{conn: conn} do
@@ -320,7 +323,10 @@ defmodule PhoenixKitCatalogue.Web.AttributeSetsSurfacesTest do
         assert html =~ "Long retired"
         assert html =~ "Archived"
 
-        refute Catalogue.get_attribute_set(active.uuid) == nil
+        # The toggle is a display filter, not a mutation — it must not
+        # touch either set's status.
+        assert Catalogue.get_attribute_set(active.uuid).status == "published"
+        assert Catalogue.get_attribute_set(archived.uuid).status == "archived"
       end
     end
 

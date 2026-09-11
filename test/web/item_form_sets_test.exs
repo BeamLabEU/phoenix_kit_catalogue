@@ -173,6 +173,45 @@ defmodule PhoenixKitCatalogue.Web.ItemFormSetsTest do
 
       assert Enum.sort(selected) == Enum.sort([red.slug, blue.slug])
     end
+
+    test "a hidden selected value can be un-selected, and keeps its swatch thumb", %{
+      conn: conn,
+      item: item,
+      set: set,
+      red: red,
+      blue: blue
+    } do
+      {:ok, _} = AttributeSets.add_extra_field(set, %{label: "Swatch", type: "image"})
+      set = AttributeSets.get_set(set.uuid)
+      media_uuid = Ecto.UUID.generate()
+      {:ok, _} = AttributeSets.update_value(set, red, %{extras: %{"swatch" => media_uuid}})
+
+      {:ok, _} = Catalogue.attach_attribute_set(item.uuid, set.uuid)
+      :ok = Catalogue.set_attribute_set_selection(item.uuid, set.uuid, [red.slug, blue.slug])
+
+      {:ok, _} =
+        PhoenixKitEntities.EntityData.update(red, %{status: "archived"}, activity_log: false)
+
+      {:ok, view, _html} = open(conn, item)
+
+      # The swatch survives archiving too — the same loss family as the
+      # label put_thumbs/1 already keeps (put_thumbs used to build the
+      # thumb map from `values` alone, so a hidden value's swatch
+      # silently disappeared even though its chip still rendered).
+      assert assigns(view).set_previews[set.uuid].thumbs[red.slug] == media_uuid
+
+      # The × on the hidden chip un-selects it — detaching the WHOLE
+      # set was, until now, the only way to drop a hidden pick.
+      render_click(view, "toggle_value_selection", %{"set" => set.uuid, "key" => red.slug})
+      assert assigns(view).staged_selections[set.uuid] == MapSet.new([blue.slug])
+
+      save(view)
+
+      assert %{sets: [%{selected: selected}]} =
+               Catalogue.resolve_attribute_sets_for_item(item.uuid)
+
+      assert selected == [blue.slug]
+    end
   else
     @tag :skip
     test "entities package lacks the Managed contract — suite skipped" do
