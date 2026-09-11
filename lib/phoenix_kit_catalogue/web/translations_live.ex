@@ -148,7 +148,7 @@ defmodule PhoenixKitCatalogue.Web.TranslationsLive do
       # callback un-vetted. Re-assign `:lang` to the normalized value so
       # the filter <select> (driven by `@lang`) never lands on something
       # that isn't one of its own options.
-      lang = normalize_lang(state.lang, socket.assigns.languages)
+      lang = normalize_lang(state.lang, languages(socket))
       state = %{state | lang: lang}
 
       socket
@@ -168,7 +168,7 @@ defmodule PhoenixKitCatalogue.Web.TranslationsLive do
     lang =
       filter
       |> Map.get("lang", socket.assigns.lang)
-      |> normalize_lang(socket.assigns.languages)
+      |> normalize_lang(languages(socket))
 
     {:noreply,
      push_url_state(
@@ -333,6 +333,13 @@ defmodule PhoenixKitCatalogue.Web.TranslationsLive do
 
   defp default_languages, do: Multilang.enabled_languages() -- [Multilang.primary_language()]
 
+  # `:languages` is only assigned once `mount/3` confirms `ai_available` —
+  # every caller below can still fire (a crafted event, or `filter`'s
+  # `phx-change`) while it's unset, and `socket.assigns.languages` would
+  # then raise `KeyError` instead of the graceful "unknown language"
+  # handling these callers expect. Absent means no language can be valid.
+  defp languages(socket), do: socket.assigns[:languages] || []
+
   # `lang` is the one `UrlState` param that can't declare a compile-time
   # `:in` list (`@languages` is DB-settings-backed, not a static atom
   # list — see `use PhoenixKitWeb.Live.UrlState` above), so anything
@@ -368,7 +375,7 @@ defmodule PhoenixKitCatalogue.Web.TranslationsLive do
   # form's own normalization entirely. Reject it here, before it ever
   # reaches `Translations.enqueue/1`'s `target_lang`.
   defp enqueue_one(socket, type, uuid, lang) do
-    if valid_target_lang?(lang, socket.assigns.languages) do
+    if valid_target_lang?(lang, languages(socket)) do
       resource_type = TranslationSweepWorker.resource_type_for(type)
 
       params = %{
@@ -445,7 +452,7 @@ defmodule PhoenixKitCatalogue.Web.TranslationsLive do
   # change silently producing a bad language must fail loud per-row
   # (counted as an error below), not by queuing a broken job.
   defp do_bulk_enqueue(socket, row) do
-    if valid_target_lang?(row.lang, socket.assigns.languages) do
+    if valid_target_lang?(row.lang, languages(socket)) do
       resource_type = TranslationSweepWorker.resource_type_for(row.type)
 
       params = %{

@@ -57,6 +57,19 @@ defmodule PhoenixKitCatalogue.Web.TranslationsLiveTest do
       assert html =~ "AI translation is not configured"
       refute html =~ "translations-table"
     end
+
+    # `:languages` is only assigned once `ai_available` is true (see
+    # `mount/3`) — a crafted "filter" event must not reach
+    # `socket.assigns.languages` directly and crash the LiveView with a
+    # `KeyError` while the notice is showing.
+    test "a crafted filter event does not crash the LiveView", %{conn: conn} do
+      {:ok, view, _html} = live(conn, @base)
+
+      html = render_change(view, "filter", %{"filter" => %{"lang" => "xx-XX"}})
+
+      assert Process.alive?(view.pid)
+      assert html =~ "AI translation is not configured"
+    end
   end
 
   describe "with AI configured" do
