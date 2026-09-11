@@ -89,12 +89,15 @@ defmodule PhoenixKitCatalogue.Web.Components.AttributeSetItemsModal do
     # A broken set contract makes `resolve_attribute_set/2` return nil,
     # though — and an empty label map here would blank EVERY item's
     # chips for this set, not just the unresolvable one. Degrade to the
-    # plain (active-only) value listing instead: labels keep showing,
-    # just without the hidden badge.
+    # plain value listing instead, active AND hidden, fetched
+    # separately (`list_attribute_set_values/2` excludes archived) —
+    # dropping hidden values here would be the exact §3c bug this
+    # fallback exists not to reintroduce, just on the broken-contract
+    # path instead of the happy one.
     {values, hidden_values} =
       case Catalogue.resolve_attribute_set(set.uuid, lang: locale) do
         %{values: v, hidden_values: h} -> {v, h}
-        _ -> {fallback_values(set.uuid, locale), []}
+        _ -> {fallback_values(set.uuid, locale), fallback_hidden_values(set.uuid, locale)}
       end
 
     label_map = Map.new(values ++ hidden_values, &{&1.key, &1.label})
@@ -146,6 +149,15 @@ defmodule PhoenixKitCatalogue.Web.Components.AttributeSetItemsModal do
   defp fallback_values(set_uuid, locale) do
     set_uuid
     |> Catalogue.list_attribute_set_values(lang: locale)
+    |> Enum.map(&%{key: &1.slug, label: &1.title})
+  end
+
+  # The hidden half of the fallback above — same reshape, batched form
+  # (`list_attribute_set_hidden_values_for/2` takes a list of uuids).
+  defp fallback_hidden_values(set_uuid, locale) do
+    [set_uuid]
+    |> Catalogue.list_attribute_set_hidden_values_for(lang: locale)
+    |> Map.get(set_uuid, [])
     |> Enum.map(&%{key: &1.slug, label: &1.title})
   end
 
