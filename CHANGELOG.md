@@ -1,3 +1,20 @@
+## 0.28.5 - 2026-09-11
+
+### Fixed
+
+- The translations page's language filter no longer queues translation
+  jobs for a blank target language: "All languages" is now a real select
+  option (`value="all"`) instead of a `prompt`-rendered blank option, and
+  any `lang` reaching the filter event, the URL, or a row's/bulk's enqueue
+  is validated against the currently enabled languages, falling back to
+  "all languages" (filter) or a rejected "Unknown target language" flash
+  (enqueue) rather than a blank/unknown value ever reaching
+  `PhoenixKitAI.Translations.enqueue/1` (#107).
+- Fixed a regression from the language-filter fix above: a `filter` event
+  reaching the translations LiveView while AI translation is not
+  configured raised `KeyError: key :languages not found` and crashed the
+  view, since `:languages` is only assigned once AI is available.
+
 ## 0.28.4 - 2026-09-10
 
 ### Fixed
