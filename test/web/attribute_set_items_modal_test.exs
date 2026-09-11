@@ -127,6 +127,39 @@ defmodule PhoenixKitCatalogue.Web.AttributeSetItemsModalTest do
       refute html =~ "Trashed item"
     end
 
+    test "a selection archived after being picked still renders, badged (3c)", %{conn: conn} do
+      {:ok, set} = Catalogue.create_attribute_set(%{name: "Popup archived selection"})
+      {:ok, red} = Catalogue.create_attribute_set_value(set, %{label: "Retired Red"})
+
+      item = fixture_item(%{name: "Archived-select door"})
+      {:ok, _} = Catalogue.attach_attribute_set(item.uuid, set.uuid)
+      :ok = AttributeSets.set_attachment_selection(item.uuid, set.uuid, [red.slug])
+
+      {:ok, _} =
+        PhoenixKitEntities.EntityData.update(red, %{status: "archived"}, activity_log: false)
+
+      {:ok, view, _html} = live(conn, "/en/admin/catalogue/attributes")
+      render_click(view, "open_set_items_modal", %{"uuid" => set.uuid})
+
+      # The bug this replaces: an archived value's label used to vanish
+      # from the popup entirely because the label map only looked at
+      # active values. It renders, and specifically as the archived
+      # (ghost) badge variant, not the normal outline chip.
+      assert has_element?(view, "##{modal_id(set)}-item-#{item.uuid}", "Retired Red")
+
+      assert has_element?(
+               view,
+               "##{modal_id(set)}-item-#{item.uuid} .badge-ghost",
+               "Retired Red"
+             )
+
+      refute has_element?(
+               view,
+               "##{modal_id(set)}-item-#{item.uuid} .badge-outline",
+               "Retired Red"
+             )
+    end
+
     test "closing unmounts the popup; reopening starts fresh", %{conn: conn} do
       {:ok, set} = Catalogue.create_attribute_set(%{name: "Popup close"})
       item = fixture_item(%{name: "Close item"})

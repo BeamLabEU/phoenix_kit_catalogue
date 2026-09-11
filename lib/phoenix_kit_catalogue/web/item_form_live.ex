@@ -2365,6 +2365,13 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
     Map.get(assigns.staged_selections, set_uuid, MapSet.new())
   end
 
+  # Hidden (archived/trashed) values that are part of the CURRENT
+  # selection — §3c: a value hidden after being picked stays selected,
+  # but preview.values (the checkbox list above) no longer offers it.
+  defp hidden_selected_values(preview, selection) do
+    Enum.filter(preview.hidden_values, &MapSet.member?(selection, &1.key))
+  end
+
   # First image-type extra with a value — the chip's swatch thumbnail.
   # UUID-guarded before URLSigner (same guard as entities' FieldInput):
   # a type-swapped extra field can leave arbitrary text under an
@@ -3111,6 +3118,12 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                         do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Fixed value"),
                         else: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Multiple values")}
                     </span>
+                    <span
+                      :if={preview && preview.status == "archived"}
+                      class="badge badge-sm badge-ghost shrink-0"
+                    >
+                      {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Archived")}
+                    </span>
                     <span :if={is_nil(preview)} class="badge badge-sm badge-warning shrink-0">
                       {Gettext.gettext(PhoenixKitCatalogue.Gettext, "unavailable")}
                     </span>
@@ -3168,6 +3181,28 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                       </label>
                       <span :if={preview.values == []} class="text-xs text-base-content/40">
                         {Gettext.gettext(PhoenixKitCatalogue.Gettext, "No values defined yet.")}
+                      </span>
+                    </div>
+                    <%!-- A value archived/trashed after being picked stays
+                         selected (§3c) but drops out of preview.values, so
+                         it gets no checkbox above — render it read-only,
+                         marked archived, instead of letting it vanish. --%>
+                    <div
+                      :if={hidden_selected_values(preview, selection_for(assigns, uuid)) != []}
+                      class="flex flex-wrap items-center gap-1.5"
+                    >
+                      <span
+                        :for={value <- hidden_selected_values(preview, selection_for(assigns, uuid))}
+                        class="flex items-center gap-1.5 rounded-full border border-dashed border-base-content/30 bg-base-200/60 pl-1.5 pr-2.5 py-0.5 text-base-content/60"
+                        title={
+                          Gettext.gettext(
+                            PhoenixKitCatalogue.Gettext,
+                            "Selected, but archived — no longer offered for new picks"
+                          )
+                        }
+                      >
+                        <.icon name="hero-archive-box" class="w-3.5 h-3.5" />
+                        <span class="text-sm">{value.label}</span>
                       </span>
                     </div>
                   </div>
