@@ -80,15 +80,21 @@ defmodule PhoenixKitCatalogue.Web.Components.AttributeSetItemsModal do
     set = socket.assigns.set
     locale = socket.assigns.locale
 
-    # The FULL value list (active AND hidden) in one resolve: item
-    # selections reference value slugs anywhere in the set, and an
+    # The FULL value list (active AND hidden), normally in ONE resolve:
+    # item selections reference value slugs anywhere in the set, and an
     # archived/trashed value stays a real selection (§3c, 2026-09-11
     # direction) — dropping it from the label map here would silently
     # blank its chip, the exact bug hidden_values exists to fix.
+    #
+    # A broken set contract makes `resolve_attribute_set/2` return nil,
+    # though — and an empty label map here would blank EVERY item's
+    # chips for this set, not just the unresolvable one. Degrade to the
+    # plain (active-only) value listing instead: labels keep showing,
+    # just without the hidden badge.
     {values, hidden_values} =
       case Catalogue.resolve_attribute_set(set.uuid, lang: locale) do
         %{values: v, hidden_values: h} -> {v, h}
-        _ -> {[], []}
+        _ -> {fallback_values(set.uuid, locale), []}
       end
 
     label_map = Map.new(values ++ hidden_values, &{&1.key, &1.label})
@@ -131,6 +137,16 @@ defmodule PhoenixKitCatalogue.Web.Components.AttributeSetItemsModal do
       page: page,
       max_page: max_page
     )
+  end
+
+  # `Catalogue.list_attribute_set_values/2` returns raw entity-data
+  # records (`.slug`/`.title`); reshaped to match the `%{key, label}`
+  # v2 shape the label map above expects, so both branches feed it the
+  # same thing.
+  defp fallback_values(set_uuid, locale) do
+    set_uuid
+    |> Catalogue.list_attribute_set_values(lang: locale)
+    |> Enum.map(&%{key: &1.slug, label: &1.title})
   end
 
   defp catalogue_name(%{catalogue: %{name: _} = catalogue}, locale) do

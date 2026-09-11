@@ -152,7 +152,11 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
   but sets provisioned before the 2026-09-11 direction need a one-time
   top-up so entities' managed-blueprint badge can link back here. Runs
   from `startup/0`; never raises, same doctrine as `auto_migrate_legacy/0`
-  — a broken write here must not take down boot.
+  — a broken write here must not take down boot. That doctrine covers the
+  BOOT, not the backfill itself: each set is written under its OWN
+  try/rescue (`backfill_one_managed_path/1`) so one bad set (unexpected
+  `settings`, a rejected write) is logged and skipped rather than aborting
+  the whole loop and leaving every set after it un-backfilled.
   """
   @spec backfill_managed_path() :: :ok
   def backfill_managed_path do
@@ -160,13 +164,7 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
       [status: :all]
       |> list_sets()
       |> Enum.reject(&(&1.settings["managed_path"] == @managed_path))
-      |> Enum.each(fn set ->
-        PhoenixKitEntities.update_entity(
-          set,
-          %{settings: Map.put(set.settings, "managed_path", @managed_path)},
-          on_behalf_of: @owner
-        )
-      end)
+      |> Enum.each(&backfill_one_managed_path/1)
     end
 
     :ok
@@ -183,6 +181,32 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
       Logger.warning(
         "AttributeSets: managed_path backfill exited: " <>
           inspect(reason, limit: 10, printable_limit: 500)
+      )
+
+      :ok
+  end
+
+  defp backfill_one_managed_path(set) do
+    case PhoenixKitEntities.update_entity(
+           set,
+           %{settings: Map.put(set.settings, "managed_path", @managed_path)},
+           on_behalf_of: @owner
+         ) do
+      {:ok, _} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning(
+          "AttributeSets: managed_path backfill failed for #{set.uuid}: #{inspect(reason)}"
+        )
+
+        :ok
+    end
+  rescue
+    error ->
+      Logger.warning(
+        "AttributeSets: managed_path backfill crashed for #{set.uuid}: " <>
+          inspect(error, limit: 10, printable_limit: 500)
       )
 
       :ok
@@ -253,10 +277,11 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
   @doc """
   Lists the catalogue's sets (managed blueprints), locale-resolved.
 
-  `:status` — `:archived` (archived only), `:all` (everything); any
-  other value (including the default, absent) excludes archived. There
-  is no "trashed" here — blueprints don't carry that status, only their
-  value records do.
+  `:status` — `nil` (the default, absent) or `:archived` (archived
+  only), or `:all` (everything). There is no "trashed" here —
+  blueprints don't carry that status, only their value records do. Any
+  OTHER value raises rather than silently reading as "non-archived" —
+  the opposite of most typos (a stray string, an unrelated atom).
   """
   @spec list_sets(keyword()) :: [struct()]
   def list_sets(opts \\ []) do
@@ -269,9 +294,14 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
     end
   end
 
+  defp filter_by_status(sets, nil), do: Enum.reject(sets, &(&1.status == "archived"))
   defp filter_by_status(sets, :archived), do: Enum.filter(sets, &(&1.status == "archived"))
   defp filter_by_status(sets, :all), do: sets
-  defp filter_by_status(sets, _default), do: Enum.reject(sets, &(&1.status == "archived"))
+
+  defp filter_by_status(_sets, other) do
+    raise ArgumentError,
+          "list_sets/1 :status must be nil, :archived or :all, got: #{inspect(other)}"
+  end
 
   @doc "Fetches one set by blueprint uuid (nil when missing/not a set)."
   @spec get_set(Ecto.UUID.t(), keyword()) :: struct() | nil
@@ -329,31 +359,41 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
   the generic entities admin. Allowed even while the set is attached to
   items; that is the whole point of soft-delete over `delete_set/2`'s
   hard `{:error, :set_in_use}` refusal — ties stay intact, values stay
-  resolvable (`resolve_set/2`'s `hidden_values`, §3c).
+  resolvable (`resolve_set/2`'s `hidden_values`, §3c). Idempotent: an
+  already-archived set is returned as-is, no duplicate activity row or
+  broadcast.
   """
   @spec archive_set(struct(), keyword()) :: {:ok, struct()} | {:error, term()}
-  def archive_set(set, opts \\ []) do
+  def archive_set(set, opts \\ [])
+  def archive_set(%{status: "archived"} = set, _opts), do: {:ok, set}
+
+  def archive_set(set, opts) do
     with :ok <- ensure_enabled() do
       set
-      |> PhoenixKitEntities.update_entity(
-        %{status: "archived"},
-        Keyword.put(opts, :on_behalf_of, @owner)
-      )
+      |> PhoenixKitEntities.update_entity(%{status: "archived"}, on_behalf_of: @owner)
       |> tap_log("attribute_set.archived", opts, & &1.uuid, fn s ->
         %{"name" => s.display_name, "slug" => s.name}
       end)
     end
   end
 
-  @doc "Restores an archived set back to `\"published\"`. See `archive_set/2`."
+  @doc """
+  Restores an archived set back to `"published"`. See `archive_set/2`
+  for the owner bypass and idempotency (a set that isn't `"archived"`
+  is returned as-is). The target is hardcoded, not "whatever status it
+  had before archiving" — this module only ever produces `"published"`
+  or `"archived"`, so there is no other prior state to restore TO. A
+  `"draft"` status doesn't exist here today; if one is ever introduced,
+  restoring a draft-then-archived set would wrongly publish it.
+  """
   @spec restore_set(struct(), keyword()) :: {:ok, struct()} | {:error, term()}
-  def restore_set(set, opts \\ []) do
+  def restore_set(set, opts \\ [])
+  def restore_set(%{status: status} = set, _opts) when status != "archived", do: {:ok, set}
+
+  def restore_set(set, opts) do
     with :ok <- ensure_enabled() do
       set
-      |> PhoenixKitEntities.update_entity(
-        %{status: "published"},
-        Keyword.put(opts, :on_behalf_of, @owner)
-      )
+      |> PhoenixKitEntities.update_entity(%{status: "published"}, on_behalf_of: @owner)
       |> tap_log("attribute_set.restored", opts, & &1.uuid, fn s ->
         %{"name" => s.display_name, "slug" => s.name}
       end)
@@ -1509,9 +1549,12 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
   # ── Resolution (the v2 consumer read) ──────────────────────────────
 
   @doc """
-  Resolves the attached sets for many items in one batched pass:
-  one attachment query + one value listing per DISTINCT set (values are
-  shared across items, so a 50-item page with 6 sets is 7 queries).
+  Resolves the attached sets for many items in one batched pass: one
+  attachment query, plus one values listing and one hidden-values
+  listing, EACH batched across every distinct set in play — a 50-item
+  page with 6 sets costs those 3 queries once, not once per set (plus
+  one `get_set/2` lookup per distinct set, unbatched, unchanged by this).
+  Values are shared across items, so this is flat in item count too.
 
   Returns `%{item_uuid => resolved}` where resolved is the v2 shape:
 
@@ -1551,11 +1594,21 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
           )
         )
 
+      set_uuids = attachments |> Enum.map(& &1.set_uuid) |> Enum.uniq()
+
+      # Both batched ONCE across every distinct set here — the fix for
+      # the N+1 that crept back in: this used to call `resolve_set/2`
+      # per unique set, which itself unbatched `list_hidden_values/2`
+      # (a `list_by_entity/2` call, plus its own sort-order lookup) once
+      # PER SET, so a listing page paid that unbatched cost on every
+      # distinct set it showed.
+      values_by_set = list_values_for(set_uuids, opts)
+      hidden_by_set = list_hidden_values_for(set_uuids, opts)
+
       resolved_sets =
-        attachments
-        |> Enum.map(& &1.set_uuid)
-        |> Enum.uniq()
-        |> Map.new(fn set_uuid -> {set_uuid, resolve_set(set_uuid, opts)} end)
+        Map.new(set_uuids, fn set_uuid ->
+          {set_uuid, build_resolved_set(set_uuid, opts, values_by_set, hidden_by_set)}
+        end)
 
       attachments
       |> Enum.group_by(& &1.item_uuid)
@@ -1633,10 +1686,24 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
   """
   @spec resolve_set(Ecto.UUID.t(), keyword()) :: map() | nil
   def resolve_set(set_uuid, opts \\ []) do
+    build_resolved_set(
+      set_uuid,
+      opts,
+      list_values_for([set_uuid], opts),
+      list_hidden_values_for([set_uuid], opts)
+    )
+  end
+
+  # Shared by `resolve_set/2` (one set, called with single-entry maps)
+  # and `resolve_for_items/2` (many sets, called with maps already
+  # batched across every distinct set in the read) — the values/hidden
+  # lookups happen in the CALLER so a listing pays for them once, not
+  # once per set (see `resolve_for_items/2`'s doc).
+  defp build_resolved_set(set_uuid, opts, values_by_set, hidden_by_set) do
     with %{} = set <- get_set(set_uuid, opts),
          {:ok, %{kind: kind, default: default}} <- contract(set) do
-      values = set_uuid |> list_values(opts) |> Enum.map(&value_shape/1)
-      hidden_values = set_uuid |> list_hidden_values(opts) |> Enum.map(&value_shape/1)
+      values = values_by_set |> Map.get(set_uuid, []) |> Enum.map(&value_shape/1)
+      hidden_values = hidden_by_set |> Map.get(set_uuid, []) |> Enum.map(&value_shape/1)
 
       fields =
         Enum.map(set.fields_definition || [], fn f ->
@@ -1667,17 +1734,49 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
   defp value_shape(record),
     do: %{key: record.slug, label: record.title, extras: record.data || %{}}
 
-  # Archived/trashed value records for the set — the complement of
-  # list_values/2, kept resolvable so a selected-but-hidden value
-  # doesn't vanish from a read (§3c). Unbatched (mirrors list_values/2);
-  # this is a per-set resolve, not a listing hot path.
-  defp list_hidden_values(set_uuid, opts) do
+  @doc """
+  Hidden (archived/trashed) values for MANY sets at once:
+  `%{set_uuid => [record]}` — the batched twin of the archived/trashed
+  complement of `list_values_for/2`. Mirrors its batched call to
+  `EntityData.list_by_entities/2` (which understands `:include_trashed`)
+  instead of looping `list_by_entity/2` per set — that loop is exactly
+  the N+1 `resolve_for_items/2` used to reintroduce (each iteration
+  also paid its own sort-order lookup and the default `:entity`/
+  `:creator` preloads, neither of which this read needs).
+  """
+  @spec list_hidden_values_for([Ecto.UUID.t()], keyword()) :: %{
+          optional(Ecto.UUID.t()) => [struct()]
+        }
+  def list_hidden_values_for(set_uuids, opts \\ [])
+  def list_hidden_values_for([], _opts), do: %{}
+
+  def list_hidden_values_for(set_uuids, opts) when is_list(set_uuids) do
     if entities_enabled?() do
-      set_uuid
-      |> PhoenixKitEntities.EntityData.list_by_entity(lang: opts[:lang], include_trashed: true)
-      |> Enum.filter(&(&1.status in ["archived", "trashed"]))
+      do_list_hidden_values_for(set_uuids, opts)
     else
-      []
+      %{}
+    end
+  end
+
+  defp do_list_hidden_values_for(set_uuids, opts) do
+    batch = PhoenixKitEntities.EntityData
+
+    hidden = fn records -> Enum.filter(records, &(&1.status in ["archived", "trashed"])) end
+
+    if Code.ensure_loaded?(batch) and function_exported?(batch, :list_by_entities, 2) do
+      # credo:disable-for-next-line Credo.Check.Refactor.Apply
+      apply(batch, :list_by_entities, [
+        set_uuids,
+        [lang: opts[:lang], include_trashed: true, preload: []]
+      ])
+      |> Map.new(fn {uuid, records} -> {uuid, hidden.(records)} end)
+    else
+      Map.new(set_uuids, fn uuid ->
+        {uuid,
+         uuid
+         |> batch.list_by_entity(lang: opts[:lang], include_trashed: true)
+         |> hidden.()}
+      end)
     end
   end
 

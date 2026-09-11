@@ -15,6 +15,43 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSetsTest do
   alias PhoenixKitCatalogue.Catalogue.PubSub
   alias PhoenixKitCatalogue.Test.Repo
 
+  # Ecto's default `telemetry_prefix` for `PhoenixKitCatalogue.Test.Repo`
+  # (no override in `test/support/test_repo.ex`): the module split,
+  # underscored — `[:phoenix_kit_catalogue, :test, :repo]` — with `:query`
+  # appended by `Ecto.Adapters.SQL` for every executed statement.
+  @query_event [:phoenix_kit_catalogue, :test, :repo, :query]
+
+  # Attaches a telemetry handler for the duration of `fun.()`, returns
+  # every SQL statement text observed — used to assert a batched read
+  # issues a fixed number of queries regardless of how many distinct
+  # sets are in play (the N+1 this module has already had to fix once).
+  defp query_texts(fun) do
+    handler_id = {:query_texts, self(), System.unique_integer()}
+    test_pid = self()
+
+    :telemetry.attach(
+      handler_id,
+      @query_event,
+      fn _event, _measurements, %{query: query}, _config -> send(test_pid, {:query, query}) end,
+      nil
+    )
+
+    try do
+      fun.()
+      collect_query_texts([])
+    after
+      :telemetry.detach(handler_id)
+    end
+  end
+
+  defp collect_query_texts(acc) do
+    receive do
+      {:query, query} -> collect_query_texts([query | acc])
+    after
+      0 -> acc
+    end
+  end
+
   if Code.ensure_loaded?(PhoenixKitEntities.Managed) do
     setup do
       # Entities gates on a settings toggle (default false). The delete
@@ -471,6 +508,21 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSetsTest do
         assert_activity_logged("attribute_set.restored", resource_uuid: set.uuid)
       end
 
+      test "archive/restore are idempotent — a repeat call writes no duplicate row" do
+        set = create_set!("Ikea idempotent hinges")
+        actor = Ecto.UUID.generate()
+
+        {:ok, archived} = AttributeSets.archive_set(set, actor_uuid: actor)
+        assert {:ok, ^archived} = AttributeSets.archive_set(archived, actor_uuid: actor)
+        # Would flunk on a duplicate row (assert_activity_logged expects
+        # exactly one match).
+        assert_activity_logged("attribute_set.archived", resource_uuid: set.uuid)
+
+        {:ok, restored} = AttributeSets.restore_set(archived, actor_uuid: actor)
+        assert {:ok, ^restored} = AttributeSets.restore_set(restored, actor_uuid: actor)
+        assert_activity_logged("attribute_set.restored", resource_uuid: set.uuid)
+      end
+
       test "list_sets/1 defaults to non-archived, :archived and :all opt in" do
         active = create_set!("Active set")
         archived = create_set!("Archived set")
@@ -486,6 +538,16 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSetsTest do
         all_uuids = AttributeSets.list_sets(status: :all) |> Enum.map(& &1.uuid)
         assert active.uuid in all_uuids
         assert archived.uuid in all_uuids
+      end
+
+      test "list_sets/1 raises on an unrecognized :status instead of reading as non-archived" do
+        assert_raise ArgumentError, ~r/:status/, fn ->
+          AttributeSets.list_sets(status: :published)
+        end
+
+        assert_raise ArgumentError, ~r/:status/, fn ->
+          AttributeSets.list_sets(status: "archived")
+        end
       end
 
       test "Catalogue delegates archive_attribute_set/2 and restore_attribute_set/2" do
@@ -507,12 +569,14 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSetsTest do
       test "the managed_path key does not trip tampers_with_markers?/2" do
         set = create_set!("Path guard set")
 
-        # A generic caller can still touch OTHER settings without the
-        # owner bypass, as long as managed_by/locked_keys are untouched —
-        # managed_path riding alongside must not change that.
-        assert {:error, :locked_key} =
+        # managed_path is a top-level settings key, a sibling of
+        # managed_by/locked_keys — NOT one of them. A generic (non-owner)
+        # caller changing ONLY managed_path must pass: it touches neither
+        # `tampers_with_markers?/2` (managed_by/locked_keys unchanged) nor
+        # `touches_locked_keys?/2` (settings["catalogue"] unchanged).
+        assert {:ok, _} =
                  PhoenixKitEntities.update_entity(set, %{
-                   "settings" => put_in(set.settings, ["catalogue", "kind"], "fixed")
+                   settings: Map.put(set.settings, "managed_path", "/x")
                  })
       end
 
@@ -837,6 +901,42 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSetsTest do
         # Invariant: `values` (what a picker OFFERS) stays active-only.
         assert Enum.map(resolved.values, & &1.key) == [oak.slug]
         assert Enum.map(resolved.hidden_values, & &1.key) == [ash.slug]
+      end
+
+      test "resolve_for_items batches hidden-value loading across sets (no N+1)" do
+        sets =
+          for n <- 1..4 do
+            set = create_set!("Ikea hidden batch #{n}")
+            {:ok, kept} = AttributeSets.create_value(set, %{label: "Kept"})
+
+            {:ok, gone} =
+              AttributeSets.create_value(set, %{label: "Gone"})
+
+            {:ok, _} =
+              PhoenixKitEntities.EntityData.update(gone, %{status: "archived"},
+                activity_log: false
+              )
+
+            {set, kept}
+          end
+
+        item = fixture_item(%{name: "Combo"})
+
+        for {set, _kept} <- sets do
+          {:ok, _} = AttributeSets.attach_set(item.uuid, set.uuid)
+        end
+
+        entity_data_queries =
+          query_texts(fn -> AttributeSets.resolve_for_items([item.uuid]) end)
+          |> Enum.count(&(&1 =~ "phoenix_kit_entity_data"))
+
+        # Values and hidden values are each fetched in ONE batched query
+        # across every distinct set in play, not once per set — 4 distinct
+        # sets must cost the SAME entity_data-table query count as 1 would
+        # (2: one values fetch, one hidden-values fetch). Before the fix,
+        # `list_hidden_values/2` looped `EntityData.list_by_entity/2` per
+        # set, so this scaled with the number of sets instead.
+        assert entity_data_queries == 2
       end
 
       test "a HARD-deleted value's slug is still dropped — the ghost rule survives" do
