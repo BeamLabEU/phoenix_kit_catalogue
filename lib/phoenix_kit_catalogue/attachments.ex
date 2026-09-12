@@ -818,12 +818,17 @@ defmodule PhoenixKitCatalogue.Attachments do
 
       # Owned-key write: the caller's struct may be stale, and the row's
       # other data keys (translation fingerprints, sync namespaces) must
-      # survive. A nil value deletes its key.
-      data = %{
-        "files_folder_uuid" => folder_uuid,
-        "featured_image_uuid" => Keyword.get(opts, :featured, List.first(file_uuids)),
-        "media_order" => Keyword.get(opts, :order, file_uuids)
-      }
+      # survive. An owned key with an explicit nil DELETES it, so a
+      # pointer this call has nothing to say about (an empty list, or
+      # `featured: nil` meaning "don't touch") is left out of the write
+      # rather than written as nil (GLM-5.3, PR review 2026-09-13).
+      data =
+        %{"files_folder_uuid" => folder_uuid}
+        |> put_present(
+          "featured_image_uuid",
+          Keyword.get(opts, :featured, List.first(file_uuids))
+        )
+        |> put_present("media_order", Keyword.get(opts, :order, non_empty(file_uuids)))
 
       PhoenixKitCatalogue.Catalogue.update_item(item, %{data: data},
         data_owned_keys: Map.keys(data),
@@ -831,6 +836,12 @@ defmodule PhoenixKitCatalogue.Attachments do
       )
     end
   end
+
+  defp put_present(map, _key, nil), do: map
+  defp put_present(map, key, value), do: Map.put(map, key, value)
+
+  defp non_empty([]), do: nil
+  defp non_empty(list), do: list
 
   defp resolve_attach_files(file_uuids) do
     file_uuids

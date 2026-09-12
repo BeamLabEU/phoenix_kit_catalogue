@@ -370,15 +370,22 @@ defmodule PhoenixKitCatalogue.Catalogue.SupplierFields do
   # the window"); the row is now locked for the read and the write, so
   # the second writer sees the first's list. The activity row and the
   # broadcast stay outside the transaction, after the commit.
+  #
+  # The get-or-create stays OUTSIDE the transaction: `provision/1` re-reads
+  # the winner when it loses the unique-name race, and that re-read must
+  # not run inside a transaction the failed INSERT has already aborted
+  # (grok, PR review 2026-09-13). The lock then re-reads the row fresh.
   defp with_locked_blueprint(opts, fun) do
-    repo().transaction(fn ->
-      with {:ok, entity} <- ensure_blueprint(opts),
-           {:ok, written} <- fun.(lock_blueprint(entity)) do
-        written
-      else
-        {:error, reason} -> repo().rollback(reason)
-      end
-    end)
+    with {:ok, entity} <- ensure_blueprint(opts) do
+      repo().transaction(fn -> locked_write(entity, fun) end)
+    end
+  end
+
+  defp locked_write(entity, fun) do
+    case fun.(lock_blueprint(entity)) do
+      {:ok, written} -> written
+      {:error, reason} -> repo().rollback(reason)
+    end
   end
 
   defp lock_blueprint(%{uuid: uuid} = entity) when is_binary(uuid) do

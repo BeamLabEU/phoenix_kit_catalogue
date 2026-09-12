@@ -181,5 +181,17 @@ fix carries a test that fails on the previous commit unless noted.
   the PR body.
 - C0 structural baseline re-fetched after the pass: same landmarks on
   every page.
-- The whole PR diff went to the panel afterwards (Max's ask); their
-  round is recorded in the AI report.
+- The whole PR diff went to the panel afterwards (Max's ask): GLM-5.3 on
+  two slices (context side, web side), grok on the create-path
+  narrowing and the supplier-fields lock; codex on its usage limit until
+  the morning. Four real findings, all fixed in the review-round commit:
+  `attach_files/3` wrote nil for pointers it had nothing to say about
+  (an owned nil deletes); the blueprint get-or-create ran inside the
+  lock transaction, so a lost provisioning race would have aborted it;
+  the restore rollback's audit row was filed under the wrong action; the
+  export controller silently dropped a malformed uuid. Refuted: that the
+  create-path narrowing drops translation fingerprints (the worker
+  writes them to the row; the form only re-reads them). Everything else
+  in both slices was checked and found sound, including the owned-key
+  delete semantics, the tree-memory round trip, transaction/broadcast
+  ordering and every changed arity.

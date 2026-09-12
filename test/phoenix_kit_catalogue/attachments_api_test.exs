@@ -251,6 +251,25 @@ defmodule PhoenixKitCatalogue.AttachmentsApiTest do
   end
 
   # Files carry a CHECK (user_uuid OR parent_file_uuid); give them an owner.
+  describe "attach_files/3 leaves pointers it has nothing to say about alone (PR review 2026-09-13)" do
+    test "an empty list and `featured: nil` do not delete an existing featured image or order",
+         %{item: item, user_uuid: user_uuid} do
+      a = insert_file!(user_uuid, nil, "a.jpg")
+      b = insert_file!(user_uuid, nil, "b.jpg")
+      {:ok, item} = Attachments.attach_files(item, [a, b], order: [b, a])
+      assert item.data["featured_image_uuid"] == a
+      assert item.data["media_order"] == [b, a]
+
+      {:ok, after_empty} = Attachments.attach_files(item, [])
+      assert after_empty.data["featured_image_uuid"] == a
+      assert after_empty.data["media_order"] == [b, a]
+
+      {:ok, after_nil} = Attachments.attach_files(item, [b], featured: nil)
+      assert after_nil.data["featured_image_uuid"] == a
+      assert after_nil.data["media_order"] == [b]
+    end
+  end
+
   describe "the editor's grid (review round, 2026-09-12)" do
     test "a trashed featured image does not come back as a ghost at the head of the grid",
          %{item: item, user_uuid: user_uuid} do
