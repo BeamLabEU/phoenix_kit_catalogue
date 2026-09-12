@@ -40,6 +40,10 @@ defmodule PhoenixKitCatalogue.Catalogue.Search do
       `"inactive"`, `"discontinued"`). `nil` or `[]` = all non-deleted
       (the historical default). Soft-deleted rows stay excluded even if
       `"deleted"` is listed. Atoms are accepted and stringified.
+    * `:order` — `:position` (default: the admin's Manual document
+      order — catalogue position, category position, item position,
+      name), `:name`, or `{field, :asc | :desc}` for `name` / `sku` /
+      `base_price` / `status`.
     * `:limit` — max results (default 50).
     * `:offset` — paging offset (default 0).
     * `:preload` — extra associations appended to the default
@@ -52,20 +56,20 @@ defmodule PhoenixKitCatalogue.Catalogue.Search do
     offset = Keyword.get(opts, :offset, 0)
     preloads = Helpers.merge_preloads([:catalogue, category: :catalogue], opts)
 
-    # Ordering: name by DEFAULT — `position` is per-`(catalogue_uuid,
-    # category_uuid)` scope, so interleaving across catalogues by raw
-    # position is meaningless. A caller whose scope is coherent for it
-    # (one catalogue — the popup's browse listings since 2026-08-31,
-    # matching the admin's document order; Max: "the default look would
-    # be the same") passes `order: :position` and gets the chain
-    # `search_items_in_catalogue/3` uses: category position first, then
-    # the item's own. Leading with `i.position` alone is NOT the admin's
-    # order once a listing spans several categories — the per-category
-    # ordinals interleave (all the 1s, then all the 2s), which is the
-    # same incoherence this note warns about one level down.
+    # Ordering: MANUAL by default (Max, 2026-09-12: "the default should
+    # be the manual order") — the admin's document order at every level:
+    # catalogue position, then category position (uncategorized last),
+    # then the item's own position, name, uuid. Leading with the
+    # catalogue makes the chain coherent for ANY scope — one category,
+    # one catalogue, or several — so no caller has to reason about
+    # whether position "applies" to its scope. Leading with `i.position`
+    # alone would NOT be the admin's order once a listing spans several
+    # categories (the per-category ordinals interleave: all the 1s, then
+    # all the 2s). Pass `order: :name` (or `{field, dir}`) for anything
+    # else.
     query
     |> search_items_base(opts)
-    |> apply_search_order(Keyword.get(opts, :order, :name))
+    |> apply_search_order(Keyword.get(opts, :order, :position))
     |> limit(^limit)
     |> offset(^offset)
     |> preload(^preloads)
@@ -73,14 +77,16 @@ defmodule PhoenixKitCatalogue.Catalogue.Search do
     |> Manufacturers.hydrate()
   end
 
-  # Category position first (uncategorized last), then the item's own —
-  # byte-for-byte `search_items_in_catalogue/3`'s chain, so a
-  # catalogue-wide browse listing reads exactly like the admin's. For a
-  # single-category or category-less scope the leading key is constant
-  # and this is identical to ordering by `i.position` alone.
+  # Catalogue position, then category position (uncategorized last),
+  # then the item's own — `search_items_in_catalogue/3`'s chain with the
+  # catalogue in front, so a listing reads exactly like walking the
+  # admin: the index's Manual order, each catalogue's categories in their
+  # Manual order, each category's items in theirs. Within one catalogue
+  # the leading key is constant; within one category the first two are.
   defp apply_search_order(query, :position),
     do:
-      order_by(query, [i, _cat, c],
+      order_by(query, [i, cat, c],
+        asc_nulls_last: cat.position,
         asc_nulls_last: c.position,
         asc: i.position,
         asc: i.name,
@@ -96,7 +102,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Search do
        when field in ~w(name sku base_price status)a and dir in [:asc, :desc],
        do: order_by(query, [i, _cat, _c], [{^dir, field(i, ^field)}, {:asc, i.uuid}])
 
-  defp apply_search_order(query, _name),
+  defp apply_search_order(query, :name),
     do: order_by(query, [i, _cat, _c], asc: i.name, asc: i.uuid)
 
   @doc """

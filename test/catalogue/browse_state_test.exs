@@ -180,15 +180,18 @@ defmodule PhoenixKitCatalogue.Catalogue.BrowseStateTest do
                :order
              ] == :position
 
-      # Searching switches to name order; clearing it restores position.
+      # Searching passes no order (the fetch layer's default, Manual since
+      # 2026-09-12, stands); clearing it restores the explicit position.
       opts = opts_map(BrowseState.command(single, {:search, "screw"}))
       refute Map.has_key?(opts, :order)
 
-      # A multi-catalogue ROOT keeps name order…
+      # A multi-catalogue ROOT reads in document order too (Max,
+      # 2026-09-12: "the default should be the manual order" — the
+      # fetch layer's chain leads with the catalogue's position)…
       multi = BrowseState.init(scope: %{catalogue_uuids: ["cat-1", "cat-2"]})
-      refute Map.has_key?(opts_map(BrowseState.command(multi, :reset)), :order)
+      assert opts_map(BrowseState.command(multi, :reset))[:order] == :position
 
-      # …but drilling catalogue-first into one restores document order.
+      # …and so does drilling catalogue-first into one.
       assert opts_map(BrowseState.command(multi, {:set_catalogue, "cat-2"}))[:order] ==
                :position
     end
@@ -219,16 +222,14 @@ defmodule PhoenixKitCatalogue.Catalogue.BrowseStateTest do
       subtree = BrowseState.init(scope: %{category_uuids: ["cat-a", "cat-a-1", "cat-a-2"]})
       assert opts_map(BrowseState.command(subtree, :reset))[:order] == :position
 
-      # Drilling a category under a multi-catalogue root confines the
-      # fetch to one category — coherent, whatever the root offered.
+      # Drilling a category under a multi-catalogue root keeps it.
       multi = BrowseState.init(scope: %{catalogue_uuids: ["cat-1", "cat-2"]}, drill: :direct)
-      refute Map.has_key?(opts_map(BrowseState.command(multi, :reset)), :order)
 
       assert opts_map(BrowseState.command(multi, {:set_category, Ecto.UUID.generate()}))[
                :order
              ] == :position
 
-      # A live search stays name-ordered here as everywhere.
+      # A live search passes no order here as everywhere.
       refute Map.has_key?(opts_map(BrowseState.command(narrow, {:search, "screw"})), :order)
 
       # The fetch scope is untouched: no catalogue is invented for it.
@@ -253,12 +254,13 @@ defmodule PhoenixKitCatalogue.Catalogue.BrowseStateTest do
 
       assert opts_map(BrowseState.command(multi, :reset))[:order] == {:base_price, :asc}
 
-      # A live search stays name-ordered, like the admin's results.
+      # A live search passes no order — the fetch layer's Manual default
+      # stands, like the admin's in-catalogue search results.
       opts = opts_map(BrowseState.command(state, {:search, "screw"}))
       refute Map.has_key?(opts, :order)
 
-      # Manual keeps the single-catalogue guard and the direction-less
-      # :position opt (the admin's Manual sort has no direction either).
+      # Manual keeps the direction-less :position opt (the admin's Manual
+      # sort has no direction either), whatever the scope offers.
       manual = BrowseState.init(scope: %{catalogue_uuids: ["cat-1"]}, order: {:position, :asc})
       assert opts_map(BrowseState.command(manual, :reset))[:order] == :position
 
@@ -268,7 +270,7 @@ defmodule PhoenixKitCatalogue.Catalogue.BrowseStateTest do
           order: {:position, :asc}
         )
 
-      refute Map.has_key?(opts_map(BrowseState.command(manual_multi, :reset)), :order)
+      assert opts_map(BrowseState.command(manual_multi, :reset))[:order] == :position
 
       # Junk raises at init — a bad field must not sail into the fetch
       # layer as a no-op sort.

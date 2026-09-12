@@ -210,7 +210,7 @@ defmodule PhoenixKitCatalogue.Catalogue.SearchCoverageTest do
   end
 
   describe "order: :position (admin document order, 2026-08-31)" do
-    test "browse fetches read position order; the default stays name order" do
+    test "position order is the default; name order is opt-in" do
       cat = fixture_catalogue(%{name: "Ordered Range"})
       grouping = fixture_category(cat, %{name: "Grouping"})
 
@@ -230,10 +230,14 @@ defmodule PhoenixKitCatalogue.Catalogue.SearchCoverageTest do
 
       opts = [category_uuids: [grouping.uuid], include_descendants: false]
 
+      # Max, 2026-09-12: "the default should be the manual order".
+      by_default = Catalogue.search_items("", opts)
+      assert Enum.map(by_default, & &1.name) == ["Zed First", "Alpha Last"]
+
       by_position = Catalogue.search_items("", opts ++ [order: :position])
       assert Enum.map(by_position, & &1.name) == ["Zed First", "Alpha Last"]
 
-      by_name = Catalogue.search_items("", opts)
+      by_name = Catalogue.search_items("", opts ++ [order: :name])
       assert Enum.map(by_name, & &1.name) == ["Alpha Last", "Zed First"]
     end
 

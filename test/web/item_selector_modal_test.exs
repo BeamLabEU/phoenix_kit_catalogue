@@ -2354,14 +2354,16 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       assert Enum.map(offsets, &elem(&1, 0)) == names
       assert offsets |> Enum.map(&elem(&1, 1)) |> Enum.sort() == Enum.map(offsets, &elem(&1, 1))
 
-      # A typed search is a search: name order, like the admin's results.
+      # A typed search reads in Manual order too (Max, 2026-09-12: "the
+      # default should be the manual order"), like the admin's own
+      # in-catalogue search results.
       html = view |> picker() |> render_change("browse_search", %{"search" => "handle"})
       handle_names = Enum.filter(names, &(&1 =~ ~r/handle/i))
 
       assert handle_names
              |> Enum.map(&{&1, :binary.match(html, &1) |> elem(0)})
              |> Enum.sort_by(&elem(&1, 1))
-             |> Enum.map(&elem(&1, 0)) == Enum.sort(handle_names)
+             |> Enum.map(&elem(&1, 0)) == handle_names
     end
 
     test "a tile's IMAGE enters the level like its name does", %{
