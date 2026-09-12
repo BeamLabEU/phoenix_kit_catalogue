@@ -2521,6 +2521,9 @@ msgstr ""
 msgid "Upload failed for %{name}."
 msgstr ""
 
+msgid "%{name} is identical to %{existing}, which is already attached — nothing was added."
+msgstr "%{name} is identical to %{existing}, which is already attached — nothing was added."
+
 msgid "Upload failed for an unexpected reason. Please try again."
 msgstr ""
 

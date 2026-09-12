@@ -151,6 +151,59 @@ defmodule PhoenixKitCatalogue.Web.Components.ProductCardDBTest do
     assert Catalogue.attached_file_counts([]) == %{}
   end
 
+  describe "folder-linked files (the content-duplicate upload shape, 2026-09-12)" do
+    # Storage de-duplicates uploads per user by content: a second upload
+    # of a byte-identical file returns the record the first created, and
+    # Attachments links it into the new folder via FolderLink instead of
+    # moving it. The item form always listed home + linked files; the
+    # card and the paperclip count read the home folder only, so a file
+    # the editor showed was missing everywhere else (client: "uploaded
+    # three PDFs, two show, one does not").
+    alias PhoenixKit.Modules.Storage.FolderLink
+    alias PhoenixKitCatalogue.Attachments
+    alias PhoenixKitCatalogue.Catalogue
+
+    defp link!(file_uuid, folder_uuid) do
+      Repo.insert!(
+        FolderLink.changeset(%FolderLink{}, %{folder_uuid: folder_uuid, file_uuid: file_uuid})
+      )
+    end
+
+    test "a linked PDF is listed by the form, the card and the paperclip count alike", %{
+      user_uuid: user
+    } do
+      home = create_folder(user)
+      other = create_folder(user)
+      own = insert_image(user, home, "own.pdf", file_type: "document", ext: "pdf")
+      linked = insert_image(user, other, "shared.pdf", file_type: "document", ext: "pdf")
+      link!(linked, home)
+
+      item = %Item{uuid: UUIDv7.generate(), data: %{"files_folder_uuid" => home}}
+
+      form = home |> Attachments.list_folder_files() |> Enum.map(& &1.uuid) |> Enum.sort()
+      card = item |> ProductCard.resolve_files() |> Enum.map(& &1.uuid) |> Enum.sort()
+
+      assert form == Enum.sort([own, linked])
+      assert card == form
+      assert Catalogue.attached_file_counts([item])[item.uuid] == 2
+    end
+
+    test "a linked image joins the card's gallery; trashed and system-managed links do not", %{
+      user_uuid: user
+    } do
+      home = create_folder(user)
+      other = create_folder(user)
+      linked_image = insert_image(user, other, "shared.jpg", [])
+      trashed = insert_image(user, other, "gone.jpg", status: "trashed")
+      link!(linked_image, home)
+      link!(trashed, home)
+
+      item = %Item{uuid: UUIDv7.generate(), data: %{"files_folder_uuid" => home}}
+
+      assert item |> ProductCard.resolve_images() |> Enum.map(& &1.uuid) == [linked_image]
+    end
+  end
+
   describe "build_fields/2 attribute rows" do
     defp item_with_group do
       {:ok, cat} =

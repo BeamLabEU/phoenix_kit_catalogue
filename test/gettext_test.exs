@@ -68,7 +68,12 @@ defmodule PhoenixKitCatalogue.GettextTest do
            "See kategooria kuulub teise kataloogi."},
           {"Drag-reorder needs the Manual sort — choose it in the sort selector.",
            "Для перетаскивания выберите ручную сортировку в списке сортировки.",
-           "Lohistades järjestamiseks vali sortimise valikust käsitsi järjestus."}
+           "Lohistades järjestamiseks vali sortimise valikust käsitsi järjestus."},
+          # The duplicate-upload notice (client, 2026-09-12: "uploaded
+          # three PDFs, two show") — a runtime-form call like the rest.
+          {"%{name} is identical to %{existing}, which is already attached — nothing was added.",
+           "%{name} совпадает с уже прикреплённым файлом %{existing} — ничего не добавлено.",
+           "%{name} on identne juba manustatud failiga %{existing} — midagi ei lisatud."}
         ] do
       Gettext.put_locale(PhoenixKitCatalogue.Gettext, "ru")
       assert Gettext.gettext(PhoenixKitCatalogue.Gettext, msgid) == ru

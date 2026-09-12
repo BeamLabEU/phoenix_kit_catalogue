@@ -104,6 +104,63 @@ defmodule PhoenixKitCatalogue.AttachmentsApiTest do
              )
     end
 
+    test "persist_folder_pointer/2 writes the pointer at first upload and keeps other data keys",
+         %{item: item} do
+      # Client, 2026-09-12: "uploaded, did not press Save" — the files were
+      # in the folder but nothing outside the form could find them,
+      # because the pointer only landed at save. A key another process
+      # wrote meanwhile (a translation fingerprint) must survive the
+      # owned-key write.
+      {:ok, item} =
+        Catalogue.update_item(item, %{data: %{"_translation_fingerprints" => %{"en" => "x"}}})
+
+      refute item.data["files_folder_uuid"]
+      {:ok, folder} = Storage.create_folder(%{name: "catalogue-item-#{item.uuid}"})
+
+      socket = %Phoenix.LiveView.Socket{assigns: %{__changed__: %{}, attachments_resource: item}}
+      socket = Attachments.persist_folder_pointer(socket, folder.uuid)
+
+      reloaded = Catalogue.get_item!(item.uuid)
+      assert reloaded.data["files_folder_uuid"] == folder.uuid
+      assert reloaded.data["_translation_fingerprints"] == %{"en" => "x"}
+      assert socket.assigns.attachments_resource.data["files_folder_uuid"] == folder.uuid
+
+      # A resource with no uuid (a :new form) is left alone.
+      fresh = %Phoenix.LiveView.Socket{
+        assigns: %{__changed__: %{}, attachments_resource: %PhoenixKitCatalogue.Schemas.Item{}}
+      }
+
+      assert Attachments.persist_folder_pointer(fresh, folder.uuid) == fresh
+    end
+
+    test "a content-duplicate upload is attached from elsewhere but reported when already here",
+         %{item: item, user_uuid: user_uuid} do
+      # Client, 2026-09-12: "uploaded three PDFs, two show". Storage
+      # de-duplicates per user by content and returns the EXISTING record;
+      # what happens next depends on where that record lives.
+      {:ok, updated} = Attachments.attach_files(item, [insert_file!(user_uuid, nil, "seed.pdf")])
+      folder = updated.data["files_folder_uuid"]
+      {:ok, elsewhere} = Storage.create_folder(%{name: "Elsewhere #{item.uuid}"})
+
+      # Lives in another folder → linked in, listed here from now on.
+      shared = Repo.get!(StorageFile, insert_file!(user_uuid, elsewhere.uuid, "shared.pdf"))
+      assert {:ok, ^shared} = Attachments.file_stored({:ok, shared, :duplicate}, folder)
+      assert shared.uuid in Enum.map(Attachments.list_folder_files(folder), & &1.uuid)
+
+      # Already home here → nothing to add, and the uploader is told so.
+      here = Repo.get!(StorageFile, insert_file!(user_uuid, folder, "here.pdf"))
+      assert {:already_attached, ^here} = Attachments.file_stored({:ok, here, :duplicate}, folder)
+
+      assert Attachments.duplicate_notice("again.pdf", here) ==
+               "again.pdf is identical to here.pdf, which is already attached — nothing was added."
+
+      # A fresh file is home-adopted; an error passes through.
+      fresh = Repo.get!(StorageFile, insert_file!(user_uuid, nil, "fresh.pdf"))
+      assert {:ok, _} = Attachments.file_stored({:ok, fresh}, folder)
+      assert Repo.get!(StorageFile, fresh.uuid).folder_uuid == folder
+      assert Attachments.file_stored({:error, :boom}, folder) == {:error, :boom}
+    end
+
     test "an unknown uuid errors and persists nothing", %{item: item, user_uuid: user_uuid} do
       a = insert_file!(user_uuid, nil, "a.jpg")
       bogus = Ecto.UUID.generate()

@@ -2530,6 +2530,9 @@ msgstr "Ошибка загрузки: %{reason}"
 msgid "Upload failed for %{name}."
 msgstr "Не удалось загрузить %{name}."
 
+msgid "%{name} is identical to %{existing}, which is already attached — nothing was added."
+msgstr "%{name} совпадает с уже прикреплённым файлом %{existing} — ничего не добавлено."
+
 msgid "Upload failed for an unexpected reason. Please try again."
 msgstr "Загрузка не удалась по неожиданной причине. Попробуйте снова."
 

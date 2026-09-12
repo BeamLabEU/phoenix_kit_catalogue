@@ -2521,6 +2521,9 @@ msgstr "Üleslaadimise viga: %{reason}"
 msgid "Upload failed for %{name}."
 msgstr "%{name} üleslaadimine ebaõnnestus."
 
+msgid "%{name} is identical to %{existing}, which is already attached — nothing was added."
+msgstr "%{name} on identne juba manustatud failiga %{existing} — midagi ei lisatud."
+
 msgid "Upload failed for an unexpected reason. Please try again."
 msgstr "Üleslaadimine ebaõnnestus ootamatul põhjusel. Proovi uuesti."
 
