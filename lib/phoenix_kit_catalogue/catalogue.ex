@@ -448,7 +448,8 @@ defmodule PhoenixKitCatalogue.Catalogue do
   # ═══════════════════════════════════════════════════════════════════
 
   @doc """
-  Lists catalogues, ordered by name. Excludes deleted by default.
+  Lists catalogues in the index's Manual order — position, then
+  lowercased name. Excludes deleted by default.
 
   ## Options
 
@@ -474,7 +475,8 @@ defmodule PhoenixKitCatalogue.Catalogue do
   """
   @spec list_catalogues(keyword()) :: [Catalogue.t()]
   def list_catalogues(opts \\ []) do
-    query = from(c in Catalogue, order_by: [asc: c.position, asc: c.name])
+    query =
+      from(c in Catalogue, order_by: [asc: c.position, asc: fragment("lower(?)", c.name)])
 
     query =
       case Keyword.get(opts, :status) do
@@ -965,7 +967,8 @@ defmodule PhoenixKitCatalogue.Catalogue do
   end
 
   @doc """
-  Lists a page of items for a single category, ordered by name.
+  Lists a page of items for a single category, in the admin's Manual
+  order by default (`:sort_by`, `:sort_dir` select another).
 
   Used by the infinite-scroll detail view; returns at most `:limit`
   items starting at `:offset`. Preloads `:catalogue` and `:manufacturer`
@@ -1107,7 +1110,8 @@ defmodule PhoenixKitCatalogue.Catalogue do
   end
 
   @doc """
-  Lists a page of uncategorized items for a catalogue, ordered by name.
+  Lists a page of uncategorized items for a catalogue, in the admin's
+  Manual order by default.
 
   Same shape as `list_items_for_category_paged/2`, but for items where
   `category_uuid IS NULL AND catalogue_uuid = ?`. Used as the final
@@ -4217,7 +4221,10 @@ defmodule PhoenixKitCatalogue.Catalogue do
   # ═══════════════════════════════════════════════════════════════════
 
   @doc """
-  Lists all non-deleted items across all catalogues, ordered by name.
+  Lists all non-deleted items across all catalogues in the admin's
+  Manual document order — catalogue (position, name), category
+  position, then item position and name — the same chain
+  `search_items/2` defaults to.
 
   Preloads category (with catalogue) and manufacturer.
 
@@ -4237,7 +4244,19 @@ defmodule PhoenixKitCatalogue.Catalogue do
   def list_items(opts \\ []) do
     query =
       from(i in Item,
-        order_by: [asc: i.position, asc: i.name],
+        join: cat in Catalogue,
+        on: i.catalogue_uuid == cat.uuid,
+        left_join: c in Category,
+        on: i.category_uuid == c.uuid,
+        order_by: [
+          asc_nulls_last: cat.position,
+          asc: fragment("lower(?)", cat.name),
+          asc: cat.uuid,
+          asc_nulls_last: c.position,
+          asc: i.position,
+          asc: i.name,
+          asc: i.uuid
+        ],
         preload: [:catalogue, category: :catalogue]
       )
 
@@ -4276,8 +4295,9 @@ defmodule PhoenixKitCatalogue.Catalogue do
   end
 
   @doc """
-  Lists non-deleted items for a catalogue, ordered by category position then
-  item name. Includes uncategorized items (those with no category) at the end.
+  Lists non-deleted items for a catalogue, ordered by category position,
+  then item position and name. Includes uncategorized items (those with
+  no category) at the end.
 
   Default preloads `[:catalogue, category: :catalogue]`.
   Pass `:preload` in `opts` to add more — see `list_items_for_category/2`.
