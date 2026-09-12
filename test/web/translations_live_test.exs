@@ -93,6 +93,20 @@ defmodule PhoenixKitCatalogue.Web.TranslationsLiveTest do
       %{endpoint: endpoint}
     end
 
+    test "the enqueueing buttons carry a busy state (sweep 2026-09-13)", %{conn: conn} do
+      _item = create_item!("Busy Widget")
+      {:ok, _view, html} = live(conn, @base <> "?type=item&lang=#{@lang}")
+
+      # Every rendered button for these events carries the busy state; the
+      # row buttons only render when the AI is configured, so assert "none
+      # without" rather than "one with".
+      assert html =~ ~s(phx-click="bulk_translate_missing")
+
+      for ev <- ~w(bulk_translate_missing bulk_retranslate_stale translate stamp_fresh) do
+        refute html =~ ~r/phx-click="#{ev}"(?:(?!phx-disable-with)[^>])*>/s, ev
+      end
+    end
+
     test "lists an item as missing for the selected language", %{conn: conn} do
       item = create_item!("Widget")
 

@@ -114,6 +114,16 @@ defmodule PhoenixKitCatalogue.Catalogue do
   defp log_activity(attrs, opts \\ []) do
     {parent_catalogue_uuid, attrs} = Map.pop(attrs, :parent_catalogue_uuid)
 
+    # The caller's `mode` wins over the site's default ("manual"): the
+    # importer passes `mode: "auto"`, and until 2026-09-12 every site but
+    # `create_item/2` dropped it, so the log could not tell an import
+    # from a hand edit.
+    attrs =
+      case Keyword.get(opts, :mode) do
+        mode when is_binary(mode) -> Map.put(attrs, :mode, mode)
+        _ -> attrs
+      end
+
     ActivityLog.log(attrs)
 
     if Keyword.get(opts, :broadcast, true) do
@@ -199,7 +209,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
   #
   # All logging helpers run **outside** the database transaction, so
   # callers that wrap a reorder in an outer transaction (e.g.
-  # `move_item_and_reorder_destination/4`) can rely on the rejection
+  # a future in-transaction caller) can rely on the rejection
   # row landing even when the outer rolls back.
 
   defp log_reorder_rejected(kind, reason, count, parent_catalogue_uuid, opts) do
@@ -661,7 +671,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
             resource_uuid: catalogue.uuid,
             metadata: %{"name" => catalogue.name}
           },
-          Keyword.take(opts, [:broadcast])
+          Keyword.take(opts, [:broadcast, :mode])
         )
 
         ok
@@ -675,7 +685,21 @@ defmodule PhoenixKitCatalogue.Catalogue do
   @spec update_catalogue(Catalogue.t(), map(), keyword()) ::
           {:ok, Catalogue.t()} | {:error, Ecto.Changeset.t(Catalogue.t())}
   def update_catalogue(%Catalogue{} = catalogue, attrs, opts \\ []) do
-    case catalogue |> Catalogue.changeset(attrs) |> repo().update() do
+    # `:data_owned_keys` — same contract as `update_item/3`: the row is
+    # re-read `FOR UPDATE` inside the transaction and only the listed
+    # `data` keys are taken from `attrs`, so a caller holding a stale
+    # snapshot cannot clobber what another process wrote meanwhile.
+    result =
+      repo().transaction(fn ->
+        attrs = narrow_data_ownership(Catalogue, catalogue.uuid, attrs, opts)
+
+        case catalogue |> Catalogue.changeset(attrs) |> repo().update() do
+          {:ok, updated} -> updated
+          {:error, changeset} -> repo().rollback(changeset)
+        end
+      end)
+
+    case result do
       {:ok, updated} = ok ->
         log_activity(
           %{
@@ -1544,7 +1568,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
             parent_catalogue_uuid: category.catalogue_uuid,
             metadata: %{"name" => category.name, "catalogue_uuid" => category.catalogue_uuid}
           },
-          Keyword.take(opts, [:broadcast])
+          Keyword.take(opts, [:broadcast, :mode])
         )
 
         ok
@@ -1823,7 +1847,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
               "items_disposition" => disposition_to_metadata(disposition)
             }
           },
-          Keyword.take(opts, [:broadcast])
+          Keyword.take(opts, [:broadcast, :mode])
         )
 
         {:ok, updated}
@@ -2188,7 +2212,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
             "catalogue_uuid" => moved.catalogue_uuid
           }
         },
-        Keyword.take(opts, [:broadcast])
+        Keyword.take(opts, [:broadcast, :mode])
       )
 
       {:ok, moved}
@@ -2238,7 +2262,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
             "catalogue_uuid" => moved.catalogue_uuid
           }
         },
-        Keyword.take(opts, [:broadcast])
+        Keyword.take(opts, [:broadcast, :mode])
       )
 
       {:ok, moved}
@@ -2793,7 +2817,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
             resource_uuid: folder.uuid,
             metadata: %{"name" => folder.name, "parent_uuid" => folder.parent_uuid}
           },
-          Keyword.take(opts, [:broadcast])
+          Keyword.take(opts, [:broadcast, :mode])
         )
 
         ok
@@ -3874,7 +3898,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
   # Validates scope + applies the two-pass write inside its own
   # transaction. Returns `{:ok, count}` on success or `{:error, reason}`
-  # without any logging — callers (incl. `move_item_and_reorder_destination/4`)
+  # without any logging — callers (incl. a future in-transaction caller)
   # handle logging outside the transaction so audit rows survive a
   # rollback.
   defp validate_and_apply_item_reorder(catalogue_uuid, _category_uuid, ordered_uuids)
@@ -3904,32 +3928,6 @@ defmodule PhoenixKitCatalogue.Catalogue do
     case repo().transaction(fn -> write_item_positions(unique_uuids) end) do
       {:ok, _} -> {:ok, length(unique_uuids)}
       {:error, reason} -> {:error, reason}
-    end
-  end
-
-  # In-transaction variant — used by `move_item_and_reorder_destination/4`
-  # so the move + reorder live inside one outer transaction without a
-  # nested savepoint.
-  defp validate_and_apply_item_reorder_in_txn(catalogue_uuid, category_uuid, ordered_uuids)
-       when is_binary(catalogue_uuid) and is_list(ordered_uuids) do
-    if length(ordered_uuids) > @reorder_max_uuids do
-      {:error, :too_many_uuids}
-    else
-      unique_uuids = Helpers.dedupe_keep_last(ordered_uuids)
-
-      case item_scope_check(catalogue_uuid, category_uuid, unique_uuids) do
-        :empty ->
-          {:ok, 0}
-
-        {:ok, valid} ->
-          {:ok,
-           unique_uuids
-           |> Enum.filter(&MapSet.member?(valid, &1))
-           |> write_item_positions_count()}
-
-        {:error, _} = err ->
-          err
-      end
     end
   end
 
@@ -3979,11 +3977,6 @@ defmodule PhoenixKitCatalogue.Catalogue do
     end)
 
     :ok
-  end
-
-  defp write_item_positions_count(unique_uuids) do
-    write_item_positions(unique_uuids)
-    length(unique_uuids)
   end
 
   @valid_item_reorder_strategies ~w(name_asc name_desc created_asc created_desc reverse)a
@@ -5019,29 +5012,47 @@ defmodule PhoenixKitCatalogue.Catalogue do
   def bulk_restore_items(uuids, opts) when is_list(uuids) do
     uuids = scope_item_uuids(uuids, opts[:catalogue_uuid])
 
-    {:ok, {count, count_detached, restored_uuids, catalogue_uuids}} =
-      repo().transaction(fn -> do_bulk_restore_items(uuids) end)
+    case repo().transaction(fn -> do_bulk_restore_items(uuids) end) do
+      {:ok, {count, count_detached, restored_uuids, catalogue_uuids}} ->
+        if count > 0 do
+          log_activity(
+            %{
+              action: "item.bulk_restored",
+              mode: "manual",
+              actor_uuid: opts[:actor_uuid],
+              resource_type: "item",
+              metadata: %{
+                "count" => count,
+                "detached_count" => count_detached,
+                "uuids" => restored_uuids
+              }
+            },
+            broadcast: false
+          )
 
-    if count > 0 do
-      log_activity(
-        %{
-          action: "item.bulk_restored",
-          mode: "manual",
-          actor_uuid: opts[:actor_uuid],
-          resource_type: "item",
-          metadata: %{
-            "count" => count,
-            "detached_count" => count_detached,
-            "uuids" => restored_uuids
-          }
-        },
-        broadcast: false
-      )
+          broadcast_item_batch(catalogue_uuids, opts)
+        end
 
-      broadcast_item_batch(catalogue_uuids, opts)
+        {count, nil}
+
+      # A rollback inside the batch is a result, not a MatchError — and
+      # its audit row says "restore", not "reorder".
+      {:error, reason} ->
+        Logger.warning("bulk_restore_items rolled back: #{inspect(reason)}")
+
+        log_activity(
+          %{
+            action: "item.bulk_restored",
+            mode: "manual",
+            actor_uuid: opts[:actor_uuid],
+            resource_type: "item",
+            metadata: %{"count" => 0, "uuids" => uuids, "db_pending" => true}
+          },
+          broadcast: false
+        )
+
+        {0, nil}
     end
-
-    {count, nil}
   end
 
   defp do_bulk_restore_items(uuids) do
@@ -5374,107 +5385,6 @@ defmodule PhoenixKitCatalogue.Catalogue do
     end
   end
 
-  @doc """
-  Atomic combine of `move_item_to_category/3` and `reorder_items/4` for
-  the cross-category drag-and-drop case.
-
-  The DnD path triggers two writes on a single drop: the moved item's
-  `category_uuid` flips, and the destination category's `position`
-  values get re-indexed to match the visual order. Calling the two
-  context fns separately leaves a window where the move commits but
-  the reorder rolls back, leaving the item in the new category with
-  a stale position. Wrapping both in a single `repo().transaction/1`
-  closes that window — either both land or both roll back.
-
-  Calls the unlogged `validate_and_apply_item_reorder_in_txn/3` so
-  rejection / db-error audit rows are written **outside** the outer
-  transaction. Otherwise a rejection inside the inner reorder would
-  log a row that the outer rollback then discards, reopening the
-  audit-trail gap.
-
-  Activity-log fan-out: `item.moved` lands inside the inner
-  `move_item_to_category/3` (rolled back if the reorder fails, which
-  is correct — the move didn't actually happen). `item.reordered`
-  lands here, after the outer transaction commits.
-  """
-  @spec move_item_and_reorder_destination(
-          Item.t(),
-          Ecto.UUID.t() | nil,
-          [Ecto.UUID.t()],
-          keyword()
-        ) ::
-          {:ok, Item.t()}
-          | {:error, :category_not_found | :wrong_scope | :too_many_uuids | term()}
-  def move_item_and_reorder_destination(
-        %Item{} = item,
-        to_category_uuid,
-        ordered_uuids,
-        opts \\ []
-      ) do
-    txn_result =
-      repo().transaction(fn ->
-        with {:ok, moved} <- move_item_to_category(item, to_category_uuid, opts),
-             {:ok, count} <-
-               validate_and_apply_item_reorder_in_txn(
-                 moved.catalogue_uuid,
-                 to_category_uuid,
-                 ordered_uuids
-               ) do
-          {moved, count}
-        else
-          {:error, reason} -> repo().rollback(reason)
-        end
-      end)
-
-    case txn_result do
-      {:ok, {moved, 0}} ->
-        {:ok, moved}
-
-      {:ok, {moved, count}} ->
-        log_activity(%{
-          action: "item.reordered",
-          mode: "manual",
-          actor_uuid: opts[:actor_uuid],
-          resource_type: "item",
-          resource_uuid: List.first(Helpers.dedupe_keep_last(ordered_uuids)),
-          parent_catalogue_uuid: moved.catalogue_uuid,
-          metadata: %{
-            "category_uuid" => to_category_uuid,
-            "count" => count
-          }
-        })
-
-        {:ok, moved}
-
-      {:error, reason} when reason in [:too_many_uuids, :wrong_scope] ->
-        log_reorder_rejected(
-          :item,
-          reason,
-          length(ordered_uuids),
-          item.catalogue_uuid,
-          opts
-        )
-
-        {:error, reason}
-
-      {:error, :category_not_found} = err ->
-        # `move_item_to_category/3` already logged nothing (validation
-        # failed before its own audit). Surface as-is — caller flashes.
-        err
-
-      {:error, reason} ->
-        log_reorder_db_error(
-          :item,
-          Helpers.dedupe_keep_last(ordered_uuids),
-          item.catalogue_uuid,
-          opts,
-          category_uuid: to_category_uuid
-        )
-
-        {:error, reason}
-    end
-  end
-
   defp resolve_move_attrs(nil), do: {:ok, %{category_uuid: nil}}
 
   defp resolve_move_attrs(category_uuid) when is_binary(category_uuid) do
@@ -5784,15 +5694,15 @@ defmodule PhoenixKitCatalogue.Catalogue do
   defdelegate delete_attribute_group(group, opts \\ []), to: Attributes
   defdelegate get_attribute(uuid), to: Attributes
   defdelegate create_attribute(group, attrs, opts \\ []), to: Attributes
-  defdelegate update_attribute(attribute, attrs), to: Attributes
+  defdelegate update_attribute(attribute, attrs, opts \\ []), to: Attributes
   defdelegate delete_attribute(attribute, opts \\ []), to: Attributes
-  defdelegate reorder_attributes(group, uuids), to: Attributes
+  defdelegate reorder_attributes(group, uuids, opts \\ []), to: Attributes
   defdelegate get_attribute_value(uuid), to: Attributes
-  defdelegate create_attribute_value(attribute, attrs), to: Attributes
-  defdelegate update_attribute_value(value, attrs), to: Attributes
-  defdelegate delete_attribute_value(value), to: Attributes
-  defdelegate set_default_value(value), to: Attributes
-  defdelegate reorder_attribute_values(attribute, uuids), to: Attributes
+  defdelegate create_attribute_value(attribute, attrs, opts \\ []), to: Attributes
+  defdelegate update_attribute_value(value, attrs, opts \\ []), to: Attributes
+  defdelegate delete_attribute_value(value, opts \\ []), to: Attributes
+  defdelegate set_default_value(value, opts \\ []), to: Attributes
+  defdelegate reorder_attribute_values(attribute, uuids, opts \\ []), to: Attributes
   # ── Attribute SETS (2026-08-18 rework; see AttributeSets moduledoc) ─
   defdelegate create_attribute_set(attrs, opts \\ []), to: AttributeSets, as: :create_set
   defdelegate list_attribute_sets(opts \\ []), to: AttributeSets, as: :list_sets
@@ -5819,10 +5729,6 @@ defmodule PhoenixKitCatalogue.Catalogue do
   defdelegate count_attribute_set_attached_items(set_uuid, opts \\ []),
     to: AttributeSets,
     as: :count_attached_items
-
-  defdelegate attribute_set_valid_selection(slugs, resolved_set),
-    to: AttributeSets,
-    as: :valid_selection
 
   defdelegate create_attribute_set_value(set, attrs, opts \\ []),
     to: AttributeSets,

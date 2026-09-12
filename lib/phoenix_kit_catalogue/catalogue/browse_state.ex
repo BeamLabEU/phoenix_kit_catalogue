@@ -110,6 +110,7 @@ defmodule PhoenixKitCatalogue.Catalogue.BrowseState do
       like the admin's Manual sort. `nil` (default) behaves as
       `{:position, :asc}`.
   """
+  @spec init(keyword()) :: t()
   def init(opts \\ []) do
     drill = opts[:drill] || :subtree
 
@@ -168,6 +169,7 @@ defmodule PhoenixKitCatalogue.Catalogue.BrowseState do
       narrows.
     * `:load_more` — next page. No-op while loading or exhausted.
   """
+  @spec command(t(), term()) :: {t(), :noop | {:fetch, keyword(), non_neg_integer()}}
   def command(state, :reset) do
     fetch(%{state | search: "", catalogue_uuid: nil, category_uuid: nil})
   end
@@ -270,6 +272,7 @@ defmodule PhoenixKitCatalogue.Catalogue.BrowseState do
   re-serve a row when the sort shifts between fetches, and a duplicate card
   (same DOM id twice) is worse than a briefly missing one.
   """
+  @spec ingest(t(), non_neg_integer(), [map()], non_neg_integer()) :: t()
   def ingest(%{gen: gen} = state, gen, items, total) do
     fresh = Enum.reject(items, &MapSet.member?(state.known_uuids, uuid_of(&1)))
     all = state.items ++ fresh
@@ -290,6 +293,7 @@ defmodule PhoenixKitCatalogue.Catalogue.BrowseState do
   The `Search.search_items/2` opts for the current state — always derived
   from the immutable scope, never from anything a client event set directly.
   """
+  @spec query_opts(t()) :: keyword()
   def query_opts(state) do
     base = Map.take(state.scope, [:catalogue_uuids, :only, :statuses, :include_descendants])
 
