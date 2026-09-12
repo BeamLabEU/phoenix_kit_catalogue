@@ -5,8 +5,9 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPickerBrowseOrderTest do
   category-scoped picker under Manual that is the admin's hand-arranged
   position order, not the fetch layer's name default (client,
   2026-09-12: the per-row picker listed a category A→Z while the
-  catalogue showed another order). A typed query stays a name-ordered
-  search, like the admin's results.
+  catalogue showed another order). A typed query is a search and reads
+  in Manual order as well (Max, 2026-09-12: "the default should be the
+  manual order"), like the admin's own in-catalogue search results.
   """
   # async: false — shares the Repo sandbox with the isolated host LV.
   use PhoenixKitCatalogue.LiveCase, async: false
@@ -58,7 +59,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPickerBrowseOrderTest do
     |> Enum.map(&elem(&1, 0))
   end
 
-  test "a category-scoped browse lists the admin's Manual order; a search stays A→Z", %{
+  test "a category-scoped browse and a search both list the admin's Manual order", %{
     conn: conn,
     handles: handles
   } do
@@ -76,6 +77,6 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPickerBrowseOrderTest do
       |> render_change(%{"value" => "handle"})
 
     handle_names = Enum.filter(@names, &(&1 =~ ~r/handle/i))
-    assert order_in(html, handle_names) == Enum.sort(handle_names)
+    assert order_in(html, handle_names) == handle_names
   end
 end

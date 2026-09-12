@@ -95,10 +95,8 @@ defmodule PhoenixKitCatalogue.Catalogue.BrowseState do
       shared sort; the client's 2026-09-01 ask: one order everywhere, the
       popup included). Fields: #{inspect(@order_fields)}. Applies to
       blank-search browse fetches only — a live search stays name-ordered,
-      like the admin's. `{:position, _}` applies only where position is
-      coherent — one catalogue, or an explicit category set (position is
-      per-(catalogue, category); across catalogues it is noise) — and
-      ignores the direction, like the admin's Manual sort. `nil`
+      like the admin's. `{:position, _}` ignores the direction, like the
+      admin's Manual sort. `nil`
       (default) behaves as `{:position, :asc}`.
   """
   def init(opts \\ []) do
@@ -324,51 +322,33 @@ defmodule PhoenixKitCatalogue.Catalogue.BrowseState do
     |> Enum.reject(fn {_k, v} -> is_nil(v) end)
   end
 
-  # BROWSE listings read in the admin's document order (position, name —
-  # Max, 2026-08-31: "the default look would be the same") wherever
-  # position is coherent; position is per-(catalogue, category) scope, so
-  # a fetch spanning several catalogues keeps the name order, and a live
-  # SEARCH stays name-ordered everywhere like the admin's results.
+  # BROWSE listings read in the admin's document order (Max, 2026-08-31:
+  # "the default look would be the same"; 2026-09-12: "the default should
+  # be the manual order") — the fetch layer's `:position` chain leads
+  # with the catalogue, then the category, so it is coherent for ANY
+  # scope: one category, one catalogue, or several. Until 2026-09-12
+  # Manual was gated on a single catalogue in scope, which silently
+  # dropped it for a host's per-category picker (`category_uuids: [cat],
+  # catalogue_uuids: nil`) and listed the category A→Z while the admin
+  # showed the hand-arranged order (client report).
+  #
+  # A live SEARCH passes no order and takes the fetch layer's default —
+  # Manual too, like the admin's in-catalogue search results — rather
+  # than the shared field sort.
   defp put_browse_order(base, state, blank_search?) do
     cond do
-      # A live search stays name-ordered regardless of the browse sort —
-      # the admin's search behaves the same way.
       not blank_search? ->
         base
 
-      # Manual order (and the legacy nil default): only where position is
-      # coherent. Direction is ignored, like the admin's Manual sort (its
-      # selector hides the toggle).
+      # Manual order (and the legacy nil default). Direction is ignored,
+      # like the admin's Manual sort (its selector hides the toggle).
       is_nil(state.order) or match?({:position, _}, state.order) ->
-        if position_coherent?(state), do: Map.put(base, :order, :position), else: base
+        Map.put(base, :order, :position)
 
-      # Field sorts (name/sku/price/status) are coherent across any scope.
+      # Field sorts (name/sku/price/status).
       true ->
         Map.put(base, :order, state.order)
     end
-  end
-
-  # Position is coherent when the fetch is confined to ONE catalogue (a
-  # drilled catalogue, or a scope offering exactly one) — or to an
-  # explicit CATEGORY set: a drilled category, or a scope that names
-  # categories and no catalogue at all. A category belongs to exactly
-  # one catalogue, so within that set `c.position, i.position` is
-  # byte-for-byte the admin detail page's Manual order.
-  #
-  # The category-only shape is what a host's per-category picker passes
-  # (`category_uuids: [cat], catalogue_uuids: nil` — tim-dev's narrow
-  # pickers). Gating on the catalogue alone silently dropped Manual for
-  # it, so the fetch layer fell back to NAME order while the admin showed
-  # the hand-arranged one (client, 2026-09-12: "the popup's order isn't
-  # the catalogue's"). The 2026-08-31 tree fix derived the catalogue for
-  # the TILES only and left the fetch on name order — this is the other
-  # half.
-  defp position_coherent?(state) do
-    is_binary(state.catalogue_uuid) or
-      match?([_], state.scope[:catalogue_uuids]) or
-      is_binary(state.category_uuid) or
-      (state.scope[:catalogue_uuids] in [nil, []] and
-         match?([_ | _], state.scope[:category_uuids]))
   end
 
   # nil scope restriction + no chip -> nil (all); chip -> [chip];
