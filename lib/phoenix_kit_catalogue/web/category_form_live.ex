@@ -34,6 +34,7 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
   alias PhoenixKit.Utils.Values
   alias PhoenixKitCatalogue.Attachments
   alias PhoenixKitCatalogue.Catalogue
+  alias PhoenixKitCatalogue.Catalogue.PubSub
   alias PhoenixKitCatalogue.Catalogue.Slugs
   alias PhoenixKitCatalogue.Extensions
   alias PhoenixKitCatalogue.Paths
@@ -68,6 +69,10 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
   @impl true
   def mount(params, _session, socket) do
     action = socket.assigns.live_action
+
+    # Subscribe before the read so a write landing in between is not
+    # dropped; the files grid follows the resource's broadcasts.
+    if connected?(socket), do: PubSub.subscribe()
 
     {category, changeset, catalogue_uuid} =
       case action do
@@ -493,6 +498,17 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
 
   def handle_info({:media_selector_closed}, socket),
     do: {:noreply, Attachments.close_media_selector(socket)}
+
+  # This category changed elsewhere (an upload, a removal, a photo
+  # reorder in another tab): re-read the files grid, which is the one
+  # thing this form shows from the DB; typed fields stay as they are.
+  def handle_info(
+        {:catalogue_data_changed, :category, uuid, _parent},
+        %{assigns: %{category: %{uuid: category_uuid}}} = socket
+      )
+      when is_binary(uuid) and uuid == category_uuid do
+    {:noreply, Attachments.refresh_files(socket)}
+  end
 
   # Catch-all so stray monitor signals or unrelated PubSub traffic
   # can't crash the form mid-edit.

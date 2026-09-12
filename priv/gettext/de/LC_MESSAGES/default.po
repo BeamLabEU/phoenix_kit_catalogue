@@ -1827,6 +1827,9 @@ msgstr ""
 msgid "Could not remove file."
 msgstr ""
 
+msgid "The photo order could not be saved. Try again."
+msgstr "Die Reihenfolge der Fotos konnte nicht gespeichert werden. Bitte erneut versuchen."
+
 msgid "Could not save the uploaded file. Please try again or contact support if it persists."
 msgstr ""
 
