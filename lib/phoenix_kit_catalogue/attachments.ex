@@ -108,6 +108,9 @@ defmodule PhoenixKitCatalogue.Attachments do
       # out in the user's saved order (boss, 2026-08-31: the client
       # reorders images after adding them).
       |> assign(:media_order, read_list(resource_data(resource), "media_order"))
+      # What the row holds — so a same-place drop writes nothing, and a
+      # broadcast can tell "someone else reordered" from "our own write".
+      |> assign(:media_order_persisted, read_list(resource_data(resource), "media_order"))
       |> assign_featured_image_state(resource)
 
     socket =
@@ -180,7 +183,9 @@ defmodule PhoenixKitCatalogue.Attachments do
   """
   def handle_reorder_files(socket, ordered_ids) when is_list(ordered_ids) do
     files = socket.assigns.files_state.files
-    order = Enum.map(ordered_ids, &to_string/1)
+    # Only strings can be ids; anything else in a crafted payload is
+    # ignored rather than crashing the form.
+    order = Enum.filter(ordered_ids, &is_binary/1)
     reordered = apply_media_order(files, order)
     media_order = Enum.map(reordered, &to_string(&1.uuid))
 
@@ -200,8 +205,19 @@ defmodule PhoenixKitCatalogue.Attachments do
   defp compute_files_list(socket) do
     folder_files =
       case socket.assigns[:files_folder_uuid] do
-        nil -> []
-        folder_uuid -> list_files_in_folder(folder_uuid)
+        nil ->
+          []
+
+        folder_uuid ->
+          case list_files_in_folder(folder_uuid) do
+            {:ok, files} ->
+              files
+
+            # A failed read must not look like "no files": Save would then
+            # write the empty grid's nil marker over the stored order.
+            :error ->
+              socket.assigns[:files_state][:files] || []
+          end
       end
 
     case socket.assigns[:featured_image_file] do
@@ -217,9 +233,17 @@ defmodule PhoenixKitCatalogue.Attachments do
     end
   end
 
+  # A featured image that was trashed since the pointer was written (from
+  # this form without a Save, or from the media manager) must not come
+  # back as a ghost at the head of the grid — the card ignores it too.
   defp assign_featured_image_state(socket, resource) do
     uuid = read_string(resource_data(resource), "featured_image_uuid")
-    file = if uuid, do: safe_get_file(uuid), else: nil
+
+    file =
+      case if(uuid, do: safe_get_file(uuid), else: nil) do
+        %File{status: "trashed"} -> nil
+        file -> file
+      end
 
     assign(socket,
       featured_image_uuid: if(file, do: uuid, else: nil),
@@ -327,7 +351,8 @@ defmodule PhoenixKitCatalogue.Attachments do
          socket
          |> assign(:files_state, %{files: new_files})
          |> assign(:media_order, new_order)
-         |> maybe_clear_featured_if_matches(uuid)}
+         |> maybe_clear_featured_if_matches(uuid)
+         |> persist_removal(uuid, new_order, detached)}
 
       {:error, reason} ->
         Logger.warning("Failed to remove file #{uuid}: #{inspect(reason)}")
@@ -340,6 +365,41 @@ defmodule PhoenixKitCatalogue.Attachments do
          )}
     end
   end
+
+  # A removal is committed the moment it happens, so the row's pointers
+  # follow it at once: the order without the file, and no featured
+  # pointer at a file that is no longer here. Otherwise a file still live
+  # elsewhere (a link, another folder) stayed the card's main image and
+  # came back on remount until the editor pressed Save.
+  defp persist_removal(socket, uuid, new_order, :ok) do
+    resource = socket.assigns[:attachments_resource]
+
+    if persisted?(resource) do
+      data =
+        if read_string(resource_data(resource), "featured_image_uuid") == uuid,
+          do: %{"media_order" => new_order, "featured_image_uuid" => nil},
+          else: %{"media_order" => new_order}
+
+      case write_owned_data(resource, data, current_user_uuid(socket)) do
+        {:ok, updated} ->
+          socket
+          |> assign(:attachments_resource, updated)
+          |> assign(:media_order_persisted, new_order)
+
+        {:error, reason} ->
+          Logger.warning("Removal not persisted for #{resource.uuid}: #{inspect(reason)}")
+          socket
+      end
+    else
+      socket
+    end
+  rescue
+    error ->
+      Logger.warning("persist_removal failed: #{inspect(error)}")
+      socket
+  end
+
+  defp persist_removal(socket, _uuid, _new_order, :noop), do: socket
 
   # `:noop` — nothing to detach (no folder yet / unknown file); `:ok` —
   # a row was written.
@@ -451,8 +511,46 @@ defmodule PhoenixKitCatalogue.Attachments do
   def refresh_files(socket) do
     socket
     |> resolve_files_folder()
+    |> adopt_persisted_media_order()
     |> refresh_files_from_folder()
   end
+
+  # A broadcast says the resource changed elsewhere — and since a drop is
+  # persisted at once, "elsewhere" can be a reorder in another tab or by
+  # another admin. Take the row's order when it is not the one this form
+  # last saw persisted; otherwise keep the local one (a drop whose write
+  # failed, a trash that trimmed the list ahead of Save). Without this a
+  # second open form re-applied its stale order on every refresh and
+  # wrote it back on Save — clobbering the reorder it never saw.
+  defp adopt_persisted_media_order(socket) do
+    resource = socket.assigns[:attachments_resource]
+
+    with true <- persisted?(resource),
+         %{} = fresh <- reload_resource(resource) do
+      order = read_list(resource_data(fresh), "media_order")
+
+      if order == socket.assigns[:media_order_persisted] do
+        socket
+      else
+        socket
+        |> assign(:attachments_resource, fresh)
+        |> assign(:media_order, order)
+        |> assign(:media_order_persisted, order)
+      end
+    else
+      _ -> socket
+    end
+  end
+
+  defp reload_resource(%Item{uuid: uuid}), do: PhoenixKitCatalogue.Catalogue.get_item(uuid)
+
+  defp reload_resource(%Category{uuid: uuid}),
+    do: PhoenixKitCatalogue.Catalogue.get_category(uuid)
+
+  defp reload_resource(%Catalogue{uuid: uuid}),
+    do: PhoenixKitCatalogue.Catalogue.get_catalogue(uuid)
+
+  defp reload_resource(_), do: nil
 
   # When THIS tab never uploaded, `files_folder_uuid` is still nil even
   # if another tab created the deterministic folder. Resolve it the same
@@ -531,17 +629,22 @@ defmodule PhoenixKitCatalogue.Attachments do
   # a Save (client, 2026-09-12: reordered, came back to the product,
   # old order). Owned-key write; a `:new` resource keeps it for save.
   # Never fatal — the grid already shows the new order.
+  # Skipped when the row already holds this order: the hook fires on every
+  # drop, including one that put the file back where it was, and each write
+  # is an "item.updated" activity entry plus a broadcast.
   defp persist_media_order(socket, media_order) do
     resource = socket.assigns[:attachments_resource]
 
-    if persisted?(resource) do
+    if persisted?(resource) and media_order != socket.assigns[:media_order_persisted] do
       case write_owned_data(resource, %{"media_order" => media_order}, current_user_uuid(socket)) do
         {:ok, updated} ->
-          assign(socket, :attachments_resource, updated)
+          socket
+          |> assign(:attachments_resource, updated)
+          |> assign(:media_order_persisted, media_order)
 
         {:error, reason} ->
           Logger.warning("Media order not persisted for #{resource.uuid}: #{inspect(reason)}")
-          socket
+          order_not_saved_flash(socket)
       end
     else
       socket
@@ -549,7 +652,20 @@ defmodule PhoenixKitCatalogue.Attachments do
   rescue
     error ->
       Logger.warning("persist_media_order failed: #{inspect(error)}")
-      socket
+      order_not_saved_flash(socket)
+  end
+
+  # The grid keeps the new order, so without this the editor would leave
+  # believing it stuck.
+  defp order_not_saved_flash(socket) do
+    put_flash(
+      socket,
+      :error,
+      Gettext.gettext(
+        PhoenixKitCatalogue.Gettext,
+        "The photo order could not be saved. Try again."
+      )
+    )
   end
 
   @doc false
@@ -693,17 +809,17 @@ defmodule PhoenixKitCatalogue.Attachments do
          {:ok, folder_uuid} <- ensure_item_folder(item) do
       Enum.each(files, &assign_file_to_folder(&1, folder_uuid))
 
-      data =
-        item
-        |> resource_data()
-        |> Map.put("files_folder_uuid", folder_uuid)
-        |> put_or_delete(
-          "featured_image_uuid",
-          Keyword.get(opts, :featured, List.first(file_uuids))
-        )
-        |> put_or_delete("media_order", Keyword.get(opts, :order, file_uuids))
+      # Owned-key write: the caller's struct may be stale, and the row's
+      # other data keys (translation fingerprints, sync namespaces) must
+      # survive. A nil value deletes its key.
+      data = %{
+        "files_folder_uuid" => folder_uuid,
+        "featured_image_uuid" => Keyword.get(opts, :featured, List.first(file_uuids)),
+        "media_order" => Keyword.get(opts, :order, file_uuids)
+      }
 
       PhoenixKitCatalogue.Catalogue.update_item(item, %{data: data},
+        data_owned_keys: Map.keys(data),
         actor_uuid: opts[:actor_uuid]
       )
     end
@@ -748,9 +864,6 @@ defmodule PhoenixKitCatalogue.Attachments do
         end
     end
   end
-
-  defp put_or_delete(map, _key, nil), do: map
-  defp put_or_delete(map, key, value), do: Map.put(map, key, value)
 
   # ── Save-time helpers ────────────────────────────────────────────
 
@@ -935,14 +1048,7 @@ defmodule PhoenixKitCatalogue.Attachments do
   def list_folder_files(folder_uuid, opts \\ [])
 
   def list_folder_files(folder_uuid, opts) when is_binary(folder_uuid) do
-    folder_uuid
-    |> folder_files_query()
-    |> maybe_filter_file_type(opts[:file_type])
-    |> maybe_exclude_file_type(opts[:exclude_file_type])
-    |> maybe_exclude_system_managed(Keyword.get(opts, :exclude_system_managed, false))
-    |> order_by([f], asc: f.inserted_at, asc: f.uuid)
-    |> limit(@files_grid_limit)
-    |> PhoenixKit.RepoHelper.repo().all()
+    folder_files!(folder_uuid, opts)
   rescue
     error ->
       Logger.warning("list_folder_files failed for #{folder_uuid}: #{inspect(error)}")
@@ -981,7 +1087,28 @@ defmodule PhoenixKitCatalogue.Attachments do
   defp maybe_exclude_system_managed(query, true), do: where(query, [f], f.system_managed == false)
   defp maybe_exclude_system_managed(query, _), do: query
 
-  defp list_files_in_folder(folder_uuid), do: list_folder_files(folder_uuid)
+  defp folder_files!(folder_uuid, opts) do
+    folder_uuid
+    |> folder_files_query()
+    |> maybe_filter_file_type(opts[:file_type])
+    |> maybe_exclude_file_type(opts[:exclude_file_type])
+    |> maybe_exclude_system_managed(Keyword.get(opts, :exclude_system_managed, false))
+    |> order_by([f], asc: f.inserted_at, asc: f.uuid)
+    |> limit(@files_grid_limit)
+    |> PhoenixKit.RepoHelper.repo().all()
+  end
+
+  # The editor's own listing. System-managed rows (tiles, chunks) are
+  # hidden here as they are on the card and in core's media browser, so
+  # the grid never orders a file the card will not show. A failed read
+  # is reported, not disguised as an empty folder.
+  defp list_files_in_folder(folder_uuid) do
+    {:ok, folder_files!(folder_uuid, exclude_system_managed: true)}
+  rescue
+    error ->
+      Logger.warning("list_folder_files failed for #{folder_uuid}: #{inspect(error)}")
+      :error
+  end
 
   defp safe_get_file(uuid) when is_binary(uuid) do
     Storage.get_file(uuid)

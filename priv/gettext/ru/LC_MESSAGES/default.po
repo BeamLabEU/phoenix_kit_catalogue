@@ -1835,6 +1835,9 @@ msgstr "Не удалось подготовить папку файлов."
 msgid "Could not remove file."
 msgstr "Не удалось удалить файл."
 
+msgid "The photo order could not be saved. Try again."
+msgstr "Не удалось сохранить порядок фото. Попробуйте ещё раз."
+
 msgid "Could not save the uploaded file. Please try again or contact support if it persists."
 msgstr "Не удалось сохранить загруженный файл. Попробуйте снова или обратитесь в поддержку, если ошибка повторяется."
 

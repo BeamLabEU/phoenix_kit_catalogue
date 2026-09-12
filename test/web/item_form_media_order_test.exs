@@ -103,4 +103,86 @@ defmodule PhoenixKitCatalogue.Web.ItemFormMediaOrderTest do
     assert Repo.exists?(from(i in PhoenixKitCatalogue.Schemas.Item, where: i.uuid == ^item.uuid))
     _ = view2
   end
+
+  test "a same-place drop writes nothing, and a reorder in another tab reaches an open form", %{
+    conn: conn,
+    scope: scope,
+    user_uuid: user_uuid
+  } do
+    catalogue = fixture_catalogue(%{name: "Order Range 2"})
+    item = fixture_item(%{name: "Ordered Item 2", catalogue_uuid: catalogue.uuid})
+    a = insert_file!(user_uuid, "a.jpg")
+    b = insert_file!(user_uuid, "b.jpg")
+    c = insert_file!(user_uuid, "c.jpg")
+    {:ok, item} = Attachments.attach_files(item, [a, b, c])
+
+    {:ok, tab1, _} = conn |> with_scope(scope) |> live("#{@base}/items/#{item.uuid}/edit")
+    render_hook(tab1, "reorder_files", %{"ordered_ids" => [c, a, b]})
+    updates = fn -> Enum.count(list_activities(), &(&1.action == "item.updated")) end
+    n = updates.()
+
+    # The hook fires on every drop, including one that changed nothing.
+    render_hook(tab1, "reorder_files", %{"ordered_ids" => [c, a, b]})
+    assert updates.() == n
+    assert Catalogue.get_item!(item.uuid).data["media_order"] == [c, a, b]
+
+    # A second tab (or another admin) reorders. The first tab's next
+    # refresh adopts it instead of re-applying — and later saving — its
+    # own stale order.
+    {:ok, tab2, html2} = conn |> with_scope(scope) |> live("#{@base}/items/#{item.uuid}/edit")
+    assert grid_order(html2) == [c, a, b]
+    render_hook(tab2, "reorder_files", %{"ordered_ids" => [b, c, a]})
+    assert Catalogue.get_item!(item.uuid).data["media_order"] == [b, c, a]
+
+    send(tab1.pid, {:catalogue_data_changed, :item, item.uuid, catalogue.uuid})
+    assert grid_order(render(tab1)) == [b, c, a]
+  end
+
+  test "removing the featured photo clears the pointer and trims the order without Save", %{
+    conn: conn,
+    scope: scope,
+    user_uuid: user_uuid
+  } do
+    catalogue = fixture_catalogue(%{name: "Order Range 4"})
+    item = fixture_item(%{name: "Ordered Item 4", catalogue_uuid: catalogue.uuid})
+    a = insert_file!(user_uuid, "a.jpg")
+    b = insert_file!(user_uuid, "b.jpg")
+    {:ok, item} = Attachments.attach_files(item, [a, b])
+    assert Catalogue.get_item!(item.uuid).data["featured_image_uuid"] == a
+
+    {:ok, view, _} = conn |> with_scope(scope) |> live("#{@base}/items/#{item.uuid}/edit")
+    html = render_click(view, "remove_file", %{"uuid" => a})
+    assert grid_order(html) == [b]
+
+    data = Catalogue.get_item!(item.uuid).data
+    assert data["media_order"] == [b]
+    refute Map.has_key?(data, "featured_image_uuid")
+
+    # A remount does not bring the removed file back.
+    {:ok, _view2, html2} = conn |> with_scope(scope) |> live("#{@base}/items/#{item.uuid}/edit")
+    assert grid_order(html2) == [b]
+  end
+
+  test "a crafted payload cannot crash the form or invent a file", %{
+    conn: conn,
+    scope: scope,
+    user_uuid: user_uuid
+  } do
+    catalogue = fixture_catalogue(%{name: "Order Range 3"})
+    item = fixture_item(%{name: "Ordered Item 3", catalogue_uuid: catalogue.uuid})
+    a = insert_file!(user_uuid, "a.jpg")
+    b = insert_file!(user_uuid, "b.jpg")
+    {:ok, item} = Attachments.attach_files(item, [a, b])
+    {:ok, view, _} = conn |> with_scope(scope) |> live("#{@base}/items/#{item.uuid}/edit")
+
+    # Non-string ids, an unknown uuid, a duplicate, and a missing file.
+    html =
+      render_hook(view, "reorder_files", %{
+        "ordered_ids" => [nil, 7, %{"x" => 1}, UUIDv7.generate(), b, b]
+      })
+
+    assert grid_order(html) == [b, a]
+    assert Catalogue.get_item!(item.uuid).data["media_order"] == [b, a]
+    assert render_hook(view, "reorder_files", %{"ordered_ids" => "nope"}) =~ "a.jpg"
+  end
 end

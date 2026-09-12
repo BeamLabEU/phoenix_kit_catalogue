@@ -1826,6 +1826,9 @@ msgstr "Failikausta ei õnnestunud ette valmistada."
 msgid "Could not remove file."
 msgstr "Faili ei õnnestunud eemaldada."
 
+msgid "The photo order could not be saved. Try again."
+msgstr "Fotode järjekorda ei õnnestunud salvestada. Proovi uuesti."
+
 msgid "Could not save the uploaded file. Please try again or contact support if it persists."
 msgstr "Üleslaaditud faili ei õnnestunud salvestada. Proovi uuesti või pöördu toe poole, kui viga püsib."
 

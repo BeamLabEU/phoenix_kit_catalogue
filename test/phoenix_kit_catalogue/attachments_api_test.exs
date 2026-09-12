@@ -251,6 +251,70 @@ defmodule PhoenixKitCatalogue.AttachmentsApiTest do
   end
 
   # Files carry a CHECK (user_uuid OR parent_file_uuid); give them an owner.
+  describe "the editor's grid (review round, 2026-09-12)" do
+    test "a trashed featured image does not come back as a ghost at the head of the grid",
+         %{item: item, user_uuid: user_uuid} do
+      a = insert_file!(user_uuid, nil, "a.jpg")
+      ghost = insert_file!(user_uuid, nil, "ghost.jpg", %{status: "trashed"})
+      {:ok, item} = Attachments.attach_files(item, [a], featured: ghost)
+
+      socket = Attachments.mount_attachments(bare_socket(), item)
+
+      assert uuids(socket) == [a]
+      assert socket.assigns.featured_image_uuid == nil
+    end
+
+    test "system-managed rows stay out of the grid, as they are off the card",
+         %{item: item, user_uuid: user_uuid} do
+      a = insert_file!(user_uuid, nil, "a.jpg")
+      {:ok, item} = Attachments.attach_files(item, [a])
+      folder = item.data["files_folder_uuid"]
+      _tile = insert_file!(user_uuid, folder, "tile.jpg", %{system_managed: true})
+
+      assert uuids(Attachments.mount_attachments(bare_socket(), item)) == [a]
+    end
+
+    test "a failed folder read keeps the last list instead of showing an empty grid",
+         %{item: item, user_uuid: user_uuid} do
+      a = insert_file!(user_uuid, nil, "a.jpg")
+      # No featured image: the grid must come from the folder read alone.
+      {:ok, item} = Attachments.attach_files(item, [a], featured: nil)
+      socket = Attachments.mount_attachments(bare_socket(), item)
+      assert uuids(socket) == [a]
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          refreshed =
+            socket
+            |> Phoenix.Component.assign(:files_folder_uuid, "not-a-uuid")
+            |> Attachments.refresh_files()
+
+          assert uuids(refreshed) == [a]
+        end)
+
+      assert log =~ "list_folder_files failed"
+    end
+
+    test "attach_files/3 keeps the data keys it does not own", %{item: item, user_uuid: user_uuid} do
+      a = insert_file!(user_uuid, nil, "a.jpg")
+
+      {:ok, _} =
+        Catalogue.update_item(item, %{data: Map.put(item.data || %{}, "fingerprint", "z")})
+
+      # The caller's struct is stale; the row's other keys must survive.
+      {:ok, updated} = Attachments.attach_files(item, [a])
+
+      assert updated.data["fingerprint"] == "z"
+      assert updated.data["media_order"] == [a]
+      assert Catalogue.get_item!(item.uuid).data["fingerprint"] == "z"
+    end
+  end
+
+  defp bare_socket,
+    do: %Phoenix.LiveView.Socket{assigns: %{__changed__: %{}, phoenix_kit_current_user: nil}}
+
+  defp uuids(socket), do: Enum.map(socket.assigns.files_state.files, & &1.uuid)
+
   defp insert_user! do
     user_uuid = UUIDv7.generate()
 
@@ -271,27 +335,30 @@ defmodule PhoenixKitCatalogue.AttachmentsApiTest do
     user_uuid
   end
 
-  defp insert_file!(user_uuid, folder_uuid, name) do
+  defp insert_file!(user_uuid, folder_uuid, name, attrs \\ %{}) do
     now = DateTime.utc_now() |> DateTime.truncate(:second)
     uuid = UUIDv7.generate()
 
-    Repo.insert!(%StorageFile{
-      uuid: uuid,
-      original_file_name: name,
-      file_name: name,
-      mime_type: "image/jpeg",
-      file_type: "image",
-      ext: "jpg",
-      file_checksum: "chk-#{uuid}",
-      user_file_checksum: "uchk-#{uuid}",
-      size: 1,
-      status: "active",
-      system_managed: false,
-      user_uuid: user_uuid,
-      folder_uuid: folder_uuid,
-      inserted_at: now,
-      updated_at: now
-    })
+    Repo.insert!(
+      %StorageFile{
+        uuid: uuid,
+        original_file_name: name,
+        file_name: name,
+        mime_type: "image/jpeg",
+        file_type: "image",
+        ext: "jpg",
+        file_checksum: "chk-#{uuid}",
+        user_file_checksum: "uchk-#{uuid}",
+        size: 1,
+        status: "active",
+        system_managed: false,
+        user_uuid: user_uuid,
+        folder_uuid: folder_uuid,
+        inserted_at: now,
+        updated_at: now
+      }
+      |> struct!(attrs)
+    )
 
     uuid
   end
