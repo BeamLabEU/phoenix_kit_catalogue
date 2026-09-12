@@ -5035,10 +5035,22 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
         {count, nil}
 
-      # A rollback inside the batch is a result, not a MatchError.
+      # A rollback inside the batch is a result, not a MatchError — and
+      # its audit row says "restore", not "reorder".
       {:error, reason} ->
-        log_reorder_db_error(:item, uuids, opts[:catalogue_uuid], opts)
         Logger.warning("bulk_restore_items rolled back: #{inspect(reason)}")
+
+        log_activity(
+          %{
+            action: "item.bulk_restored",
+            mode: "manual",
+            actor_uuid: opts[:actor_uuid],
+            resource_type: "item",
+            metadata: %{"count" => 0, "uuids" => uuids, "db_pending" => true}
+          },
+          broadcast: false
+        )
+
         {0, nil}
     end
   end

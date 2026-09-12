@@ -775,7 +775,7 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
             </div>
 
             <%!-- No manual Position field: a new category appends to its
-                 level (next_category_position at mount) and ordering is
+                 level (the position is computed at insert) and ordering is
                  drag-managed on the catalogue detail page — same as
                  catalogues and items. --%>
 
