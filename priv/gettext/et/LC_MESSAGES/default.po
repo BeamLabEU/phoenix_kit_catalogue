@@ -345,6 +345,12 @@ msgstr "Kategooria jäädavalt kustutatud."
 msgid "Category moved."
 msgstr "Kategooria teisaldatud."
 
+msgid "Category moved into %{name}."
+msgstr "Kategooria teisaldatud kategooriasse %{name}."
+
+msgid "Category moved to the top level."
+msgstr "Kategooria teisaldatud ülemisele tasemele."
+
 msgid "Category moved to another catalogue."
 msgstr "Kategooria teisaldati teise kataloogi."
 

@@ -345,6 +345,12 @@ msgstr "Категория удалена окончательно."
 msgid "Category moved."
 msgstr "Категория перемещена."
 
+msgid "Category moved into %{name}."
+msgstr "Категория перемещена в «%{name}»."
+
+msgid "Category moved to the top level."
+msgstr "Категория перемещена на верхний уровень."
+
 msgid "Category moved to another catalogue."
 msgstr "Категория перемещена в другой каталог."
 

@@ -450,10 +450,7 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
          socket
          |> assign(:category, updated)
          |> assign(:parent_options, parent_options_for(:edit, updated, updated.catalogue_uuid))
-         |> put_flash(
-           :info,
-           Gettext.gettext(PhoenixKitCatalogue.Gettext, "Category moved.")
-         )}
+         |> put_flash(:info, moved_flash(target))}
 
       {:error, :would_create_cycle} ->
         {:noreply,
@@ -525,6 +522,23 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
   defp normalize_parent_uuid(params), do: params
 
   # actor_opts/1 imported from PhoenixKitCatalogue.Web.Helpers
+
+  # Name the destination: "moved" alone left the client hunting for
+  # the category on the level she came from (2026-08-31).
+  defp moved_flash(nil),
+    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Category moved to the top level.")
+
+  defp moved_flash(target_uuid) do
+    case Catalogue.get_category(target_uuid) do
+      nil ->
+        Gettext.gettext(PhoenixKitCatalogue.Gettext, "Category moved.")
+
+      target ->
+        Gettext.gettext(PhoenixKitCatalogue.Gettext, "Category moved into %{name}.",
+          name: target.name
+        )
+    end
+  end
 
   defp save_category(socket, :new, params, mode) do
     case Catalogue.create_category(params, actor_opts(socket)) do

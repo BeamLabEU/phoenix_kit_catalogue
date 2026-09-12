@@ -350,6 +350,12 @@ msgstr ""
 msgid "Category moved."
 msgstr ""
 
+msgid "Category moved into %{name}."
+msgstr ""
+
+msgid "Category moved to the top level."
+msgstr ""
+
 msgid "Category moved to another catalogue."
 msgstr ""
 
