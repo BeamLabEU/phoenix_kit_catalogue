@@ -195,6 +195,40 @@ defmodule PhoenixKitCatalogue.AttachmentsApiTest do
       assert updated.data == %{"other" => "moved", "files_folder_uuid" => "f-1"}
     end
 
+    test "a drag reorder is persisted at once and survives the grid's refresh",
+         %{item: item, user_uuid: user_uuid} do
+      # Client, 2026-09-12: "I reorder the photos and they come back".
+      # Every refresh of the grid (an upload landing, a broadcast for
+      # this item, the picker closing) rebuilt the list from the folder
+      # WITHOUT the editor's order, and a Save then persisted the snapped
+      # list. Now the refresh re-applies the order, and the drop itself
+      # is written — no Save needed.
+      a = insert_file!(user_uuid, nil, "a.jpg")
+      b = insert_file!(user_uuid, nil, "b.jpg")
+      {:ok, item} = Attachments.attach_files(item, [a, b])
+
+      socket =
+        %Phoenix.LiveView.Socket{assigns: %{__changed__: %{}, phoenix_kit_current_user: nil}}
+        |> Attachments.mount_attachments(item)
+
+      assert Enum.map(socket.assigns.files_state.files, & &1.uuid) == [a, b]
+
+      socket = Attachments.handle_reorder_files(socket, [b, a])
+      assert Enum.map(socket.assigns.files_state.files, & &1.uuid) == [b, a]
+      assert Catalogue.get_item!(item.uuid).data["media_order"] == [b, a]
+
+      # The refresh path keeps the editor's order.
+      refreshed = Attachments.refresh_files(socket)
+      assert Enum.map(refreshed.assigns.files_state.files, & &1.uuid) == [b, a]
+
+      # A fresh mount reads the persisted order back.
+      remounted =
+        %Phoenix.LiveView.Socket{assigns: %{__changed__: %{}, phoenix_kit_current_user: nil}}
+        |> Attachments.mount_attachments(Catalogue.get_item!(item.uuid))
+
+      assert Enum.map(remounted.assigns.files_state.files, & &1.uuid) == [b, a]
+    end
+
     test "an unknown uuid errors and persists nothing", %{item: item, user_uuid: user_uuid} do
       a = insert_file!(user_uuid, nil, "a.jpg")
       bogus = Ecto.UUID.generate()
