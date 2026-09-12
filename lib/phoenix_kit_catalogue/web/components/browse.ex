@@ -1060,7 +1060,11 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
   @doc """
   Quantity input: a native `<input type="number">` — the browser's own
   spinner arrows, the same control the rest of the kit uses for numbers
-  (2026-08-30, replacing the custom −/+ join stepper).
+  (2026-08-30, replacing the custom −/+ join stepper). The field keeps
+  daisyUI's 8px of padding on the arrows' side: with the 4px the narrow
+  box used to have, Chrome drew the spin button flush against the
+  border and the arrows came out cut off on their right (boss's report,
+  2026-09-12, reproduced on the client's box).
 
   Three event paths, one server vocabulary:
 
@@ -1198,7 +1202,7 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
           max={@max}
           step={qty_step(@precision)}
           inputmode={if @precision > 0, do: "decimal", else: "numeric"}
-          class={["input join-item text-center px-1", qty_width(@size), input_size(@size)]}
+          class={["input join-item text-center pl-1 pr-2", qty_width(@size), input_size(@size)]}
           phx-debounce="400"
           phx-blur="qty_commit"
           phx-value-uuid={@uuid}
