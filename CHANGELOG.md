@@ -1,3 +1,70 @@
+## 0.29.0 - 2026-09-12
+
+### Changed
+
+- **Manual (document) order is now the default order for every item
+  fetch.** `Catalogue.search_items/2`'s `:order` defaults to `:position`
+  instead of `:name`, and the `:position` chain now leads with the
+  catalogue — catalogue position, lowercased catalogue name, catalogue
+  uuid, category position (uncategorized last), then the item's own
+  position, name and uuid. Leading with the catalogue makes the chain
+  coherent for any scope, so a caller no longer has to reason about
+  whether `position` "applies" to what it asked for. A host calling
+  `search_items/2` without an explicit `:order` will see items in the
+  admin's hand-arranged order rather than A→Z; pass `order: :name` for
+  the previous behaviour (#110).
+- `search_items/2` now raises `ArgumentError` on an `:order` outside its
+  vocabulary (`:position`, `:name`, or `{field, :asc | :desc}` with
+  `field` in `[:name, :sku, :base_price, :status]`). It previously fell
+  through to name order, turning a misspelt sort into a silently wrong
+  listing (#110).
+- `Catalogue.list_items/1` and `list_catalogues/1` read in the same
+  Manual order; `list_catalogues/1` tie-breaks tied positions on
+  `lower(name)`, which is what the admin index's own sort already used,
+  so the listing and the printed document order can no longer disagree
+  on rows that tie (#110).
+- `search_items_in_catalogue/3` no longer carries its own copy of the
+  order chain — it delegates to `search_items/2` with `:order` pinned, so
+  the two cannot drift (#110).
+- The browse stack (`Catalogue.BrowseState`, the browse embed, the
+  item-selector popup and the item picker) asks for Manual order for
+  every scope. The old "only when exactly one catalogue is in scope"
+  gate silently dropped Manual for a category-scoped picker
+  (`category_uuids: [cat]`, `catalogue_uuids: nil`), which is what listed
+  a category A→Z while the admin showed the hand-arranged order (#110).
+  A live search now takes the fetch layer's default too, matching the
+  admin's own in-catalogue search results.
+
+### Added
+
+- `Catalogue.BrowseState.order_fields/0` — the browse-sort vocabulary as
+  a single list, so the sortable-column set, what `BrowseState.init/1`
+  admits and what the fetch layer can build an `ORDER BY` for stay one
+  list (#110).
+
+### Fixed
+
+- `Catalogue.list_items/1` no longer drops items whose catalogue was
+  hard-deleted. `catalogue_uuid` is nullable with an `ON DELETE SET NULL`
+  foreign key, so `delete_catalogue/2` orphans an item rather than
+  removing it; the catalogue join added for Manual ordering was an inner
+  join and silently excluded every such row from the function's only
+  caller, the Translations page's and sweep worker's item enumeration,
+  where a missing row reads as "already translated". The join is now a
+  left join and orphans sort last.
+- The module's shared item sort is clamped to the browse vocabulary in
+  one place (`Web.Components.Browse.global_items_order/0`) rather than at
+  one of its three call sites. Making any further `:detail_items` column
+  sortable would otherwise have raised inside `BrowseState.init/1` and
+  taken down the browse embed and the item-selector popup on open, for
+  every user of the host, because of a sort preference set on an
+  unrelated admin page. A new conformance test pins the vocabularies
+  against each other so the clamp stays a backstop.
+- `Catalogue.list_items_for_catalogue/2` gains the `uuid` tie-break
+  `search_items/2`'s Manual chain already had, so the unpaged
+  catalogue-wide read and the paged one cannot disagree on two items that
+  tie on category, position and name.
+
 ## 0.28.5 - 2026-09-11
 
 ### Fixed

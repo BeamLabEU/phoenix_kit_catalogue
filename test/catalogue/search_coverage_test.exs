@@ -13,6 +13,7 @@ defmodule PhoenixKitCatalogue.Catalogue.SearchCoverageTest do
   use PhoenixKitCatalogue.LiveCase, async: false
 
   alias PhoenixKitCatalogue.Catalogue
+  alias PhoenixKitCatalogue.Catalogue.BrowseState
 
   setup %{conn: conn, scope: scope} do
     cat = fixture_catalogue(%{name: "Kitchen Range"})
@@ -294,6 +295,28 @@ defmodule PhoenixKitCatalogue.Catalogue.SearchCoverageTest do
         |> Enum.map(& &1.name)
 
       assert names == ["Aaa", "Zzz"]
+    end
+
+    test "every field the browse vocabulary offers is one the fetch layer accepts" do
+      # The counterpart to `test/browse_sort_vocabulary_conformance_test.exs`,
+      # which pins the two static lists against each other. This one runs
+      # each of them through the query builder: an entry `BrowseState`
+      # admits but `apply_search_order/2` has no clause for would sail
+      # past init and raise here instead — inside the embed's or the
+      # popup's first fetch.
+      cat = fixture_catalogue(%{name: "Vocabulary"})
+      fixture_item(%{name: "Only", catalogue_uuid: cat.uuid})
+
+      for field <- BrowseState.order_fields(), dir <- [:asc, :desc] do
+        assert [%{name: "Only"}] =
+                 Catalogue.search_items("", catalogue_uuids: [cat.uuid], order: {field, dir})
+      end
+
+      # And the bare `:position` / `:name` atoms the browse layer passes.
+      for order <- [:position, :name] do
+        assert [%{name: "Only"}] =
+                 Catalogue.search_items("", catalogue_uuids: [cat.uuid], order: order)
+      end
     end
 
     test "an unknown :order raises rather than silently sorting by name" do
