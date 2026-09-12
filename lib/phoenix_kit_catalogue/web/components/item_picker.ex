@@ -767,10 +767,20 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
           aria-label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "View item details")}
           title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "View item details")}
         >
-          <.icon
-            name="hero-photo"
-            class={"#{@photo_size} shrink-0 rounded bg-base-200 border border-base-300 opacity-40"}
-          />
+          <%!-- The tile is a SPAN and the glyph sits inside it: a hero icon
+          is a CSS mask whose visible colour is its background-color, so
+          painting bg-base-200 on the icon itself repainted the glyph in
+          the surface colour — an empty bordered box (the client patched
+          it in their own CSS, 2026-09-12). --%>
+          <span
+            class={[
+              @photo_size,
+              "shrink-0 rounded bg-base-200 border border-base-300",
+              "flex items-center justify-center text-base-content/40"
+            ]}
+          >
+            <.icon name="hero-photo" class="h-1/2 w-1/2" />
+          </span>
         </button>
         <div class="relative flex-1">
           <input
