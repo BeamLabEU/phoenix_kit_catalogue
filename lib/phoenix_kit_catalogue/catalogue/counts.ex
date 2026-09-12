@@ -9,7 +9,6 @@ defmodule PhoenixKitCatalogue.Catalogue.Counts do
 
   import Ecto.Query, warn: false
 
-  alias PhoenixKitCatalogue.Attachments
   alias PhoenixKitCatalogue.Catalogue.Tree
   alias PhoenixKitCatalogue.Schemas.{Category, Item}
 
@@ -124,8 +123,8 @@ defmodule PhoenixKitCatalogue.Catalogue.Counts do
   documents). Linked files are what a content-duplicate upload becomes;
   counting the home folder alone left them out (client, 2026-09-12).
 
-  One grouped query for the whole page; resources without a folder simply
-  don't appear in the map. Rescued to `%{}` — a Storage hiccup must not
+  Two grouped queries for the whole page (home rows, link rows);
+  resources without a folder simply don't appear in the map. Rescued to `%{}` — a Storage hiccup must not
   take down a list render.
   """
   @spec attached_file_counts([map()]) :: %{optional(String.t()) => non_neg_integer()}
@@ -152,10 +151,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Counts do
 
       folder_uuids ->
         folder_uuids
-        |> Map.new(&{&1, attached_document_count(&1)})
-        # A folder with nothing attached stays absent from the map, as
-        # the grouped query left it — callers test presence, not zero.
-        |> Enum.reject(fn {_folder, count} -> count == 0 end)
+        |> attached_document_counts()
         |> Enum.flat_map(fn {folder, count} ->
           folder_to_uuids |> Map.fetch!(folder) |> Enum.map(&{&1, count})
         end)
@@ -165,17 +161,36 @@ defmodule PhoenixKitCatalogue.Catalogue.Counts do
     _ -> %{}
   end
 
-  # One count per folder over the shared query. A page lists at most a
-  # few dozen resources with a folder, and the query is index-backed
-  # (folder_uuid, plus the link table's folder_uuid), so per-folder
-  # counts cost less than they read; the alternative — grouping a
-  # home-OR-linked union by "which folder" — has no single column to
-  # group on, since a linked file's own folder_uuid is another folder's.
-  defp attached_document_count(folder_uuid) do
-    folder_uuid
-    |> Attachments.folder_files_query()
-    |> where([f], f.system_managed == false and f.file_type != "image")
-    |> select([f], count(f.uuid))
-    |> repo().one()
+  # Two grouped queries for the whole page — home rows grouped by their
+  # folder, link rows grouped by the folder they point into — summed per
+  # folder. A linked file's own folder_uuid is ANOTHER folder's, so the
+  # home-or-linked set has no single column to group on; two queries
+  # is the honest shape. Filters mirror `ProductCard.list_folder_files/1`:
+  # live, not system-managed, not an image. A folder with nothing
+  # attached stays absent from the result, as callers test presence.
+  defp attached_document_counts(folder_uuids) do
+    home =
+      from(f in PhoenixKit.Modules.Storage.File,
+        where: f.folder_uuid in ^folder_uuids,
+        where: f.status != "trashed" and f.system_managed == false and f.file_type != "image",
+        group_by: f.folder_uuid,
+        select: {f.folder_uuid, count(f.uuid)}
+      )
+      |> repo().all()
+
+    linked =
+      from(fl in PhoenixKit.Modules.Storage.FolderLink,
+        join: f in PhoenixKit.Modules.Storage.File,
+        on: f.uuid == fl.file_uuid,
+        where: fl.folder_uuid in ^folder_uuids,
+        where: f.status != "trashed" and f.system_managed == false and f.file_type != "image",
+        group_by: fl.folder_uuid,
+        select: {fl.folder_uuid, count(f.uuid)}
+      )
+      |> repo().all()
+
+    Enum.reduce(home ++ linked, %{}, fn {folder, n}, acc ->
+      Map.update(acc, folder, n, &(&1 + n))
+    end)
   end
 end

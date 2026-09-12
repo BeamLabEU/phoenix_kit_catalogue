@@ -675,7 +675,21 @@ defmodule PhoenixKitCatalogue.Catalogue do
   @spec update_catalogue(Catalogue.t(), map(), keyword()) ::
           {:ok, Catalogue.t()} | {:error, Ecto.Changeset.t(Catalogue.t())}
   def update_catalogue(%Catalogue{} = catalogue, attrs, opts \\ []) do
-    case catalogue |> Catalogue.changeset(attrs) |> repo().update() do
+    # `:data_owned_keys` — same contract as `update_item/3`: the row is
+    # re-read `FOR UPDATE` inside the transaction and only the listed
+    # `data` keys are taken from `attrs`, so a caller holding a stale
+    # snapshot cannot clobber what another process wrote meanwhile.
+    result =
+      repo().transaction(fn ->
+        attrs = narrow_data_ownership(Catalogue, catalogue.uuid, attrs, opts)
+
+        case catalogue |> Catalogue.changeset(attrs) |> repo().update() do
+          {:ok, updated} -> updated
+          {:error, changeset} -> repo().rollback(changeset)
+        end
+      end)
+
+    case result do
       {:ok, updated} = ok ->
         log_activity(
           %{
