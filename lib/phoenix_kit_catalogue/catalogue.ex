@@ -4226,6 +4226,14 @@ defmodule PhoenixKitCatalogue.Catalogue do
   position, then item position and name — the same chain
   `search_items/2` defaults to.
 
+  ALL of them: the catalogue join is a LEFT join, so an item whose
+  catalogue row is gone still lists (last). `catalogue_uuid` is
+  nullable and its FK is `ON DELETE SET NULL`, so hard-deleting a
+  catalogue (`delete_catalogue/2`) orphans its items rather than
+  removing them — and this function is what the Translations page
+  enumerates items with, where a silently missing row reads as
+  "already translated".
+
   Preloads category (with catalogue) and manufacturer.
 
   ## Options
@@ -4244,7 +4252,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
   def list_items(opts \\ []) do
     query =
       from(i in Item,
-        join: cat in Catalogue,
+        left_join: cat in Catalogue,
         on: i.catalogue_uuid == cat.uuid,
         left_join: c in Category,
         on: i.category_uuid == c.uuid,
@@ -4296,8 +4304,13 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
   @doc """
   Lists non-deleted items for a catalogue, ordered by category position,
-  then item position and name. Includes uncategorized items (those with
-  no category) at the end.
+  then item position, name and uuid. Includes uncategorized items (those
+  with no category) at the end.
+
+  Byte-for-byte the tail of `search_items/2`'s `:position` chain (the
+  leading catalogue keys are constant here), uuid tie-break included —
+  the unpaged read and the paged one must not disagree on two items
+  that tie on every visible key.
 
   Default preloads `[:catalogue, category: :catalogue]`.
   Pass `:preload` in `opts` to add more — see `list_items_for_category/2`.
@@ -4308,7 +4321,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
       left_join: c in Category,
       on: i.category_uuid == c.uuid,
       where: i.catalogue_uuid == ^catalogue_uuid and i.status != "deleted",
-      order_by: [asc_nulls_last: c.position, asc: i.position, asc: i.name],
+      order_by: [asc_nulls_last: c.position, asc: i.position, asc: i.name, asc: i.uuid],
       preload: ^Helpers.merge_preloads([:catalogue, category: :catalogue], opts)
     )
     |> repo().all()

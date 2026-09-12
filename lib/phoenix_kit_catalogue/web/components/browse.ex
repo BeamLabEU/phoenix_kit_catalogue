@@ -56,6 +56,7 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
 
   alias PhoenixKit.Modules.Storage.URLSigner
   alias PhoenixKitCatalogue.Catalogue
+  alias PhoenixKitCatalogue.Catalogue.BrowseState
   alias PhoenixKitCatalogue.Catalogue.Translations
   alias PhoenixKitCatalogue.Schemas.Item
   alias PhoenixKitCatalogue.Web.ViewConfig
@@ -262,10 +263,34 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
   the sortable column ids, so `String.to_existing_atom/1` is safe.
 
   Falls back to Manual (`{:position, :asc}`, the scope's default sort) if
-  the setting read fails — see `read_global_sort/1`.
+  the setting read fails — see `read_global_sort/1`, or if the stored
+  field is not one `BrowseState.init/1` accepts — see `clamp_to_browse_vocabulary/1`.
   """
   @spec global_items_order() :: {atom(), :asc | :desc}
-  def global_items_order, do: read_global_sort(:detail_items)
+  def global_items_order, do: :detail_items |> read_global_sort() |> clamp_to_browse_vocabulary()
+
+  # Two lists that must agree: `TableConfig.columns(:detail_items)`'s
+  # `sortable?` ids (what `load_global_sort/1` validates a stored value
+  # against) and `BrowseState.order_fields/0` (what the fetch layer has
+  # an `apply_search_order/2` clause for). They agree today, and
+  # `test/browse_sort_vocabulary_conformance_test.exs` pins that. Make a
+  # column sortable without the matching fetch clause, though, and every
+  # caller here hands `BrowseState.init/1` an order it raises on — i.e.
+  # the embed and the popup crash on OPEN, for a preference an admin set
+  # on an unrelated page. Clamp to Manual instead: the shared sort is the
+  # thing worth losing.
+  defp clamp_to_browse_vocabulary({field, _dir} = order) do
+    if field in BrowseState.order_fields() do
+      order
+    else
+      Logger.warning(
+        "Catalogue shared item sort #{inspect(order)} is outside the browse " <>
+          "vocabulary #{inspect(BrowseState.order_fields())}; falling back to Manual"
+      )
+
+      {:position, :asc}
+    end
+  end
 
   @doc """
   The module's shared CATEGORY sort (`catalogue_sort_detail_categories`),

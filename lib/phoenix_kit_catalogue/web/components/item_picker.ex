@@ -165,7 +165,6 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
   alias Phoenix.LiveView.JS
   alias PhoenixKit.Modules.Storage.URLSigner
   alias PhoenixKitCatalogue.Catalogue
-  alias PhoenixKitCatalogue.Catalogue.BrowseState
   alias PhoenixKitCatalogue.Schemas.Item
   alias PhoenixKitCatalogue.Web.Components.Browse
   alias PhoenixKitCatalogue.Web.Components.ProductCard
@@ -526,11 +525,12 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
     if String.trim(query || "") == "", do: shared_browse_order(Browse.global_items_order())
   end
 
+  # `global_items_order/0` already clamps to `BrowseState.order_fields/0`
+  # (the one place that does it, so this picker and the BrowseState-backed
+  # embed/popup cannot disagree); all that is left here is Manual's
+  # direction-less `:position` opt.
   defp shared_browse_order({:position, _dir}), do: :position
-
-  defp shared_browse_order({field, _dir} = field_sort) do
-    if field in BrowseState.order_fields(), do: field_sort, else: :position
-  end
+  defp shared_browse_order({_field, _dir} = field_sort), do: field_sort
 
   defp maybe_put(opts, _key, nil), do: opts
   defp maybe_put(opts, _key, []), do: opts
