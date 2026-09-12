@@ -61,6 +61,16 @@ defmodule PhoenixKitCatalogue.Catalogue.BrowseState do
   # has a clause per entry).
   @order_fields ~w(position name sku base_price status)a
 
+  @doc """
+  The browse-sort vocabulary: the `:detail_items` sortable column ids
+  the fetch layer's `:order` accepts, as atoms. One list, so a column
+  that becomes sortable in `TableConfig` without a fetch-layer clause
+  is rejected here (loudly at `init/1`, quietly by the picker) rather
+  than crashing inside `Search.apply_search_order/2`.
+  """
+  @spec order_fields() :: [atom()]
+  def order_fields, do: @order_fields
+
   defstruct scope: %{},
             search: "",
             catalogue_uuid: nil,
@@ -94,10 +104,11 @@ defmodule PhoenixKitCatalogue.Catalogue.BrowseState do
     * `:order` — `{field, :asc | :desc}` browse-listing sort (the module's
       shared sort; the client's 2026-09-01 ask: one order everywhere, the
       popup included). Fields: #{inspect(@order_fields)}. Applies to
-      blank-search browse fetches only — a live search stays name-ordered,
-      like the admin's. `{:position, _}` ignores the direction, like the
-      admin's Manual sort. `nil`
-      (default) behaves as `{:position, :asc}`.
+      blank-search browse fetches only — a live search passes no order and
+      takes the fetch layer's default, Manual, like the admin's own
+      in-catalogue search results. `{:position, _}` ignores the direction,
+      like the admin's Manual sort. `nil` (default) behaves as
+      `{:position, :asc}`.
   """
   def init(opts \\ []) do
     drill = opts[:drill] || :subtree
@@ -324,30 +335,25 @@ defmodule PhoenixKitCatalogue.Catalogue.BrowseState do
 
   # BROWSE listings read in the admin's document order (Max, 2026-08-31:
   # "the default look would be the same"; 2026-09-12: "the default should
-  # be the manual order") — the fetch layer's `:position` chain leads
-  # with the catalogue, then the category, so it is coherent for ANY
-  # scope: one category, one catalogue, or several. Until 2026-09-12
-  # Manual was gated on a single catalogue in scope, which silently
-  # dropped it for a host's per-category picker (`category_uuids: [cat],
-  # catalogue_uuids: nil`) and listed the category A→Z while the admin
-  # showed the hand-arranged order (client report).
+  # be the manual order") — `Search.search_items/2`'s `:position` chain,
+  # which leads with the catalogue, then the category; its `:order` doc
+  # states the chain and its limits. Until 2026-09-12 Manual was gated
+  # on a single catalogue in scope, which silently dropped it for a
+  # host's per-category picker (`category_uuids: [cat], catalogue_uuids:
+  # nil`) and listed the category A→Z while the admin showed the
+  # hand-arranged order (client report). Direction is ignored for
+  # Manual, like the admin's sort (its selector hides the toggle).
   #
   # A live SEARCH passes no order and takes the fetch layer's default —
   # Manual too, like the admin's in-catalogue search results — rather
   # than the shared field sort.
-  defp put_browse_order(base, state, blank_search?) do
-    cond do
-      not blank_search? ->
-        base
+  defp put_browse_order(base, _state, false = _blank_search?), do: base
 
-      # Manual order (and the legacy nil default). Direction is ignored,
-      # like the admin's Manual sort (its selector hides the toggle).
-      is_nil(state.order) or match?({:position, _}, state.order) ->
-        Map.put(base, :order, :position)
-
-      # Field sorts (name/sku/price/status).
-      true ->
-        Map.put(base, :order, state.order)
+  defp put_browse_order(base, %{order: order}, true) do
+    case order do
+      nil -> Map.put(base, :order, :position)
+      {:position, _dir} -> Map.put(base, :order, :position)
+      field_sort -> Map.put(base, :order, field_sort)
     end
   end
 

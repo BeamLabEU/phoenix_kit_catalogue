@@ -165,6 +165,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
   alias Phoenix.LiveView.JS
   alias PhoenixKit.Modules.Storage.URLSigner
   alias PhoenixKitCatalogue.Catalogue
+  alias PhoenixKitCatalogue.Catalogue.BrowseState
   alias PhoenixKitCatalogue.Schemas.Item
   alias PhoenixKitCatalogue.Web.Components.Browse
   alias PhoenixKitCatalogue.Web.Components.ProductCard
@@ -522,12 +523,13 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
   # Manual, like the admin's in-catalogue search results. Manual keeps
   # the direction-less `:position` opt the admin's Manual sort has.
   defp browse_order(query) do
-    if String.trim(query || "") == "" do
-      case Browse.global_items_order() do
-        {:position, _dir} -> :position
-        field_sort -> field_sort
-      end
-    end
+    if String.trim(query || "") == "", do: shared_browse_order(Browse.global_items_order())
+  end
+
+  defp shared_browse_order({:position, _dir}), do: :position
+
+  defp shared_browse_order({field, _dir} = field_sort) do
+    if field in BrowseState.order_fields(), do: field_sort, else: :position
   end
 
   defp maybe_put(opts, _key, nil), do: opts

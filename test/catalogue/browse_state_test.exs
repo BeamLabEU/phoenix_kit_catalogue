@@ -168,11 +168,9 @@ defmodule PhoenixKitCatalogue.Catalogue.BrowseStateTest do
     test "browse listings in ONE catalogue read in the admin's position order" do
       # Max, 2026-08-31: the popup and the admin showed different item
       # orders — the admin's default is document order (position, name),
-      # the fetch layer's is name. Single-catalogue BROWSE fetches now
-      # ask for :position; several catalogues keep name order (position
-      # is per-catalogue scope, interleaving it is meaningless), and a
-      # live SEARCH stays name-ordered everywhere, like the admin's
-      # results.
+      # the fetch layer's was name. BROWSE fetches ask for :position
+      # explicitly (since 2026-09-12 for every scope, and it is the fetch
+      # layer's default as well); a live SEARCH passes no order.
       single = BrowseState.init(scope: %{catalogue_uuids: ["cat-1"]}, drill: :direct)
       assert opts_map(BrowseState.command(single, :reset))[:order] == :position
 

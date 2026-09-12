@@ -13,6 +13,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPickerBrowseOrderTest do
   use PhoenixKitCatalogue.LiveCase, async: false
 
   alias PhoenixKitCatalogue.Catalogue
+  alias PhoenixKitCatalogue.Web.ViewConfig
 
   defmodule HostLive do
     use Phoenix.LiveView
@@ -76,6 +77,27 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPickerBrowseOrderTest do
       |> element("#host-picker-input")
       |> render_change(%{"value" => "handle"})
 
+    handle_names = Enum.filter(@names, &(&1 =~ ~r/handle/i))
+    assert order_in(html, handle_names) == handle_names
+  end
+
+  test "a blank browse follows a FIELD shared sort; a search still reads Manual", %{
+    conn: conn,
+    handles: handles
+  } do
+    {:ok, _} = ViewConfig.save_global_sort(:detail_items, "name", :desc)
+
+    # The settings row rolls back with the sandbox; the in-process
+    # settings cache does not — put Manual back for the next test.
+    on_exit(fn -> ViewConfig.save_global_sort(:detail_items, "position", :asc) end)
+
+    {:ok, view, _html} =
+      live_isolated(conn, HostLive, session: %{"category_uuids" => [handles.uuid]})
+
+    view |> element("#host-picker-input") |> render_focus()
+    assert order_in(render(view), @names) == Enum.sort(@names, :desc)
+
+    html = view |> element("#host-picker-input") |> render_change(%{"value" => "handle"})
     handle_names = Enum.filter(@names, &(&1 =~ ~r/handle/i))
     assert order_in(html, handle_names) == handle_names
   end

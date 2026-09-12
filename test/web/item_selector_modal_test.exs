@@ -2350,8 +2350,8 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       {:ok, view, _html} = open(conn, "cat_scope=#{handles.uuid}&sel=click")
       html = render(view)
 
+      # Every name renders, and in position order: their offsets ascend.
       offsets = Enum.map(names, fn name -> {name, :binary.match(html, name) |> elem(0)} end)
-      assert Enum.map(offsets, &elem(&1, 0)) == names
       assert offsets |> Enum.map(&elem(&1, 1)) |> Enum.sort() == Enum.map(offsets, &elem(&1, 1))
 
       # A typed search reads in Manual order too (Max, 2026-09-12: "the
