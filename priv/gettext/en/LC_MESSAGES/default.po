@@ -345,6 +345,12 @@ msgstr "Category permanently deleted."
 msgid "Category moved."
 msgstr "Category moved."
 
+msgid "Category moved into %{name}."
+msgstr ""
+
+msgid "Category moved to the top level."
+msgstr ""
+
 msgid "Category moved to another catalogue."
 msgstr "Category moved to another catalogue."
 

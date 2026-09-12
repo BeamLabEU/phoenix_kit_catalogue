@@ -137,4 +137,52 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailTreeReproTest do
     render_click(view, "toggle_category_expand", %{"uuid" => parent.uuid})
     assert tree_count(settle(view), child.uuid) == 1
   end
+
+  test "the tree remembers open parents through the browser, and a move names its destination", %{
+    conn: conn
+  } do
+    catalogue = fixture_catalogue(%{name: "Memory"})
+    parent = fixture_category(catalogue, %{name: "Parent", position: 0})
+    child = fixture_category(catalogue, %{name: "Child", parent_uuid: parent.uuid})
+    loose = fixture_category(catalogue, %{name: "Loose", position: 1})
+    {:ok, view, html} = live(conn, "#{@base}/#{catalogue.uuid}")
+    assert tree_count(html, child.uuid) == 0
+
+    # Opening a parent hands the open set to the hook, which stores it.
+    render_click(view, "toggle_category_expand", %{"uuid" => parent.uuid})
+    assert_push_event(view, "category_tree_open", %{uuids: [uuid]})
+    assert uuid == parent.uuid
+
+    # A fresh mount restores what the browser remembered; junk is ignored.
+    {:ok, view2, html2} = live(conn, "#{@base}/#{catalogue.uuid}")
+    assert tree_count(html2, child.uuid) == 0
+
+    html2 =
+      render_hook(view2, "restore_expanded_categories", %{
+        "uuids" => [parent.uuid, "not-a-category", 7, child.uuid]
+      })
+
+    assert tree_count(html2, child.uuid) == 1
+
+    # A drop onto a parent says where the category went.
+    html3 =
+      render_click(view2, "move_to_folder", %{
+        "type" => "category",
+        "uuid" => loose.uuid,
+        "target" => parent.uuid
+      })
+
+    assert html3 =~ "Category moved into Parent."
+    assert_push_event(view2, "category_tree_open", %{uuids: _})
+
+    html4 =
+      render_click(view2, "drop_row", %{
+        "type" => "category",
+        "uuid" => loose.uuid,
+        "parent" => "root",
+        "entries" => ["category:#{loose.uuid}", "category:#{parent.uuid}"]
+      })
+
+    assert html4 =~ "Category moved to the top level."
+  end
 end

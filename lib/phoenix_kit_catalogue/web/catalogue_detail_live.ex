@@ -1376,13 +1376,32 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   # ── Category tree browser (the index's folder tree, one level down) ──
 
   def handle_event("toggle_category_expand", %{"uuid" => uuid}, socket) when is_binary(uuid) do
-    {:noreply,
-     update(socket, :expanded_categories, fn expanded ->
-       if MapSet.member?(expanded, uuid),
-         do: MapSet.delete(expanded, uuid),
-         else: MapSet.put(expanded, uuid)
-     end)}
+    socket =
+      update(socket, :expanded_categories, fn expanded ->
+        if MapSet.member?(expanded, uuid),
+          do: MapSet.delete(expanded, uuid),
+          else: MapSet.put(expanded, uuid)
+      end)
+
+    {:noreply, remember_expanded(socket)}
   end
+
+  # The browser's remembered open set for this catalogue's tree, sent by
+  # the hook on mount. Only parents that exist here are taken (the list
+  # is client data); unioned so a click that raced the restore survives.
+  def handle_event("restore_expanded_categories", %{"uuids" => uuids}, socket)
+      when is_list(uuids) do
+    known = socket.assigns.category_tree_children
+
+    restored =
+      uuids
+      |> Enum.filter(&(is_binary(&1) and Map.has_key?(known, &1)))
+      |> MapSet.new()
+
+    {:noreply, update(socket, :expanded_categories, &MapSet.union(&1, restored))}
+  end
+
+  def handle_event("restore_expanded_categories", _params, socket), do: {:noreply, socket}
 
   # A middle drop on a row: nest the dragged category under it (or lift
   # it to this level via the root zone). Cycle / cross-catalogue guards
@@ -4604,6 +4623,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       :if={@rows != [] or @show_uncat}
       id="catalogue-categories-tree"
       phx-hook="CatalogueTreeDnD"
+      data-tree-memory-key={"pk-catalogue-tree-open:" <> @catalogue.uuid}
       class="relative overflow-x-auto"
     >
       <%!-- "Lift to this level" target — hidden until a drag starts,
@@ -4814,7 +4834,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
          :ok <- maybe_reorder_level(socket, target_uuid, ordered_uuids) do
       socket
       |> maybe_expand_tree_target(target_uuid)
-      |> put_flash(:info, Gettext.gettext(PhoenixKitCatalogue.Gettext, "Category moved."))
+      |> put_flash(:info, moved_flash(socket, target_uuid))
     else
       {:error, reason} ->
         put_flash(socket, :error, category_move_error(reason))
@@ -4867,8 +4887,36 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
   defp maybe_expand_tree_target(socket, nil), do: socket
 
-  defp maybe_expand_tree_target(socket, uuid),
-    do: update(socket, :expanded_categories, &MapSet.put(&1, uuid))
+  defp maybe_expand_tree_target(socket, uuid) do
+    socket
+    |> update(:expanded_categories, &MapSet.put(&1, uuid))
+    |> remember_expanded()
+  end
+
+  # Hands the open set to the tree's hook, which keeps it in the browser.
+  defp remember_expanded(socket) do
+    push_event(socket, "category_tree_open", %{
+      uuids: MapSet.to_list(socket.assigns.expanded_categories)
+    })
+  end
+
+  # "Category moved." said nothing about where. Naming the destination is
+  # what the client needed on 2026-08-31: hers went into a collapsed
+  # parent and, back on the level, looked gone.
+  defp moved_flash(_socket, nil),
+    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Category moved to the top level.")
+
+  defp moved_flash(socket, target_uuid) do
+    case Catalogue.get_category(target_uuid) do
+      nil ->
+        Gettext.gettext(PhoenixKitCatalogue.Gettext, "Category moved.")
+
+      target ->
+        Gettext.gettext(PhoenixKitCatalogue.Gettext, "Category moved into %{name}.",
+          name: Catalogue.localize_one(target, loc(socket)).name
+        )
+    end
+  end
 
   defp category_move_error(:would_create_cycle),
     do: gettext("A category cannot move into its own subtree.")
