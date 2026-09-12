@@ -56,6 +56,16 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
         selected={@order_lines_by_uuid}
       />
 
+  ## Other attrs the host may pass
+
+    * `mode` — `:multi` (default) or `:single`.
+    * `immediate` — with `mode: :single`, confirm on the first pick: the
+      `{:items_selected, …}` message fires at once and the Cancel/Confirm
+      row is not rendered. Default `false`.
+    * `per_page` — page size for the listing and load-more. Default `50`.
+    * `locale` — forces the display language; omitted, the process gettext
+      locale applies (the fallback the browse widget and picker share).
+
   ## Required host wiring (do not skip — silent failure otherwise)
 
   This is a `LiveComponent`; it reports through process messages to the
