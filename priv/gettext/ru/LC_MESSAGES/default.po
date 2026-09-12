@@ -345,6 +345,12 @@ msgstr "Категория удалена окончательно."
 msgid "Category moved."
 msgstr "Категория перемещена."
 
+msgid "Working..."
+msgstr "Обработка..."
+
+msgid "Unknown target language — refresh the page and try again."
+msgstr "Неизвестный целевой язык — обновите страницу и попробуйте ещё раз."
+
 msgid "Category moved into %{name}."
 msgstr "Категория перемещена в «%{name}»."
 
@@ -2035,6 +2041,15 @@ msgstr "Сделать позиции без категории"
 
 msgid "Manual"
 msgstr "Вручную"
+
+msgid "System"
+msgstr "Система"
+
+msgid "Scheduled"
+msgstr "По расписанию"
+
+msgid "Automatic"
+msgstr "Автоматически"
 
 msgid "Manufacturer created but failed to link some suppliers."
 msgstr "Производитель создан, но связать некоторых поставщиков не удалось."

@@ -345,6 +345,12 @@ msgstr "Kategooria jäädavalt kustutatud."
 msgid "Category moved."
 msgstr "Kategooria teisaldatud."
 
+msgid "Working..."
+msgstr "Töötlen..."
+
+msgid "Unknown target language — refresh the page and try again."
+msgstr "Tundmatu sihtkeel — värskenda lehte ja proovi uuesti."
+
 msgid "Category moved into %{name}."
 msgstr "Kategooria teisaldatud kategooriasse %{name}."
 
@@ -2026,6 +2032,15 @@ msgstr "Muuda tooted kategooriata"
 
 msgid "Manual"
 msgstr "Käsitsi"
+
+msgid "System"
+msgstr "Süsteem"
+
+msgid "Scheduled"
+msgstr "Ajastatud"
+
+msgid "Automatic"
+msgstr "Automaatne"
 
 msgid "Manufacturer created but failed to link some suppliers."
 msgstr "Tootja loodud, kuid mõne tarnija sidumine ebaõnnestus."

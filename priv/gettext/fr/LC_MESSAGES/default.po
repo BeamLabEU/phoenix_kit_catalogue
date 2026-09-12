@@ -345,6 +345,12 @@ msgstr ""
 msgid "Category moved."
 msgstr ""
 
+msgid "Working..."
+msgstr "Traitement..."
+
+msgid "Unknown target language — refresh the page and try again."
+msgstr "Langue cible inconnue — rechargez la page et réessayez."
+
 msgid "Category moved into %{name}."
 msgstr "Catégorie déplacée dans « %{name} »."
 
@@ -2027,6 +2033,15 @@ msgstr ""
 
 msgid "Manual"
 msgstr ""
+
+msgid "System"
+msgstr "Système"
+
+msgid "Scheduled"
+msgstr "Planifié"
+
+msgid "Automatic"
+msgstr "Automatique"
 
 msgid "Manufacturer created but failed to link some suppliers."
 msgstr ""

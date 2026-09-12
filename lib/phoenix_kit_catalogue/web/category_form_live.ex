@@ -17,6 +17,7 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
 
   import PhoenixKitCatalogue.Web.Helpers,
     only: [
+      narrow_new_data: 2,
       actor_opts: 1,
       assign_ai_translation: 3,
       ai_translate_config: 1,
@@ -79,13 +80,11 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
         :new ->
           catalogue_uuid = params["catalogue_uuid"]
           parent_uuid = Values.blank_to_nil(params["parent_uuid"])
-          next_pos = Catalogue.next_category_position(catalogue_uuid, parent_uuid)
 
-          cat = %Category{
-            catalogue_uuid: catalogue_uuid,
-            parent_uuid: parent_uuid,
-            position: next_pos
-          }
+          # No position here: the form renders no position field and
+          # `create_category/2` computes it at insert time, so a mount-time
+          # query was thrown away on every render.
+          cat = %Category{catalogue_uuid: catalogue_uuid, parent_uuid: parent_uuid}
 
           {cat, Catalogue.change_category(cat), catalogue_uuid}
 
@@ -541,6 +540,8 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
   end
 
   defp save_category(socket, :new, params, mode) do
+    params = narrow_new_data(params, data_owned_keys(socket, @category_extra_owned_data_keys))
+
     case Catalogue.create_category(params, actor_opts(socket)) do
       {:ok, category} ->
         _ = Attachments.maybe_rename_pending_folder(socket, category)

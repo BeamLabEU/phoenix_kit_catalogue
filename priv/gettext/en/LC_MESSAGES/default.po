@@ -345,6 +345,12 @@ msgstr "Category permanently deleted."
 msgid "Category moved."
 msgstr "Category moved."
 
+msgid "Working..."
+msgstr ""
+
+msgid "Unknown target language — refresh the page and try again."
+msgstr ""
+
 msgid "Category moved into %{name}."
 msgstr ""
 
@@ -2025,6 +2031,15 @@ msgid "Make items uncategorized"
 msgstr ""
 
 msgid "Manual"
+msgstr ""
+
+msgid "System"
+msgstr ""
+
+msgid "Scheduled"
+msgstr ""
+
+msgid "Automatic"
 msgstr ""
 
 msgid "Manufacturer created but failed to link some suppliers."

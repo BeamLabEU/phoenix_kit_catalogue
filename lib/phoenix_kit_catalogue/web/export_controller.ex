@@ -15,7 +15,13 @@ defmodule PhoenixKitCatalogue.Web.ExportController do
   def download(conn, params) do
     destination = Map.get(params, "destination", "")
     format = Map.get(params, "format", "")
-    catalogue_uuids = Map.get(params, "catalogue_uuids", [])
+    # Hand-typed URLs: only a list of canonical uuids reaches the query.
+    catalogue_uuids =
+      params
+      |> Map.get("catalogue_uuids", [])
+      |> List.wrap()
+      |> Enum.filter(&(is_binary(&1) and match?({:ok, ^&1}, Ecto.UUID.cast(&1))))
+
     prefix_catalogue = Map.get(params, "prefix_catalogue", false)
 
     {filename, content, mime} =
