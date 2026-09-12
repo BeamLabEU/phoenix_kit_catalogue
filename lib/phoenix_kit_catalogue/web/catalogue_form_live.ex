@@ -18,6 +18,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
 
   import PhoenixKitCatalogue.Web.Helpers,
     only: [
+      narrow_new_data: 2,
       actor_opts: 1,
       assign_ai_translation: 3,
       ai_translate_config: 1,
@@ -308,6 +309,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
   # actor_opts/1 imported from PhoenixKitCatalogue.Web.Helpers
 
   defp save_catalogue(socket, :new, params, mode) do
+    params = narrow_new_data(params, data_owned_keys(socket, @catalogue_extra_owned_data_keys))
+
     case Catalogue.create_catalogue(params, actor_opts(socket)) do
       {:ok, catalogue} ->
         _ = Attachments.maybe_rename_pending_folder(socket, catalogue)

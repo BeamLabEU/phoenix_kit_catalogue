@@ -185,4 +185,12 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailTreeReproTest do
 
     assert html4 =~ "Category moved to the top level."
   end
+
+  test "a crafted search payload cannot crash the page (sweep 2026-09-13)", %{conn: conn} do
+    catalogue = fixture_catalogue(%{name: "Search Junk"})
+    {:ok, view, _} = live(conn, "#{@base}/#{catalogue.uuid}")
+    render_click(view, "search", %{"query" => ["x"]})
+    render_click(view, "search", %{"query" => %{"a" => 1}})
+    assert Process.alive?(view.pid)
+  end
 end

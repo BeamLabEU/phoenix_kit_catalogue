@@ -78,7 +78,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   import PhoenixKitCatalogue.Web.Components
 
   import PhoenixKitCatalogue.Web.Helpers,
-    only: [actor_opts: 1, actor_uuid: 1, log_operation_error: 3]
+    only: [trim_param: 1, actor_opts: 1, actor_uuid: 1, log_operation_error: 3]
 
   alias PhoenixKit.Utils.Values
   alias PhoenixKitCatalogue.Catalogue
@@ -493,11 +493,20 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     handle_catalogue_data_changed(socket)
   end
 
-  # Supplier rows broadcast without a catalogue parent; only the
-  # "Supplier price" column depends on them.
-  def handle_info({:catalogue_data_changed, :item_supplier_info, _uuid, _parent}, socket) do
+  # Supplier rows broadcast with the item's catalogue as parent (nil only
+  # for a row whose item is gone); only this catalogue's "Supplier price"
+  # column depends on them — every other detail page ignores the event
+  # instead of re-running the cost aggregate.
+  def handle_info(
+        {:catalogue_data_changed, :item_supplier_info, _uuid, parent},
+        %{assigns: %{catalogue_uuid: catalogue_uuid}} = socket
+      )
+      when parent == catalogue_uuid or is_nil(parent) do
     {:noreply, refresh_supplier_costs(socket)}
   end
+
+  def handle_info({:catalogue_data_changed, :item_supplier_info, _uuid, _parent}, socket),
+    do: {:noreply, socket}
 
   # Another admin changed a shared detail sort (global-sort scopes) —
   # apply it without re-persisting or re-broadcasting.
@@ -559,6 +568,10 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   def handle_info({:catalogue_card_refresh, _, _, _, _, from}, socket) when from == self(),
     do: {:noreply, socket}
 
+  # Another catalogue's traffic on the shared topic: nothing to do, and
+  # not worth a debug line per event.
+  def handle_info({:catalogue_card_refresh, _, _, _, _, _}, socket), do: {:noreply, socket}
+
   # Cross-tab live reorder for categories: order positions changed,
   # which affects how every streamed card is laid out. Heavier
   # reset_and_load — same trade-off the local reorder makes.
@@ -579,6 +592,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
   def handle_info({:catalogue_category_reorder, _, _, _, from}, socket) when from == self(),
     do: {:noreply, socket}
+
+  def handle_info({:catalogue_category_reorder, _, _, _, _}, socket), do: {:noreply, socket}
 
   # Cross-tab live bulk change: another open detail page just bulk-
   # trashed / restored / moved / hard-deleted items. Two-step animation
@@ -613,6 +628,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   # Originator's own bulk-change broadcast — already updated locally.
   def handle_info({:catalogue_bulk_change, _, _, _, from}, socket) when from == self(),
     do: {:noreply, socket}
+
+  def handle_info({:catalogue_bulk_change, _, _, _, _}, socket), do: {:noreply, socket}
 
   # Tail of the cross-tab bulk animation — applies the actual state
   # refresh and the arriving-side green flash (for moves / restores).
@@ -709,7 +726,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   end
 
   def handle_event("search", %{"query" => query}, socket) do
-    query = String.trim(query)
+    query = trim_param(query)
     {:noreply, push_url_state(socket, [search_query: query], replace: true)}
   end
 

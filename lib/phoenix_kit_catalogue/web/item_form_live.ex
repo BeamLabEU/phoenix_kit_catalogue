@@ -37,6 +37,8 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
 
   import PhoenixKitCatalogue.Web.Helpers,
     only: [
+      log_operation_error: 3,
+      narrow_new_data: 2,
       actor_opts: 1,
       assign_ai_translation: 3,
       ai_translate_config: 1,
@@ -873,7 +875,13 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
           {:ok, _} ->
             {:noreply, assign_supplier_infos(socket, item.uuid)}
 
-          {:error, _} ->
+          {:error, reason} ->
+            log_operation_error(socket, "set_primary_supplier", %{
+              entity_type: "item_supplier_info",
+              entity_uuid: info.uuid,
+              reason: reason
+            })
+
             {:noreply,
              put_flash(
                socket,
@@ -955,7 +963,13 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                Gettext.gettext(PhoenixKitCatalogue.Gettext, "Supplier removed.")
              )}
 
-          {:error, _} ->
+          {:error, reason} ->
+            log_operation_error(socket, "delete_supplier_info", %{
+              entity_type: "item_supplier_info",
+              entity_uuid: info.uuid,
+              reason: reason
+            })
+
             {:noreply,
              put_flash(
                socket,
@@ -1046,7 +1060,8 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
     end
   end
 
-  def handle_event("remove_supplier_field_choice", %{"index" => raw}, socket) do
+  def handle_event("remove_supplier_field_choice", %{"index" => raw}, socket)
+      when is_binary(raw) do
     with editor when not is_nil(editor) <- socket.assigns.supplier_field_editor,
          {index, ""} <- Integer.parse(raw) do
       {:noreply,
@@ -1058,6 +1073,8 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
       _ -> {:noreply, socket}
     end
   end
+
+  def handle_event("remove_supplier_field_choice", _params, socket), do: {:noreply, socket}
 
   def handle_event("save_supplier_field_editor", params, socket) do
     case socket.assigns.supplier_field_editor do
@@ -1923,7 +1940,13 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
          |> put_flash(:info, Gettext.gettext(PhoenixKitCatalogue.Gettext, "Item moved."))
          |> push_navigate(to: redirect_target(socket, item))}
 
-      {:error, _} ->
+      {:error, reason} ->
+        log_operation_error(socket, "move_item", %{
+          entity_type: "item",
+          entity_uuid: socket.assigns.item.uuid,
+          reason: reason
+        })
+
         {:noreply,
          put_flash(
            socket,
@@ -1993,6 +2016,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
       params
       |> scope_to_catalogue(socket)
       |> put_manufacturer_source(socket.assigns.manufacturers)
+      |> narrow_new_data(data_owned_keys(socket, @item_extra_owned_data_keys))
 
     with :ok <- validate_category_scope(params, socket),
          {:ok, item} <- Catalogue.create_item(params, actor_opts(socket)),
@@ -3507,6 +3531,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                           <.table_row_menu_button
                             :if={not info.is_primary}
                             phx-click="set_primary_supplier"
+                            phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Working...")}
                             phx-value-uuid={info.uuid}
                             icon="hero-star"
                             label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Make primary")}
@@ -3514,6 +3539,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                           <.table_row_menu_divider />
                           <.table_row_menu_button
                             phx-click="delete_supplier_info"
+                            phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Working...")}
                             phx-value-uuid={info.uuid}
                             data-confirm={
                               Gettext.gettext(
@@ -4013,6 +4039,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                 size="xs"
                 class="btn-error"
                 phx-click="confirm_remove_supplier_field"
+                phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Working...")}
               >
                 {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Remove")}
               </.button>

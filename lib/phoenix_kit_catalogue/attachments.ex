@@ -75,6 +75,7 @@ defmodule PhoenixKitCatalogue.Attachments do
   alias PhoenixKit.Users.Auth, as: UsersAuth
   alias PhoenixKitCatalogue.Catalogue.PubSub
   alias PhoenixKitCatalogue.Schemas.{Catalogue, Category, Item}
+  alias PhoenixKitCatalogue.Web.Helpers, as: WebHelpers
 
   @upload_name :attachment_files
   @doc "Returns the upload ref name used for the inline files dropzone."
@@ -356,6 +357,12 @@ defmodule PhoenixKitCatalogue.Attachments do
 
       {:error, reason} ->
         Logger.warning("Failed to remove file #{uuid}: #{inspect(reason)}")
+
+        WebHelpers.log_operation_error(socket, "trash_file", %{
+          entity_type: "file",
+          entity_uuid: uuid,
+          reason: reason
+        })
 
         {:noreply,
          put_flash(
