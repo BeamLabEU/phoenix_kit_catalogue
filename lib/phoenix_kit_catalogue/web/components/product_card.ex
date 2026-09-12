@@ -484,8 +484,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ProductCard do
     # the paperclip count and this list agree, so system-managed files
     # are excluded here too.
     folder_uuid
-    |> Attachments.list_folder_files(exclude_system_managed: true)
-    |> Enum.reject(&(&1.file_type == "image"))
+    |> Attachments.list_folder_files(exclude_file_type: "image", exclude_system_managed: true)
     |> Enum.map(
       &%{uuid: &1.uuid, name: &1.original_file_name, size: &1.size, pdf?: pdf_file?(&1)}
     )

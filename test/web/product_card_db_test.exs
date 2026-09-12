@@ -60,7 +60,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ProductCardDBTest do
       user_file_checksum: "uchk-#{uuid}",
       size: 1,
       status: Keyword.get(opts, :status, "active"),
-      system_managed: false,
+      system_managed: Keyword.get(opts, :system_managed, false),
       user_uuid: user_uuid,
       folder_uuid: folder_uuid,
       inserted_at: now,
@@ -188,6 +188,20 @@ defmodule PhoenixKitCatalogue.Web.Components.ProductCardDBTest do
       assert Catalogue.attached_file_counts([item])[item.uuid] == 2
     end
 
+    test "the card's documents survive the grid cap: the type filter runs in SQL", %{
+      user_uuid: user
+    } do
+      # Codex, 2026-09-12: 200 images then one PDF — filtering images
+      # after the 200-row cap dropped the PDF while the paperclip said 1.
+      home = create_folder(user)
+      for n <- 1..201, do: insert_image(user, home, "img#{n}.jpg", [])
+      pdf = insert_image(user, home, "late.pdf", file_type: "document", ext: "pdf")
+      item = %Item{uuid: UUIDv7.generate(), data: %{"files_folder_uuid" => home}}
+
+      assert item |> ProductCard.resolve_files() |> Enum.map(& &1.uuid) == [pdf]
+      assert Catalogue.attached_file_counts([item])[item.uuid] == 1
+    end
+
     test "a linked image joins the card's gallery; trashed and system-managed links do not", %{
       user_uuid: user
     } do
@@ -195,8 +209,10 @@ defmodule PhoenixKitCatalogue.Web.Components.ProductCardDBTest do
       other = create_folder(user)
       linked_image = insert_image(user, other, "shared.jpg", [])
       trashed = insert_image(user, other, "gone.jpg", status: "trashed")
+      managed = insert_image(user, other, "thumb.jpg", system_managed: true)
       link!(linked_image, home)
       link!(trashed, home)
+      link!(managed, home)
 
       item = %Item{uuid: UUIDv7.generate(), data: %{"files_folder_uuid" => home}}
 

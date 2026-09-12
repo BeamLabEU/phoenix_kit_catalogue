@@ -68,12 +68,7 @@ defmodule PhoenixKitCatalogue.GettextTest do
            "See kategooria kuulub teise kataloogi."},
           {"Drag-reorder needs the Manual sort — choose it in the sort selector.",
            "Для перетаскивания выберите ручную сортировку в списке сортировки.",
-           "Lohistades järjestamiseks vali sortimise valikust käsitsi järjestus."},
-          # The duplicate-upload notice (client, 2026-09-12: "uploaded
-          # three PDFs, two show") — a runtime-form call like the rest.
-          {"%{name} is identical to %{existing}, which is already attached — nothing was added.",
-           "%{name} совпадает с уже прикреплённым файлом %{existing} — ничего не добавлено.",
-           "%{name} on identne juba manustatud failiga %{existing} — midagi ei lisatud."}
+           "Lohistades järjestamiseks vali sortimise valikust käsitsi järjestus."}
         ] do
       Gettext.put_locale(PhoenixKitCatalogue.Gettext, "ru")
       assert Gettext.gettext(PhoenixKitCatalogue.Gettext, msgid) == ru
@@ -743,5 +738,25 @@ defmodule PhoenixKitCatalogue.GettextTest do
       assert gettext_in("ru", msgid) ==
                "Импорт неожиданно прервался до завершения. Строки, записанные до сбоя, сохранены. Подробности — в журнале сервера."
     end
+  end
+
+  test "the duplicate-upload notice interpolates both names in ru and et" do
+    # Client, 2026-09-12: "uploaded three PDFs, two show" — a runtime-form
+    # call like the rest, so no extractor ever saw it; pinned with real
+    # bindings so interpolation is exercised, not just the msgid.
+    msgid = "%{name} is identical to %{existing}, which is already attached — nothing was added."
+    bindings = [name: "b.pdf", existing: "a.pdf"]
+
+    Gettext.put_locale(PhoenixKitCatalogue.Gettext, "ru")
+
+    assert Gettext.gettext(PhoenixKitCatalogue.Gettext, msgid, bindings) ==
+             "b.pdf совпадает с уже прикреплённым файлом a.pdf — ничего не добавлено."
+
+    Gettext.put_locale(PhoenixKitCatalogue.Gettext, "et")
+
+    assert Gettext.gettext(PhoenixKitCatalogue.Gettext, msgid, bindings) ==
+             "b.pdf on identne juba manustatud failiga a.pdf — midagi ei lisatud."
+  after
+    Gettext.put_locale(PhoenixKitCatalogue.Gettext, "en")
   end
 end

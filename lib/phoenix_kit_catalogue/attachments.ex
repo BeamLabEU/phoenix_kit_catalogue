@@ -408,8 +408,15 @@ defmodule PhoenixKitCatalogue.Attachments do
     end
   end
 
+  # Links into LIVE folders only — re-homing into a trashed folder would
+  # strand the file (listed nowhere, not in the file trash either).
   defp list_links(file_uuid) do
-    from(fl in FolderLink, where: fl.file_uuid == ^file_uuid)
+    from(fl in FolderLink,
+      join: fo in PhoenixKit.Modules.Storage.Folder,
+      on: fo.uuid == fl.folder_uuid,
+      where: fl.file_uuid == ^file_uuid and is_nil(fo.trashed_at),
+      order_by: [asc: fl.inserted_at]
+    )
     |> PhoenixKit.RepoHelper.repo().all()
   end
 
@@ -488,8 +495,15 @@ defmodule PhoenixKitCatalogue.Attachments do
       # Storage de-duplicates per user by content: this upload IS a file
       # already in this folder, so nothing new appears and the row keeps
       # the earlier upload's name. Say so — a silent no-op reads as a
-      # lost file (client, 2026-09-12: "uploaded three, two show").
+      # lost file (client, 2026-09-12: "uploaded three, two show"). The
+      # pointer and the grid still refresh: a legacy row whose folder
+      # predates the pointer write heals on exactly this retry.
       {:already_attached, existing} ->
+        socket =
+          socket
+          |> persist_folder_pointer(folder_uuid)
+          |> refresh_files_from_folder()
+
         {:noreply, put_duplicate_notice(socket, entry, existing)}
 
       {:error, reason} ->
@@ -571,14 +585,11 @@ defmodule PhoenixKitCatalogue.Attachments do
     )
   end
 
-  defp write_folder_pointer(%Catalogue{uuid: uuid}, folder_uuid, actor_uuid) do
-    # No owned-key write on catalogues: merge into the FRESH row's data
-    # so a stale form snapshot cannot travel along.
-    fresh = PhoenixKitCatalogue.Catalogue.get_catalogue!(uuid)
-
+  defp write_folder_pointer(%Catalogue{} = catalogue, folder_uuid, actor_uuid) do
     PhoenixKitCatalogue.Catalogue.update_catalogue(
-      fresh,
-      %{data: Map.put(resource_data(fresh), "files_folder_uuid", folder_uuid)},
+      catalogue,
+      %{data: %{"files_folder_uuid" => folder_uuid}},
+      data_owned_keys: ["files_folder_uuid"],
       actor_uuid: actor_uuid
     )
   end
@@ -611,6 +622,15 @@ defmodule PhoenixKitCatalogue.Attachments do
   # Cheap: the re-read is the query the grid needs anyway.
   defp refresh_files_and_notify(socket) do
     before = socket.assigns[:files_state][:files] || []
+
+    # A picker upload lands in the folder without passing through
+    # `handle_progress/3`, so the pointer write happens here as well.
+    socket =
+      case socket.assigns[:files_folder_uuid] do
+        uuid when is_binary(uuid) -> persist_folder_pointer(socket, uuid)
+        _ -> socket
+      end
+
     socket = refresh_files_from_folder(socket)
 
     if file_uuids(socket.assigns.files_state.files) != file_uuids(before),
@@ -878,6 +898,8 @@ defmodule PhoenixKitCatalogue.Attachments do
   Options:
 
     * `:file_type` — keep only this Storage file type (`"image"`, …).
+    * `:exclude_file_type` — drop this Storage file type, in SQL, so the
+      cap cannot eat the rows a caller wanted (the card's documents).
     * `:exclude_system_managed` — drop system-managed rows (default
       `false`; the card and the counts pass `true`).
   """
@@ -888,6 +910,7 @@ defmodule PhoenixKitCatalogue.Attachments do
     folder_uuid
     |> folder_files_query()
     |> maybe_filter_file_type(opts[:file_type])
+    |> maybe_exclude_file_type(opts[:exclude_file_type])
     |> maybe_exclude_system_managed(Keyword.get(opts, :exclude_system_managed, false))
     |> order_by([f], asc: f.inserted_at, asc: f.uuid)
     |> limit(@files_grid_limit)
@@ -923,6 +946,9 @@ defmodule PhoenixKitCatalogue.Attachments do
 
   defp maybe_filter_file_type(query, nil), do: query
   defp maybe_filter_file_type(query, type), do: where(query, [f], f.file_type == ^type)
+
+  defp maybe_exclude_file_type(query, nil), do: query
+  defp maybe_exclude_file_type(query, type), do: where(query, [f], f.file_type != ^type)
 
   defp maybe_exclude_system_managed(query, true), do: where(query, [f], f.system_managed == false)
   defp maybe_exclude_system_managed(query, _), do: query
@@ -1010,8 +1036,19 @@ defmodule PhoenixKitCatalogue.Attachments do
   # linked); a duplicate whose home is already this folder is reported
   # as `:already_attached` so the uploader hears that nothing was added.
   def file_stored({:ok, %File{} = file}, folder_uuid) do
-    _ = assign_file_to_folder(file, folder_uuid)
-    {:ok, file}
+    case assign_file_to_folder(file, folder_uuid) do
+      {:error, reason} -> {:error, reason}
+      _ -> {:ok, file}
+    end
+  end
+
+  # A trashed duplicate is not "present" anywhere: the user removed it
+  # and is uploading it again, so restore it and attach as if fresh.
+  def file_stored({:ok, %File{status: "trashed"} = file, :duplicate}, folder_uuid) do
+    case Storage.restore_file(file) do
+      {:ok, restored} -> file_stored({:ok, restored}, folder_uuid)
+      {:error, reason} -> {:error, reason}
+    end
   end
 
   def file_stored({:ok, %File{folder_uuid: home} = file, :duplicate}, folder_uuid)
@@ -1019,11 +1056,26 @@ defmodule PhoenixKitCatalogue.Attachments do
       do: {:already_attached, file}
 
   def file_stored({:ok, %File{} = file, :duplicate}, folder_uuid) do
-    _ = assign_file_to_folder(file, folder_uuid)
-    {:ok, file}
+    # Linked in already (a media-selector pick, an earlier duplicate, a
+    # Duplication copy) is as attached as a home row: the link insert's
+    # `on_conflict: :nothing` would otherwise read as a fresh success.
+    if linked?(file.uuid, folder_uuid) do
+      {:already_attached, file}
+    else
+      case assign_file_to_folder(file, folder_uuid) do
+        {:error, reason} -> {:error, reason}
+        _ -> {:ok, file}
+      end
+    end
   end
 
   def file_stored({:error, reason}, _folder_uuid), do: {:error, reason}
+
+  defp linked?(file_uuid, folder_uuid) do
+    PhoenixKit.RepoHelper.repo().exists?(
+      from(fl in FolderLink, where: fl.folder_uuid == ^folder_uuid and fl.file_uuid == ^file_uuid)
+    )
+  end
 
   # Mirrors the phoenix_kit core `maybe_set_folder/2`: no-op when the
   # file is already in this folder, adopt as home when it has no
@@ -1038,6 +1090,10 @@ defmodule PhoenixKitCatalogue.Attachments do
     file
     |> Ecto.Changeset.change(%{folder_uuid: folder_uuid})
     |> PhoenixKit.RepoHelper.repo().update()
+  rescue
+    # The folder vanished between ensure_folder and the store (deleted
+    # from another session): surface it instead of reporting success.
+    e in Ecto.ConstraintError -> {:error, e}
   end
 
   defp assign_file_to_folder(%File{uuid: file_uuid}, folder_uuid) when is_binary(folder_uuid) do
@@ -1047,6 +1103,8 @@ defmodule PhoenixKitCatalogue.Attachments do
       on_conflict: :nothing,
       conflict_target: [:folder_uuid, :file_uuid]
     )
+  rescue
+    e in Ecto.ConstraintError -> {:error, e}
   end
 
   defp put_upload_error(socket, entry, reason) do
