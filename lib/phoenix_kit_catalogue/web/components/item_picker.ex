@@ -166,6 +166,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
   alias PhoenixKit.Modules.Storage.URLSigner
   alias PhoenixKitCatalogue.Catalogue
   alias PhoenixKitCatalogue.Schemas.Item
+  alias PhoenixKitCatalogue.Web.Components.Browse
   alias PhoenixKitCatalogue.Web.Components.ProductCard
 
   @default_empty_query_limit 10
@@ -494,6 +495,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
       |> maybe_put(:catalogue_uuids, catalogue_uuids)
       |> maybe_put(:only, only)
       |> maybe_put(:statuses, statuses)
+      |> maybe_put(:order, browse_order(query, catalogue_uuids, category_uuids))
 
     options = Catalogue.search_items(query || "", opts)
 
@@ -508,6 +510,32 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
     socket
     |> ensure_category_paths(options)
     |> assign(options: options, has_more: has_more)
+  end
+
+  # A blank query is a BROWSE (the reopen list, the focus-to-browse
+  # first page), and a browse reads in the module's shared sort like
+  # every other listing (client, 2026-09-01: one order everywhere;
+  # 2026-09-12: the per-row picker still listed a category's items A→Z
+  # while the admin showed the hand-arranged order). A typed query is a
+  # SEARCH and stays name-ordered, like the admin's results. Manual
+  # (`:position`) applies only where position is coherent — one
+  # catalogue, or an explicit category set — same rule as
+  # `BrowseState`; elsewhere the fetch layer's name default stands.
+  defp browse_order(query, catalogue_uuids, category_uuids) do
+    if String.trim(query || "") == "",
+      do: shared_browse_order(catalogue_uuids, category_uuids)
+  end
+
+  defp shared_browse_order(catalogue_uuids, category_uuids) do
+    case Browse.global_items_order() do
+      {:position, _dir} -> if position_coherent?(catalogue_uuids, category_uuids), do: :position
+      field_sort -> field_sort
+    end
+  end
+
+  defp position_coherent?(catalogue_uuids, category_uuids) do
+    match?([_], catalogue_uuids) or
+      (catalogue_uuids in [nil, []] and match?([_ | _], category_uuids))
   end
 
   defp maybe_put(opts, _key, nil), do: opts

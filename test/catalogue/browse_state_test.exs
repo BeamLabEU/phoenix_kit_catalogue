@@ -193,6 +193,48 @@ defmodule PhoenixKitCatalogue.Catalogue.BrowseStateTest do
                :position
     end
 
+    test "a CATEGORY-ONLY scope reads in position order too" do
+      # Client, 2026-09-12: "the popup's order isn't the catalogue's" —
+      # tim-dev's per-category narrow pickers pass category_uuids with
+      # catalogue_uuids: nil. The Manual gate keyed off the catalogue
+      # alone, so that shape silently dropped :position and the fetch
+      # layer listed the category A→Z while the admin showed the
+      # hand-arranged order. A category belongs to exactly one catalogue,
+      # so an explicit category set is as coherent for position as a
+      # single catalogue is.
+      narrow = BrowseState.init(scope: %{category_uuids: ["cat-a"]}, drill: :direct)
+      assert opts_map(BrowseState.command(narrow, :reset))[:order] == :position
+
+      # The shared Manual sort rides it the same way.
+      manual =
+        BrowseState.init(
+          scope: %{category_uuids: ["cat-a"], catalogue_uuids: nil},
+          drill: :direct,
+          order: {:position, :asc}
+        )
+
+      assert opts_map(BrowseState.command(manual, :reset))[:order] == :position
+
+      # A parent scope expanded to its subtree is still an explicit set.
+      subtree = BrowseState.init(scope: %{category_uuids: ["cat-a", "cat-a-1", "cat-a-2"]})
+      assert opts_map(BrowseState.command(subtree, :reset))[:order] == :position
+
+      # Drilling a category under a multi-catalogue root confines the
+      # fetch to one category — coherent, whatever the root offered.
+      multi = BrowseState.init(scope: %{catalogue_uuids: ["cat-1", "cat-2"]}, drill: :direct)
+      refute Map.has_key?(opts_map(BrowseState.command(multi, :reset)), :order)
+
+      assert opts_map(BrowseState.command(multi, {:set_category, Ecto.UUID.generate()}))[
+               :order
+             ] == :position
+
+      # A live search stays name-ordered here as everywhere.
+      refute Map.has_key?(opts_map(BrowseState.command(narrow, {:search, "screw"})), :order)
+
+      # The fetch scope is untouched: no catalogue is invented for it.
+      refute Map.has_key?(opts_map(BrowseState.command(narrow, :reset)), :catalogue_uuids)
+    end
+
     test "the module's shared sort rides every browse fetch; search still wins" do
       # Client, 2026-09-01: one order for the whole module, the popup
       # included. The components pass the shared sort as init `:order`.
