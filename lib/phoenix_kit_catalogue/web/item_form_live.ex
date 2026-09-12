@@ -1129,7 +1129,10 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   def handle_event("reorder_staged_sets", %{"ordered_ids" => ids}, socket) when is_list(ids) do
     staged = socket.assigns.staged_set_uuids
     # Only reorder what is actually staged — the client list is forgeable.
-    reordered = Enum.filter(ids, &(&1 in staged))
+    # A stale-DOM duplicate keeps its LATEST drop position, as the other
+    # reorder paths do; before, it failed the completeness check below
+    # and the drag silently snapped back.
+    reordered = ids |> Helpers.dedupe_keep_last() |> Enum.filter(&(&1 in staged))
 
     if Enum.sort(reordered) == Enum.sort(staged) do
       {:noreply, assign(socket, :staged_set_uuids, reordered)}
@@ -1961,9 +1964,19 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   # this form can offer, so it is refused rather than silently dropped.
   defp validate_category_scope(params, socket) do
     scope = socket.assigns[:catalogue_uuid]
-    category_uuid = params["category_uuid"] |> to_string() |> String.trim()
+
+    # Forgeable: anything but a string (or nothing) is refused, not crashed on.
+    category_uuid =
+      case params["category_uuid"] do
+        nil -> ""
+        s when is_binary(s) -> String.trim(s)
+        _ -> :invalid
+      end
 
     cond do
+      category_uuid == :invalid ->
+        {:error, :category_outside_catalogue}
+
       scope == nil or category_uuid == "" ->
         :ok
 

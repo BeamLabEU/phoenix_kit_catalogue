@@ -18,6 +18,22 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLiveTest do
 
   @base "/en/admin/catalogue"
 
+  describe "crafted payloads (review sweep, 2026-09-12)" do
+    test "a non-string category_uuid is refused, not crashed on", %{conn: conn} do
+      catalogue = fixture_catalogue(%{name: "Scope Cat"})
+      item = fixture_item(%{name: "Scoped", catalogue_uuid: catalogue.uuid})
+      {:ok, view, _html} = live(conn, edit_item_url(item.uuid))
+
+      render_submit(view, "save", %{
+        "item" => %{"name" => "Renamed", "category_uuid" => %{"x" => "1"}},
+        "save_action" => "stay"
+      })
+
+      assert Process.alive?(view.pid)
+      assert Catalogue.get_item!(item.uuid).name == "Scoped"
+    end
+  end
+
   defp new_item_url(catalogue_uuid), do: "#{@base}/#{catalogue_uuid}/items/new"
   defp edit_item_url(item_uuid), do: "#{@base}/items/#{item_uuid}/edit"
 
