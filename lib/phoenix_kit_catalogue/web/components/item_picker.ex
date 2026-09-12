@@ -165,7 +165,9 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
   alias Phoenix.LiveView.JS
   alias PhoenixKit.Modules.Storage.URLSigner
   alias PhoenixKitCatalogue.Catalogue
+  alias PhoenixKitCatalogue.Catalogue.BrowseState
   alias PhoenixKitCatalogue.Schemas.Item
+  alias PhoenixKitCatalogue.Web.Components.Browse
   alias PhoenixKitCatalogue.Web.Components.ProductCard
 
   @default_empty_query_limit 10
@@ -494,6 +496,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
       |> maybe_put(:catalogue_uuids, catalogue_uuids)
       |> maybe_put(:only, only)
       |> maybe_put(:statuses, statuses)
+      |> maybe_put(:order, browse_order(query))
 
     options = Catalogue.search_items(query || "", opts)
 
@@ -508,6 +511,25 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
     socket
     |> ensure_category_paths(options)
     |> assign(options: options, has_more: has_more)
+  end
+
+  # A blank query is a BROWSE (the reopen list, the focus-to-browse
+  # first page), and a browse reads in the module's shared sort like
+  # every other listing (client, 2026-09-01: one order everywhere;
+  # 2026-09-12: the per-row picker still listed a category's items A→Z
+  # while the admin showed the hand-arranged order — it never asked for
+  # an order, and the fetch layer's default was name). A typed query is a
+  # SEARCH: it passes no order and takes the fetch layer's default,
+  # Manual, like the admin's in-catalogue search results. Manual keeps
+  # the direction-less `:position` opt the admin's Manual sort has.
+  defp browse_order(query) do
+    if String.trim(query || "") == "", do: shared_browse_order(Browse.global_items_order())
+  end
+
+  defp shared_browse_order({:position, _dir}), do: :position
+
+  defp shared_browse_order({field, _dir} = field_sort) do
+    if field in BrowseState.order_fields(), do: field_sort, else: :position
   end
 
   defp maybe_put(opts, _key, nil), do: opts
