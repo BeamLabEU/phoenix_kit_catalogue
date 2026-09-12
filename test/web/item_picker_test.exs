@@ -636,6 +636,13 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPickerTest do
         )
 
       assert html =~ "hero-photo"
+
+      # The glyph must not be painted in the tile's own surface colour:
+      # a hero icon is a mask coloured by background-color, so the tile
+      # (bg-base-200) is a wrapping span and the icon carries no bg-*
+      # (client report, 2026-09-12: the placeholder was an empty box).
+      refute html =~ ~r/hero-photo[^>]*bg-base-200/
+      assert html =~ "text-base-content/40"
       assert html =~ ~s(phx-click="photo_click")
       assert html =~ "cursor-pointer"
     end
@@ -765,8 +772,13 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPickerTest do
       assert img_html =~
                ~s(class="w-8 h-8 shrink-0 rounded object-cover bg-base-200 border border-base-300")
 
+      # The tile is a span carrying the image's box classes; the glyph
+      # sits inside it (a hero icon is a mask coloured by background-color,
+      # so the box colour must not land on the icon — 2026-09-12).
       assert placeholder_html =~
-               ~s(class="hero-photo w-8 h-8 shrink-0 rounded bg-base-200 border border-base-300 opacity-40")
+               ~s(class="w-8 h-8 shrink-0 rounded bg-base-200 border border-base-300 flex items-center justify-center text-base-content/40")
+
+      assert placeholder_html =~ ~s(class="hero-photo h-1/2 w-1/2")
     end
 
     test "the placeholder box matches the image box exactly at a non-default photo_size" do
@@ -798,7 +810,9 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPickerTest do
                ~s(class="w-20 h-20 shrink-0 rounded object-cover bg-base-200 border border-base-300")
 
       assert placeholder_html =~
-               ~s(class="hero-photo w-20 h-20 shrink-0 rounded bg-base-200 border border-base-300 opacity-40")
+               ~s(class="w-20 h-20 shrink-0 rounded bg-base-200 border border-base-300 flex items-center justify-center text-base-content/40")
+
+      assert placeholder_html =~ ~s(class="hero-photo h-1/2 w-1/2")
     end
   end
 
