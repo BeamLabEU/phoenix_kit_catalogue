@@ -61,6 +61,16 @@ defmodule PhoenixKitCatalogue.Catalogue.BrowseState do
   # has a clause per entry).
   @order_fields ~w(position name sku base_price status)a
 
+  @doc """
+  The browse-sort vocabulary: the `:detail_items` sortable column ids
+  the fetch layer's `:order` accepts, as atoms. One list, so a column
+  that becomes sortable in `TableConfig` without a fetch-layer clause
+  is rejected here (loudly at `init/1`, quietly by the picker) rather
+  than crashing inside `Search.apply_search_order/2`.
+  """
+  @spec order_fields() :: [atom()]
+  def order_fields, do: @order_fields
+
   defstruct scope: %{},
             search: "",
             catalogue_uuid: nil,
@@ -94,11 +104,11 @@ defmodule PhoenixKitCatalogue.Catalogue.BrowseState do
     * `:order` — `{field, :asc | :desc}` browse-listing sort (the module's
       shared sort; the client's 2026-09-01 ask: one order everywhere, the
       popup included). Fields: #{inspect(@order_fields)}. Applies to
-      blank-search browse fetches only — a live search stays name-ordered,
-      like the admin's. `{:position, _}` keeps the single-catalogue guard
-      (position is per-(catalogue, category); across catalogues it is
-      noise) and ignores the direction, like the admin's Manual sort. `nil`
-      (default) behaves as `{:position, :asc}`.
+      blank-search browse fetches only — a live search passes no order and
+      takes the fetch layer's default, Manual, like the admin's own
+      in-catalogue search results. `{:position, _}` ignores the direction,
+      like the admin's Manual sort. `nil` (default) behaves as
+      `{:position, :asc}`.
   """
   def init(opts \\ []) do
     drill = opts[:drill] || :subtree
@@ -323,30 +333,27 @@ defmodule PhoenixKitCatalogue.Catalogue.BrowseState do
     |> Enum.reject(fn {_k, v} -> is_nil(v) end)
   end
 
-  # BROWSE listings scoped to exactly one catalogue read in the admin's
-  # document order (position, name — Max, 2026-08-31: "the default look
-  # would be the same"); position is per-(catalogue, category) scope, so
-  # a fetch spanning several catalogues keeps the name order, and a live
-  # SEARCH stays name-ordered everywhere like the admin's results.
-  defp put_browse_order(base, state, blank_search?) do
-    single_catalogue? =
-      is_binary(state.catalogue_uuid) or match?([_], state.scope[:catalogue_uuids])
+  # BROWSE listings read in the admin's document order (Max, 2026-08-31:
+  # "the default look would be the same"; 2026-09-12: "the default should
+  # be the manual order") — `Search.search_items/2`'s `:position` chain,
+  # which leads with the catalogue, then the category; its `:order` doc
+  # states the chain and its limits. Until 2026-09-12 Manual was gated
+  # on a single catalogue in scope, which silently dropped it for a
+  # host's per-category picker (`category_uuids: [cat], catalogue_uuids:
+  # nil`) and listed the category A→Z while the admin showed the
+  # hand-arranged order (client report). Direction is ignored for
+  # Manual, like the admin's sort (its selector hides the toggle).
+  #
+  # A live SEARCH passes no order and takes the fetch layer's default —
+  # Manual too, like the admin's in-catalogue search results — rather
+  # than the shared field sort.
+  defp put_browse_order(base, _state, false = _blank_search?), do: base
 
-    cond do
-      # A live search stays name-ordered regardless of the browse sort —
-      # the admin's search behaves the same way.
-      not blank_search? ->
-        base
-
-      # Manual order (and the legacy nil default): only where position is
-      # coherent — one catalogue. Direction is ignored, like the admin's
-      # Manual sort (its selector hides the toggle).
-      is_nil(state.order) or match?({:position, _}, state.order) ->
-        if single_catalogue?, do: Map.put(base, :order, :position), else: base
-
-      # Field sorts (name/sku/price/status) are coherent across any scope.
-      true ->
-        Map.put(base, :order, state.order)
+  defp put_browse_order(base, %{order: order}, true) do
+    case order do
+      nil -> Map.put(base, :order, :position)
+      {:position, _dir} -> Map.put(base, :order, :position)
+      field_sort -> Map.put(base, :order, field_sort)
     end
   end
 

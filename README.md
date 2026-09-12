@@ -332,8 +332,10 @@ component moduledoc documents the full attr and event contract.
 category tiles, and its catalogue tiles follow the same
 `catalogue_sort_*` settings the admin pages sort by (the admin's sort
 selector writes them), so the picker reads in the same order as the
-admin — one order for the whole module. A live search stays
-name-ordered, like the admin's results.
+admin — one order for the whole module. A live search reads in Manual
+order too, like the admin's own in-catalogue search results; Manual is
+the fetch layer's default (`Catalogue.search_items/2`), so a host's own
+direct calls read the same way.
 
 ### `item_table/1`
 
