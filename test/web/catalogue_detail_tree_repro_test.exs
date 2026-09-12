@@ -110,4 +110,31 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailTreeReproTest do
     assert tree_count(html, other.uuid) == 1
     assert db_count("MELAMIIN") == 1
   end
+
+  test "a category created or moved in another tab reaches the open tree without a reload", %{
+    conn: conn
+  } do
+    catalogue = fixture_catalogue(%{name: "Two Tabs"})
+    parent = fixture_category(catalogue, %{name: "Parent", position: 0})
+    {:ok, view, html} = live(conn, "#{@base}/#{catalogue.uuid}")
+    assert tree_count(html, parent.uuid) == 1
+
+    # Tab B creates a sibling and nests a child under Parent.
+    {:ok, sibling} =
+      Catalogue.create_category(%{name: "From tab B", catalogue_uuid: catalogue.uuid})
+
+    {:ok, child} =
+      Catalogue.create_category(%{
+        name: "Nested from tab B",
+        catalogue_uuid: catalogue.uuid,
+        parent_uuid: parent.uuid
+      })
+
+    send(view.pid, {:catalogue_data_changed, :category, sibling.uuid, catalogue.uuid})
+    html = settle(view)
+    assert tree_count(html, sibling.uuid) == 1
+    # Parent now has a child: it gets a chevron (expandable) at once.
+    render_click(view, "toggle_category_expand", %{"uuid" => parent.uuid})
+    assert tree_count(settle(view), child.uuid) == 1
+  end
 end

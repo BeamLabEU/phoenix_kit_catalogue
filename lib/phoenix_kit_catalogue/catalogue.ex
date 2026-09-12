@@ -114,6 +114,16 @@ defmodule PhoenixKitCatalogue.Catalogue do
   defp log_activity(attrs, opts \\ []) do
     {parent_catalogue_uuid, attrs} = Map.pop(attrs, :parent_catalogue_uuid)
 
+    # The caller's `mode` wins over the site's default ("manual"): the
+    # importer passes `mode: "auto"`, and until 2026-09-12 every site but
+    # `create_item/2` dropped it, so the log could not tell an import
+    # from a hand edit.
+    attrs =
+      case Keyword.get(opts, :mode) do
+        mode when is_binary(mode) -> Map.put(attrs, :mode, mode)
+        _ -> attrs
+      end
+
     ActivityLog.log(attrs)
 
     if Keyword.get(opts, :broadcast, true) do
@@ -661,7 +671,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
             resource_uuid: catalogue.uuid,
             metadata: %{"name" => catalogue.name}
           },
-          Keyword.take(opts, [:broadcast])
+          Keyword.take(opts, [:broadcast, :mode])
         )
 
         ok
@@ -1558,7 +1568,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
             parent_catalogue_uuid: category.catalogue_uuid,
             metadata: %{"name" => category.name, "catalogue_uuid" => category.catalogue_uuid}
           },
-          Keyword.take(opts, [:broadcast])
+          Keyword.take(opts, [:broadcast, :mode])
         )
 
         ok
@@ -1837,7 +1847,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
               "items_disposition" => disposition_to_metadata(disposition)
             }
           },
-          Keyword.take(opts, [:broadcast])
+          Keyword.take(opts, [:broadcast, :mode])
         )
 
         {:ok, updated}
@@ -2202,7 +2212,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
             "catalogue_uuid" => moved.catalogue_uuid
           }
         },
-        Keyword.take(opts, [:broadcast])
+        Keyword.take(opts, [:broadcast, :mode])
       )
 
       {:ok, moved}
@@ -2252,7 +2262,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
             "catalogue_uuid" => moved.catalogue_uuid
           }
         },
-        Keyword.take(opts, [:broadcast])
+        Keyword.take(opts, [:broadcast, :mode])
       )
 
       {:ok, moved}
@@ -2807,7 +2817,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
             resource_uuid: folder.uuid,
             metadata: %{"name" => folder.name, "parent_uuid" => folder.parent_uuid}
           },
-          Keyword.take(opts, [:broadcast])
+          Keyword.take(opts, [:broadcast, :mode])
         )
 
         ok

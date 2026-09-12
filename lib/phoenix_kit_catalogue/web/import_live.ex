@@ -582,15 +582,21 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
 
   defp apply_pro100_update(change, actor, {count, fails}) do
     if should_persist_pro100?(change) do
-      # Re-read the item at Apply time and merge only the plan's own data
-      # changes onto its CURRENT data. The plan snapshotted `item.data` when it
-      # was built; writing that snapshot back wholesale would clobber anything
-      # attached since — e.g. a photo the operator added between the preview and
-      # Apply. Mirrors the merge-under-"pro100" pattern in Pro100TemplateLoader.
+      # Owned-key write of only the keys the plan changed (`"pro100"`,
+      # `"original_unit"`): the row is re-read under lock inside the
+      # update, so a photo attached or reordered between the preview and
+      # Apply — or between a read here and the write — survives. The
+      # earlier read-then-merge closed only the first window (review
+      # sweep, 2026-09-12).
       target = Catalogue.get_item(change.item.uuid) || change.item
-      attrs = pro100_update_attrs(change, target)
+      owned = Pro100Plan.data_owned_keys(change)
+      attrs = pro100_update_attrs(change, owned)
 
-      case Catalogue.update_item(target, attrs, actor_uuid: actor) do
+      case Catalogue.update_item(target, attrs,
+             actor_uuid: actor,
+             data_owned_keys: owned,
+             mode: "auto"
+           ) do
         {:ok, _updated} ->
           {count + 1, fails}
 
@@ -3046,8 +3052,8 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
       get_in(change.item.data, ["pro100"]) != change.data["pro100"]
   end
 
-  defp pro100_update_attrs(change, target) do
-    attrs = %{data: merge_plan_data(target.data, change)}
+  defp pro100_update_attrs(change, owned_keys) do
+    attrs = %{data: Map.take(change.data, owned_keys)}
 
     attrs =
       case change.changes do
@@ -3059,20 +3065,6 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
       %{unit: {_old, new}} -> Map.put(attrs, :unit, new)
       _ -> attrs
     end
-  end
-
-  # Applies only the keys the plan actually changed relative to the item
-  # snapshot it diffed against — so keys attached to the item since (a photo's
-  # `featured_image_uuid`, a `files_folder_uuid`) survive Apply. `change.item.data`
-  # is that snapshot; `change.data` is the snapshot plus the plan's own writes
-  # (`"pro100"`, and `"original_unit"` for unrecognised material units).
-  defp merge_plan_data(current_data, change) do
-    snapshot = (change.item && change.item.data) || %{}
-    current = current_data || %{}
-
-    Enum.reduce(change.data, current, fn {key, value}, acc ->
-      if Map.get(snapshot, key) == value, do: acc, else: Map.put(acc, key, value)
-    end)
   end
 
   defp changeset_error_string(changeset) do
