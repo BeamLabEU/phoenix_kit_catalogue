@@ -9,6 +9,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Counts do
 
   import Ecto.Query, warn: false
 
+  alias PhoenixKitCatalogue.Attachments
   alias PhoenixKitCatalogue.Catalogue.Tree
   alias PhoenixKitCatalogue.Schemas.{Category, Item}
 
@@ -116,9 +117,12 @@ defmodule PhoenixKitCatalogue.Catalogue.Counts do
   (items / catalogues / row maps) whose `data["files_folder_uuid"]` points
   at their attachment folder, returns `%{resource_uuid => count}` of the
   NON-image, live files in that folder — the same set the product card's
-  Files section lists (`ProductCard.resolve_files/1`: home folder, not
-  trashed, not system-managed, not an image — photos are already conveyed
-  by the featured thumb, so the paperclip means documents).
+  Files section lists (`ProductCard.resolve_files/1`, over
+  `Attachments.folder_files_query/1`: home files PLUS folder-linked
+  ones, not trashed, not system-managed, not an image — photos are
+  already conveyed by the featured thumb, so the paperclip means
+  documents). Linked files are what a content-duplicate upload becomes;
+  counting the home folder alone left them out (client, 2026-09-12).
 
   One grouped query for the whole page; resources without a folder simply
   don't appear in the map. Rescued to `%{}` — a Storage hiccup must not
@@ -147,15 +151,11 @@ defmodule PhoenixKitCatalogue.Catalogue.Counts do
         %{}
 
       folder_uuids ->
-        from(f in PhoenixKit.Modules.Storage.File,
-          where: f.folder_uuid in ^folder_uuids,
-          where: f.status != "trashed",
-          where: f.system_managed == false,
-          where: f.file_type != "image",
-          group_by: f.folder_uuid,
-          select: {f.folder_uuid, count(f.uuid)}
-        )
-        |> repo().all()
+        folder_uuids
+        |> Map.new(&{&1, attached_document_count(&1)})
+        # A folder with nothing attached stays absent from the map, as
+        # the grouped query left it — callers test presence, not zero.
+        |> Enum.reject(fn {_folder, count} -> count == 0 end)
         |> Enum.flat_map(fn {folder, count} ->
           folder_to_uuids |> Map.fetch!(folder) |> Enum.map(&{&1, count})
         end)
@@ -163,5 +163,19 @@ defmodule PhoenixKitCatalogue.Catalogue.Counts do
     end
   rescue
     _ -> %{}
+  end
+
+  # One count per folder over the shared query. A page lists at most a
+  # few dozen resources with a folder, and the query is index-backed
+  # (folder_uuid, plus the link table's folder_uuid), so per-folder
+  # counts cost less than they read; the alternative — grouping a
+  # home-OR-linked union by "which folder" — has no single column to
+  # group on, since a linked file's own folder_uuid is another folder's.
+  defp attached_document_count(folder_uuid) do
+    folder_uuid
+    |> Attachments.folder_files_query()
+    |> where([f], f.system_managed == false and f.file_type != "image")
+    |> select([f], count(f.uuid))
+    |> repo().one()
   end
 end
