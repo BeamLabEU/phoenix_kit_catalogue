@@ -2327,6 +2327,43 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       refute html =~ "M8 Screw"
     end
 
+    test "a CATEGORY-ONLY scope lists the items in the admin's Manual order", %{
+      conn: conn,
+      cat: cat
+    } do
+      # Client, 2026-09-12: ANDI's per-category pickers (category_uuids
+      # only, no catalogue) listed a category's items A→Z while the
+      # admin's Manual view showed the hand-arranged order — the Manual
+      # gate keyed off the catalogue alone. Positions here run against
+      # the alphabet so the two orders are distinguishable.
+      handles = fixture_category(cat, %{name: "Handles"})
+
+      names = ["Recessed handle", "Profile handle", "Handle-less system", "Push for cabinet"]
+
+      items =
+        for name <- names do
+          fixture_item(%{name: name, catalogue_uuid: cat.uuid, category_uuid: handles.uuid})
+        end
+
+      :ok = Catalogue.reorder_items(cat.uuid, handles.uuid, Enum.map(items, & &1.uuid))
+
+      {:ok, view, _html} = open(conn, "cat_scope=#{handles.uuid}&sel=click")
+      html = render(view)
+
+      offsets = Enum.map(names, fn name -> {name, :binary.match(html, name) |> elem(0)} end)
+      assert Enum.map(offsets, &elem(&1, 0)) == names
+      assert offsets |> Enum.map(&elem(&1, 1)) |> Enum.sort() == Enum.map(offsets, &elem(&1, 1))
+
+      # A typed search is a search: name order, like the admin's results.
+      html = view |> picker() |> render_change("browse_search", %{"search" => "handle"})
+      handle_names = Enum.filter(names, &(&1 =~ ~r/handle/i))
+
+      assert handle_names
+             |> Enum.map(&{&1, :binary.match(html, &1) |> elem(0)})
+             |> Enum.sort_by(&elem(&1, 1))
+             |> Enum.map(&elem(&1, 0)) == Enum.sort(handle_names)
+    end
+
     test "a tile's IMAGE enters the level like its name does", %{
       conn: conn,
       cat: cat
