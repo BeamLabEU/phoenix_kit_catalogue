@@ -182,10 +182,12 @@ defmodule PhoenixKitCatalogue.Attachments do
     files = socket.assigns.files_state.files
     order = Enum.map(ordered_ids, &to_string/1)
     reordered = apply_media_order(files, order)
+    media_order = Enum.map(reordered, &to_string(&1.uuid))
 
     socket
-    |> assign(:media_order, Enum.map(reordered, &to_string(&1.uuid)))
+    |> assign(:media_order, media_order)
     |> assign(:files_state, %{files: reordered})
+    |> persist_media_order(media_order)
   end
 
   def handle_reorder_files(socket, _payload), do: socket
@@ -524,6 +526,32 @@ defmodule PhoenixKitCatalogue.Attachments do
     )
   end
 
+  # A drag is an action, not a draft: like an upload it lands at once,
+  # so the popup's carousel and a reload agree with the editor without
+  # a Save (client, 2026-09-12: reordered, came back to the product,
+  # old order). Owned-key write; a `:new` resource keeps it for save.
+  # Never fatal — the grid already shows the new order.
+  defp persist_media_order(socket, media_order) do
+    resource = socket.assigns[:attachments_resource]
+
+    if persisted?(resource) do
+      case write_owned_data(resource, %{"media_order" => media_order}, current_user_uuid(socket)) do
+        {:ok, updated} ->
+          assign(socket, :attachments_resource, updated)
+
+        {:error, reason} ->
+          Logger.warning("Media order not persisted for #{resource.uuid}: #{inspect(reason)}")
+          socket
+      end
+    else
+      socket
+    end
+  rescue
+    error ->
+      Logger.warning("persist_media_order failed: #{inspect(error)}")
+      socket
+  end
+
   @doc false
   # The upload is committed the moment it lands, but the RESOURCE's
   # pointer to its folder (`data["files_folder_uuid"]`) used to be
@@ -541,7 +569,11 @@ defmodule PhoenixKitCatalogue.Attachments do
 
     if persisted?(resource) and
          read_string(resource_data(resource), "files_folder_uuid") != folder_uuid do
-      case write_folder_pointer(resource, folder_uuid, current_user_uuid(socket)) do
+      case write_owned_data(
+             resource,
+             %{"files_folder_uuid" => folder_uuid},
+             current_user_uuid(socket)
+           ) do
         {:ok, updated} ->
           assign(socket, :attachments_resource, updated)
 
@@ -567,29 +599,25 @@ defmodule PhoenixKitCatalogue.Attachments do
   defp persisted?(%{uuid: uuid}) when is_binary(uuid), do: true
   defp persisted?(_), do: false
 
-  defp write_folder_pointer(%Item{} = item, folder_uuid, actor_uuid) do
-    PhoenixKitCatalogue.Catalogue.update_item(
-      item,
-      %{data: %{"files_folder_uuid" => folder_uuid}},
-      data_owned_keys: ["files_folder_uuid"],
+  # One owned-key write per resource kind: only the given `data` keys are
+  # taken from us, everything else keeps the row's freshest value.
+  defp write_owned_data(%Item{} = item, data, actor_uuid) do
+    PhoenixKitCatalogue.Catalogue.update_item(item, %{data: data},
+      data_owned_keys: Map.keys(data),
       actor_uuid: actor_uuid
     )
   end
 
-  defp write_folder_pointer(%Category{} = category, folder_uuid, actor_uuid) do
-    PhoenixKitCatalogue.Catalogue.update_category(
-      category,
-      %{data: %{"files_folder_uuid" => folder_uuid}},
-      data_owned_keys: ["files_folder_uuid"],
+  defp write_owned_data(%Category{} = category, data, actor_uuid) do
+    PhoenixKitCatalogue.Catalogue.update_category(category, %{data: data},
+      data_owned_keys: Map.keys(data),
       actor_uuid: actor_uuid
     )
   end
 
-  defp write_folder_pointer(%Catalogue{} = catalogue, folder_uuid, actor_uuid) do
-    PhoenixKitCatalogue.Catalogue.update_catalogue(
-      catalogue,
-      %{data: %{"files_folder_uuid" => folder_uuid}},
-      data_owned_keys: ["files_folder_uuid"],
+  defp write_owned_data(%Catalogue{} = catalogue, data, actor_uuid) do
+    PhoenixKitCatalogue.Catalogue.update_catalogue(catalogue, %{data: data},
+      data_owned_keys: Map.keys(data),
       actor_uuid: actor_uuid
     )
   end
@@ -975,9 +1003,14 @@ defmodule PhoenixKitCatalogue.Attachments do
   # Re-queries the folder and merges the featured image if needed.
   # Use this after any state change that can affect the files list —
   # uploads, featured-image changes, trashing, etc.
-  defp refresh_files_from_folder(socket) do
-    assign(socket, :files_state, %{files: compute_files_list(socket)})
-  end
+  # Re-reads the folder AND re-applies the order the editor holds.
+  # Until 2026-09-12 this dropped `media_order` on the floor: every
+  # refresh — an upload landing, a PubSub broadcast for this item (the
+  # translation sweep, another tab, the pointer write itself), the
+  # picker closing — snapped the grid back to folder order, and a Save
+  # after that persisted the snapped list. "I reorder the photos and
+  # they come back" (client).
+  defp refresh_files_from_folder(socket), do: assign_files_state(socket)
 
   defp apply_featured_image_selection(socket, []) do
     assign(socket, featured_image_uuid: nil, featured_image_file: nil)
