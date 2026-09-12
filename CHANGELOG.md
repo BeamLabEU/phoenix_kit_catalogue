@@ -1,3 +1,23 @@
+## 0.29.1 - 2026-09-12
+
+### Fixed
+
+- The browse stack's quantity field (`Browse.qty_stepper/1`) no longer
+  clips the native spinner arrows: the input keeps 8px of padding on the
+  arrows' side (`pl-1 pr-2`, was `px-1`), so Chrome stops drawing the spin
+  button flush against the border (#111).
+- The item picker's photo placeholder shows its glyph again. The
+  `hero-photo` icon carried `bg-base-200`, and a hero icon is a CSS mask
+  coloured by its background, so the glyph was painted in the tile's own
+  surface colour and rendered as an empty bordered box. The tile is now a
+  wrapping span with the image's box classes, and the icon inside is
+  coloured `text-base-content/40` (#111).
+
+### Changed
+
+- Dependency lockfile advances (no `mix.exs` constraint changes):
+  `phoenix_kit` 2.22.22 → 2.22.23, `etcher` 0.13.1 → 0.13.2.
+
 ## 0.29.0 - 2026-09-12
 
 ### Changed
