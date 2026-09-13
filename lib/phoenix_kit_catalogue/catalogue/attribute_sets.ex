@@ -1660,20 +1660,24 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
   swatch keeps disappearing along with the labels when entities is off.
   """
   @spec attached_item_uuids([Ecto.UUID.t()]) :: MapSet.t()
-  def attached_item_uuids([]), do: MapSet.new()
-
   def attached_item_uuids(item_uuids) when is_list(item_uuids) do
-    if entities_enabled?() do
-      from(a in ItemAttributeSet,
-        where: a.item_uuid in ^item_uuids,
-        distinct: true,
-        select: a.item_uuid
-      )
-      |> repo().all()
-      |> MapSet.new()
-    else
-      MapSet.new()
-    end
+    # One MapSet.new/1 over a plain list: building the set in two branches
+    # (an empty `MapSet.new()` literal plus a piped one) trips dialyzer's
+    # opaque check against the `MapSet.t()` spec.
+    uuids =
+      if item_uuids != [] and entities_enabled?() do
+        repo().all(
+          from(a in ItemAttributeSet,
+            where: a.item_uuid in ^item_uuids,
+            distinct: true,
+            select: a.item_uuid
+          )
+        )
+      else
+        []
+      end
+
+    MapSet.new(uuids)
   end
 
   defp attach_selection(nil, _row), do: nil
@@ -1895,10 +1899,15 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
   the join row's reserved `data`) — the boss's two modes: ONE slug says
   "this exact object is Red", several say "this object comes in these
   options", empty clears the statement. Unknown slugs are dropped
-  against the set's current AND hidden values (`valid_selection/2`,
-  §3c) — a value archived/trashed after being picked keeps its slug
-  here too, only a slug gone for good drops; `{:error, :not_attached}`
-  when the item doesn't attach the set.
+  against the set's current values; `{:error, :not_attached}` when the
+  item doesn't attach the set.
+
+  A hidden (archived/trashed) value is KEPT when the attachment already
+  selects it — a value hidden after being picked survives a save (§3c)
+  — but never ADDED: a slug naming a hidden value the row does not
+  already hold is dropped like an unknown one, the same rule the item
+  form's picker applies (hidden values are not offered for a new pick),
+  enforced here so no caller of the context can get around it.
   """
   @spec set_attachment_selection(Ecto.UUID.t(), Ecto.UUID.t(), [String.t()], keyword()) ::
           :ok | {:error, term()}
@@ -1910,9 +1919,10 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
                where: a.item_uuid == ^item_uuid and a.set_uuid == ^set_uuid
              )
            ) || {:error, :not_attached} do
-      selection = valid_selection(slugs, resolve_set(set_uuid))
+      stored = List.wrap(row.data["selected_value_slugs"])
+      selection = valid_selection(slugs, keep_only_stored_hidden(resolve_set(set_uuid), stored))
 
-      if selection == List.wrap(row.data["selected_value_slugs"]) do
+      if selection == stored do
         # Unchanged — no write, no activity row. This runs for every
         # attached set on every item save (panel finding, 2026-08-19).
         :ok
@@ -1920,6 +1930,12 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
         write_attachment_selection(item_uuid, set_uuid, selection, opts)
       end
     end
+  end
+
+  defp keep_only_stored_hidden(nil, _stored), do: nil
+
+  defp keep_only_stored_hidden(resolved, stored) do
+    Map.update(resolved, :hidden_values, [], &Enum.filter(&1, fn v -> v.key in stored end))
   end
 
   # Atomic jsonb_set on ONLY this key: a read-modify-write of the whole

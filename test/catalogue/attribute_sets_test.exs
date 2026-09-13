@@ -1340,6 +1340,38 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSetsTest do
         assert resolved.selected == [oak.slug]
       end
 
+      test "set_attachment_selection keeps a stored hidden slug but refuses to ADD one" do
+        set = create_set!("Ikea handles")
+        {:ok, oak} = AttributeSets.create_value(set, %{label: "Oak"})
+        {:ok, ash} = AttributeSets.create_value(set, %{label: "Ash"})
+        {:ok, elm} = AttributeSets.create_value(set, %{label: "Elm"})
+
+        kept = fixture_item(%{name: "Handle kept"})
+        {:ok, _} = AttributeSets.attach_set(kept.uuid, set.uuid)
+        :ok = AttributeSets.set_attachment_selection(kept.uuid, set.uuid, [oak.slug, ash.slug])
+
+        added = fixture_item(%{name: "Handle added"})
+        {:ok, _} = AttributeSets.attach_set(added.uuid, set.uuid)
+        :ok = AttributeSets.set_attachment_selection(added.uuid, set.uuid, [oak.slug])
+
+        for value <- [ash, elm] do
+          {:ok, _} =
+            PhoenixKitEntities.EntityData.update(value, %{status: "archived"},
+              activity_log: false
+            )
+        end
+
+        # Re-saving a selection that already holds the hidden value keeps it.
+        :ok = AttributeSets.set_attachment_selection(kept.uuid, set.uuid, [oak.slug, ash.slug])
+        assert %{sets: [resolved]} = AttributeSets.resolve_for_item(kept.uuid)
+        assert Enum.sort(resolved.selected) == Enum.sort([oak.slug, ash.slug])
+
+        # A hidden value the row never held is dropped — not offered, not addable.
+        :ok = AttributeSets.set_attachment_selection(added.uuid, set.uuid, [oak.slug, elm.slug])
+        assert %{sets: [resolved]} = AttributeSets.resolve_for_item(added.uuid)
+        assert resolved.selected == [oak.slug]
+      end
+
       test "valid_selection/2 accepts hidden_values slugs, still drops true ghosts" do
         resolved = %{
           values: [%{key: "red"}],
