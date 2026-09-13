@@ -1776,7 +1776,8 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
   defp value_shape(record),
     do: %{key: record.slug, label: record.title, extras: record.data || %{}}
 
-  # Drops any hidden value sharing a key with an active value — THE
+  # Drops any hidden value sharing a key with an active value, THEN
+  # collapses hidden values that share a key with EACH OTHER — THE
   # single implementation of the dedup rule, shared by
   # `build_resolved_set/4` (the resolve path) and the attribute-set
   # items modal's broken-contract fallback (`AttributeSetItemsModal`),
@@ -1789,13 +1790,20 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
   # key would otherwise sit right next to it in the pool every consumer
   # builds as `values ++ hidden_values`, and "last wins" map-building
   # would let the hidden copy's stale label overwrite the live one's.
+  # The SAME collision can also happen with no live row at all — an
+  # archived row and a trashed row sharing a slug — and used to survive
+  # untouched: the item form would then render two identical chips
+  # (`item_form_live.ex`'s selected-value rendering) for one selection.
   @doc false
   @spec drop_hidden_duplicates([%{key: String.t()}], [%{key: String.t()}]) :: [
           %{key: String.t()}
         ]
   def drop_hidden_duplicates(hidden_values, values) do
     value_keys = MapSet.new(values, & &1.key)
-    Enum.reject(hidden_values, &(&1.key in value_keys))
+
+    hidden_values
+    |> Enum.reject(&(&1.key in value_keys))
+    |> Enum.uniq_by(& &1.key)
   end
 
   @doc """
