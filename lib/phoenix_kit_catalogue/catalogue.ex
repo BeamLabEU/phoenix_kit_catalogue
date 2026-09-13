@@ -5817,6 +5817,8 @@ defmodule PhoenixKitCatalogue.Catalogue do
     to: AttributeSets,
     as: :resolve_for_items
 
+  defdelegate attribute_set_presence(item_uuids), to: AttributeSets, as: :attached_item_uuids
+
   defdelegate resolve_attribute_sets_for_item(item_uuid, opts \\ []),
     to: AttributeSets,
     as: :resolve_for_item
@@ -5851,5 +5853,6 @@ defmodule PhoenixKitCatalogue.Catalogue do
   defdelegate set_item_attribute_group(item, group_uuid, opts \\ []), to: Attributes
   defdelegate get_item_attribute_group_uuid(item_uuid), to: Attributes
   defdelegate item_attribute_group_map(item_uuids), to: Attributes
+  defdelegate attribute_group_names(group_uuids), to: Attributes
   defdelegate resolved_group(group_uuid, lang), to: Attributes
 end

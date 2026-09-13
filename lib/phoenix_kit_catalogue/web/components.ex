@@ -2238,12 +2238,12 @@ defmodule PhoenixKitCatalogue.Web.Components do
   attr(:attribute_map, :map,
     default: %{},
     doc:
-      "%{item_uuid => [%{name, labels}]} — one entry per attached attribute " <>
-        "SET (Catalogue.resolve_attribute_sets/2, the entities-backed sets, " <>
-        "not the legacy item_attribute_group_map/1), keyed by item. Drives " <>
-        "both the swatch indicator beside the name (presence only) and the " <>
-        "\"Attributes\" list column's text (`attribute_cell_text/1`). " <>
-        "Computed by the caller."
+      "%{item_uuid => [%{name, labels}] | true} keyed by item — presence " <>
+        "drives the swatch indicator beside the name. `item_table/1` has no " <>
+        "Attributes column, so only presence is ever read here; the caller " <>
+        "may store a full `[%{name, labels}]` (from " <>
+        "Catalogue.resolve_attribute_sets/2, the entities-backed sets) or " <>
+        "just `true`, whichever it already has cheapest. Computed by the caller."
   )
 
   attr(:show_toggle, :boolean, default: true)
@@ -2526,8 +2526,11 @@ defmodule PhoenixKitCatalogue.Web.Components do
   contributes its SELECTED value labels joined by `", "`; a set with no
   selection (the "whole set applies" mode) falls back to the set's own
   name, so the cell never renders blank for an attached set. Multiple
-  sets join with `"; "`. No attachment (`nil` or `[]`) → `nil` — the
-  caller renders the dash.
+  sets join with `"; "`. A `nil`/`""` name or label is dropped rather than
+  joined in as a blank segment; if a set's contribution comes out empty
+  that way it is dropped too, and if every set does, the result is `nil`
+  same as no attachment (`nil` or `[]`) — never an empty string, so the
+  caller's `"" || "—"` (and `:if={@attribute_text}`) can't render blank.
   """
   @spec attribute_cell_text([%{name: String.t(), labels: [String.t()]}] | nil) ::
           String.t() | nil
@@ -2535,10 +2538,21 @@ defmodule PhoenixKitCatalogue.Web.Components do
   def attribute_cell_text([]), do: nil
 
   def attribute_cell_text(sets) when is_list(sets) do
-    Enum.map_join(sets, "; ", fn
-      %{name: name, labels: []} -> name
-      %{labels: labels} -> Enum.join(labels, ", ")
-    end)
+    text =
+      sets
+      |> Enum.map(&attribute_set_text/1)
+      |> Enum.reject(&(&1 in [nil, ""]))
+      |> Enum.join("; ")
+
+    if text == "", do: nil, else: text
+  end
+
+  defp attribute_set_text(%{name: name, labels: []}), do: name
+
+  defp attribute_set_text(%{labels: labels}) do
+    labels
+    |> Enum.reject(&(&1 in [nil, ""]))
+    |> Enum.join(", ")
   end
 
   @doc """
