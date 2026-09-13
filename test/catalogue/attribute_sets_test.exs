@@ -570,6 +570,47 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSetsTest do
         assert {:ok, %{default: default}} = AttributeSets.contract(healed)
         assert default == v1.key
       end
+
+      test "trashed or archived migrated values are not resurrected on re-run" do
+        actor = Ecto.UUID.generate()
+
+        {:ok, group} = Catalogue.create_attribute_group(%{name: "Hermes doors"})
+
+        {:ok, color} =
+          Catalogue.create_attribute(group, %{"name" => "Color", "kind" => "multi"})
+
+        {:ok, _} = Catalogue.create_attribute_value(color, %{"value" => "Punane"})
+        {:ok, _} = Catalogue.create_attribute_value(color, %{"value" => "Sinine"})
+
+        assert {:ok, %{sets: 1, values: 2}} =
+                 AttributeSets.migrate_groups_to_sets(actor_uuid: actor)
+
+        [set] = AttributeSets.list_sets()
+        [punane, sinine] = AttributeSets.list_values(set) |> Enum.sort_by(& &1.slug)
+
+        {:ok, _} = PhoenixKitEntities.EntityData.trash(punane)
+
+        {:ok, _} =
+          PhoenixKitEntities.EntityData.update(sinine, %{status: "archived"}, activity_log: false)
+
+        # Legacy group still exists in the DB (adoption never deletes it),
+        # so a repeat run (as `auto_migrate_legacy/0` fires on every
+        # Attributes-tab visit) must not top up either value back to
+        # "published" — the trashed/archived row already carries the slug.
+        assert {:ok, %{sets: 0, values: 0}} =
+                 AttributeSets.migrate_groups_to_sets(actor_uuid: actor)
+
+        all_rows =
+          PhoenixKitEntities.EntityData.list_by_entity(set.uuid, include_trashed: true)
+
+        by_slug = Enum.group_by(all_rows, & &1.slug)
+        assert Map.keys(by_slug) |> Enum.sort() == Enum.sort([punane.slug, sinine.slug])
+        assert length(by_slug[punane.slug]) == 1
+        assert length(by_slug[sinine.slug]) == 1
+
+        assert hd(by_slug[punane.slug]).status == "trashed"
+        assert hd(by_slug[sinine.slug]).status == "archived"
+      end
     end
 
     describe "auto migration" do

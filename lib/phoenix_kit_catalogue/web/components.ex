@@ -2242,9 +2242,12 @@ defmodule PhoenixKitCatalogue.Web.Components do
   attr(:attribute_map, :map,
     default: %{},
     doc:
-      "%{item_uuid => attribute_group_uuid} from " <>
-        "Catalogue.item_attribute_group_map/1 — drives the swatch indicator " <>
-        "beside the name. Computed by the caller."
+      "%{item_uuid => [%{name, labels}]} — one entry per attached attribute " <>
+        "SET (Catalogue.resolve_attribute_sets/2, the entities-backed sets, " <>
+        "not the legacy item_attribute_group_map/1), keyed by item. Drives " <>
+        "both the swatch indicator beside the name (presence only) and the " <>
+        "\"Attributes\" list column's text (`attribute_cell_text/1`). " <>
+        "Computed by the caller."
   )
 
   attr(:show_toggle, :boolean, default: true)
@@ -2522,6 +2525,27 @@ defmodule PhoenixKitCatalogue.Web.Components do
   end
 
   @doc """
+  The "Attributes" list column text for one item's attached sets (an
+  `attribute_map` entry: `[%{name, labels}]`). Each attached set
+  contributes its SELECTED value labels joined by `", "`; a set with no
+  selection (the "whole set applies" mode) falls back to the set's own
+  name, so the cell never renders blank for an attached set. Multiple
+  sets join with `"; "`. No attachment (`nil` or `[]`) → `nil` — the
+  caller renders the dash.
+  """
+  @spec attribute_cell_text([%{name: String.t(), labels: [String.t()]}] | nil) ::
+          String.t() | nil
+  def attribute_cell_text(nil), do: nil
+  def attribute_cell_text([]), do: nil
+
+  def attribute_cell_text(sets) when is_list(sets) do
+    Enum.map_join(sets, "; ", fn
+      %{name: name, labels: []} -> name
+      %{labels: labels} -> Enum.join(labels, ", ")
+    end)
+  end
+
+  @doc """
   The "Supplier price" cell text for one item's cost ranges (see
   `Catalogue.supplier_cost_ranges/1`): one supplier → `5.69`, several →
   `5.69–9.99` (min–max of the current rows). Rows priced in different
@@ -2571,6 +2595,13 @@ defmodule PhoenixKitCatalogue.Web.Components do
   attr(:edit_path, :any, default: nil)
 
   attr(:has_attributes, :boolean, default: false)
+
+  attr(:attribute_text, :string,
+    default: nil,
+    doc:
+      "Precomputed `attribute_cell_text(attribute_map[item.uuid])` — drives the \"attributes\" column."
+  )
+
   attr(:file_count, :integer, default: 0)
   attr(:columns, :list, default: ["sku", "price", "unit", "status"])
 
@@ -2636,13 +2667,8 @@ defmodule PhoenixKitCatalogue.Web.Components do
           </.table_default_cell>
         <% "attributes" -> %>
           <.table_default_cell>
-            <span
-              :if={@has_attributes}
-              title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Has attribute group")}
-            >
-              <.icon name="hero-swatch" class="w-4 h-4 text-primary/60" />
-            </span>
-            <span :if={!@has_attributes} class="text-base-content/30">—</span>
+            <span :if={@attribute_text}>{@attribute_text}</span>
+            <span :if={!@attribute_text} class="text-base-content/30">—</span>
           </.table_default_cell>
         <% "files" -> %>
           <.table_default_cell class="text-sm tabular-nums text-base-content/60">

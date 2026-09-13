@@ -2577,12 +2577,40 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       attribute_map:
         socket.assigns.attribute_map
         |> Map.drop(item_uuids)
-        |> Map.merge(Catalogue.item_attribute_group_map(item_uuids)),
+        |> Map.merge(build_attribute_map(item_uuids, loc(socket))),
       supplier_costs:
         socket.assigns.supplier_costs
         |> Map.drop(item_uuids)
         |> Map.merge(Catalogue.supplier_cost_ranges(item_uuids))
     )
+  end
+
+  # `attribute_map` used to come from the legacy `item_attribute_group_map/1`
+  # (`phoenix_kit_cat_item_attribute_groups`); real bindings live in the
+  # entities-backed attribute SETS, so it's rebuilt from the batched
+  # `resolve_attribute_sets/2` read instead — one entry per item, only
+  # for items with ≥1 attached set. Each set contributes its display
+  # name plus the labels of its currently SELECTED values (empty
+  # selection = "whole set applies", the label list is left empty and
+  # `Components.attribute_cell_text/1` falls back to the set's name).
+  defp build_attribute_map(item_uuids, locale) do
+    item_uuids
+    |> Catalogue.resolve_attribute_sets(lang: locale)
+    |> Map.new(fn {item_uuid, %{sets: sets}} -> {item_uuid, attribute_map_sets(sets)} end)
+    |> Map.reject(fn {_item_uuid, sets} -> sets == [] end)
+  end
+
+  defp attribute_map_sets(sets) do
+    Enum.map(sets, fn set ->
+      labels_by_key = Map.new(set.values, &{&1.key, &1.label})
+
+      labels =
+        set.selected
+        |> Enum.map(&Map.get(labels_by_key, &1))
+        |> Enum.reject(&is_nil/1)
+
+      %{name: set.name, labels: labels}
+    end)
   end
 
   # A supplier row changed somewhere (the item form's Suppliers tab, an
@@ -5426,14 +5454,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                     <div><.status_badge status={item.status || "unknown"} size={:xs} /></div>
                   <% "attributes" -> %>
                     <div class="text-base-content/60">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Attributes")}</div>
-                    <div>
-                      <.icon
-                        :if={Map.has_key?(@attribute_map, item.uuid)}
-                        name="hero-swatch"
-                        class="w-4 h-4 text-primary/60"
-                      />
-                      <span :if={!Map.has_key?(@attribute_map, item.uuid)}>—</span>
-                    </div>
+                    <div>{attribute_cell_text(Map.get(@attribute_map, item.uuid)) || "—"}</div>
                   <% "files" -> %>
                     <div class="text-base-content/60">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Files")}</div>
                     <div class="tabular-nums">{Map.get(@file_counts, item.uuid, 0)}</div>
@@ -5558,6 +5579,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                 item={item}
                 edit_path={@edit_path_fn}
                 has_attributes={Map.has_key?(@attribute_map, item.uuid)}
+                attribute_text={attribute_cell_text(Map.get(@attribute_map, item.uuid))}
                 file_count={Map.get(@file_counts, item.uuid, 0)}
                 columns={@items_columns}
                 extension_columns={@extension_columns}

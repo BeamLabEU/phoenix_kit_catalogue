@@ -11,6 +11,7 @@ defmodule PhoenixKitCatalogue.Web.LiveSurfacesTest do
   alias PhoenixKit.Modules.Storage
   alias PhoenixKitCatalogue.AITranslatable
   alias PhoenixKitCatalogue.Catalogue
+  alias PhoenixKitCatalogue.Catalogue.AttributeSets
   alias PhoenixKitCatalogue.Catalogue.PubSub
   alias PhoenixKitCatalogue.Test.Repo, as: TestRepo
 
@@ -201,20 +202,31 @@ defmodule PhoenixKitCatalogue.Web.LiveSurfacesTest do
     end
   end
 
-  describe "F2 — detail indicators clear when the last file / the group goes away" do
-    test "clearing an item's attribute group drops the swatch", %{conn: conn} do
-      cat = fixture_catalogue()
-      item = fixture_item(%{name: "Swatched", catalogue_uuid: cat.uuid})
-      {:ok, group} = Catalogue.create_attribute_group(%{name: "Doors"})
-      {:ok, :assigned} = Catalogue.set_item_attribute_group(item, group.uuid)
+  describe "F2 — detail indicators clear when the last file / the attribute set goes away" do
+    if Code.ensure_loaded?(PhoenixKitEntities.Managed) do
+      test "detaching an item's attribute set drops the swatch", %{conn: conn} do
+        AttributeSets.register_deletion_guard()
+        PhoenixKit.Settings.update_setting("entities_enabled", "true")
+        on_exit(fn -> PhoenixKit.Settings.update_setting("entities_enabled", "false") end)
 
-      {:ok, view, _html} = live(conn, "#{@base}/#{cat.uuid}?mode=items")
-      assert Map.has_key?(assigns(view).attribute_map, item.uuid)
-      assert render(view) =~ "Has attribute group"
+        cat = fixture_catalogue()
+        item = fixture_item(%{name: "Swatched", catalogue_uuid: cat.uuid})
+        {:ok, set} = Catalogue.create_attribute_set(%{name: "Doors"})
+        {:ok, _} = Catalogue.attach_attribute_set(item.uuid, set.uuid)
 
-      {:ok, :cleared} = Catalogue.set_item_attribute_group(item, nil)
-      refute render(view) =~ "Has attribute group"
-      refute Map.has_key?(assigns(view).attribute_map, item.uuid)
+        {:ok, view, _html} = live(conn, "#{@base}/#{cat.uuid}?mode=items")
+        assert Map.has_key?(assigns(view).attribute_map, item.uuid)
+        assert render(view) =~ "Has attribute group"
+
+        :ok = Catalogue.detach_attribute_set(item.uuid, set.uuid)
+        refute render(view) =~ "Has attribute group"
+        refute Map.has_key?(assigns(view).attribute_map, item.uuid)
+      end
+    else
+      @tag :skip
+      test "entities package lacks the Managed contract — skipped" do
+        assert true
+      end
     end
 
     test "removing an item's last document drops the paperclip count",
