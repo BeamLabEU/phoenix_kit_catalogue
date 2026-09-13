@@ -75,7 +75,10 @@ defmodule PhoenixKitCatalogue.GettextTest do
           {"Delete value", "Удалить значение", "Kustuta väärtus"},
           {"This permanently removes the value. It cannot be undone.",
            "Это навсегда удалит значение. Отменить нельзя.",
-           "See eemaldab väärtuse jäädavalt. Seda ei saa tagasi võtta."}
+           "See eemaldab väärtuse jäädavalt. Seda ei saa tagasi võtta."},
+          # The flash when that confirmed delete is refused (PR #113 review).
+          {"Failed to delete value.", "Не удалось удалить значение.",
+           "Väärtuse kustutamine ebaõnnestus."}
         ] do
       Gettext.put_locale(PhoenixKitCatalogue.Gettext, "ru")
       assert Gettext.gettext(PhoenixKitCatalogue.Gettext, msgid) == ru

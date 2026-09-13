@@ -336,7 +336,20 @@ defmodule PhoenixKitCatalogue.Web.AttributeGroupFormLive do
          {:ok, _} <- Catalogue.delete_attribute_value(value, actor_opts(socket)) do
       {:noreply, socket |> assign(:confirm_delete_value, nil) |> reload_group()}
     else
-      _ -> {:noreply, assign(socket, :confirm_delete_value, nil)}
+      # Confirmed but refused (a concurrent default flip trips the unique
+      # index): say so, rather than close the modal on a value still there.
+      {:error, _reason} ->
+        {:noreply,
+         socket
+         |> assign(:confirm_delete_value, nil)
+         |> put_flash(
+           :error,
+           Gettext.gettext(PhoenixKitCatalogue.Gettext, "Failed to delete value.")
+         )
+         |> reload_group()}
+
+      _ ->
+        {:noreply, assign(socket, :confirm_delete_value, nil)}
     end
   end
 
