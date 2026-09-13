@@ -405,7 +405,11 @@ Pointers, not docs — the moduledocs are the contract.
   CatalogueBrowse, Browse}` over `Catalogue.BrowseState` (a pure reducer). Scope
   is a security boundary fixed at init; selection is only ever for rendered
   uuids; host messages are `{:items_selected, …}`, `{:item_selector_closed, …}`,
-  `{:catalogue_browse, …}`. Read the moduledocs before touching selection,
+  `{:catalogue_browse, …}`. The modal is live while open through
+  `Web.ComponentRelay` — a per-open process that subscribes for the
+  component and delivers debounced refreshes via `send_update/3`, so hosts
+  never handle catalogue PubSub; reuse it for any other embedded component
+  that must follow the catalogue. Read the moduledocs before touching selection,
   quantities (native number input, `qty_change` / `qty_commit`), the checkbox
   column, the context header, `show_tray`, or the `show_item_details` page
   (on by default; `false` is the opt-out for exposure-sensitive embeds).
