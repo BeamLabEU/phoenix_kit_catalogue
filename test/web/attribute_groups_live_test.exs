@@ -206,6 +206,27 @@ defmodule PhoenixKitCatalogue.Web.AttributeGroupsLiveTest do
       assert Catalogue.get_attribute(attribute.uuid) == nil
     end
 
+    test "deleting a value goes through the confirm modal, and cancel keeps it",
+         %{conn: conn} do
+      group = create_group()
+      {:ok, attribute} = Catalogue.create_attribute(group, %{"name" => "Color"})
+      {:ok, value} = Catalogue.create_attribute_value(attribute, %{"value" => "White"})
+
+      {:ok, view, _html} = live(conn, "#{@base}/attributes/#{group.uuid}/edit")
+
+      # A first click only opens the confirm — the value is still there.
+      view |> render_click("request_delete_value", %{"uuid" => value.uuid})
+      assert Catalogue.get_attribute_value(value.uuid)
+
+      # Cancelling leaves it; confirming deletes it.
+      view |> render_click("cancel_delete_value", %{})
+      assert Catalogue.get_attribute_value(value.uuid)
+
+      view |> render_click("request_delete_value", %{"uuid" => value.uuid})
+      view |> render_click("confirm_delete_value", %{})
+      refute Catalogue.get_attribute_value(value.uuid)
+    end
+
     test "foreign uuids are ignored (event forgery guard)", %{conn: conn} do
       group = create_group()
       other = create_group(%{name: "Other"})
