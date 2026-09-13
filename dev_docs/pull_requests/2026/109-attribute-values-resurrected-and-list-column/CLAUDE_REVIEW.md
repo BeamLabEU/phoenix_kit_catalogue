@@ -70,17 +70,26 @@ The PR verified with `format` + `credo` only, so this never surfaced.
 **Fixed:** one `MapSet.new/1` over a list computed by a single `if`. Same
 behaviour (empty list or entities off → empty set); `mix precommit` passes.
 
-### BUG - MEDIUM (pre-existing, not fixed) — `migrate_assignments/2` re-attaches a detached set
+### BUG - MEDIUM (pre-existing) — `migrate_assignments/2` re-attaches a detached set
 
 Same shape as the value bug, flagged by the PR itself as a follow-up: a
 legacy `item_attribute_groups` row lives forever, and `attach_missing/3`
-re-attaches its migrated set on every Attributes-tab visit, so detaching
-that set from the item form does not stick. **Not fixed here:** the
-module's migration doctrine is "top-up, not created-only" (a crash between
-creating a set and attaching items must heal on the next run), so a correct
-fix needs persistent state — a detach tombstone, or marking the legacy
-assignment row as migrated once its attachment exists. That is a schema /
-data decision, not a post-merge patch.
+re-attached its migrated set on every Attributes-tab visit, so detaching
+that set from the item form did not stick. The migration doctrine is
+"top-up, not created-only" (a crash between creating a set and attaching
+items must heal on the next run), so the fix needs persistent state.
+
+**Fixed (follow-up commit, after 0.31.0):** no schema change and no write
+to the read-only legacy table. Each migrated set stamps
+`settings.catalogue.assignments_migrated_at` (the run's start) once every
+attach for it succeeded; later runs attach a legacy assignment only when
+the set has no marker or the assignment's `updated_at` is at or after it
+(a group assigned while entities was off). A failed attach leaves the set
+unmarked, so a partial run still heals. Marked re-runs also skip the
+per-item attachment read. A set migrated before the marker existed gets
+one more top-up pass on upgrade, then is marked. Pinned in
+`test/catalogue/attribute_sets_test.exs` ("a migrated set detached from an
+item is not re-attached on re-run").
 
 ### NITPICK — swatch presence differs slightly between the two branches
 
