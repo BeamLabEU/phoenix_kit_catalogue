@@ -486,7 +486,12 @@ defmodule PhoenixKitCatalogue.Catalogue do
   @spec list_catalogues(keyword()) :: [Catalogue.t()]
   def list_catalogues(opts \\ []) do
     query =
-      from(c in Catalogue, order_by: [asc: c.position, asc: fragment("lower(?)", c.name)])
+      from(c in Catalogue,
+        # Same tie-break as `Search`'s catalogue chain: two catalogues at
+        # one position with the same case-folded name must walk in the
+        # same order on the index as in the popup and the browse embed.
+        order_by: [asc: c.position, asc: fragment("lower(?)", c.name), asc: c.uuid]
+      )
 
     query =
       case Keyword.get(opts, :status) do
@@ -4473,6 +4478,33 @@ defmodule PhoenixKitCatalogue.Catalogue do
           struct when any_lang? -> {:ok, struct, matched_lang}
           struct -> {:ok, struct}
         end
+    end
+  end
+
+  @doc """
+  Whether `slug` is already projected for `lang`'s base language by an
+  item other than `opts[:exclude_uuid]`. Trashed items count: their slugs
+  stay in the projection so a restore cannot collide, which is also why
+  a generated slug must probe here rather than through `get_item_by_slug/3`.
+  The probe `Catalogue.Slugs.unique/3` runs before a generated slug is
+  written (the item form, the AI translation adapter).
+  """
+  @spec item_slug_taken?(String.t(), String.t(), keyword()) :: boolean()
+  def item_slug_taken?(slug, lang, opts \\ []) do
+    slug_taken?(@item_slugs_table, "item_uuid", slug, lang, opts[:exclude_uuid])
+  end
+
+  @doc "Category counterpart of `item_slug_taken?/3`."
+  @spec category_slug_taken?(String.t(), String.t(), keyword()) :: boolean()
+  def category_slug_taken?(slug, lang, opts \\ []) do
+    slug_taken?(@category_slugs_table, "category_uuid", slug, lang, opts[:exclude_uuid])
+  end
+
+  defp slug_taken?(table, uuid_column, slug, lang, exclude_uuid)
+       when is_binary(slug) and is_binary(lang) do
+    case query_slug(table, uuid_column, base_lang(lang), slug) do
+      nil -> false
+      {uuid, _lang} -> uuid != exclude_uuid
     end
   end
 

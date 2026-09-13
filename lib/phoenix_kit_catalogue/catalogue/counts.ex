@@ -168,6 +168,11 @@ defmodule PhoenixKitCatalogue.Catalogue.Counts do
   # is the honest shape. Filters mirror `ProductCard.list_folder_files/1`:
   # live, not system-managed, not an image. A folder with nothing
   # attached stays absent from the result, as callers test presence.
+  #
+  # A link row that names the file's OWN home folder is skipped: the
+  # listing's `home OR linked` reads such a file once, and the sum must
+  # not read it twice. The shape is real — a file linked into a folder
+  # and later re-homed there by the media manager keeps its link row.
   defp attached_document_counts(folder_uuids) do
     home =
       from(f in PhoenixKit.Modules.Storage.File,
@@ -184,6 +189,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Counts do
         on: f.uuid == fl.file_uuid,
         where: fl.folder_uuid in ^folder_uuids,
         where: f.status != "trashed" and f.system_managed == false and f.file_type != "image",
+        where: is_nil(f.folder_uuid) or f.folder_uuid != fl.folder_uuid,
         group_by: fl.folder_uuid,
         select: {fl.folder_uuid, count(f.uuid)}
       )

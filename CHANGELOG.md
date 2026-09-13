@@ -1,3 +1,185 @@
+## 0.30.0 - 2026-09-13
+
+### Added
+
+- `Attachments.list_folder_files/2` and `folder_files_query/1` — the one
+  reader of a resource's attached files: the folder's home files PLUS
+  anything linked in via `FolderLink`, live, oldest first, capped at 200,
+  with `:file_type`, `:exclude_file_type` and `:exclude_system_managed`
+  filters applied in SQL so the cap cannot eat the rows a caller wanted.
+  The product card, the paperclip counts and `Duplication` read through
+  it (#112).
+- `Web.ComponentRelay` — a per-open process that holds the catalogue
+  PubSub subscription for a LiveComponent and delivers one debounced
+  refresh per burst through `send_update/3`, with an ack/abandon protocol
+  and a monitor on the host. The item-selector popup uses it to stay live
+  while open; any other embedded component that must follow the catalogue
+  can reuse it (#112).
+- `Catalogue.BrowseState` `:refresh` command — re-reads every page the
+  user has loaded as one fetch (same search, catalogue and category) and
+  keeps paging from the page reached (#112).
+- `Catalogue.update_catalogue/3` honours `:data_owned_keys` like
+  `update_item/3` and `update_category/3`: the row is re-read `FOR
+  UPDATE` and only the listed `data` keys are taken from the caller
+  (#112).
+- Attribute and value mutations (`update_attribute/3`,
+  `reorder_attributes/3`, `create_attribute_value/3`,
+  `update_attribute_value/3`, `delete_attribute_value/2`,
+  `set_default_value/2`, `reorder_attribute_values/3`) take `opts` and
+  write activity rows (`attribute_group.attribute_updated`,
+  `attribute_group.attributes_reordered`, `attribute.value_added`,
+  `attribute.value_updated`, `attribute.value_removed`,
+  `attribute.default_set`, `attribute.values_reordered`). The old
+  arities keep working through the default (#112).
+- `Import.Pro100Plan.data_owned_keys/1` — the `data` keys an update
+  change actually writes, so Apply is an owned-key write (#112).
+- `Web.Helpers.trim_param/1` and `narrow_new_data/2` — client-payload
+  guards shared by the form LiveViews (#112).
+- `Catalogue.item_slug_taken?/3`, `Catalogue.category_slug_taken?/3` and
+  `Catalogue.Slugs.unique/3`; `Slugs.maybe_generate/3` accepts
+  `:taken?` (week review, see Fixed).
+- Errors: `Errors.message/1` renders a rescued exception as a translated
+  "Unexpected error" line instead of `inspect`ing SQL into the flash
+  (#112).
+
+### Changed
+
+- **Attachment writes land at once, not at Save.** A drop reorder, a
+  removal and the first upload of an existing item, category or
+  catalogue are persisted immediately as owned-key writes, and the
+  resource's `files_folder_uuid` pointer follows the first upload — so
+  the product card, the popup's details page and the paperclip counts
+  agree with the editor without a Save. A same-place drop writes
+  nothing; a reorder made in another tab reaches an open form through
+  its broadcast instead of being clobbered on Save (#112).
+- A content-duplicate upload is reported ("… is identical to …, which is
+  already attached — nothing was added") instead of silently doing
+  nothing; a trashed duplicate is restored and attached as if fresh; a
+  duplicate that lives elsewhere is linked in. A link is only ever
+  re-homed into a live folder (#112).
+- The catalogue, category and item forms subscribe to the catalogue
+  topic and refresh their files grid on their own resource's broadcast;
+  typed fields are untouched (#112).
+- The item-selector popup is live while open: prices, names, trashed
+  items, reordered or renamed categories and catalogues, and the shared
+  sort reach it in place; the user's search, level, scroll, selection
+  and drafts stay (#112).
+- The item supplier broadcast carries the item's catalogue as its
+  parent; `CatalogueDetailLive` ignores supplier events for other
+  catalogues instead of re-running the cost aggregate (#112).
+- The supplier-fields blueprint is edited under a `FOR UPDATE` row lock,
+  so two admins adding fields at once cannot lose one (#112).
+- A caller's `mode:` (the importer's `"auto"`) now reaches the activity
+  row for every catalogue, category, item and folder mutation, not only
+  `create_item/2` (#112).
+- The PDF library no longer hands a file to the trash when the last
+  library row goes if that file is some resource's attachment (home or
+  link) — Storage de-duplicates by content across the store (#112).
+- `GET /admin/catalogue/export/download` returns 400 for a
+  `catalogue_uuids` entry that is not a canonical uuid, instead of
+  silently dropping it and handing back a partial export (#112).
+- The catalogue detail tree remembers which parents are open in the
+  browser (`data-tree-memory-key`, restored on mount), and a category
+  move says where the category went ("moved into %{name}" / "to the top
+  level") (#112).
+- The Events page translates the mode and resource-type badges and the
+  "System" actor; `format_time_ago/1` is the shared helper (#112).
+- `CatalogueFormLive` and `CategoryFormLive` subscribe in `mount/3`;
+  the category form no longer runs a position query at mount for a
+  field it never renders (#112).
+- Dependency lockfile advances (no `mix.exs` constraint changes):
+  `phoenix_kit` 2.22.23 → 2.22.24.
+
+### Fixed
+
+- **An AI translation started from the item or category form no longer
+  overwrites a hand-corrected translation on the next Save.** The worker
+  persists a narrowed, sanitized write (a `:fresh` field is skipped, a
+  leaked model note is cut) but broadcasts the raw model output, and the
+  form binding applied that raw payload to the live changeset — which
+  every language tab then saved as an owned key, with the fingerprint
+  still saying fresh. `AITranslateBinding.apply_translation/4` now takes
+  each field from the row the worker just wrote and only falls back to
+  the (sanitized) payload for a field the row has nothing for (week
+  review, 2026-09-13).
+- **A generated slug that another item or category already holds gets a
+  `-2`, `-3`, … suffix instead of failing Save.** Slug uniqueness is one
+  scope per entity kind across every catalogue, trashed rows included,
+  and the forms generated deterministically; a second "Oak panel" in
+  another catalogue, or a "Vase" re-created after its predecessor was
+  trashed, failed with "is already taken" on a field the user never
+  typed. `Catalogue.item_slug_taken?/3` / `category_slug_taken?/3` probe
+  the projection directly, `Catalogue.Slugs.unique/3` is the one suffix
+  loop, `Slugs.maybe_generate/3` takes a `:taken?` probe that both forms
+  pass, and the AI adapter uses the same probe (week review).
+- `Extensions.absorb/3` no longer crashes the item/category form when an
+  extension's `cast_item/2` / `cast_category/2` raises, throws, exits or
+  returns a foreign shape: the failure is logged and that extension's
+  namespace keeps its current value for the save (week review).
+- `Extensions.all/0` drops an extension whose `key/0` would collide with
+  a catalogue-owned `data` key — not a non-empty string, underscore-
+  prefixed, shaped like a language code, or one of `meta`,
+  `files_folder_uuid`, `featured_image_uuid`, `media_order`, `pro100`,
+  `original_unit`, `seo`, `slug`, `selected_value_slugs` — logging it
+  once per process. An extension keyed `"en-US"` would otherwise have
+  replaced the English translations on every save (week review).
+- Extension column cells render once per row: the guard that probes an
+  extension's `render/1` for a raise now hands the template the
+  already-safe iodata instead of the struct it would evaluate a second
+  time (week review).
+- `Catalogue.list_catalogues/1` tie-breaks on uuid like `Search`'s
+  catalogue chain, so tied catalogues walk in the same order on the
+  index as in the popup and the browse embed (week review).
+- The test harness replays this module's migration chain against
+  `Migrations.current_version/0` instead of a hard-coded `2`, so a V3
+  cannot silently go unapplied on an already-stamped test database.
+- The paperclip count no longer double-counts a file that has a home in
+  a folder AND a `FolderLink` row for the same folder (a file linked in
+  and later re-homed there by the media manager keeps its link row). The
+  link query now excludes rows naming the file's own home, so the count
+  is the listing's cardinality (post-merge review of #112).
+- The category form's "moved into" flash localizes the destination name
+  like the detail page's does, instead of showing the primary-language
+  column (post-merge review of #112).
+- A featured image trashed since its pointer was written no longer comes
+  back as a ghost at the head of the files grid (#112).
+- A failed folder read keeps the last files list instead of showing an
+  empty grid that Save would then persist as "no files" (#112).
+- `attach_files/3` no longer writes `nil` over an existing
+  `featured_image_uuid` or `media_order` when called with an empty list
+  or `featured: nil`; it keeps every data key it does not own (#112).
+- `bulk_restore_items/2` treats a rolled-back batch as a result (count 0,
+  `db_pending` audit row) instead of raising a `MatchError` (#112).
+- Crafted event payloads — a list where a string was expected in a
+  rename, search or add-value field, a non-numeric column index in the
+  import wizard, a non-string `category_uuid`, a `data:` mapping target
+  that could write cell content into reserved `data` keys, a non-string
+  supplier-field choice index — are ignored or refused instead of
+  crashing the LiveView (#112).
+- A create from the item, category or catalogue form keeps only the
+  `data` keys the form owns, so a crafted payload cannot seed translation
+  fingerprints or attachment pointers (#112).
+- `Components.featured_image_uuid/1` and the item picker accept only the
+  canonical uuid form, since the value is interpolated into a URL path
+  (#112).
+- The import executor logs a category it could not create instead of
+  silently uncategorizing every row that named it (#112).
+- `CrmLink`'s "already linked" changeset carries `action: :insert` so the
+  form renders its error (#112).
+- Enqueueing buttons on the item form, the PDF library and the
+  Translations page carry `phx-disable-with` (#112).
+- `reorder_staged_sets` keeps a stale-DOM duplicate's latest position
+  instead of snapping the drag back (#112).
+
+### Removed
+
+- `Catalogue.move_item_and_reorder_destination/4` — no caller in this
+  module or any sibling; the DnD path calls `move_item_to_category/3` and
+  `reorder_items/4` separately. The private in-transaction reorder
+  variant went with it (#112).
+- The `Catalogue.attribute_set_valid_selection/2` delegate — a duplicate
+  of `valid_attribute_set_selection/2`, which stays (#112).
+
 ## 0.29.1 - 2026-09-12
 
 ### Fixed

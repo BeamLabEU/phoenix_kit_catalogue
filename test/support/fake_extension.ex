@@ -284,6 +284,61 @@ defmodule PhoenixKitCatalogue.Test.BadKeyExtension do
   def category_columns, do: item_columns()
 end
 
+defmodule PhoenixKitCatalogue.Test.RaisingCastExtension do
+  @moduledoc """
+  A well-formed extension whose `cast_item/2` raises and whose
+  `cast_category/2` returns a shape that is neither `{:ok, _}` nor
+  `{:error, _}` — `PhoenixKitCatalogue.Extensions.absorb/3` runs on every
+  `validate`, so either used to crash the form on the first keystroke.
+  """
+
+  @behaviour PhoenixKitCatalogue.Extension
+
+  @impl true
+  def key, do: "raising"
+
+  @impl true
+  def enabled?, do: true
+
+  @impl true
+  def cast_item(_params, _current), do: raise("cast exploded")
+
+  @impl true
+  def cast_category(_params, _current), do: :not_a_result
+end
+
+defmodule PhoenixKitCatalogue.Test.ReservedKeyExtension do
+  @moduledoc """
+  A `key/0` that names a multilang bucket (`"en-US"`) — `absorb/3`
+  would write the extension's namespace over the English translations
+  on every save, so `PhoenixKitCatalogue.Extensions.all/0` must drop it.
+  """
+
+  @behaviour PhoenixKitCatalogue.Extension
+
+  @impl true
+  def key, do: "en-US"
+
+  @impl true
+  def enabled?, do: true
+
+  @impl true
+  def cast_item(_params, _current), do: {:ok, %{}}
+
+  @impl true
+  def cast_category(_params, _current), do: {:ok, %{}}
+end
+
+defmodule PhoenixKitCatalogue.Test.HostileCastModule do
+  @moduledoc "Registry carrier for `RaisingCastExtension`, `ReservedKeyExtension` and `FakeExtension`."
+
+  alias PhoenixKitCatalogue.Test.FakeExtension
+  alias PhoenixKitCatalogue.Test.RaisingCastExtension
+  alias PhoenixKitCatalogue.Test.ReservedKeyExtension
+
+  def catalogue_extensions, do: [RaisingCastExtension, ReservedKeyExtension, FakeExtension]
+end
+
 defmodule PhoenixKitCatalogue.Test.DelimiterModule do
   @moduledoc "Registry carrier for `BadIdExtension` and `BadKeyExtension` (see `FakeModule`)."
 

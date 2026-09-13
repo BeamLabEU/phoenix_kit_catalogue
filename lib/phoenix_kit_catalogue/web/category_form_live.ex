@@ -205,10 +205,17 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
           existing_slug
       end
 
+    # `taken?` — see the item form: a generated slug another category
+    # (or a trashed one) already holds gets a `-2` suffix.
+    own_uuid = socket.assigns.category.uuid
+
     generated_slug =
       socket.assigns.category
       |> Catalogue.change_category(Map.put(params, "slug", merged_slug))
-      |> Slugs.maybe_generate(:slug, from: :name)
+      |> Slugs.maybe_generate(:slug,
+        from: :name,
+        taken?: &Catalogue.category_slug_taken?(&1, &2, exclude_uuid: own_uuid)
+      )
       |> Ecto.Changeset.get_field(:slug)
 
     Map.put(params, "slug", generated_slug || merged_slug)
@@ -449,7 +456,7 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
          socket
          |> assign(:category, updated)
          |> assign(:parent_options, parent_options_for(:edit, updated, updated.catalogue_uuid))
-         |> put_flash(:info, moved_flash(target))}
+         |> put_flash(:info, moved_flash(socket, target))}
 
       {:error, :would_create_cycle} ->
         {:noreply,
@@ -523,18 +530,20 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
   # actor_opts/1 imported from PhoenixKitCatalogue.Web.Helpers
 
   # Name the destination: "moved" alone left the client hunting for
-  # the category on the level she came from (2026-08-31).
-  defp moved_flash(nil),
+  # the category on the level she came from (2026-08-31). The name is
+  # localized like the detail page's flash, not the primary-language
+  # column.
+  defp moved_flash(_socket, nil),
     do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Category moved to the top level.")
 
-  defp moved_flash(target_uuid) do
+  defp moved_flash(socket, target_uuid) do
     case Catalogue.get_category(target_uuid) do
       nil ->
         Gettext.gettext(PhoenixKitCatalogue.Gettext, "Category moved.")
 
       target ->
         Gettext.gettext(PhoenixKitCatalogue.Gettext, "Category moved into %{name}.",
-          name: target.name
+          name: Catalogue.localize_one(target, socket.assigns[:current_locale]).name
         )
     end
   end

@@ -188,6 +188,20 @@ defmodule PhoenixKitCatalogue.Web.Components.ProductCardDBTest do
       assert Catalogue.attached_file_counts([item])[item.uuid] == 2
     end
 
+    test "a link row naming the file's own home folder counts it once", %{user_uuid: user} do
+      # A file linked into a folder and later re-homed there (the media
+      # manager moves the row, the link stays) is read once by the
+      # listing's `home OR linked`; the paperclip must agree, not say 2.
+      home = create_folder(user)
+      pdf = insert_image(user, home, "spec.pdf", file_type: "document", ext: "pdf")
+      link!(pdf, home)
+
+      item = %Item{uuid: UUIDv7.generate(), data: %{"files_folder_uuid" => home}}
+
+      assert item |> ProductCard.resolve_files() |> Enum.map(& &1.uuid) == [pdf]
+      assert Catalogue.attached_file_counts([item])[item.uuid] == 1
+    end
+
     test "the card's documents survive the grid cap: the type filter runs in SQL", %{
       user_uuid: user
     } do

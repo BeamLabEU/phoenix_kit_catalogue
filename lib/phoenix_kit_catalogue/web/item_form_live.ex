@@ -349,10 +349,19 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
           existing_slug
       end
 
+    # `taken?` — a generated slug already projected for that language
+    # (another catalogue's "Oak panel", a trashed predecessor) gets a
+    # `-2` suffix instead of failing Save on a field the user never
+    # typed; the item's own rows are not a collision.
+    own_uuid = socket.assigns.item.uuid
+
     generated_slug =
       socket.assigns.item
       |> Catalogue.change_item(Map.put(params, "slug", merged_slug))
-      |> Slugs.maybe_generate(:slug, from: :name)
+      |> Slugs.maybe_generate(:slug,
+        from: :name,
+        taken?: &Catalogue.item_slug_taken?(&1, &2, exclude_uuid: own_uuid)
+      )
       |> Ecto.Changeset.get_field(:slug)
 
     Map.put(params, "slug", generated_slug || merged_slug)
