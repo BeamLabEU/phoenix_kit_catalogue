@@ -2,8 +2,9 @@ defmodule PhoenixKitCatalogue.Web.Settings do
   @moduledoc """
   Read/write helpers for the catalogue AI-translation sweep's operational
   settings (block-6 plan, Task 4). `PhoenixKitCatalogue.Workers.TranslationSweepWorker`
-  reads these on every tick; the `/admin/catalogue/translations` page (Task 5,
-  not yet built) will write them from its operator panel.
+  reads these on every tick. Nothing in this module's own UI writes them
+  yet — the `/admin/catalogue/translations` page has no settings panel —
+  so enabling the sweep is an operator (or host) call into `update_*`.
 
   Kept as a thin module rather than folding the keys into
   `PhoenixKitCatalogue` itself: the worker only ever reads, a future page
