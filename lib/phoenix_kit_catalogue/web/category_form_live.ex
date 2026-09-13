@@ -17,6 +17,7 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
 
   import PhoenixKitCatalogue.Web.Helpers,
     only: [
+      narrow_new_data: 2,
       actor_opts: 1,
       assign_ai_translation: 3,
       ai_translate_config: 1,
@@ -34,6 +35,7 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
   alias PhoenixKit.Utils.Values
   alias PhoenixKitCatalogue.Attachments
   alias PhoenixKitCatalogue.Catalogue
+  alias PhoenixKitCatalogue.Catalogue.PubSub
   alias PhoenixKitCatalogue.Catalogue.Slugs
   alias PhoenixKitCatalogue.Extensions
   alias PhoenixKitCatalogue.Paths
@@ -69,18 +71,20 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
   def mount(params, _session, socket) do
     action = socket.assigns.live_action
 
+    # Subscribe before the read so a write landing in between is not
+    # dropped; the files grid follows the resource's broadcasts.
+    if connected?(socket), do: PubSub.subscribe()
+
     {category, changeset, catalogue_uuid} =
       case action do
         :new ->
           catalogue_uuid = params["catalogue_uuid"]
           parent_uuid = Values.blank_to_nil(params["parent_uuid"])
-          next_pos = Catalogue.next_category_position(catalogue_uuid, parent_uuid)
 
-          cat = %Category{
-            catalogue_uuid: catalogue_uuid,
-            parent_uuid: parent_uuid,
-            position: next_pos
-          }
+          # No position here: the form renders no position field and
+          # `create_category/2` computes it at insert time, so a mount-time
+          # query was thrown away on every render.
+          cat = %Category{catalogue_uuid: catalogue_uuid, parent_uuid: parent_uuid}
 
           {cat, Catalogue.change_category(cat), catalogue_uuid}
 
@@ -445,10 +449,7 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
          socket
          |> assign(:category, updated)
          |> assign(:parent_options, parent_options_for(:edit, updated, updated.catalogue_uuid))
-         |> put_flash(
-           :info,
-           Gettext.gettext(PhoenixKitCatalogue.Gettext, "Category moved.")
-         )}
+         |> put_flash(:info, moved_flash(target))}
 
       {:error, :would_create_cycle} ->
         {:noreply,
@@ -494,6 +495,17 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
   def handle_info({:media_selector_closed}, socket),
     do: {:noreply, Attachments.close_media_selector(socket)}
 
+  # This category changed elsewhere (an upload, a removal, a photo
+  # reorder in another tab): re-read the files grid, which is the one
+  # thing this form shows from the DB; typed fields stay as they are.
+  def handle_info(
+        {:catalogue_data_changed, :category, uuid, _parent},
+        %{assigns: %{category: %{uuid: category_uuid}}} = socket
+      )
+      when is_binary(uuid) and uuid == category_uuid do
+    {:noreply, Attachments.refresh_files(socket)}
+  end
+
   # Catch-all so stray monitor signals or unrelated PubSub traffic
   # can't crash the form mid-edit.
   def handle_info(msg, socket) do
@@ -510,7 +522,26 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
 
   # actor_opts/1 imported from PhoenixKitCatalogue.Web.Helpers
 
+  # Name the destination: "moved" alone left the client hunting for
+  # the category on the level she came from (2026-08-31).
+  defp moved_flash(nil),
+    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Category moved to the top level.")
+
+  defp moved_flash(target_uuid) do
+    case Catalogue.get_category(target_uuid) do
+      nil ->
+        Gettext.gettext(PhoenixKitCatalogue.Gettext, "Category moved.")
+
+      target ->
+        Gettext.gettext(PhoenixKitCatalogue.Gettext, "Category moved into %{name}.",
+          name: target.name
+        )
+    end
+  end
+
   defp save_category(socket, :new, params, mode) do
+    params = narrow_new_data(params, data_owned_keys(socket, @category_extra_owned_data_keys))
+
     case Catalogue.create_category(params, actor_opts(socket)) do
       {:ok, category} ->
         _ = Attachments.maybe_rename_pending_folder(socket, category)
@@ -744,7 +775,7 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
             </div>
 
             <%!-- No manual Position field: a new category appends to its
-                 level (next_category_position at mount) and ordering is
+                 level (the position is computed at insert) and ordering is
                  drag-managed on the catalogue detail page — same as
                  catalogues and items. --%>
 

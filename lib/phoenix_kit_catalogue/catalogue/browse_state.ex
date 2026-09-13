@@ -110,6 +110,7 @@ defmodule PhoenixKitCatalogue.Catalogue.BrowseState do
       like the admin's Manual sort. `nil` (default) behaves as
       `{:position, :asc}`.
   """
+  @spec init(keyword()) :: t()
   def init(opts \\ []) do
     drill = opts[:drill] || :subtree
 
@@ -167,7 +168,13 @@ defmodule PhoenixKitCatalogue.Catalogue.BrowseState do
       restricts categories or carries its own `:only` — scope only ever
       narrows.
     * `:load_more` — next page. No-op while loading or exhausted.
+    * `:refresh` — re-read everything the user is looking at, in place:
+      the same search, catalogue and category, and every page loaded so
+      far as ONE fetch (offset 0, limit `(page + 1) × per_page`), so a
+      live update never throws a scrolled user back to page one. Paging
+      continues from the same page afterwards.
   """
+  @spec command(t(), term()) :: {t(), :noop | {:fetch, keyword(), non_neg_integer()}}
   def command(state, :reset) do
     fetch(%{state | search: "", catalogue_uuid: nil, category_uuid: nil})
   end
@@ -238,6 +245,13 @@ defmodule PhoenixKitCatalogue.Catalogue.BrowseState do
 
   def command(state, {:set_catalogue, _}), do: {state, :noop}
 
+  def command(%{page: page} = state, :refresh) do
+    {state, {:fetch, opts, gen}} = fetch(state)
+    # fetch/1 rewinds to page 0; the refresh re-reads through the page
+    # the user reached and keeps paging from there.
+    {%{state | page: page}, {:fetch, Keyword.put(opts, :limit, (page + 1) * state.per_page), gen}}
+  end
+
   def command(%{loading?: true} = state, :load_more), do: {state, :noop}
   def command(%{exhausted?: true} = state, :load_more), do: {state, :noop}
 
@@ -270,6 +284,7 @@ defmodule PhoenixKitCatalogue.Catalogue.BrowseState do
   re-serve a row when the sort shifts between fetches, and a duplicate card
   (same DOM id twice) is worse than a briefly missing one.
   """
+  @spec ingest(t(), non_neg_integer(), [map()], non_neg_integer()) :: t()
   def ingest(%{gen: gen} = state, gen, items, total) do
     fresh = Enum.reject(items, &MapSet.member?(state.known_uuids, uuid_of(&1)))
     all = state.items ++ fresh
@@ -290,6 +305,7 @@ defmodule PhoenixKitCatalogue.Catalogue.BrowseState do
   The `Search.search_items/2` opts for the current state — always derived
   from the immutable scope, never from anything a client event set directly.
   """
+  @spec query_opts(t()) :: keyword()
   def query_opts(state) do
     base = Map.take(state.scope, [:catalogue_uuids, :only, :statuses, :include_descendants])
 

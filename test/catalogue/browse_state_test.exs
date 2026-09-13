@@ -15,6 +15,53 @@ defmodule PhoenixKitCatalogue.Catalogue.BrowseStateTest do
 
   defp opts_map({_state, {:fetch, opts, _gen}}), do: Map.new(opts)
 
+  describe ":refresh re-reads in place" do
+    test "keeps search and level, covers every loaded page in one fetch, pages on from there" do
+      state = BrowseState.init(scope: %{catalogue_uuids: ["cat-1"]}, per_page: 2)
+      {state, _} = BrowseState.command(state, {:search, "screw"})
+      state = BrowseState.ingest(state, state.gen, [item("a"), item("b")], 5)
+      {state, _} = BrowseState.command(state, :load_more)
+      state = BrowseState.ingest(state, state.gen, [item("c"), item("d")], 5)
+      assert state.page == 1
+
+      {refreshed, {:fetch, opts, gen}} = BrowseState.command(state, :refresh)
+
+      assert gen == state.gen + 1
+      assert opts[:search] == nil or opts[:search] == "screw"
+      assert refreshed.search == "screw"
+      assert refreshed.page == 1
+      assert opts[:offset] == 0
+      assert opts[:limit] == 4, "both loaded pages in one read"
+      assert refreshed.items == []
+      assert refreshed.loading?
+
+      # The re-read replaces the accumulator and paging continues after it.
+      refreshed =
+        BrowseState.ingest(refreshed, gen, [item("a"), item("c"), item("d"), item("e")], 5)
+
+      assert Enum.map(refreshed.items, & &1.uuid) == ["a", "c", "d", "e"]
+      refute refreshed.exhausted?
+
+      {next, {:fetch, next_opts, _}} = BrowseState.command(refreshed, :load_more)
+      assert next.page == 2
+      assert next_opts[:offset] == 4
+    end
+
+    test "a refresh that comes back short is exhausted, like any page" do
+      state = BrowseState.init(scope: %{}, per_page: 2)
+      {state, _} = BrowseState.command(state, :reset)
+      state = BrowseState.ingest(state, state.gen, [item("a"), item("b")], 3)
+      {state, _} = BrowseState.command(state, :load_more)
+      state = BrowseState.ingest(state, state.gen, [item("c")], 3)
+
+      {refreshed, {:fetch, _opts, gen}} = BrowseState.command(state, :refresh)
+      refreshed = BrowseState.ingest(refreshed, gen, [item("a"), item("c")], 2)
+
+      assert refreshed.exhausted?
+      assert {_, :noop} = BrowseState.command(refreshed, :load_more)
+    end
+  end
+
   describe "scope is a boundary" do
     test "catalogue_uuids and :only survive every command that fetches" do
       scope = %{

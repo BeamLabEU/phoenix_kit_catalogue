@@ -698,6 +698,7 @@ defmodule PhoenixKitCatalogue.Web.TranslationsLive do
           <button
             type="button"
             phx-click="bulk_translate_missing"
+            phx-disable-with={gettext("Working...")}
             data-confirm={bulk_confirm(@counts, :missing)}
             class="btn btn-sm btn-outline"
             disabled={Map.get(@counts, :missing, 0) == 0}
@@ -707,6 +708,7 @@ defmodule PhoenixKitCatalogue.Web.TranslationsLive do
           <button
             type="button"
             phx-click="bulk_retranslate_stale"
+            phx-disable-with={gettext("Working...")}
             data-confirm={bulk_confirm(@counts, :stale)}
             class="btn btn-sm btn-outline"
             disabled={Map.get(@counts, :stale, 0) == 0}
@@ -754,6 +756,7 @@ defmodule PhoenixKitCatalogue.Web.TranslationsLive do
                   <button
                     type="button"
                     phx-click="translate"
+            phx-disable-with={gettext("Working...")}
                     phx-value-type={row.type}
                     phx-value-uuid={row.uuid}
                     phx-value-lang={row.lang}
@@ -765,6 +768,7 @@ defmodule PhoenixKitCatalogue.Web.TranslationsLive do
                   <button
                     type="button"
                     phx-click="stamp_fresh"
+            phx-disable-with={gettext("Working...")}
                     phx-value-type={row.type}
                     phx-value-uuid={row.uuid}
                     phx-value-lang={row.lang}
