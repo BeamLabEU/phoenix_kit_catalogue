@@ -984,6 +984,51 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSetsTest do
         assert Enum.sort(selected) == Enum.sort([red.slug, blue.slug])
       end
 
+      test "prunes each orphan slug via an atomic per-slug UPDATE, not a snapshot overwrite" do
+        # Review finding: the old version read every attachment's full
+        # selection into `kept`, then overwrote the WHOLE array with it —
+        # a selection saved between that read and the write would be
+        # lost. The fix removes each orphan slug with the same atomic
+        # jsonb `-` UPDATE `delete_value/3` already uses (WHERE the row
+        # actually carries the slug), so a concurrent write to any OTHER
+        # slug on the same row can never be clobbered. This pins that
+        # atomicity at the SQL level: one UPDATE per orphan slug, using
+        # the `-` remove-key operator, never a whole-array
+        # `to_jsonb(?::text[])` replace.
+        actor = Ecto.UUID.generate()
+        set = create_set!("Ikea veneers atomic")
+        {:ok, red} = AttributeSets.create_value(set, %{label: "Red"}, actor_uuid: actor)
+        {:ok, green} = AttributeSets.create_value(set, %{label: "Green"}, actor_uuid: actor)
+
+        item_a = fixture_item(%{name: "Door A"})
+        item_b = fixture_item(%{name: "Door B"})
+        {:ok, _} = AttributeSets.attach_set(item_a.uuid, set.uuid)
+        {:ok, _} = AttributeSets.attach_set(item_b.uuid, set.uuid)
+
+        :ok =
+          AttributeSets.set_attachment_selection(item_a.uuid, set.uuid, [red.slug, green.slug])
+
+        :ok = AttributeSets.set_attachment_selection(item_b.uuid, set.uuid, [green.slug])
+
+        {:ok, _} = PhoenixKitEntities.EntityData.delete(green, activity_log: false)
+
+        queries = query_texts(fn -> AttributeSets.prune_orphan_value_slugs(set.uuid) end)
+
+        update_queries =
+          Enum.filter(queries, &(String.contains?(&1, "UPDATE") and &1 =~ "item_attribute_sets"))
+
+        # One orphan slug ⇒ one UPDATE, even though it touches two rows —
+        # the whole point of a set-based atomic UPDATE over a per-row loop.
+        assert length(update_queries) == 1
+        assert Enum.all?(update_queries, &String.contains?(&1, "jsonb_set"))
+        refute Enum.any?(update_queries, &String.contains?(&1, "to_jsonb"))
+
+        [att_a] = AttributeSets.list_attachments(item_a.uuid)
+        [att_b] = AttributeSets.list_attachments(item_b.uuid)
+        assert att_a.data["selected_value_slugs"] == [red.slug]
+        assert att_b.data["selected_value_slugs"] == []
+      end
+
       test "no-op for a uuid that isn't a catalogue set" do
         assert AttributeSets.prune_orphan_value_slugs(Ecto.UUID.generate()) == 0
         assert AttributeSets.prune_orphan_value_slugs("not-a-uuid") == 0
