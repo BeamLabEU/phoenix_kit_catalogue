@@ -2029,6 +2029,10 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
 
     with :ok <- validate_category_scope(params, socket),
          {:ok, item} <- Catalogue.create_item(params, actor_opts(socket)),
+         # Translations the form already holds (a value-mode AI translate,
+         # a typed secondary name) were made against this source: stamp
+         # them fresh rather than leaving the new row `:unknown`.
+         item = PhoenixKitCatalogue.TranslationStatus.stamp_all_translated(item),
          {:ok, _rules} <- maybe_put_rules(socket, item),
          :ok <- Attachments.maybe_rename_pending_folder(socket, item) do
       apply_attribute_assignment(socket, item)

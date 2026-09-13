@@ -96,7 +96,13 @@ defmodule PhoenixKitCatalogue.Catalogue.Search do
   # index's own tie-break (`lower(name)`), so the two agree. Within one
   # catalogue the leading keys are constant; within one category the
   # category key is too.
-  defp apply_search_order(query, :position),
+  # Public (`@doc false`) so the browse-sort vocabulary conformance test
+  # can build every clause without a database, not only the DB-backed
+  # coverage test — a field added to the two static lists but not here
+  # must fail on a machine with no Postgres too.
+  @doc false
+  @spec apply_search_order(Ecto.Query.t(), term()) :: Ecto.Query.t()
+  def apply_search_order(query, :position),
     do:
       order_by(query, [i, cat, c],
         asc_nulls_last: cat.position,
@@ -108,21 +114,21 @@ defmodule PhoenixKitCatalogue.Catalogue.Search do
         asc: i.uuid
       )
 
-  defp apply_search_order(query, {:position, _dir}), do: apply_search_order(query, :position)
+  def apply_search_order(query, {:position, _dir}), do: apply_search_order(query, :position)
 
   # Directional field sorts — the admin's `item_order_by/3` vocabulary
   # (the module's shared sort names one of these when it isn't Manual),
   # same uuid tie-break so paging stays deterministic.
-  defp apply_search_order(query, {field, dir})
-       when field in ~w(name sku base_price status)a and dir in [:asc, :desc],
-       do: order_by(query, [i, _cat, _c], [{^dir, field(i, ^field)}, {:asc, i.uuid}])
+  def apply_search_order(query, {field, dir})
+      when field in ~w(name sku base_price status)a and dir in [:asc, :desc],
+      do: order_by(query, [i, _cat, _c], [{^dir, field(i, ^field)}, {:asc, i.uuid}])
 
-  defp apply_search_order(query, :name),
+  def apply_search_order(query, :name),
     do: order_by(query, [i, _cat, _c], asc: i.name, asc: i.uuid)
 
   # Loud, not lenient: the old catch-all turned a misspelt sort into a
   # silent name order. A host passing junk now learns the vocabulary.
-  defp apply_search_order(_query, other) do
+  def apply_search_order(_query, other) do
     raise ArgumentError,
           "search_items/2 :order must be :position, :name, or {field, :asc | :desc} " <>
             "with field in [:name, :sku, :base_price, :status], got: #{inspect(other)}"

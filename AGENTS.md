@@ -452,7 +452,7 @@ Release procedure (the steps the maintainer runs):
 4. `mix hex.publish`.
 5. Tag, matching the form of the newest existing tag (`git tag --sort=-creatordate | head -1` shows it), and push the tag.
 6. No GitHub release. `gh release list` stops at v0.19.0 (2026-08-24) even
-   though tags have continued through v0.30.0 — releases since then have
+   though tags have continued through v0.30.1 — releases since then have
    never gotten a `gh release create`, and the CHANGELOG entry is the release
    note instead. Don't create one from the mere presence of older releases in
    the list; that's the same regression this file previously carried before

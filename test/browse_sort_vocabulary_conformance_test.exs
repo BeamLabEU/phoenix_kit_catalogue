@@ -24,8 +24,32 @@ defmodule PhoenixKitCatalogue.BrowseSortVocabularyConformanceTest do
 
   use ExUnit.Case, async: true
 
+  import Ecto.Query, only: [from: 2]
+
   alias PhoenixKitCatalogue.Catalogue.BrowseState
+  alias PhoenixKitCatalogue.Catalogue.Search
+  alias PhoenixKitCatalogue.Schemas.Item
   alias PhoenixKitCatalogue.Web.TableConfig
+
+  # The three bindings `search_items_base/2` establishes, built without a
+  # database: an ORDER BY clause that references a binding or a column
+  # that is not there fails right here, at query-build time.
+  defp base_query do
+    from(i in Item,
+      left_join: cat in assoc(i, :catalogue),
+      left_join: c in assoc(i, :category)
+    )
+  end
+
+  test "Search has an ORDER BY for every field in the vocabulary, in both directions" do
+    for field <- BrowseState.order_fields(), dir <- [:asc, :desc] do
+      assert %Ecto.Query{order_bys: [_ | _]} =
+               Search.apply_search_order(base_query(), {field, dir})
+    end
+
+    assert %Ecto.Query{order_bys: [_ | _]} = Search.apply_search_order(base_query(), :position)
+    assert_raise ArgumentError, fn -> Search.apply_search_order(base_query(), {:bogus, :asc}) end
+  end
 
   test "every sortable :detail_items column is in the browse vocabulary" do
     sortable =
