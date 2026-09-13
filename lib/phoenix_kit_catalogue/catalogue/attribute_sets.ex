@@ -1830,6 +1830,13 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
     end
   end
 
+  # The two entity_data statuses that are NOT hidden (§3c) — `archived`
+  # and `trashed` are the only hidden ones, so excluding these two in
+  # SQL via `list_by_entities/2`'s `:exclude_statuses` leaves exactly
+  # them, without ever fetching (and then discarding in Elixir) the
+  # active rows `list_values_for/2` already reads separately.
+  @non_hidden_statuses ["draft", "published"]
+
   defp do_list_hidden_values_for(set_uuids, opts) do
     batch = PhoenixKitEntities.EntityData
 
@@ -1839,9 +1846,13 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
       # credo:disable-for-next-line Credo.Check.Refactor.Apply
       apply(batch, :list_by_entities, [
         set_uuids,
-        [lang: opts[:lang], include_trashed: true, preload: []]
+        [
+          lang: opts[:lang],
+          include_trashed: true,
+          preload: [],
+          exclude_statuses: @non_hidden_statuses
+        ]
       ])
-      |> Map.new(fn {uuid, records} -> {uuid, hidden.(records)} end)
     else
       Map.new(set_uuids, fn uuid ->
         {uuid,

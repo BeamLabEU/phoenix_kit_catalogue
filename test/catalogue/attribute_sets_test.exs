@@ -1095,6 +1095,34 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSetsTest do
         assert Enum.map(resolved.hidden_values, & &1.key) == [ash.slug]
       end
 
+      test "list_hidden_values_for/2 filters by status in SQL, not by re-fetching active rows" do
+        # Review finding: the hidden-values batch used to load every row
+        # of the set — active included — then filter by status in
+        # Elixir, re-reading the same active values `list_values_for/2`
+        # already fetches separately. Filtering server-side means the
+        # query text itself excludes the non-hidden statuses.
+        set = create_set!("Ikea finishes sql-filtered")
+        {:ok, oak} = AttributeSets.create_value(set, %{label: "Oak"})
+        {:ok, ash} = AttributeSets.create_value(set, %{label: "Ash"})
+
+        {:ok, _} =
+          PhoenixKitEntities.EntityData.update(ash, %{status: "archived"}, activity_log: false)
+
+        queries =
+          query_texts(fn -> AttributeSets.list_hidden_values_for([set.uuid]) end)
+
+        entity_data_query =
+          Enum.find(queries, &(&1 =~ "phoenix_kit_entity_data"))
+
+        refute is_nil(entity_data_query)
+        assert entity_data_query =~ "status"
+
+        # Behaviour is unchanged: only the archived value comes back.
+        hidden = AttributeSets.list_hidden_values_for([set.uuid]) |> Map.get(set.uuid, [])
+        assert Enum.map(hidden, & &1.uuid) == [ash.uuid]
+        refute Enum.any?(hidden, &(&1.uuid == oak.uuid))
+      end
+
       test "a live value's slug wins over a trashed duplicate sharing the same key" do
         # A trashed value's slug isn't checked for uniqueness against new
         # values (`value_slug/3` only compares against active ones), so
