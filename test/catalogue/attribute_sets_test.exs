@@ -479,6 +479,25 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSetsTest do
         assert entity_data_queries == 0
       end
 
+      test "resolve_set of an existing set stays within its stated statement budget" do
+        # Pins the query-count claim from the PR description (also
+        # confirmed by review): 9 statements total, 2 of them against
+        # `phoenix_kit_entity_data` (one values fetch, one hidden-values
+        # fetch — both batched, `resolve_set/2` passes a single-element
+        # uuid list through the same batched calls `resolve_for_items/2`
+        # uses). A regression that reintroduces a per-value or
+        # per-field query would move this number; if a deliberate
+        # change moves it, update both this assertion and the
+        # description together.
+        set = create_set!("Ikea statement budget")
+        {:ok, _} = AttributeSets.create_value(set, %{label: "Oak"})
+
+        queries = query_texts(fn -> AttributeSets.resolve_set(set.uuid) end)
+
+        assert length(queries) == 9
+        assert Enum.count(queries, &(&1 =~ "phoenix_kit_entity_data")) == 2
+      end
+
       test "orphan pruning clears attachments to vanished blueprints" do
         set = create_set!("Ikea handles")
         item = fixture_item(%{name: "Door"})
@@ -1064,6 +1083,33 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSetsTest do
 
         assert {:noreply, %{}} =
                  AttributeSets.OrphanPruner.handle_info({:data_created, "x", "y"}, %{})
+      end
+
+      test "init/1 really subscribes — a broadcast event reaches a started process" do
+        # Every other test in this describe block drives
+        # `handle_info/2` directly, which would stay green even if
+        # `init/1` stopped calling `subscribe_to_all_data/0` (review
+        # finding). Start the GenServer for real and fire the event
+        # through entities' own PubSub broadcast instead, so the
+        # subscription itself is what's under test.
+        set = create_set!("Ikea rails subscribed")
+        {:ok, red} = AttributeSets.create_value(set, %{label: "Red"})
+        item = fixture_item(%{name: "Door"})
+        {:ok, _} = AttributeSets.attach_set(item.uuid, set.uuid)
+        :ok = AttributeSets.set_attachment_selection(item.uuid, set.uuid, [red.slug])
+
+        {:ok, _} = PhoenixKitEntities.EntityData.delete(red, activity_log: false)
+
+        pid = start_supervised!(AttributeSets.OrphanPruner)
+
+        PhoenixKitEntities.Events.broadcast_data_deleted(set.uuid, red.uuid)
+
+        # Synchronize on the GenServer's mailbox instead of sleeping —
+        # once it replies here, the broadcast above has been handled.
+        _ = :sys.get_state(pid)
+
+        [attachment] = AttributeSets.list_attachments(item.uuid)
+        assert attachment.data["selected_value_slugs"] == []
       end
     end
 

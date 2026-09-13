@@ -57,6 +57,27 @@ defmodule PhoenixKitCatalogue.Web.ItemFormSetsTest do
       assert attached == set.uuid
     end
 
+    test "a forged attach_set for an archived set's uuid is refused", %{
+      conn: conn,
+      item: item,
+      set: set
+    } do
+      # The picker only offers `available_sets` (`list_attribute_sets/1`,
+      # active-only by default), so an archived set never appears as an
+      # option — but the event handler itself is the real gate: a
+      # forged client payload naming an archived set's uuid directly
+      # must not ride the same code path a legit pick would.
+      {:ok, _} = Catalogue.archive_attribute_set(set)
+
+      {:ok, view, _html} = open(conn, item)
+
+      render_change(view, "attach_set", %{"attach_set_uuid" => set.uuid})
+      assert assigns(view).staged_set_uuids == []
+
+      save(view)
+      assert Catalogue.list_attribute_set_attachments(item.uuid) == []
+    end
+
     test "toggle_value_selection stages ticks and save writes them", %{
       conn: conn,
       item: item,
