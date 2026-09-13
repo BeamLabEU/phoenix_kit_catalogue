@@ -571,5 +571,26 @@ defmodule PhoenixKitCatalogue.Web.ComponentsTest do
                %{name: "Trim finish", labels: []}
              ]) == "Red, Blue; Trim finish"
     end
+
+    test "a blank or nil label is dropped rather than joined in empty" do
+      assert attribute_cell_text([%{name: "Color", labels: ["Red", "", nil]}]) == "Red"
+    end
+
+    test "a nil or blank set name with no selection is dropped, not blank" do
+      assert attribute_cell_text([%{name: nil, labels: []}]) == nil
+      assert attribute_cell_text([%{name: "", labels: []}]) == nil
+    end
+
+    test "a dropped set is skipped, not left as an empty segment" do
+      assert attribute_cell_text([
+               %{name: "Color", labels: ["Red"]},
+               %{name: nil, labels: []}
+             ]) == "Red"
+    end
+
+    test "every set dropping out returns nil, never an empty string" do
+      assert attribute_cell_text([%{name: nil, labels: []}, %{name: "", labels: [nil, ""]}]) ==
+               nil
+    end
   end
 end

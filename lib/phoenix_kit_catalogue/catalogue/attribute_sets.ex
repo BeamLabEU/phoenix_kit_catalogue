@@ -1369,6 +1369,31 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
     end
   end
 
+  @doc """
+  Which of these items have at least one attached attribute set, with NO
+  resolve — no set/value lookups, just the join table. For callers that
+  only need the swatch indicator (presence) and not the "Attributes"
+  column's labels, this is one cheap query instead of `resolve_for_items/2`'s
+  per-set reads. Gated on `entities_enabled?/0` the same way, so the
+  swatch keeps disappearing along with the labels when entities is off.
+  """
+  @spec attached_item_uuids([Ecto.UUID.t()]) :: MapSet.t()
+  def attached_item_uuids([]), do: MapSet.new()
+
+  def attached_item_uuids(item_uuids) when is_list(item_uuids) do
+    if entities_enabled?() do
+      from(a in ItemAttributeSet,
+        where: a.item_uuid in ^item_uuids,
+        distinct: true,
+        select: a.item_uuid
+      )
+      |> repo().all()
+      |> MapSet.new()
+    else
+      MapSet.new()
+    end
+  end
+
   defp attach_selection(nil, _row), do: nil
 
   defp attach_selection(set, %ItemAttributeSet{data: data}),
@@ -1643,9 +1668,11 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
 
   # One batched existence read per attribute/set (not one per value):
   # `known_slugs` starts from the set's current rows and grows with each
-  # value created in this pass, so two values in the same attribute
-  # never race each other into a duplicate either. Returns the count of
-  # values actually created.
+  # value created in this pass. The unique index
+  # `phoenix_kit_cat_attribute_values_attr_key_index (attribute_uuid, key)`
+  # already rules out two values in the same attribute landing on the
+  # same key, so this running set is defensive belt-and-braces, not what
+  # prevents the duplicate. Returns the count of values actually created.
   defp ensure_migrated_values(set, values, opts) do
     {count, _known_slugs} =
       Enum.reduce(values, {0, migrated_value_slugs(set)}, fn value, {count, known} ->
