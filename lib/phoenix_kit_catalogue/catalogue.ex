@@ -5746,6 +5746,10 @@ defmodule PhoenixKitCatalogue.Catalogue do
     to: AttributeSets,
     as: :list_hidden_values_for
 
+  defdelegate drop_hidden_attribute_set_value_duplicates(hidden_values, values),
+    to: AttributeSets,
+    as: :drop_hidden_duplicates
+
   defdelegate get_attribute_set_value(set, value_uuid), to: AttributeSets, as: :get_value
 
   defdelegate update_attribute_set_value(set, value, attrs, opts \\ []),

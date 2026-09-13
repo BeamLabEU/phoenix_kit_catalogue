@@ -1758,20 +1758,11 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
       {:ok, %{kind: kind, default: default}} ->
         values = values_by_set |> Map.get(set.uuid, []) |> Enum.map(&value_shape/1)
 
-        # A trashed/archived value can leave more than one row behind
-        # under the same slug (e.g. a live value plus stale trashed
-        # copies) — the live row in `values` stays authoritative; a
-        # hidden row sharing its key would otherwise sit right next to
-        # it in the pool every consumer builds as `values ++
-        # hidden_values`, and "last wins" map-building would let the
-        # hidden copy's stale label overwrite the live one's.
-        value_keys = MapSet.new(values, & &1.key)
-
         hidden_values =
           hidden_by_set
           |> Map.get(set.uuid, [])
           |> Enum.map(&value_shape/1)
-          |> Enum.reject(&(&1.key in value_keys))
+          |> drop_hidden_duplicates(values)
 
         fields =
           Enum.map(set.fields_definition || [], fn f ->
@@ -1798,6 +1789,28 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
 
   defp value_shape(record),
     do: %{key: record.slug, label: record.title, extras: record.data || %{}}
+
+  # Drops any hidden value sharing a key with an active value — THE
+  # single implementation of the dedup rule, shared by
+  # `build_resolved_set/4` (the resolve path) and the attribute-set
+  # items modal's broken-contract fallback (`AttributeSetItemsModal`),
+  # which builds `values`/`hidden_values` from two independent listings
+  # with no rule of its own.
+  #
+  # A trashed/archived value can leave more than one row behind under
+  # the same slug (e.g. a live value plus stale trashed copies) — the
+  # live row in `values` stays authoritative; a hidden row sharing its
+  # key would otherwise sit right next to it in the pool every consumer
+  # builds as `values ++ hidden_values`, and "last wins" map-building
+  # would let the hidden copy's stale label overwrite the live one's.
+  @doc false
+  @spec drop_hidden_duplicates([%{key: String.t()}], [%{key: String.t()}]) :: [
+          %{key: String.t()}
+        ]
+  def drop_hidden_duplicates(hidden_values, values) do
+    value_keys = MapSet.new(values, & &1.key)
+    Enum.reject(hidden_values, &(&1.key in value_keys))
+  end
 
   @doc """
   Hidden (archived/trashed) values for MANY sets at once:
