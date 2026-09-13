@@ -1126,6 +1126,31 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSetsTest do
         assert resolved.hidden_values == []
       end
 
+      test "two HIDDEN rows sharing a slug (no live row) still collapse to one" do
+        # Same slug-uniqueness gap as above, but with no live value at
+        # all this time: a trashed row and an archived row sharing a
+        # slug. Without collapsing hidden-vs-hidden duplicates too, both
+        # would survive into `hidden_values`, and the item form would
+        # render the selection's chip twice for what is really one slug.
+        set = create_set!("Ikea slug collision hidden-hidden")
+
+        {:ok, old} =
+          AttributeSets.create_value(set, %{label: "Old Teal", slug: "roheline"})
+
+        {:ok, _} = PhoenixKitEntities.EntityData.trash(old)
+
+        {:ok, newer} =
+          AttributeSets.create_value(set, %{label: "Newer Teal", slug: "roheline"})
+
+        {:ok, _} =
+          PhoenixKitEntities.EntityData.update(newer, %{status: "archived"}, activity_log: false)
+
+        resolved = AttributeSets.resolve_set(set.uuid)
+
+        assert resolved.values == []
+        assert Enum.map(resolved.hidden_values, & &1.key) == ["roheline"]
+      end
+
       test "a selected value that gets archived is not silently dropped from resolve" do
         actor = Ecto.UUID.generate()
         set = create_set!("Ikea worktops")
