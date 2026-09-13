@@ -228,6 +228,59 @@ defmodule PhoenixKitCatalogue.Web.AttributeSetItemsModalTest do
       assert has_element?(view, "##{modal_id(set)}-item-#{item.uuid}", "Ghosted Red")
     end
 
+    test "a broken contract's fallback dedupes a trashed duplicate's slug too", %{conn: conn} do
+      {:ok, set} = Catalogue.create_attribute_set(%{name: "Popup broken+collision"})
+
+      {:ok, old} =
+        Catalogue.create_attribute_set_value(set, %{label: "Old Red", slug: "punane"})
+
+      {:ok, _} = PhoenixKitEntities.EntityData.trash(old)
+
+      {:ok, live_value} =
+        Catalogue.create_attribute_set_value(set, %{label: "New Red", slug: "punane"})
+
+      assert old.slug == live_value.slug
+
+      item = fixture_item(%{name: "Collision door"})
+      {:ok, _} = Catalogue.attach_attribute_set(item.uuid, set.uuid)
+      :ok = AttributeSets.set_attachment_selection(item.uuid, set.uuid, [live_value.slug])
+
+      # Same contract tamper as the tests above — this exercises the
+      # broken-contract fallback (`fallback_values/2` +
+      # `fallback_hidden_values/2`), which builds its label map from
+      # two independent listings. Without the shared dedup rule, the
+      # trashed row (fetched second, into `hidden_values`) would
+      # overwrite the live row's label in `Map.new(values ++
+      # hidden_values, ...)` — "last wins" — even though the live value
+      # is the one actually selected.
+      set = AttributeSets.get_set(set.uuid)
+
+      {:ok, _} =
+        PhoenixKitEntities.update_entity(
+          set,
+          %{settings: put_in(set.settings, ["catalogue", "kind"], "not_a_real_kind")},
+          on_behalf_of: "catalogue"
+        )
+
+      assert AttributeSets.resolve_set(set.uuid) == nil
+
+      {:ok, view, _html} = live(conn, "/en/admin/catalogue/attributes")
+      html = render_click(view, "open_set_items_modal", %{"uuid" => set.uuid})
+
+      assert html =~ "Collision door"
+      # The live label shows, once — not shadowed by the stale trashed
+      # copy sharing its slug.
+      assert has_element?(view, "##{modal_id(set)}-item-#{item.uuid}", "New Red")
+      refute has_element?(view, "##{modal_id(set)}-item-#{item.uuid}", "Old Red")
+
+      row_html =
+        view
+        |> element("##{modal_id(set)}-item-#{item.uuid}")
+        |> render()
+
+      assert row_html |> String.split("New Red") |> length() == 2
+    end
+
     test "closing unmounts the popup; reopening starts fresh", %{conn: conn} do
       {:ok, set} = Catalogue.create_attribute_set(%{name: "Popup close"})
       item = fixture_item(%{name: "Close item"})

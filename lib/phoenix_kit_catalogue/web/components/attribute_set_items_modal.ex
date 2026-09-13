@@ -96,8 +96,17 @@ defmodule PhoenixKitCatalogue.Web.Components.AttributeSetItemsModal do
     # path instead of the happy one.
     {values, hidden_values} =
       case Catalogue.resolve_attribute_set(set.uuid, lang: locale) do
-        %{values: v, hidden_values: h} -> {v, h}
-        _ -> {fallback_values(set.uuid, locale), fallback_hidden_values(set.uuid, locale)}
+        %{values: v, hidden_values: h} ->
+          {v, h}
+
+        _ ->
+          v = fallback_values(set.uuid, locale)
+          h = fallback_hidden_values(set.uuid, locale)
+          # Two independent listings, so the same dedup rule
+          # `resolve_set/2` applies centrally must be applied here too —
+          # otherwise a trashed duplicate sharing a live value's slug
+          # would overwrite the live label below ("last wins").
+          {v, Catalogue.drop_hidden_attribute_set_value_duplicates(h, v)}
       end
 
     label_map = Map.new(values ++ hidden_values, &{&1.key, &1.label})
