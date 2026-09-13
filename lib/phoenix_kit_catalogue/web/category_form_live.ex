@@ -553,6 +553,9 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
 
     case Catalogue.create_category(params, actor_opts(socket)) do
       {:ok, category} ->
+        # See the item form: translations in hand at create are fresh
+        # against this source, not `:unknown`.
+        category = PhoenixKitCatalogue.TranslationStatus.stamp_all_translated(category)
         _ = Attachments.maybe_rename_pending_folder(socket, category)
 
         # "Save" (stay) continues on the new category's edit form; the

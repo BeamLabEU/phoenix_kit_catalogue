@@ -73,13 +73,20 @@ defmodule PhoenixKitCatalogue.Web.Settings do
 
   @doc """
   Target languages the sweep considers. Defaults to every enabled language
-  except the primary one when nothing is stored.
+  except the primary one when nothing is stored; a stored list is
+  intersected with the enabled languages, so a language disabled after
+  the setting was written stops receiving sweep jobs — the same check the
+  Translations page applies to a manual Translate.
   """
   @spec sweep_langs() :: [String.t()]
   def sweep_langs do
     case Settings.get_json_setting(@langs_key) do
-      %{"codes" => codes} when is_list(codes) -> codes
-      _ -> default_sweep_langs()
+      %{"codes" => codes} when is_list(codes) ->
+        enabled = Multilang.enabled_languages()
+        Enum.filter(codes, &(is_binary(&1) and &1 in enabled))
+
+      _ ->
+        default_sweep_langs()
     end
   end
 

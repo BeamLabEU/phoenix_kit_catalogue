@@ -22,10 +22,11 @@ defmodule PhoenixKitCatalogue.Web.ComponentRelay do
   component stops it (`stop/1`) when it closes. A component the host
   unmounted some other way is detected by the ack: each refresh carries
   a reference the component acknowledges from `update/2`; a refresh
-  still unacknowledged when the next event arrives, after
-  #{@ack_timeout_ms} ms, means nobody is listening and the relay exits.
-  (LiveView itself only logs a debug line for a `send_update` to a
-  component that is gone, so even that window costs nothing visible.)
+  still unacknowledged #{@ack_timeout_ms} ms later means nobody is
+  listening and the relay exits on its own — it does not wait for a
+  second event to notice. (LiveView itself only logs a debug line for a
+  `send_update` to a component that is gone, so even that one refresh
+  costs nothing visible.)
 
   ## Events that trigger a refresh
 
@@ -123,6 +124,11 @@ defmodule PhoenixKitCatalogue.Web.ComponentRelay do
       :flush ->
         flush(%{state | timer: nil})
 
+      # The ack window for THIS refresh closed: still pending means the
+      # component is gone.
+      {:ack_check, ref} ->
+        if ref == state.pending, do: :ok, else: loop(state)
+
       message ->
         if relevant?(message, state.uuids), do: loop(schedule(state)), else: loop(state)
     end
@@ -147,6 +153,7 @@ defmodule PhoenixKitCatalogue.Web.ComponentRelay do
         live_refresh: {ref, self()}
       )
 
+      Process.send_after(self(), {:ack_check, ref}, state.ack_timeout)
       loop(%{state | pending: ref, pending_since: System.monotonic_time(:millisecond)})
     end
   end

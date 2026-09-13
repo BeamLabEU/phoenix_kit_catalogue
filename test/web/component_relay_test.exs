@@ -14,7 +14,7 @@ defmodule PhoenixKitCatalogue.Web.ComponentRelayTest do
   @c1 "01a00000-0000-7000-8000-000000000001"
   @c2 "01a00000-0000-7000-8000-000000000002"
 
-  defp start(opts \\ []) do
+  defp start(opts) do
     ComponentRelay.start(@mod, "picker", Keyword.merge([debounce_ms: 20], opts))
   end
 
@@ -114,7 +114,25 @@ defmodule PhoenixKitCatalogue.Web.ComponentRelayTest do
     refute Process.alive?(relay)
   end
 
-  test "an acknowledged refresh keeps the relay alive past the timeout" do
+  test "a refresh nobody acknowledges ends the relay on its own, with no second event", %{
+    relay: relay
+  } do
+    ComponentRelay.stop(relay)
+    relay = start(catalogue_uuids: [@c1], ack_timeout_ms: 30)
+    Process.sleep(20)
+
+    PubSub.broadcast(:item, Ecto.UUID.generate(), @c1)
+    assert_refresh()
+    assert Process.alive?(relay)
+
+    Process.sleep(60)
+    refute Process.alive?(relay)
+  end
+
+  test "an acknowledged refresh keeps the relay alive past the timeout", %{relay: relay} do
+    # The setup relay answers the same event with the same component id;
+    # acking ITS refresh would leave this one unacknowledged.
+    ComponentRelay.stop(relay)
     relay = start(catalogue_uuids: [@c1], ack_timeout_ms: 30)
     Process.sleep(20)
 

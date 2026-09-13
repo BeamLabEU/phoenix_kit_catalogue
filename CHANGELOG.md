@@ -1,3 +1,44 @@
+## 0.30.1 - 2026-09-13
+
+Follow-ups from the week review (`dev_docs/WEEK_REVIEW_2026-09-07_13.md`):
+the items it recorded as "not fixed" that were this module's to fix.
+
+### Fixed
+
+- **The translation sweep backs off from pairs whose job was discarded
+  in the last 24 hours.** The candidate list is deterministic (sorted,
+  capped), so rows the model consistently failed on were re-enqueued on
+  every tick, three attempts each, and everything sorted behind them was
+  never reached. `TranslationSweepWorker` now reads the discarded
+  `TranslateWorker` jobs inside the back-off window from Oban's job table
+  and skips those pairs, widening the page by their count so the
+  exclusion cannot empty it. The pair's state is unchanged; a manual
+  Translate on the Translations page is unaffected.
+- **A resource created with translations already in hand is stamped
+  fresh, not born `:unknown`.** A value-mode AI translate on a
+  not-yet-saved item, or a secondary-language name typed by hand, was
+  made against the source the row is created with — yet `create_item/2`
+  persisted it with no fingerprints, so the Translations page showed
+  Unknown and the sweep ignored it until an operator stamped every
+  language by hand. `TranslationStatus.stamp_all_translated/1` (new)
+  runs after create in the item and category forms.
+- `Web.Settings.sweep_langs/0` intersects a stored language list with
+  the enabled languages, so a language disabled after the setting was
+  written stops receiving sweep jobs — the same check the Translations
+  page applies to a manual Translate.
+- `Web.ComponentRelay` notices an unacknowledged refresh on its own: the
+  ack window is a timer, so an orphaned relay (a host that unmounted the
+  popup without a close) exits when the window closes instead of waiting
+  for a second catalogue event to arrive.
+
+### Changed
+
+- The browse-sort vocabulary conformance test now also builds every
+  `Search.apply_search_order/2` clause without a database, so a field
+  added to the two static lists but not to the fetch layer fails on a
+  machine with no Postgres too (`apply_search_order/2` is public,
+  `@doc false`, for that reason).
+
 ## 0.30.0 - 2026-09-13
 
 ### Added
