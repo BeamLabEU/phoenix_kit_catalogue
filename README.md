@@ -332,6 +332,12 @@ stacked item details, per-user view/column memory.
 />
 ```
 
+**It is live while open.** A relay process holds the catalogue PubSub
+subscription for the component and pushes a debounced refresh through
+`send_update/3`, so a price corrected elsewhere, an item another user
+trashed, or a reordered catalogue reaches the open popup with no host
+wiring — the host's `handle_info/2` never sees a catalogue event.
+
 **Mount it with `:if`, not a `show` attr.** The component has no
 `show` attr; its dialog is always open while mounted. The host owns an
 assign that mounts it (`:if={@show_selector}`) and resets that assign on

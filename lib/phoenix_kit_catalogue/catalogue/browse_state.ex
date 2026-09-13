@@ -168,6 +168,11 @@ defmodule PhoenixKitCatalogue.Catalogue.BrowseState do
       restricts categories or carries its own `:only` — scope only ever
       narrows.
     * `:load_more` — next page. No-op while loading or exhausted.
+    * `:refresh` — re-read everything the user is looking at, in place:
+      the same search, catalogue and category, and every page loaded so
+      far as ONE fetch (offset 0, limit `(page + 1) × per_page`), so a
+      live update never throws a scrolled user back to page one. Paging
+      continues from the same page afterwards.
   """
   @spec command(t(), term()) :: {t(), :noop | {:fetch, keyword(), non_neg_integer()}}
   def command(state, :reset) do
@@ -239,6 +244,13 @@ defmodule PhoenixKitCatalogue.Catalogue.BrowseState do
   end
 
   def command(state, {:set_catalogue, _}), do: {state, :noop}
+
+  def command(%{page: page} = state, :refresh) do
+    {state, {:fetch, opts, gen}} = fetch(state)
+    # fetch/1 rewinds to page 0; the refresh re-reads through the page
+    # the user reached and keeps paging from there.
+    {%{state | page: page}, {:fetch, Keyword.put(opts, :limit, (page + 1) * state.per_page), gen}}
+  end
 
   def command(%{loading?: true} = state, :load_more), do: {state, :noop}
   def command(%{exhausted?: true} = state, :load_more), do: {state, :noop}
