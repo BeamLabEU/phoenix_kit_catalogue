@@ -136,7 +136,49 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailAttributesColumnTest do
       refute card_segment(html, without_set.uuid) =~ "Punane"
     end
 
-    test "a selection whose values are all archived or trashed shows the set's name (ghost rule)",
+    test "a selected value trashed or archived afterwards keeps its label (hidden, not a ghost)",
+         %{conn: conn} do
+      catalogue = fixture_catalogue(%{name: "Hermes hidden"})
+      category = fixture_category(catalogue)
+
+      {:ok, set} = Catalogue.create_attribute_set(%{name: "Hidden finish"})
+      {:ok, silver} = Catalogue.create_attribute_set_value(set, %{label: "Silver"})
+      {:ok, bronze} = Catalogue.create_attribute_set_value(set, %{label: "Bronze"})
+
+      item =
+        fixture_item(%{
+          name: "Hidden item",
+          catalogue_uuid: catalogue.uuid,
+          category_uuid: category.uuid
+        })
+
+      {:ok, _} = Catalogue.attach_attribute_set(item.uuid, set.uuid)
+
+      :ok =
+        Catalogue.set_attribute_set_selection(item.uuid, set.uuid, [silver.slug, bronze.slug])
+
+      # Both selected values are hidden after the selection was made. The
+      # resolve keeps them in `:selected` (§3c), so the column must keep
+      # their labels — falling back to the set's name would read as
+      # "whole set applies", a mode the item never had.
+      {:ok, _} = PhoenixKitEntities.EntityData.trash(silver)
+
+      {:ok, _} =
+        PhoenixKitEntities.EntityData.update(bronze, %{status: "archived"}, activity_log: false)
+
+      {:ok, view, _html} = live(conn, cat_url(catalogue.uuid, category.uuid) <> "&mode=items")
+
+      html =
+        view
+        |> render_click("add_column", %{"column_id" => "attributes", "scope" => "detail_items"})
+
+      row = row_segment(html, "Hidden item")
+      assert row =~ "Silver"
+      assert row =~ "Bronze"
+      refute row =~ set.display_name
+    end
+
+    test "a selection whose values are all deleted for good shows the set's name (ghost rule)",
          %{conn: conn} do
       catalogue = fixture_catalogue(%{name: "Hermes ghosted"})
       category = fixture_category(catalogue)
@@ -154,11 +196,10 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailAttributesColumnTest do
       {:ok, _} = Catalogue.attach_attribute_set(item.uuid, set.uuid)
       :ok = Catalogue.set_attribute_set_selection(item.uuid, set.uuid, [silver.slug])
 
-      # The only selected value goes away (trashed) after the selection was
-      # made — `valid_selection/2` (the ghost rule) filters the dangling
-      # slug out, degrading the selection to "whole set applies" rather
-      # than vanishing the set or leaving a blank cell.
-      {:ok, _} = PhoenixKitEntities.EntityData.trash(silver)
+      # Hard delete: the slug is gone from every record, so the ghost rule
+      # degrades the selection to "whole set applies" rather than
+      # vanishing the set or leaving a blank cell.
+      {:ok, _} = Catalogue.delete_attribute_set_value(set, silver)
 
       {:ok, view, _html} = live(conn, cat_url(catalogue.uuid, category.uuid) <> "&mode=items")
 
@@ -166,7 +207,9 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailAttributesColumnTest do
         view
         |> render_click("add_column", %{"column_id" => "attributes", "scope" => "detail_items"})
 
-      assert row_segment(html, "Ghost item") =~ set.display_name
+      row = row_segment(html, "Ghost item")
+      assert row =~ set.display_name
+      refute row =~ "Silver"
     end
 
     test "resolve only runs when the Attributes column is configured to show", %{conn: conn} do

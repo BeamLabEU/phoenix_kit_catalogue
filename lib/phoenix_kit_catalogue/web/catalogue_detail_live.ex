@@ -2706,9 +2706,15 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     )
   end
 
+  # Labels come from `values ++ hidden_values`: `:selected` keeps a value
+  # archived/trashed after it was picked (§3c), and an active-only lookup
+  # would drop its label — a fully hidden selection would then render the
+  # set's name, reading as "whole set applies", a mode flip the resolve
+  # itself refuses. Only a value deleted for good ghosts out of `:selected`.
   defp attribute_map_sets(sets) do
     Enum.map(sets, fn set ->
-      labels_by_key = Map.new(set.values, &{&1.key, &1.label})
+      labels_by_key =
+        Map.new(set.values ++ Map.get(set, :hidden_values, []), &{&1.key, &1.label})
 
       labels =
         set.selected
