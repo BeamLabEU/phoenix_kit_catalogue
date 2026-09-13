@@ -1,3 +1,18 @@
+## 0.31.1 - 2026-09-13
+
+### Fixed
+
+- **Detaching an attribute set that the legacy migration attached now
+  sticks** (the 0.31.0 known issue). The migration re-runs on every
+  Attributes tab visit and the legacy assignment rows are never deleted,
+  so it used to re-attach the set each time. Each migrated set now
+  records when its assignments were migrated
+  (`settings.catalogue.assignments_migrated_at`), and later runs attach
+  only assignments made or changed since. A set whose attach failed stays
+  unmarked, so a partial run still heals. Sets migrated by 0.31.0 or
+  earlier carry no marker yet: the first run after upgrading re-attaches
+  their detached items one last time, then marks them.
+
 ## 0.31.0 - 2026-09-13
 
 Attribute sets get a soft lifecycle (#108), and two attribute-surface bugs
