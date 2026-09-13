@@ -294,6 +294,26 @@ defmodule PhoenixKitCatalogue.Web.AttributeSetsSurfacesTest do
         assert html =~ "Attribute set restored."
       end
 
+      test "archive_attribute_set flashes an error for a uuid that doesn't resolve", %{
+        conn: conn
+      } do
+        {:ok, view, _html} = live(conn, "/en/admin/catalogue/attributes")
+
+        html = render_click(view, "archive_attribute_set", %{"uuid" => Ecto.UUID.generate()})
+
+        assert html =~ "Failed to archive attribute set."
+      end
+
+      test "restore_attribute_set flashes an error for a uuid that doesn't resolve", %{
+        conn: conn
+      } do
+        {:ok, view, _html} = live(conn, "/en/admin/catalogue/attributes")
+
+        html = render_click(view, "restore_attribute_set", %{"uuid" => Ecto.UUID.generate()})
+
+        assert html =~ "Failed to restore attribute set."
+      end
+
       test "archiving is offered even while the set is attached to items", %{conn: conn} do
         {:ok, set} = Catalogue.create_attribute_set(%{name: "Attached lifecycle"})
         item = fixture_item(%{name: "LifecycleItem"})
