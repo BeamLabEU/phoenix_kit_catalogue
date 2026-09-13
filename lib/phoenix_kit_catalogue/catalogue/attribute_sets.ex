@@ -1515,8 +1515,10 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
   `resolve_set/2`'s `hidden_values` job, §3c); only a slug absent from
   every record, live or hidden, is pruned. No-op (`0`) when `set_uuid`
   isn't a catalogue set — the shared data-deletion topic fires for every
-  entities blueprint, not just sets. Returns the number of attachments
-  actually rewritten.
+  entities blueprint, not just sets. Returns the number of slug removals
+  performed — one per (attachment, orphan slug) pair, since each slug is
+  removed by its own atomic `UPDATE` — not the number of distinct
+  attachments touched: one attachment holding two orphan slugs counts twice.
   """
   @spec prune_orphan_value_slugs(Ecto.UUID.t()) :: non_neg_integer()
   def prune_orphan_value_slugs(set_uuid) do
