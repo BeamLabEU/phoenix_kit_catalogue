@@ -70,6 +70,24 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSetsTest do
       set
     end
 
+    # Legacy assignment timestamps are second-precision; pin one clearly
+    # before or after a migration run instead of racing the clock.
+    defp shift_assignment_updated_at(item_uuid, seconds) do
+      import Ecto.Query, only: [from: 2]
+
+      at = DateTime.utc_now() |> DateTime.add(seconds) |> DateTime.truncate(:second)
+
+      {1, _} =
+        Repo.update_all(
+          from(a in PhoenixKitCatalogue.Schemas.ItemAttributeGroup,
+            where: a.item_uuid == ^item_uuid
+          ),
+          set: [updated_at: at]
+        )
+
+      :ok
+    end
+
     describe "set provisioning" do
       test "creates a managed blueprint with the locked contract" do
         set = create_set!("Ikea colors")
@@ -934,6 +952,51 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSetsTest do
 
         assert hd(by_slug[punane.slug]).status == "trashed"
         assert hd(by_slug[sinine.slug]).status == "archived"
+      end
+
+      test "a migrated set detached from an item is not re-attached on re-run" do
+        actor = Ecto.UUID.generate()
+
+        {:ok, group} = Catalogue.create_attribute_group(%{name: "Hermes handles"})
+
+        {:ok, finish} =
+          Catalogue.create_attribute(group, %{"name" => "Finish", "kind" => "multi"})
+
+        {:ok, _} = Catalogue.create_attribute_value(finish, %{"value" => "Brass"})
+
+        item = fixture_item(%{name: "Handle"})
+        {:ok, _} = Catalogue.set_item_attribute_group(item, group.uuid)
+        :ok = shift_assignment_updated_at(item.uuid, -60)
+
+        assert {:ok, %{sets: 1, attachments: 1}} =
+                 AttributeSets.migrate_groups_to_sets(actor_uuid: actor)
+
+        [set] = AttributeSets.list_sets()
+
+        assert is_binary(
+                 get_in(AttributeSets.get_set(set.uuid).settings, [
+                   "catalogue",
+                   "assignments_migrated_at"
+                 ])
+               )
+
+        # The legacy assignment row stays forever and the migration re-runs
+        # on every Attributes-tab visit — the detach must stick.
+        :ok = AttributeSets.detach_set(item.uuid, set.uuid)
+
+        assert {:ok, %{attachments: 0}} = AttributeSets.migrate_groups_to_sets(actor_uuid: actor)
+        assert AttributeSets.list_attachments(item.uuid) == []
+
+        # A legacy assignment written after the set was migrated is a new
+        # statement and still migrates, without undoing the detach above.
+        later = fixture_item(%{name: "Handle later"})
+        {:ok, _} = Catalogue.set_item_attribute_group(later, group.uuid)
+        :ok = shift_assignment_updated_at(later.uuid, 60)
+
+        assert {:ok, %{attachments: 1}} = AttributeSets.migrate_groups_to_sets(actor_uuid: actor)
+        set_uuid = set.uuid
+        assert [%{set_uuid: ^set_uuid}] = AttributeSets.list_attachments(later.uuid)
+        assert AttributeSets.list_attachments(item.uuid) == []
       end
     end
 

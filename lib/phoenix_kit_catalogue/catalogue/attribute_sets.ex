@@ -1990,7 +1990,10 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
       existing order-line picks keep resolving), old `is_default` → the
       set's `default_value_slug`;
     * every item's single group assignment explodes into one attachment
-      per attribute of that group, in attribute order.
+      per attribute of that group, in attribute order — once per set: a
+      migrated set records when its assignments were migrated
+      (`settings.catalogue.assignments_migrated_at`), so a set detached
+      from an item afterwards is not re-attached by a later run.
 
   Idempotent: an existing blueprint with the target slug is reused (its
   values/attachments are topped up, never duplicated), so re-running
@@ -2031,7 +2034,7 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
       end
 
       {
-        Map.put(set_map, {group.uuid, attribute.uuid}, set.uuid),
+        Map.put(set_map, {group.uuid, attribute.uuid}, set),
         %{
           counts
           | sets: counts.sets + if(created?, do: 1, else: 0),
@@ -2171,38 +2174,108 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
     end
   end
 
+  # The legacy assignment row is never deleted and this runs on every
+  # Attributes-tab visit, so a plain "attach whatever is missing"
+  # re-attached a set an admin had since detached from the item. Each
+  # migrated set therefore records when its assignments were migrated
+  # (`settings.catalogue.assignments_migrated_at`): an assignment is
+  # attached only when the set has no marker yet, or when the assignment
+  # was written or changed at or after it (a group assigned while
+  # entities was off, after an earlier run). A set is marked only once
+  # every attach for it succeeded, so a failed or crashed run still heals
+  # on the next — the same top-up doctrine as values and defaults. A set
+  # migrated by a release without the marker gets one more top-up pass,
+  # then is marked.
   defp migrate_assignments(set_map, opts) do
+    started_at = now_utc()
+
     assignments =
       repo().all(from(a in PhoenixKitCatalogue.Schemas.ItemAttributeGroup, select: a))
 
-    Enum.reduce(assignments, 0, fn assignment, count ->
-      set_uuids =
-        set_map
-        |> Enum.filter(fn {{group_uuid, _attr}, _set} ->
-          group_uuid == assignment.attribute_group_uuid
-        end)
-        |> Enum.map(fn {_key, set_uuid} -> set_uuid end)
+    {count, pending, failed} =
+      Enum.reduce(assignments, {0, MapSet.new(), MapSet.new()}, fn assignment,
+                                                                   {count, pending, failed} ->
+        set_uuids =
+          for {{group_uuid, _attribute_uuid}, set} <- set_map,
+              group_uuid == assignment.attribute_group_uuid,
+              assignment_pending?(assignment, set),
+              do: set.uuid
 
-      count + attach_missing(assignment.item_uuid, set_uuids, opts)
-    end)
+        {added, failures} = attach_missing(assignment.item_uuid, set_uuids, opts)
+
+        {count + added, MapSet.union(pending, MapSet.new(set_uuids)),
+         MapSet.union(failed, failures)}
+      end)
+
+    set_map
+    |> Map.values()
+    |> Enum.uniq_by(& &1.uuid)
+    |> Enum.filter(&(is_nil(assignments_migrated_at(&1)) or MapSet.member?(pending, &1.uuid)))
+    |> Enum.reject(&MapSet.member?(failed, &1.uuid))
+    |> Enum.each(&mark_assignments_migrated(&1.uuid, started_at))
+
+    count
+  end
+
+  defp assignment_pending?(assignment, set) do
+    case assignments_migrated_at(set) do
+      nil -> true
+      migrated_at -> DateTime.compare(assignment.updated_at, migrated_at) != :lt
+    end
+  end
+
+  defp assignments_migrated_at(set) do
+    with %{"catalogue" => %{"assignments_migrated_at" => iso}} when is_binary(iso) <-
+           set.settings,
+         {:ok, at, _offset} <- DateTime.from_iso8601(iso) do
+      at
+    else
+      _ -> nil
+    end
+  end
+
+  # Re-read before the settings read-modify-write, as `update_set/3`
+  # does: the whole settings map is written back.
+  defp mark_assignments_migrated(set_uuid, started_at) do
+    case get_set(set_uuid) do
+      nil ->
+        :ok
+
+      set ->
+        catalogue_settings =
+          (set.settings["catalogue"] || %{})
+          |> Map.put("assignments_migrated_at", DateTime.to_iso8601(started_at))
+
+        {:ok, _} =
+          PhoenixKitEntities.update_entity(
+            set,
+            %{settings: Map.put(set.settings, "catalogue", catalogue_settings)},
+            on_behalf_of: @owner
+          )
+
+        :ok
+    end
   end
 
   # attach_set reports {:ok, existing_row} for an already-attached pair
   # too — count only genuinely new rows so the idempotency contract
-  # ({:ok, all-zeros} on re-run) holds. opts threads the migration
-  # actor into each attachment's activity row.
+  # ({:ok, all-zeros} on re-run) holds. Also returns the sets whose
+  # attach failed, so their marker is not stamped. opts threads the
+  # migration actor into each attachment's activity row. No pending sets
+  # → no attachment read, which is what keeps a marked re-run cheap.
+  defp attach_missing(_item_uuid, [], _opts), do: {0, MapSet.new()}
+
   defp attach_missing(item_uuid, set_uuids, opts) do
     existing =
       item_uuid
       |> list_attachments()
       |> MapSet.new(& &1.set_uuid)
 
-    Enum.reduce(set_uuids, 0, fn set_uuid, acc ->
-      with false <- MapSet.member?(existing, set_uuid),
-           {:ok, _} <- attach_set(item_uuid, set_uuid, opts) do
-        acc + 1
-      else
-        _ -> acc
+    Enum.reduce(set_uuids, {0, MapSet.new()}, fn set_uuid, {added, failed} ->
+      cond do
+        MapSet.member?(existing, set_uuid) -> {added, failed}
+        match?({:ok, _}, attach_set(item_uuid, set_uuid, opts)) -> {added + 1, failed}
+        true -> {added, MapSet.put(failed, set_uuid)}
       end
     end)
   end
