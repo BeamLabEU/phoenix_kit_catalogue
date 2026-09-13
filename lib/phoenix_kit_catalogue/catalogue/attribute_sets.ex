@@ -780,27 +780,31 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
   # (exists) operator touches only rows that actually carry the slug,
   # and there is no per-row changeset to raise StaleEntryError when an
   # attachment is detached mid-sweep (panel finding, 2026-08-19 review).
+  # Returns the number of attachment rows actually rewritten — also
+  # reused by `sweep_orphan_value_slugs/1` (§3b backstop) to prune each
+  # orphan slug atomically instead of overwriting a stale snapshot.
   defp prune_selection_slug(set_uuid, slug) do
-    from(a in ItemAttributeSet,
-      where: a.set_uuid == ^set_uuid,
-      where: fragment("jsonb_typeof(? -> 'selected_value_slugs') = 'array'", a.data),
-      where: fragment("? -> 'selected_value_slugs' \\? ?", a.data, ^slug),
-      update: [
-        set: [
-          data:
-            fragment(
-              "jsonb_set(?, '{selected_value_slugs}', (? -> 'selected_value_slugs') - ?)",
-              a.data,
-              a.data,
-              ^slug
-            ),
-          updated_at: ^now_utc()
+    {count, nil} =
+      from(a in ItemAttributeSet,
+        where: a.set_uuid == ^set_uuid,
+        where: fragment("jsonb_typeof(? -> 'selected_value_slugs') = 'array'", a.data),
+        where: fragment("? -> 'selected_value_slugs' \\? ?", a.data, ^slug),
+        update: [
+          set: [
+            data:
+              fragment(
+                "jsonb_set(?, '{selected_value_slugs}', (? -> 'selected_value_slugs') - ?)",
+                a.data,
+                a.data,
+                ^slug
+              ),
+            updated_at: ^now_utc()
+          ]
         ]
-      ]
-    )
-    |> repo().update_all([])
+      )
+      |> repo().update_all([])
 
-    :ok
+    count
   end
 
   defp now_utc, do: DateTime.utc_now() |> DateTime.truncate(:second)
@@ -1525,10 +1529,24 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
       |> PhoenixKitEntities.EntityData.list_by_entity(include_trashed: true)
       |> MapSet.new(& &1.slug)
 
-    pruned =
+    # The snapshot above only picks the CANDIDATE slugs to check — which
+    # ones actually get removed, and from which rows, is decided by
+    # `prune_selection_slug/2`'s own atomic per-slug UPDATE (the same
+    # one `delete_value/3` uses), not by this read. A selection written
+    # between this snapshot and that UPDATE is never touched: the
+    # UPDATE re-reads the row's current jsonb and only ever removes the
+    # ONE slug it was asked to, so it cannot clobber a concurrent write
+    # to any other slug (panel finding: the old `kept`/overwrite version
+    # rewrote the whole array from a stale snapshot and could lose one).
+    orphan_slugs =
       set_uuid
       |> attachments_with_array_selection()
-      |> Enum.reduce(0, &prune_attachment_selection(&1, &2, set_uuid, live_slugs))
+      |> Enum.flat_map(&List.wrap(&1.data["selected_value_slugs"]))
+      |> Enum.uniq()
+      |> Enum.reject(&MapSet.member?(live_slugs, &1))
+
+    pruned =
+      Enum.reduce(orphan_slugs, 0, &(prune_selection_slug(set_uuid, &1) + &2))
 
     if pruned > 0 do
       log_activity("attribute_set.orphans_pruned", [mode: "value"], set_uuid, %{
@@ -1542,18 +1560,6 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
     pruned
   end
 
-  defp prune_attachment_selection(attachment, count, set_uuid, live_slugs) do
-    slugs = List.wrap(attachment.data["selected_value_slugs"])
-    kept = Enum.filter(slugs, &MapSet.member?(live_slugs, &1))
-
-    if kept == slugs do
-      count
-    else
-      write_pruned_selection(attachment.item_uuid, set_uuid, kept)
-      count + 1
-    end
-  end
-
   defp attachments_with_array_selection(set_uuid) do
     repo().all(
       from(a in ItemAttributeSet,
@@ -1561,26 +1567,6 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
         where: fragment("jsonb_typeof(? -> 'selected_value_slugs') = 'array'", a.data)
       )
     )
-  end
-
-  defp write_pruned_selection(item_uuid, set_uuid, kept) do
-    from(a in ItemAttributeSet,
-      where: a.item_uuid == ^item_uuid and a.set_uuid == ^set_uuid,
-      update: [
-        set: [
-          data:
-            fragment(
-              "jsonb_set(coalesce(?, '{}'::jsonb), '{selected_value_slugs}', to_jsonb(?::text[]))",
-              a.data,
-              ^kept
-            ),
-          updated_at: ^now_utc()
-        ]
-      ]
-    )
-    |> repo().update_all([])
-
-    :ok
   end
 
   # ── Resolution (the v2 consumer read) ──────────────────────────────
