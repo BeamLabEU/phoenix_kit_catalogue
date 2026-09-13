@@ -3440,3 +3440,6 @@ msgstr ""
 
 msgid "This permanently removes the value. It cannot be undone."
 msgstr ""
+
+msgid "Failed to delete value."
+msgstr ""

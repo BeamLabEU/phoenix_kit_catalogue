@@ -3434,3 +3434,6 @@ msgstr "Kustuta väärtus"
 
 msgid "This permanently removes the value. It cannot be undone."
 msgstr "See eemaldab väärtuse jäädavalt. Seda ei saa tagasi võtta."
+
+msgid "Failed to delete value."
+msgstr "Väärtuse kustutamine ebaõnnestus."
