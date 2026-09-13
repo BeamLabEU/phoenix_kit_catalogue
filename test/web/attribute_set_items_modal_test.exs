@@ -127,6 +127,107 @@ defmodule PhoenixKitCatalogue.Web.AttributeSetItemsModalTest do
       refute html =~ "Trashed item"
     end
 
+    test "a selection archived after being picked still renders, badged (3c)", %{conn: conn} do
+      {:ok, set} = Catalogue.create_attribute_set(%{name: "Popup archived selection"})
+      {:ok, red} = Catalogue.create_attribute_set_value(set, %{label: "Retired Red"})
+
+      item = fixture_item(%{name: "Archived-select door"})
+      {:ok, _} = Catalogue.attach_attribute_set(item.uuid, set.uuid)
+      :ok = AttributeSets.set_attachment_selection(item.uuid, set.uuid, [red.slug])
+
+      {:ok, _} =
+        PhoenixKitEntities.EntityData.update(red, %{status: "archived"}, activity_log: false)
+
+      {:ok, view, _html} = live(conn, "/en/admin/catalogue/attributes")
+      render_click(view, "open_set_items_modal", %{"uuid" => set.uuid})
+
+      # The bug this replaces: an archived value's label used to vanish
+      # from the popup entirely because the label map only looked at
+      # active values. It renders, and specifically as the archived
+      # (ghost) badge variant, not the normal outline chip.
+      assert has_element?(view, "##{modal_id(set)}-item-#{item.uuid}", "Retired Red")
+
+      assert has_element?(
+               view,
+               "##{modal_id(set)}-item-#{item.uuid} .badge-ghost",
+               "Retired Red"
+             )
+
+      refute has_element?(
+               view,
+               "##{modal_id(set)}-item-#{item.uuid} .badge-outline",
+               "Retired Red"
+             )
+    end
+
+    test "a broken set contract degrades labels instead of blanking every chip", %{conn: conn} do
+      {:ok, set} = Catalogue.create_attribute_set(%{name: "Popup broken contract"})
+      {:ok, red} = Catalogue.create_attribute_set_value(set, %{label: "Broken Red"})
+
+      item = fixture_item(%{name: "Broken-contract door"})
+      {:ok, _} = Catalogue.attach_attribute_set(item.uuid, set.uuid)
+      :ok = AttributeSets.set_attachment_selection(item.uuid, set.uuid, [red.slug])
+
+      # Tamper the contract via the owner bypass — `resolve_set/2` now
+      # returns nil for this set (contract_broken), same as a corrupted
+      # blueprint in the wild.
+      set = AttributeSets.get_set(set.uuid)
+
+      {:ok, _} =
+        PhoenixKitEntities.update_entity(
+          set,
+          %{settings: put_in(set.settings, ["catalogue", "kind"], "not_a_real_kind")},
+          on_behalf_of: "catalogue"
+        )
+
+      assert AttributeSets.resolve_set(set.uuid) == nil
+
+      {:ok, view, _html} = live(conn, "/en/admin/catalogue/attributes")
+
+      # The bug this replaces: a broken contract made `resolve_set/2`
+      # return nil, which degraded the WHOLE label map to `%{}` — every
+      # item's chips for this set vanished, not just the unresolvable
+      # one. Degrading to the plain (active-only) value listing keeps
+      # the label showing.
+      html = render_click(view, "open_set_items_modal", %{"uuid" => set.uuid})
+      assert html =~ "Broken-contract door"
+      assert has_element?(view, "##{modal_id(set)}-item-#{item.uuid}", "Broken Red")
+    end
+
+    test "a broken contract's fallback still shows an archived selection's chip", %{conn: conn} do
+      {:ok, set} = Catalogue.create_attribute_set(%{name: "Popup broken+hidden"})
+      {:ok, red} = Catalogue.create_attribute_set_value(set, %{label: "Ghosted Red"})
+
+      item = fixture_item(%{name: "Broken-hidden door"})
+      {:ok, _} = Catalogue.attach_attribute_set(item.uuid, set.uuid)
+      :ok = AttributeSets.set_attachment_selection(item.uuid, set.uuid, [red.slug])
+
+      {:ok, _} =
+        PhoenixKitEntities.EntityData.update(red, %{status: "archived"}, activity_log: false)
+
+      # Same contract tamper as the test above, but this time the
+      # item's selected value is ALSO archived. `list_attribute_set_values/2`
+      # (the fallback's active-only half) excludes it, so the fallback
+      # must reach for the hidden half too or this chip blanks —
+      # exactly the §3c bug the happy path already fixed, just hit via
+      # the broken-contract fallback this time.
+      set = AttributeSets.get_set(set.uuid)
+
+      {:ok, _} =
+        PhoenixKitEntities.update_entity(
+          set,
+          %{settings: put_in(set.settings, ["catalogue", "kind"], "not_a_real_kind")},
+          on_behalf_of: "catalogue"
+        )
+
+      assert AttributeSets.resolve_set(set.uuid) == nil
+
+      {:ok, view, _html} = live(conn, "/en/admin/catalogue/attributes")
+      render_click(view, "open_set_items_modal", %{"uuid" => set.uuid})
+
+      assert has_element?(view, "##{modal_id(set)}-item-#{item.uuid}", "Ghosted Red")
+    end
+
     test "closing unmounts the popup; reopening starts fresh", %{conn: conn} do
       {:ok, set} = Catalogue.create_attribute_set(%{name: "Popup close"})
       item = fixture_item(%{name: "Close item"})

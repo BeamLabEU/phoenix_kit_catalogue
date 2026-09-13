@@ -15,6 +15,43 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSetsTest do
   alias PhoenixKitCatalogue.Catalogue.PubSub
   alias PhoenixKitCatalogue.Test.Repo
 
+  # Ecto's default `telemetry_prefix` for `PhoenixKitCatalogue.Test.Repo`
+  # (no override in `test/support/test_repo.ex`): the module split,
+  # underscored — `[:phoenix_kit_catalogue, :test, :repo]` — with `:query`
+  # appended by `Ecto.Adapters.SQL` for every executed statement.
+  @query_event [:phoenix_kit_catalogue, :test, :repo, :query]
+
+  # Attaches a telemetry handler for the duration of `fun.()`, returns
+  # every SQL statement text observed — used to assert a batched read
+  # issues a fixed number of queries regardless of how many distinct
+  # sets are in play (the N+1 this module has already had to fix once).
+  defp query_texts(fun) do
+    handler_id = {:query_texts, self(), System.unique_integer()}
+    test_pid = self()
+
+    :telemetry.attach(
+      handler_id,
+      @query_event,
+      fn _event, _measurements, %{query: query}, _config -> send(test_pid, {:query, query}) end,
+      nil
+    )
+
+    try do
+      fun.()
+      collect_query_texts([])
+    after
+      :telemetry.detach(handler_id)
+    end
+  end
+
+  defp collect_query_texts(acc) do
+    receive do
+      {:query, query} -> collect_query_texts([query | acc])
+    after
+      0 -> acc
+    end
+  end
+
   if Code.ensure_loaded?(PhoenixKitEntities.Managed) do
     setup do
       # Entities gates on a settings toggle (default false). The delete
@@ -77,6 +114,25 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSetsTest do
 
         # Unwritten: the set still has no default, not a ghost one.
         assert {:ok, %{default: nil}} = AttributeSets.contract(AttributeSets.get_set(set.uuid))
+      end
+
+      test "update_set still accepts an ARCHIVED default — a hidden value is still real (§3c)" do
+        set = create_set!("Ikea trims archived default", "fixed")
+
+        {:ok, gold} =
+          AttributeSets.create_value(set, %{label: "Gold"}, actor_uuid: Ecto.UUID.generate())
+
+        {:ok, set} = AttributeSets.update_set(set, %{default_value_slug: gold.slug})
+
+        {:ok, _} =
+          PhoenixKitEntities.EntityData.update(gold, %{status: "archived"}, activity_log: false)
+
+        # An unrelated rename must not start failing just because the
+        # set's default happens to point at an archived (still real,
+        # still resolvable via `hidden_values`) value.
+        assert {:ok, renamed} = AttributeSets.update_set(set, %{name: "Ikea trims v2"})
+        assert {:ok, %{default: slug}} = AttributeSets.contract(renamed)
+        assert slug == gold.slug
       end
 
       test "contract rejects tampered blueprints instead of guessing" do
@@ -411,6 +467,18 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSetsTest do
         assert AttributeSets.resolve_set(Ecto.UUID.generate()) == nil
       end
 
+      test "resolve_set of a missing uuid skips the values/hidden-values reads" do
+        # Existence is checked BEFORE paying for the values/hidden-values
+        # listing reads — a random uuid must cost zero `entity_data`
+        # queries, not the two full listing reads `get_set/2` would have
+        # made pointless anyway.
+        entity_data_queries =
+          query_texts(fn -> AttributeSets.resolve_set(Ecto.UUID.generate()) end)
+          |> Enum.count(&(&1 =~ "phoenix_kit_entity_data"))
+
+        assert entity_data_queries == 0
+      end
+
       test "orphan pruning clears attachments to vanished blueprints" do
         set = create_set!("Ikea handles")
         item = fixture_item(%{name: "Door"})
@@ -428,6 +496,243 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSetsTest do
         Repo.delete!(set)
         assert AttributeSets.prune_orphan_attachments(set.uuid) == 1
         assert AttributeSets.list_attachments(item.uuid) == []
+      end
+    end
+
+    describe "soft lifecycle: archive/restore a set (2026-09-11 direction)" do
+      test "archive_set flips status through the owner bypass; generic writes still refuse it" do
+        set = create_set!("Ikea colors")
+
+        # The bug this replaces: a generic status write on a managed
+        # blueprint is refused (identity-rename guard) — proves the
+        # bypass in archive_set/2 is doing real work, not a no-op.
+        assert {:error, :managed_blueprint} =
+                 PhoenixKitEntities.update_entity(set, %{status: "archived"})
+
+        assert {:ok, archived} = AttributeSets.archive_set(set)
+        assert archived.status == "archived"
+
+        assert {:ok, restored} = AttributeSets.restore_set(archived)
+        assert restored.status == "published"
+      end
+
+      test "archiving is allowed even while the set is attached to items" do
+        set = create_set!("Ikea trims")
+        item = fixture_item(%{name: "Door"})
+        {:ok, _} = AttributeSets.attach_set(item.uuid, set.uuid)
+
+        assert {:ok, archived} = AttributeSets.archive_set(set)
+        assert archived.status == "archived"
+        # The attachment itself is untouched — soft-delete keeps ties intact.
+        assert length(AttributeSets.list_attachments(item.uuid)) == 1
+      end
+
+      test "archive/restore log activity and broadcast" do
+        set = create_set!("Ikea hinges")
+        actor = Ecto.UUID.generate()
+
+        {:ok, _} = AttributeSets.archive_set(set, actor_uuid: actor)
+        assert_activity_logged("attribute_set.archived", resource_uuid: set.uuid)
+
+        set = AttributeSets.get_set(set.uuid)
+        {:ok, _} = AttributeSets.restore_set(set, actor_uuid: actor)
+        assert_activity_logged("attribute_set.restored", resource_uuid: set.uuid)
+      end
+
+      test "archive/restore are idempotent — a repeat call writes no duplicate row" do
+        set = create_set!("Ikea idempotent hinges")
+        actor = Ecto.UUID.generate()
+
+        {:ok, archived} = AttributeSets.archive_set(set, actor_uuid: actor)
+        assert {:ok, ^archived} = AttributeSets.archive_set(archived, actor_uuid: actor)
+        # Would flunk on a duplicate row (assert_activity_logged expects
+        # exactly one match).
+        assert_activity_logged("attribute_set.archived", resource_uuid: set.uuid)
+
+        {:ok, restored} = AttributeSets.restore_set(archived, actor_uuid: actor)
+        assert {:ok, ^restored} = AttributeSets.restore_set(restored, actor_uuid: actor)
+        assert_activity_logged("attribute_set.restored", resource_uuid: set.uuid)
+      end
+
+      test "restore_set re-reads before deciding idempotency, not the caller's stale struct" do
+        set = create_set!("Ikea stale restore")
+        # `stale` still claims status "published" after this point.
+        stale = set
+
+        {:ok, _} = AttributeSets.archive_set(set)
+
+        # The bug this replaces: the old idempotency clause pattern-matched
+        # on `stale.status` itself ("published" != "archived"), so it
+        # returned {:ok, stale} as a silent no-op — reporting "published"
+        # while the DB stayed "archived". Re-reading before deciding must
+        # see the real "archived" row and perform the write for real.
+        assert {:ok, restored} = AttributeSets.restore_set(stale)
+        assert restored.status == "published"
+        assert AttributeSets.get_set(set.uuid).status == "published"
+        assert_activity_logged("attribute_set.restored", resource_uuid: set.uuid)
+      end
+
+      test "archive_set re-reads before deciding idempotency, not the caller's stale struct" do
+        set = create_set!("Ikea stale archive")
+
+        {:ok, archived_stale} = AttributeSets.archive_set(set)
+        {:ok, _} = AttributeSets.restore_set(archived_stale)
+        # `archived_stale` still claims status "archived", though the set
+        # is "published" again in the DB.
+
+        assert {:ok, re_archived} = AttributeSets.archive_set(archived_stale)
+        assert re_archived.status == "archived"
+        assert AttributeSets.get_set(set.uuid).status == "archived"
+      end
+
+      test "archive_set/restore_set refuse :entities_disabled even on the idempotent path" do
+        set = create_set!("Ikea disabled idempotent")
+        {:ok, archived} = AttributeSets.archive_set(set)
+
+        PhoenixKit.Settings.update_setting("entities_enabled", "false")
+
+        # The bug this replaces: the idempotency clause matched BEFORE
+        # `ensure_enabled/0` ran, so an already-archived/restored set kept
+        # reporting success while the feature itself was off.
+        assert {:error, :entities_disabled} = AttributeSets.archive_set(archived)
+        assert {:error, :entities_disabled} = AttributeSets.restore_set(archived)
+      end
+
+      test "list_sets/1 defaults to non-archived, :archived and :all opt in" do
+        active = create_set!("Active set")
+        archived = create_set!("Archived set")
+        {:ok, _} = AttributeSets.archive_set(archived)
+
+        default_uuids = AttributeSets.list_sets() |> Enum.map(& &1.uuid)
+        assert active.uuid in default_uuids
+        refute archived.uuid in default_uuids
+
+        archived_uuids = AttributeSets.list_sets(status: :archived) |> Enum.map(& &1.uuid)
+        assert archived_uuids == [archived.uuid]
+
+        all_uuids = AttributeSets.list_sets(status: :all) |> Enum.map(& &1.uuid)
+        assert active.uuid in all_uuids
+        assert archived.uuid in all_uuids
+      end
+
+      test "list_sets/1 raises on an unrecognized :status instead of reading as non-archived" do
+        assert_raise ArgumentError, ~r/:status/, fn ->
+          AttributeSets.list_sets(status: :published)
+        end
+
+        assert_raise ArgumentError, ~r/:status/, fn ->
+          AttributeSets.list_sets(status: "archived")
+        end
+      end
+
+      test "Catalogue delegates archive_attribute_set/2 and restore_attribute_set/2" do
+        set = create_set!("Delegate set")
+
+        assert {:ok, archived} = Catalogue.archive_attribute_set(set)
+        assert archived.status == "archived"
+        assert {:ok, restored} = Catalogue.restore_attribute_set(archived)
+        assert restored.status == "published"
+      end
+
+      test "archive_set refuses a uuid that isn't a catalogue set — never falls back to the caller's struct" do
+        # The bug this replaces: `get_set(set.uuid) || set` fell back to
+        # the caller's own struct whenever the uuid didn't resolve to a
+        # catalogue-owned set, and `do_archive_set/2` then flipped ITS
+        # status through the owner bypass regardless — a public API meant
+        # to touch only attribute sets could flip the status of ANY
+        # entity handed to it, managed by catalogue or not.
+        {:ok, foreign} =
+          PhoenixKitEntities.create_entity(%{
+            name: "some_unrelated_entity",
+            display_name: "Unrelated",
+            display_name_plural: "Unrelated",
+            created_by_uuid: Ecto.UUID.generate()
+          })
+
+        assert {:error, :not_found} = AttributeSets.archive_set(foreign)
+        assert PhoenixKitEntities.get_entity(foreign.uuid).status == "published"
+      end
+
+      test "restore_set refuses a uuid that isn't a catalogue set — never falls back to the caller's struct" do
+        {:ok, foreign} =
+          PhoenixKitEntities.create_entity(%{
+            name: "some_other_unrelated_entity",
+            display_name: "Unrelated",
+            display_name_plural: "Unrelated",
+            status: "archived",
+            created_by_uuid: Ecto.UUID.generate()
+          })
+
+        assert {:error, :not_found} = AttributeSets.restore_set(foreign)
+        assert PhoenixKitEntities.get_entity(foreign.uuid).status == "archived"
+      end
+    end
+
+    describe "managed_path (2026-09-11 direction, step 2)" do
+      test "create_set stamps a top-level managed_path settings key" do
+        set = create_set!("Path set")
+        assert set.settings["managed_path"] == "/admin/catalogue/attributes"
+      end
+
+      test "the managed_path key does not trip tampers_with_markers?/2" do
+        set = create_set!("Path guard set")
+
+        # managed_path is a top-level settings key, a sibling of
+        # managed_by/locked_keys — NOT one of them. A generic (non-owner)
+        # caller changing ONLY managed_path must pass: it touches neither
+        # `tampers_with_markers?/2` (managed_by/locked_keys unchanged) nor
+        # `touches_locked_keys?/2` (settings["catalogue"] unchanged).
+        assert {:ok, _} =
+                 PhoenixKitEntities.update_entity(set, %{
+                   settings: Map.put(set.settings, "managed_path", "/x")
+                 })
+      end
+
+      test "a locked key touched alongside managed_path is still rejected" do
+        set = create_set!("Path guard set, locked key")
+
+        # The positive test above only proves a BRAND NEW top-level key
+        # passes — `touches_locked_keys?/2` allows any new key
+        # unconditionally, so that alone wouldn't tell placement apart
+        # from the key simply not being "kind"/"default_value_slug".
+        # This is the other half: a generic (non-owner) caller that
+        # rides the SAME settings write to also touch a real locked key
+        # (`settings["catalogue"]["kind"]`) must still be refused.
+        tampered_catalogue = Map.put(set.settings["catalogue"], "kind", "fixed")
+
+        new_settings =
+          set.settings
+          |> Map.put("managed_path", "/x")
+          |> Map.put("catalogue", tampered_catalogue)
+
+        assert {:error, :locked_key} =
+                 PhoenixKitEntities.update_entity(set, %{settings: new_settings})
+      end
+
+      test "backfill_managed_path stamps existing sets idempotently" do
+        set = create_set!("Legacy path set")
+
+        # Simulate a pre-existing set provisioned before managed_path
+        # existed: strip it out via a direct owner-bypass write.
+        {:ok, stripped} =
+          PhoenixKitEntities.update_entity(
+            set,
+            %{settings: Map.delete(set.settings, "managed_path")},
+            on_behalf_of: "catalogue"
+          )
+
+        refute Map.has_key?(stripped.settings, "managed_path")
+
+        assert :ok = AttributeSets.backfill_managed_path()
+        backfilled = AttributeSets.get_set(set.uuid)
+        assert backfilled.settings["managed_path"] == "/admin/catalogue/attributes"
+
+        # Idempotent: a set that already carries it is left alone (no
+        # crash, no duplicate write) on a second run.
+        assert :ok = AttributeSets.backfill_managed_path()
+
+        assert AttributeSets.get_set(set.uuid).settings["managed_path"] ==
+                 "/admin/catalogue/attributes"
       end
     end
 
@@ -606,6 +911,261 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSetsTest do
 
         assert [%{key: "catalogue_set_auto_doors_color"}] =
                  AttributeSets.resolve_for_item(item.uuid).sets
+      end
+    end
+
+    describe "prune_orphan_value_slugs/1 (3b, 2026-09-11 direction)" do
+      test "sweeps slugs of HARD-deleted values, leaves archived/trashed ones alone" do
+        actor = Ecto.UUID.generate()
+        set = create_set!("Ikea veneers")
+        {:ok, red} = AttributeSets.create_value(set, %{label: "Red"}, actor_uuid: actor)
+        {:ok, blue} = AttributeSets.create_value(set, %{label: "Blue"}, actor_uuid: actor)
+        {:ok, green} = AttributeSets.create_value(set, %{label: "Green"}, actor_uuid: actor)
+
+        item = fixture_item(%{name: "Door"})
+        {:ok, _} = AttributeSets.attach_set(item.uuid, set.uuid)
+
+        :ok =
+          AttributeSets.set_attachment_selection(item.uuid, set.uuid, [
+            red.slug,
+            blue.slug,
+            green.slug
+          ])
+
+        # Archive Blue (soft) and hard-delete Green out of band — bypassing
+        # AttributeSets.delete_value/3's own sweep, simulating exactly the
+        # scenario the subscriber backstops (a delete that skipped it).
+        {:ok, _} =
+          PhoenixKitEntities.EntityData.update(blue, %{status: "archived"}, activity_log: false)
+
+        {:ok, _} = PhoenixKitEntities.EntityData.delete(green, activity_log: false)
+
+        assert AttributeSets.prune_orphan_value_slugs(set.uuid) == 1
+
+        [attachment] = AttributeSets.list_attachments(item.uuid)
+        selected = attachment.data["selected_value_slugs"]
+        # Red (live) and Blue (archived, still a real row) survive; Green
+        # (hard-deleted, no row anywhere) is gone.
+        assert Enum.sort(selected) == Enum.sort([red.slug, blue.slug])
+
+        # A clean set no-ops.
+        assert AttributeSets.prune_orphan_value_slugs(set.uuid) == 0
+
+        assert_activity_logged("attribute_set.orphans_pruned",
+          resource_uuid: set.uuid,
+          metadata_has: %{"count" => 1}
+        )
+      end
+
+      test "a TRASHED value's slug is also not an orphan — the other half of archived-or-trashed" do
+        # The test above only exercises the archived half of "leaves
+        # archived/trashed ones alone" — `EntityData.list_by_entity/2`
+        # doesn't exclude archived by default anyway, so that half would
+        # pass even if `sweep_orphan_value_slugs/1` dropped
+        # `include_trashed: true` entirely. Trash Blue here instead, the
+        # one status that flag actually gates.
+        actor = Ecto.UUID.generate()
+        set = create_set!("Ikea veneers trashed")
+        {:ok, red} = AttributeSets.create_value(set, %{label: "Red"}, actor_uuid: actor)
+        {:ok, blue} = AttributeSets.create_value(set, %{label: "Blue"}, actor_uuid: actor)
+
+        item = fixture_item(%{name: "Door"})
+        {:ok, _} = AttributeSets.attach_set(item.uuid, set.uuid)
+
+        :ok =
+          AttributeSets.set_attachment_selection(item.uuid, set.uuid, [red.slug, blue.slug])
+
+        {:ok, _} = PhoenixKitEntities.EntityData.trash(blue)
+
+        assert AttributeSets.prune_orphan_value_slugs(set.uuid) == 0
+
+        [attachment] = AttributeSets.list_attachments(item.uuid)
+        selected = attachment.data["selected_value_slugs"]
+        assert Enum.sort(selected) == Enum.sort([red.slug, blue.slug])
+      end
+
+      test "no-op for a uuid that isn't a catalogue set" do
+        assert AttributeSets.prune_orphan_value_slugs(Ecto.UUID.generate()) == 0
+        assert AttributeSets.prune_orphan_value_slugs("not-a-uuid") == 0
+      end
+    end
+
+    describe "OrphanPruner subscribes to data-deletion events too (3b)" do
+      test "prunes value slugs on {:data_deleted, set_uuid, value_uuid}" do
+        set = create_set!("Ikea rails")
+        {:ok, red} = AttributeSets.create_value(set, %{label: "Red"})
+        item = fixture_item(%{name: "Door"})
+        {:ok, _} = AttributeSets.attach_set(item.uuid, set.uuid)
+        :ok = AttributeSets.set_attachment_selection(item.uuid, set.uuid, [red.slug])
+
+        {:ok, _} = PhoenixKitEntities.EntityData.delete(red, activity_log: false)
+
+        assert {:noreply, %{}} =
+                 AttributeSets.OrphanPruner.handle_info(
+                   {:data_deleted, set.uuid, red.uuid},
+                   %{}
+                 )
+
+        [attachment] = AttributeSets.list_attachments(item.uuid)
+        assert attachment.data["selected_value_slugs"] == []
+
+        # A data_deleted for something that isn't a set, and shared-topic
+        # noise, are absorbed rather than crashing the subscriber.
+        assert {:noreply, %{}} =
+                 AttributeSets.OrphanPruner.handle_info(
+                   {:data_deleted, Ecto.UUID.generate(), Ecto.UUID.generate()},
+                   %{}
+                 )
+
+        assert {:noreply, %{}} =
+                 AttributeSets.OrphanPruner.handle_info({:data_created, "x", "y"}, %{})
+      end
+    end
+
+    describe "hidden values: archived/trashed selections survive resolve (3c)" do
+      test "resolve_set carries hidden_values; values stays active-only" do
+        set = create_set!("Ikea finishes")
+        {:ok, oak} = AttributeSets.create_value(set, %{label: "Oak"})
+        {:ok, ash} = AttributeSets.create_value(set, %{label: "Ash"})
+
+        {:ok, _} =
+          PhoenixKitEntities.EntityData.update(ash, %{status: "archived"}, activity_log: false)
+
+        resolved = AttributeSets.resolve_set(set.uuid)
+
+        assert Enum.map(resolved.values, & &1.key) == [oak.slug]
+        assert Enum.map(resolved.hidden_values, & &1.key) == [ash.slug]
+      end
+
+      test "resolve_set carries a TRASHED value in hidden_values too, not just archived" do
+        set = create_set!("Ikea finishes trashed")
+        {:ok, oak} = AttributeSets.create_value(set, %{label: "Oak"})
+        {:ok, ash} = AttributeSets.create_value(set, %{label: "Ash"})
+
+        {:ok, _} = PhoenixKitEntities.EntityData.trash(ash)
+
+        resolved = AttributeSets.resolve_set(set.uuid)
+
+        assert Enum.map(resolved.values, & &1.key) == [oak.slug]
+        assert Enum.map(resolved.hidden_values, & &1.key) == [ash.slug]
+      end
+
+      test "a live value's slug wins over a trashed duplicate sharing the same key" do
+        # A trashed value's slug isn't checked for uniqueness against new
+        # values (`value_slug/3` only compares against active ones), so
+        # the same slug can end up on more than one row: a live value
+        # plus one or more stale trashed copies underneath it. Every
+        # consumer builds its lookup pool as `values ++ hidden_values`
+        # (product card, attribute-set items modal, item form) — a
+        # duplicate key there means "last wins", and the stale trashed
+        # row's label would silently shadow the live one's.
+        set = create_set!("Ikea slug collision")
+
+        {:ok, old} =
+          AttributeSets.create_value(set, %{label: "Old Red", slug: "punane"})
+
+        {:ok, _} = PhoenixKitEntities.EntityData.trash(old)
+
+        {:ok, live} =
+          AttributeSets.create_value(set, %{label: "New Red", slug: "punane"})
+
+        assert old.slug == live.slug
+
+        resolved = AttributeSets.resolve_set(set.uuid)
+
+        assert Enum.map(resolved.values, & &1.key) == ["punane"]
+        assert Enum.map(resolved.values, & &1.label) == ["New Red"]
+        # The trashed duplicate is dropped entirely, not just shadowed —
+        # the live row already carries the key, so it stays the ONLY
+        # source of that key in the resolved pool.
+        assert resolved.hidden_values == []
+      end
+
+      test "a selected value that gets archived is not silently dropped from resolve" do
+        actor = Ecto.UUID.generate()
+        set = create_set!("Ikea worktops")
+        {:ok, oak} = AttributeSets.create_value(set, %{label: "Oak"}, actor_uuid: actor)
+        {:ok, ash} = AttributeSets.create_value(set, %{label: "Ash"}, actor_uuid: actor)
+
+        item = fixture_item(%{name: "Worktop"})
+        {:ok, _} = AttributeSets.attach_set(item.uuid, set.uuid)
+        :ok = AttributeSets.set_attachment_selection(item.uuid, set.uuid, [oak.slug, ash.slug])
+
+        {:ok, _} =
+          PhoenixKitEntities.EntityData.update(ash, %{status: "archived"}, activity_log: false)
+
+        assert %{sets: [resolved]} = AttributeSets.resolve_for_item(item.uuid)
+        # Invariant: the selection keeps BOTH — archiving a value must not
+        # silently drop it from what the item is resolved to have picked.
+        assert Enum.sort(resolved.selected) == Enum.sort([oak.slug, ash.slug])
+        # Invariant: `values` (what a picker OFFERS) stays active-only.
+        assert Enum.map(resolved.values, & &1.key) == [oak.slug]
+        assert Enum.map(resolved.hidden_values, & &1.key) == [ash.slug]
+      end
+
+      test "resolve_for_items batches hidden-value loading across sets (no N+1)" do
+        sets =
+          for n <- 1..4 do
+            set = create_set!("Ikea hidden batch #{n}")
+            {:ok, kept} = AttributeSets.create_value(set, %{label: "Kept"})
+
+            {:ok, gone} =
+              AttributeSets.create_value(set, %{label: "Gone"})
+
+            {:ok, _} =
+              PhoenixKitEntities.EntityData.update(gone, %{status: "archived"},
+                activity_log: false
+              )
+
+            {set, kept}
+          end
+
+        item = fixture_item(%{name: "Combo"})
+
+        for {set, _kept} <- sets do
+          {:ok, _} = AttributeSets.attach_set(item.uuid, set.uuid)
+        end
+
+        entity_data_queries =
+          query_texts(fn -> AttributeSets.resolve_for_items([item.uuid]) end)
+          |> Enum.count(&(&1 =~ "phoenix_kit_entity_data"))
+
+        # Values and hidden values are each fetched in ONE batched query
+        # across every distinct set in play, not once per set — 4 distinct
+        # sets must cost the SAME entity_data-table query count as 1 would
+        # (2: one values fetch, one hidden-values fetch). Before the fix,
+        # `list_hidden_values/2` looped `EntityData.list_by_entity/2` per
+        # set, so this scaled with the number of sets instead.
+        assert entity_data_queries == 2
+      end
+
+      test "a HARD-deleted value's slug is still dropped — the ghost rule survives" do
+        actor = Ecto.UUID.generate()
+        set = create_set!("Ikea legs")
+        {:ok, oak} = AttributeSets.create_value(set, %{label: "Oak"}, actor_uuid: actor)
+        {:ok, steel} = AttributeSets.create_value(set, %{label: "Steel"}, actor_uuid: actor)
+
+        item = fixture_item(%{name: "Legs"})
+        {:ok, _} = AttributeSets.attach_set(item.uuid, set.uuid)
+        :ok = AttributeSets.set_attachment_selection(item.uuid, set.uuid, [oak.slug, steel.slug])
+
+        {:ok, _} = AttributeSets.delete_value(set, steel)
+
+        assert %{sets: [resolved]} = AttributeSets.resolve_for_item(item.uuid)
+        assert resolved.selected == [oak.slug]
+      end
+
+      test "valid_selection/2 accepts hidden_values slugs, still drops true ghosts" do
+        resolved = %{
+          values: [%{key: "red"}],
+          hidden_values: [%{key: "blue"}]
+        }
+
+        assert AttributeSets.valid_selection(["red", "blue", "ghost"], resolved) ==
+                 ["red", "blue"]
+
+        # Backward compatible: a map with no :hidden_values key still works.
+        assert AttributeSets.valid_selection(["red"], %{values: [%{key: "red"}]}) == ["red"]
       end
     end
 
