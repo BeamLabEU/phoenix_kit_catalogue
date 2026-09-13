@@ -8,6 +8,10 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPickerTest do
   classes). Search behaviour (server-side DB queries) belongs in
   integration tests.
   """
+  # Canonical form only — the picker refuses anything else since the
+  # 2026-09-13 sweep (the value is interpolated into a URL path).
+  @photo_uuid "0199b7b4-7c2e-7a1d-9d3a-6f1e2c4b8a90"
+
   use ExUnit.Case, async: true
 
   import Phoenix.LiveViewTest
@@ -518,20 +522,20 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPickerTest do
     test "renders a thumbnail to the left of the input when the selected item has a photo" do
       item = %{
         fake_item("item-1", "Oak Plank")
-        | data: %{"featured_image_uuid" => "photo-uuid-abc"}
+        | data: %{"featured_image_uuid" => @photo_uuid}
       }
 
       html = render_component(ItemPicker, base_assigns(%{selected_item: item}))
 
       # An <img> preview appears and its src carries the featured file UUID.
       assert html =~ "<img"
-      assert html =~ "photo-uuid-abc"
+      assert html =~ @photo_uuid
     end
 
     test "alt carries the item's display name, not an empty string (inert thumbnail)" do
       item = %{
         fake_item("item-1", "Oak Plank")
-        | data: %{"featured_image_uuid" => "photo-uuid-abc"}
+        | data: %{"featured_image_uuid" => @photo_uuid}
       }
 
       html = render_component(ItemPicker, base_assigns(%{selected_item: item}))
@@ -543,7 +547,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPickerTest do
     test "alt carries the item's display name on the clickable thumbnail too" do
       item = %{
         fake_item("item-1", "Oak Plank")
-        | data: %{"featured_image_uuid" => "photo-uuid-abc"}
+        | data: %{"featured_image_uuid" => @photo_uuid}
       }
 
       html =
@@ -579,7 +583,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPickerTest do
     test "thumbnail is inert by default (no click hook)" do
       item = %{
         fake_item("item-1", "Oak Plank")
-        | data: %{"featured_image_uuid" => "photo-uuid-abc"}
+        | data: %{"featured_image_uuid" => @photo_uuid}
       }
 
       html = render_component(ItemPicker, base_assigns(%{selected_item: item}))
@@ -591,7 +595,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPickerTest do
     test "photo_clickable=true wraps the thumbnail in a click hook" do
       item = %{
         fake_item("item-1", "Oak Plank")
-        | data: %{"featured_image_uuid" => "photo-uuid-abc"}
+        | data: %{"featured_image_uuid" => @photo_uuid}
       }
 
       html =
@@ -599,13 +603,13 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPickerTest do
 
       # The navigation hook the product-card feature (L026.1) wires up.
       assert html =~ ~s(phx-click="photo_click")
-      assert html =~ "photo-uuid-abc"
+      assert html =~ @photo_uuid
     end
 
     test "photo_clickable=true renders cursor-pointer on the thumbnail button" do
       item = %{
         fake_item("item-1", "Oak Plank")
-        | data: %{"featured_image_uuid" => "photo-uuid-abc"}
+        | data: %{"featured_image_uuid" => @photo_uuid}
       }
 
       html =
@@ -672,7 +676,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPickerTest do
     test "photo_placeholder=true does not change rendering for a selected item WITH a photo" do
       item = %{
         fake_item("item-1", "Oak Plank")
-        | data: %{"featured_image_uuid" => "photo-uuid-abc"}
+        | data: %{"featured_image_uuid" => @photo_uuid}
       }
 
       with_placeholder =
@@ -696,7 +700,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPickerTest do
     test "defaults to w-8 h-8, rendering byte-for-byte as before the attribute existed" do
       item = %{
         fake_item("item-1", "Oak Plank")
-        | data: %{"featured_image_uuid" => "photo-uuid-abc"}
+        | data: %{"featured_image_uuid" => @photo_uuid}
       }
 
       html = render_component(ItemPicker, base_assigns(%{selected_item: item}))
@@ -708,7 +712,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPickerTest do
     test "a custom photo_size overrides the thumbnail size" do
       item = %{
         fake_item("item-1", "Oak Plank")
-        | data: %{"featured_image_uuid" => "photo-uuid-abc"}
+        | data: %{"featured_image_uuid" => @photo_uuid}
       }
 
       html =
@@ -744,15 +748,16 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPickerTest do
     # A088: the placeholder's own box (excluding padding) must match the
     # image's box byte-for-byte at every photo_size — NOT merely "changes
     # when photo_size changes", which is also true on the buggy code (the
-    # placeholder carried an extra `p-1.5` that shrinks its visible box by
-    # 12px relative to the image, at every size). Asserting the full class
+    # placeholder carried an extra `p-1.5` — under `box-sizing: border-box`
+    # the outer box stays the same, but 12px of padding the image does not
+    # have shrinks the glyph's area, at every size). Asserting the full class
     # string — img minus `object-cover`, placeholder minus `p-1.5
     # opacity-40` — is the only check that distinguishes "same box" from
     # "some box that also happens to scale".
     test "the placeholder box matches the image box exactly at the default photo_size" do
       item_with_photo = %{
         fake_item("item-1", "Oak Plank")
-        | data: %{"featured_image_uuid" => "photo-uuid-abc"}
+        | data: %{"featured_image_uuid" => @photo_uuid}
       }
 
       item_without_photo = fake_item("item-2", "Pine Plank")
@@ -784,7 +789,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPickerTest do
     test "the placeholder box matches the image box exactly at a non-default photo_size" do
       item_with_photo = %{
         fake_item("item-1", "Oak Plank")
-        | data: %{"featured_image_uuid" => "photo-uuid-abc"}
+        | data: %{"featured_image_uuid" => @photo_uuid}
       }
 
       item_without_photo = fake_item("item-2", "Pine Plank")
@@ -820,18 +825,18 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPickerTest do
     test "defaults to \"thumbnail\", rendering byte-for-byte as before the attribute existed" do
       item = %{
         fake_item("item-1", "Oak Plank")
-        | data: %{"featured_image_uuid" => "photo-uuid-abc"}
+        | data: %{"featured_image_uuid" => @photo_uuid}
       }
 
       html = render_component(ItemPicker, base_assigns(%{selected_item: item}))
 
-      assert html =~ "/photo-uuid-abc/thumbnail/"
+      assert html =~ "/#{@photo_uuid}/thumbnail/"
     end
 
     test "a custom photo_asset_type changes the signed URL's variant segment" do
       item = %{
         fake_item("item-1", "Oak Plank")
-        | data: %{"featured_image_uuid" => "photo-uuid-abc"}
+        | data: %{"featured_image_uuid" => @photo_uuid}
       }
 
       html =
@@ -840,8 +845,8 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPickerTest do
           base_assigns(%{selected_item: item, photo_asset_type: "medium"})
         )
 
-      assert html =~ "/photo-uuid-abc/medium/"
-      refute html =~ "/photo-uuid-abc/thumbnail/"
+      assert html =~ "/#{@photo_uuid}/medium/"
+      refute html =~ "/#{@photo_uuid}/thumbnail/"
     end
   end
 
@@ -849,7 +854,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPickerTest do
     test "show_photo: false + item WITH a photo + photo_clickable: true renders the clickable placeholder, not the real image" do
       item = %{
         fake_item("item-1", "Oak Plank")
-        | data: %{"featured_image_uuid" => "photo-uuid-abc"}
+        | data: %{"featured_image_uuid" => @photo_uuid}
       }
 
       html =
@@ -880,7 +885,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPickerTest do
     test "show_photo: false with photo_clickable: false renders nothing clickable (no click target to offer)" do
       item = %{
         fake_item("item-1", "Oak Plank")
-        | data: %{"featured_image_uuid" => "photo-uuid-abc"}
+        | data: %{"featured_image_uuid" => @photo_uuid}
       }
 
       html =
@@ -897,7 +902,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPickerTest do
     test "show_photo: true (explicit) renders identically to the default for an item with a photo" do
       item = %{
         fake_item("item-1", "Oak Plank")
-        | data: %{"featured_image_uuid" => "photo-uuid-abc"}
+        | data: %{"featured_image_uuid" => @photo_uuid}
       }
 
       default_html =

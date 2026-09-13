@@ -70,7 +70,7 @@ defmodule PhoenixKitCatalogue.Test.FakeExtension do
       |> Phoenix.Component.assign(:error, field_error(assigns[:form], :note))
 
     ~H"""
-    <div id="ext-fake-section">
+    <div id="ext-fake-section" data-lang={assigns[:current_language]}>
       <input type="text" name={"#{@form_prefix}[fake][note]"} value={@note} />
       <p :if={@error} class="text-error">{@error}</p>
     </div>

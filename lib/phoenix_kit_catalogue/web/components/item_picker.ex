@@ -586,8 +586,12 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
   # input; a blank or missing pointer renders no thumbnail, leaving the
   # layout unchanged for items without a photo.
   defp selected_photo_uuid(%Item{data: data}) when is_map(data) do
-    case Map.get(data, "featured_image_uuid") do
-      uuid when is_binary(uuid) and uuid != "" -> uuid
+    # Canonical uuid form only: the value goes into a URL path (see
+    # `Components.featured_image_uuid/1`).
+    with uuid when is_binary(uuid) and uuid != "" <- Map.get(data, "featured_image_uuid"),
+         {:ok, ^uuid} <- Ecto.UUID.cast(uuid) do
+      uuid
+    else
       _ -> nil
     end
   end
