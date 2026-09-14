@@ -2269,7 +2269,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   defp do_bulk_restore_categories(socket, uuids) do
     {ok, errors} =
       Enum.reduce(uuids, {0, []}, fn uuid, {ok, errs} ->
-        with %{} = category <- Catalogue.get_category(uuid),
+        # Only a category that is in the trash counts as restored.
+        with %{status: "deleted"} = category <- Catalogue.get_category(uuid),
              {:ok, _} <- Catalogue.restore_category(category, actor_opts(socket)) do
           {ok + 1, errs}
         else

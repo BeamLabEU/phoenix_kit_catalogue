@@ -158,6 +158,7 @@ Repo-local aliases:
   stamp's root, and take `lock_catalogue!/1` before reading what it decides
   on. Skipping the stamp brings back resurrection of rows trashed on their
   own; skipping the lock brings back live items under a trashed category.
+  Plain `update_*` calls never move a row into or out of `"deleted"`.
 - **Gettext** — the module has its own backend, `PhoenixKitCatalogue.Gettext`;
   use it, not `PhoenixKitWeb.Gettext`, for new strings. Three rules, because the
   catalogues are not machine-generated:
