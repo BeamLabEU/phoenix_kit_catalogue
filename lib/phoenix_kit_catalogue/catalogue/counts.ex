@@ -39,19 +39,38 @@ defmodule PhoenixKitCatalogue.Catalogue.Counts do
   end
 
   @doc """
-  Returns a map of `%{catalogue_uuid => non_deleted_item_count}` for all catalogues.
+  Returns a map of `%{catalogue_uuid => item_count}` for all catalogues.
 
   Single-query batch version of `item_count_for_catalogue/1` — avoids N+1 when
   displaying item counts alongside a catalogue list. Includes items both in
   categories and directly attached to a catalogue (uncategorized).
+
+  ## Options
+
+    * `:mode` — `:active` (default) counts only non-deleted items, the
+      number an active catalogue row shows. `:all` counts every item
+      regardless of status — the number a TRASHED catalogue row must
+      show, because `trash_catalogue/2` cascades every item to
+      `"deleted"`, so the active-only count of a correctly trashed
+      catalogue is always 0 and reads as "empty" in the Deleted tab.
+      `:all` is also what `restore_catalogue/2` brings back.
   """
-  @spec item_counts_by_catalogue() :: %{Ecto.UUID.t() => non_neg_integer()}
-  def item_counts_by_catalogue do
-    from(i in Item,
-      where: i.status != "deleted" and not is_nil(i.catalogue_uuid),
-      group_by: i.catalogue_uuid,
-      select: {i.catalogue_uuid, count(i.uuid)}
-    )
+  @spec item_counts_by_catalogue(keyword()) :: %{Ecto.UUID.t() => non_neg_integer()}
+  def item_counts_by_catalogue(opts \\ []) do
+    query =
+      from(i in Item,
+        where: not is_nil(i.catalogue_uuid),
+        group_by: i.catalogue_uuid,
+        select: {i.catalogue_uuid, count(i.uuid)}
+      )
+
+    query =
+      case Keyword.get(opts, :mode, :active) do
+        :active -> where(query, [i], i.status != "deleted")
+        :all -> query
+      end
+
+    query
     |> repo().all()
     |> Map.new()
   end

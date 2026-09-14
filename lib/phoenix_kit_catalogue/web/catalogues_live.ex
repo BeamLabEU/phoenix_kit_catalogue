@@ -400,7 +400,13 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
 
       active_tree = Catalogue.list_folder_tree(mode: :active)
       folder_lookup = Map.new(active_tree, fn {f, _depth} -> {f.uuid, f} end)
-      item_counts = Catalogue.item_counts_by_catalogue()
+
+      # The Deleted tab must count EVERY item in the catalogue: a trash
+      # cascades all of them to "deleted", so the active-only count of a
+      # correctly trashed catalogue is always 0 (Max, 2026-09-14). `:all`
+      # is also exactly what Restore brings back.
+      item_counts =
+        Catalogue.item_counts_by_catalogue(mode: if(mode == "deleted", do: :all, else: :active))
 
       catalogues =
         if mode == "deleted" do

@@ -4,6 +4,7 @@ defmodule PhoenixKitCatalogue.CatalogueTest do
   alias Ecto.Adapters.SQL
   alias PhoenixKitCatalogue.Catalogue
   alias PhoenixKitCatalogue.Catalogue.PubSub, as: CataloguePubSub
+  alias PhoenixKitCatalogue.Schemas.Catalogue, as: CatalogueSchema
 
   # ── Helpers ──────────────────────────────────────────────────────
 
@@ -3198,6 +3199,32 @@ defmodule PhoenixKitCatalogue.CatalogueTest do
 
       counts = Catalogue.item_counts_by_catalogue()
       assert counts[cat.uuid] == 2
+    end
+
+    test "mode: :all counts a trashed catalogue's items, mode: :active reads 0" do
+      cat = create_catalogue()
+      category = create_category(cat)
+      create_item(%{name: "In Category", category_uuid: category.uuid})
+      create_item(%{name: "Uncategorized", catalogue_uuid: cat.uuid})
+      {:ok, _} = Catalogue.trash_catalogue(cat)
+
+      refute Map.has_key?(Catalogue.item_counts_by_catalogue(), cat.uuid)
+      assert Catalogue.item_counts_by_catalogue(mode: :all)[cat.uuid] == 2
+    end
+
+    test "mode: :all counts live AND deleted items under a catalogue a legacy trash left half-swept" do
+      cat = create_catalogue()
+      live = create_item(%{name: "Never cascaded", catalogue_uuid: cat.uuid})
+      trashed = create_item(%{name: "Trashed", catalogue_uuid: cat.uuid})
+      {:ok, _} = Catalogue.trash_item(trashed)
+
+      # A catalogue marked deleted without the cascade (rows like this exist
+      # on long-lived installs): Restore makes both items reachable again.
+      from(c in CatalogueSchema, where: c.uuid == ^cat.uuid)
+      |> Repo.update_all(set: [status: "deleted"])
+
+      assert live.status == "active"
+      assert Catalogue.item_counts_by_catalogue(mode: :all)[cat.uuid] == 2
     end
   end
 
