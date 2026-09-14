@@ -91,6 +91,27 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDeletedTabTest do
     assert Catalogue.get_category(foreign.uuid).status == "deleted"
   end
 
+  # Clearing a selection by changing a BulkSelectScope's id remounts the hook,
+  # but LiveView carries the id-keyed table into the new scope with its
+  # checkboxes still wired to the old hook — the toolbar then never shows.
+  test "selection scopes keep their ids across a bulk op and a level change",
+       %{conn: conn} do
+    %{catalogue: catalogue, gone: gone} = trashed_world()
+    {view, _html} = open_deleted_tab(conn, catalogue)
+
+    assert has_element?(view, "#categories-bulk[phx-hook=BulkSelectScope]")
+    assert has_element?(view, "#items-bulk[phx-hook=BulkSelectScope]")
+
+    render_click(view, "request_bulk_restore_categories", %{"uuids" => [gone.uuid]})
+    assert_push_event(view, "bulk_select:clear", %{})
+    # The trashed loose item is still listed, in the same scope.
+    assert has_element?(view, "#items-bulk[phx-hook=BulkSelectScope]")
+
+    render_click(view, "switch_view", %{"mode" => "active"})
+    render_patch(view, "#{@base}/#{catalogue.uuid}?category=#{gone.uuid}")
+    assert has_element?(view, "#items-bulk[phx-hook=BulkSelectScope]")
+  end
+
   test "search in the Deleted tab finds the trashed items only", %{conn: conn} do
     %{catalogue: catalogue} = trashed_world()
     {view, _html} = open_deleted_tab(conn, catalogue)
