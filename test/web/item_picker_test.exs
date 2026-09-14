@@ -940,7 +940,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPickerTest do
     test "renders a thumbnail before the name for an option with a photo" do
       item = %{
         fake_item("item-1", "Oak Plank")
-        | data: %{"featured_image_uuid" => "photo-uuid-option"}
+        | data: %{"featured_image_uuid" => @photo_uuid}
       }
 
       html =
@@ -950,7 +950,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPickerTest do
         )
 
       assert html =~ "<img"
-      assert html =~ "photo-uuid-option"
+      assert html =~ @photo_uuid
     end
 
     test "renders no thumbnail for an option without a photo" do
@@ -969,7 +969,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPickerTest do
     test "only the options that have a photo get a thumbnail, the rest render unchanged" do
       with_photo = %{
         fake_item("item-1", "Oak Plank")
-        | data: %{"featured_image_uuid" => "photo-uuid-oak"}
+        | data: %{"featured_image_uuid" => @photo_uuid}
       }
 
       without_photo = fake_item("item-2", "Pine Plank")
@@ -980,7 +980,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPickerTest do
           base_assigns(%{open: true, options: [with_photo, without_photo], has_more: false})
         )
 
-      assert html =~ "photo-uuid-oak"
+      assert html =~ @photo_uuid
       assert html =~ "Oak Plank"
       assert html =~ "Pine Plank"
       assert html =~ ~s(id="test-picker-option-0")
