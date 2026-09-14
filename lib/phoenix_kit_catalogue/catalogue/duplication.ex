@@ -283,7 +283,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Duplication do
     copy_attribute_group(source, item)
     copy_supplier_rows(source, item)
     copy_rules(source, item)
-    item = copy_files_folder(source, item, "catalogue-item-#{item.uuid}", opts)
+    item = copy_files_folder(source, item, opts)
 
     unless keep_position?, do: place_item_after(source, item)
 
@@ -463,7 +463,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Duplication do
   # one lazily on first upload). With files → a new folder holding a
   # FolderLink to each, so the copy shows the same files without owning
   # them.
-  defp copy_files_folder(source, record, folder_name, opts) do
+  defp copy_files_folder(source, record, opts) do
     files =
       case source_folder_uuid(source, opts) do
         nil -> []
@@ -473,7 +473,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Duplication do
     if files == [] do
       record
     else
-      folder = create_folder!(folder_name, source, opts)
+      folder = create_folder!(record, opts)
       Enum.each(files, &link_file!(folder, &1))
       put_folder_pointer!(record, folder)
     end
@@ -501,21 +501,15 @@ defmodule PhoenixKitCatalogue.Catalogue.Duplication do
     end
   end
 
+  # Pointer FIRST (the host may have renamed the folder, so a name-only lookup would miss it),
+  # then the module's name-based resolution.
   defp source_folder_uuid(%{data: data} = source, opts) do
     case data && data["files_folder_uuid"] do
       uuid when is_binary(uuid) ->
         uuid
 
       _ ->
-        name =
-          case source do
-            %Item{uuid: uuid} -> "catalogue-item-#{uuid}"
-            %Category{uuid: uuid} -> "catalogue-category-#{uuid}"
-          end
-
-        parent = PhoenixKitCatalogue.Attachments.parent_folder_uuid(source, opts[:actor_uuid])
-
-        case PhoenixKitCatalogue.Attachments.find_folder_by_name(name, parent) do
+        case PhoenixKitCatalogue.Attachments.find_resource_folder(source, opts[:actor_uuid]) do
           %{uuid: uuid} -> uuid
           nil -> nil
         end
@@ -531,10 +525,10 @@ defmodule PhoenixKitCatalogue.Catalogue.Duplication do
     |> repo().all()
   end
 
-  defp create_folder!(name, source, opts) do
+  defp create_folder!(record, opts) do
     attrs = %{
-      name: name,
-      parent_uuid: PhoenixKitCatalogue.Attachments.parent_folder_uuid(source, opts[:actor_uuid])
+      name: PhoenixKitCatalogue.Attachments.folder_name(record, opts[:actor_uuid]),
+      parent_uuid: PhoenixKitCatalogue.Attachments.parent_folder_uuid(record, opts[:actor_uuid])
     }
 
     attrs = if opts[:actor_uuid], do: Map.put(attrs, :user_uuid, opts[:actor_uuid]), else: attrs
@@ -563,7 +557,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Duplication do
     }
 
     category = insert!(%Category{} |> Category.changeset(attrs))
-    category = copy_files_folder(source, category, "catalogue-category-#{category.uuid}", opts)
+    category = copy_files_folder(source, category, opts)
 
     nested = [
       suffix: false,
