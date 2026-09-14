@@ -79,8 +79,8 @@ defmodule PhoenixKitCatalogue.GettextTest do
           # The flash when that confirmed delete is refused (PR #113 review).
           {"Failed to delete value.", "Не удалось удалить значение.",
            "Väärtuse kustutamine ebaõnnestus."},
-          # A value row with a NULL slug (entities editor can leave the
-          # `slug` column empty) renders its chip disabled instead of a
+          # A value row with a NULL slug (seen in live data) renders its
+          # chip disabled instead of a
           # clickable checkbox — see `toggle_value_selection`'s fallback
           # clause in item_form_live.ex.
           {"This value has no slug and cannot be selected",

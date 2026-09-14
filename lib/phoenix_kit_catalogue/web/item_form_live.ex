@@ -1212,8 +1212,9 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
     end
   end
 
-  # A value with a NULL slug (the entities editor can save
-  # `data.et._slug = ""`, leaving the `slug` column empty) has no
+  # A value with a NULL slug (seen in live data — the catalogue's own
+  # create/update paths never produce one, so it arrives from outside,
+  # e.g. a row written through the generic entities admin) has no
   # `key`, so its checkbox renders without `phx-value-key` (see the
   # template) and a click sends just `%{"set" => uuid, "value" =>
   # "on"}`. Without this clause that payload falls through every match
@@ -3265,8 +3266,8 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                               )
                         }
                       >
-                        <%!-- A value with a nil `key` (slug column left empty
-                             by the entities editor) has nothing to send as
+                        <%!-- A value with a nil `key` (a NULL slug column,
+                             seen in live data) has nothing to send as
                              `phx-value-key`; rendering it clickable anyway
                              is what used to crash `toggle_value_selection`
                              (see the handler's fallback clause). Render it

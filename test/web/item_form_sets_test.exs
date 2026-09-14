@@ -277,8 +277,8 @@ defmodule PhoenixKitCatalogue.Web.ItemFormSetsTest do
       render_click(view, "toggle_value_selection", %{"set" => set.uuid, "key" => blue.slug})
       assert assigns(view).staged_selections[set.uuid] == MapSet.new([blue.slug])
 
-      # A value row with a NULL slug (real data: an editor can save
-      # `data.et._slug = ""`, leaving the `slug` column empty) has no
+      # A value row with a NULL slug (seen in live data; the catalogue's
+      # own create/update paths never produce one) has no
       # `phx-value-key` on its checkbox, so a click sends just `"set"`
       # and a bare `"value" => "on"` — no `"key"` at all. The lone
       # clause pattern-matches `%{"set" => _, "key" => _}` and used to
