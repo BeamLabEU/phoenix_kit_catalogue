@@ -55,6 +55,18 @@ defmodule PhoenixKitCatalogue.Attachments do
   The module pattern-matches on the resource struct to derive the
   folder name prefix. Add a new clause to `folder_name_for/1` to
   support additional resource types.
+
+  ## Parent folder
+
+  By default resource folders are created at the storage root. A host can
+  group them under per-type containers:
+
+      config :phoenix_kit_catalogue, :attachments_parent_folder, {MyApp.Media, :for_catalogue}
+
+  called as `for_catalogue(:item | :category | :catalogue, actor_uuid)`,
+  returning `{:ok, parent_folder_uuid}` or `nil` (root). Lookups by name
+  check the parent first and the root second, so folders that predate the
+  setting are still found.
   """
 
   require Logger
@@ -570,8 +582,11 @@ defmodule PhoenixKitCatalogue.Attachments do
   end
 
   defp assign_resolved_folder(socket) do
-    with {:ok, name} <- folder_name_for(socket.assigns[:attachments_resource]),
-         %{uuid: uuid} <- find_folder_by_name(name) do
+    resource = socket.assigns[:attachments_resource]
+    parent_uuid = parent_folder_uuid(resource, current_user_uuid(socket))
+
+    with {:ok, name} <- folder_name_for(resource),
+         %{uuid: uuid} <- find_folder_by_name(name, parent_uuid) do
       assign(socket, :files_folder_uuid, uuid)
     else
       _ -> socket
@@ -864,19 +879,19 @@ defmodule PhoenixKitCatalogue.Attachments do
 
       _ ->
         case folder_name_for(item) do
-          {:ok, name} -> find_or_create_named_folder(name)
+          {:ok, name} -> find_or_create_named_folder(name, parent_folder_uuid(item, nil))
           :pending -> {:error, :item_not_persisted}
         end
     end
   end
 
-  defp find_or_create_named_folder(name) do
-    case find_folder_by_name(name) do
+  defp find_or_create_named_folder(name, parent_uuid) do
+    case find_folder_by_name(name, parent_uuid) do
       %{uuid: uuid} ->
         {:ok, uuid}
 
       nil ->
-        case Storage.create_folder(%{name: name}) do
+        case Storage.create_folder(%{name: name, parent_uuid: parent_uuid}) do
           {:ok, folder} -> {:ok, folder.uuid}
           {:error, reason} -> {:error, reason}
         end
@@ -905,7 +920,10 @@ defmodule PhoenixKitCatalogue.Attachments do
     with folder_uuid when is_binary(folder_uuid) <- socket.assigns[:files_folder_uuid],
          {:ok, target_name} <- folder_name_for(resource),
          %{} = folder <- Storage.get_folder(folder_uuid) do
-      case Storage.update_folder(folder, %{name: target_name}) do
+      case Storage.update_folder(folder, %{
+             name: target_name,
+             parent_uuid: parent_folder_uuid(resource, current_user_uuid(socket))
+           }) do
         {:ok, _} ->
           :ok
 
@@ -977,6 +995,27 @@ defmodule PhoenixKitCatalogue.Attachments do
 
   defp folder_name_for(_), do: :pending
 
+  @doc false
+  # Host-configured parent folder for a resource, see moduledoc "Parent
+  # folder". `nil` means the storage root (the default).
+  def parent_folder_uuid(resource, actor_uuid) do
+    case Application.get_env(:phoenix_kit_catalogue, :attachments_parent_folder) do
+      {mod, fun} when is_atom(mod) and is_atom(fun) ->
+        case apply(mod, fun, [resource_kind(resource), actor_uuid]) do
+          {:ok, uuid} when is_binary(uuid) -> uuid
+          _ -> nil
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  defp resource_kind(%Item{}), do: :item
+  defp resource_kind(%Category{}), do: :category
+  defp resource_kind(%Catalogue{}), do: :catalogue
+  defp resource_kind(_), do: :unknown
+
   # Lazy-creates (or finds) the owning folder. For persisted resources
   # the name is deterministic; for `:new` resources we create a pending
   # random-named folder that `maybe_rename_pending_folder/2` renames
@@ -988,47 +1027,70 @@ defmodule PhoenixKitCatalogue.Attachments do
 
       _ ->
         resource = socket.assigns[:attachments_resource]
+        parent_uuid = parent_folder_uuid(resource, current_user_uuid(socket))
 
         case folder_name_for(resource) do
-          {:ok, name} -> find_or_create_folder(socket, name)
-          :pending -> create_pending_folder(socket)
+          {:ok, name} -> find_or_create_folder(socket, name, parent_uuid)
+          :pending -> create_pending_folder(socket, parent_uuid)
         end
     end
   end
 
-  defp find_or_create_folder(socket, folder_name) do
-    case find_folder_by_name(folder_name) do
+  defp find_or_create_folder(socket, folder_name, parent_uuid) do
+    case find_folder_by_name(folder_name, parent_uuid) do
       %{uuid: uuid} ->
         {:ok, uuid, assign(socket, :files_folder_uuid, uuid)}
 
       nil ->
-        create_folder(socket, folder_name)
+        create_folder(socket, folder_name, parent_uuid)
     end
   end
 
-  defp create_pending_folder(socket) do
-    create_folder(socket, "catalogue-attachment-pending-#{Ecto.UUID.generate()}")
+  defp create_pending_folder(socket, parent_uuid) do
+    create_folder(socket, "catalogue-attachment-pending-#{Ecto.UUID.generate()}", parent_uuid)
   end
 
-  defp create_folder(socket, folder_name) do
+  defp create_folder(socket, folder_name, parent_uuid) do
     user_uuid = current_user_uuid(socket)
 
-    case Storage.create_folder(%{name: folder_name, user_uuid: user_uuid}) do
+    case Storage.create_folder(%{
+           name: folder_name,
+           user_uuid: user_uuid,
+           parent_uuid: parent_uuid
+         }) do
       {:ok, folder} -> {:ok, folder.uuid, assign(socket, :files_folder_uuid, folder.uuid)}
       {:error, reason} -> {:error, reason}
     end
   end
 
-  defp find_folder_by_name(name) when is_binary(name) do
+  @doc false
+  # Deterministic-name lookup: under `parent_uuid` first, then at the root
+  # (folders created before the host configured a parent still live there).
+  def find_folder_by_name(name, parent_uuid \\ nil) when is_binary(name) do
+    case parent_uuid && find_folder_by_name_under(name, parent_uuid) do
+      %{} = folder -> folder
+      _ -> find_folder_by_name_under(name, nil)
+    end
+  rescue
+    error ->
+      Logger.warning("find_folder_by_name failed for #{name}: #{inspect(error)}")
+      nil
+  end
+
+  defp find_folder_by_name_under(name, nil) do
     from(f in PhoenixKit.Modules.Storage.Folder,
       where: f.name == ^name and is_nil(f.parent_uuid),
       limit: 1
     )
     |> PhoenixKit.RepoHelper.repo().one()
-  rescue
-    error ->
-      Logger.warning("find_folder_by_name failed for #{name}: #{inspect(error)}")
-      nil
+  end
+
+  defp find_folder_by_name_under(name, parent_uuid) do
+    from(f in PhoenixKit.Modules.Storage.Folder,
+      where: f.name == ^name and f.parent_uuid == ^parent_uuid,
+      limit: 1
+    )
+    |> PhoenixKit.RepoHelper.repo().one()
   end
 
   # Upload cap is 20 files per submit; the inline grid is not paginated
