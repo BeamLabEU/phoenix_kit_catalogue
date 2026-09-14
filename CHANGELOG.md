@@ -1,3 +1,17 @@
+## Unreleased
+
+### Fixed
+
+- A value without a slug no longer crashes the item form. An attribute
+  set value whose `slug` column is NULL (seen in live data; the
+  catalogue's own value paths never produce one) used to render its
+  checkbox with no
+  `phx-value-key`; clicking it sent a `toggle_value_selection` payload
+  the handler had no clause for, crashing and remounting the LiveView
+  and discarding every unsaved staged selection with it. The chip now
+  renders disabled instead, and the handler ignores a malformed
+  payload rather than crashing.
+
 ## 0.31.2 - 2026-09-13
 
 Review: `dev_docs/pull_requests/2026/113-confirm-attribute-value-delete/`.
