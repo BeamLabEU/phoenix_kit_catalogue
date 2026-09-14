@@ -2522,7 +2522,16 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     # back — the user was stuck in the trash). `cat_mode` is the
     # active/deleted bucket for the (status-less) subcategory cards.
     node_key = level_node_key(current)
-    status = pick_view_mode(socket, current, node_key, status_counts)
+
+    # The tabs count what each tab LISTS: the node's own items plus its
+    # categories — live ones on Active, trashed ones on Deleted. Counting
+    # items alone opened a catalogue whose categories were all empty, with
+    # one trashed item, on Deleted with the Active tab dropped: the live
+    # categories were unreachable, and a refresh picked the same.
+    tab_status_counts = level_tab_counts(status_counts, uuid, current)
+
+    status =
+      pick_view_mode(socket, current, node_key, pick_counts(status_counts, tab_status_counts))
 
     # Counts AFTER the status is settled, not before: entering a category
     # with nothing active auto-flips the tab, and counts taken first
@@ -2542,7 +2551,6 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     {child_categories, children_with_subs} = load_level_children(uuid, current, cat_mode)
 
     child_categories = root_trash_categories(uuid, current, cat_mode, child_categories)
-    tab_status_counts = root_tab_counts(status_counts, uuid, current)
 
     {counts_map, subcat_counts} = level_count_maps(uuid, cat_mode)
 
@@ -2627,22 +2635,54 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   defp root_trash_categories(_uuid, _current, _cat_mode, level_categories),
     do: level_categories
 
-  # Deleted categories count into the root Deleted TAB so a trashed
-  # subcategory alone still surfaces it — tab counts only: node_total
-  # must keep counting ITEMS, or the item list's has-more math answers
-  # for rows that aren't items.
-  defp root_tab_counts(status_counts, uuid, nil) do
-    deleted_cats =
+  # Categories count into the tabs that list them — tab counts and the
+  # opening-tab pick only: node_total must keep counting ITEMS, or the item
+  # list's has-more math answers for rows that aren't items. The root lists
+  # the whole live tree on Active and every trashed category flat on Deleted
+  # (one query: the :deleted tree carries every status); a drilled category
+  # lists its own direct children on each.
+  defp level_tab_counts(status_counts, uuid, nil) do
+    {live, trashed} =
       uuid
       |> Catalogue.list_category_tree(mode: :deleted)
-      |> Enum.count(fn {c, _depth} -> c.status == "deleted" end)
+      |> Enum.reduce({0, 0}, fn {category, _depth}, {live, trashed} ->
+        if category.status == "deleted",
+          do: {live, trashed + 1},
+          else: {live + 1, trashed}
+      end)
 
-    if deleted_cats > 0,
-      do: Map.update(status_counts, "deleted", deleted_cats, &(&1 + deleted_cats)),
-      else: status_counts
+    add_category_counts(status_counts, live, trashed)
   end
 
-  defp root_tab_counts(status_counts, _uuid, _current), do: status_counts
+  defp level_tab_counts(status_counts, uuid, %Category{uuid: parent_uuid}) do
+    live = uuid |> Catalogue.category_children_counts(mode: :active) |> Map.get(parent_uuid, 0)
+
+    trashed =
+      uuid |> Catalogue.category_children_counts(mode: :deleted) |> Map.get(parent_uuid, 0)
+
+    add_category_counts(status_counts, live, trashed)
+  end
+
+  defp level_tab_counts(status_counts, _uuid, _current), do: status_counts
+
+  # What the opening-tab pick weighs: the node's item counts, except that
+  # with no live item at all, live categories make Active populated. Live
+  # categories show on Active, Inactive and Discontinued alike, so they
+  # never outrank a populated Inactive; only Deleted hides them.
+  defp pick_counts(item_counts, tab_counts) do
+    if Enum.any?(~w(active inactive discontinued), &(Map.get(item_counts, &1, 0) > 0)),
+      do: item_counts,
+      else: Map.put(item_counts, "active", Map.get(tab_counts, "active", 0))
+  end
+
+  defp add_category_counts(counts, live, trashed) do
+    counts
+    |> add_tab_count("active", live)
+    |> add_tab_count("deleted", trashed)
+  end
+
+  defp add_tab_count(counts, _status, 0), do: counts
+  defp add_tab_count(counts, status, n), do: Map.update(counts, status, n, &(&1 + n))
 
   # The whole catalogue's active category tree in ONE query, grouped by
   # parent for the browser's collapsible walk. Orphan rows arrive
@@ -3463,7 +3503,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   end
 
   # The status to actually show for a node: keep the selected `view_mode` if it
-  # has items, otherwise fall to the first populated status (active → inactive →
+  # is populated (see `pick_counts/2`), otherwise fall to the first populated
+  # status (active → inactive →
   # discontinued → deleted), or "active" when the node is empty in every status.
   defp effective_view_mode(view_mode, counts) do
     if Map.get(counts, view_mode, 0) > 0 do
