@@ -3920,6 +3920,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                 }
                 catalogue={@catalogue}
                 current_uuid={normalize_category_key(@current_category_uuid)}
+                return_to={current_level_path(assigns)}
                 categories_columns={@categories_columns}
                 child_counts={@child_counts}
                 child_subcat_counts={@child_subcat_counts}
@@ -3937,6 +3938,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                 child_categories={@child_categories}
                 child_counts={@child_counts}
                 children_with_subs={@children_with_subs}
+                return_to={current_level_path(assigns)}
                 view_mode={@view_mode}
                 file_counts={@file_counts}
                 show_uncat={show_uncat_entry?(assigns)}
@@ -3954,6 +3956,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                 catalogue={@catalogue}
                 tree_children={@category_tree_children}
                 root_uuid={normalize_category_key(@current_category_uuid)}
+                return_to={current_level_path(assigns)}
                 child_counts={@child_counts}
                 child_subcat_counts={@child_subcat_counts}
                 file_counts={@file_counts}
@@ -4483,6 +4486,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   attr(:categories_columns, :list, default: ["items"])
   attr(:child_subcat_counts, :map, default: %{})
 
+  attr(:return_to, :string, default: nil)
+
   defp categories_table(assigns) do
     assigns =
       assigns
@@ -4595,7 +4600,12 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
             extension_columns={@extension_columns}
           />
           <.table_default_cell class="text-right whitespace-nowrap">
-            <.category_row_menu cat={cat} catalogue={@catalogue} view_mode={@view_mode} />
+            <.category_row_menu
+              cat={cat}
+              catalogue={@catalogue}
+              view_mode={@view_mode}
+              return_to={@return_to}
+            />
           </.table_default_cell>
         </.sortable_row>
         <tr :if={@show_uncat}>
@@ -4648,6 +4658,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   attr(:catalogue, :map, required: true)
   attr(:view_mode, :string, required: true)
 
+  attr(:return_to, :string, default: nil)
+
   defp category_row_menu(assigns) do
     ~H"""
     <.table_row_menu
@@ -4656,12 +4668,12 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       id={"category-menu-#{@cat.uuid}"}
     >
       <.table_row_menu_link
-        navigate={Paths.category_edit(@cat.uuid)}
+        navigate={with_return_to(Paths.category_edit(@cat.uuid), @return_to)}
         icon="hero-pencil"
         label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")}
       />
       <.table_row_menu_link
-        navigate={Paths.category_new(@catalogue.uuid) <> "?parent_uuid=" <> @cat.uuid}
+        navigate={new_subcategory_path(@catalogue.uuid, @cat.uuid, @return_to)}
         icon="hero-folder-plus"
         label={gettext("New subcategory")}
       />
@@ -4718,6 +4730,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   attr(:view_mode, :string, required: true)
   attr(:show_uncat, :boolean, required: true)
   attr(:uncategorized_active_count, :integer, required: true)
+
+  attr(:return_to, :string, default: nil)
 
   defp categories_tree_table(assigns) do
     cats = Enum.map(assigns.rows, fn {cat, _d, _h, _e} -> cat end)
@@ -4841,7 +4855,12 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               extension_columns={@extension_columns}
             />
             <.table_default_cell class="text-right whitespace-nowrap">
-              <.category_row_menu cat={cat} catalogue={@catalogue} view_mode={@view_mode} />
+              <.category_row_menu
+              cat={cat}
+              catalogue={@catalogue}
+              view_mode={@view_mode}
+              return_to={@return_to}
+            />
             </.table_default_cell>
           </.table_default_row>
           <tr :if={@show_uncat}>
@@ -5088,6 +5107,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   attr(:show_uncat, :boolean, default: false)
   attr(:uncategorized_active_count, :integer, default: 0)
 
+  attr(:return_to, :string, default: nil)
+
   defp categories_card_level(assigns) do
     assigns =
       assigns
@@ -5117,6 +5138,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         entries={@roots}
         parent_key="root"
         catalogue={@catalogue}
+        return_to={@return_to}
         tree_children={@tree_children}
         child_counts={@child_counts}
         child_subcat_counts={@child_subcat_counts}
@@ -5161,6 +5183,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   # visible in card view too (Max, 2026-08-29). Boxes and tiles share
   # the tree-DnD contract: middle drop nests, edges reorder, the root
   # strip lifts.
+  attr(:return_to, :string, default: nil)
+
   defp category_card_entries(assigns) do
     ~H"""
     <div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
@@ -5168,6 +5192,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         <%= if Map.get(@tree_children, cat.uuid, []) == [] do %>
           <.category_tile
             catalogue_uuid={@catalogue.uuid}
+            return_to={@return_to}
             category={cat}
             reorderable={@reorderable}
             tree_parent={@parent_key}
@@ -5216,12 +5241,12 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               <div class="ml-auto">
                 <.table_row_menu mode="auto" id={"category-box-menu-#{cat.uuid}"}>
                   <.table_row_menu_link
-                    navigate={Paths.category_edit(cat.uuid)}
+                    navigate={with_return_to(Paths.category_edit(cat.uuid), @return_to)}
                     icon="hero-pencil"
                     label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")}
                   />
                   <.table_row_menu_link
-                    navigate={Paths.category_new(@catalogue.uuid) <> "?parent_uuid=" <> cat.uuid}
+                    navigate={new_subcategory_path(@catalogue.uuid, cat.uuid, @return_to)}
                     icon="hero-folder-plus"
                     label={gettext("New subcategory")}
                   />
@@ -5240,6 +5265,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               entries={Map.get(@tree_children, cat.uuid, [])}
               parent_key={cat.uuid}
               catalogue={@catalogue}
+              return_to={@return_to}
               tree_children={@tree_children}
               child_counts={@child_counts}
               child_subcat_counts={@child_subcat_counts}
@@ -5279,6 +5305,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   # subcategory tiles use the same definition, 2026-08-31); this wrapper
   # keeps the admin-only chrome — bulk checkbox, drag handle, row menu,
   # tree-DnD data attributes — in the page that owns those behaviours.
+  attr(:return_to, :string, default: nil)
+
   defp category_tile(assigns) do
     assigns =
       assign(
@@ -5322,12 +5350,12 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       <:menu>
         <.table_row_menu mode="auto" id={"category-tile-menu-#{@category.uuid}"}>
           <.table_row_menu_link
-            navigate={Paths.category_edit(@category.uuid)}
+            navigate={with_return_to(Paths.category_edit(@category.uuid), @return_to)}
             icon="hero-pencil"
             label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")}
           />
           <.table_row_menu_link
-            navigate={Paths.category_new(@catalogue_uuid) <> "?parent_uuid=" <> @category.uuid}
+            navigate={new_subcategory_path(@catalogue_uuid, @category.uuid, @return_to)}
             icon="hero-folder-plus"
             label={gettext("New subcategory")}
           />
@@ -5929,6 +5957,20 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
   # 1-arity closure for the item tables' edit_path attrs — every edit
   # link from this page carries the level to return to.
+  # A category's Edit and New Subcategory links carry the level they were
+  # clicked from, so the category form's Cancel comes back to it.
+  defp with_return_to(path, nil), do: path
+
+  defp with_return_to(path, return_to),
+    do: path <> "?" <> URI.encode_query([{"return_to", return_to}])
+
+  defp new_subcategory_path(catalogue_uuid, parent_uuid, return_to) do
+    return = if return_to, do: [{"return_to", return_to}], else: []
+
+    Paths.category_new(catalogue_uuid) <>
+      "?" <> URI.encode_query([{"parent_uuid", parent_uuid} | return])
+  end
+
   defp item_edit_with_return(assigns) do
     query = "?" <> URI.encode_query([{"return_to", current_level_path(assigns)}])
     fn uuid -> Paths.item_edit(uuid) <> query end
