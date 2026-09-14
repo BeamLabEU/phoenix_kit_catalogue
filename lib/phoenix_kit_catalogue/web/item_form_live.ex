@@ -1212,6 +1212,16 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
     end
   end
 
+  # A value with a NULL slug (seen in live data — the catalogue's own
+  # create/update paths never produce one, so it arrives from outside,
+  # e.g. a row written through the generic entities admin) has no
+  # `key`, so its checkbox renders without `phx-value-key` (see the
+  # template) and a click sends just `%{"set" => uuid, "value" =>
+  # "on"}`. Without this clause that payload falls through every match
+  # above and raises FunctionClauseError, crashing and remounting the
+  # LiveView — which discards every unsaved staged tick.
+  def handle_event("toggle_value_selection", _params, socket), do: {:noreply, socket}
+
   # A togglable key must be a REAL value of the set — active (offered
   # by the checkboxes) or hidden (a selected-but-archived chip, §3c).
   # Active-only would make the hidden chip's remove control a no-op:
@@ -3246,15 +3256,36 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                       <label
                         :for={value <- preview.values}
                         class="flex items-center gap-1.5 rounded-full border border-base-content/20 bg-base-100 hover:border-base-content/40 has-[:checked]:border-primary has-[:checked]:bg-primary/10 pl-1.5 pr-2.5 py-0.5 cursor-pointer select-none transition-colors"
-                        title={value_extras_summary(preview, value)}
+                        title={
+                          if value.key,
+                            do: value_extras_summary(preview, value),
+                            else:
+                              Gettext.gettext(
+                                PhoenixKitCatalogue.Gettext,
+                                "This value has no slug and cannot be selected"
+                              )
+                        }
                       >
+                        <%!-- A value with a nil `key` (a NULL slug column,
+                             seen in live data) has nothing to send as
+                             `phx-value-key`; rendering it clickable anyway
+                             is what used to crash `toggle_value_selection`
+                             (see the handler's fallback clause). Render it
+                             disabled instead, with no click handler at all. --%>
                         <input
+                          :if={value.key}
                           type="checkbox"
                           form="__detached-from-item-form__"
                           checked={MapSet.member?(selection_for(assigns, uuid), value.key)}
                           phx-click="toggle_value_selection"
                           phx-value-set={uuid}
                           phx-value-key={value.key}
+                          class="checkbox checkbox-xs"
+                        />
+                        <input
+                          :if={is_nil(value.key)}
+                          type="checkbox"
+                          disabled
                           class="checkbox checkbox-xs"
                         />
                         <img
