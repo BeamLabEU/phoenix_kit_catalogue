@@ -298,8 +298,8 @@ defmodule PhoenixKitCatalogue.Web.ItemFormSetsTest do
       blue: blue
     } do
       # `create_attribute_set_value/2` always generates a slug; force
-      # the real-world state (slug column emptied via the entities
-      # editor) directly through the repo.
+      # the real-world state (a NULL slug column, seen in live data —
+      # entities' changeset accepts one) directly through the repo.
       {1, nil} =
         PhoenixKit.RepoHelper.repo().update_all(
           from(e in PhoenixKitEntities.EntityData, where: e.uuid == ^red.uuid),
@@ -320,6 +320,48 @@ defmodule PhoenixKitCatalogue.Web.ItemFormSetsTest do
       assert red_label =~ "disabled"
       refute red_label =~ "phx-click"
       refute red_label =~ "phx-value-key"
+    end
+
+    test "two slugless values each keep their own swatch", %{
+      conn: conn,
+      item: item,
+      set: set,
+      red: red,
+      blue: blue
+    } do
+      {:ok, _} = AttributeSets.add_extra_field(set, %{label: "Swatch", type: "image"})
+      set = AttributeSets.get_set(set.uuid)
+
+      {:ok, _} =
+        AttributeSets.update_value(set, red, %{extras: %{"swatch" => Ecto.UUID.generate()}})
+
+      {2, nil} =
+        PhoenixKit.RepoHelper.repo().update_all(
+          from(e in PhoenixKitEntities.EntityData, where: e.uuid in ^[red.uuid, blue.uuid]),
+          set: [slug: nil]
+        )
+
+      {:ok, view, _html} = open(conn, item)
+      render_change(view, "attach_set", %{"attach_set_uuid" => set.uuid})
+      html = render(view)
+
+      # Both values carry key nil. A thumbs map keyed on the value key
+      # held ONE `nil` entry — Blue's (no swatch, written last) — so
+      # Red's chip lost its swatch. Slugless chips compute their own.
+      refute Map.has_key?(assigns(view).set_previews[set.uuid].thumbs, nil)
+
+      label_for = fn name ->
+        [label] =
+          Regex.run(
+            ~r/<label[^>]*>(?:(?!<\/?label).)*#{name}(?:(?!<\/?label).)*<\/label>/s,
+            html
+          )
+
+        label
+      end
+
+      assert label_for.("Red") =~ "<img"
+      refute label_for.("Blue") =~ "<img"
     end
   else
     @tag :skip

@@ -2445,8 +2445,19 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
 
   defp put_thumbs(preview) do
     all_values = preview.values ++ preview.hidden_values
-    Map.put(preview, :thumbs, Map.new(all_values, &{&1.key, value_thumb(preview, &1)}))
+
+    thumbs =
+      for value <- all_values, value.key, into: %{}, do: {value.key, value_thumb(preview, value)}
+
+    Map.put(preview, :thumbs, thumbs)
   end
+
+  # A slugless value (nil key, NULL slug column) stays out of the thumbs
+  # map: every such value would share the one `thumbs[nil]` entry, and
+  # each chip would show whichever swatch was written last. Its chip
+  # computes its own instead.
+  defp chip_thumb(preview, %{key: nil} = value), do: value_thumb(preview, value)
+  defp chip_thumb(preview, value), do: preview.thumbs[value.key]
 
   # Ghost intersection lives in ONE place — the context's
   # `valid_attribute_set_selection/2` — this just MapSets the result
@@ -3255,7 +3266,14 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                            so a rejected toggle snaps back. --%>
                       <label
                         :for={value <- preview.values}
-                        class="flex items-center gap-1.5 rounded-full border border-base-content/20 bg-base-100 hover:border-base-content/40 has-[:checked]:border-primary has-[:checked]:bg-primary/10 pl-1.5 pr-2.5 py-0.5 cursor-pointer select-none transition-colors"
+                        class={[
+                          "flex items-center gap-1.5 rounded-full border border-base-content/20 bg-base-100 pl-1.5 pr-2.5 py-0.5 select-none transition-colors",
+                          if(value.key,
+                            do:
+                              "hover:border-base-content/40 has-[:checked]:border-primary has-[:checked]:bg-primary/10 cursor-pointer",
+                            else: "opacity-60 cursor-not-allowed"
+                          )
+                        ]}
                         title={
                           if value.key,
                             do: value_extras_summary(preview, value),
@@ -3288,9 +3306,10 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                           disabled
                           class="checkbox checkbox-xs"
                         />
+                        <% thumb = chip_thumb(preview, value) %>
                         <img
-                          :if={preview.thumbs[value.key]}
-                          src={URLSigner.signed_url(preview.thumbs[value.key], "thumbnail")}
+                          :if={thumb}
+                          src={URLSigner.signed_url(thumb, "thumbnail")}
                           alt=""
                           class="w-5 h-5 rounded object-cover"
                         />
