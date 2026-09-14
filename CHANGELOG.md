@@ -3,8 +3,9 @@
 ### Fixed
 
 - A value without a slug no longer crashes the item form. An attribute
-  set value whose `slug` column is empty (the entities editor can save
-  `data.et._slug = ""`) used to render its checkbox with no
+  set value whose `slug` column is NULL (seen in live data; the
+  catalogue's own value paths never produce one) used to render its
+  checkbox with no
   `phx-value-key`; clicking it sent a `toggle_value_selection` payload
   the handler had no clause for, crashing and remounting the LiveView
   and discarding every unsaved staged selection with it. The chip now
