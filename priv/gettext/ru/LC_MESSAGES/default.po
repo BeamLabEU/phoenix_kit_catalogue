@@ -3452,3 +3452,12 @@ msgstr "Это навсегда удалит значение. Отменить 
 
 msgid "Failed to delete value."
 msgstr "Не удалось удалить значение."
+
+msgid "Permanently delete selected categories?"
+msgstr "Удалить выбранные категории навсегда?"
+
+msgid "%{count} categories and everything in them will be permanently deleted. This cannot be undone."
+msgstr "Категории (%{count}) и всё их содержимое будут удалены навсегда. Это нельзя отменить."
+
+msgid "Permanently deleted %{count} categories."
+msgstr "Навсегда удалено категорий: %{count}."
