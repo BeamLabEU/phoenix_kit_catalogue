@@ -29,7 +29,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Duplication do
 
   alias Ecto.Adapters.SQL
   alias PhoenixKit.Modules.Storage
-  alias PhoenixKit.Modules.Storage.{Folder, FolderLink}
+  alias PhoenixKit.Modules.Storage.FolderLink
   alias PhoenixKitCatalogue.Catalogue.{ActivityLog, PubSub, SupplierComments}
 
   alias PhoenixKitCatalogue.Schemas.{
@@ -465,7 +465,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Duplication do
   # them.
   defp copy_files_folder(source, record, folder_name, opts) do
     files =
-      case source_folder_uuid(source) do
+      case source_folder_uuid(source, opts) do
         nil -> []
         folder_uuid -> list_files(folder_uuid)
       end
@@ -473,7 +473,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Duplication do
     if files == [] do
       record
     else
-      folder = create_folder!(folder_name, opts)
+      folder = create_folder!(folder_name, source, opts)
       Enum.each(files, &link_file!(folder, &1))
       put_folder_pointer!(record, folder)
     end
@@ -501,7 +501,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Duplication do
     end
   end
 
-  defp source_folder_uuid(%{data: data} = source) do
+  defp source_folder_uuid(%{data: data} = source, opts) do
     case data && data["files_folder_uuid"] do
       uuid when is_binary(uuid) ->
         uuid
@@ -513,12 +513,12 @@ defmodule PhoenixKitCatalogue.Catalogue.Duplication do
             %Category{uuid: uuid} -> "catalogue-category-#{uuid}"
           end
 
-        from(f in Folder,
-          where: f.name == ^name and is_nil(f.parent_uuid),
-          select: f.uuid,
-          limit: 1
-        )
-        |> repo().one()
+        parent = PhoenixKitCatalogue.Attachments.parent_folder_uuid(source, opts[:actor_uuid])
+
+        case PhoenixKitCatalogue.Attachments.find_folder_by_name(name, parent) do
+          %{uuid: uuid} -> uuid
+          nil -> nil
+        end
     end
   end
 
@@ -531,8 +531,12 @@ defmodule PhoenixKitCatalogue.Catalogue.Duplication do
     |> repo().all()
   end
 
-  defp create_folder!(name, opts) do
-    attrs = %{name: name}
+  defp create_folder!(name, source, opts) do
+    attrs = %{
+      name: name,
+      parent_uuid: PhoenixKitCatalogue.Attachments.parent_folder_uuid(source, opts[:actor_uuid])
+    }
+
     attrs = if opts[:actor_uuid], do: Map.put(attrs, :user_uuid, opts[:actor_uuid]), else: attrs
 
     case Storage.create_folder(attrs) do

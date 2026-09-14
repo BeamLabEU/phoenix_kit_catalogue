@@ -1,3 +1,10 @@
+## Unreleased
+
+### Added
+
+- Attachment folders can be created under a host-configured parent
+  (`:attachments_parent_folder`); lookups check parent then root.
+
 ## 0.31.3 - 2026-09-14
 
 Review: `dev_docs/pull_requests/2026/114-value-without-slug-crash/`.
