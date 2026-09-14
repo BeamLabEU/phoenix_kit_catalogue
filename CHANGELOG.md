@@ -18,6 +18,11 @@
   featured-image thumbnail next to its name, the same way the picker's
   own selected-item slot already does; an item without a photo renders
   unchanged, with no layout gap.
+- **Item selector: a third "comfy" view mode.** Alongside the compact
+  table and the photo-forward card grid, the item selector's view toggle
+  now offers "comfy" — the same table and columns, just a larger
+  thumbnail, for browsing by photo without the card grid's layout cost.
+  The choice persists per user the same way "table"/"card" already did.
 
 ## 0.31.3 - 2026-09-14
 
