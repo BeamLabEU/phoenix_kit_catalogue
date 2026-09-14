@@ -152,7 +152,12 @@ Repo-local aliases:
   cache/join tables are the only PK exception.
 - **Soft-delete via `status`** for catalogues/categories/items (`"deleted"`);
   PDFs use `"active" | "trashed"`; manufacturers and suppliers are hard-delete
-  only.
+  only. A trash or restore path goes through the provenance helpers in
+  `Catalogue`: stamp only live rows with `stamp_trashed/4` /
+  `stamp_trashed_self/2`, restore with `restore_trashed/3` filtered by the
+  stamp's root, and take `lock_catalogue!/1` before reading what it decides
+  on. Skipping the stamp brings back resurrection of rows trashed on their
+  own; skipping the lock brings back live items under a trashed category.
 - **Gettext** — the module has its own backend, `PhoenixKitCatalogue.Gettext`;
   use it, not `PhoenixKitWeb.Gettext`, for new strings. Three rules, because the
   catalogues are not machine-generated:
@@ -257,10 +262,12 @@ Key invariants to preserve:
 - `create_item` / `update_item` derive `catalogue_uuid` from `category_uuid`, so
   an item's category and catalogue can never drift; an empty-string
   `category_uuid` normalizes to `nil`.
-- Soft-delete trash/restore cascade rules intentionally **differ per entity**
-  (catalogue cascades, category restore does not, item restore may
-  uncategorize). Read the existing `Catalogue` functions before touching them —
-  do not "simplify" them.
+- **A restore undoes exactly the trash that produced a row's state.** Catalogue
+  and category restores revive only rows stamped with their root (plus, for a
+  catalogue, deleted rows with no stamp), each to its recorded status; rows
+  trashed on their own stay trashed. `restore_item` still uncategorizes when
+  its category stays trashed, and `:uncategorize` / `{:move_to, _}` trash
+  dispositions are not undone. No live item ever sits in a trashed category.
 - Smart-catalogue rules may only reference `kind: "standard"` catalogues (guard
   in `Rules.build_rule_changeset/2`). Smart items do not use
   `base_price`/markup/discount — the fee lives in `default_value` /
@@ -354,6 +361,10 @@ in hosts; tests replay `up_statements/2` directly through the repo (`up/1` uses
 
 Pointers, not docs — the moduledocs are the contract.
 
+- **Trash and restore** — provenance stamps in `data["_trash"]`, the
+  per-catalogue advisory lock, what a restore does and does not undo, and how
+  to add a path without breaking the randomized combination test:
+  `dev_docs/guides/trash-and-restore.md`.
 - **Pricing** — chain is `base → markup → discount`.
   `Catalogue.item_pricing/1` is the one-stop API for UIs; pure helpers live on
   `Item`.
