@@ -216,6 +216,29 @@ defmodule PhoenixKitCatalogue.GettextTest do
              "Atribuudikomplektide moodul ei ole lubatud."
   end
 
+  test "the category trash popup strings are translated (pin for the 2026-09-14 wording)" do
+    msgids = [
+      "Move category to Deleted — what about its items?",
+      "Move category and items to Deleted",
+      "Move category to Deleted",
+      "and its subtree contain %{count} active items. The category moves to the Deleted view, where it can be restored. Choose what happens to its items.",
+      "Move items to Deleted with the category",
+      "Restoring the category brings them back with it.",
+      "Items stay in this catalogue without a category. Restoring the category later does not put them back.",
+      "Pick a target category in this catalogue; the category being moved to Deleted and its subtree are excluded. Restoring the category later does not move them back."
+    ]
+
+    untranslated =
+      for locale <- ["et", "ru"],
+          msgid <- msgids,
+          Gettext.with_locale(PhoenixKitCatalogue.Gettext, locale, fn ->
+            Gettext.gettext(PhoenixKitCatalogue.Gettext, msgid, count: 1)
+          end) == String.replace(msgid, "%{count}", "1"),
+          do: {locale, msgid}
+
+    assert untranslated == []
+  end
+
   test "Tab.localized_label/1 returns Russian translation for Catalogue" do
     Gettext.put_locale(PhoenixKitCatalogue.Gettext, "ru")
 

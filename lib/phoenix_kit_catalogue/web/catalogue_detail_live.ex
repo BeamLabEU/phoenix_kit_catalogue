@@ -1292,7 +1292,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
              item_count: bulk_subtree_item_count(uuids),
              targets:
                localize_targets(Catalogue.list_move_target_categories(category), loc(socket)),
-             disposition: :uncategorize,
+             disposition: :cascade,
              target_uuid: nil,
              bulk: true,
              bulk_uuids: uuids
@@ -2310,7 +2310,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       category: category,
       item_count: item_count,
       targets: localize_targets(Catalogue.list_move_target_categories(category), locale),
-      disposition: :uncategorize,
+      # Trash the items with the category: the one choice a restore undoes.
+      disposition: :cascade,
       target_uuid: nil
     }
   end
@@ -4108,20 +4109,22 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
       <%!-- "What about the items?" modal — opens when the operator
            clicks Delete on a category that still has active items in
-           its V103 subtree. The boss's rule: deleting the category
-           shouldn't drag the items down with it; the operator picks
-           a destination first. --%>
+           its subtree. Delete is a trash: the category goes to the
+           Deleted view and can be restored, so the popup says so, and
+           the default sends the items there with it, because restoring
+           the category brings them back (Max, 2026-09-14). It used to
+           default to uncategorizing, which a restore cannot undo. --%>
       <.confirm_modal
         :if={@trash_modal}
         show={true}
         on_confirm="confirm_trash_category"
         on_cancel="cancel_trash_category"
-        title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete category — what about the items?")}
+        title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Move category to Deleted — what about its items?")}
         title_icon="hero-folder-minus"
         confirm_text={
           if @trash_modal[:disposition] == :cascade,
-            do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete category and items"),
-            else: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Move items and delete category")
+            do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Move category and items to Deleted"),
+            else: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Move category to Deleted")
         }
         confirm_disabled={
           @trash_modal[:disposition] == :move_to and is_nil(@trash_modal[:target_uuid])
@@ -4132,13 +4135,39 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
           <strong>{@trash_modal[:category].name}</strong>
           {Gettext.gettext(
             PhoenixKitCatalogue.Gettext,
-            "and its subtree contain %{count} active items. Choose where they should go before the category is deleted.",
+            "and its subtree contain %{count} active items. The category moves to the Deleted view, where it can be restored. Choose what happens to its items.",
             count: @trash_modal[:item_count]
           )}
         </p>
 
         <div class="space-y-3 mt-4">
-          <%!-- Option 1: uncategorize (no further input needed) --%>
+          <%!-- Option 1 (default): the items go to the Deleted view with
+               the category and come back when it is restored. --%>
+          <label class="flex items-start gap-3 p-3 rounded-lg border border-base-300 cursor-pointer hover:bg-base-200/50">
+            <input
+              type="radio"
+              name="trash_disposition"
+              value="cascade"
+              checked={@trash_modal[:disposition] == :cascade}
+              phx-click="set_trash_disposition"
+              phx-value-disposition="cascade"
+              class="radio radio-sm radio-primary mt-0.5"
+            />
+            <div class="flex-1 min-w-0">
+              <p class="font-medium text-sm">
+                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Move items to Deleted with the category")}
+              </p>
+              <p class="text-xs text-base-content/60">
+                {Gettext.gettext(
+                  PhoenixKitCatalogue.Gettext,
+                  "Restoring the category brings them back with it."
+                )}
+              </p>
+            </div>
+          </label>
+
+          <%!-- Option 2: uncategorize. The items stay live; a restore of
+               the category does not put them back. --%>
           <label class="flex items-start gap-3 p-3 rounded-lg border border-base-300 cursor-pointer hover:bg-base-200/50">
             <input
               type="radio"
@@ -4156,16 +4185,17 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               <p class="text-xs text-base-content/60">
                 {Gettext.gettext(
                   PhoenixKitCatalogue.Gettext,
-                  "Items stay in this catalogue but are no longer attached to any category."
+                  "Items stay in this catalogue without a category. Restoring the category later does not put them back."
                 )}
               </p>
             </div>
           </label>
 
-          <%!-- Option 2: move to another category in the same catalogue.
+          <%!-- Option 3: move to another category in the same catalogue.
                Only meaningful when there's a sibling/elsewhere to move to;
                we still render the radio when the list is empty so the UI
-               is symmetric, but the dropdown shows an empty-state hint. --%>
+               is symmetric, but the dropdown shows an empty-state hint. A
+               restore of the category does not move the items back. --%>
           <label class="flex items-start gap-3 p-3 rounded-lg border border-base-300 cursor-pointer hover:bg-base-200/50">
             <input
               type="radio"
@@ -4183,7 +4213,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               <p class="text-xs text-base-content/60 mb-2">
                 {Gettext.gettext(
                   PhoenixKitCatalogue.Gettext,
-                  "Pick a target category in this catalogue. The category being deleted and its subtree are excluded."
+                  "Pick a target category in this catalogue; the category being moved to Deleted and its subtree are excluded. Restoring the category later does not move them back."
                 )}
               </p>
               <%= if @trash_modal[:targets] == [] do %>
@@ -4199,33 +4229,6 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                   class=""
                 />
               <% end %>
-            </div>
-          </label>
-
-          <%!-- Option 3: cascade — items follow the category to the
-               Deleted view. Soft-delete, restorable. The "I want everything
-               gone" path; not the default since the boss specifically
-               disliked this being implicit. --%>
-          <label class="flex items-start gap-3 p-3 rounded-lg border border-error/30 cursor-pointer hover:bg-error/5">
-            <input
-              type="radio"
-              name="trash_disposition"
-              value="cascade"
-              checked={@trash_modal[:disposition] == :cascade}
-              phx-click="set_trash_disposition"
-              phx-value-disposition="cascade"
-              class="radio radio-sm radio-error mt-0.5"
-            />
-            <div class="flex-1 min-w-0">
-              <p class="font-medium text-sm text-error">
-                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete items along with the category")}
-              </p>
-              <p class="text-xs text-base-content/60">
-                {Gettext.gettext(
-                  PhoenixKitCatalogue.Gettext,
-                  "Items move to the Deleted view alongside the category. Both can be restored later."
-                )}
-              </p>
             </div>
           </label>
         </div>
