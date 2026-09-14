@@ -183,11 +183,6 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         bulk_move_modal: nil,
         bulk_move_categories_modal: nil,
         bulk_duplicate_modal: nil,
-        # Bumped after every bulk op: it is part of the BulkSelectScope ids,
-        # so the hook remounts with an empty selection. Core's hook has no
-        # handler for the `bulk_select:clear` push (rows that survive an op —
-        # the originals after Duplicate — kept their ticks).
-        bulk_epoch: 0,
         bulk_confirm: nil,
         selected_items: MapSet.new(),
         attribute_map: %{},
@@ -1810,13 +1805,15 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     |> clear_bulk_selection()
   end
 
-  # Both selection models: the server-side MapSet (deleted list) is the
-  # caller's; this clears the client-side BulkSelectScope by remounting it
-  # (new id) — the `bulk_select:clear` push stays for a core that handles it.
+  # Clears the client-side BulkSelectScope selection, which rows that
+  # survive an op (the originals after Duplicate) would otherwise keep.
+  # Core's hook has no handler for this push, so the module's own JS
+  # answers it by pressing each scope's Clear button. Never clear by
+  # changing a scope's id: the remounted hook skips checkboxes the old
+  # hook already wired, and LiveView carries the id-keyed table (with
+  # those checkboxes) into the new scope, so its toolbar never shows.
   defp clear_bulk_selection(socket) do
-    socket
-    |> update(:bulk_epoch, &(&1 + 1))
-    |> push_event("bulk_select:clear", %{})
+    push_event(socket, "bulk_select:clear", %{})
   end
 
   # Sort change resets the item offset to 0 and reloads page 1 — else
@@ -3939,7 +3936,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                2+ selection ("Reorder N selected"). --%>
           <.bulk_select_scope
             :if={@child_categories != []}
-            id={"categories-bulk-" <> (@current_category_uuid || "root") <> "-" <> Integer.to_string(@bulk_epoch)}
+            id="categories-bulk"
             total_count={length(@child_categories)}
             class="flex flex-col gap-2"
           >
@@ -4094,7 +4091,6 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
             view_mode_pref={@view_mode_pref}
             attribute_map={@attribute_map}
             supplier_costs={@supplier_costs}
-            bulk_epoch={@bulk_epoch}
             items_columns={tab_columns(@items_columns, @view_mode)}
             controls_in_page_header={@child_categories == []}
             reorder_allowed={@current_category != nil or @child_categories == []}
@@ -5478,11 +5474,6 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   attr(:attribute_map, :map, default: %{})
   attr(:supplier_costs, :map, default: %{})
 
-  attr(:bulk_epoch, :integer,
-    default: 0,
-    doc: "Part of the selection scope id; bumps remount it."
-  )
-
   attr(:edit_path_fn, :any, required: true)
   attr(:items_columns, :list, default: ["sku", "price", "unit", "status"])
   attr(:view_mode_pref, :string, required: true)
@@ -5538,7 +5529,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       <%!-- ── Active list: core List-UI toolkit ── --%>
       <.bulk_select_scope
         :if={@items != []}
-        id={"items-bulk-" <> (@current_category_uuid || "root") <> "-" <> Integer.to_string(@bulk_epoch)}
+        id="items-bulk"
         total_count={@items_total}
         class="flex flex-col gap-2"
       >
