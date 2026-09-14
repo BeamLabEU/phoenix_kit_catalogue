@@ -4887,4 +4887,32 @@ defmodule PhoenixKitCatalogue.CatalogueTest do
       assert kept.uuid == other.uuid
     end
   end
+
+  describe "an item's catalogue stays in step with its category" do
+    test "a skip_derive write into a category of another catalogue is refused" do
+      # What an import writes when its target category was moved to another
+      # catalogue while the import ran.
+      a = create_catalogue(%{name: "Import target"})
+      b = create_catalogue(%{name: "Where the category went"})
+      moved = create_category(b, %{name: "Moved away"})
+
+      assert {:error, %Ecto.Changeset{} = changeset} =
+               Catalogue.create_item(
+                 %{name: "Drift", catalogue_uuid: a.uuid, category_uuid: moved.uuid},
+                 skip_derive: true
+               )
+
+      assert %{category_uuid: ["belongs to another catalogue"]} = errors_on(changeset)
+
+      # Without skip_derive the catalogue follows the category, as before.
+      {:ok, derived} =
+        Catalogue.create_item(%{
+          name: "Derived",
+          catalogue_uuid: a.uuid,
+          category_uuid: moved.uuid
+        })
+
+      assert derived.catalogue_uuid == b.uuid
+    end
+  end
 end

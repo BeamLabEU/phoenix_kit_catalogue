@@ -3732,6 +3732,8 @@ defmodule PhoenixKitCatalogue.Catalogue do
   defp run_categories_groups_transaction(catalogue_uuid, deduped_groups, total_count, opts) do
     txn_result =
       repo().transaction(fn ->
+        lock_catalogue!(catalogue_uuid)
+
         Enum.reduce_while(deduped_groups, :ok, fn group, _acc ->
           apply_category_group_step(catalogue_uuid, group)
         end)
@@ -3798,13 +3800,22 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
     case category_scope_check(catalogue_uuid, parent_uuid, unique_uuids) do
       :empty -> {:ok, 0}
-      :ok -> commit_category_positions(unique_uuids)
+      :ok -> commit_category_positions(catalogue_uuid, unique_uuids)
       {:error, _} = err -> err
     end
   end
 
-  defp commit_category_positions(unique_uuids) do
-    case repo().transaction(fn -> write_category_positions(unique_uuids) end) do
+  # Reorders take the catalogue's trash/restore lock: a reorder writes rows
+  # one at a time in the caller's order while a trash or restore writes the
+  # same rows in scan order, and two transactions taking one set of rows in
+  # different orders can deadlock.
+  defp commit_category_positions(catalogue_uuid, unique_uuids) do
+    reorder = fn ->
+      lock_catalogue!(catalogue_uuid)
+      write_category_positions(unique_uuids)
+    end
+
+    case repo().transaction(reorder) do
       {:ok, _} -> {:ok, length(unique_uuids)}
       {:error, reason} -> {:error, reason}
     end
@@ -4319,15 +4330,21 @@ defmodule PhoenixKitCatalogue.Catalogue do
       {:ok, valid} ->
         unique_uuids
         |> Enum.filter(&MapSet.member?(valid, &1))
-        |> commit_item_positions()
+        |> then(&commit_item_positions(catalogue_uuid, &1))
 
       {:error, _} = err ->
         err
     end
   end
 
-  defp commit_item_positions(unique_uuids) do
-    case repo().transaction(fn -> write_item_positions(unique_uuids) end) do
+  # The catalogue's trash/restore lock, as `commit_category_positions/2`.
+  defp commit_item_positions(catalogue_uuid, unique_uuids) do
+    reorder = fn ->
+      lock_catalogue!(catalogue_uuid)
+      write_item_positions(unique_uuids)
+    end
+
+    case repo().transaction(reorder) do
       {:ok, _} -> {:ok, length(unique_uuids)}
       {:error, reason} -> {:error, reason}
     end
@@ -4366,7 +4383,8 @@ defmodule PhoenixKitCatalogue.Catalogue do
   # config bumped past 1000, or a unique index on
   # `(catalogue_uuid, category_uuid, position)` is added.
   defp write_item_positions(unique_uuids) do
-    pairs = Enum.with_index(unique_uuids, 1)
+    # Written (and so locked) in uuid order rather than the caller's.
+    pairs = unique_uuids |> Enum.with_index(1) |> Enum.sort_by(fn {uuid, _idx} -> uuid end)
 
     Enum.each(pairs, fn {uuid, idx} ->
       from(i in Item, where: i.uuid == ^uuid)
@@ -4433,7 +4451,10 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
       true ->
         finish_item_reorder_by(
-          repo().transaction(fn -> write_item_positions(ordered) end),
+          repo().transaction(fn ->
+            lock_catalogue!(catalogue_uuid)
+            write_item_positions(ordered)
+          end),
           catalogue_uuid,
           cat_uuid,
           strategy,
@@ -4477,7 +4498,10 @@ defmodule PhoenixKitCatalogue.Catalogue do
       pairs = Enum.zip(item_strategy_order(rows, strategy), slots)
 
       finish_item_reorder_by(
-        repo().transaction(fn -> write_item_permutation(pairs) end),
+        repo().transaction(fn ->
+          lock_catalogue!(catalogue_uuid)
+          write_item_permutation(pairs)
+        end),
         catalogue_uuid,
         cat_uuid,
         strategy,
@@ -5022,7 +5046,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
         case %Item{}
              |> Item.changeset(attrs)
-             |> reject_trashed_category()
+             |> check_item_category()
              |> stamp_created_deleted()
              |> repo().insert() do
           {:ok, item} -> item
@@ -5144,23 +5168,37 @@ defmodule PhoenixKitCatalogue.Catalogue do
     repo().one(from(r in schema, where: r.uuid == ^uuid, lock: "FOR UPDATE", select: r.status))
   end
 
-  # A live item never lands in a trashed category: a form or tab still
-  # offering one (a stale select, a category trashed meanwhile) gets a
-  # changeset error instead of an item hidden from the tree. FOR SHARE
-  # waits out a `trash_category/2` holding the row.
-  defp reject_trashed_category(%Ecto.Changeset{} = changeset) do
+  # The category an item is written into must be live while the item is,
+  # and must belong to the item's catalogue. One FOR SHARE read, which also
+  # waits out a `trash_category/2` or `move_category_to_catalogue/3` holding
+  # the row. A form or tab still offering a trashed category gets a
+  # changeset error instead of an item hidden from the tree; an importer
+  # writing with `skip_derive: true` whose category moved to another
+  # catalogue mid-import gets one instead of an item in a catalogue its
+  # category is not in.
+  defp check_item_category(%Ecto.Changeset{} = changeset) do
     with category_uuid when is_binary(category_uuid) <-
            Ecto.Changeset.get_change(changeset, :category_uuid),
-         status when status != "deleted" <- Ecto.Changeset.get_field(changeset, :status),
-         "deleted" <-
+         {category_status, category_catalogue_uuid} <-
            repo().one(
              from(c in Category,
                where: c.uuid == ^category_uuid,
                lock: "FOR SHARE",
-               select: c.status
+               select: {c.status, c.catalogue_uuid}
              )
            ) do
-      Ecto.Changeset.add_error(changeset, :category_uuid, "is invalid")
+      live? = Ecto.Changeset.get_field(changeset, :status) != "deleted"
+
+      cond do
+        live? and category_status == "deleted" ->
+          Ecto.Changeset.add_error(changeset, :category_uuid, "is invalid")
+
+        Ecto.Changeset.get_field(changeset, :catalogue_uuid) != category_catalogue_uuid ->
+          Ecto.Changeset.add_error(changeset, :category_uuid, "belongs to another catalogue")
+
+        true ->
+          changeset
+      end
     else
       _ -> changeset
     end
@@ -5221,7 +5259,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
         case item
              |> Item.changeset(attrs)
              |> keep_trash_status(Item, item.uuid)
-             |> reject_trashed_category()
+             |> check_item_category()
              |> repo().update() do
           {:ok, updated} -> updated
           {:error, changeset} -> repo().rollback(changeset)

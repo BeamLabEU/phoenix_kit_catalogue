@@ -117,6 +117,10 @@ the attempt rolls back with `:catalogue_moved` and `locked_transaction/1` runs
 it again from the top, rather than taking a second key out of order. Bulk paths
 re-check their set of catalogues the same way.
 
+Category and item reorders take the same per-catalogue lock: they write rows
+one at a time in the caller's order, which would otherwise deadlock against a
+trash or restore writing the same rows in scan order.
+
 Paths that write items into a category without that lock take the category row
 `FOR SHARE`; a catalogue or subtree trash locks its category rows `FOR UPDATE`
 before touching items. A concurrent create or move therefore either commits first and
