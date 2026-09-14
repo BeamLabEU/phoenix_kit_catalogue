@@ -3440,3 +3440,12 @@ msgstr "See eemaldab väärtuse jäädavalt. Seda ei saa tagasi võtta."
 
 msgid "Failed to delete value."
 msgstr "Väärtuse kustutamine ebaõnnestus."
+
+msgid "Permanently delete selected categories?"
+msgstr "Kustuta valitud kategooriad jäädavalt?"
+
+msgid "%{count} categories and everything in them will be permanently deleted. This cannot be undone."
+msgstr "%{count} kategooriat ja kogu nende sisu kustutatakse jäädavalt. Seda ei saa tagasi võtta."
+
+msgid "Permanently deleted %{count} categories."
+msgstr "%{count} kategooriat kustutati jäädavalt."

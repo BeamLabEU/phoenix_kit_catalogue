@@ -3446,3 +3446,12 @@ msgstr ""
 
 msgid "Failed to delete value."
 msgstr ""
+
+msgid "Permanently delete selected categories?"
+msgstr ""
+
+msgid "%{count} categories and everything in them will be permanently deleted. This cannot be undone."
+msgstr ""
+
+msgid "Permanently deleted %{count} categories."
+msgstr ""

@@ -239,6 +239,24 @@ defmodule PhoenixKitCatalogue.GettextTest do
     assert untranslated == []
   end
 
+  test "the Deleted tab's bulk category strings are translated (pin for the 2026-09-15 rebuild)" do
+    msgids = [
+      "Permanently delete selected categories?",
+      "%{count} categories and everything in them will be permanently deleted. This cannot be undone.",
+      "Permanently deleted %{count} categories."
+    ]
+
+    untranslated =
+      for locale <- ["et", "ru"],
+          msgid <- msgids,
+          Gettext.with_locale(PhoenixKitCatalogue.Gettext, locale, fn ->
+            Gettext.gettext(PhoenixKitCatalogue.Gettext, msgid, count: 1)
+          end) == String.replace(msgid, "%{count}", "1"),
+          do: {locale, msgid}
+
+    assert untranslated == []
+  end
+
   test "Tab.localized_label/1 returns Russian translation for Catalogue" do
     Gettext.put_locale(PhoenixKitCatalogue.Gettext, "ru")
 

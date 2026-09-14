@@ -53,8 +53,6 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       bulk_actions_toolbar: 1
     ]
 
-  import PhoenixKitWeb.Components.Core.BulkActionsBar, only: [bulk_actions_bar: 1]
-
   import PhoenixKitWeb.Components.Core.Sortable, only: [sortable_tbody: 1, sortable_row: 1]
   import PhoenixKitCatalogue.Web.TableToolbar, only: [column_sections_modal: 1]
   import PhoenixKitWeb.Components.Core.TableRowMenu
@@ -1253,6 +1251,9 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       %{kind: :items, mode: :permanent, uuids: uuids} ->
         do_bulk_permanent_delete_items(socket, uuids)
 
+      %{kind: :categories, mode: :permanent, uuids: uuids} ->
+        do_bulk_permanent_delete_categories(socket, uuids)
+
       %{kind: :categories} ->
         do_bulk_trash_categories(socket)
 
@@ -1301,9 +1302,34 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     end
   end
 
-  def handle_event("request_bulk_restore_categories", _params, socket) do
-    uuids = socket.assigns.selected_categories |> MapSet.to_list()
+  # The Deleted tab's selection arrives client-side as `%{"uuids" => [...]}`;
+  # the server-side `@selected_categories` snapshot stays the fallback.
+  def handle_event("request_bulk_restore_categories", params, socket) do
+    uuids =
+      case sanitize_uuids(params) do
+        [] -> MapSet.to_list(socket.assigns.selected_categories)
+        uuids -> uuids
+      end
+
     if uuids == [], do: {:noreply, socket}, else: do_bulk_restore_categories(socket, uuids)
+  end
+
+  # Bulk Delete forever from the Deleted tab — confirmed first, like the
+  # items' bulk permanent delete.
+  def handle_event("request_bulk_permanent_delete_categories", params, socket) do
+    case sanitize_uuids(params) do
+      [] ->
+        {:noreply, socket}
+
+      uuids ->
+        {:noreply,
+         assign(socket, :bulk_confirm, %{
+           kind: :categories,
+           mode: :permanent,
+           count: length(uuids),
+           uuids: uuids
+         })}
+    end
   end
 
   def handle_event("restore_category", %{"uuid" => uuid}, socket) do
@@ -2267,10 +2293,14 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   end
 
   defp do_bulk_restore_categories(socket, uuids) do
+    catalogue_uuid = socket.assigns.catalogue_uuid
+
     {ok, errors} =
       Enum.reduce(uuids, {0, []}, fn uuid, {ok, errs} ->
-        # Only a category that is in the trash counts as restored.
-        with %{status: "deleted"} = category <- Catalogue.get_category(uuid),
+        # Only a category of THIS catalogue that is in the trash counts as
+        # restored (the uuids are client-captured).
+        with %{status: "deleted", catalogue_uuid: ^catalogue_uuid} = category <-
+               Catalogue.get_category(uuid),
              {:ok, _} <- Catalogue.restore_category(category, actor_opts(socket)) do
           {ok + 1, errs}
         else
@@ -2282,6 +2312,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     socket =
       socket
       |> assign(:selected_categories, MapSet.new())
+      |> clear_bulk_selection()
       |> put_flash(
         :info,
         Gettext.gettext(PhoenixKitCatalogue.Gettext, "Restored %{count} categories.", count: ok)
@@ -2302,6 +2333,36 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
            "Some categories couldn't be restored. The catalogue may be deleted — restore it first."
          )
        )}
+    end
+  end
+
+  defp do_bulk_permanent_delete_categories(socket, uuids) do
+    catalogue_uuid = socket.assigns.catalogue_uuid
+    count = Enum.count(uuids, &permanently_delete_trashed_category(&1, catalogue_uuid, socket))
+
+    socket
+    |> assign(:bulk_confirm, nil)
+    |> assign(:selected_categories, MapSet.new())
+    |> clear_bulk_selection()
+    |> put_flash(
+      :info,
+      Gettext.gettext(PhoenixKitCatalogue.Gettext, "Permanently deleted %{count} categories.",
+        count: count
+      )
+    )
+    |> reset_and_load()
+    |> then(&{:noreply, &1})
+  end
+
+  # Only a trashed category of THIS catalogue (the uuids are client-captured).
+  # One whose ancestor went earlier in the same batch is already gone.
+  defp permanently_delete_trashed_category(uuid, catalogue_uuid, socket) do
+    case Catalogue.get_category(uuid) do
+      %Category{status: "deleted", catalogue_uuid: ^catalogue_uuid} = category ->
+        match?({:ok, _}, Catalogue.permanently_delete_category(category, actor_opts(socket)))
+
+      _ ->
+        false
     end
   end
 
@@ -2898,6 +2959,9 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     slugs = active_attribute_slugs(socket)
     type = effective_search_type(socket.assigns)
     subtree? = subtree_items?(socket.assigns)
+    # The Deleted tab searches the trash (trashed items of this catalogue).
+    trashed? = socket.assigns.view_mode == "deleted"
+    mode_opts = [trashed: trashed?]
 
     socket = assign(socket, search_query: query, search_loading: true)
     stamp = search_stamp(socket, 0)
@@ -2920,11 +2984,11 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         if type == "categories",
           do: {[], 0},
           else:
-            {search_in_scope(uuid, current, query, @per_page, 0, slugs, subtree?),
-             search_count_in_scope(uuid, current, query, slugs, subtree?)}
+            {search_in_scope(uuid, current, query, @per_page, 0, slugs, subtree?, mode_opts),
+             search_count_in_scope(uuid, current, query, slugs, subtree?, mode_opts)}
 
       categories =
-        if type == "items", do: [], else: categories_in_scope(uuid, current, query)
+        if type == "items" or trashed?, do: [], else: categories_in_scope(uuid, current, query)
 
       {stamp, results, total, categories}
     end)
@@ -2976,50 +3040,64 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   defp categories_in_scope(uuid, %Category{uuid: cuuid}, query),
     do: Catalogue.search_categories(uuid, query, parent_uuid: cuuid)
 
-  defp search_in_scope(uuid, nil, query, limit, offset, slugs, _subtree?),
+  defp search_in_scope(uuid, nil, query, limit, offset, slugs, _subtree?, mode_opts),
     do:
-      Catalogue.search_items_in_catalogue(uuid, query,
-        limit: limit,
-        offset: offset,
-        value_slugs: slugs
+      Catalogue.search_items_in_catalogue(
+        uuid,
+        query,
+        [limit: limit, offset: offset, value_slugs: slugs] ++ mode_opts
       )
 
-  defp search_in_scope(uuid, :uncategorized, query, limit, offset, slugs, _subtree?),
+  defp search_in_scope(uuid, :uncategorized, query, limit, offset, slugs, _subtree?, mode_opts),
     do:
-      Catalogue.search_items(query,
-        catalogue_uuids: [uuid],
-        only: :uncategorized_only,
-        limit: limit,
-        offset: offset,
-        value_slugs: slugs
+      Catalogue.search_items(
+        query,
+        [
+          catalogue_uuids: [uuid],
+          only: :uncategorized_only,
+          limit: limit,
+          offset: offset,
+          value_slugs: slugs
+        ] ++ mode_opts
       )
 
-  defp search_in_scope(_uuid, %Category{uuid: cuuid}, query, limit, offset, slugs, subtree?),
+  defp search_in_scope(
+         _uuid,
+         %Category{uuid: cuuid},
+         query,
+         limit,
+         offset,
+         slugs,
+         subtree?,
+         mode_opts
+       ),
+       do:
+         Catalogue.search_items_in_category(
+           cuuid,
+           query,
+           [limit: limit, offset: offset, value_slugs: slugs, include_descendants: subtree?] ++
+             mode_opts
+         )
+
+  defp search_count_in_scope(uuid, nil, query, slugs, _subtree?, mode_opts),
     do:
-      Catalogue.search_items_in_category(cuuid, query,
-        limit: limit,
-        offset: offset,
-        value_slugs: slugs,
-        include_descendants: subtree?
+      Catalogue.count_search_items(
+        query,
+        [catalogue_uuids: [uuid], value_slugs: slugs] ++ mode_opts
       )
 
-  defp search_count_in_scope(uuid, nil, query, slugs, _subtree?),
-    do: Catalogue.count_search_items(query, catalogue_uuids: [uuid], value_slugs: slugs)
-
-  defp search_count_in_scope(uuid, :uncategorized, query, slugs, _subtree?),
+  defp search_count_in_scope(uuid, :uncategorized, query, slugs, _subtree?, mode_opts),
     do:
-      Catalogue.count_search_items(query,
-        catalogue_uuids: [uuid],
-        only: :uncategorized_only,
-        value_slugs: slugs
+      Catalogue.count_search_items(
+        query,
+        [catalogue_uuids: [uuid], only: :uncategorized_only, value_slugs: slugs] ++ mode_opts
       )
 
-  defp search_count_in_scope(_uuid, %Category{uuid: cuuid}, query, slugs, subtree?),
+  defp search_count_in_scope(_uuid, %Category{uuid: cuuid}, query, slugs, subtree?, mode_opts),
     do:
-      Catalogue.count_search_items(query,
-        category_uuids: [cuuid],
-        value_slugs: slugs,
-        include_descendants: subtree?
+      Catalogue.count_search_items(
+        query,
+        [category_uuids: [cuuid], value_slugs: slugs, include_descendants: subtree?] ++ mode_opts
       )
 
   @impl true
@@ -3136,11 +3214,14 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     slugs = active_attribute_slugs(socket)
     subtree? = subtree_items?(socket.assigns)
     stamp = search_stamp(socket, offset)
+    # Later pages search the same place as the first (the trash in the
+    # Deleted tab).
+    mode_opts = [trashed: socket.assigns.view_mode == "deleted"]
 
     socket
     |> assign(:search_loading, true)
     |> start_async(:search_page, fn ->
-      page = search_in_scope(uuid, current, query, @per_page, offset, slugs, subtree?)
+      page = search_in_scope(uuid, current, query, @per_page, offset, slugs, subtree?, mode_opts)
       {stamp, offset, page}
     end)
   end
@@ -3509,7 +3590,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                top, clamped to ONE line so its cost is fixed no matter how
                long the field is — the full text is in the hover tooltip. --%>
           <% level_desc = level_description(@current_category, @catalogue) %>
-          <% show_search_input = @view_mode == "active" or @search_results != nil or @search_loading %>
+          <% show_search_input = @view_mode in ["active", "deleted"] or @search_results != nil or @search_loading %>
           <div :if={show_search_input or level_desc} class="flex flex-col gap-3 mb-3">
             <p :if={level_desc} class="text-sm text-base-content/60 truncate" title={level_desc}>
               {level_desc}
@@ -3693,8 +3774,11 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               items={@search_results}
               columns={[:name, :sku, :price, :unit, :status]}
               markup_percentage={@catalogue.markup_percentage}
-              edit_path={@edit_path_fn}
-              pdf_search_event="show_pdf_search"
+              edit_path={if @view_mode != "deleted", do: @edit_path_fn}
+              pdf_search_event={if @view_mode != "deleted", do: "show_pdf_search"}
+              on_restore={if @view_mode == "deleted", do: "restore_item"}
+              on_permanent_delete={if @view_mode == "deleted", do: "show_delete_confirm"}
+              permanent_delete_type="item"
               cards={true}
               show_toggle={false}
               storage_key={view_storage_key()}
@@ -3813,7 +3897,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               </span>
             </button>
             <button
-              :if={@view_mode == "active" and detail_column_scopes(assigns) != []}
+              :if={detail_column_scopes(assigns) != []}
               type="button"
               phx-click="show_column_modal"
               class="btn btn-outline btn-sm"
@@ -3842,9 +3926,9 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
           <%!-- Categories in the level's chosen view. The page-level
                card/table toggle drives this via the shared TableCardView
                storage key: "table" = the one-per-line rows, "card" = the
-               tile grid. Deleted mode renders rows only (no card branch),
-               and the hook no-ops when a branch is missing, so nothing can
-               toggle itself invisible. Both branches carry their own
+               tile grid. The Deleted tab renders both branches too, from
+               the same components, so the trash looks like the rest of the
+               page (Max, 2026-09-15). Both branches carry their own
                SortableGrid on the same reorder event. --%>
           <%!-- Category selection rides the same core BulkSelectScope
                toolkit as the item list, so both levels of the page select
@@ -3895,6 +3979,29 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                 </:leading>
               </.bulk_actions_toolbar>
             </div>
+            <%!-- The Deleted tab's selection acts on the trash: Restore and
+                 Delete forever, on the same core toolbar (its reorder
+                 button hidden — a trash has no order). --%>
+            <div
+              :if={@view_mode == "deleted"}
+              data-bulk-show="has-selection"
+              style="display: none;"
+              class="[&_[data-bulk-action*=reorder]]:!hidden"
+            >
+              <.bulk_actions_toolbar
+                on_open_reorder="open_categories_reorder_modal"
+                reorder_gate={:multi}
+                noun_singular={Gettext.gettext(PhoenixKitCatalogue.Gettext, "category")}
+                noun_plural={Gettext.gettext(PhoenixKitCatalogue.Gettext, "categories")}
+              >
+                <:leading>
+                  <.trash_bulk_buttons
+                    restore_event="request_bulk_restore_categories"
+                    delete_event="request_bulk_permanent_delete_categories"
+                  />
+                </:leading>
+              </.bulk_actions_toolbar>
+            </div>
 
           <%!-- The CATEGORIES surface reads the same key as everything
                else: it kept its own until now, so a level holding child
@@ -3905,7 +4012,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
             phx-hook="TableCardView"
             data-storage-key={view_storage_key()}
           >
-            <div data-table-view class={@view_mode == "active" && "hidden md:block"}>
+            <div data-table-view class="hidden md:block">
               <%!-- Manual order gets the collapsible tree (the index's
                    folder browser one level down — Max, 2026-08-29); any
                    other sort falls back to the flat sortable table, the
@@ -3933,7 +4040,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               <.categories_table
                 :if={not categories_tree_mode?(assigns)}
                 categories_sort_by={@categories_sort_by}
-                categories_columns={@categories_columns}
+                categories_columns={tab_columns(@categories_columns, @view_mode)}
                 child_subcat_counts={@child_subcat_counts}
                 catalogue={@catalogue}
                 child_categories={@child_categories}
@@ -3947,7 +4054,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               />
             </div>
 
-            <div :if={@view_mode == "active"} data-card-view class="md:hidden">
+            <div data-card-view class="md:hidden">
               <%!-- Card twin of the tree (Max, 2026-08-29: "how about
                    the nesting?"): a category with children renders as a
                    BOX containing its subcategory cards, all the way
@@ -3955,15 +4062,15 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                    CatalogueTreeDnD contract as the tree table. --%>
               <.categories_card_level
                 catalogue={@catalogue}
-                tree_children={@category_tree_children}
+                tree_children={card_tree_children(assigns)}
                 root_uuid={normalize_category_key(@current_category_uuid)}
                 return_to={current_level_path(assigns)}
                 child_counts={@child_counts}
                 child_subcat_counts={@child_subcat_counts}
                 file_counts={@file_counts}
-                categories_columns={@categories_columns}
+                categories_columns={tab_columns(@categories_columns, @view_mode)}
                 view_mode={@view_mode}
-                reorderable={@categories_sort_by == :position}
+                reorderable={@view_mode == "active" and @categories_sort_by == :position}
                 show_uncat={show_uncat_entry?(assigns)}
                 uncategorized_active_count={@uncategorized_active_count}
               />
@@ -3971,24 +4078,6 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
           </div>
           </.bulk_select_scope>
 
-          <%!-- Deleted-list bulk-action bar (server-side select). The
-               active list owns its selection client-side via the core
-               BulkSelectScope toolkit inside `level_items`. --%>
-          <.bulk_actions_bar
-            :if={@view_mode == "deleted" and MapSet.size(@selected_items) > 0}
-            count={MapSet.size(@selected_items)}
-            clear_event="clear_selection"
-            wrapper_class="sticky top-[72px] z-40 -mx-1 px-3 py-2 rounded-lg bg-base-100/95 border border-primary/40 shadow-md backdrop-blur"
-          >
-            <button phx-click="request_bulk_restore_items" class="btn btn-sm btn-outline btn-success">
-              <.icon name="hero-arrow-path" class="w-4 h-4" />
-              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Restore")}
-            </button>
-            <button phx-click="request_bulk_delete_items" class="btn btn-sm btn-outline btn-error">
-              <.icon name="hero-trash" class="w-4 h-4" />
-              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete forever")}
-            </button>
-          </.bulk_actions_bar>
 
           <%!-- Card/table view toggle. One toggle, one storage key
                ("catalogue-detail-items") — it drives every item table on
@@ -4006,7 +4095,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
             attribute_map={@attribute_map}
             supplier_costs={@supplier_costs}
             bulk_epoch={@bulk_epoch}
-            items_columns={@items_columns}
+            items_columns={tab_columns(@items_columns, @view_mode)}
             controls_in_page_header={@child_categories == []}
             reorder_allowed={@current_category != nil or @child_categories == []}
             :if={@show_items_section}
@@ -4242,35 +4331,11 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         show={true}
         on_confirm="confirm_bulk_action"
         on_cancel="cancel_bulk_action"
-        title={
-          case @bulk_confirm[:mode] do
-            :permanent -> Gettext.gettext(PhoenixKitCatalogue.Gettext, "Permanently delete selected items?")
-            _ -> Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete selected items?")
-          end
-        }
+        title={bulk_confirm_title(@bulk_confirm)}
         title_icon="hero-trash"
-        confirm_text={
-          case @bulk_confirm[:mode] do
-            :permanent -> Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete forever")
-            _ -> Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")
-          end
-        }
+        confirm_text={bulk_confirm_button(@bulk_confirm)}
         danger={true}
-        messages={
-          case @bulk_confirm[:mode] do
-            :permanent ->
-              [
-                {:warning,
-                 Gettext.gettext(PhoenixKitCatalogue.Gettext, "%{count} items will be permanently deleted. This cannot be undone.", count: @bulk_confirm[:count])}
-              ]
-
-            _ ->
-              [
-                {:warning,
-                 Gettext.gettext(PhoenixKitCatalogue.Gettext, "%{count} items will be moved to the Deleted view. They can be restored later.", count: @bulk_confirm[:count])}
-              ]
-          end
-        }
+        messages={bulk_confirm_messages(@bulk_confirm)}
       />
 
       <%!-- Bulk-move modal for items — same shape as the trash modal's
@@ -4525,11 +4590,11 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         <.table_default_row>
           <.drag_handle_header_cell :if={@draggable?} />
           <.bulk_select_header_cell
-            :if={@view_mode == "active"}
+            :if={@view_mode in ["active", "deleted"]}
             id="categories-select-all"
             aria_label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Select all categories")}
           />
-          <.table_default_header_cell :if={@view_mode != "active"} class="w-8"></.table_default_header_cell>
+          <.table_default_header_cell :if={@view_mode not in ["active", "deleted"]} class="w-8"></.table_default_header_cell>
           <.table_default_header_cell :if={@photo_col?} class="w-12 !pr-0 !py-1 [.pk-comfy_&]:w-22 [.pk-comfy_&]:!py-1.5"></.table_default_header_cell>
           <.table_default_header_cell>
             {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Name")}
@@ -4550,7 +4615,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
           <td :if={@draggable? and cat.status != "active"} class="w-8"></td>
           <.table_default_cell class="w-8">
             <input
-              :if={@view_mode == "active" and cat.status == "active"}
+              :if={selectable_category?(@view_mode, cat)}
               type="checkbox"
               class="checkbox checkbox-xs"
               data-bulk-role="row"
@@ -4579,7 +4644,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               >
                 {cat.name}
               </.link>
-              <span :if={cat.status == "deleted"} class="font-medium text-error/70">
+              <span :if={cat.status == "deleted"} class="font-medium">
                 {cat.name}
               </span>
               <span
@@ -4588,9 +4653,6 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                 title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Has subcategories")}
               >
                 <.icon name="hero-rectangle-stack" class="w-3 h-3" />
-              </span>
-              <span :if={cat.status == "deleted"} class="badge badge-error badge-xs">
-                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Deleted")}
               </span>
             </div>
           </.table_default_cell>
@@ -5328,14 +5390,18 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       file_count={@file_count}
       has_subs={@has_subs}
       has_files={@has_files}
-      patch={Paths.category_browse(@catalogue_uuid, @category.uuid)}
+      patch={
+        if @category.status == "deleted",
+          do: nil,
+          else: Paths.category_browse(@catalogue_uuid, @category.uuid)
+      }
       data-tree-uuid={@tree_active && @category.uuid}
       data-tree-type={@tree_active && "category"}
       data-tree-parent={@tree_active && @tree_parent}
     >
       <:overlay>
         <input
-          :if={@tree_active}
+          :if={@tree_active or selectable_category?(@view_mode, @category)}
           type="checkbox"
           class="checkbox checkbox-xs absolute top-1.5 left-1.5 bg-base-100/80"
           data-bulk-role="row"
@@ -5351,7 +5417,11 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         </span>
       </:overlay>
       <:menu>
-        <.table_row_menu mode="auto" id={"category-tile-menu-#{@category.uuid}"}>
+        <.table_row_menu
+          :if={@category.status != "deleted"}
+          mode="auto"
+          id={"category-tile-menu-#{@category.uuid}"}
+        >
           <.table_row_menu_link
             navigate={with_return_to(Paths.category_edit(@category.uuid), @return_to)}
             icon="hero-pencil"
@@ -5371,6 +5441,13 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
             variant="error"
           />
         </.table_row_menu>
+        <.trash_row_menu
+          :if={@category.status == "deleted"}
+          id={"category-tile-del-menu-#{@category.uuid}"}
+          uuid={@category.uuid}
+          restore_event="restore_category"
+          delete_type="category"
+        />
       </:menu>
     </.category_card>
     """
@@ -5382,9 +5459,9 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   #
   # Active mode: the core List-UI toolkit — a sort dropdown, client-side
   # bulk-select with a floating actions toolbar, node-scoped DnD reorder
-  # (manual mode only), and a strategy "Reorder" modal. Deleted mode:
-  # the existing `<.item_table>` (Restore / Delete-forever per row +
-  # server-side selection). One InfiniteScroll sentinel pages the list.
+  # (manual mode only), and a strategy "Reorder" modal. The Deleted tab
+  # renders the same table, with Restore / Delete forever as its row and
+  # card menus and bulk actions. One InfiniteScroll sentinel pages the list.
   attr(:items, :list, required: true)
   attr(:view_mode, :string, required: true)
   attr(:catalogue, :any, required: true)
@@ -5460,7 +5537,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     <div class="flex flex-col gap-2">
       <%!-- ── Active list: core List-UI toolkit ── --%>
       <.bulk_select_scope
-        :if={@items != [] and @view_mode != "deleted"}
+        :if={@items != []}
         id={"items-bulk-" <> (@current_category_uuid || "root") <> "-" <> Integer.to_string(@bulk_epoch)}
         total_count={@items_total}
         class="flex flex-col gap-2"
@@ -5469,6 +5546,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
              control row, the toolbar has nothing to show until rows are
              selected — hide the empty bar (hook re-shows it on selection). --%>
         <div
+          :if={@view_mode != "deleted"}
           data-bulk-show={if @controls_in_page_header, do: "has-selection"}
           style={if @controls_in_page_header, do: "display: none;"}
           class={
@@ -5523,6 +5601,26 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Duplicate")}
             </button>
           </:leading>
+          </.bulk_actions_toolbar>
+        </div>
+        <div
+          :if={@view_mode == "deleted"}
+          data-bulk-show="has-selection"
+          style="display: none;"
+          class="[&_[data-bulk-action*=reorder]]:!hidden"
+        >
+          <.bulk_actions_toolbar
+            on_open_reorder="open_items_reorder_modal"
+            reorder_gate={:multi}
+            noun_singular={Gettext.gettext(PhoenixKitCatalogue.Gettext, "item")}
+            noun_plural={Gettext.gettext(PhoenixKitCatalogue.Gettext, "items")}
+          >
+            <:leading>
+              <.trash_bulk_buttons
+                restore_event="request_bulk_restore_items"
+                delete_event="request_bulk_delete_items"
+              />
+            </:leading>
           </.bulk_actions_toolbar>
         </div>
 
@@ -5651,11 +5749,18 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
           </:card_body>
           <:card_actions :let={item}>
             <.item_card_menu
-              :if={item.uuid}
+              :if={item.uuid && @view_mode != "deleted"}
               item={item}
               edit_path={@edit_path_fn}
               on_delete="delete_item"
               pdf_search_event="show_pdf_search"
+            />
+            <.trash_row_menu
+              :if={item.uuid && @view_mode == "deleted"}
+              id={"item-card-del-menu-#{item.uuid}"}
+              uuid={item.uuid}
+              restore_event="restore_item"
+              delete_type="item"
             />
           </:card_actions>
           <%!-- Desktop table view: sort headers, bulk-select, DnD unchanged --%>
@@ -5762,35 +5867,25 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                 supplier_costs={Map.get(@supplier_costs, item.uuid, [])}
               />
               <.item_row_menu
+                :if={@view_mode != "deleted"}
                 item={item}
                 edit_path={@edit_path_fn}
                 on_delete="delete_item"
                 pdf_search_event="show_pdf_search"
               />
+              <.table_default_cell :if={@view_mode == "deleted"} class="text-right whitespace-nowrap">
+                <.trash_row_menu
+                  id={"item-row-del-menu-#{item.uuid}"}
+                  uuid={item.uuid}
+                  restore_event="restore_item"
+                  delete_type="item"
+                />
+              </.table_default_cell>
             </.sortable_row>
           </.sortable_tbody>
         </.table_default>
       </.bulk_select_scope>
 
-      <%!-- ── Deleted list: existing item_table (read-only-ish) ── --%>
-      <.item_table
-        :if={@items != [] and @view_mode == "deleted"}
-        file_counts={@file_counts}
-        attribute_map={@attribute_map}
-        items={@items}
-        columns={[:name, :sku, :unit, :status]}
-        on_restore="restore_item"
-        on_permanent_delete="show_delete_confirm"
-        permanent_delete_type="item"
-        cards={true}
-        show_toggle={false}
-        storage_key={view_storage_key()}
-        id="level-items-deleted"
-        wrapper_class="overflow-x-auto shadow-none rounded-none"
-        selectable={true}
-        selected_uuids={@selected_items}
-        on_toggle_select="toggle_select_item"
-      />
 
       <p :if={@items == []} class="text-sm text-base-content/40 text-center py-8">
         {level_items_empty(@current_category, @view_mode)}
@@ -5960,6 +6055,131 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
   # 1-arity closure for the item tables' edit_path attrs — every edit
   # link from this page carries the level to return to.
+  # Card view's categories: the active tree, or — in the Deleted tab — the
+  # trashed categories this level lists, flat (the trash keeps no tree).
+  defp card_tree_children(%{view_mode: "deleted"} = assigns),
+    do: %{normalize_category_key(assigns.current_category_uuid) => assigns.child_categories}
+
+  defp card_tree_children(assigns), do: assigns.category_tree_children
+
+  # The Deleted tab always shows the Status column — it is what says a row
+  # is in the trash now that the tab has no red styling of its own.
+  defp tab_columns(columns, "deleted"),
+    do: if("status" in columns, do: columns, else: columns ++ ["status"])
+
+  defp tab_columns(columns, _view_mode), do: columns
+
+  # A row carries a selection checkbox in the tab whose rows it belongs to.
+  defp selectable_category?("active", %{status: "active"}), do: true
+  defp selectable_category?("deleted", %{status: "deleted"}), do: true
+  defp selectable_category?(_view_mode, _category), do: false
+
+  defp bulk_confirm_title(%{kind: :categories, mode: :permanent}),
+    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Permanently delete selected categories?")
+
+  defp bulk_confirm_title(%{mode: :permanent}),
+    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Permanently delete selected items?")
+
+  defp bulk_confirm_title(_confirm),
+    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete selected items?")
+
+  defp bulk_confirm_button(%{mode: :permanent}),
+    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete forever")
+
+  defp bulk_confirm_button(_confirm), do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")
+
+  defp bulk_confirm_messages(%{kind: :categories, mode: :permanent, count: count}) do
+    [
+      {:warning,
+       Gettext.gettext(
+         PhoenixKitCatalogue.Gettext,
+         "%{count} categories and everything in them will be permanently deleted. This cannot be undone.",
+         count: count
+       )}
+    ]
+  end
+
+  defp bulk_confirm_messages(%{mode: :permanent, count: count}) do
+    [
+      {:warning,
+       Gettext.gettext(
+         PhoenixKitCatalogue.Gettext,
+         "%{count} items will be permanently deleted. This cannot be undone.",
+         count: count
+       )}
+    ]
+  end
+
+  defp bulk_confirm_messages(%{count: count}) do
+    [
+      {:warning,
+       Gettext.gettext(
+         PhoenixKitCatalogue.Gettext,
+         "%{count} items will be moved to the Deleted view. They can be restored later.",
+         count: count
+       )}
+    ]
+  end
+
+  # The Deleted tab's two bulk buttons, for a core toolbar's leading slot.
+  attr(:restore_event, :string, required: true)
+  attr(:delete_event, :string, required: true)
+
+  defp trash_bulk_buttons(assigns) do
+    ~H"""
+    <button
+      type="button"
+      class="btn btn-sm btn-ghost"
+      data-bulk-action={@restore_event}
+      data-bulk-show="has-selection"
+      style="display: none;"
+    >
+      <.icon name="hero-arrow-path" class="w-4 h-4" />
+      {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Restore")}
+    </button>
+    <button
+      type="button"
+      class="btn btn-sm btn-ghost text-error"
+      data-bulk-action={@delete_event}
+      data-bulk-show="has-selection"
+      style="display: none;"
+    >
+      <.icon name="hero-trash" class="w-4 h-4" />
+      {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete forever")}
+    </button>
+    """
+  end
+
+  # The Deleted tab's row menu: Restore / Delete Forever.
+  attr(:id, :string, required: true)
+  attr(:uuid, :string, required: true)
+  attr(:restore_event, :string, required: true)
+  attr(:delete_type, :string, required: true)
+
+  defp trash_row_menu(assigns) do
+    ~H"""
+    <.table_row_menu mode="auto" id={@id}>
+      <.table_row_menu_button
+        phx-click={@restore_event}
+        phx-value-uuid={@uuid}
+        phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Restoring...")}
+        icon="hero-arrow-path"
+        label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Restore")}
+        variant="success"
+      />
+      <.table_row_menu_divider />
+      <.table_row_menu_button
+        phx-click="show_delete_confirm"
+        phx-value-uuid={@uuid}
+        phx-value-type={@delete_type}
+        icon="hero-trash"
+        label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete Forever")}
+        variant="error"
+      />
+    </.table_row_menu>
+    """
+  end
+
   # A category's Edit and New Subcategory links carry the level they were
   # clicked from, so the category form's Cancel comes back to it.
   defp with_return_to(path, nil), do: path
