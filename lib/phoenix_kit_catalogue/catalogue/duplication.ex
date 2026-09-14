@@ -315,6 +315,8 @@ defmodule PhoenixKitCatalogue.Catalogue.Duplication do
     |> repo().one()
     |> case do
       nil -> repo().rollback(:category_not_found)
+      # A live copy in a trashed category would be hidden from the tree.
+      %Category{status: "deleted"} -> repo().rollback(:category_not_found)
       %Category{catalogue_uuid: uuid} -> uuid || fallback
     end
   end

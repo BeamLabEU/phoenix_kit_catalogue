@@ -78,6 +78,17 @@ catalogue sweeps and stamps the live children.
   was restored and trashed again on its own in between) stays in the trash when
   the root is restored. It remains in the catalogue's Deleted tab.
 
+## Status only changes through trash and restore
+
+`update_item/3`, `update_category/3` and `update_catalogue/3` never move a row
+into or out of `"deleted"`; such a status change is dropped from the changeset,
+decided from the row as it is in the database. A form cannot show `"deleted"` in
+its status select, so saving a trashed row posts the first live option, and a
+form opened before a trash would otherwise revive the row on save with none of
+the rules above. Moves between live statuses (`inactive`, `archived`, …) apply
+as normal. A row *created* already `"deleted"` (an import, an API caller) is
+stamped as trashed on its own, so a catalogue restore leaves it in the trash.
+
 ## No live item in a trashed category
 
 A live item under a deleted category is in neither the category tree nor any
@@ -85,8 +96,9 @@ Deleted tab. Nothing may produce one:
 
 - Restores skip items whose category is still trashed after the category pass.
 - `create_item/2` and `update_item/3` add a changeset error on a trashed
-  `category_uuid`; `move_item_to_category/3`, `bulk_move_items_to_category/3`
-  and `trash_category/2`'s `{:move_to, _}` refuse a trashed target.
+  `category_uuid`; `move_item_to_category/3`, `bulk_move_items_to_category/3`,
+  `duplicate_item/2` and `trash_category/2`'s `{:move_to, _}` refuse a trashed
+  target.
 
 ## Locking
 
@@ -97,9 +109,17 @@ Without it, a category trash racing an item restore could leave a live item in
 a trashed category: under `READ COMMITTED` a transaction alone does not stop
 another commit landing between a read and a write.
 
+The key is the catalogue a row lives in, read just before locking.
+`move_category_to_catalogue/3` takes both catalogues' locks, in sorted order,
+so a move and a trash or restore in either catalogue serialize instead of
+deadlocking. If a row turns out to have moved between that read and the lock,
+the attempt rolls back with `:catalogue_moved` and `locked_transaction/1` runs
+it again from the top, rather than taking a second key out of order. Bulk paths
+re-check their set of catalogues the same way.
+
 Paths that write items into a category without that lock take the category row
-`FOR SHARE`; a subtree trash locks its category rows `FOR UPDATE` before
-touching items. A concurrent create or move therefore either commits first and
+`FOR SHARE`; a catalogue or subtree trash locks its category rows `FOR UPDATE`
+before touching items. A concurrent create or move therefore either commits first and
 is swept by the trash, or waits and then sees the category trashed.
 
 Permanent deletes lock the category rows, and for a catalogue the catalogue
@@ -113,7 +133,9 @@ foreign key instead of surviving uncategorized through `ON DELETE SET NULL`.
 - Restore with `restore_trashed/3`, filtered by `trashed_by/2` (or
   `trashed_by_or_unstamped/2` for the legacy catalogue case), and exclude items
   in trashed categories with `outside_trashed_categories/1`.
-- Take `lock_catalogue!/1` before reading anything the path decides on.
+- Take `lock_catalogue!/1` (or `lock_row_in_catalogue!/2` /
+  `lock_catalogues_of!/2`) inside `locked_transaction/1` before reading anything
+  the path decides on.
 - Add the path to the randomized run in `test/catalogue/trash_restore_test.exs`.
   It applies random sequences of every path, checks the invariants after each
   step, and asserts that trashing then restoring any live root changes nothing.

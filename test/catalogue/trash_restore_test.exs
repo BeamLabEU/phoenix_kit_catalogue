@@ -265,6 +265,23 @@ defmodule PhoenixKitCatalogue.Catalogue.TrashRestoreTest do
       assert is_nil(reload(live).category_uuid)
     end
 
+    test "duplicating an item into a trashed category is refused" do
+      cat = catalogue!()
+      c = category!(cat)
+      source = item!(%{catalogue_uuid: cat.uuid})
+      {:ok, _} = Catalogue.trash_category(c)
+
+      assert {:error, _} = Catalogue.duplicate_item(source, category_uuid: c.uuid)
+
+      live_in_c =
+        Repo.aggregate(
+          from(i in Item, where: i.category_uuid == ^c.uuid and i.status != "deleted"),
+          :count
+        )
+
+      assert live_in_c == 0
+    end
+
     test "trash_category :move_to refuses a trashed target" do
       cat = catalogue!()
       source = category!(cat)
@@ -276,6 +293,66 @@ defmodule PhoenixKitCatalogue.Catalogue.TrashRestoreTest do
                Catalogue.trash_category(source, items: {:move_to, target.uuid})
 
       assert status(Category, source.uuid) == "active"
+    end
+  end
+
+  describe "plain updates never trash or restore" do
+    test "saving a trashed item, category or catalogue through an update does not revive it" do
+      cat = catalogue!()
+      c = category!(cat)
+      i = item!(%{category_uuid: c.uuid, status: "inactive"})
+      stale_item = i
+      stale_catalogue = cat
+
+      {:ok, _} = Catalogue.trash_catalogue(cat)
+
+      # A form opened before the trash posts a live status with its save.
+      {:ok, saved} = Catalogue.update_item(stale_item, %{name: "Renamed", status: "active"})
+      assert saved.name == "Renamed"
+      assert status(Item, i.uuid) == "deleted"
+
+      {:ok, _} = Catalogue.update_category(reload(c), %{status: "active"})
+      assert status(Category, c.uuid) == "deleted"
+
+      {:ok, _} = Catalogue.update_catalogue(stale_catalogue, %{status: "active"})
+      assert status(CatalogueRow, cat.uuid) == "deleted"
+
+      # Restore still brings the item back to the status it had.
+      {:ok, _} = Catalogue.restore_catalogue(reload(cat))
+      assert status(Item, i.uuid) == "inactive"
+    end
+
+    test "a row created already deleted is stamped, so a catalogue round trip leaves it in the trash" do
+      cat = catalogue!()
+      c = category!(cat)
+      born_deleted = item!(%{category_uuid: c.uuid, status: "deleted"})
+
+      assert reload(born_deleted).data["_trash"]["via"] == "self"
+
+      {:ok, _} = Catalogue.trash_catalogue(cat)
+      {:ok, _} = Catalogue.restore_catalogue(reload(cat))
+
+      assert status(Category, c.uuid) == "active"
+      assert status(Item, born_deleted.uuid) == "deleted"
+    end
+
+    test "an update cannot trash a row, and live status changes still apply" do
+      cat = catalogue!()
+      c = category!(cat)
+      i = item!(%{category_uuid: c.uuid})
+
+      {:ok, _} = Catalogue.update_item(i, %{status: "deleted"})
+      {:ok, _} = Catalogue.update_category(c, %{status: "deleted"})
+      {:ok, _} = Catalogue.update_catalogue(cat, %{status: "deleted"})
+
+      assert status(Item, i.uuid) == "active"
+      assert status(Category, c.uuid) == "active"
+      assert status(CatalogueRow, cat.uuid) == "active"
+
+      {:ok, _} = Catalogue.update_item(reload(i), %{status: "discontinued"})
+      {:ok, _} = Catalogue.update_catalogue(reload(cat), %{status: "archived"})
+      assert status(Item, i.uuid) == "discontinued"
+      assert status(CatalogueRow, cat.uuid) == "archived"
     end
   end
 
