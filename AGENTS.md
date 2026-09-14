@@ -262,7 +262,9 @@ Key invariants to preserve:
 
 - `create_item` / `update_item` derive `catalogue_uuid` from `category_uuid`, so
   an item's category and catalogue can never drift; an empty-string
-  `category_uuid` normalizes to `nil`.
+  `category_uuid` normalizes to `nil`. Callers passing `skip_derive: true`
+  (the importers) are checked against the category's catalogue under the same
+  `FOR SHARE` read and get a changeset error on a mismatch.
 - **A restore undoes exactly the trash that produced a row's state.** Catalogue
   and category restores revive only rows stamped with their root (plus, for a
   catalogue, deleted rows with no stamp), each to its recorded status; rows
