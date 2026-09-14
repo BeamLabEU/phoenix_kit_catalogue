@@ -4,6 +4,15 @@
 
 - Attachment folders can be created under a host-configured parent
   (`:attachments_parent_folder`); lookups check parent then root.
+- `:attachments_parent_folder` now also receives the resource itself
+  (3-arity, kind/actor/resource) when the hook module exports it, and a
+  host can name resource folders with `:attachments_folder_name` — a
+  renamed folder is still found without a stored pointer via the new
+  `Attachments.find_resource_folder/2` lookup order (host name → own
+  name under the parent → own name at the root).
+- Newly uploaded PDF library files are attached to the host's PDF
+  parent folder when one is configured; content-deduped uploads are
+  left where they already live.
 
 ## 0.31.3 - 2026-09-14
 
