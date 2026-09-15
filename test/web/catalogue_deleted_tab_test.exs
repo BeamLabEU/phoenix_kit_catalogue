@@ -270,6 +270,82 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDeletedTabTest do
     end
   end
 
+  describe "the Deleted tab behaves as a trash" do
+    test "a trashed subcategory's card inside a live category counts what its Restore brings back",
+         %{conn: conn} do
+      catalogue = fixture_catalogue()
+      room = fixture_category(catalogue, %{name: "Room"})
+      fixture_category(catalogue, %{name: "Live corner", parent_uuid: room.uuid})
+      shelf = fixture_category(catalogue, %{name: "Shelf", parent_uuid: room.uuid})
+      fixture_item(%{name: "On shelf", category_uuid: shelf.uuid})
+      early = fixture_item(%{name: "Early", category_uuid: shelf.uuid})
+      {:ok, _} = Catalogue.trash_item(early)
+      {:ok, _} = Catalogue.trash_category(shelf, items: :cascade)
+
+      {:ok, view, _html} = live(conn, "#{@base}/#{catalogue.uuid}?category=#{room.uuid}")
+      render_click(view, "switch_view", %{"mode" => "deleted"})
+
+      assigns = :sys.get_state(view.pid).socket.assigns
+      assert Enum.map(assigns.child_categories, & &1.uuid) == [shelf.uuid]
+      assert assigns.child_counts[shelf.uuid] == 1
+    end
+
+    test "a trashed item's name does not link to its edit form", %{conn: conn} do
+      %{catalogue: catalogue, loose: loose} = trashed_world()
+      {_view, html} = open_deleted_tab(conn, catalogue)
+
+      assert html =~ "Gone loose item"
+      refute html =~ PhoenixKitCatalogue.Paths.item_edit(loose.uuid)
+    end
+
+    test "restoring a row from the Deleted tab's search takes it out of the results",
+         %{conn: conn} do
+      %{catalogue: catalogue, loose: loose} = trashed_world()
+      {view, _html} = open_deleted_tab(conn, catalogue)
+
+      render_change(view, "search", %{"query" => "item"})
+      render_async(view)
+      render_click(view, "restore_item", %{"uuid" => loose.uuid})
+
+      results = :sys.get_state(view.pid).socket.assigns.search_results
+      assert is_list(results)
+      refute loose.uuid in Enum.map(results, & &1.uuid)
+      assert Enum.any?(results, &(&1.name == "Gone item"))
+    end
+
+    test "the Deleted tab's sort headers sort the trashed items", %{conn: conn} do
+      catalogue = fixture_catalogue()
+
+      for name <- ["Alpha gone", "Zulu gone"] do
+        item = fixture_item(%{name: name, catalogue_uuid: catalogue.uuid})
+        {:ok, _} = Catalogue.trash_item(item)
+      end
+
+      {view, _html} = open_deleted_tab(conn, catalogue)
+      names = fn -> Enum.map(:sys.get_state(view.pid).socket.assigns.items, & &1.name) end
+
+      render_click(view, "toggle_sort_items", %{"by" => "name"})
+      first = names.()
+      render_click(view, "toggle_sort_items", %{"by" => "name"})
+
+      assert Enum.sort(first) == ["Alpha gone", "Zulu gone"]
+      assert names.() == Enum.reverse(first)
+    end
+
+    test "the trash searches everything, whatever result type was chosen before",
+         %{conn: conn} do
+      %{catalogue: catalogue} = trashed_world()
+      {view, _html} = open_deleted_tab(conn, catalogue)
+
+      render_click(view, "set_search_type", %{"type" => "categories"})
+      render_change(view, "search", %{"query" => "item"})
+      render_async(view)
+
+      refute render(view) =~ ~s(phx-click="set_search_type")
+      assert length(:sys.get_state(view.pid).socket.assigns.search_results) == 2
+    end
+  end
+
   test "search in the Deleted tab finds the trashed items only", %{conn: conn} do
     %{catalogue: catalogue} = trashed_world()
     {view, _html} = open_deleted_tab(conn, catalogue)
