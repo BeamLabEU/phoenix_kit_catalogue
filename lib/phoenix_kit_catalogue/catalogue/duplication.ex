@@ -72,7 +72,8 @@ defmodule PhoenixKitCatalogue.Catalogue.Duplication do
 
   # The folder pointer belongs to exactly one resource; the copy gets its
   # own folder (see `copy_files_folder/3`) or none.
-  @data_keys_not_copied ["files_folder_uuid"]
+  # `_trash` is trash provenance — a copy is a new row nothing trashed.
+  @data_keys_not_copied ["files_folder_uuid", "_trash"]
 
   defp repo, do: PhoenixKit.RepoHelper.repo()
 
@@ -314,6 +315,8 @@ defmodule PhoenixKitCatalogue.Catalogue.Duplication do
     |> repo().one()
     |> case do
       nil -> repo().rollback(:category_not_found)
+      # A live copy in a trashed category would be hidden from the tree.
+      %Category{status: "deleted"} -> repo().rollback(:category_not_found)
       %Category{catalogue_uuid: uuid} -> uuid || fallback
     end
   end
