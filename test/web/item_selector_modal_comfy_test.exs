@@ -249,4 +249,64 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalComfyTest do
       assert html =~ "[.pk-comfy_&amp;]:w-20"
     end
   end
+
+  describe "subcategory_level/1 — comfy renders the tiles, not just the heading" do
+    # base_modal_assigns's cat_tree carries roots: [], so show_categories_block?/1
+    # is always false in every test above and the subcategory_level block
+    # never renders at all — proving nothing about the regression this
+    # covers (comfy fell through both the "card" and "table" view branches
+    # there, rendering the "Subcategories" heading with no tiles under it).
+    # This fixture gives cat_tree a real root with a subcategory so the
+    # block actually renders.
+    defp cat_tree_with_subcategories do
+      %{
+        roots: [%{uuid: "cat-root", name: "Fasteners", data: %{}}],
+        children: %{"cat-root" => [%{uuid: "cat-child", name: "Bolts", data: %{}}]},
+        index: %{
+          "cat-root" => %{parent_uuid: nil},
+          "cat-child" => %{parent_uuid: "cat-root"}
+        },
+        counts: %{"cat-root" => 1, "cat-child" => 0}
+      }
+    end
+
+    defp render_with_subcategories(view, browse_overrides \\ %{}) do
+      browse =
+        Map.merge(
+          %{BrowseState.init() | items: [], loading?: false, exhausted?: true},
+          browse_overrides
+        )
+
+      render_component(
+        &ItemSelectorModal.render/1,
+        base_modal_assigns(%{view: view, cat_tree: cat_tree_with_subcategories(), browse: browse})
+      )
+    end
+
+    test "comfy mode renders the root tile as a table row, wrapped in pk-comfy" do
+      html = render_with_subcategories("comfy")
+
+      assert html =~ "pk-comfy"
+      assert html =~ "Fasteners"
+    end
+
+    test "table mode renders the same root tile (comfy must not regress it)" do
+      html = render_with_subcategories("table")
+
+      assert html =~ "Fasteners"
+    end
+
+    test "card mode renders the root tile as a card" do
+      html = render_with_subcategories("card")
+
+      assert html =~ "Fasteners"
+    end
+
+    test "drilled into a category, comfy shows both the heading and the child tile" do
+      html = render_with_subcategories("comfy", %{category_uuid: "cat-root"})
+
+      assert html =~ "Subcategories"
+      assert html =~ "Bolts"
+    end
+  end
 end
