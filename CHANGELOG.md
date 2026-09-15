@@ -4,9 +4,10 @@
 
 - `PhoenixKitCatalogue.MediaReorganizer`: plans legacy media-folder moves
   for catalogues, categories and items from the `:attachments_parent_folder`
-  / `:attachments_folder_name` hooks, plus stale pending-upload-folder and
-  PDF-library-at-root reports. Registered via `PhoenixKitCatalogue.media_reorganizer/0`
-  (no `@impl` yet — the core engine that will consume it has not shipped).
+  / `:attachments_folder_name` hooks, plus stale pending-upload-folder,
+  orphaned-legacy-folder, and PDF-library-at-root reports. Registered via
+  `PhoenixKitCatalogue.media_reorganizer/0` (no `@impl` yet — the core
+  engine that will consume it has not shipped).
 - Attachment folders can be created under a host-configured parent
   (`:attachments_parent_folder`); lookups check parent then root.
 - `:attachments_parent_folder` now also receives the resource itself

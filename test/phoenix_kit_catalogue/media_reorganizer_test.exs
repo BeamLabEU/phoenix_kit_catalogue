@@ -258,6 +258,62 @@ defmodule PhoenixKitCatalogue.MediaReorganizerTest do
     end
   end
 
+  describe "orphan folders" do
+    test "legacy folder with no matching record → orphan report with counts", %{
+      user_uuid: user_uuid
+    } do
+      {:ok, folder} = Storage.create_folder(%{name: "catalogue-item-#{Ecto.UUID.generate()}"})
+
+      {:ok, _file} =
+        Storage.create_file(%{
+          original_file_name: "stray.pdf",
+          file_name: "stray.pdf",
+          mime_type: "application/pdf",
+          file_type: "document",
+          ext: "pdf",
+          file_checksum: "checksum-orphan",
+          user_file_checksum: "user-checksum-orphan",
+          size: 5,
+          status: "active",
+          folder_uuid: folder.uuid,
+          user_uuid: user_uuid
+        })
+
+      actions = MediaReorganizer.plan(nil, [])
+      action = Enum.find(actions, &(&1.kind == :orphan and &1.folder.uuid == folder.uuid))
+
+      refute is_nil(action)
+      assert action.source == "catalogue"
+      assert action.op == :report
+      assert action.counts == {1, 0}
+      assert action.reason =~ "missing"
+      assert action.reason =~ "1 file"
+    end
+
+    test "legacy folder of a deleted item → report names the record's status" do
+      catalogue = new_catalogue()
+      item = new_item(catalogue)
+      {:ok, folder} = Storage.create_folder(%{name: "catalogue-item-#{item.uuid}"})
+      {:ok, _item} = Catalogue.trash_item(item)
+
+      actions = MediaReorganizer.plan(nil, [])
+      action = Enum.find(actions, &(&1.kind == :orphan and &1.folder.uuid == folder.uuid))
+
+      refute is_nil(action)
+      assert action.op == :report
+      assert action.reason =~ "deleted"
+    end
+
+    test "legacy folder of a live item → not reported as orphan" do
+      catalogue = new_catalogue()
+      item = new_item(catalogue)
+      {:ok, folder} = Storage.create_folder(%{name: "catalogue-item-#{item.uuid}"})
+
+      actions = MediaReorganizer.plan(nil, [])
+      refute Enum.any?(actions, &(&1.kind == :orphan and &1.folder.uuid == folder.uuid))
+    end
+  end
+
   describe "PDF library report" do
     test "PDFs at root with a configured library folder → one report action", %{
       user_uuid: user_uuid
