@@ -62,9 +62,10 @@ legacy trashed catalogue still restores whole. `restore_category/2` leaves such
 rows alone, because category restore never revived anything before.
 
 Some long-lived installs also hold catalogues marked deleted whose children were
-never cascaded (still `active`). The Deleted tab counts every item under a
-trashed catalogue for that reason. Running `trash_catalogue/2` on such a
-catalogue sweeps and stamps the live children.
+never cascaded (still `active`). A trashed catalogue's row on the catalogue
+list therefore counts its live items along with the deleted ones its Restore
+brings back. Running `trash_catalogue/2` on such a catalogue sweeps and stamps
+the live children.
 
 ## What a restore does not undo
 
@@ -82,8 +83,10 @@ catalogue sweeps and stamps the live children.
 
 A trashed category is one unit, the way a trashed catalogue is on the catalogue
 list: the tab shows each top-level trashed category (its parent is not trashed)
-as a card, with counts covering the trashed subcategories and items inside it,
-and it cannot be opened. Items are listed on their own only when they sit
+as a card, and it cannot be opened. A trashed card counts what its Restore
+brings back: the subcategories and items its own trash stamped, not rows
+trashed on their own before it, which stay in the trash. A trashed catalogue's
+row on the catalogue list counts the same way. Items are listed on their own only when they sit
 outside a trashed category (uncategorized, or in a live category), and the
 tab's count follows the same rule. Search in the tab still finds every trashed
 item. To act on a category's items separately, trash it with `:uncategorize` or

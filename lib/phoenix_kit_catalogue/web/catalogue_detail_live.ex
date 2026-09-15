@@ -2561,7 +2561,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     child_categories = root_trash_categories(root_tree, current, cat_mode, child_categories)
 
     {counts_map, subcat_counts} =
-      uuid |> level_count_maps(cat_mode) |> trash_unit_counts(root_tree, current, cat_mode)
+      uuid |> level_count_maps(cat_mode) |> trash_unit_counts(uuid, root_tree, current, cat_mode)
 
     uncat_active = Catalogue.uncategorized_count_for_catalogue(uuid, mode: :active)
 
@@ -2666,31 +2666,47 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     end)
   end
 
-  # A trashed category card at the root stands for everything trashed inside
-  # it, since none of that is listed on its own: its item count runs through
-  # its trashed subtree, and its subcategory count is that subtree's size.
-  defp trash_unit_counts({item_counts, subcat_counts}, root_tree, nil, :deleted) do
+  # A trashed category card at the root counts what its Restore brings back,
+  # since nothing inside it is listed on its own: the subcategories and items
+  # its own trash stamped. Rows trashed on their own before it stay in the
+  # trash when it is restored, so they are not counted (Max, 2026-09-15).
+  defp trash_unit_counts(counts, uuid, root_tree, nil, :deleted) do
+    by_root = Catalogue.trashed_item_counts_by_root(uuid)
+
     trashed_children =
       root_tree
       |> Enum.filter(&(&1.status == "deleted"))
-      |> Enum.group_by(& &1.parent_uuid, & &1.uuid)
+      |> Enum.group_by(& &1.parent_uuid)
 
     root_tree
     |> top_level_trashed()
-    |> Enum.reduce({item_counts, subcat_counts}, fn category, {items, subs} ->
-      inside = trashed_descendants(category.uuid, trashed_children)
-      total = Enum.reduce([category.uuid | inside], 0, &(Map.get(item_counts, &1, 0) + &2))
-      {Map.put(items, category.uuid, total), Map.put(subs, category.uuid, length(inside))}
+    |> Enum.reduce(counts, fn category, {items, subs} ->
+      root = category.uuid
+
+      inside =
+        root
+        |> trashed_descendants(trashed_children)
+        |> Enum.filter(&(trash_root(&1) == root))
+
+      total =
+        Enum.reduce([root | Enum.map(inside, & &1.uuid)], 0, fn category_uuid, sum ->
+          sum + Map.get(by_root, {category_uuid, root}, 0)
+        end)
+
+      {Map.put(items, root, total), Map.put(subs, root, length(inside))}
     end)
   end
 
-  defp trash_unit_counts(counts, _root_tree, _current, _cat_mode), do: counts
+  defp trash_unit_counts(counts, _uuid, _root_tree, _current, _cat_mode), do: counts
 
   defp trashed_descendants(uuid, trashed_children) do
     trashed_children
     |> Map.get(uuid, [])
-    |> Enum.flat_map(&[&1 | trashed_descendants(&1, trashed_children)])
+    |> Enum.flat_map(&[&1 | trashed_descendants(&1.uuid, trashed_children)])
   end
+
+  defp trash_root(%{data: %{"_trash" => %{"root" => root}}}), do: root
+  defp trash_root(_category), do: nil
 
   # Categories count into the tabs that list them — tab counts and the
   # opening-tab pick only: node_total must keep counting ITEMS, or the item

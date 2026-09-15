@@ -120,16 +120,20 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
       assert html =~ "1"
     end
 
-    test "the Deleted tab counts every item a trashed catalogue holds", %{conn: conn} do
+    test "the Deleted tab counts what a trashed catalogue's Restore brings back", %{conn: conn} do
       # Regression (Max, 2026-09-14, tim-dev): a freshly trashed catalogue
       # read "Items 0" in the Deleted tab because the tab reused the
       # active-only count, and the trash cascade had just turned every
-      # item "deleted". The number the operator needs there is what
-      # Restore brings back — every item in the catalogue.
+      # item "deleted". Then (Max, 2026-09-15) counting every item added
+      # one trashed on its own before the catalogue, which Restore leaves
+      # in the trash. The number the operator needs is what Restore brings
+      # back.
       cat = fixture_catalogue(%{name: "Trashed with contents"})
       category = fixture_category(cat, %{name: "Trashed category"})
       fixture_item(%{name: "In category", category_uuid: category.uuid})
       fixture_item(%{name: "Loose", catalogue_uuid: cat.uuid})
+      early = fixture_item(%{name: "Already binned", catalogue_uuid: cat.uuid})
+      {:ok, _} = Catalogue.trash_item(early)
       {:ok, _} = Catalogue.trash_catalogue(cat)
 
       # An active sibling with one item keeps its own count.
