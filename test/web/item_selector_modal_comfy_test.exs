@@ -222,8 +222,8 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalComfyTest do
     # item_row/1 (the table row) reads :thumb_url — a field distinct from
     # :photo_url, which only the card tile (item_card/1) reads (browse.ex
     # present_items/2 sets both, from the same source item, at two
-    # different Storage variants). Confirmed against browse.ex:952-958.
-    test "no-photo tile carries the w-16/h-16 comfy classes (browse.ex:479)" do
+    # different Storage variants).
+    test "no-photo tile carries the w-16/h-16 comfy classes" do
       html = render_row(presented(%{thumb_url: nil}))
 
       refute html =~ "<img"
@@ -231,7 +231,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalComfyTest do
       assert html =~ "[.pk-comfy_&]:h-16"
     end
 
-    test "photo <img> carries the w-16/h-16 comfy classes (browse.ex:474)" do
+    test "photo <img> carries the w-16/h-16 comfy classes" do
       html = render_row(presented(%{thumb_url: "/signed/medium/x"}))
 
       assert html =~ "<img"
@@ -239,7 +239,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalComfyTest do
       assert html =~ "[.pk-comfy_&]:h-16"
     end
 
-    test "the thumb cell itself carries the w-20 comfy class (browse.ex:527 row_cell_class)" do
+    test "the thumb cell itself carries the w-20 comfy class (row_cell_class/1)" do
       html = render_row(presented())
 
       # `row_cell_class/1` feeds a dynamic `class={[...]}` list, which HEEx

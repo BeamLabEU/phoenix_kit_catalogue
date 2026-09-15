@@ -110,6 +110,37 @@ Max asked for the open items to be fixed.
   shows the Status column even when the user's columns leave it out"
   (`test/web/catalogue_deleted_tab_test.exs`).
 
+## Fixed (Release review — 2026-09-15, release 0.32.0)
+
+From the release-review section of `CLAUDE_REVIEW.md`.
+
+- ~~IMPROVEMENT - MEDIUM — Delete Forever left stamps pointing at a removed root.~~
+  `permanently_delete_category/2` re-stamps, in the same transaction, the
+  trashed rows under a kept subcategory whose root is one of the removed
+  categories:
+  - a trashed category takes the root its trashed parent now has, and the
+    topmost one becomes `via: self`;
+  - an item in a live category becomes `via: self`;
+  - `from_status` is kept.
+
+  The rule is written into `dev_docs/guides/trash-and-restore.md`. Pinned: "rows
+  under a kept subcategory get a trash root that still exists"
+  (`test/catalogue/trash_edges_test.exs`).
+- ~~IMPROVEMENT - MEDIUM — the Active tab's `delete_item` was unscoped.~~ It now
+  uses `item_in_catalogue/2`. Pinned in "single-row actions ignore a uuid from
+  another catalogue".
+- ~~NITPICK — a kept subcategory kept its old position.~~ Kept subcategories go
+  to the end of the top level (`next_category_position/2`), in their old order.
+  Pinned in the same trash-edges test.
+
+### Skipped (release review)
+
+- **The bulk confirmation does not mention kept subcategories.** It needs new
+  msgids in six catalogues. The single-category confirmation already counts
+  only what is removed.
+- **`drop_from_search` can discard an in-flight page reply.** It heals itself on
+  the restore's broadcast, which re-runs the search.
+
 ## Files touched
 
 | File | Batch | Change |
@@ -133,6 +164,7 @@ Batch 3: `lib/phoenix_kit_catalogue/catalogue.ex`, `lib/phoenix_kit_catalogue/we
 - Browser on max-dev: a trashed shelf card read Items 2 / Subcategories 1 while its confirmation said 3 items; confirming kept the subcategory restored on its own; Batch 2's trash view fixes checked on a seeded catalogue.
 
 - Batch fixing the open items (2026-09-15, commit c651dcc): full suite 2850 tests + 2 doctests, 0 failures; `mix precommit` clean; checked on the dev server.
+- Release review batch (2026-09-15, release 0.32.0): full suite 2881 tests + 2 doctests, 0 failures; `mix precommit` clean. The re-stamp and the kept-subcategory position are covered by the randomized run in `trash_restore_test.exs` as well as the new trash-edges pin.
 
 ## Open
 

@@ -814,7 +814,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   end
 
   def handle_event("delete_item", %{"uuid" => uuid}, socket) do
-    with %{} = item <- Catalogue.get_item(uuid),
+    with %{} = item <- item_in_catalogue(socket, uuid),
          {:ok, _} <- Catalogue.trash_item(item, actor_opts(socket)) do
       {:noreply,
        socket
