@@ -179,6 +179,47 @@ defmodule PhoenixKitCatalogue.MediaReorganizerTest do
     assert action.folder.uuid == live.uuid
   end
 
+  test "folder already at the right parent/name but pointer missing → move action with after_move" do
+    catalogue = new_catalogue()
+    item = new_item(catalogue, %{name: "Käepide"})
+
+    {:ok, target} = Storage.create_folder(%{name: "Items"})
+
+    {:ok, folder} =
+      Storage.create_folder(%{name: "catalogue-item-#{item.uuid}", parent_uuid: target.uuid})
+
+    Process.put(:target_folder, target.uuid)
+    Application.put_env(:phoenix_kit_catalogue, :attachments_parent_folder, {Hook, :parent})
+
+    actions = MediaReorganizer.plan(nil, [])
+    action = Enum.find(actions, &(&1.kind == :item and &1.label == item.name))
+
+    refute is_nil(action)
+    assert action.op == :move
+    assert action.folder.uuid == folder.uuid
+    assert action.parent_uuid == target.uuid
+    assert action.name == folder.name
+    assert is_function(action.after_move, 0)
+  end
+
+  test "folder already at the right parent/name and pointer already correct → nothing planned" do
+    catalogue = new_catalogue()
+    item = new_item(catalogue, %{name: "Käepide"})
+
+    {:ok, target} = Storage.create_folder(%{name: "Items"})
+
+    {:ok, folder} =
+      Storage.create_folder(%{name: "catalogue-item-#{item.uuid}", parent_uuid: target.uuid})
+
+    {:ok, _item} = Catalogue.update_item(item, %{data: %{"files_folder_uuid" => folder.uuid}})
+
+    Process.put(:target_folder, target.uuid)
+    Application.put_env(:phoenix_kit_catalogue, :attachments_parent_folder, {Hook, :parent})
+
+    actions = MediaReorganizer.plan(nil, [])
+    refute Enum.any?(actions, &(&1.kind == :item and &1.label == item.name))
+  end
+
   test "categories and catalogues get actions too" do
     catalogue = new_catalogue(%{name: "Root cat"})
     {:ok, category} = Catalogue.create_category(%{name: "Cards", catalogue_uuid: catalogue.uuid})
