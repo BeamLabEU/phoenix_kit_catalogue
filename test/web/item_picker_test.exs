@@ -986,6 +986,68 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPickerTest do
       assert html =~ ~s(id="test-picker-option-0")
       assert html =~ ~s(id="test-picker-option-1")
     end
+
+    test "show_photo: false suppresses the dropdown thumbnail too" do
+      item = %{
+        fake_item("item-1", "Oak Plank")
+        | data: %{"featured_image_uuid" => @photo_uuid}
+      }
+
+      html =
+        render_component(
+          ItemPicker,
+          base_assigns(%{open: true, options: [item], has_more: false, show_photo: false})
+        )
+
+      refute html =~ "<img"
+    end
+
+    test "a custom photo_asset_type is used for the dropdown thumbnail, not the hardcoded \"thumbnail\"" do
+      item = %{
+        fake_item("item-1", "Oak Plank")
+        | data: %{"featured_image_uuid" => @photo_uuid}
+      }
+
+      html =
+        render_component(
+          ItemPicker,
+          base_assigns(%{
+            open: true,
+            options: [item],
+            has_more: false,
+            photo_asset_type: "medium"
+          })
+        )
+
+      assert html =~ "/#{@photo_uuid}/medium/"
+      refute html =~ "/#{@photo_uuid}/thumbnail/"
+    end
+
+    test "row_photo_size sizes the dropdown thumbnail independently of photo_size" do
+      item = %{
+        fake_item("item-1", "Oak Plank")
+        | data: %{"featured_image_uuid" => @photo_uuid}
+      }
+
+      html =
+        render_component(
+          ItemPicker,
+          base_assigns(%{
+            open: true,
+            options: [item],
+            has_more: false,
+            selected_item: item,
+            photo_size: "w-20 h-20",
+            row_photo_size: "w-4 h-4"
+          })
+        )
+
+      assert html =~
+               ~s(class="w-4 h-4 shrink-0 rounded object-cover bg-base-200 border border-base-300")
+
+      assert html =~
+               ~s(class="w-20 h-20 shrink-0 rounded object-cover bg-base-200 border border-base-300")
+    end
   end
 
   # initial_query SEEDING here only covers the DB-free guard branches (the
