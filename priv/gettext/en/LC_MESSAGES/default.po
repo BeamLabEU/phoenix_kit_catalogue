@@ -1369,8 +1369,8 @@ msgstr "View old values (%{count})"
 msgid "Hand-typed metadata from before attribute groups. Kept so nothing is lost — move what matters into a group, then clear these."
 msgstr "Hand-typed metadata from before attribute groups. Kept so nothing is lost — move what matters into a group, then clear these."
 
-msgid "Has attribute group"
-msgstr "Has attribute group"
+msgid "Has attribute set"
+msgstr "Has attribute set"
 
 msgid "AI translate names & values"
 msgstr "AI translate names & values"
@@ -3466,4 +3466,10 @@ msgid "It was restored in the meantime, so it was not deleted."
 msgstr ""
 
 msgid "This category, %{subcategories} subcategories and %{items} items inside it will be permanently deleted. This cannot be undone."
+msgstr ""
+
+msgid "Failed to delete attribute."
+msgstr ""
+
+msgid "%{value} (archived)"
 msgstr ""

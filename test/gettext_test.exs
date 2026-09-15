@@ -897,4 +897,34 @@ defmodule PhoenixKitCatalogue.GettextTest do
   after
     Gettext.put_locale(PhoenixKitCatalogue.Gettext, "en")
   end
+
+  test "the attribute-set follow-up strings are translated in ru and et" do
+    # Added by hand to the .pot and every locale (2026-09-15 follow-ups of
+    # PRs #108, #109 and #113).
+    archived = "%{value} (archived)"
+
+    Gettext.put_locale(PhoenixKitCatalogue.Gettext, "ru")
+
+    assert Gettext.gettext(PhoenixKitCatalogue.Gettext, archived, value: "Gold") ==
+             "Gold (в архиве)"
+
+    assert Gettext.gettext(PhoenixKitCatalogue.Gettext, "Has attribute set") ==
+             "Есть набор атрибутов"
+
+    assert Gettext.gettext(PhoenixKitCatalogue.Gettext, "Failed to delete attribute.") ==
+             "Не удалось удалить атрибут."
+
+    Gettext.put_locale(PhoenixKitCatalogue.Gettext, "et")
+
+    assert Gettext.gettext(PhoenixKitCatalogue.Gettext, archived, value: "Gold") ==
+             "Gold (arhiveeritud)"
+
+    assert Gettext.gettext(PhoenixKitCatalogue.Gettext, "Has attribute set") ==
+             "Atribuudikomplektiga"
+
+    assert Gettext.gettext(PhoenixKitCatalogue.Gettext, "Failed to delete attribute.") ==
+             "Atribuudi kustutamine ebaõnnestus."
+  after
+    Gettext.put_locale(PhoenixKitCatalogue.Gettext, "en")
+  end
 end

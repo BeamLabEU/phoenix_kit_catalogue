@@ -5125,11 +5125,12 @@ defmodule PhoenixKitCatalogue.Catalogue do
     # item can never be inserted with a stale `catalogue_uuid` mid-move.
     result =
       repo().transaction(fn ->
-        attrs = if skip_derive?, do: attrs, else: derive_catalogue_uuid(nil, attrs)
+        {attrs, category} =
+          if skip_derive?, do: {attrs, nil}, else: derive_catalogue_uuid(nil, attrs)
 
         case %Item{}
              |> Item.changeset(attrs)
-             |> check_item_category()
+             |> check_item_category(category)
              |> stamp_created_deleted()
              |> repo().insert() do
           {:ok, item} -> item
@@ -5175,6 +5176,8 @@ defmodule PhoenixKitCatalogue.Catalogue do
   #
   # Accepts both atom- and string-keyed maps, and a `nil` item for the
   # create path.
+  # Returns `{attrs, category}`: the category it read FOR SHARE (or nil) goes
+  # on to `check_item_category/2`, which would otherwise read it again.
   defp derive_catalogue_uuid(item, attrs) when is_map(attrs) do
     attrs
     |> normalize_blank_category()
@@ -5250,17 +5253,9 @@ defmodule PhoenixKitCatalogue.Catalogue do
   # writing with `skip_derive: true` whose category moved to another
   # catalogue mid-import gets one instead of an item in a catalogue its
   # category is not in.
-  defp check_item_category(%Ecto.Changeset{} = changeset) do
-    with category_uuid when is_binary(category_uuid) <-
-           Ecto.Changeset.get_change(changeset, :category_uuid),
-         {category_status, category_catalogue_uuid} <-
-           repo().one(
-             from(c in Category,
-               where: c.uuid == ^category_uuid,
-               lock: "FOR SHARE",
-               select: {c.status, c.catalogue_uuid}
-             )
-           ) do
+  defp check_item_category(%Ecto.Changeset{} = changeset, known) do
+    with category_uuid when is_binary(category_uuid) <- category_to_check(changeset),
+         {category_status, category_catalogue_uuid} <- category_facts(category_uuid, known) do
       live? = Ecto.Changeset.get_field(changeset, :status) != "deleted"
 
       cond do
@@ -5278,6 +5273,37 @@ defmodule PhoenixKitCatalogue.Catalogue do
     end
   end
 
+  # The category to check: a changed one, or the unchanged one when the
+  # item's catalogue changes under it (an importer passing `skip_derive: true`
+  # with a new `catalogue_uuid`). Either can leave an item in a category of
+  # another catalogue.
+  defp category_to_check(changeset) do
+    case Ecto.Changeset.fetch_change(changeset, :category_uuid) do
+      {:ok, category_uuid} ->
+        category_uuid
+
+      :error ->
+        if Ecto.Changeset.changed?(changeset, :catalogue_uuid),
+          do: Ecto.Changeset.get_field(changeset, :category_uuid)
+    end
+  end
+
+  # The derive step already read this category FOR SHARE in the same
+  # transaction; reading it again cost a query per item write, which imports
+  # multiply.
+  defp category_facts(uuid, %Category{uuid: uuid, status: status, catalogue_uuid: catalogue_uuid}),
+    do: {status, catalogue_uuid}
+
+  defp category_facts(uuid, _known) do
+    repo().one(
+      from(c in Category,
+        where: c.uuid == ^uuid,
+        lock: "FOR SHARE",
+        select: {c.status, c.catalogue_uuid}
+      )
+    )
+  end
+
   # If the effective category exists, pin `catalogue_uuid` to that
   # category's catalogue — this is the single source of truth and
   # overrides any stale value the caller might have passed. If no
@@ -5287,20 +5313,20 @@ defmodule PhoenixKitCatalogue.Catalogue do
   # The `FOR SHARE` row lock closes the move_category race: see the
   # comment in `create_item/2`. Must be invoked inside a transaction
   # for the lock to persist until the insert/update commits.
-  defp put_catalogue_from_effective_category(attrs, nil), do: attrs
+  defp put_catalogue_from_effective_category(attrs, nil), do: {attrs, nil}
 
   defp put_catalogue_from_effective_category(attrs, category_uuid)
        when is_binary(category_uuid) do
     query = from(c in Category, where: c.uuid == ^category_uuid, lock: "FOR SHARE")
 
     case repo().one(query) do
-      %Category{catalogue_uuid: cat_uuid} ->
-        Helpers.put_attr(attrs, :catalogue_uuid, cat_uuid)
+      %Category{catalogue_uuid: cat_uuid} = category ->
+        {Helpers.put_attr(attrs, :catalogue_uuid, cat_uuid), category}
 
       nil ->
         # Target category doesn't exist — leave attrs as-is so the
         # changeset's FK constraint surfaces a clear error.
-        attrs
+        {attrs, nil}
     end
   end
 
@@ -5336,13 +5362,15 @@ defmodule PhoenixKitCatalogue.Catalogue do
         # The category (FOR SHARE, in the derive) before the item row (FOR
         # UPDATE, in the data narrowing): the order a category trash takes
         # them, so a form save and a trash cannot deadlock.
-        attrs = if skip_derive?, do: attrs, else: derive_catalogue_uuid(item, attrs)
+        {attrs, category} =
+          if skip_derive?, do: {attrs, nil}, else: derive_catalogue_uuid(item, attrs)
+
         attrs = narrow_data_ownership(Item, item.uuid, attrs, opts)
 
         case item
              |> Item.changeset(attrs)
              |> keep_trash_status(Item, item.uuid)
-             |> check_item_category()
+             |> check_item_category(category)
              |> repo().update() do
           {:ok, updated} -> updated
           {:error, changeset} -> repo().rollback(changeset)
@@ -5996,7 +6024,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
     do: {:ok, %{categories: 0, items_handled: 0}}
 
   def bulk_trash_categories(uuids, disposition, opts) when is_list(uuids) do
-    uuids = uuids |> scope_category_uuids(opts[:catalogue_uuid]) |> ancestors_first()
+    uuids = scope_category_uuids(uuids, opts[:catalogue_uuid])
 
     # Each step runs `trash_category/2` muted: a broadcast from inside the
     # outer transaction would reach subscribers before the rows commit
@@ -6008,7 +6036,9 @@ defmodule PhoenixKitCatalogue.Catalogue do
     locked_transaction(fn ->
       lock_catalogues_of!(Category, uuids)
 
-      Enum.reduce_while(uuids, %{categories: 0, items_handled: 0, trashed: []}, fn uuid, acc ->
+      uuids
+      |> ancestors_first()
+      |> Enum.reduce_while(%{categories: 0, items_handled: 0, trashed: []}, fn uuid, acc ->
         bulk_trash_category_step(uuid, disposition, step_opts, acc)
       end)
     end)
@@ -6026,7 +6056,35 @@ defmodule PhoenixKitCatalogue.Catalogue do
   # ancestor first, so the descendant is stamped as taken by it — the
   # order the uuids happen to arrive in must not decide what restoring the
   # ancestor brings back.
-  defp ancestors_first(uuids), do: Enum.sort_by(uuids, &length(Tree.ancestor_uuids(&1)))
+  #
+  # Depths come from one read of the selected categories' catalogues, taken
+  # under their locks, not from a recursive ancestor query per selected uuid.
+  defp ancestors_first(uuids) do
+    parents =
+      from(c in Category,
+        where:
+          c.catalogue_uuid in subquery(
+            from(s in Category, where: s.uuid in ^uuids, select: s.catalogue_uuid)
+          ),
+        select: {c.uuid, c.parent_uuid}
+      )
+      |> repo().all()
+      |> Map.new()
+
+    Enum.sort_by(uuids, &category_depth(&1, parents, 0))
+  end
+
+  # Walks parent links up to a root, counting the steps. No real chain has
+  # more steps than the catalogues hold categories, so a longer walk is a
+  # cycle (which the tree guards forbid) and ends there; a deep chain is never
+  # cut short.
+  defp category_depth(uuid, parents, depth) do
+    case Map.get(parents, uuid) do
+      nil -> depth
+      _parent_uuid when depth >= map_size(parents) -> depth
+      parent_uuid -> category_depth(parent_uuid, parents, depth + 1)
+    end
+  end
 
   defp scope_category_uuids(uuids, nil), do: uuids
 

@@ -192,19 +192,10 @@ defmodule PhoenixKitCatalogue.Catalogue.SupplierFields do
   # ── Startup registration ───────────────────────────────────────────
 
   @doc """
-  Registers the supplier-fields deletion guard with entities. Ships as a
-  supervision child via `PhoenixKitCatalogue.children/0`.
+  Registers the supplier-fields deletion guard with entities. Called at boot
+  by `PhoenixKitCatalogue.Catalogue.DeleteGuards`, right after the
+  attribute-set guard.
   """
-  @spec child_spec(keyword()) :: Supervisor.child_spec()
-  def child_spec(_opts) do
-    %{
-      id: __MODULE__.GuardRegistration,
-      start: {Task, :start_link, [&__MODULE__.startup/0]},
-      restart: :temporary
-    }
-  end
-
-  @doc false
   @spec startup() :: :ok
   def startup do
     if enabled?() do
