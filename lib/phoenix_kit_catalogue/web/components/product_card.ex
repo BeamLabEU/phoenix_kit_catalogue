@@ -449,11 +449,29 @@ defmodule PhoenixKitCatalogue.Web.Components.ProductCard do
   # look it up in `:hidden_values` too, or its chip silently disappears
   # from the card exactly like the bug this exists to fix.
   defp selected_values(%{selected: [_ | _] = selected} = resolved) do
-    pool = resolved.values ++ Map.get(resolved, :hidden_values, [])
-    Enum.filter(pool, &(&1.key in selected))
+    hidden = Map.get(resolved, :hidden_values, [])
+    hidden_keys = MapSet.new(hidden, & &1.key)
+
+    (resolved.values ++ hidden)
+    |> Enum.filter(&(&1.key in selected))
+    |> Enum.map(&mark_hidden(&1, hidden_keys))
   end
 
   defp selected_values(%{values: values}), do: values
+
+  # A value archived or trashed after being picked still describes the item,
+  # and the card says it is archived, as the item form and the Items popup do.
+  defp mark_hidden(value, hidden_keys) do
+    if MapSet.member?(hidden_keys, value.key),
+      do: %{
+        value
+        | label:
+            Gettext.gettext(PhoenixKitCatalogue.Gettext, "%{value} (archived)",
+              value: value.label
+            )
+      },
+      else: value
+  end
 
   defp legacy_attribute_fields(uuid, locale) do
     with group_uuid when is_binary(group_uuid) <-
