@@ -62,6 +62,12 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDeletedTabTest do
       shelf_item = fixture_item(%{name: "Shelf item", category_uuid: shelf.uuid})
       deep_item = fixture_item(%{name: "Deep item", category_uuid: sub.uuid})
       loose = fixture_item(%{name: "Loose one", catalogue_uuid: catalogue.uuid})
+      # Trashed on their own before the shelf: inside it, but its Restore
+      # leaves them in the trash, so its card does not count them.
+      early = fixture_item(%{name: "Early gone", category_uuid: shelf.uuid})
+      {:ok, _} = Catalogue.trash_item(early)
+      early_sub = fixture_category(catalogue, %{name: "Early sub", parent_uuid: shelf.uuid})
+      {:ok, _} = Catalogue.trash_category(early_sub)
       {:ok, _} = Catalogue.trash_category(shelf, items: :cascade)
       {:ok, _} = Catalogue.trash_item(loose)
 
@@ -88,8 +94,9 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDeletedTabTest do
       refute html =~ "item-row-del-menu-#{w.shelf_item.uuid}"
       refute html =~ "item-row-del-menu-#{w.deep_item.uuid}"
 
-      # The card counts everything trashed inside it; the tab counts the
-      # card and the loose item.
+      # The card counts what its Restore brings back (not the item and
+      # subcategory trashed on their own first); the tab counts the card and
+      # the loose item.
       assert assigns.child_counts[w.shelf.uuid] == 2
       assert assigns.child_subcat_counts[w.shelf.uuid] == 1
       assert {"deleted", _label, 2} = List.keyfind(assigns.status_tabs, "deleted", 0)

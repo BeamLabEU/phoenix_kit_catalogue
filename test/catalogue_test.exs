@@ -3201,30 +3201,47 @@ defmodule PhoenixKitCatalogue.CatalogueTest do
       assert counts[cat.uuid] == 2
     end
 
-    test "mode: :all counts a trashed catalogue's items, mode: :active reads 0" do
+    test "mode: :restorable counts what a trashed catalogue's Restore brings back" do
       cat = create_catalogue()
       category = create_category(cat)
       create_item(%{name: "In Category", category_uuid: category.uuid})
       create_item(%{name: "Uncategorized", catalogue_uuid: cat.uuid})
+      early = create_item(%{name: "Trashed first", catalogue_uuid: cat.uuid})
+      {:ok, _} = Catalogue.trash_item(early)
+      side = create_category(cat, %{name: "Trashed first too"})
+      create_item(%{name: "Went with it", category_uuid: side.uuid})
+      {:ok, _} = Catalogue.trash_category(side, items: :cascade)
       {:ok, _} = Catalogue.trash_catalogue(cat)
 
       refute Map.has_key?(Catalogue.item_counts_by_catalogue(), cat.uuid)
-      assert Catalogue.item_counts_by_catalogue(mode: :all)[cat.uuid] == 2
+      # The two items the catalogue's own trash took; the ones trashed on
+      # their own (or with their category) before it stay in the trash.
+      assert Catalogue.item_counts_by_catalogue(mode: :restorable)[cat.uuid] == 2
+
+      {:ok, _} = Catalogue.restore_catalogue(Catalogue.get_catalogue(cat.uuid))
+      assert Catalogue.item_counts_by_catalogue()[cat.uuid] == 2
     end
 
-    test "mode: :all counts live AND deleted items under a catalogue a legacy trash left half-swept" do
+    test "mode: :restorable counts live and unstamped items under a legacy half-swept trash" do
       cat = create_catalogue()
       live = create_item(%{name: "Never cascaded", catalogue_uuid: cat.uuid})
-      trashed = create_item(%{name: "Trashed", catalogue_uuid: cat.uuid})
-      {:ok, _} = Catalogue.trash_item(trashed)
+      legacy = create_item(%{name: "Trashed before stamps", catalogue_uuid: cat.uuid})
+      {:ok, _} = Catalogue.trash_item(legacy)
+
+      from(i in PhoenixKitCatalogue.Schemas.Item, where: i.uuid == ^legacy.uuid)
+      |> Repo.update_all(set: [data: %{}])
+
+      on_its_own = create_item(%{name: "Trashed on its own", catalogue_uuid: cat.uuid})
+      {:ok, _} = Catalogue.trash_item(on_its_own)
 
       # A catalogue marked deleted without the cascade (rows like this exist
-      # on long-lived installs): Restore makes both items reachable again.
+      # on long-lived installs): Restore brings back the unstamped item, the
+      # live one is already there, the self-trashed one stays in the trash.
       from(c in CatalogueSchema, where: c.uuid == ^cat.uuid)
       |> Repo.update_all(set: [status: "deleted"])
 
       assert live.status == "active"
-      assert Catalogue.item_counts_by_catalogue(mode: :all)[cat.uuid] == 2
+      assert Catalogue.item_counts_by_catalogue(mode: :restorable)[cat.uuid] == 2
     end
   end
 
