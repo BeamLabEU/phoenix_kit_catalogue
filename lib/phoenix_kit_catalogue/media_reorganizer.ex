@@ -229,8 +229,7 @@ defmodule PhoenixKitCatalogue.MediaReorganizer do
     # current folder (if any) gets its own `:relocated` report — except a
     # copy that is itself another record's claimed (adopted) folder, which
     # is never also reported as relocated.
-    stray_actions =
-      Enum.flat_map(with_folder ++ without_folder, &stray_relocated_actions(&1, all_claimed))
+    stray_actions = stray_relocated_actions(with_folder ++ without_folder, all_claimed)
 
     all_actions =
       move_actions ++
@@ -262,18 +261,55 @@ defmodule PhoenixKitCatalogue.MediaReorganizer do
   # just the first. A copy that is itself claimed by another record
   # (its own resolved current folder) is excluded — a claimed folder is
   # never also reported `:relocated`.
-  defp stray_relocated_actions(entry, claimed) do
-    entry.stray_legacy
-    |> Enum.reject(&MapSet.member?(claimed, &1.uuid))
-    |> Enum.map(
-      &build_relocated_action(%{
+  # F5/T5 + R3-4: batched over the whole plan so naming a stray copy's
+  # actual (third-party) parent for the report never costs a query per
+  # copy.
+  defp stray_relocated_actions(entries, claimed) do
+    pairs =
+      Enum.flat_map(entries, fn entry ->
+        entry.stray_legacy
+        |> Enum.reject(&MapSet.member?(claimed, &1.uuid))
+        |> Enum.map(&{entry, &1})
+      end)
+
+    parent_names = load_stray_parent_names(pairs)
+
+    Enum.map(pairs, fn {entry, folder} ->
+      build_relocated_action(%{
         record: entry.record,
         kind: entry.kind,
-        relocated: &1,
-        target_parent_uuid: entry.parent_uuid
+        relocated: folder,
+        target_parent_uuid: entry.parent_uuid,
+        parent_names: parent_names
       })
-    )
+    end)
   end
+
+  # Only parents that are neither root nor the record's own target need a
+  # name — those two cases already have their own wording.
+  defp load_stray_parent_names(pairs) do
+    uuids =
+      pairs
+      |> Enum.map(fn {entry, folder} -> other_parent_uuid(folder, entry.parent_uuid) end)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
+
+    case uuids do
+      [] ->
+        %{}
+
+      uuids ->
+        Folder
+        |> where([f], f.uuid in ^uuids)
+        |> select([f], {f.uuid, f.name})
+        |> repo().all()
+        |> Map.new()
+    end
+  end
+
+  defp other_parent_uuid(%Folder{parent_uuid: nil}, _target_parent_uuid), do: nil
+  defp other_parent_uuid(%Folder{parent_uuid: parent_uuid}, parent_uuid), do: nil
+  defp other_parent_uuid(%Folder{parent_uuid: parent_uuid}, _target_parent_uuid), do: parent_uuid
 
   # R2: resolves the desired parent for every candidate via the host's
   # exact hook, distinguishing an explicit `nil` (root) from a hook that
@@ -782,6 +818,14 @@ defmodule PhoenixKitCatalogue.MediaReorganizer do
   end
 
   defp build_relocated_action(%{record: record, kind: kind, relocated: folder} = ctx) do
+    reason =
+      relocated_reason(
+        folder,
+        kind,
+        Map.get(ctx, :target_parent_uuid),
+        Map.get(ctx, :parent_names, %{})
+      )
+
     %{
       source: "catalogue",
       kind: :relocated,
@@ -789,26 +833,33 @@ defmodule PhoenixKitCatalogue.MediaReorganizer do
       label: record.name,
       folder: folder,
       counts: nil,
-      reason: relocated_reason(folder, kind, Map.get(ctx, :target_parent_uuid))
+      reason: reason
     }
   end
 
-  # R3-4: the reason names the copy's actual place — at the media root, or
+  # R3-4/F5: the reason names the copy's actual place — at the media root,
   # already under the very parent the record is headed to (where an
-  # eventual move will land next to it as a `"name (N)"` suffixed twin) —
-  # instead of a blanket "under a different parent" that reads wrong for
-  # both of those cases.
-  defp relocated_reason(%Folder{parent_uuid: nil} = folder, kind, _target_parent_uuid) do
+  # eventual move will land next to it as a `"name (N)"` suffixed twin),
+  # or by name under a genuine third-party parent — instead of a blanket
+  # "under a different parent" that reads wrong for all three cases.
+  defp relocated_reason(%Folder{parent_uuid: nil} = folder, kind, _target_parent_uuid, _names) do
     "legacy folder #{folder.uuid} (#{kind}) is live at the media root — left alone, never adopted"
   end
 
-  defp relocated_reason(%Folder{parent_uuid: parent_uuid} = folder, kind, parent_uuid) do
-    "legacy folder #{folder.uuid} (#{kind}) is already live under the target parent — left " <>
-      "alone; an eventual move there will land as a \"(N)\" suffixed twin next to it"
+  defp relocated_reason(%Folder{parent_uuid: parent_uuid} = folder, kind, parent_uuid, _names) do
+    "legacy folder #{folder.uuid} (#{kind}) is already live as a twin under the target parent " <>
+      "— left alone; an eventual move there will collide, landing as \"name (N)\""
   end
 
-  defp relocated_reason(folder, kind, _target_parent_uuid) do
-    "legacy folder #{folder.uuid} (#{kind}) is live under a different parent — left alone, never adopted"
+  defp relocated_reason(
+         %Folder{parent_uuid: parent_uuid} = folder,
+         kind,
+         _target_parent_uuid,
+         names
+       ) do
+    parent_label = Map.get(names, parent_uuid, parent_uuid)
+
+    "legacy folder #{folder.uuid} (#{kind}) is live under #{parent_label} — left alone, never adopted"
   end
 
   # R5/X3: a pointer that is not a well-formed UUID is treated as absent,

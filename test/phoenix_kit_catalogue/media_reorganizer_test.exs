@@ -1203,7 +1203,33 @@ defmodule PhoenixKitCatalogue.MediaReorganizerTest do
 
       refute is_nil(under_target_relocated)
       assert under_target_relocated.reason =~ "target parent"
-      assert under_target_relocated.reason =~ "suffixed twin"
+      assert under_target_relocated.reason =~ "(N)"
+    end
+
+    test "reason names the third-party parent by name when it is neither root nor the target (R3-4)" do
+      catalogue = new_catalogue()
+      item = new_item(catalogue, %{name: "Käepide"})
+
+      {:ok, target} = Storage.create_folder(%{name: "Items"})
+      {:ok, real_folder} = Storage.create_folder(%{name: "Real", parent_uuid: target.uuid})
+      {:ok, elsewhere} = Storage.create_folder(%{name: "Old Container"})
+
+      {:ok, twin_elsewhere} =
+        Storage.create_folder(%{name: "catalogue-item-#{item.uuid}", parent_uuid: elsewhere.uuid})
+
+      {:ok, _item} =
+        Catalogue.update_item(item, %{data: %{"files_folder_uuid" => real_folder.uuid}})
+
+      Process.put(:target_folder, target.uuid)
+      Application.put_env(:phoenix_kit_catalogue, :attachments_parent_folder, {Hook, :parent})
+
+      actions = MediaReorganizer.plan(nil, [])
+
+      relocated =
+        Enum.find(actions, &(&1.kind == :relocated and &1.folder.uuid == twin_elsewhere.uuid))
+
+      refute is_nil(relocated)
+      assert relocated.reason =~ "Old Container"
     end
   end
 
