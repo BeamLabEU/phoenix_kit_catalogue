@@ -195,10 +195,15 @@ defmodule PhoenixKitCatalogue.Catalogue.SupplierFields do
   Registers the supplier-fields deletion guard with entities. Called at boot
   by `PhoenixKitCatalogue.Catalogue.DeleteGuards`, right after the
   attribute-set guard.
+
+  Registers whenever entities' `Managed` is loaded, even while entities is
+  disabled: a host that boots with entities off and turns it on later must
+  still be able to delete the blueprint without a restart. Registering is a
+  `:persistent_term` write and does nothing until entities asks.
   """
   @spec startup() :: :ok
   def startup do
-    if enabled?() do
+    if Code.ensure_loaded?(PhoenixKitEntities.Managed) do
       # External capture, never a local closure — a local fun goes stale
       # on code purge and `:persistent_term` would hold a dead ref
       # (entities' Managed moduledoc).

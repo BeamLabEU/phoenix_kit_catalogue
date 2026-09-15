@@ -2126,7 +2126,10 @@ defmodule PhoenixKitCatalogue.Catalogue do
   trashed part: the trashed descendants reached without passing through a
   live one, and the items in those categories. A live subcategory under it
   (one restored on its own, which the Active tab already shows at the top
-  level) is kept with its own subtree and moves to the top level.
+  level) is kept with its own subtree and moves to the end of the top level.
+  Trashed rows under a kept subcategory that the removed categories' trash
+  took are re-stamped to a root that still exists, so a Restore can bring
+  them back together (see `dev_docs/guides/trash-and-restore.md`).
 
   Pass `only_trashed: true` from a Deleted-tab action: the call then
   refuses with `{:error, :not_in_trash}` when the category, re-read under
@@ -2154,9 +2157,9 @@ defmodule PhoenixKitCatalogue.Catalogue do
         {doomed, kept} = permanent_delete_split(fresh, subtree)
 
         # A live subcategory kept from a trashed parent moves to the top
-        # level, where the Active tab already lists it.
-        from(c in Category, where: c.uuid in ^kept)
-        |> repo().update_all(set: [parent_uuid: nil])
+        # level, where the Active tab already lists it, after its last row.
+        move_kept_to_top_level(fresh.catalogue_uuid, kept)
+        restamp_orphaned_trash(fresh.catalogue_uuid, subtree, doomed, kept)
 
         {items_cascaded, _} =
           from(i in Item, where: i.category_uuid in ^doomed)
@@ -2252,6 +2255,127 @@ defmodule PhoenixKitCatalogue.Catalogue do
       children,
       [uuid | doomed],
       Enum.map(live, &elem(&1, 0)) ++ kept
+    )
+  end
+
+  defp move_kept_to_top_level(_catalogue_uuid, []), do: :ok
+
+  defp move_kept_to_top_level(catalogue_uuid, kept) do
+    first = next_category_position(catalogue_uuid, nil)
+
+    from(c in Category, where: c.uuid in ^kept, order_by: [c.position, c.uuid], select: c.uuid)
+    |> repo().all()
+    |> Enum.with_index(first)
+    |> Enum.each(fn {uuid, position} ->
+      from(c in Category, where: c.uuid == ^uuid)
+      |> repo().update_all(set: [parent_uuid: nil, position: position])
+    end)
+  end
+
+  # The rows under a kept subcategory that the removed categories' trash
+  # took still name one of them as their root, so no Restore would bring
+  # them back together. Each takes the root its nearest trashed parent has
+  # (the topmost trashed category on its path becomes its own root), and an
+  # item in a live category becomes trashed on its own. `from_status` stays.
+  defp restamp_orphaned_trash(_catalogue_uuid, _subtree, _doomed, []), do: :ok
+
+  defp restamp_orphaned_trash(catalogue_uuid, subtree, doomed, _kept) do
+    doomed_set = MapSet.new(doomed)
+    remaining = Enum.reject(subtree, &MapSet.member?(doomed_set, &1))
+
+    info =
+      from(c in Category,
+        where: c.uuid in ^remaining,
+        select: {c.uuid, {c.parent_uuid, c.status, fragment("? #>> '{_trash,root}'", c.data)}}
+      )
+      |> repo().all()
+      |> Map.new()
+
+    trashed = for {uuid, {_parent, "deleted", _root}} <- info, do: uuid
+    live = for {uuid, {_parent, status, _root}} <- info, status != "deleted", do: uuid
+
+    trashed
+    |> Enum.group_by(&current_trash_root(&1, info, doomed_set, map_size(info)))
+    |> Enum.each(fn {root, categories} ->
+      via = if root == catalogue_uuid, do: "catalogue", else: "category"
+
+      from(c in Category, where: c.uuid == ^root)
+      |> orphaned_by(doomed)
+      |> restamp_trash_self()
+      |> repo().update_all([])
+
+      from(c in Category, where: c.uuid in ^categories and c.uuid != ^root)
+      |> orphaned_by(doomed)
+      |> restamp_trash(via, root)
+      |> repo().update_all([])
+
+      from(i in Item, where: i.category_uuid in ^categories and i.status == "deleted")
+      |> orphaned_by(doomed)
+      |> restamp_trash(via, root)
+      |> repo().update_all([])
+    end)
+
+    from(i in Item, where: i.category_uuid in ^live and i.status == "deleted")
+    |> orphaned_by(doomed)
+    |> restamp_trash_self()
+    |> repo().update_all([])
+
+    :ok
+  end
+
+  # The root a trashed category's row answers to once `doomed` is gone: its
+  # own stamp's root when that survives (the category itself when unstamped),
+  # otherwise its trashed parent's, otherwise itself. `fuel` stops a cycle.
+  defp current_trash_root(uuid, info, doomed, fuel) do
+    {parent, _status, root} = Map.fetch!(info, uuid)
+
+    cond do
+      is_nil(root) ->
+        uuid
+
+      not MapSet.member?(doomed, root) ->
+        root
+
+      fuel > 0 and match?({_, "deleted", _}, Map.get(info, parent)) ->
+        current_trash_root(parent, info, doomed, fuel - 1)
+
+      true ->
+        uuid
+    end
+  end
+
+  defp orphaned_by(query, doomed) do
+    where(
+      query,
+      [r],
+      fragment("(? #>> '{_trash,root}') = ANY(?)", r.data, type(^doomed, {:array, :string}))
+    )
+  end
+
+  defp restamp_trash(query, via, root_uuid) do
+    update(query, [r],
+      set: [
+        data:
+          fragment(
+            "jsonb_set(jsonb_set(?, '{_trash,via}', to_jsonb(?::text)), '{_trash,root}', to_jsonb(?::text))",
+            r.data,
+            ^via,
+            ^to_string(root_uuid)
+          )
+      ]
+    )
+  end
+
+  defp restamp_trash_self(query) do
+    update(query, [r],
+      set: [
+        data:
+          fragment(
+            "jsonb_set(jsonb_set(?, '{_trash,via}', to_jsonb('self'::text)), '{_trash,root}', to_jsonb(?::text))",
+            r.data,
+            r.uuid
+          )
+      ]
     )
   end
 
@@ -5292,7 +5416,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
   # transaction; reading it again cost a query per item write, which imports
   # multiply.
   defp category_facts(uuid, %Category{uuid: uuid, status: status, catalogue_uuid: catalogue_uuid}),
-    do: {status, catalogue_uuid}
+       do: {status, catalogue_uuid}
 
   defp category_facts(uuid, _known) do
     repo().one(

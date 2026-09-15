@@ -32,6 +32,23 @@ defmodule PhoenixKitCatalogue.Catalogue.DeleteGuardsTest do
     end
   end
 
+  # PR #120 release review: the supplier-fields guard registered only while
+  # entities was enabled, so a host that turned entities on after boot could
+  # not delete that blueprint until a restart.
+  test "register/0 registers both guards while entities is disabled" do
+    guards_key = {PhoenixKitEntities.Managed, :delete_guards}
+    saved = :persistent_term.get(guards_key, %{})
+    on_exit(fn -> :persistent_term.put(guards_key, saved) end)
+
+    :persistent_term.erase(guards_key)
+    PhoenixKit.Settings.update_setting("entities_enabled", "false")
+
+    assert DeleteGuards.register() == :ok
+
+    assert :persistent_term.get(guards_key, %{}) |> Map.keys() |> Enum.sort() ==
+             ["catalogue", "catalogue_supplier"]
+  end
+
   test "the boot task is a one-shot child" do
     assert %{restart: :temporary, start: {Task, :start_link, [_fun]}} =
              DeleteGuards.child_spec([])

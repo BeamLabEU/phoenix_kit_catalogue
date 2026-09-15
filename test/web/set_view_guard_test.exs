@@ -11,18 +11,17 @@ defmodule PhoenixKitCatalogue.Web.SetViewGuardTest do
   Both handlers are called directly against a hand-built socket/assigns —
   no `mount/3`, no Repo. `CataloguesLive`'s guard body persists through
   `ViewConfig.save_view_on/2`, which short-circuits to `{:error, :no_user}`
-  for anything but a real `%Auth.User{}` (`save_view/2`, `view_config.ex:163`),
+  for anything but a real `%Auth.User{}` (`save_view/2`),
   so a `nil` `phoenix_kit_current_user` never touches the database.
   `ItemSelectorModal`'s own handler persists through `persist_selector/2`
-  -> `ViewConfig.save_selector/2`, whose matching short-circuit is at
-  `view_config.ex:213`.
+  -> `ViewConfig.save_selector/2`, which has the matching short-circuit.
 
   Both modules now reject an illegal mode the same way — a same-day
   catch-all added independently to each (main evolved past what I132/F1
   originally described here): `ItemSelectorModal.handle_event(_event,
-  _params, socket), do: {:noreply, socket}` (item_selector_modal.ex:1928)
-  and `CataloguesLive.handle_event("set_view", _params, socket), do:
-  {:noreply, socket}` (catalogues_live.ex:2765). An illegal mode is a
+  _params, socket), do: {:noreply, socket}` and
+  `CataloguesLive.handle_event("set_view", _params, socket), do:
+  {:noreply, socket}`. An illegal mode is a
   silent no-op in both: the relevant `view` assign stays whatever it
   already was — verified directly, not assumed.
   """
@@ -33,12 +32,12 @@ defmodule PhoenixKitCatalogue.Web.SetViewGuardTest do
   alias PhoenixKitCatalogue.Web.Components.ItemSelectorModal
   alias PhoenixKitCatalogue.Web.TableConfig
 
-  describe "ItemSelectorModal.handle_event(\"set_view\", ...) guard (item_selector_modal.ex:1689)" do
+  describe "ItemSelectorModal.handle_event(\"set_view\", ...) guard" do
     # current_user: nil is load-bearing — the handler now also persists
     # the choice (persist_selector/2 -> ViewConfig.save_selector/2), which
     # reads socket.assigns.current_user unconditionally before short-
     # circuiting to {:error, :no_user} for anything but a real
-    # %Auth.User{} (view_config.ex:213). Omitting the key here would
+    # %Auth.User{}. Omitting the key here would
     # crash on a plain KeyError instead of exercising that short-circuit.
     defp component_socket(view),
       do: %Phoenix.LiveView.Socket{assigns: %{__changed__: %{}, view: view, current_user: nil}}
@@ -66,7 +65,7 @@ defmodule PhoenixKitCatalogue.Web.SetViewGuardTest do
     end
   end
 
-  describe "CataloguesLive.handle_event(\"set_view\", ...) guard (catalogues_live.ex:2755)" do
+  describe "CataloguesLive.handle_event(\"set_view\", ...) guard" do
     # "set_view" persists through ViewConfig.save_view_on/2 directly, not
     # through put_cfg/3 (that path is sort/filter only) — no
     # global_sort?/Settings/PubSub branch is reachable here regardless of

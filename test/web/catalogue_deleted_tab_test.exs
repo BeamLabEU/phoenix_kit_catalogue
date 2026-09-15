@@ -203,6 +203,11 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDeletedTabTest do
       render_click(view, "show_delete_confirm", %{"uuid" => foreign_item.uuid, "type" => "item"})
       render_click(view, "permanently_delete_item", %{})
       assert Catalogue.get_item(foreign_item.uuid)
+
+      # PR #118 release review: the Active tab's trash was still unscoped.
+      live_foreign = fixture_item(%{name: "Foreign live", catalogue_uuid: foreign.catalogue_uuid})
+      render_click(view, "delete_item", %{"uuid" => live_foreign.uuid})
+      assert Catalogue.get_item(live_foreign.uuid).status != "deleted"
     end
 
     test "bulk Delete forever leaves a live category of this catalogue alone", %{conn: conn} do
