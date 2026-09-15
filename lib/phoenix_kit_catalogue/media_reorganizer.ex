@@ -273,10 +273,14 @@ defmodule PhoenixKitCatalogue.MediaReorganizer do
 
   # ── Shared helpers ───────────────────────────────────────────────
 
+  # Counts ALL rows regardless of status (including trashed files) — the
+  # core engine re-measures the same way at apply time (any row with this
+  # `folder_uuid`) and aborts the action on a mismatch, so a plan-time
+  # count that excluded trashed files would fail every folder holding one.
   defp counts(folder_uuid) do
     files =
       File
-      |> where([f], f.folder_uuid == ^folder_uuid and f.status != "trashed")
+      |> where([f], f.folder_uuid == ^folder_uuid)
       |> repo().aggregate(:count)
 
     links =
