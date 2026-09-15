@@ -144,10 +144,12 @@ defmodule PhoenixKitCatalogue.MediaReorganizer do
     by_name = preload_by_name_anywhere(Enum.map(prelim, & &1.legacy_name))
 
     candidates =
-      Enum.filter(prelim, fn p ->
+      prelim
+      |> Enum.filter(fn p ->
         (p.pointer && Map.has_key?(by_pointer, p.pointer)) ||
           Map.has_key?(by_name, p.legacy_name)
       end)
+      |> load_full_candidate_records()
 
     {resolved_all, hook_error_count} =
       resolve_candidates(candidates, by_pointer, by_name, mod, fun, actor_uuid)
@@ -656,6 +658,41 @@ defmodule PhoenixKitCatalogue.MediaReorganizer do
         |> repo().all()
         |> Enum.group_by(& &1.name)
     end
+  end
+
+  # R9-amend (design §10): the `light_*/0` selects are for candidate
+  # detection ONLY. Any record handed to a host hook (parent or name) —
+  # or reused for the actions built from it — must be the FULL row, not
+  # the partial struct (a partial struct is missing columns like a
+  # category's `parent_uuid`, which a host's parent hook may rely on to
+  # tell a nested resource from a top-level one). One batched
+  # `where uuid in ^uuids` query per kind, for candidates only, ordered
+  # deterministically. A candidate whose full row can no longer be found
+  # (e.g. deleted between the light and full loads) is dropped — same
+  # treatment as a record with no live folder: no hook call, no action.
+  defp load_full_candidate_records(candidates) do
+    full_by_key =
+      candidates
+      |> Enum.group_by(& &1.kind, & &1.record.uuid)
+      |> Enum.flat_map(fn {kind, uuids} -> full_records(kind, Enum.uniq(uuids)) end)
+      |> Map.new(fn {kind, record} -> {{kind, record.uuid}, record} end)
+
+    candidates
+    |> Enum.map(&{&1, Map.get(full_by_key, {&1.kind, &1.record.uuid})})
+    |> Enum.filter(fn {_p, full} -> full end)
+    |> Enum.map(fn {p, full} -> %{p | record: full} end)
+  end
+
+  defp full_records(:catalogue, uuids), do: kind_records(Catalogue, :catalogue, uuids)
+  defp full_records(:category, uuids), do: kind_records(Category, :category, uuids)
+  defp full_records(:item, uuids), do: kind_records(Item, :item, uuids)
+
+  defp kind_records(schema, kind, uuids) do
+    schema
+    |> where([r], r.uuid in ^uuids)
+    |> order_by([r], asc: r.inserted_at, asc: r.uuid)
+    |> repo().all()
+    |> Enum.map(&{kind, &1})
   end
 
   # R1: every valid, live pointer of every LIVE record — independent of

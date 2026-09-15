@@ -30,6 +30,38 @@ defmodule PhoenixKitCatalogue.MediaReorganizerTest do
     def parent(_, _, _), do: nil
   end
 
+  # Mimics a host hook that treats a resource as top-level whenever its
+  # own `parent_uuid` is unset — a nested category's parent hook must see
+  # its REAL `parent_uuid`, never a light/partial struct where that
+  # column was never selected (which reads as `nil` for every record,
+  # nested or not).
+  defmodule NestedCategoryHook do
+    def parent(:category, _actor, %Category{parent_uuid: nil}),
+      do: {:ok, Process.get(:root_folder)}
+
+    def parent(:category, _actor, %Category{parent_uuid: parent_uuid})
+        when is_binary(parent_uuid),
+        do: {:ok, Process.get(:nested_parent_folder)}
+
+    def parent(_, _, _), do: nil
+  end
+
+  # Raises when the ONE category this test cares about arrives with
+  # `parent_uuid` unpopulated — catching a regression where the reorganizer
+  # hands the host hook a partial/light struct instead of the full row.
+  defmodule StrictCategoryHook do
+    def parent(:category, _actor, %Category{uuid: uuid} = category) do
+      if uuid == Process.get(:strict_child_uuid) do
+        parent_uuid = category.parent_uuid || raise "parent_uuid missing on #{uuid}"
+        {:ok, parent_uuid}
+      else
+        {:ok, nil}
+      end
+    end
+
+    def parent(_, _, _), do: nil
+  end
+
   setup do
     on_exit(fn ->
       Application.delete_env(:phoenix_kit_catalogue, :attachments_parent_folder)
@@ -889,6 +921,75 @@ defmodule PhoenixKitCatalogue.MediaReorganizerTest do
       relocated = Enum.find(actions, &(&1.kind == :relocated and &1.label == item.name))
       refute is_nil(relocated)
       assert relocated.folder.uuid == twin.uuid
+    end
+  end
+
+  describe "records passed to host hooks are full rows, never light/partial structs" do
+    test "a nested category's parent hook sees its real parent_uuid, not treated as top-level" do
+      catalogue = new_catalogue()
+
+      {:ok, parent_category} =
+        Catalogue.create_category(%{name: "Parent", catalogue_uuid: catalogue.uuid})
+
+      {:ok, child_category} =
+        Catalogue.create_category(%{
+          name: "Child",
+          catalogue_uuid: catalogue.uuid,
+          parent_uuid: parent_category.uuid
+        })
+
+      {:ok, root_folder} = Storage.create_folder(%{name: "Catalogue"})
+      {:ok, nested_parent_folder} = Storage.create_folder(%{name: "Parent's own folder"})
+
+      {:ok, _child_folder} =
+        Storage.create_folder(%{name: "catalogue-category-#{child_category.uuid}"})
+
+      Process.put(:root_folder, root_folder.uuid)
+      Process.put(:nested_parent_folder, nested_parent_folder.uuid)
+
+      Application.put_env(
+        :phoenix_kit_catalogue,
+        :attachments_parent_folder,
+        {NestedCategoryHook, :parent}
+      )
+
+      actions = MediaReorganizer.plan(nil, [])
+
+      child_action = Enum.find(actions, &(&1.kind == :category and &1.label == "Child"))
+
+      refute is_nil(child_action)
+      refute child_action.parent_uuid == root_folder.uuid
+      assert child_action.parent_uuid == nested_parent_folder.uuid
+    end
+
+    test "the parent hook receives the category's full row, parent_uuid populated" do
+      catalogue = new_catalogue()
+
+      {:ok, parent_category} =
+        Catalogue.create_category(%{name: "Parent", catalogue_uuid: catalogue.uuid})
+
+      {:ok, child_category} =
+        Catalogue.create_category(%{
+          name: "Child",
+          catalogue_uuid: catalogue.uuid,
+          parent_uuid: parent_category.uuid
+        })
+
+      {:ok, _child_folder} =
+        Storage.create_folder(%{name: "catalogue-category-#{child_category.uuid}"})
+
+      Process.put(:strict_child_uuid, child_category.uuid)
+
+      Application.put_env(
+        :phoenix_kit_catalogue,
+        :attachments_parent_folder,
+        {StrictCategoryHook, :parent}
+      )
+
+      actions = MediaReorganizer.plan(nil, [])
+
+      refute Enum.any?(actions, &(&1.kind == :hook_error))
+      assert Enum.any?(actions, &(&1.kind == :category and &1.label == "Child"))
     end
   end
 end
