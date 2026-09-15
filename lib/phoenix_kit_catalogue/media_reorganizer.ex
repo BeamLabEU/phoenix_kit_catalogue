@@ -17,8 +17,10 @@ defmodule PhoenixKitCatalogue.MediaReorganizer do
   `Action.noop?/1` filters the action out — a second run plans nothing.
 
   Covers catalogues, categories and items (their own attachment folders),
-  stale `catalogue-attachment-pending-*` upload folders, and the shared PDF
-  library folder (reported, not moved — see moduledoc "PDF library" below).
+  stale `catalogue-attachment-pending-*` upload folders, orphaned legacy
+  folders whose record is gone or deleted (reported, never moved/trashed —
+  see "Orphaned legacy folders" below), and the shared PDF library folder
+  (reported, not moved — see moduledoc "PDF library" below).
   """
 
   import Ecto.Query, warn: false
@@ -33,8 +35,9 @@ defmodule PhoenixKitCatalogue.MediaReorganizer do
   @doc """
   Builds the catalogue's reorganizer plan: one `:move` action per catalogue,
   category and item whose current folder does not already match its hooks,
-  plus `:trash`/`:report` actions for stale pending folders and a `:report`
-  for PDFs stranded at the storage root while a library folder is
+  plus `:trash`/`:report` actions for stale pending folders, a `:report`
+  (`kind: :orphan`) per legacy folder whose record is gone or deleted, and a
+  `:report` for PDFs stranded at the storage root while a library folder is
   configured.
 
   `opts[:pending_days]` (default #{@default_pending_days}) — how old an
@@ -51,6 +54,7 @@ defmodule PhoenixKitCatalogue.MediaReorganizer do
         tag(live_items(), :item)
 
     resource_actions(tagged_records, actor_uuid) ++
+      orphan_actions(tagged_records, actor_uuid) ++
       pending_folder_actions(pending_days) ++
       pdf_report_actions(actor_uuid)
   end
@@ -271,6 +275,120 @@ defmodule PhoenixKitCatalogue.MediaReorganizer do
     |> repo().all()
     |> Enum.map(& &1.original_file_name)
   end
+
+  # ── Orphaned legacy folders ──────────────────────────────────────
+
+  # A legacy-named folder (`catalogue-item-<uuid>`, `catalogue-category-<uuid>`,
+  # `catalogue-<uuid>`) at the media root or under a parent this batch's hooks
+  # resolved to, whose uuid no longer names a live record (missing, or the
+  # record exists but was soft-deleted — same status rule `live_*/0` above
+  # uses to drop it from the plan) is reported so a host can collect it. Never
+  # `:move`d or `:trash`ed here — this module owns no "orphans" container; a
+  # legacy folder that IS a live record's current folder is left to
+  # `resource_action/4` above.
+  defp orphan_actions(tagged_records, actor_uuid) do
+    resolved_parents =
+      tagged_records
+      |> Enum.map(fn {record, _kind} -> Attachments.parent_folder_uuid(record, actor_uuid) end)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
+
+    case legacy_candidate_folders(resolved_parents) do
+      [] ->
+        []
+
+      candidates ->
+        records_by_key = load_candidate_records(candidates)
+
+        candidates
+        |> Enum.map(&orphan_action(&1, records_by_key))
+        |> Enum.reject(&is_nil/1)
+    end
+  end
+
+  # One query for every legacy-named folder at root or under a resolved
+  # parent — not a query per folder.
+  defp legacy_candidate_folders(parent_uuids) do
+    Folder
+    |> where([f], is_nil(f.trashed_at))
+    |> where([f], is_nil(f.parent_uuid) or f.parent_uuid in ^parent_uuids)
+    |> repo().all()
+    |> Enum.map(&{&1, legacy_kind(&1.name)})
+    |> Enum.filter(fn {_folder, kind} -> kind end)
+  end
+
+  @legacy_kinds [
+    {"catalogue-item-", :item},
+    {"catalogue-category-", :category},
+    {"catalogue-", :catalogue}
+  ]
+
+  defp legacy_kind(name) do
+    if String.starts_with?(name, @pending_prefix) do
+      nil
+    else
+      Enum.find_value(@legacy_kinds, &legacy_kind_match(name, &1))
+    end
+  end
+
+  defp legacy_kind_match(name, {prefix, kind}) do
+    with true <- String.starts_with?(name, prefix),
+         uuid <- String.replace_prefix(name, prefix, ""),
+         {:ok, _} <- Ecto.UUID.cast(uuid) do
+      {kind, uuid}
+    else
+      _ -> nil
+    end
+  end
+
+  # One query per record kind present among the candidates — not per folder.
+  defp load_candidate_records(candidates) do
+    by_kind =
+      Enum.group_by(
+        candidates,
+        fn {_folder, {kind, _uuid}} -> kind end,
+        fn {_folder, {_kind, uuid}} -> uuid end
+      )
+
+    %{}
+    |> Map.merge(load_records(Item, :item, Map.get(by_kind, :item, [])))
+    |> Map.merge(load_records(Category, :category, Map.get(by_kind, :category, [])))
+    |> Map.merge(load_records(Catalogue, :catalogue, Map.get(by_kind, :catalogue, [])))
+  end
+
+  defp load_records(_schema, _kind, []), do: %{}
+
+  defp load_records(schema, kind, uuids) do
+    schema
+    |> where([r], r.uuid in ^uuids)
+    |> repo().all()
+    |> Map.new(&{{kind, &1.uuid}, &1})
+  end
+
+  defp orphan_action({folder, {kind, uuid}}, records_by_key) do
+    case Map.get(records_by_key, {kind, uuid}) do
+      %{status: status} when status != "deleted" ->
+        nil
+
+      record ->
+        counts = counts(folder.uuid)
+
+        %{
+          source: "catalogue",
+          kind: :orphan,
+          op: :report,
+          label: folder.name,
+          folder: folder,
+          counts: counts,
+          reason: orphan_reason(record, counts)
+        }
+    end
+  end
+
+  defp orphan_reason(nil, {files, _links}), do: "record missing, #{files} file(s)"
+
+  defp orphan_reason(%{status: status}, {files, _links}),
+    do: "record status #{status}, #{files} file(s)"
 
   # ── PDF library ──────────────────────────────────────────────────
 
