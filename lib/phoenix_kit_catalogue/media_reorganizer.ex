@@ -10,52 +10,52 @@ defmodule PhoenixKitCatalogue.MediaReorganizer do
   :: [map()]`) already matches `Source.plan/2` — the only follow-up is
   adding `@behaviour`/`@impl`.
 
-  `plan/2` derives the desired parent/name from the exact hooks
-  (`Attachments.parent_folder_uuid/2`, `Attachments.folder_name/2`) that a
-  fresh upload uses, so a plan describes exactly what the module would do
-  today. Once every folder already sits where its plan says, the plan
-  filters the action out itself (see "Move planning" below) — a second run
-  plans nothing.
+  Contract (design §9/§10 of `2026-09-15-media-reorganizer-design.md`):
 
-  A host that has not configured `:attachments_parent_folder` is left
-  entirely untouched: no move, no pointer back-fill, and the parent hook is
-  never even called for a record without some existing candidate folder
-  (pointer or legacy name) — see "Move planning".
+    * **No configured `:attachments_parent_folder` hook → `:report`-only.**
+      Orphan and pending-folder reports are still produced (informational,
+      no writes); no `:move`, no `:trash`, no pointer back-fill happen.
+    * **Claims are hook-independent.** Every live record's valid, live
+      pointer folder is "claimed" regardless of whether a hook is
+      configured — a pending folder any live record points at is never
+      trashed, hook or no hook.
+    * **A hook that raises, exits, or returns anything but `{:ok, uuid}` or
+      an explicit `nil`** is a hook FAILURE: the record is skipped (no
+      move planned for it) and counted into one `kind: :hook_error` report
+      for the whole plan. Only an explicit `nil` means "root".
+    * **Current-folder lookup mirrors `Attachments.find_resource_folder/2`:**
+      host-named folder under the resolved parent, then the legacy
+      deterministic name under the resolved parent, then the legacy name
+      at root. A host-named folder found live IS the current folder
+      (already-correct case — the plan then only needs a pointer
+      back-fill). Host-named and legacy-named both live at once, two
+      legacy matches (parent + root), or two records both actually
+      resolving to the very same live folder are all unresolvable — each
+      is a `kind: :duplicate` report, never a `:move`.
+    * **A folder found through a record's live pointer keeps its own name**
+      (never renamed) unless that name is still the legacy deterministic
+      one — a record whose pointer folder still literally reads
+      `catalogue-item-<uuid>` etc. gets the host name like any other
+      candidate.
+    * **A legacy-named folder live somewhere other than root or the
+      resolved parent** (e.g. an old container from a previous layout) is
+      left alone and reported `kind: :relocated` — never adopted or moved.
+    * **Two records whose resolved *targets* would coincide** (same
+      `{parent, desired name}`) are reported `kind: :duplicate` instead of
+      both being planned as moves (the second would collide at apply
+      time).
+    * Only records that already have SOME live folder (a live pointer, or
+      a folder anywhere matching the legacy name) are *candidates* — a
+      record with neither never triggers a (possibly writing) host hook.
 
-  Covers catalogues, categories and items (their own attachment folders),
-  stale `catalogue-attachment-pending-*` upload folders, orphaned legacy
-  folders whose record is gone or deleted (reported, never moved/trashed —
-  see "Orphaned legacy folders" below), and the shared PDF library folder
-  (reported, not moved — see moduledoc "PDF library" below).
-
-  ## Move planning
-
-  For each live catalogue/category/item:
-
-  1. A record is a *candidate* when it has a live pointer
-     (`data["files_folder_uuid"]`, resolved without calling any hook) or a
-     live folder anywhere named after its legacy deterministic name
-     (`catalogue-item-<uuid>` etc, also resolved without a hook — one
-     batched query for the whole plan). A record with neither is left
-     alone: nothing exists to move, and the host's parent hook is never
-     called for it.
-  2. Only for candidates, the host's own hooks resolve the desired parent
-     and name — exactly the functions a fresh upload would call.
-  3. The record's *current* folder is: its live pointer if it has one
-     (kept as-is, `name: nil` — the owner may have renamed it, this module
-     never renames a cached folder); else the legacy-named live folder
-     under the resolved parent; else the legacy-named live folder at root
-     (this order matches `Attachments.find_resource_folder/2`). A legacy
-     name live in **both** places is unresolvable — reported as one
-     `kind: :duplicate` action naming both folders, nothing moved.
-  4. Two (or more) records whose current folder resolves to the very same
-     live folder are likewise unresolvable — one `kind: :duplicate` report
-     per shared folder, no move for any of them.
+  Also covers stale `catalogue-attachment-pending-*` upload folders,
+  orphaned legacy folders whose record is gone or deleted, and the shared
+  PDF library folder — see the section comments below.
   """
 
-  import Ecto.Query, warn: false
+  import Ecto.Query
 
-  alias PhoenixKit.Modules.Storage.{File, Folder, FolderLink}
+  alias PhoenixKit.Modules.Storage.{Folder, FolderLink}
   alias PhoenixKitCatalogue.Attachments
   alias PhoenixKitCatalogue.Schemas.{Catalogue, Category, Item, Pdf}
 
@@ -72,60 +72,64 @@ defmodule PhoenixKitCatalogue.MediaReorganizer do
   @uuid_regex ~r/\A[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\z/
 
   @doc """
-  Builds the catalogue's reorganizer plan: one `:move` action per catalogue,
-  category and item whose current folder does not already match its hooks,
-  `:report` (`kind: :duplicate`) actions for folders that cannot be
-  unambiguously resolved, `:trash`/`:report` actions for stale pending
-  folders, a `:report` (`kind: :orphan`) per legacy folder whose record is
-  gone or deleted, and a `:report` for PDFs stranded at the storage root
-  while a library folder is configured.
+  Builds the catalogue's reorganizer plan. See the moduledoc for the full
+  contract.
 
   `opts[:pending_days]` (default #{@default_pending_days}) — how old an
-  empty pending folder must be before it is reported as `:trash` instead of
-  left alone.
+  empty pending folder must be before it is planned as `:trash` (or,
+  without a configured hook, merely reported) instead of left alone.
   """
   @spec plan(String.t() | nil, keyword()) :: [map()]
   def plan(actor_uuid, opts \\ []) do
     pending_days = Keyword.get(opts, :pending_days, @default_pending_days)
+    hook_on? = hook_configured?()
 
-    {resource_actions, claimed_uuids, resolved_parents} = resource_plan(actor_uuid)
+    tagged_records =
+      tag(light_catalogues(), :catalogue) ++
+        tag(light_categories(), :category) ++
+        tag(light_items(), :item)
+
+    # R1: independent of whether a hook is configured — a folder any live
+    # record's pointer names is never a pending-trash/orphan candidate.
+    pointer_claims = live_pointer_claims(tagged_records)
+
+    {resource_actions, resolved_claims, resolved_parents} =
+      if hook_on? do
+        build_resource_plan(tagged_records, actor_uuid)
+      else
+        {[], claimed_folder_uuids([], [], [], []), []}
+      end
+
+    claimed_uuids = MapSet.union(pointer_claims, resolved_claims)
 
     resource_actions ++
-      orphan_actions(resolved_parents) ++
-      pending_folder_actions(pending_days, claimed_uuids) ++
+      orphan_actions(resolved_parents, claimed_uuids) ++
+      pending_folder_actions(pending_days, claimed_uuids, hook_on?) ++
       pdf_report_actions(actor_uuid)
   end
 
   # ── Catalogues / categories / items ─────────────────────────────
 
-  defp resource_plan(actor_uuid) do
-    if hook_configured?() do
-      tagged_records =
-        tag(live_catalogues(), :catalogue) ++
-          tag(live_categories(), :category) ++
-          tag(live_items(), :item)
-
-      build_resource_plan(tagged_records, actor_uuid)
-    else
-      {[], MapSet.new([]), []}
-    end
-  end
-
   defp hook_configured? do
-    match?(
-      {mod, fun} when is_atom(mod) and is_atom(fun),
-      Application.get_env(:phoenix_kit_catalogue, :attachments_parent_folder)
-    )
+    case Application.get_env(:phoenix_kit_catalogue, :attachments_parent_folder) do
+      {mod, fun} when is_atom(mod) and is_atom(fun) ->
+        Code.ensure_loaded?(mod) and
+          (function_exported?(mod, fun, 3) or function_exported?(mod, fun, 2))
+
+      _ ->
+        false
+    end
   end
 
   defp tag(records, kind), do: Enum.map(records, &{&1, kind})
 
-  # Candidate detection needs no hook call: a live pointer (uuid lookup) or
-  # a live folder anywhere named after the record's legacy name. Only
-  # candidates go on to have the host's parent/name hooks resolved — a
-  # record with nothing pointing at it never triggers a (possibly writing)
-  # host hook. See moduledoc "Move planning".
+  # E1/D1: candidate detection needs no hook call, so build_resource_plan
+  # is only reached at all when a parent hook is configured (see plan/2).
+  # Even then, a record with no existing live folder (pointer or legacy
+  # name) never triggers the host's (possibly writing) hooks.
   defp build_resource_plan(tagged_records, actor_uuid) do
+    {mod, fun} = Application.get_env(:phoenix_kit_catalogue, :attachments_parent_folder)
+
     prelim =
       Enum.map(tagged_records, fn {record, kind} ->
         %{
@@ -145,100 +149,309 @@ defmodule PhoenixKitCatalogue.MediaReorganizer do
           Map.has_key?(by_name, p.legacy_name)
       end)
 
-    desired =
-      Enum.map(candidates, fn p ->
-        Map.merge(p, %{
-          parent_uuid: Attachments.parent_folder_uuid(p.record, actor_uuid),
-          name: Attachments.folder_name(p.record, actor_uuid)
-        })
-      end)
+    {resolved_all, hook_error_count} =
+      resolve_candidates(candidates, by_pointer, by_name, mod, fun, actor_uuid)
 
-    entries = Enum.map(desired, &resolve_entry(&1, by_pointer, by_name))
+    {relocated, resolved} = Enum.split_with(resolved_all, & &1.relocated)
+    relocated_actions = Enum.map(relocated, &build_relocated_action/1)
 
     resolved_parents =
-      desired |> Enum.map(& &1.parent_uuid) |> Enum.reject(&is_nil/1) |> Enum.uniq()
+      resolved |> Enum.map(& &1.parent_uuid) |> Enum.reject(&is_nil/1) |> Enum.uniq()
 
-    {unique, ambiguous_dup, shared_dup} = classify_entries(entries)
+    {ambiguous, normal} = Enum.split_with(resolved, & &1.ambiguous)
+    {with_folder, _without_folder} = Enum.split_with(normal, & &1.folder)
 
-    move_actions = unique |> Enum.map(&build_move_action/1) |> Enum.reject(&is_nil/1)
-    dup_actions = Enum.map(ambiguous_dup, &build_ambiguous_duplicate_action/1)
-    shared_actions = Enum.map(shared_dup, &build_shared_duplicate_action/1)
+    {shared, unique} = split_shared(with_folder)
+    {converging, solo} = split_converging(unique)
 
-    all_actions = move_actions ++ dup_actions ++ shared_actions
-    claimed = claimed_folder_uuids(unique, ambiguous_dup, shared_dup)
+    move_actions = solo |> Enum.map(&build_move_action/1) |> Enum.reject(&is_nil/1)
+    dup_actions = Enum.map(ambiguous, &build_ambiguous_duplicate_action/1)
+    shared_actions = Enum.map(shared, &build_shared_duplicate_action/1)
+    converging_actions = Enum.map(converging, &build_converging_duplicate_action/1)
+    hook_error_actions = hook_error_action(hook_error_count)
+
+    all_actions =
+      move_actions ++
+        dup_actions ++
+        shared_actions ++ converging_actions ++ relocated_actions ++ hook_error_actions
+
+    claimed = claimed_folder_uuids(unique, ambiguous, shared, converging)
 
     {finalize_counts(all_actions), claimed, resolved_parents}
   end
 
-  # Resolves one record's current folder. `:pointer` when its live pointer
-  # names a folder (kept as-is downstream — D6: never renamed). Otherwise
-  # the legacy name is looked up under the resolved parent, then at root
-  # (module's own order — same as `Attachments.find_resource_folder/2`);
-  # a live match at both is ambiguous.
-  defp resolve_entry(d, by_pointer, by_name) do
-    pointer_folder = d.pointer && Map.get(by_pointer, d.pointer)
+  # R2: resolves the desired parent for every candidate via the host's
+  # exact hook, distinguishing an explicit `nil` (root) from a hook that
+  # raised/exited/returned anything else (failure — the record is
+  # skipped, never treated as "root"). Only candidates with a live
+  # pointer folder are separated from the rest (`pointer_track`) — those
+  # never need the batched host-name-under-parent lookup (R3/R8) that the
+  # remaining candidates (`name_track`) do.
+  defp resolve_candidates(candidates, by_pointer, by_name, mod, fun, actor_uuid) do
+    {pointer_track, name_track, hook_error_count} =
+      Enum.reduce(candidates, {[], [], 0}, fn p, acc ->
+        sort_candidate(p, by_pointer, mod, fun, actor_uuid, acc)
+      end)
 
-    if pointer_folder do
-      Map.merge(d, %{folder: pointer_folder, via: :pointer, ambiguous: nil})
-    else
-      matches = Map.get(by_name, d.legacy_name, [])
-      under_parent = d.parent_uuid && Enum.find(matches, &(&1.parent_uuid == d.parent_uuid))
-      at_root = Enum.find(matches, &is_nil(&1.parent_uuid))
+    pointer_entries =
+      pointer_track |> Enum.reverse() |> Enum.map(&resolve_pointer_entry(&1, actor_uuid))
 
-      case {under_parent, at_root} do
-        {nil, nil} -> Map.merge(d, %{folder: nil, via: nil, ambiguous: nil})
-        {same, same} -> Map.merge(d, %{folder: same, via: :name, ambiguous: nil})
-        {f, nil} -> Map.merge(d, %{folder: f, via: :name, ambiguous: nil})
-        {nil, f} -> Map.merge(d, %{folder: f, via: :name, ambiguous: nil})
-        {f1, f2} -> Map.merge(d, %{folder: nil, via: nil, ambiguous: {f1, f2}})
-      end
+    name_entries = resolve_name_entries(Enum.reverse(name_track), by_name, actor_uuid)
+
+    {pointer_entries ++ name_entries, hook_error_count}
+  end
+
+  defp sort_candidate(p, by_pointer, mod, fun, actor_uuid, {ptrs, names, errs}) do
+    case resolve_parent(mod, fun, p.kind, actor_uuid, p.record) do
+      {:ok, parent_uuid} ->
+        base = Map.put(p, :parent_uuid, parent_uuid)
+        pointer_folder = p.pointer && Map.get(by_pointer, p.pointer)
+        push_candidate(base, pointer_folder, ptrs, names, errs)
+
+      :error ->
+        {ptrs, names, errs + 1}
     end
   end
 
-  # Splits resolved entries into: `unique` (one record ↔ one folder, safe
-  # to plan a move for), `ambiguous_dup` (one record, legacy name live at
-  # both root and under the resolved parent — X11), `shared_dup` (two or
-  # more records resolving to the very same live folder — X5). Every entry
-  # in the two dup buckets becomes a `:report kind: :duplicate` instead of
-  # a `:move`.
-  defp classify_entries(entries) do
-    {ambiguous, normal} = Enum.split_with(entries, & &1.ambiguous)
-    {with_folder, _without_folder} = Enum.split_with(normal, & &1.folder)
+  defp push_candidate(base, nil, ptrs, names, errs), do: {ptrs, [base | names], errs}
 
-    grouped = Enum.group_by(with_folder, & &1.folder.uuid)
+  defp push_candidate(base, pointer_folder, ptrs, names, errs),
+    do: {[Map.put(base, :pointer_folder, pointer_folder) | ptrs], names, errs}
 
-    {shared, unique} =
-      Enum.reduce(grouped, {[], []}, fn {_uuid, group}, {shared_acc, unique_acc} ->
-        if length(group) > 1 do
-          {[group | shared_acc], unique_acc}
-        else
-          {shared_acc, group ++ unique_acc}
-        end
-      end)
+  defp resolve_parent(mod, fun, kind, actor_uuid, resource) do
+    cond do
+      Code.ensure_loaded?(mod) and function_exported?(mod, fun, 3) ->
+        guarded_hook_call(fn -> apply(mod, fun, [kind, actor_uuid, resource]) end)
 
-    {unique, ambiguous, shared}
+      Code.ensure_loaded?(mod) and function_exported?(mod, fun, 2) ->
+        guarded_hook_call(fn -> apply(mod, fun, [kind, actor_uuid]) end)
+
+      true ->
+        :error
+    end
   end
 
-  defp claimed_folder_uuids(unique, ambiguous_dup, shared_dup) do
+  defp guarded_hook_call(fun) do
+    case fun.() do
+      {:ok, uuid} when is_binary(uuid) -> {:ok, uuid}
+      {:ok, nil} -> {:ok, nil}
+      nil -> {:ok, nil}
+      _other -> :error
+    end
+  rescue
+    _ -> :error
+  catch
+    _, _ -> :error
+  end
+
+  # D6/E2: a folder found through the record's live pointer keeps its own
+  # name — UNLESS that name is still the legacy deterministic one, in
+  # which case it gets the host name like any other candidate (R8: the
+  # name hook is skipped entirely otherwise).
+  defp resolve_pointer_entry(%{pointer_folder: folder} = d, actor_uuid) do
+    name = if folder.name == d.legacy_name, do: safe_folder_name(d.record, actor_uuid)
+
+    %{
+      record: d.record,
+      kind: d.kind,
+      pointer: d.pointer,
+      legacy_name: d.legacy_name,
+      parent_uuid: d.parent_uuid,
+      name: name,
+      folder: folder,
+      via: :pointer,
+      ambiguous: nil,
+      relocated: nil
+    }
+  end
+
+  # R3: the module's own lookup order for a record with no live pointer —
+  # host-named folder under the resolved parent, then the legacy name
+  # under the resolved parent, then the legacy name at root. Host-named
+  # and legacy-named both live at once (or two legacy matches) are
+  # unresolvable duplicates. A legacy match that is live under neither
+  # the resolved parent nor root is left alone and reported `:relocated`.
+  defp resolve_name_entries(candidates, by_name, actor_uuid) do
+    with_host_name =
+      Enum.map(candidates, &Map.put(&1, :host_name, safe_folder_name(&1.record, actor_uuid)))
+
+    host_map = preload_host_named_under_parent(with_host_name)
+
+    Enum.map(with_host_name, &resolve_name_entry(&1, by_name, host_map))
+  end
+
+  defp preload_host_named_under_parent(entries) do
+    pairs =
+      entries
+      |> Enum.filter(& &1.parent_uuid)
+      |> Enum.map(&{&1.parent_uuid, &1.host_name})
+      |> Enum.uniq()
+
+    case pairs do
+      [] ->
+        %{}
+
+      pairs ->
+        parents = pairs |> Enum.map(&elem(&1, 0)) |> Enum.uniq()
+        names = pairs |> Enum.map(&elem(&1, 1)) |> Enum.uniq()
+
+        Folder
+        |> where([f], is_nil(f.trashed_at) and f.parent_uuid in ^parents and f.name in ^names)
+        |> repo().all()
+        |> Enum.filter(&({&1.parent_uuid, &1.name} in pairs))
+        |> Map.new(&{{&1.parent_uuid, &1.name}, &1})
+    end
+  end
+
+  defp resolve_name_entry(d, by_name, host_map) do
+    host_folder = d.parent_uuid && Map.get(host_map, {d.parent_uuid, d.host_name})
+    matches = Map.get(by_name, d.legacy_name, [])
+    under_parent = d.parent_uuid && Enum.find(matches, &(&1.parent_uuid == d.parent_uuid))
+    at_root = Enum.find(matches, &is_nil(&1.parent_uuid))
+    legacy_folder = under_parent || at_root
+
+    base = %{
+      record: d.record,
+      kind: d.kind,
+      pointer: d.pointer,
+      legacy_name: d.legacy_name,
+      parent_uuid: d.parent_uuid,
+      folder: nil,
+      via: nil,
+      name: nil,
+      ambiguous: nil,
+      relocated: nil
+    }
+
+    resolve_name_entry_result(
+      base,
+      d.host_name,
+      host_folder,
+      legacy_folder,
+      under_parent,
+      at_root,
+      matches
+    )
+  end
+
+  defp resolve_name_entry_result(
+         base,
+         _host_name,
+         host_folder,
+         legacy_folder,
+         _under,
+         _root,
+         _matches
+       )
+       when not is_nil(host_folder) and not is_nil(legacy_folder) and
+              host_folder.uuid != legacy_folder.uuid do
+    %{base | ambiguous: {host_folder, legacy_folder}}
+  end
+
+  defp resolve_name_entry_result(
+         base,
+         _host_name,
+         _host_folder,
+         _legacy_folder,
+         under_parent,
+         at_root,
+         _matches
+       )
+       when not is_nil(under_parent) and not is_nil(at_root) do
+    %{base | ambiguous: {under_parent, at_root}}
+  end
+
+  defp resolve_name_entry_result(
+         base,
+         host_name,
+         host_folder,
+         _legacy_folder,
+         _under,
+         _root,
+         _matches
+       )
+       when not is_nil(host_folder) do
+    %{base | folder: host_folder, via: :name, name: host_name}
+  end
+
+  defp resolve_name_entry_result(
+         base,
+         host_name,
+         _host_folder,
+         legacy_folder,
+         _under,
+         _root,
+         _matches
+       )
+       when not is_nil(legacy_folder) do
+    %{base | folder: legacy_folder, via: :name, name: host_name}
+  end
+
+  defp resolve_name_entry_result(base, _host_name, _host_folder, _legacy_folder, _under, _root, [
+         first | _
+       ]) do
+    %{base | relocated: first}
+  end
+
+  defp resolve_name_entry_result(
+         base,
+         _host_name,
+         _host_folder,
+         _legacy_folder,
+         _under,
+         _root,
+         []
+       ),
+       do: base
+
+  # Splits entries whose current folder is claimed by exactly one record
+  # (`unique`) from those two or more records resolve to the very same
+  # live folder (`shared`, X5) — order-preserving (a plain `group_by`
+  # would scramble R10's enumeration order).
+  defp split_shared(entries) do
+    freq = Enum.frequencies_by(entries, & &1.folder.uuid)
+    {shared_entries, unique} = Enum.split_with(entries, &(Map.get(freq, &1.folder.uuid) > 1))
+    shared_groups = shared_entries |> Enum.group_by(& &1.folder.uuid) |> Map.values()
+    {shared_groups, unique}
+  end
+
+  # R7/E3: two records whose *desired* target (parent + name, or parent +
+  # the folder's own kept name when `name` is nil) coincide — the second
+  # move would collide with the first at apply time.
+  defp split_converging(entries) do
+    freq = Enum.frequencies_by(entries, &convergence_key/1)
+
+    {converging_entries, solo} =
+      Enum.split_with(entries, &(Map.get(freq, convergence_key(&1)) > 1))
+
+    converging_groups = converging_entries |> Enum.group_by(&convergence_key/1) |> Map.values()
+    {converging_groups, solo}
+  end
+
+  defp convergence_key(entry), do: {entry.parent_uuid, entry.name || entry.folder.name}
+
+  defp claimed_folder_uuids(unique, ambiguous, shared_groups, converging_groups) do
     unique_uuids = Enum.map(unique, & &1.folder.uuid)
 
     ambiguous_uuids =
-      Enum.flat_map(ambiguous_dup, fn %{ambiguous: {f1, f2}} -> [f1.uuid, f2.uuid] end)
+      Enum.flat_map(ambiguous, fn %{ambiguous: {f1, f2}} -> [f1.uuid, f2.uuid] end)
 
-    shared_uuids = Enum.map(shared_dup, fn [%{folder: f} | _] -> f.uuid end)
+    shared_uuids = Enum.flat_map(shared_groups, fn [%{folder: f} | _] -> [f.uuid] end)
 
-    MapSet.new(unique_uuids ++ ambiguous_uuids ++ shared_uuids)
+    converging_uuids =
+      Enum.flat_map(converging_groups, fn group -> Enum.map(group, & &1.folder.uuid) end)
+
+    MapSet.new(unique_uuids ++ ambiguous_uuids ++ shared_uuids ++ converging_uuids)
   end
 
   # A `:move` whose folder already sits at `parent_uuid` under `name` (or
   # an accepted `"name (N)"` suffix variant) and needs no pointer back-fill
-  # is a no-op — filtered here since this Source has no core
-  # `Action.noop?/1` to lean on. D6: a folder found through the record's
-  # pointer keeps `name: nil` (never renamed); only a folder found by
-  # legacy name gets the desired name.
-  defp build_move_action(%{via: :pointer} = entry), do: move_action(entry, nil)
-
-  defp build_move_action(%{via: :name} = entry), do: move_action(entry, entry.name)
+  # is a no-op — filtered here (this Source has no core `Action.noop?/1`
+  # to lean on; the core engine only filters `after_move: nil` no-ops
+  # coming out of a `Source`).
+  defp build_move_action(entry) do
+    move_action(entry, entry.name)
+  end
 
   defp move_action(
          %{record: record, kind: kind, folder: folder, parent_uuid: parent_uuid} = entry,
@@ -289,7 +502,7 @@ defmodule PhoenixKitCatalogue.MediaReorganizer do
       op: :report,
       counts: nil,
       reason:
-        "legacy folder found live in two places (#{f1.uuid} and #{f2.uuid}) — pick one and remove the other"
+        "folder found live in two places (#{f1.uuid} and #{f2.uuid}) — pick one and remove the other"
     }
   end
 
@@ -306,14 +519,57 @@ defmodule PhoenixKitCatalogue.MediaReorganizer do
     }
   end
 
+  defp build_converging_duplicate_action([entry | _] = group) do
+    labels = group |> Enum.map(& &1.record.name) |> Enum.uniq() |> Enum.join(", ")
+    {parent_uuid, name} = convergence_key(entry)
+    parent_label = parent_uuid || "root"
+
+    %{
+      source: "catalogue",
+      kind: :duplicate,
+      label: labels,
+      op: :report,
+      counts: nil,
+      reason:
+        "multiple records would move to the same destination (parent #{parent_label}, name #{name}): #{labels}"
+    }
+  end
+
+  defp build_relocated_action(%{record: record, kind: kind, relocated: folder}) do
+    %{
+      source: "catalogue",
+      kind: :relocated,
+      op: :report,
+      label: record.name,
+      folder: folder,
+      counts: nil,
+      reason:
+        "legacy folder #{folder.uuid} (#{kind}) is live under a different parent — left alone, never adopted"
+    }
+  end
+
+  # Defensive: `Attachments.folder_name/2` already falls back to the
+  # deterministic legacy name when the host hook is missing or returns an
+  # invalid value; this only guards against the hook itself raising.
+  defp safe_folder_name(record, actor_uuid) do
+    Attachments.folder_name(record, actor_uuid)
+  rescue
+    _ -> Attachments.legacy_folder_name(record)
+  catch
+    _, _ -> Attachments.legacy_folder_name(record)
+  end
+
   defp pointer_uuid(%{data: data}) when is_map(data), do: Map.get(data, "files_folder_uuid")
   defp pointer_uuid(_), do: nil
 
-  # X3: a pointer that is not a well-formed UUID is treated as absent,
+  # R5/X3: a pointer that is not a well-formed UUID is treated as absent,
   # never sent into an `in ^uuids` query (which would raise a CastError).
+  # Returns the CAST/downcased value — not the raw string — so an
+  # upper-case pointer still matches the (lower-case) keys `by_pointer`
+  # and the live-claims set are keyed by.
   defp valid_uuid(uuid) when is_binary(uuid) do
     case Ecto.UUID.cast(uuid) do
-      {:ok, _} -> uuid
+      {:ok, cast} -> cast
       :error -> nil
     end
   end
@@ -339,9 +595,8 @@ defmodule PhoenixKitCatalogue.MediaReorganizer do
   # folder ANYWHERE (any parent, including root) — not filtered to a
   # resolved parent, since the parent hook has not run yet for records
   # without another candidate. Grouped by name so more than one live match
-  # (different parents) is visible to `resolve_entry/3` (X11). Live only
-  # (X2 — the unique index is partial, a trashed twin must not hide the
-  # live folder).
+  # (different parents) is visible downstream. Live only (X2 — the unique
+  # index is partial, a trashed twin must not hide the live folder).
   defp preload_by_name_anywhere(names) do
     case names |> Enum.reject(&is_nil/1) |> Enum.uniq() do
       [] ->
@@ -353,6 +608,23 @@ defmodule PhoenixKitCatalogue.MediaReorganizer do
         |> repo().all()
         |> Enum.group_by(& &1.name)
     end
+  end
+
+  # R1: every valid, live pointer of every LIVE record — independent of
+  # whether a parent hook is configured. Used only to keep a claimed
+  # folder out of the pending-trash/orphan sweeps; never triggers a hook.
+  defp live_pointer_claims(tagged_records) do
+    pointers =
+      tagged_records
+      |> Enum.map(fn {record, _kind} -> valid_uuid(pointer_uuid(record)) end)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
+
+    Folder
+    |> where([f], f.uuid in ^pointers and is_nil(f.trashed_at))
+    |> select([f], f.uuid)
+    |> repo().all()
+    |> MapSet.new()
   end
 
   # `nil` when the pointer already matches the current (pre-move) folder —
@@ -377,10 +649,16 @@ defmodule PhoenixKitCatalogue.MediaReorganizer do
   defp write_pointer(%Catalogue{} = catalogue, folder_uuid),
     do: write_pointer_directly(Catalogue, catalogue, folder_uuid)
 
+  # Re-checks the record under `FOR UPDATE` at apply time: gone or
+  # soft-deleted since the plan was built aborts the back-fill instead of
+  # pointing a live-looking record at a folder nobody will ever see again.
   defp write_pointer_directly(schema, record, folder_uuid) do
     case locked(schema, record.uuid) do
       nil ->
         {:error, :not_found}
+
+      %{status: "deleted"} ->
+        {:error, :record_deleted}
 
       current ->
         data = Map.put(current.data || %{}, "files_folder_uuid", folder_uuid)
@@ -402,12 +680,30 @@ defmodule PhoenixKitCatalogue.MediaReorganizer do
     |> repo().one()
   end
 
+  defp hook_error_action(0), do: []
+
+  defp hook_error_action(count) do
+    [
+      %{
+        source: "catalogue",
+        kind: :hook_error,
+        op: :report,
+        label: "attachments parent hook",
+        counts: nil,
+        reason:
+          "#{count} record(s) skipped: the configured parent hook raised, exited, or " <>
+            "returned neither {:ok, uuid} nor nil"
+      }
+    ]
+  end
+
   # ── Pending upload folders ──────────────────────────────────────
 
-  # X4: a folder any live record currently points at is never independently
-  # reported/trashed as a pending folder — its move (or duplicate report)
-  # action above already covers it.
-  defp pending_folder_actions(pending_days, claimed_uuids) do
+  # X4/R1: a folder any live record currently points at is never
+  # independently reported/trashed as a pending folder — its move (or
+  # duplicate report) action, if any, already covers it, and `claimed`
+  # includes the hook-independent pointer claims regardless.
+  defp pending_folder_actions(pending_days, claimed_uuids, hook_on?) do
     cutoff = DateTime.add(DateTime.utc_now(), -pending_days * 86_400, :second)
 
     folders =
@@ -418,30 +714,21 @@ defmodule PhoenixKitCatalogue.MediaReorganizer do
       |> Enum.reject(&MapSet.member?(claimed_uuids, &1.uuid))
 
     counts = counts_by_folder(Enum.map(folders, & &1.uuid))
+    files_by_folder = pending_files_by_folder(Enum.map(folders, & &1.uuid))
 
     folders
-    |> Enum.map(&pending_folder_action(&1, cutoff, counts))
+    |> Enum.map(&pending_folder_action(&1, cutoff, counts, files_by_folder, hook_on?))
     |> Enum.reject(&is_nil/1)
   end
 
-  defp pending_folder_action(folder, cutoff, counts) do
+  defp pending_folder_action(folder, cutoff, counts, files_by_folder, hook_on?) do
     case folder_counts(counts, folder.uuid) do
       {0, 0} ->
         if DateTime.compare(folder.inserted_at, cutoff) == :lt do
-          %{
-            source: "catalogue",
-            kind: :pending,
-            label: folder.name,
-            op: :trash,
-            folder: folder,
-            counts: {0, 0},
-            reason: "empty pending upload folder older than the retention window"
-          }
+          pending_stale_action(folder, hook_on?)
         end
 
       {files, links} ->
-        names = pending_file_names(folder.uuid)
-
         %{
           source: "catalogue",
           kind: :pending,
@@ -449,16 +736,80 @@ defmodule PhoenixKitCatalogue.MediaReorganizer do
           op: :report,
           folder: folder,
           counts: {files, links},
-          reason: "pending folder still has files: #{Enum.join(names, ", ")}"
+          reason: "pending folder still has #{pending_reason(folder.uuid, files_by_folder)}"
         }
     end
   end
 
-  defp pending_file_names(folder_uuid) do
-    folder_uuid
-    |> Attachments.folder_files_query()
-    |> repo().all()
-    |> Enum.map(& &1.original_file_name)
+  # E1: without a configured hook, a stale empty pending folder is
+  # reported, never trashed.
+  defp pending_stale_action(folder, true) do
+    %{
+      source: "catalogue",
+      kind: :pending,
+      label: folder.name,
+      op: :trash,
+      folder: folder,
+      counts: {0, 0},
+      reason: "empty pending upload folder older than the retention window"
+    }
+  end
+
+  defp pending_stale_action(folder, false) do
+    %{
+      source: "catalogue",
+      kind: :pending,
+      label: folder.name,
+      op: :report,
+      folder: folder,
+      counts: {0, 0},
+      reason:
+        "empty pending upload folder older than the retention window " <>
+          "(no attachments hook configured — not trashed)"
+    }
+  end
+
+  # R6: one batched query (home files + linked files) for every non-empty
+  # pending folder in the batch — never a query per folder. R6: the
+  # reason is never empty — a folder whose only files are trashed says so
+  # explicitly instead of rendering an empty file list.
+  defp pending_files_by_folder(folder_uuids) do
+    case folder_uuids do
+      [] ->
+        %{}
+
+      uuids ->
+        home_rows =
+          PhoenixKit.Modules.Storage.File
+          |> where([f], f.folder_uuid in ^uuids)
+          |> select([f], {f.folder_uuid, f.original_file_name, f.status})
+          |> repo().all()
+
+        linked_rows =
+          FolderLink
+          |> join(:inner, [l], f in PhoenixKit.Modules.Storage.File, on: f.uuid == l.file_uuid)
+          |> where([l, _f], l.folder_uuid in ^uuids)
+          |> select([l, f], {l.folder_uuid, f.original_file_name, f.status})
+          |> repo().all()
+
+        Enum.group_by(home_rows ++ linked_rows, fn {folder_uuid, _name, _status} ->
+          folder_uuid
+        end)
+    end
+  end
+
+  defp pending_reason(folder_uuid, files_by_folder) do
+    rows = Map.get(files_by_folder, folder_uuid, [])
+
+    live_names =
+      rows
+      |> Enum.reject(fn {_f, _n, status} -> status == "trashed" end)
+      |> Enum.map(&elem(&1, 1))
+
+    case live_names do
+      [] -> "#{length(rows)} trashed file(s)"
+      names -> "files: #{Enum.join(names, ", ")}"
+    end
   end
 
   # ── Orphaned legacy folders ──────────────────────────────────────
@@ -468,10 +819,11 @@ defmodule PhoenixKitCatalogue.MediaReorganizer do
   # resolved to, whose uuid no longer names a live record (missing, or the
   # record exists but was soft-deleted) is reported so a host can collect it.
   # Never `:move`d or `:trash`ed here — this module owns no "orphans"
-  # container; a legacy folder that IS a live record's current folder is
-  # left to `build_move_action/1` above.
-  defp orphan_actions(resolved_parents) do
-    case legacy_candidate_folders(resolved_parents) do
+  # container; a legacy folder claimed by a live record (its current
+  # folder, a duplicate, or a converging-target group) is excluded (R4 —
+  # one folder gets at most one action).
+  defp orphan_actions(resolved_parents, claimed_uuids) do
+    case legacy_candidate_folders(resolved_parents, claimed_uuids) do
       [] ->
         []
 
@@ -488,12 +840,13 @@ defmodule PhoenixKitCatalogue.MediaReorganizer do
   # One SQL-filtered query (X6 — prefix filter in SQL, not loaded then
   # filtered in Elixir) for every live folder at root or under a resolved
   # parent whose name starts with the catalogue legacy prefix.
-  defp legacy_candidate_folders(parent_uuids) do
+  defp legacy_candidate_folders(parent_uuids, claimed_uuids) do
     Folder
     |> where([f], is_nil(f.trashed_at))
     |> where([f], is_nil(f.parent_uuid) or f.parent_uuid in ^parent_uuids)
     |> where([f], like(f.name, ^"#{@legacy_prefix}%"))
     |> repo().all()
+    |> Enum.reject(&MapSet.member?(claimed_uuids, &1.uuid))
     |> Enum.map(&{&1, legacy_kind(&1.name)})
     |> Enum.filter(fn {_folder, kind} -> kind end)
   end
@@ -519,7 +872,9 @@ defmodule PhoenixKitCatalogue.MediaReorganizer do
     end
   end
 
-  # One query per record kind present among the candidates — not per folder.
+  # One query per record kind present among the candidates — not per
+  # folder — and only the status column (R9): an orphan report needs
+  # nothing else off the record.
   defp load_candidate_records(candidates) do
     by_kind =
       Enum.group_by(
@@ -529,26 +884,27 @@ defmodule PhoenixKitCatalogue.MediaReorganizer do
       )
 
     %{}
-    |> Map.merge(load_records(Item, :item, Map.get(by_kind, :item, [])))
-    |> Map.merge(load_records(Category, :category, Map.get(by_kind, :category, [])))
-    |> Map.merge(load_records(Catalogue, :catalogue, Map.get(by_kind, :catalogue, [])))
+    |> Map.merge(load_record_statuses(Item, :item, Map.get(by_kind, :item, [])))
+    |> Map.merge(load_record_statuses(Category, :category, Map.get(by_kind, :category, [])))
+    |> Map.merge(load_record_statuses(Catalogue, :catalogue, Map.get(by_kind, :catalogue, [])))
   end
 
-  defp load_records(_schema, _kind, []), do: %{}
+  defp load_record_statuses(_schema, _kind, []), do: %{}
 
-  defp load_records(schema, kind, uuids) do
+  defp load_record_statuses(schema, kind, uuids) do
     schema
     |> where([r], r.uuid in ^uuids)
+    |> select([r], {r.uuid, r.status})
     |> repo().all()
-    |> Map.new(&{{kind, &1.uuid}, &1})
+    |> Map.new(fn {uuid, status} -> {{kind, uuid}, status} end)
   end
 
   defp orphan_action({folder, {kind, uuid}}, records_by_key, counts) do
     case Map.get(records_by_key, {kind, uuid}) do
-      %{status: status} when status != "deleted" ->
+      status when is_binary(status) and status != "deleted" ->
         nil
 
-      record ->
+      status ->
         folder_counts = folder_counts(counts, folder.uuid)
 
         %{
@@ -558,15 +914,13 @@ defmodule PhoenixKitCatalogue.MediaReorganizer do
           label: folder.name,
           folder: folder,
           counts: folder_counts,
-          reason: orphan_reason(record, folder_counts)
+          reason: orphan_reason(status, folder_counts)
         }
     end
   end
 
   defp orphan_reason(nil, {files, _links}), do: "record missing, #{files} file(s)"
-
-  defp orphan_reason(%{status: status}, {files, _links}),
-    do: "record status #{status}, #{files} file(s)"
+  defp orphan_reason(status, {files, _links}), do: "record status #{status}, #{files} file(s)"
 
   # ── PDF library ──────────────────────────────────────────────────
 
@@ -603,7 +957,7 @@ defmodule PhoenixKitCatalogue.MediaReorganizer do
 
   defp root_pdf_count do
     Pdf
-    |> join(:inner, [p], f in File, on: f.uuid == p.file_uuid)
+    |> join(:inner, [p], f in PhoenixKit.Modules.Storage.File, on: f.uuid == p.file_uuid)
     |> where([p, f], p.status == "active" and f.status != "trashed" and is_nil(f.folder_uuid))
     |> repo().aggregate(:count)
   end
@@ -623,7 +977,7 @@ defmodule PhoenixKitCatalogue.MediaReorganizer do
 
       uuids ->
         files =
-          File
+          PhoenixKit.Modules.Storage.File
           |> where([f], f.folder_uuid in ^uuids)
           |> group_by([f], f.folder_uuid)
           |> select([f], {f.folder_uuid, count(f.uuid)})
@@ -666,19 +1020,34 @@ defmodule PhoenixKitCatalogue.MediaReorganizer do
     end)
   end
 
-  defp live_catalogues do
-    Catalogue |> where([c], c.status != "deleted") |> repo().all()
-  end
-
-  defp live_categories do
-    Category
+  # R9/R10: only the columns a plan needs (never the full jsonb-heavy
+  # row), ordered catalogue-then-category-then-item, each by
+  # `inserted_at`/`uuid` — a deterministic, readable report order.
+  defp light_catalogues do
+    Catalogue
     |> where([c], c.status != "deleted")
-    |> order_by([c], asc_nulls_first: c.parent_uuid)
+    |> order_by([c], asc: c.inserted_at, asc: c.uuid)
+    |> select([c], struct(c, [:uuid, :name, :status, :data, :inserted_at]))
     |> repo().all()
   end
 
-  defp live_items do
-    Item |> where([i], i.status != "deleted") |> repo().all()
+  defp light_categories do
+    Category
+    |> where([c], c.status != "deleted")
+    |> order_by([c], asc: c.inserted_at, asc: c.uuid)
+    |> select([c], struct(c, [:uuid, :name, :status, :data, :catalogue_uuid, :inserted_at]))
+    |> repo().all()
+  end
+
+  defp light_items do
+    Item
+    |> where([i], i.status != "deleted")
+    |> order_by([i], asc: i.inserted_at, asc: i.uuid)
+    |> select(
+      [i],
+      struct(i, [:uuid, :name, :status, :data, :catalogue_uuid, :category_uuid, :inserted_at])
+    )
+    |> repo().all()
   end
 
   defp repo, do: PhoenixKit.RepoHelper.repo()
