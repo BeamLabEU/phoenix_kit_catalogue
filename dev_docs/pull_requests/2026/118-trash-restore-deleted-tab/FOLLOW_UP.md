@@ -98,8 +98,7 @@ Max asked for the open items to be fixed.
 
 - ~~Performance (Claude #3).~~ A drilled level reads its child-category counts once for both
   modes and its listing reuses them; the root's Deleted tab skips the level listing and the
-  count maps it never used; the root's Active tab builds its tree from the category rows it
-  already read; an item write passes the category its derive step read `FOR SHARE` to the
+  count maps it never used; an item write passes the category its derive step read `FOR SHARE` to the
   category check instead of reading it again; `ancestors_first/1` orders by depth from one
   query, under the catalogue lock, instead of one recursive query per selected uuid.
   Covered by the existing tab, tree, trash-card and bulk-trash tests.
