@@ -841,4 +841,38 @@ defmodule PhoenixKitCatalogue.GettextTest do
   after
     Gettext.put_locale(PhoenixKitCatalogue.Gettext, "en")
   end
+
+  test "the permanent-delete scope and race strings are translated in ru and et" do
+    # Added by hand to the .pot and every locale (2026-09-15 review).
+    scope =
+      "This category, %{subcategories} subcategories and %{items} items inside it will be permanently deleted. This cannot be undone."
+
+    bindings = [subcategories: 1, items: 2]
+    restored = "It was restored in the meantime, so it was not deleted."
+    moved = "The catalogue changed while this was running. Please try again."
+
+    Gettext.put_locale(PhoenixKitCatalogue.Gettext, "ru")
+
+    assert Gettext.gettext(PhoenixKitCatalogue.Gettext, scope, bindings) ==
+             "Эта категория, 1 подкатегорий и 2 позиций внутри неё будут удалены навсегда. Это действие необратимо."
+
+    assert Gettext.gettext(PhoenixKitCatalogue.Gettext, restored) ==
+             "Тем временем это было восстановлено, поэтому не удалено."
+
+    assert Gettext.gettext(PhoenixKitCatalogue.Gettext, moved) ==
+             "Каталог изменился во время операции. Попробуйте ещё раз."
+
+    Gettext.put_locale(PhoenixKitCatalogue.Gettext, "et")
+
+    assert Gettext.gettext(PhoenixKitCatalogue.Gettext, scope, bindings) ==
+             "See kategooria, 1 alamkategooriat ja 2 toodet selle sees kustutatakse jäädavalt. Seda ei saa tagasi võtta."
+
+    assert Gettext.gettext(PhoenixKitCatalogue.Gettext, restored) ==
+             "See taastati vahepeal, seega seda ei kustutatud."
+
+    assert Gettext.gettext(PhoenixKitCatalogue.Gettext, moved) ==
+             "Kataloog muutus toimingu ajal. Palun proovige uuesti."
+  after
+    Gettext.put_locale(PhoenixKitCatalogue.Gettext, "en")
+  end
 end

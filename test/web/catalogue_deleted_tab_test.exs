@@ -186,6 +186,90 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDeletedTabTest do
     assert has_element?(view, "#items-bulk[phx-hook=BulkSelectScope]")
   end
 
+  describe "Delete Forever and Restore on this page" do
+    test "single-row actions ignore a uuid from another catalogue", %{conn: conn} do
+      %{catalogue: catalogue, foreign: foreign} = trashed_world()
+      foreign_item = fixture_item(%{name: "Foreign gone", catalogue_uuid: foreign.catalogue_uuid})
+      {:ok, _} = Catalogue.trash_item(foreign_item)
+      {view, _html} = open_deleted_tab(conn, catalogue)
+
+      render_click(view, "show_delete_confirm", %{"uuid" => foreign.uuid, "type" => "category"})
+      render_click(view, "permanently_delete_category", %{})
+      assert Catalogue.get_category(foreign.uuid)
+
+      render_click(view, "restore_item", %{"uuid" => foreign_item.uuid})
+      assert Catalogue.get_item(foreign_item.uuid).status == "deleted"
+
+      render_click(view, "show_delete_confirm", %{"uuid" => foreign_item.uuid, "type" => "item"})
+      render_click(view, "permanently_delete_item", %{})
+      assert Catalogue.get_item(foreign_item.uuid)
+    end
+
+    test "bulk Delete forever leaves a live category of this catalogue alone", %{conn: conn} do
+      %{catalogue: catalogue, gone: gone} = trashed_world()
+      live = fixture_category(catalogue, %{name: "Still live"})
+      {view, _html} = open_deleted_tab(conn, catalogue)
+
+      render_click(view, "request_bulk_permanent_delete_categories", %{
+        "uuids" => [gone.uuid, live.uuid]
+      })
+
+      render_click(view, "confirm_bulk_action", %{})
+
+      assert is_nil(Catalogue.get_category(gone.uuid))
+      assert Catalogue.get_category(live.uuid).status == "active"
+    end
+
+    test "the Delete Forever confirm names what is really removed", %{conn: conn} do
+      catalogue = fixture_catalogue()
+      shelf = fixture_category(catalogue, %{name: "Counted shelf"})
+      sub = fixture_category(catalogue, %{name: "Counted sub", parent_uuid: shelf.uuid})
+      fixture_item(%{name: "On shelf", category_uuid: shelf.uuid})
+      early = fixture_item(%{name: "Early", category_uuid: sub.uuid})
+      {:ok, _} = Catalogue.trash_item(early)
+      {:ok, _} = Catalogue.trash_category(shelf, items: :cascade)
+      {view, _html} = open_deleted_tab(conn, catalogue)
+
+      # The card counts what Restore brings back (1 item); the delete also
+      # takes the item trashed on its own first, and says so.
+      assert :sys.get_state(view.pid).socket.assigns.child_counts[shelf.uuid] == 1
+
+      html =
+        render_click(view, "show_delete_confirm", %{"uuid" => shelf.uuid, "type" => "category"})
+
+      assert html =~
+               "This category, 1 subcategories and 2 items inside it will be permanently deleted."
+    end
+
+    test "a card counts what its Restore brings back past a subcategory restored on its own",
+         %{conn: conn} do
+      catalogue = fixture_catalogue()
+      outer = fixture_category(catalogue, %{name: "Outer"})
+      inner = fixture_category(catalogue, %{name: "Inner", parent_uuid: outer.uuid})
+      fixture_item(%{name: "In inner", category_uuid: inner.uuid})
+      {:ok, _} = Catalogue.trash_category(outer, items: :cascade)
+      {:ok, _} = Catalogue.restore_category(Catalogue.get_category(inner.uuid))
+      {view, _html} = open_deleted_tab(conn, catalogue)
+
+      assigns = :sys.get_state(view.pid).socket.assigns
+      assert assigns.child_counts[outer.uuid] == 1
+      assert assigns.child_subcat_counts[outer.uuid] == 0
+    end
+
+    test "a catalogue holding nothing live opens on Deleted and still offers Active",
+         %{conn: conn} do
+      catalogue = fixture_catalogue()
+      gone = fixture_item(%{name: "Only gone", catalogue_uuid: catalogue.uuid})
+      {:ok, _} = Catalogue.trash_item(gone)
+
+      {:ok, view, _html} = live(conn, "#{@base}/#{catalogue.uuid}")
+      assigns = :sys.get_state(view.pid).socket.assigns
+
+      assert assigns.view_mode == "deleted"
+      assert Enum.map(assigns.status_tabs, &elem(&1, 0)) == ["active", "deleted"]
+    end
+  end
+
   test "search in the Deleted tab finds the trashed items only", %{conn: conn} do
     %{catalogue: catalogue} = trashed_world()
     {view, _html} = open_deleted_tab(conn, catalogue)

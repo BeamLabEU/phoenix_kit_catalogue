@@ -179,12 +179,12 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         card_fields: [],
         card_files: [],
         confirm_delete: nil,
+        confirm_delete_scope: nil,
         trash_modal: nil,
         bulk_move_modal: nil,
         bulk_move_categories_modal: nil,
         bulk_duplicate_modal: nil,
         bulk_confirm: nil,
-        selected_items: MapSet.new(),
         attribute_map: %{},
         selected_categories: MapSet.new(),
         # Categories captured by "Reorder N selected" (core toolkit); [] = all.
@@ -279,7 +279,6 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       if cat_changed? do
         socket
         |> assign(:prior_category_uuid, cat_key)
-        |> assign(:selected_items, MapSet.new())
         |> assign(:selected_categories, MapSet.new())
       else
         socket
@@ -433,9 +432,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   defp normalize_category_key(uuid) when is_binary(uuid), do: uuid
 
   # Resolves a `?category=` key to the current node. A UUID that doesn't
-  # exist or belongs to another catalogue is `:invalid` (caller bounces
-  # to root). Works in `:active` and `:deleted` view alike — drilling
-  # into a trashed category to inspect its deleted subtree is valid.
+  # exist, belongs to another catalogue or names a trashed category is
+  # `:invalid` (caller bounces to root).
   defp resolve_node(_catalogue_uuid, nil), do: {:ok, nil}
   defp resolve_node(_catalogue_uuid, "uncategorized"), do: {:ok, :uncategorized}
 
@@ -695,7 +693,6 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       socket
       |> assign(:view_mode, mode)
       |> assign(:confirm_delete, nil)
-      |> assign(:selected_items, MapSet.new())
       |> assign(:selected_categories, MapSet.new())
       |> clear_search()
       |> reset_and_load()
@@ -848,7 +845,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   end
 
   def handle_event("restore_item", %{"uuid" => uuid}, socket) do
-    with %{} = item <- Catalogue.get_item(uuid),
+    with %{} = item <- item_in_catalogue(socket, uuid),
          {:ok, _} <- Catalogue.restore_item(item, actor_opts(socket)) do
       {:noreply,
        socket
@@ -884,14 +881,18 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   end
 
   def handle_event("show_delete_confirm", %{"uuid" => uuid, "type" => type}, socket) do
-    {:noreply, assign(socket, :confirm_delete, {type, uuid})}
+    {:noreply,
+     socket
+     |> assign(:confirm_delete, {type, uuid})
+     |> assign(:confirm_delete_scope, delete_scope(type, socket, uuid))}
   end
 
   def handle_event("permanently_delete_item", _params, socket) do
     case socket.assigns.confirm_delete do
       {"item", uuid} ->
-        with %{} = item <- Catalogue.get_item(uuid),
-             {:ok, _} <- Catalogue.permanently_delete_item(item, actor_opts(socket)) do
+        with %{} = item <- item_in_catalogue(socket, uuid),
+             {:ok, _} <-
+               Catalogue.permanently_delete_item(item, [only_trashed: true] ++ actor_opts(socket)) do
           {:noreply,
            socket
            |> assign(:confirm_delete, nil)
@@ -907,6 +908,9 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
              socket
              |> assign(:confirm_delete, nil)
              |> put_flash(:error, Gettext.gettext(PhoenixKitCatalogue.Gettext, "Item not found."))}
+
+          {:error, :not_in_trash} ->
+            {:noreply, not_in_trash(socket)}
 
           {:error, reason} ->
             log_operation_error(socket, "permanently_delete_item", %{
@@ -1021,25 +1025,12 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
   # ── Bulk selection + actions ────────────────────────────────────
 
-  def handle_event("toggle_select_item", %{"uuid" => uuid}, socket) do
-    {:noreply, assign(socket, :selected_items, toggle(socket.assigns.selected_items, uuid))}
-  end
-
-  def handle_event("clear_selection", _params, socket) do
-    {:noreply,
-     assign(socket,
-       selected_items: MapSet.new(),
-       selected_categories: MapSet.new()
-     )}
-  end
-
   # Bulk delete items — opens a confirm modal stamped with the selection
-  # and the operation type. The active list (core toolkit) supplies the
-  # uuids client-side via `%{"uuids" => [...]}`; the deleted list (still
-  # server-side select) falls back to the `@selected_items` MapSet.
+  # and the operation type. Both tabs supply the uuids client-side (core's
+  # BulkSelectScope) as `%{"uuids" => [...]}`.
   # Confirmation routes through `confirm_bulk_action` below.
   def handle_event("request_bulk_delete_items", params, socket) do
-    uuids = resolve_bulk_uuids(params, socket)
+    uuids = sanitize_uuids(params)
 
     if uuids == [] do
       {:noreply, socket}
@@ -1060,12 +1051,12 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   end
 
   def handle_event("request_bulk_restore_items", params, socket) do
-    uuids = resolve_bulk_uuids(params, socket)
+    uuids = sanitize_uuids(params)
     if uuids == [], do: {:noreply, socket}, else: do_bulk_restore_items(socket, uuids)
   end
 
   def handle_event("request_bulk_move_items", params, socket) do
-    uuids = resolve_bulk_uuids(params, socket)
+    uuids = sanitize_uuids(params)
 
     if uuids == [] do
       {:noreply, socket}
@@ -1302,16 +1293,12 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     end
   end
 
-  # The Deleted tab's selection arrives client-side as `%{"uuids" => [...]}`;
-  # the server-side `@selected_categories` snapshot stays the fallback.
+  # The Deleted tab's selection arrives client-side as `%{"uuids" => [...]}`.
   def handle_event("request_bulk_restore_categories", params, socket) do
-    uuids =
-      case sanitize_uuids(params) do
-        [] -> MapSet.to_list(socket.assigns.selected_categories)
-        uuids -> uuids
-      end
-
-    if uuids == [], do: {:noreply, socket}, else: do_bulk_restore_categories(socket, uuids)
+    case sanitize_uuids(params) do
+      [] -> {:noreply, socket}
+      uuids -> do_bulk_restore_categories(socket, uuids)
+    end
   end
 
   # Bulk Delete forever from the Deleted tab — confirmed first, like the
@@ -1371,8 +1358,12 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   def handle_event("permanently_delete_category", _params, socket) do
     case socket.assigns.confirm_delete do
       {"category", uuid} ->
-        with %{} = category <- Catalogue.get_category(uuid),
-             {:ok, _} <- Catalogue.permanently_delete_category(category, actor_opts(socket)) do
+        with %{} = category <- category_in_catalogue(socket, uuid),
+             {:ok, _} <-
+               Catalogue.permanently_delete_category(
+                 category,
+                 [only_trashed: true] ++ actor_opts(socket)
+               ) do
           {:noreply,
            socket
            |> assign(:confirm_delete, nil)
@@ -1390,6 +1381,9 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                :error,
                Gettext.gettext(PhoenixKitCatalogue.Gettext, "Category not found.")
              )}
+
+          {:error, :not_in_trash} ->
+            {:noreply, not_in_trash(socket)}
 
           {:error, reason} ->
             log_operation_error(socket, "permanently_delete_category", %{
@@ -1784,17 +1778,6 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
   # ── Bulk-action helpers ──────────────────────────────────────────
 
-  defp toggle(set, uuid) do
-    if MapSet.member?(set, uuid), do: MapSet.delete(set, uuid), else: MapSet.put(set, uuid)
-  end
-
-  # Resolves the target uuids for a bulk op. The active list (core
-  # toolkit) supplies them client-side via `%{"uuids" => [...]}`; the
-  # deleted list (still server-side select) falls back to the
-  # `@selected_items` MapSet.
-  defp resolve_bulk_uuids(%{"uuids" => _} = params, _socket), do: sanitize_uuids(params)
-  defp resolve_bulk_uuids(_params, socket), do: MapSet.to_list(socket.assigns.selected_items)
-
   # Client-captured uuids: anything that is not a uuid is dropped here,
   # before it can reach a `Repo.get` and raise a query cast error.
   defp sanitize_uuids(%{"uuids" => uuids}) when is_list(uuids),
@@ -1802,12 +1785,45 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
   defp sanitize_uuids(_), do: []
 
-  # Clears both selection models after a bulk op: the server-side MapSet
-  # (deleted list) and the client-side BulkSelectScope (active list).
-  defp clear_item_selection(socket) do
+  # Clears the client-side BulkSelectScope selection after a bulk item op.
+  defp clear_item_selection(socket), do: clear_bulk_selection(socket)
+
+  # Rows the page acts on by a client-sent uuid must belong to this
+  # catalogue; anything else reads as not found.
+  defp item_in_catalogue(socket, uuid) do
+    catalogue_uuid = socket.assigns.catalogue_uuid
+
+    case Catalogue.get_item(uuid) do
+      %{catalogue_uuid: ^catalogue_uuid} = item -> item
+      _ -> nil
+    end
+  end
+
+  defp category_in_catalogue(socket, uuid) do
+    catalogue_uuid = socket.assigns.catalogue_uuid
+
+    case Catalogue.get_category(uuid) do
+      %Category{catalogue_uuid: ^catalogue_uuid} = category -> category
+      _ -> nil
+    end
+  end
+
+  # What a category's Delete Forever really removes, for its confirmation.
+  defp delete_scope("category", socket, uuid) do
+    case category_in_catalogue(socket, uuid) do
+      %Category{} = category -> Catalogue.permanent_delete_scope(category)
+      nil -> nil
+    end
+  end
+
+  defp delete_scope(_type, _socket, _uuid), do: nil
+
+  # A Delete Forever that found its row restored in the meantime.
+  defp not_in_trash(socket) do
     socket
-    |> assign(:selected_items, MapSet.new())
-    |> clear_bulk_selection()
+    |> assign(:confirm_delete, nil)
+    |> put_flash(:error, Errors.message(:not_in_trash))
+    |> reset_and_load()
   end
 
   # Clears the client-side BulkSelectScope selection, which rows that
@@ -1946,10 +1962,9 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   defp broadcast_item_batch(socket),
     do: PubSub.broadcast(:item, nil, socket.assigns.catalogue_uuid)
 
-  # Active-list bulk ops read the client-captured uuids; deleted-list
-  # bulk ops pass `@selected_items`. After each op we clear BOTH the
-  # server-side MapSet (deleted list) AND push `bulk_select:clear` so a
-  # stale client-side checkmark can't persist on the active list.
+  # Bulk item ops read the client-captured uuids, and push
+  # `bulk_select:clear` afterwards so a stale checkmark can't persist on a
+  # row that survived the op.
   # The context's batch `:item` event is muted here and re-emitted by
   # `broadcast_item_batch/1` AFTER the bulk-change message, so another
   # open detail page receives the flash instruction before the reload
@@ -1972,7 +1987,12 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   end
 
   defp do_bulk_permanent_delete_items(socket, uuids) do
-    {count, _} = Catalogue.bulk_permanently_delete_items(uuids, scoped_muted_actor_opts(socket))
+    {count, _} =
+      Catalogue.bulk_permanently_delete_items(
+        uuids,
+        Keyword.put(scoped_muted_actor_opts(socket), :only_trashed, true)
+      )
+
     PubSub.broadcast_bulk_change(socket.assigns.catalogue_uuid, :permanent_delete, uuids)
     broadcast_item_batch(socket)
 
@@ -2361,7 +2381,13 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   defp permanently_delete_trashed_category(uuid, catalogue_uuid, socket) do
     case Catalogue.get_category(uuid) do
       %Category{status: "deleted", catalogue_uuid: ^catalogue_uuid} = category ->
-        match?({:ok, _}, Catalogue.permanently_delete_category(category, actor_opts(socket)))
+        match?(
+          {:ok, _},
+          Catalogue.permanently_delete_category(
+            category,
+            [only_trashed: true] ++ actor_opts(socket)
+          )
+        )
 
       _ ->
         false
@@ -2667,42 +2693,43 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   end
 
   # A trashed category card at the root counts what its Restore brings back,
-  # since nothing inside it is listed on its own: the subcategories and items
-  # its own trash stamped. Rows trashed on their own before it stay in the
-  # trash when it is restored, so they are not counted (Max, 2026-09-15).
+  # mirroring `restore_category/2`: the subcategories anywhere in its subtree
+  # stamped with it, and the items stamped with it whose category is live
+  # once those come back (a subcategory restored on its own in between does
+  # not hide them). Rows trashed on their own before it stay in the trash
+  # when it is restored, so they are not counted (Max, 2026-09-15).
   defp trash_unit_counts(counts, uuid, root_tree, nil, :deleted) do
     by_root = Catalogue.trashed_item_counts_by_root(uuid)
-
-    trashed_children =
-      root_tree
-      |> Enum.filter(&(&1.status == "deleted"))
-      |> Enum.group_by(& &1.parent_uuid)
+    children = Enum.group_by(root_tree, & &1.parent_uuid)
 
     root_tree
     |> top_level_trashed()
     |> Enum.reduce(counts, fn category, {items, subs} ->
       root = category.uuid
-
-      inside =
-        root
-        |> trashed_descendants(trashed_children)
-        |> Enum.filter(&(trash_root(&1) == root))
-
-      total =
-        Enum.reduce([root | Enum.map(inside, & &1.uuid)], 0, fn category_uuid, sum ->
-          sum + Map.get(by_root, {category_uuid, root}, 0)
-        end)
-
-      {Map.put(items, root, total), Map.put(subs, root, length(inside))}
+      below = subtree_below(root, children)
+      revived = Enum.filter(below, &(&1.status == "deleted" and trash_root(&1) == root))
+      live_after = MapSet.new([root | Enum.map(live_or_revived(below, revived), & &1.uuid)])
+      total = restorable_items(by_root, root, live_after)
+      {Map.put(items, root, total), Map.put(subs, root, length(revived))}
     end)
   end
 
   defp trash_unit_counts(counts, _uuid, _root_tree, _current, _cat_mode), do: counts
 
-  defp trashed_descendants(uuid, trashed_children) do
-    trashed_children
+  defp subtree_below(uuid, children) do
+    children
     |> Map.get(uuid, [])
-    |> Enum.flat_map(&[&1 | trashed_descendants(&1.uuid, trashed_children)])
+    |> Enum.flat_map(&[&1 | subtree_below(&1.uuid, children)])
+  end
+
+  defp live_or_revived(below, revived),
+    do: Enum.reject(below, &(&1.status == "deleted")) ++ revived
+
+  defp restorable_items(by_root, root, live_after) do
+    for {{category_uuid, ^root}, n} <- by_root,
+        MapSet.member?(live_after, category_uuid),
+        reduce: 0,
+        do: (sum -> sum + n)
   end
 
   defp trash_root(%{data: %{"_trash" => %{"root" => root}}}), do: root
@@ -2738,13 +2765,15 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   defp level_tab_counts(status_counts, _uuid, _current, _root_tree), do: status_counts
 
   # What the opening-tab pick weighs: the node's item counts, except that
-  # with no live item at all, live categories make Active populated. Live
-  # categories show on Active, Inactive and Discontinued alike, so they
-  # never outrank a populated Inactive; only Deleted hides them.
+  # with no live item at all the tab counts decide — live categories make
+  # Active the tab to open, and otherwise trashed categories make Deleted
+  # populated. Live categories show on Active, Inactive and Discontinued
+  # alike, so they never outrank a populated Inactive; only Deleted hides
+  # them.
   defp pick_counts(item_counts, tab_counts) do
     if Enum.any?(~w(active inactive discontinued), &(Map.get(item_counts, &1, 0) > 0)),
       do: item_counts,
-      else: Map.put(item_counts, "active", Map.get(tab_counts, "active", 0))
+      else: Map.merge(item_counts, Map.take(tab_counts, ["active", "deleted"]))
   end
 
   defp add_category_counts(counts, live, trashed) do
@@ -3614,15 +3643,17 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     end
   end
 
-  # `[{status, label, count}]` for the tabs to render — populated statuses
-  # plus ALWAYS the current one, so an empty Active no longer sits next to a
-  # populated Deleted, but the tab the user is standing on can never vanish
-  # from under them (a just-emptied Active stays representable at count 0).
-  # The strip is hidden anyway whenever there's ≤1 tab (see render).
+  # `[{status, label, count}]` for the tabs to render — populated statuses,
+  # the current one (the tab the user is standing on never vanishes from
+  # under them), and ALWAYS Active: the Add buttons live there, so a level
+  # whose only content is in the trash must still offer the way back (a
+  # catalogue holding nothing but a trashed item opened on Deleted with no
+  # tabs and no way to add anything). The strip is hidden whenever there's
+  # ≤1 tab (see render).
   defp visible_status_tabs(view_mode, counts) do
     item_status_tabs()
     |> Enum.map(fn {status, label} -> {status, label, Map.get(counts, status, 0)} end)
-    |> Enum.filter(fn {status, _label, count} -> count > 0 or status == view_mode end)
+    |> Enum.filter(fn {status, _label, count} -> count > 0 or status in [view_mode, "active"] end)
   end
 
   # Processes a flat list of category UUIDs that came back from the
@@ -4237,7 +4268,6 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
             catalogue={@catalogue}
             current_category={@current_category}
             current_category_uuid={@current_category_uuid}
-            selected_items={@selected_items}
             items_total={@items_total}
             items_offset={@items_offset}
             items_sort_by={@items_sort_by}
@@ -4322,7 +4352,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         on_cancel="cancel_delete"
         title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Permanently Delete Category")}
         title_icon="hero-trash"
-        messages={[{:warning, Gettext.gettext(PhoenixKitCatalogue.Gettext, "This category and all its items will be permanently deleted. This cannot be undone.")}]}
+        messages={[{:warning, category_delete_warning(@confirm_delete_scope)}]}
         confirm_text={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete Forever")}
         danger={true}
       />
@@ -5598,7 +5628,6 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   attr(:catalogue, :any, required: true)
   attr(:current_category, :any, required: true)
   attr(:current_category_uuid, :any, required: true)
-  attr(:selected_items, :any, required: true)
   attr(:items_total, :integer, required: true)
   attr(:items_offset, :integer, required: true)
   attr(:items_sort_by, :atom, required: true)
@@ -6179,8 +6208,6 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     Paths.category_new(assigns.catalogue_uuid) <> "?" <> URI.encode_query(query)
   end
 
-  # 1-arity closure for the item tables' edit_path attrs — every edit
-  # link from this page carries the level to return to.
   # Card view's categories: the active tree, or — in the Deleted tab — the
   # trashed categories this level lists, flat (the trash keeps no tree).
   defp card_tree_children(%{view_mode: "deleted"} = assigns),
@@ -6306,6 +6333,25 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     """
   end
 
+  # A category's Delete Forever warning names what is really removed: a
+  # trashed card counts only what its Restore brings back, so rows trashed on
+  # their own inside it would otherwise go without a word.
+  defp category_delete_warning(%{subcategories: subs, items: items}) when subs > 0 or items > 0,
+    do:
+      Gettext.gettext(
+        PhoenixKitCatalogue.Gettext,
+        "This category, %{subcategories} subcategories and %{items} items inside it will be permanently deleted. This cannot be undone.",
+        subcategories: subs,
+        items: items
+      )
+
+  defp category_delete_warning(_scope),
+    do:
+      Gettext.gettext(
+        PhoenixKitCatalogue.Gettext,
+        "This category and all its items will be permanently deleted. This cannot be undone."
+      )
+
   # A category's Edit and New Subcategory links carry the level they were
   # clicked from, so the category form's Cancel comes back to it.
   defp with_return_to(path, nil), do: path
@@ -6320,6 +6366,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       "?" <> URI.encode_query([{"parent_uuid", parent_uuid} | return])
   end
 
+  # 1-arity closure for the item tables' edit_path attrs — every edit
+  # link from this page carries the level to return to.
   defp item_edit_with_return(assigns) do
     query = "?" <> URI.encode_query([{"return_to", current_level_path(assigns)}])
     fn uuid -> Paths.item_edit(uuid) <> query end

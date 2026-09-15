@@ -3449,3 +3449,12 @@ msgstr "%{count} kategooriat ja kogu nende sisu kustutatakse jäädavalt. Seda e
 
 msgid "Permanently deleted %{count} categories."
 msgstr "%{count} kategooriat kustutati jäädavalt."
+
+msgid "The catalogue changed while this was running. Please try again."
+msgstr "Kataloog muutus toimingu ajal. Palun proovige uuesti."
+
+msgid "It was restored in the meantime, so it was not deleted."
+msgstr "See taastati vahepeal, seega seda ei kustutatud."
+
+msgid "This category, %{subcategories} subcategories and %{items} items inside it will be permanently deleted. This cannot be undone."
+msgstr "See kategooria, %{subcategories} alamkategooriat ja %{items} toodet selle sees kustutatakse jäädavalt. Seda ei saa tagasi võtta."

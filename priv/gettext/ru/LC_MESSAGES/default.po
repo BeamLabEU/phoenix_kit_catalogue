@@ -3461,3 +3461,12 @@ msgstr "Категории (%{count}) и всё их содержимое буд
 
 msgid "Permanently deleted %{count} categories."
 msgstr "Навсегда удалено категорий: %{count}."
+
+msgid "The catalogue changed while this was running. Please try again."
+msgstr "Каталог изменился во время операции. Попробуйте ещё раз."
+
+msgid "It was restored in the meantime, so it was not deleted."
+msgstr "Тем временем это было восстановлено, поэтому не удалено."
+
+msgid "This category, %{subcategories} subcategories and %{items} items inside it will be permanently deleted. This cannot be undone."
+msgstr "Эта категория, %{subcategories} подкатегорий и %{items} позиций внутри неё будут удалены навсегда. Это действие необратимо."

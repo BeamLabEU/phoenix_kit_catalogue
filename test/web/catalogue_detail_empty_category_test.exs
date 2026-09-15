@@ -136,7 +136,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailEmptyCategoryTest do
       assert tab_statuses(view) == ["active", "deleted"]
     end
 
-    test "a category holding only a trashed subcategory offers the Deleted tab that lists it",
+    test "a category holding only a trashed subcategory opens on Deleted and still offers Active",
          %{conn: conn} do
       catalogue = fixture_catalogue(%{name: "Racks"})
       parent = fixture_category(catalogue, %{name: "Rack unit"})
@@ -145,9 +145,9 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailEmptyCategoryTest do
 
       {:ok, view, _html} = live(conn, "#{@base}/#{catalogue.uuid}?category=#{parent.uuid}")
 
-      assert assigns(view).view_mode == "active"
+      assert assigns(view).view_mode == "deleted"
       assert tab_statuses(view) == ["active", "deleted"]
-      assert render_click(view, "switch_view", %{"mode" => "deleted"}) =~ "Binned rack"
+      assert render(view) =~ "Binned rack"
     end
   end
 end
