@@ -705,6 +705,16 @@ msgstr "Таблица"
 msgid "Card view"
 msgstr "Карточки"
 
+#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2561
+#, elixir-autogen, elixir-format
+msgid "Comfy list view"
+msgstr "Комфортный список"
+
+#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2562
+#, elixir-autogen, elixir-format
+msgid "Compact list view"
+msgstr "Компактный список"
+
 #: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2385
 #: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2386
 #, elixir-autogen
@@ -3070,7 +3080,6 @@ msgid "Supplier price"
 msgstr "Цена поставщика"
 
 #: lib/phoenix_kit_catalogue/web/components/catalogue_browse.ex:244
-#: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2443
 #, elixir-autogen, elixir-format
 msgid "List view"
 msgstr "Список"
