@@ -30,6 +30,21 @@ defmodule PhoenixKitCatalogue.MediaReorganizerTest do
     def parent(_, _, _), do: nil
   end
 
+  defmodule EmptyStringHook do
+    def parent(:item, _actor, %Item{}), do: {:ok, ""}
+    def parent(_, _, _), do: nil
+  end
+
+  defmodule JunkUuidHook do
+    def parent(:item, _actor, %Item{}), do: {:ok, "junk"}
+    def parent(_, _, _), do: nil
+  end
+
+  defmodule UppercaseParentHook do
+    def parent(:item, _actor, %Item{}), do: {:ok, Process.get(:target_folder) |> String.upcase()}
+    def parent(_, _, _), do: nil
+  end
+
   # Mimics a host hook that treats a resource as top-level whenever its
   # own `parent_uuid` is unset — a nested category's parent hook must see
   # its REAL `parent_uuid`, never a light/partial struct where that
@@ -692,6 +707,90 @@ defmodule PhoenixKitCatalogue.MediaReorganizerTest do
       refute Enum.any?(actions, &(&1.kind == :item and &1.op == :move))
       assert Enum.any?(actions, &(&1.kind == :hook_error))
     end
+
+    test "hook returns {:ok, \"\"} → hook_error, never a CastError (T1)" do
+      catalogue = new_catalogue()
+      item = new_item(catalogue)
+
+      {:ok, folder} = Storage.create_folder(%{name: "catalogue-item-#{item.uuid}"})
+      {:ok, _item} = Catalogue.update_item(item, %{data: %{"files_folder_uuid" => folder.uuid}})
+
+      Application.put_env(
+        :phoenix_kit_catalogue,
+        :attachments_parent_folder,
+        {EmptyStringHook, :parent}
+      )
+
+      actions = MediaReorganizer.plan(nil, [])
+
+      refute Enum.any?(actions, &(&1.kind == :item and &1.op == :move))
+      assert Enum.any?(actions, &(&1.kind == :hook_error))
+    end
+
+    test "hook returns {:ok, \"junk\"} → hook_error, never a CastError (T1)" do
+      catalogue = new_catalogue()
+      item = new_item(catalogue)
+
+      {:ok, folder} = Storage.create_folder(%{name: "catalogue-item-#{item.uuid}"})
+      {:ok, _item} = Catalogue.update_item(item, %{data: %{"files_folder_uuid" => folder.uuid}})
+
+      Application.put_env(
+        :phoenix_kit_catalogue,
+        :attachments_parent_folder,
+        {JunkUuidHook, :parent}
+      )
+
+      actions = MediaReorganizer.plan(nil, [])
+
+      refute Enum.any?(actions, &(&1.kind == :item and &1.op == :move))
+      assert Enum.any?(actions, &(&1.kind == :hook_error))
+    end
+
+    test "hook parent answer is upper-cased but a valid uuid → cast+downcased, resolved normally" do
+      catalogue = new_catalogue()
+      item = new_item(catalogue, %{name: "Käepide"})
+
+      {:ok, target} = Storage.create_folder(%{name: "Items"})
+      {:ok, folder} = Storage.create_folder(%{name: "catalogue-item-#{item.uuid}"})
+
+      Process.put(:target_folder, target.uuid)
+
+      Application.put_env(
+        :phoenix_kit_catalogue,
+        :attachments_parent_folder,
+        {UppercaseParentHook, :parent}
+      )
+
+      actions = MediaReorganizer.plan(nil, [])
+      action = Enum.find(actions, &(&1.kind == :item and &1.label == item.name))
+
+      refute is_nil(action)
+      assert action.folder.uuid == folder.uuid
+      assert action.parent_uuid == target.uuid
+      refute Enum.any?(actions, &(&1.kind == :hook_error))
+    end
+  end
+
+  describe "uncallable configured hook (T3)" do
+    test "hook module/function does not exist → hook_error 'not callable', no moves" do
+      catalogue = new_catalogue()
+      item = new_item(catalogue)
+
+      {:ok, _folder} = Storage.create_folder(%{name: "catalogue-item-#{item.uuid}"})
+
+      Application.put_env(
+        :phoenix_kit_catalogue,
+        :attachments_parent_folder,
+        {PhoenixKitCatalogue.MediaReorganizerTest.NoSuchModule, :parent}
+      )
+
+      actions = MediaReorganizer.plan(nil, [])
+
+      refute Enum.any?(actions, &(&1.kind == :item and &1.op == :move))
+      error = Enum.find(actions, &(&1.kind == :hook_error))
+      refute is_nil(error)
+      assert error.reason =~ "not callable"
+    end
   end
 
   describe "host-named folder under parent (R3)" do
@@ -880,6 +979,60 @@ defmodule PhoenixKitCatalogue.MediaReorganizerTest do
     end
   end
 
+  describe "explicit nil from a hook never moves a non-root folder to root (F1)" do
+    test "record's pointer already names a folder under a parent, hook answers nil → no move, only back-fill + hook_nil report" do
+      catalogue = new_catalogue()
+      item = new_item(catalogue, %{name: "Käepide"})
+
+      {:ok, target} = Storage.create_folder(%{name: "Items"})
+      {:ok, folder} = Storage.create_folder(%{name: "Real folder", parent_uuid: target.uuid})
+      {:ok, _item} = Catalogue.update_item(item, %{data: %{"files_folder_uuid" => folder.uuid}})
+
+      # Pointer already names the live folder under `target` — the current
+      # folder is unambiguous regardless of what the parent hook says.
+      # `Hook.parent/3`'s default clause answers `nil` (root) here because
+      # `:target_folder` is never set for this record.
+      Application.put_env(:phoenix_kit_catalogue, :attachments_parent_folder, {Hook, :parent})
+
+      actions = MediaReorganizer.plan(nil, [])
+
+      refute Enum.any?(actions, &(&1.kind == :item and &1.op == :move and &1.parent_uuid == nil))
+
+      hook_nil = Enum.find(actions, &(&1.kind == :hook_nil))
+      refute is_nil(hook_nil)
+      assert hook_nil.op == :report
+      assert hook_nil.reason =~ "1 record"
+
+      # Pointer already matches `folder` — nothing left to plan for the
+      # item itself once the false move-to-root is suppressed.
+      refute Enum.any?(actions, &(&1.kind == :item))
+    end
+
+    test "the hook_nil report aggregates a count across every affected record" do
+      catalogue = new_catalogue()
+      item1 = new_item(catalogue, %{name: "First"})
+      item2 = new_item(catalogue, %{name: "Second"})
+
+      {:ok, target} = Storage.create_folder(%{name: "Items"})
+      {:ok, folder1} = Storage.create_folder(%{name: "Real folder 1", parent_uuid: target.uuid})
+      {:ok, folder2} = Storage.create_folder(%{name: "Real folder 2", parent_uuid: target.uuid})
+
+      {:ok, _item1} =
+        Catalogue.update_item(item1, %{data: %{"files_folder_uuid" => folder1.uuid}})
+
+      {:ok, _item2} =
+        Catalogue.update_item(item2, %{data: %{"files_folder_uuid" => folder2.uuid}})
+
+      Application.put_env(:phoenix_kit_catalogue, :attachments_parent_folder, {Hook, :parent})
+
+      actions = MediaReorganizer.plan(nil, [])
+
+      hook_nil = Enum.find(actions, &(&1.kind == :hook_nil))
+      refute is_nil(hook_nil)
+      assert hook_nil.reason =~ "2 record"
+    end
+  end
+
   describe "legacy folder relocated elsewhere (catalogue-specific)" do
     test "legacy folder live under a parent that isn't root or the resolved parent → reported :relocated, not adopted" do
       catalogue = new_catalogue()
@@ -897,6 +1050,79 @@ defmodule PhoenixKitCatalogue.MediaReorganizerTest do
       refute Enum.any?(actions, &(&1.kind == :item and &1.op == :move))
       relocated = Enum.find(actions, &(&1.kind == :relocated and &1.label == item.name))
       refute is_nil(relocated)
+    end
+
+    test "pointer already correct AND TWO live legacy-named twins exist elsewhere → both are reported :relocated (F5)" do
+      catalogue = new_catalogue()
+      item = new_item(catalogue, %{name: "Käepide"})
+
+      {:ok, real_folder} = Storage.create_folder(%{name: "Somewhere real"})
+      {:ok, elsewhere1} = Storage.create_folder(%{name: "Container one"})
+      {:ok, elsewhere2} = Storage.create_folder(%{name: "Container two"})
+
+      {:ok, twin1} =
+        Storage.create_folder(%{
+          name: "catalogue-item-#{item.uuid}",
+          parent_uuid: elsewhere1.uuid
+        })
+
+      {:ok, twin2} =
+        Storage.create_folder(%{
+          name: "catalogue-item-#{item.uuid}",
+          parent_uuid: elsewhere2.uuid
+        })
+
+      {:ok, _item} =
+        Catalogue.update_item(item, %{data: %{"files_folder_uuid" => real_folder.uuid}})
+
+      Application.put_env(:phoenix_kit_catalogue, :attachments_parent_folder, {Hook, :parent})
+
+      actions = MediaReorganizer.plan(nil, [])
+
+      refute Enum.any?(actions, &(&1.kind == :item and &1.op == :move))
+
+      relocated_uuids =
+        actions
+        |> Enum.filter(&(&1.kind == :relocated and &1.label == item.name))
+        |> Enum.map(& &1.folder.uuid)
+
+      assert Enum.sort(relocated_uuids) == Enum.sort([twin1.uuid, twin2.uuid])
+    end
+
+    test "resolved via legacy name at root, TWO extra legacy-named twins under third-party parents → both reported :relocated (F5)" do
+      catalogue = new_catalogue()
+      item = new_item(catalogue)
+
+      {:ok, at_root} = Storage.create_folder(%{name: "catalogue-item-#{item.uuid}"})
+      {:ok, elsewhere1} = Storage.create_folder(%{name: "Container one"})
+      {:ok, elsewhere2} = Storage.create_folder(%{name: "Container two"})
+
+      {:ok, twin1} =
+        Storage.create_folder(%{
+          name: "catalogue-item-#{item.uuid}",
+          parent_uuid: elsewhere1.uuid
+        })
+
+      {:ok, twin2} =
+        Storage.create_folder(%{
+          name: "catalogue-item-#{item.uuid}",
+          parent_uuid: elsewhere2.uuid
+        })
+
+      Application.put_env(:phoenix_kit_catalogue, :attachments_parent_folder, {Hook, :parent})
+
+      actions = MediaReorganizer.plan(nil, [])
+
+      action = Enum.find(actions, &(&1.kind == :item and &1.label == item.name))
+      refute is_nil(action)
+      assert action.folder.uuid == at_root.uuid
+
+      relocated_uuids =
+        actions
+        |> Enum.filter(&(&1.kind == :relocated and &1.label == item.name))
+        |> Enum.map(& &1.folder.uuid)
+
+      assert Enum.sort(relocated_uuids) == Enum.sort([twin1.uuid, twin2.uuid])
     end
 
     test "pointer already correct AND a live legacy-named twin exists elsewhere → the twin is reported :relocated" do
@@ -921,6 +1147,90 @@ defmodule PhoenixKitCatalogue.MediaReorganizerTest do
       relocated = Enum.find(actions, &(&1.kind == :relocated and &1.label == item.name))
       refute is_nil(relocated)
       assert relocated.folder.uuid == twin.uuid
+    end
+  end
+
+  describe "light selects never pull the jsonb data column (T8)" do
+    test "candidate-detection queries select the pointer via a jsonb fragment, not the raw data column" do
+      catalogue = new_catalogue()
+      _item = new_item(catalogue)
+
+      ref = make_ref()
+      test_pid = self()
+
+      :telemetry.attach(
+        {__MODULE__, ref},
+        [:phoenix_kit_catalogue, :test, :repo, :query],
+        fn _event, _measurements, %{query: query}, _config ->
+          send(test_pid, {:query, ref, query})
+        end,
+        nil
+      )
+
+      try do
+        MediaReorganizer.plan(nil, [])
+      after
+        :telemetry.detach({__MODULE__, ref})
+      end
+
+      queries = collect_queries(ref)
+
+      # The three light candidate-detection queries share this clause and
+      # nothing else in the plan does.
+      light_queries = Enum.filter(queries, &(&1 =~ "!= 'deleted'"))
+
+      refute Enum.empty?(light_queries)
+      assert Enum.any?(light_queries, &(&1 =~ "->>"))
+      refute Enum.any?(light_queries, &Regex.match?(~r/"data"(?!->)/, &1))
+    end
+  end
+
+  defp collect_queries(ref) do
+    receive do
+      {:query, ^ref, query} -> [query | collect_queries(ref)]
+    after
+      0 -> []
+    end
+  end
+
+  describe "R10 deterministic order (T6)" do
+    test "move actions are ordered catalogues, then categories, then items, each by inserted_at" do
+      catalogue = new_catalogue(%{name: "Root cat"})
+
+      {:ok, category} =
+        Catalogue.create_category(%{name: "Cat A", catalogue_uuid: catalogue.uuid})
+
+      item = new_item(catalogue, %{name: "Item A"})
+
+      {:ok, target} = Storage.create_folder(%{name: "Items"})
+
+      # An item resolved via its live pointer (pointer-track) and a
+      # category resolved via its legacy name (name-track) — mixing both
+      # resolution tracks is exactly what scrambled the order before the
+      # fix (pointer_entries ++ name_entries).
+      {:ok, item_folder} = Storage.create_folder(%{name: "somewhere-item"})
+
+      {:ok, _item} =
+        Catalogue.update_item(item, %{data: %{"files_folder_uuid" => item_folder.uuid}})
+
+      {:ok, cat_folder} = Storage.create_folder(%{name: "catalogue-#{catalogue.uuid}"})
+
+      {:ok, category_folder} =
+        Storage.create_folder(%{name: "catalogue-category-#{category.uuid}"})
+
+      Process.put(:target_folder, target.uuid)
+      Application.put_env(:phoenix_kit_catalogue, :attachments_parent_folder, {Hook, :parent})
+
+      actions = MediaReorganizer.plan(nil, [])
+
+      kinds_in_order =
+        actions
+        |> Enum.filter(&(&1.op == :move))
+        |> Enum.map(& &1.kind)
+
+      assert kinds_in_order == [:catalogue, :category, :item]
+      assert Enum.any?(actions, &(&1.folder && &1.folder.uuid == cat_folder.uuid))
+      assert Enum.any?(actions, &(&1.folder && &1.folder.uuid == category_folder.uuid))
     end
   end
 
