@@ -2648,11 +2648,21 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
   defp root_category_rows(_uuid, _current), do: nil
 
-  defp top_level_trashed(categories) do
+  defp top_level_trashed(categories), do: top_level(categories, :trashed)
+
+  # The categories a root tab lists: a top-level trashed category has no
+  # trashed parent; a top-level live one has no live parent (a live child of
+  # a trashed parent is promoted to the root).
+  defp top_level(categories, group) do
+    in_group? = fn status -> status == "deleted" == (group == :trashed) end
     statuses = Map.new(categories, &{&1.uuid, &1.status})
 
     Enum.filter(categories, fn category ->
-      category.status == "deleted" and Map.get(statuses, category.parent_uuid) != "deleted"
+      in_group?.(category.status) and
+        case Map.fetch(statuses, category.parent_uuid) do
+          {:ok, parent_status} -> not in_group?.(parent_status)
+          :error -> true
+        end
     end)
   end
 
@@ -2684,12 +2694,20 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
   # Categories count into the tabs that list them — tab counts and the
   # opening-tab pick only: node_total must keep counting ITEMS, or the item
-  # list's has-more math answers for rows that aren't items. The root lists
-  # the whole live tree on Active and its top-level trashed categories on
-  # Deleted; a drilled category lists its own direct children on each.
-  defp level_tab_counts(status_counts, _uuid, nil, root_tree) do
-    live = Enum.count(root_tree, &(&1.status != "deleted"))
-    add_category_counts(status_counts, live, length(top_level_trashed(root_tree)))
+  # list's has-more math answers for rows that aren't items. Each tab counts
+  # what it lists at the level: at the root, Active lists its top-level live
+  # categories plus the items with no category (an item inside a category is
+  # counted through that category, not again on its own), and Deleted its
+  # top-level trashed categories plus the loose trashed items; a drilled
+  # category lists its own direct children and direct items on each.
+  defp level_tab_counts(status_counts, uuid, nil, root_tree) do
+    listed_active =
+      Catalogue.uncategorized_count_for_catalogue(uuid, status: "active") +
+        length(top_level(root_tree, :live))
+
+    status_counts
+    |> Map.put("active", listed_active)
+    |> add_tab_count("deleted", length(top_level_trashed(root_tree)))
   end
 
   defp level_tab_counts(status_counts, uuid, %Category{uuid: parent_uuid}, _root_tree) do
