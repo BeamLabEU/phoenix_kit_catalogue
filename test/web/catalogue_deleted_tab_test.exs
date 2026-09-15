@@ -35,7 +35,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDeletedTabTest do
   end
 
   test "the Deleted tab renders the Active tab's components", %{conn: conn} do
-    %{catalogue: catalogue, gone: gone, gone_item: gone_item} = trashed_world()
+    %{catalogue: catalogue, gone: gone, loose: loose} = trashed_world()
     {view, html} = open_deleted_tab(conn, catalogue)
 
     assert :sys.get_state(view.pid).socket.assigns.view_mode == "deleted"
@@ -50,8 +50,75 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDeletedTabTest do
     # Items: the Active tab's table, with the trash row menu and bulk actions.
     assert html =~ "level-items-active"
     refute html =~ "level-items-deleted"
-    assert html =~ ~s(id="item-row-del-menu-#{gone_item.uuid}")
+    assert html =~ ~s(id="item-row-del-menu-#{loose.uuid}")
     assert html =~ ~s(data-bulk-action="request_bulk_restore_items")
+  end
+
+  describe "a trashed category is one closed unit" do
+    defp shelf_world do
+      catalogue = fixture_catalogue()
+      shelf = fixture_category(catalogue, %{name: "Gone shelf"})
+      sub = fixture_category(catalogue, %{name: "Gone sub", parent_uuid: shelf.uuid})
+      shelf_item = fixture_item(%{name: "Shelf item", category_uuid: shelf.uuid})
+      deep_item = fixture_item(%{name: "Deep item", category_uuid: sub.uuid})
+      loose = fixture_item(%{name: "Loose one", catalogue_uuid: catalogue.uuid})
+      {:ok, _} = Catalogue.trash_category(shelf, items: :cascade)
+      {:ok, _} = Catalogue.trash_item(loose)
+
+      %{
+        catalogue: catalogue,
+        shelf: shelf,
+        sub: sub,
+        shelf_item: shelf_item,
+        deep_item: deep_item,
+        loose: loose
+      }
+    end
+
+    test "the tab lists the top-level card and loose items, not what is inside",
+         %{conn: conn} do
+      w = shelf_world()
+      {view, html} = open_deleted_tab(conn, w.catalogue)
+      assigns = :sys.get_state(view.pid).socket.assigns
+
+      assert Enum.map(assigns.child_categories, & &1.uuid) == [w.shelf.uuid]
+      refute html =~ ~s(data-uuid="#{w.sub.uuid}")
+
+      assert Enum.map(assigns.items, & &1.uuid) == [w.loose.uuid]
+      refute html =~ "item-row-del-menu-#{w.shelf_item.uuid}"
+      refute html =~ "item-row-del-menu-#{w.deep_item.uuid}"
+
+      # The card counts everything trashed inside it; the tab counts the
+      # card and the loose item.
+      assert assigns.child_counts[w.shelf.uuid] == 2
+      assert assigns.child_subcat_counts[w.shelf.uuid] == 1
+      assert {"deleted", _label, 2} = List.keyfind(assigns.status_tabs, "deleted", 0)
+    end
+
+    test "search in the tab still finds an item inside a trashed category", %{conn: conn} do
+      w = shelf_world()
+      {view, _html} = open_deleted_tab(conn, w.catalogue)
+
+      render_change(view, "search", %{"query" => "deep"})
+      render_async(view)
+
+      assert Enum.map(:sys.get_state(view.pid).socket.assigns.search_results, & &1.uuid) ==
+               [w.deep_item.uuid]
+    end
+
+    test "a trashed category's URL does not open it", %{conn: conn} do
+      w = shelf_world()
+
+      result = live(conn, "#{@base}/#{w.catalogue.uuid}?category=#{w.sub.uuid}")
+
+      case result do
+        {:ok, view, _html} ->
+          assert :sys.get_state(view.pid).socket.assigns.current_category == nil
+
+        {:error, {kind, %{to: to}}} when kind in [:live_redirect, :redirect] ->
+          refute to =~ w.sub.uuid
+      end
+    end
   end
 
   test "bulk restore brings back only this catalogue's trashed categories, with their items",

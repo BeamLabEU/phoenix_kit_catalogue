@@ -76,7 +76,18 @@ catalogue sweeps and stamps the live children.
   reviving its category. Restore the category instead to get items back in place.
 - **An item stamped by a root whose own category is still trashed** (its category
   was restored and trashed again on its own in between) stays in the trash when
-  the root is restored. It remains in the catalogue's Deleted tab.
+  the root is restored, inside that category.
+
+## What a catalogue's Deleted tab lists
+
+A trashed category is one unit, the way a trashed catalogue is on the catalogue
+list: the tab shows each top-level trashed category (its parent is not trashed)
+as a card, with counts covering the trashed subcategories and items inside it,
+and it cannot be opened. Items are listed on their own only when they sit
+outside a trashed category (uncategorized, or in a live category), and the
+tab's count follows the same rule. Search in the tab still finds every trashed
+item. To act on a category's items separately, trash it with `:uncategorize` or
+`{:move_to, _}` instead of `:cascade`.
 
 ## Status only changes through trash and restore
 
