@@ -2564,7 +2564,10 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     # The root reads its category tree (every status) once: the tab counts,
     # the trash's category cards and their totals all come from it.
     root_tree = root_category_rows(uuid, current)
-    tab_status_counts = level_tab_counts(status_counts, uuid, current, root_tree)
+    children_counts = level_children_counts(uuid, current)
+
+    tab_status_counts =
+      level_tab_counts(status_counts, uuid, current, root_tree, children_counts)
 
     status =
       pick_view_mode(socket, current, node_key, pick_counts(status_counts, tab_status_counts))
@@ -2590,7 +2593,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
     {counts_map, subcat_counts} =
       uuid
-      |> level_count_maps(cat_mode)
+      |> level_count_maps(current, cat_mode, children_counts)
       |> trash_unit_counts(uuid, root_tree, cat_mode, child_categories)
 
     uncat_active = Catalogue.uncategorized_count_for_catalogue(uuid, mode: :active)
@@ -2626,7 +2629,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     catalogue = Catalogue.localize_one(catalogue, loc(socket))
     child_categories = Catalogue.localize(child_categories, loc(socket))
 
-    category_tree_children = load_category_tree_children(uuid, status, loc(socket))
+    category_tree_children = load_category_tree_children(uuid, status, loc(socket), root_tree)
 
     socket
     |> assign(:category_tree_children, category_tree_children)
@@ -2757,7 +2760,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   # counted through that category, not again on its own), and Deleted its
   # top-level trashed categories plus the loose trashed items; a drilled
   # category lists its own direct children and direct items on each.
-  defp level_tab_counts(status_counts, uuid, nil, root_tree) do
+  defp level_tab_counts(status_counts, uuid, nil, root_tree, _children_counts) do
     listed_active =
       Catalogue.uncategorized_count_for_catalogue(uuid, status: "active") +
         length(top_level(root_tree, :live))
@@ -2767,16 +2770,24 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     |> add_tab_count("deleted", length(top_level_trashed(root_tree)))
   end
 
-  defp level_tab_counts(status_counts, uuid, %Category{uuid: parent_uuid}, _root_tree) do
-    live = uuid |> Catalogue.category_children_counts(mode: :active) |> Map.get(parent_uuid, 0)
-
-    trashed =
-      uuid |> Catalogue.category_children_counts(mode: :deleted) |> Map.get(parent_uuid, 0)
-
+  defp level_tab_counts(status_counts, _uuid, %Category{uuid: parent_uuid}, _root_tree, counts) do
+    live = Map.get(counts.active, parent_uuid, 0)
+    trashed = Map.get(counts.deleted, parent_uuid, 0)
     add_category_counts(status_counts, live, trashed)
   end
 
-  defp level_tab_counts(status_counts, _uuid, _current, _root_tree), do: status_counts
+  defp level_tab_counts(status_counts, _uuid, _current, _root_tree, _counts), do: status_counts
+
+  # A drilled level's child-category counts in both modes, read once: the tab
+  # counts need both, and the listing reuses the one for its tab.
+  defp level_children_counts(uuid, %Category{}) do
+    %{
+      active: Catalogue.category_children_counts(uuid, mode: :active),
+      deleted: Catalogue.category_children_counts(uuid, mode: :deleted)
+    }
+  end
+
+  defp level_children_counts(_uuid, _current), do: nil
 
   # What the opening-tab pick weighs: the node's item counts, except that
   # with no live item at all the tab counts decide — live categories make
@@ -2803,14 +2814,33 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   # parent for the browser's collapsible walk. Orphan rows arrive
   # parent-normalized to nil, so the grouping and the level view agree
   # on what's a root.
-  defp load_category_tree_children(uuid, "active", locale) do
-    Catalogue.list_category_tree(uuid, mode: :active)
-    |> Enum.map(fn {c, _depth} -> c end)
+  defp load_category_tree_children(uuid, "active", locale, root_tree) do
+    uuid
+    |> active_category_rows(root_tree)
     |> Catalogue.localize(locale)
     |> Enum.group_by(& &1.parent_uuid)
+    |> Map.update(nil, [], &Enum.sort_by(&1, fn c -> {c.position, c.name} end))
   end
 
-  defp load_category_tree_children(_uuid, _status, _locale), do: %{}
+  defp load_category_tree_children(_uuid, _status, _locale, _root_tree), do: %{}
+
+  # The live tree, parent-normalized like `list_category_tree(mode: :active)`:
+  # a live child of a trashed parent becomes a root, sorted in among the roots
+  # by position and name. The root level already read every category once, so
+  # it filters that; a drilled level reads the live tree itself.
+  defp active_category_rows(uuid, nil),
+    do: uuid |> Catalogue.list_category_tree(mode: :active) |> Enum.map(fn {c, _depth} -> c end)
+
+  defp active_category_rows(_uuid, root_tree) do
+    live = Enum.reject(root_tree, &(&1.status == "deleted"))
+    live_uuids = MapSet.new(live, & &1.uuid)
+
+    Enum.map(live, fn category ->
+      if is_nil(category.parent_uuid) or MapSet.member?(live_uuids, category.parent_uuid),
+        do: category,
+        else: %{category | parent_uuid: nil}
+    end)
+  end
 
   # Re-derives the paperclip (`file_counts`) and attribute-swatch
   # (`attribute_map`) entries for the rows just loaded. Both maps
@@ -2963,12 +2993,26 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   # `@child_counts` / `@child_subcat_counts` are read only inside the
   # category rows, which are empty unless categories show — skip both
   # whole-catalogue GROUP BYs on the inactive/discontinued tabs.
-  defp level_count_maps(uuid, cat_mode) do
-    {Catalogue.item_counts_by_category_for_catalogue(uuid, mode: cat_mode),
-     Catalogue.category_children_counts(uuid, mode: cat_mode)}
+  # At the root's Deleted tab every listed category is a trashed card whose
+  # counts `trash_unit_counts/5` fills in, so the per-category maps go unread.
+  defp level_count_maps(_uuid, nil, :deleted, _children_counts), do: {%{}, %{}}
+
+  defp level_count_maps(uuid, _current, cat_mode, children_counts) do
+    subcat_counts =
+      case children_counts do
+        %{^cat_mode => counts} -> counts
+        _ -> Catalogue.category_children_counts(uuid, mode: cat_mode)
+      end
+
+    {Catalogue.item_counts_by_category_for_catalogue(uuid, mode: cat_mode), subcat_counts}
   end
 
   defp load_level_children(_uuid, :uncategorized, _mode), do: {[], MapSet.new()}
+
+  # The root's Deleted tab lists its trashed cards from the category tree
+  # (`root_trash_categories/4`), so the level listing itself is not read.
+  defp load_level_children(uuid, nil, :deleted),
+    do: {[], Catalogue.category_uuids_with_children(uuid, mode: :deleted)}
 
   defp load_level_children(uuid, current, mode) do
     parent_uuid = node_parent_uuid(current)
@@ -5874,7 +5918,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               <span
                 :if={Map.has_key?(@attribute_map, item.uuid)}
                 class="shrink-0"
-                title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Has attribute group")}
+                title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Has attribute set")}
               >
                 <.icon name="hero-swatch" class="w-3.5 h-3.5 text-primary/60" />
               </span>

@@ -512,7 +512,11 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
         slug -> slug
       end
 
-    taken = set |> list_values() |> MapSet.new(& &1.slug)
+    # Archived and trashed values keep their slugs, and every selection that
+    # holds them, so a new value must not reuse one of theirs either: the two
+    # would share one key and tick together.
+    hidden = [set.uuid] |> list_hidden_values_for() |> Map.get(set.uuid, [])
+    taken = MapSet.new(list_values(set) ++ hidden, & &1.slug)
     if MapSet.member?(taken, base), do: base <> "-" <> random_uid(), else: base
   end
 
@@ -1342,7 +1346,9 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
   an item in it, with that set's values.
 
   Only sets actually in use appear — a filter offering "Colour" for a
-  catalogue of screws is noise. Values come from the set itself rather
+  catalogue of screws is noise. An archived set is left out too: it is
+  retired from new use, and offering it as a filter would keep steering
+  browsing towards it. Values come from the set itself rather
   than from what is currently selected, so picking one that matches
   nothing yet returns an honest empty list instead of hiding the option.
 
@@ -1378,7 +1384,7 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
 
       set_uuids
       |> Enum.map(&get_set(&1, lang: opts[:lang]))
-      |> Enum.reject(&is_nil/1)
+      |> Enum.reject(&(is_nil(&1) or &1.status == "archived"))
       |> Enum.map(fn set ->
         %{
           uuid: set.uuid,
