@@ -23,7 +23,6 @@ defmodule PhoenixKitCatalogue.MediaReorganizer do
 
   import Ecto.Query, warn: false
 
-  alias PhoenixKit.Modules.Storage
   alias PhoenixKit.Modules.Storage.{File, Folder, FolderLink}
   alias PhoenixKitCatalogue.Attachments
   alias PhoenixKitCatalogue.Schemas.{Catalogue, Category, Item, Pdf}
@@ -46,30 +45,57 @@ defmodule PhoenixKitCatalogue.MediaReorganizer do
   def plan(actor_uuid, opts \\ []) do
     pending_days = Keyword.get(opts, :pending_days, @default_pending_days)
 
-    resource_actions(live_catalogues(), :catalogue, actor_uuid) ++
-      resource_actions(live_categories(), :category, actor_uuid) ++
-      resource_actions(live_items(), :item, actor_uuid) ++
+    tagged_records =
+      tag(live_catalogues(), :catalogue) ++
+        tag(live_categories(), :category) ++
+        tag(live_items(), :item)
+
+    resource_actions(tagged_records, actor_uuid) ++
       pending_folder_actions(pending_days) ++
       pdf_report_actions(actor_uuid)
   end
 
   # ── Catalogues / categories / items ─────────────────────────────
 
-  defp resource_actions(records, kind, actor_uuid) do
-    records
-    |> Enum.map(&resource_action(&1, kind, actor_uuid))
+  defp tag(records, kind), do: Enum.map(records, &{&1, kind})
+
+  # Desired parent/name (the host hooks) and the pointer/legacy name used to
+  # find the CURRENT folder are computed once per record up front, then
+  # every folder lookup for the whole batch runs as three preloaded queries
+  # (pointer uuids, legacy names at root, legacy names under a parent)
+  # instead of one-to-three individual round trips per record — the
+  # difference between ~3 queries and 2,500+ on a full catalogue.
+  defp resource_actions(tagged_records, actor_uuid) do
+    desired =
+      Enum.map(tagged_records, fn {record, kind} ->
+        %{
+          record: record,
+          kind: kind,
+          parent_uuid: Attachments.parent_folder_uuid(record, actor_uuid),
+          name: Attachments.folder_name(record, actor_uuid),
+          legacy_name: Attachments.legacy_folder_name(record),
+          pointer: pointer_uuid(record)
+        }
+      end)
+
+    by_pointer = preload_by_uuid(Enum.map(desired, & &1.pointer))
+    by_root_name = preload_by_root_name(Enum.map(desired, & &1.legacy_name))
+    by_parent_name = preload_by_parent_name(desired)
+
+    desired
+    |> Enum.map(&resource_action(&1, by_pointer, by_root_name, by_parent_name))
     |> Enum.reject(&is_nil/1)
   end
 
-  defp resource_action(record, kind, actor_uuid) do
-    case current_folder(record, actor_uuid) do
+  defp resource_action(desired, by_pointer, by_root_name, by_parent_name) do
+    %{record: record, kind: kind, parent_uuid: parent_uuid, name: name} = desired
+
+    case current_folder(desired, by_pointer, by_root_name, by_parent_name) do
       nil ->
         nil
 
       %Folder{} = folder ->
-        parent_uuid = Attachments.parent_folder_uuid(record, actor_uuid)
-        name = Attachments.folder_name(record, actor_uuid)
-        after_move = after_move_fun(record, folder)
+        after_move = after_move_fun(record, desired.pointer, folder)
 
         if noop_move?(folder, parent_uuid, name) and is_nil(after_move) do
           nil
@@ -107,54 +133,68 @@ defmodule PhoenixKitCatalogue.MediaReorganizer do
     Regex.match?(~r/^#{Regex.escape(name)} \(\d+\)$/, folder_name)
   end
 
-  # Pointer, if it still resolves to a live folder; else the legacy
-  # deterministic name at root; else the legacy name under the resolved
-  # parent. `nil` when none of those exist — nothing to move.
-  defp current_folder(record, actor_uuid) do
-    live_folder(pointer_uuid(record)) || legacy_folder(record, actor_uuid)
-  end
-
   defp pointer_uuid(%{data: data}) when is_map(data), do: Map.get(data, "files_folder_uuid")
   defp pointer_uuid(_), do: nil
 
-  defp live_folder(nil), do: nil
-
-  defp live_folder(uuid) do
-    case Storage.get_folder(uuid) do
-      %Folder{trashed_at: nil} = folder -> folder
-      _ -> nil
+  # One query for every distinct pointer uuid in the batch.
+  defp preload_by_uuid(uuids) do
+    case Enum.reject(Enum.uniq(uuids), &is_nil/1) do
+      [] -> %{}
+      uuids -> Folder |> where([f], f.uuid in ^uuids) |> repo().all() |> Map.new(&{&1.uuid, &1})
     end
   end
 
-  defp legacy_folder(record, actor_uuid) do
-    case Attachments.legacy_folder_name(record) do
-      nil ->
-        nil
+  # One query for every distinct legacy name in the batch, at root.
+  defp preload_by_root_name(names) do
+    case Enum.reject(Enum.uniq(names), &is_nil/1) do
+      [] ->
+        %{}
 
-      name ->
-        live_folder_by_name(name, nil) || legacy_folder_under_parent(name, record, actor_uuid)
+      names ->
+        Folder
+        |> where([f], f.name in ^names and is_nil(f.parent_uuid))
+        |> repo().all()
+        |> Map.new(&{&1.name, &1})
     end
   end
 
-  defp legacy_folder_under_parent(name, record, actor_uuid) do
-    case Attachments.parent_folder_uuid(record, actor_uuid) do
-      nil -> nil
-      parent -> live_folder_by_name(name, parent)
+  # One query for every distinct legacy name under every distinct resolved
+  # parent in the batch (a name × parent cross-match, filtered client-side
+  # to exact pairs when read) — still one round trip for the whole batch.
+  defp preload_by_parent_name(desired) do
+    names = desired |> Enum.map(& &1.legacy_name) |> Enum.reject(&is_nil/1) |> Enum.uniq()
+    parents = desired |> Enum.map(& &1.parent_uuid) |> Enum.reject(&is_nil/1) |> Enum.uniq()
+
+    if names == [] or parents == [] do
+      %{}
+    else
+      Folder
+      |> where([f], f.name in ^names and f.parent_uuid in ^parents)
+      |> repo().all()
+      |> Map.new(&{{&1.name, &1.parent_uuid}, &1})
     end
   end
 
-  defp live_folder_by_name(name, parent_uuid) do
-    case Attachments.find_folder_by_name(name, parent_uuid) do
-      %Folder{trashed_at: nil} = folder -> folder
-      _ -> nil
-    end
+  # Pointer, if it still resolves to a live folder; else the legacy
+  # deterministic name at root; else the legacy name under the resolved
+  # parent. `nil` when none of those exist — nothing to move.
+  defp current_folder(desired, by_pointer, by_root_name, by_parent_name) do
+    %{legacy_name: legacy_name, parent_uuid: parent_uuid, pointer: pointer} = desired
+
+    live_or_nil(pointer && Map.get(by_pointer, pointer)) ||
+      (legacy_name && live_or_nil(Map.get(by_root_name, legacy_name))) ||
+      (legacy_name && parent_uuid &&
+         live_or_nil(Map.get(by_parent_name, {legacy_name, parent_uuid})))
   end
+
+  defp live_or_nil(%Folder{trashed_at: nil} = folder), do: folder
+  defp live_or_nil(_), do: nil
 
   # `nil` when the pointer already matches the current (pre-move) folder —
   # nothing to back-fill. Otherwise a fun the engine runs after the move,
   # inside the same transaction, to write/repair the pointer.
-  defp after_move_fun(record, %Folder{uuid: folder_uuid}) do
-    if pointer_uuid(record) == folder_uuid do
+  defp after_move_fun(record, pointer, %Folder{uuid: folder_uuid}) do
+    if pointer == folder_uuid do
       nil
     else
       fn -> write_pointer(record, folder_uuid) end
