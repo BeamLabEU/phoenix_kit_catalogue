@@ -1359,8 +1359,8 @@ msgstr "Vaata vanu väärtusi (%{count})"
 msgid "Hand-typed metadata from before attribute groups. Kept so nothing is lost — move what matters into a group, then clear these."
 msgstr "Käsitsi sisestatud metaandmed atribuudirühmade eelsest ajast. Alles hoitud, et midagi ei kaoks — vii oluline rühma ja tühjenda need."
 
-msgid "Has attribute group"
-msgstr "Atribuudirühmaga"
+msgid "Has attribute set"
+msgstr "Atribuudikomplektiga"
 
 msgid "AI translate names & values"
 msgstr "Tõlgi nimed ja väärtused AI-ga"
@@ -3458,3 +3458,9 @@ msgstr "See taastati vahepeal, seega seda ei kustutatud."
 
 msgid "This category, %{subcategories} subcategories and %{items} items inside it will be permanently deleted. This cannot be undone."
 msgstr "See kategooria, %{subcategories} alamkategooriat ja %{items} toodet selle sees kustutatakse jäädavalt. Seda ei saa tagasi võtta."
+
+msgid "Failed to delete attribute."
+msgstr "Atribuudi kustutamine ebaõnnestus."
+
+msgid "%{value} (archived)"
+msgstr "%{value} (arhiveeritud)"

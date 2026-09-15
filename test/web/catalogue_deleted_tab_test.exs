@@ -290,6 +290,21 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDeletedTabTest do
       assert assigns.child_counts[shelf.uuid] == 1
     end
 
+    test "the Deleted tab shows the Status column even when the user's columns leave it out",
+         %{conn: conn} do
+      catalogue = fixture_catalogue()
+      fixture_item(%{name: "Still here", catalogue_uuid: catalogue.uuid})
+      gone = fixture_item(%{name: "Gone here", catalogue_uuid: catalogue.uuid})
+      {:ok, _} = Catalogue.trash_item(gone)
+
+      {:ok, view, _html} = live(conn, "#{@base}/#{catalogue.uuid}")
+      render_click(view, "remove_column", %{"column_id" => "status", "scope" => "detail_items"})
+      refute has_element?(view, "#level-items-active th", "Status")
+
+      render_click(view, "switch_view", %{"mode" => "deleted"})
+      assert has_element?(view, "#level-items-active th", "Status")
+    end
+
     test "a trashed item's name does not link to its edit form", %{conn: conn} do
       %{catalogue: catalogue, loose: loose} = trashed_world()
       {_view, html} = open_deleted_tab(conn, catalogue)
