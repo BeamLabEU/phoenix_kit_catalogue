@@ -775,6 +775,28 @@ defmodule PhoenixKitCatalogue.GettextTest do
     end
   end
 
+  describe "item selector comfy-mode view toggle strings are present in every locale" do
+    # The third view_toggle mode (PR #117, comfy density) replaced the old
+    # "List view" label on this toggle with two new ones. item_selector_modal.ex
+    # already uses the macro gettext form, so `mix gettext.extract` alone could
+    # see these two — but a project-wide extract/merge is still off limits (see
+    # AGENTS.md: almost every other string here uses the runtime form, which a
+    # merge would wipe), so these were added by hand like the rest.
+    test "Comfy list view" do
+      msgid = "Comfy list view"
+      assert po_msgstr("en", msgid) == msgid
+      assert gettext_in("et", msgid) == "Mugav loend"
+      assert gettext_in("ru", msgid) == "Комфортный список"
+    end
+
+    test "Compact list view" do
+      msgid = "Compact list view"
+      assert po_msgstr("en", msgid) == msgid
+      assert gettext_in("et", msgid) == "Kompaktne loend"
+      assert gettext_in("ru", msgid) == "Компактный список"
+    end
+  end
+
   # Block 1, Task 3: the item/category forms' per-language slug input and
   # translatable seo_title/seo_description labels/placeholder.
   describe "slug + SEO form strings are present in every locale" do
