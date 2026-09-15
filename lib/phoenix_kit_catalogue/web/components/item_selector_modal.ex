@@ -1236,11 +1236,18 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
         </div>
         <%!-- The id lives on a wrapper: core's table_default drops :id
         in its classic (no items) mode. --%>
-        <div :if={@view == "table"} id={"#{@id}-table"}>
+        <div
+          :if={@view in ["table", "comfy"]}
+          id={"#{@id}-table"}
+          class={@view == "comfy" && "pk-comfy"}
+        >
           <.table_default size="sm" wrapper_class="overflow-x-auto shadow-none rounded-none">
             <.table_default_header>
               <.table_default_row>
-                <.table_default_header_cell :if={@photo_col?} class="w-12 !pr-0 !py-1">
+                <.table_default_header_cell
+                  :if={@photo_col?}
+                  class="w-12 !pr-0 !py-1 [.pk-comfy_&]:w-22 [.pk-comfy_&]:!py-1.5"
+                >
                 </.table_default_header_cell>
                 <.table_default_header_cell>{gettext("Name")}</.table_default_header_cell>
                 <Shared.category_header_cells columns={@columns} />
@@ -1251,7 +1258,10 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
                 <%!-- The image enters the level exactly like the name
                 (Max, 2026-08-31: "image and title... should be
                 clickable to enter them"). --%>
-                <.table_default_cell :if={@photo_col?} class="w-12 !pr-0 !py-1">
+                <.table_default_cell
+                  :if={@photo_col?}
+                  class="w-12 !pr-0 !py-1 [.pk-comfy_&]:w-22 [.pk-comfy_&]:!py-1.5"
+                >
                   <button
                     type="button"
                     phx-click={@tile_event}
@@ -1290,7 +1300,10 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
                 />
               </.table_default_row>
               <.table_default_row :if={@uncat?}>
-                <.table_default_cell :if={@photo_col?} class="w-12 !pr-0 !py-1">
+                <.table_default_cell
+                  :if={@photo_col?}
+                  class="w-12 !pr-0 !py-1 [.pk-comfy_&]:w-22 [.pk-comfy_&]:!py-1.5"
+                >
                   <button
                     type="button"
                     phx-click="browse_category"
