@@ -1108,8 +1108,10 @@ defmodule PhoenixKitCatalogue.Catalogue do
   Lists a page of a catalogue's items ACROSS all its categories — the
   detail page's Items mode since category drilling was removed (Max,
   2026-08-29): with no level to stand in, the mode lists the whole
-  catalogue. Same options as `list_items_for_category_paged/2`. The
-  default (position) order is the DOCUMENT order — category position,
+  catalogue. Same options as `list_items_for_category_paged/2`, plus
+  `:outside_trashed_categories` — `true` skips items inside a trashed
+  category, which the Deleted tab counts on that category's card instead.
+  The default (position) order is the DOCUMENT order — category position,
   then item position — the same walk the export uses.
   """
   @spec list_catalogue_items_paged(Ecto.UUID.t(), keyword()) :: [Item.t()]
@@ -1133,6 +1135,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
     query
     |> filter_by_attribute_values(opts)
     |> apply_item_status_filter(opts, mode)
+    |> maybe_outside_trashed_categories(opts)
     |> apply_catalogue_item_order(opts)
     |> repo().all()
     |> Manufacturers.hydrate()
@@ -1146,7 +1149,14 @@ defmodule PhoenixKitCatalogue.Catalogue do
     from(i in Item, as: :item, where: i.catalogue_uuid == ^catalogue_uuid)
     |> filter_by_attribute_values(opts)
     |> apply_item_status_filter(opts, mode)
+    |> maybe_outside_trashed_categories(opts)
     |> repo().aggregate(:count)
+  end
+
+  defp maybe_outside_trashed_categories(query, opts) do
+    if Keyword.get(opts, :outside_trashed_categories, false),
+      do: outside_trashed_categories(query),
+      else: query
   end
 
   @doc "Per-status item counts for a whole catalogue: `%{\"active\" => n, …}`."

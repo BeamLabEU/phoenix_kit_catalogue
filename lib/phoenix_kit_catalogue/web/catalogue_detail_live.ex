@@ -439,10 +439,15 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   defp resolve_node(_catalogue_uuid, nil), do: {:ok, nil}
   defp resolve_node(_catalogue_uuid, "uncategorized"), do: {:ok, :uncategorized}
 
+  # A trashed category is a closed unit in the Deleted tab and cannot be
+  # opened: its URL bounces like an unknown one.
   defp resolve_node(catalogue_uuid, uuid) do
     case Catalogue.get_category(uuid) do
-      %Category{catalogue_uuid: ^catalogue_uuid} = cat -> {:ok, cat}
-      _ -> :invalid
+      %Category{catalogue_uuid: ^catalogue_uuid, status: status} = cat when status != "deleted" ->
+        {:ok, cat}
+
+      _ ->
+        :invalid
     end
   end
 
@@ -2528,7 +2533,10 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     # items alone opened a catalogue whose categories were all empty, with
     # one trashed item, on Deleted with the Active tab dropped: the live
     # categories were unreachable, and a refresh picked the same.
-    tab_status_counts = level_tab_counts(status_counts, uuid, current)
+    # The root reads its category tree (every status) once: the tab counts,
+    # the trash's category cards and their totals all come from it.
+    root_tree = root_category_rows(uuid, current)
+    tab_status_counts = level_tab_counts(status_counts, uuid, current, root_tree)
 
     status =
       pick_view_mode(socket, current, node_key, pick_counts(status_counts, tab_status_counts))
@@ -2550,9 +2558,10 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     # subtree toggle entirely).
     {child_categories, children_with_subs} = load_level_children(uuid, current, cat_mode)
 
-    child_categories = root_trash_categories(uuid, current, cat_mode, child_categories)
+    child_categories = root_trash_categories(root_tree, current, cat_mode, child_categories)
 
-    {counts_map, subcat_counts} = level_count_maps(uuid, cat_mode)
+    {counts_map, subcat_counts} =
+      uuid |> level_count_maps(cat_mode) |> trash_unit_counts(root_tree, current, cat_mode)
 
     uncat_active = Catalogue.uncategorized_count_for_catalogue(uuid, mode: :active)
 
@@ -2622,39 +2631,68 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     )
   end
 
-  # The trash is catalogue-wide at root (there is no drilling to reach
-  # a deleted SUBcategory any more): list every deleted category flat
-  # (panel finding, 2026-08-29).
-  defp root_trash_categories(uuid, nil, :deleted, _level_categories) do
-    uuid
-    |> Catalogue.list_category_tree(mode: :deleted)
-    |> Enum.map(fn {c, _depth} -> c end)
-    |> Enum.filter(&(&1.status == "deleted"))
+  # The trash is catalogue-wide at root (there is no drilling to reach a
+  # deleted SUBcategory): it lists each top-level trashed category — one
+  # whose parent is not trashed — as a closed unit, the way the catalogue
+  # list shows a trashed catalogue. Its trashed subcategories and items stay
+  # inside it and are not listed on their own (Max, 2026-09-15).
+  defp root_trash_categories(root_tree, nil, :deleted, _level_categories),
+    do: top_level_trashed(root_tree)
+
+  defp root_trash_categories(_root_tree, _current, _cat_mode, level_categories),
+    do: level_categories
+
+  defp root_category_rows(uuid, nil) do
+    uuid |> Catalogue.list_category_tree(mode: :deleted) |> Enum.map(fn {c, _depth} -> c end)
   end
 
-  defp root_trash_categories(_uuid, _current, _cat_mode, level_categories),
-    do: level_categories
+  defp root_category_rows(_uuid, _current), do: nil
+
+  defp top_level_trashed(categories) do
+    statuses = Map.new(categories, &{&1.uuid, &1.status})
+
+    Enum.filter(categories, fn category ->
+      category.status == "deleted" and Map.get(statuses, category.parent_uuid) != "deleted"
+    end)
+  end
+
+  # A trashed category card at the root stands for everything trashed inside
+  # it, since none of that is listed on its own: its item count runs through
+  # its trashed subtree, and its subcategory count is that subtree's size.
+  defp trash_unit_counts({item_counts, subcat_counts}, root_tree, nil, :deleted) do
+    trashed_children =
+      root_tree
+      |> Enum.filter(&(&1.status == "deleted"))
+      |> Enum.group_by(& &1.parent_uuid, & &1.uuid)
+
+    root_tree
+    |> top_level_trashed()
+    |> Enum.reduce({item_counts, subcat_counts}, fn category, {items, subs} ->
+      inside = trashed_descendants(category.uuid, trashed_children)
+      total = Enum.reduce([category.uuid | inside], 0, &(Map.get(item_counts, &1, 0) + &2))
+      {Map.put(items, category.uuid, total), Map.put(subs, category.uuid, length(inside))}
+    end)
+  end
+
+  defp trash_unit_counts(counts, _root_tree, _current, _cat_mode), do: counts
+
+  defp trashed_descendants(uuid, trashed_children) do
+    trashed_children
+    |> Map.get(uuid, [])
+    |> Enum.flat_map(&[&1 | trashed_descendants(&1, trashed_children)])
+  end
 
   # Categories count into the tabs that list them — tab counts and the
   # opening-tab pick only: node_total must keep counting ITEMS, or the item
   # list's has-more math answers for rows that aren't items. The root lists
-  # the whole live tree on Active and every trashed category flat on Deleted
-  # (one query: the :deleted tree carries every status); a drilled category
-  # lists its own direct children on each.
-  defp level_tab_counts(status_counts, uuid, nil) do
-    {live, trashed} =
-      uuid
-      |> Catalogue.list_category_tree(mode: :deleted)
-      |> Enum.reduce({0, 0}, fn {category, _depth}, {live, trashed} ->
-        if category.status == "deleted",
-          do: {live, trashed + 1},
-          else: {live + 1, trashed}
-      end)
-
-    add_category_counts(status_counts, live, trashed)
+  # the whole live tree on Active and its top-level trashed categories on
+  # Deleted; a drilled category lists its own direct children on each.
+  defp level_tab_counts(status_counts, _uuid, nil, root_tree) do
+    live = Enum.count(root_tree, &(&1.status != "deleted"))
+    add_category_counts(status_counts, live, length(top_level_trashed(root_tree)))
   end
 
-  defp level_tab_counts(status_counts, uuid, %Category{uuid: parent_uuid}) do
+  defp level_tab_counts(status_counts, uuid, %Category{uuid: parent_uuid}, _root_tree) do
     live = uuid |> Catalogue.category_children_counts(mode: :active) |> Map.get(parent_uuid, 0)
 
     trashed =
@@ -2663,7 +2701,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     add_category_counts(status_counts, live, trashed)
   end
 
-  defp level_tab_counts(status_counts, _uuid, _current), do: status_counts
+  defp level_tab_counts(status_counts, _uuid, _current, _root_tree), do: status_counts
 
   # What the opening-tab pick weighs: the node's item counts, except that
   # with no live item at all, live categories make Active populated. Live
@@ -2874,8 +2912,23 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   defp node_status_counts(:uncategorized, catalogue_uuid),
     do: Catalogue.item_status_counts_for_uncategorized(catalogue_uuid)
 
-  defp node_status_counts(nil, catalogue_uuid),
-    do: Catalogue.item_status_counts_for_catalogue(catalogue_uuid)
+  # The root's Deleted count is the items its trash lists on their own: an
+  # item inside a trashed category is counted on that category's card.
+  defp node_status_counts(nil, catalogue_uuid) do
+    counts = Catalogue.item_status_counts_for_catalogue(catalogue_uuid)
+
+    if Map.get(counts, "deleted", 0) > 0 do
+      loose =
+        Catalogue.count_items_for_catalogue(catalogue_uuid,
+          status: "deleted",
+          outside_trashed_categories: true
+        )
+
+      Map.put(counts, "deleted", loose)
+    else
+      counts
+    end
+  end
 
   # Loads the next page of the current node's own items (the bottom
   # sentinel during normal browsing — search paging is separate).
@@ -3374,7 +3427,10 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   # `status` is the exact item status of the current tab
   # ("active" | "inactive" | "discontinued" | "deleted").
   defp card_total(:catalogue, catalogue_uuid, status, slugs) do
-    Catalogue.count_items_for_catalogue(catalogue_uuid, status: status, value_slugs: slugs)
+    Catalogue.count_items_for_catalogue(
+      catalogue_uuid,
+      [status: status, value_slugs: slugs] ++ trash_scope(status)
+    )
   end
 
   defp card_total(:uncategorized, catalogue_uuid, status, slugs) do
@@ -3389,10 +3445,14 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     Catalogue.item_count_for_category(category_uuid, status: status, value_slugs: slugs)
   end
 
+  # The catalogue-wide trash lists only items outside a trashed category.
+  defp trash_scope("deleted"), do: [outside_trashed_categories: true]
+  defp trash_scope(_status), do: []
+
   defp fetch_card_items(:catalogue, catalogue_uuid, status, limit, offset, sort_opts) do
     Catalogue.list_catalogue_items_paged(
       catalogue_uuid,
-      [status: status, offset: offset, limit: limit] ++ sort_opts
+      [status: status, offset: offset, limit: limit] ++ trash_scope(status) ++ sort_opts
     )
   end
 
