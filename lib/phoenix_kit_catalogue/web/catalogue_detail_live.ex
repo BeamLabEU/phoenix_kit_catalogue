@@ -378,7 +378,9 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     assigns.items_scope == "subtree" and match?(%Category{}, assigns.current_category)
   end
 
-  # What the search actually asks for: the `?type=` chips' choice.
+  # What the search actually asks for: the `?type=` chips' choice. The trash
+  # shows no chips and finds no categories, so it always searches everything.
+  defp effective_search_type(%{view_mode: "deleted"}), do: ""
   defp effective_search_type(assigns), do: assigns.search_type
 
   # The result-type chips (All / Categories / Items). Client-forgeable
@@ -2587,7 +2589,9 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     child_categories = root_trash_categories(root_tree, current, cat_mode, child_categories)
 
     {counts_map, subcat_counts} =
-      uuid |> level_count_maps(cat_mode) |> trash_unit_counts(uuid, root_tree, current, cat_mode)
+      uuid
+      |> level_count_maps(cat_mode)
+      |> trash_unit_counts(uuid, root_tree, cat_mode, child_categories)
 
     uncat_active = Catalogue.uncategorized_count_for_catalogue(uuid, mode: :active)
 
@@ -2668,9 +2672,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   defp root_trash_categories(_root_tree, _current, _cat_mode, level_categories),
     do: level_categories
 
-  defp root_category_rows(uuid, nil) do
-    uuid |> Catalogue.list_category_tree(mode: :deleted) |> Enum.map(fn {c, _depth} -> c end)
-  end
+  defp root_category_rows(uuid, nil), do: all_category_rows(uuid)
 
   defp root_category_rows(_uuid, _current), do: nil
 
@@ -2692,29 +2694,41 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     end)
   end
 
-  # A trashed category card at the root counts what its Restore brings back,
-  # mirroring `restore_category/2`: the subcategories anywhere in its subtree
-  # stamped with it, and the items stamped with it whose category is live
-  # once those come back (a subcategory restored on its own in between does
-  # not hide them). Rows trashed on their own before it stay in the trash
-  # when it is restored, so they are not counted (Max, 2026-09-15).
-  defp trash_unit_counts(counts, uuid, root_tree, nil, :deleted) do
-    by_root = Catalogue.trashed_item_counts_by_root(uuid)
-    children = Enum.group_by(root_tree, & &1.parent_uuid)
-
-    root_tree
-    |> top_level_trashed()
-    |> Enum.reduce(counts, fn category, {items, subs} ->
-      root = category.uuid
-      below = subtree_below(root, children)
-      revived = Enum.filter(below, &(&1.status == "deleted" and trash_root(&1) == root))
-      live_after = MapSet.new([root | Enum.map(live_or_revived(below, revived), & &1.uuid)])
-      total = restorable_items(by_root, root, live_after)
-      {Map.put(items, root, total), Map.put(subs, root, length(revived))}
-    end)
+  # Every category of the catalogue, in every status.
+  defp all_category_rows(uuid) do
+    uuid |> Catalogue.list_category_tree(mode: :deleted) |> Enum.map(fn {c, _depth} -> c end)
   end
 
-  defp trash_unit_counts(counts, _uuid, _root_tree, _current, _cat_mode), do: counts
+  # A trashed category card counts what its Restore brings back, at the root
+  # and inside a live category alike, mirroring `restore_category/2`: the
+  # subcategories anywhere in its subtree stamped with it, and the items
+  # stamped with it whose category is live once those come back (a
+  # subcategory restored on its own in between does not hide them). Rows
+  # trashed on their own before it stay in the trash when it is restored, so
+  # they are not counted (Max, 2026-09-15).
+  defp trash_unit_counts(counts, uuid, root_tree, :deleted, cards) do
+    case Enum.filter(cards, &(&1.status == "deleted")) do
+      [] ->
+        counts
+
+      trashed_cards ->
+        children = Enum.group_by(root_tree || all_category_rows(uuid), & &1.parent_uuid)
+        by_root = Catalogue.trashed_item_counts_by_root(uuid)
+        Enum.reduce(trashed_cards, counts, &card_restore_counts(&1, &2, children, by_root))
+    end
+  end
+
+  defp trash_unit_counts(counts, _uuid, _root_tree, _cat_mode, _cards), do: counts
+
+  defp card_restore_counts(category, {items, subs}, children, by_root) do
+    root = category.uuid
+    below = subtree_below(root, children)
+    revived = Enum.filter(below, &(&1.status == "deleted" and trash_root(&1) == root))
+    live_after = MapSet.new([root | Enum.map(live_or_revived(below, revived), & &1.uuid)])
+
+    {Map.put(items, root, restorable_items(by_root, root, live_after)),
+     Map.put(subs, root, length(revived))}
+  end
 
   defp subtree_below(uuid, children) do
     children
@@ -3396,8 +3410,28 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   # list in place. No DB reload, so scroll position is preserved (the
   # following `refresh_counts` reconciles totals).
   defp remove_item_locally(socket, item_uuid) do
-    assign(socket, :items, Enum.reject(socket.assigns.items, &(&1.uuid == item_uuid)))
+    socket
+    |> assign(:items, Enum.reject(socket.assigns.items, &(&1.uuid == item_uuid)))
+    |> drop_from_search(item_uuid)
   end
+
+  # A row restored or deleted from the search grid leaves it too; the total
+  # and the next page's offset shrink with it, so the next page skips nothing.
+  defp drop_from_search(%{assigns: %{search_results: [_ | _] = results}} = socket, item_uuid) do
+    case Enum.split_with(results, &(&1.uuid == item_uuid)) do
+      {[], _kept} ->
+        socket
+
+      {_gone, kept} ->
+        assign(socket,
+          search_results: kept,
+          search_total: max(socket.assigns.search_total - 1, 0),
+          search_offset: max(socket.assigns.search_offset - 1, 0)
+        )
+    end
+  end
+
+  defp drop_from_search(socket, _item_uuid), do: socket
 
   # Re-fetches the current node's items after an in-place change (DnD
   # reorder, or a cross-tab reorder broadcast). `scope` identifies which
@@ -3538,14 +3572,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     )
   end
 
-  # Sort opts threaded into the active-list paged fetches. Deleted mode
-  # keeps the position-default order (the deleted list still renders via
-  # the plain item_table without a sort control).
-  # The deleted list renders without a sort control; every other status
-  # (active/inactive/discontinued) uses the core toolkit table with sorting.
-  defp items_sort_opts(%{assigns: %{view_mode: "deleted"}} = socket),
-    do: [value_slugs: active_attribute_slugs(socket)]
-
+  # Sort opts threaded into the paged item fetches. Every tab, the Deleted
+  # tab included, renders the core toolkit table with its sort headers.
   defp items_sort_opts(socket) do
     [
       sort_by: socket.assigns.items_sort_by,
@@ -3839,7 +3867,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
             <%!-- Root-only: a drilled page's search covers sections and
                   content automatically (Max, 2026-08-29). --%>
             <div
-              :if={is_nil(@current_category)}
+              :if={is_nil(@current_category) and @view_mode != "deleted"}
               class="join"
               role="group"
               aria-label={gettext("Search for")}
@@ -5834,12 +5862,15 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
           <:card_body :let={item}>
             <div class="flex items-center gap-2 font-medium text-sm">
               <.link
-                :if={item.uuid}
+                :if={item.uuid && @view_mode != "deleted"}
                 navigate={@edit_path_fn.(item.uuid)}
                 class="link link-hover min-w-0 truncate"
               >
                 {item.name || "—"}
               </.link>
+              <span :if={item.uuid && @view_mode == "deleted"} class="min-w-0 truncate">
+                {item.name || "—"}
+              </span>
               <span
                 :if={Map.has_key?(@attribute_map, item.uuid)}
                 class="shrink-0"
@@ -6010,7 +6041,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               </.table_default_cell>
               <.item_pricing_cell
                 item={item}
-                edit_path={@edit_path_fn}
+                edit_path={if @view_mode != "deleted", do: @edit_path_fn}
                 has_attributes={Map.has_key?(@attribute_map, item.uuid)}
                 attribute_text={
                   if "attributes" in @items_columns,
