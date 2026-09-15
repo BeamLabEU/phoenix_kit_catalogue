@@ -102,6 +102,26 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailEmptyCategoryTest do
       assert tab_statuses(view) == ["active", "deleted"]
     end
 
+    # Max, 2026-09-15: "Active (2)" for one category holding one item — the
+    # item was counted on its own and again through its category.
+    test "the root's Active count is what it lists: top-level categories and loose items",
+         %{conn: conn} do
+      catalogue = fixture_catalogue(%{name: "Counted"})
+      shelf = fixture_category(catalogue, %{name: "Counted shelf"})
+      fixture_category(catalogue, %{name: "Counted sub", parent_uuid: shelf.uuid})
+      fixture_item(%{name: "Inside", category_uuid: shelf.uuid})
+
+      {:ok, view, _html} = live(conn, "#{@base}/#{catalogue.uuid}")
+      assert {"active", _label, 1} = List.keyfind(assigns(view).status_tabs, "active", 0)
+
+      fixture_item(%{name: "Loose live", catalogue_uuid: catalogue.uuid})
+      dormant = fixture_item(%{name: "Loose dormant", catalogue_uuid: catalogue.uuid})
+      {:ok, _} = Catalogue.update_item(dormant, %{status: "inactive"})
+
+      {:ok, view, _html} = live(conn, "#{@base}/#{catalogue.uuid}")
+      assert {"active", _label, 2} = List.keyfind(assigns(view).status_tabs, "active", 0)
+    end
+
     test "a category whose only live content is a subcategory opens on Active", %{conn: conn} do
       catalogue = fixture_catalogue(%{name: "Shelves"})
       parent = fixture_category(catalogue, %{name: "Shelf unit"})
