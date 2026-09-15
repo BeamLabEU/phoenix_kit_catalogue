@@ -13,6 +13,11 @@
 - Newly uploaded PDF library files are attached to the host's PDF
   parent folder when one is configured; content-deduped uploads are
   left where they already live.
+- **Item picker dropdown rows show a photo thumbnail** (A040 part 2). Each
+  suggestion in the item picker's dropdown list now renders the item's
+  featured-image thumbnail next to its name, the same way the picker's
+  own selected-item slot already does; an item without a photo renders
+  unchanged, with no layout gap.
 
 ## 0.31.3 - 2026-09-14
 
