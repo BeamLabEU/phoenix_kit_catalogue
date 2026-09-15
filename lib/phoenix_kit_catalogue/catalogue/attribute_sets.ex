@@ -76,10 +76,10 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
   # ── Startup registration ───────────────────────────────────────────
 
   @doc """
-  Registers the catalogue's blueprint delete guard with entities.
-  Ships as a supervision child via `PhoenixKitCatalogue.children/0`, so
-  it runs once per boot; deleting a set with item attachments is
-  refused at the entities write path.
+  Runs the legacy attribute migration and the managed-path backfill once per
+  boot, as a supervision child via `PhoenixKitCatalogue.children/0`. The
+  blueprint delete guard is registered by `DeleteGuards`, together with the
+  supplier fields' guard, so the two registrations never race.
   """
   @spec child_spec(keyword()) :: Supervisor.child_spec()
   def child_spec(_opts) do
@@ -93,7 +93,6 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
   @doc false
   @spec startup() :: :ok
   def startup do
-    register_deletion_guard()
     auto_migrate_legacy()
     backfill_managed_path()
   end
@@ -481,21 +480,34 @@ defmodule PhoenixKitCatalogue.Catalogue.AttributeSets do
          {:ok, extras} <- cast_extras(set, Map.get(attrs, :extras)) do
       label = String.trim(Map.get(attrs, :label, ""))
 
-      %{
-        entity_uuid: set.uuid,
-        title: label,
-        slug: value_slug(set, Map.get(attrs, :slug), label),
-        status: "published",
-        data: extras || %{}
-      }
-      |> maybe_put_creator(opts)
-      # activity_log: false — this module writes its own richer
-      # attribute_set.value_created row below; without the flag every
-      # add double-logs (entities' entity_data.created + ours).
-      |> PhoenixKitEntities.EntityData.create(activity_log: false)
+      repo().transaction(fn -> insert_value_locked(set, attrs, label, extras, opts) end)
       |> tap_log("attribute_set.value_created", opts, & &1.entity_uuid, fn v ->
         %{"set" => set.name, "value" => v.slug}
       end)
+    end
+  end
+
+  # Per-set lock, the one attaching and deleting take: two sessions creating
+  # "Red" at once both found the slug free and both inserted it, since nothing
+  # indexes (entity_uuid, slug). Runs inside the caller's transaction.
+  defp insert_value_locked(set, attrs, label, extras, opts) do
+    lock_set(set.uuid)
+
+    %{
+      entity_uuid: set.uuid,
+      title: label,
+      slug: value_slug(set, Map.get(attrs, :slug), label),
+      status: "published",
+      data: extras || %{}
+    }
+    |> maybe_put_creator(opts)
+    # activity_log: false — this module writes its own richer
+    # attribute_set.value_created row; without the flag every add
+    # double-logs (entities' entity_data.created + ours).
+    |> PhoenixKitEntities.EntityData.create(activity_log: false)
+    |> case do
+      {:ok, value} -> value
+      {:error, reason} -> repo().rollback(reason)
     end
   end
 

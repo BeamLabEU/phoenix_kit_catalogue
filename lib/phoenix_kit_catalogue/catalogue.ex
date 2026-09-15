@@ -5254,8 +5254,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
   # catalogue mid-import gets one instead of an item in a catalogue its
   # category is not in.
   defp check_item_category(%Ecto.Changeset{} = changeset, known) do
-    with category_uuid when is_binary(category_uuid) <-
-           Ecto.Changeset.get_change(changeset, :category_uuid),
+    with category_uuid when is_binary(category_uuid) <- category_to_check(changeset),
          {category_status, category_catalogue_uuid} <- category_facts(category_uuid, known) do
       live? = Ecto.Changeset.get_field(changeset, :status) != "deleted"
 
@@ -5271,6 +5270,21 @@ defmodule PhoenixKitCatalogue.Catalogue do
       end
     else
       _ -> changeset
+    end
+  end
+
+  # The category to check: a changed one, or the unchanged one when the
+  # item's catalogue changes under it (an importer passing `skip_derive: true`
+  # with a new `catalogue_uuid`). Either can leave an item in a category of
+  # another catalogue.
+  defp category_to_check(changeset) do
+    case Ecto.Changeset.fetch_change(changeset, :category_uuid) do
+      {:ok, category_uuid} ->
+        category_uuid
+
+      :error ->
+        if Ecto.Changeset.changed?(changeset, :catalogue_uuid),
+          do: Ecto.Changeset.get_field(changeset, :category_uuid)
     end
   end
 
@@ -6060,11 +6074,14 @@ defmodule PhoenixKitCatalogue.Catalogue do
     Enum.sort_by(uuids, &category_depth(&1, parents, 0))
   end
 
-  defp category_depth(_uuid, _parents, depth) when depth > 1_000, do: depth
-
+  # Walks parent links up to a root, counting the steps. No real chain has
+  # more steps than the catalogues hold categories, so a longer walk is a
+  # cycle (which the tree guards forbid) and ends there; a deep chain is never
+  # cut short.
   defp category_depth(uuid, parents, depth) do
     case Map.get(parents, uuid) do
       nil -> depth
+      _parent_uuid when depth >= map_size(parents) -> depth
       parent_uuid -> category_depth(parent_uuid, parents, depth + 1)
     end
   end
