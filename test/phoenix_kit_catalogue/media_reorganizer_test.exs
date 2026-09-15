@@ -677,7 +677,7 @@ defmodule PhoenixKitCatalogue.MediaReorganizerTest do
       # unambiguously the current folder.
       {:ok, elsewhere} = Storage.create_folder(%{name: "Somewhere else entirely"})
 
-      {:ok, _legacy} =
+      {:ok, legacy} =
         Storage.create_folder(%{name: "catalogue-item-#{item.uuid}", parent_uuid: elsewhere.uuid})
 
       Process.put(:target_folder, target.uuid)
@@ -693,6 +693,12 @@ defmodule PhoenixKitCatalogue.MediaReorganizerTest do
       assert action.parent_uuid == target.uuid
       assert is_function(action.after_move, 0)
       refute Enum.any?(actions, &(&1.kind == :duplicate))
+
+      # The stray legacy twin under the third-party parent is never
+      # adopted, but it must not go unreported either.
+      relocated = Enum.find(actions, &(&1.kind == :relocated and &1.label == item.name))
+      refute is_nil(relocated)
+      assert relocated.folder.uuid == legacy.uuid
     end
 
     test "host-named folder AND a live legacy folder both under the resolved parent → duplicate, no move" do
@@ -859,6 +865,30 @@ defmodule PhoenixKitCatalogue.MediaReorganizerTest do
       refute Enum.any?(actions, &(&1.kind == :item and &1.op == :move))
       relocated = Enum.find(actions, &(&1.kind == :relocated and &1.label == item.name))
       refute is_nil(relocated)
+    end
+
+    test "pointer already correct AND a live legacy-named twin exists elsewhere → the twin is reported :relocated" do
+      catalogue = new_catalogue()
+      item = new_item(catalogue, %{name: "Käepide"})
+
+      {:ok, real_folder} = Storage.create_folder(%{name: "Somewhere real"})
+      {:ok, twin} = Storage.create_folder(%{name: "catalogue-item-#{item.uuid}"})
+
+      {:ok, _item} =
+        Catalogue.update_item(item, %{data: %{"files_folder_uuid" => real_folder.uuid}})
+
+      Application.put_env(:phoenix_kit_catalogue, :attachments_parent_folder, {Hook, :parent})
+
+      actions = MediaReorganizer.plan(nil, [])
+
+      # The record's actual (pointer) folder is untouched...
+      refute Enum.any?(actions, &(&1.kind == :item and &1.op == :move))
+      # ...but the stray legacy-named twin is neither silently dropped
+      # nor mistaken for an orphan (the record is alive).
+      refute Enum.any?(actions, &(&1.kind == :orphan and &1.folder.uuid == twin.uuid))
+      relocated = Enum.find(actions, &(&1.kind == :relocated and &1.label == item.name))
+      refute is_nil(relocated)
+      assert relocated.folder.uuid == twin.uuid
     end
   end
 end
