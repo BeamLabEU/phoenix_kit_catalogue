@@ -53,8 +53,14 @@ defmodule PhoenixKitCatalogue.MediaReorganizer do
         tag(live_categories(), :category) ++
         tag(live_items(), :item)
 
-    resource_actions(tagged_records, actor_uuid) ++
-      orphan_actions(tagged_records, actor_uuid) ++
+    # Desired parent/name (the host hooks, possibly a DB lookup or a
+    # lazily-created folder on the host side) is resolved exactly once per
+    # record here and threaded into both passes below — `orphan_actions/1`
+    # reuses `desired`'s `parent_uuid`s instead of re-running the hook.
+    desired = resolve_desired(tagged_records, actor_uuid)
+
+    resource_actions(desired) ++
+      orphan_actions(desired) ++
       pending_folder_actions(pending_days) ++
       pdf_report_actions(actor_uuid)
   end
@@ -63,25 +69,24 @@ defmodule PhoenixKitCatalogue.MediaReorganizer do
 
   defp tag(records, kind), do: Enum.map(records, &{&1, kind})
 
-  # Desired parent/name (the host hooks) and the pointer/legacy name used to
-  # find the CURRENT folder are computed once per record up front, then
-  # every folder lookup for the whole batch runs as three preloaded queries
+  defp resolve_desired(tagged_records, actor_uuid) do
+    Enum.map(tagged_records, fn {record, kind} ->
+      %{
+        record: record,
+        kind: kind,
+        parent_uuid: Attachments.parent_folder_uuid(record, actor_uuid),
+        name: Attachments.folder_name(record, actor_uuid),
+        legacy_name: Attachments.legacy_folder_name(record),
+        pointer: pointer_uuid(record)
+      }
+    end)
+  end
+
+  # Every folder lookup for the whole batch runs as three preloaded queries
   # (pointer uuids, legacy names at root, legacy names under a parent)
   # instead of one-to-three individual round trips per record — the
   # difference between ~3 queries and 2,500+ on a full catalogue.
-  defp resource_actions(tagged_records, actor_uuid) do
-    desired =
-      Enum.map(tagged_records, fn {record, kind} ->
-        %{
-          record: record,
-          kind: kind,
-          parent_uuid: Attachments.parent_folder_uuid(record, actor_uuid),
-          name: Attachments.folder_name(record, actor_uuid),
-          legacy_name: Attachments.legacy_folder_name(record),
-          pointer: pointer_uuid(record)
-        }
-      end)
-
+  defp resource_actions(desired) do
     by_pointer = preload_by_uuid(Enum.map(desired, & &1.pointer))
     by_root_name = preload_by_root_name(Enum.map(desired, & &1.legacy_name))
     by_parent_name = preload_by_parent_name(desired)
@@ -285,11 +290,13 @@ defmodule PhoenixKitCatalogue.MediaReorganizer do
   # uses to drop it from the plan) is reported so a host can collect it. Never
   # `:move`d or `:trash`ed here — this module owns no "orphans" container; a
   # legacy folder that IS a live record's current folder is left to
-  # `resource_action/4` above.
-  defp orphan_actions(tagged_records, actor_uuid) do
+  # `resource_action/4` above. Reuses `desired`'s `parent_uuid`s (already
+  # resolved once per record in `plan/2`) rather than calling the host hook
+  # again — that hook can be a DB lookup or create a folder on the host side.
+  defp orphan_actions(desired) do
     resolved_parents =
-      tagged_records
-      |> Enum.map(fn {record, _kind} -> Attachments.parent_folder_uuid(record, actor_uuid) end)
+      desired
+      |> Enum.map(& &1.parent_uuid)
       |> Enum.reject(&is_nil/1)
       |> Enum.uniq()
 
