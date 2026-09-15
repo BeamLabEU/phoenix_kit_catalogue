@@ -365,8 +365,10 @@ in hosts; tests replay `up_statements/2` directly through the repo (`up/1` uses
 Pointers, not docs — the moduledocs are the contract.
 
 - **Trash and restore** — provenance stamps in `data["_trash"]`, the
-  per-catalogue advisory lock, what a restore does and does not undo, and how
-  to add a path without breaking the randomized combination test:
+  per-catalogue advisory lock, what a restore does and does not undo, what a
+  Deleted tab lists and counts (a trashed category is one closed unit, and a
+  trashed card counts what its Restore brings back), and how to add a path
+  without breaking the randomized combination test:
   `dev_docs/guides/trash-and-restore.md`.
 - **Pricing** — chain is `base → markup → discount`.
   `Catalogue.item_pricing/1` is the one-stop API for UIs; pure helpers live on
