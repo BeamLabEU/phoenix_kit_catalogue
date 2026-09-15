@@ -103,6 +103,42 @@ defmodule PhoenixKitCatalogue.MediaReorganizerTest do
     assert is_nil(action.after_move)
   end
 
+  test "counts include a trashed file — the engine re-measures the same way at apply time", %{
+    user_uuid: user_uuid
+  } do
+    catalogue = new_catalogue()
+    item = new_item(catalogue, %{name: "Käepide"})
+
+    {:ok, target} = Storage.create_folder(%{name: "Items"})
+    {:ok, folder} = Storage.create_folder(%{name: "catalogue-item-#{item.uuid}"})
+    {:ok, _item} = Catalogue.update_item(item, %{data: %{"files_folder_uuid" => folder.uuid}})
+
+    {:ok, _trashed_file} =
+      Storage.create_file(%{
+        original_file_name: "old.pdf",
+        file_name: "old.pdf",
+        mime_type: "application/pdf",
+        file_type: "document",
+        ext: "pdf",
+        file_checksum: "checksum-trashed",
+        user_file_checksum: "user-checksum-trashed",
+        size: 10,
+        status: "trashed",
+        folder_uuid: folder.uuid,
+        user_uuid: user_uuid
+      })
+
+    Process.put(:target_folder, target.uuid)
+    Process.put(:target_name, "Nice")
+    Application.put_env(:phoenix_kit_catalogue, :attachments_parent_folder, {Hook, :parent})
+    Application.put_env(:phoenix_kit_catalogue, :attachments_folder_name, {Hook, :name})
+
+    actions = MediaReorganizer.plan(nil, [])
+    action = Enum.find(actions, &(&1.kind == :item))
+
+    assert action.counts == {1, 0}
+  end
+
   test "pointer missing (folder found by legacy name) → after_move back-fills it" do
     catalogue = new_catalogue()
     item = new_item(catalogue, %{name: "Käepide"})
