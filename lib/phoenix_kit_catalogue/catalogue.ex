@@ -2119,13 +2119,20 @@ defmodule PhoenixKitCatalogue.Catalogue do
   end
 
   @doc """
-  Permanently deletes a category and its entire subtree (all descendant
-  categories + every item in any of them) from the database.
+  Permanently deletes a category and its subtree from the database.
 
-  **Cascades downward** in a transaction, following the nested-category
-  tree introduced in V103. Items are hard-deleted first, then the
-  subtree categories from leaves up (ordered so child FKs resolve
-  before their parent is removed). This cannot be undone.
+  A **live** category takes its entire subtree: every descendant category
+  and every item in any of them. A **trashed** category takes only the
+  trashed part: the trashed descendants reached without passing through a
+  live one, and the items in those categories. A live subcategory under it
+  (one restored on its own, which the Active tab already shows at the top
+  level) is kept with its own subtree and moves to the top level.
+
+  Pass `only_trashed: true` from a Deleted-tab action: the call then
+  refuses with `{:error, :not_in_trash}` when the category, re-read under
+  the lock, is no longer trashed (restored in another tab meanwhile).
+
+  Runs in one transaction. This cannot be undone.
   """
   @spec permanently_delete_category(Category.t(), keyword()) ::
           {:ok, Category.t()} | {:error, term()}
@@ -2133,6 +2140,10 @@ defmodule PhoenixKitCatalogue.Catalogue do
     result =
       locked_transaction(fn ->
         fresh = lock_row_in_catalogue!(Category, category.uuid)
+
+        if opts[:only_trashed] == true and fresh.status != "deleted",
+          do: repo().rollback(:not_in_trash)
+
         subtree = Tree.subtree_uuids(fresh.uuid)
         # Locked before the item delete: an item created in or moved into
         # the subtree meanwhile waits on its category row and then fails
@@ -2140,26 +2151,33 @@ defmodule PhoenixKitCatalogue.Catalogue do
         # `ON DELETE SET NULL`.
         lock_categories!(subtree)
 
+        {doomed, kept} = permanent_delete_split(fresh, subtree)
+
+        # A live subcategory kept from a trashed parent moves to the top
+        # level, where the Active tab already lists it.
+        from(c in Category, where: c.uuid in ^kept)
+        |> repo().update_all(set: [parent_uuid: nil])
+
         {items_cascaded, _} =
-          from(i in Item, where: i.category_uuid in ^subtree)
+          from(i in Item, where: i.category_uuid in ^doomed)
           |> repo().delete_all()
 
         # V103's self-FK on parent_uuid has no ON DELETE CASCADE — a
-        # straight `delete_all` on the subtree would reject any parent
-        # row while its children still reference it. Since every row in
-        # the subtree is being deleted anyway, NULL out parent_uuid
-        # first to break the intra-subtree FKs, then delete in one shot.
-        from(c in Category, where: c.uuid in ^subtree)
+        # straight `delete_all` would reject any parent row while its
+        # children still reference it. Every row in `doomed` is being
+        # deleted anyway, so NULL out parent_uuid first to break the
+        # FKs between them, then delete in one shot.
+        from(c in Category, where: c.uuid in ^doomed)
         |> repo().update_all(set: [parent_uuid: nil])
 
-        from(c in Category, where: c.uuid in ^subtree)
+        from(c in Category, where: c.uuid in ^doomed)
         |> repo().delete_all()
 
-        {length(subtree), items_cascaded}
+        {length(doomed), items_cascaded, length(kept)}
       end)
 
     case result do
-      {:ok, {subtree_size, items_cascaded}} ->
+      {:ok, {subtree_size, items_cascaded, kept_count}} ->
         log_activity(%{
           action: "category.permanently_deleted",
           mode: "manual",
@@ -2171,7 +2189,8 @@ defmodule PhoenixKitCatalogue.Catalogue do
             "name" => category.name,
             "catalogue_uuid" => category.catalogue_uuid,
             "subtree_size" => subtree_size,
-            "items_cascaded" => items_cascaded
+            "items_cascaded" => items_cascaded,
+            "kept_live_subcategories" => kept_count
           }
         })
 
@@ -2180,6 +2199,60 @@ defmodule PhoenixKitCatalogue.Catalogue do
       error ->
         error
     end
+  end
+
+  @doc """
+  What `permanently_delete_category/2` would remove, without removing it:
+  `%{subcategories: n, items: m}`, the categories below the given one and
+  the items in all of them. For a trashed category this includes rows that
+  were trashed on their own before it, which its Restore does not bring
+  back and its card does not count, so a Delete Forever confirmation can
+  say what is really destroyed.
+  """
+  @spec permanent_delete_scope(Category.t()) :: %{
+          subcategories: non_neg_integer(),
+          items: non_neg_integer()
+        }
+  def permanent_delete_scope(%Category{} = category) do
+    case repo().get(Category, category.uuid) do
+      nil ->
+        %{subcategories: 0, items: 0}
+
+      fresh ->
+        {doomed, _kept} = permanent_delete_split(fresh, Tree.subtree_uuids(fresh.uuid))
+        items = from(i in Item, where: i.category_uuid in ^doomed) |> repo().aggregate(:count)
+        %{subcategories: max(length(doomed) - 1, 0), items: items}
+    end
+  end
+
+  # What a permanent delete removes. A live root takes its whole subtree; a
+  # trashed root takes the trashed categories reached from it without
+  # crossing a live one, and returns the live children it stops at.
+  defp permanent_delete_split(%Category{status: "deleted", uuid: root}, subtree) do
+    children =
+      from(c in Category, where: c.uuid in ^subtree, select: {c.uuid, c.parent_uuid, c.status})
+      |> repo().all()
+      |> Enum.group_by(&elem(&1, 1))
+
+    walk_trashed([root], children, [], [])
+  end
+
+  defp permanent_delete_split(_live_root, subtree), do: {subtree, []}
+
+  defp walk_trashed([], _children, doomed, kept), do: {doomed, kept}
+
+  defp walk_trashed([uuid | rest], children, doomed, kept) do
+    {trashed, live} =
+      children
+      |> Map.get(uuid, [])
+      |> Enum.split_with(fn {_uuid, _parent, status} -> status == "deleted" end)
+
+    walk_trashed(
+      Enum.map(trashed, &elem(&1, 0)) ++ rest,
+      children,
+      [uuid | doomed],
+      Enum.map(live, &elem(&1, 0)) ++ kept
+    )
   end
 
   @doc """
@@ -5131,15 +5204,6 @@ defmodule PhoenixKitCatalogue.Catalogue do
     end
   end
 
-  # If the effective category exists, pin `catalogue_uuid` to that
-  # category's catalogue — this is the single source of truth and
-  # overrides any stale value the caller might have passed. If no
-  # category exists in the resulting state, leave `catalogue_uuid`
-  # alone; `validate_required` enforces it ends up set.
-  #
-  # The `FOR SHARE` row lock closes the move_category race: see the
-  # comment in `create_item/2`. Must be invoked inside a transaction
-  # for the lock to persist until the insert/update commits.
   # A row created already "deleted" (an import, an API caller) is in the
   # trash on its own: stamped as such, a catalogue restore does not take it
   # for a row trashed before provenance and revive it.
@@ -5214,6 +5278,15 @@ defmodule PhoenixKitCatalogue.Catalogue do
     end
   end
 
+  # If the effective category exists, pin `catalogue_uuid` to that
+  # category's catalogue — this is the single source of truth and
+  # overrides any stale value the caller might have passed. If no
+  # category exists in the resulting state, leave `catalogue_uuid`
+  # alone; `validate_required` enforces it ends up set.
+  #
+  # The `FOR SHARE` row lock closes the move_category race: see the
+  # comment in `create_item/2`. Must be invoked inside a transaction
+  # for the lock to persist until the insert/update commits.
   defp put_catalogue_from_effective_category(attrs, nil), do: attrs
 
   defp put_catalogue_from_effective_category(attrs, category_uuid)
@@ -5458,7 +5531,13 @@ defmodule PhoenixKitCatalogue.Catalogue do
   def permanently_delete_item(%Item{} = item, opts \\ []) do
     result =
       locked_transaction(fn ->
-        _locked = lock_row_in_catalogue!(Item, item.uuid)
+        locked = lock_row_in_catalogue!(Item, item.uuid)
+
+        # `only_trashed: true` (a Deleted-tab action) refuses an item that was
+        # restored in another tab since the page showed it.
+        if opts[:only_trashed] == true and locked.status != "deleted",
+          do: repo().rollback(:not_in_trash)
+
         from(i in Item, where: i.uuid == ^item.uuid) |> repo().delete_all()
         item
       end)
@@ -5550,7 +5629,19 @@ defmodule PhoenixKitCatalogue.Catalogue do
   # ── Bulk actions on UUID lists (admin selection toolbar) ──────
 
   defp bulk_result({:ok, {count, catalogue_uuids}}), do: {count, catalogue_uuids}
-  defp bulk_result({:error, _reason}), do: {0, []}
+
+  defp bulk_result({:error, reason}) do
+    Logger.warning("Catalogue bulk item operation rolled back: #{inspect(reason)}")
+    {0, []}
+  end
+
+  # `only_trashed: true` (a Deleted-tab action) leaves live items alone, so a
+  # row restored in another tab since the page showed it is not destroyed.
+  defp only_trashed_items(query, opts) do
+    if opts[:only_trashed] == true,
+      do: where(query, [i], i.status == "deleted"),
+      else: query
+  end
 
   @doc """
   Bulk soft-deletes items by UUID. Empty list is a no-op. Logs a single
@@ -5713,7 +5804,12 @@ defmodule PhoenixKitCatalogue.Catalogue do
     {count, catalogue_uuids} =
       locked_transaction(fn ->
         catalogue_uuids = lock_catalogues_of!(Item, uuids)
-        {count, _} = from(i in Item, where: i.uuid in ^uuids) |> repo().delete_all()
+
+        {count, _} =
+          from(i in Item, where: i.uuid in ^uuids)
+          |> only_trashed_items(opts)
+          |> repo().delete_all()
+
         {count, catalogue_uuids}
       end)
       |> bulk_result()

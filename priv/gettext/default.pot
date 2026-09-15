@@ -3455,3 +3455,12 @@ msgstr ""
 
 msgid "Permanently deleted %{count} categories."
 msgstr ""
+
+msgid "The catalogue changed while this was running. Please try again."
+msgstr ""
+
+msgid "It was restored in the meantime, so it was not deleted."
+msgstr ""
+
+msgid "This category, %{subcategories} subcategories and %{items} items inside it will be permanently deleted. This cannot be undone."
+msgstr ""
