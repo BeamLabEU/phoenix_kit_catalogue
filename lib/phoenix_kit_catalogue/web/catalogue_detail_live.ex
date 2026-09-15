@@ -2629,7 +2629,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     catalogue = Catalogue.localize_one(catalogue, loc(socket))
     child_categories = Catalogue.localize(child_categories, loc(socket))
 
-    category_tree_children = load_category_tree_children(uuid, status, loc(socket), root_tree)
+    category_tree_children = load_category_tree_children(uuid, status, loc(socket))
 
     socket
     |> assign(:category_tree_children, category_tree_children)
@@ -2814,33 +2814,14 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   # parent for the browser's collapsible walk. Orphan rows arrive
   # parent-normalized to nil, so the grouping and the level view agree
   # on what's a root.
-  defp load_category_tree_children(uuid, "active", locale, root_tree) do
-    uuid
-    |> active_category_rows(root_tree)
+  defp load_category_tree_children(uuid, "active", locale) do
+    Catalogue.list_category_tree(uuid, mode: :active)
+    |> Enum.map(fn {c, _depth} -> c end)
     |> Catalogue.localize(locale)
     |> Enum.group_by(& &1.parent_uuid)
-    |> Map.update(nil, [], &Enum.sort_by(&1, fn c -> {c.position, c.name} end))
   end
 
-  defp load_category_tree_children(_uuid, _status, _locale, _root_tree), do: %{}
-
-  # The live tree, parent-normalized like `list_category_tree(mode: :active)`:
-  # a live child of a trashed parent becomes a root, sorted in among the roots
-  # by position and name. The root level already read every category once, so
-  # it filters that; a drilled level reads the live tree itself.
-  defp active_category_rows(uuid, nil),
-    do: uuid |> Catalogue.list_category_tree(mode: :active) |> Enum.map(fn {c, _depth} -> c end)
-
-  defp active_category_rows(_uuid, root_tree) do
-    live = Enum.reject(root_tree, &(&1.status == "deleted"))
-    live_uuids = MapSet.new(live, & &1.uuid)
-
-    Enum.map(live, fn category ->
-      if is_nil(category.parent_uuid) or MapSet.member?(live_uuids, category.parent_uuid),
-        do: category,
-        else: %{category | parent_uuid: nil}
-    end)
-  end
+  defp load_category_tree_children(_uuid, _status, _locale), do: %{}
 
   # Re-derives the paperclip (`file_counts`) and attribute-swatch
   # (`attribute_map`) entries for the rows just loaded. Both maps
