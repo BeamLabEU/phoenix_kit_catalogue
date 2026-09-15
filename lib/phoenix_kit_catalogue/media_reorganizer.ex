@@ -19,10 +19,19 @@ defmodule PhoenixKitCatalogue.MediaReorganizer do
       pointer folder is "claimed" regardless of whether a hook is
       configured — a pending folder any live record points at is never
       trashed, hook or no hook.
-    * **A hook that raises, exits, or returns anything but `{:ok, uuid}` or
-      an explicit `nil`** is a hook FAILURE: the record is skipped (no
-      move planned for it) and counted into one `kind: :hook_error` report
-      for the whole plan. Only an explicit `nil` means "root".
+    * **A hook that raises, exits, or returns anything but `{:ok, uuid}`,
+      `{:ok, nil}`, or a bare `nil`** is a hook FAILURE: the record is
+      skipped (no move planned for it) and counted into one
+      `kind: :hook_error` report for the whole plan. Only an explicit
+      `nil`/`{:ok, nil}` means "root". A configured `attachments_parent_folder`
+      / `attachments_folder_name` whose `{mod, fun}` is not actually
+      callable (a typo, a removed function) is the same failure, reported
+      the same way — never silently treated as "no hook configured".
+    * **An explicit "root" answer never pulls a folder out from under a
+      real parent.** For a candidate whose current folder already lives
+      under a parent, a `nil`/`{:ok, nil}` parent-hook answer plans only
+      the pointer back-fill (if any) — never a `:move` to root — plus one
+      `kind: :hook_nil` report for the whole plan.
     * **Current-folder lookup mirrors `Attachments.find_resource_folder/2`:**
       host-named folder under the resolved parent, then the legacy
       deterministic name under the resolved parent, then the legacy name
@@ -37,9 +46,10 @@ defmodule PhoenixKitCatalogue.MediaReorganizer do
       one — a record whose pointer folder still literally reads
       `catalogue-item-<uuid>` etc. gets the host name like any other
       candidate.
-    * **A legacy-named folder live somewhere other than root or the
-      resolved parent** (e.g. an old container from a previous layout) is
-      left alone and reported `kind: :relocated` — never adopted or moved.
+    * **Every live legacy-named copy other than a record's adopted current
+      folder** gets its own `kind: :relocated` report (all of them, not
+      only the first) — never adopted or moved, and never reported twice
+      if the copy is itself another record's claimed current folder.
     * **Two records whose resolved *targets* would coincide** (same
       `{parent, desired name}`) are reported `kind: :duplicate` instead of
       both being planned as moves (the second would collide at apply
@@ -255,7 +265,14 @@ defmodule PhoenixKitCatalogue.MediaReorganizer do
   defp stray_relocated_actions(entry, claimed) do
     entry.stray_legacy
     |> Enum.reject(&MapSet.member?(claimed, &1.uuid))
-    |> Enum.map(&build_relocated_action(%{record: entry.record, kind: entry.kind, relocated: &1}))
+    |> Enum.map(
+      &build_relocated_action(%{
+        record: entry.record,
+        kind: entry.kind,
+        relocated: &1,
+        target_parent_uuid: entry.parent_uuid
+      })
+    )
   end
 
   # R2: resolves the desired parent for every candidate via the host's
@@ -308,10 +325,10 @@ defmodule PhoenixKitCatalogue.MediaReorganizer do
   defp resolve_parent(mod, fun, kind, actor_uuid, resource) do
     cond do
       Code.ensure_loaded?(mod) and function_exported?(mod, fun, 3) ->
-        guarded_hook_call(fn -> apply(mod, fun, [kind, actor_uuid, resource]) end)
+        guarded_hook_call(mod, fun, fn -> apply(mod, fun, [kind, actor_uuid, resource]) end)
 
       Code.ensure_loaded?(mod) and function_exported?(mod, fun, 2) ->
-        guarded_hook_call(fn -> apply(mod, fun, [kind, actor_uuid]) end)
+        guarded_hook_call(mod, fun, fn -> apply(mod, fun, [kind, actor_uuid]) end)
 
       true ->
         :error
@@ -323,7 +340,7 @@ defmodule PhoenixKitCatalogue.MediaReorganizer do
   # sent into a later `in ^uuids` query (which would raise a CastError and
   # take down the whole plan). F2: an explicit `{:ok, nil}` or bare `nil`
   # means root.
-  defp guarded_hook_call(fun) do
+  defp guarded_hook_call(mod, fun_name, fun) do
     case fun.() do
       {:ok, uuid} when is_binary(uuid) ->
         case valid_uuid(uuid) do
@@ -343,13 +360,17 @@ defmodule PhoenixKitCatalogue.MediaReorganizer do
   rescue
     error ->
       Logger.warning(
-        "Attachments parent hook raised: " <> Exception.format(:error, error, __STACKTRACE__)
+        "Attachments parent hook #{inspect(mod)}.#{fun_name} raised: " <>
+          Exception.format(:error, error, __STACKTRACE__)
       )
 
       :error
   catch
     kind, reason ->
-      Logger.warning("Attachments parent hook #{kind}: #{inspect(reason)}")
+      Logger.warning(
+        "Attachments parent hook #{inspect(mod)}.#{fun_name} #{kind}: #{inspect(reason)}"
+      )
+
       :error
   end
 
@@ -436,6 +457,10 @@ defmodule PhoenixKitCatalogue.MediaReorganizer do
     end
   end
 
+  # T3 parity: a configured `{mod, fun}` name hook that is not actually
+  # callable (a typo, a removed function) is the same misconfiguration the
+  # parent hook reports as `:hook_error` — it must not silently behave
+  # like "no name hook configured at all".
   defp resolve_configured_folder_name(mod, fun, record, actor_uuid) do
     if Code.ensure_loaded?(mod) and function_exported?(mod, fun, 2) do
       case guarded_name_hook_call(mod, fun, record, actor_uuid) do
@@ -444,7 +469,7 @@ defmodule PhoenixKitCatalogue.MediaReorganizer do
         :error -> :error
       end
     else
-      {:ok, Attachments.legacy_folder_name(record)}
+      :error
     end
   end
 
@@ -756,7 +781,7 @@ defmodule PhoenixKitCatalogue.MediaReorganizer do
     }
   end
 
-  defp build_relocated_action(%{record: record, kind: kind, relocated: folder}) do
+  defp build_relocated_action(%{record: record, kind: kind, relocated: folder} = ctx) do
     %{
       source: "catalogue",
       kind: :relocated,
@@ -764,9 +789,26 @@ defmodule PhoenixKitCatalogue.MediaReorganizer do
       label: record.name,
       folder: folder,
       counts: nil,
-      reason:
-        "legacy folder #{folder.uuid} (#{kind}) is live under a different parent — left alone, never adopted"
+      reason: relocated_reason(folder, kind, Map.get(ctx, :target_parent_uuid))
     }
+  end
+
+  # R3-4: the reason names the copy's actual place — at the media root, or
+  # already under the very parent the record is headed to (where an
+  # eventual move will land next to it as a `"name (N)"` suffixed twin) —
+  # instead of a blanket "under a different parent" that reads wrong for
+  # both of those cases.
+  defp relocated_reason(%Folder{parent_uuid: nil} = folder, kind, _target_parent_uuid) do
+    "legacy folder #{folder.uuid} (#{kind}) is live at the media root — left alone, never adopted"
+  end
+
+  defp relocated_reason(%Folder{parent_uuid: parent_uuid} = folder, kind, parent_uuid) do
+    "legacy folder #{folder.uuid} (#{kind}) is already live under the target parent — left " <>
+      "alone; an eventual move there will land as a \"(N)\" suffixed twin next to it"
+  end
+
+  defp relocated_reason(folder, kind, _target_parent_uuid) do
+    "legacy folder #{folder.uuid} (#{kind}) is live under a different parent — left alone, never adopted"
   end
 
   # R5/X3: a pointer that is not a well-formed UUID is treated as absent,
