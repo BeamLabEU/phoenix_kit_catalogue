@@ -791,6 +791,30 @@ defmodule PhoenixKitCatalogue.MediaReorganizerTest do
       refute is_nil(error)
       assert error.reason =~ "not callable"
     end
+
+    test "name hook module/function does not exist → hook_error, record skipped, parity with the parent hook" do
+      catalogue = new_catalogue()
+      item = new_item(catalogue, %{name: "Käepide"})
+
+      {:ok, target} = Storage.create_folder(%{name: "Items"})
+      {:ok, folder} = Storage.create_folder(%{name: "catalogue-item-#{item.uuid}"})
+      {:ok, _item} = Catalogue.update_item(item, %{data: %{"files_folder_uuid" => folder.uuid}})
+
+      Process.put(:target_folder, target.uuid)
+      Application.put_env(:phoenix_kit_catalogue, :attachments_parent_folder, {Hook, :parent})
+
+      Application.put_env(
+        :phoenix_kit_catalogue,
+        :attachments_folder_name,
+        {PhoenixKitCatalogue.MediaReorganizerTest.NoSuchModule, :name}
+      )
+
+      actions = MediaReorganizer.plan(nil, [])
+
+      refute Enum.any?(actions, &(&1.kind == :item))
+      error = Enum.find(actions, &(&1.kind == :hook_error))
+      refute is_nil(error)
+    end
   end
 
   describe "host-named folder under parent (R3)" do
@@ -1147,6 +1171,39 @@ defmodule PhoenixKitCatalogue.MediaReorganizerTest do
       relocated = Enum.find(actions, &(&1.kind == :relocated and &1.label == item.name))
       refute is_nil(relocated)
       assert relocated.folder.uuid == twin.uuid
+    end
+
+    test "reason names the actual place: at root vs under the record's own target parent (R3-4)" do
+      catalogue = new_catalogue()
+      item = new_item(catalogue, %{name: "Käepide"})
+
+      {:ok, target} = Storage.create_folder(%{name: "Items"})
+      {:ok, real_folder} = Storage.create_folder(%{name: "Real", parent_uuid: target.uuid})
+      {:ok, twin_root} = Storage.create_folder(%{name: "catalogue-item-#{item.uuid}"})
+
+      {:ok, twin_under_target} =
+        Storage.create_folder(%{name: "catalogue-item-#{item.uuid}", parent_uuid: target.uuid})
+
+      {:ok, _item} =
+        Catalogue.update_item(item, %{data: %{"files_folder_uuid" => real_folder.uuid}})
+
+      Process.put(:target_folder, target.uuid)
+      Application.put_env(:phoenix_kit_catalogue, :attachments_parent_folder, {Hook, :parent})
+
+      actions = MediaReorganizer.plan(nil, [])
+
+      root_relocated =
+        Enum.find(actions, &(&1.kind == :relocated and &1.folder.uuid == twin_root.uuid))
+
+      refute is_nil(root_relocated)
+      assert root_relocated.reason =~ "media root"
+
+      under_target_relocated =
+        Enum.find(actions, &(&1.kind == :relocated and &1.folder.uuid == twin_under_target.uuid))
+
+      refute is_nil(under_target_relocated)
+      assert under_target_relocated.reason =~ "target parent"
+      assert under_target_relocated.reason =~ "suffixed twin"
     end
   end
 
