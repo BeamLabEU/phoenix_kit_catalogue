@@ -24,12 +24,5 @@
   #
   # Scoped to :unknown_function deliberately. A real type error in this file
   # still fails the build; only the absent-module noise is suppressed.
-  {"lib/phoenix_kit_catalogue/web/item_form_live.ex", :unknown_function},
-
-  # `MapSet.member?/2` is flagged as an opaqueness mismatch on this OTP/
-  # Elixir combo whenever an empty `MapSet.new/1` and a populated one meet
-  # at a branch (the empty set's internal representation infers as a
-  # tuple, the populated one as a map — both are valid `MapSet.t()`, this
-  # is a PLT/success-typing artifact, not a real type error).
-  {"lib/phoenix_kit_catalogue/media_reorganizer.ex", :call_without_opaque}
+  {"lib/phoenix_kit_catalogue/web/item_form_live.ex", :unknown_function}
 ]
