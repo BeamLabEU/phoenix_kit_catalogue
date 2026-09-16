@@ -534,6 +534,8 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
   # both stay inside the host's stated bound — and bounds that INVERT after
   # rounding raise: every quantity would silently collapse to the max.
   defp resolve_limits!(assigns, qty_precision) do
+    validate_qty_precision!(qty_precision)
+
     limits = %{
       qty_min: round_limit(to_decimal(assigns[:qty_min] || 1), qty_precision, :ceiling),
       qty_max:
@@ -557,6 +559,24 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
 
     limits
   end
+
+  # Anything else used to surface as a FunctionClauseError deep inside
+  # Decimal.round (or as `:any > 0` silently comparing true for a
+  # misspelled atom) — fail at init instead.
+  defp validate_qty_precision!(:any), do: :ok
+  defp validate_qty_precision!(p) when is_integer(p) and p >= 0, do: :ok
+
+  defp validate_qty_precision!(other) do
+    raise ArgumentError,
+          "ItemSelectorModal qty_precision must be a non-negative integer or :any, " <>
+            "got: #{inspect(other)}"
+  end
+
+  # Free-decimal mode takes the host's limits as given; a numeric
+  # precision snaps them onto its grid (min up, max down) so a limit can
+  # never sit between two representable quantities.
+  defp round_limit(limit, :any, _mode), do: limit
+  defp round_limit(limit, precision, mode), do: Decimal.round(limit, precision, mode)
 
   # The default derives from the columns (2026-08-31 — "it's either or"):
   # a visible :qty column IS the amount flavour — every row shows its
@@ -584,12 +604,6 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
   # and one dropdown click away. Hosts override via hidden_columns
   # (unknown/ungranted entries are simply ignored: hiding less than asked
   # never widens anything).
-  # Free-decimal mode takes the host's limits as given; a numeric
-  # precision snaps them onto its grid (min up, max down) so a limit can
-  # never sit between two representable quantities.
-  defp round_limit(limit, :any, _mode), do: limit
-  defp round_limit(limit, precision, mode), do: Decimal.round(limit, precision, mode)
-
   # Quantity-first without a :qty column is a contradiction — the stepper
   # IS the selector — so an ungranted :qty raises and a merely-hidden one
   # is forced visible (locked_columns already stops the viewer hiding it).

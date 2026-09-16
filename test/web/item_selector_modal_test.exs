@@ -1317,6 +1317,14 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       assert inspect(exit_value) =~ "rounds below"
     end
 
+    test "a qty_precision that is neither a non-negative integer nor :any raises at init", %{
+      conn: conn,
+      cat: cat
+    } do
+      exit_value = catch_exit(open(conn, "c=#{cat.uuid}&precision=-1"))
+      assert inspect(exit_value) =~ "qty_precision must be a non-negative integer or :any"
+    end
+
     test "quantity + single + immediate delivers the TYPED quantity", %{
       conn: conn,
       cat: cat,
