@@ -291,6 +291,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
   import PhoenixKitCatalogue.Web.Components.Browse
 
   alias PhoenixKit.Users.Auth
+  alias PhoenixKit.Utils.Number
   require Logger
 
   alias PhoenixKitCatalogue.Catalogue
@@ -2131,17 +2132,14 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
   # A lenient zero probe for the quantity-first paths: parse_qty compares
   # against qty_min, but in that mode zero is the UNSELECTED state and must
   # be recognisable whatever the minimum is. Only FINITE non-positives
-  # qualify: Decimal.parse accepts "NaN" and "Infinity" as full matches,
-  # and neither compares greater-than-zero — without the guards a crafted
-  # NaN would deselect a row, mutating state from garbage input (external
-  # review, 2026-08-31).
+  # qualify: `Number.parse_decimal/2` already rejects "NaN", "Infinity"
+  # and exponent forms outright — without that a crafted NaN would
+  # deselect a row, mutating state from garbage input (external review,
+  # 2026-08-31).
   defp zero_qty?(raw) when is_binary(raw) do
-    case Decimal.parse(String.trim(String.replace(raw, ",", "."))) do
-      {qty, ""} ->
-        not Decimal.nan?(qty) and not Decimal.inf?(qty) and not Decimal.gt?(qty, 0)
-
-      _ ->
-        false
+    case Number.parse_decimal(raw) do
+      {:ok, qty} -> not Decimal.gt?(qty, 0)
+      {:error, _reason} -> false
     end
   end
 
@@ -2185,16 +2183,19 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
   defp round_qty(qty, precision), do: Decimal.round(qty, precision)
 
   defp parse_qty(raw, assigns) when is_binary(raw) do
-    # ru/et keyboards produce a decimal comma; Decimal.parse wants a dot.
-    # Plain digits only — exponent forms are rejected before parse.
-    # Below-minimum input is rejected (field reverts) rather than silently
-    # clamped up; with `qty_min: 0` that correctly admits a typed "0",
-    # which the stepper's minus button could already reach.
-    normalized = raw |> String.trim() |> String.replace(",", ".")
+    # The digit-cap guard accepts EITHER a comma or a dot as the decimal
+    # point (ru/et keyboards produce a comma) but, unlike
+    # `Number.parse_decimal/2`, requires a digit on both sides of it — a
+    # still-typing "2." or "2," must fail here so `qty_change` neither
+    # commits it nor resets the input mid-keystroke (see the moduledoc's
+    # "settled typing" note). Once the shape is confirmed,
+    # `Number.parse_decimal/2` does the real conversion and enforces
+    # `qty_min` (rejected, not clamped up — clamping is `clamp/2`'s job
+    # for the upper bound and the safety ceiling).
+    trimmed = String.trim(raw)
 
-    with true <- Regex.match?(qty_pattern(assigns.qty_precision), normalized),
-         {qty, ""} <- Decimal.parse(normalized),
-         false <- Decimal.lt?(qty, assigns.qty_min) do
+    with true <- Regex.match?(qty_pattern(assigns.qty_precision), trimmed),
+         {:ok, qty} <- Number.parse_decimal(trimmed, min: assigns.qty_min) do
       {:ok, clamp(qty, assigns)}
     else
       _ -> :error
@@ -2205,18 +2206,19 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
 
   # Six decimal places cover every numeric precision the stepper can show;
   # free mode admits twelve — enough for any unit in practice while the
-  # digit cap still keeps `Decimal.parse` away from absurd exponents.
-  defp qty_pattern(:any), do: ~r/^\d{1,12}(\.\d{1,12})?$/
-  defp qty_pattern(_precision), do: ~r/^\d{1,12}(\.\d{1,6})?$/
+  # digit cap still keeps absurd exponents from ever reaching
+  # `Number.parse_decimal/2`.
+  defp qty_pattern(:any), do: ~r/^\d{1,12}([.,]\d{1,12})?$/
+  defp qty_pattern(_precision), do: ~r/^\d{1,12}([.,]\d{1,6})?$/
 
   defp to_decimal(%Decimal{} = d), do: d
   defp to_decimal(n) when is_integer(n), do: Decimal.new(n)
   defp to_decimal(n) when is_float(n), do: Decimal.from_float(n)
 
   defp to_decimal(n) when is_binary(n) do
-    case Decimal.parse(String.trim(n)) do
-      {d, ""} -> d
-      _ -> raise ArgumentError, "not a quantity: #{inspect(n)}"
+    case Number.parse_decimal(n) do
+      {:ok, d} -> d
+      {:error, _reason} -> raise ArgumentError, "not a quantity: #{inspect(n)}"
     end
   end
 
