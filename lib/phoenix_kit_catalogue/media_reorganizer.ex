@@ -416,13 +416,13 @@ defmodule PhoenixKitCatalogue.MediaReorganizer do
   # means root. U6: every log line names the hook as `{mod, fun}` AND the
   # resource `kind`, and a bad (non-exception) return value is logged too,
   # not only a raise/exit.
-  defp guarded_hook_call(mod, fun_name, kind, fun) do
+  defp guarded_hook_call(mod, fun_name, kind, fun, hook_type \\ :parent) do
     case fun.() do
       {:ok, uuid} when is_binary(uuid) ->
         case valid_uuid(uuid) do
           nil ->
             log_and_error(
-              :parent,
+              hook_type,
               mod,
               fun_name,
               kind,
@@ -440,12 +440,12 @@ defmodule PhoenixKitCatalogue.MediaReorganizer do
         {:ok, nil}
 
       other ->
-        log_and_error(:parent, mod, fun_name, kind, "returned #{inspect(other)}")
+        log_and_error(hook_type, mod, fun_name, kind, "returned #{inspect(other)}")
     end
   rescue
     error ->
       log_and_error(
-        :parent,
+        hook_type,
         mod,
         fun_name,
         kind,
@@ -453,7 +453,7 @@ defmodule PhoenixKitCatalogue.MediaReorganizer do
       )
   catch
     exit_kind, reason ->
-      log_and_error(:parent, mod, fun_name, kind, "#{exit_kind}: #{inspect(reason)}")
+      log_and_error(hook_type, mod, fun_name, kind, "#{exit_kind}: #{inspect(reason)}")
   end
 
   # U6: one log format shared by every hook (parent/name/pdf) — always
@@ -1451,33 +1451,34 @@ defmodule PhoenixKitCatalogue.MediaReorganizer do
     end
   end
 
-  # V6: `Attachments.parent_folder_uuid/2` calls the host's configured hook
-  # unguarded (it is meant for the live UI, where a host bug should be
-  # visible) — a raising/exiting `:pdf` hook must not take the whole plan
-  # down the way a record-level hook failure never does.
+  # V6: called directly against the configured `{mod, fun}` — not through
+  # `Attachments.parent_folder_uuid/2`, which normalizes anything but a
+  # binary `{:ok, uuid}` down to `nil` and would make a raising hook AND
+  # an `{:error, _}`/garbage answer indistinguishable from "no library
+  # configured". Routed through `guarded_hook_call/5` (hook_type `:pdf`)
+  # so a raise/exit, a non-uuid `{:ok, _}`, or any other unexpected
+  # answer all get the same single `:hook_error` report the parent hook
+  # gets — never silence.
   defp guarded_pdf_hook_call(actor_uuid) do
-    case Attachments.parent_folder_uuid(:pdf, actor_uuid) do
-      folder_uuid when is_binary(folder_uuid) -> {:ok, folder_uuid}
+    case Application.get_env(:phoenix_kit_catalogue, :attachments_parent_folder) do
+      {mod, fun} when is_atom(mod) and is_atom(fun) -> dispatch_pdf_hook(mod, fun, actor_uuid)
       _ -> {:ok, nil}
     end
-  rescue
-    error ->
-      log_and_error(
-        :pdf,
-        Attachments,
-        :parent_folder_uuid,
-        :pdf,
-        "raised: " <> Exception.format(:error, error, __STACKTRACE__)
-      )
-  catch
-    exit_kind, reason ->
-      log_and_error(
-        :pdf,
-        Attachments,
-        :parent_folder_uuid,
-        :pdf,
-        "#{exit_kind}: #{inspect(reason)}"
-      )
+  end
+
+  defp dispatch_pdf_hook(mod, fun, actor_uuid) do
+    if callable?(mod, fun) do
+      guarded_hook_call(mod, fun, :pdf, fn -> call_pdf_hook(mod, fun, actor_uuid) end, :pdf)
+    else
+      {:ok, nil}
+    end
+  end
+
+  defp call_pdf_hook(mod, fun, actor_uuid) do
+    cond do
+      function_exported?(mod, fun, 3) -> apply(mod, fun, [:pdf, actor_uuid, :pdf])
+      function_exported?(mod, fun, 2) -> apply(mod, fun, [:pdf, actor_uuid])
+    end
   end
 
   defp root_pdf_count do
