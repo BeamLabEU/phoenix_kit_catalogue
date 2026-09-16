@@ -387,7 +387,7 @@ defmodule PhoenixKitCatalogue.MediaReorganizer do
         push_candidate(base, pointer_folder, ptrs, names, errs)
 
       :error ->
-        {ptrs, names, [p.record.name | errs]}
+        {ptrs, names, [{p.record.name, :parent} | errs]}
     end
   end
 
@@ -486,7 +486,7 @@ defmodule PhoenixKitCatalogue.MediaReorganizer do
 
     case name_result do
       :error ->
-        {:error, d.record.name}
+        {:error, {d.record.name, :name}}
 
       {:ok, name} ->
         {:ok,
@@ -527,7 +527,7 @@ defmodule PhoenixKitCatalogue.MediaReorganizer do
       Enum.reduce(candidates, {[], []}, fn c, {acc, errs} ->
         case resolve_folder_name(c.record, c.kind, actor_uuid) do
           {:ok, name} -> {[Map.put(c, :host_name, name) | acc], errs}
-          :error -> {acc, [c.record.name | errs]}
+          :error -> {acc, [{c.record.name, :name} | errs]}
         end
       end)
 
@@ -1117,20 +1117,34 @@ defmodule PhoenixKitCatalogue.MediaReorganizer do
 
   defp hook_error_action([]), do: []
 
+  # N4-3: `labels` is `[{record_name, :parent | :name}, ...]` — the report
+  # names the ACTUAL failing hook (parent, folder-name, or both) instead of
+  # always blaming "the parent hook" for a folder-name hook failure.
   defp hook_error_action(labels) do
+    sources = labels |> Enum.map(&elem(&1, 1)) |> Enum.uniq() |> Enum.sort()
+    record_labels = Enum.map(labels, &elem(&1, 0))
+
     [
       %{
         source: "catalogue",
         kind: :hook_error,
         op: :report,
-        label: "attachments parent hook",
+        label: hook_error_label(sources),
         counts: nil,
         reason:
-          "#{length(labels)} record(s) skipped: the configured parent hook raised, exited, or " <>
-            "returned neither {:ok, uuid} nor nil (#{labels_summary(labels)})"
+          "#{length(labels)} record(s) skipped: #{hook_error_prefix(sources)} raised, exited, " <>
+            "or returned neither {:ok, uuid} nor nil (#{labels_summary(record_labels)})"
       }
     ]
   end
+
+  defp hook_error_label([:parent]), do: "attachments parent hook"
+  defp hook_error_label([:name]), do: "attachments folder-name hook"
+  defp hook_error_label(_mixed), do: "attachments hooks"
+
+  defp hook_error_prefix([:parent]), do: "the configured parent hook"
+  defp hook_error_prefix([:name]), do: "the configured folder-name hook"
+  defp hook_error_prefix(_mixed), do: "the configured parent/folder-name hooks"
 
   # F1: one report for the whole plan, not one per record — mirrors
   # hook_error_action. U8: names the affected records, not just a count.

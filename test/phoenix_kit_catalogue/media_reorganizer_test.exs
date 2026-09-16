@@ -1165,6 +1165,45 @@ defmodule PhoenixKitCatalogue.MediaReorganizerTest do
       assert reloaded.data["files_folder_uuid"] == legacy.uuid
     end
 
+    test "F1 name-track: TWO live legacy copies under different real parents, hook answers root → no adoption, no hook_nil, both :relocated (U1)" do
+      catalogue = new_catalogue()
+      item = new_item(catalogue)
+
+      {:ok, elsewhere1} = Storage.create_folder(%{name: "Container one"})
+      {:ok, elsewhere2} = Storage.create_folder(%{name: "Container two"})
+
+      {:ok, copy1} =
+        Storage.create_folder(%{
+          name: "catalogue-item-#{item.uuid}",
+          parent_uuid: elsewhere1.uuid
+        })
+
+      {:ok, copy2} =
+        Storage.create_folder(%{
+          name: "catalogue-item-#{item.uuid}",
+          parent_uuid: elsewhere2.uuid
+        })
+
+      # `Hook.parent/3`'s default clause answers `nil` (root) here because
+      # `:target_folder` is never set for this record.
+      Application.put_env(:phoenix_kit_catalogue, :attachments_parent_folder, {Hook, :parent})
+
+      actions = MediaReorganizer.plan(nil, [])
+
+      # Two live copies under real (but different) parents is NOT the
+      # single-copy F1 case — the module cannot pick one, so it stays
+      # unresolved: no adoption, no back-fill, no `:hook_nil`.
+      refute Enum.any?(actions, &(&1.kind == :item and &1.label == item.name))
+      refute Enum.any?(actions, &(&1.kind == :hook_nil))
+
+      relocated_uuids =
+        actions
+        |> Enum.filter(&(&1.kind == :relocated and &1.label == item.name))
+        |> Enum.map(& &1.folder.uuid)
+
+      assert Enum.sort(relocated_uuids) == Enum.sort([copy1.uuid, copy2.uuid])
+    end
+
     test "pointer already correct AND TWO live legacy-named twins exist elsewhere → both are reported :relocated (F5)" do
       catalogue = new_catalogue()
       item = new_item(catalogue, %{name: "Käepide"})
@@ -1363,6 +1402,54 @@ defmodule PhoenixKitCatalogue.MediaReorganizerTest do
     after
       0 -> []
     end
+  end
+
+  describe "batched queries: count is constant regardless of candidate count (X1/R6)" do
+    test "the plan issues the same number of queries for 1 candidate as for 10" do
+      catalogue = new_catalogue()
+      {:ok, target} = Storage.create_folder(%{name: "Items"})
+
+      Process.put(:target_folder, target.uuid)
+      Application.put_env(:phoenix_kit_catalogue, :attachments_parent_folder, {Hook, :parent})
+
+      create_legacy_items(catalogue, 1)
+      count_with_1 = count_plan_queries()
+
+      create_legacy_items(catalogue, 9)
+      count_with_10 = count_plan_queries()
+
+      assert count_with_1 == count_with_10
+    end
+  end
+
+  defp create_legacy_items(catalogue, n) do
+    for i <- 1..n do
+      item = new_item(catalogue, %{name: "Bulk #{System.unique_integer([:positive])}-#{i}"})
+      {:ok, _folder} = Storage.create_folder(%{name: "catalogue-item-#{item.uuid}"})
+      item
+    end
+  end
+
+  defp count_plan_queries do
+    ref = make_ref()
+    test_pid = self()
+
+    :telemetry.attach(
+      {__MODULE__, ref},
+      [:phoenix_kit_catalogue, :test, :repo, :query],
+      fn _event, _measurements, %{query: query}, _config ->
+        send(test_pid, {:query, ref, query})
+      end,
+      nil
+    )
+
+    try do
+      MediaReorganizer.plan(nil, [])
+    after
+      :telemetry.detach({__MODULE__, ref})
+    end
+
+    length(collect_queries(ref))
   end
 
   describe "R10 deterministic order (T6)" do
