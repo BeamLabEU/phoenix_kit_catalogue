@@ -1176,7 +1176,7 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
             this.holder = this.el.closest("[data-selected]")
             if (!this.input || !this.holder) return
             this._onInput = () => {
-              const v = parseFloat(this.input.value.replace(",", "."))
+              const v = parseFloat(this.input.value.replace(/,/g, "."))
               if (Number.isNaN(v)) return
               const floor = parseFloat(this.el.dataset.selectFloor || this.input.min)
               let sel = null
