@@ -592,6 +592,16 @@ defmodule PhoenixKitCatalogue.Web.Components.BrowseTest do
       assert en.unit_label == "pc"
     end
 
+    test "a dialect locale resolves to its base language's unit label" do
+      item = %Item{uuid: "u-1", name: "Widget", unit: "piece", data: %{}}
+
+      # Content locales are dialect codes; the gettext backend only has
+      # "ru" — "ru-RU" used to miss and render the English "pc".
+      assert [%{unit_label: "шт"}] = Browse.present_items([item], "ru-RU")
+      assert [%{unit_label: "pc"}] = Browse.present_items([item], "en-US")
+      assert [%{unit_label: "pc"}] = Browse.present_items([item], "ja-JP")
+    end
+
     test "the :unit cell and the price suffix render the label, not the code" do
       item = Map.put(row_item(), :unit_label, "шт")
 

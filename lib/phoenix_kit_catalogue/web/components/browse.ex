@@ -165,8 +165,6 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
   defp presented_price(%{base_price: price}), do: price
   defp presented_price(_), do: nil
 
-  # A flat standalone fee IS the price (line totals included); anything
-  # only representable as text rides fee_note instead.
   @doc """
   The unit text a presented map renders: `unit_label` when `present_items/2`
   built the map, else `Item.unit_label/1` of the raw `unit` (hand-built maps
@@ -178,9 +176,22 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
 
   defp unit_label_in(unit, nil), do: Item.unit_label(unit)
 
-  defp unit_label_in(unit, locale),
-    do: Gettext.with_locale(PhoenixKitCatalogue.Gettext, locale, fn -> Item.unit_label(unit) end)
+  # `locale` is a content-language code, often a dialect ("ru-RU") the
+  # gettext backend has no directory for — a straight `with_locale` would
+  # miss and render the English msgid. Resolve to the base language when
+  # the backend knows it, same as `Duplication`'s copy-name suffix.
+  defp unit_label_in(unit, locale) do
+    base = locale |> String.split("-") |> hd()
+    known = Gettext.known_locales(PhoenixKitCatalogue.Gettext)
+    gettext_locale = if locale in known, do: locale, else: base
 
+    Gettext.with_locale(PhoenixKitCatalogue.Gettext, gettext_locale, fn ->
+      Item.unit_label(unit)
+    end)
+  end
+
+  # A flat standalone fee IS the price (line totals included); anything
+  # only representable as text rides fee_note instead.
   defp presented_price_and_fee(item) do
     case {presented_price(item), smart_fee(item)} do
       {nil, {:price, fee}} -> {fee, nil}
