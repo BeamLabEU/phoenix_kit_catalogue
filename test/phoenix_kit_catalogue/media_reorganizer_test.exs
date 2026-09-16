@@ -50,6 +50,16 @@ defmodule PhoenixKitCatalogue.MediaReorganizerTest do
     def parent(_, _, _), do: nil
   end
 
+  defmodule ErrorPdfHook do
+    def parent(:pdf, _actor, :pdf), do: {:error, :boom}
+    def parent(_, _, _), do: nil
+  end
+
+  defmodule JunkUuidPdfHook do
+    def parent(:pdf, _actor, :pdf), do: {:ok, "junk"}
+    def parent(_, _, _), do: nil
+  end
+
   # Mimics a host hook that treats a resource as top-level whenever its
   # own `parent_uuid` is unset — a nested category's parent hook must see
   # its REAL `parent_uuid`, never a light/partial struct where that
@@ -1861,6 +1871,88 @@ defmodule PhoenixKitCatalogue.MediaReorganizerTest do
           ext: "pdf",
           file_checksum: "checksum-v6",
           user_file_checksum: "user-checksum-v6",
+          size: 20,
+          status: "active",
+          user_uuid: user_uuid
+        })
+
+      {:ok, _pdf} =
+        %Pdf{}
+        |> Pdf.changeset(%{
+          file_uuid: file.uuid,
+          original_filename: "manual.pdf",
+          byte_size: 20,
+          status: "active"
+        })
+        |> Repo.insert()
+
+      actions = MediaReorganizer.plan(nil, [])
+
+      refute Enum.any?(actions, &(&1.kind == :pdf))
+      error = Enum.find(actions, &(&1.kind == :hook_error and &1.label =~ "pdf"))
+      refute is_nil(error)
+    end
+  end
+
+  describe "a :pdf hook returning something other than {:ok, uuid}/nil is a hook failure, not silence" do
+    test "hook returns {:error, _} → hook_error report, never silently 'no library'", %{
+      user_uuid: user_uuid
+    } do
+      Application.put_env(
+        :phoenix_kit_catalogue,
+        :attachments_parent_folder,
+        {ErrorPdfHook, :parent}
+      )
+
+      {:ok, file} =
+        Storage.create_file(%{
+          original_file_name: "manual.pdf",
+          file_name: "manual.pdf",
+          mime_type: "application/pdf",
+          file_type: "document",
+          ext: "pdf",
+          file_checksum: "checksum-pdf-error",
+          user_file_checksum: "user-checksum-pdf-error",
+          size: 20,
+          status: "active",
+          user_uuid: user_uuid
+        })
+
+      {:ok, _pdf} =
+        %Pdf{}
+        |> Pdf.changeset(%{
+          file_uuid: file.uuid,
+          original_filename: "manual.pdf",
+          byte_size: 20,
+          status: "active"
+        })
+        |> Repo.insert()
+
+      actions = MediaReorganizer.plan(nil, [])
+
+      refute Enum.any?(actions, &(&1.kind == :pdf))
+      error = Enum.find(actions, &(&1.kind == :hook_error and &1.label =~ "pdf"))
+      refute is_nil(error)
+    end
+
+    test "hook returns {:ok, \"junk\"} (non-uuid) → hook_error report, never a CastError", %{
+      user_uuid: user_uuid
+    } do
+      Application.put_env(
+        :phoenix_kit_catalogue,
+        :attachments_parent_folder,
+        {JunkUuidPdfHook, :parent}
+      )
+
+      {:ok, file} =
+        Storage.create_file(%{
+          original_file_name: "manual.pdf",
+          file_name: "manual.pdf",
+          mime_type: "application/pdf",
+          file_type: "document",
+          ext: "pdf",
+          file_checksum: "checksum-pdf-junk",
+          user_file_checksum: "user-checksum-pdf-junk",
           size: 20,
           status: "active",
           user_uuid: user_uuid
