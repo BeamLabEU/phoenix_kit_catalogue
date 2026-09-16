@@ -1975,4 +1975,44 @@ defmodule PhoenixKitCatalogue.MediaReorganizerTest do
       refute is_nil(error)
     end
   end
+
+  # Every other test here inspects `plan/2`'s raw maps. This one hands the
+  # source to core's real engine (shipped in phoenix_kit 2.24.0; the pin
+  # floor is older, hence the guard): the maps must pass `Action.new!/1`,
+  # the move and pointer back-fill must apply, and a second run must find
+  # nothing left to do.
+  describe "end to end through core's Reorganizer engine" do
+    @engine PhoenixKit.Modules.Storage.Reorganizer
+
+    unless Code.ensure_loaded?(@engine) do
+      @tag skip: "phoenix_kit without Storage.Reorganizer"
+    end
+
+    test "a legacy root folder is moved, renamed, back-filled, and a rerun is a no-op" do
+      catalogue = new_catalogue()
+      item = new_item(catalogue, %{name: "Handle"})
+
+      {:ok, target} = Storage.create_folder(%{name: "Items"})
+      {:ok, legacy} = Storage.create_folder(%{name: "catalogue-item-#{item.uuid}"})
+
+      Process.put(:target_folder, target.uuid)
+      Process.put(:target_name, "Handle media")
+      Application.put_env(:phoenix_kit_catalogue, :attachments_parent_folder, {Hook, :parent})
+      Application.put_env(:phoenix_kit_catalogue, :attachments_folder_name, {Hook, :name})
+
+      {:ok, report} = @engine.run(nil, apply?: true, sources: [MediaReorganizer])
+
+      action = Enum.find(report.actions, &(&1.kind == :item and &1.label == "Handle"))
+      refute is_nil(action)
+      assert action.outcome not in [:failed, :conflict], inspect(action)
+
+      moved = Repo.get!(PhoenixKit.Modules.Storage.Folder, legacy.uuid)
+      assert moved.parent_uuid == target.uuid
+      assert moved.name == "Handle media"
+      assert Repo.get!(Item, item.uuid).data["files_folder_uuid"] == legacy.uuid
+
+      {:ok, rerun} = @engine.run(nil, apply?: false, sources: [MediaReorganizer])
+      refute Enum.any?(rerun.actions, &(&1.kind == :item))
+    end
+  end
 end
