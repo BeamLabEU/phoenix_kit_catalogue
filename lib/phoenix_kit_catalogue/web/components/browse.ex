@@ -24,7 +24,7 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
       |> Browse.present_items(locale)
       # => [%{uuid: "…", name: "…", sku: "…", price: %Decimal{}|nil,
       #       fee_note: "12%"|"Computed"|nil,
-      #       base_price: %Decimal{}|nil, unit: "piece",
+      #       base_price: %Decimal{}|nil, unit: "piece", unit_label: "pc",
       #       photo_url: "/…/medium/…"|nil, thumb_url: "/…/thumbnail/…"|nil,
       #       manufacturer: "…"|nil, category: "…"|nil,
       #       default_qty: %Decimal{1}}]
@@ -131,6 +131,12 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
         fee_note: fee_note,
         base_price: Map.get(item, :base_price),
         unit: item.unit,
+        # The raw code stays for the host's pick payload; the label is
+        # what renders, in the popup's OWN locale — `Item.unit_label/1`
+        # reads the process locale, which the `locale` attr overrides
+        # for names but never reached units (2026-09-16: "шт" in the
+        # order rows, "piece" in the picker).
+        unit_label: unit_label_in(item.unit, locale),
         manufacturer: item.manufacturer_name || item.manufacturer_name_snapshot,
         category: presented_category(item, locale),
         photo_url: featured_photo_url(item),
@@ -161,6 +167,20 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
 
   # A flat standalone fee IS the price (line totals included); anything
   # only representable as text rides fee_note instead.
+  @doc """
+  The unit text a presented map renders: `unit_label` when `present_items/2`
+  built the map, else `Item.unit_label/1` of the raw `unit` (hand-built maps
+  predate the key). Never the raw code — that is the host payload's field.
+  """
+  @spec unit_label(map()) :: String.t()
+  def unit_label(%{unit_label: label}) when is_binary(label) and label != "", do: label
+  def unit_label(item), do: Item.unit_label(Map.get(item, :unit))
+
+  defp unit_label_in(unit, nil), do: Item.unit_label(unit)
+
+  defp unit_label_in(unit, locale),
+    do: Gettext.with_locale(PhoenixKitCatalogue.Gettext, locale, fn -> Item.unit_label(unit) end)
+
   defp presented_price_and_fee(item) do
     case {presented_price(item), smart_fee(item)} do
       {nil, {:price, fee}} -> {fee, nil}
@@ -540,7 +560,7 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
           <span :if={@show_price && @item.price} class="text-sm font-semibold">
             {format_price(@item.price)}
             <span :if={@item.unit} class="text-xs font-normal text-base-content/60">
-              / {@item.unit}
+              / {unit_label(@item)}
             </span>
           </span>
           <span
@@ -577,7 +597,7 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
           <span :if={@show_price && @item.price} class="text-sm font-semibold">
             {format_price(@item.price)}
             <span :if={@item.unit} class="text-xs font-normal text-base-content/60">
-              / {@item.unit}
+              / {unit_label(@item)}
             </span>
           </span>
           <span
@@ -721,7 +741,8 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
   # `:price` is the customer-facing SELLING price (markup and discount
   # applied — `item_pricing/1`'s final_price) rendered as "6.40 / piece";
   # `:base_price` is the raw column for internal embeds; `:unit` is the
-  # standalone unit for lists that show no price at all; `:breadcrumb` is
+  # standalone unit column — granted, it takes the unit out of the price
+  # cell (`item_row`'s `inline_unit`); `:breadcrumb` is
   # a headerless muted "Category /" prefix cell that sits flush against
   # the Name column, keeping names clean in their own column.
   @table_columns ~w(thumb breadcrumb name sku manufacturer category unit price base_price qty)a
@@ -903,6 +924,16 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
   )
 
   attr(:target, :any, default: nil)
+
+  attr(:inline_unit, :boolean,
+    default: true,
+    doc:
+      "the \"/ pc\" suffix inside the :price cell. Pass false when the host " <>
+        "GRANTED a separate :unit column (2026-09-16): the unit then lives " <>
+        "in its own toggleable column and hiding it leaves a bare price, " <>
+        "instead of the unit being glued to the price with no way off."
+  )
+
   slot(:qty, doc: "rendered in the :qty cell when that column is present")
 
   def item_row(assigns) do
@@ -988,12 +1019,15 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
           <% :category -> %>
             <span class="text-base-content/70">{@item.category}</span>
           <% :unit -> %>
-            <span class="text-base-content/70">{@item.unit}</span>
+            <span class="text-base-content/70">{unit_label(@item)}</span>
           <% :price -> %>
             <span :if={@item.price} class="font-semibold whitespace-nowrap">
               {format_price(@item.price)}
-              <span :if={@item.unit} class="text-xs font-normal text-base-content/60">
-                / {@item.unit}
+              <span
+                :if={@inline_unit && @item.unit}
+                class="text-xs font-normal text-base-content/60"
+              >
+                / {unit_label(@item)}
               </span>
             </span>
             <%!-- Smart fee with no numeric price: "12%" / Computed. --%>
@@ -1004,10 +1038,10 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
               {Map.get(@item, :fee_note)}
             </span>
             <span
-              :if={!@item.price && !Map.get(@item, :fee_note) && @item.unit}
+              :if={@inline_unit && !@item.price && !Map.get(@item, :fee_note) && @item.unit}
               class="text-base-content/60"
             >
-              {@item.unit}
+              {unit_label(@item)}
             </span>
           <% :base_price -> %>
             <span class="whitespace-nowrap">{format_price(@item.base_price)}</span>

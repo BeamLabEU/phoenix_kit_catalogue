@@ -167,8 +167,9 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
   column beside Name (granted and hidden by default, like `:sku`). Unknown entries raise. `:price` is the customer-facing selling
   price (markup and discounts applied) shown as "6.40 / piece" — the
   default set carries it and NOT `:base_price`, the raw internal number,
-  which an embed must ask for explicitly; `:unit` is the standalone
-  column for price-free lists.
+  which an embed must ask for explicitly; `:unit` is the standalone unit
+  column — grant it and the price cell shows the bare number, the unit
+  moving to its own column the viewer can hide (2026-09-16).
   Omitted, the full set applies minus what `show_sku: false` /
   `show_prices: false` already opt out of. Omitting `:qty` hides the
   inline stepper — quantities are then edited in the tray only (and the
@@ -1593,7 +1594,8 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
                %{
                  qty: clamp(to_decimal(qty), limits),
                  item: presented,
-                 available: in_scope?(item, scope, expanded_categories)
+                 available: in_scope?(item, scope, expanded_categories),
+                 seq: next_seq()
                }}
             ]
         end
@@ -2048,7 +2050,12 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
   end
 
   defp select_entry(socket, item) do
-    entry = %{qty: clamp(item.default_qty, socket.assigns), item: item, available: true}
+    entry = %{
+      qty: clamp(item.default_qty, socket.assigns),
+      item: item,
+      available: true,
+      seq: next_seq()
+    }
 
     case socket.assigns.mode do
       # Single mode replaces the previous pick — the map never grows.
@@ -2071,6 +2078,15 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
       socket
     end
   end
+
+  # Pick order. The selection is a map, so without this the tray and the
+  # confirm payload fell back to sorting by name — and the host's rows came
+  # out alphabetical whatever order the user picked in (2026-09-16).
+  # Monotonic per node: re-selecting a deselected item puts it last, as a
+  # user would expect from a cart.
+  defp next_seq, do: System.unique_integer([:monotonic, :positive])
+
+  defp entry_seq({_uuid, entry}), do: Map.get(entry, :seq, 0)
 
   defp deselect(socket, uuid) do
     assign(socket,
@@ -2224,7 +2240,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
       # the tray but must never reach the host as a pick — the host's
       # scope said no.
       |> Enum.filter(fn {_uuid, entry} -> entry.available end)
-      |> Enum.sort_by(fn {_uuid, entry} -> entry.item.name || "" end)
+      |> Enum.sort_by(&entry_seq/1)
       |> Enum.map(fn {uuid, %{qty: qty, item: item}} ->
         %{
           uuid: uuid,
@@ -2304,7 +2320,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
   # current page).
   defp detail_unit(%{presented: presented, selection: selection, detail: %{uuid: uuid}}) do
     case presented[uuid] || (selection[uuid] && selection[uuid].item) do
-      %{unit: unit} -> unit
+      %{unit: unit} = item when is_binary(unit) -> Browse.unit_label(item)
       _ -> nil
     end
   end
@@ -2699,7 +2715,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
                         id={"#{@id}-qty-#{item.uuid}-r#{qty_rev(assigns, item.uuid)}"}
                         uuid={item.uuid}
                         qty={qty_display_or_zero(assigns, item.uuid)}
-                        unit={if(decimal_qty?(@qty_precision), do: item.unit)}
+                        unit={if(decimal_qty?(@qty_precision), do: Browse.unit_label(item))}
                         precision={@qty_precision}
                         min={@qmin}
                         max={@qmax}
@@ -2755,6 +2771,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
                     id={"#{@id}-row-#{item.uuid}"}
                     item={item}
                     columns={@eff_columns}
+                    inline_unit={:unit not in @columns}
                     selected={Map.has_key?(@selection, item.uuid)}
                     clickable={@selection_mode != "quantity"}
                     checkbox={@cbx}
@@ -2768,7 +2785,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
                         id={"#{@id}-qty-#{item.uuid}-r#{qty_rev(assigns, item.uuid)}"}
                         uuid={item.uuid}
                         qty={qty_display_or_zero(assigns, item.uuid)}
-                        unit={if(decimal_qty?(@qty_precision), do: item.unit)}
+                        unit={if(decimal_qty?(@qty_precision), do: Browse.unit_label(item))}
                         precision={@qty_precision}
                         min={@qmin}
                         max={@qmax}
@@ -2989,8 +3006,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
             >
               <div
                 :for={
-                  {uuid, entry} <-
-                    Enum.sort_by(@selection, fn {_u, e} -> e.item.name || "" end)
+                  {uuid, entry} <- Enum.sort_by(@selection, &entry_seq/1)
                 }
                 id={"#{@id}-tray-#{uuid}"}
                 class={[
@@ -3022,7 +3038,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
                   id={"#{@id}-tray-qty-#{uuid}-r#{qty_rev(assigns, uuid)}"}
                   uuid={uuid}
                   qty={qty_display(assigns, uuid)}
-                  unit={if(decimal_qty?(@qty_precision), do: entry.item.unit)}
+                  unit={if(decimal_qty?(@qty_precision), do: Browse.unit_label(entry.item))}
                   precision={@qty_precision}
                   min={@qmin}
                   max={@qmax}
