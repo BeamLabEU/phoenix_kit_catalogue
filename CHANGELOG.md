@@ -1,3 +1,25 @@
+## 0.33.0 - 2026-09-16
+
+Review: `dev_docs/pull_requests/2026/119-media-reorganizer-source/`.
+
+### Added
+
+- **Media reorganizer source** (#119). `PhoenixKitCatalogue.MediaReorganizer`
+  plugs into core's `mix phoenix_kit.media.reorganize` (phoenix_kit 2.24.0+)
+  through `media_reorganizer/0`. With `:attachments_parent_folder`
+  configured, it plans moving legacy `catalogue-*` attachment folders under
+  the parent that hook returns, renames them with `:attachments_folder_name`,
+  and fills in the record's `files_folder_uuid` pointer. It also reports
+  duplicates, orphaned legacy folders, stale pending upload folders, hook
+  failures, and PDFs still at the storage root. Without a configured hook it
+  only reports and never writes. On an older core the function is present
+  and unused.
+
+### Changed
+
+- Dependencies: phoenix_kit 2.24.0, phoenix_kit_entities 0.4.15,
+  phoenix_live_view 1.2.12 (lock only; constraints unchanged).
+
 ## 0.32.0 - 2026-09-15
 
 Reviews: `dev_docs/pull_requests/2026/117-item-selector-comfy-view/`,

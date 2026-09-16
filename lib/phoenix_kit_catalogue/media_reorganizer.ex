@@ -2,15 +2,14 @@ defmodule PhoenixKitCatalogue.MediaReorganizer do
   @moduledoc """
   Catalogue's media-reorganizer plan source.
 
-  Not compiled against a core `PhoenixKit.Modules.Storage.Reorganizer.Source`
-  behaviour — today's hex core (2.23.x) does not ship the engine yet. This
-  module declares no `@behaviour` and returns plain maps; see
+  Implements core's `PhoenixKit.Modules.Storage.Reorganizer.Source` contract
+  (`plan(actor_uuid, opts) :: [map()]`, first shipped in phoenix_kit 2.24.0)
+  without declaring `@behaviour`: the `phoenix_kit` pin floor predates that
+  release, and on an older core the attribute would only warn about an
+  undefined behaviour. Plain maps keep the module compiling either way; see
   `PhoenixKitCatalogue.media_reorganizer/0` for the registration comment.
-  Once core ships the engine, `plan/2`'s contract (`plan(actor_uuid, opts)
-  :: [map()]`) already matches `Source.plan/2` — the only follow-up is
-  adding `@behaviour`/`@impl`.
 
-  Contract (design §9/§10 of `2026-09-15-media-reorganizer-design.md`):
+  Contract (the authoritative list is core's `Reorganizer.Source` moduledoc):
 
     * **No configured `:attachments_parent_folder` hook → `:report`-only.**
       Orphan and pending-folder reports are still produced (informational,
@@ -846,8 +845,11 @@ defmodule PhoenixKitCatalogue.MediaReorganizer do
 
   defp noop_move?(_folder, _parent_uuid, _name), do: false
 
+  # Same rule as core's `Action.matches_name?/2`: `N` is an integer >= 2
+  # with no leading zero, which is all its `on_conflict: :suffix` ever
+  # generates — a folder named "Item (1)" or "Item (02)" is not a variant.
   defp suffixed_variant?(folder_name, name) do
-    Regex.match?(~r/^#{Regex.escape(name)} \(\d+\)$/, folder_name)
+    Regex.match?(~r/\A#{Regex.escape(name)} \((?:[2-9]|[1-9]\d+)\)\z/, folder_name)
   end
 
   # U2/F6: an entry that would actually reposition its folder (parent or
