@@ -112,8 +112,8 @@ defmodule PhoenixKitCatalogue.MediaReorganizer do
 
           {actions, claims, parents, true}
 
-        {:not_callable, mod, fun} ->
-          {[not_callable_hook_action(mod, fun)], claimed_folder_uuids([], [], [], []), [], false}
+        {:invalid, reason} ->
+          {[invalid_hook_action(reason)], claimed_folder_uuids([], [], [], []), [], false}
 
         :none ->
           {[], claimed_folder_uuids([], [], [], []), [], false}
@@ -132,14 +132,19 @@ defmodule PhoenixKitCatalogue.MediaReorganizer do
   # T3: a configured `{mod, fun}` that is not actually callable (a typo,
   # a removed function) is a distinct failure from "no hook configured at
   # all" — it must not silently degrade to report-only (E1) without
-  # telling the owner why nothing moved.
+  # telling the owner why nothing moved. U7/V3: anything configured that
+  # is not even a `{mod, fun}` shape (garbage config) is the SAME
+  # failure — never silently treated as "no hook configured" either.
   defp hook_status do
     case Application.get_env(:phoenix_kit_catalogue, :attachments_parent_folder) do
-      {mod, fun} when is_atom(mod) and is_atom(fun) ->
-        if callable?(mod, fun), do: :ok, else: {:not_callable, mod, fun}
-
-      _ ->
+      nil ->
         :none
+
+      {mod, fun} when is_atom(mod) and is_atom(fun) ->
+        if callable?(mod, fun), do: :ok, else: {:invalid, {:not_callable, mod, fun}}
+
+      other ->
+        {:invalid, {:bad_config, other}}
     end
   end
 
@@ -148,16 +153,24 @@ defmodule PhoenixKitCatalogue.MediaReorganizer do
       (function_exported?(mod, fun, 3) or function_exported?(mod, fun, 2))
   end
 
-  defp not_callable_hook_action(mod, fun) do
+  defp invalid_hook_action(reason) do
     %{
       source: "catalogue",
       kind: :hook_error,
       op: :report,
       label: "attachments parent hook",
       counts: nil,
-      reason: "configured parent hook {#{inspect(mod)}, #{inspect(fun)}} is not callable"
+      reason: invalid_hook_reason(reason)
     }
   end
+
+  defp invalid_hook_reason({:not_callable, mod, fun}),
+    do: "configured parent hook {#{inspect(mod)}, #{inspect(fun)}} is not callable"
+
+  defp invalid_hook_reason({:bad_config, other}),
+    do:
+      "configured parent hook #{inspect(other)} is not a {module, function} tuple — " <>
+        "invalid config, not callable"
 
   defp tag(records, kind),
     do: Enum.map(records, fn {record, pointer} -> {record, pointer, kind} end)
@@ -196,31 +209,48 @@ defmodule PhoenixKitCatalogue.MediaReorganizer do
       |> Enum.with_index()
       |> Enum.map(fn {c, idx} -> Map.put(c, :order_index, idx) end)
 
-    {resolved_all, hook_error_count} =
+    {resolved_all, hook_error_labels} =
       resolve_candidates(candidates, by_pointer, by_name, mod, fun, actor_uuid)
 
-    resolved_all =
-      resolved_all
-      |> Enum.sort_by(& &1.order_index)
-      |> Enum.map(&apply_nil_root_guard/1)
+    resolved_all = Enum.sort_by(resolved_all, & &1.order_index)
 
-    hook_nil_count = Enum.count(resolved_all, & &1.hook_nil)
+    # U4/V2: orphan scope is every parent a SUCCESSFUL hook call returned
+    # for ANY candidate, regardless of that candidate's outcome (adopted,
+    # ambiguous, hook_nil, stray, converging, shared) — never a parent
+    # inferred from where a folder happens to already sit. Must be taken
+    # from the RAW hook answer, before `apply_nil_root_guard/1` below
+    # overwrites `parent_uuid` for the `:hook_nil` cases.
+    resolved_parents =
+      resolved_all |> Enum.map(& &1.parent_uuid) |> Enum.reject(&is_nil/1) |> Enum.uniq()
+
+    resolved_all = Enum.map(resolved_all, &apply_nil_root_guard/1)
+
+    hook_nil_entries = Enum.filter(resolved_all, & &1.hook_nil)
+    hook_nil_labels = Enum.map(hook_nil_entries, & &1.record.name)
 
     {ambiguous, normal} = Enum.split_with(resolved_all, & &1.ambiguous)
     {with_folder, without_folder} = Enum.split_with(normal, & &1.folder)
 
-    resolved_parents =
-      with_folder |> Enum.map(& &1.parent_uuid) |> Enum.reject(&is_nil/1) |> Enum.uniq()
-
     {shared, unique} = split_shared(with_folder)
-    {converging, solo} = split_converging(unique)
 
-    move_actions = solo |> Enum.map(&build_move_action/1) |> Enum.reject(&is_nil/1)
+    # U2/F6: convergence is only ever computed among entries that would
+    # ACTUALLY move — an entry already sitting at its target (a no-op) can
+    # never collide with a real mover, so it must never drag that mover
+    # into a `:duplicate` report and block the move.
+    movers = Enum.filter(unique, &mover?/1)
+    {converging, _solo_movers} = split_converging(movers)
+
+    converging_indexes =
+      converging |> List.flatten() |> Enum.map(& &1.order_index) |> MapSet.new()
+
+    move_pool = Enum.reject(unique, &MapSet.member?(converging_indexes, &1.order_index))
+
+    move_actions = move_pool |> Enum.map(&build_move_action/1) |> Enum.reject(&is_nil/1)
     dup_actions = Enum.map(ambiguous, &build_ambiguous_duplicate_action(&1, pointer_claims))
     shared_actions = Enum.map(shared, &build_shared_duplicate_action/1)
     converging_actions = Enum.map(converging, &build_converging_duplicate_action/1)
-    hook_error_actions = hook_error_action(hook_error_count)
-    hook_nil_actions = hook_nil_action(hook_nil_count)
+    hook_error_actions = hook_error_action(hook_error_labels)
+    hook_nil_actions = hook_nil_action(hook_nil_labels)
 
     claimed = claimed_folder_uuids(unique, ambiguous, shared, converging)
     all_claimed = MapSet.union(claimed, pointer_claims)
@@ -228,8 +258,11 @@ defmodule PhoenixKitCatalogue.MediaReorganizer do
     # F5/T5: every live legacy-named copy other than the record's adopted
     # current folder (if any) gets its own `:relocated` report — except a
     # copy that is itself another record's claimed (adopted) folder, which
-    # is never also reported as relocated.
-    stray_actions = stray_relocated_actions(with_folder ++ without_folder, all_claimed)
+    # is never also reported as relocated. U9: includes `ambiguous` too —
+    # a THIRD live copy beyond the two the duplicate report already names
+    # must still surface here, not be dropped.
+    stray_actions =
+      stray_relocated_actions(with_folder ++ without_folder ++ ambiguous, all_claimed)
 
     all_actions =
       move_actions ++
@@ -319,26 +352,31 @@ defmodule PhoenixKitCatalogue.MediaReorganizer do
   # never need the batched host-name-under-parent lookup (R3/R8) that the
   # remaining candidates (`name_track`) do.
   defp resolve_candidates(candidates, by_pointer, by_name, mod, fun, actor_uuid) do
-    {pointer_track, name_track, hook_error_count} =
-      Enum.reduce(candidates, {[], [], 0}, fn p, acc ->
+    {pointer_track, name_track, hook_error_labels} =
+      Enum.reduce(candidates, {[], [], []}, fn p, acc ->
         sort_candidate(p, by_pointer, mod, fun, actor_uuid, acc)
       end)
 
     pointer_results =
       pointer_track |> Enum.reverse() |> Enum.map(&resolve_pointer_entry(&1, by_name, actor_uuid))
 
-    {pointer_entries, pointer_error_count} = split_hook_errors(pointer_results)
+    {pointer_entries, pointer_error_labels} = split_hook_errors(pointer_results)
 
-    {name_entries, name_error_count} =
+    {name_entries, name_error_labels} =
       resolve_name_entries(Enum.reverse(name_track), by_name, actor_uuid)
 
-    total_errors = hook_error_count + pointer_error_count + name_error_count
-    {pointer_entries ++ name_entries, total_errors}
+    all_labels = Enum.reverse(hook_error_labels) ++ pointer_error_labels ++ name_error_labels
+    {pointer_entries ++ name_entries, all_labels}
   end
 
+  # U8: keeps the label of every failed record (not just a count) so the
+  # `:hook_error` report can list them.
   defp split_hook_errors(results) do
-    {ok, errors} = Enum.split_with(results, &(&1 != :hook_error))
-    {ok, length(errors)}
+    Enum.reduce(results, {[], []}, fn
+      {:ok, entry}, {oks, errs} -> {[entry | oks], errs}
+      {:error, label}, {oks, errs} -> {oks, [label | errs]}
+    end)
+    |> then(fn {oks, errs} -> {Enum.reverse(oks), Enum.reverse(errs)} end)
   end
 
   defp sort_candidate(p, by_pointer, mod, fun, actor_uuid, {ptrs, names, errs}) do
@@ -349,7 +387,7 @@ defmodule PhoenixKitCatalogue.MediaReorganizer do
         push_candidate(base, pointer_folder, ptrs, names, errs)
 
       :error ->
-        {ptrs, names, errs + 1}
+        {ptrs, names, [p.record.name | errs]}
     end
   end
 
@@ -361,10 +399,10 @@ defmodule PhoenixKitCatalogue.MediaReorganizer do
   defp resolve_parent(mod, fun, kind, actor_uuid, resource) do
     cond do
       Code.ensure_loaded?(mod) and function_exported?(mod, fun, 3) ->
-        guarded_hook_call(mod, fun, fn -> apply(mod, fun, [kind, actor_uuid, resource]) end)
+        guarded_hook_call(mod, fun, kind, fn -> apply(mod, fun, [kind, actor_uuid, resource]) end)
 
       Code.ensure_loaded?(mod) and function_exported?(mod, fun, 2) ->
-        guarded_hook_call(mod, fun, fn -> apply(mod, fun, [kind, actor_uuid]) end)
+        guarded_hook_call(mod, fun, kind, fn -> apply(mod, fun, [kind, actor_uuid]) end)
 
       true ->
         :error
@@ -375,13 +413,24 @@ defmodule PhoenixKitCatalogue.MediaReorganizer do
   # `{:ok, ""}` / `{:ok, "not-a-uuid"}` are hook FAILURES (`:error`), never
   # sent into a later `in ^uuids` query (which would raise a CastError and
   # take down the whole plan). F2: an explicit `{:ok, nil}` or bare `nil`
-  # means root.
-  defp guarded_hook_call(mod, fun_name, fun) do
+  # means root. U6: every log line names the hook as `{mod, fun}` AND the
+  # resource `kind`, and a bad (non-exception) return value is logged too,
+  # not only a raise/exit.
+  defp guarded_hook_call(mod, fun_name, kind, fun) do
     case fun.() do
       {:ok, uuid} when is_binary(uuid) ->
         case valid_uuid(uuid) do
-          nil -> :error
-          cast -> {:ok, cast}
+          nil ->
+            log_and_error(
+              :parent,
+              mod,
+              fun_name,
+              kind,
+              "returned {:ok, #{inspect(uuid)}} (not a uuid)"
+            )
+
+          cast ->
+            {:ok, cast}
         end
 
       {:ok, nil} ->
@@ -390,24 +439,36 @@ defmodule PhoenixKitCatalogue.MediaReorganizer do
       nil ->
         {:ok, nil}
 
-      _other ->
-        :error
+      other ->
+        log_and_error(:parent, mod, fun_name, kind, "returned #{inspect(other)}")
     end
   rescue
     error ->
-      Logger.warning(
-        "Attachments parent hook #{inspect(mod)}.#{fun_name} raised: " <>
-          Exception.format(:error, error, __STACKTRACE__)
+      log_and_error(
+        :parent,
+        mod,
+        fun_name,
+        kind,
+        "raised: " <> Exception.format(:error, error, __STACKTRACE__)
       )
-
-      :error
   catch
-    kind, reason ->
-      Logger.warning(
-        "Attachments parent hook #{inspect(mod)}.#{fun_name} #{kind}: #{inspect(reason)}"
-      )
+    exit_kind, reason ->
+      log_and_error(:parent, mod, fun_name, kind, "#{exit_kind}: #{inspect(reason)}")
+  end
 
-      :error
+  # U6: one log format shared by every hook (parent/name/pdf) — always
+  # `{mod, fun}` (not just `mod.fun`) plus the resource `kind` it was
+  # called for.
+  defp log_hook_event(level, hook_type, mod, fun, kind, message) do
+    Logger.log(
+      level,
+      "Attachments #{hook_type} hook {#{inspect(mod)}, #{inspect(fun)}} (kind: #{inspect(kind)}) #{message}"
+    )
+  end
+
+  defp log_and_error(hook_type, mod, fun, kind, message) do
+    log_hook_event(:warning, hook_type, mod, fun, kind, message)
+    :error
   end
 
   # D6/E2: a folder found through the record's live pointer keeps its own
@@ -418,29 +479,30 @@ defmodule PhoenixKitCatalogue.MediaReorganizer do
   defp resolve_pointer_entry(%{pointer_folder: folder} = d, by_name, actor_uuid) do
     name_result =
       if folder.name == d.legacy_name do
-        resolve_folder_name(d.record, actor_uuid)
+        resolve_folder_name(d.record, d.kind, actor_uuid)
       else
         {:ok, nil}
       end
 
     case name_result do
       :error ->
-        :hook_error
+        {:error, d.record.name}
 
       {:ok, name} ->
-        %{
-          record: d.record,
-          kind: d.kind,
-          pointer: d.pointer,
-          legacy_name: d.legacy_name,
-          parent_uuid: d.parent_uuid,
-          order_index: d.order_index,
-          name: name,
-          folder: folder,
-          via: :pointer,
-          ambiguous: nil,
-          stray_legacy: stray_legacy_matches(d.legacy_name, by_name, folder.uuid)
-        }
+        {:ok,
+         %{
+           record: d.record,
+           kind: d.kind,
+           pointer: d.pointer,
+           legacy_name: d.legacy_name,
+           parent_uuid: d.parent_uuid,
+           order_index: d.order_index,
+           name: name,
+           folder: folder,
+           via: :pointer,
+           ambiguous: nil,
+           stray_legacy: stray_legacy_matches(d.legacy_name, by_name, folder.uuid)
+         }}
     end
   end
 
@@ -461,11 +523,11 @@ defmodule PhoenixKitCatalogue.MediaReorganizer do
   # F3: a candidate whose name hook fails is skipped entirely (counted as
   # a hook error) before the batched host-name lookup even runs for it.
   defp resolve_name_entries(candidates, by_name, actor_uuid) do
-    {ok_candidates, error_count} =
-      Enum.reduce(candidates, {[], 0}, fn c, {acc, errs} ->
-        case resolve_folder_name(c.record, actor_uuid) do
+    {ok_candidates, error_labels} =
+      Enum.reduce(candidates, {[], []}, fn c, {acc, errs} ->
+        case resolve_folder_name(c.record, c.kind, actor_uuid) do
           {:ok, name} -> {[Map.put(c, :host_name, name) | acc], errs}
-          :error -> {acc, errs + 1}
+          :error -> {acc, [c.record.name | errs]}
         end
       end)
 
@@ -474,22 +536,27 @@ defmodule PhoenixKitCatalogue.MediaReorganizer do
 
     entries = Enum.map(with_host_name, &resolve_name_entry(&1, by_name, host_map))
 
-    {entries, error_count}
+    {entries, Enum.reverse(error_labels)}
   end
 
   # F3: the (optional) `:attachments_folder_name` hook, called directly
   # (not through `Attachments.folder_name/2`, which is deliberately
   # defensive for the live UI) so a raising/garbage-returning hook is a
   # reportable failure here instead of a silent legacy-name fallback. Not
-  # configured, or configured but not callable, is NOT a failure — it is
-  # simply "no host name", same as `Attachments.folder_name/2` treats it.
-  defp resolve_folder_name(record, actor_uuid) do
+  # configured (unset) is NOT a failure — it is simply "no host name",
+  # same as `Attachments.folder_name/2` treats it. U7/V3: configured but
+  # not a `{mod, fun}` shape, or a `{mod, fun}` that is not actually
+  # callable, are BOTH the same failure — parity with the parent hook.
+  defp resolve_folder_name(record, kind, actor_uuid) do
     case Application.get_env(:phoenix_kit_catalogue, :attachments_folder_name) do
-      {mod, fun} when is_atom(mod) and is_atom(fun) ->
-        resolve_configured_folder_name(mod, fun, record, actor_uuid)
-
-      _ ->
+      nil ->
         {:ok, Attachments.legacy_folder_name(record)}
+
+      {mod, fun} when is_atom(mod) and is_atom(fun) ->
+        resolve_configured_folder_name(mod, fun, kind, record, actor_uuid)
+
+      other ->
+        log_and_error(:name, other, nil, kind, "is not a {module, function} tuple")
     end
   end
 
@@ -497,36 +564,36 @@ defmodule PhoenixKitCatalogue.MediaReorganizer do
   # callable (a typo, a removed function) is the same misconfiguration the
   # parent hook reports as `:hook_error` — it must not silently behave
   # like "no name hook configured at all".
-  defp resolve_configured_folder_name(mod, fun, record, actor_uuid) do
+  defp resolve_configured_folder_name(mod, fun, kind, record, actor_uuid) do
     if Code.ensure_loaded?(mod) and function_exported?(mod, fun, 2) do
-      case guarded_name_hook_call(mod, fun, record, actor_uuid) do
+      case guarded_name_hook_call(mod, fun, kind, record, actor_uuid) do
         {:ok, nil} -> {:ok, Attachments.legacy_folder_name(record)}
         {:ok, name} -> {:ok, name}
         :error -> :error
       end
     else
-      :error
+      log_and_error(:name, mod, fun, kind, "is not callable")
     end
   end
 
-  defp guarded_name_hook_call(mod, fun, record, actor_uuid) do
+  defp guarded_name_hook_call(mod, fun, kind, record, actor_uuid) do
     case apply(mod, fun, [record, actor_uuid]) do
       {:ok, name} when is_binary(name) and name != "" -> {:ok, name}
       nil -> {:ok, nil}
-      _other -> :error
+      other -> log_and_error(:name, mod, fun, kind, "returned #{inspect(other)}")
     end
   rescue
     error ->
-      Logger.warning(
-        "Attachments name hook #{inspect(mod)}.#{fun} raised: " <>
-          Exception.format(:error, error, __STACKTRACE__)
+      log_and_error(
+        :name,
+        mod,
+        fun,
+        kind,
+        "raised: " <> Exception.format(:error, error, __STACKTRACE__)
       )
-
-      :error
   catch
-    kind, reason ->
-      Logger.warning("Attachments name hook #{inspect(mod)}.#{fun} #{kind}: #{inspect(reason)}")
-      :error
+    exit_kind, reason ->
+      log_and_error(:name, mod, fun, kind, "#{exit_kind}: #{inspect(reason)}")
   end
 
   defp preload_host_named_under_parent(entries) do
@@ -557,7 +624,27 @@ defmodule PhoenixKitCatalogue.MediaReorganizer do
     matches = Map.get(by_name, d.legacy_name, [])
     under_parent = d.parent_uuid && Enum.find(matches, &(&1.parent_uuid == d.parent_uuid))
     at_root = Enum.find(matches, &is_nil(&1.parent_uuid))
-    legacy_folder = under_parent || at_root
+    # U1/F1 (name-track parity): the hook answered root (`d.parent_uuid` is
+    # nil) but the record's only live legacy-named copy sits under some
+    # REAL parent — the module's own lookup (host-named/legacy under the
+    # resolved parent, then legacy at root) can never reach it, so without
+    # this it reads as "nothing resolves" and the copy is reported
+    # `:relocated` forever instead of adopted. A single such copy is
+    # treated exactly like F1's pointer-track case: it IS the current
+    # folder, `apply_nil_root_guard/1` below plans only the pointer
+    # back-fill and counts it into `:hook_nil`. Two or more such copies
+    # stay unresolved (existing "nothing resolves" behaviour) — safe, not
+    # this scenario.
+    elsewhere =
+      if is_nil(d.parent_uuid), do: Enum.filter(matches, &(not is_nil(&1.parent_uuid))), else: []
+
+    legacy_folder =
+      cond do
+        under_parent -> under_parent
+        at_root -> at_root
+        match?([_], elsewhere) -> hd(elsewhere)
+        true -> nil
+      end
 
     base = %{
       record: d.record,
@@ -593,6 +680,11 @@ defmodule PhoenixKitCatalogue.MediaReorganizer do
     )
   end
 
+  # U9/F5: the ambiguous pair claims two folders, but any FURTHER live
+  # legacy-named copy is not part of the ambiguity at all — it must still
+  # get its own `:relocated` report (via `stray_relocated_actions/2`
+  # downstream), never silently dropped just because this record already
+  # has a duplicate report.
   defp resolve_name_entry_result(
          base,
          _host_name,
@@ -600,12 +692,13 @@ defmodule PhoenixKitCatalogue.MediaReorganizer do
          legacy_folder,
          _under,
          _root,
-         _matches,
+         matches,
          _stray
        )
        when not is_nil(host_folder) and not is_nil(legacy_folder) and
               host_folder.uuid != legacy_folder.uuid do
-    %{base | ambiguous: {host_folder, legacy_folder}}
+    stray = Enum.reject(matches, &(&1.uuid in [host_folder.uuid, legacy_folder.uuid]))
+    %{base | ambiguous: {host_folder, legacy_folder}, stray_legacy: stray}
   end
 
   defp resolve_name_entry_result(
@@ -615,11 +708,12 @@ defmodule PhoenixKitCatalogue.MediaReorganizer do
          _legacy_folder,
          under_parent,
          at_root,
-         _matches,
+         matches,
          _stray
        )
        when not is_nil(under_parent) and not is_nil(at_root) do
-    %{base | ambiguous: {under_parent, at_root}}
+    stray = Enum.reject(matches, &(&1.uuid in [under_parent.uuid, at_root.uuid]))
+    %{base | ambiguous: {under_parent, at_root}, stray_legacy: stray}
   end
 
   # R3/E6-class fix: a host-named folder wins as the current folder, but
@@ -755,6 +849,12 @@ defmodule PhoenixKitCatalogue.MediaReorganizer do
   defp suffixed_variant?(folder_name, name) do
     Regex.match?(~r/^#{Regex.escape(name)} \(\d+\)$/, folder_name)
   end
+
+  # U2/F6: an entry that would actually reposition its folder (parent or
+  # name mismatch) — the noop/after_move-only case is excluded, since a
+  # record staying exactly where it is can never collide at a destination.
+  defp mover?(%{folder: folder, parent_uuid: parent_uuid, name: name}),
+    do: not noop_move?(folder, parent_uuid, name)
 
   defp build_ambiguous_duplicate_action(%{record: record, ambiguous: {f1, f2}}, pointer_claims) do
     %{
@@ -1015,9 +1115,9 @@ defmodule PhoenixKitCatalogue.MediaReorganizer do
     |> repo().one()
   end
 
-  defp hook_error_action(0), do: []
+  defp hook_error_action([]), do: []
 
-  defp hook_error_action(count) do
+  defp hook_error_action(labels) do
     [
       %{
         source: "catalogue",
@@ -1026,16 +1126,17 @@ defmodule PhoenixKitCatalogue.MediaReorganizer do
         label: "attachments parent hook",
         counts: nil,
         reason:
-          "#{count} record(s) skipped: the configured parent hook raised, exited, or " <>
-            "returned neither {:ok, uuid} nor nil"
+          "#{length(labels)} record(s) skipped: the configured parent hook raised, exited, or " <>
+            "returned neither {:ok, uuid} nor nil (#{labels_summary(labels)})"
       }
     ]
   end
 
-  # F1: a plain count, not one report per record — mirrors hook_error_action.
-  defp hook_nil_action(0), do: []
+  # F1: one report for the whole plan, not one per record — mirrors
+  # hook_error_action. U8: names the affected records, not just a count.
+  defp hook_nil_action([]), do: []
 
-  defp hook_nil_action(count) do
+  defp hook_nil_action(labels) do
     [
       %{
         source: "catalogue",
@@ -1044,10 +1145,22 @@ defmodule PhoenixKitCatalogue.MediaReorganizer do
         label: "attachments parent hook",
         counts: nil,
         reason:
-          "#{count} record(s): the parent hook answered root for a folder living under a " <>
-            "parent — left in place"
+          "#{length(labels)} record(s): the parent hook answered root for a folder living under a " <>
+            "parent — left in place (#{labels_summary(labels)})"
       }
     ]
+  end
+
+  # U8: `:hook_error`/`:hook_nil` reports list up to 10 record labels, then
+  # a "… and N more" summary — an owner staring at a bare counter cannot
+  # tell where to look.
+  defp labels_summary(labels) do
+    {shown, rest} = Enum.split(labels, 10)
+
+    case rest do
+      [] -> Enum.join(shown, ", ")
+      more -> Enum.join(shown, ", ") <> ", … and #{length(more)} more"
+    end
   end
 
   # ── Pending upload folders ──────────────────────────────────────
@@ -1063,6 +1176,7 @@ defmodule PhoenixKitCatalogue.MediaReorganizer do
       Folder
       |> where([f], is_nil(f.trashed_at))
       |> where([f], like(f.name, ^"#{@pending_prefix}%"))
+      |> order_by([f], asc: f.inserted_at, asc: f.uuid)
       |> repo().all()
       |> Enum.reject(&MapSet.member?(claimed_uuids, &1.uuid))
 
@@ -1198,6 +1312,7 @@ defmodule PhoenixKitCatalogue.MediaReorganizer do
     |> where([f], is_nil(f.trashed_at))
     |> where([f], is_nil(f.parent_uuid) or f.parent_uuid in ^parent_uuids)
     |> where([f], like(f.name, ^"#{@legacy_prefix}%"))
+    |> order_by([f], asc: f.inserted_at, asc: f.uuid)
     |> repo().all()
     |> Enum.reject(&MapSet.member?(claimed_uuids, &1.uuid))
     |> Enum.map(&{&1, legacy_kind(&1.name)})
@@ -1289,8 +1404,8 @@ defmodule PhoenixKitCatalogue.MediaReorganizer do
         []
 
       count ->
-        case Attachments.parent_folder_uuid(:pdf, actor_uuid) do
-          folder_uuid when is_binary(folder_uuid) ->
+        case guarded_pdf_hook_call(actor_uuid) do
+          {:ok, folder_uuid} when is_binary(folder_uuid) ->
             [
               %{
                 source: "catalogue",
@@ -1302,10 +1417,53 @@ defmodule PhoenixKitCatalogue.MediaReorganizer do
               }
             ]
 
-          _ ->
+          {:ok, nil} ->
             []
+
+          :error ->
+            [
+              %{
+                source: "catalogue",
+                kind: :hook_error,
+                op: :report,
+                label: "attachments :pdf hook",
+                counts: nil,
+                reason:
+                  "the configured :pdf attachments hook raised, exited, or is not callable — " <>
+                    "#{count} PDF(s) at the storage root not reported"
+              }
+            ]
         end
     end
+  end
+
+  # V6: `Attachments.parent_folder_uuid/2` calls the host's configured hook
+  # unguarded (it is meant for the live UI, where a host bug should be
+  # visible) — a raising/exiting `:pdf` hook must not take the whole plan
+  # down the way a record-level hook failure never does.
+  defp guarded_pdf_hook_call(actor_uuid) do
+    case Attachments.parent_folder_uuid(:pdf, actor_uuid) do
+      folder_uuid when is_binary(folder_uuid) -> {:ok, folder_uuid}
+      _ -> {:ok, nil}
+    end
+  rescue
+    error ->
+      log_and_error(
+        :pdf,
+        Attachments,
+        :parent_folder_uuid,
+        :pdf,
+        "raised: " <> Exception.format(:error, error, __STACKTRACE__)
+      )
+  catch
+    exit_kind, reason ->
+      log_and_error(
+        :pdf,
+        Attachments,
+        :parent_folder_uuid,
+        :pdf,
+        "#{exit_kind}: #{inspect(reason)}"
+      )
   end
 
   defp root_pdf_count do
