@@ -482,9 +482,18 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
 
     quantities = Map.new(selection, fn {uuid, entry} -> {uuid, entry.qty} end)
 
-    assign(socket,
-      selection: hydrate_preselection(quantities, browse.scope, locale, limits, mode)
-    )
+    # Re-hydration rebuilds the entries from the catalogue; the pick
+    # order (`seq`) is the user's, not the catalogue's, so it rides over
+    # from the old entries — otherwise a live refresh with two items
+    # selected reshuffled the tray into map order (review, 2026-09-16).
+    rehydrated =
+      quantities
+      |> hydrate_preselection(browse.scope, locale, limits, mode)
+      |> Map.new(fn {uuid, entry} ->
+        {uuid, Map.put(entry, :seq, entry_seq({uuid, selection[uuid]}))}
+      end)
+
+    assign(socket, selection: rehydrated)
   end
 
   defp refresh_detail(%{assigns: %{detail: %{uuid: uuid}}} = socket),
