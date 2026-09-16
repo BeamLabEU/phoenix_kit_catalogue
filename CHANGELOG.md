@@ -1,3 +1,30 @@
+## 0.34.0 - 2026-09-16
+
+Review: `dev_docs/pull_requests/2026/121-item-selector-free-qty/`.
+
+### Added
+
+- **Free-decimal quantities in the item selector** (#121).
+  `ItemSelectorModal` accepts `qty_precision: :any`. Quantities are never
+  rounded (typing "1,2345" keeps 1.2345), and the control is a plain text
+  input with a decimal keyboard, so the browser's number-input locale rules
+  can't reject a dot or a comma. The server still enforces the digits-only
+  pattern (up to 12 decimals), `qty_min`/`qty_max` (taken unrounded) and
+  the safety ceiling. `Browse.qty_stepper/1` accepts `precision: :any`.
+
+### Fixed
+
+- The quantity control's instant highlight no longer marks a row selected
+  for input the server rejects ("2.5.1", "2abc", "1e9"). It used to stay
+  highlighted until the next re-render.
+- `ItemSelectorModal` raises an `ArgumentError` at init when
+  `qty_precision` is not a non-negative integer or `:any`. Before, it
+  crashed later or misbehaved without an error.
+
+### Changed
+
+- Dependencies: phoenix_kit_templates 0.1.2 (lock only).
+
 ## 0.33.0 - 2026-09-16
 
 Review: `dev_docs/pull_requests/2026/119-media-reorganizer-source/`.

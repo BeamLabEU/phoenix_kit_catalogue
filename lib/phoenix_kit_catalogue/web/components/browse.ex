@@ -1176,8 +1176,14 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
             this.holder = this.el.closest("[data-selected]")
             if (!this.input || !this.holder) return
             this._onInput = () => {
-              const v = parseFloat(this.input.value.replace(/,/g, "."))
-              if (Number.isNaN(v)) return
+              // Same shape the server parses: plain digits with one
+              // decimal point (a sign only for the zero/deselect path).
+              // parseFloat alone would read "2.5.1", "2abc" or "1e9" as a
+              // number and flip a row the server then refuses — a
+              // rejection sends no diff, so the highlight would stick.
+              const raw = this.input.value.trim().replace(/,/g, ".")
+              if (!/^-?\d+(\.\d+)?$/.test(raw)) return
+              const v = parseFloat(raw)
               const floor = parseFloat(this.el.dataset.selectFloor || this.input.min)
               let sel = null
               if (v <= 0) {
