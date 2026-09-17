@@ -3932,6 +3932,11 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     )
   end
 
+  # The copy's own broadcast reloads the index too; this only makes the
+  # new row show up with the flash. Another tab has nothing to reload.
+  defp reload_index(%{assigns: %{active_tab: :index}} = socket), do: load_data(socket, :index)
+  defp reload_index(socket), do: socket
+
   defp finish_duplicate(socket, source_uuid, result) do
     case result do
       {:ok, %{catalogue: copy, categories: categories, items: items}} ->
@@ -3942,12 +3947,12 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
            Gettext.gettext(
              PhoenixKitCatalogue.Gettext,
              "Created “%{name}” (categories: %{categories}, items: %{items}).",
-             name: copy.name,
+             name: Catalogue.localize_one(copy, socket.assigns[:current_locale]).name,
              categories: categories,
              items: items
            )
          )
-         |> load_data(:index)}
+         |> reload_index()}
 
       {:error, reason} ->
         log_operation_error(socket, "duplicate_catalogue", %{
