@@ -700,8 +700,12 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
   pushing `event` (default `"toggle_column"`) with `%{"col" => col}` to
   `target` on each row click. Presentation only — the caller owns which
   columns are toggleable at all (its pre-approved set minus pinned ones)
-  and what is currently visible. Focus-based dropdown, so several columns
-  can be flipped before it closes on blur.
+  and what is currently visible. It stays open while columns are flipped
+  and closes on an outside click or Escape.
+
+  The list is a popover anchored to its button (see `popover_anchor/1`),
+  so no scrolling ancestor can cut it off, and it opens above the button
+  when there is no room below.
   """
   attr(:id, :string, required: true)
   attr(:columns, :list, required: true, doc: "toggleable columns, display order")
@@ -710,14 +714,29 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
   attr(:target, :any, default: nil)
 
   def column_toggle(assigns) do
+    assigns = assign(assigns, :anchor, popover_anchor(assigns.id))
+
     ~H"""
-    <div id={@id} class="dropdown dropdown-end">
-      <div tabindex="0" role="button" class="btn btn-sm" title={gettext("Columns")}>
+    <div id={@id} class="inline-block">
+      <button
+        type="button"
+        class="btn btn-sm"
+        title={gettext("Columns")}
+        aria-label={gettext("Columns")}
+        popovertarget={"#{@id}-menu"}
+        style={"anchor-name: #{@anchor}"}
+      >
         <span class="hero-view-columns w-4 h-4"></span>
-      </div>
+      </button>
+      <%!-- daisyUI's popover dropdown: anchored under the button, and
+      centred on screen where the browser has no anchor positioning.
+      Capped at half the viewport, it always fits on one side of the
+      button; flip-block picks that side. --%>
       <ul
-        tabindex="0"
-        class="dropdown-content menu bg-base-100 rounded-box border border-base-300 shadow-lg z-50 w-48 p-2"
+        id={"#{@id}-menu"}
+        popover
+        class="dropdown menu flex-nowrap overflow-y-auto bg-base-100 rounded-box border border-base-300 shadow-lg w-48 p-2 supports-[position-area:bottom]:my-1"
+        style={"position-anchor: #{@anchor}; --anchor-h: span-left; position-try-fallbacks: flip-block, flip-inline, flip-block flip-inline; max-height: calc(50dvh - 2.5rem)"}
       >
         <li :for={col <- @columns}>
           <button
@@ -740,6 +759,19 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
     </div>
     """
   end
+
+  @doc """
+  The CSS anchor name for a popover opened from the element with DOM id
+  `id`: the trigger sets `anchor-name` to it and the popover sets
+  `position-anchor`. A popover renders in the browser's top layer, above
+  every scrolling or clipping ancestor, and with
+  `position-try-fallbacks: flip-block` it moves above its trigger when
+  there is no room below. Characters an identifier can't hold become
+  `-`, so every DOM id gives a valid name.
+  """
+  @spec popover_anchor(String.t()) :: String.t()
+  def popover_anchor(id) when is_binary(id),
+    do: "--pk-anchor-" <> String.replace(id, ~r/[^A-Za-z0-9_-]/, "-")
 
   # Dropdown labels: same as the headers except :thumb, whose header is
   # deliberately blank.

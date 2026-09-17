@@ -380,6 +380,33 @@ defmodule PhoenixKitCatalogue.Web.Components.BrowseTest do
     end
   end
 
+  describe "column_toggle/1 placement" do
+    test "the list is a popover anchored to its button, flipping above it when there is no room" do
+      html =
+        render_component(&Browse.column_toggle/1,
+          id: "sel-cols",
+          columns: [:thumb, :sku],
+          visible: [:thumb]
+        )
+
+      [menu] = Regex.run(~r/<ul[^>]*id="sel-cols-menu"[^>]*>/, html)
+
+      assert html =~ ~s(popovertarget="sel-cols-menu")
+      assert html =~ "anchor-name: --pk-anchor-sel-cols"
+      assert menu =~ "popover"
+      assert menu =~ "position-anchor: --pk-anchor-sel-cols"
+      assert menu =~ "position-try-fallbacks: flip-block"
+      assert menu =~ "max-height: calc(50dvh - 2.5rem)"
+      # The old focus-driven dropdown is gone: it was clipped by the modal.
+      refute html =~ "dropdown-content"
+      refute html =~ ~s(tabindex="0")
+    end
+
+    test "popover_anchor/1 makes a valid identifier from any DOM id" do
+      assert Browse.popover_anchor("row-1.picker:x y") == "--pk-anchor-row-1-picker-x-y"
+    end
+  end
+
   describe "qty_stepper/1" do
     # 2026-08-30: a native <input type="number"> — browser spinner arrows,
     # no custom −/+ buttons.
