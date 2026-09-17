@@ -2121,8 +2121,8 @@ msgstr "Переместить выбранные позиции"
 msgid "Move this PDF to trash?"
 msgstr "Переместить этот PDF в корзину?"
 
-msgid "Move this category and all its items to a different catalogue."
-msgstr "Переместите эту категорию и все её позиции в другой каталог."
+msgid "Move this category and all its items to a different catalogue — at its top level or under one of its categories."
+msgstr "Переместите эту категорию и все её позиции в другой каталог — на его верхний уровень или внутрь одной из его категорий."
 
 msgid "Move this item into a different smart catalogue. Its catalogue rules stay attached."
 msgstr "Переместите эту позицию в другой умный каталог. Её правила каталогов остаются прикреплёнными."
@@ -3485,3 +3485,27 @@ msgstr "Не удалось удалить атрибут."
 
 msgid "%{value} (archived)"
 msgstr "%{value} (в архиве)"
+
+msgid "Standard and smart catalogues can't exchange items or categories."
+msgstr "Обычные и умные каталоги не могут обмениваться позициями или категориями."
+
+msgid "Items go to the chosen catalogue without a category."
+msgstr "Позиции попадут в выбранный каталог без категории."
+
+msgid "Put items in a category there"
+msgstr "Поместить позиции в категорию этого каталога"
+
+msgid "They sit at the root of the chosen catalogue."
+msgstr "Они окажутся на верхнем уровне выбранного каталога."
+
+msgid "%{name} (this catalogue)"
+msgstr "%{name} (этот каталог)"
+
+msgid "%{catalogue} — no category"
+msgstr "%{catalogue} — без категории"
+
+msgid "%{catalogue} — top level"
+msgstr "%{catalogue} — верхний уровень"
+
+msgid "-- Select destination --"
+msgstr "-- Выберите, куда переместить --"

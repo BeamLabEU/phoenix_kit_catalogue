@@ -130,6 +130,13 @@ defmodule PhoenixKitCatalogue.Errors do
         "Item is already in this catalogue."
       )
 
+  def message(:kind_mismatch),
+    do:
+      Gettext.gettext(
+        PhoenixKitCatalogue.Gettext,
+        "Standard and smart catalogues can't exchange items or categories."
+      )
+
   def message(:no_user),
     do:
       Gettext.gettext(

@@ -143,20 +143,57 @@ defmodule PhoenixKitCatalogue.Web.FormLVBranchesTest do
       cat_obj = fixture_category(cat, %{name: "Movable"})
       {:ok, view, _html} = live(conn, "/en/admin/catalogue/categories/#{cat_obj.uuid}/edit")
 
-      render_change(view, "select_move_target", %{"catalogue_uuid" => other.uuid})
+      view
+      |> form("#category-move-form", %{"move_target" => "catalogue:" <> other.uuid})
+      |> render_change()
 
-      assert :sys.get_state(view.pid).socket.assigns.move_target == other.uuid
+      assert :sys.get_state(view.pid).socket.assigns.move_target == "catalogue:" <> other.uuid
     end
 
     test "move_category executes the move when target is set",
          %{conn: conn, catalogue: cat, other_catalogue: other} do
       cat_obj = fixture_category(cat, %{name: "ToMove"})
       {:ok, view, _html} = live(conn, "/en/admin/catalogue/categories/#{cat_obj.uuid}/edit")
-      render_change(view, "select_move_target", %{"catalogue_uuid" => other.uuid})
+
+      view
+      |> form("#category-move-form", %{"move_target" => "catalogue:" <> other.uuid})
+      |> render_change()
 
       render_click(view, "move_category", %{})
 
       assert Catalogue.get_category(cat_obj.uuid).catalogue_uuid == other.uuid
+    end
+
+    test "move_category lands under a category of the other catalogue",
+         %{conn: conn, catalogue: cat, other_catalogue: other} do
+      cat_obj = fixture_category(cat, %{name: "ToNest"})
+      parent = fixture_category(other, %{name: "LandingParent"})
+      {:ok, view, _html} = live(conn, "/en/admin/catalogue/categories/#{cat_obj.uuid}/edit")
+
+      view
+      |> form("#category-move-form", %{"move_target" => "category:" <> parent.uuid})
+      |> render_change()
+
+      render_click(view, "move_category", %{})
+
+      moved = Catalogue.get_category(cat_obj.uuid)
+      assert moved.catalogue_uuid == other.uuid
+      assert moved.parent_uuid == parent.uuid
+    end
+
+    test "the parent select reaches the server through its form",
+         %{conn: conn, catalogue: cat} do
+      parent = fixture_category(cat, %{name: "NewParent"})
+      cat_obj = fixture_category(cat, %{name: "Child"})
+      {:ok, view, _html} = live(conn, "/en/admin/catalogue/categories/#{cat_obj.uuid}/edit")
+
+      view
+      |> form("#category-parent-move-form", %{"parent_uuid" => parent.uuid})
+      |> render_change()
+
+      render_click(view, "move_under_parent", %{})
+
+      assert Catalogue.get_category(cat_obj.uuid).parent_uuid == parent.uuid
     end
 
     test "move_category with no target is a no-op", %{conn: conn, catalogue: cat} do

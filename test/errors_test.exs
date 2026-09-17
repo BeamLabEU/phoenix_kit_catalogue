@@ -42,6 +42,11 @@ defmodule PhoenixKitCatalogue.ErrorsTest do
       assert Errors.message(:catalogue_not_found) == "Catalogue not found."
     end
 
+    test "kind_mismatch" do
+      assert Errors.message(:kind_mismatch) ==
+               "Standard and smart catalogues can't exchange items or categories."
+    end
+
     test "same_catalogue" do
       assert Errors.message(:same_catalogue) == "Item is already in this catalogue."
     end
