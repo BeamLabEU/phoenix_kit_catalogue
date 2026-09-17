@@ -2034,8 +2034,8 @@ msgstr "Внутренние заметки об этом поставщике..
 msgid "Item Name"
 msgstr "Название позиции"
 
-msgid "Items can only be moved within this catalogue."
-msgstr "Позиции можно перемещать только внутри этого каталога."
+msgid "Some selected items are no longer in this catalogue. Reload the page and try again."
+msgstr "Некоторых выбранных товаров больше нет в этом каталоге. Обновите страницу и попробуйте снова."
 
 msgid "Items keep their catalogue but lose their category."
 msgstr "Позиции остаются в каталоге, но теряют категорию."

@@ -2025,8 +2025,8 @@ msgstr "Sisemärkmed selle tarnija kohta..."
 msgid "Item Name"
 msgstr "Toote nimi"
 
-msgid "Items can only be moved within this catalogue."
-msgstr "Tooteid saab liigutada ainult selle kataloogi sees."
+msgid "Some selected items are no longer in this catalogue. Reload the page and try again."
+msgstr "Mõni valitud toode ei ole enam selles kataloogis. Laadi leht uuesti ja proovi uuesti."
 
 msgid "Items keep their catalogue but lose their category."
 msgstr "Tooted jäävad kataloogi, kuid kaotavad kategooria."

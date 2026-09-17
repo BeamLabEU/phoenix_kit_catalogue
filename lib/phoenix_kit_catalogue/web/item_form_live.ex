@@ -2041,7 +2041,9 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   # A category carries its catalogue along; a bare catalogue files the
   # item there without a category (its own catalogue: just uncategorize).
   defp perform_move(socket, target) do
-    item = socket.assigns.item
+    # The row as it is now: another tab may have moved it since mount, and
+    # "its own catalogue" must mean where it is, not where it was.
+    item = Catalogue.get_item(socket.assigns.item.uuid) || socket.assigns.item
 
     result =
       case parse_move_target(target) do

@@ -98,6 +98,21 @@ defmodule PhoenixKitCatalogue.Catalogue.MovesTest do
       assert refresh_item(item).catalogue_uuid == source.uuid
     end
 
+    test "a raw 16-byte uuid is refused, not a crash" do
+      source = fixture_catalogue(%{name: "Source"})
+      target = fixture_catalogue(%{name: "Target"})
+      category = fixture_category(source, %{name: "Moving"})
+      raw = Ecto.UUID.bingenerate()
+
+      assert {:error, :catalogue_not_found} = Catalogue.move_category_to_catalogue(category, raw)
+
+      assert {:error, :parent_not_found} =
+               Catalogue.move_category_to_catalogue(category, target.uuid, parent_uuid: raw)
+
+      assert {:error, :parent_not_found} =
+               Catalogue.move_category_to_catalogue(category, target.uuid, parent_uuid: "nope")
+    end
+
     test "refuses a catalogue of the other kind" do
       source = fixture_catalogue(%{name: "Standard"})
       smart = smart_catalogue("Smart")
@@ -242,6 +257,21 @@ defmodule PhoenixKitCatalogue.Catalogue.MovesTest do
       assert {:error, :catalogue_not_found} = Catalogue.move_item_to_catalogue(item, "nope")
       assert {:error, :kind_mismatch} = Catalogue.move_item_to_catalogue(item, smart.uuid)
       assert refresh_item(item).catalogue_uuid == source.uuid
+    end
+
+    test "decides from the row, not from a stale struct" do
+      home = fixture_catalogue(%{name: "Home"})
+      away = fixture_catalogue(%{name: "Away"})
+      item = fixture_item(%{name: "Wanderer", catalogue_uuid: home.uuid})
+      {:ok, _} = Catalogue.move_item_to_catalogue(item, away.uuid)
+
+      # `item` still says Home; the row is in Away, so moving it Home works.
+      assert {:ok, back} = Catalogue.move_item_to_catalogue(item, home.uuid)
+      assert back.catalogue_uuid == home.uuid
+
+      # And a struct that says Away while the row is Home is "already there".
+      stale = %{item | catalogue_uuid: away.uuid}
+      assert {:error, :same_catalogue} = Catalogue.move_item_to_catalogue(stale, home.uuid)
     end
 
     test "refuses a trashed item" do
@@ -423,6 +453,64 @@ defmodule PhoenixKitCatalogue.Catalogue.MovesTest do
       assert {"bad", :invalid_uuid} in errors
       assert refresh_category(mine).parent_uuid == landing.uuid
       assert refresh_category(foreign).parent_uuid == nil
+    end
+
+    test "without a scope nothing moves" do
+      source = fixture_catalogue(%{name: "Source"})
+      target = fixture_catalogue(%{name: "Target"})
+      category = fixture_category(source, %{name: "Stays"})
+
+      assert {:ok, %{moved: 0, errors: [{uuid, :missing_catalogue_scope}]}} =
+               Catalogue.bulk_move_categories_to_catalogue([category.uuid], target.uuid, nil, [])
+
+      assert uuid == category.uuid
+      assert refresh_category(category).catalogue_uuid == source.uuid
+    end
+
+    test "nested entries move shallowest first when their top one cannot" do
+      source = fixture_catalogue(%{name: "Source"})
+      target = fixture_catalogue(%{name: "Target"})
+      a = fixture_category(source, %{name: "A"})
+      b = fixture_category(source, %{name: "B", parent_uuid: a.uuid})
+      c = fixture_category(source, %{name: "C", parent_uuid: b.uuid})
+      {:ok, _} = Catalogue.trash_category(a, items: :cascade)
+      {:ok, _} = Catalogue.restore_category(refresh_category(b))
+      {:ok, _} = Catalogue.restore_category(refresh_category(c))
+
+      # C before B in the selection; B still moves first and carries C.
+      assert {:ok, %{moved: 2, errors: [{a_uuid, :not_found}]}} =
+               Catalogue.bulk_move_categories_to_catalogue(
+                 [a.uuid, c.uuid, b.uuid],
+                 target.uuid,
+                 nil,
+                 catalogue_uuid: source.uuid
+               )
+
+      assert a_uuid == a.uuid
+      assert refresh_category(b).catalogue_uuid == target.uuid
+      assert refresh_category(c).catalogue_uuid == target.uuid
+      assert refresh_category(c).parent_uuid == b.uuid
+    end
+
+    test "rows already in the target are refused, not counted as carried" do
+      source = fixture_catalogue(%{name: "Source"})
+      target = fixture_catalogue(%{name: "Target"})
+      parent = fixture_category(target, %{name: "There"})
+      child = fixture_category(target, %{name: "Also there", parent_uuid: parent.uuid})
+
+      assert {:ok, %{moved: 0, errors: errors}} =
+               Catalogue.bulk_move_categories_to_catalogue(
+                 [parent.uuid, child.uuid],
+                 target.uuid,
+                 nil,
+                 catalogue_uuid: source.uuid
+               )
+
+      assert Enum.sort(errors) ==
+               Enum.sort([
+                 {parent.uuid, :wrong_catalogue_scope},
+                 {child.uuid, :wrong_catalogue_scope}
+               ])
     end
 
     test "the scope catalogue as target is a plain reparent" do
