@@ -777,7 +777,7 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
           refit() {
             if (typeof this.menu.showPopover !== "function" || !this.menu.matches(":popover-open")) return
             const rect = this.menu.getBoundingClientRect()
-            if (rect.top >= 0 && rect.bottom <= window.innerHeight) return
+            if (rect.top >= -1 && rect.bottom <= window.innerHeight + 1) return
             this.menu.hidePopover()
             this.menu.showPopover()
           },

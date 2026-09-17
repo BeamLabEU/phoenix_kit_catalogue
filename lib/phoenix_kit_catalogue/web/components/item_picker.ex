@@ -1036,9 +1036,9 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
 
           // The server renders the listbox only while open; each render of
           // it is a new element to show. With `refit`, an open list that no
-          // longer fits on screen (the page scrolled under it) is reopened:
-          // browsers pick a position option when a popover opens, not when
-          // its anchor scrolls.
+          // longer fits on screen (the page scrolled under it, or new
+          // results made it taller) is reopened: browsers pick a position
+          // option when a popover opens, not when its anchor scrolls.
           syncListbox({refit = false} = {}) {
             const list = this.listbox()
             if (!list || typeof list.showPopover !== "function") {
@@ -1054,9 +1054,10 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
             if (!ANCHORED) this.placeListbox(list)
           },
 
+          // A pixel of slack: sub-pixel sizes must not reopen on every frame.
           fitsViewport(el) {
             const rect = el.getBoundingClientRect()
-            return rect.top >= 0 && rect.bottom <= window.innerHeight
+            return rect.top >= -1 && rect.bottom <= window.innerHeight + 1
           },
 
           placeListbox(list) {
@@ -1092,7 +1093,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
               this.focusedIdx = opts.length - 1
             }
             this.syncActiveDescendant()
-            this.syncListbox()
+            this.syncListbox({refit: true})
           },
 
           destroyed() {
