@@ -989,11 +989,16 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
       >
         <%= case col do %>
           <% :thumb -> %>
+            <%!-- max-w-none: preflight's `img { max-width: 100% }` makes an
+            image's minimum width zero, and the w-full name column takes
+            every pixel a column can give up, so the photo collapsed to
+            0px wide while the fixed-width letter placeholder kept its
+            size (tim-dev, 2026-09-17: photos in cards, none in rows). --%>
             <img
               :if={@item.thumb_url}
               src={@item.thumb_url}
               alt=""
-              class="w-8 h-8 [.pk-comfy_&]:w-16 [.pk-comfy_&]:h-16 rounded object-cover bg-base-200"
+              class="w-8 h-8 max-w-none [.pk-comfy_&]:w-16 [.pk-comfy_&]:h-16 rounded object-cover bg-base-200"
             />
             <div
               :if={!@item.thumb_url}
