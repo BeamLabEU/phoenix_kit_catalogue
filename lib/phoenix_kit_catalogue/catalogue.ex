@@ -882,12 +882,17 @@ defmodule PhoenixKitCatalogue.Catalogue do
       |> restore_trashed(:category, now)
       |> repo().update_all([])
 
-    {items_restored, _} =
+    stamped_items =
       from(i in Item, as: :item, where: i.catalogue_uuid == ^root and i.status == "deleted")
       |> trashed_by_or_unstamped(root)
+
+    {items_restored, _} =
+      stamped_items
       |> outside_trashed_categories()
       |> restore_trashed(:item, now)
       |> repo().update_all([])
+
+    restamp_left_behind!(stamped_items)
 
     # Restore to where it came from — unless that home is gone. A
     # hard-deleted folder already SET NULLed the reference (root); a
@@ -2123,12 +2128,17 @@ defmodule PhoenixKitCatalogue.Catalogue do
       |> restore_trashed(:category, now)
       |> repo().update_all([])
 
-    {items_restored, _} =
+    stamped_items =
       from(i in Item, as: :item, where: i.category_uuid in ^subtree and i.status == "deleted")
       |> trashed_by(root)
+
+    {items_restored, _} =
+      stamped_items
       |> outside_trashed_categories()
       |> restore_trashed(:item, now)
       |> repo().update_all([])
+
+    restamp_left_behind!(stamped_items)
 
     {repo().get!(Category, root), categories_restored, items_restored}
   end
@@ -4529,6 +4539,41 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
   # For an item query bound `as: :item`: skips items whose category is in
   # the trash, so a restore never leaves a live item in a trashed category.
+  # Items a restore had to leave in the trash because their category is
+  # still trashed under another root. Their stamp named the root being
+  # restored, so a later trash and restore of that root would have revived
+  # them from under the trashed category (randomized test, seed 423352).
+  # They join that category's unit instead: its stamp root (restoring the
+  # category, or what trashed it, brings them back with it), or their own
+  # when the category carries no stamp. `from_status` is kept. The same
+  # rule Delete Forever applies to rows it leaves behind.
+  defp restamp_left_behind!(stamped_items) do
+    from(i in stamped_items,
+      join: c in Category,
+      on: c.uuid == i.category_uuid,
+      where: c.status == "deleted",
+      update: [
+        set: [
+          data:
+            fragment(
+              """
+              COALESCE(?, '{}'::jsonb) || jsonb_build_object('_trash',
+                COALESCE(? -> '_trash', '{}'::jsonb) || jsonb_build_object(
+                  'root', COALESCE(? #>> '{_trash,root}', ?::text),
+                  'via', CASE WHEN ? #>> '{_trash,root}' IS NULL THEN 'self' ELSE 'category' END))
+              """,
+              i.data,
+              i.data,
+              c.data,
+              i.uuid,
+              c.data
+            )
+        ]
+      ]
+    )
+    |> repo().update_all([])
+  end
+
   defp outside_trashed_categories(query) do
     where(
       query,
