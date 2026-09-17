@@ -927,4 +927,39 @@ defmodule PhoenixKitCatalogue.GettextTest do
   after
     Gettext.put_locale(PhoenixKitCatalogue.Gettext, "en")
   end
+
+  test "the cross-catalogue move strings are translated in ru and et" do
+    # Added by hand to the .pot and every locale (2026-09-17, moves
+    # across catalogues).
+    for {msgid, ru, et} <- [
+          {"Move this category and all its items to a different catalogue — at its top level or under one of its categories.",
+           "Переместите эту категорию и все её позиции в другой каталог — на его верхний уровень или внутрь одной из его категорий.",
+           "Liiguta see kategooria ja kõik selle tooted teise kataloogi — selle ülatasemele või mõne selle kategooria alla."},
+          {"Standard and smart catalogues can't exchange items or categories.",
+           "Обычные и умные каталоги не могут обмениваться позициями или категориями.",
+           "Tava- ja nutikataloogid ei saa tooteid ega kategooriaid omavahel vahetada."},
+          {"Items go to the chosen catalogue without a category.",
+           "Позиции попадут в выбранный каталог без категории.",
+           "Tooted lähevad valitud kataloogi ilma kategooriata."},
+          {"Put items in a category there", "Поместить позиции в категорию этого каталога",
+           "Pane tooted sealsesse kategooriasse"},
+          {"They sit at the root of the chosen catalogue.",
+           "Они окажутся на верхнем уровне выбранного каталога.",
+           "Need jäävad valitud kataloogi ülatasemele."},
+          {"%{name} (this catalogue)", "%{name} (этот каталог)", "%{name} (see kataloog)"},
+          {"%{catalogue} — no category", "%{catalogue} — без категории",
+           "%{catalogue} — ilma kategooriata"},
+          {"%{catalogue} — top level", "%{catalogue} — верхний уровень",
+           "%{catalogue} — ülatase"},
+          {"-- Select destination --", "-- Выберите, куда переместить --", "-- Vali sihtkoht --"}
+        ] do
+      Gettext.put_locale(PhoenixKitCatalogue.Gettext, "ru")
+      assert Gettext.gettext(PhoenixKitCatalogue.Gettext, msgid) == ru
+
+      Gettext.put_locale(PhoenixKitCatalogue.Gettext, "et")
+      assert Gettext.gettext(PhoenixKitCatalogue.Gettext, msgid) == et
+    end
+  after
+    Gettext.put_locale(PhoenixKitCatalogue.Gettext, "en")
+  end
 end

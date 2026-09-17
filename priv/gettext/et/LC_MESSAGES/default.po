@@ -2112,8 +2112,8 @@ msgstr "Liiguta valitud tooted"
 msgid "Move this PDF to trash?"
 msgstr "Viia see PDF prügikasti?"
 
-msgid "Move this category and all its items to a different catalogue."
-msgstr "Liiguta see kategooria ja kõik selle tooted teise kataloogi."
+msgid "Move this category and all its items to a different catalogue — at its top level or under one of its categories."
+msgstr "Liiguta see kategooria ja kõik selle tooted teise kataloogi — selle ülatasemele või mõne selle kategooria alla."
 
 msgid "Move this item into a different smart catalogue. Its catalogue rules stay attached."
 msgstr "Liiguta see toode teise nutikataloogi. Selle kataloogireeglid jäävad külge."
@@ -3473,3 +3473,27 @@ msgstr "Atribuudi kustutamine ebaõnnestus."
 
 msgid "%{value} (archived)"
 msgstr "%{value} (arhiveeritud)"
+
+msgid "Standard and smart catalogues can't exchange items or categories."
+msgstr "Tava- ja nutikataloogid ei saa tooteid ega kategooriaid omavahel vahetada."
+
+msgid "Items go to the chosen catalogue without a category."
+msgstr "Tooted lähevad valitud kataloogi ilma kategooriata."
+
+msgid "Put items in a category there"
+msgstr "Pane tooted sealsesse kategooriasse"
+
+msgid "They sit at the root of the chosen catalogue."
+msgstr "Need jäävad valitud kataloogi ülatasemele."
+
+msgid "%{name} (this catalogue)"
+msgstr "%{name} (see kataloog)"
+
+msgid "%{catalogue} — no category"
+msgstr "%{catalogue} — ilma kategooriata"
+
+msgid "%{catalogue} — top level"
+msgstr "%{catalogue} — ülatase"
+
+msgid "-- Select destination --"
+msgstr "-- Vali sihtkoht --"

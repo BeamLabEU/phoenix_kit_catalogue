@@ -55,17 +55,22 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLiveExtraTest do
       cat_obj = fixture_category(cat, %{name: "MoveTarget"})
       {:ok, view, _html} = live(conn, "/en/admin/catalogue/items/#{item.uuid}/edit")
 
-      render_change(view, "select_move_target", %{"category_uuid" => cat_obj.uuid})
+      view
+      |> form("#item-move-form", %{"move_target" => "category:" <> cat_obj.uuid})
+      |> render_change()
+
       render_click(view, "move_item", %{})
 
       assert Catalogue.get_item(item.uuid).category_uuid == cat_obj.uuid
     end
 
     test "move_item with empty target is a no-op",
-         %{conn: conn, item: item} do
+         %{conn: conn, catalogue: cat, item: item} do
+      # A category to go to, so the Move form renders at all.
+      fixture_category(cat, %{name: "SomewhereElse"})
       {:ok, view, _html} = live(conn, "/en/admin/catalogue/items/#{item.uuid}/edit")
 
-      render_change(view, "select_move_target", %{"category_uuid" => ""})
+      view |> form("#item-move-form", %{"move_target" => ""}) |> render_change()
       render_click(view, "move_item", %{})
 
       # Item stays in the same catalogue.
@@ -73,22 +78,52 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLiveExtraTest do
       assert Process.alive?(view.pid)
     end
 
-    test "move_item for a smart-catalogue item routes via catalogue_uuid key",
+    test "move_item for a smart-catalogue item moves it to another smart catalogue",
          %{conn: conn} do
       {:ok, smart} = Catalogue.create_catalogue(%{name: "SmartMoveSrc", kind: "smart"})
-      {:ok, target} = Catalogue.create_catalogue(%{name: "SmartMoveDst", kind: "standard"})
+      {:ok, target} = Catalogue.create_catalogue(%{name: "SmartMoveDst", kind: "smart"})
+      {:ok, standard} = Catalogue.create_catalogue(%{name: "StandardElsewhere"})
       {:ok, item} = Catalogue.create_item(%{name: "Smart Item", catalogue_uuid: smart.uuid})
 
+      {:ok, view, html} = live(conn, "/en/admin/catalogue/items/#{item.uuid}/edit")
+
+      # Kinds never mix: a standard catalogue is not a destination.
+      refute html =~ "catalogue:" <> standard.uuid
+
+      view
+      |> form("#item-move-form", %{"move_target" => "catalogue:" <> target.uuid})
+      |> render_change()
+
+      render_click(view, "move_item", %{})
+
+      assert Catalogue.get_item(item.uuid).catalogue_uuid == target.uuid
+    end
+
+    test "a standard item moves to another catalogue's no-category slot",
+         %{conn: conn, item: item} do
+      {:ok, other} = Catalogue.create_catalogue(%{name: "Elsewhere"})
       {:ok, view, _html} = live(conn, "/en/admin/catalogue/items/#{item.uuid}/edit")
 
-      # Smart forms send `catalogue_uuid` instead of `category_uuid`.
-      render_change(view, "select_move_target", %{"catalogue_uuid" => target.uuid})
+      view
+      |> form("#item-move-form", %{"move_target" => "catalogue:" <> other.uuid})
+      |> render_change()
+
       render_click(view, "move_item", %{})
 
       reloaded = Catalogue.get_item(item.uuid)
-      # The item moved to the new catalogue (move_item dispatches to
-      # move_item_to_catalogue for smart items).
-      assert reloaded.catalogue_uuid == target.uuid
+      assert reloaded.catalogue_uuid == other.uuid
+      assert reloaded.category_uuid == nil
+    end
+
+    test "a value the select did not offer is ignored", %{conn: conn, item: item} do
+      {:ok, smart} = Catalogue.create_catalogue(%{name: "NotOffered", kind: "smart"})
+      {:ok, view, _html} = live(conn, "/en/admin/catalogue/items/#{item.uuid}/edit")
+
+      render_change(view, "select_move_target", %{"move_target" => "catalogue:" <> smart.uuid})
+      render_click(view, "move_item", %{})
+
+      assert :sys.get_state(view.pid).socket.assigns.move_target == nil
+      assert Catalogue.get_item(item.uuid).catalogue_uuid == item.catalogue_uuid
     end
   end
 
