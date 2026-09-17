@@ -1630,13 +1630,24 @@ defmodule PhoenixKitCatalogue.Catalogue do
   @spec create_category(map(), keyword()) ::
           {:ok, Category.t()} | {:error, Ecto.Changeset.t(Category.t())}
   def create_category(attrs, opts \\ []) do
-    changeset =
-      %Category{}
-      |> Category.changeset(put_default_category_position(attrs))
-      |> validate_parent_in_same_catalogue()
-      |> stamp_created_deleted()
+    # One transaction, so the parent read `FOR SHARE` in the catalogue
+    # check holds until the insert commits: a move of the parent's tree
+    # to another catalogue either lands first (and the check sees the new
+    # catalogue) or waits and then carries the new child along.
+    result =
+      repo().transaction(fn ->
+        %Category{}
+        |> Category.changeset(put_default_category_position(attrs))
+        |> validate_parent_in_same_catalogue()
+        |> stamp_created_deleted()
+        |> repo().insert()
+        |> case do
+          {:ok, category} -> category
+          {:error, changeset} -> repo().rollback(changeset)
+        end
+      end)
 
-    case repo().insert(changeset) do
+    case result do
       {:ok, category} = ok ->
         log_activity(
           %{
@@ -1808,8 +1819,10 @@ defmodule PhoenixKitCatalogue.Catalogue do
     end
   end
 
+  # `FOR SHARE`: callers run inside a transaction, so the parent cannot
+  # change catalogue between this check and their write.
   defp check_parent_catalogue(changeset, parent_uuid, catalogue_uuid) do
-    case repo().get(Category, parent_uuid) do
+    case repo().one(from(c in Category, where: c.uuid == ^parent_uuid, lock: "FOR SHARE")) do
       nil ->
         Ecto.Changeset.add_error(changeset, :parent_uuid, "does not exist")
 
