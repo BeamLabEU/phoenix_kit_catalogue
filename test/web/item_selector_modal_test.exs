@@ -568,6 +568,108 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       {ghost_at, _} = :binary.match(html, "pick-#{ghost_item.uuid}")
       assert normal_at < ghost_at
     end
+
+    test "an item whose position is NULL sorts LAST, not first", %{conn: conn, cat: cat} do
+      # `position` is nullable (default 0, but an import or a hand-edit
+      # can write NULL) and the manual order puts a null LAST —
+      # `Search.apply_search_order/2`'s `asc: i.position`, Postgres ASC
+      # being NULLS LAST. `Browse.present_items/2` defaulted it to 0,
+      # which sorted such an item FIRST and quietly defeated
+      # `position_key/1`'s own nulls-last handling (external review,
+      # 2026-09-17).
+      category = fixture_category(cat, %{name: "Nullables"})
+
+      nulled =
+        fixture_item(%{
+          name: "AAA Nulled Position",
+          catalogue_uuid: cat.uuid,
+          category_uuid: category.uuid
+        })
+
+      positioned =
+        fixture_item(%{
+          name: "ZZZ Real Position",
+          catalogue_uuid: cat.uuid,
+          category_uuid: category.uuid
+        })
+
+      # Behind the changeset: position is auto-assigned on create, and
+      # the seeded order (nulled first, position 1) is exactly the one a
+      # `nil -> 0` default preserved. The name order fights it too.
+      {1, _} =
+        Repo.update_all(
+          from(i in PhoenixKitCatalogue.Schemas.Item, where: i.uuid == ^nulled.uuid),
+          set: [position: nil]
+        )
+
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&sel=click")
+
+      view |> picker() |> render_click("browse_category", %{"uuid" => category.uuid})
+      view |> picker() |> render_click("card_click", %{"uuid" => nulled.uuid})
+      view |> picker() |> render_click("card_click", %{"uuid" => positioned.uuid})
+      view |> picker() |> render_click("confirm", %{})
+      html = render(view)
+
+      {nulled_at, _} = :binary.match(html, "pick-#{nulled.uuid}")
+      {positioned_at, _} = :binary.match(html, "pick-#{positioned.uuid}")
+      assert positioned_at < nulled_at
+    end
+
+    test "two catalogues tied on position AND name still arrive as one block each", %{conn: conn} do
+      # Catalogue positions default to 0 and run one sequence per folder
+      # level, so ties are ordinary. Without the uuid tie-break
+      # `Search.apply_search_order/2` carries for exactly this reason,
+      # two same-named catalogues interleaved their picks
+      # position-by-position instead of arriving as blocks (external
+      # review, 2026-09-17).
+      left = fixture_catalogue(%{name: "Twin Catalogue"})
+      right = fixture_catalogue(%{name: "Twin Catalogue"})
+
+      {2, _} =
+        Repo.update_all(
+          from(c in CatalogueSchema, where: c.uuid in ^[left.uuid, right.uuid]),
+          set: [position: 0]
+        )
+
+      left_items =
+        Enum.map(1..2, &fixture_item(%{name: "Alpha #{&1}", catalogue_uuid: left.uuid}))
+
+      right_items =
+        Enum.map(1..2, &fixture_item(%{name: "Beta #{&1}", catalogue_uuid: right.uuid}))
+
+      {:ok, view, _html} = open(conn, "c=#{left.uuid}&c2=#{right.uuid}&sel=click")
+
+      # Interleaved on purpose, one catalogue at a time — the two
+      # catalogues' items share their `position` ordinals (1 and 2), so
+      # a tie at the catalogue key mixes them.
+      for {catalogue, items} <- [{left, left_items}, {right, right_items}] do
+        view |> picker() |> render_click("browse_catalogue", %{"uuid" => catalogue.uuid})
+
+        for item <- items do
+          view |> picker() |> render_click("card_click", %{"uuid" => item.uuid})
+        end
+      end
+
+      view |> picker() |> render_click("confirm", %{})
+      html = render(view)
+
+      at = fn item ->
+        {offset, _} = :binary.match(html, "pick-#{item.uuid}")
+        offset
+      end
+
+      left_at = Enum.map(left_items, at)
+      right_at = Enum.map(right_items, at)
+
+      # Each catalogue's picks are contiguous, and the blocks follow the
+      # catalogues' uuid order — the key's last resort.
+      {first, second} =
+        if to_string(left.uuid) < to_string(right.uuid),
+          do: {left_at, right_at},
+          else: {right_at, left_at}
+
+      assert Enum.max(first) < Enum.min(second)
+    end
   end
 
   describe "selection and confirm — the host contract" do

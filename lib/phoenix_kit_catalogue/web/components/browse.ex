@@ -28,7 +28,7 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
       #       photo_url: "/…/medium/…"|nil, thumb_url: "/…/thumbnail/…"|nil,
       #       manufacturer: "…"|nil, category: "…"|nil,
       #       default_qty: %Decimal{1}, catalogue_uuid: "…"|nil,
-      #       category_uuid: "…"|nil, position: 0}]
+      #       category_uuid: "…"|nil, position: 0|nil}]
 
   `item_row/1`'s default columns read `thumb_url`, `category` and
   `base_price` too — a host hand-building presented maps needs the full
@@ -150,7 +150,13 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
         # keys.
         catalogue_uuid: normalize_uuid(Map.get(item, :catalogue_uuid)),
         category_uuid: normalize_uuid(Map.get(item, :category_uuid)),
-        position: Map.get(item, :position) || 0
+        # Passed through UNCOERCED, nil included: the column is nullable
+        # and the manual order sorts a null position LAST
+        # (`Search.apply_search_order/2`'s `asc: i.position` — Postgres
+        # ASC is NULLS LAST). Defaulting it to 0 here sorted those items
+        # FIRST instead, and silently defeated `position_key/1`'s own
+        # nulls-last handling downstream (external review, 2026-09-17).
+        position: Map.get(item, :position)
       }
     end)
   end
