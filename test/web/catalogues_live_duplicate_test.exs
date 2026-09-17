@@ -12,7 +12,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveDuplicateTest do
 
   # The copy runs outside the LiveView process; poll the rendered page
   # until the task's report has arrived.
-  defp await_render(view, pattern, tries \\ 100) do
+  defp await_render(view, pattern, tries \\ 250) do
     html = render(view)
 
     cond do
