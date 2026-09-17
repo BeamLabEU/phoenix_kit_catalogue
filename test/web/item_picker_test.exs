@@ -199,6 +199,10 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPickerTest do
       assert tag =~ ~s(popover="manual")
       assert tag =~ "position-anchor: --pk-anchor-test-picker"
       assert tag =~ "position-try-fallbacks: flip-block"
+      # The input's own column, so the list lines up in either direction.
+      assert tag =~ "position-area: bottom;"
+      assert tag =~ "width: anchor-size(width)"
+      assert tag =~ "position-visibility: anchors-visible"
       assert tag =~ "max-height: min(16rem, calc(50dvh - 2.5rem))"
       # A popover's UA text colour is CanvasText: black on a dark theme.
       assert tag =~ "text-base-content"
@@ -223,6 +227,23 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPickerTest do
       assert hook =~ ~s|addEventListener("change", this._onChange)|
       assert hook =~ "e.stopPropagation()"
       assert hook =~ "list.showPopover()"
+    end
+
+    test "the hook keeps the list from outliving the field" do
+      source = File.read!("lib/phoenix_kit_catalogue/web/components/item_picker.ex")
+
+      [hook] =
+        Regex.run(~r/name="\.ItemPicker">(.*?)<\/script>/s, source, capture: :all_but_first)
+
+      # Tab to another field closes it (no click for phx-click-away).
+      assert hook =~ ~s|addEventListener("focusout", this._onFocusOut)|
+      assert hook =~ "!this.el.contains(e.relatedTarget)) this.close()"
+      # A search that lands after the user left does not reopen it.
+      assert hook =~ "document.activeElement !== this.input"
+      # A scrolled-off open list is reopened on the side with room.
+      assert hook =~ "list.hidePopover()"
+      # Picking (Enter or a press on an option) drops a pending search.
+      assert hook =~ ~s|closest('li[role="option"]')) this.cancelQuery()|
     end
   end
 

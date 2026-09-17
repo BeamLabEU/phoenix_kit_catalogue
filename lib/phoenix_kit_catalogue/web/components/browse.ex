@@ -717,7 +717,7 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
     assigns = assign(assigns, :anchor, popover_anchor(assigns.id))
 
     ~H"""
-    <div id={@id} class="inline-block">
+    <div id={@id} class="inline-block" phx-hook=".ColumnToggle">
       <button
         type="button"
         class="btn btn-sm"
@@ -736,7 +736,7 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
         id={"#{@id}-menu"}
         popover
         class="dropdown menu flex-nowrap overflow-y-auto bg-base-100 rounded-box border border-base-300 shadow-lg w-48 p-2 supports-[position-area:bottom]:my-1"
-        style={"position-anchor: #{@anchor}; --anchor-h: span-left; position-try-fallbacks: flip-block, flip-inline, flip-block flip-inline; max-height: calc(50dvh - 2.5rem)"}
+        style={"position-anchor: #{@anchor}; --anchor-h: span-left; position-try-fallbacks: flip-block, flip-inline, flip-block flip-inline; position-visibility: anchors-visible; max-height: calc(50dvh - 2.5rem)"}
       >
         <li :for={col <- @columns}>
           <button
@@ -756,6 +756,39 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
           </button>
         </li>
       </ul>
+      <script :type={Phoenix.LiveView.ColocatedHook} name=".ColumnToggle">
+        // Browsers pick a popover's position option when it opens, not when
+        // its button scrolls; an open list that no longer fits on screen is
+        // reopened so the side with room is picked again.
+        export default {
+          mounted() {
+            this.menu = this.el.querySelector("[popover]")
+            this._onViewportChange = (e) => {
+              if (this._frame || (e.target instanceof Node && this.menu.contains(e.target))) return
+              this._frame = requestAnimationFrame(() => {
+                this._frame = null
+                this.refit()
+              })
+            }
+            window.addEventListener("scroll", this._onViewportChange, true)
+            window.addEventListener("resize", this._onViewportChange)
+          },
+
+          refit() {
+            if (typeof this.menu.showPopover !== "function" || !this.menu.matches(":popover-open")) return
+            const rect = this.menu.getBoundingClientRect()
+            if (rect.top >= 0 && rect.bottom <= window.innerHeight) return
+            this.menu.hidePopover()
+            this.menu.showPopover()
+          },
+
+          destroyed() {
+            cancelAnimationFrame(this._frame)
+            window.removeEventListener("scroll", this._onViewportChange, true)
+            window.removeEventListener("resize", this._onViewportChange)
+          }
+        }
+      </script>
     </div>
     """
   end
