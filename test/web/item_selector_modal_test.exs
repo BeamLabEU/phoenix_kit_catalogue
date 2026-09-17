@@ -458,6 +458,116 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       {alpha_at, _} = :binary.match(html, "pick-#{alpha.uuid}")
       assert zeta_at < alpha_at
     end
+
+    test "a per-category narrow scope (category_uuids only, no catalogue_uuids) still confirms in tree order",
+         %{conn: conn, cat: cat} do
+      # tim-dev's per-category narrow picker shape: the host scope names
+      # ONLY a category (`cat_scope`, no `c=`) — `catalogue_uuids: nil`.
+      # A pick from a subcategory the tiles filter down to must still
+      # sort correctly: it must not fall out of the sort index and land
+      # FIRST as an empty path (external review, 2026-09-17).
+      parent = fixture_category(cat, %{name: "Parent Scope", position: 5})
+
+      child_low =
+        fixture_category(cat, %{name: "Child Low", parent_uuid: parent.uuid, position: 1})
+
+      child_high =
+        fixture_category(cat, %{name: "Child High", parent_uuid: parent.uuid, position: 9})
+
+      parent_item =
+        fixture_item(%{
+          name: "Parent's Own Item",
+          catalogue_uuid: cat.uuid,
+          category_uuid: parent.uuid
+        })
+
+      low_item =
+        fixture_item(%{
+          name: "Low Child Item",
+          catalogue_uuid: cat.uuid,
+          category_uuid: child_low.uuid
+        })
+
+      high_item =
+        fixture_item(%{
+          name: "High Child Item",
+          catalogue_uuid: cat.uuid,
+          category_uuid: child_high.uuid
+        })
+
+      # No c= param — only cat_scope, exactly the narrow-picker shape.
+      {:ok, view, _html} = open(conn, "cat_scope=#{parent.uuid}&sel=click")
+
+      # Scrambled: the higher-position subcategory first, then the
+      # lower one, then the parent's own item last.
+      view |> picker() |> render_click("browse_category", %{"uuid" => child_high.uuid})
+      view |> picker() |> render_click("card_click", %{"uuid" => high_item.uuid})
+
+      view |> picker() |> render_click("browse_category", %{"uuid" => child_low.uuid})
+      view |> picker() |> render_click("card_click", %{"uuid" => low_item.uuid})
+
+      view |> picker() |> render_click("browse_category", %{"uuid" => parent.uuid})
+      view |> picker() |> render_click("card_click", %{"uuid" => parent_item.uuid})
+
+      view |> picker() |> render_click("confirm", %{})
+      html = render(view)
+
+      expected_order = [parent_item, low_item, high_item]
+
+      positions =
+        Enum.map(expected_order, fn item ->
+          {at, _} = :binary.match(html, "pick-#{item.uuid}")
+          at
+        end)
+
+      assert positions == Enum.sort(positions)
+    end
+
+    test "a pick whose category is gone from the catalogue's active list sorts LAST, not first",
+         %{conn: conn, cat: cat} do
+      normal_category = fixture_category(cat, %{name: "Still Here"})
+
+      normal_item =
+        fixture_item(%{
+          name: "Normal Item",
+          catalogue_uuid: cat.uuid,
+          category_uuid: normal_category.uuid
+        })
+
+      doomed_category = fixture_category(cat, %{name: "Doomed"})
+
+      ghost_item =
+        fixture_item(%{
+          name: "Ghost Item",
+          catalogue_uuid: cat.uuid,
+          category_uuid: doomed_category.uuid
+        })
+
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&sel=click")
+
+      # Pick the item that will end up "unknown" FIRST, the normal one
+      # second — click order must not save it.
+      view |> picker() |> render_click("browse_category", %{"uuid" => doomed_category.uuid})
+      view |> picker() |> render_click("card_click", %{"uuid" => ghost_item.uuid})
+
+      # Trash the category AFTER picking: the tray entry is a frozen
+      # snapshot (`entry.available` is never re-validated against a
+      # live browse), so the pick survives, but its category drops out
+      # of `Catalogue.list_categories_metadata_for_catalogue/1`'s
+      # default `:active` listing — exactly what a genuinely deleted or
+      # corrupt category looks like to the sort.
+      {:ok, _} = Catalogue.trash_category(doomed_category)
+
+      view |> picker() |> render_click("browse_category", %{"uuid" => normal_category.uuid})
+      view |> picker() |> render_click("card_click", %{"uuid" => normal_item.uuid})
+
+      view |> picker() |> render_click("confirm", %{})
+      html = render(view)
+
+      {normal_at, _} = :binary.match(html, "pick-#{normal_item.uuid}")
+      {ghost_at, _} = :binary.match(html, "pick-#{ghost_item.uuid}")
+      assert normal_at < ghost_at
+    end
   end
 
   describe "selection and confirm — the host contract" do
