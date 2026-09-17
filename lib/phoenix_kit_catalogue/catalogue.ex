@@ -2432,9 +2432,11 @@ defmodule PhoenixKitCatalogue.Catalogue do
   def move_category_to_catalogue(%Category{} = category, target_catalogue_uuid, opts \\ []) do
     parent_uuid = opts[:parent_uuid]
 
-    if valid_uuid?(target_catalogue_uuid) and (is_nil(parent_uuid) or valid_uuid?(parent_uuid)),
-      do: do_move_category_to_catalogue(category, target_catalogue_uuid, parent_uuid, opts),
-      else: {:error, :catalogue_not_found}
+    cond do
+      not valid_uuid?(target_catalogue_uuid) -> {:error, :catalogue_not_found}
+      not (is_nil(parent_uuid) or valid_uuid?(parent_uuid)) -> {:error, :parent_not_found}
+      true -> do_move_category_to_catalogue(category, target_catalogue_uuid, parent_uuid, opts)
+    end
   end
 
   defp do_move_category_to_catalogue(category, target_catalogue_uuid, parent_uuid, opts) do
@@ -2558,7 +2560,9 @@ defmodule PhoenixKitCatalogue.Catalogue do
     PubSub.broadcast(:item, nil, catalogue_uuid)
   end
 
-  defp valid_uuid?(value), do: is_binary(value) and match?({:ok, _}, Ecto.UUID.cast(value))
+  # The canonical string form only: `Ecto.UUID.cast/1` also accepts any
+  # 16-byte binary, which later dumps and lock keys would mishandle.
+  defp valid_uuid?(value), do: is_binary(value) and Ecto.UUID.cast(value) == {:ok, value}
 
   # A move destination must be a live catalogue of the source's kind:
   # standard items price from base price + markup, smart items from
@@ -4324,6 +4328,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
   # Public only for `Catalogue.Duplication`, which holds a source's lock
   # while copying it.
   @doc false
+  @spec lock_catalogue!(Ecto.UUID.t() | nil) :: :ok
   def lock_catalogue!(nil), do: :ok
 
   def lock_catalogue!(catalogue_uuid) do
@@ -6170,16 +6175,26 @@ defmodule PhoenixKitCatalogue.Catalogue do
   def bulk_move_items_to_category([], _target, _opts), do: {:ok, 0}
 
   def bulk_move_items_to_category(uuids, target_uuid, opts) when is_list(uuids) do
-    case Keyword.fetch(opts, :catalogue_uuid) do
-      :error ->
-        {:error, :missing_catalogue_scope}
+    with {:ok, scope} <- fetch_bulk_scope(opts),
+         :ok <- ensure_items_in_catalogue(uuids, scope),
+         :ok <- target_in_scope(target_uuid, scope) do
+      destination = if target_uuid, do: {:category, target_uuid}, else: {:catalogue, scope}
+      bulk_move_items(uuids, destination, opts)
+    end
+  end
 
-      {:ok, catalogue_uuid} when is_binary(catalogue_uuid) ->
-        with :ok <- ensure_items_in_catalogue(uuids, catalogue_uuid),
-             {:ok, {target, count}} <- move_items_locked(uuids, target_uuid, catalogue_uuid) do
-          log_bulk_move(count, target, catalogue_uuid, opts)
-          {:ok, count}
-        end
+  # The same-catalogue flavour's one extra rule: the target category is
+  # this catalogue's. `bulk_move_items/3` re-reads it under the locks.
+  defp target_in_scope(nil, _scope), do: :ok
+
+  defp target_in_scope(target_uuid, scope) do
+    query =
+      from(c in Category, where: c.uuid == ^target_uuid, select: {c.catalogue_uuid, c.status})
+
+    case valid_uuid?(target_uuid) && repo().one(query) do
+      {^scope, status} when status != "deleted" -> :ok
+      {_other, status} when status != "deleted" -> {:error, :wrong_catalogue_scope}
+      _ -> {:error, :category_not_found}
     end
   end
 
@@ -6190,13 +6205,13 @@ defmodule PhoenixKitCatalogue.Catalogue do
   included).
 
   `opts[:catalogue_uuid]` is required and is the SOURCE scope: every
-  uuid must be a live item of that catalogue, or nothing moves
+  uuid must be an item of that catalogue, or nothing moves
   (`:wrong_catalogue_scope`) — the selection is client-captured. Both
   catalogues' locks are held for the move, so a trash of either cannot
   interleave. Refuses a missing/trashed destination
   (`:category_not_found` / `:catalogue_not_found`) and one of the other
   catalogue kind (`:kind_mismatch`). Trashed items in the list are
-  skipped, as in `bulk_move_items_to_category/3`.
+  skipped.
 
   Logs one `item.bulk_moved` activity and tells both catalogues.
   Returns `{:ok, count}`.
@@ -6352,17 +6367,37 @@ defmodule PhoenixKitCatalogue.Catalogue do
   end
 
   defp do_bulk_move_categories_to_catalogue(uuids, target, parent_uuid, opts) do
-    muted = opts |> Keyword.put(:broadcast, false) |> Keyword.put(:parent_uuid, parent_uuid)
-    {valid, invalid} = uuids |> Enum.uniq() |> Enum.split_with(&valid_uuid?/1)
-    nested = nested_in_selection(valid)
-    {inner, outer} = Enum.split_with(valid, &MapSet.member?(nested, &1))
+    uuids = Enum.uniq(uuids)
 
-    # Outer categories first; an inner one then either arrived inside its
-    # moved ancestor, or — the ancestor refused, or it was lifted out of
-    # it meanwhile — still sits in the scope and moves on its own.
+    case opts[:catalogue_uuid] do
+      scope when is_binary(scope) ->
+        run_bulk_category_move(uuids, target, parent_uuid, scope, opts)
+
+      _ ->
+        {:ok, %{moved: 0, errors: Enum.map(uuids, &{&1, :missing_catalogue_scope})}}
+    end
+  end
+
+  defp run_bulk_category_move(uuids, target, parent_uuid, scope, opts) do
+    muted = opts |> Keyword.put(:broadcast, false) |> Keyword.put(:parent_uuid, parent_uuid)
+    {valid, invalid} = Enum.split_with(uuids, &valid_uuid?/1)
+    rows = from(c in Category, where: c.uuid in ^valid) |> repo().all() |> Map.new(&{&1.uuid, &1})
+
+    # The scope is checked for every entry before anything moves, so an
+    # entry that later arrives inside a moved ancestor was this page's.
+    {in_scope, refused} =
+      Enum.split_with(valid, &match?(%Category{catalogue_uuid: ^scope}, rows[&1]))
+
+    depth = selected_ancestor_counts(in_scope)
+
+    # Outer categories first, then inner ones shallowest first: each inner
+    # one either arrived inside its moved ancestor, or — the ancestor
+    # refused, or it was lifted out meanwhile — moves on its own.
     {moved, errors, catalogues} =
-      Enum.reduce(outer ++ inner, {0, [], MapSet.new()}, fn uuid, {moved, errors, cats} ->
-        case move_selected_category(uuid, target, MapSet.member?(nested, uuid), muted) do
+      in_scope
+      |> Enum.sort_by(&Map.get(depth, &1, 0))
+      |> Enum.reduce({0, [], MapSet.new()}, fn uuid, {moved, errors, cats} ->
+        case move_selected_category(uuid, target, Map.has_key?(depth, uuid), muted) do
           {:ok, :carried} ->
             {moved + 1, errors, cats}
 
@@ -6370,20 +6405,25 @@ defmodule PhoenixKitCatalogue.Catalogue do
             {moved + 1, errors, cats |> MapSet.put(m.catalogue_uuid) |> MapSet.put(from)}
 
           {:error, reason} ->
-            {moved, [{uuid, reason} | errors], cats}
+            {moved, [{uuid, bulk_reason(reason)} | errors], cats}
         end
       end)
 
-    if moved > 0 and Keyword.get(opts, :broadcast, true) do
-      Enum.each(catalogues, fn cat ->
-        PubSub.broadcast(:category, nil, cat)
-        PubSub.broadcast(:item, nil, cat)
-      end)
-    end
+    if moved > 0 and Keyword.get(opts, :broadcast, true),
+      do: Enum.each(catalogues, &broadcast_moved_out/1)
 
-    errors = Enum.reverse(errors) ++ Enum.map(invalid, &{&1, :invalid_uuid})
+    errors =
+      Enum.reverse(errors) ++
+        Enum.map(refused, &{&1, if(rows[&1], do: :wrong_catalogue_scope, else: :not_found)}) ++
+        Enum.map(invalid, &{&1, :invalid_uuid})
+
     {:ok, %{moved: moved, errors: errors}}
   end
+
+  # One shape per error entry; a changeset would drag a whole row into
+  # the page's error log.
+  defp bulk_reason(%Ecto.Changeset{}), do: :invalid
+  defp bulk_reason(reason), do: reason
 
   defp move_selected_category(uuid, target, true = _inner?, opts) do
     case get_category(uuid) do
@@ -6405,7 +6445,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
       nil ->
         {:error, :not_found}
 
-      %Category{catalogue_uuid: c} when is_binary(scope) and c != scope ->
+      %Category{catalogue_uuid: c} when c != scope ->
         {:error, :wrong_catalogue_scope}
 
       category ->
@@ -6414,17 +6454,18 @@ defmodule PhoenixKitCatalogue.Catalogue do
     end
   end
 
-  # Selected uuids that sit below another selected uuid.
-  defp nested_in_selection(uuids) do
-    uuids
-    |> Enum.flat_map(fn uuid ->
+  # For each selected uuid below another selected one: how many selected
+  # ancestors it has (its depth within the selection). Top ones are absent.
+  defp selected_ancestor_counts(uuids) do
+    selected = MapSet.new(uuids)
+
+    Enum.reduce(uuids, %{}, fn uuid, acc ->
       uuid
       |> Tree.subtree_uuids()
       |> Enum.map(&load_uuid/1)
-      |> Enum.reject(&(&1 == uuid))
+      |> Enum.filter(&(&1 != uuid and MapSet.member?(selected, &1)))
+      |> Enum.reduce(acc, fn below, acc -> Map.update(acc, below, 1, &(&1 + 1)) end)
     end)
-    |> MapSet.new()
-    |> MapSet.intersection(MapSet.new(uuids))
   end
 
   # `opts[:catalogue_uuid]` on the bulk item ops is a scope: uuids that
@@ -6452,85 +6493,6 @@ defmodule PhoenixKitCatalogue.Catalogue do
       |> repo().exists?()
 
     if foreign?, do: {:error, :wrong_catalogue_scope}, else: :ok
-  end
-
-  defp resolve_move_target(nil, _catalogue_uuid), do: {:ok, nil}
-
-  defp resolve_move_target(target_uuid, catalogue_uuid) do
-    case repo().one(from(c in Category, where: c.uuid == ^target_uuid, lock: "FOR SHARE")) do
-      nil ->
-        {:error, :category_not_found}
-
-      %Category{status: "deleted"} ->
-        {:error, :category_not_found}
-
-      %Category{catalogue_uuid: ^catalogue_uuid} = cat ->
-        {:ok, cat}
-
-      %Category{} ->
-        {:error, :wrong_catalogue_scope}
-    end
-  end
-
-  # One transaction, so the FOR SHARE lock `resolve_move_target/2` takes on
-  # the target holds until the move commits: a concurrent category trash
-  # either lands first (and the move refuses) or waits for it. Logged by
-  # the caller after the commit, so no subscriber reloads early.
-  defp move_items_locked(uuids, target_uuid, catalogue_uuid) do
-    repo().transaction(fn ->
-      case resolve_move_target(target_uuid, catalogue_uuid) do
-        {:ok, target} -> {target, move_item_rows(uuids, target)}
-        {:error, reason} -> repo().rollback(reason)
-      end
-    end)
-  end
-
-  # Status guard mirrors the other bulk fns (`bulk_trash_items`,
-  # `bulk_restore_items`) so a stale tab can't move a soft-deleted row by
-  # submitting its UUID. The selection is built from rendered active
-  # cards, so the LV's happy path is unaffected.
-  defp move_item_rows(uuids, target) do
-    target_uuid = if target, do: target.uuid
-
-    {count, _} =
-      from(i in Item, where: i.uuid in ^uuids and i.status != "deleted")
-      |> repo().update_all(set: [category_uuid: target_uuid, updated_at: DateTime.utc_now()])
-
-    count
-  end
-
-  defp log_bulk_move(0, _target, _catalogue_uuid, _opts), do: :ok
-
-  defp log_bulk_move(count, nil, catalogue_uuid, opts) do
-    log_activity(
-      %{
-        action: "item.bulk_moved",
-        mode: "manual",
-        actor_uuid: opts[:actor_uuid],
-        resource_type: "item",
-        parent_catalogue_uuid: catalogue_uuid,
-        metadata: %{"count" => count, "to_category_uuid" => nil}
-      },
-      opts
-    )
-  end
-
-  defp log_bulk_move(count, %Category{} = target, _catalogue_uuid, opts) do
-    log_activity(
-      %{
-        action: "item.bulk_moved",
-        mode: "manual",
-        actor_uuid: opts[:actor_uuid],
-        resource_type: "item",
-        parent_catalogue_uuid: target.catalogue_uuid,
-        metadata: %{
-          "count" => count,
-          "to_category_uuid" => target.uuid,
-          "to_catalogue_uuid" => target.catalogue_uuid
-        }
-      },
-      opts
-    )
   end
 
   @doc """
@@ -6827,14 +6789,15 @@ defmodule PhoenixKitCatalogue.Catalogue do
              | :same_catalogue
              | :kind_mismatch
              | :not_found
+             | :catalogue_moved
              | Ecto.Changeset.t(Item.t())}
   def move_item_to_catalogue(%Item{} = item, catalogue_uuid, opts \\ [])
       when is_binary(catalogue_uuid) do
-    cond do
-      catalogue_uuid == item.catalogue_uuid -> {:error, :same_catalogue}
-      not valid_uuid?(catalogue_uuid) -> {:error, :catalogue_not_found}
-      true -> do_move_item_to_catalogue(item, catalogue_uuid, opts)
-    end
+    # Whether the item is already there is decided from the row under the
+    # lock, not from the caller's struct, which may be stale.
+    if valid_uuid?(catalogue_uuid),
+      do: do_move_item_to_catalogue(item, catalogue_uuid, opts),
+      else: {:error, :catalogue_not_found}
   end
 
   defp do_move_item_to_catalogue(item, catalogue_uuid, opts) do

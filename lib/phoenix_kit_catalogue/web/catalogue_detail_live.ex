@@ -1122,7 +1122,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
   # Another catalogue re-lists its categories and forgets the category
   # picked in the previous one; only a catalogue the modal offered counts.
-  def handle_event("select_bulk_move_catalogue", %{"catalogue_uuid" => uuid}, socket) do
+  def handle_event("select_bulk_move_catalogue", %{"catalogue_uuid" => uuid}, socket)
+      when is_binary(uuid) do
     modal = socket.assigns.bulk_move_modal
 
     if offered_catalogue?(modal.catalogues, uuid) do
@@ -1137,6 +1138,10 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       {:noreply, socket}
     end
   end
+
+  # A picker event without a catalogue (a stale or forged client) changes
+  # nothing.
+  def handle_event("select_bulk_move_catalogue", _params, socket), do: {:noreply, socket}
 
   def handle_event("confirm_bulk_move_items", _params, socket) do
     case socket.assigns.bulk_move_modal do
@@ -1227,7 +1232,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       ),
       do: {:noreply, socket}
 
-  def handle_event("select_bulk_move_categories_catalogue", %{"catalogue_uuid" => uuid}, socket) do
+  def handle_event("select_bulk_move_categories_catalogue", %{"catalogue_uuid" => uuid}, socket)
+      when is_binary(uuid) do
     modal = socket.assigns.bulk_move_categories_modal
 
     if offered_catalogue?(modal.catalogues, uuid) do
@@ -1242,6 +1248,9 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       {:noreply, socket}
     end
   end
+
+  def handle_event("select_bulk_move_categories_catalogue", _params, socket),
+    do: {:noreply, socket}
 
   def handle_event("confirm_bulk_move_categories", _params, socket) do
     case socket.assigns.bulk_move_categories_modal do
@@ -2104,6 +2113,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         |> then(&{:noreply, &1})
 
       {:error, :category_not_found} ->
+        log_operation_error(socket, "bulk_move_items", %{reason: :category_not_found})
+
         {:noreply,
          put_flash(
            socket,
@@ -2112,10 +2123,11 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
          )}
 
       {:error, reason} when reason in [:catalogue_not_found, :kind_mismatch, :catalogue_moved] ->
+        log_operation_error(socket, "bulk_move_items", %{reason: reason})
         {:noreply, put_flash(socket, :error, Errors.message(reason))}
 
       {:error, scope_err} when scope_err in [:wrong_catalogue_scope, :missing_catalogue_scope] ->
-        log_operation_error(socket, "bulk_move_items_to_category", %{reason: scope_err})
+        log_operation_error(socket, "bulk_move_items", %{reason: scope_err})
 
         {:noreply,
          put_flash(
@@ -2123,7 +2135,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
            :error,
            Gettext.gettext(
              PhoenixKitCatalogue.Gettext,
-             "Items can only be moved within this catalogue."
+             "Some selected items are no longer in this catalogue. Reload the page and try again."
            )
          )}
     end
@@ -2148,10 +2160,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     |> Enum.sort_by(&(&1.uuid != current))
   end
 
-  defp offered_catalogue?(catalogues, uuid) when is_binary(uuid),
+  defp offered_catalogue?(catalogues, uuid),
     do: Enum.any?(catalogues, &(&1.uuid == uuid))
-
-  defp offered_catalogue?(_catalogues, _uuid), do: false
 
   defp item_move_targets(socket, catalogue_uuid) do
     catalogue_uuid
@@ -2400,7 +2410,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       moved,
       Gettext.gettext(PhoenixKitCatalogue.Gettext, "Moved %{count} categories.", count: moved),
       errors,
-      "bulk_move_categories_under",
+      "bulk_move_categories_to_catalogue",
       Gettext.gettext(
         PhoenixKitCatalogue.Gettext,
         "%{count} categories could not be moved.",

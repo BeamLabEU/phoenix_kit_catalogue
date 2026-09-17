@@ -8,6 +8,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailCrossCatalogueMoveTest do
   use PhoenixKitCatalogue.LiveCase
 
   alias PhoenixKitCatalogue.Catalogue
+  alias PhoenixKitCatalogue.Catalogue.PubSub, as: CataloguePubSub
 
   @base "/en/admin/catalogue"
 
@@ -19,6 +20,18 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailCrossCatalogueMoveTest do
   end
 
   defp assigns(view), do: :sys.get_state(view.pid).socket.assigns
+
+  defp choose(view, event, disposition) do
+    view
+    |> element(~s(input[phx-click="#{event}"][value="#{disposition}"]))
+    |> render_click()
+  end
+
+  defp confirm(view, event) do
+    view
+    |> element(~s(button[phx-click="#{event}"]))
+    |> render_click()
+  end
 
   defp pick_catalogue(view, event, uuid) do
     view
@@ -34,13 +47,13 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailCrossCatalogueMoveTest do
 
       render_click(view, "request_bulk_move_items", %{"uuids" => [item.uuid]})
       pick_catalogue(view, "select_bulk_move_catalogue", there.uuid)
-      render_click(view, "set_bulk_move_disposition", %{"disposition" => "move_to"})
+      choose(view, "set_bulk_move_disposition", "move_to")
 
       view
       |> element("form[phx-change=select_bulk_move_target]")
       |> render_change(%{"category_uuid" => landing.uuid})
 
-      html = render_click(view, "confirm_bulk_move_items", %{})
+      html = confirm(view, "confirm_bulk_move_items")
 
       assert html =~ "Moved 1 items."
       moved = Catalogue.get_item(item.uuid)
@@ -58,7 +71,12 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailCrossCatalogueMoveTest do
       html = pick_catalogue(view, "select_bulk_move_catalogue", there.uuid)
       assert html =~ "Items go to the chosen catalogue without a category."
 
-      render_click(view, "confirm_bulk_move_items", %{})
+      CataloguePubSub.subscribe()
+      confirm(view, "confirm_bulk_move_items")
+
+      # The page tells the destination; the context call itself is muted.
+      there_uuid = there.uuid
+      assert_receive {:catalogue_data_changed, :item, nil, ^there_uuid}
 
       moved = Catalogue.get_item(item.uuid)
       assert moved.catalogue_uuid == there.uuid
@@ -72,7 +90,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailCrossCatalogueMoveTest do
       {:ok, view, _html} = live(conn, "#{@base}/#{here.uuid}")
 
       render_click(view, "request_bulk_move_items", %{"uuids" => [item.uuid]})
-      render_click(view, "set_bulk_move_disposition", %{"disposition" => "move_to"})
+      choose(view, "set_bulk_move_disposition", "move_to")
       render_click(view, "select_bulk_move_target", %{"category_uuid" => home_category.uuid})
       assert assigns(view).bulk_move_modal.target_uuid == home_category.uuid
 
@@ -102,6 +120,32 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailCrossCatalogueMoveTest do
       assert assigns(view).bulk_move_modal.target_catalogue_uuid == here.uuid
     end
 
+    test "a destination trashed after the modal opened is refused with a message",
+         %{conn: conn, here: here, there: there} do
+      item = fixture_item(%{catalogue_uuid: here.uuid, name: "Stays home"})
+      {:ok, view, _html} = live(conn, "#{@base}/#{here.uuid}")
+
+      render_click(view, "request_bulk_move_items", %{"uuids" => [item.uuid]})
+      pick_catalogue(view, "select_bulk_move_catalogue", there.uuid)
+      {:ok, _} = Catalogue.trash_catalogue(there)
+
+      html = confirm(view, "confirm_bulk_move_items")
+
+      assert html =~ "Catalogue not found."
+      assert Catalogue.get_item(item.uuid).catalogue_uuid == here.uuid
+    end
+
+    test "a picker event without a catalogue changes nothing", %{conn: conn, here: here} do
+      item = fixture_item(%{catalogue_uuid: here.uuid, name: "Unmoved"})
+      {:ok, view, _html} = live(conn, "#{@base}/#{here.uuid}")
+
+      render_click(view, "request_bulk_move_items", %{"uuids" => [item.uuid]})
+      render_change(view, "select_bulk_move_catalogue", %{})
+      render_change(view, "select_bulk_move_categories_catalogue", %{})
+
+      assert assigns(view).bulk_move_modal.target_catalogue_uuid == here.uuid
+    end
+
     test "no catalogue picker when this is the only catalogue of its kind", %{conn: conn} do
       smart = fixture_catalogue(%{name: "Lonely smart", kind: "smart"})
       item = fixture_item(%{catalogue_uuid: smart.uuid, name: "Smart item"})
@@ -123,7 +167,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailCrossCatalogueMoveTest do
       html = pick_catalogue(view, "select_bulk_move_categories_catalogue", there.uuid)
       assert html =~ "They sit at the root of the chosen catalogue."
 
-      render_click(view, "confirm_bulk_move_categories", %{})
+      confirm(view, "confirm_bulk_move_categories")
 
       moved = Catalogue.get_category(category.uuid)
       assert moved.catalogue_uuid == there.uuid
@@ -139,15 +183,13 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailCrossCatalogueMoveTest do
       render_click(view, "request_bulk_move_categories", %{"uuids" => [category.uuid]})
       pick_catalogue(view, "select_bulk_move_categories_catalogue", there.uuid)
 
-      render_click(view, "set_bulk_move_categories_disposition", %{
-        "disposition" => "move_under"
-      })
+      choose(view, "set_bulk_move_categories_disposition", "move_under")
 
       view
       |> element("form[phx-change=select_bulk_move_categories_target]")
       |> render_change(%{"category_uuid" => landing.uuid})
 
-      html = render_click(view, "confirm_bulk_move_categories", %{})
+      html = confirm(view, "confirm_bulk_move_categories")
 
       assert html =~ "Moved 1 categories."
       moved = Catalogue.get_category(category.uuid)

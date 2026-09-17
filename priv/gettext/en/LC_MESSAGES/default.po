@@ -2025,7 +2025,7 @@ msgstr ""
 msgid "Item Name"
 msgstr ""
 
-msgid "Items can only be moved within this catalogue."
+msgid "Some selected items are no longer in this catalogue. Reload the page and try again."
 msgstr ""
 
 msgid "Items keep their catalogue but lose their category."

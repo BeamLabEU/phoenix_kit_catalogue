@@ -21,7 +21,8 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
       actor_opts: 1,
       assign_ai_translation: 3,
       ai_translate_config: 1,
-      data_owned_keys: 2
+      data_owned_keys: 2,
+      log_operation_error: 3
     ]
 
   import PhoenixKitAI.Components.AITranslate,
@@ -182,9 +183,22 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
        )
        |> push_navigate(to: Paths.catalogue_detail(uuid))}
     else
-      nil -> {:noreply, put_flash(socket, :error, Errors.message(:parent_not_found))}
-      {:error, reason} -> {:noreply, put_flash(socket, :error, move_error_message(reason))}
+      nil ->
+        {:noreply, move_failed(socket, "move_category_to_catalogue", :parent_not_found)}
+
+      {:error, reason} ->
+        {:noreply, move_failed(socket, "move_category_to_catalogue", reason)}
     end
+  end
+
+  defp move_failed(socket, operation, reason) do
+    log_operation_error(socket, operation, %{
+      entity_type: "category",
+      entity_uuid: socket.assigns.category.uuid,
+      reason: reason
+    })
+
+    put_flash(socket, :error, move_error_message(reason))
   end
 
   defp move_error_message(reason)
@@ -533,13 +547,8 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
            )
          )}
 
-      {:error, _} ->
-        {:noreply,
-         put_flash(
-           socket,
-           :error,
-           Gettext.gettext(PhoenixKitCatalogue.Gettext, "Failed to move category.")
-         )}
+      {:error, reason} ->
+        {:noreply, move_failed(socket, "move_category_under", reason)}
     end
   end
 
