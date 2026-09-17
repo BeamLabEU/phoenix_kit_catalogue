@@ -91,19 +91,30 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
 
       `picks` arrive in the CATALOGUE'S OWN MANUAL order (2026-09-17),
       not the order the user clicked or typed a quantity: catalogue
-      `{position, name}`, then the category path from that catalogue's
-      root down to the pick's own category — `{position, name}` per hop
-      — a category's own items before its subcategories', subcategories
-      in their own manual position order, recursively — then, within a
-      category, uncategorized picks of that catalogue sort after its
-      categorized ones, and finally the item's own position, name, uuid.
-      This is the catalogue's manual order UNCONDITIONALLY — an admin's
-      tile-sort preference (name, item count, updated-at…) never
-      changes it, it only happens to match what the tiles show under
-      the default Manual sort. Click/type order (`entry_seq`) only
-      breaks a tie nothing else resolved, which in practice never
-      happens (the item uuid already disambiguates). Hosts do not need
-      to re-sort `picks` themselves.
+      `{position, name, uuid}`, then the category path from that
+      catalogue's root down to the pick's own category —
+      `{position, name}` per hop — a category's own items before its
+      subcategories', subcategories in their own manual position order,
+      recursively — then a catalogue's uncategorized picks after ALL of
+      its categorized ones (and a pick whose category is gone from the
+      catalogue's active list after both), and finally the item's own
+      position (a null one last), name, uuid. This is the catalogue's
+      manual order UNCONDITIONALLY — an admin's tile-sort preference
+      (name, item count, updated-at…) never changes it, it only happens
+      to match what the tiles show under the default Manual sort.
+      Click/type order (`entry_seq`) only breaks a tie nothing else
+      resolved, which in practice never happens (the item uuid already
+      disambiguates). Hosts do not need to re-sort `picks` themselves.
+
+      One scope shape is outside the guarantee, and it is the one the
+      popup draws no tree for either: a scope that names ONLY
+      categories (`catalogue_uuids: nil`) whose categories span SEVERAL
+      catalogues. `build_category_tree/3` cannot derive a single
+      catalogue there, so it degrades to the empty tree — no tiles, and
+      no ancestry to sort by — and `picks` come back in the flat
+      `{position, name, uuid}` item order, catalogues interleaved. A
+      host that needs the tree order for such a selection should pass
+      the catalogues in `:catalogue_uuids` as well.
     * `handle_info({:item_selector_closed, %{id: id}}, socket)` — fired on
       cancel/ESC/backdrop, AND after a confirm. Reset the `:if` assign
       here. One exception: with the item-details popup stacked open, the
@@ -2176,19 +2187,34 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
   # `order_catalogue_tiles/1`'s admin-preference order). A catalogue
   # missing from it (shouldn't happen for an available pick) sorts
   # last rather than crashing.
+  #
+  # `{position, name, uuid}` — the uuid tie-break is
+  # `Search.apply_search_order/2`'s, and it is there for the reason that
+  # function documents: catalogue positions default to 0 and run one
+  # sequence PER FOLDER LEVEL, so ties are the common case, and two
+  # same-named catalogues would otherwise interleave their items rather
+  # than each arriving as one block (external review, 2026-09-17).
+  #
+  # Every clause returns a 3-tuple: Erlang term order compares tuples by
+  # SIZE first, so a clause of another arity would dominate the key
+  # outright instead of tie-breaking within it.
   defp catalogue_sort_key(%{catalogues: catalogues}, catalogue_uuid) when is_list(catalogues) do
     catalogue_uuid = catalogue_uuid && to_string(catalogue_uuid)
 
     case Enum.find(catalogues, &(to_string(&1.uuid) == catalogue_uuid)) do
-      nil -> {position_key(nil), ""}
-      catalogue -> {position_key(Map.get(catalogue, :position)), downcase_name(catalogue)}
+      nil ->
+        {position_key(nil), "", ""}
+
+      catalogue ->
+        {position_key(Map.get(catalogue, :position)), downcase_name(catalogue),
+         to_string(catalogue.uuid)}
     end
   end
 
   # Single-catalogue (or no) scope: `cat_tree` carries no catalogue
   # tiles to key off, and every available pick shares the one scoped
   # catalogue anyway — a constant key is a no-op.
-  defp catalogue_sort_key(_cat_tree, _catalogue_uuid), do: {position_key(0), ""}
+  defp catalogue_sort_key(_cat_tree, _catalogue_uuid), do: {position_key(0), "", ""}
 
   # Uncategorized items of a catalogue sort after its categorized ones,
   # and a pick whose category is entirely absent from `sort_index`
@@ -2203,7 +2229,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
 
     case Map.get(sort_index, category_uuid) do
       nil -> {2, []}
-      _category -> {0, category_path(sort_index, category_uuid, MapSet.new())}
+      _category -> {0, category_path(sort_index, category_uuid, %{})}
     end
   end
 
@@ -2216,10 +2242,19 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
   # than raising — the moment the chain breaks: a dangling parent, or a
   # cycle re-visiting a uuid already on this walk (crafted/corrupt
   # `parent_uuid` data must not hang the request).
+  #
+  # `visited` is a plain map used as a set, not a `MapSet`: the walk
+  # recurses, so dialyzer infers the parameter from the body and then
+  # sees the opaque `MapSet.t()` the caller passes as a violation
+  # (`call_without_opaque` — it failed `mix precommit` as merged). The
+  # set holds one uuid per level of category nesting, where a map is no
+  # worse anyway. `if`, not `&&`, for the parent: `&&` on an untyped
+  # map field widens to `false | nil | binary()`, and the `nil` clause
+  # above then does not cover the whole falsy side.
   defp category_path(_sort_index, nil, _visited), do: []
 
   defp category_path(sort_index, category_uuid, visited) do
-    if MapSet.member?(visited, category_uuid) do
+    if Map.has_key?(visited, category_uuid) do
       []
     else
       case Map.get(sort_index, category_uuid) do
@@ -2227,8 +2262,8 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
           []
 
         category ->
-          visited = MapSet.put(visited, category_uuid)
-          parent_uuid = category.parent_uuid && to_string(category.parent_uuid)
+          visited = Map.put(visited, category_uuid, true)
+          parent_uuid = if category.parent_uuid, do: to_string(category.parent_uuid)
           hop = {position_key(category.position), downcase_name(category)}
           category_path(sort_index, parent_uuid, visited) ++ [hop]
       end
