@@ -19,6 +19,71 @@ defmodule PhoenixKitCatalogue.Catalogue.MovesTest do
   defp refresh_category(%{uuid: uuid}), do: Catalogue.get_category(uuid)
   defp refresh_item(%{uuid: uuid}), do: Catalogue.get_item(uuid)
 
+  describe "trashed rows a category move carries" do
+    # R > C > D, item I in D. Trash R, restore C on its own: D and I stay
+    # trashed under R's stamp. A move that takes C out from under R must
+    # restamp them, or no Restore reaches them again.
+    setup do
+      source = fixture_catalogue(%{name: "Source"})
+      r = fixture_category(source, %{name: "R"})
+      c = fixture_category(source, %{name: "C", parent_uuid: r.uuid})
+      d = fixture_category(source, %{name: "D", parent_uuid: c.uuid})
+      i = fixture_item(%{name: "I", category_uuid: d.uuid})
+
+      {:ok, _} = Catalogue.trash_category(r)
+      {:ok, _} = Catalogue.restore_category(refresh_category(c))
+      assert refresh_category(d).status == "deleted"
+
+      %{source: source, r: r, c: c, d: d, i: i}
+    end
+
+    test "to another catalogue: the carried subtree restores on its own",
+         %{c: c, d: d, i: i, r: r} do
+      target = fixture_catalogue(%{name: "Target"})
+
+      assert {:ok, _} = Catalogue.move_category_to_catalogue(refresh_category(c), target.uuid)
+      assert refresh_category(d).data["_trash"]["root"] == d.uuid
+      assert refresh_item(i).data["_trash"]["root"] == d.uuid
+
+      {:ok, _} = Catalogue.restore_category(refresh_category(d))
+      assert refresh_category(d).status == "active"
+      assert refresh_item(i).status == "active"
+
+      # R's own restore no longer claims them.
+      {:ok, _} = Catalogue.restore_category(refresh_category(r))
+      assert refresh_category(r).status == "active"
+    end
+
+    test "under another parent in the same catalogue: the same",
+         %{source: source, c: c, d: d, i: i} do
+      elsewhere = fixture_category(source, %{name: "Elsewhere"})
+
+      assert {:ok, _} = Catalogue.move_category_under(refresh_category(c), elsewhere.uuid)
+      assert refresh_category(d).data["_trash"]["root"] == d.uuid
+      assert refresh_item(i).data["_trash"]["root"] == d.uuid
+
+      {:ok, _} = Catalogue.restore_category(refresh_category(d))
+      assert refresh_item(i).status == "active"
+    end
+
+    test "under a parent still inside R's subtree: R's stamp still covers them",
+         %{source: source, c: c, d: d, i: i, r: r} do
+      {:ok, _} = Catalogue.restore_category(refresh_category(r))
+      sibling = fixture_category(source, %{name: "Sibling", parent_uuid: r.uuid})
+      {:ok, _} = Catalogue.trash_category(refresh_category(r))
+      {:ok, _} = Catalogue.restore_category(refresh_category(c))
+      {:ok, _} = Catalogue.restore_category(refresh_category(sibling))
+
+      assert {:ok, _} = Catalogue.move_category_under(refresh_category(c), sibling.uuid)
+      assert refresh_category(d).data["_trash"]["root"] == r.uuid
+      assert refresh_item(i).data["_trash"]["root"] == r.uuid
+
+      {:ok, _} = Catalogue.restore_category(refresh_category(r))
+      assert refresh_category(d).status == "active"
+      assert refresh_item(i).status == "active"
+    end
+  end
+
   describe "move_category_to_catalogue/3" do
     test "carries the subtree and every item, trashed ones staying trashed" do
       source = fixture_catalogue(%{name: "Source"})
@@ -453,6 +518,24 @@ defmodule PhoenixKitCatalogue.Catalogue.MovesTest do
       assert {"bad", :invalid_uuid} in errors
       assert refresh_category(mine).parent_uuid == landing.uuid
       assert refresh_category(foreign).parent_uuid == nil
+    end
+
+    # The bulk run's scope read is unlocked; the move re-checks it under
+    # the row lock, so a category another admin moved away meanwhile
+    # stays where they put it.
+    test "a category moved elsewhere since the page read it is refused under the lock" do
+      source = fixture_catalogue(%{name: "Source"})
+      elsewhere = fixture_catalogue(%{name: "Elsewhere"})
+      target = fixture_catalogue(%{name: "Target"})
+      stale = fixture_category(source, %{name: "Wanderer"})
+      {:ok, _} = Catalogue.move_category_to_catalogue(stale, elsewhere.uuid)
+
+      assert {:error, :wrong_catalogue_scope} =
+               Catalogue.move_category_to_catalogue(stale, target.uuid,
+                 catalogue_uuid: source.uuid
+               )
+
+      assert refresh_category(stale).catalogue_uuid == elsewhere.uuid
     end
 
     test "without a scope nothing moves" do

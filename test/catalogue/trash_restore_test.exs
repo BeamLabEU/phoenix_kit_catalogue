@@ -536,7 +536,8 @@ defmodule PhoenixKitCatalogue.Catalogue.TrashRestoreTest do
     &__MODULE__.op_bulk_restore_items/1,
     &__MODULE__.op_bulk_trash_categories/1,
     &__MODULE__.op_trash_catalogue/1,
-    &__MODULE__.op_restore_catalogue/1
+    &__MODULE__.op_restore_catalogue/1,
+    &__MODULE__.op_move_category_under/1
   ]
 
   defp random_op(world), do: pick(@random_ops).(world)
@@ -555,6 +556,9 @@ defmodule PhoenixKitCatalogue.Catalogue.TrashRestoreTest do
 
   def op_bulk_trash_categories(%{categories: cats}),
     do: {:bulk_trash_categories, subset(cats), :cascade}
+
+  def op_move_category_under(%{categories: cats}),
+    do: {:move_category_under, pick(cats), pick([nil | cats])}
 
   def op_trash_catalogue(_world), do: :trash_catalogue
   def op_restore_catalogue(_world), do: :restore_catalogue
@@ -587,6 +591,9 @@ defmodule PhoenixKitCatalogue.Catalogue.TrashRestoreTest do
 
   defp apply_op(:restore_catalogue, w),
     do: outcome(Catalogue.restore_catalogue(Repo.get!(CatalogueRow, w.catalogue)))
+
+  defp apply_op({:move_category_under, uuid, parent_uuid}, _w),
+    do: outcome(Catalogue.move_category_under(Repo.get!(Category, uuid), parent_uuid))
 
   defp outcome({:ok, _}), do: :ok
   defp outcome({:error, %Ecto.Changeset{}}), do: :changeset
@@ -635,6 +642,9 @@ defmodule PhoenixKitCatalogue.Catalogue.TrashRestoreTest do
              )
     end
 
+    assert unreachable_stamps(w) == [],
+           failure("a trashed row's stamp names a root its restore cannot reach", context)
+
     catalogue = Repo.get!(CatalogueRow, w.catalogue)
 
     assert Map.has_key?(catalogue.data || %{}, "_trash") == (catalogue.status == "deleted"),
@@ -650,6 +660,39 @@ defmodule PhoenixKitCatalogue.Catalogue.TrashRestoreTest do
 
     assert status(Item, other_item) == "active", failure("bystander item touched", context)
   end
+
+  # A restore walks its root's current subtree (or the catalogue), so a
+  # stamp must name the catalogue, the row itself, or one of its ancestors.
+  defp unreachable_stamps(w) do
+    parents =
+      Repo.all(
+        from(c in Category,
+          where: c.catalogue_uuid == ^w.catalogue,
+          select: {c.uuid, c.parent_uuid}
+        )
+      )
+      |> Map.new()
+
+    stamped = fn schema, category_of ->
+      Repo.all(
+        from(r in schema,
+          where: r.catalogue_uuid == ^w.catalogue and r.status == "deleted",
+          select: {r.uuid, field(r, ^category_of), fragment("? #>> '{_trash,root}'", r.data)}
+        )
+      )
+    end
+
+    for {uuid, start, root} <-
+          stamped.(Category, :uuid) ++ stamped.(Item, :category_uuid),
+        root not in [w.catalogue, uuid | path_up(start, parents, map_size(parents))],
+        do: uuid
+  end
+
+  defp path_up(nil, _parents, _fuel), do: []
+  defp path_up(_uuid, _parents, 0), do: []
+
+  defp path_up(uuid, parents, fuel),
+    do: [uuid | path_up(Map.get(parents, uuid), parents, fuel - 1)]
 
   defp assert_round_trip(w, context) do
     case round_trip_target(w) do

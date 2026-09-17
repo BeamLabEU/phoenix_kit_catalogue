@@ -100,7 +100,8 @@ defmodule PhoenixKitCatalogue.Extension do
   anything that must stay unique to the original — an external system's
   id for the product is the case this exists for. Without the callback
   the namespace is copied unchanged. Called even while the extension is
-  disabled; a raise drops the namespace from the copy.
+  disabled; a raise, throw or exit, or a return that is neither a map
+  nor `nil`, drops the namespace from the copy.
   """
   @callback duplicate_data(kind :: :item | :category, data :: map()) :: map() | nil
 
