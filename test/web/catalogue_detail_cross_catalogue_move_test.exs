@@ -40,6 +40,26 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailCrossCatalogueMoveTest do
   end
 
   describe "items" do
+    # The context's bulk move refuses a non-canonical uuid with
+    # `:invalid_uuid`; the page must drop it first, not crash on it.
+    test "a non-canonical uuid in the selection is dropped, not a crash",
+         %{conn: conn, here: here} do
+      item = fixture_item(%{catalogue_uuid: here.uuid, name: "Stays"})
+      {:ok, view, _html} = live(conn, "#{@base}/#{here.uuid}")
+
+      render_click(view, "request_bulk_move_items", %{
+        "uuids" => [String.upcase(item.uuid), "aaaaaaaaaaaaaaaa"]
+      })
+
+      assert assigns(view).bulk_move_modal == nil
+
+      render_click(view, "request_bulk_move_items", %{
+        "uuids" => [item.uuid, String.upcase(item.uuid)]
+      })
+
+      assert assigns(view).bulk_move_modal.uuids == [item.uuid]
+    end
+
     test "move into a category of another catalogue",
          %{conn: conn, here: here, there: there, landing: landing} do
       item = fixture_item(%{catalogue_uuid: here.uuid, name: "Traveller"})

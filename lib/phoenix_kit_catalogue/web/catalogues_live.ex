@@ -187,7 +187,11 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       )
       when is_map_key(running, ref) do
     {source_uuid, running} = Map.pop(running, ref)
-    Logger.error("Duplicating catalogue #{source_uuid}: the task went down (#{inspect(reason)})")
+    # Only the reason's shape: a thrown value or exit term can carry data.
+    Logger.error(
+      "Duplicating catalogue #{source_uuid}: the task went down (#{down_reason_label(reason)})"
+    )
+
     finish_duplicate(assign(socket, :duplicating, running), source_uuid, {:error, :failed})
   end
 
@@ -3977,11 +3981,26 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     e ->
       Logger.error(
         "Duplicating catalogue #{uuid} failed: #{inspect(e.__struct__)}\n" <>
-          Exception.format_stacktrace(__STACKTRACE__)
+          Exception.format_stacktrace(without_args(__STACKTRACE__))
       )
 
       {:error, :failed}
   end
+
+  # A FunctionClauseError's top frame holds the call's arguments; keep
+  # only their count.
+  defp without_args(stacktrace) do
+    Enum.map(stacktrace, fn
+      {mod, fun, args, loc} when is_list(args) -> {mod, fun, length(args), loc}
+      frame -> frame
+    end)
+  end
+
+  defp down_reason_label({{:nocatch, _value}, _stack}), do: "uncaught throw"
+  defp down_reason_label({%{__struct__: struct}, _stack}), do: inspect(struct)
+  defp down_reason_label(reason) when is_atom(reason), do: inspect(reason)
+  defp down_reason_label({reason, _}) when is_atom(reason), do: inspect(reason)
+  defp down_reason_label(_reason), do: "exit"
 
   defp duplicate_error_message(:already_duplicating), do: Errors.message(:already_duplicating)
   defp duplicate_error_message(:not_found), do: Errors.message(:catalogue_not_found)

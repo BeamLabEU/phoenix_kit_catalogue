@@ -296,6 +296,18 @@ defmodule PhoenixKitCatalogue.Web.FormLVBranchesTest do
       assert :sys.get_state(view.pid).socket.assigns.parent_move_target == parent.uuid
     end
 
+    test "a forged non-string parent_uuid is ignored, and Move does not crash",
+         %{conn: conn, catalogue: cat} do
+      child = fixture_category(cat, %{name: "Child"})
+      {:ok, view, _html} = live(conn, "/en/admin/catalogue/categories/#{child.uuid}/edit")
+
+      render_change(view, "select_parent_move_target", %{"parent_uuid" => ["x"]})
+      assert :sys.get_state(view.pid).socket.assigns.parent_move_target == nil
+
+      render_click(view, "move_under_parent", %{})
+      assert Catalogue.get_category(child.uuid).parent_uuid == nil
+    end
+
     test "move_under_parent re-parents under the chosen category",
          %{conn: conn, catalogue: cat} do
       parent = fixture_category(cat, %{name: "NewParent"})

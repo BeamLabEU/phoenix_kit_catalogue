@@ -1840,9 +1840,11 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   # ── Bulk-action helpers ──────────────────────────────────────────
 
   # Client-captured uuids: anything that is not a uuid is dropped here,
-  # before it can reach a `Repo.get` and raise a query cast error.
+  # before it can reach a `Repo.get` and raise a query cast error. Only
+  # the canonical form passes — the context's bulk moves refuse an
+  # upper-case or raw 16-byte uuid with `:invalid_uuid`.
   defp sanitize_uuids(%{"uuids" => uuids}) when is_list(uuids),
-    do: Enum.filter(uuids, &(is_binary(&1) and match?({:ok, _}, Ecto.UUID.cast(&1))))
+    do: Enum.filter(uuids, &(is_binary(&1) and Ecto.UUID.cast(&1) == {:ok, &1}))
 
   defp sanitize_uuids(_), do: []
 
@@ -2138,6 +2140,10 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
              "Some selected items are no longer in this catalogue. Reload the page and try again."
            )
          )}
+
+      {:error, reason} ->
+        log_operation_error(socket, "bulk_move_items", %{reason: reason})
+        {:noreply, put_flash(socket, :error, Errors.message(reason))}
     end
   end
 
