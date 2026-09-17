@@ -178,6 +178,54 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPickerTest do
     end
   end
 
+  describe "placement and search wiring" do
+    defp open_html do
+      render_component(
+        ItemPicker,
+        base_assigns(%{open: true, options: [fake_item("item-1", "Oak Plank")], has_more: false})
+      )
+    end
+
+    defp listbox_tag(html) do
+      [tag] = Regex.run(~r/<ul[^>]*role="listbox"[^>]*>/, html)
+      tag
+    end
+
+    test "the open list is a manual popover anchored to the input, flipping above it" do
+      html = open_html()
+      tag = listbox_tag(html)
+
+      assert html =~ "anchor-name: --pk-anchor-test-picker"
+      assert tag =~ ~s(popover="manual")
+      assert tag =~ "position-anchor: --pk-anchor-test-picker"
+      assert tag =~ "position-try-fallbacks: flip-block"
+      assert tag =~ "max-height: min(16rem, calc(50dvh - 2.5rem))"
+      # A popover's UA text colour is CanvasText: black on a dark theme.
+      assert tag =~ "text-base-content"
+      refute tag =~ "absolute"
+    end
+
+    test "the input carries no form event, so no form is needed around it" do
+      html = render_component(ItemPicker, base_assigns())
+
+      refute html =~ "phx-change"
+      refute html =~ "phx-debounce"
+    end
+
+    test "the hook sends the query, keeps the input's events from a host form, and shows the list" do
+      source = File.read!("lib/phoenix_kit_catalogue/web/components/item_picker.ex")
+
+      [hook] =
+        Regex.run(~r/name="\.ItemPicker">(.*?)<\/script>/s, source, capture: :all_but_first)
+
+      assert hook =~ ~s|pushEventTo(this.el, "query_change", {value: this.input.value})|
+      assert hook =~ ~s|addEventListener("input", this._onInput)|
+      assert hook =~ ~s|addEventListener("change", this._onChange)|
+      assert hook =~ "e.stopPropagation()"
+      assert hook =~ "list.showPopover()"
+    end
+  end
+
   describe "render shape (open with options)" do
     test "renders listbox and options when :open and :options are set" do
       html =
