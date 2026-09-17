@@ -92,9 +92,6 @@ defmodule PhoenixKitCatalogue.Catalogue.Duplication do
   # `_trash` is trash provenance — a copy is a new row nothing trashed.
   @data_keys_not_copied ["files_folder_uuid", "_trash"]
 
-  # Same key as `Catalogue`'s catalogues/folders order lock.
-  @catalogues_order_lock_key 727_401_119
-
   defp repo, do: PhoenixKit.RepoHelper.repo()
 
   @type bulk_result :: {:ok, %{created: non_neg_integer(), errors: [{Ecto.UUID.t(), term()}]}}
@@ -287,11 +284,12 @@ defmodule PhoenixKitCatalogue.Catalogue.Duplication do
     :ok
   end
 
-  # The first free "(copy N)" among live catalogues. Serialised with other
-  # copies through the catalogues order lock, so two copies of two
-  # same-named sources cannot both pick one name.
+  # The first free "(copy N)" among live catalogues. Copies serialise on
+  # their own lock (held to commit), so two copies of two same-named
+  # sources cannot both pick one name — without holding up reorders or
+  # edits, which never take it.
   defp free_copy_number(name) do
-    SQL.query!(repo(), "SELECT pg_advisory_xact_lock($1)", [@catalogues_order_lock_key])
+    SQL.query!(repo(), "SELECT pg_advisory_xact_lock(hashtext($1))", ["catalogue:copy-names"])
 
     taken =
       from(c in CatalogueSchema, where: c.status != "deleted", select: c.name)
