@@ -17,6 +17,21 @@ defmodule PhoenixKitCatalogue.Catalogue.Duplication do
   keeping its own name and position. Only the top-level copy is renamed
   ("Alpha (copy)") and slotted right after its source.
 
+  A catalogue copy is the catalogue row (renamed "Alpha (copy)", then
+  "Alpha (copy 2)" while that name is taken, same status, same folder)
+  plus every live category and item in it, names and positions kept. A
+  live category whose parent is in the trash becomes a top-level
+  category of the copy, and a live item whose category is not copied
+  becomes uncategorized — the copy never inherits a hole. References
+  inside the copied rows' `data` that name another copied row (an
+  extension's featured item, say) are pointed at the copy.
+
+  Every copy path hands each extension's namespace in `data` to that
+  extension's optional `duplicate_data/2` (see
+  `PhoenixKitCatalogue.Extension`), so an id that must stay unique to
+  the original — a shop's external product id — is dropped by the
+  module that knows what it means.
+
   Everything for one copy runs in one transaction; the bulk functions
   run one transaction per source so a refused row does not undo the
   others, and emit ONE batch event per touched catalogue afterwards.
@@ -31,6 +46,8 @@ defmodule PhoenixKitCatalogue.Catalogue.Duplication do
   alias PhoenixKit.Modules.Storage
   alias PhoenixKit.Modules.Storage.FolderLink
   alias PhoenixKitCatalogue.Catalogue.{ActivityLog, PubSub, SupplierComments}
+  alias PhoenixKitCatalogue.Extensions
+  alias PhoenixKitCatalogue.Schemas.Catalogue, as: CatalogueSchema
 
   alias PhoenixKitCatalogue.Schemas.{
     CatalogueRule,
@@ -74,6 +91,9 @@ defmodule PhoenixKitCatalogue.Catalogue.Duplication do
   # own folder (see `copy_files_folder/3`) or none.
   # `_trash` is trash provenance — a copy is a new row nothing trashed.
   @data_keys_not_copied ["files_folder_uuid", "_trash"]
+
+  # Same key as `Catalogue`'s catalogues/folders order lock.
+  @catalogues_order_lock_key 727_401_119
 
   defp repo, do: PhoenixKit.RepoHelper.repo()
 
@@ -131,6 +151,233 @@ defmodule PhoenixKitCatalogue.Catalogue.Duplication do
         error
     end
   end
+
+  @doc """
+  Copies a whole catalogue: the catalogue row plus every live category and
+  item in it (see the moduledoc). The copy keeps the source's status and
+  folder and is named "Name (copy)" — "Name (copy 2)" and so on while a
+  live catalogue already has that name, since the shop finds its
+  catalogue by name.
+
+  One transaction, all or nothing. The source is not locked: editors keep
+  working while it runs, and the copy is the source as the copy read it.
+  Two copies of the same source at once are refused
+  (`:already_duplicating`); a trashed or missing source is `:not_found`.
+
+  Per-row activity is not written — one `catalogue.duplicated` row carries
+  the counts. Options: `:actor_uuid`, `:mode`, `:broadcast`.
+  """
+  @spec duplicate_catalogue(CatalogueSchema.t(), keyword()) ::
+          {:ok,
+           %{
+             catalogue: CatalogueSchema.t(),
+             categories: non_neg_integer(),
+             items: non_neg_integer()
+           }}
+          | {:error, term()}
+  def duplicate_catalogue(%CatalogueSchema{} = source, opts \\ []) do
+    case repo().transaction(fn -> copy_catalogue(source, opts) end, timeout: :infinity) do
+      {:ok, %{catalogue: copy} = result} ->
+        ActivityLog.log(%{
+          action: "catalogue.duplicated",
+          mode: opts[:mode] || "manual",
+          actor_uuid: opts[:actor_uuid],
+          resource_type: "catalogue",
+          resource_uuid: copy.uuid,
+          metadata: %{
+            "name" => copy.name,
+            "source_uuid" => source.uuid,
+            "categories" => result.categories,
+            "items" => result.items
+          }
+        })
+
+        if Keyword.get(opts, :broadcast, true),
+          do: PubSub.broadcast(:catalogue, copy.uuid, copy.uuid)
+
+        {:ok, result}
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
+  @doc """
+  What `duplicate_catalogue/2` would copy right now: live categories and
+  live items, for the confirmation.
+  """
+  @spec catalogue_copy_counts(Ecto.UUID.t()) :: %{
+          categories: non_neg_integer(),
+          items: non_neg_integer()
+        }
+  def catalogue_copy_counts(catalogue_uuid) do
+    count = fn schema ->
+      from(r in schema, where: r.catalogue_uuid == ^catalogue_uuid and r.status != "deleted")
+      |> repo().aggregate(:count)
+    end
+
+    %{categories: count.(Category), items: count.(Item)}
+  end
+
+  defp copy_catalogue(source, opts) do
+    claim_copy_of!(source.uuid)
+
+    fresh =
+      case repo().get(CatalogueSchema, source.uuid) do
+        %CatalogueSchema{status: status} = fresh when status != "deleted" -> fresh
+        _ -> repo().rollback(:not_found)
+      end
+
+    number = free_copy_number(fresh.name)
+
+    # Row copies below write no activity of their own; their would-be log
+    # entries still name each source and its copy, which the remap needs.
+    nested = [
+      suffix: false,
+      keep_position: true,
+      actor_uuid: opts[:actor_uuid],
+      mode: opts[:mode] || "manual"
+    ]
+
+    copy = insert_catalogue_copy(fresh, Keyword.put(opts, :copy_number, number))
+    nested = Keyword.put(nested, :catalogue_uuid, copy.uuid)
+
+    live_categories =
+      from(c in Category,
+        where: c.catalogue_uuid == ^fresh.uuid and c.status != "deleted",
+        order_by: [asc: c.position, asc: c.name, asc: c.uuid]
+      )
+      |> repo().all()
+
+    live_uuids = MapSet.new(live_categories, & &1.uuid)
+
+    # A live category under a trashed (or vanished) parent is a root here,
+    # as the source's Active tab shows it at the top level.
+    {categories, items, logs} =
+      live_categories
+      |> Enum.filter(&(is_nil(&1.parent_uuid) or not MapSet.member?(live_uuids, &1.parent_uuid)))
+      |> Enum.reduce({0, 0, []}, fn root, {cats, its, logs} ->
+        {%{categories: c, items: i}, root_logs} =
+          copy_category(root, Keyword.put(nested, :parent_uuid, nil))
+
+        {cats + 1 + c, its + i, root_logs ++ logs}
+      end)
+
+    {loose, loose_logs} = copy_loose_items(fresh.uuid, live_uuids, nested)
+    mapping = copy_mapping([{fresh.uuid, copy.uuid}], loose_logs ++ logs)
+    remap_references!(copy, mapping)
+
+    %{
+      catalogue: repo().get!(CatalogueSchema, copy.uuid),
+      categories: categories,
+      items: items + loose
+    }
+  end
+
+  # Transaction-scoped: released at commit or rollback. A second request
+  # for the same source (a double click, a second tab) is refused instead
+  # of producing a second full copy.
+  defp claim_copy_of!(source_uuid) do
+    %{rows: [[claimed?]]} =
+      SQL.query!(repo(), "SELECT pg_try_advisory_xact_lock(hashtext($1))", [
+        "catalogue:duplicate:#{source_uuid}"
+      ])
+
+    unless claimed?, do: repo().rollback(:already_duplicating)
+    :ok
+  end
+
+  # The first free "(copy N)" among live catalogues. Serialised with other
+  # copies through the catalogues order lock, so two copies of two
+  # same-named sources cannot both pick one name.
+  defp free_copy_number(name) do
+    SQL.query!(repo(), "SELECT pg_advisory_xact_lock($1)", [@catalogues_order_lock_key])
+
+    taken =
+      from(c in CatalogueSchema, where: c.status != "deleted", select: c.name)
+      |> repo().all()
+      |> MapSet.new()
+
+    Enum.find(1..10_000, &(not MapSet.member?(taken, copy_name(name, copy_number: &1))))
+  end
+
+  defp insert_catalogue_copy(source, opts) do
+    attrs = %{
+      name: copy_name(source.name, opts),
+      description: source.description,
+      kind: source.kind,
+      markup_percentage: source.markup_percentage,
+      discount_percentage: source.discount_percentage,
+      status: source.status,
+      position: source.position,
+      folder_uuid: source.folder_uuid,
+      data: copy_data(source.data, :catalogue, opts)
+    }
+
+    %CatalogueSchema{}
+    |> CatalogueSchema.changeset(attrs)
+    |> insert!()
+    |> then(&copy_files_folder(source, &1, opts))
+  end
+
+  # Live items no copied category holds: uncategorized ones, and any whose
+  # category is trashed or gone (they become uncategorized in the copy).
+  defp copy_loose_items(catalogue_uuid, copied_category_uuids, nested) do
+    copied = MapSet.to_list(copied_category_uuids)
+
+    from(i in Item,
+      where: i.catalogue_uuid == ^catalogue_uuid and i.status != "deleted",
+      where: is_nil(i.category_uuid) or i.category_uuid not in ^copied,
+      order_by: [asc: i.position, asc: i.name, asc: i.uuid]
+    )
+    |> repo().all()
+    |> Enum.reduce({0, []}, fn item, {n, logs} ->
+      {_copy, item_logs} = copy_item(item, Keyword.put(nested, :category_uuid, nil))
+      {n + 1, item_logs ++ logs}
+    end)
+  end
+
+  defp copy_mapping(pairs, logs) do
+    Enum.reduce(logs, Map.new(pairs), fn
+      %{resource_uuid: copy, metadata: %{"source_uuid" => source}}, acc ->
+        Map.put(acc, source, copy)
+
+      _, acc ->
+        acc
+    end)
+  end
+
+  # A string anywhere in a copied row's `data` that is the uuid of another
+  # copied row names that row, so it is pointed at the copy — without
+  # knowing whose namespace holds it. File uuids and anything outside the
+  # copy are not in the map and stay as they are.
+  defp remap_references!(copy, mapping) do
+    remap_rows!(CatalogueSchema, from(c in CatalogueSchema, where: c.uuid == ^copy.uuid), mapping)
+    remap_rows!(Category, from(c in Category, where: c.catalogue_uuid == ^copy.uuid), mapping)
+    remap_rows!(Item, from(i in Item, where: i.catalogue_uuid == ^copy.uuid), mapping)
+  end
+
+  defp remap_rows!(schema, query, mapping) do
+    query
+    |> select([r], {r.uuid, r.data})
+    |> repo().all()
+    |> Enum.each(fn {uuid, data} ->
+      remapped = remap_value(data, mapping)
+
+      if remapped != data,
+        do: repo().update_all(from(r in schema, where: r.uuid == ^uuid), set: [data: remapped])
+    end)
+  end
+
+  defp remap_value(value, mapping) when is_binary(value), do: Map.get(mapping, value, value)
+
+  defp remap_value(value, mapping) when is_list(value),
+    do: Enum.map(value, &remap_value(&1, mapping))
+
+  defp remap_value(value, mapping) when is_map(value),
+    do: Map.new(value, fn {k, v} -> {k, remap_value(v, mapping)} end)
+
+  defp remap_value(value, _mapping), do: value
 
   @doc """
   Copies several items; one transaction each, one `:item` batch event per
@@ -264,7 +511,10 @@ defmodule PhoenixKitCatalogue.Catalogue.Duplication do
   # Runs inside the caller's transaction; any failure rolls it back.
   defp copy_item(%Item{} = source, opts) do
     category_uuid = Keyword.get(opts, :category_uuid, source.category_uuid)
-    catalogue_uuid = catalogue_for(category_uuid, source.catalogue_uuid)
+
+    catalogue_uuid =
+      catalogue_for(category_uuid, Keyword.get(opts, :catalogue_uuid, source.catalogue_uuid))
+
     keep_position? = Keyword.get(opts, :keep_position, false)
 
     attrs =
@@ -275,7 +525,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Duplication do
         catalogue_uuid: catalogue_uuid,
         category_uuid: category_uuid,
         position: source.position,
-        data: copy_data(source.data, opts)
+        data: copy_data(source.data, :item, opts)
       })
 
     item = insert!(%Item{} |> Item.changeset(attrs))
@@ -329,19 +579,28 @@ defmodule PhoenixKitCatalogue.Catalogue.Duplication do
   # so the suffix still fits rather than failing validation.
   defp copy_name(name, opts) do
     if Keyword.get(opts, :suffix, true) do
-      suffixed = Gettext.gettext(PhoenixKitCatalogue.Gettext, "%{name} (copy)", name: name)
+      number = Keyword.get(opts, :copy_number, 1)
+      suffixed = suffixed_name(name, number)
       overflow = String.length(suffixed) - @name_max
 
       if overflow > 0,
-        do:
-          Gettext.gettext(PhoenixKitCatalogue.Gettext, "%{name} (copy)",
-            name: String.slice(name, 0, String.length(name) - overflow)
-          ),
+        do: suffixed_name(String.slice(name, 0, String.length(name) - overflow), number),
         else: suffixed
     else
       name
     end
   end
+
+  # "Alpha (copy)" for the first copy, "Alpha (copy 2)" once that is taken.
+  defp suffixed_name(name, number) when number in [nil, 1],
+    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "%{name} (copy)", name: name)
+
+  defp suffixed_name(name, number),
+    do:
+      Gettext.gettext(PhoenixKitCatalogue.Gettext, "%{name} (copy %{number})",
+        name: name,
+        number: number
+      )
 
   # Lists show the translated name out of the multilang `data`, not the
   # column, so the suffix has to reach every language entry too — the
@@ -350,8 +609,11 @@ defmodule PhoenixKitCatalogue.Catalogue.Duplication do
   # untouched, apart from the folder pointer.
   @language_key ~r/^[a-z]{2,3}(-[A-Za-z]{2,4})?$/
 
-  defp copy_data(data, opts) do
-    data = Map.drop(data || %{}, @data_keys_not_copied)
+  defp copy_data(data, kind, opts) do
+    data =
+      (data || %{})
+      |> Map.drop(@data_keys_not_copied)
+      |> then(&if(kind == :catalogue, do: &1, else: Extensions.duplicate_data(kind, &1)))
 
     if Keyword.get(opts, :suffix, true),
       do: Map.new(data, &suffix_language_entry(&1, opts)),
@@ -546,7 +808,8 @@ defmodule PhoenixKitCatalogue.Catalogue.Duplication do
 
   defp copy_category(%Category{} = source, opts) do
     parent_uuid = Keyword.get(opts, :parent_uuid, source.parent_uuid)
-    ensure_same_catalogue!(parent_uuid, source.catalogue_uuid)
+    catalogue_uuid = Keyword.get(opts, :catalogue_uuid, source.catalogue_uuid)
+    ensure_same_catalogue!(parent_uuid, catalogue_uuid)
     keep_position? = Keyword.get(opts, :keep_position, false)
 
     attrs = %{
@@ -554,9 +817,9 @@ defmodule PhoenixKitCatalogue.Catalogue.Duplication do
       description: source.description,
       status: source.status,
       position: source.position,
-      catalogue_uuid: source.catalogue_uuid,
+      catalogue_uuid: catalogue_uuid,
       parent_uuid: parent_uuid,
-      data: copy_data(source.data, opts)
+      data: copy_data(source.data, :category, opts)
     }
 
     category = insert!(%Category{} |> Category.changeset(attrs))
@@ -565,6 +828,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Duplication do
     nested = [
       suffix: false,
       keep_position: true,
+      catalogue_uuid: catalogue_uuid,
       actor_uuid: opts[:actor_uuid],
       mode: opts[:mode] || "manual"
     ]

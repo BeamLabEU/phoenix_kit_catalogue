@@ -962,4 +962,38 @@ defmodule PhoenixKitCatalogue.GettextTest do
   after
     Gettext.put_locale(PhoenixKitCatalogue.Gettext, "en")
   end
+
+  test "the duplicate-catalogue strings are translated in ru and et" do
+    # Added by hand to the .pot and every locale (2026-09-17, Duplicate
+    # on the catalogues page).
+    for {msgid, ru, et} <- [
+          {"%{name} (copy %{number})", "%{name} (копия %{number})", "%{name} (koopia %{number})"},
+          {"This catalogue is already being duplicated.", "Этот каталог уже дублируется.",
+           "Seda kataloogi juba dubleeritakse."},
+          {"Duplicate catalogue", "Дублировать каталог", "Dubleeri kataloog"},
+          {"Creates a copy of “%{name}” with its %{categories} categories and %{items} items. The copy gets the same status and folder, and “(copy)” after its name.",
+           "Создаёт копию каталога «%{name}» со всеми категориями (%{categories}) и товарами (%{items}). У копии тот же статус и папка, а к названию добавляется «(копия)».",
+           "Loob kataloogist „%{name}“ koopia koos selle %{categories} kategooria ja %{items} tootega. Koopial on sama olek ja kaust ning nime järel „(koopia)“."},
+          {"Items keep their SKUs, prices, attributes and suppliers. Deleted items, comments, history and links to other systems (such as a shop's product ids) are not copied.",
+           "У товаров сохраняются артикулы, цены, атрибуты и поставщики. Удалённые товары, комментарии, история и связи с другими системами (например, идентификаторы товаров в магазине) не копируются.",
+           "Toodetel jäävad alles artiklid, hinnad, atribuudid ja tarnijad. Kustutatud tooteid, kommentaare, ajalugu ega seoseid teiste süsteemidega (näiteks poe tootetunnuseid) ei kopeerita."},
+          {"Images and files are shared with the original, not copied. Removing one from the copy leaves the original alone, but deleting the file itself in Media removes it from both.",
+           "Изображения и файлы общие с оригиналом и не копируются. Удаление из копии не затрагивает оригинал, но удаление самого файла в медиатеке убирает его из обоих.",
+           "Pildid ja failid on originaaliga ühised, neid ei kopeerita. Koopiast eemaldamine originaali ei mõjuta, kuid faili enda kustutamine meediateegis eemaldab selle mõlemast."},
+          {"Duplicating “%{name}”…", "Дублирование «%{name}»…", "Dubleerin kataloogi „%{name}“…"},
+          {"Created “%{name}” with %{categories} categories and %{items} items.",
+           "Создан «%{name}»: категорий — %{categories}, товаров — %{items}.",
+           "Loodud „%{name}“: %{categories} kategooriat ja %{items} toodet."},
+          {"Failed to duplicate the catalogue.", "Не удалось дублировать каталог.",
+           "Kataloogi dubleerimine ebaõnnestus."}
+        ] do
+      Gettext.put_locale(PhoenixKitCatalogue.Gettext, "ru")
+      assert Gettext.gettext(PhoenixKitCatalogue.Gettext, msgid) == ru
+
+      Gettext.put_locale(PhoenixKitCatalogue.Gettext, "et")
+      assert Gettext.gettext(PhoenixKitCatalogue.Gettext, msgid) == et
+    end
+  after
+    Gettext.put_locale(PhoenixKitCatalogue.Gettext, "en")
+  end
 end

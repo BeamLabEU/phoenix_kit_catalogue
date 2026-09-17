@@ -116,6 +116,8 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
        expanded_folders: MapSet.new(),
        renaming_folder: nil,
        move_dialog: nil,
+       duplicate_confirm: nil,
+       duplicating: MapSet.new(),
        folder_options: [],
        view_configs: load_view_configs(socket),
        catalogue_file_counts: %{},
@@ -165,6 +167,36 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   # once-per-process flag, so the reload below cannot loop).
   def handle_info({:attr_set_items_modal_closed}, socket) do
     {:noreply, assign(socket, :items_modal_set, nil)}
+  end
+
+  def handle_info({:catalogue_duplicate_finished, source_uuid, result}, socket) do
+    socket = update(socket, :duplicating, &MapSet.delete(&1, source_uuid))
+
+    case result do
+      {:ok, %{catalogue: copy, categories: categories, items: items}} ->
+        {:noreply,
+         socket
+         |> put_flash(
+           :info,
+           Gettext.gettext(
+             PhoenixKitCatalogue.Gettext,
+             "Created “%{name}” with %{categories} categories and %{items} items.",
+             name: copy.name,
+             categories: categories,
+             items: items
+           )
+         )
+         |> load_data(:index)}
+
+      {:error, reason} ->
+        log_operation_error(socket, "duplicate_catalogue", %{
+          entity_type: "catalogue",
+          entity_uuid: source_uuid,
+          reason: reason
+        })
+
+        {:noreply, put_flash(socket, :error, duplicate_error_message(reason))}
+    end
   end
 
   def handle_info(:auto_migrate_legacy, socket) do
@@ -1522,6 +1554,12 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
               icon="hero-folder-arrow-down"
               label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Move to folder")}
             />
+            <.table_row_menu_button
+              phx-click="request_duplicate_catalogue"
+              phx-value-uuid={@c_row.uuid}
+              icon="hero-document-duplicate"
+              label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Duplicate")}
+            />
             <.table_row_menu_divider />
             <.table_row_menu_button
               phx-click="trash_catalogue"
@@ -1770,6 +1808,12 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
                         phx-value-uuid={c_row.uuid}
                         icon="hero-folder-arrow-down"
                         label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Move to folder")}
+                      />
+                      <.table_row_menu_button
+                        phx-click="request_duplicate_catalogue"
+                        phx-value-uuid={c_row.uuid}
+                        icon="hero-document-duplicate"
+                        label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Duplicate")}
                       />
                       <.table_row_menu_divider />
                       <.table_row_menu_button
@@ -2175,6 +2219,52 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
        socket
        |> put_flash(:error, gettext("Clear search and filters to drag-and-drop reorder."))
        |> load_data(:index)}
+    end
+  end
+
+  # ── Duplicate a catalogue ─────────────────────────────────────────
+  # The confirm names what is copied; the copy itself runs in a
+  # supervised task, so leaving the page does not roll it back, and
+  # reports back here when it is done.
+  def handle_event("request_duplicate_catalogue", %{"uuid" => uuid}, socket) do
+    case Catalogue.get_catalogue(uuid) do
+      %{status: status} = catalogue when status != "deleted" ->
+        counts = Catalogue.catalogue_copy_counts(catalogue.uuid)
+        name = Catalogue.localize_one(catalogue, socket.assigns[:current_locale]).name
+
+        {:noreply,
+         assign(
+           socket,
+           :duplicate_confirm,
+           Map.merge(counts, %{uuid: catalogue.uuid, name: name})
+         )}
+
+      _ ->
+        {:noreply,
+         socket
+         |> put_flash(
+           :error,
+           Gettext.gettext(PhoenixKitCatalogue.Gettext, "Catalogue not found.")
+         )
+         |> load_data(:index)}
+    end
+  end
+
+  def handle_event("cancel_duplicate_catalogue", _params, socket) do
+    {:noreply, assign(socket, :duplicate_confirm, nil)}
+  end
+
+  def handle_event("confirm_duplicate_catalogue", _params, socket) do
+    case socket.assigns.duplicate_confirm do
+      %{uuid: uuid, name: name} ->
+        socket = assign(socket, :duplicate_confirm, nil)
+
+        if MapSet.member?(socket.assigns.duplicating, uuid),
+          do: {:noreply, socket},
+          else: {:noreply, start_duplicate(socket, uuid, name)}
+
+      nil ->
+        {:noreply, socket}
     end
   end
 
@@ -3657,6 +3747,41 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         danger={true}
       />
 
+      <.confirm_modal
+        :if={@duplicate_confirm}
+        show={true}
+        on_confirm="confirm_duplicate_catalogue"
+        on_cancel="cancel_duplicate_catalogue"
+        title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Duplicate catalogue")}
+        title_icon="hero-document-duplicate"
+        confirm_text={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Duplicate")}
+        messages={[
+          {:info,
+           Gettext.gettext(
+             PhoenixKitCatalogue.Gettext,
+             "Images and files are shared with the original, not copied. Removing one from the copy leaves the original alone, but deleting the file itself in Media removes it from both."
+           )}
+        ]}
+      >
+        <div class="space-y-2 text-sm">
+          <p>
+            {Gettext.gettext(
+              PhoenixKitCatalogue.Gettext,
+              "Creates a copy of “%{name}” with its %{categories} categories and %{items} items. The copy gets the same status and folder, and “(copy)” after its name.",
+              name: @duplicate_confirm.name,
+              categories: @duplicate_confirm.categories,
+              items: @duplicate_confirm.items
+            )}
+          </p>
+          <p class="text-base-content/70">
+            {Gettext.gettext(
+              PhoenixKitCatalogue.Gettext,
+              "Items keep their SKUs, prices, attributes and suppliers. Deleted items, comments, history and links to other systems (such as a shop's product ids) are not copied."
+            )}
+          </p>
+        </div>
+      </.confirm_modal>
+
       <.modal :if={@move_dialog != nil} id="move-to-folder-modal" show on_close="cancel_move">
         <form id="move-to-folder-form" phx-submit="confirm_move" class="flex flex-col gap-4">
           <h3 class="text-lg font-semibold">
@@ -3700,6 +3825,47 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     </PhoenixKitWeb.Components.LayoutWrapper.app_layout>
     """
   end
+
+  defp start_duplicate(socket, uuid, name) do
+    lv = self()
+    opts = actor_opts(socket)
+
+    {:ok, _pid} =
+      Task.Supervisor.start_child(PhoenixKit.TaskSupervisor, fn ->
+        send(lv, {:catalogue_duplicate_finished, uuid, run_duplicate(uuid, opts)})
+      end)
+
+    socket
+    |> update(:duplicating, &MapSet.put(&1, uuid))
+    |> put_flash(
+      :info,
+      Gettext.gettext(PhoenixKitCatalogue.Gettext, "Duplicating “%{name}”…", name: name)
+    )
+  end
+
+  # Whatever happens in the task, the page hears back: an unexpected
+  # raise or exit is reported as a failure instead of a copy that never
+  # finishes.
+  defp run_duplicate(uuid, opts) do
+    case Catalogue.get_catalogue(uuid) do
+      nil -> {:error, :not_found}
+      catalogue -> Catalogue.duplicate_catalogue(catalogue, opts)
+    end
+  rescue
+    e ->
+      Logger.error("Duplicating catalogue #{uuid} failed: #{inspect(e.__struct__)}")
+      {:error, :failed}
+  catch
+    :exit, reason ->
+      Logger.error("Duplicating catalogue #{uuid} exited: #{inspect(reason)}")
+      {:error, :failed}
+  end
+
+  defp duplicate_error_message(reason) when reason in [:already_duplicating, :not_found],
+    do: Errors.message(reason)
+
+  defp duplicate_error_message(_reason),
+    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Failed to duplicate the catalogue.")
 
   defp move_dialog_label({:folder, _uuid}),
     do:
