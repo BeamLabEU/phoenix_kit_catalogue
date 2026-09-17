@@ -181,6 +181,20 @@ defmodule PhoenixKitCatalogue.Web.FormLVBranchesTest do
       assert moved.parent_uuid == parent.uuid
     end
 
+    test "both forms' Move sections own their open state on the client",
+         %{conn: conn, catalogue: cat} do
+      cat_obj = fixture_category(cat, %{name: "Owner"})
+      item = fixture_item(%{catalogue_uuid: cat.uuid, name: "Owned"})
+
+      # Picking a destination re-renders the page; without this the
+      # patch drops the user's `open` and the section folds shut.
+      {:ok, view, _html} = live(conn, "/en/admin/catalogue/categories/#{cat_obj.uuid}/edit")
+      assert render(element(view, "#category-move-section")) =~ "ignore_attrs"
+
+      {:ok, view, _html} = live(conn, "/en/admin/catalogue/items/#{item.uuid}/edit")
+      assert render(element(view, "#item-move-section")) =~ "ignore_attrs"
+    end
+
     test "the parent select reaches the server through its form",
          %{conn: conn, catalogue: cat} do
       parent = fixture_category(cat, %{name: "NewParent"})

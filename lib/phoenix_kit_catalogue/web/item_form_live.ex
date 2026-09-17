@@ -3537,7 +3537,12 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                `item.data["meta"]`. Collapsed and only rendered when old
                values exist; the inputs stay inside the main form so
                editing and clearing them still works exactly as before. --%>
-          <details :if={@meta_state.attached != []} class="card bg-base-100 shadow-lg">
+          <details
+            :if={@meta_state.attached != []}
+            id="item-meta-section"
+            phx-mounted={Phoenix.LiveView.JS.ignore_attributes(["open"])}
+            class="card bg-base-100 shadow-lg"
+          >
             <summary class="card-body py-3 cursor-pointer flex-row items-center gap-2 select-none">
               <.icon name="hero-tag" class="w-4 h-4 text-base-content/60" />
               <h3 class="font-semibold text-base">
@@ -4413,8 +4418,14 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
            or the no-category slot of any standard catalogue; smart items
            move across smart catalogues (no category). Hidden when there is
            nowhere to go. The select sits in its own <form>: LiveView sends
-           phx-change only from inside one. --%>
-      <details :if={@action == :edit && @move_options != []} class="card bg-base-100 shadow-lg">
+           phx-change only from inside one. `open` is client-owned, or the
+           re-render that change causes would fold the section shut. --%>
+      <details
+        :if={@action == :edit && @move_options != []}
+        id="item-move-section"
+        phx-mounted={Phoenix.LiveView.JS.ignore_attributes(["open"])}
+        class="card bg-base-100 shadow-lg"
+      >
         <summary class="card-body py-3 cursor-pointer flex-row items-center gap-2 select-none">
           <.icon name="hero-arrows-right-left" class="w-4 h-4 text-base-content/60" />
           <h3 class="font-semibold text-base">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Move")}</h3>
