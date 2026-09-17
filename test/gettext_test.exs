@@ -951,7 +951,10 @@ defmodule PhoenixKitCatalogue.GettextTest do
            "%{catalogue} — ilma kategooriata"},
           {"%{catalogue} — top level", "%{catalogue} — верхний уровень",
            "%{catalogue} — ülatase"},
-          {"-- Select destination --", "-- Выберите, куда переместить --", "-- Vali sihtkoht --"}
+          {"-- Select destination --", "-- Выберите, куда переместить --", "-- Vali sihtkoht --"},
+          {"Some selected items are no longer in this catalogue. Reload the page and try again.",
+           "Некоторых выбранных товаров больше нет в этом каталоге. Обновите страницу и попробуйте снова.",
+           "Mõni valitud toode ei ole enam selles kataloogis. Laadi leht uuesti ja proovi uuesti."}
         ] do
       Gettext.put_locale(PhoenixKitCatalogue.Gettext, "ru")
       assert Gettext.gettext(PhoenixKitCatalogue.Gettext, msgid) == ru

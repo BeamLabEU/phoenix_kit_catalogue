@@ -60,6 +60,22 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveDuplicateTest do
     assert %{categories: 1, items: 2} = Catalogue.catalogue_copy_counts(copy.uuid)
   end
 
+  test "the report names the copy in the admin's language, not the content's", %{conn: conn} do
+    source =
+      fixture_catalogue(%{
+        name: "Köök",
+        data: %{"_primary_language" => "et-EE", "en-US" => %{"_name" => "Kitchen"}}
+      })
+
+    {:ok, view, _html} = live(conn, @base)
+    render_click(view, "request_duplicate_catalogue", %{"uuid" => source.uuid})
+    render_click(view, "confirm_duplicate_catalogue", %{})
+
+    html = await_render(view, "Created “")
+    assert html =~ "Created “Kitchen (copy)”"
+    assert Enum.any?(Catalogue.list_catalogues(), &(&1.name == "Köök (koopia)"))
+  end
+
   test "the choices reach the copy through the dialog's form", %{conn: conn, source: source} do
     Catalogue.list_items_for_catalogue(source.uuid)
     |> Enum.each(&Catalogue.update_item(&1, %{sku: "SKU-" <> &1.name}))
