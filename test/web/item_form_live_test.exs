@@ -878,7 +878,10 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLiveTest do
       {:ok, view, _html} = live(conn, edit_item_url(item.uuid))
 
       # The form's move dropdown picks a target category.
-      render_change(view, "select_move_target", %{"category_uuid" => target.uuid})
+      view
+      |> form("#item-move-form", %{"move_target" => "category:" <> target.uuid})
+      |> render_change()
+
       render_click(view, "move_item", %{})
 
       reloaded = Catalogue.get_item(item.uuid)
