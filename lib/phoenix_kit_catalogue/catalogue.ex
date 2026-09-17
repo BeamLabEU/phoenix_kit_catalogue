@@ -6265,7 +6265,8 @@ defmodule PhoenixKitCatalogue.Catalogue do
   does not stop the others.
 
   A selected category whose ancestor is also selected travels inside
-  that ancestor instead of being detached from it. With the target equal
+  that ancestor instead of being detached from it; if the ancestor does
+  not move, it moves on its own. With the target equal
   to the scope catalogue this is `bulk_move_categories_under/3`.
 
   `opts[:catalogue_uuid]` is the source scope; categories outside it are
@@ -6293,12 +6294,17 @@ defmodule PhoenixKitCatalogue.Catalogue do
     muted = opts |> Keyword.put(:broadcast, false) |> Keyword.put(:parent_uuid, parent_uuid)
     {valid, invalid} = uuids |> Enum.uniq() |> Enum.split_with(&valid_uuid?/1)
     nested = nested_in_selection(valid)
+    {inner, outer} = Enum.split_with(valid, &MapSet.member?(nested, &1))
 
+    # Outer categories first; an inner one then either arrived inside its
+    # moved ancestor, or — the ancestor refused, or it was lifted out of
+    # it meanwhile — still sits in the scope and moves on its own.
     {moved, errors, catalogues} =
-      valid
-      |> Enum.reject(&MapSet.member?(nested, &1))
-      |> Enum.reduce({0, [], MapSet.new()}, fn uuid, {moved, errors, cats} ->
-        case move_one_category_to_catalogue(uuid, target, muted) do
+      Enum.reduce(outer ++ inner, {0, [], MapSet.new()}, fn uuid, {moved, errors, cats} ->
+        case move_selected_category(uuid, target, MapSet.member?(nested, uuid), muted) do
+          {:ok, :carried} ->
+            {moved + 1, errors, cats}
+
           {:ok, {m, from}} ->
             {moved + 1, errors, cats |> MapSet.put(m.catalogue_uuid) |> MapSet.put(from)}
 
@@ -6317,6 +6323,19 @@ defmodule PhoenixKitCatalogue.Catalogue do
     errors = Enum.reverse(errors) ++ Enum.map(invalid, &{&1, :invalid_uuid})
     {:ok, %{moved: moved, errors: errors}}
   end
+
+  defp move_selected_category(uuid, target, true = _inner?, opts) do
+    case get_category(uuid) do
+      %Category{catalogue_uuid: ^target, status: status} when status != "deleted" ->
+        {:ok, :carried}
+
+      _ ->
+        move_one_category_to_catalogue(uuid, target, opts)
+    end
+  end
+
+  defp move_selected_category(uuid, target, false, opts),
+    do: move_one_category_to_catalogue(uuid, target, opts)
 
   defp move_one_category_to_catalogue(uuid, target, opts) do
     scope = opts[:catalogue_uuid]

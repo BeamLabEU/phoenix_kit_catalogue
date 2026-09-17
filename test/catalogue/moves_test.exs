@@ -368,7 +368,8 @@ defmodule PhoenixKitCatalogue.Catalogue.MovesTest do
       child = fixture_category(source, %{name: "Child", parent_uuid: parent.uuid})
       loose = fixture_category(source, %{name: "Loose"})
 
-      assert {:ok, %{moved: 2, errors: []}} =
+      # All three end up in the target: the child inside its parent.
+      assert {:ok, %{moved: 3, errors: []}} =
                Catalogue.bulk_move_categories_to_catalogue(
                  [child.uuid, parent.uuid, loose.uuid],
                  target.uuid,
@@ -380,6 +381,27 @@ defmodule PhoenixKitCatalogue.Catalogue.MovesTest do
       assert refresh_category(child).catalogue_uuid == target.uuid
       assert refresh_category(child).parent_uuid == parent.uuid
       assert refresh_category(loose).catalogue_uuid == target.uuid
+    end
+
+    test "a selected child still moves when its selected parent cannot" do
+      source = fixture_catalogue(%{name: "Source"})
+      target = fixture_catalogue(%{name: "Target"})
+      parent = fixture_category(source, %{name: "Binned parent"})
+      child = fixture_category(source, %{name: "Live child", parent_uuid: parent.uuid})
+      {:ok, _} = Catalogue.trash_category(parent, items: :cascade)
+      {:ok, _} = Catalogue.restore_category(refresh_category(child))
+
+      assert {:ok, %{moved: 1, errors: [{parent_uuid, :not_found}]}} =
+               Catalogue.bulk_move_categories_to_catalogue(
+                 [parent.uuid, child.uuid],
+                 target.uuid,
+                 nil,
+                 catalogue_uuid: source.uuid
+               )
+
+      assert parent_uuid == parent.uuid
+      assert refresh_category(child).catalogue_uuid == target.uuid
+      assert refresh_category(parent).catalogue_uuid == source.uuid
     end
 
     test "lands under a parent and refuses rows outside the scope" do

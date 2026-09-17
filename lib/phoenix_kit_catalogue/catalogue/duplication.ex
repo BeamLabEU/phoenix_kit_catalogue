@@ -24,7 +24,9 @@ defmodule PhoenixKitCatalogue.Catalogue.Duplication do
   category of the copy, and a live item whose category is not copied
   becomes uncategorized — the copy never inherits a hole. References
   inside the copied rows' `data` that name another copied row (an
-  extension's featured item, say) are pointed at the copy.
+  extension's featured item, say) are pointed at the copy — any string
+  equal to such a uuid, so a field meant to keep naming the original
+  would be re-pointed too.
 
   Every copy path hands each extension's namespace in `data` to that
   extension's optional `duplicate_data/2` (see
@@ -850,7 +852,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Duplication do
       |> live_items_of(opts[:snapshot])
       |> Enum.reduce({0, []}, fn item, {n, logs} ->
         {_copy, item_logs} = copy_item(item, Keyword.put(nested, :category_uuid, category.uuid))
-        {n + 1, logs ++ item_logs}
+        {n + 1, [item_logs | logs]}
       end)
 
     {sub_categories, sub_items, child_logs} =
@@ -860,7 +862,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Duplication do
         {%{categories: c, items: i}, child_logs} =
           copy_category(child, Keyword.put(nested, :parent_uuid, category.uuid))
 
-        {cats + 1 + c, its + i, logs ++ child_logs}
+        {cats + 1 + c, its + i, [child_logs | logs]}
       end)
 
     unless keep_position?, do: place_category_after(source, category)
@@ -884,8 +886,12 @@ defmodule PhoenixKitCatalogue.Catalogue.Duplication do
        category: repo().get!(Category, category.uuid),
        categories: sub_categories,
        items: items + sub_items
-     }, [log | item_logs ++ child_logs]}
+     }, [log | in_order(item_logs) ++ in_order(child_logs)]}
   end
+
+  # Log lists are gathered newest-first (appending each one copied the
+  # whole list so far, quadratic on a large category).
+  defp in_order(nested_logs), do: nested_logs |> Enum.reverse() |> List.flatten()
 
   # A whole-catalogue copy reads the tree and the items once, up front
   # (`:snapshot`), so an item moved between two categories while the copy
