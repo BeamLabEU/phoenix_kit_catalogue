@@ -88,6 +88,18 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
       for rendering the host's own summary without a re-query; it is
       NOT an order record — re-read and re-price items server-side when
       the selection becomes something real.
+
+      `picks` arrive in the CATALOGUE'S OWN display order (2026-09-17),
+      not the order the user clicked or typed a quantity: catalogue
+      (the same order its tiles show), then the category path from that
+      catalogue's root down to the pick's own category — a category's
+      own items before its subcategories', subcategories in their
+      manual tile order, recursively — then, within a category,
+      uncategorized picks of that catalogue sort after its categorized
+      ones, and finally the item's own position, name, uuid. Click/type
+      order (`entry_seq`) only breaks a tie nothing else resolved, which
+      in practice never happens (the item uuid already disambiguates).
+      Hosts do not need to re-sort `picks` themselves.
     * `handle_info({:item_selector_closed, %{id: id}}, socket)` — fired on
       cancel/ESC/backdrop, AND after a confirm. Reset the `:if` assign
       here. One exception: with the item-details popup stacked open, the
@@ -2103,14 +2115,96 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
     end
   end
 
-  # Pick order. The selection is a map, so without this the tray and the
-  # confirm payload fell back to sorting by name — and the host's rows came
-  # out alphabetical whatever order the user picked in (2026-09-16).
-  # Monotonic per node: re-selecting a deselected item puts it last, as a
-  # user would expect from a cart.
+  # Pick order for the TRAY (the user's own cart view, `@streams`/
+  # `Enum.sort_by(&entry_seq/1)` in the template). The selection is a
+  # map, so without this the tray fell back to sorting by name — and
+  # the user's cart reordered itself under them mid-pick (2026-09-16).
+  # Monotonic per node: re-selecting a deselected item puts it last, as
+  # a user would expect from a cart. `confirm_payload/1`'s host-facing
+  # order is separate — see `pick_sort_key/2` — and only falls back to
+  # this as an unreachable last-resort tie-break (2026-09-17).
   defp next_seq, do: System.unique_integer([:monotonic, :positive])
 
   defp entry_seq({_uuid, entry}), do: Map.get(entry, :seq, 0)
+
+  # ── Confirm payload order: the catalogue's own tree order ───────────
+  #
+  # `{catalogue_rank, {category_bucket, category_path}, item_position,
+  #   item_name, uuid, click_seq}` — Erlang/Elixir term order compares
+  # tuples and lists element by element, and a strict list PREFIX sorts
+  # before its extension, so a category's own items (whose path stops at
+  # that category) land before its subcategories' items (whose path
+  # extends it) without any special-casing here.
+  defp pick_sort_key(cat_tree, {uuid, entry} = pair) do
+    item = entry.item
+
+    {
+      catalogue_rank(cat_tree, Map.get(item, :catalogue_uuid)),
+      category_sort_path(cat_tree, Map.get(item, :category_uuid)),
+      position_key(Map.get(item, :position)),
+      String.downcase(Map.get(item, :name) || ""),
+      uuid,
+      entry_seq(pair)
+    }
+  end
+
+  # Multi-catalogue scope: `cat_tree.catalogues` is the SAME already-
+  # sorted list the catalogue tiles render from (`order_catalogue_tiles/1`)
+  # — a pick's rank is simply its catalogue's position in that list. A
+  # catalogue missing from it (shouldn't happen for an available pick)
+  # sorts last rather than crashing.
+  defp catalogue_rank(%{catalogues: catalogues}, catalogue_uuid) when is_list(catalogues) do
+    catalogue_uuid = catalogue_uuid && to_string(catalogue_uuid)
+
+    case Enum.find_index(catalogues, &(to_string(&1.uuid) == catalogue_uuid)) do
+      nil -> length(catalogues)
+      index -> index
+    end
+  end
+
+  # Single-catalogue (or no) scope: `cat_tree` carries no catalogue
+  # tiles to rank against, and every available pick shares the one
+  # scoped catalogue anyway — a constant rank is a no-op.
+  defp catalogue_rank(_cat_tree, _catalogue_uuid), do: 0
+
+  # Uncategorized items of a catalogue sort after its categorized ones —
+  # the bucket flag wins over the path itself (an empty path would
+  # otherwise sort FIRST as a prefix of everything).
+  defp category_sort_path(_cat_tree, nil), do: {1, []}
+
+  defp category_sort_path(cat_tree, category_uuid) do
+    {0, category_path(cat_tree, to_string(category_uuid), MapSet.new())}
+  end
+
+  # Root-to-leaf: `{position (nulls last), lowercased name}` per hop.
+  # Stops — rather than raising — the moment the chain breaks: a
+  # dangling parent, a category the scope filtered out of `cat_tree.index`,
+  # or a cycle re-visiting a uuid already on this walk (crafted/corrupt
+  # `parent_uuid` data must not hang the request).
+  defp category_path(_cat_tree, nil, _visited), do: []
+
+  defp category_path(cat_tree, category_uuid, visited) do
+    if MapSet.member?(visited, category_uuid) do
+      []
+    else
+      case cat_tree.index[category_uuid] do
+        nil ->
+          []
+
+        category ->
+          visited = MapSet.put(visited, category_uuid)
+          parent_uuid = category.parent_uuid && to_string(category.parent_uuid)
+          hop = {position_key(category.position), String.downcase(category.name || "")}
+          category_path(cat_tree, parent_uuid, visited) ++ [hop]
+      end
+    end
+  end
+
+  # Postgres-style nulls-last: a bare `nil` is an atom, which Erlang
+  # term order places BELOW every number — sorting it first, not last,
+  # if compared raw.
+  defp position_key(nil), do: {1, 0}
+  defp position_key(position), do: {0, position}
 
   defp deselect(socket, uuid) do
     assign(socket,
@@ -2265,7 +2359,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
       # the tray but must never reach the host as a pick — the host's
       # scope said no.
       |> Enum.filter(fn {_uuid, entry} -> entry.available end)
-      |> Enum.sort_by(&entry_seq/1)
+      |> Enum.sort_by(&pick_sort_key(assigns.cat_tree, &1))
       |> Enum.map(fn {uuid, %{qty: qty, item: item}} ->
         %{
           uuid: uuid,
