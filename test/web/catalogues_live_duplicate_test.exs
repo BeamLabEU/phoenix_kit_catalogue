@@ -92,6 +92,9 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveDuplicateTest do
     html = render_click(view, "cancel_duplicate_catalogue", %{})
 
     refute html =~ "Duplicate catalogue"
+    # No copy was started: nothing is being tracked, and nothing arrives.
+    assert :sys.get_state(view.pid).socket.assigns.duplicating == %{}
+    refute render(view) =~ "Created"
     refute Enum.any?(Catalogue.list_catalogues(), &(&1.name =~ "(copy)"))
   end
 
@@ -107,14 +110,59 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveDuplicateTest do
     assert html =~ "Catalogue not found."
   end
 
-  test "a failed copy says so", %{conn: conn} do
+  # A copy in flight, as the page tracks it: a monitor reference per source.
+  defp pretend_running(view, source_uuid) do
+    ref = make_ref()
+
+    :sys.replace_state(view.pid, fn state ->
+      put_in(state.socket.assigns[:duplicating], %{ref => source_uuid})
+    end)
+
+    ref
+  end
+
+  test "a copy that crashes still reports back", %{conn: conn, source: source} do
+    {:ok, view, _html} = live(conn, @base)
+    ref = pretend_running(view, source.uuid)
+
+    send(view.pid, {:DOWN, ref, :process, self(), :killed})
+
+    assert render(view) =~ "Failed to duplicate the catalogue."
+    assert :sys.get_state(view.pid).socket.assigns.duplicating == %{}
+  end
+
+  test "a copy whose source vanished says so", %{conn: conn, source: source} do
+    {:ok, view, _html} = live(conn, @base)
+    ref = pretend_running(view, source.uuid)
+
+    send(view.pid, {ref, {:error, :not_found}})
+
+    assert render(view) =~ "Catalogue not found."
+  end
+
+  test "a second Duplicate while a copy of that catalogue runs is refused",
+       %{conn: conn, source: source} do
+    {:ok, view, _html} = live(conn, @base)
+    pretend_running(view, source.uuid)
+
+    html = render_click(view, "request_duplicate_catalogue", %{"uuid" => source.uuid})
+
+    assert html =~ "This catalogue is already being duplicated."
+    refute has_element?(view, "#duplicate-catalogue-choices")
+  end
+
+  test "a forged or missing uuid is not a crash", %{conn: conn} do
     {:ok, view, _html} = live(conn, @base)
 
-    send(
-      view.pid,
-      {:catalogue_duplicate_finished, UUIDv7.generate(), {:error, :already_duplicating}}
-    )
+    assert render_click(view, "request_duplicate_catalogue", %{"uuid" => "x"}) =~
+             "Catalogue not found."
 
-    assert render(view) =~ "This catalogue is already being duplicated."
+    assert render_click(view, "request_duplicate_catalogue", %{}) =~ "Catalogue not found."
+    assert render_click(view, "trash_catalogue", %{"uuid" => "x"}) =~ "Catalogue not found."
+
+    # Choices without an open dialog, or of the wrong shape, change nothing.
+    render_click(view, "set_duplicate_choices", %{"choices" => %{"skus" => "false"}})
+    render_click(view, "set_duplicate_choices", %{"choices" => "skus"})
+    assert :sys.get_state(view.pid).socket.assigns.duplicate_confirm == nil
   end
 end

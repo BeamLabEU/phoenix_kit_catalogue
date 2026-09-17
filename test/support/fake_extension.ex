@@ -371,12 +371,39 @@ defmodule PhoenixKitCatalogue.Test.RaisingCopyExtension do
   def duplicate_data(_kind, _data), do: raise("boom")
 end
 
+defmodule PhoenixKitCatalogue.Test.NilCopyExtension do
+  @moduledoc "Returns `nil` from `duplicate_data/2`: its namespace is left out of copies."
+
+  def key, do: "nilcopy"
+  def enabled?, do: true
+  def duplicate_data(_kind, _data), do: nil
+end
+
+defmodule PhoenixKitCatalogue.Test.BadCopyExtension do
+  @moduledoc "Returns neither a map nor nil: its namespace is left out of copies, and the value is not logged."
+
+  def key, do: "badcopy"
+  def enabled?, do: true
+  def duplicate_data(_kind, _data), do: {:oops, "secret-external-id"}
+end
+
+defmodule PhoenixKitCatalogue.Test.LanguageShapedExtension do
+  @moduledoc "A three-letter key that looks like a language code; no `duplicate_data/2`."
+
+  def key, do: "pos"
+  def enabled?, do: true
+end
+
 defmodule PhoenixKitCatalogue.Test.CopyAwareModule do
-  @moduledoc "Registry carrier for `CopyAwareExtension` and `RaisingCopyExtension` (see `FakeModule`)."
+  @moduledoc "Registry carrier for the copy-aware test extensions (see `FakeModule`)."
 
   def catalogue_extensions,
     do: [
       PhoenixKitCatalogue.Test.CopyAwareExtension,
-      PhoenixKitCatalogue.Test.RaisingCopyExtension
+      PhoenixKitCatalogue.Test.RaisingCopyExtension,
+      PhoenixKitCatalogue.Test.NilCopyExtension,
+      PhoenixKitCatalogue.Test.BadCopyExtension,
+      PhoenixKitCatalogue.Test.LanguageShapedExtension,
+      "not a module"
     ]
 end

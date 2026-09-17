@@ -26,9 +26,6 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
 
   require Logger
 
-  # What the Duplicate dialog starts with (see `Catalogue.duplicate_catalogue/2`).
-  @duplicate_defaults %{skus: true, files: true, suppliers: true, archived: false}
-
   import PhoenixKitWeb.Components.Core.Icon, only: [icon: 1]
   import PhoenixKitWeb.Components.Core.Modal, only: [confirm_modal: 1, modal: 1]
   import PhoenixKitWeb.Components.Core.Pagination, only: [load_more: 1]
@@ -50,6 +47,9 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   alias PhoenixKitCatalogue.Paths
   alias PhoenixKitCatalogue.Web.Components.AttributeSetItemsModal
   alias PhoenixKitCatalogue.Web.{TableConfig, TableQuery, ViewConfig}
+
+  # What the Duplicate dialog starts with (see `Catalogue.duplicate_catalogue/2`).
+  @duplicate_defaults %{skus: true, files: true, suppliers: true, archived: false}
 
   # PhoenixKit auto-applies its admin chrome layout to external module admin
   # views via socket.private[:live_layout]. Opt out here so this view can
@@ -120,7 +120,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
        renaming_folder: nil,
        move_dialog: nil,
        duplicate_confirm: nil,
-       duplicating: MapSet.new(),
+       duplicating: %{},
        folder_options: [],
        view_configs: load_view_configs(socket),
        catalogue_file_counts: %{},
@@ -172,34 +172,23 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     {:noreply, assign(socket, :items_modal_set, nil)}
   end
 
-  def handle_info({:catalogue_duplicate_finished, source_uuid, result}, socket) do
-    socket = update(socket, :duplicating, &MapSet.delete(&1, source_uuid))
+  # The copy task's reply ({ref, result}) or its crash ({:DOWN, …}):
+  # either way the page hears how the copy ended.
+  def handle_info({ref, result}, %{assigns: %{duplicating: running}} = socket)
+      when is_reference(ref) and is_map_key(running, ref) do
+    Process.demonitor(ref, [:flush])
+    {source_uuid, running} = Map.pop(running, ref)
+    finish_duplicate(assign(socket, :duplicating, running), source_uuid, result)
+  end
 
-    case result do
-      {:ok, %{catalogue: copy, categories: categories, items: items}} ->
-        {:noreply,
-         socket
-         |> put_flash(
-           :info,
-           Gettext.gettext(
-             PhoenixKitCatalogue.Gettext,
-             "Created “%{name}” (categories: %{categories}, items: %{items}).",
-             name: copy.name,
-             categories: categories,
-             items: items
-           )
-         )
-         |> load_data(:index)}
-
-      {:error, reason} ->
-        log_operation_error(socket, "duplicate_catalogue", %{
-          entity_type: "catalogue",
-          entity_uuid: source_uuid,
-          reason: reason
-        })
-
-        {:noreply, put_flash(socket, :error, duplicate_error_message(reason))}
-    end
+  def handle_info(
+        {:DOWN, ref, :process, _pid, reason},
+        %{assigns: %{duplicating: running}} = socket
+      )
+      when is_map_key(running, ref) do
+    {source_uuid, running} = Map.pop(running, ref)
+    Logger.error("Duplicating catalogue #{source_uuid}: the task went down (#{inspect(reason)})")
+    finish_duplicate(assign(socket, :duplicating, running), source_uuid, {:error, :failed})
   end
 
   def handle_info(:auto_migrate_legacy, socket) do
@@ -2229,18 +2218,12 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   # The confirm names what is copied; the copy itself runs in a
   # supervised task, so leaving the page does not roll it back, and
   # reports back here when it is done.
-  def handle_event("request_duplicate_catalogue", %{"uuid" => uuid}, socket) do
-    case Catalogue.get_catalogue(uuid) do
-      %{status: status} = catalogue when status != "deleted" ->
-        counts = Catalogue.catalogue_copy_counts(catalogue.uuid)
-        name = Catalogue.localize_one(catalogue, socket.assigns[:current_locale]).name
+  def handle_event("request_duplicate_catalogue", params, socket) do
+    uuid = params["uuid"]
 
-        {:noreply,
-         assign(
-           socket,
-           :duplicate_confirm,
-           Map.merge(counts, %{uuid: catalogue.uuid, name: name, choices: @duplicate_defaults})
-         )}
+    case uuid_string(uuid) && Catalogue.get_catalogue(uuid) do
+      %{status: status} = catalogue when status != "deleted" ->
+        request_duplicate(socket, catalogue)
 
       _ ->
         {:noreply,
@@ -2259,7 +2242,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
 
   # Checkboxes arrive as "true"/"false" (a hidden false precedes each);
   # only the known choices are read, anything else is ignored.
-  def handle_event("set_duplicate_choices", %{"choices" => params}, socket) do
+  def handle_event("set_duplicate_choices", %{"choices" => %{} = params}, socket) do
     case socket.assigns.duplicate_confirm do
       %{} = confirm ->
         choices =
@@ -2281,8 +2264,8 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       %{uuid: uuid, name: name, choices: choices} ->
         socket = assign(socket, :duplicate_confirm, nil)
 
-        if MapSet.member?(socket.assigns.duplicating, uuid),
-          do: {:noreply, socket},
+        if duplicating?(socket, uuid),
+          do: {:noreply, put_flash(socket, :error, Errors.message(:already_duplicating))},
           else: {:noreply, start_duplicate(socket, uuid, name, Map.to_list(choices))}
 
       nil ->
@@ -2291,7 +2274,8 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   end
 
   def handle_event("trash_catalogue", %{"uuid" => uuid}, socket) do
-    with %{} = catalogue <- Catalogue.get_catalogue(uuid),
+    with uuid when is_binary(uuid) <- uuid_string(uuid),
+         %{} = catalogue <- Catalogue.get_catalogue(uuid),
          {:ok, _} <- Catalogue.trash_catalogue(catalogue, actor_opts(socket)) do
       {:noreply,
        socket
@@ -3906,26 +3890,79 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     """
   end
 
+  defp request_duplicate(socket, catalogue) do
+    if duplicating?(socket, catalogue.uuid) do
+      {:noreply, put_flash(socket, :error, Errors.message(:already_duplicating))}
+    else
+      counts = Catalogue.catalogue_copy_counts(catalogue.uuid)
+      name = Catalogue.localize_one(catalogue, socket.assigns[:current_locale]).name
+
+      confirm =
+        Map.merge(counts, %{uuid: catalogue.uuid, name: name, choices: @duplicate_defaults})
+
+      {:noreply, assign(socket, :duplicate_confirm, confirm)}
+    end
+  end
+
+  defp duplicating?(socket, uuid), do: uuid in Map.values(socket.assigns.duplicating)
+
+  # A client-sent uuid in its canonical form, or nil.
+  defp uuid_string(value) when is_binary(value) do
+    if Ecto.UUID.cast(value) == {:ok, value}, do: value
+  end
+
+  defp uuid_string(_value), do: nil
+
+  # Not linked, so leaving the page does not stop the copy; monitored, so
+  # the page learns how it ended even when the task crashes (see the
+  # `{ref, result}` and `:DOWN` clauses of handle_info/2).
   defp start_duplicate(socket, uuid, name, choices) do
-    lv = self()
     opts = actor_opts(socket) ++ choices
 
-    {:ok, _pid} =
-      Task.Supervisor.start_child(PhoenixKit.TaskSupervisor, fn ->
-        send(lv, {:catalogue_duplicate_finished, uuid, run_duplicate(uuid, opts)})
+    task =
+      Task.Supervisor.async_nolink(PhoenixKit.TaskSupervisor, fn ->
+        run_duplicate(uuid, opts)
       end)
 
     socket
-    |> update(:duplicating, &MapSet.put(&1, uuid))
+    |> update(:duplicating, &Map.put(&1, task.ref, uuid))
     |> put_flash(
       :info,
       Gettext.gettext(PhoenixKitCatalogue.Gettext, "Duplicating “%{name}”…", name: name)
     )
   end
 
-  # Whatever happens in the task, the page hears back: an unexpected
-  # raise or exit is reported as a failure instead of a copy that never
-  # finishes.
+  defp finish_duplicate(socket, source_uuid, result) do
+    case result do
+      {:ok, %{catalogue: copy, categories: categories, items: items}} ->
+        {:noreply,
+         socket
+         |> put_flash(
+           :info,
+           Gettext.gettext(
+             PhoenixKitCatalogue.Gettext,
+             "Created “%{name}” (categories: %{categories}, items: %{items}).",
+             name: copy.name,
+             categories: categories,
+             items: items
+           )
+         )
+         |> load_data(:index)}
+
+      {:error, reason} ->
+        log_operation_error(socket, "duplicate_catalogue", %{
+          entity_type: "catalogue",
+          entity_uuid: source_uuid,
+          reason: reason
+        })
+
+        {:noreply, put_flash(socket, :error, duplicate_error_message(reason))}
+    end
+  end
+
+  # An unexpected raise is logged here with its stacktrace (not its
+  # message, which could carry a changeset's params) and reported as a
+  # failure; a crash that escapes still reaches the page as :DOWN.
   defp run_duplicate(uuid, opts) do
     case Catalogue.get_catalogue(uuid) do
       nil -> {:error, :not_found}
@@ -3933,16 +3970,16 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     end
   rescue
     e ->
-      Logger.error("Duplicating catalogue #{uuid} failed: #{inspect(e.__struct__)}")
-      {:error, :failed}
-  catch
-    :exit, reason ->
-      Logger.error("Duplicating catalogue #{uuid} exited: #{inspect(reason)}")
+      Logger.error(
+        "Duplicating catalogue #{uuid} failed: #{inspect(e.__struct__)}\n" <>
+          Exception.format_stacktrace(__STACKTRACE__)
+      )
+
       {:error, :failed}
   end
 
-  defp duplicate_error_message(reason) when reason in [:already_duplicating, :not_found],
-    do: Errors.message(reason)
+  defp duplicate_error_message(:already_duplicating), do: Errors.message(:already_duplicating)
+  defp duplicate_error_message(:not_found), do: Errors.message(:catalogue_not_found)
 
   defp duplicate_error_message(_reason),
     do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Failed to duplicate the catalogue.")
