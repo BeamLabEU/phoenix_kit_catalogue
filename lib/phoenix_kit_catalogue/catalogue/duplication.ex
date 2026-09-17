@@ -26,10 +26,12 @@ defmodule PhoenixKitCatalogue.Catalogue.Duplication do
   inside the copied rows' `data` that name another copied row (an
   extension's featured item, say) are pointed at the copy — any string
   equal to such a uuid, so a field meant to keep naming the original
-  would be re-pointed too.
+  would be re-pointed too. A category copy does the same within its
+  subtree.
 
-  Every copy path hands each extension's namespace in `data` to that
-  extension's optional `duplicate_data/2` (see
+  Every item and category copy (a catalogue row carries no extension
+  data) hands each extension's namespace in `data` to that extension's
+  optional `duplicate_data/2` (see
   `PhoenixKitCatalogue.Extension`), so an id that must stay unique to
   the original — a shop's external product id — is dropped by the
   module that knows what it means.
@@ -47,6 +49,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Duplication do
   alias Ecto.Adapters.SQL
   alias PhoenixKit.Modules.Storage
   alias PhoenixKit.Modules.Storage.FolderLink
+  alias PhoenixKit.Utils.Multilang
   alias PhoenixKitCatalogue.Catalogue.{ActivityLog, PubSub, SupplierComments}
   alias PhoenixKitCatalogue.Extensions
   alias PhoenixKitCatalogue.Schemas.Catalogue, as: CatalogueSchema
@@ -99,6 +102,12 @@ defmodule PhoenixKitCatalogue.Catalogue.Duplication do
   # The choices a copy's nested rows inherit (see `duplicate_catalogue/2`).
   @copy_choices [:skus, :files, :suppliers]
 
+  # Advisory lock names (single-key `hashtext` form) and the name search's
+  # upper bound.
+  @copy_claim_prefix "catalogue:duplicate:"
+  @copy_names_lock "catalogue:copy-names"
+  @max_copy_number 10_000
+
   defp repo, do: PhoenixKit.RepoHelper.repo()
 
   @type bulk_result :: {:ok, %{created: non_neg_integer(), errors: [{Ecto.UUID.t(), term()}]}}
@@ -140,7 +149,14 @@ defmodule PhoenixKitCatalogue.Catalogue.Duplication do
            %{category: Category.t(), categories: non_neg_integer(), items: non_neg_integer()}}
           | {:error, term()}
   def duplicate_category(%Category{} = source, opts \\ []) do
-    case repo().transaction(fn -> copy_category(source, opts) end) do
+    copy = fn ->
+      {result, logs} = copy_category(source, opts)
+      remap_copies!(copy_mapping([], logs))
+      # Re-read: the remap may have rewritten the copy's own data.
+      {%{result | category: repo().get!(Category, result.category.uuid)}, logs}
+    end
+
+    case repo().transaction(copy) do
       {:ok, {%{category: category} = result, logs}} ->
         flush_logs(logs)
 
@@ -241,6 +257,9 @@ defmodule PhoenixKitCatalogue.Catalogue.Duplication do
 
   defp copy_catalogue(source, opts) do
     claim_copy_of!(source.uuid)
+    # Copies take the name lock before their source's lock, so a copy
+    # queued behind another does not hold its own catalogue meanwhile.
+    lock_copy_names!()
     # The source's trash/restore/move lock, to commit: none of those can
     # change what the copy reads while it runs (about a second). Plain
     # edits and creates do not take it and carry on.
@@ -252,7 +271,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Duplication do
         _ -> repo().rollback(:not_found)
       end
 
-    number = free_copy_number(fresh.name)
+    number = free_copy_number(fresh)
 
     # Row copies below write no activity of their own; their would-be log
     # entries still name each source and its copy, which the remap needs.
@@ -317,8 +336,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Duplication do
       end)
 
     {loose, loose_logs} = copy_loose_items(loose_items, nested)
-    mapping = copy_mapping([{fresh.uuid, copy.uuid}], loose_logs ++ logs)
-    remap_references!(copy, mapping)
+    remap_copies!(copy_mapping([{fresh.uuid, copy.uuid}], loose_logs ++ logs))
 
     %{
       catalogue: repo().get!(CatalogueSchema, copy.uuid),
@@ -333,31 +351,37 @@ defmodule PhoenixKitCatalogue.Catalogue.Duplication do
   defp claim_copy_of!(source_uuid) do
     %{rows: [[claimed?]]} =
       SQL.query!(repo(), "SELECT pg_try_advisory_xact_lock(hashtext($1))", [
-        "catalogue:duplicate:#{source_uuid}"
+        @copy_claim_prefix <> to_string(source_uuid)
       ])
 
     unless claimed?, do: repo().rollback(:already_duplicating)
     :ok
   end
 
-  # The first free "(copy N)" among live catalogues. Copies serialise on
-  # their own lock (held to commit), so two copies of two same-named
-  # sources cannot both pick one name — without holding up reorders or
-  # edits, which never take it.
-  defp free_copy_number(name) do
-    SQL.query!(repo(), "SELECT pg_advisory_xact_lock(hashtext($1))", ["catalogue:copy-names"])
+  # Copies serialise on their own lock (held to commit), so two copies of
+  # two same-named sources cannot both pick one name — without holding up
+  # reorders or edits, which never take it.
+  defp lock_copy_names! do
+    SQL.query!(repo(), "SELECT pg_advisory_xact_lock(hashtext($1))", [@copy_names_lock])
+    :ok
+  end
 
+  # The first free "(copy N)" among live catalogues, compared the way the
+  # copy's name column will be written.
+  defp free_copy_number(source) do
     taken =
       from(c in CatalogueSchema, where: c.status != "deleted", select: c.name)
       |> repo().all()
       |> MapSet.new()
 
-    Enum.find(1..10_000, &(not MapSet.member?(taken, copy_name(name, copy_number: &1))))
+    Enum.find(1..@max_copy_number, fn number ->
+      not MapSet.member?(taken, column_copy_name(source, copy_number: number))
+    end)
   end
 
   defp insert_catalogue_copy(source, opts) do
     attrs = %{
-      name: copy_name(source.name, opts),
+      name: column_copy_name(source, opts),
       description: source.description,
       kind: source.kind,
       markup_percentage: source.markup_percentage,
@@ -397,10 +421,14 @@ defmodule PhoenixKitCatalogue.Catalogue.Duplication do
   # copied row names that row, so it is pointed at the copy — without
   # knowing whose namespace holds it. File uuids and anything outside the
   # copy are not in the map and stay as they are.
-  defp remap_references!(copy, mapping) do
-    remap_rows!(CatalogueSchema, from(c in CatalogueSchema, where: c.uuid == ^copy.uuid), mapping)
-    remap_rows!(Category, from(c in Category, where: c.catalogue_uuid == ^copy.uuid), mapping)
-    remap_rows!(Item, from(i in Item, where: i.catalogue_uuid == ^copy.uuid), mapping)
+  defp remap_copies!(mapping) do
+    copies = Map.values(mapping)
+
+    for schema <- [CatalogueSchema, Category, Item] do
+      remap_rows!(schema, from(r in schema, where: r.uuid in ^copies), mapping)
+    end
+
+    :ok
   end
 
   defp remap_rows!(schema, query, mapping) do
@@ -567,7 +595,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Duplication do
       source
       |> Map.take(@item_fields)
       |> Map.merge(%{
-        name: copy_name(source.name, opts),
+        name: column_copy_name(source, opts),
         sku: if(Keyword.get(opts, :skus, true), do: source.sku),
         catalogue_uuid: catalogue_uuid,
         category_uuid: category_uuid,
@@ -657,6 +685,8 @@ defmodule PhoenixKitCatalogue.Catalogue.Duplication do
   @language_key ~r/^[a-z]{2,3}(-[A-Za-z]{2,4})?$/
 
   defp copy_data(data, kind, opts) do
+    owned = Extensions.owned_keys()
+
     data =
       (data || %{})
       |> Map.drop(@data_keys_not_copied)
@@ -664,14 +694,34 @@ defmodule PhoenixKitCatalogue.Catalogue.Duplication do
       |> then(&if(kind == :catalogue, do: &1, else: Extensions.duplicate_data(kind, &1)))
 
     if Keyword.get(opts, :suffix, true),
-      do: Map.new(data, &suffix_language_entry(&1, opts)),
+      do: Map.new(data, &suffix_language_entry(&1, owned, opts)),
       else: data
+  end
+
+  # The name column holds the content in its primary language, so the
+  # suffix is in that language — not the admin's, and not the default a
+  # background task would fall back to (review finding).
+  defp column_copy_name(source, opts) do
+    locale = gettext_locale(primary_language(source.data))
+
+    Gettext.with_locale(PhoenixKitCatalogue.Gettext, locale, fn ->
+      copy_name(source.name, opts)
+    end)
+  end
+
+  defp primary_language(data) do
+    case data do
+      %{"_primary_language" => lang} when is_binary(lang) and lang != "" -> lang
+      _ -> Multilang.primary_language()
+    end
   end
 
   # Each language entry gets the suffix in ITS language ("(koopia)" for
   # et, "(копия)" for ru), not the acting admin's (review finding).
-  defp suffix_language_entry({lang, %{} = entry}, opts) do
-    if Regex.match?(@language_key, lang) do
+  # An extension's namespace can look like a language code ("crm"); it is
+  # never one.
+  defp suffix_language_entry({lang, %{} = entry}, owned, opts) do
+    if Regex.match?(@language_key, lang) and lang not in owned do
       {lang,
        Gettext.with_locale(PhoenixKitCatalogue.Gettext, gettext_locale(lang), fn ->
          suffix_names(entry, opts)
@@ -681,7 +731,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Duplication do
     end
   end
 
-  defp suffix_language_entry(pair, _opts), do: pair
+  defp suffix_language_entry(pair, _owned, _opts), do: pair
 
   # "et", "en-US" → the base language when the backend knows it, else the
   # msgid (English) fallback.
@@ -867,7 +917,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Duplication do
     keep_position? = Keyword.get(opts, :keep_position, false)
 
     attrs = %{
-      name: copy_name(source.name, opts),
+      name: column_copy_name(source, opts),
       description: source.description,
       status: source.status,
       position: source.position,

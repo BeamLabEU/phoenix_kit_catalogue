@@ -238,7 +238,13 @@ defmodule PhoenixKitCatalogue.ActivityLoggingTest do
       assert_activity_logged("catalogue.duplicated",
         resource_uuid: copy.uuid,
         actor_uuid: @actor,
-        metadata_has: %{"source_uuid" => cat.uuid, "items" => 1, "categories" => 0}
+        metadata_has: %{
+          "source_uuid" => cat.uuid,
+          "items" => 1,
+          "categories" => 0,
+          "without" => [],
+          "archived" => false
+        }
       )
 
       refute_activity_logged("item.duplicated")

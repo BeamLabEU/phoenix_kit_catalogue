@@ -54,10 +54,26 @@ defmodule PhoenixKitCatalogue.Extensions do
     Enum.filter(registered(), &(enabled?(&1) and valid_key?(&1)))
   end
 
+  # Only atoms: a registry entry of any other shape is not a module, and
+  # the checks below would raise on it.
   defp registered do
     ModuleRegistry.all_modules()
     |> Enum.flat_map(&contributed_by/1)
+    |> Enum.filter(&is_atom/1)
     |> Enum.uniq()
+  end
+
+  @doc """
+  The `data` keys owned by registered extensions, enabled or not — a copy
+  must not mistake one for a language code.
+  """
+  @spec owned_keys() :: [String.t()]
+  def owned_keys do
+    registered()
+    |> Enum.filter(
+      &(Code.ensure_loaded?(&1) and function_exported?(&1, :key, 0) and valid_key?(&1))
+    )
+    |> Enum.map(& &1.key())
   end
 
   @doc """
@@ -88,6 +104,8 @@ defmodule PhoenixKitCatalogue.Extensions do
 
   defp copy_aware?(ext) do
     Code.ensure_loaded?(ext) and function_exported?(ext, :duplicate_data, 2) and valid_key?(ext)
+  rescue
+    _ -> false
   end
 
   defp put_duplicate(data, key, %{} = namespace), do: Map.put(data, key, namespace)
@@ -98,23 +116,29 @@ defmodule PhoenixKitCatalogue.Extensions do
       result when is_map(result) or is_nil(result) ->
         result
 
-      other ->
+      _other ->
+        # The value itself is not logged: it may hold the very ids the
+        # callback exists to drop.
         Logger.error(
           "PhoenixKitCatalogue.Extensions: #{inspect(ext)}.duplicate_data/2 returned " <>
-            "#{inspect(other)}; the copy leaves its namespace out"
+            "neither a map nor nil; the copy leaves its namespace out"
         )
 
         nil
     end
-  rescue
-    e ->
+  catch
+    kind_of_failure, reason ->
       Logger.error(
-        "PhoenixKitCatalogue.Extensions: #{inspect(ext)}.duplicate_data/2 raised " <>
-          "#{inspect(e.__struct__)}; the copy leaves its namespace out"
+        "PhoenixKitCatalogue.Extensions: #{inspect(ext)}.duplicate_data/2 failed " <>
+          "(#{kind_of_failure} #{failure_label(reason)}); the copy leaves its namespace out"
       )
 
       nil
   end
+
+  defp failure_label(%{__struct__: struct}), do: inspect(struct)
+  defp failure_label(reason) when is_atom(reason), do: inspect(reason)
+  defp failure_label(_reason), do: "term"
 
   defp valid_key?(ext) do
     key = ext.key()

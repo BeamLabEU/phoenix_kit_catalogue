@@ -17,6 +17,7 @@ defmodule PhoenixKitCatalogue.Catalogue.DuplicateCatalogueTest do
   alias PhoenixKit.Modules.Storage.FolderLink
   alias PhoenixKitCatalogue.Catalogue
   alias PhoenixKitCatalogue.Catalogue.PubSub, as: CataloguePubSub
+  alias PhoenixKitCatalogue.Schemas.Catalogue, as: CatalogueSchema
   alias PhoenixKitCatalogue.Schemas.{CatalogueRule, Category, Item}
   alias PhoenixKitCatalogue.Test.{CopyAwareModule, Repo}
 
@@ -74,6 +75,16 @@ defmodule PhoenixKitCatalogue.Catalogue.DuplicateCatalogueTest do
       assert copy.data["et-EE"] == %{"_name" => "Köök (koopia)"}
       assert copy.data["meta"] == %{"brand" => "Andi"}
       refute Map.has_key?(copy.data, "_trash")
+    end
+
+    test "the name column's suffix is in the content's primary language" do
+      source = fixture_catalogue(%{name: "Köök", data: %{"_primary_language" => "et-EE"}})
+
+      {:ok, %{catalogue: first}} = Catalogue.duplicate_catalogue(source)
+      {:ok, %{catalogue: second}} = Catalogue.duplicate_catalogue(source)
+
+      assert first.name == "Köök (koopia)"
+      assert second.name == "Köök (koopia 2)"
     end
 
     test "a taken copy name moves on to (copy 2); a trashed one is free" do
@@ -253,6 +264,22 @@ defmodule PhoenixKitCatalogue.Catalogue.DuplicateCatalogueTest do
       assert copied_doors.data["featured_image_uuid"] == file_uuid
     end
 
+    test "a single category copy re-points references inside its subtree", %{doors: doors} do
+      [oak] = Enum.filter(items_of(doors.catalogue_uuid), &(&1.name == "Oak door"))
+
+      Repo.update_all(from(c in Category, where: c.uuid == ^doors.uuid),
+        set: [data: %{"shop" => %{"featured_item_uuid" => oak.uuid}}]
+      )
+
+      {:ok, %{category: copy}} = Catalogue.duplicate_category(Catalogue.get_category(doors.uuid))
+
+      copied_oak =
+        Repo.one!(from(i in Item, where: i.category_uuid == ^copy.uuid and i.name == "Oak door"))
+
+      assert copy.data["shop"]["featured_item_uuid"] == copied_oak.uuid
+      assert Catalogue.get_category(doors.uuid).data["shop"]["featured_item_uuid"] == oak.uuid
+    end
+
     test "tells the pages once, for the copy", %{source: source} do
       CataloguePubSub.subscribe()
       {:ok, %{catalogue: copy}} = Catalogue.duplicate_catalogue(source)
@@ -290,6 +317,10 @@ defmodule PhoenixKitCatalogue.Catalogue.DuplicateCatalogueTest do
 
       Repo.update_all(from(i in Item, where: i.uuid == ^item.uuid), set: [data: pointers])
       Repo.update_all(from(c in Category, where: c.uuid == ^shelf.uuid), set: [data: pointers])
+
+      Repo.update_all(from(c in CatalogueSchema, where: c.uuid == ^source.uuid),
+        set: [data: Map.drop(pointers, ["files_folder_uuid"])]
+      )
 
       %{source: source, item: item, file_uuid: file_uuid, user_uuid: user_uuid}
     end
@@ -336,7 +367,7 @@ defmodule PhoenixKitCatalogue.Catalogue.DuplicateCatalogueTest do
       assert copied.sku == nil
       assert Catalogue.list_supplier_infos_for_item(copied.uuid) == []
 
-      for data <- [copied.data, copied_shelf.data] do
+      for data <- [copied.data, copied_shelf.data, copy.data] do
         refute Map.has_key?(data, "files_folder_uuid")
         refute Map.has_key?(data, "featured_image_uuid")
         refute Map.has_key?(data, "media_order")
@@ -428,6 +459,9 @@ defmodule PhoenixKitCatalogue.Catalogue.DuplicateCatalogueTest do
       data = %{
         "copyaware" => %{"external_id" => "gid://shop/1", "status" => "active"},
         "raisingcopy" => %{"anything" => 1},
+        "nilcopy" => %{"anything" => 2},
+        "badcopy" => %{"anything" => 3},
+        "pos" => %{"name" => "Till"},
         "untouched" => %{"external_id" => "stays"}
       }
 
@@ -442,7 +476,9 @@ defmodule PhoenixKitCatalogue.Catalogue.DuplicateCatalogueTest do
         end)
 
       assert_received {:copy, copy}
-      assert log =~ "duplicate_data/2 raised"
+      assert log =~ "duplicate_data/2 failed (error RuntimeError)"
+      assert log =~ "BadCopyExtension.duplicate_data/2 returned neither a map nor nil"
+      refute log =~ "secret-external-id"
 
       [copied_item] = items_of(copy.uuid)
       [copied_category] = categories_of(copy.uuid)
@@ -450,12 +486,22 @@ defmodule PhoenixKitCatalogue.Catalogue.DuplicateCatalogueTest do
       for copied <- [copied_item, copied_category] do
         assert copied.data["copyaware"] == %{"status" => "active"}
         refute Map.has_key?(copied.data, "raisingcopy")
+        refute Map.has_key?(copied.data, "nilcopy")
+        refute Map.has_key?(copied.data, "badcopy")
+        # An extension key shaped like a language is not renamed.
+        assert copied.data["pos"] == %{"name" => "Till"}
         assert copied.data["untouched"] == %{"external_id" => "stays"}
       end
 
-      # The single-item Duplicate goes through the same hook.
+      # The single-item and single-category Duplicate go through the same hook.
       {:ok, item_copy} = Catalogue.duplicate_item(Catalogue.get_item(item.uuid))
       assert item_copy.data["copyaware"] == %{"status" => "active"}
+
+      {:ok, %{category: category_copy}} =
+        Catalogue.duplicate_category(Catalogue.get_category(category.uuid))
+
+      assert category_copy.data["copyaware"] == %{"status" => "active"}
+      assert category_copy.data["pos"] == %{"name" => "Till"}
 
       # The original is untouched.
       assert Catalogue.get_item(item.uuid).data == data
