@@ -180,7 +180,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
            :info,
            Gettext.gettext(
              PhoenixKitCatalogue.Gettext,
-             "Created “%{name}” with %{categories} categories and %{items} items.",
+             "Created “%{name}” (categories: %{categories}, items: %{items}).",
              name: copy.name,
              categories: categories,
              items: items
@@ -3759,7 +3759,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
           {:info,
            Gettext.gettext(
              PhoenixKitCatalogue.Gettext,
-             "Images and files are shared with the original, not copied. Removing one from the copy leaves the original alone, but deleting the file itself in Media removes it from both."
+             "Images and files are shared with the original, not copied. Removing an image or file from the copy leaves the original alone, but deleting the file itself in Media removes it from both."
            )}
         ]}
       >
@@ -3767,7 +3767,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
           <p>
             {Gettext.gettext(
               PhoenixKitCatalogue.Gettext,
-              "Creates a copy of “%{name}” with its %{categories} categories and %{items} items. The copy gets the same status and folder, and “(copy)” after its name.",
+              "Creates a copy of “%{name}” with all its categories (%{categories}) and items (%{items}). The copy gets the same status and folder, and “(copy)” after its name.",
               name: @duplicate_confirm.name,
               categories: @duplicate_confirm.categories,
               items: @duplicate_confirm.items
@@ -3776,7 +3776,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
           <p class="text-base-content/70">
             {Gettext.gettext(
               PhoenixKitCatalogue.Gettext,
-              "Items keep their SKUs, prices, attributes and suppliers. Deleted items, comments, history and links to other systems (such as a shop's product ids) are not copied."
+              "Items keep their SKUs, prices, attributes and suppliers. Items in Deleted, comments, history and links to other systems (such as a shop's product ids) are not copied."
             )}
           </p>
         </div>

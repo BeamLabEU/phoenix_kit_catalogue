@@ -40,13 +40,13 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveDuplicateTest do
 
     html = render_click(view, "request_duplicate_catalogue", %{"uuid" => source.uuid})
     assert html =~ "Duplicate catalogue"
-    assert html =~ "with its 1 categories and 2 items"
+    assert html =~ "with all its categories (1) and items (2)"
     assert html =~ "shared with the original"
 
     html = render_click(view, "confirm_duplicate_catalogue", %{})
     assert html =~ "Duplicating “Kitchen Fronts”…"
 
-    html = await_render(view, "Created “Kitchen Fronts (copy)” with 1 categories and 2 items.")
+    html = await_render(view, "Created “Kitchen Fronts (copy)” (categories: 1, items: 2).")
     assert html =~ "Kitchen Fronts (copy)"
 
     copy = Enum.find(Catalogue.list_catalogues(), &(&1.name == "Kitchen Fronts (copy)"))

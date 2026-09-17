@@ -3507,19 +3507,19 @@ msgstr ""
 msgid "Duplicate catalogue"
 msgstr ""
 
-msgid "Creates a copy of “%{name}” with its %{categories} categories and %{items} items. The copy gets the same status and folder, and “(copy)” after its name."
+msgid "Creates a copy of “%{name}” with all its categories (%{categories}) and items (%{items}). The copy gets the same status and folder, and “(copy)” after its name."
 msgstr ""
 
-msgid "Items keep their SKUs, prices, attributes and suppliers. Deleted items, comments, history and links to other systems (such as a shop's product ids) are not copied."
+msgid "Items keep their SKUs, prices, attributes and suppliers. Items in Deleted, comments, history and links to other systems (such as a shop's product ids) are not copied."
 msgstr ""
 
-msgid "Images and files are shared with the original, not copied. Removing one from the copy leaves the original alone, but deleting the file itself in Media removes it from both."
+msgid "Images and files are shared with the original, not copied. Removing an image or file from the copy leaves the original alone, but deleting the file itself in Media removes it from both."
 msgstr ""
 
 msgid "Duplicating “%{name}”…"
 msgstr ""
 
-msgid "Created “%{name}” with %{categories} categories and %{items} items."
+msgid "Created “%{name}” (categories: %{categories}, items: %{items})."
 msgstr ""
 
 msgid "Failed to duplicate the catalogue."
