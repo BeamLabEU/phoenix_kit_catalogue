@@ -936,8 +936,14 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
 
       <%!-- Move actions — collapsed by default to keep destructive +
            low-frequency actions out of the primary edit flow.
-           Native <details> handles toggle; no JS needed. --%>
-      <details :if={@action == :edit} class="card bg-base-100 shadow-lg">
+           Native <details> handles toggle; `open` is client-owned, or the
+           re-render a select change causes would fold the section shut. --%>
+      <details
+        :if={@action == :edit}
+        id="category-move-section"
+        phx-mounted={Phoenix.LiveView.JS.ignore_attributes(["open"])}
+        class="card bg-base-100 shadow-lg"
+      >
         <summary class="card-body py-3 cursor-pointer flex-row items-center gap-2 select-none">
           <.icon name="hero-arrows-right-left" class="w-4 h-4 text-base-content/60" />
           <h3 class="font-semibold text-base">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Move")}</h3>
@@ -1014,7 +1020,12 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
       <%!-- Danger zone — collapsed by default; matches the integrations
            page Danger Zone pattern (red border, exclamation-triangle,
            confirm modal on click). --%>
-      <details :if={@action == :edit} class="card bg-base-100 border-2 border-error/30">
+      <details
+        :if={@action == :edit}
+        id="category-danger-zone"
+        phx-mounted={Phoenix.LiveView.JS.ignore_attributes(["open"])}
+        class="card bg-base-100 border-2 border-error/30"
+      >
         <summary class="card-body py-3 cursor-pointer flex-row items-center gap-2 select-none">
           <.icon name="hero-exclamation-triangle" class="w-4 h-4 text-error" />
           <h3 class="font-semibold text-error text-base">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Danger Zone")}</h3>
