@@ -397,9 +397,23 @@ defmodule PhoenixKitCatalogue.Web.Components.BrowseTest do
       assert menu =~ "position-anchor: --pk-anchor-sel-cols"
       assert menu =~ "position-try-fallbacks: flip-block"
       assert menu =~ "max-height: calc(50dvh - 2.5rem)"
+      # A button scrolled out of sight takes its list with it.
+      assert menu =~ "position-visibility: anchors-visible"
+      assert html =~ ~s(phx-hook=".ColumnToggle") or html =~ "Browse.ColumnToggle"
       # The old focus-driven dropdown is gone: it was clipped by the modal.
       refute html =~ "dropdown-content"
       refute html =~ ~s(tabindex="0")
+    end
+
+    test "the hook reopens an open list that scrolled off screen" do
+      source = File.read!("lib/phoenix_kit_catalogue/web/components/browse.ex")
+
+      [hook] =
+        Regex.run(~r/name="\.ColumnToggle">(.*?)<\/script>/s, source, capture: :all_but_first)
+
+      assert hook =~ ~s|addEventListener("scroll", this._onViewportChange, true)|
+      assert hook =~ "this.menu.hidePopover()"
+      assert hook =~ "this.menu.showPopover()"
     end
 
     test "popover_anchor/1 makes a valid identifier from any DOM id" do
