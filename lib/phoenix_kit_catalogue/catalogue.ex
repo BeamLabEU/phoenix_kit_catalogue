@@ -394,6 +394,8 @@ defmodule PhoenixKitCatalogue.Catalogue do
   # ── Duplication (see `Catalogue.Duplication`) ────────────────────
   defdelegate duplicate_item(item, opts \\ []), to: Duplication
   defdelegate duplicate_category(category, opts \\ []), to: Duplication
+  defdelegate duplicate_catalogue(catalogue, opts \\ []), to: Duplication
+  defdelegate catalogue_copy_counts(catalogue_uuid), to: Duplication
   defdelegate bulk_duplicate_items(uuids, opts \\ []), to: Duplication
   defdelegate bulk_duplicate_categories(uuids, opts \\ []), to: Duplication
 

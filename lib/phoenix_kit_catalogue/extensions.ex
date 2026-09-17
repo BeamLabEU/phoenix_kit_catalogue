@@ -51,10 +51,69 @@ defmodule PhoenixKitCatalogue.Extensions do
   """
   @spec all() :: [module()]
   def all do
+    Enum.filter(registered(), &(enabled?(&1) and valid_key?(&1)))
+  end
+
+  defp registered do
     ModuleRegistry.all_modules()
     |> Enum.flat_map(&contributed_by/1)
     |> Enum.uniq()
-    |> Enum.filter(&(enabled?(&1) and valid_key?(&1)))
+  end
+
+  @doc """
+  A copied item's or category's `data`, with each extension's namespace
+  passed through that extension's optional `duplicate_data/2`: the
+  returned map replaces the namespace, `nil` drops it. Namespaces with no
+  such callback are copied as they are.
+
+  Disabled extensions are asked too — their data is still in the row, and
+  switching a module off must not let a copy carry its external ids. A
+  callback that raises, or returns something else, drops its namespace
+  (logged): a copy without the shop's fields is recoverable, a second
+  row claiming the same external product is not.
+  """
+  @spec duplicate_data(:item | :category, map()) :: map()
+  def duplicate_data(kind, data) when kind in [:item, :category] and is_map(data) do
+    registered()
+    |> Enum.filter(&copy_aware?/1)
+    |> Enum.reduce(data, fn ext, acc ->
+      key = ext.key()
+
+      case Map.fetch(acc, key) do
+        {:ok, %{} = current} -> put_duplicate(acc, key, run_duplicate(ext, kind, current))
+        _ -> acc
+      end
+    end)
+  end
+
+  defp copy_aware?(ext) do
+    Code.ensure_loaded?(ext) and function_exported?(ext, :duplicate_data, 2) and valid_key?(ext)
+  end
+
+  defp put_duplicate(data, key, %{} = namespace), do: Map.put(data, key, namespace)
+  defp put_duplicate(data, key, nil), do: Map.delete(data, key)
+
+  defp run_duplicate(ext, kind, current) do
+    case ext.duplicate_data(kind, current) do
+      result when is_map(result) or is_nil(result) ->
+        result
+
+      other ->
+        Logger.error(
+          "PhoenixKitCatalogue.Extensions: #{inspect(ext)}.duplicate_data/2 returned " <>
+            "#{inspect(other)}; the copy leaves its namespace out"
+        )
+
+        nil
+    end
+  rescue
+    e ->
+      Logger.error(
+        "PhoenixKitCatalogue.Extensions: #{inspect(ext)}.duplicate_data/2 raised " <>
+          "#{inspect(e.__struct__)}; the copy leaves its namespace out"
+      )
+
+      nil
   end
 
   defp valid_key?(ext) do

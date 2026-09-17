@@ -347,3 +347,36 @@ defmodule PhoenixKitCatalogue.Test.DelimiterModule do
 
   def catalogue_extensions, do: [BadIdExtension, BadKeyExtension]
 end
+
+defmodule PhoenixKitCatalogue.Test.CopyAwareExtension do
+  @moduledoc """
+  An extension that owns `data["copyaware"]` and drops its
+  `external_id` from copies, the way a shop drops its external product
+  id. Disabled on purpose: a switched-off extension's data still sits in
+  the rows, so a copy must still ask it.
+  """
+
+  def key, do: "copyaware"
+  def enabled?, do: false
+
+  def duplicate_data(_kind, data), do: Map.delete(data, "external_id")
+end
+
+defmodule PhoenixKitCatalogue.Test.RaisingCopyExtension do
+  @moduledoc "An extension whose `duplicate_data/2` raises; its namespace must be left out of copies."
+
+  def key, do: "raisingcopy"
+  def enabled?, do: true
+
+  def duplicate_data(_kind, _data), do: raise("boom")
+end
+
+defmodule PhoenixKitCatalogue.Test.CopyAwareModule do
+  @moduledoc "Registry carrier for `CopyAwareExtension` and `RaisingCopyExtension` (see `FakeModule`)."
+
+  def catalogue_extensions,
+    do: [
+      PhoenixKitCatalogue.Test.CopyAwareExtension,
+      PhoenixKitCatalogue.Test.RaisingCopyExtension
+    ]
+end

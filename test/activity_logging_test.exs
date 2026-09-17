@@ -228,6 +228,22 @@ defmodule PhoenixKitCatalogue.ActivityLoggingTest do
       )
     end
 
+    test "duplicate_catalogue logs one catalogue.duplicated and no per-row entries",
+         %{catalogue: cat} do
+      {:ok, _item} =
+        Catalogue.create_item(%{name: "Item A", catalogue_uuid: cat.uuid}, actor_opts())
+
+      {:ok, %{catalogue: copy}} = Catalogue.duplicate_catalogue(cat, actor_opts())
+
+      assert_activity_logged("catalogue.duplicated",
+        resource_uuid: copy.uuid,
+        actor_uuid: @actor,
+        metadata_has: %{"source_uuid" => cat.uuid, "items" => 1, "categories" => 0}
+      )
+
+      refute_activity_logged("item.duplicated")
+    end
+
     test "bulk_duplicate_items logs item.bulk_duplicated with actor", %{catalogue: cat} do
       {:ok, item} =
         Catalogue.create_item(%{name: "Item A", catalogue_uuid: cat.uuid}, actor_opts())

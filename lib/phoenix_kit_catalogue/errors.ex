@@ -130,6 +130,13 @@ defmodule PhoenixKitCatalogue.Errors do
         "Item is already in this catalogue."
       )
 
+  def message(:already_duplicating),
+    do:
+      Gettext.gettext(
+        PhoenixKitCatalogue.Gettext,
+        "This catalogue is already being duplicated."
+      )
+
   def message(:kind_mismatch),
     do:
       Gettext.gettext(
