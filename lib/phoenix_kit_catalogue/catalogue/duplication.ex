@@ -248,6 +248,27 @@ defmodule PhoenixKitCatalogue.Catalogue.Duplication do
 
     live_uuids = MapSet.new(live_categories, & &1.uuid)
 
+    # One read of the items too; each is copied once, under the category
+    # it had at that read, or uncategorized when that category is not
+    # among the copied ones.
+    {filed, loose_items} =
+      from(i in Item,
+        where: i.catalogue_uuid == ^fresh.uuid and i.status != "deleted",
+        order_by: [asc: i.position, asc: i.name, asc: i.uuid]
+      )
+      |> repo().all()
+      |> Enum.split_with(&(&1.category_uuid && MapSet.member?(live_uuids, &1.category_uuid)))
+
+    snapshot = %{
+      items: Enum.group_by(filed, & &1.category_uuid),
+      children:
+        live_categories
+        |> Enum.filter(&(&1.parent_uuid && MapSet.member?(live_uuids, &1.parent_uuid)))
+        |> Enum.group_by(& &1.parent_uuid)
+    }
+
+    nested = Keyword.put(nested, :snapshot, snapshot)
+
     # A live category under a trashed (or vanished) parent is a root here,
     # as the source's Active tab shows it at the top level.
     {categories, items, logs} =
@@ -260,7 +281,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Duplication do
         {cats + 1 + c, its + i, root_logs ++ logs}
       end)
 
-    {loose, loose_logs} = copy_loose_items(fresh.uuid, live_uuids, nested)
+    {loose, loose_logs} = copy_loose_items(loose_items, nested)
     mapping = copy_mapping([{fresh.uuid, copy.uuid}], loose_logs ++ logs)
     remap_references!(copy, mapping)
 
@@ -320,16 +341,8 @@ defmodule PhoenixKitCatalogue.Catalogue.Duplication do
 
   # Live items no copied category holds: uncategorized ones, and any whose
   # category is trashed or gone (they become uncategorized in the copy).
-  defp copy_loose_items(catalogue_uuid, copied_category_uuids, nested) do
-    copied = MapSet.to_list(copied_category_uuids)
-
-    from(i in Item,
-      where: i.catalogue_uuid == ^catalogue_uuid and i.status != "deleted",
-      where: is_nil(i.category_uuid) or i.category_uuid not in ^copied,
-      order_by: [asc: i.position, asc: i.name, asc: i.uuid]
-    )
-    |> repo().all()
-    |> Enum.reduce({0, []}, fn item, {n, logs} ->
+  defp copy_loose_items(items, nested) do
+    Enum.reduce(items, {0, []}, fn item, {n, logs} ->
       {_copy, item_logs} = copy_item(item, Keyword.put(nested, :category_uuid, nil))
       {n + 1, item_logs ++ logs}
     end)
@@ -827,27 +840,22 @@ defmodule PhoenixKitCatalogue.Catalogue.Duplication do
       suffix: false,
       keep_position: true,
       catalogue_uuid: catalogue_uuid,
+      snapshot: opts[:snapshot],
       actor_uuid: opts[:actor_uuid],
       mode: opts[:mode] || "manual"
     ]
 
     {items, item_logs} =
-      from(i in Item,
-        where: i.category_uuid == ^source.uuid and i.status != "deleted",
-        order_by: [asc: i.position, asc: i.name]
-      )
-      |> repo().all()
+      source
+      |> live_items_of(opts[:snapshot])
       |> Enum.reduce({0, []}, fn item, {n, logs} ->
         {_copy, item_logs} = copy_item(item, Keyword.put(nested, :category_uuid, category.uuid))
         {n + 1, logs ++ item_logs}
       end)
 
     {sub_categories, sub_items, child_logs} =
-      from(c in Category,
-        where: c.parent_uuid == ^source.uuid and c.status != "deleted",
-        order_by: [asc: c.position, asc: c.name]
-      )
-      |> repo().all()
+      source
+      |> live_children_of(opts[:snapshot])
       |> Enum.reduce({0, 0, []}, fn child, {cats, its, logs} ->
         {%{categories: c, items: i}, child_logs} =
           copy_category(child, Keyword.put(nested, :parent_uuid, category.uuid))
@@ -877,6 +885,30 @@ defmodule PhoenixKitCatalogue.Catalogue.Duplication do
        categories: sub_categories,
        items: items + sub_items
      }, [log | item_logs ++ child_logs]}
+  end
+
+  # A whole-catalogue copy reads the tree and the items once, up front
+  # (`:snapshot`), so an item moved between two categories while the copy
+  # runs is copied once, not twice (review finding); a single category
+  # copy reads them as it walks.
+  defp live_items_of(source, %{items: by_category}), do: Map.get(by_category, source.uuid, [])
+
+  defp live_items_of(source, nil) do
+    from(i in Item,
+      where: i.category_uuid == ^source.uuid and i.status != "deleted",
+      order_by: [asc: i.position, asc: i.name]
+    )
+    |> repo().all()
+  end
+
+  defp live_children_of(source, %{children: by_parent}), do: Map.get(by_parent, source.uuid, [])
+
+  defp live_children_of(source, nil) do
+    from(c in Category,
+      where: c.parent_uuid == ^source.uuid and c.status != "deleted",
+      order_by: [asc: c.position, asc: c.name]
+    )
+    |> repo().all()
   end
 
   # A copy always stays in its source's catalogue; a parent from another

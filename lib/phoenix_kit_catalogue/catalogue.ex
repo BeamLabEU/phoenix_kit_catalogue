@@ -2445,7 +2445,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
         # between this check and the commit.
         check_move_destination!(source_catalogue_uuid, target_catalogue_uuid)
 
-        subtree = Tree.subtree_uuids(category.uuid)
+        subtree = lock_subtree!(category.uuid)
         if parent_uuid, do: check_move_parent!(parent_uuid, target_catalogue_uuid, subtree)
         now = DateTime.utc_now()
 
@@ -2509,6 +2509,24 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
       error ->
         error
+    end
+  end
+
+  # Every category of the moving subtree, row-locked before any item is
+  # touched. Creating, updating or moving an item reads its category
+  # `FOR SHARE`, so it either finishes first — and the item update below
+  # then carries it along — or waits and reads the new catalogue. With
+  # only the root locked, an item could land in a subcategory under the
+  # old catalogue, or deadlock against the item update (review finding).
+  # Re-read until the subtree stops changing under the locks.
+  defp lock_subtree!(root_uuid, attempts \\ 3) do
+    subtree = Tree.subtree_uuids(root_uuid)
+    lock_categories!(subtree)
+
+    cond do
+      Enum.sort(Tree.subtree_uuids(root_uuid)) == Enum.sort(subtree) -> subtree
+      attempts > 1 -> lock_subtree!(root_uuid, attempts - 1)
+      true -> repo().rollback(:catalogue_moved)
     end
   end
 
