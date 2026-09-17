@@ -240,8 +240,10 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPickerTest do
       assert hook =~ "!this.el.contains(e.relatedTarget)) this.close()"
       # A search that lands after the user left does not reopen it.
       assert hook =~ "document.activeElement !== this.input"
-      # A scrolled-off open list is reopened on the side with room.
+      # An open list that no longer fits (scrolled, or grown by new
+      # results) is reopened on the side with room.
       assert hook =~ "list.hidePopover()"
+      assert hook =~ "this.syncListbox({refit: true})"
       # Picking (Enter or a press on an option) drops a pending search.
       assert hook =~ ~s|closest('li[role="option"]')) this.cancelQuery()|
     end
