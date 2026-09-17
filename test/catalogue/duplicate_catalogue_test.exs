@@ -11,6 +11,10 @@ defmodule PhoenixKitCatalogue.Catalogue.DuplicateCatalogueTest do
   import PhoenixKitCatalogue.LiveCase,
     only: [fixture_catalogue: 1, fixture_category: 2, fixture_item: 1, fixture_supplier: 1]
 
+  alias Ecto.Adapters.SQL
+  alias PhoenixKit.Modules.Storage
+  alias PhoenixKit.Modules.Storage.File, as: StorageFile
+  alias PhoenixKit.Modules.Storage.FolderLink
   alias PhoenixKitCatalogue.Catalogue
   alias PhoenixKitCatalogue.Catalogue.PubSub, as: CataloguePubSub
   alias PhoenixKitCatalogue.Schemas.{CatalogueRule, Category, Item}
@@ -257,6 +261,149 @@ defmodule PhoenixKitCatalogue.Catalogue.DuplicateCatalogueTest do
       assert_receive {:catalogue_data_changed, :catalogue, ^copy_uuid, ^copy_uuid}
       refute_receive {:catalogue_data_changed, :item, _, _}, 50
     end
+  end
+
+  describe "choices" do
+    setup do
+      source = fixture_catalogue(%{name: "Choices"})
+      shelf = fixture_category(source, %{name: "Shelf"})
+      supplier = fixture_supplier(%{name: "Choice supplier"})
+      item = fixture_item(%{name: "Knob", category_uuid: shelf.uuid, sku: "KN-1"})
+
+      {:ok, _} =
+        Catalogue.create_supplier_info(%{
+          item_uuid: item.uuid,
+          supplier_uuid: supplier.uuid,
+          unit_cost: Decimal.new("3.00"),
+          currency: "EUR"
+        })
+
+      user_uuid = insert_user!()
+      {:ok, folder} = Storage.create_folder(%{name: "knob-files", user_uuid: user_uuid})
+      file_uuid = insert_file!(user_uuid, folder.uuid)
+
+      pointers = %{
+        "files_folder_uuid" => folder.uuid,
+        "featured_image_uuid" => file_uuid,
+        "media_order" => [file_uuid]
+      }
+
+      Repo.update_all(from(i in Item, where: i.uuid == ^item.uuid), set: [data: pointers])
+      Repo.update_all(from(c in Category, where: c.uuid == ^shelf.uuid), set: [data: pointers])
+
+      %{source: source, item: item, file_uuid: file_uuid, user_uuid: user_uuid}
+    end
+
+    defp only_item(catalogue_uuid), do: hd(items_of(catalogue_uuid))
+
+    test "by default everything comes along, files as links", %{
+      source: source,
+      file_uuid: file_uuid,
+      user_uuid: user_uuid
+    } do
+      {:ok, %{catalogue: copy}} = Catalogue.duplicate_catalogue(source, actor_uuid: user_uuid)
+      copied = only_item(copy.uuid)
+
+      assert copied.sku == "KN-1"
+      assert copied.data["featured_image_uuid"] == file_uuid
+      assert [_] = Catalogue.list_supplier_infos_for_item(copied.uuid)
+
+      assert [%FolderLink{file_uuid: ^file_uuid}] =
+               Repo.all(
+                 from(l in FolderLink, where: l.folder_uuid == ^copied.data["files_folder_uuid"])
+               )
+
+      assert copy.status == "active"
+    end
+
+    test "each one can be switched off, and the copy can start archived", %{
+      source: source,
+      item: item,
+      file_uuid: file_uuid
+    } do
+      {:ok, %{catalogue: copy}} =
+        Catalogue.duplicate_catalogue(source,
+          skus: false,
+          files: false,
+          suppliers: false,
+          archived: true
+        )
+
+      copied = only_item(copy.uuid)
+      [copied_shelf] = categories_of(copy.uuid)
+
+      assert copy.status == "archived"
+      assert copied.sku == nil
+      assert Catalogue.list_supplier_infos_for_item(copied.uuid) == []
+
+      for data <- [copied.data, copied_shelf.data] do
+        refute Map.has_key?(data, "files_folder_uuid")
+        refute Map.has_key?(data, "featured_image_uuid")
+        refute Map.has_key?(data, "media_order")
+      end
+
+      # The original keeps all of it.
+      original = Catalogue.get_item(item.uuid)
+      assert original.sku == "KN-1"
+      assert original.data["featured_image_uuid"] == file_uuid
+      assert [_] = Catalogue.list_supplier_infos_for_item(item.uuid)
+      assert Catalogue.get_catalogue(source.uuid).status == "active"
+    end
+
+    test "the activity row says what was left out", %{source: source} do
+      {:ok, %{catalogue: copy}} =
+        Catalogue.duplicate_catalogue(source, skus: false, suppliers: false)
+
+      assert_activity_logged("catalogue.duplicated",
+        resource_uuid: copy.uuid,
+        metadata_has: %{"without" => ["skus", "suppliers"], "archived" => false}
+      )
+    end
+  end
+
+  defp insert_user! do
+    user_uuid = UUIDv7.generate()
+
+    SQL.query!(
+      Repo,
+      """
+      INSERT INTO phoenix_kit_users
+        (uuid, email, hashed_password, account_type, is_active, inserted_at, updated_at)
+      VALUES ($1, $2, $3, 'person', true, NOW(), NOW())
+      """,
+      [
+        Ecto.UUID.dump!(user_uuid),
+        "copy-choices-#{System.unique_integer([:positive])}@example.com",
+        "$2b$12$0000000000000000000000000000000000000000000000000000."
+      ]
+    )
+
+    user_uuid
+  end
+
+  defp insert_file!(user_uuid, folder_uuid) do
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+    uuid = UUIDv7.generate()
+
+    Repo.insert!(%StorageFile{
+      uuid: uuid,
+      original_file_name: "knob.jpg",
+      file_name: "knob.jpg",
+      mime_type: "image/jpeg",
+      file_type: "image",
+      ext: "jpg",
+      file_checksum: "chk-#{uuid}",
+      user_file_checksum: "uchk-#{uuid}",
+      size: 1,
+      status: "active",
+      system_managed: false,
+      user_uuid: user_uuid,
+      folder_uuid: folder_uuid,
+      inserted_at: now,
+      updated_at: now
+    })
+
+    uuid
   end
 
   describe "extension data" do

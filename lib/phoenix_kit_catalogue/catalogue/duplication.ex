@@ -93,6 +93,11 @@ defmodule PhoenixKitCatalogue.Catalogue.Duplication do
   # own folder (see `copy_files_folder/3`) or none.
   # `_trash` is trash provenance — a copy is a new row nothing trashed.
   @data_keys_not_copied ["files_folder_uuid", "_trash"]
+  # What `files: false` leaves out besides the folder: the image pointers.
+  @image_keys ["featured_image_uuid", "media_order"]
+
+  # The choices a copy's nested rows inherit (see `duplicate_catalogue/2`).
+  @copy_choices [:skus, :files, :suppliers]
 
   defp repo, do: PhoenixKit.RepoHelper.repo()
 
@@ -168,7 +173,16 @@ defmodule PhoenixKitCatalogue.Catalogue.Duplication do
   (`:already_duplicating`); a trashed or missing source is `:not_found`.
 
   Per-row activity is not written — one `catalogue.duplicated` row carries
-  the counts. Options: `:actor_uuid`, `:mode`, `:broadcast`.
+  the counts. Options:
+
+    * `:skus` — keep the items' SKUs (default `true`; `false` leaves them blank)
+    * `:files` — link the images and files (default `true`; `false` gives
+      the copies no files and no featured image)
+    * `:suppliers` — copy the current supplier rows and purchase prices
+      (default `true`)
+    * `:archived` — start the copy archived instead of with the source's
+      status (default `false`)
+    * `:actor_uuid`, `:mode`, `:broadcast` — as elsewhere in the context
   """
   @spec duplicate_catalogue(CatalogueSchema.t(), keyword()) ::
           {:ok,
@@ -191,7 +205,10 @@ defmodule PhoenixKitCatalogue.Catalogue.Duplication do
             "name" => copy.name,
             "source_uuid" => source.uuid,
             "categories" => result.categories,
-            "items" => result.items
+            "items" => result.items,
+            "without" =>
+              for({key, false} <- Keyword.take(opts, @copy_choices), do: to_string(key)),
+            "archived" => Keyword.get(opts, :archived, false)
           }
         })
 
@@ -239,12 +256,13 @@ defmodule PhoenixKitCatalogue.Catalogue.Duplication do
 
     # Row copies below write no activity of their own; their would-be log
     # entries still name each source and its copy, which the remap needs.
-    nested = [
-      suffix: false,
-      keep_position: true,
-      actor_uuid: opts[:actor_uuid],
-      mode: opts[:mode] || "manual"
-    ]
+    nested =
+      [
+        suffix: false,
+        keep_position: true,
+        actor_uuid: opts[:actor_uuid],
+        mode: opts[:mode] || "manual"
+      ] ++ Keyword.take(opts, @copy_choices)
 
     copy = insert_catalogue_copy(fresh, Keyword.put(opts, :copy_number, number))
     nested = Keyword.put(nested, :catalogue_uuid, copy.uuid)
@@ -344,7 +362,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Duplication do
       kind: source.kind,
       markup_percentage: source.markup_percentage,
       discount_percentage: source.discount_percentage,
-      status: source.status,
+      status: if(Keyword.get(opts, :archived, false), do: "archived", else: source.status),
       position: source.position,
       folder_uuid: source.folder_uuid,
       data: copy_data(source.data, :catalogue, opts)
@@ -550,6 +568,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Duplication do
       |> Map.take(@item_fields)
       |> Map.merge(%{
         name: copy_name(source.name, opts),
+        sku: if(Keyword.get(opts, :skus, true), do: source.sku),
         catalogue_uuid: catalogue_uuid,
         category_uuid: category_uuid,
         position: source.position,
@@ -560,7 +579,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Duplication do
 
     copy_attribute_sets(source, item)
     copy_attribute_group(source, item)
-    copy_supplier_rows(source, item)
+    if Keyword.get(opts, :suppliers, true), do: copy_supplier_rows(source, item)
     copy_rules(source, item)
     item = copy_files_folder(source, item, opts)
 
@@ -641,6 +660,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Duplication do
     data =
       (data || %{})
       |> Map.drop(@data_keys_not_copied)
+      |> then(&if(Keyword.get(opts, :files, true), do: &1, else: Map.drop(&1, @image_keys)))
       |> then(&if(kind == :catalogue, do: &1, else: Extensions.duplicate_data(kind, &1)))
 
     if Keyword.get(opts, :suffix, true),
@@ -757,6 +777,12 @@ defmodule PhoenixKitCatalogue.Catalogue.Duplication do
   # FolderLink to each, so the copy shows the same files without owning
   # them.
   defp copy_files_folder(source, record, opts) do
+    if Keyword.get(opts, :files, true),
+      do: link_files_folder(source, record, opts),
+      else: record
+  end
+
+  defp link_files_folder(source, record, opts) do
     files =
       case source_folder_uuid(source, opts) do
         nil -> []
@@ -853,14 +879,15 @@ defmodule PhoenixKitCatalogue.Catalogue.Duplication do
     category = insert!(%Category{} |> Category.changeset(attrs))
     category = copy_files_folder(source, category, opts)
 
-    nested = [
-      suffix: false,
-      keep_position: true,
-      catalogue_uuid: catalogue_uuid,
-      snapshot: opts[:snapshot],
-      actor_uuid: opts[:actor_uuid],
-      mode: opts[:mode] || "manual"
-    ]
+    nested =
+      [
+        suffix: false,
+        keep_position: true,
+        catalogue_uuid: catalogue_uuid,
+        snapshot: opts[:snapshot],
+        actor_uuid: opts[:actor_uuid],
+        mode: opts[:mode] || "manual"
+      ] ++ Keyword.take(opts, @copy_choices)
 
     {items, item_logs} =
       source

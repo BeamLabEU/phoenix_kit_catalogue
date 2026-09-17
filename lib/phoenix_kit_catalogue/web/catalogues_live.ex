@@ -26,6 +26,9 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
 
   require Logger
 
+  # What the Duplicate dialog starts with (see `Catalogue.duplicate_catalogue/2`).
+  @duplicate_defaults %{skus: true, files: true, suppliers: true, archived: false}
+
   import PhoenixKitWeb.Components.Core.Icon, only: [icon: 1]
   import PhoenixKitWeb.Components.Core.Modal, only: [confirm_modal: 1, modal: 1]
   import PhoenixKitWeb.Components.Core.Pagination, only: [load_more: 1]
@@ -2236,7 +2239,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
          assign(
            socket,
            :duplicate_confirm,
-           Map.merge(counts, %{uuid: catalogue.uuid, name: name})
+           Map.merge(counts, %{uuid: catalogue.uuid, name: name, choices: @duplicate_defaults})
          )}
 
       _ ->
@@ -2254,14 +2257,33 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     {:noreply, assign(socket, :duplicate_confirm, nil)}
   end
 
+  # Checkboxes arrive as "true"/"false" (a hidden false precedes each);
+  # only the known choices are read, anything else is ignored.
+  def handle_event("set_duplicate_choices", %{"choices" => params}, socket) do
+    case socket.assigns.duplicate_confirm do
+      %{} = confirm ->
+        choices =
+          Map.new(@duplicate_defaults, fn {key, default} ->
+            {key, Map.get(params, to_string(key), to_string(default)) == "true"}
+          end)
+
+        {:noreply, assign(socket, :duplicate_confirm, %{confirm | choices: choices})}
+
+      nil ->
+        {:noreply, socket}
+    end
+  end
+
+  def handle_event("set_duplicate_choices", _params, socket), do: {:noreply, socket}
+
   def handle_event("confirm_duplicate_catalogue", _params, socket) do
     case socket.assigns.duplicate_confirm do
-      %{uuid: uuid, name: name} ->
+      %{uuid: uuid, name: name, choices: choices} ->
         socket = assign(socket, :duplicate_confirm, nil)
 
         if MapSet.member?(socket.assigns.duplicating, uuid),
           do: {:noreply, socket},
-          else: {:noreply, start_duplicate(socket, uuid, name)}
+          else: {:noreply, start_duplicate(socket, uuid, name, Map.to_list(choices))}
 
       nil ->
         {:noreply, socket}
@@ -3755,28 +3777,61 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Duplicate catalogue")}
         title_icon="hero-document-duplicate"
         confirm_text={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Duplicate")}
-        messages={[
-          {:info,
-           Gettext.gettext(
-             PhoenixKitCatalogue.Gettext,
-             "Images and files are shared with the original, not copied. Removing an image or file from the copy leaves the original alone, but deleting the file itself in Media removes it from both."
-           )}
-        ]}
       >
-        <div class="space-y-2 text-sm">
+        <div class="space-y-3 text-sm">
           <p>
             {Gettext.gettext(
               PhoenixKitCatalogue.Gettext,
-              "Creates a copy of “%{name}” with all its categories (%{categories}) and items (%{items}). The copy gets the same status and folder, and “(copy)” after its name.",
+              "Creates a copy of “%{name}” with all its categories (%{categories}) and items (%{items}), in the same folder and with “(copy)” after its name.",
               name: @duplicate_confirm.name,
               categories: @duplicate_confirm.categories,
               items: @duplicate_confirm.items
             )}
           </p>
+          <form
+            id="duplicate-catalogue-choices"
+            phx-change="set_duplicate_choices"
+            class="space-y-2"
+          >
+            <.duplicate_choice
+              key={:skus}
+              checked={@duplicate_confirm.choices.skus}
+              label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Copy SKUs")}
+            />
+            <.duplicate_choice
+              key={:files}
+              checked={@duplicate_confirm.choices.files}
+              label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Copy images and files")}
+              hint={
+                Gettext.gettext(
+                  PhoenixKitCatalogue.Gettext,
+                  "Shared with the original, not duplicated. Removing one from either catalogue leaves the other untouched."
+                )
+              }
+            />
+            <.duplicate_choice
+              key={:suppliers}
+              checked={@duplicate_confirm.choices.suppliers}
+              label={
+                Gettext.gettext(PhoenixKitCatalogue.Gettext, "Copy suppliers and purchase prices")
+              }
+            />
+            <.duplicate_choice
+              key={:archived}
+              checked={@duplicate_confirm.choices.archived}
+              label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Start the copy archived")}
+              hint={
+                Gettext.gettext(
+                  PhoenixKitCatalogue.Gettext,
+                  "Otherwise it gets the original's status."
+                )
+              }
+            />
+          </form>
           <p class="text-base-content/70">
             {Gettext.gettext(
               PhoenixKitCatalogue.Gettext,
-              "Items keep their SKUs, prices, attributes and suppliers. Items in Deleted, comments, history and links to other systems (such as a shop's product ids) are not copied."
+              "Not copied: items in Deleted, comments, history and links to other systems (such as a shop's product ids)."
             )}
           </p>
         </div>
@@ -3826,9 +3881,34 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     """
   end
 
-  defp start_duplicate(socket, uuid, name) do
+  attr(:key, :atom, required: true)
+  attr(:checked, :boolean, required: true)
+  attr(:label, :string, required: true)
+  attr(:hint, :string, default: nil)
+
+  defp duplicate_choice(assigns) do
+    ~H"""
+    <label class="flex items-start gap-3 cursor-pointer">
+      <input type="hidden" name={"choices[#{@key}]"} value="false" />
+      <input
+        type="checkbox"
+        id={"duplicate-choice-#{@key}"}
+        name={"choices[#{@key}]"}
+        value="true"
+        checked={@checked}
+        class="checkbox checkbox-sm checkbox-primary mt-0.5"
+      />
+      <span>
+        <span class="font-medium">{@label}</span>
+        <span :if={@hint} class="block text-xs text-base-content/60">{@hint}</span>
+      </span>
+    </label>
+    """
+  end
+
+  defp start_duplicate(socket, uuid, name, choices) do
     lv = self()
-    opts = actor_opts(socket)
+    opts = actor_opts(socket) ++ choices
 
     {:ok, _pid} =
       Task.Supervisor.start_child(PhoenixKit.TaskSupervisor, fn ->

@@ -41,7 +41,14 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveDuplicateTest do
     html = render_click(view, "request_duplicate_catalogue", %{"uuid" => source.uuid})
     assert html =~ "Duplicate catalogue"
     assert html =~ "with all its categories (1) and items (2)"
-    assert html =~ "shared with the original"
+    assert html =~ "Shared with the original, not duplicated."
+
+    # Every choice starts on, except starting archived.
+    for key <- ~w(skus files suppliers) do
+      assert has_element?(view, "#duplicate-choice-#{key}[checked]")
+    end
+
+    refute has_element?(view, "#duplicate-choice-archived[checked]")
 
     html = render_click(view, "confirm_duplicate_catalogue", %{})
     assert html =~ "Duplicating “Kitchen Fronts”…"
@@ -51,6 +58,31 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveDuplicateTest do
 
     copy = Enum.find(Catalogue.list_catalogues(), &(&1.name == "Kitchen Fronts (copy)"))
     assert %{categories: 1, items: 2} = Catalogue.catalogue_copy_counts(copy.uuid)
+  end
+
+  test "the choices reach the copy through the dialog's form", %{conn: conn, source: source} do
+    Catalogue.list_items_for_catalogue(source.uuid)
+    |> Enum.each(&Catalogue.update_item(&1, %{sku: "SKU-" <> &1.name}))
+
+    {:ok, view, _html} = live(conn, @base)
+    render_click(view, "request_duplicate_catalogue", %{"uuid" => source.uuid})
+
+    view
+    |> form("#duplicate-catalogue-choices", %{
+      "choices" => %{"skus" => "false", "archived" => "true"}
+    })
+    |> render_change()
+
+    refute has_element?(view, "#duplicate-choice-skus[checked]")
+    assert has_element?(view, "#duplicate-choice-archived[checked]")
+
+    render_click(view, "confirm_duplicate_catalogue", %{})
+    await_render(view, "Created “Kitchen Fronts (copy)”")
+
+    copy = Enum.find(Catalogue.list_catalogues(), &(&1.name == "Kitchen Fronts (copy)"))
+    assert copy.status == "archived"
+    assert Enum.all?(Catalogue.list_items_for_catalogue(copy.uuid), &is_nil(&1.sku))
+    assert Enum.all?(Catalogue.list_items_for_catalogue(source.uuid), &(&1.sku != nil))
   end
 
   test "cancel copies nothing", %{conn: conn, source: source} do

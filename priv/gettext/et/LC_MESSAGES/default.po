@@ -3507,14 +3507,14 @@ msgstr "Seda kataloogi juba dubleeritakse."
 msgid "Duplicate catalogue"
 msgstr "Dubleeri kataloog"
 
-msgid "Creates a copy of “%{name}” with all its categories (%{categories}) and items (%{items}). The copy gets the same status and folder, and “(copy)” after its name."
-msgstr "Loob kataloogist „%{name}“ koopia koos kõigi selle kategooriate (%{categories}) ja toodetega (%{items}). Koopial on sama olek ja kaust ning nime järel „(koopia)“."
+msgid "Creates a copy of “%{name}” with all its categories (%{categories}) and items (%{items}), in the same folder and with “(copy)” after its name."
+msgstr "Loob kataloogist „%{name}“ koopia koos kõigi selle kategooriate (%{categories}) ja toodetega (%{items}) samasse kausta, nime järel „(koopia)“."
 
-msgid "Items keep their SKUs, prices, attributes and suppliers. Items in Deleted, comments, history and links to other systems (such as a shop's product ids) are not copied."
-msgstr "Toodetel jäävad alles artiklid, hinnad, atribuudid ja tarnijad. Kustutatud tooteid, kommentaare, ajalugu ega seoseid teiste süsteemidega (näiteks poe tootetunnuseid) ei kopeerita."
+msgid "Not copied: items in Deleted, comments, history and links to other systems (such as a shop's product ids)."
+msgstr "Ei kopeerita: kustutatud tooteid, kommentaare, ajalugu ega seoseid teiste süsteemidega (näiteks poe tootetunnuseid)."
 
-msgid "Images and files are shared with the original, not copied. Removing an image or file from the copy leaves the original alone, but deleting the file itself in Media removes it from both."
-msgstr "Pildid ja failid on originaaliga ühised, neid ei kopeerita. Pildi või faili eemaldamine koopiast originaali ei mõjuta, kuid faili enda kustutamine meediateegis eemaldab selle mõlemast."
+msgid "Shared with the original, not duplicated. Removing one from either catalogue leaves the other untouched."
+msgstr "Jagatakse originaaliga, neid ei dubleerita. Ühest kataloogist eemaldamine teist ei mõjuta."
 
 msgid "Duplicating “%{name}”…"
 msgstr "Dubleerin kataloogi „%{name}“…"
@@ -3524,3 +3524,18 @@ msgstr "Loodud „%{name}“ (kategooriaid: %{categories}, tooteid: %{items})."
 
 msgid "Failed to duplicate the catalogue."
 msgstr "Kataloogi dubleerimine ebaõnnestus."
+
+msgid "Copy SKUs"
+msgstr "Kopeeri artiklid"
+
+msgid "Copy images and files"
+msgstr "Kopeeri pildid ja failid"
+
+msgid "Copy suppliers and purchase prices"
+msgstr "Kopeeri tarnijad ja ostuhinnad"
+
+msgid "Start the copy archived"
+msgstr "Loo koopia arhiveerituna"
+
+msgid "Otherwise it gets the original's status."
+msgstr "Muidu saab koopia originaali oleku."
