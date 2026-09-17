@@ -4311,9 +4311,12 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
   @catalogue_lock_class 727_401_120
 
-  defp lock_catalogue!(nil), do: :ok
+  # Public only for `Catalogue.Duplication`, which holds a source's lock
+  # while copying it.
+  @doc false
+  def lock_catalogue!(nil), do: :ok
 
-  defp lock_catalogue!(catalogue_uuid) do
+  def lock_catalogue!(catalogue_uuid) do
     repo().query!("SELECT pg_advisory_xact_lock($1::int, hashtext($2::text))", [
       @catalogue_lock_class,
       to_string(catalogue_uuid)

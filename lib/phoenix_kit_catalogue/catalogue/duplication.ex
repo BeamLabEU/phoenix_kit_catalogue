@@ -158,12 +158,12 @@ defmodule PhoenixKitCatalogue.Catalogue.Duplication do
   live catalogue already has that name, since the shop finds its
   catalogue by name.
 
-  One transaction, all or nothing. The source is not locked: editors keep
-  working while it runs, and the copy is the source as the copy read it —
-  the tree and the items in one read each, so nothing is copied twice and
-  the copied tree is always whole, while an edit made during the copy may
-  be missing from it (a category created in between arrives without its
-  items' grouping: they are copied uncategorized).
+  One transaction, all or nothing, holding the source's trash/restore/move
+  lock (about a second for a few thousand items): editors keep editing
+  while it runs, and the copy is the source as it was when the copy read
+  it — the items, then the tree, one read each, so nothing is copied
+  twice or lands outside its category. An edit made after that read is
+  simply not in the copy.
   Two copies of the same source at once are refused
   (`:already_duplicating`); a trashed or missing source is `:not_found`.
 
@@ -224,6 +224,10 @@ defmodule PhoenixKitCatalogue.Catalogue.Duplication do
 
   defp copy_catalogue(source, opts) do
     claim_copy_of!(source.uuid)
+    # The source's trash/restore/move lock, to commit: none of those can
+    # change what the copy reads while it runs (about a second). Plain
+    # edits and creates do not take it and carry on.
+    PhoenixKitCatalogue.Catalogue.lock_catalogue!(source.uuid)
 
     fresh =
       case repo().get(CatalogueSchema, source.uuid) do
@@ -245,6 +249,18 @@ defmodule PhoenixKitCatalogue.Catalogue.Duplication do
     copy = insert_catalogue_copy(fresh, Keyword.put(opts, :copy_number, number))
     nested = Keyword.put(nested, :catalogue_uuid, copy.uuid)
 
+    # Items first, then the tree, one read each: every item read belongs
+    # to a category that already existed, so the tree read after it holds
+    # that category (the lock keeps trash and moves out of the gap). Each
+    # item is copied once, under that category — or uncategorized when
+    # its category is not a live one.
+    live_items =
+      from(i in Item,
+        where: i.catalogue_uuid == ^fresh.uuid and i.status != "deleted",
+        order_by: [asc: i.position, asc: i.name, asc: i.uuid]
+      )
+      |> repo().all()
+
     live_categories =
       from(c in Category,
         where: c.catalogue_uuid == ^fresh.uuid and c.status != "deleted",
@@ -254,16 +270,11 @@ defmodule PhoenixKitCatalogue.Catalogue.Duplication do
 
     live_uuids = MapSet.new(live_categories, & &1.uuid)
 
-    # One read of the items too; each is copied once, under the category
-    # it had at that read, or uncategorized when that category is not
-    # among the copied ones.
     {filed, loose_items} =
-      from(i in Item,
-        where: i.catalogue_uuid == ^fresh.uuid and i.status != "deleted",
-        order_by: [asc: i.position, asc: i.name, asc: i.uuid]
+      Enum.split_with(
+        live_items,
+        &(&1.category_uuid && MapSet.member?(live_uuids, &1.category_uuid))
       )
-      |> repo().all()
-      |> Enum.split_with(&(&1.category_uuid && MapSet.member?(live_uuids, &1.category_uuid)))
 
     snapshot = %{
       items: Enum.group_by(filed, & &1.category_uuid),
