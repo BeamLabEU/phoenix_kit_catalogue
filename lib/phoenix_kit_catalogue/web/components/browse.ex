@@ -27,7 +27,8 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
       #       base_price: %Decimal{}|nil, unit: "piece", unit_label: "pc",
       #       photo_url: "/…/medium/…"|nil, thumb_url: "/…/thumbnail/…"|nil,
       #       manufacturer: "…"|nil, category: "…"|nil,
-      #       default_qty: %Decimal{1}}]
+      #       default_qty: %Decimal{1}, catalogue_uuid: "…"|nil,
+      #       category_uuid: "…"|nil, position: 0}]
 
   `item_row/1`'s default columns read `thumb_url`, `category` and
   `base_price` too — a host hand-building presented maps needs the full
@@ -141,7 +142,15 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
         category: presented_category(item, locale),
         photo_url: featured_photo_url(item),
         thumb_url: featured_thumb_url(item),
-        default_qty: Decimal.new(1)
+        default_qty: Decimal.new(1),
+        # Carried for hosts that need to place a pick in the catalogue's
+        # own tree order (`ItemSelectorModal`'s `confirm_payload/1`) —
+        # not rendered by any component here. `Map.get` throughout: the
+        # hand-built maps this module's own tests feed in predate these
+        # keys.
+        catalogue_uuid: normalize_uuid(Map.get(item, :catalogue_uuid)),
+        category_uuid: normalize_uuid(Map.get(item, :category_uuid)),
+        position: Map.get(item, :position) || 0
       }
     end)
   end
