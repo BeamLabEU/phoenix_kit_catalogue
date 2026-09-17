@@ -505,15 +505,19 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLiveTest do
       {:ok, view, _page} = live(conn, edit_item_url(item.uuid))
       html = render_click(view, "open_add_supplier", %{})
 
-      # The control's step is whatever entities derives from the built-in
-      # definition — asserted as delegation, not a literal, so this holds
-      # at every entities version: pre-"step" releases derive 0.0001 from
-      # the scale, 0.4.9+ honours the declared "any" (arrows walk by 1;
-      # every 4-place typed value stays saveable — `step` IS a browser
-      # validation constraint that gates the submit event, which is why
-      # the original cent step was wrong; entities 0.4.9 review).
+      # The control is whatever entities renders for the built-in
+      # definition, so this holds at every entities version: 0.4.16+
+      # draws core's free-text decimal input (nothing in the browser can
+      # block a typed value); earlier releases a number input whose step
+      # entities derives — 0.0001 from the scale before "step" existed,
+      # the declared "any" from 0.4.9 (`step` IS a browser validation
+      # constraint that gates the submit event, which is why the original
+      # cent step was wrong; entities 0.4.9 review).
       builtin = Catalogue.supplier_builtin_field("unit_cost")
-      assert html =~ ~s(step="#{PhoenixKitEntities.FieldTypes.decimal_step(builtin)}")
+
+      assert html =~
+               ~r/<input type="text" inputmode="decimal"[^>]*id="supplier-unit-cost"/ or
+               html =~ ~s(step="#{PhoenixKitEntities.FieldTypes.decimal_step(builtin)}")
 
       # Catalogue's side of the contract: sane arrows, 4-place storage,
       # nothing typed ever blocked — the boss's "too precise" report,
