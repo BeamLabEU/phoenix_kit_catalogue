@@ -159,7 +159,11 @@ defmodule PhoenixKitCatalogue.Catalogue.Duplication do
   catalogue by name.
 
   One transaction, all or nothing. The source is not locked: editors keep
-  working while it runs, and the copy is the source as the copy read it.
+  working while it runs, and the copy is the source as the copy read it —
+  the tree and the items in one read each, so nothing is copied twice and
+  the copied tree is always whole, while an edit made during the copy may
+  be missing from it (a category created in between arrives without its
+  items' grouping: they are copied uncategorized).
   Two copies of the same source at once are refused
   (`:already_duplicating`); a trashed or missing source is `:not_found`.
 
