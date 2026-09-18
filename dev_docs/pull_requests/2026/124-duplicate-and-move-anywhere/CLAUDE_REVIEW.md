@@ -260,3 +260,57 @@ I audited the four boundaries by reading code only; nothing was edited or run. N
   - Placement goes through `update_item`, which this branch didn't change; its handling of a refused category (`:486-497`) is unaffected.
   - No sibling calls the move, duplicate or bulk-move functions, so the new `:kind_mismatch`, `:not_found` and `:catalogue_not_found` refusals can't reach one.
 - **PubSub:** new broadcasts reuse `{:catalogue_data_changed, kind, uuid, parent}` with the existing kinds `:item`, `:category` and `:catalogue`. The only subscriber, CRM (`phoenix_kit_crm/lib/phoenix_kit_crm/web/company_show_live.ex:285-303`), matches those kinds and has a catch-all. No new message shapes are emitted.
+
+---
+
+# Release review (post-merge)
+
+**Reviewer**: Claude (Opus 5), release review of merge `0b671e4` plus the lock-only `0b3427d`. Two read-only agents covered the fix commits that landed after the review above (`ab9b2eb` and `f2cffb1` for duplication; `ad159af` and `d9c5ff8` for moves and restores). Every finding below was re-checked against the code, and the bugs were reproduced with a failing test before they were fixed.
+**Date**: 2026-09-17
+
+## Findings
+
+### BUG - MEDIUM: a category move carried trashed rows stamped for a root it left behind
+
+- **Trigger:** R > C > D, with item I in D. Trash R, then restore C on its own; D and I stay trashed, stamped `root: R`. Move C to another catalogue (`move_category_to_catalogue`) or under another parent (`move_category_under`).
+- **Effect:** R's restore walks R's *current* subtree, which no longer holds D or I, so no Restore brings them back together. D's Deleted card counts 0 items, and restoring D leaves I trashed inside it. This breaks the "a restore undoes exactly the trash" invariant. The reparent case is older than this PR; the cross-catalogue case makes it permanent.
+- **Why the randomized test missed it:** it had no move op, and no invariant checked that a stamp's root still covers its row.
+
+### BUG - MEDIUM: an upper-case uuid crashed the detail page's bulk item move (introduced by `ad159af`)
+
+- `ad159af` narrowed the context's `valid_uuid?/1` to the canonical form, so `bulk_move_items` returns `{:error, :invalid_uuid}` for an upper-case or raw 16-byte uuid. `sanitize_uuids/1` in `catalogue_detail_live.ex` still let those through (`Ecto.UUID.cast/1` accepts them), and `do_bulk_move_items/3` had no clause for that error. Result: `CaseClauseError`, and the LiveView crashes. Forged input only.
+
+### IMPROVEMENT - MEDIUM: the bulk category move checked its scope without a lock
+
+- `move_one_category_to_catalogue/3` compared the scope on an unlocked `get_category`, and `move_category_to_catalogue/3` never re-checked it under the lock. If another admin moved the category from A to X in between, the bulk run moved it out of X, and the batch broadcast named A, so pages open on X heard nothing.
+
+### NITPICK: crash logs could still carry values (`catalogues_live.ex`)
+
+- The `:DOWN` clause logged `inspect(reason)`; a throw's reason holds the thrown value.
+- `Exception.format_stacktrace/1` prints a `FunctionClauseError`'s arguments in the top frame. A1.4 set out to keep both out of the log.
+
+### NITPICK: an extension `key/0` that throws or exits aborted every copy
+
+`copy_aware?/1` and `valid_key?/1` in `extensions.ex` only `rescue`, so A4.2's "throws and exits are caught" held for `duplicate_data/2` but not for `key/0`. The `Extension.duplicate_data/2` callback doc also still said only "a raise drops the namespace".
+
+### NITPICK: a forged non-string `parent_uuid` crashed the category form
+
+`select_parent_move_target` stored any value, and `move_category_under/3` has no clause for a non-binary parent. Older than this PR.
+
+### Stale test after the lock bump (not a PR bug)
+
+`0b3427d` moved to phoenix_kit_entities 0.4.16, which renders decimal fields with core's `<.decimal_input>` (text + `inputmode="decimal"`, no `step`). `item_form_live_test.exs` still asserted `step="any"`, so `mix test` failed 1 of 3068.
+
+### Declined
+
+- **`move_category_under/3`'s same-parent clause decides from the caller's struct.** A stale form can flash "moved" without writing anything; nothing is lost, and the page shows the real tree on reload.
+- **Item `position` is kept on a move**, so it can collide in the destination bucket. Older than this PR; ordering falls back to name.
+- **`:invalid` and `:missing_catalogue_scope` have no `Errors.message/1` clause.** Both only reach the bulk errors list that is logged, never a flash.
+- **`owned_keys/0` computed per copied row; `free_copy_number/1` returns `nil` past 10,000 copies; runtime `Gettext.gettext` in the new HEEx attributes.** Negligible cost, unreachable, and covered by the existing TODO and the hand-maintained `.pot`, respectively.
+
+## Checked and sound
+
+- **The duplicate task:** `async_nolink` under `PhoenixKit.TaskSupervisor`, which core's supervisor starts in hosts. The success and `:DOWN` clauses both clear the tracking map, and `demonitor(:flush)` runs on success. After a remount, the database try-lock still refuses a second copy.
+- **Lock order:** a copy takes the per-source try-lock, then copy-names, then the source lock, and no other caller takes copy-names. Moves take both catalogue locks in sorted order before any row locks.
+- **`d9c5ff8`'s `restamp_left_behind!`** and `ad159af`'s shallowest-first ordering are correct.
+- **Gettext:** every new msgid is in the `.pot` and all five locales, and is pinned.

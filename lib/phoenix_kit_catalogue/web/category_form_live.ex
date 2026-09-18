@@ -509,10 +509,15 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
     end
   end
 
-  def handle_event("select_parent_move_target", %{"parent_uuid" => uuid}, socket) do
+  def handle_event("select_parent_move_target", %{"parent_uuid" => uuid}, socket)
+      when is_binary(uuid) do
     target = Values.blank_to_nil(uuid)
     {:noreply, assign(socket, :parent_move_target, target)}
   end
+
+  # A forged non-string value would reach `move_category_under/3`, which
+  # has no clause for it.
+  def handle_event("select_parent_move_target", _params, socket), do: {:noreply, socket}
 
   def handle_event("move_under_parent", _params, socket) do
     target = socket.assigns.parent_move_target

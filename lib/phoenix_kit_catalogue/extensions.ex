@@ -104,8 +104,8 @@ defmodule PhoenixKitCatalogue.Extensions do
 
   defp copy_aware?(ext) do
     Code.ensure_loaded?(ext) and function_exported?(ext, :duplicate_data, 2) and valid_key?(ext)
-  rescue
-    _ -> false
+  catch
+    _, _ -> false
   end
 
   defp put_duplicate(data, key, %{} = namespace), do: Map.put(data, key, namespace)
@@ -159,8 +159,9 @@ defmodule PhoenixKitCatalogue.Extensions do
       true ->
         true
     end
-  rescue
-    _ -> false
+  catch
+    # A `key/0` that raises, throws or exits must not abort a copy.
+    _, _ -> false
   end
 
   # `all/0` runs many times per render, so the complaint lands once per

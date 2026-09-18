@@ -1,3 +1,128 @@
+## 0.38.0 - 2026-09-18
+
+Review: `dev_docs/pull_requests/2026/126-product-card-on-core-preview-card/`.
+
+### Changed
+
+- **The product card's markup now lives in core** (#126). `ProductCard.product_card/1`
+  and `product_card_body/1` delegate to `PhoenixKitWeb.Components.Core.PreviewCard`
+  (phoenix_kit#827) — the same photos-then-files swipe carousel, jump strip,
+  fields grid and compact file list, generalised for any resource with photos
+  and files, so the catalogue item card and a host's own preview cards share one
+  implementation. Both functions keep their names, their attrs and their
+  behaviour; the DB-backed helpers (`resolve_images/1`, `resolve_files/1`,
+  `resolve_name/2`, `build_fields/3`) are untouched.
+- `product_card_body/1`'s `:target` attr is no longer `required:` — core's
+  `preview_card_body/1` renders no event of its own, so the body has nothing to
+  point at. It is still accepted, and ignored, for compatibility with hosts that
+  pass it.
+- Dependency bump: `phoenix_kit` 2.30.0.
+
+### Fixed
+
+- The nameless-item card title no longer changes wording when it falls back.
+  Delegating passed the raw name through, so an item with no name in the active
+  locale fell back to core's generic "Preview" from core's gettext backend;
+  it says "Item" again, from this module's own `et`/`ru` catalogues, in the
+  modal title, the carousel's `aria-label` and the image `alt`. A blank (`""`)
+  name now falls back too, where it previously rendered an empty title.
+
+### Upgrade notes
+
+- **Requires `phoenix_kit >= 2.30.0`.** `PreviewCard` first ships there, and
+  this module now references it unguarded. The declared requirement is
+  deliberately left at `>= 2.13.11 and < 3.0.0` so hosts keep a loose
+  constraint, but a host resolving a core older than 2.30.0 will fail to
+  compile this module.
+
+## 0.37.0 - 2026-09-17
+
+Review: `dev_docs/pull_requests/2026/125-picks-in-catalogue-order/`.
+
+### Changed
+
+- **`ItemSelectorModal` Confirm picks arrive in the catalogue's own manual
+  order** (#125), not the order the user clicked or typed a quantity in:
+  catalogue `{position, name, uuid}`, then the category path from that
+  catalogue's root down to the pick's own category (`{position, name}` per
+  hop) — a category's own items before its subcategories', recursively — then
+  that catalogue's uncategorized picks after all of its categorized ones, and
+  finally the item's own position (a null one last), name and uuid. An admin's
+  tile-sort preference never changes it; it only happens to match what the
+  tiles show under the default Manual sort. The tray keeps click order, as a
+  cart should. Hosts no longer need to re-sort `picks` themselves.
+- One scope shape is outside that guarantee and now says so in the moduledoc:
+  a scope naming only categories (`catalogue_uuids: nil`) whose categories span
+  several catalogues. The popup draws no tree for it either; pass the
+  catalogues in `:catalogue_uuids` as well to get the tree order.
+- `Browse.present_items/2` carries `catalogue_uuid`, `category_uuid` and
+  `position` on every presented item. No component renders them — they are what
+  the pick order is computed from.
+- Dependency bumps: `phoenix_kit` 2.28.2, `phoenix_kit_ai` 0.23.1 and
+  `tessera` 0.3.7.
+
+### Fixed
+
+- A pick whose category the tiles never showed — a narrow `category_uuids`
+  scope reaching a subcategory through subtree expansion — no longer falls out
+  of the sort index and lands first as an empty path (#125).
+- An item whose `position` is NULL now sorts LAST in the confirm payload, the
+  way the manual order has it (`asc: i.position`, Postgres ASC being NULLS
+  LAST), instead of first.
+- Two catalogues tied on both position and name now deliver their picks as one
+  block each instead of interleaving them position by position, matching the
+  uuid tie-break the manual order already carried.
+
+## 0.36.0 - 2026-09-17
+
+Review: `dev_docs/pull_requests/2026/124-duplicate-and-move-anywhere/`.
+
+### Added
+
+- **Duplicate a whole catalogue** (#124). The catalogues page copies a
+  catalogue with its categories, items, supplier rows and attribute sets in
+  one transaction, under the source's lock. The copy is named
+  "(copy)", "(copy 2)", … in the content's primary language. Its slugs are
+  left empty, and references between copied rows are re-pointed at the copies.
+  The dialog can leave out SKUs, files or suppliers, and can start the copy
+  archived. Files are linked, not duplicated. A second Duplicate of the same
+  catalogue while one runs is refused.
+- **Move items and categories to any catalogue** (#124). The item form, the
+  category form and the detail page's bulk Move modals offer every live
+  catalogue of the same kind (standard or smart), and a category can land
+  under a parent there. Both catalogues are told about the move.
+- **`Extension.duplicate_data/2`** (#124), an optional callback. Every copy
+  passes each extension's `data` namespace through it, even while the
+  extension is disabled, so an external id (a Shopify product, say) never
+  ends up on two rows. A callback that raises, throws, exits or returns
+  something other than a map or `nil` drops its namespace from the copy.
+
+### Changed
+
+- Every move now takes both catalogues' locks in sorted order and
+  row-locks the moving subtree. A move into a trashed catalogue or
+  category, or into a catalogue of the other kind, is refused.
+- Creating a subcategory holds its parent `FOR SHARE`, so it cannot be left
+  behind by a concurrent move of the parent's tree.
+- The forms' collapsible sections stay open across a re-render.
+- Dependencies: phoenix_kit 2.28.0, phoenix_kit_entities 0.4.16, etcher
+  0.14.0, fresco 0.12.0, tessera 0.3.6 (lock only).
+
+### Fixed
+
+- Item photos no longer collapse to zero width in the picker's table views
+  (#124).
+- A restore that had to leave an item behind (its category still trashed
+  under another root) no longer leaves it stamped for the restored root, so
+  a second trash and restore cannot bring it back under a trashed category.
+- A category move now restamps the trashed rows it carries out from under
+  their trash root (a category restored on its own under a trashed parent,
+  then moved), so a Restore still reaches them.
+- A bulk category move re-checks its catalogue scope under the row lock.
+- A forged uuid no longer crashes the catalogues page (Duplicate, trash), the
+  detail page's bulk item move or the category form's parent picker.
+- An extension whose `key/0` throws or exits no longer aborts a copy.
+
 ## 0.35.0 - 2026-09-16
 
 **Requires phoenix_kit 2.26.0+** (`<.decimal_input>` and

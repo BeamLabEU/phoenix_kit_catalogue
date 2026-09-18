@@ -230,3 +230,39 @@ no Codex review.
 ## Open
 
 None.
+
+## Release review (0.36.0)
+
+How each finding in the "Release review (post-merge)" section of
+`CLAUDE_REVIEW.md` was resolved.
+
+- ~~A category move carried trashed rows stamped for a root it left
+  behind.~~ Both `move_category_to_catalogue/3` and `move_category_under/3`
+  now call `restamp_moved_trash!/3`. Any stamp in the moved subtree whose
+  root is not the landing catalogue, an ancestor of the landing spot, or a
+  row of the subtree is restamped the way Delete Forever restamps what it
+  leaves behind; that logic moved out into `restamp_trash_roots/3`. Tested:
+  - three cases in `moves_test.exs`;
+  - the randomized run gains a `move_category_under` op and an invariant
+    that every stamp's root still covers its row. Without the fix, that
+    invariant fails at `TRASH_FUZZ_WORLDS=600 TRASH_FUZZ_STEPS=20`
+    (seed 199947).
+- ~~An upper-case uuid crashed the bulk item move.~~ `sanitize_uuids/1`
+  keeps canonical uuids only, and `do_bulk_move_items/3` logs and flashes any
+  other error. Tested.
+- ~~The bulk category move checked its scope without a lock.~~
+  `move_category_to_catalogue/3` takes `catalogue_uuid:` and refuses with
+  `:wrong_catalogue_scope` under the row lock, so the batch broadcast names
+  the real source. Tested.
+- ~~Crash logs could carry values.~~ `:DOWN` logs the reason's shape only,
+  and the stacktrace keeps argument counts, not arguments.
+- ~~An extension `key/0` that throws or exits aborted every copy.~~
+  `copy_aware?/1` and `valid_key?/1` catch every kind of failure, and the
+  callback doc names every way a namespace is dropped. Tested.
+- ~~A forged non-string `parent_uuid` crashed the category form.~~ Ignored.
+  Tested.
+- ~~A stale `step=` assertion after the entities 0.4.16 lock bump.~~ The test
+  now pins the text + `inputmode="decimal"` control.
+- Declined items are listed, with reasons, in the review.
+
+Shipped in 0.36.0.
