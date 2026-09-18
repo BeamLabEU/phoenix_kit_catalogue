@@ -399,7 +399,12 @@ defmodule PhoenixKitCatalogue.Web.Components.BrowseTest do
       assert menu =~ "max-height: calc(50dvh - 2.5rem)"
       # A button scrolled out of sight takes its list with it.
       assert menu =~ "position-visibility: anchors-visible"
-      assert html =~ ~s(phx-hook=".ColumnToggle") or html =~ "Browse.ColumnToggle"
+      # A colocated hook's name is expanded to `<Module>.<name>` at compile
+      # time, so the leading-dot form never reaches the HTML — asserting on
+      # it too would let a wrong name pass on the other half of the `or`.
+      assert html =~
+               ~s(phx-hook="PhoenixKitCatalogue.Web.Components.Browse.ColumnToggle")
+
       # The old focus-driven dropdown is gone: it was clipped by the modal.
       refute html =~ "dropdown-content"
       refute html =~ ~s(tabindex="0")
