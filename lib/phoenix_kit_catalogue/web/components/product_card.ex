@@ -91,7 +91,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ProductCard do
       id={@id}
       show={@show}
       target={@target}
-      title={@item_name}
+      title={card_title(@item_name)}
       images={@images}
       fields={@fields}
       files={@files}
@@ -108,7 +108,15 @@ defmodule PhoenixKitCatalogue.Web.Components.ProductCard do
   page). Same attrs as `product_card/1` minus the modal ones. Delegates to
   `PhoenixKitWeb.Components.Core.PreviewCard.preview_card_body/1`.
   """
-  attr(:target, :any, required: true)
+  attr(:target, :any,
+    default: nil,
+    doc:
+      "Accepted for API compatibility; the body renders no event of its own " <>
+        "(slides switch client-side, Close lives in the modal's action row), " <>
+        "so core's `preview_card_body/1` does not take a target and this is " <>
+        "not forwarded."
+  )
+
   attr(:item_name, :string, default: nil)
   attr(:images, :list, default: [])
   attr(:current_image, :string, default: nil, doc: "accepted for API compatibility; unused")
@@ -118,14 +126,20 @@ defmodule PhoenixKitCatalogue.Web.Components.ProductCard do
   def product_card_body(assigns) do
     ~H"""
     <PreviewCard.preview_card_body
-      target={@target}
-      title={@item_name}
+      title={card_title(@item_name)}
       images={@images}
       fields={@fields}
       files={@files}
     />
     """
   end
+
+  # The card's title/aria fallback. Core's own fallback is the generic
+  # "Preview"; the catalogue keeps saying "Item", from its OWN backend, so
+  # the string stays translated by this module's et/ru catalogues.
+  defp card_title(nil), do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Item")
+  defp card_title(""), do: card_title(nil)
+  defp card_title(name), do: name
 
   # ── Resolution helpers (DB-backed; called by the picker on click) ─
 
