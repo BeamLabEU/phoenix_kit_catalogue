@@ -5651,7 +5651,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
   # transaction; reading it again cost a query per item write, which imports
   # multiply.
   defp category_facts(uuid, %Category{uuid: uuid, status: status, catalogue_uuid: catalogue_uuid}),
-       do: {status, catalogue_uuid}
+    do: {status, catalogue_uuid}
 
   defp category_facts(uuid, _known) do
     repo().one(
