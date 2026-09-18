@@ -452,6 +452,8 @@ defmodule PhoenixKitCatalogue.Catalogue.DuplicateCatalogueTest do
       :ok
     end
 
+    # ThrowingKeyExtension's `key/0` exits on every call: the copy skips it
+    # rather than rolling back.
     test "each namespace goes through its extension, disabled or not; a raise drops it" do
       source = fixture_catalogue(%{name: "Shop catalogue"})
       category = fixture_category(source, %{name: "Shelf"})

@@ -387,6 +387,14 @@ defmodule PhoenixKitCatalogue.Test.BadCopyExtension do
   def duplicate_data(_kind, _data), do: {:oops, "secret-external-id"}
 end
 
+defmodule PhoenixKitCatalogue.Test.ThrowingKeyExtension do
+  @moduledoc "A copy-aware extension whose `key/0` exits: it is skipped, and the copy still succeeds."
+
+  def key, do: exit(:registry_down)
+  def enabled?, do: true
+  def duplicate_data(_kind, data), do: data
+end
+
 defmodule PhoenixKitCatalogue.Test.LanguageShapedExtension do
   @moduledoc "A three-letter key that looks like a language code; no `duplicate_data/2`."
 
@@ -403,6 +411,7 @@ defmodule PhoenixKitCatalogue.Test.CopyAwareModule do
       PhoenixKitCatalogue.Test.RaisingCopyExtension,
       PhoenixKitCatalogue.Test.NilCopyExtension,
       PhoenixKitCatalogue.Test.BadCopyExtension,
+      PhoenixKitCatalogue.Test.ThrowingKeyExtension,
       PhoenixKitCatalogue.Test.LanguageShapedExtension,
       "not a module"
     ]

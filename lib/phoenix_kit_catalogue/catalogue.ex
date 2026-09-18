@@ -2304,7 +2304,44 @@ defmodule PhoenixKitCatalogue.Catalogue do
   # item in a live category becomes trashed on its own. `from_status` stays.
   defp restamp_orphaned_trash(_catalogue_uuid, _subtree, _doomed, []), do: :ok
 
-  defp restamp_orphaned_trash(catalogue_uuid, subtree, doomed, _kept) do
+  defp restamp_orphaned_trash(catalogue_uuid, subtree, doomed, _kept),
+    do: restamp_trash_roots(catalogue_uuid, subtree, doomed)
+
+  # A moved subtree can carry trashed rows stamped with a root the move
+  # takes them out from under — a category restored on its own while its
+  # trashed ancestor stays in the bin, then moved. That root's Restore
+  # walks its current subtree and would never reach them again, so they
+  # are restamped the way Delete Forever restamps what it leaves behind.
+  # `covering` are the roots still above the landing spot (its catalogue
+  # and ancestors); a stamp naming one of them, or a row of the subtree
+  # itself, still works and is left alone. Call it after the move.
+  defp restamp_moved_trash!(catalogue_uuid, subtree, covering) do
+    subtree = Enum.map(subtree, &uuid_string/1)
+    keep = MapSet.new(subtree ++ Enum.map(covering, &uuid_string/1))
+
+    category_roots =
+      from(c in Category,
+        where: c.uuid in ^subtree and c.status == "deleted",
+        select: fragment("? #>> '{_trash,root}'", c.data)
+      )
+
+    item_roots =
+      from(i in Item,
+        where: i.category_uuid in ^subtree and i.status == "deleted",
+        select: fragment("? #>> '{_trash,root}'", i.data)
+      )
+
+    doomed =
+      category_roots
+      |> union(^item_roots)
+      |> repo().all()
+      |> Enum.reject(&(is_nil(&1) or MapSet.member?(keep, &1)))
+
+    if doomed != [], do: restamp_trash_roots(catalogue_uuid, subtree, doomed)
+    :ok
+  end
+
+  defp restamp_trash_roots(catalogue_uuid, subtree, doomed) do
     doomed_set = MapSet.new(doomed)
     remaining = Enum.reject(subtree, &MapSet.member?(doomed_set, &1))
 
@@ -2422,6 +2459,9 @@ defmodule PhoenixKitCatalogue.Catalogue do
   (`:parent_not_found`) or inside the moved subtree
   (`:would_create_cycle`). Both catalogues are told about the move.
 
+  With `catalogue_uuid:`, a category that is no longer in that catalogue
+  when its row is locked is refused (`:wrong_catalogue_scope`).
+
   ## Examples
 
       {:ok, moved} = Catalogue.move_category_to_catalogue(category, target_catalogue_uuid)
@@ -2463,8 +2503,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
         locked =
           repo().one!(from(c in Category, where: c.uuid == ^category.uuid, lock: "FOR UPDATE"))
 
-        if locked.catalogue_uuid != source_catalogue_uuid, do: repo().rollback(:catalogue_moved)
-        if locked.status == "deleted", do: repo().rollback(:not_found)
+        check_move_source!(locked, source_catalogue_uuid, opts[:catalogue_uuid])
 
         # Read under both locks, so a trash of the target cannot land
         # between this check and the commit.
@@ -2484,6 +2523,12 @@ defmodule PhoenixKitCatalogue.Catalogue do
         {categories_updated, _} =
           from(c in Category, where: c.uuid in ^subtree)
           |> repo().update_all(set: [catalogue_uuid: target_catalogue_uuid, updated_at: now])
+
+        restamp_moved_trash!(
+          target_catalogue_uuid,
+          subtree,
+          [target_catalogue_uuid | parent_and_ancestors(parent_uuid)]
+        )
 
         # Position is computed inside the transaction (after the
         # subtree has moved) to avoid the same-`max_position` race
@@ -2682,7 +2727,15 @@ defmodule PhoenixKitCatalogue.Catalogue do
             repo().rollback(:would_create_cycle)
 
           true ->
-            run_locked_reparent(locked, new_parent_uuid)
+            moved = run_locked_reparent(locked, new_parent_uuid)
+
+            restamp_moved_trash!(
+              catalogue_uuid,
+              Tree.subtree_uuids(locked.uuid),
+              [catalogue_uuid | parent_and_ancestors(new_parent_uuid)]
+            )
+
+            moved
         end
       end)
 
@@ -2764,6 +2817,25 @@ defmodule PhoenixKitCatalogue.Catalogue do
   # it isn't a valid UUID. Used by `list_category_tree/2`'s
   # `:exclude_subtree_of` membership test (loaded `Category` rows carry
   # textual UUIDs).
+  defp check_move_source!(locked, source_catalogue_uuid, scope) do
+    cond do
+      locked.catalogue_uuid != source_catalogue_uuid -> repo().rollback(:catalogue_moved)
+      locked.status == "deleted" -> repo().rollback(:not_found)
+      # A client-captured selection is checked where the row is locked:
+      # moved to another catalogue since the page read it, it is not this
+      # page's to move any more.
+      scope && scope != source_catalogue_uuid -> repo().rollback(:wrong_catalogue_scope)
+      true -> :ok
+    end
+  end
+
+  # `Tree` returns raw 16-byte uuids; stamps hold the string form.
+  defp uuid_string(<<_::128>> = raw), do: Ecto.UUID.load!(raw)
+  defp uuid_string(uuid), do: uuid
+
+  defp parent_and_ancestors(nil), do: []
+  defp parent_and_ancestors(uuid), do: [uuid | Tree.ancestor_uuids(uuid)]
+
   defp load_uuid(raw) do
     case Ecto.UUID.load(raw) do
       {:ok, str} -> str
@@ -5579,7 +5651,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
   # transaction; reading it again cost a query per item write, which imports
   # multiply.
   defp category_facts(uuid, %Category{uuid: uuid, status: status, catalogue_uuid: catalogue_uuid}),
-    do: {status, catalogue_uuid}
+       do: {status, catalogue_uuid}
 
   defp category_facts(uuid, _known) do
     repo().one(
@@ -6449,8 +6521,9 @@ defmodule PhoenixKitCatalogue.Catalogue do
         {:error, :wrong_catalogue_scope}
 
       category ->
+        # The scope is re-checked under the lock, so it is the source.
         with {:ok, moved} <- move_category_to_catalogue(category, target, opts),
-             do: {:ok, {moved, category.catalogue_uuid}}
+             do: {:ok, {moved, scope}}
     end
   end
 

@@ -505,19 +505,17 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLiveTest do
       {:ok, view, _page} = live(conn, edit_item_url(item.uuid))
       html = render_click(view, "open_add_supplier", %{})
 
-      # The control is whatever entities renders for the built-in
-      # definition, so this holds at every entities version: 0.4.16+
-      # draws core's free-text decimal input (nothing in the browser can
-      # block a typed value); earlier releases a number input whose step
-      # entities derives — 0.0001 from the scale before "step" existed,
-      # the declared "any" from 0.4.9 (`step` IS a browser validation
-      # constraint that gates the submit event, which is why the original
-      # cent step was wrong; entities 0.4.9 review).
-      builtin = Catalogue.supplier_builtin_field("unit_cost")
+      # Since entities 0.4.16 the decimal renderer is core's text control
+      # with `inputmode="decimal"`: no `type="number"` and no `step`, so
+      # the browser can never block a 4-place value on submit (the reason
+      # the original cent step was wrong; entities 0.4.9 review).
+      [control] = Regex.run(~r/<input[^>]*id="supplier-unit-cost"[^>]*>/, html)
+      assert control =~ ~s(inputmode="decimal")
+      assert control =~ ~s(name="supplier_info[unit_cost]")
+      refute control =~ ~s(type="number")
+      refute control =~ "step="
 
-      assert html =~
-               ~r/<input type="text" inputmode="decimal"[^>]*id="supplier-unit-cost"/ or
-               html =~ ~s(step="#{PhoenixKitEntities.FieldTypes.decimal_step(builtin)}")
+      builtin = Catalogue.supplier_builtin_field("unit_cost")
 
       # Catalogue's side of the contract: sane arrows, 4-place storage,
       # nothing typed ever blocked — the boss's "too precise" report,
