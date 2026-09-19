@@ -304,6 +304,8 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
   use Phoenix.LiveComponent
   use Gettext, backend: PhoenixKitCatalogue.Gettext
 
+  import PhoenixKitWeb.Components.Core.Icon, only: [icon: 1]
+
   import PhoenixKitWeb.Components.Core.Modal, only: [modal: 1]
 
   import PhoenixKitWeb.Components.Core.TableDefault,
@@ -3013,7 +3015,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
               }
               class="text-center py-12"
             >
-              <div class="text-4xl mb-3 opacity-40">🔍</div>
+              <.icon name="hero-magnifying-glass" class="w-10 h-10 mx-auto mb-3 opacity-40" />
               <p class="text-base-content/60">{gettext("No items match your search.")}</p>
             </div>
 

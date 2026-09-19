@@ -275,7 +275,7 @@ defmodule PhoenixKitCatalogue.Web.EventsLive do
     >
     <div class="flex flex-col w-full px-4 py-6 gap-4">
       <%!-- Filters --%>
-      <div class="bg-base-200 rounded-lg p-3">
+      <div class="bg-base-200 rounded-lg p-3 text-sm">
         <.form for={%{}} id="events-filter" phx-change="filter" class="flex flex-wrap gap-3 items-end">
           <div>
             <.select

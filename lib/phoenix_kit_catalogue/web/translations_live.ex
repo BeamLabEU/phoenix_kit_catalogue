@@ -648,7 +648,7 @@ defmodule PhoenixKitCatalogue.Web.TranslationsLive do
         </div>
 
         <%!-- Filters --%>
-        <div class="bg-base-200 rounded-lg p-3">
+        <div class="bg-base-200 rounded-lg p-3 text-sm">
           <.form
             for={%{}}
             id="translations-filter"

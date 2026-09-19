@@ -799,12 +799,10 @@ defmodule PhoenixKitCatalogue.Web.AttributeGroupFormLive do
             <div :if={@action == :edit} class="card-body flex flex-col gap-4 pt-4">
               <div class="divider my-0"></div>
 
-              <div class="flex items-center gap-2">
-                <.icon name="hero-swatch" class="w-5 h-5 text-base-content/60" />
-                <h3 class="font-semibold text-base">
-                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Attributes")}
-                </h3>
-              </div>
+              <h2 class="text-base font-semibold text-base-content/80 flex items-center gap-2">
+                <.icon name="hero-swatch" class="w-4 h-4" />
+                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Attributes")}
+              </h2>
 
               <p :if={@group.attributes == []} class="text-sm text-base-content/60">
                 {Gettext.gettext(
