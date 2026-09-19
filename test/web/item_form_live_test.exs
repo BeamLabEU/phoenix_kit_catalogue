@@ -812,6 +812,28 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLiveTest do
       assert length(Catalogue.supplier_info_history_for_pair(item.uuid, supplier.uuid)) == 1
     end
 
+    test "a stored empty currency is not a change", %{conn: conn} do
+      item = supplier_item()
+      supplier = fixture_supplier()
+      info = saved_row(item, supplier, %{"unit_cost" => "4"})
+
+      # Only a raw write stores "" (the changeset casts it to nil).
+      import Ecto.Query, only: [from: 2]
+
+      TestRepo.update_all(
+        from(i in PhoenixKitCatalogue.Schemas.ItemSupplierInfo, where: i.uuid == ^info.uuid),
+        set: [currency: ""]
+      )
+
+      {:ok, view, _html} = live(conn, edit_item_url(item.uuid))
+      refute render(view) =~ "Unsaved changes"
+
+      save_suppliers(view, %{supplier.uuid => %{"unit_cost" => "4", "currency" => ""}})
+
+      assert [%{uuid: uuid, currency: ""}] = Catalogue.list_supplier_infos_for_item(item.uuid)
+      assert uuid == info.uuid
+    end
+
     test "Remove waits for Save, and Undo takes it back", %{conn: conn} do
       item = supplier_item()
       supplier = fixture_supplier()

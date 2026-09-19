@@ -404,6 +404,15 @@ Pointers, not docs — the moduledocs are the contract.
   `duplicate_data/2`, asked even while it is disabled, so an external id
   never ends up on two rows. Copies get no slug: slugs are unique
   across the whole table.
+- **Item form: place and suppliers wait for Save** — an item form event
+  handler never moves the item or writes a supplier row. The place is picked
+  in the Details tab's Location section (`Web.ItemLocation`: a folder ›
+  catalogue › category tree of the item's kind) and moved on Save through the
+  move functions; the payload's `category_uuid` is dropped. Supplier changes
+  (add, cost, remove, primary, the row dialog) are staged in
+  `Web.SupplierDraft`, keyed by supplier because a price revision replaces the
+  row's uuid, and applied after the item saves; a value that would not save
+  blocks the whole save.
 - **Pricing** — chain is `base → markup → discount`.
   `Catalogue.item_pricing/1` is the one-stop API for UIs; pure helpers live on
   `Item`.

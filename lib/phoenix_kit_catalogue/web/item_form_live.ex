@@ -2171,7 +2171,8 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
       # "Save" (stay) on a new item lands on its edit form — the record
       # exists now, so staying means continuing to edit it. The original
       # return_to rides along so the eventual exit still goes home. A
-      # supplier that did not save keeps the admin there too.
+      # supplier that did not save lands there too, named in the flash:
+      # the staged row itself does not survive the navigation.
       target =
         if mode == :stay or failures != [],
           do: Paths.item_edit(item.uuid) <> return_to_suffix(socket),
