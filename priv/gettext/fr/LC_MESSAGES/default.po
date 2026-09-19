@@ -3547,3 +3547,6 @@ msgstr "Rechercher un catalogue…"
 
 msgid "Find a category…"
 msgstr "Rechercher une catégorie…"
+
+msgid "-- Add supplier --"
+msgstr "-- Ajouter un fournisseur --"

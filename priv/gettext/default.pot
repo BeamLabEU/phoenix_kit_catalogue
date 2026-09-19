@@ -3553,3 +3553,6 @@ msgstr ""
 
 msgid "Find a category…"
 msgstr ""
+
+msgid "-- Add supplier --"
+msgstr ""

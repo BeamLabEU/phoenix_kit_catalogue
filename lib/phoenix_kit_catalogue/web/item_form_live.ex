@@ -317,7 +317,9 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
       move_target: nil,
       current_tab: :details,
       meta_state: Metadata.build_state(:item, item),
-      show_pdf_search: false,
+      # The PDFs tab searches only once it is first opened, then keeps
+      # its results while the admin moves between tabs.
+      pdf_tab_opened: false,
       extensions: Extensions.sections(:item)
     )
     |> mount_supplier_rows(action, item)
@@ -604,7 +606,12 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
 
   @impl true
   def handle_event("switch_tab", %{"tab" => tab}, socket) do
-    {:noreply, assign(socket, :current_tab, parse_tab(tab))}
+    tab = parse_tab(tab)
+
+    {:noreply,
+     socket
+     |> assign(:current_tab, tab)
+     |> assign(:pdf_tab_opened, socket.assigns.pdf_tab_opened or tab == :pdfs)}
   end
 
   def handle_event("add_meta_field", %{"key" => key}, socket) do
@@ -663,9 +670,6 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
 
   def handle_event("clear_featured_image", _params, socket),
     do: Attachments.clear_featured_image(socket)
-
-  def handle_event("open_pdf_search", _params, socket),
-    do: {:noreply, assign(socket, :show_pdf_search, true)}
 
   def handle_event("validate", params, socket) do
     socket =
@@ -827,17 +831,6 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
     end
   end
 
-  def handle_event("open_add_supplier", _params, socket) do
-    {:noreply,
-     assign(socket, :supplier_form, %{
-       mode: :new,
-       uuid: nil,
-       draft: %{},
-       custom: %{},
-       error: nil
-     })}
-  end
-
   def handle_event("edit_supplier_info", %{"uuid" => uuid}, socket) do
     case owned_supplier_info(socket, uuid) do
       %{} = info ->
@@ -866,9 +859,26 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   # `custom_fields[...]`; a change payload carries whichever the user
   # touched, so both merge independently into the open form's state.
   def handle_event("supplier_info_field_change", params, socket) do
+    picked = get_in(params, ["supplier_info", "supplier_uuid"])
+
     case socket.assigns.supplier_form do
+      # The inline picker: choosing a supplier opens its fields.
+      nil when is_binary(picked) and picked != "" ->
+        {:noreply,
+         assign(socket, :supplier_form, %{
+           mode: :new,
+           uuid: nil,
+           draft: Map.get(params, "supplier_info", %{}),
+           custom: Map.get(params, "custom_fields", %{}),
+           error: nil
+         })}
+
       nil ->
         {:noreply, socket}
+
+      # Back to "-- Add supplier --" closes them again.
+      %{mode: :new} when picked == "" ->
+        {:noreply, assign(socket, :supplier_form, nil)}
 
       form ->
         {:noreply,
@@ -1265,6 +1275,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   defp parse_tab("metadata"), do: :metadata
   defp parse_tab("sourcing"), do: :sourcing
   defp parse_tab("files"), do: :files
+  defp parse_tab("pdfs"), do: :pdfs
   defp parse_tab(_), do: :details
 
   defp absorb_meta_params(socket, params) do
@@ -1992,9 +2003,6 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
         {:noreply, socket}
     end
   end
-
-  def handle_info({:pdf_search_modal_closed}, socket),
-    do: {:noreply, assign(socket, :show_pdf_search, false)}
 
   # ── Catalogue PubSub: writes from other sessions ──────────────────
   # Only state the form does NOT own is refreshed — the changeset, the
@@ -2799,6 +2807,131 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
     end
   end
 
+  # The supplier row's fields — price, the optional terms, the admin-defined
+  # extras — for both the inline add (under the picker) and the edit modal.
+  # Every control names its form through `form=`: inline, the fields sit
+  # inside the item form's markup but belong to the detached
+  # `supplier-add-form`, so typing a price never validates the item and
+  # Enter adds the supplier instead of saving the item.
+  attr(:form_id, :string, required: true)
+  attr(:supplier_form, :map, required: true)
+  attr(:supplier_terms_visible, :boolean, required: true)
+  attr(:supplier_fields, :list, required: true)
+
+  defp supplier_fields(assigns) do
+    ~H"""
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+      <%!-- The built-in supplier terms, hidden together. Each labels
+           itself through `<.label>` rather than `<.input label=...>`:
+           the two render different type sizes, and side by side in
+           this grid the rows stopped lining up. --%>
+      <div :if={@supplier_terms_visible}>
+        <.label for={"#{@form_id}-sku"} class="block mb-2">
+          {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Supplier SKU")}
+        </.label>
+        <.input
+          type="text"
+          id={"#{@form_id}-sku"}
+          form={@form_id}
+          name="supplier_info[supplier_sku]"
+          value={@supplier_form.draft["supplier_sku"]}
+          class="w-full font-mono"
+          placeholder={Gettext.gettext(PhoenixKitCatalogue.Gettext, "e.g., ABC-001")}
+        />
+      </div>
+
+      <%!-- Price is NOT behind the terms flag: the owner asked for
+           it back specifically, and it is the one field warehouse
+           reads. The cost control comes from entities' own renderer
+           for its `decimal` type — added for this — so the value is
+           exact rather than a float. --%>
+      <div class="md:col-span-2">
+        <.label class="block mb-2">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Unit Cost")}</.label>
+        <%!-- Deliberately raw (L029): the kit input wraps each field
+             in its own feedback div, which would break the daisyUI
+             join grouping of these two inputs. --%>
+        <div class="join w-full">
+          <.field_input
+            field={Catalogue.supplier_builtin_field("unit_cost")}
+            id={if @form_id == "supplier-form", do: "supplier-unit-cost", else: "#{@form_id}-unit-cost"}
+            name="supplier_info[unit_cost]"
+            value={@supplier_form.draft["unit_cost"]}
+            form={@form_id}
+            size="md"
+            class="join-item flex-1"
+          />
+          <input
+            type="text"
+            form={@form_id}
+            name="supplier_info[currency]"
+            value={@supplier_form.draft["currency"]}
+            class="input join-item w-16 font-mono uppercase"
+            placeholder="EUR"
+            maxlength="3"
+          />
+        </div>
+        <p
+          :if={@supplier_form.mode == :edit}
+          class="text-xs text-base-content/50 pt-1"
+        >
+          {Gettext.gettext(
+            PhoenixKitCatalogue.Gettext,
+            "Changing the cost closes the current price and starts a new one, kept in History."
+          )}
+        </p>
+      </div>
+
+      <div :if={@supplier_terms_visible}>
+        <.label for={"#{@form_id}-lead-time"} class="block mb-2">
+          {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Lead Time (days)")}
+        </.label>
+        <.input
+          type="number"
+          id={"#{@form_id}-lead-time"}
+          form={@form_id}
+          name="supplier_info[lead_time_days]"
+          value={@supplier_form.draft["lead_time_days"]}
+          min="0"
+          class="w-full"
+        />
+      </div>
+
+      <div :if={@supplier_terms_visible}>
+        <.label for={"#{@form_id}-moq"} class="block mb-2">
+          {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Min. Order Qty")}
+        </.label>
+        <.decimal_input
+          id={"#{@form_id}-moq"}
+          form={@form_id}
+          name="supplier_info[min_order_qty]"
+          value={@supplier_form.draft["min_order_qty"]}
+          class="w-full"
+        />
+      </div>
+    </div>
+
+    <%!-- Admin-defined fields. Entities owns the definitions; the
+         control per type comes from its own renderer. --%>
+    <div :if={@supplier_fields != []} class="flex flex-col gap-3">
+      <div class="divider my-0 text-xs text-base-content/50">
+        {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Extra fields")}
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div :for={field <- @supplier_fields} class="flex flex-col gap-1">
+          <span class="label-text font-medium">{field["label"]}</span>
+          <.field_input
+            field={field}
+            id={"#{@form_id}-custom-#{field["key"]}"}
+            name={"custom_fields[#{field["key"]}]"}
+            value={@supplier_form.custom[field["key"]]}
+            form={@form_id}
+          />
+        </div>
+      </div>
+    </div>
+    """
+  end
+
   @impl true
   def render(assigns) do
     assigns =
@@ -2833,14 +2966,6 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
       current_locale={assigns[:current_locale]}
     >
       <div class="container flex flex-col mx-auto px-4 py-6 gap-6">
-
-      <.live_component
-        :if={@action == :edit}
-        module={PhoenixKitCatalogue.Web.Components.PdfSearchModal}
-        id="pdf-search-modal"
-        item={@item}
-        show={@show_pdf_search}
-      />
 
       <%!-- Primary language warning --%>
       <div :if={@needs_primary_translation} class="alert alert-warning">
@@ -2908,6 +3033,19 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
             {length(@files_state.files)}
           </span>
         </button>
+        <%!-- The PDF search as its own tab, with a real search box (boss,
+             2026-09-19) — it was a button under the Save row. Edit only:
+             it starts from the item's saved names. --%>
+        <button
+          :if={@action == :edit}
+          type="button"
+          phx-click="switch_tab"
+          phx-value-tab="pdfs"
+          class={"tab #{if @current_tab == :pdfs, do: "tab-active"}"}
+        >
+          <.icon name="hero-document-magnifying-glass" class="w-4 h-4 mr-1" />
+          {Gettext.gettext(PhoenixKitCatalogue.Gettext, "PDFs")}
+        </button>
       </div>
 
       <%!-- Media selector — single instance, reconfigured per click
@@ -2925,6 +3063,25 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
         scope_folder_id={@files_folder_uuid}
         phoenix_kit_current_user={assigns[:phoenix_kit_current_user]}
       />
+
+      <%!-- Outside the item form: the search box is a form of its own,
+           and a nested form is invalid HTML. Mounted on the first visit
+           to the tab, hidden (not dropped) on the others, so its results
+           survive tab switches. --%>
+      <div
+        :if={@action == :edit and @pdf_tab_opened}
+        class={"card bg-base-100 shadow-lg #{if @current_tab != :pdfs, do: "hidden"}"}
+      >
+        <div class="card-body">
+          <.live_component
+            module={PhoenixKitCatalogue.Web.Components.PdfSearchModal}
+            id="item-pdf-search"
+            variant={:inline}
+            item={@item}
+            show
+          />
+        </div>
+      </div>
 
       <.form for={@form} id="item-form" action="#" phx-change="validate" phx-submit="save">
         <div class={"card bg-base-100 shadow-lg #{if @current_tab != :details, do: "hidden"}"}>
@@ -3654,9 +3811,57 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                   <.icon name="hero-adjustments-horizontal" class="w-4 h-4" />
                   {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Fields")}
                 </.button>
-                <.button type="button" phx-click="open_add_supplier" size="sm">
-                  <.icon name="hero-plus" class="w-4 h-4" />
-                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Add Supplier")}
+              </div>
+            </div>
+
+            <%!-- Added the way the manufacturer is chosen — a picker, no
+                 button (boss, 2026-09-19); choosing a supplier opens its
+                 price and the rest right underneath. A plain <select>:
+                 core's does not pass `form=` through, and this one belongs
+                 to the detached `supplier-add-form`, not the item form. --%>
+            <% addable = available_supplier_options(@all_suppliers, @supplier_infos) %>
+            <% adding? = match?(%{mode: :new}, @supplier_form) %>
+            <select
+              :if={addable != [] or adding?}
+              id="supplier-add-picker"
+              form="supplier-add-form"
+              name="supplier_info[supplier_uuid]"
+              class="select w-full transition-colors focus-within:select-primary"
+              aria-label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Add supplier")}
+            >
+              <option value="">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "-- Add supplier --")}</option>
+              <option
+                :for={{label, uuid} <- addable}
+                value={uuid}
+                selected={adding? and @supplier_form.draft["supplier_uuid"] == uuid}
+              >
+                {label}
+              </option>
+            </select>
+
+            <div
+              :if={adding?}
+              id="supplier-add-fields"
+              class="flex flex-col gap-3 rounded-box border border-base-content/10 p-4"
+            >
+              <.supplier_fields
+                form_id="supplier-add-form"
+                supplier_form={@supplier_form}
+                supplier_terms_visible={@supplier_terms_visible}
+                supplier_fields={@supplier_fields}
+              />
+              <p :if={@supplier_form.error} class="text-sm text-error">{@supplier_form.error}</p>
+              <div class="flex justify-end gap-2">
+                <.button type="button" variant="ghost" size="sm" phx-click="cancel_add_supplier">
+                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Cancel")}
+                </.button>
+                <.button
+                  type="submit"
+                  form="supplier-add-form"
+                  size="sm"
+                  phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Saving...")}
+                >
+                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Add supplier")}
                 </.button>
               </div>
             </div>
@@ -3937,52 +4142,36 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
           </.button>
         </div>
 
-        <%!-- PDF search — edit only, at the BOTTOM under the save row
-        (boss, 2026-08-31; it opened the form at the top). Opens a modal
-        that searches the PDF library for any page mentioning the item's
-        translated names. Inside the form is fine: the trigger is
-        type="button" and the modal component renders its own dialog. --%>
-        <div
-          :if={@action == :edit}
-          class="flex items-center justify-between bg-base-200 rounded-lg p-3 gap-3 mt-4"
-        >
-          <div class="text-sm">
-            <div class="font-medium">
-              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Find this item in PDFs")}
-            </div>
-            <div class="text-xs text-base-content/60">
-              {Gettext.gettext(
-                PhoenixKitCatalogue.Gettext,
-                "Searches the entire PDF library for the item's name across all enabled languages."
-              )}
-            </div>
-          </div>
-          <.button type="button" phx-click="open_pdf_search" size="sm">
-            <.icon name="hero-magnifying-glass" class="w-4 h-4" />
-            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search PDFs")}
-          </.button>
-        </div>
       </.form>
+
+      <%!-- The inline supplier add's form. Empty on purpose: its controls
+           live in the Suppliers section inside the item form's markup and
+           join this form through `form="supplier-add-form"` — a nested
+           <form> would be invalid HTML. --%>
+      <form
+        :if={@action == :edit}
+        id="supplier-add-form"
+        phx-change="supplier_info_field_change"
+        phx-submit="save_supplier_info"
+      >
+      </form>
 
       <%!-- AI translate modal — rendered OUTSIDE the form (its endpoint/
            prompt selectors are their own <form>; nested forms are invalid). --%>
       <.ai_translate_modal ai_translate={ai_translate_config(assigns)} />
 
-      <%!-- Supplier add/edit — one modal, two modes. OUTSIDE the item
-           form for the same reason as the AI modal above. Errors render
-           inside it; a page flash would land behind the backdrop. --%>
+      <%!-- Supplier edit. Adding is inline, under the Suppliers picker.
+           OUTSIDE the item form for the same reason as the AI modal above.
+           Errors render inside it; a page flash would land behind the
+           backdrop. --%>
       <.modal
-        :if={@supplier_form != nil}
+        :if={@supplier_form != nil and @supplier_form.mode == :edit}
         id="supplier-form-modal"
         show
         on_close="cancel_add_supplier"
         max_width="lg"
       >
-        <:title>
-          {if @supplier_form.mode == :new,
-            do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Add supplier"),
-            else: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit supplier")}
-        </:title>
+        <:title>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit supplier")}</:title>
 
         <%!-- phx-submit is load-bearing even though phx-change tracks
              every field: a form with only phx-change is external to
@@ -3994,130 +4183,20 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
           phx-submit="save_supplier_info"
           class="flex flex-col gap-4"
         >
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div class="fieldset md:col-span-2">
-              <%!-- The supplier is the identity of the pair and price
-                   history keys on it, so editing a row cannot re-point
-                   it at a different company — remove and re-add. --%>
-              <.select
-                :if={@supplier_form.mode == :new}
-                name="supplier_info[supplier_uuid]"
-                value={@supplier_form.draft["supplier_uuid"]}
-                label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Supplier")}
-                prompt={Gettext.gettext(PhoenixKitCatalogue.Gettext, "-- Select supplier --")}
-                options={available_supplier_options(@all_suppliers, @supplier_infos)}
-                class="w-full"
-              />
-              <div :if={@supplier_form.mode == :edit}>
-                <.label class="block mb-2">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Supplier")}</.label>
-                <p class="text-sm font-medium">{supplier_form_name(assigns)}</p>
-              </div>
-            </div>
-
-            <%!-- The built-in supplier terms, hidden together. Each labels
-                 itself through `<.label>` rather than `<.input label=...>`:
-                 the two render different type sizes, and side by side in
-                 this grid the rows stopped lining up. --%>
-            <div :if={@supplier_terms_visible}>
-              <.label for="supplier-sku" class="block mb-2">
-                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Supplier SKU")}
-              </.label>
-              <.input
-                type="text"
-                id="supplier-sku"
-                name="supplier_info[supplier_sku]"
-                value={@supplier_form.draft["supplier_sku"]}
-                class="w-full font-mono"
-                placeholder={Gettext.gettext(PhoenixKitCatalogue.Gettext, "e.g., ABC-001")}
-              />
-            </div>
-
-            <%!-- Price is NOT behind the terms flag: the owner asked for
-                 it back specifically, and it is the one field warehouse
-                 reads. The cost control comes from entities' own renderer
-                 for its `decimal` type — added for this — so the value is
-                 exact rather than a float. --%>
-            <div class="md:col-span-2">
-              <.label class="block mb-2">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Unit Cost")}</.label>
-              <%!-- Deliberately raw (L029): the kit input wraps each field
-                   in its own feedback div, which would break the daisyUI
-                   join grouping of these two inputs. --%>
-              <div class="join w-full">
-                <.field_input
-                  field={Catalogue.supplier_builtin_field("unit_cost")}
-                  id="supplier-unit-cost"
-                  name="supplier_info[unit_cost]"
-                  value={@supplier_form.draft["unit_cost"]}
-                  form="supplier-form"
-                  size="md"
-                  class="join-item flex-1"
-                />
-                <input
-                  type="text"
-                  name="supplier_info[currency]"
-                  value={@supplier_form.draft["currency"]}
-                  class="input join-item w-16 font-mono uppercase"
-                  placeholder="EUR"
-                  maxlength="3"
-                />
-              </div>
-              <p
-                :if={@supplier_form.mode == :edit}
-                class="text-xs text-base-content/50 pt-1"
-              >
-                {Gettext.gettext(
-                  PhoenixKitCatalogue.Gettext,
-                  "Changing the cost closes the current price and starts a new one, kept in History."
-                )}
-              </p>
-            </div>
-
-            <div :if={@supplier_terms_visible}>
-              <.label for="supplier-lead-time" class="block mb-2">
-                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Lead Time (days)")}
-              </.label>
-              <.input
-                type="number"
-                id="supplier-lead-time"
-                name="supplier_info[lead_time_days]"
-                value={@supplier_form.draft["lead_time_days"]}
-                min="0"
-                class="w-full"
-              />
-            </div>
-
-            <div :if={@supplier_terms_visible}>
-              <.label for="supplier-moq" class="block mb-2">
-                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Min. Order Qty")}
-              </.label>
-              <.decimal_input
-                id="supplier-moq"
-                name="supplier_info[min_order_qty]"
-                value={@supplier_form.draft["min_order_qty"]}
-                class="w-full"
-              />
-            </div>
+          <%!-- The supplier is the identity of the pair and price history
+               keys on it, so editing a row cannot re-point it at a
+               different company — remove and re-add. --%>
+          <div>
+            <.label class="block mb-2">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Supplier")}</.label>
+            <p class="text-sm font-medium">{supplier_form_name(assigns)}</p>
           </div>
 
-          <%!-- Admin-defined fields. Entities owns the definitions; the
-               control per type comes from its own renderer. --%>
-          <div :if={@supplier_fields != []} class="flex flex-col gap-3">
-            <div class="divider my-0 text-xs text-base-content/50">
-              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Extra fields")}
-            </div>
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div :for={field <- @supplier_fields} class="flex flex-col gap-1">
-                <span class="label-text font-medium">{field["label"]}</span>
-                <.field_input
-                  field={field}
-                  id={"supplier-custom-#{field["key"]}"}
-                  name={"custom_fields[#{field["key"]}]"}
-                  value={@supplier_form.custom[field["key"]]}
-                  form="supplier-form"
-                />
-              </div>
-            </div>
-          </div>
+          <.supplier_fields
+            form_id="supplier-form"
+            supplier_form={@supplier_form}
+            supplier_terms_visible={@supplier_terms_visible}
+            supplier_fields={@supplier_fields}
+          />
 
           <p :if={@supplier_form.error} class="text-sm text-error">{@supplier_form.error}</p>
         </form>

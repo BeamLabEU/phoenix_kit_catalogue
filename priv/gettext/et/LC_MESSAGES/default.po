@@ -3547,3 +3547,6 @@ msgstr "Leia kataloog…"
 
 msgid "Find a category…"
 msgstr "Leia kategooria…"
+
+msgid "-- Add supplier --"
+msgstr "-- Lisa tarnija --"

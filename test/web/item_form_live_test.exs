@@ -427,6 +427,70 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLiveTest do
   # Suppliers card (item_supplier_info)
   # ─────────────────────────────────────────────────────────────────
 
+  # 2026-09-19 (boss): the PDF search left the bottom of the form (a
+  # "Search PDFs" button under the Save row) for a tab of its own, with a
+  # search box in case the exact name does not match.
+  describe "PDFs tab" do
+    test "the old button is gone and the tab searches only once opened", %{conn: conn} do
+      item =
+        fixture_item(%{
+          name: "Oak Panel",
+          category_uuid: fixture_category(fixture_catalogue()).uuid
+        })
+
+      {:ok, view, html} = live(conn, edit_item_url(item.uuid))
+
+      refute html =~ "Find this item in PDFs"
+      refute html =~ "open_pdf_search"
+      assert has_element?(view, ~s(button[phx-value-tab="pdfs"]))
+      refute has_element?(view, "#item-pdf-search")
+
+      render_click(view, "switch_tab", %{"tab" => "pdfs"})
+
+      # The box starts with the item's name and has already searched it.
+      assert view |> element("#item-pdf-search input[name=q]") |> render() =~
+               ~s(value="Oak Panel")
+
+      assert render(view) =~ "No PDF mentions this item by name."
+
+      # Another tab and back: still mounted, still the same search.
+      render_click(view, "switch_tab", %{"tab" => "details"})
+      assert has_element?(view, "#item-pdf-search")
+    end
+
+    test "editing the box searches the library for what was typed", %{conn: conn} do
+      item =
+        fixture_item(%{
+          name: "Oak Panel",
+          category_uuid: fixture_category(fixture_catalogue()).uuid
+        })
+
+      {:ok, view, _html} = live(conn, edit_item_url(item.uuid))
+      render_click(view, "switch_tab", %{"tab" => "pdfs"})
+
+      html =
+        view
+        |> element("#item-pdf-search-query-form")
+        |> render_change(%{"q" => "walnut veneer"})
+
+      assert html =~ "No pages match your search."
+
+      # Putting the name back is the item search again.
+      html =
+        view
+        |> element("#item-pdf-search-query-form")
+        |> render_change(%{"q" => "Oak Panel"})
+
+      assert html =~ "No PDF mentions this item by name."
+    end
+
+    test "a new item has no PDFs tab", %{conn: conn} do
+      catalogue = fixture_catalogue()
+      {:ok, view, _html} = live(conn, "#{@base}/#{catalogue.uuid}/items/new")
+      refute has_element?(view, ~s(button[phx-value-tab="pdfs"]))
+    end
+  end
+
   describe "supplier info card" do
     test "save_supplier_info attributes the activity log to the logged-in actor",
          %{conn: conn, scope: scope} do
@@ -436,8 +500,6 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLiveTest do
       supplier = fixture_supplier()
 
       {:ok, view, _html} = conn |> with_scope(scope) |> live(edit_item_url(item.uuid))
-
-      render_click(view, "open_add_supplier", %{})
 
       render_change(view, "supplier_info_field_change", %{
         "supplier_info" => %{"supplier_uuid" => supplier.uuid}
@@ -457,19 +519,34 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLiveTest do
     # Owner decisions 2026-08-21: the supplier form carries the picker and
     # the PRICE, nothing else. SKU, lead time and MOQ stay behind
     # @supplier_terms_fields — their data and columns are untouched.
-    test "the modal carries the picker and the price, and nothing else", %{conn: conn} do
+    # 2026-09-19 (boss): added the way the manufacturer is chosen — a
+    # picker, no button, no modal — and the price appears once a supplier
+    # is picked.
+    test "the picker shows alone; picking a supplier brings the price, and nothing else",
+         %{conn: conn} do
       item =
         fixture_item(%{
           name: "Oak Panel",
           category_uuid: fixture_category(fixture_catalogue()).uuid
         })
 
-      {:ok, view, _page} = live(conn, edit_item_url(item.uuid))
-      html = render_click(view, "open_add_supplier", %{})
+      supplier = fixture_supplier()
 
-      assert html =~ ~s(name="supplier_info[supplier_uuid]")
+      {:ok, view, page} = live(conn, edit_item_url(item.uuid))
+
+      assert page =~ ~s(name="supplier_info[supplier_uuid]")
+      refute page =~ ~s(name="supplier_info[unit_cost]")
+      refute page =~ "open_add_supplier"
+
+      html =
+        render_change(view, "supplier_info_field_change", %{
+          "supplier_info" => %{"supplier_uuid" => supplier.uuid}
+        })
+
       assert html =~ ~s(name="supplier_info[unit_cost]")
       assert html =~ ~s(name="supplier_info[currency]")
+      # The fields belong to the detached add form, never the item form.
+      assert html =~ ~r/<input[^>]*form="supplier-add-form"[^>]*name="supplier_info\[currency\]"/
 
       for field <- ~w(supplier_sku lead_time_days min_order_qty) do
         refute html =~ ~s(name="supplier_info[#{field}]")
@@ -502,14 +579,19 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLiveTest do
           category_uuid: fixture_category(fixture_catalogue()).uuid
         })
 
+      supplier = fixture_supplier()
       {:ok, view, _page} = live(conn, edit_item_url(item.uuid))
-      html = render_click(view, "open_add_supplier", %{})
+
+      html =
+        render_change(view, "supplier_info_field_change", %{
+          "supplier_info" => %{"supplier_uuid" => supplier.uuid}
+        })
 
       # Since entities 0.4.16 the decimal renderer is core's text control
       # with `inputmode="decimal"`: no `type="number"` and no `step`, so
       # the browser can never block a 4-place value on submit (the reason
       # the original cent step was wrong; entities 0.4.9 review).
-      [control] = Regex.run(~r/<input[^>]*id="supplier-unit-cost"[^>]*>/, html)
+      [control] = Regex.run(~r/<input[^>]*id="supplier-add-form-unit-cost"[^>]*>/, html)
       assert control =~ ~s(inputmode="decimal")
       assert control =~ ~s(name="supplier_info[unit_cost]")
       refute control =~ ~s(type="number")
@@ -537,7 +619,6 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLiveTest do
       supplier = fixture_supplier()
 
       {:ok, view, _html} = live(conn, edit_item_url(item.uuid))
-      render_click(view, "open_add_supplier", %{})
 
       render_change(view, "supplier_info_field_change", %{
         "supplier_info" => %{
@@ -570,7 +651,6 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLiveTest do
       supplier = fixture_supplier()
 
       {:ok, view, _html} = live(conn, edit_item_url(item.uuid))
-      render_click(view, "open_add_supplier", %{})
 
       render_change(view, "supplier_info_field_change", %{
         "supplier_info" => %{"supplier_uuid" => supplier.uuid, "min_order_qty" => "2,5"}
@@ -592,7 +672,6 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLiveTest do
       supplier = fixture_supplier()
 
       {:ok, view, _html} = live(conn, edit_item_url(item.uuid))
-      render_click(view, "open_add_supplier", %{})
 
       render_change(view, "supplier_info_field_change", %{
         "supplier_info" => %{"supplier_uuid" => supplier.uuid, "min_order_qty" => "abc"}
@@ -613,7 +692,6 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLiveTest do
       supplier = fixture_supplier()
 
       {:ok, view, _html} = live(conn, edit_item_url(item.uuid))
-      render_click(view, "open_add_supplier", %{})
 
       render_change(view, "supplier_info_field_change", %{
         "supplier_info" => %{"supplier_uuid" => supplier.uuid, "unit_cost" => "abc"}
@@ -638,7 +716,6 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLiveTest do
       other = fixture_supplier()
 
       {:ok, view, _html} = live(conn, edit_item_url(item.uuid))
-      render_click(view, "open_add_supplier", %{})
 
       render_change(view, "supplier_info_field_change", %{
         "supplier_info" => %{"supplier_uuid" => linked.uuid}
@@ -646,10 +723,10 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLiveTest do
 
       render_click(view, "save_supplier_info", %{})
 
-      html = render_click(view, "open_add_supplier", %{})
+      picker = view |> element("#supplier-add-picker") |> render()
 
-      refute html =~ linked.uuid
-      assert html =~ other.uuid
+      refute picker =~ linked.uuid
+      assert picker =~ other.uuid
     end
 
     test "adding the same supplier twice is refused with a clear reason", %{conn: conn} do
@@ -664,8 +741,6 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLiveTest do
       {:ok, view, _html} = live(conn, edit_item_url(item.uuid))
 
       for _attempt <- 1..2 do
-        render_click(view, "open_add_supplier", %{})
-
         render_change(view, "supplier_info_field_change", %{
           "supplier_info" => %{"supplier_uuid" => supplier.uuid}
         })
@@ -676,7 +751,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLiveTest do
       assert length(Catalogue.list_supplier_infos_for_item(item.uuid)) == 1
     end
 
-    test "add is refused with no supplier picked, and says so inside the modal",
+    test "add is refused with no supplier picked, and says so beside the fields",
          %{conn: conn} do
       item =
         fixture_item(%{
@@ -684,13 +759,49 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLiveTest do
           category_uuid: fixture_category(fixture_catalogue()).uuid
         })
 
+      supplier = fixture_supplier()
+
       {:ok, view, _html} = live(conn, edit_item_url(item.uuid))
 
-      render_click(view, "open_add_supplier", %{})
-      html = render_click(view, "save_supplier_info", %{})
+      # Nothing open: a stray submit adds nothing and opens nothing.
+      render_click(view, "save_supplier_info", %{})
+      assert Catalogue.list_supplier_infos_for_item(item.uuid) == []
+
+      render_change(view, "supplier_info_field_change", %{
+        "supplier_info" => %{"supplier_uuid" => supplier.uuid}
+      })
+
+      # A forged submit that blanks the supplier is still refused.
+      html =
+        render_click(view, "save_supplier_info", %{
+          "supplier_info" => %{"supplier_uuid" => ""}
+        })
 
       assert html =~ "Please select a supplier."
       assert Catalogue.list_supplier_infos_for_item(item.uuid) == []
+    end
+
+    test "picking the blank option closes the fields again", %{conn: conn} do
+      item =
+        fixture_item(%{
+          name: "Oak Panel",
+          category_uuid: fixture_category(fixture_catalogue()).uuid
+        })
+
+      supplier = fixture_supplier()
+      {:ok, view, _html} = live(conn, edit_item_url(item.uuid))
+
+      render_change(view, "supplier_info_field_change", %{
+        "supplier_info" => %{"supplier_uuid" => supplier.uuid}
+      })
+
+      assert has_element?(view, "#supplier-add-fields")
+
+      render_change(view, "supplier_info_field_change", %{
+        "supplier_info" => %{"supplier_uuid" => ""}
+      })
+
+      refute has_element?(view, "#supplier-add-fields")
     end
 
     test "edit_supplier_info updates the row's columns", %{conn: conn} do
@@ -703,7 +814,6 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLiveTest do
       supplier = fixture_supplier()
 
       {:ok, view, _html} = live(conn, edit_item_url(item.uuid))
-      render_click(view, "open_add_supplier", %{})
 
       render_change(view, "supplier_info_field_change", %{
         "supplier_info" => %{"supplier_uuid" => supplier.uuid, "supplier_sku" => "OLD-1"}
@@ -735,7 +845,6 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLiveTest do
       supplier = fixture_supplier()
 
       {:ok, view, _html} = live(conn, edit_item_url(item.uuid))
-      render_click(view, "open_add_supplier", %{})
 
       render_change(view, "supplier_info_field_change", %{
         "supplier_info" => %{
@@ -800,14 +909,14 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLiveTest do
         refute html =~ "open_supplier_field_manager"
         refute html =~ "Incoterm"
 
-        # The supplier modal carries no Extra fields block either.
-        modal_html = render_click(view, "open_add_supplier", %{})
-        refute modal_html =~ "Extra fields"
-        refute modal_html =~ "custom_fields["
+        # The supplier's fields carry no Extra fields block either.
+        fields_html =
+          render_change(view, "supplier_info_field_change", %{
+            "supplier_info" => %{"supplier_uuid" => supplier.uuid}
+          })
 
-        render_change(view, "supplier_info_field_change", %{
-          "supplier_info" => %{"supplier_uuid" => supplier.uuid}
-        })
+        refute fields_html =~ "Extra fields"
+        refute fields_html =~ "custom_fields["
 
         render_click(view, "save_supplier_info", %{})
 
