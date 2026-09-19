@@ -1363,10 +1363,9 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
                     </button>
                     <span
                       :if={tile_children(@tree, @browse, tile.uuid) != []}
-                      class="badge badge-ghost badge-xs"
-                      title={gettext("Has subcategories")}
+                      class="badge badge-ghost badge-sm font-normal whitespace-nowrap"
                     >
-                      <span class="hero-rectangle-stack w-3 h-3"></span>
+                      {Shared.subcategories_label(length(tile_children(@tree, @browse, tile.uuid)))}
                     </span>
                   </div>
                 </.table_default_cell>

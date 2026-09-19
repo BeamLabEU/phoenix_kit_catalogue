@@ -27,10 +27,13 @@ conventions, contracts and non-obvious boundaries.
   side declares a dependency on the other. A few siblings reference the module
   name behind `Code.ensure_loaded?/1` guards only.
 - **Admin surface:** parent tab `:admin_catalogue` at `/admin/catalogue`, with
-  subtabs Catalogues, Attributes, Import, Export, Events, PDFs, Translations,
-  plus hidden form/detail tabs. One stateless HTTP route:
+  subtabs All catalogues, Attributes, Import, Export, Events, PDFs,
+  Translations, plus hidden form/detail tabs. One stateless HTTP route:
   `GET /admin/catalogue/export/download`.
-- **Module key** `"catalogue"`; settings prefix `catalogue_`.
+- **Module key** `"catalogue"`; settings prefix `catalogue_`. The module's
+  NAME is "Catalogues" everywhere a person reads it — `module_name/0`, the
+  permission label, the sidebar parent, the header's section, page
+  subtitles. A singular "Catalogue" means one catalogue, never the module.
 
 ## What this module does NOT do
 
@@ -226,6 +229,12 @@ Repo-local aliases:
   `handle_url_state`, so a "did it change?" check against them never fires; keep
   `prior_*` trackers.
 - `<style>{@css}</style>` in HEEx ships the literal text — use `<%= raw %>`.
+- A key read from the URL (a path `:uuid`, `?category=`, `?folder=`) goes
+  through the context's getters, which answer "not found" for a string that
+  is not a UUID. A raw `repo().get` or a `where: x.uuid == ^param` on it
+  raises `Ecto.Query.CastError` instead — and in a UrlState LiveView, which
+  loads only once connected, that is a page that renders, crashes, reloads
+  and crashes again: an endless spinner, not an error page.
 
 ## Architecture
 
@@ -395,6 +404,15 @@ Pointers, not docs — the moduledocs are the contract.
   `duplicate_data/2`, asked even while it is disabled, so an external id
   never ends up on two rows. Copies get no slug: slugs are unique
   across the whole table.
+- **Item form: place and suppliers wait for Save** — an item form event
+  handler never moves the item or writes a supplier row. The place is picked
+  in the Details tab's Location section (`Web.ItemLocation`: a folder ›
+  catalogue › category tree of the item's kind) and moved on Save through the
+  move functions; the payload's `category_uuid` is dropped. Supplier changes
+  (add, cost, remove, primary, the row dialog) are staged in
+  `Web.SupplierDraft`, keyed by supplier because a price revision replaces the
+  row's uuid, and applied after the item saves; a value that would not save
+  blocks the whole save.
 - **Pricing** — chain is `base → markup → discount`.
   `Catalogue.item_pricing/1` is the one-stop API for UIs; pure helpers live on
   `Item`.

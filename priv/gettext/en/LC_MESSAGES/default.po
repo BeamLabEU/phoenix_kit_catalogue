@@ -117,11 +117,6 @@ msgstr "Discontinued"
 msgid "Toggle folder"
 msgstr "Toggle folder"
 
-#: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2956
-#, elixir-autogen
-msgid "Clear search and filters to see the folder tree."
-msgstr "Clear search and filters to see the folder tree."
-
 msgid "Up"
 msgstr "Up"
 
@@ -872,6 +867,11 @@ msgid "%{count} category"
 msgid_plural "%{count} categories"
 msgstr[0] "%{count} category"
 msgstr[1] "%{count} categories"
+
+msgid "%{count} subcategory"
+msgid_plural "%{count} subcategories"
+msgstr[0] "%{count} subcategory"
+msgstr[1] "%{count} subcategories"
 
 msgid "%{count} catalogue"
 msgid_plural "%{count} catalogues"
@@ -2970,10 +2970,6 @@ msgstr "Remove from selection"
 msgid "Browse"
 msgstr "Browse"
 
-#: lib/phoenix_kit_catalogue/web/catalogue_detail_live.ex
-msgid "Drag-reorder needs the Manual sort — choose it in the sort selector."
-msgstr "Drag-reorder needs the Manual sort — choose it in the sort selector."
-
 #: lib/phoenix_kit_catalogue/web/components/browse.ex:94
 #, elixir-autogen
 msgid "Computed"
@@ -3538,4 +3534,55 @@ msgid "Start the copy archived"
 msgstr ""
 
 msgid "Otherwise it gets the original's status."
+msgstr ""
+
+msgid "Switch catalogue"
+msgstr ""
+
+msgid "Switch category"
+msgstr ""
+
+msgid "Find a catalogue…"
+msgstr ""
+
+msgid "Find a category…"
+msgstr ""
+
+msgid "-- Add supplier --"
+msgstr ""
+
+msgid "Location"
+msgstr ""
+
+msgid "Undo"
+msgstr ""
+
+msgid "Unsaved changes"
+msgstr ""
+
+msgid "Choose a location"
+msgstr ""
+
+msgid "Find a catalogue or category…"
+msgstr ""
+
+msgid "No matches."
+msgstr ""
+
+msgid "New"
+msgstr ""
+
+msgid "Collapse"
+msgstr ""
+
+msgid "Expand"
+msgstr ""
+
+msgid "Currency must be a three-letter code, like EUR."
+msgstr ""
+
+msgid "Some supplier values are not valid."
+msgstr ""
+
+msgid "That location no longer exists. Choose another."
 msgstr ""

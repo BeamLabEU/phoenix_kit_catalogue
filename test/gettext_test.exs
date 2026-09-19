@@ -2,6 +2,7 @@ defmodule PhoenixKitCatalogue.GettextTest do
   use ExUnit.Case, async: true
 
   alias PhoenixKit.Dashboard.Tab
+  alias PhoenixKitCatalogue.Web.Components
 
   setup do
     previous = Gettext.get_locale(PhoenixKitCatalogue.Gettext)
@@ -66,9 +67,6 @@ defmodule PhoenixKitCatalogue.GettextTest do
           {"That category belongs to another catalogue.",
            "Эта категория принадлежит другому каталогу.",
            "See kategooria kuulub teise kataloogi."},
-          {"Drag-reorder needs the Manual sort — choose it in the sort selector.",
-           "Для перетаскивания выберите ручную сортировку в списке сортировки.",
-           "Lohistades järjestamiseks vali sortimise valikust käsitsi järjestus."},
           # The delete-confirmation strings for the attribute-value delete
           # (2026-09-13: boss asked for a confirm popup on every permanent
           # delete; the value delete was the one that had none).
@@ -85,7 +83,34 @@ defmodule PhoenixKitCatalogue.GettextTest do
           # clause in item_form_live.ex.
           {"This value has no slug and cannot be selected",
            "У этого значения нет слага, выбрать его нельзя.",
-           "Sellel väärtusel pole silti ja seda ei saa valida."}
+           "Sellel väärtusel pole silti ja seda ei saa valida."},
+          # The header's level switchers (boss, 2026-09-19, "like in GitHub").
+          {"Switch catalogue", "Сменить каталог", "Vaheta kataloogi"},
+          {"Switch category", "Сменить категорию", "Vaheta kategooriat"},
+          {"Find a catalogue…", "Найти каталог…", "Leia kataloog…"},
+          {"Find a category…", "Найти категорию…", "Leia kategooria…"},
+          # The item form's inline supplier picker (boss, 2026-09-19).
+          {"-- Add supplier --", "-- Добавить поставщика --", "-- Lisa tarnija --"},
+          # The item form's Location section and the staged suppliers table
+          # (boss and Max, 2026-09-19).
+          {"Location", "Расположение", "Asukoht"},
+          {"Undo", "Отменить", "Võta tagasi"},
+          {"Unsaved changes", "Несохранённые изменения", "Salvestamata muudatused"},
+          {"Choose a location", "Выберите расположение", "Vali asukoht"},
+          {"Find a catalogue or category…", "Найти каталог или категорию…",
+           "Leia kataloog või kategooria…"},
+          {"No matches.", "Совпадений нет.", "Vasteid pole."},
+          {"New", "Новый", "Uus"},
+          {"Collapse", "Свернуть", "Sule"},
+          {"Expand", "Развернуть", "Ava"},
+          {"Currency must be a three-letter code, like EUR.",
+           "Валюта должна быть трёхбуквенным кодом, например EUR.",
+           "Valuuta peab olema kolmetäheline kood, näiteks EUR."},
+          {"Some supplier values are not valid.", "Некоторые значения поставщиков некорректны.",
+           "Mõned tarnija väärtused ei sobi."},
+          {"That location no longer exists. Choose another.",
+           "Этого расположения больше нет. Выберите другое.",
+           "Seda asukohta pole enam. Vali mõni teine."}
         ] do
       Gettext.put_locale(PhoenixKitCatalogue.Gettext, "ru")
       assert Gettext.gettext(PhoenixKitCatalogue.Gettext, msgid) == ru
@@ -257,30 +282,30 @@ defmodule PhoenixKitCatalogue.GettextTest do
     assert untranslated == []
   end
 
-  test "Tab.localized_label/1 returns Russian translation for Catalogue" do
+  test "Tab.localized_label/1 returns Russian translation for Catalogues" do
     Gettext.put_locale(PhoenixKitCatalogue.Gettext, "ru")
 
     tab = %Tab{
       id: :admin_catalogue,
-      label: "Catalogue",
+      label: "Catalogues",
       gettext_backend: PhoenixKitCatalogue.Gettext,
       gettext_domain: "default"
     }
 
-    assert Tab.localized_label(tab) == "Каталог"
+    assert Tab.localized_label(tab) == "Каталоги"
   end
 
-  test "Tab.localized_label/1 returns Estonian translation for Catalogue" do
+  test "Tab.localized_label/1 returns Estonian translation for Catalogues" do
     Gettext.put_locale(PhoenixKitCatalogue.Gettext, "et")
 
     tab = %Tab{
       id: :admin_catalogue,
-      label: "Catalogue",
+      label: "Catalogues",
       gettext_backend: PhoenixKitCatalogue.Gettext,
       gettext_domain: "default"
     }
 
-    assert Tab.localized_label(tab) == "Kataloog"
+    assert Tab.localized_label(tab) == "Kataloogid"
   end
 
   test "Tab.localized_label/1 returns Russian translation for Export" do
@@ -510,10 +535,7 @@ defmodule PhoenixKitCatalogue.GettextTest do
              "Перетащите сюда, чтобы переместить в корень (без папки)"},
             {"Drag to reorder or move into a folder",
              "Lohista järjestamiseks või kausta viimiseks",
-             "Перетащите, чтобы изменить порядок или переместить в папку"},
-            {"Clear search and filters to see the folder tree.",
-             "Puhasta otsing ja filtrid, et näha kaustapuud.",
-             "Очистите поиск и фильтры, чтобы увидеть дерево папок."}
+             "Перетащите, чтобы изменить порядок или переместить в папку"}
           ] do
         assert po_msgstr("en", msgid) == msgid
         assert gettext_in("et", msgid) == et
@@ -661,6 +683,21 @@ defmodule PhoenixKitCatalogue.GettextTest do
 
       assert ngettext_item(1) == "1 item"
       assert ngettext_item(5) == "5 items"
+    end
+
+    test "the subcategory count reads in words in every locale (boss, 2026-09-19)" do
+      label = &Components.subcategories_label/1
+
+      for {locale, one, two, five} <- [
+            {"en", "1 subcategory", "2 subcategories", "5 subcategories"},
+            {"et", "1 alamkategooria", "2 alamkategooriat", "5 alamkategooriat"},
+            {"ru", "1 подкатегория", "2 подкатегории", "5 подкатегорий"},
+            {"de", "1 Unterkategorie", "2 Unterkategorien", "5 Unterkategorien"},
+            {"fr", "1 sous-catégorie", "2 sous-catégories", "5 sous-catégories"}
+          ] do
+        Gettext.put_locale(PhoenixKitCatalogue.Gettext, locale)
+        assert {label.(1), label.(2), label.(5)} == {one, two, five}, locale
+      end
     end
 
     defp ngettext_item(count) do
