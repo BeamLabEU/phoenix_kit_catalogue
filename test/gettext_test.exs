@@ -90,7 +90,27 @@ defmodule PhoenixKitCatalogue.GettextTest do
           {"Find a catalogue…", "Найти каталог…", "Leia kataloog…"},
           {"Find a category…", "Найти категорию…", "Leia kategooria…"},
           # The item form's inline supplier picker (boss, 2026-09-19).
-          {"-- Add supplier --", "-- Добавить поставщика --", "-- Lisa tarnija --"}
+          {"-- Add supplier --", "-- Добавить поставщика --", "-- Lisa tarnija --"},
+          # The item form's Location section and the staged suppliers table
+          # (boss and Max, 2026-09-19).
+          {"Location", "Расположение", "Asukoht"},
+          {"Undo", "Отменить", "Võta tagasi"},
+          {"Unsaved changes", "Несохранённые изменения", "Salvestamata muudatused"},
+          {"Choose a location", "Выберите расположение", "Vali asukoht"},
+          {"Find a catalogue or category…", "Найти каталог или категорию…",
+           "Leia kataloog või kategooria…"},
+          {"No matches.", "Совпадений нет.", "Vasteid pole."},
+          {"New", "Новый", "Uus"},
+          {"Collapse", "Свернуть", "Sule"},
+          {"Expand", "Развернуть", "Ava"},
+          {"Currency must be a three-letter code, like EUR.",
+           "Валюта должна быть трёхбуквенным кодом, например EUR.",
+           "Valuuta peab olema kolmetäheline kood, näiteks EUR."},
+          {"Some supplier values are not valid.", "Некоторые значения поставщиков некорректны.",
+           "Mõned tarnija väärtused ei sobi."},
+          {"That location no longer exists. Choose another.",
+           "Этого расположения больше нет. Выберите другое.",
+           "Seda asukohta pole enam. Vali mõni teine."}
         ] do
       Gettext.put_locale(PhoenixKitCatalogue.Gettext, "ru")
       assert Gettext.gettext(PhoenixKitCatalogue.Gettext, msgid) == ru

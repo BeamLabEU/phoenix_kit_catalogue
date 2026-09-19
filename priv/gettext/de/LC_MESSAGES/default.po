@@ -3550,3 +3550,39 @@ msgstr "Kategorie suchen…"
 
 msgid "-- Add supplier --"
 msgstr "-- Lieferant hinzufügen --"
+
+msgid "Location"
+msgstr "Ort"
+
+msgid "Undo"
+msgstr "Rückgängig"
+
+msgid "Unsaved changes"
+msgstr "Ungespeicherte Änderungen"
+
+msgid "Choose a location"
+msgstr "Ort wählen"
+
+msgid "Find a catalogue or category…"
+msgstr "Katalog oder Kategorie finden…"
+
+msgid "No matches."
+msgstr "Keine Treffer."
+
+msgid "New"
+msgstr "Neu"
+
+msgid "Collapse"
+msgstr "Einklappen"
+
+msgid "Expand"
+msgstr "Ausklappen"
+
+msgid "Currency must be a three-letter code, like EUR."
+msgstr "Die Währung muss ein dreistelliger Code sein, z. B. EUR."
+
+msgid "Some supplier values are not valid."
+msgstr "Einige Lieferantenwerte sind ungültig."
+
+msgid "That location no longer exists. Choose another."
+msgstr "Diesen Ort gibt es nicht mehr. Wähle einen anderen."

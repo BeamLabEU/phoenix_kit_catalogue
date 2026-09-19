@@ -3563,3 +3563,39 @@ msgstr "Найти категорию…"
 
 msgid "-- Add supplier --"
 msgstr "-- Добавить поставщика --"
+
+msgid "Location"
+msgstr "Расположение"
+
+msgid "Undo"
+msgstr "Отменить"
+
+msgid "Unsaved changes"
+msgstr "Несохранённые изменения"
+
+msgid "Choose a location"
+msgstr "Выберите расположение"
+
+msgid "Find a catalogue or category…"
+msgstr "Найти каталог или категорию…"
+
+msgid "No matches."
+msgstr "Совпадений нет."
+
+msgid "New"
+msgstr "Новый"
+
+msgid "Collapse"
+msgstr "Свернуть"
+
+msgid "Expand"
+msgstr "Развернуть"
+
+msgid "Currency must be a three-letter code, like EUR."
+msgstr "Валюта должна быть трёхбуквенным кодом, например EUR."
+
+msgid "Some supplier values are not valid."
+msgstr "Некоторые значения поставщиков некорректны."
+
+msgid "That location no longer exists. Choose another."
+msgstr "Этого расположения больше нет. Выберите другое."
