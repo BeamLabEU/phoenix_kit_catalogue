@@ -190,8 +190,8 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
          # `?tab=` deep-links land on a tab (the Comments admin's back-links
          # open the Suppliers tab); parse_tab/1 is an allowlist, anything
          # else is the default. Landing on PDFs counts as opening it.
-         |> assign(:current_tab, parse_tab(params["tab"]))
-         |> assign(:pdf_tab_opened, parse_tab(params["tab"]) == :pdfs)}
+         |> assign(:current_tab, parse_tab(params["tab"], action))
+         |> assign(:pdf_tab_opened, parse_tab(params["tab"], action) == :pdfs)}
     end
   end
 
@@ -607,7 +607,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
 
   @impl true
   def handle_event("switch_tab", %{"tab" => tab}, socket) do
-    tab = parse_tab(tab)
+    tab = parse_tab(tab, socket.assigns.action)
 
     {:noreply,
      socket
@@ -1273,11 +1273,13 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
     Enum.any?(preview.values, &(&1.key == key))
   end
 
-  defp parse_tab("metadata"), do: :metadata
-  defp parse_tab("sourcing"), do: :sourcing
-  defp parse_tab("files"), do: :files
-  defp parse_tab("pdfs"), do: :pdfs
-  defp parse_tab(_), do: :details
+  defp parse_tab("metadata", _action), do: :metadata
+  defp parse_tab("sourcing", _action), do: :sourcing
+  defp parse_tab("files", _action), do: :files
+  # Edit only, like its tab: a new item has no panel there, so landing on
+  # it would hide every card and leave just the Save row.
+  defp parse_tab("pdfs", :edit), do: :pdfs
+  defp parse_tab(_, _action), do: :details
 
   defp absorb_meta_params(socket, params) do
     assign(socket, :meta_state, Metadata.absorb_params(socket.assigns.meta_state, params))
@@ -3830,7 +3832,12 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
               class="select w-full transition-colors focus-within:select-primary"
               aria-label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Add supplier")}
             >
-              <option value="">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "-- Add supplier --")}</option>
+              <%!-- `selected` spelled out while idle: with no option
+                   marked, the patcher leaves the choice to the browser,
+                   and a Cancel could keep showing the supplier. --%>
+              <option value="" selected={not adding?}>
+                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "-- Add supplier --")}
+              </option>
               <option
                 :for={{label, uuid} <- addable}
                 value={uuid}
