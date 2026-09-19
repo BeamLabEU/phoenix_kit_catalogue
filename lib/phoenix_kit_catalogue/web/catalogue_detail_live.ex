@@ -4168,6 +4168,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               columns={[:name, :sku, :price, :unit, :status]}
               markup_percentage={@catalogue.markup_percentage}
               edit_path={if @view_mode != "deleted", do: @edit_path_fn}
+              preview_event="show_product_card"
               on_restore={if @view_mode == "deleted", do: "restore_item"}
               on_permanent_delete={if @view_mode == "deleted", do: "show_delete_confirm"}
               permanent_delete_type="item"
@@ -6166,6 +6167,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               :if={item.uuid && @view_mode != "deleted"}
               item={item}
               edit_path={@edit_path_fn}
+              preview_event="show_product_card"
               on_delete="delete_item"
             />
             <.trash_row_menu
@@ -6281,6 +6283,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                 :if={@view_mode != "deleted"}
                 item={item}
                 edit_path={@edit_path_fn}
+                preview_event="show_product_card"
                 on_delete="delete_item"
               />
               <.table_default_cell :if={@view_mode == "deleted"} class="text-right whitespace-nowrap">
