@@ -167,6 +167,15 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
     if connected?(socket), do: PubSub.subscribe()
 
     case load_item(action, params) do
+      :catalogue_not_found ->
+        {:ok,
+         socket
+         |> put_flash(
+           :error,
+           Gettext.gettext(PhoenixKitCatalogue.Gettext, "Catalogue not found.")
+         )
+         |> push_navigate(to: Paths.index())}
+
       {nil, _, _} ->
         {:ok,
          socket
@@ -205,18 +214,25 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
 
   defp safe_return_to(_), do: nil
 
+  # The catalogue in the URL is checked first: an unknown one — or a
+  # hand-edited path that is not a UUID — would otherwise reach a query
+  # further down the mount and raise instead of saying "not found".
   defp load_item(:new, params) do
     catalogue_uuid = params["catalogue_uuid"]
 
-    # "Add Item" carries the level it was clicked from (?category=...) so the
-    # form opens with that category already selected. Validated — a forged or
-    # stale uuid must not seed a category from another catalogue.
-    item = %Item{
-      catalogue_uuid: catalogue_uuid,
-      category_uuid: valid_origin_category(params["category"], catalogue_uuid)
-    }
+    if Catalogue.get_catalogue(catalogue_uuid) do
+      # "Add Item" carries the level it was clicked from (?category=...) so
+      # the form opens with that category already selected. Validated — a
+      # forged or stale uuid must not seed a category from another catalogue.
+      item = %Item{
+        catalogue_uuid: catalogue_uuid,
+        category_uuid: valid_origin_category(params["category"], catalogue_uuid)
+      }
 
-    {item, Catalogue.change_item(item), catalogue_uuid}
+      {item, Catalogue.change_item(item), catalogue_uuid}
+    else
+      :catalogue_not_found
+    end
   end
 
   defp load_item(:edit, params) do
