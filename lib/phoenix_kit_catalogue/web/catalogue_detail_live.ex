@@ -84,7 +84,6 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   alias PhoenixKitCatalogue.Paths
   alias PhoenixKitCatalogue.Schemas.Category
   alias PhoenixKitCatalogue.Schemas.Item
-  alias PhoenixKitCatalogue.Web.Components.PdfSearchModal
   alias PhoenixKitCatalogue.Web.Components.ProductCard
   alias PhoenixKitCatalogue.Web.LevelSwitchers
   alias PhoenixKitCatalogue.Web.TableConfig
@@ -231,8 +230,6 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         search_total: 0,
         search_has_more: false,
         search_loading: false,
-        show_pdf_search: false,
-        pdf_search_item: nil,
         # True between a cross-tab `{:catalogue_bulk_change, …}` and its
         # deferred `:bulk_change_apply`: the plain data-changed refresh is
         # held back so the leaving-rows flash can play before the reload.
@@ -542,10 +539,6 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   def handle_info({:catalogue_view_sort_changed, _scope, _by, _dir, _from}, socket),
     do: {:noreply, socket}
 
-  def handle_info({:pdf_search_modal_closed}, socket) do
-    {:noreply, assign(socket, show_pdf_search: false, pdf_search_item: nil)}
-  end
-
   # Cross-tab live reorder: another open detail page just reordered
   # items inside a card on the same catalogue. Refresh just that card's
   # items (preserves scroll) and fire the same flash the originator
@@ -802,19 +795,6 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
   def handle_event("card_close", _params, socket) do
     {:noreply, assign(socket, :card_open, false)}
-  end
-
-  def handle_event("show_pdf_search", %{"uuid" => uuid}, socket) do
-    case Catalogue.get_item(uuid) do
-      nil ->
-        {:noreply, socket}
-
-      item ->
-        {:noreply,
-         socket
-         |> assign(:pdf_search_item, item)
-         |> assign(:show_pdf_search, true)}
-    end
   end
 
   def handle_event("delete_item", %{"uuid" => uuid}, socket) do
@@ -4188,7 +4168,6 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               columns={[:name, :sku, :price, :unit, :status]}
               markup_percentage={@catalogue.markup_percentage}
               edit_path={if @view_mode != "deleted", do: @edit_path_fn}
-              pdf_search_event={if @view_mode != "deleted", do: "show_pdf_search"}
               on_restore={if @view_mode == "deleted", do: "restore_item"}
               on_permanent_delete={if @view_mode == "deleted", do: "show_delete_confirm"}
               permanent_delete_type="item"
@@ -4932,14 +4911,6 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
           {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Each copy is named after its original with “(copy)” added and placed right after it.")}
         </p>
       </.confirm_modal>
-
-      <.live_component
-        :if={@pdf_search_item}
-        module={PdfSearchModal}
-        id="catalogue-detail-pdf-search"
-        item={@pdf_search_item}
-        show={@show_pdf_search}
-      />
 
       <ProductCard.product_card
         id="catalogue-detail-product"
@@ -6196,7 +6167,6 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               item={item}
               edit_path={@edit_path_fn}
               on_delete="delete_item"
-              pdf_search_event="show_pdf_search"
             />
             <.trash_row_menu
               :if={item.uuid && @view_mode == "deleted"}
@@ -6312,7 +6282,6 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                 item={item}
                 edit_path={@edit_path_fn}
                 on_delete="delete_item"
-                pdf_search_event="show_pdf_search"
               />
               <.table_default_cell :if={@view_mode == "deleted"} class="text-right whitespace-nowrap">
                 <.trash_row_menu

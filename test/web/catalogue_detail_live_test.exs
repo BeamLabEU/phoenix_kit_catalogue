@@ -57,6 +57,30 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
     end
   end
 
+  # Boss, 2026-09-19: the PDF search lives on the item's edit page only for
+  # now; the catalogue's item menus and cards no longer offer it. The PDF
+  # library keeps its own page in the module's menu.
+  describe "no PDF search on the catalogue page" do
+    test "an item's menu and card offer Edit and Delete, not Search PDFs", %{conn: conn} do
+      catalogue = fixture_catalogue()
+      cat = fixture_category(catalogue, %{name: "Hinges"})
+      fixture_item(%{name: "Soft hinge", catalogue_uuid: catalogue.uuid, category_uuid: cat.uuid})
+
+      {:ok, view, _html} = live(conn, url(catalogue.uuid) <> "?category=" <> cat.uuid)
+      html = render(view)
+
+      assert html =~ "Soft hinge"
+      refute html =~ "Search PDFs"
+      refute html =~ "show_pdf_search"
+
+      for mode <- ~w(card comfy) do
+        html = render_click(view, "set_view", %{"mode" => mode})
+        assert html =~ "Soft hinge"
+        refute html =~ "Search PDFs"
+      end
+    end
+  end
+
   describe "root landing" do
     test "category names open the chapter's ITEMS, not a sub-browser", %{conn: conn} do
       catalogue = fixture_catalogue()
