@@ -5341,6 +5341,10 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   #
   # Rows opened under a parent hang off guide rails, one per level, drawn
   # the full height of the cell so they join into continuous lines.
+  #
+  # The button looks the same open or closed — only its triangle turns. A
+  # filled "on" state read as selected (Max, 2026-09-19); the tinted branch
+  # below it already says it is open.
   attr(:cat, :map, required: true)
   attr(:catalogue, :map, required: true)
   attr(:depth, :integer, required: true)
@@ -5373,13 +5377,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
           phx-click="toggle_category_expand"
           phx-value-uuid={@cat.uuid}
           aria-expanded={to_string(@expanded)}
-          class={[
-            "btn btn-xs rounded-full font-normal gap-1 shrink-0 whitespace-nowrap",
-            if(@expanded,
-              do: "btn-soft btn-primary",
-              else: "btn-outline border-base-content/20 text-base-content/70"
-            )
-          ]}
+          class="btn btn-xs btn-outline rounded-full font-normal gap-1 shrink-0 whitespace-nowrap border-base-content/20 text-base-content/70"
         >
           <.icon
             name="hero-play-solid"
