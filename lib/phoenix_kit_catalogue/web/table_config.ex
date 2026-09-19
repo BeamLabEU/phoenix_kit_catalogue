@@ -255,9 +255,17 @@ defmodule PhoenixKitCatalogue.Web.TableConfig do
     ]
   end
 
+  @doc """
+  The Columns modal's starting set for a scope: the managed columns marked
+  `default?`, the only ids a stored config may hold (`validate_columns/2`).
+  Name is not in it — it is unmanaged, drawn by every table on its own. A
+  table that draws a cell per id must never see it: it used to be here, and
+  the detail page's Uncategorized row gave it a cell the header did not
+  have, so the header ran past every other row.
+  """
   @spec default_columns(scope()) :: [String.t()]
   def default_columns(scope) do
-    scope |> columns() |> Enum.filter(& &1.default?) |> Enum.map(& &1.id)
+    scope |> managed_columns() |> Enum.filter(& &1.default?) |> Enum.map(& &1.id)
   end
 
   @spec managed_columns(scope()) :: [column()]
