@@ -2,6 +2,7 @@ defmodule PhoenixKitCatalogue.GettextTest do
   use ExUnit.Case, async: true
 
   alias PhoenixKit.Dashboard.Tab
+  alias PhoenixKitCatalogue.Web.Components
 
   setup do
     previous = Gettext.get_locale(PhoenixKitCatalogue.Gettext)
@@ -664,7 +665,7 @@ defmodule PhoenixKitCatalogue.GettextTest do
     end
 
     test "the subcategory count reads in words in every locale (boss, 2026-09-19)" do
-      label = &PhoenixKitCatalogue.Web.Components.subcategories_label/1
+      label = &Components.subcategories_label/1
 
       for {locale, one, two, five} <- [
             {"en", "1 subcategory", "2 subcategories", "5 subcategories"},
