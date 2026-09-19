@@ -86,7 +86,12 @@ defmodule PhoenixKitCatalogue.GettextTest do
           # clause in item_form_live.ex.
           {"This value has no slug and cannot be selected",
            "У этого значения нет слага, выбрать его нельзя.",
-           "Sellel väärtusel pole silti ja seda ei saa valida."}
+           "Sellel väärtusel pole silti ja seda ei saa valida."},
+          # The header's level switchers (boss, 2026-09-19, "like in GitHub").
+          {"Switch catalogue", "Сменить каталог", "Vaheta kataloogi"},
+          {"Switch category", "Сменить категорию", "Vaheta kategooriat"},
+          {"Find a catalogue…", "Найти каталог…", "Leia kataloog…"},
+          {"Find a category…", "Найти категорию…", "Leia kategooria…"}
         ] do
       Gettext.put_locale(PhoenixKitCatalogue.Gettext, "ru")
       assert Gettext.gettext(PhoenixKitCatalogue.Gettext, msgid) == ru

@@ -3544,3 +3544,15 @@ msgstr ""
 
 msgid "Otherwise it gets the original's status."
 msgstr ""
+
+msgid "Switch catalogue"
+msgstr ""
+
+msgid "Switch category"
+msgstr ""
+
+msgid "Find a catalogue…"
+msgstr ""
+
+msgid "Find a category…"
+msgstr ""
