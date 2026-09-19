@@ -72,7 +72,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
       />
 
       <%!-- Search bar --%>
-      <.search_input query={@search_query} placeholder={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search items...")} />
+      <.search_input query={@search_query} placeholder={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search items…")} />
   """
 
   use Phoenix.Component
@@ -158,7 +158,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
         <div class="flex items-center justify-between">
           <h2 class="text-base font-semibold text-base-content/80 flex items-center gap-2">
             <.icon name="hero-photo" class="w-4 h-4" />
-            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Featured Image")}
+            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Featured image")}
           </h2>
           <span class="text-xs text-base-content/50">{@subtitle_text}</span>
         </div>
@@ -197,7 +197,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
               <button
                 type="button"
                 phx-click="clear_featured_image"
-                phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Removing...")}
+                phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Removing…")}
                 class="btn btn-sm btn-ghost"
               >
                 {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Remove")}
@@ -228,7 +228,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
   end
 
   @doc """
-  The shared "Photos and Files" tab panel: featured-image card plus the
+  The shared "Photos and files" tab panel: featured-image card plus the
   attached-files manager (dropzone, in-flight uploads, file grid with
   signed links and a confirm-guarded remove). One implementation for
   the catalogue / category / item forms so the three tabs cannot drift.
@@ -259,7 +259,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
         <div class="flex flex-col gap-0.5">
           <h2 class="text-base font-semibold text-base-content/80 flex items-center gap-2">
             <.icon name="hero-paper-clip" class="w-4 h-4" />
-            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Attached Files")}
+            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Attached files")}
             <span :if={@files_state.files != []} class="badge badge-sm badge-ghost ml-1">
               {length(@files_state.files)}
             </span>
@@ -384,7 +384,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
                 type="button"
                 phx-click="remove_file"
                 phx-value-uuid={file.uuid}
-                phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Removing...")}
+                phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Removing…")}
                 data-confirm={@remove_confirm}
                 class="btn btn-ghost btn-xs btn-square"
                 title={@remove_title}
@@ -570,7 +570,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
                   value_dead?(value, @counts, @selected) &&
                     Gettext.gettext(
                       PhoenixKitCatalogue.Gettext,
-                      "Nothing matches this together with the filters already on"
+                      "Nothing matches this together with the filters already on."
                     )
                 }
               >
@@ -1464,7 +1464,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
       type="button"
       phx-click="remove_meta_field"
       phx-value-key={@def_.key}
-      phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Removing...")}
+      phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Removing…")}
       class="btn btn-ghost btn-sm btn-square text-error"
       title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Remove")}
     >
@@ -1497,7 +1497,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
       type="button"
       phx-click="remove_meta_field"
       phx-value-key={@key}
-      phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Removing...")}
+      phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Removing…")}
       class="btn btn-ghost btn-sm btn-square text-error"
       title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Remove")}
     >
@@ -1550,9 +1550,9 @@ defmodule PhoenixKitCatalogue.Web.Components do
 
     * `query` — current search query string (required)
     * `placeholder` — input placeholder text. `nil` (default) resolves
-      to a translated `gettext("Search...")` inside the component body.
+      to a translated `gettext("Search…")` inside the component body.
       Pass an explicit string to override (e.g.
-      `gettext("Search items...")`).
+      `gettext("Search items…")`).
     * `on_search` — event name for search (default: "search")
     * `on_clear` — event name for clear (default: "clear_search")
     * `debounce` — debounce ms (default: 300)
@@ -1573,7 +1573,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
   def search_input(assigns) do
     placeholder =
       assigns.placeholder ||
-        Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search...")
+        Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search…")
 
     assigns = assign(assigns, :placeholder, placeholder)
 
@@ -1627,7 +1627,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
       <%= if is_integer(@loaded) and @loaded < @count do %>
         {Gettext.gettext(
           PhoenixKitCatalogue.Gettext,
-          "Showing %{loaded} of %{count} results for \"%{query}\"",
+          "Showing %{loaded} of %{count} results for “%{query}”",
           loaded: @loaded,
           count: @count,
           query: @query
@@ -1635,8 +1635,8 @@ defmodule PhoenixKitCatalogue.Web.Components do
       <% else %>
         {Gettext.ngettext(
           PhoenixKitCatalogue.Gettext,
-          "%{count} result for \"%{query}\"",
-          "%{count} results for \"%{query}\"",
+          "%{count} result for “%{query}”",
+          "%{count} results for “%{query}”",
           @count, count: @count, query: @query)}
       <% end %>
     </span>
@@ -1894,9 +1894,9 @@ defmodule PhoenixKitCatalogue.Web.Components do
         <div class="grid gap-4 md:grid-cols-2">
           <section :if={@has_catalogues}>
             <div class="flex items-center justify-between mb-2">
-              <span class="fieldset-legend font-medium">
+              <span class="label"><span class="font-semibold">
                 {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Catalogues")}
-              </span>
+              </span></span>
               <button
                 :if={@cat_count > 0}
                 type="button"
@@ -1916,16 +1916,16 @@ defmodule PhoenixKitCatalogue.Web.Components do
                     phx-click={@on_toggle_catalogue}
                     phx-value-uuid={cat.uuid}
                   />
-                  <span class="fieldset-legend truncate" title={cat.name}>{cat.name}</span>
+                  <span class="truncate" title={cat.name}>{cat.name}</span>
                 </label>
               </li>
             </ul>
           </section>
           <section :if={@has_categories}>
             <div class="flex items-center justify-between mb-2">
-              <span class="fieldset-legend font-medium">
+              <span class="label"><span class="font-semibold">
                 {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Categories")}
-              </span>
+              </span></span>
               <button
                 :if={@cat_categories_count > 0}
                 type="button"
@@ -1945,7 +1945,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
                     phx-click={@on_toggle_category}
                     phx-value-uuid={cat.uuid}
                   />
-                  <span class="fieldset-legend truncate" title={cat.name}>{cat.name}</span>
+                  <span class="truncate" title={cat.name}>{cat.name}</span>
                 </label>
               </li>
             </ul>
@@ -2861,7 +2861,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
         :if={@on_delete}
         phx-click={@on_delete}
         phx-value-uuid={@item.uuid}
-        phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Deleting...")}
+        phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Deleting…")}
         icon="hero-trash"
         label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")}
         variant="error"
@@ -2968,7 +2968,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
         :if={@on_restore}
         phx-click={@on_restore}
         phx-value-uuid={@item.uuid}
-        phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Restoring...")}
+        phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Restoring…")}
         icon="hero-arrow-path"
         label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Restore")}
         variant="success"
@@ -2978,7 +2978,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
         :if={@on_delete}
         phx-click={@on_delete}
         phx-value-uuid={@item.uuid}
-        phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Deleting...")}
+        phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Deleting…")}
         icon="hero-trash"
         label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")}
         variant="error"
@@ -2988,9 +2988,9 @@ defmodule PhoenixKitCatalogue.Web.Components do
         phx-click={@on_permanent_delete}
         phx-value-uuid={@item.uuid}
         phx-value-type={@permanent_delete_type}
-        phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Deleting...")}
+        phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Deleting…")}
         icon="hero-trash"
-        label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete Forever")}
+        label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete forever")}
         variant="error"
       />
     </.table_row_menu>
@@ -3178,7 +3178,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
           :if={@on_delete}
           phx-click={@on_delete}
           phx-value-uuid={@item.uuid}
-          phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Deleting...")}
+          phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Deleting…")}
           icon="hero-trash"
           label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")}
           variant="error"
@@ -3187,7 +3187,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
           :if={@on_restore}
           phx-click={@on_restore}
           phx-value-uuid={@item.uuid}
-          phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Restoring...")}
+          phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Restoring…")}
           icon="hero-arrow-path"
           label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Restore")}
           variant="success"
@@ -3198,9 +3198,9 @@ defmodule PhoenixKitCatalogue.Web.Components do
           phx-click={@on_permanent_delete}
           phx-value-uuid={@item.uuid}
           phx-value-type={@permanent_delete_type}
-          phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Deleting...")}
+          phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Deleting…")}
           icon="hero-trash"
-          label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete Forever")}
+          label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete forever")}
           variant="error"
         />
       </.table_row_menu>
@@ -3327,10 +3327,10 @@ defmodule PhoenixKitCatalogue.Web.Components do
 
   defp column_label(:name), do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Name")
   defp column_label(:sku), do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "SKU")
-  defp column_label(:base_price), do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Base Price")
+  defp column_label(:base_price), do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Base price")
   defp column_label(:price), do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Price")
   defp column_label(:discount), do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Discount")
-  defp column_label(:final_price), do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Final Price")
+  defp column_label(:final_price), do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Final price")
   defp column_label(:unit), do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Unit")
   defp column_label(:status), do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Status")
   defp column_label(:category), do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Category")
@@ -3482,7 +3482,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
       %{id: "sku", label: fn -> Gettext.gettext(PhoenixKitCatalogue.Gettext, "SKU") end},
       %{
         id: "base_price",
-        label: fn -> Gettext.gettext(PhoenixKitCatalogue.Gettext, "Base Price") end
+        label: fn -> Gettext.gettext(PhoenixKitCatalogue.Gettext, "Base price") end
       },
       %{id: "unit", label: fn -> Gettext.gettext(PhoenixKitCatalogue.Gettext, "Unit") end},
       %{id: "status", label: fn -> Gettext.gettext(PhoenixKitCatalogue.Gettext, "Status") end},

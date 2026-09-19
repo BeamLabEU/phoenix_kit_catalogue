@@ -83,7 +83,7 @@ defmodule PhoenixKitCatalogue.Web.LevelSwitchers do
         }
       end
 
-    switcher(gettext("Switch catalogue"), gettext("Find a catalogue…"), items)
+    switcher(gettext("Switch catalogue"), gettext("Search catalogues…"), items)
   end
 
   # `current` is the category's uuid, or :uncategorized for the bucket.
@@ -111,7 +111,7 @@ defmodule PhoenixKitCatalogue.Web.LevelSwitchers do
         categories
       end
 
-    switcher(gettext("Switch category"), gettext("Find a category…"), items)
+    switcher(gettext("Switch category"), gettext("Search categories…"), items)
   end
 
   defp switcher(_title, _placeholder, items) when length(items) < 2, do: nil

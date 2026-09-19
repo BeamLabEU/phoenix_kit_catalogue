@@ -269,7 +269,7 @@ defmodule PhoenixKitCatalogue do
       # wins the route match.
       %Tab{
         id: :admin_catalogue_attribute_group_new,
-        label: "New Attribute Group",
+        label: "New attribute group",
         gettext_backend: PhoenixKitCatalogue.Gettext,
         gettext_domain: "default",
         icon: "hero-plus",
@@ -391,7 +391,7 @@ defmodule PhoenixKitCatalogue do
       # Catalogue — static paths
       %Tab{
         id: :admin_catalogue_new,
-        label: "New Catalogue",
+        label: "New catalogue",
         gettext_backend: PhoenixKitCatalogue.Gettext,
         gettext_domain: "default",
         icon: "hero-plus",
@@ -464,7 +464,7 @@ defmodule PhoenixKitCatalogue do
       },
       %Tab{
         id: :admin_catalogue_category_new,
-        label: "New Category",
+        label: "New category",
         gettext_backend: PhoenixKitCatalogue.Gettext,
         gettext_domain: "default",
         icon: "hero-plus",
@@ -478,7 +478,7 @@ defmodule PhoenixKitCatalogue do
       },
       %Tab{
         id: :admin_catalogue_item_new,
-        label: "New Item",
+        label: "New item",
         gettext_backend: PhoenixKitCatalogue.Gettext,
         gettext_domain: "default",
         icon: "hero-plus",

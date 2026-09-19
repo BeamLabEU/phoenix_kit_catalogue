@@ -126,7 +126,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   def mount(%{"uuid" => uuid}, _session, socket) do
     socket =
       assign(socket,
-        page_title: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Loading..."),
+        page_title: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Loading…"),
         catalogue_uuid: uuid,
         catalogue: nil,
         # ── Drill-down position ──
@@ -1816,7 +1816,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
            :error,
            Gettext.gettext(
              PhoenixKitCatalogue.Gettext,
-             "Selected items share positions. Apply \"Reorder all\" first to normalise."
+             "Selected items share positions. Apply “Reorder all” first to normalise."
            )
          )}
 
@@ -2261,7 +2261,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         disabled={@disabled}
         class={["select select-sm w-full", @class]}
       >
-        <option value="">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "-- Select category --")}</option>
+        <option value="">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "— Select category —")}</option>
         <%= for {cat, depth} <- @targets do %>
           <option value={cat.uuid} selected={@target_uuid == cat.uuid}>
             {String.duplicate("— ", depth)}{cat.name}
@@ -4067,10 +4067,10 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                      current one — new_category_path pre-seeds parent_uuid
                      from @current_category, so there's no ambiguity. --%>
                 <.link navigate={new_category_path(assigns)} class="btn btn-outline btn-sm">
-                  <.icon name="hero-folder-plus" class="w-4 h-4" /> {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Add Category")}
+                  <.icon name="hero-folder-plus" class="w-4 h-4" /> {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Add category")}
                 </.link>
                 <.link navigate={new_item_path(assigns)} class="btn btn-primary btn-sm">
-                  <.icon name="hero-plus" class="w-4 h-4" /> {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Add Item")}
+                  <.icon name="hero-plus" class="w-4 h-4" /> {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Add item")}
                 </.link>
                 <.link navigate={Paths.catalogue_edit(@catalogue.uuid)} class="btn btn-ghost btn-sm">
                   {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")}
@@ -4112,7 +4112,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
             </div>
             <%= if @search_loading and is_nil(@search_results) do %>
               <span class="text-sm text-base-content/60">
-                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Searching for \"%{query}\"...", query: @search_query)}
+                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Searching for “%{query}”…", query: @search_query)}
               </span>
             <% else %>
               <%!-- The summary counts ITEMS. Suppress it when a search
@@ -4577,10 +4577,10 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         show={match?({"item", _}, @confirm_delete)}
         on_confirm="permanently_delete_item"
         on_cancel="cancel_delete"
-        title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Permanently Delete Item")}
+        title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Permanently delete item")}
         title_icon="hero-trash"
         messages={[{:warning, Gettext.gettext(PhoenixKitCatalogue.Gettext, "This item will be permanently deleted. This cannot be undone.")}]}
-        confirm_text={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete Forever")}
+        confirm_text={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete forever")}
         danger={true}
       />
 
@@ -4588,10 +4588,10 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         show={match?({"category", _}, @confirm_delete)}
         on_confirm="permanently_delete_category"
         on_cancel="cancel_delete"
-        title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Permanently Delete Category")}
+        title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Permanently delete category")}
         title_icon="hero-trash"
         messages={[{:warning, category_delete_warning(@confirm_delete_scope)}]}
-        confirm_text={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete Forever")}
+        confirm_text={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete forever")}
         danger={true}
       />
 
@@ -4929,7 +4929,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
           <% end %>
         </p>
         <p class="text-sm text-base-content/70 mt-2">
-          {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Each copy is named after its original with \"(copy)\" added and placed right after it.")}
+          {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Each copy is named after its original with “(copy)” added and placed right after it.")}
         </p>
       </.confirm_modal>
 
@@ -5172,7 +5172,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       <.table_row_menu_button
         phx-click="restore_category"
         phx-value-uuid={@cat.uuid}
-        phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Restoring...")}
+        phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Restoring…")}
         icon="hero-arrow-path"
         label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Restore")}
         variant="success"
@@ -5183,7 +5183,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         phx-value-uuid={@cat.uuid}
         phx-value-type="category"
         icon="hero-trash"
-        label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete Forever")}
+        label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete forever")}
         variant="error"
       />
     </.table_row_menu>
@@ -6601,7 +6601,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       <.table_row_menu_button
         phx-click={@restore_event}
         phx-value-uuid={@uuid}
-        phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Restoring...")}
+        phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Restoring…")}
         icon="hero-arrow-path"
         label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Restore")}
         variant="success"
@@ -6612,7 +6612,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         phx-value-uuid={@uuid}
         phx-value-type={@delete_type}
         icon="hero-trash"
-        label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete Forever")}
+        label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete forever")}
         variant="error"
       />
     </.table_row_menu>
@@ -6676,14 +6676,13 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   defp presence(desc), do: if(String.trim(desc) == "", do: nil, else: desc)
 
   defp search_placeholder(nil),
-    do:
-      Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search items by name, description, or SKU...")
+    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search items by name, description, or SKU…")
 
   defp search_placeholder(:uncategorized),
-    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search uncategorized items...")
+    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search uncategorized items…")
 
   defp search_placeholder(%Category{}),
-    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search within this category...")
+    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search within this category…")
 
   defp level_items_empty(_current, "deleted"),
     do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Nothing deleted here.")
