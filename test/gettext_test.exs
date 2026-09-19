@@ -67,9 +67,6 @@ defmodule PhoenixKitCatalogue.GettextTest do
           {"That category belongs to another catalogue.",
            "Эта категория принадлежит другому каталогу.",
            "See kategooria kuulub teise kataloogi."},
-          {"Drag-reorder needs the Manual sort — choose it in the sort selector.",
-           "Для перетаскивания выберите ручную сортировку в списке сортировки.",
-           "Lohistades järjestamiseks vali sortimise valikust käsitsi järjestus."},
           # The delete-confirmation strings for the attribute-value delete
           # (2026-09-13: boss asked for a confirm popup on every permanent
           # delete; the value delete was the one that had none).
@@ -516,10 +513,7 @@ defmodule PhoenixKitCatalogue.GettextTest do
              "Перетащите сюда, чтобы переместить в корень (без папки)"},
             {"Drag to reorder or move into a folder",
              "Lohista järjestamiseks või kausta viimiseks",
-             "Перетащите, чтобы изменить порядок или переместить в папку"},
-            {"Clear search and filters to see the folder tree.",
-             "Puhasta otsing ja filtrid, et näha kaustapuud.",
-             "Очистите поиск и фильтры, чтобы увидеть дерево папок."}
+             "Перетащите, чтобы изменить порядок или переместить в папку"}
           ] do
         assert po_msgstr("en", msgid) == msgid
         assert gettext_in("et", msgid) == et

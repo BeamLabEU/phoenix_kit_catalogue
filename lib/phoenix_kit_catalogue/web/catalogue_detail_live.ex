@@ -4283,18 +4283,6 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                 {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Reorder all")}
               </span>
             </button>
-            <span
-              :if={
-                @child_categories == [] and @show_items_section and @items_total > 1 and
-                  @items_sort_by != :position and @view_mode == "active"
-              }
-              class="text-xs text-base-content/50 self-center"
-            >
-              {Gettext.gettext(
-                PhoenixKitCatalogue.Gettext,
-                "Drag-reorder needs the Manual sort — choose it in the sort selector."
-              )}
-            </span>
             <button
               :if={
                 @view_mode == "active" and length(@child_categories) > 1 and
@@ -6093,23 +6081,6 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
           </.bulk_actions_toolbar>
         </div>
 
-        <%!-- The reorder affordances are position-sort-only by design,
-        but the items sort is a GLOBAL setting — one name-sort click
-        anywhere hides them everywhere with no trace, which read as
-        "reorder is missing" next to a position-sorted categories table
-        (boss, 2026-08-31). Say why, and where the way back is. --%>
-        <p
-          :if={
-            !@controls_in_page_header and @reorder_allowed and @items_total > 1 and
-              @items_sort_by != :position and @view_mode == "active"
-          }
-          class="text-xs text-base-content/50"
-        >
-          {Gettext.gettext(
-            PhoenixKitCatalogue.Gettext,
-            "Drag-reorder needs the Manual sort — choose it in the sort selector."
-          )}
-        </p>
 
         <.table_default
           id="level-items-active"
