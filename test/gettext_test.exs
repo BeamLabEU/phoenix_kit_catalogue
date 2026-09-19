@@ -116,7 +116,10 @@ defmodule PhoenixKitCatalogue.GettextTest do
           # "No suppliers linked yet." — what does "linked" mean? (boss,
           # 2026-09-19); the metadata one had the same jargon.
           {"Suppliers not set.", "Поставщики не указаны.", "Tarnijad määramata."},
-          {"Metadata not set.", "Метаданные не указаны.", "Metaandmed määramata."}
+          {"Metadata not set.", "Метаданные не указаны.", "Metaandmed määramata."},
+          # The View popup's operator rows (boss, 2026-09-19: an item was
+          # "either editing or nothing at all").
+          {"Primary supplier", "Основной поставщик", "Peamine tarnija"}
         ] do
       Gettext.put_locale(PhoenixKitCatalogue.Gettext, "ru")
       assert Gettext.gettext(PhoenixKitCatalogue.Gettext, msgid) == ru

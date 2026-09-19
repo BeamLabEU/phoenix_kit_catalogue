@@ -81,6 +81,57 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
     end
   end
 
+  describe "View popup" do
+    test "opens the item's card with the operator rows and an Edit link", %{conn: conn} do
+      catalogue = fixture_catalogue(%{name: "Kitchen"})
+      cat = fixture_category(catalogue, %{name: "Hinges"})
+
+      item =
+        fixture_item(%{
+          name: "Soft hinge",
+          sku: "HNG-SC",
+          catalogue_uuid: catalogue.uuid,
+          category_uuid: cat.uuid
+        })
+
+      {:ok, view, before} = live(conn, url(catalogue.uuid) <> "?category=" <> cat.uuid)
+      # The place line belongs to the card alone — the page behind it never
+      # writes one, so it is what proves the popup opened in admin mode.
+      refute before =~ "Kitchen › Hinges"
+
+      html = render_click(view, "show_product_card", %{"uuid" => item.uuid})
+
+      assert html =~ "Soft hinge"
+      assert html =~ "HNG-SC"
+      # The rows the View action exists for — a read-only look at the item.
+      assert html =~ "Kitchen › Hinges"
+      # And a way out of reading into editing.
+      assert html =~ "/items/#{item.uuid}/edit"
+    end
+
+    test "a deleted item's card offers no Edit link", %{conn: conn} do
+      catalogue = fixture_catalogue()
+      cat = fixture_category(catalogue, %{name: "Hinges"})
+
+      item =
+        fixture_item(%{
+          name: "Old hinge",
+          catalogue_uuid: catalogue.uuid,
+          category_uuid: cat.uuid
+        })
+
+      {:ok, _} = Catalogue.trash_item(item)
+
+      {:ok, view, _html} =
+        live(conn, url(catalogue.uuid) <> "?category=" <> cat.uuid <> "&view=deleted")
+
+      html = render_click(view, "show_product_card", %{"uuid" => item.uuid})
+
+      assert html =~ "Old hinge"
+      refute html =~ "/items/#{item.uuid}/edit"
+    end
+  end
+
   describe "root landing" do
     test "category names open the chapter's ITEMS, not a sub-browser", %{conn: conn} do
       catalogue = fixture_catalogue()

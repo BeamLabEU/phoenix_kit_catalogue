@@ -1065,6 +1065,9 @@ msgstr "Tulemusi ei leitud."
 msgid "Add Supplier"
 msgstr "Lisa tarnija"
 
+msgid "Primary supplier"
+msgstr "Peamine tarnija"
+
 msgid "Supplier SKU"
 msgstr "Tarnija SKU"
 
