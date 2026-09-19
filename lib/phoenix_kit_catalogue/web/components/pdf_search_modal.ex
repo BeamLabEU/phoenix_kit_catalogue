@@ -55,6 +55,7 @@ defmodule PhoenixKitCatalogue.Web.Components.PdfSearchModal do
        expanding: MapSet.new(),
        error: nil,
        last_item_uuid: nil,
+       last_item_titles: nil,
        per_pdf: @per_pdf,
        mode: :item,
        variant: :modal,
@@ -74,13 +75,22 @@ defmodule PhoenixKitCatalogue.Web.Components.PdfSearchModal do
     socket = assign(socket, assigns)
 
     socket =
-      if show and socket.assigns.last_item_uuid != item.uuid do
+      if show and stale_item_search?(socket, item) do
         run_search(socket, item)
       else
         socket
       end
 
     {:ok, socket}
+  end
+
+  # A different item, or — while the results are still the item search —
+  # this item saved under a new name (the inline tab outlives a save). A
+  # query the operator typed is theirs and is left alone.
+  defp stale_item_search?(socket, item) do
+    socket.assigns.last_item_uuid != item.uuid or
+      (socket.assigns.mode == :item and
+         socket.assigns.last_item_titles != PdfLibrary.item_titles(item))
   end
 
   defp run_search(socket, item) do
@@ -105,6 +115,7 @@ defmodule PhoenixKitCatalogue.Web.Components.PdfSearchModal do
       expanding: MapSet.new(),
       error: nil,
       last_item_uuid: item.uuid,
+      last_item_titles: titles,
       mode: :item,
       query: item.name || "",
       searched: true
@@ -133,7 +144,8 @@ defmodule PhoenixKitCatalogue.Web.Components.PdfSearchModal do
             PhoenixKitCatalogue.Gettext,
             "Search is temporarily unavailable. Please try again in a moment."
           ),
-        last_item_uuid: item.uuid
+        last_item_uuid: item.uuid,
+        last_item_titles: PdfLibrary.item_titles(item)
       )
   end
 
@@ -215,14 +227,16 @@ defmodule PhoenixKitCatalogue.Web.Components.PdfSearchModal do
   end
 
   defp show_more(socket, pdf_uuid) do
-    if MapSet.member?(socket.assigns.expanding, pdf_uuid) do
+    group = Enum.find(socket.assigns.groups, &(&1.pdf.uuid == pdf_uuid))
+
+    # No group: the click came from results a newer search has replaced
+    # (typed while the old list was still on screen).
+    if group == nil or MapSet.member?(socket.assigns.expanding, pdf_uuid) do
       {:noreply, socket}
     else
       socket = assign(socket, :expanding, MapSet.put(socket.assigns.expanding, pdf_uuid))
 
       try do
-        group = Enum.find(socket.assigns.groups, &(&1.pdf.uuid == pdf_uuid))
-
         opts =
           [offset: length(group.hits), limit: @more_batch_size] ++
             trigram_opt(socket.assigns.trigram_query)
