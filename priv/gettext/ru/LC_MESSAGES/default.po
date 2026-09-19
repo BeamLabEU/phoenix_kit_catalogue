@@ -1111,8 +1111,8 @@ msgstr "Срок поставки (дней)"
 msgid "Min. Order Qty"
 msgstr "Мин. кол-во заказа"
 
-msgid "No suppliers linked yet."
-msgstr "Поставщики ещё не привязаны."
+msgid "Suppliers not set."
+msgstr "Поставщики не указаны."
 
 msgid "Lead (d)"
 msgstr "Срок (д)"
@@ -1126,8 +1126,6 @@ msgstr "Основной"
 msgid "Make primary"
 msgstr "Сделать основным"
 
-msgid "Remove this supplier link?"
-msgstr "Удалить связь с поставщиком?"
 
 msgid "-- Select supplier --"
 msgstr "-- Выберите поставщика --"
@@ -2190,8 +2188,8 @@ msgstr "Нет позиций, соответствующих запросу."
 msgid "No manufacturer — items imported without a maker"
 msgstr "Без производителя — позиции импортируются без изготовителя"
 
-msgid "No metadata attached yet. Pick a field below to add one."
-msgstr "Метаданные ещё не прикреплены. Выберите поле ниже, чтобы добавить."
+msgid "Metadata not set."
+msgstr "Метаданные не указаны."
 
 msgid "No other catalogues available to reference yet."
 msgstr "Других каталогов для ссылки пока нет."

@@ -375,7 +375,7 @@ defmodule PhoenixKitCatalogue.Web.ComponentsTest do
           id_prefix: "test"
         )
 
-      assert html =~ "No metadata attached yet"
+      assert html =~ "Metadata not set."
       # Add picker is always present.
       assert html =~ "Pick a field"
     end

@@ -1102,8 +1102,8 @@ msgstr ""
 msgid "Min. Order Qty"
 msgstr ""
 
-msgid "No suppliers linked yet."
-msgstr ""
+msgid "Suppliers not set."
+msgstr "Lieferanten nicht festgelegt."
 
 msgid "Lead (d)"
 msgstr ""
@@ -1117,8 +1117,6 @@ msgstr ""
 msgid "Make primary"
 msgstr ""
 
-msgid "Remove this supplier link?"
-msgstr ""
 
 msgid "-- Select supplier --"
 msgstr ""
@@ -2181,8 +2179,8 @@ msgstr ""
 msgid "No manufacturer — items imported without a maker"
 msgstr ""
 
-msgid "No metadata attached yet. Pick a field below to add one."
-msgstr ""
+msgid "Metadata not set."
+msgstr "Metadaten nicht festgelegt."
 
 msgid "No other catalogues available to reference yet."
 msgstr ""

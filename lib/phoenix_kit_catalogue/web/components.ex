@@ -1391,7 +1391,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
         <span class="text-sm">
           {Gettext.gettext(
             PhoenixKitCatalogue.Gettext,
-            "No metadata attached yet. Pick a field below to add one."
+            "Metadata not set."
           )}
         </span>
       </div>
