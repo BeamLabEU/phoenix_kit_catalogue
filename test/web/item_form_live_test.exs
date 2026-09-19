@@ -484,6 +484,18 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLiveTest do
       assert html =~ "No PDF mentions this item by name."
     end
 
+    test "a ?tab=pdfs link opens the tab with its search", %{conn: conn} do
+      item =
+        fixture_item(%{
+          name: "Oak Panel",
+          category_uuid: fixture_category(fixture_catalogue()).uuid
+        })
+
+      {:ok, view, _html} = live(conn, edit_item_url(item.uuid) <> "?tab=pdfs")
+
+      assert has_element?(view, "#item-pdf-search input[name=q]")
+    end
+
     test "a new item has no PDFs tab", %{conn: conn} do
       catalogue = fixture_catalogue()
       {:ok, view, _html} = live(conn, "#{@base}/#{catalogue.uuid}/items/new")
