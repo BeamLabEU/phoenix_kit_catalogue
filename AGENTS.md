@@ -229,6 +229,12 @@ Repo-local aliases:
   `handle_url_state`, so a "did it change?" check against them never fires; keep
   `prior_*` trackers.
 - `<style>{@css}</style>` in HEEx ships the literal text — use `<%= raw %>`.
+- A key read from the URL (a path `:uuid`, `?category=`, `?folder=`) goes
+  through the context's getters, which answer "not found" for a string that
+  is not a UUID. A raw `repo().get` or a `where: x.uuid == ^param` on it
+  raises `Ecto.Query.CastError` instead — and in a UrlState LiveView, which
+  loads only once connected, that is a page that renders, crashes, reloads
+  and crashes again: an endless spinner, not an error page.
 
 ## Architecture
 
