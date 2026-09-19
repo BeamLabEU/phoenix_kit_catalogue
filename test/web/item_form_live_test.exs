@@ -484,6 +484,70 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLiveTest do
       assert html =~ "No PDF mentions this item by name."
     end
 
+    test "saving the item under a new name searches the new name", %{conn: conn} do
+      item =
+        fixture_item(%{
+          name: "Oak Panel",
+          category_uuid: fixture_category(fixture_catalogue()).uuid
+        })
+
+      {:ok, view, _html} = live(conn, edit_item_url(item.uuid))
+      render_click(view, "switch_tab", %{"tab" => "pdfs"})
+
+      render_submit(view, "save", %{
+        "item" => %{"name" => "Walnut Panel"},
+        "save_action" => "stay"
+      })
+
+      assert Catalogue.get_item!(item.uuid).name == "Walnut Panel"
+
+      assert view |> element("#item-pdf-search input[name=q]") |> render() =~
+               ~s(value="Walnut Panel")
+    end
+
+    test "a typed query survives a rename", %{conn: conn} do
+      item =
+        fixture_item(%{
+          name: "Oak Panel",
+          category_uuid: fixture_category(fixture_catalogue()).uuid
+        })
+
+      {:ok, view, _html} = live(conn, edit_item_url(item.uuid))
+      render_click(view, "switch_tab", %{"tab" => "pdfs"})
+
+      view
+      |> element("#item-pdf-search-query-form")
+      |> render_change(%{"q" => "walnut veneer"})
+
+      render_submit(view, "save", %{
+        "item" => %{"name" => "Walnut Panel"},
+        "save_action" => "stay"
+      })
+
+      assert view |> element("#item-pdf-search input[name=q]") |> render() =~
+               ~s(value="walnut veneer")
+
+      assert render(view) =~ "No pages match your search."
+    end
+
+    test "show more from results a newer search replaced is a no-op", %{conn: conn} do
+      item =
+        fixture_item(%{
+          name: "Oak Panel",
+          category_uuid: fixture_category(fixture_catalogue()).uuid
+        })
+
+      {:ok, view, _html} = live(conn, edit_item_url(item.uuid))
+      render_click(view, "switch_tab", %{"tab" => "pdfs"})
+
+      view
+      |> with_target("#item-pdf-search")
+      |> render_click("show_more", %{"pdf_uuid" => Ecto.UUID.generate()})
+
+      assert Process.alive?(view.pid)
+      assert has_element?(view, "#item-pdf-search input[name=q]")
+    end
+
     test "a ?tab=pdfs link opens the tab with its search", %{conn: conn} do
       item =
         fixture_item(%{
