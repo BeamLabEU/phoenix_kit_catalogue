@@ -987,6 +987,43 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLiveTest do
       assert Decimal.equal?(updated.min_order_qty, Decimal.new("2.5"))
     end
 
+    # The badge must mean "a save would write something". Re-staging a
+    # row's own values is not a change: the dialog seeds itself from the
+    # row, and Done sends that seed straight back.
+    test "the row dialog closed without an edit leaves the row clean", %{conn: conn} do
+      item = supplier_item()
+      supplier = fixture_supplier()
+
+      saved_row(item, supplier, %{
+        "supplier_sku" => "OLD-1",
+        "lead_time_days" => "5",
+        "min_order_qty" => "2.5",
+        "unit_cost" => "7",
+        "currency" => "EUR"
+      })
+
+      {:ok, view, html} = live(conn, edit_item_url(item.uuid))
+      refute html =~ "Unsaved changes"
+
+      render_click(view, "edit_supplier_info", %{"supplier" => supplier.uuid})
+
+      html =
+        render_click(view, "save_supplier_info", %{
+          "supplier_info" => %{
+            "supplier_sku" => "OLD-1",
+            "lead_time_days" => "5",
+            "min_order_qty" => "2.5",
+            "unit_cost" => "7",
+            "currency" => "EUR"
+          }
+        })
+
+      refute html =~ "Unsaved changes"
+
+      state = :sys.get_state(view.pid).socket.assigns
+      refute SupplierDraft.dirty?(state.supplier_draft, state.supplier_infos)
+    end
+
     test "garbage in the row dialog stays in the dialog", %{conn: conn} do
       item = supplier_item()
       supplier = fixture_supplier()

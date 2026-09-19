@@ -1,3 +1,91 @@
+## 0.40.0 - 2026-09-19
+
+Review: `dev_docs/pull_requests/2026/128-item-location-staged-suppliers/`.
+
+### Added
+
+- **The item form has a Location section** (#128). Where an item lives — a
+  catalogue, and optionally a category in it — is picked from a folder ›
+  catalogue › category tree in the Details tab and applied on Save through the
+  move functions, never from a form event. The tree (`Web.ItemLocation`) offers
+  only catalogues of the item's own kind, searches by name with accents and case
+  ignored, opens at the item's current place, and is re-resolved at save time so
+  a tree minutes old cannot file an item into a place that is gone. The form
+  payload's `category_uuid` is dropped outright: it is not a field this form
+  renders, and honouring a forged one would have carried the item past the
+  catalogue pin.
+- **Supplier changes are staged until Save** (#128). Picking a supplier adds its
+  row at once, the cost and currency are typed straight in the table, and
+  Remove, Make primary and the row dialog's terms are staged too —
+  `Web.SupplierDraft` holds them all and writes them once the item itself has
+  saved, in an order that keeps the context's rules meaningful (removals, edits,
+  adds, then the primary the table showed, set explicitly). Rows are keyed by
+  SUPPLIER, so a staged change survives the price revision a cost edit makes. A
+  value that would not save blocks the whole save the way an invalid item field
+  does, and what fails to write stays staged on a form that stays.
+- **The item form has a PDFs tab** (#128). `PdfSearchModal` gained an inline
+  variant: the box starts with the item's name and searches every translated
+  name, edit it and it searches the whole library, put the name back and it is
+  the item search again. Mounted on the first visit and hidden (not dropped)
+  afterwards, so results survive tab switches; a renamed item re-runs its own
+  search, a query the operator typed is left alone. `?tab=pdfs` deep-links to it
+  on an existing item and falls back to Details on a new one.
+- **GitHub-style level switchers in the catalogue detail header** (#128).
+  `Web.LevelSwitchers` puts a ▾ beside the catalogue and beside each category of
+  the trail, each opening a searchable list of the other things on that level. A
+  level with nothing to switch to gets none. Spread into the layout rather than
+  passed as an attribute, so a core without the switcher renders the header
+  exactly as before.
+
+### Changed
+
+- **The module's NAME is "Catalogues"** (#128) — `module_name/0`, the permission
+  label, the sidebar parent, the header's section and the page subtitles all say
+  the plural their pages already said, and the first subtab is "All catalogues"
+  rather than a second "Catalogues" under a parent of that name. A singular
+  "Catalogue" now always means one catalogue.
+- **Table columns are fitted to their content** (#128). Name is the only auto
+  column; every other column is `w-px whitespace-nowrap`, so data columns pack
+  against the right edge and the table still fills its container however few
+  columns are shown. Descriptions and attribute lists wrap inside 16rem, two
+  lines at most. The ⋮ column's header keeps its word for screen readers only.
+- **A category's subcategories are named in words, not an icon** (#128) — the
+  tree's toggle, the sorted table's badge, the cards and the item picker all use
+  the same "N subcategories". The Subcategories column is off by default now
+  that every row says it beside its name, and an open branch carries no tint:
+  grey guide rails do the grouping instead.
+- Removing the last column from a table's Columns editor leaves Name alone
+  rather than snapping back to the defaults, which read as the editor resetting
+  itself. `TableConfig.default_columns/1` reads the managed columns, so unmanaged
+  "name" can never reach a per-id cell loop.
+- The catalogue pages dropped their tutorial hints (the drag-reorder note and
+  the folder-tree note).
+
+### Fixed
+
+- **A hand-edited URL no longer wedges a page in an endless reload** (#128). A
+  key that is not a UUID (`?category=<uuid>?page=5`, a `page=5` glued onto a
+  path segment) named no row but raised `Ecto.Query.CastError` in Ecto, and in a
+  LiveView that reads its URL only once connected that was a page rendering,
+  crashing, reloading and crashing again. Every by-uuid getter in the context
+  now goes through `Catalogue.Helpers.get_by_uuid/2` and answers "not found",
+  which the pages already knew what to do with.
+- A new item or category under an unknown catalogue goes back to the list with
+  "Catalogue not found." instead of raising further down the mount.
+- The item form subscribes to PubSub before its first read, so a write landing
+  between the two is no longer dropped.
+- The PDFs tab searches the item's current name after a save, not the name it
+  had when the tab was opened, and a new item sent to `?tab=pdfs` renders its
+  Details form rather than an empty one.
+- The "Unsaved changes" badge no longer appears after a supplier row's dialog is
+  opened and closed without an edit. The dialog seeds itself from the row and
+  Done sends that seed back, which the dirty check read as a change; it now
+  compares through the same changeset the save writes through, so the badge
+  means a save would write something. (Post-merge review fix.)
+- `Catalogue.get_attribute/1` and `get_attribute_value/1` answer "not found" for
+  a key that is not a UUID, like every other by-uuid getter. (Post-merge review
+  fix.)
+
 ## 0.39.0 - 2026-09-18
 
 Reviews: `dev_docs/pull_requests/2026/127-popover-dropdowns/`.

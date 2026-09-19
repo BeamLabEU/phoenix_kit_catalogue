@@ -25,6 +25,8 @@ defmodule PhoenixKitCatalogue.Web.MalformedUrlKeysTest do
         assert Catalogue.get_folder(bad) == nil
         assert Catalogue.get_pdf(bad) == nil
         assert Catalogue.get_attribute_group(bad) == nil
+        assert Catalogue.get_attribute(bad) == nil
+        assert Catalogue.get_attribute_value(bad) == nil
         assert_raise Ecto.NoResultsError, fn -> Catalogue.fetch_catalogue!(bad) end
         assert_raise Ecto.NoResultsError, fn -> Catalogue.get_category!(bad) end
         assert_raise Ecto.NoResultsError, fn -> Catalogue.get_item!(bad) end

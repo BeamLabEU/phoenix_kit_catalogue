@@ -567,8 +567,29 @@ defmodule PhoenixKitCatalogue.Web.SupplierDraft do
       normalize_currency(Map.get(values, "currency", info.currency)) !=
         normalize_currency(info.currency)
 
-    cost_changed? or currency_changed? or Map.has_key?(draft.custom, supplier_uuid) or
-      Enum.any?(@term_keys, &Map.has_key?(values, &1))
+    cost_changed? or currency_changed? or terms_changed?(info, values) or
+      custom_changed?(draft, info)
+  end
+
+  # Staged, not merely present: the row dialog seeds itself from the row
+  # and Done sends that seed straight back, so a row reopened and closed
+  # without an edit stages every term it holds. The same changeset
+  # `update_terms/4` writes through decides here, so the badge means
+  # exactly what a save would write.
+  defp terms_changed?(info, values) do
+    attrs = values |> Map.take(@term_keys) |> normalize_terms()
+    ItemSupplierInfo.changeset(info, attrs).changes != %{}
+  end
+
+  # Nothing staged, or the same extra values the row already holds. A
+  # typed value arrives as the string the input carried, so a field whose
+  # stored value is not a string (a number, a date) still reads as
+  # changed — conservative, and `update_terms/4` writes nothing either way.
+  defp custom_changed?(draft, info) do
+    case Map.fetch(draft.custom, info.supplier_uuid) do
+      {:ok, custom} -> custom != Catalogue.supplier_field_values(info)
+      :error -> false
+    end
   end
 
   defp same_cost?(nil, nil), do: true
