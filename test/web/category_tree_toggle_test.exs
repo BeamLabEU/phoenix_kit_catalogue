@@ -4,7 +4,8 @@ defmodule PhoenixKitCatalogue.Web.CategoryTreeToggleTest do
   the bare `›` before a name did not read as "this opens the
   subcategories"). A row with subcategories carries a button naming the
   count after its name; a row without has nothing, and no reserved gap;
-  the rows it opens hang off guide rails in the same tint as the parent.
+  the rows it opens hang off guide rails, untinted — a blue row reads as
+  selected here.
   """
   use PhoenixKitCatalogue.LiveCase, async: false
 
@@ -58,11 +59,10 @@ defmodule PhoenixKitCatalogue.Web.CategoryTreeToggleTest do
     refute tree_html(html) =~ "Oak doors"
   end
 
-  test "the button opens the branch: children appear on rails, the branch shares a tint", %{
+  test "the button opens the branch: children appear on guide rails, nothing looks selected", %{
     conn: conn,
     catalogue: catalogue,
-    parent: parent,
-    leaf: leaf
+    parent: parent
   } do
     {:ok, view, _html} = live(conn, "#{@base}/#{catalogue.uuid}")
 
@@ -78,14 +78,8 @@ defmodule PhoenixKitCatalogue.Web.CategoryTreeToggleTest do
     rows =
       html |> LazyHTML.from_fragment() |> LazyHTML.query("#catalogue-categories-tree tbody tr")
 
-    tinted =
-      for tr <- rows, LazyHTML.attribute(tr, "class") |> List.first("") =~ "bg-primary/5" do
-        tr |> LazyHTML.text() |> String.trim() |> String.split(~r/\s+/) |> Enum.take(2)
-      end
-
-    # The open parent and both children; not the sibling below them.
-    assert length(tinted) == 3
-    refute LazyHTML.attribute(row(html, leaf.uuid), "class") |> List.first("") =~ "bg-primary/5"
+    # No tint on the open branch: blue rows read as selected rows here.
+    refute Enum.any?(rows, &(LazyHTML.attribute(&1, "class") |> List.first("") =~ "bg-primary"))
 
     # Each child hangs off one guide rail; a top-level row has none.
     child_rail =
