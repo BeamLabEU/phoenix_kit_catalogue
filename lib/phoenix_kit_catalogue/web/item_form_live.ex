@@ -3822,7 +3822,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
               <.select
                 name="attribute_group_uuid"
                 value={@selected_attribute_group_uuid}
-                prompt={Gettext.gettext(PhoenixKitCatalogue.Gettext, "— No attribute group —")}
+                prompt={Gettext.gettext(PhoenixKitCatalogue.Gettext, "— Attribute group not set —")}
                 options={attribute_group_options_for_select(@attribute_group_options)}
                 class="w-full transition-colors focus-within:select-primary"
               />
@@ -3947,7 +3947,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
               <.select
                 field={@form[:manufacturer_uuid]}
                 class="transition-colors focus-within:select-primary"
-                prompt={Gettext.gettext(PhoenixKitCatalogue.Gettext, "-- No manufacturer --")}
+                prompt={Gettext.gettext(PhoenixKitCatalogue.Gettext, "-- Manufacturer not set --")}
                 options={manufacturer_options(@manufacturers)}
               />
             </div>

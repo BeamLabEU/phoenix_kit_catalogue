@@ -1358,8 +1358,8 @@ msgstr "Выберите группу, чтобы задать товару оп
 msgid "Manage groups"
 msgstr "Управлять группами"
 
-msgid "— No attribute group —"
-msgstr "— Без группы атрибутов —"
+msgid "— Attribute group not set —"
+msgstr "— Группа атрибутов не указана —"
 
 msgid "archived"
 msgstr "в архиве"
@@ -1748,8 +1748,8 @@ msgstr "Доступно каталогов: %{total} — ни один не в�
 msgid "-- No category --"
 msgstr "-- Без категории --"
 
-msgid "-- No manufacturer --"
-msgstr "-- Без производителя --"
+msgid "-- Manufacturer not set --"
+msgstr "-- Производитель не указан --"
 
 msgid "-- Select catalogue --"
 msgstr "-- Выберите каталог --"

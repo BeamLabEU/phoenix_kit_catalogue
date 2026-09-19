@@ -1349,8 +1349,8 @@ msgstr ""
 msgid "Manage groups"
 msgstr ""
 
-msgid "— No attribute group —"
-msgstr ""
+msgid "— Attribute group not set —"
+msgstr "— Attributgruppe nicht festgelegt —"
 
 msgid "archived"
 msgstr ""
@@ -1739,8 +1739,8 @@ msgstr ""
 msgid "-- No category --"
 msgstr ""
 
-msgid "-- No manufacturer --"
-msgstr ""
+msgid "-- Manufacturer not set --"
+msgstr "-- Hersteller nicht festgelegt --"
 
 msgid "-- Select catalogue --"
 msgstr ""
