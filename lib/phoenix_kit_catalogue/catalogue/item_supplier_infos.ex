@@ -176,14 +176,14 @@ defmodule PhoenixKitCatalogue.Catalogue.ItemSupplierInfos do
   defp already_linked_violation?(_other), do: false
 
   # The comment thread is stamped here, never taken from attrs: a pair that
-  # was attached before resumes its thread (see SupplierComments), a new
-  # pair gets a fresh one, and neither an import nor a form can point the
-  # row at somebody else's.
+  # was attached before resumes its thread, a new pair gets its own
+  # name-based one (see SupplierComments.thread_for_pair/2), and neither an
+  # import nor a form can point the row at somebody else's.
   defp do_create(attrs, opts) do
     changeset = ItemSupplierInfo.changeset(%ItemSupplierInfo{}, attrs)
 
     thread =
-      SupplierComments.inherited_thread(
+      SupplierComments.thread_for_pair(
         Ecto.Changeset.get_field(changeset, :item_uuid),
         Ecto.Changeset.get_field(changeset, :supplier_uuid)
       ) || UUIDv7.generate()

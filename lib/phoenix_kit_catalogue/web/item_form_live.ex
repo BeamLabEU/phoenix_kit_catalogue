@@ -914,16 +914,19 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
     addable = Enum.map(addable_suppliers(socket.assigns), & &1.uuid)
 
     {:noreply,
-     update(socket, :supplier_draft, &SupplierDraft.add(&1, params["supplier_add"], addable))}
+     socket
+     |> update(:supplier_draft, &SupplierDraft.add(&1, params["supplier_add"], addable))
+     |> threads_follow_adds(socket.assigns.supplier_draft.adds)}
   end
 
   def handle_event("stage_supplier_remove", %{"supplier" => supplier_uuid}, socket) do
     {:noreply,
-     update(
-       socket,
+     socket
+     |> update(
        :supplier_draft,
        &SupplierDraft.remove(&1, supplier_uuid, socket.assigns.supplier_infos)
-     )}
+     )
+     |> threads_follow_adds(socket.assigns.supplier_draft.adds)}
   end
 
   def handle_event("restore_supplier", %{"supplier" => supplier_uuid}, socket),
@@ -1045,20 +1048,25 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   # LiveView itself rendered, never taken from the payload — a crafted uuid
   # must not be able to address another item's thread or an arbitrary
   # company.
-  def handle_event("open_supplier_comments", %{"uuid" => uuid}, socket) do
+  # A staged row opens the thread it will be created with.
+  def handle_event("open_supplier_comments", %{"supplier" => supplier_uuid}, socket) do
     with true <- socket.assigns.supplier_comments_available,
-         %{} = info <- owned_supplier_info(socket, uuid),
-         thread when is_binary(thread) <- socket.assigns.supplier_comment_threads[info.uuid] do
+         %{} = row <- Enum.find(supplier_rows(socket.assigns), &(&1.key == supplier_uuid)),
+         thread when is_binary(thread) <- socket.assigns.supplier_comment_threads[row.key] do
       {:noreply,
        assign(socket, :supplier_comments, %{
          thread_uuid: thread,
-         company_uuid: socket.assigns.supplier_company_links[info.uuid],
-         name: supplier_display_name(info, socket.assigns.all_suppliers)
+         company_uuid: row_company_uuid(socket.assigns, row),
+         name: row.name
        })}
     else
       _ -> {:noreply, socket}
     end
   end
+
+  # Any other shape — a page loaded before rows were keyed by supplier
+  # sends the row's uuid — opens nothing.
+  def handle_event("open_supplier_comments", _params, socket), do: {:noreply, socket}
 
   def handle_event("close_supplier_comments", _params, socket) do
     {:noreply, assign(socket, :supplier_comments, nil)}
@@ -1395,20 +1403,38 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
       |> Map.new(&{&1.uuid, Catalogue.supplier_crm_company_uuid(&1)})
       |> Map.filter(fn {_uuid, company} -> is_binary(company) end)
 
-    threads =
-      if socket.assigns[:supplier_comments_available],
-        do: Map.new(infos, &{&1.uuid, Catalogue.supplier_comment_thread_uuid(&1)}),
-        else: %{}
+    socket
+    |> assign(supplier_infos: infos, supplier_company_links: links)
+    |> assign_comment_threads()
+  end
+
+  # One comment thread per row, keyed by supplier like the rows: a saved
+  # row's own, and for a staged row the thread it will be created with
+  # (`thread_for_pair/2`) — so a supplier picked but not yet saved can be
+  # commented on (Max, 2026-09-19). A new item has no uuid to derive one
+  # from, so its staged rows get none until it is created.
+  defp assign_comment_threads(%{assigns: %{supplier_comments_available: true}} = socket) do
+    %{supplier_infos: infos, supplier_draft: draft, item: item} = socket.assigns
+    known = socket.assigns[:supplier_comment_threads] || %{}
+
+    saved = Map.new(infos, &{&1.supplier_uuid, Catalogue.supplier_comment_thread_uuid(&1)})
+
+    staged =
+      for supplier_uuid <- draft.adds, is_binary(item.uuid), into: %{} do
+        {supplier_uuid,
+         Map.get(known, supplier_uuid) ||
+           Catalogue.supplier_comment_thread_for_pair(item.uuid, supplier_uuid)}
+      end
+
+    threads = Map.merge(staged, saved)
 
     socket
-    |> assign(
-      supplier_infos: infos,
-      supplier_company_links: links,
-      supplier_comment_threads: threads
-    )
+    |> assign(:supplier_comment_threads, threads)
     |> assign(:supplier_comment_previews, comment_previews(threads))
     |> sync_comment_subscriptions(threads)
   end
+
+  defp assign_comment_threads(socket), do: socket
 
   # Everything the Suppliers tab derives from the DB: the rows (+ CRM
   # links, threads, previews, subscriptions), the supplier names, and the
@@ -1423,6 +1449,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
     |> then(fn socket ->
       update(socket, :supplier_draft, &SupplierDraft.reconcile(&1, socket.assigns.supplier_infos))
     end)
+    |> assign_comment_threads()
     |> refresh_supplier_history()
   end
 
@@ -1438,6 +1465,31 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   end
 
   defp refresh_supplier_history(socket), do: socket
+
+  # A staged row gained or lost: its comment thread comes or goes with it.
+  defp threads_follow_adds(socket, adds_before) do
+    if socket.assigns.supplier_draft.adds == adds_before,
+      do: socket,
+      else: assign_comment_threads(socket)
+  end
+
+  # The CRM company behind a row, for the comments modal's link: a saved
+  # row's resolved link, or — for a staged one — its picked supplier's.
+  defp row_company_uuid(assigns, %{info: %{uuid: uuid}}),
+    do: assigns.supplier_company_links[uuid]
+
+  defp row_company_uuid(assigns, %{key: supplier_uuid}) do
+    case Enum.find(assigns.all_suppliers, &(&1.uuid == supplier_uuid)) do
+      %{source: source} ->
+        Catalogue.supplier_crm_company_uuid(%{
+          supplier_source: Atom.to_string(source),
+          supplier_uuid: supplier_uuid
+        })
+
+      nil ->
+        nil
+    end
+  end
 
   # The place the section shows: the one picked, else where the item is.
   defp location_shown(assigns), do: assigns.location_target || assigns.location_current
@@ -1522,7 +1574,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   # ── Inline comment previews ──────────────────────────────────────────
 
   attr(:preview, :map, required: true)
-  attr(:uuid, :string, required: true)
+  attr(:supplier, :string, required: true)
 
   defp supplier_comment_preview(assigns) do
     ~H"""
@@ -1534,7 +1586,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
         <.button
           type="button"
           phx-click="open_supplier_comments"
-          phx-value-uuid={@uuid}
+          phx-value-supplier={@supplier}
           variant="ghost"
           size="xs"
         >
@@ -1557,7 +1609,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
         :if={@preview.latest != []}
         type="button"
         phx-click="open_supplier_comments"
-        phx-value-uuid={@uuid}
+        phx-value-supplier={@supplier}
         variant="ghost"
         size="xs"
         class="self-start"
@@ -1584,10 +1636,10 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
     type = Catalogue.supplier_comment_resource_type()
     counts = PhoenixKitComments.count_comments(type, threads |> Map.values() |> Enum.uniq())
 
-    Map.new(threads, fn {info_uuid, thread} ->
+    Map.new(threads, fn {key, thread} ->
       count = Map.get(counts, thread, 0)
 
-      {info_uuid, %{count: count, latest: latest_comments(type, thread, count)}}
+      {key, %{count: count, latest: latest_comments(type, thread, count)}}
     end)
   rescue
     # A preview is decoration; it must never take the sourcing tab down.
@@ -2250,6 +2302,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
     |> then(
       &assign(&1, :supplier_draft, SupplierDraft.reconcile(draft, &1.assigns.supplier_infos))
     )
+    |> assign_comment_threads()
     |> assign(location_target: target, location_target_path: target_path)
   end
 
@@ -4081,9 +4134,9 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                              dropdown does not). --%>
                         <.table_row_menu :if={not row.removed?} id={"supplier-actions-#{row.key}"}>
                           <.table_row_menu_button
-                            :if={info && Map.has_key?(@supplier_comment_threads, info.uuid)}
+                            :if={Map.has_key?(@supplier_comment_threads, row.key)}
                             phx-click="open_supplier_comments"
-                            phx-value-uuid={info && info.uuid}
+                            phx-value-supplier={row.key}
                             icon="hero-chat-bubble-left-ellipsis"
                             label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Comments")}
                           />
@@ -4129,13 +4182,14 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                     <%!-- The supplier's latest comments on THIS item, inline
                          — the row's own thread, not the CRM company's. --%>
                     <tr
-                      :if={info && Map.has_key?(@supplier_comment_previews, info.uuid)}
+                      :if={not row.removed? and Map.has_key?(@supplier_comment_previews, row.key)}
+                      id={"supplier-comments-row-#{row.key}"}
                       class="border-0"
                     >
                       <td colspan={supplier_table_colspan(assigns)} class="pt-0 pb-3">
                         <.supplier_comment_preview
-                          preview={@supplier_comment_previews[info.uuid]}
-                          uuid={info.uuid}
+                          preview={@supplier_comment_previews[row.key]}
+                          supplier={row.key}
                         />
                       </td>
                     </tr>

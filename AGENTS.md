@@ -476,7 +476,10 @@ Pointers, not docs — the moduledocs are the contract.
 - **Supplier comments** — one `phoenix_kit_comments` thread per item × supplier
   row (`"catalogue_item_supplier"`), keyed on the thread uuid in
   `item_supplier_info.metadata["comment_thread_uuid"]`. Server-owned, survives
-  price revisions and removal — removal CLOSES the row, never deletes it. Never
+  price revisions and removal — removal CLOSES the row, never deletes it. A
+  pair's thread is known before its row exists (`thread_for_pair/2`: the
+  inherited one, else a name-based uuid of the pair), which is how the item
+  form takes comments on a supplier it has only staged. Never
   the CRM company's thread. The admin/activity back-link resolver self-registers
   via `resource_links/0`, so no host config is needed. See
   `Catalogue.SupplierComments`.
