@@ -565,6 +565,15 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLiveTest do
       {:ok, view, _html} = live(conn, "#{@base}/#{catalogue.uuid}/items/new")
       refute has_element?(view, ~s(button[phx-value-tab="pdfs"]))
     end
+
+    test "a new item sent to ?tab=pdfs lands on Details, not an empty form", %{conn: conn} do
+      catalogue = fixture_catalogue()
+      {:ok, view, _html} = live(conn, "#{@base}/#{catalogue.uuid}/items/new?tab=pdfs")
+      assert has_element?(view, ~s(button.tab-active[phx-value-tab="details"]))
+
+      render_click(view, "switch_tab", %{"tab" => "pdfs"})
+      assert has_element?(view, ~s(button.tab-active[phx-value-tab="details"]))
+    end
   end
 
   describe "supplier info card" do
@@ -873,11 +882,22 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLiveTest do
 
       assert has_element?(view, "#supplier-add-fields")
 
+      assert has_element?(
+               view,
+               ~s(#supplier-add-picker option[value="#{supplier.uuid}"][selected])
+             )
+
+      refute has_element?(view, ~s(#supplier-add-picker option[value=""][selected]))
+
       render_change(view, "supplier_info_field_change", %{
         "supplier_info" => %{"supplier_uuid" => ""}
       })
 
       refute has_element?(view, "#supplier-add-fields")
+
+      # The placeholder is marked, not merely unmarked options — the
+      # browser must not keep showing the supplier that was just closed.
+      assert has_element?(view, ~s(#supplier-add-picker option[value=""][selected]))
     end
 
     test "edit_supplier_info updates the row's columns", %{conn: conn} do
