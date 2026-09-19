@@ -3556,3 +3556,39 @@ msgstr ""
 
 msgid "-- Add supplier --"
 msgstr ""
+
+msgid "Location"
+msgstr ""
+
+msgid "Undo"
+msgstr ""
+
+msgid "Unsaved changes"
+msgstr ""
+
+msgid "Choose a location"
+msgstr ""
+
+msgid "Find a catalogue or category…"
+msgstr ""
+
+msgid "No matches."
+msgstr ""
+
+msgid "New"
+msgstr ""
+
+msgid "Collapse"
+msgstr ""
+
+msgid "Expand"
+msgstr ""
+
+msgid "Currency must be a three-letter code, like EUR."
+msgstr ""
+
+msgid "Some supplier values are not valid."
+msgstr ""
+
+msgid "That location no longer exists. Choose another."
+msgstr ""

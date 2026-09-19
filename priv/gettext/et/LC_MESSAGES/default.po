@@ -3550,3 +3550,39 @@ msgstr "Leia kategooria…"
 
 msgid "-- Add supplier --"
 msgstr "-- Lisa tarnija --"
+
+msgid "Location"
+msgstr "Asukoht"
+
+msgid "Undo"
+msgstr "Võta tagasi"
+
+msgid "Unsaved changes"
+msgstr "Salvestamata muudatused"
+
+msgid "Choose a location"
+msgstr "Vali asukoht"
+
+msgid "Find a catalogue or category…"
+msgstr "Leia kataloog või kategooria…"
+
+msgid "No matches."
+msgstr "Vasteid pole."
+
+msgid "New"
+msgstr "Uus"
+
+msgid "Collapse"
+msgstr "Sule"
+
+msgid "Expand"
+msgstr "Ava"
+
+msgid "Currency must be a three-letter code, like EUR."
+msgstr "Valuuta peab olema kolmetäheline kood, näiteks EUR."
+
+msgid "Some supplier values are not valid."
+msgstr "Mõned tarnija väärtused ei sobi."
+
+msgid "That location no longer exists. Choose another."
+msgstr "Seda asukohta pole enam. Vali mõni teine."

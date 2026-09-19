@@ -3033,6 +3033,24 @@ defmodule PhoenixKitCatalogue.Catalogue do
     Enum.reverse(acc)
   end
 
+  @doc """
+  The live (non-deleted) categories of several catalogues in one query,
+  in `list_category_tree/2`'s sibling order (position, then name). The
+  nesting is left to the caller through `parent_uuid` — for pickers that
+  show many catalogues' trees at once, where one `list_category_tree/2`
+  per catalogue would be a query each.
+  """
+  @spec list_live_categories([Ecto.UUID.t()]) :: [Category.t()]
+  def list_live_categories([]), do: []
+
+  def list_live_categories(catalogue_uuids) when is_list(catalogue_uuids) do
+    from(c in Category,
+      where: c.catalogue_uuid in ^catalogue_uuids and c.status != "deleted",
+      order_by: [asc: :position, asc: :name]
+    )
+    |> repo().all()
+  end
+
   defp collect_tree(%Category{} = cat, index, depth, acc) do
     acc = [{cat, depth} | acc]
 
