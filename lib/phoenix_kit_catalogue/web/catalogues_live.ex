@@ -78,7 +78,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
 
     {:ok,
      assign(socket,
-       page_title: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Catalogue"),
+       page_title: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Catalogues"),
        catalogue_rows: [],
        attribute_group_rows: [],
        attribute_set_rows: [],

@@ -263,30 +263,30 @@ defmodule PhoenixKitCatalogue.GettextTest do
     assert untranslated == []
   end
 
-  test "Tab.localized_label/1 returns Russian translation for Catalogue" do
+  test "Tab.localized_label/1 returns Russian translation for Catalogues" do
     Gettext.put_locale(PhoenixKitCatalogue.Gettext, "ru")
 
     tab = %Tab{
       id: :admin_catalogue,
-      label: "Catalogue",
+      label: "Catalogues",
       gettext_backend: PhoenixKitCatalogue.Gettext,
       gettext_domain: "default"
     }
 
-    assert Tab.localized_label(tab) == "Каталог"
+    assert Tab.localized_label(tab) == "Каталоги"
   end
 
-  test "Tab.localized_label/1 returns Estonian translation for Catalogue" do
+  test "Tab.localized_label/1 returns Estonian translation for Catalogues" do
     Gettext.put_locale(PhoenixKitCatalogue.Gettext, "et")
 
     tab = %Tab{
       id: :admin_catalogue,
-      label: "Catalogue",
+      label: "Catalogues",
       gettext_backend: PhoenixKitCatalogue.Gettext,
       gettext_domain: "default"
     }
 
-    assert Tab.localized_label(tab) == "Kataloog"
+    assert Tab.localized_label(tab) == "Kataloogid"
   end
 
   test "Tab.localized_label/1 returns Russian translation for Export" do

@@ -392,7 +392,7 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLive do
       phoenix_kit_current_scope={assigns[:phoenix_kit_current_scope]}
       page_title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "PDF library")}
       page_subtitle={
-        Gettext.gettext(PhoenixKitCatalogue.Gettext, "Catalogue") <>
+        Gettext.gettext(PhoenixKitCatalogue.Gettext, "Catalogues") <>
           " · " <>
           Gettext.gettext(PhoenixKitCatalogue.Gettext, "%{count} PDFs", count: length(@pdfs))
       }
