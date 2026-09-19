@@ -27,10 +27,13 @@ conventions, contracts and non-obvious boundaries.
   side declares a dependency on the other. A few siblings reference the module
   name behind `Code.ensure_loaded?/1` guards only.
 - **Admin surface:** parent tab `:admin_catalogue` at `/admin/catalogue`, with
-  subtabs Catalogues, Attributes, Import, Export, Events, PDFs, Translations,
-  plus hidden form/detail tabs. One stateless HTTP route:
+  subtabs All catalogues, Attributes, Import, Export, Events, PDFs,
+  Translations, plus hidden form/detail tabs. One stateless HTTP route:
   `GET /admin/catalogue/export/download`.
-- **Module key** `"catalogue"`; settings prefix `catalogue_`.
+- **Module key** `"catalogue"`; settings prefix `catalogue_`. The module's
+  NAME is "Catalogues" everywhere a person reads it — `module_name/0`, the
+  permission label, the sidebar parent, the header's section, page
+  subtitles. A singular "Catalogue" means one catalogue, never the module.
 
 ## What this module does NOT do
 
