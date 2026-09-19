@@ -1348,8 +1348,8 @@ msgstr "Vali rühm, mis annab tootele valikud — värvid, kandid, pinnad. Raken
 msgid "Manage groups"
 msgstr "Halda rühmi"
 
-msgid "— No attribute group —"
-msgstr "— Atribuudirühm puudub —"
+msgid "— Attribute group not set —"
+msgstr "— Atribuudirühm määramata —"
 
 msgid "archived"
 msgstr "arhiveeritud"
@@ -1738,8 +1738,8 @@ msgstr "%{total} kataloogi saadaval — ühtegi pole valitud"
 msgid "-- No category --"
 msgstr "-- Kategooria puudub --"
 
-msgid "-- No manufacturer --"
-msgstr "-- Tootja puudub --"
+msgid "-- Manufacturer not set --"
+msgstr "-- Tootja määramata --"
 
 msgid "-- Select catalogue --"
 msgstr "-- Vali kataloog --"

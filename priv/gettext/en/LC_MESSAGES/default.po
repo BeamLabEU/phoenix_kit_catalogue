@@ -1348,8 +1348,8 @@ msgstr "Pick a group to give this item its options — colors, trims, surfaces. 
 msgid "Manage groups"
 msgstr "Manage groups"
 
-msgid "— No attribute group —"
-msgstr "— No attribute group —"
+msgid "— Attribute group not set —"
+msgstr "— Attribute group not set —"
 
 msgid "archived"
 msgstr "archived"
@@ -1738,7 +1738,7 @@ msgstr ""
 msgid "-- No category --"
 msgstr ""
 
-msgid "-- No manufacturer --"
+msgid "-- Manufacturer not set --"
 msgstr ""
 
 msgid "-- Select catalogue --"

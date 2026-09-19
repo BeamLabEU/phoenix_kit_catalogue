@@ -110,7 +110,10 @@ defmodule PhoenixKitCatalogue.GettextTest do
            "Mõned tarnija väärtused ei sobi."},
           {"That location no longer exists. Choose another.",
            "Этого расположения больше нет. Выберите другое.",
-           "Seda asukohta pole enam. Vali mõni teine."}
+           "Seda asukohta pole enam. Vali mõni teine."},
+          # "No manufacturer" read as if there were none (boss, 2026-09-19).
+          {"-- Manufacturer not set --", "-- Производитель не указан --",
+           "-- Tootja määramata --"}
         ] do
       Gettext.put_locale(PhoenixKitCatalogue.Gettext, "ru")
       assert Gettext.gettext(PhoenixKitCatalogue.Gettext, msgid) == ru
@@ -580,7 +583,8 @@ defmodule PhoenixKitCatalogue.GettextTest do
              "See rühm on toodetel kasutusel — arhiveeri see kustutamise asemel.",
              "Эта группа используется товарами — вместо удаления заархивируйте её."},
             {"Attribute group", "Atribuudirühm", "Группа атрибутов"},
-            {"— No attribute group —", "— Atribuudirühm puudub —", "— Без группы атрибутов —"},
+            {"— Attribute group not set —", "— Atribuudirühm määramata —",
+             "— Группа атрибутов не указана —"},
             {"Manage groups", "Halda rühmi", "Управлять группами"}
           ] do
         assert po_msgstr("en", msgid) == msgid
