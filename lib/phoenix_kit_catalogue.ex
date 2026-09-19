@@ -48,7 +48,11 @@ defmodule PhoenixKitCatalogue do
   def migration_module, do: PhoenixKitCatalogue.Migrations
 
   @impl PhoenixKit.Module
-  def module_name, do: "Catalogue"
+  # The plural, as every page says it ("Catalogues / …" in the header, the
+  # index's title): the module was named "Catalogue" while its pages said
+  # "Catalogues", and the boss asked for one name (2026-09-19). Core's
+  # Modules page translates both.
+  def module_name, do: "Catalogues"
 
   @impl PhoenixKit.Module
   def enabled? do
@@ -186,7 +190,7 @@ defmodule PhoenixKitCatalogue do
   def permission_metadata do
     %{
       key: module_key(),
-      label: "Catalogue",
+      label: "Catalogues",
       icon: "hero-rectangle-stack",
       description: "Product catalogue management for items and categories"
     }
@@ -201,7 +205,7 @@ defmodule PhoenixKitCatalogue do
       # Note: parent highlights on hidden subpages (e.g. /catalogue/new) — acceptable tradeoff.
       %Tab{
         id: :admin_catalogue,
-        label: "Catalogue",
+        label: "Catalogues",
         gettext_backend: PhoenixKitCatalogue.Gettext,
         gettext_domain: "default",
         icon: "hero-rectangle-stack",
@@ -216,10 +220,11 @@ defmodule PhoenixKitCatalogue do
         redirect_to_first_subtab: true,
         live_view: {PhoenixKitCatalogue.Web.CataloguesLive, :index}
       },
-      # Subtabs — Catalogues, Manufacturers, Suppliers
+      # Subtabs. The first is "All catalogues", not a second "Catalogues"
+      # under the parent of that name (the kit's idiom: Posts → All Posts).
       %Tab{
         id: :admin_catalogue_list,
-        label: "Catalogues",
+        label: "All catalogues",
         gettext_backend: PhoenixKitCatalogue.Gettext,
         gettext_domain: "default",
         icon: "hero-rectangle-stack",
@@ -235,7 +240,7 @@ defmodule PhoenixKitCatalogue do
         #
         # Without this, hidden subtabs with literal `:uuid` segments
         # (e.g. "catalogue/:uuid/edit") never match a real URL, so the
-        # parent "Catalogue" tab is the only thing that lights up on
+        # parent "Catalogues" tab is the only thing that lights up on
         # detail/form pages — which looks wrong in the sidebar.
         match:
           {:regex,

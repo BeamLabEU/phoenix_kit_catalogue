@@ -585,7 +585,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
   @doc "Fetches a catalogue by UUID without preloads. Returns `nil` if not found."
   @spec get_catalogue(Ecto.UUID.t()) :: Catalogue.t() | nil
-  def get_catalogue(uuid), do: repo().get(Catalogue, uuid)
+  def get_catalogue(uuid), do: Helpers.get_by_uuid(Catalogue, uuid)
 
   @doc """
   Fetches a catalogue by UUID without preloading categories or items.
@@ -595,7 +595,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
   items separately).
   """
   @spec fetch_catalogue!(Ecto.UUID.t()) :: Catalogue.t()
-  def fetch_catalogue!(uuid), do: repo().get!(Catalogue, uuid)
+  def fetch_catalogue!(uuid), do: Helpers.get_by_uuid!(Catalogue, uuid)
 
   @doc """
   Fetches a catalogue by UUID with preloaded categories and items.
@@ -632,7 +632,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
       end
 
     Catalogue
-    |> repo().get!(uuid)
+    |> Helpers.get_by_uuid!(uuid)
     |> repo().preload(categories: {category_query, [items: item_query]})
   end
 
@@ -1590,11 +1590,11 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
   @doc "Fetches a category by UUID. Returns `nil` if not found."
   @spec get_category(Ecto.UUID.t()) :: Category.t() | nil
-  def get_category(uuid), do: repo().get(Category, uuid)
+  def get_category(uuid), do: Helpers.get_by_uuid(Category, uuid)
 
   @doc "Fetches a category by UUID. Raises `Ecto.NoResultsError` if not found."
   @spec get_category!(Ecto.UUID.t()) :: Category.t()
-  def get_category!(uuid), do: repo().get!(Category, uuid)
+  def get_category!(uuid), do: Helpers.get_by_uuid!(Category, uuid)
 
   @doc """
   Fetches a category by its per-language `slug`.
@@ -1993,7 +1993,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
   end
 
   defp apply_item_disposition({:move_to, target_uuid}, subtree, category, now) do
-    case repo().get(Category, target_uuid) do
+    case Helpers.get_by_uuid(Category, target_uuid) do
       nil ->
         {:error, :move_target_not_found}
 
@@ -3033,6 +3033,24 @@ defmodule PhoenixKitCatalogue.Catalogue do
     Enum.reverse(acc)
   end
 
+  @doc """
+  The live (non-deleted) categories of several catalogues in one query,
+  in `list_category_tree/2`'s sibling order (position, then name). The
+  nesting is left to the caller through `parent_uuid` — for pickers that
+  show many catalogues' trees at once, where one `list_category_tree/2`
+  per catalogue would be a query each.
+  """
+  @spec list_live_categories([Ecto.UUID.t()]) :: [Category.t()]
+  def list_live_categories([]), do: []
+
+  def list_live_categories(catalogue_uuids) when is_list(catalogue_uuids) do
+    from(c in Category,
+      where: c.catalogue_uuid in ^catalogue_uuids and c.status != "deleted",
+      order_by: [asc: :position, asc: :name]
+    )
+    |> repo().all()
+  end
+
   defp collect_tree(%Category{} = cat, index, depth, acc) do
     acc = [{cat, depth} | acc]
 
@@ -3312,7 +3330,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
   @doc "Fetches a folder by UUID. Returns `nil` if not found."
   @spec get_folder(Ecto.UUID.t()) :: Folder.t() | nil
-  def get_folder(uuid), do: repo().get(Folder, uuid)
+  def get_folder(uuid), do: Helpers.get_by_uuid(Folder, uuid)
 
   @doc """
   Creates a folder. `:parent_uuid` (optional) nests it; a new folder is
@@ -5274,7 +5292,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
   """
   @spec get_item(Ecto.UUID.t(), keyword()) :: Item.t() | nil
   def get_item(uuid, opts \\ []) do
-    case repo().get(Item, uuid) do
+    case Helpers.get_by_uuid(Item, uuid) do
       nil -> nil
       item -> repo().preload(item, Keyword.get(opts, :preload, []))
     end
@@ -5290,7 +5308,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
   @spec get_item!(Ecto.UUID.t(), keyword()) :: Item.t()
   def get_item!(uuid, opts \\ []) do
     Item
-    |> repo().get!(uuid)
+    |> Helpers.get_by_uuid!(uuid)
     |> repo().preload(Helpers.merge_preloads([:catalogue, :category], opts))
     |> Manufacturers.hydrate()
   end
@@ -6679,7 +6697,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
   end
 
   defp bulk_trash_category_step(uuid, disposition, opts, acc) do
-    case repo().get(Category, uuid) do
+    case Helpers.get_by_uuid(Category, uuid) do
       nil -> {:cont, acc}
       %Category{status: "deleted"} -> {:cont, acc}
       %Category{} = category -> trash_one_in_bulk(category, disposition, opts, acc)

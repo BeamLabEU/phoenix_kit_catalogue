@@ -266,7 +266,7 @@ defmodule PhoenixKitCatalogue.Web.EventsLive do
       phoenix_kit_current_scope={assigns[:phoenix_kit_current_scope]}
       page_title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Events")}
       page_subtitle={
-        Gettext.gettext(PhoenixKitCatalogue.Gettext, "Catalogue") <>
+        Gettext.gettext(PhoenixKitCatalogue.Gettext, "Catalogues") <>
           " · " <>
           Gettext.gettext(PhoenixKitCatalogue.Gettext, "Events: %{count}", count: @total)
       }

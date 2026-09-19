@@ -88,7 +88,13 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
           # query was thrown away on every render.
           cat = %Category{catalogue_uuid: catalogue_uuid, parent_uuid: parent_uuid}
 
-          {cat, Catalogue.change_category(cat), catalogue_uuid}
+          # The catalogue in the URL is checked first: an unknown one — or
+          # a hand-edited path that is not a UUID — would otherwise reach a
+          # query further down the mount and raise instead of saying
+          # "not found".
+          if Catalogue.get_catalogue(catalogue_uuid),
+            do: {cat, Catalogue.change_category(cat), catalogue_uuid},
+            else: {nil, nil, nil}
 
         :edit ->
           case Catalogue.get_category(params["uuid"]) do
@@ -101,10 +107,15 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
           end
       end
 
-    if is_nil(category) and action == :edit do
+    if is_nil(category) do
+      message =
+        if action == :edit,
+          do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Category not found."),
+          else: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Catalogue not found.")
+
       {:ok,
        socket
-       |> put_flash(:error, Gettext.gettext(PhoenixKitCatalogue.Gettext, "Category not found."))
+       |> put_flash(:error, message)
        |> push_navigate(to: Paths.index())}
     else
       socket

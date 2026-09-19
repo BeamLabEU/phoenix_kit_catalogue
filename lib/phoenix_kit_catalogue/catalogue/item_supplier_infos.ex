@@ -116,7 +116,7 @@ defmodule PhoenixKitCatalogue.Catalogue.ItemSupplierInfos do
 
   @doc "Fetches a supplier-info row by UUID. Returns `nil` if not found."
   @spec get(Ecto.UUID.t()) :: ItemSupplierInfo.t() | nil
-  def get(uuid), do: repo().get(ItemSupplierInfo, uuid)
+  def get(uuid), do: Helpers.get_by_uuid(ItemSupplierInfo, uuid)
 
   @doc """
   Creates a supplier-info row.
