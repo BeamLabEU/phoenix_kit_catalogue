@@ -37,8 +37,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
       {:ok, _view, html} = live(conn, url(catalogue.uuid))
 
       assert html =~ "Kitchen"
-      assert html =~ "Add Item"
-      assert html =~ "Add Category"
+      assert html =~ "Add item"
+      assert html =~ "Add category"
     end
 
     test "redirects to the index when the catalogue doesn't exist", %{conn: conn} do
@@ -402,13 +402,13 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
 
       {:ok, _view, html} = live(conn, cat_url(catalogue.uuid, category.uuid))
 
-      assert html =~ "Add Category"
+      assert html =~ "Add category"
       assert html =~ "parent_uuid=#{category.uuid}"
 
       # At root the header button still creates a ROOT category; the
       # per-row "New subcategory" menu entries are what carry parents now.
       {:ok, _view, html} = live(conn, url(catalogue.uuid))
-      assert html =~ "Add Category"
+      assert html =~ "Add category"
       refute html =~ "categories/new?parent_uuid=#{catalogue.uuid}"
     end
 
@@ -470,7 +470,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
       bogus = "00000000-0000-0000-0000-000000000000"
 
       case live(conn, cat_url(catalogue.uuid, bogus)) do
-        {:ok, _view, html} -> assert html =~ "Add Category"
+        {:ok, _view, html} -> assert html =~ "Add category"
         {:error, {:live_redirect, %{to: to}}} -> assert to =~ url(catalogue.uuid)
       end
     end

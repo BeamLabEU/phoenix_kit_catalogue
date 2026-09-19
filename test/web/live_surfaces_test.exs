@@ -347,9 +347,9 @@ defmodule PhoenixKitCatalogue.Web.LiveSurfacesTest do
 
       assert assigns(view).step == :failed
       assert assigns(view).import_task == nil
-      assert html =~ "Import Failed"
+      assert html =~ "Import failed"
       assert html =~ "key :sku not found"
-      assert html =~ "Import Another"
+      assert html =~ "Import another"
     end
 
     test "a second execute_import while a task runs is ignored", %{conn: conn} do

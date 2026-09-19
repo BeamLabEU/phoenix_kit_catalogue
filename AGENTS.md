@@ -404,6 +404,11 @@ Pointers, not docs — the moduledocs are the contract.
   `duplicate_data/2`, asked even while it is disabled, so an external id
   never ends up on two rows. Copies get no slug: slugs are unique
   across the whole table.
+- **UI conventions** — sentence case everywhere but acronyms and names;
+  unset values "— X not set —", prompts "— Select X —"; every field label is
+  core's, and no field is wrapped in daisyUI's `.fieldset` (it shrinks the
+  label to 12px). Enforced by `test/web/ui_conventions_test.exs`; the rules:
+  `dev_docs/guides/ui-conventions.md`.
 - **Item form: place and suppliers wait for Save** — an item form event
   handler never moves the item or writes a supplier row. The place is picked
   in the Details tab's Location section (`Web.ItemLocation`: a folder ›

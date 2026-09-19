@@ -841,7 +841,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         +{@set.value_count - @cap}
       </.link>
       <span :if={@set.value_count == 0} class="text-sm text-base-content/50">
-        {Gettext.gettext(PhoenixKitCatalogue.Gettext, "No values yet")}
+        {Gettext.gettext(PhoenixKitCatalogue.Gettext, "No values yet.")}
       </span>
       <span :if={@set.value_count > 0} class="text-xs text-base-content/40">
         ({@set.value_count})
@@ -1441,7 +1441,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
             <.table_row_menu_button
               phx-click="new_subfolder"
               phx-value-uuid={@folder.uuid}
-              phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Creating...")}
+              phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Creating…")}
               icon="hero-folder-plus"
               label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "New subfolder")}
             />
@@ -1560,7 +1560,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
             <.table_row_menu_button
               phx-click="trash_catalogue"
               phx-value-uuid={@c_row.uuid}
-              phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Deleting...")}
+              phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Deleting…")}
               icon="hero-trash"
               label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")}
               variant="error"
@@ -1719,7 +1719,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
                         phx-click="new_subfolder"
                         phx-value-uuid={folder.uuid}
                         phx-disable-with={
-                          Gettext.gettext(PhoenixKitCatalogue.Gettext, "Creating...")
+                          Gettext.gettext(PhoenixKitCatalogue.Gettext, "Creating…")
                         }
                         icon="hero-folder-plus"
                         label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "New subfolder")}
@@ -1814,7 +1814,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
                         phx-click="trash_catalogue"
                         phx-value-uuid={c_row.uuid}
                         phx-disable-with={
-                          Gettext.gettext(PhoenixKitCatalogue.Gettext, "Deleting...")
+                          Gettext.gettext(PhoenixKitCatalogue.Gettext, "Deleting…")
                         }
                         icon="hero-trash"
                         label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")}
@@ -1855,7 +1855,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
           class="btn btn-ghost btn-xs text-error gap-1"
         >
           <.icon name="hero-trash" class="w-3.5 h-3.5" />
-          {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete Forever")}
+          {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete forever")}
         </button>
       </div>
     </div>
@@ -3112,14 +3112,14 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
                   current_tree_folder(cfg, @folder_lookup) &&
                     current_tree_folder(cfg, @folder_lookup).uuid
                 }
-                phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Creating...")}
+                phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Creating…")}
                 class="btn btn-ghost btn-sm gap-1"
               >
                 <.icon name="hero-folder-plus" class="w-4 h-4" />
-                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "New Folder")}
+                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "New folder")}
               </button>
               <.link :if={@catalogue_view_mode == "active"} navigate={Paths.catalogue_new()} class="btn btn-primary btn-sm">
-                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "New Catalogue")}
+                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "New catalogue")}
               </.link>
             </:actions>
           </.table_toolbar>
@@ -3280,7 +3280,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
                 <.table_row_menu_button
                   phx-click="trash_catalogue"
                   phx-value-uuid={c.uuid}
-                  phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Deleting...")}
+                  phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Deleting…")}
                   icon="hero-trash"
                   label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")}
                   variant="error"
@@ -3290,7 +3290,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
                 <.table_row_menu_button
                   phx-click="restore_catalogue"
                   phx-value-uuid={c.uuid}
-                  phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Restoring...")}
+                  phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Restoring…")}
                   icon="hero-arrow-path"
                   label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Restore")}
                   variant="success"
@@ -3301,7 +3301,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
                   phx-value-uuid={c.uuid}
                   phx-value-type="catalogue"
                   icon="hero-trash"
-                  label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete Forever")}
+                  label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete forever")}
                   variant="error"
                 />
               </.table_row_menu>
@@ -3329,7 +3329,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
                 <.table_row_menu_button
                   phx-click="trash_catalogue"
                   phx-value-uuid={c.uuid}
-                  phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Deleting...")}
+                  phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Deleting…")}
                   icon="hero-trash"
                   label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")}
                   variant="error"
@@ -3339,7 +3339,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
                 <.table_row_menu_button
                   phx-click="restore_catalogue"
                   phx-value-uuid={c.uuid}
-                  phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Restoring...")}
+                  phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Restoring…")}
                   icon="hero-arrow-path"
                   label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Restore")}
                   variant="success"
@@ -3350,7 +3350,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
                   phx-value-uuid={c.uuid}
                   phx-value-type="catalogue"
                   icon="hero-trash"
-                  label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete Forever")}
+                  label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete forever")}
                   variant="error"
                 />
               </.table_row_menu>
@@ -3409,7 +3409,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
             </div>
             <button type="button" phx-click="open_new_set_modal" class="btn btn-primary btn-sm shrink-0">
               <.icon name="hero-plus" class="w-4 h-4" />
-              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "New Set")}
+              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "New set")}
             </button>
           </div>
 
@@ -3614,7 +3614,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
           <:actions>
             <.link navigate={Paths.attribute_group_new()} class="btn btn-primary btn-sm">
               <.icon name="hero-plus" class="w-4 h-4" />
-              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "New Attribute Group")}
+              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "New attribute group")}
             </.link>
           </:actions>
         </.table_toolbar>
@@ -3706,10 +3706,10 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         show={match?({"catalogue", _}, @confirm_delete)}
         on_confirm="permanently_delete_catalogue"
         on_cancel="cancel_delete"
-        title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Permanently Delete Catalogue")}
+        title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Permanently delete catalogue")}
         title_icon="hero-trash"
         messages={[{:warning, Gettext.gettext(PhoenixKitCatalogue.Gettext, "This will permanently delete this catalogue, all its categories, and all items. This cannot be undone.")}]}
-        confirm_text={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete Forever")}
+        confirm_text={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete forever")}
         danger={true}
       />
 
@@ -3717,10 +3717,10 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         show={match?({"folder", _}, @confirm_delete)}
         on_confirm="permanently_delete_folder"
         on_cancel="cancel_delete"
-        title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Permanently Delete Folder")}
+        title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Permanently delete folder")}
         title_icon="hero-trash"
         messages={[{:warning, Gettext.gettext(PhoenixKitCatalogue.Gettext, "This will permanently delete this folder. Only empty folders can be deleted. This cannot be undone.")}]}
-        confirm_text={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete Forever")}
+        confirm_text={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete forever")}
         danger={true}
       />
 
@@ -3728,10 +3728,10 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         show={match?({"legacy_folder", _}, @confirm_delete)}
         on_confirm="permanently_delete_legacy_folder"
         on_cancel="cancel_delete"
-        title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Permanently Delete Folder")}
+        title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Permanently delete folder")}
         title_icon="hero-trash"
         messages={[{:warning, Gettext.gettext(PhoenixKitCatalogue.Gettext, "This will permanently delete this folder. Subfolders are moved to root and catalogues filed here are unfiled — neither is deleted. This cannot be undone.")}]}
-        confirm_text={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete Forever")}
+        confirm_text={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete forever")}
         danger={true}
       />
 
@@ -3739,7 +3739,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         show={match?({"attribute_group", _}, @confirm_delete)}
         on_confirm="delete_attribute_group"
         on_cancel="cancel_delete"
-        title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete Attribute Group")}
+        title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete attribute group")}
         title_icon="hero-trash"
         messages={[{:warning, Gettext.gettext(PhoenixKitCatalogue.Gettext, "This will permanently delete this group with all its attributes and values. Groups used by items cannot be deleted — archive them instead.")}]}
         confirm_text={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete")}
@@ -3827,7 +3827,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
             <button type="button" phx-click="cancel_move" class="btn btn-ghost btn-sm">
               {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Cancel")}
             </button>
-            <button type="submit" phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Moving...")} class="btn btn-primary btn-sm">
+            <button type="submit" phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Moving…")} class="btn btn-primary btn-sm">
               {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Move")}
             </button>
           </div>
@@ -4114,7 +4114,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     ~H"""
     <%!-- Two coherent groups instead of one flat flex-wrap: search+filters
          left, view tools + create actions right. A flat wrap broke lines
-         between arbitrary neighbors (a stray "New Folder" alone on row 1,
+         between arbitrary neighbors (a stray "New folder" alone on row 1,
          the primary action stranded bottom-left…); grouped, a narrow
          screen drops the whole right group under the left one as a unit,
          so every width renders an intentional-looking toolbar. --%>
@@ -4128,7 +4128,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
               name="query"
               value={@cfg[:search] || ""}
               phx-debounce="300"
-              placeholder={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search...")}
+              placeholder={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search…")}
               class="grow"
             />
           </label>

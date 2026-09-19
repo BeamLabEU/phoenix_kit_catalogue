@@ -87,7 +87,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
 
       {:ok, _view, html} = live(conn, @base)
       assert html =~ "Kitchen"
-      assert html =~ "New Catalogue"
+      assert html =~ "New catalogue"
     end
 
     test "empty catalogues state", %{conn: conn} do
@@ -722,7 +722,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
       html = render_change(view, "table_search", %{"query" => "zephyr"})
 
       assert html =~ "Zephyr Werke"
-      assert html =~ "New Catalogue"
+      assert html =~ "New catalogue"
     end
   end
 

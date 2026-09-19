@@ -37,8 +37,8 @@ msgstr "PDFs"
 msgid "PDF"
 msgstr "PDF"
 
-msgid "New Catalogue"
-msgstr "New Catalogue"
+msgid "New catalogue"
+msgstr "New catalogue"
 
 msgid "Edit Catalogue"
 msgstr "Edit Catalogue"
@@ -55,14 +55,14 @@ msgstr "New Supplier"
 msgid "Edit Supplier"
 msgstr "Edit Supplier"
 
-msgid "New Category"
-msgstr "New Category"
+msgid "New category"
+msgstr "New category"
 
 msgid "Edit Category"
 msgstr "Edit Category"
 
-msgid "New Item"
-msgstr "New Item"
+msgid "New item"
+msgstr "New item"
 
 msgid "Edit Item"
 msgstr "Edit Item"
@@ -196,8 +196,8 @@ msgstr "Season"
 msgid "Region"
 msgstr "Region"
 
-msgid "Vendor Reference"
-msgstr "Vendor Reference"
+msgid "Vendor reference"
+msgstr "Vendor reference"
 
 ## Error messages
 msgid "Cannot move a category under itself or one of its descendants."
@@ -340,7 +340,7 @@ msgstr "Category permanently deleted."
 msgid "Category moved."
 msgstr "Category moved."
 
-msgid "Working..."
+msgid "Working…"
 msgstr ""
 
 msgid "Unknown target language — refresh the page and try again."
@@ -463,9 +463,6 @@ msgstr "Delete"
 msgid "Restore"
 msgstr "Restore"
 
-msgid "Delete Forever"
-msgstr "Delete Forever"
-
 msgid "Edit"
 msgstr "Edit"
 
@@ -489,11 +486,11 @@ msgstr "Create Supplier"
 msgid "Create Item"
 msgstr "Create Item"
 
-msgid "Add Category"
-msgstr "Add Category"
+msgid "Add category"
+msgstr "Add category"
 
-msgid "Add Item"
-msgstr "Add Item"
+msgid "Add item"
+msgstr "Add item"
 
 #: lib/phoenix_kit_catalogue/web/components/browse.ex:819
 #: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:1142
@@ -531,11 +528,8 @@ msgstr "Notes"
 msgid "Actions"
 msgstr "Actions"
 
-msgid "Search..."
-msgstr "Search..."
-
-msgid "Search items..."
-msgstr "Search items..."
+msgid "Search…"
+msgstr "Search…"
 
 msgid "Upload"
 msgstr "Upload"
@@ -552,17 +546,11 @@ msgstr "Position"
 msgid "Confirm"
 msgstr "Confirm"
 
-msgid "Loading..."
-msgstr "Loading..."
+msgid "Saving…"
+msgstr "Saving…"
 
-msgid "Saving..."
-msgstr "Saving..."
-
-msgid "Deleting..."
-msgstr "Deleting..."
-
-msgid "Featured Image"
-msgstr "Featured Image"
+msgid "Featured image"
+msgstr "Featured image"
 
 msgid "No featured image set."
 msgstr "No featured image set."
@@ -590,8 +578,8 @@ msgstr "— Pick a field —"
 msgid "Legacy"
 msgstr "Legacy"
 
-msgid "Attached Files"
-msgstr "Attached Files"
+msgid "Attached files"
+msgstr "Attached files"
 
 msgid "No files attached yet."
 msgstr "No files attached yet."
@@ -605,8 +593,8 @@ msgstr "Click to upload"
 msgid "or drag & drop"
 msgstr "or drag & drop"
 
-msgid "File is too large (max 10MB)"
-msgstr "File is too large (max 10MB)"
+msgid "File is too large (max 10MB)."
+msgstr "File is too large (max 10MB)."
 
 msgid "File type not accepted."
 msgstr "File type not accepted."
@@ -659,19 +647,16 @@ msgstr "SKU"
 msgid "Price"
 msgstr "Price"
 
-msgid "Base Price"
-msgstr "Base Price"
-
-msgid "Final Price"
-msgstr "Final Price"
+msgid "Final price"
+msgstr "Final price"
 
 #: lib/phoenix_kit_catalogue/web/components/browse.ex:823
 #, elixir-autogen
 msgid "Unit"
 msgstr "Unit"
 
-msgid "Unit of Measure"
-msgstr "Unit of Measure"
+msgid "Unit of measure"
+msgstr "Unit of measure"
 
 msgid "Kind"
 msgstr "Kind"
@@ -737,11 +722,11 @@ msgstr "No manufacturers yet."
 msgid "No suppliers yet."
 msgstr "No suppliers yet."
 
-msgid "No items found"
-msgstr "No items found"
+msgid "No items found."
+msgstr "No items found."
 
-msgid "No events recorded yet"
-msgstr "No events recorded yet"
+msgid "No events recorded yet."
+msgstr "No events recorded yet."
 
 msgid "No PDFs uploaded yet."
 msgstr "No PDFs uploaded yet."
@@ -761,23 +746,23 @@ msgstr "Find this item in PDFs"
 msgid "Pages"
 msgstr "Pages"
 
-msgid "Import Complete"
-msgstr "Import Complete"
+msgid "Import complete"
+msgstr "Import complete"
 
-msgid "Import Another"
-msgstr "Import Another"
+msgid "Import another"
+msgstr "Import another"
 
-msgid "Confirm Import"
-msgstr "Confirm Import"
+msgid "Confirm import"
+msgstr "Confirm import"
 
-msgid "Back to Mapping"
-msgstr "Back to Mapping"
+msgid "Back to mapping"
+msgstr "Back to mapping"
 
-msgid "Import Items"
-msgstr "Import Items"
+msgid "Import items"
+msgstr "Import items"
 
-msgid "Export Items"
-msgstr "Export Items"
+msgid "Export items"
+msgstr "Export items"
 
 msgid "Destination"
 msgstr "Destination"
@@ -785,14 +770,14 @@ msgstr "Destination"
 msgid "Format"
 msgstr "Format"
 
-msgid "Select a format..."
-msgstr "Select a format..."
+msgid "— Select a format —"
+msgstr "— Select a format —"
 
 msgid "Add the catalogue name to the item name"
 msgstr "Add the catalogue name to the item name"
 
-msgid "Map Columns"
-msgstr "Map Columns"
+msgid "Map columns"
+msgstr "Map columns"
 
 msgid "All events loaded"
 msgstr "All events loaded"
@@ -800,17 +785,17 @@ msgstr "All events loaded"
 msgid "Events: %{count}"
 msgstr "Events: %{count}"
 
-msgid "Danger Zone"
-msgstr "Danger Zone"
+msgid "Danger zone"
+msgstr "Danger zone"
 
-msgid "Permanently Delete Catalogue"
-msgstr "Permanently Delete Catalogue"
+msgid "Permanently delete catalogue"
+msgstr "Permanently delete catalogue"
 
-msgid "Permanently Delete Category"
-msgstr "Permanently Delete Category"
+msgid "Permanently delete category"
+msgstr "Permanently delete category"
 
-msgid "Permanently Delete Item"
-msgstr "Permanently Delete Item"
+msgid "Permanently delete item"
+msgstr "Permanently delete item"
 
 #: lib/phoenix_kit_catalogue/web/components.ex:871
 #, elixir-autogen
@@ -840,11 +825,11 @@ msgstr "Linked Suppliers"
 msgid "Scope"
 msgstr "Scope"
 
-msgid "Catalogue Rules"
-msgstr "Catalogue Rules"
+msgid "Catalogue rules"
+msgstr "Catalogue rules"
 
-msgid "View Catalogue"
-msgstr "View Catalogue"
+msgid "View catalogue"
+msgstr "View catalogue"
 
 msgid "View details"
 msgstr "View details"
@@ -883,8 +868,8 @@ msgid_plural "%{active} of %{total} catalogues selected"
 msgstr[0] "%{active} of %{total} catalogue selected"
 msgstr[1] "%{active} of %{total} catalogues selected"
 
-msgid "%{count} result for \"%{query}\""
-msgid_plural "%{count} results for \"%{query}\""
+msgid "%{count} result for “%{query}”"
+msgid_plural "%{count} results for “%{query}”"
 msgstr[0] "%{count} result for \"%{query}\""
 msgstr[1] "%{count} results for \"%{query}\""
 
@@ -986,9 +971,6 @@ msgstr "Clear search and filters to drag-and-drop reorder."
 msgid "Nothing in the trash."
 msgstr "Nothing in the trash."
 
-msgid "New Folder"
-msgstr "New Folder"
-
 msgid "New folder"
 msgstr "New folder"
 
@@ -1001,17 +983,11 @@ msgstr "Move to folder"
 msgid "Rename"
 msgstr "Rename"
 
-msgid "Permanently Delete Folder"
-msgstr "Permanently Delete Folder"
+msgid "Permanently delete folder"
+msgstr "Permanently delete folder"
 
-msgid "Creating..."
-msgstr "Creating..."
-
-msgid "Moving..."
-msgstr "Moving..."
-
-msgid "Restoring..."
-msgstr "Restoring..."
+msgid "Moving…"
+msgstr "Moving…"
 
 msgid "— Root (unfiled) —"
 msgstr "— Root (unfiled) —"
@@ -1092,14 +1068,11 @@ msgstr "Add Supplier"
 msgid "Supplier SKU"
 msgstr "Supplier SKU"
 
-msgid "Unit Cost"
-msgstr "Unit Cost"
+msgid "Lead time (days)"
+msgstr "Lead time (days)"
 
-msgid "Lead Time (days)"
-msgstr "Lead Time (days)"
-
-msgid "Min. Order Qty"
-msgstr "Min. Order Qty"
+msgid "Min. order qty"
+msgstr "Min. order qty"
 
 msgid "Suppliers not set."
 msgstr "Suppliers not set."
@@ -1141,8 +1114,8 @@ msgstr "Failed to remove supplier."
 msgid "History"
 msgstr "History"
 
-msgid "Price History"
-msgstr "Price History"
+msgid "Price history"
+msgstr "Price history"
 
 msgid "No price history."
 msgstr "No price history."
@@ -1150,11 +1123,11 @@ msgstr "No price history."
 msgid "Currency"
 msgstr "Currency"
 
-msgid "Valid From"
-msgstr "Valid From"
+msgid "Valid from"
+msgstr "Valid from"
 
-msgid "Valid To"
-msgstr "Valid To"
+msgid "Valid to"
+msgstr "Valid to"
 
 msgid "Current"
 msgstr "Current"
@@ -1164,8 +1137,8 @@ msgid "Row %{row}: belongs to %{group}, not to this catalogue"
 msgstr "Row %{row}: belongs to %{group}, not to this catalogue"
 
 ## Media picker
-msgid "Select Featured Image"
-msgstr "Select Featured Image"
+msgid "Select featured image"
+msgstr "Select featured image"
 
 ## Product card
 #: lib/phoenix_kit_catalogue/web/components/browse.ex:481
@@ -1229,8 +1202,8 @@ msgstr "Categories reordered."
 msgid "Failed to reorder."
 msgstr "Failed to reorder."
 
-msgid "Photos and Files"
-msgstr "Photos and Files"
+msgid "Photos and files"
+msgstr "Photos and files"
 
 #: lib/phoenix_kit_catalogue/web/components.ex:1550
 #: lib/phoenix_kit_catalogue/web/components.ex:1612
@@ -1247,8 +1220,8 @@ msgstr "Compact view"
 msgid "Save"
 msgstr "Save"
 
-msgid "Save & Exit"
-msgstr "Save & Exit"
+msgid "Save & exit"
+msgstr "Save & exit"
 
 msgid "Attributes"
 msgstr "Attributes"
@@ -1259,14 +1232,14 @@ msgstr "Archive"
 msgid "Add"
 msgstr "Add"
 
-msgid "New Attribute Group"
-msgstr "New Attribute Group"
+msgid "New attribute group"
+msgstr "New attribute group"
 
 msgid "Edit Attribute Group"
 msgstr "Edit Attribute Group"
 
-msgid "Delete Attribute Group"
-msgstr "Delete Attribute Group"
+msgid "Delete attribute group"
+msgstr "Delete attribute group"
 
 msgid "Attribute group not found."
 msgstr "Attribute group not found."
@@ -1304,8 +1277,8 @@ msgstr "Define a reusable set of options — colors, trims, surfaces — that it
 msgid "Manage this group's attributes, values, and translations."
 msgstr "Manage this group's attributes, values, and translations."
 
-msgid "No attributes yet. Add one below — e.g. Color, Trim, Surface."
-msgstr "No attributes yet. Add one below — e.g. Color, Trim, Surface."
+msgid "No attributes yet. Add one below — e.g., Color, Trim, Surface."
+msgstr "No attributes yet. Add one below — e.g., Color, Trim, Surface."
 
 msgid "Failed to add attribute."
 msgstr "Failed to add attribute."
@@ -1319,11 +1292,11 @@ msgstr "Delete attribute"
 msgid "This removes the attribute and all its values from the group."
 msgstr "This removes the attribute and all its values from the group."
 
-msgid "Add value..."
-msgstr "Add value..."
+msgid "Add value…"
+msgstr "Add value…"
 
-msgid "New attribute name..."
-msgstr "New attribute name..."
+msgid "New attribute name…"
+msgstr "New attribute name…"
 
 msgid "Default value"
 msgstr "Default value"
@@ -1517,7 +1490,7 @@ msgstr ""
 msgid "One dimension from one vendor — Ikea colors, HomeDepot trims. Items attach any number of sets."
 msgstr ""
 
-msgid "New Set"
+msgid "New set"
 msgstr ""
 
 msgid "No sets yet. Create one, or migrate your legacy groups below."
@@ -1562,7 +1535,7 @@ msgstr ""
 msgid "Selected, but archived — no longer offered for new picks"
 msgstr ""
 
-msgid "Attach a set..."
+msgid "— Attach a set —"
 msgstr ""
 
 msgid "No sets exist yet — create one under Manage sets."
@@ -1736,13 +1709,13 @@ msgstr ""
 msgid "-- No category --"
 msgstr ""
 
-msgid "-- Manufacturer not set --"
+msgid "— Manufacturer not set —"
 msgstr ""
 
 msgid "-- Select catalogue --"
 msgstr ""
 
-msgid "-- Select category --"
+msgid "— Select category —"
 msgstr ""
 
 msgid "0.00"
@@ -1759,10 +1732,7 @@ msgstr ""
 msgid "Add a new product or material to the catalogue."
 msgstr ""
 
-msgid "All Actions"
-msgstr ""
-
-msgid "All Types"
+msgid "All actions"
 msgstr ""
 
 msgid "All columns are already mapped. Free one up by setting it to '— Skip —' in the column mapping section below, or by switching another picker (Category, Manufacturer, or Supplier) out of 'Use a column' mode."
@@ -1774,13 +1744,13 @@ msgstr ""
 msgid "Applied to all item base prices to calculate sale prices. Leave blank for no markup."
 msgstr ""
 
-msgid "Applying..."
+msgid "Applying…"
 msgstr ""
 
 msgid "Archived catalogues are hidden from active views."
 msgstr ""
 
-msgid "Article Code"
+msgid "Article code"
 msgstr ""
 
 msgid "Attach any metadata fields that apply to this catalogue. Blank values are dropped on save."
@@ -1795,7 +1765,7 @@ msgstr ""
 msgid "Brief description of this supplier..."
 msgstr ""
 
-msgid "Brief description of what this catalogue contains..."
+msgid "Brief description of what this catalogue contains…"
 msgstr ""
 
 msgid "Brochures, spec sheets, datasheets. Any file type is accepted."
@@ -1825,7 +1795,7 @@ msgstr ""
 msgid "Classification"
 msgstr ""
 
-msgid "Clearing..."
+msgid "Clearing…"
 msgstr ""
 
 msgid "Click to toggle manufacturer associations."
@@ -1843,7 +1813,7 @@ msgstr ""
 msgid "Continue"
 msgstr ""
 
-msgid "Continue to Confirm"
+msgid "Continue to confirm"
 msgstr ""
 
 msgid "Cost/purchase price before catalogue markup."
@@ -1876,7 +1846,7 @@ msgstr ""
 msgid "Could not start extraction. The :catalogue_pdf Oban queue may not be running."
 msgstr ""
 
-msgid "Create Categories"
+msgid "Create categories"
 msgstr ""
 
 msgid "Create a new manufacturer — fill in the details below"
@@ -1888,10 +1858,7 @@ msgstr ""
 msgid "Create one first"
 msgstr ""
 
-msgid "Default Unit"
-msgstr ""
-
-msgid "Default Value"
+msgid "Default unit"
 msgstr ""
 
 msgid "Move category and items to Deleted"
@@ -1901,7 +1868,7 @@ msgid "Move category to Deleted — what about its items?"
 msgstr ""
 
 msgid "Delete forever"
-msgstr ""
+msgstr "Delete forever"
 
 msgid "Move items to Deleted with the category"
 msgstr ""
@@ -1910,15 +1877,15 @@ msgid "Delete selected items?"
 msgstr ""
 
 msgid "Deleting…"
-msgstr ""
+msgstr "Deleting…"
 
 msgid "Discontinued items are kept for reference but hidden from active listings."
 msgstr ""
 
-msgid "Discount Override (%)"
+msgid "Discount override (%)"
 msgstr ""
 
-msgid "Discount Percentage"
+msgid "Discount percentage"
 msgstr ""
 
 msgid "Drag to reorder"
@@ -1954,7 +1921,7 @@ msgstr ""
 msgid "File is too large."
 msgstr ""
 
-msgid "File type not supported. Use .xlsx or .csv"
+msgid "File type not supported. Use .xlsx or .csv."
 msgstr ""
 
 msgid "Filename"
@@ -1975,13 +1942,13 @@ msgstr ""
 msgid "Has subcategories"
 msgstr ""
 
-msgid "Import %{count} Items"
+msgid "Import %{count} items"
 msgstr ""
 
-msgid "Import Into Category"
+msgid "Import into category"
 msgstr ""
 
-msgid "Import Language"
+msgid "Import language"
 msgstr ""
 
 msgid "Import all — create everything including duplicates"
@@ -1990,7 +1957,7 @@ msgstr ""
 msgid "Import failed: %{reason}"
 msgstr ""
 
-msgid "Importing..."
+msgid "Importing…"
 msgstr ""
 
 msgid "Inactive manufacturers won't appear in item dropdowns."
@@ -2020,7 +1987,7 @@ msgstr ""
 msgid "Internal notes about this supplier..."
 msgstr ""
 
-msgid "Item Name"
+msgid "Item name"
 msgstr ""
 
 msgid "Some selected items are no longer in this catalogue. Reload the page and try again."
@@ -2044,11 +2011,11 @@ msgstr ""
 msgid "Leave blank to inherit the catalogue's markup. Set (including 0) to override just this item."
 msgstr ""
 
-msgid "Link to Supplier"
+msgid "Link to supplier"
 msgstr ""
 
 msgid "Loading…"
-msgstr ""
+msgstr "Loading…"
 
 msgid "Logo URL"
 msgstr ""
@@ -2086,10 +2053,10 @@ msgstr ""
 msgid "Map each value to a system unit:"
 msgstr ""
 
-msgid "Markup Override (%)"
+msgid "Markup override (%)"
 msgstr ""
 
-msgid "Markup Percentage"
+msgid "Markup percentage"
 msgstr ""
 
 msgid "Match across all languages"
@@ -2119,13 +2086,13 @@ msgstr ""
 msgid "Move this item to a category in any catalogue."
 msgstr ""
 
-msgid "Move to Another Catalogue"
+msgid "Move to another catalogue"
 msgstr ""
 
 msgid "Move to Another Category"
 msgstr ""
 
-msgid "Move to Another Parent"
+msgid "Move to another parent"
 msgstr ""
 
 msgid "Move to Another Smart Catalogue"
@@ -2134,7 +2101,7 @@ msgstr ""
 msgid "Name *"
 msgstr ""
 
-msgid "New Categories"
+msgid "New categories"
 msgstr ""
 
 #: lib/phoenix_kit_catalogue/web/catalogues_live.ex:2779
@@ -2213,7 +2180,7 @@ msgstr ""
 msgid "PDF files only. Identical content is deduplicated; same file uploaded again under a new name shares one underlying file + extraction."
 msgstr ""
 
-msgid "PRO100 Sync Preview"
+msgid "PRO100 sync preview"
 msgstr ""
 
 msgid "Parent category"
@@ -2267,13 +2234,13 @@ msgstr ""
 msgid "Please upload a file."
 msgstr ""
 
-msgid "Pricing & Identification"
+msgid "Pricing & identification"
 msgstr ""
 
-msgid "Product specifications, dimensions, materials..."
+msgid "Product specifications, dimensions, materials…"
 msgstr ""
 
-msgid "Re-queue any PDFs whose text extraction never ran or got stuck (e.g. after the job queue was down)."
+msgid "Re-queue any PDFs whose text extraction never ran or got stuck (e.g., after the job queue was down)."
 msgstr ""
 
 msgid "Re-queued %{count} stuck extraction(s)."
@@ -2309,7 +2276,7 @@ msgstr ""
 msgid "Remove this file from the item? If it's not attached to any other item, it will be moved to trash (admins can restore)."
 msgstr ""
 
-msgid "Removing..."
+msgid "Removing…"
 msgstr ""
 
 msgid "Reparent this category within its catalogue. Its subtree comes along."
@@ -2324,7 +2291,7 @@ msgid "Resource"
 msgstr ""
 
 msgid "Restoring…"
-msgstr ""
+msgstr "Restoring…"
 
 msgid "Retry"
 msgstr ""
@@ -2373,7 +2340,7 @@ msgstr "Set (kmpl)"
 msgid "Running meter"
 msgstr ""
 
-msgid "Sample Data (first 5 rows)"
+msgid "Sample data (first 5 rows)"
 msgstr ""
 
 msgid "Search failed. Please try again."
@@ -2382,19 +2349,19 @@ msgstr ""
 msgid "Search is temporarily unavailable. Please try again in a moment."
 msgstr ""
 
-msgid "Search items by name, description, or SKU..."
+msgid "Search items by name, description, or SKU…"
 msgstr ""
 
 #: lib/phoenix_kit_catalogue/web/components/catalogue_browse.ex:233
 #: lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex:2372
 #, elixir-autogen
 msgid "Search items…"
+msgstr "Search items…"
+
+msgid "Search uncategorized items…"
 msgstr ""
 
-msgid "Search uncategorized items..."
-msgstr ""
-
-msgid "Search within this category..."
+msgid "Search within this category…"
 msgstr ""
 
 msgid "Searched for: %{name}"
@@ -2403,16 +2370,16 @@ msgstr ""
 msgid "Searches the entire PDF library for the item's name across all enabled languages."
 msgstr ""
 
-msgid "Searching for \"%{query}\"..."
+msgid "Searching for “%{query}”…"
 msgstr ""
 
 msgid "Searching…"
 msgstr ""
 
-msgid "Select a catalogue..."
+msgid "— Select a catalogue —"
 msgstr ""
 
-msgid "Select a column..."
+msgid "— Select a column —"
 msgstr ""
 
 msgid "Select all items"
@@ -2421,10 +2388,10 @@ msgstr ""
 msgid "Selected image could not be loaded."
 msgstr ""
 
-msgid "Selected items share positions. Apply \"Reorder all\" first to normalise."
+msgid "Selected items share positions. Apply “Reorder all” first to normalise."
 msgstr ""
 
-msgid "Set Manufacturer"
+msgid "Set manufacturer"
 msgstr ""
 
 msgid "Sheet:"
@@ -2433,7 +2400,7 @@ msgstr ""
 msgid "Show %{n} more"
 msgstr ""
 
-msgid "Showing %{loaded} of %{count} results for \"%{query}\""
+msgid "Showing %{loaded} of %{count} results for “%{query}”"
 msgstr ""
 
 msgid "Showing first 20 of %{count} items."
@@ -2460,7 +2427,7 @@ msgstr ""
 msgid "Skipped"
 msgstr ""
 
-msgid "Smart catalogues hold items like \"Delivery\" whose cost is a per-catalogue %/flat rule picked from other catalogues. Items here reference other catalogues instead of carrying a base price of their own."
+msgid "Smart catalogues hold items like “Delivery” whose cost is a per-catalogue %/flat rule picked from other catalogues. Items here reference other catalogues instead of carrying a base price of their own."
 msgstr ""
 
 msgid "Smart rule"
@@ -2478,7 +2445,7 @@ msgstr ""
 msgid "Standard catalogues hold items priced directly — each item has its own base price, markup, and discount. This is the normal flow for materials, products, or anything with a fixed price tag."
 msgstr ""
 
-msgid "Starting import..."
+msgid "Starting import…"
 msgstr ""
 
 msgid "Still uploading — please wait a moment."
@@ -2496,10 +2463,10 @@ msgstr ""
 msgid "Supports .xlsx, .csv, .txt, .json files (max 10MB)"
 msgstr ""
 
-msgid "Sync Complete"
+msgid "Sync complete"
 msgstr ""
 
-msgid "Target Catalogue"
+msgid "Target catalogue"
 msgstr ""
 
 msgid "Target category not found."
@@ -2565,7 +2532,7 @@ msgstr ""
 msgid "Updates"
 msgstr ""
 
-msgid "Upload & Parse"
+msgid "Upload & parse"
 msgstr ""
 
 msgid "Upload error: %{reason}"
@@ -2583,7 +2550,7 @@ msgstr ""
 msgid "Uploaded"
 msgstr ""
 
-msgid "Uploading..."
+msgid "Uploading…"
 msgstr ""
 
 msgid "Use a column — create categories from column values"
@@ -2598,16 +2565,16 @@ msgstr ""
 msgid "Used for any selected catalogue that doesn't have its own unit."
 msgstr ""
 
-msgid "Used for any selected catalogue that doesn't have its own value. If no catalogues are selected, this is the item's standalone fee (e.g. $50 flat)."
+msgid "Used for any selected catalogue that doesn't have its own value. If no catalogues are selected, this is the item's standalone fee (e.g., $50 flat)."
 msgstr ""
 
-msgid "Validating..."
+msgid "Validating…"
 msgstr ""
 
-msgid "Waiting for uploads..."
+msgid "Waiting for uploads…"
 msgstr ""
 
-msgid "What kinds of items belong in this category..."
+msgid "What kinds of items belong in this category…"
 msgstr ""
 
 msgid "Which column contains the category names?"
@@ -2729,9 +2696,6 @@ msgstr ""
 msgid "— Top level (no parent) —"
 msgstr ""
 
-msgid "— no category —"
-msgstr ""
-
 msgid "…and %{count} more"
 msgstr ""
 
@@ -2822,7 +2786,7 @@ msgstr ""
 msgid "Someone else changed this link first. Reload the page and try again."
 msgstr ""
 
-msgid "Suppliers and Manufacturer"
+msgid "Suppliers and manufacturer"
 msgstr ""
 
 msgid "A field was removed while this was open. Close and reopen the form."
@@ -2882,7 +2846,7 @@ msgstr ""
 msgid "Yes"
 msgstr ""
 
-msgid "e.g. Incoterm"
+msgid "e.g., Incoterm"
 msgstr ""
 
 msgid "Comments"
@@ -2986,7 +2950,7 @@ msgstr ""
 msgid "Shown on category landing pages."
 msgstr ""
 
-msgid "Import Failed"
+msgid "Import failed"
 msgstr ""
 
 msgid "The import stopped unexpectedly before it finished. Rows written before the failure were kept. Check the server log for details."
@@ -3043,7 +3007,7 @@ msgstr ""
 msgid "%{count} categories will be copied with their subcategories and items."
 msgstr ""
 
-msgid "Each copy is named after its original with \"(copy)\" added and placed right after it."
+msgid "Each copy is named after its original with “(copy)” added and placed right after it."
 msgstr ""
 
 msgid "Duplicated %{count} items."
@@ -3130,8 +3094,8 @@ msgstr "Search sets and values…"
 msgid "No sets match your search."
 msgstr "No sets match your search."
 
-msgid "No values yet"
-msgstr "No values yet"
+msgid "No values yet."
+msgstr "No values yet."
 
 msgid "Creating…"
 msgstr "Creating…"
@@ -3149,8 +3113,8 @@ msgid "Clear filters"
 msgstr "Clear filters"
 
 # Attribute filter: dead values (2026-08-28)
-msgid "Nothing matches this together with the filters already on"
-msgstr "Nothing matches this together with the filters already on"
+msgid "Nothing matches this together with the filters already on."
+msgstr "Nothing matches this together with the filters already on."
 
 msgid "Attribute set not found."
 msgstr ""
@@ -3489,7 +3453,7 @@ msgstr ""
 msgid "%{catalogue} — top level"
 msgstr ""
 
-msgid "-- Select destination --"
+msgid "— Select destination —"
 msgstr ""
 
 msgid "%{name} (copy %{number})"
@@ -3540,13 +3504,13 @@ msgstr ""
 msgid "Switch category"
 msgstr ""
 
-msgid "Find a catalogue…"
+msgid "Search catalogues…"
 msgstr ""
 
-msgid "Find a category…"
+msgid "Search categories…"
 msgstr ""
 
-msgid "-- Add supplier --"
+msgid "— Add supplier —"
 msgstr ""
 
 msgid "Location"
@@ -3561,7 +3525,7 @@ msgstr ""
 msgid "Choose a location"
 msgstr ""
 
-msgid "Find a catalogue or category…"
+msgid "Search catalogues and categories…"
 msgstr ""
 
 msgid "No matches."
