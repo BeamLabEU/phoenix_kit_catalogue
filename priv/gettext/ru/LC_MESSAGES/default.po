@@ -3557,3 +3557,15 @@ msgstr "Создать копию в архиве"
 
 msgid "Otherwise it gets the original's status."
 msgstr "Иначе у копии будет статус оригинала."
+
+msgid "Switch catalogue"
+msgstr "Сменить каталог"
+
+msgid "Switch category"
+msgstr "Сменить категорию"
+
+msgid "Find a catalogue…"
+msgstr "Найти каталог…"
+
+msgid "Find a category…"
+msgstr "Найти категорию…"

@@ -3544,3 +3544,15 @@ msgstr "Loo koopia arhiveerituna"
 
 msgid "Otherwise it gets the original's status."
 msgstr "Muidu saab koopia originaali oleku."
+
+msgid "Switch catalogue"
+msgstr "Vaheta kataloogi"
+
+msgid "Switch category"
+msgstr "Vaheta kategooriat"
+
+msgid "Find a catalogue…"
+msgstr "Leia kataloog…"
+
+msgid "Find a category…"
+msgstr "Leia kategooria…"

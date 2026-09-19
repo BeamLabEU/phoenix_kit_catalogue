@@ -86,6 +86,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   alias PhoenixKitCatalogue.Schemas.Item
   alias PhoenixKitCatalogue.Web.Components.PdfSearchModal
   alias PhoenixKitCatalogue.Web.Components.ProductCard
+  alias PhoenixKitCatalogue.Web.LevelSwitchers
   alias PhoenixKitCatalogue.Web.TableConfig
   alias PhoenixKitCatalogue.Web.ViewConfig
 
@@ -155,6 +156,10 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         items_has_more: false,
         show_items_section: false,
         category_tree_children: %{},
+        # The header's level switchers (`LevelSwitchers`): every catalogue,
+        # and the catalogue's live categories grouped by parent.
+        switch_catalogues: [],
+        switch_siblings: %{},
         expanded_categories: MapSet.new(),
         # Per-status item counts for the current node — drive the four
         # per-status tab labels (active / inactive / discontinued / deleted).
@@ -2781,6 +2786,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
     socket
     |> assign(:category_tree_children, category_tree_children)
+    |> assign_level_switchers(uuid, current, status, category_tree_children)
     |> assign(
       page_title: if(current, do: current_node_label(current), else: catalogue.name),
       catalogue: catalogue,
@@ -2810,6 +2816,46 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       items,
       child_categories ++ List.flatten(Map.values(category_tree_children))
     )
+  end
+
+  # What the header's level switchers list. The siblings are the live
+  # categories whatever tab is showing — the tree already loaded them on
+  # Active; the other tabs load them only when a trail needs them.
+  defp assign_level_switchers(socket, uuid, current, status, tree_children) do
+    siblings =
+      cond do
+        is_nil(current) -> %{}
+        status == "active" -> tree_children
+        true -> load_category_tree_children(uuid, "active", loc(socket))
+      end
+
+    assign(socket,
+      switch_catalogues: Catalogue.list_catalogues() |> Catalogue.localize(loc(socket)),
+      switch_siblings: siblings
+    )
+  end
+
+  defp switcher_context(assigns) do
+    %{
+      catalogues: assigns.switch_catalogues,
+      siblings: assigns.switch_siblings,
+      uncategorized?: assigns.uncategorized_active_count > 0
+    }
+  end
+
+  # Spread into the layout rather than written as an attribute: a core
+  # without the switcher does not declare `page_title_switcher`, and a
+  # spread map is not checked at compile time, so the page still compiles
+  # there and the header simply has no ▾.
+  defp title_switcher_attr(assigns) do
+    %{
+      page_title_switcher:
+        LevelSwitchers.title(
+          assigns.catalogue,
+          assigns.current_category,
+          switcher_context(assigns)
+        )
+    }
   end
 
   # The trash is catalogue-wide at root (there is no drilling to reach a
@@ -3931,7 +3977,10 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       page_title={@page_title}
       page_section={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Catalogues")}
       page_section_path={Paths.index()}
-      page_crumbs={header_crumbs(@catalogue, @current_category, @breadcrumb)}
+      page_crumbs={
+        LevelSwitchers.crumbs(@catalogue, @current_category, @breadcrumb, switcher_context(assigns))
+      }
+      {title_switcher_attr(assigns)}
       current_path={assigns[:url_path] || Paths.index()}
       current_locale={assigns[:current_locale]}
     >
@@ -6644,19 +6693,6 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
   defp current_node_label(%Category{} = cat), do: cat.name
   defp current_node_label(_), do: ""
-
-  # Admin-header crumbs for the drill trail: the catalogue root plus every
-  # ancestor of the current node, each clickable. Empty at the root — there
-  # the catalogue itself is the page title.
-  defp header_crumbs(nil, _current, _trail), do: []
-  defp header_crumbs(_catalogue, nil, _trail), do: []
-
-  defp header_crumbs(catalogue, _current, trail) do
-    [
-      %{label: catalogue.name, path: Paths.catalogue_detail(catalogue.uuid)}
-      | Enum.map(trail, &%{label: &1.name, path: Paths.category_browse(catalogue.uuid, &1.uuid)})
-    ]
-  end
 
   # Shown under the admin header: the catalogue's description at root, the
   # current category's when drilled. The :uncategorized pseudo node has none;
