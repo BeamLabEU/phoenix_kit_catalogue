@@ -259,20 +259,27 @@ defmodule PhoenixKitCatalogue.Web.SupplierDraft do
   Writes the draft for the item `item_uuid`, whose rows were `infos` when
   the draft was built. Returns the draft left over — empty when everything
   applied — and the failures as `{supplier_uuid, reason}`. A step that
-  fails keeps its staged change, so the admin can fix it and save again;
-  the steps that succeeded are not repeated.
+  fails keeps its staged change, so a form that stays can show it and save
+  again without repeating the steps that succeeded; a save that leaves the
+  form (a new item, a move to another catalogue) can only report it.
+
+  The primary the table showed (`primary/2`) is set explicitly at the end,
+  not left to the context's promote-on-create: when an earlier step fails —
+  a primary whose removal did not go through, so no new row was promoted —
+  the item still ends with the primary the admin saw.
   """
   @spec apply(t(), String.t(), [ItemSupplierInfo.t()], [map()], keyword()) ::
           {t(), [{supplier_uuid(), atom()}]}
   def apply(%__MODULE__{} = draft, item_uuid, infos, all_suppliers, opts) do
     current = Map.new(infos, &{&1.supplier_uuid, &1})
+    intended = primary(draft, infos)
 
     {draft, failures} =
       {%{draft | errors: %{}}, []}
       |> apply_removals(current, opts)
       |> apply_edits(current, opts)
       |> apply_adds(item_uuid, all_suppliers, opts)
-      |> apply_primary(item_uuid, opts)
+      |> apply_primary(item_uuid, intended, opts)
 
     failures = Enum.reverse(failures)
     errors = Map.new(failures, fn {s, reason} -> {s, reason} end)
@@ -339,16 +346,12 @@ defmodule PhoenixKitCatalogue.Web.SupplierDraft do
     end)
   end
 
-  defp apply_primary({%{primary: nil} = draft, failures}, _item_uuid, _opts),
-    do: {draft, failures}
+  defp apply_primary({draft, failures}, _item_uuid, nil, _opts), do: {draft, failures}
 
-  defp apply_primary({draft, failures}, item_uuid, opts) do
-    supplier_uuid = draft.primary
+  defp apply_primary({draft, failures}, item_uuid, supplier_uuid, opts) do
+    rows = ItemSupplierInfos.list_for_item(item_uuid)
 
-    case Enum.find(
-           ItemSupplierInfos.list_for_item(item_uuid),
-           &(&1.supplier_uuid == supplier_uuid)
-         ) do
+    case Enum.find(rows, &(&1.supplier_uuid == supplier_uuid)) do
       nil ->
         {%{draft | primary: nil}, failures}
 
@@ -357,8 +360,11 @@ defmodule PhoenixKitCatalogue.Web.SupplierDraft do
 
       info ->
         case ItemSupplierInfos.set_primary(info, opts) do
-          {:ok, _} -> {%{draft | primary: nil}, failures}
-          {:error, _} -> {draft, [{supplier_uuid, :primary_failed} | failures]}
+          {:ok, _} ->
+            {%{draft | primary: nil}, failures}
+
+          {:error, _} ->
+            {%{draft | primary: supplier_uuid}, [{supplier_uuid, :primary_failed} | failures]}
         end
     end
   end
@@ -412,7 +418,7 @@ defmodule PhoenixKitCatalogue.Web.SupplierDraft do
 
   defp write_cost(info, cost, currency, opts) do
     cond do
-      same_cost?(cost, info.unit_cost) and currency == info.currency ->
+      same_cost?(cost, info.unit_cost) and currency == normalize_currency(info.currency) ->
         {:ok, info}
 
       is_nil(cost) or is_nil(info.unit_cost) ->
@@ -556,8 +562,10 @@ defmodule PhoenixKitCatalogue.Web.SupplierDraft do
         {:error, _} -> true
       end
 
+    # Both sides normalized: a stored "" and a blank input are the same.
     currency_changed? =
-      values |> Map.get("currency", info.currency) |> normalize_currency() != info.currency
+      normalize_currency(Map.get(values, "currency", info.currency)) !=
+        normalize_currency(info.currency)
 
     cost_changed? or currency_changed? or Map.has_key?(draft.custom, supplier_uuid) or
       Enum.any?(@term_keys, &Map.has_key?(values, &1))
