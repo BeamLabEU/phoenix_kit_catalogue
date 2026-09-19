@@ -23,7 +23,9 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLive do
   import PhoenixKitWeb.Components.Core.FileUpload, only: [file_upload: 1]
   import PhoenixKitWeb.Components.Core.TableDefault
   import PhoenixKitWeb.Components.Core.TableRowMenu
-  import PhoenixKitCatalogue.Web.Components, only: [view_toggle_instant: 1, view_storage_key: 0]
+
+  import PhoenixKitCatalogue.Web.Components,
+    only: [view_toggle_instant: 1, view_storage_key: 0, actions_header_cell: 1]
 
   alias PhoenixKitCatalogue.Catalogue
   alias PhoenixKitCatalogue.Catalogue.ActivityLog
@@ -573,25 +575,23 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLive do
                 <.table_default_header_cell>
                   {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Filename")}
                 </.table_default_header_cell>
-                <.table_default_header_cell>
+                <.table_default_header_cell class="w-px whitespace-nowrap">
                   {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Status")}
                 </.table_default_header_cell>
-                <.table_default_header_cell>
+                <.table_default_header_cell class="w-px whitespace-nowrap">
                   {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Pages")}
                 </.table_default_header_cell>
-                <.table_default_header_cell>
+                <.table_default_header_cell class="w-px whitespace-nowrap">
                   {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Size")}
                 </.table_default_header_cell>
-                <.table_default_header_cell>
+                <.table_default_header_cell class="w-px whitespace-nowrap">
                   <%= if @filter == "trashed" do %>
                     {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Trashed")}
                   <% else %>
                     {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Uploaded")}
                   <% end %>
                 </.table_default_header_cell>
-                <.table_default_header_cell class="text-right">
-                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Actions")}
-                </.table_default_header_cell>
+                <.actions_header_cell />
               </.table_default_row>
             </.table_default_header>
             <.table_default_body>
@@ -602,19 +602,19 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLive do
                       {pdf.original_filename}
                     </.link>
                   </.table_default_cell>
-                  <.table_default_cell>
+                  <.table_default_cell class="whitespace-nowrap">
                     <.extraction_badge pdf={pdf} />
                   </.table_default_cell>
-                  <.table_default_cell>
+                  <.table_default_cell class="whitespace-nowrap">
                     {Helpers.pdf_extraction_pages(pdf) || "—"}
                   </.table_default_cell>
-                  <.table_default_cell class="text-base-content/60">
+                  <.table_default_cell class="text-base-content/60 whitespace-nowrap">
                     {Helpers.format_byte_size(pdf.byte_size)}
                   </.table_default_cell>
-                  <.table_default_cell class="text-base-content/60 text-xs">
+                  <.table_default_cell class="text-base-content/60 text-xs whitespace-nowrap">
                     {Helpers.format_time_ago(timestamp_for_filter(pdf, @filter))}
                   </.table_default_cell>
-                  <.table_default_cell class="text-right">
+                  <.table_default_cell class="text-right whitespace-nowrap">
                     <%= if @filter == "trashed" do %>
                       <.table_row_menu mode="auto" id={"pdf-trashed-menu-#{pdf.uuid}"}>
                         <.table_row_menu_button
