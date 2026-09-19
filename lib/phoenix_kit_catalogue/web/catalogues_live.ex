@@ -324,23 +324,23 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   defp current_cfg(assigns), do: Map.fetch!(assigns.view_configs, active_scope(assigns))
 
   # Applies a columns transformation to the active scope's cfg and
-  # persists it (put_cfg). Invalid/empty results fall back to defaults;
-  # the active sort survives whenever it is still a sortable column —
-  # "name" and "position" are managed?: false so never in `ids`, and
-  # sorting doesn't require the column to be displayed.
+  # persists it (put_cfg). Removing the last column leaves Name alone
+  # rather than snapping back to the defaults. The active sort survives
+  # whenever it is still a sortable column — "name" and "position" are
+  # managed?: false so never in `ids`, and sorting doesn't require the
+  # column to be displayed.
   defp live_update_columns(socket, fun) do
     scope = active_scope(socket.assigns)
     cfg = current_cfg(socket.assigns)
 
     ids = TableConfig.validate_columns(scope, fun.(cfg.columns))
-    ids = if ids == [], do: TableConfig.default_columns(scope), else: ids
 
     cfg = %{cfg | columns: ids}
 
     cfg =
       if MapSet.member?(known_sortable_ids(scope), cfg.sort_by),
         do: cfg,
-        else: %{cfg | sort_by: List.first(ids)}
+        else: %{cfg | sort_by: elem(TableConfig.default_sort(scope), 0)}
 
     put_cfg(socket, scope, cfg)
   end
@@ -1627,15 +1627,13 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
               class="w-12 !pr-0 !py-1 [.pk-comfy_&]:w-22 [.pk-comfy_&]:!py-1.5"
             >
             </.table_default_header_cell>
-            <.table_default_header_cell>
+            <.table_default_header_cell class="w-full">
               {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Name")}
             </.table_default_header_cell>
-            <.table_default_header_cell :for={c <- @cols} class={c.align == :right && "text-right"}>
+            <.table_default_header_cell :for={c <- @cols} class={[column_fit_class(c.id), c.align == :right && "text-right"]}>
               {c.label.()}
             </.table_default_header_cell>
-            <.table_default_header_cell class="text-right">
-              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Actions")}
-            </.table_default_header_cell>
+            <.actions_header_cell />
           </.table_default_row>
         </.table_default_header>
         <.table_default_body>
@@ -1700,7 +1698,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
                       </button>
                     <% end %>
                   </.tree_name_cell>
-                  <.table_default_cell :for={c <- @cols} class={c.align == :right && "text-right"}>
+                  <.table_default_cell :for={c <- @cols} class={[column_fit_class(c.id), c.align == :right && "text-right"]}>
                     {render_folder_cell(c.id, folder, meta)}
                   </.table_default_cell>
                   <.table_default_cell class="text-right whitespace-nowrap">
@@ -1783,7 +1781,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
                       {c_row.name}
                     </.link>
                   </.tree_name_cell>
-                  <.table_default_cell :for={c <- @cols} class={c.align == :right && "text-right"}>
+                  <.table_default_cell :for={c <- @cols} class={[column_fit_class(c.id), c.align == :right && "text-right"]}>
                     {render_cell(:catalogues, c.id, c_row)}
                   </.table_default_cell>
                   <.table_default_cell class="text-right whitespace-nowrap">
@@ -4050,12 +4048,12 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       <table class="table table-zebra w-full">
         <thead>
           <tr>
-            <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Name")}</th>
-            <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "SKU")}</th>
-            <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Catalogue")}</th>
-            <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Category")}</th>
-            <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Status")}</th>
-            <th class="text-right">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Actions")}</th>
+            <th class="w-full">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Name")}</th>
+            <th class="whitespace-nowrap">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "SKU")}</th>
+            <th class="whitespace-nowrap">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Catalogue")}</th>
+            <th class="whitespace-nowrap">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Category")}</th>
+            <th class="whitespace-nowrap">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Status")}</th>
+            <.actions_header_cell />
           </tr>
         </thead>
         <tbody>
@@ -4068,13 +4066,13 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
                 {item.name}
               </.link>
             </td>
-            <td class="font-mono text-xs">{item.sku}</td>
-            <td>{item.catalogue && item.catalogue.name}</td>
-            <td class="text-base-content/70">
+            <td class="font-mono text-xs whitespace-nowrap">{item.sku}</td>
+            <td class="whitespace-nowrap">{item.catalogue && item.catalogue.name}</td>
+            <td class="text-base-content/70 whitespace-nowrap">
               {(item.category && item.category.name) ||
                 Gettext.gettext(PhoenixKitCatalogue.Gettext, "Uncategorized")}
             </td>
-            <td><.status_badge status={item.status} size={:sm} /></td>
+            <td class="whitespace-nowrap"><.status_badge status={item.status} size={:sm} /></td>
             <td class="text-right whitespace-nowrap">
               <.table_row_menu mode="auto" id={"item-result-menu-#{item.uuid}"}>
                 <.table_row_menu_link
@@ -4257,7 +4255,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
           <.table_default_header_cell :if={@photo_col?} class="w-12 !pr-0 !py-1 [.pk-comfy_&]:w-22 [.pk-comfy_&]:!py-1.5"></.table_default_header_cell>
           <.table_default_header_cell
             :for={c <- @cols}
-            class={c.align == :right && "text-right"}
+            class={[column_fit_class(c.id), c.align == :right && "text-right"]}
           >
             <.sort_header
               :if={c.sortable?}
@@ -4269,9 +4267,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
             />
             <span :if={!c.sortable?}>{c.label.()}</span>
           </.table_default_header_cell>
-          <.table_default_header_cell class="text-right">
-            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Actions")}
-          </.table_default_header_cell>
+          <.actions_header_cell />
         </.table_default_row>
       </.table_default_header>
       <.sortable_tbody :if={@draggable} id={"#{@scope}-table-body"} enabled={@reorderable?} event="reorder_catalogues">
@@ -4292,7 +4288,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
               has_files={Map.get(@file_counts, row.uuid, 0) > 0}
             />
           </.table_default_cell>
-          <.table_default_cell :for={c <- @cols} class={c.align == :right && "text-right"}>
+          <.table_default_cell :for={c <- @cols} class={[column_fit_class(c.id), c.align == :right && "text-right"]}>
             {render_cell(@scope, c.id, row)}
           </.table_default_cell>
           <.table_default_cell class="text-right whitespace-nowrap">
@@ -4316,7 +4312,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
               has_files={Map.get(@file_counts, row.uuid, 0) > 0}
             />
           </.table_default_cell>
-          <.table_default_cell :for={c <- @cols} class={c.align == :right && "text-right"}>
+          <.table_default_cell :for={c <- @cols} class={[column_fit_class(c.id), c.align == :right && "text-right"]}>
             {render_cell(@scope, c.id, row)}
           </.table_default_cell>
           <.table_default_cell class="text-right whitespace-nowrap">

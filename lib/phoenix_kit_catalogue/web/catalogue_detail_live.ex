@@ -1913,10 +1913,10 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   # sessions follow live, and mount reads it back. ──────────────────
 
   # Applies a columns transformation to one table's scope and persists
-  # it per-user. Invalid/empty results fall back to defaults.
+  # it per-user. Removing the last column leaves Name alone — it used to
+  # snap back to the defaults, which read as the editor resetting itself.
   defp live_update_detail_columns(socket, scope, fun) do
     ids = TableConfig.validate_columns(scope, fun.(current_scope_columns(socket, scope)))
-    ids = if ids == [], do: TableConfig.default_columns(scope), else: ids
 
     user = socket.assigns[:phoenix_kit_current_user]
     cfg = %{ViewConfig.load(user, scope) | columns: ids}
@@ -4981,13 +4981,11 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
           />
           <.table_default_header_cell :if={@view_mode not in ["active", "deleted"]} class="w-8"></.table_default_header_cell>
           <.table_default_header_cell :if={@photo_col?} class="w-12 !pr-0 !py-1 [.pk-comfy_&]:w-22 [.pk-comfy_&]:!py-1.5"></.table_default_header_cell>
-          <.table_default_header_cell>
+          <.table_default_header_cell class="w-full">
             {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Name")}
           </.table_default_header_cell>
           <.category_header_cells columns={@categories_columns} extension_columns={@extension_columns} />
-          <.table_default_header_cell class="text-right">
-            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Actions")}
-          </.table_default_header_cell>
+          <.actions_header_cell />
         </.table_default_row>
       </.table_default_header>
       <.sortable_tbody
@@ -5071,19 +5069,11 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Uncategorized")}
             </.link>
           </td>
-          <%!-- One <td> per configured column, matching a real row: any id
-               this level doesn't special-case (a future catalogue column,
-               or a shop-extension column) still gets an empty <td> here
-               rather than none — a skipped cell would shift every
-               following column out of alignment with the header. --%>
-          <%= for col <- @categories_columns do %>
-            <%= case col do %>
-              <% "items" -> %>
-                <td class="text-right tabular-nums">{@uncategorized_active_count}</td>
-              <% _ -> %>
-                <td></td>
-            <% end %>
-          <% end %>
+          <.uncategorized_category_cells
+            columns={@categories_columns}
+            count={@uncategorized_active_count}
+            extension_columns={@extension_columns}
+          />
           <td class="text-right">
             <.table_row_menu mode="auto" id="category-menu-uncategorized">
               <.table_row_menu_link
@@ -5236,13 +5226,11 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               aria_label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Select all categories")}
             />
             <.table_default_header_cell :if={@photo_col?} class="w-12 !pr-0 !py-1 [.pk-comfy_&]:w-22 [.pk-comfy_&]:!py-1.5"></.table_default_header_cell>
-            <.table_default_header_cell>
+            <.table_default_header_cell class="w-full">
               {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Name")}
             </.table_default_header_cell>
             <.category_header_cells columns={@categories_columns} extension_columns={@extension_columns} />
-            <.table_default_header_cell class="text-right">
-              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Actions")}
-            </.table_default_header_cell>
+            <.actions_header_cell />
           </.table_default_row>
         </.table_default_header>
         <.table_default_body>
@@ -5322,16 +5310,11 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                 {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Uncategorized")}
               </.link>
             </td>
-            <%!-- See the matching comment in `categories_table/1` above:
-                 always one <td> per configured column. --%>
-            <%= for col <- @categories_columns do %>
-              <%= case col do %>
-                <% "items" -> %>
-                  <td class="text-right tabular-nums">{@uncategorized_active_count}</td>
-                <% _ -> %>
-                  <td></td>
-              <% end %>
-            <% end %>
+            <.uncategorized_category_cells
+              columns={@categories_columns}
+              count={@uncategorized_active_count}
+              extension_columns={@extension_columns}
+            />
             <td class="text-right">
               <.table_row_menu mode="auto" id="category-menu-uncategorized-tree">
                 <.table_row_menu_link
@@ -6157,33 +6140,33 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                    of the name made rows jagged); only when some row on
                    this level actually has one. --%>
               <.table_default_header_cell :if={@photo_col?} class="w-12 !pr-0 !py-1 [.pk-comfy_&]:w-22 [.pk-comfy_&]:!py-1.5"></.table_default_header_cell>
-              <.sort_header_cell field={:name} sort={%{by: @items_sort_by, dir: @items_sort_dir}} event="toggle_sort_items">
+              <.sort_header_cell field={:name} sort={%{by: @items_sort_by, dir: @items_sort_dir}} event="toggle_sort_items" class="w-full">
                 {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Name")}
               </.sort_header_cell>
               <%= for col <- @items_columns do %>
                 <%= case col do %>
                   <% "sku" -> %>
-                    <.sort_header_cell field={:sku} sort={%{by: @items_sort_by, dir: @items_sort_dir}} event="toggle_sort_items">
+                    <.sort_header_cell field={:sku} sort={%{by: @items_sort_by, dir: @items_sort_dir}} event="toggle_sort_items" class="whitespace-nowrap">
                       {Gettext.gettext(PhoenixKitCatalogue.Gettext, "SKU")}
                     </.sort_header_cell>
                   <% "image" -> %>
-                    <.table_default_header_cell>
+                    <.table_default_header_cell class="whitespace-nowrap">
                       {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Image")}
                     </.table_default_header_cell>
                   <% "price" -> %>
-                    <.sort_header_cell field={:base_price} sort={%{by: @items_sort_by, dir: @items_sort_dir}} event="toggle_sort_items">
+                    <.sort_header_cell field={:base_price} sort={%{by: @items_sort_by, dir: @items_sort_dir}} event="toggle_sort_items" class="whitespace-nowrap">
                       {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Price")}
                     </.sort_header_cell>
                   <% "supplier_price" -> %>
-                    <.table_default_header_cell>
+                    <.table_default_header_cell class="whitespace-nowrap">
                       {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Supplier price")}
                     </.table_default_header_cell>
                   <% "unit" -> %>
-                    <.table_default_header_cell>
+                    <.table_default_header_cell class="whitespace-nowrap">
                       {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Unit")}
                     </.table_default_header_cell>
                   <% "status" -> %>
-                    <.sort_header_cell field={:status} sort={%{by: @items_sort_by, dir: @items_sort_dir}} event="toggle_sort_items">
+                    <.sort_header_cell field={:status} sort={%{by: @items_sort_by, dir: @items_sort_dir}} event="toggle_sort_items" class="whitespace-nowrap">
                       {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Status")}
                     </.sort_header_cell>
                   <% "attributes" -> %>
@@ -6191,7 +6174,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                       {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Attributes")}
                     </.table_default_header_cell>
                   <% "files" -> %>
-                    <.table_default_header_cell>
+                    <.table_default_header_cell class="whitespace-nowrap">
                       {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Files")}
                     </.table_default_header_cell>
                   <% "description" -> %>
@@ -6199,22 +6182,20 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                       {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Description")}
                     </.table_default_header_cell>
                   <% "updated" -> %>
-                    <.table_default_header_cell>
+                    <.table_default_header_cell class="whitespace-nowrap">
                       {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Updated")}
                     </.table_default_header_cell>
                   <% "created" -> %>
-                    <.table_default_header_cell>
+                    <.table_default_header_cell class="whitespace-nowrap">
                       {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Created")}
                     </.table_default_header_cell>
                   <% other -> %>
                     <%= if ext = Map.get(@extension_columns, other) do %>
-                      <.table_default_header_cell>{ext.label.()}</.table_default_header_cell>
+                      <.table_default_header_cell class="whitespace-nowrap">{ext.label.()}</.table_default_header_cell>
                     <% end %>
                 <% end %>
               <% end %>
-              <.table_default_header_cell class="text-right whitespace-nowrap">
-                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Actions")}
-              </.table_default_header_cell>
+              <.actions_header_cell />
             </.table_default_row>
           </.table_default_header>
           <.sortable_tbody

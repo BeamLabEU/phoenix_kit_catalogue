@@ -998,6 +998,70 @@ defmodule PhoenixKitCatalogue.Web.Components do
     """
   end
 
+  # ── Column widths ───────────────────────────────────────────────
+
+  # Prose columns wrap inside a bounded width instead of holding one line.
+  @prose_columns ~w(description attributes)
+
+  @doc """
+  The width rule every catalogue table shares (boss, 2026-09-19: the
+  columns took far more room than their content). Name is the one column
+  that grows — `w-full` on its header hands it every spare pixel — so the
+  data columns pack against the right edge at the width their content
+  needs, and the table still fills its container however few columns are
+  shown.
+
+  `whitespace-nowrap` is what keeps a data column at that width: beside a
+  100% column a table squeezes every other column to its min-content,
+  which for wrapping text is its longest word ("Supplier / price", a date
+  on two lines). Prose columns are the exception: they return `nil` here
+  and bound their content with `prose_cell_class/0` instead.
+
+  Takes the Columns-modal ids (strings) and `item_table/1`'s atoms.
+  """
+  @spec column_fit_class(String.t() | atom()) :: String.t() | nil
+  def column_fit_class(id) when is_atom(id), do: column_fit_class(Atom.to_string(id))
+  def column_fit_class("name"), do: "w-full"
+  def column_fit_class(id) when id in @prose_columns, do: nil
+  def column_fit_class(_id), do: "whitespace-nowrap"
+
+  @doc """
+  Classes for a prose cell's CONTENT (a description, an attribute list): as
+  wide as the text up to 16rem, then wrapping, two lines at most. The
+  width sits on the content because a table ignores `max-width` on the
+  cell itself.
+  """
+  @spec prose_cell_class() :: String.t()
+  def prose_cell_class, do: "w-max max-w-64 whitespace-normal line-clamp-2"
+
+  @doc """
+  The ⋮ menu column's header. No visible label: the column is only as wide
+  as its button (boss, 2026-09-19), and the word stays for screen readers.
+  """
+  def actions_header_cell(assigns) do
+    ~H"""
+    <.table_default_header_cell class="w-px">
+      <span class="sr-only">{gettext("Actions")}</span>
+    </.table_default_header_cell>
+    """
+  end
+
+  # The ids `category_header_cells/1` knows how to draw.
+  @category_cell_ids ~w(items image updated subcategories description files status created)
+
+  @doc """
+  The entries of a category table's columns list that actually draw a
+  cell: the known ids plus enabled extensions' columns, in the given
+  order. The header, every row and the Uncategorized row all iterate THIS
+  list, so no row can carry a cell the header lacks — an unknown id
+  anywhere used to give one row an extra column, and the table then drew
+  its header past every other row's edge.
+  """
+  @spec category_cell_ids([String.t()], map()) :: [String.t()]
+  def category_cell_ids(columns, extension_columns \\ %{}) do
+    Enum.filter(columns, &(&1 in @category_cell_ids or is_map_key(extension_columns, &1)))
+  end
+
   @doc """
   The category tables' configurable header cells — one per entry of the
   admin Columns modal's vocabulary, same order. Extracted with
@@ -1017,22 +1081,22 @@ defmodule PhoenixKitCatalogue.Web.Components do
 
   def category_header_cells(assigns) do
     ~H"""
-    <%= for col <- @columns do %>
+    <%= for col <- category_cell_ids(@columns, @extension_columns) do %>
       <%= case col do %>
         <% "items" -> %>
-          <.table_default_header_cell class="text-right">
+          <.table_default_header_cell class="text-right whitespace-nowrap">
             {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Items")}
           </.table_default_header_cell>
         <% "image" -> %>
-          <.table_default_header_cell>
+          <.table_default_header_cell class="whitespace-nowrap">
             {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Image")}
           </.table_default_header_cell>
         <% "updated" -> %>
-          <.table_default_header_cell>
+          <.table_default_header_cell class="whitespace-nowrap">
             {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Updated")}
           </.table_default_header_cell>
         <% "subcategories" -> %>
-          <.table_default_header_cell class="text-right">
+          <.table_default_header_cell class="text-right whitespace-nowrap">
             {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Subcategories")}
           </.table_default_header_cell>
         <% "description" -> %>
@@ -1040,21 +1104,21 @@ defmodule PhoenixKitCatalogue.Web.Components do
             {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Description")}
           </.table_default_header_cell>
         <% "files" -> %>
-          <.table_default_header_cell>
+          <.table_default_header_cell class="whitespace-nowrap">
             {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Files")}
           </.table_default_header_cell>
         <% "status" -> %>
-          <.table_default_header_cell>
+          <.table_default_header_cell class="whitespace-nowrap">
             {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Status")}
           </.table_default_header_cell>
         <% "created" -> %>
-          <.table_default_header_cell>
+          <.table_default_header_cell class="whitespace-nowrap">
             {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Created")}
           </.table_default_header_cell>
-        <% other -> %>
-          <%= if ext = Map.get(@extension_columns, other) do %>
-            <.table_default_header_cell>{ext.label.()}</.table_default_header_cell>
-          <% end %>
+        <% ext_id -> %>
+          <.table_default_header_cell class="whitespace-nowrap">
+            {@extension_columns[ext_id].label.()}
+          </.table_default_header_cell>
       <% end %>
     <% end %>
     """
@@ -1077,45 +1141,63 @@ defmodule PhoenixKitCatalogue.Web.Components do
 
   def category_body_cells(assigns) do
     ~H"""
-    <%= for col <- @columns do %>
+    <%= for col <- category_cell_ids(@columns, @extension_columns) do %>
       <%= case col do %>
         <% "items" -> %>
-          <.table_default_cell class="text-right tabular-nums">
+          <.table_default_cell class="text-right tabular-nums whitespace-nowrap">
             {Map.get(@child_counts, @cat.uuid, 0)}
           </.table_default_cell>
         <% "image" -> %>
-          <.table_default_cell>
+          <.table_default_cell class="whitespace-nowrap">
             <.image_column_cell resource={@cat} />
           </.table_default_cell>
         <% "updated" -> %>
-          <.table_default_cell class="text-sm text-base-content/60">
+          <.table_default_cell class="text-sm text-base-content/60 whitespace-nowrap">
             {Calendar.strftime(@cat.updated_at, "%Y-%m-%d %H:%M")}
           </.table_default_cell>
         <% "subcategories" -> %>
-          <.table_default_cell class="text-right tabular-nums text-base-content/60">
+          <.table_default_cell class="text-right tabular-nums text-base-content/60 whitespace-nowrap">
             {Map.get(@child_subcat_counts, @cat.uuid, 0)}
           </.table_default_cell>
         <% "description" -> %>
-          <.table_default_cell class="text-sm text-base-content/60 max-w-64">
-            <span class="line-clamp-2">{@cat.description || "—"}</span>
+          <.table_default_cell class="text-sm text-base-content/60">
+            <span class={prose_cell_class()}>{@cat.description || "—"}</span>
           </.table_default_cell>
         <% "files" -> %>
-          <.table_default_cell class="text-sm tabular-nums text-base-content/60">
+          <.table_default_cell class="text-sm tabular-nums text-base-content/60 whitespace-nowrap">
             {Map.get(@file_counts, @cat.uuid, 0)}
           </.table_default_cell>
         <% "status" -> %>
-          <.table_default_cell>
+          <.table_default_cell class="whitespace-nowrap">
             <.status_badge status={@cat.status} size={:xs} />
           </.table_default_cell>
         <% "created" -> %>
-          <.table_default_cell class="text-sm text-base-content/60">
+          <.table_default_cell class="text-sm text-base-content/60 whitespace-nowrap">
             {Calendar.strftime(@cat.inserted_at, "%Y-%m-%d %H:%M")}
           </.table_default_cell>
-        <% other -> %>
-          <%= if ext = Map.get(@extension_columns, other) do %>
-            <.table_default_cell>{ext.render.(@cat)}</.table_default_cell>
-          <% end %>
+        <% ext_id -> %>
+          <.table_default_cell class="whitespace-nowrap">
+            {@extension_columns[ext_id].render.(@cat)}
+          </.table_default_cell>
       <% end %>
+    <% end %>
+    """
+  end
+
+  @doc """
+  The Uncategorized row's configurable cells: the item count under Items,
+  an empty cell under every other column `category_header_cells/1` draws —
+  never a cell the header lacks.
+  """
+  attr(:columns, :list, required: true)
+  attr(:count, :integer, required: true)
+  attr(:extension_columns, :map, default: %{})
+
+  def uncategorized_category_cells(assigns) do
+    ~H"""
+    <%= for col <- category_cell_ids(@columns, @extension_columns) do %>
+      <td :if={col == "items"} class="text-right tabular-nums whitespace-nowrap">{@count}</td>
+      <td :if={col != "items"}></td>
     <% end %>
     """
   end
@@ -2412,12 +2494,10 @@ defmodule PhoenixKitCatalogue.Web.Components do
         <.table_default_row>
           <.table_default_header_cell :if={!is_nil(@on_reorder) or @selectable} class="w-10"></.table_default_header_cell>
           <.table_default_header_cell :if={@photo_col?} class="w-12 !pr-0 !py-1 [.pk-comfy_&]:w-22 [.pk-comfy_&]:!py-1.5"></.table_default_header_cell>
-          <.table_default_header_cell :for={col <- @columns}>
+          <.table_default_header_cell :for={col <- @columns} class={column_fit_class(col)}>
             {column_label(col)}
           </.table_default_header_cell>
-          <.table_default_header_cell :if={@has_actions} class="text-right">
-            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Actions")}
-          </.table_default_header_cell>
+          <.actions_header_cell :if={@has_actions} />
         </.table_default_row>
       </.table_default_header>
       <tbody
@@ -2652,34 +2732,34 @@ defmodule PhoenixKitCatalogue.Web.Components do
     <%= for col <- @columns do %>
       <%= case col do %>
         <% "sku" -> %>
-          <.table_default_cell class="text-sm font-mono text-base-content/60">
+          <.table_default_cell class="text-sm font-mono text-base-content/60 whitespace-nowrap">
             {@item.sku || "—"}
           </.table_default_cell>
         <% "image" -> %>
-          <.table_default_cell>
+          <.table_default_cell class="whitespace-nowrap">
             <.image_column_cell resource={@item} />
           </.table_default_cell>
         <% "price" -> %>
-          <.table_default_cell class="text-sm font-semibold">
+          <.table_default_cell class="text-sm font-semibold whitespace-nowrap">
             {format_price(@sale_price)}
           </.table_default_cell>
         <% "supplier_price" -> %>
-          <.table_default_cell class="text-sm text-base-content/80">
+          <.table_default_cell class="text-sm text-base-content/80 whitespace-nowrap">
             {format_supplier_costs(@supplier_costs)}
           </.table_default_cell>
         <% "unit" -> %>
-          <.table_default_cell class="text-sm">{format_unit(@item.unit)}</.table_default_cell>
+          <.table_default_cell class="text-sm whitespace-nowrap">{format_unit(@item.unit)}</.table_default_cell>
         <% "status" -> %>
-          <.table_default_cell>
+          <.table_default_cell class="whitespace-nowrap">
             <.status_badge status={@item.status || "unknown"} size={:xs} />
           </.table_default_cell>
         <% "attributes" -> %>
           <.table_default_cell>
-            <span :if={@attribute_text}>{@attribute_text}</span>
+            <span :if={@attribute_text} class={prose_cell_class()}>{@attribute_text}</span>
             <span :if={!@attribute_text} class="text-base-content/30">—</span>
           </.table_default_cell>
         <% "files" -> %>
-          <.table_default_cell class="text-sm tabular-nums text-base-content/60">
+          <.table_default_cell class="text-sm tabular-nums text-base-content/60 whitespace-nowrap">
             <span :if={@file_count > 0} class="inline-flex items-center gap-1">
               <.icon name="hero-paper-clip" class="w-3.5 h-3.5 rotate-45 opacity-60" />
               {@file_count}
@@ -2687,8 +2767,8 @@ defmodule PhoenixKitCatalogue.Web.Components do
             <span :if={@file_count == 0} class="text-base-content/30">—</span>
           </.table_default_cell>
         <% "description" -> %>
-          <.table_default_cell class="text-sm text-base-content/60 max-w-64">
-            <span class="line-clamp-2">{@item.description || "—"}</span>
+          <.table_default_cell class="text-sm text-base-content/60">
+            <span class={prose_cell_class()}>{@item.description || "—"}</span>
           </.table_default_cell>
         <% "updated" -> %>
           <.table_default_cell class="text-sm text-base-content/60 whitespace-nowrap">
@@ -2700,7 +2780,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
           </.table_default_cell>
         <% other -> %>
           <%= if ext = Map.get(@extension_columns, other) do %>
-            <.table_default_cell>{ext.render.(@item)}</.table_default_cell>
+            <.table_default_cell class="whitespace-nowrap">{ext.render.(@item)}</.table_default_cell>
           <% end %>
       <% end %>
     <% end %>
@@ -2946,7 +3026,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
 
   defp item_cell(%{column: :sku} = assigns) do
     ~H"""
-    <.table_default_cell class="text-sm font-mono text-base-content/60">
+    <.table_default_cell class="text-sm font-mono text-base-content/60 whitespace-nowrap">
       {@item.sku || "—"}
     </.table_default_cell>
     """
@@ -2954,13 +3034,13 @@ defmodule PhoenixKitCatalogue.Web.Components do
 
   defp item_cell(%{column: :base_price} = assigns) do
     ~H"""
-    <.table_default_cell class="text-sm">{format_price(@item.base_price)}</.table_default_cell>
+    <.table_default_cell class="text-sm whitespace-nowrap">{format_price(@item.base_price)}</.table_default_cell>
     """
   end
 
   defp item_cell(%{column: :price} = assigns) do
     ~H"""
-    <.table_default_cell class="text-sm font-semibold">
+    <.table_default_cell class="text-sm font-semibold whitespace-nowrap">
       {format_price(safe_sale_price(@item, @markup_percentage))}
     </.table_default_cell>
     """
@@ -2968,7 +3048,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
 
   defp item_cell(%{column: :discount} = assigns) do
     ~H"""
-    <.table_default_cell class="text-sm">
+    <.table_default_cell class="text-sm whitespace-nowrap">
       {format_percentage(safe_effective_discount(@item, @discount_percentage))}
     </.table_default_cell>
     """
@@ -2976,7 +3056,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
 
   defp item_cell(%{column: :final_price} = assigns) do
     ~H"""
-    <.table_default_cell class="text-sm font-semibold">
+    <.table_default_cell class="text-sm font-semibold whitespace-nowrap">
       {format_price(safe_final_price(@item, @markup_percentage, @discount_percentage))}
     </.table_default_cell>
     """
@@ -2984,13 +3064,13 @@ defmodule PhoenixKitCatalogue.Web.Components do
 
   defp item_cell(%{column: :unit} = assigns) do
     ~H"""
-    <.table_default_cell class="text-sm">{format_unit(@item.unit)}</.table_default_cell>
+    <.table_default_cell class="text-sm whitespace-nowrap">{format_unit(@item.unit)}</.table_default_cell>
     """
   end
 
   defp item_cell(%{column: :status} = assigns) do
     ~H"""
-    <.table_default_cell>
+    <.table_default_cell class="whitespace-nowrap">
       <.status_badge status={@item.status || "unknown"} size={:xs} />
     </.table_default_cell>
     """
@@ -2998,7 +3078,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
 
   defp item_cell(%{column: :category} = assigns) do
     ~H"""
-    <.table_default_cell class="text-sm text-base-content/60">
+    <.table_default_cell class="text-sm text-base-content/60 whitespace-nowrap">
       {safe_assoc_field(@item, :category, :name)}
     </.table_default_cell>
     """
@@ -3013,7 +3093,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
       )
 
     ~H"""
-    <.table_default_cell class="text-sm">
+    <.table_default_cell class="text-sm whitespace-nowrap">
       <.link
         :if={@catalogue_name != "—" && @catalogue_path}
         navigate={safe_call(@catalogue_path, safe_assoc_field(@item, :catalogue, :uuid))}
@@ -3028,7 +3108,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
 
   defp item_cell(%{column: :manufacturer} = assigns) do
     ~H"""
-    <.table_default_cell class="text-sm text-base-content/60">
+    <.table_default_cell class="text-sm text-base-content/60 whitespace-nowrap">
       {manufacturer_display(@item)}
     </.table_default_cell>
     """
