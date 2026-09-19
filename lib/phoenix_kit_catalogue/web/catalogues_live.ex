@@ -1627,7 +1627,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
               class="w-12 !pr-0 !py-1 [.pk-comfy_&]:w-22 [.pk-comfy_&]:!py-1.5"
             >
             </.table_default_header_cell>
-            <.table_default_header_cell class="w-full">
+            <.table_default_header_cell>
               {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Name")}
             </.table_default_header_cell>
             <.table_default_header_cell :for={c <- @cols} class={[column_fit_class(c.id), c.align == :right && "text-right"]}>
@@ -4048,11 +4048,11 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       <table class="table table-zebra w-full">
         <thead>
           <tr>
-            <th class="w-full">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Name")}</th>
-            <th class="whitespace-nowrap">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "SKU")}</th>
-            <th class="whitespace-nowrap">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Catalogue")}</th>
-            <th class="whitespace-nowrap">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Category")}</th>
-            <th class="whitespace-nowrap">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Status")}</th>
+            <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Name")}</th>
+            <th class="w-px whitespace-nowrap">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "SKU")}</th>
+            <th class="w-px whitespace-nowrap">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Catalogue")}</th>
+            <th class="w-px whitespace-nowrap">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Category")}</th>
+            <th class="w-px whitespace-nowrap">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Status")}</th>
             <.actions_header_cell />
           </tr>
         </thead>
@@ -4387,15 +4387,16 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
 
   defp render_cell(:catalogues, "folder", row), do: text_or_dash(row[:folder_name])
 
-  # Truncated with the full text on hover — descriptions are prose, and
-  # one long one must not stretch every row on the page.
+  # Two lines at most, the full text on hover — descriptions are prose,
+  # and one long one must not stretch every row on the page. Same bound
+  # as the detail page's description column (`prose_cell_class/0`).
   defp render_cell(:catalogues, "description", row) do
     case row[:description] do
       desc when is_binary(desc) and desc != "" ->
         assigns = %{desc: desc}
 
         ~H"""
-        <span class="block max-w-md truncate text-base-content/70" title={@desc}>{@desc}</span>
+        <span class={[prose_cell_class(), "text-base-content/70"]} title={@desc}>{@desc}</span>
         """
 
       _ ->

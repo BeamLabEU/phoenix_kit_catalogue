@@ -1006,24 +1006,27 @@ defmodule PhoenixKitCatalogue.Web.Components do
   @doc """
   The width rule every catalogue table shares (boss, 2026-09-19: the
   columns took far more room than their content). Name is the one column
-  that grows — `w-full` on its header hands it every spare pixel — so the
-  data columns pack against the right edge at the width their content
-  needs, and the table still fills its container however few columns are
-  shown.
+  left without a width, which makes it the table's only auto column — and
+  a table hands all of its spare width to its auto columns. Every other
+  column is `w-px`, a fixed column sized to its content, so the data
+  columns pack against the right edge and the table still fills its
+  container however few columns are shown.
 
-  `whitespace-nowrap` is what keeps a data column at that width: beside a
-  100% column a table squeezes every other column to its min-content,
-  which for wrapping text is its longest word ("Supplier / price", a date
-  on two lines). Prose columns are the exception: they return `nil` here
-  and bound their content with `prose_cell_class/0` instead.
+  `whitespace-nowrap` is what keeps a fixed column at its content's full
+  width: a fixed column takes its min-content, which for wrapping text is
+  its longest word ("Supplier / price", a date on two lines). Prose columns
+  wrap instead, their content bounded by `prose_cell_class/0`.
+
+  Not `w-full` on Name: a percentage column makes a browser widen the
+  table past its container rather than shrink Name when space runs out.
 
   Takes the Columns-modal ids (strings) and `item_table/1`'s atoms.
   """
   @spec column_fit_class(String.t() | atom()) :: String.t() | nil
   def column_fit_class(id) when is_atom(id), do: column_fit_class(Atom.to_string(id))
-  def column_fit_class("name"), do: "w-full"
-  def column_fit_class(id) when id in @prose_columns, do: nil
-  def column_fit_class(_id), do: "whitespace-nowrap"
+  def column_fit_class("name"), do: nil
+  def column_fit_class(id) when id in @prose_columns, do: "w-px"
+  def column_fit_class(_id), do: "w-px whitespace-nowrap"
 
   @doc """
   Classes for a prose cell's CONTENT (a description, an attribute list): as
@@ -1084,39 +1087,39 @@ defmodule PhoenixKitCatalogue.Web.Components do
     <%= for col <- category_cell_ids(@columns, @extension_columns) do %>
       <%= case col do %>
         <% "items" -> %>
-          <.table_default_header_cell class="text-right whitespace-nowrap">
+          <.table_default_header_cell class="text-right w-px whitespace-nowrap">
             {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Items")}
           </.table_default_header_cell>
         <% "image" -> %>
-          <.table_default_header_cell class="whitespace-nowrap">
+          <.table_default_header_cell class="w-px whitespace-nowrap">
             {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Image")}
           </.table_default_header_cell>
         <% "updated" -> %>
-          <.table_default_header_cell class="whitespace-nowrap">
+          <.table_default_header_cell class="w-px whitespace-nowrap">
             {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Updated")}
           </.table_default_header_cell>
         <% "subcategories" -> %>
-          <.table_default_header_cell class="text-right whitespace-nowrap">
+          <.table_default_header_cell class="text-right w-px whitespace-nowrap">
             {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Subcategories")}
           </.table_default_header_cell>
         <% "description" -> %>
-          <.table_default_header_cell>
+          <.table_default_header_cell class="w-px">
             {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Description")}
           </.table_default_header_cell>
         <% "files" -> %>
-          <.table_default_header_cell class="whitespace-nowrap">
+          <.table_default_header_cell class="w-px whitespace-nowrap">
             {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Files")}
           </.table_default_header_cell>
         <% "status" -> %>
-          <.table_default_header_cell class="whitespace-nowrap">
+          <.table_default_header_cell class="w-px whitespace-nowrap">
             {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Status")}
           </.table_default_header_cell>
         <% "created" -> %>
-          <.table_default_header_cell class="whitespace-nowrap">
+          <.table_default_header_cell class="w-px whitespace-nowrap">
             {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Created")}
           </.table_default_header_cell>
         <% ext_id -> %>
-          <.table_default_header_cell class="whitespace-nowrap">
+          <.table_default_header_cell class="w-px whitespace-nowrap">
             {@extension_columns[ext_id].label.()}
           </.table_default_header_cell>
       <% end %>

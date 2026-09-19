@@ -156,32 +156,56 @@ defmodule PhoenixKitCatalogue.Web.TableColumnsTest do
   end
 
   describe "column widths" do
-    test "Name grows, the ⋮ column has no visible label", %{conn: conn, catalogue: catalogue} do
-      {:ok, _view, html} = live(conn, "#{@base}/#{catalogue.uuid}")
+    test "Name is the only auto column; the rest are fixed, the ⋮ one unlabelled", %{
+      conn: conn,
+      catalogue: catalogue
+    } do
+      {:ok, view, _html} = live(conn, "#{@base}/#{catalogue.uuid}")
 
-      tree =
+      html =
+        render_click(view, "reorder_columns_detail_categories", %{
+          "ordered_ids" => ~w(items description status updated)
+        })
+
+      heads =
         html
         |> LazyHTML.from_fragment()
         |> LazyHTML.query("#catalogue-categories-tree thead th")
-        |> Enum.map(&{LazyHTML.attribute(&1, "class"), LazyHTML.text(&1) |> String.trim()})
+        |> Enum.map(fn th ->
+          {th |> LazyHTML.attribute("class") |> List.first(""),
+           th |> LazyHTML.text() |> String.trim()}
+        end)
 
-      assert {[classes], "Name"} = Enum.find(tree, fn {_c, text} -> text == "Name" end)
-      assert classes =~ "w-full"
+      # Leading drag + checkbox columns are fixed (w-8); every header
+      # after Name must be too, or it shares the spare width with Name.
+      {before, [{name_classes, "Name"} | rest]} =
+        Enum.split_while(heads, fn {_c, text} -> text != "Name" end)
 
-      # The last header is the menu column: its word is for screen
-      # readers only.
-      {_classes, "Actions"} = List.last(tree)
+      refute name_classes =~ ~r/\bw-/
+      assert Enum.all?(before, fn {c, _} -> c =~ "w-8" end)
+
+      assert Enum.map(rest, &elem(&1, 1)) == [
+               "Items",
+               "Description",
+               "Status",
+               "Updated",
+               "Actions"
+             ]
+
+      assert Enum.all?(rest, fn {c, _} -> c =~ "w-px" end), inspect(rest)
+
+      # The menu column's word is for screen readers only.
       assert html =~ ~s(<span class="sr-only">Actions</span>)
     end
 
     test "only Name grows; prose wraps, everything else holds one line" do
-      assert Components.column_fit_class("name") == "w-full"
-      assert Components.column_fit_class(:name) == "w-full"
-      assert Components.column_fit_class("description") == nil
-      assert Components.column_fit_class("attributes") == nil
+      assert Components.column_fit_class("name") == nil
+      assert Components.column_fit_class(:name) == nil
+      assert Components.column_fit_class("description") == "w-px"
+      assert Components.column_fit_class("attributes") == "w-px"
 
       for id <- ~w(sku price supplier_price unit status items subcategories files updated created) do
-        assert Components.column_fit_class(id) == "whitespace-nowrap", id
+        assert Components.column_fit_class(id) == "w-px whitespace-nowrap", id
       end
     end
   end

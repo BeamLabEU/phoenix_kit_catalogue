@@ -4981,7 +4981,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
           />
           <.table_default_header_cell :if={@view_mode not in ["active", "deleted"]} class="w-8"></.table_default_header_cell>
           <.table_default_header_cell :if={@photo_col?} class="w-12 !pr-0 !py-1 [.pk-comfy_&]:w-22 [.pk-comfy_&]:!py-1.5"></.table_default_header_cell>
-          <.table_default_header_cell class="w-full">
+          <.table_default_header_cell>
             {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Name")}
           </.table_default_header_cell>
           <.category_header_cells columns={@categories_columns} extension_columns={@extension_columns} />
@@ -5226,7 +5226,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               aria_label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Select all categories")}
             />
             <.table_default_header_cell :if={@photo_col?} class="w-12 !pr-0 !py-1 [.pk-comfy_&]:w-22 [.pk-comfy_&]:!py-1.5"></.table_default_header_cell>
-            <.table_default_header_cell class="w-full">
+            <.table_default_header_cell>
               {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Name")}
             </.table_default_header_cell>
             <.category_header_cells columns={@categories_columns} extension_columns={@extension_columns} />
@@ -6140,58 +6140,58 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                    of the name made rows jagged); only when some row on
                    this level actually has one. --%>
               <.table_default_header_cell :if={@photo_col?} class="w-12 !pr-0 !py-1 [.pk-comfy_&]:w-22 [.pk-comfy_&]:!py-1.5"></.table_default_header_cell>
-              <.sort_header_cell field={:name} sort={%{by: @items_sort_by, dir: @items_sort_dir}} event="toggle_sort_items" class="w-full">
+              <.sort_header_cell field={:name} sort={%{by: @items_sort_by, dir: @items_sort_dir}} event="toggle_sort_items">
                 {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Name")}
               </.sort_header_cell>
               <%= for col <- @items_columns do %>
                 <%= case col do %>
                   <% "sku" -> %>
-                    <.sort_header_cell field={:sku} sort={%{by: @items_sort_by, dir: @items_sort_dir}} event="toggle_sort_items" class="whitespace-nowrap">
+                    <.sort_header_cell field={:sku} sort={%{by: @items_sort_by, dir: @items_sort_dir}} event="toggle_sort_items" class="w-px whitespace-nowrap">
                       {Gettext.gettext(PhoenixKitCatalogue.Gettext, "SKU")}
                     </.sort_header_cell>
                   <% "image" -> %>
-                    <.table_default_header_cell class="whitespace-nowrap">
+                    <.table_default_header_cell class="w-px whitespace-nowrap">
                       {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Image")}
                     </.table_default_header_cell>
                   <% "price" -> %>
-                    <.sort_header_cell field={:base_price} sort={%{by: @items_sort_by, dir: @items_sort_dir}} event="toggle_sort_items" class="whitespace-nowrap">
+                    <.sort_header_cell field={:base_price} sort={%{by: @items_sort_by, dir: @items_sort_dir}} event="toggle_sort_items" class="w-px whitespace-nowrap">
                       {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Price")}
                     </.sort_header_cell>
                   <% "supplier_price" -> %>
-                    <.table_default_header_cell class="whitespace-nowrap">
+                    <.table_default_header_cell class="w-px whitespace-nowrap">
                       {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Supplier price")}
                     </.table_default_header_cell>
                   <% "unit" -> %>
-                    <.table_default_header_cell class="whitespace-nowrap">
+                    <.table_default_header_cell class="w-px whitespace-nowrap">
                       {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Unit")}
                     </.table_default_header_cell>
                   <% "status" -> %>
-                    <.sort_header_cell field={:status} sort={%{by: @items_sort_by, dir: @items_sort_dir}} event="toggle_sort_items" class="whitespace-nowrap">
+                    <.sort_header_cell field={:status} sort={%{by: @items_sort_by, dir: @items_sort_dir}} event="toggle_sort_items" class="w-px whitespace-nowrap">
                       {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Status")}
                     </.sort_header_cell>
                   <% "attributes" -> %>
-                    <.table_default_header_cell>
+                    <.table_default_header_cell class="w-px">
                       {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Attributes")}
                     </.table_default_header_cell>
                   <% "files" -> %>
-                    <.table_default_header_cell class="whitespace-nowrap">
+                    <.table_default_header_cell class="w-px whitespace-nowrap">
                       {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Files")}
                     </.table_default_header_cell>
                   <% "description" -> %>
-                    <.table_default_header_cell>
+                    <.table_default_header_cell class="w-px">
                       {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Description")}
                     </.table_default_header_cell>
                   <% "updated" -> %>
-                    <.table_default_header_cell class="whitespace-nowrap">
+                    <.table_default_header_cell class="w-px whitespace-nowrap">
                       {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Updated")}
                     </.table_default_header_cell>
                   <% "created" -> %>
-                    <.table_default_header_cell class="whitespace-nowrap">
+                    <.table_default_header_cell class="w-px whitespace-nowrap">
                       {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Created")}
                     </.table_default_header_cell>
                   <% other -> %>
                     <%= if ext = Map.get(@extension_columns, other) do %>
-                      <.table_default_header_cell class="whitespace-nowrap">{ext.label.()}</.table_default_header_cell>
+                      <.table_default_header_cell class="w-px whitespace-nowrap">{ext.label.()}</.table_default_header_cell>
                     <% end %>
                 <% end %>
               <% end %>
