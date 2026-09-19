@@ -39,6 +39,30 @@ defmodule PhoenixKitCatalogue.Web.MalformedUrlKeysTest do
     end
   end
 
+  describe "the new-item and new-category forms check their catalogue first" do
+    setup %{conn: conn, scope: scope} do
+      %{conn: with_scope(conn, scope)}
+    end
+
+    for {label, suffix} <- [{"item", "items/new"}, {"category", "categories/new"}],
+        bad <- ["not-a-uuid", "019da71b-0000-7000-8000-000000000000"] do
+      test "a new #{label} under #{bad} goes back to the list", %{conn: conn} do
+        result = live(conn, "#{@base}/#{unquote(bad)}/#{unquote(suffix)}")
+        assert {:error, {:live_redirect, %{to: to}}} = result
+        assert to =~ @base
+
+        {:ok, _index, html} = follow_redirect(result, conn)
+        assert html =~ "Catalogue not found."
+      end
+    end
+
+    test "a garbage ?category= on a real catalogue's new item is simply ignored", %{conn: conn} do
+      catalogue = fixture_catalogue(%{name: "Keys cat"})
+      {:ok, view, _html} = live(conn, "#{@base}/#{catalogue.uuid}/items/new?category=junk?page=5")
+      assert Process.alive?(view.pid)
+    end
+  end
+
   describe "the detail page recovers from a hand-edited URL" do
     setup %{conn: conn, scope: scope} do
       catalogue = fixture_catalogue(%{name: "Keys cat"})
