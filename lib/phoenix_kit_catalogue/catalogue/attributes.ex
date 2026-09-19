@@ -244,7 +244,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Attributes do
   @doc "Fetches an attribute by UUID (with its group). Returns `nil` if not found."
   @spec get_attribute(Ecto.UUID.t()) :: Attribute.t() | nil
   def get_attribute(uuid) do
-    case repo().get(Attribute, uuid) do
+    case Helpers.get_by_uuid(Attribute, uuid) do
       nil -> nil
       attribute -> repo().preload(attribute, :group)
     end
@@ -429,7 +429,7 @@ defmodule PhoenixKitCatalogue.Catalogue.Attributes do
   @doc "Fetches a value by UUID (with its attribute). Returns `nil` if not found."
   @spec get_attribute_value(Ecto.UUID.t()) :: AttributeValue.t() | nil
   def get_attribute_value(uuid) do
-    case repo().get(AttributeValue, uuid) do
+    case Helpers.get_by_uuid(AttributeValue, uuid) do
       nil -> nil
       value -> repo().preload(value, :attribute)
     end
