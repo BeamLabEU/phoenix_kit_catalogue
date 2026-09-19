@@ -3071,7 +3071,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
       </div>
       <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
         <div :for={field <- @supplier_fields} class="flex flex-col gap-1">
-          <span class="label-text font-medium">{field["label"]}</span>
+          <span class="label font-semibold">{field["label"]}</span>
           <.field_input
             field={field}
             id={"#{@form_id}-custom-#{field["key"]}"}
@@ -3442,7 +3442,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                 <.icon name="hero-link" class="w-4 h-4" />
                 {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Catalogue rules")}
               </h2>
-              <p class="text-sm text-base-content/60 -mt-2">
+              <p class="text-xs text-base-content/50 -mt-2">
                 {Gettext.gettext(
                   PhoenixKitCatalogue.Gettext,
                   "Pick which catalogues this item applies to and set a value + unit per catalogue. Rows left blank inherit the defaults below."
@@ -4331,6 +4331,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
       <.modal
         :if={@supplier_form != nil}
         id="supplier-form-modal"
+        class="text-sm"
         show
         on_close="close_supplier_form"
         max_width="lg"
@@ -4546,6 +4547,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
       <.modal
         :if={@supplier_field_editor != nil}
         id="supplier-field-editor-modal"
+        class="text-sm"
         show
         on_close="close_supplier_field_editor"
         max_width="md"
@@ -4563,7 +4565,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
           class="flex flex-col gap-4"
         >
           <label class="form-control">
-            <span class="label-text font-medium pb-1">
+            <span class="label mb-2 font-semibold">
               {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Name")}
               <span class="text-error">*</span>
             </span>
@@ -4583,7 +4585,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
 
           <%= if @supplier_field_editor.mode == :new do %>
             <label class="form-control">
-              <span class="label-text font-medium pb-1">
+              <span class="label mb-2 font-semibold">
                 {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Type")}
               </span>
               <select name="type" class="select select-bordered w-full">
@@ -4598,7 +4600,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
             </label>
           <% else %>
             <div class="flex flex-col gap-1">
-              <span class="label-text font-medium">
+              <span class="label font-semibold">
                 {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Type")}
               </span>
               <p class="text-sm">{supplier_field_type_label(@supplier_field_editor.type)}</p>
@@ -4612,7 +4614,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
           <% end %>
 
           <div :if={@supplier_field_editor.type == "select"} class="flex flex-col gap-2">
-            <span class="label-text font-medium">
+            <span class="label font-semibold">
               {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Choices")}
             </span>
             <div

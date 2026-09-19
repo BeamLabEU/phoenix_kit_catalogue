@@ -3396,11 +3396,11 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         <div :if={@attr_tab_loaded and @sets_enabled} class="flex flex-col gap-3">
           <div class="flex items-center justify-between gap-4">
             <div class="flex flex-col gap-0.5 min-w-0">
-              <h3 class="font-semibold text-base flex items-center gap-2">
-                <.icon name="hero-swatch" class="w-4 h-4 text-base-content/60" />
+              <h2 class="text-base font-semibold text-base-content/80 flex items-center gap-2">
+                <.icon name="hero-swatch" class="w-4 h-4" />
                 {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Attribute sets")}
-              </h3>
-              <p class="text-sm text-base-content/60">
+              </h2>
+              <p class="text-xs text-base-content/50">
                 {Gettext.gettext(
                   PhoenixKitCatalogue.Gettext,
                   "One dimension from one vendor — a color range, a trim series. Items attach any number of sets. Sets are edited in the Entities module."
@@ -3563,16 +3563,28 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
             :if={@show_new_set_modal}
             show={true}
             id="new-attribute-set-modal"
+            class="text-sm"
             on_close="close_new_set_modal"
             max_width="md"
           >
             <:title>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "New attribute set")}</:title>
             <form id="new-attribute-set-form" phx-submit="create_attribute_set" class="flex flex-col gap-4">
-              <label class="input w-full">
-                <span class="label">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Name")}</span>
-                <input type="text" name="name" required autocomplete="off" class="grow" />
-              </label>
-              <p class="text-xs text-base-content/60">
+              <div>
+                <label class="label mb-2" for="new-attribute-set-name">
+                  <span class="font-semibold">
+                    {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Name")}
+                  </span>
+                </label>
+                <input
+                  id="new-attribute-set-name"
+                  type="text"
+                  name="name"
+                  required
+                  autocomplete="off"
+                  class="input w-full"
+                />
+              </div>
+              <p class="block text-xs text-base-content/50">
                 {Gettext.gettext(
                   PhoenixKitCatalogue.Gettext,
                   "You'll be taken straight to adding the set's values in Entities."

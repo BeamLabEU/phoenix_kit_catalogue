@@ -1500,7 +1500,7 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
 
         <div :if={@mode == :column} class="pl-4 border-l-2 border-secondary/20">
           <% available = available_picker_columns(@column_mappings, @target) %>
-          <span class="block mb-1 text-xs text-base-content/60">{@column_picker_prompt}</span>
+          <span class="label mb-2 font-semibold">{@column_picker_prompt}</span>
           <%= if available == [] do %>
             <p class="text-xs text-warning bg-warning/10 border border-warning/30 rounded-lg px-3 py-2">
               {Gettext.gettext(
@@ -1850,7 +1850,7 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
                     <p class="font-semibold text-base-content">
                       {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Drag file here or click to browse")}
                     </p>
-                    <p class="text-sm text-base-content/70 mt-1">
+                    <p class="text-xs text-base-content/50 mt-1">
                       {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Supports .xlsx, .csv, .txt, .json files (max 10MB)")}
                     </p>
                   </div>
@@ -2024,7 +2024,7 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
               </.checkbox>
 
               <% available_category_cols = available_picker_columns(@column_mappings, :category) %>
-              <span class="block mb-1 text-xs text-base-content/60">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Which column contains the category names?")}</span>
+              <span class="label mb-2 font-semibold">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Which column contains the category names?")}</span>
               <%= if available_category_cols == [] do %>
                 <p class="text-xs text-warning bg-warning/10 border border-warning/30 rounded-lg px-3 py-2">
                   {Gettext.gettext(
@@ -2608,12 +2608,12 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
         </div>
 
         <div class="flex gap-3">
+          <button class="btn btn-ghost" phx-click="import_another">
+            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Cancel")}
+          </button>
           <button class="btn btn-primary" phx-click="apply_pro100" phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Applying…")}>
             <.icon name="hero-check" class="w-4 h-4" />
             {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Apply")}
-          </button>
-          <button class="btn btn-ghost" phx-click="import_another">
-            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Cancel")}
           </button>
         </div>
       </div>
