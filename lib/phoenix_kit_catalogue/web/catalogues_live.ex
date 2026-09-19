@@ -3126,15 +3126,6 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
           <% tree? = catalogues_tree_mode?(cfg, @catalogue_view_mode, @folder_lookup) %>
           <% card_level? =
             catalogues_card_level_mode?(cfg, @catalogue_view_mode, @folder_lookup) %>
-          <p
-            :if={
-              @catalogue_view_mode == "active" and cfg.sort_by == "position" and
-                cfg.view != "card" and not tree?
-            }
-            class="text-xs text-base-content/50"
-          >
-            {gettext("Clear search and filters to see the folder tree.")}
-          </p>
           <% deleted_count = deleted_tab_count(assigns) %>
           <.deleted_folders_list
             :if={
