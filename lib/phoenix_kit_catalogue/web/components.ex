@@ -896,8 +896,8 @@ defmodule PhoenixKitCatalogue.Web.Components do
           <% end %>
         </div>
         <div class="flex items-center gap-1.5">
-          <span :if={@has_subs} class="badge badge-ghost badge-xs" title={gettext("Has subcategories")}>
-            <.icon name="hero-rectangle-stack" class="w-3 h-3" />
+          <span :if={@has_subs} class="badge badge-ghost badge-xs whitespace-nowrap">
+            {subcategories_label(@subcat_count)}
           </span>
           <span :if={@has_files} class="badge badge-ghost badge-xs" title={gettext("Files")}>
             <.icon name="hero-paper-clip" class="w-3 h-3 rotate-45" />
@@ -1047,6 +1047,17 @@ defmodule PhoenixKitCatalogue.Web.Components do
       <span class="sr-only">{gettext("Actions")}</span>
     </.table_default_header_cell>
     """
+  end
+
+  @doc """
+  The words every surface uses for a category's subcategories — the tree's
+  toggle, the sorted table, the cards, the item picker. Words, not an icon:
+  an unlabelled glyph left the client's owner guessing what it meant
+  (boss, 2026-09-19).
+  """
+  @spec subcategories_label(non_neg_integer()) :: String.t()
+  def subcategories_label(count) do
+    ngettext("%{count} subcategory", "%{count} subcategories", count)
   end
 
   # The ids `category_header_cells/1` knows how to draw.

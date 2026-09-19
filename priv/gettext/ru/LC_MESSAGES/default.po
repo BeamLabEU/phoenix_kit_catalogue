@@ -875,6 +875,12 @@ msgstr[0] "%{count} категория"
 msgstr[1] "%{count} категории"
 msgstr[2] "%{count} категорий"
 
+msgid "%{count} subcategory"
+msgid_plural "%{count} subcategories"
+msgstr[0] "%{count} подкатегория"
+msgstr[1] "%{count} подкатегории"
+msgstr[2] "%{count} подкатегорий"
+
 msgid "%{count} catalogue"
 msgid_plural "%{count} catalogues"
 msgstr[0] "%{count} каталог"

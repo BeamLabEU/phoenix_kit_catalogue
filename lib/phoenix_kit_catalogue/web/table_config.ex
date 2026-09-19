@@ -211,7 +211,10 @@ defmodule PhoenixKitCatalogue.Web.TableConfig do
       # See the matching comment on `columns(:detail_items)` above.
       col("image", fn -> g("Image") end, []),
       col("items", fn -> g("Items") end, default?: true, sortable?: true),
-      col("subcategories", fn -> g("Subcategories") end, default?: true),
+      # Off by default: every row with subcategories already says how
+      # many, in words, beside its name (the tree's toggle, the sorted
+      # table's badge) — on by default it showed the count twice.
+      col("subcategories", fn -> g("Subcategories") end, []),
       col("description", fn -> g("Description") end, []),
       col("files", fn -> g("Files") end, []),
       col("status", fn -> g("Status") end, []),

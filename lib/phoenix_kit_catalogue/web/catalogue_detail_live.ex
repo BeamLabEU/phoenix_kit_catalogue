@@ -58,7 +58,6 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   import PhoenixKitWeb.Components.Core.TableRowMenu
   import PhoenixKitWeb.Components.Core.ReorderModal, only: [reorder_modal: 1]
   import PhoenixKitWeb.Components.Core.SortSelector, only: [sort_selector: 1]
-  import PhoenixKitWeb.Components.Core.TreeTable, only: [tree_name_cell: 1]
 
   import PhoenixKitWeb.Components.Core.TableDefault,
     only: [
@@ -5030,12 +5029,14 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               <span :if={cat.status == "deleted"} class="font-medium">
                 {cat.name}
               </span>
+              <%!-- Same words as the tree's toggle (a bare icon here only
+                   moved the tree's puzzle to the sorted view); no toggle,
+                   since a sorted table has no outline to open. --%>
               <span
                 :if={MapSet.member?(@children_with_subs, cat.uuid)}
-                class="badge badge-ghost badge-xs"
-                title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Has subcategories")}
+                class="badge badge-ghost badge-sm font-normal whitespace-nowrap"
               >
-                <.icon name="hero-rectangle-stack" class="w-3 h-3" />
+                {subcategories_label(Map.get(@child_subcat_counts, cat.uuid, 0))}
               </span>
             </div>
           </.table_default_cell>
@@ -5160,7 +5161,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   # collapsible rows, name click drills (re-roots via ?category=),
   # chevron expands in place, and the CatalogueTreeDnD hook gives drag
   # to reorder among siblings, nest into a row, or lift to this level.
-  attr(:rows, :list, required: true, doc: "[{cat, depth, has_children, expanded?}]")
+  attr(:rows, :list, required: true, doc: "[{cat, depth, child_count, expanded?}]")
   attr(:catalogue, :map, required: true)
   attr(:current_uuid, :any, required: true)
   attr(:categories_columns, :list, required: true)
@@ -5234,8 +5235,20 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
           </.table_default_row>
         </.table_default_header>
         <.table_default_body>
+          <%!-- An open branch — the parent row and everything under it —
+               shares one tint, so the rows it opened read as its own.
+               The row id lets morphdom insert opened children where they
+               belong (not re-purpose the rows below), which is also what
+               lets them fade in: the fade is what shows the click caused
+               them. --%>
           <.table_default_row
-            :for={{cat, depth, has_children, expanded?} <- @rows}
+            :for={{cat, depth, child_count, expanded?} <- @rows}
+            id={"category-tree-row-" <> cat.uuid}
+            class={(depth > 0 or expanded?) && "bg-primary/5"}
+            phx-mounted={
+              depth > 0 &&
+                Phoenix.LiveView.JS.transition({"ease-out duration-150", "opacity-0", "opacity-100"})
+            }
             data-tree-uuid={cat.uuid}
             data-tree-type="category"
             data-tree-parent={tree_parent_key(cat, @current_uuid)}
@@ -5263,27 +5276,13 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                 <.featured_thumb resource={cat} has_files={Map.get(@file_counts, cat.uuid, 0) > 0} />
               </.link>
             </.table_default_cell>
-            <.tree_name_cell
+            <.category_tree_name_cell
+              cat={cat}
+              catalogue={@catalogue}
               depth={depth}
-              expandable={has_children}
+              child_count={child_count}
               expanded={expanded?}
-              toggle_event="toggle_category_expand"
-              value={cat.uuid}
-              toggle_label={gettext("Toggle category")}
-              class="font-medium"
-            >
-              <%!-- The chevron unfolds the outline in place; the NAME
-                   opens the chapter's CONTENT — that category's item
-                   list ("how else are people supposed to get to the
-                   items" — Max, 2026-08-29). No folder icon: categories
-                   are chapters, not folders. --%>
-              <.link
-                patch={Paths.category_browse(@catalogue.uuid, cat.uuid)}
-                class="link link-hover font-medium truncate"
-              >
-                {cat.name}
-              </.link>
-            </.tree_name_cell>
+            />
             <.category_body_cells
               columns={@categories_columns}
               cat={cat}
@@ -5328,6 +5327,68 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         </.table_default_body>
       </.table_default>
     </div>
+    """
+  end
+
+  # A tree row's name cell. The NAME opens the chapter's content — that
+  # category's own page ("how else are people supposed to get to the
+  # items" — Max, 2026-08-29); the button after it unfolds the outline in
+  # place and says so in words. It replaced a bare `›` chevron before the
+  # name (boss, 2026-09-19): a right chevron reads as "go there", which
+  # the name already does, and the space it reserved on childless rows
+  # read as a missing icon. No folder icon: categories are chapters, not
+  # folders.
+  #
+  # Rows opened under a parent hang off guide rails, one per level, drawn
+  # the full height of the cell so they join into continuous lines.
+  attr(:cat, :map, required: true)
+  attr(:catalogue, :map, required: true)
+  attr(:depth, :integer, required: true)
+  attr(:child_count, :integer, required: true)
+  attr(:expanded, :boolean, required: true)
+
+  defp category_tree_name_cell(assigns) do
+    ~H"""
+    <td class="relative font-medium">
+      <span
+        :for={level <- 1..@depth//1}
+        aria-hidden="true"
+        class="absolute inset-y-0 border-l-2 border-primary/40"
+        style={"left: calc(0.75rem + #{level - 1} * 1.25rem)"}
+      >
+      </span>
+      <div
+        class="flex items-center gap-2 min-w-0"
+        style={@depth > 0 && "padding-left: calc(#{@depth} * 1.25rem)"}
+      >
+        <.link
+          patch={Paths.category_browse(@catalogue.uuid, @cat.uuid)}
+          class="link link-hover font-medium truncate"
+        >
+          {@cat.name}
+        </.link>
+        <button
+          :if={@child_count > 0}
+          type="button"
+          phx-click="toggle_category_expand"
+          phx-value-uuid={@cat.uuid}
+          aria-expanded={to_string(@expanded)}
+          class={[
+            "btn btn-xs rounded-full font-normal gap-1 shrink-0 whitespace-nowrap",
+            if(@expanded,
+              do: "btn-soft btn-primary",
+              else: "btn-outline border-base-content/20 text-base-content/70"
+            )
+          ]}
+        >
+          <.icon
+            name="hero-play-solid"
+            class={"w-2.5 h-2.5 transition-transform" <> if(@expanded, do: " rotate-90", else: "")}
+          />
+          {subcategories_label(@child_count)}
+        </button>
+      </div>
+    </td>
     """
   end
 
@@ -5505,7 +5566,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Failed to move category.")
 
   # Depth-first rows of the drilled node's subtree, skipping the
-  # children of collapsed rows: `{cat, depth, has_children, expanded?}`.
+  # children of collapsed rows: `{cat, depth, child_count, expanded?}`.
   defp category_tree_rows(children_index, root_uuid, expanded) do
     walk_category_level(children_index, root_uuid, 0, expanded)
   end
@@ -5514,9 +5575,9 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     index
     |> Map.get(parent_uuid, [])
     |> Enum.flat_map(fn cat ->
-      has_children = Map.has_key?(index, cat.uuid)
-      expanded? = has_children and MapSet.member?(expanded, cat.uuid)
-      row = {cat, depth, has_children, expanded?}
+      child_count = index |> Map.get(cat.uuid, []) |> length()
+      expanded? = child_count > 0 and MapSet.member?(expanded, cat.uuid)
+      row = {cat, depth, child_count, expanded?}
 
       if expanded? do
         [row | walk_category_level(index, cat.uuid, depth + 1, expanded)]
