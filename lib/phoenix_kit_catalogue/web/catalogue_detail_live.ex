@@ -5235,16 +5235,15 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
           </.table_default_row>
         </.table_default_header>
         <.table_default_body>
-          <%!-- An open branch — the parent row and everything under it —
-               shares one tint, so the rows it opened read as its own.
-               The row id lets morphdom insert opened children where they
+          <%!-- The row id lets morphdom insert opened children where they
                belong (not re-purpose the rows below), which is also what
                lets them fade in: the fade is what shows the click caused
-               them. --%>
+               them. No tint on an open branch: a blue row reads as a
+               selected row in this module (Max, 2026-09-19) — the guide
+               rails carry the grouping. --%>
           <.table_default_row
             :for={{cat, depth, child_count, expanded?} <- @rows}
             id={"category-tree-row-" <> cat.uuid}
-            class={(depth > 0 or expanded?) && "bg-primary/5"}
             phx-mounted={
               depth > 0 &&
                 Phoenix.LiveView.JS.transition({"ease-out duration-150", "opacity-0", "opacity-100"})
@@ -5357,7 +5356,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       <span
         :for={level <- 1..@depth//1}
         aria-hidden="true"
-        class="absolute inset-y-0 border-l-2 border-primary/40"
+        class="absolute inset-y-0 border-l-2 border-base-content/20"
         style={"left: calc(0.75rem + #{level - 1} * 1.25rem)"}
       >
       </span>
