@@ -189,8 +189,9 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
          |> mount_form(action, item, changeset, catalogue_uuid)
          # `?tab=` deep-links land on a tab (the Comments admin's back-links
          # open the Suppliers tab); parse_tab/1 is an allowlist, anything
-         # else is the default.
-         |> assign(:current_tab, parse_tab(params["tab"]))}
+         # else is the default. Landing on PDFs counts as opening it.
+         |> assign(:current_tab, parse_tab(params["tab"]))
+         |> assign(:pdf_tab_opened, parse_tab(params["tab"]) == :pdfs)}
     end
   end
 
