@@ -663,6 +663,21 @@ defmodule PhoenixKitCatalogue.GettextTest do
       assert ngettext_item(5) == "5 items"
     end
 
+    test "the subcategory count reads in words in every locale (boss, 2026-09-19)" do
+      label = &PhoenixKitCatalogue.Web.Components.subcategories_label/1
+
+      for {locale, one, two, five} <- [
+            {"en", "1 subcategory", "2 subcategories", "5 subcategories"},
+            {"et", "1 alamkategooria", "2 alamkategooriat", "5 alamkategooriat"},
+            {"ru", "1 подкатегория", "2 подкатегории", "5 подкатегорий"},
+            {"de", "1 Unterkategorie", "2 Unterkategorien", "5 Unterkategorien"},
+            {"fr", "1 sous-catégorie", "2 sous-catégories", "5 sous-catégories"}
+          ] do
+        Gettext.put_locale(PhoenixKitCatalogue.Gettext, locale)
+        assert {label.(1), label.(2), label.(5)} == {one, two, five}, locale
+      end
+    end
+
     defp ngettext_item(count) do
       Gettext.dngettext(
         PhoenixKitCatalogue.Gettext,
