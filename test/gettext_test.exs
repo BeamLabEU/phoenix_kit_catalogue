@@ -88,7 +88,9 @@ defmodule PhoenixKitCatalogue.GettextTest do
           {"Switch catalogue", "Сменить каталог", "Vaheta kataloogi"},
           {"Switch category", "Сменить категорию", "Vaheta kategooriat"},
           {"Find a catalogue…", "Найти каталог…", "Leia kataloog…"},
-          {"Find a category…", "Найти категорию…", "Leia kategooria…"}
+          {"Find a category…", "Найти категорию…", "Leia kategooria…"},
+          # The item form's inline supplier picker (boss, 2026-09-19).
+          {"-- Add supplier --", "-- Добавить поставщика --", "-- Lisa tarnija --"}
         ] do
       Gettext.put_locale(PhoenixKitCatalogue.Gettext, "ru")
       assert Gettext.gettext(PhoenixKitCatalogue.Gettext, msgid) == ru

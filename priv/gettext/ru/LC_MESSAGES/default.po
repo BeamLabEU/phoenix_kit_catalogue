@@ -3560,3 +3560,6 @@ msgstr "Найти каталог…"
 
 msgid "Find a category…"
 msgstr "Найти категорию…"
+
+msgid "-- Add supplier --"
+msgstr "-- Добавить поставщика --"
