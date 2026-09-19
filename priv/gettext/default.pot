@@ -1071,6 +1071,9 @@ msgstr ""
 msgid "Add Supplier"
 msgstr ""
 
+msgid "Primary supplier"
+msgstr ""
+
 msgid "Supplier SKU"
 msgstr ""
 

@@ -33,6 +33,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ProductCard do
   use Phoenix.Component
 
   alias PhoenixKitCatalogue.Web.Components.Browse
+  alias PhoenixKitCatalogue.Web.Helpers
   alias PhoenixKitWeb.Components.Core.PreviewCard
 
   alias PhoenixKit.Modules.Storage
@@ -210,20 +211,18 @@ defmodule PhoenixKitCatalogue.Web.Components.ProductCard do
 
     * `:include_price` — default `true`; `false` drops the price row.
     * `:include_sku` — default `true`; `false` drops the SKU row.
+    * `:admin` — default `false`; `true` adds the rows only an operator may
+      see (status, location, manufacturer, main supplier). Every
+      client-facing embed leaves it off, which is why it is opt-in.
   """
   @spec build_fields(Item.t() | term(), String.t(), keyword()) :: [{String.t(), String.t()}]
   def build_fields(item, locale, opts \\ [])
 
   def build_fields(%Item{} = item, locale, opts) do
-    [
-      {Keyword.get(opts, :include_sku, true), {gettext("SKU"), item.sku}},
-      {Keyword.get(opts, :include_price, true),
-       {gettext("Price"), format_price(item) || fee_value(item)}},
-      {true, {gettext("Unit"), unit_value(item)}},
-      {true, {gettext("Description"), resolve_description(item, locale)}}
-    ]
-    |> Enum.filter(fn {include, _field} -> include end)
-    |> Enum.map(fn {_include, field} -> field end)
+    item
+    |> scalar_fields(opts)
+    |> Enum.concat(admin_fields(item, locale, opts))
+    |> Enum.concat([{gettext("Description"), resolve_description(item, locale)}])
     |> Enum.concat(metadata_fields(item))
     |> Enum.concat(attribute_fields(item, locale))
     |> Enum.map(fn {label, value} -> {label, to_display(value)} end)
@@ -231,6 +230,114 @@ defmodule PhoenixKitCatalogue.Web.Components.ProductCard do
   end
 
   def build_fields(_, _, _), do: []
+
+  defp scalar_fields(%Item{} = item, opts) do
+    [
+      {Keyword.get(opts, :include_sku, true), {gettext("SKU"), item.sku}},
+      {Keyword.get(opts, :include_price, true),
+       {gettext("Price"), format_price(item) || fee_value(item)}},
+      {true, {gettext("Unit"), unit_value(item)}}
+    ]
+    |> Enum.filter(fn {include, _field} -> include end)
+    |> Enum.map(fn {_include, field} -> field end)
+  end
+
+  # The operator-only rows, asked for by the catalogue page's View popup
+  # (boss, 2026-09-19: "they're either editing or nothing at all"). They sit
+  # between the scalars and the description so the short rows stay together
+  # in the two-column grid. Each resolver is rescued on its own: a dangling
+  # manufacturer must not cost the card its status row.
+  defp admin_fields(%Item{} = item, locale, opts) do
+    if Keyword.get(opts, :admin, false) do
+      [
+        {gettext("Status"), Helpers.status_label(item.status)},
+        {gettext("Location"), location_value(item, locale)},
+        {gettext("Manufacturer"), manufacturer_value(item)},
+        {gettext("Primary supplier"), supplier_value(item)}
+      ]
+    else
+      []
+    end
+  end
+
+  # "Kitchens › Hardware › Hinges" — the same place the item form's Location
+  # section names, read straight from the row rather than from that tree
+  # (the card opens over a list, and the tree is a whole-module read).
+  defp location_value(%Item{} = item, locale) do
+    catalogue =
+      case item.catalogue_uuid && Catalogue.get_catalogue(item.catalogue_uuid) do
+        %{} = catalogue -> [Catalogue.translated_name(catalogue, locale)]
+        _ -> []
+      end
+
+    (catalogue ++ category_names(item.category_uuid, locale))
+    |> Enum.reject(&blank?/1)
+    |> Enum.join(" › ")
+  rescue
+    _ -> nil
+  end
+
+  defp category_names(uuid, locale) when is_binary(uuid) do
+    case Catalogue.get_category(uuid) do
+      %{} = category ->
+        uuid
+        |> Catalogue.list_category_ancestors()
+        |> Enum.concat([category])
+        |> Enum.map(&Catalogue.translated_name(&1, locale))
+
+      _ ->
+        []
+    end
+  end
+
+  defp category_names(_uuid, _locale), do: []
+
+  # The manufacturer resolves through CRM, so the name shown is the party's
+  # current one; the snapshot on the item is the fallback for a party that
+  # no longer resolves.
+  defp manufacturer_value(%Item{manufacturer_uuid: uuid} = item) when is_binary(uuid) do
+    case Catalogue.resolve_manufacturer(uuid) do
+      {:ok, %{name: name}} -> name
+      _ -> item.manufacturer_name_snapshot
+    end
+  rescue
+    _ -> item.manufacturer_name_snapshot
+  end
+
+  defp manufacturer_value(%Item{} = item), do: item.manufacturer_name_snapshot
+
+  # The primary supplier row, named and priced: "Acme Ltd · 12.50 EUR".
+  defp supplier_value(%Item{uuid: uuid}) when is_binary(uuid) do
+    case Catalogue.primary_supplier_info_for_item(uuid) do
+      %{} = info -> [supplier_name(info), supplier_cost(info)] |> compact_join(" · ")
+      _ -> nil
+    end
+  rescue
+    _ -> nil
+  end
+
+  defp supplier_value(_item), do: nil
+
+  defp supplier_name(%{supplier_uuid: uuid}) when is_binary(uuid) do
+    case Catalogue.resolve_supplier(uuid) do
+      {:ok, %{name: name}} -> name
+      _ -> nil
+    end
+  end
+
+  defp supplier_name(_info), do: nil
+
+  defp supplier_cost(%{unit_cost: %Decimal{} = cost} = info),
+    do: compact_join([Browse.format_price(cost), info.currency], " ")
+
+  defp supplier_cost(_info), do: nil
+
+  defp compact_join(parts, separator) do
+    case Enum.reject(parts, &blank?/1) do
+      [] -> nil
+      kept -> Enum.join(kept, separator)
+    end
+  end
 
   # The item's attributes resolved for the card's locale — one row per
   # set/attribute, values comma-joined in display order. Runs on card

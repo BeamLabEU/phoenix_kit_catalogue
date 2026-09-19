@@ -181,6 +181,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         card_images: [],
         card_fields: [],
         card_files: [],
+        card_edit_path: nil,
         confirm_delete: nil,
         confirm_delete_scope: nil,
         trash_modal: nil,
@@ -782,8 +783,13 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
            card_open: true,
            card_name: ProductCard.resolve_name(item, locale),
            card_images: ProductCard.resolve_images(item),
-           card_fields: ProductCard.build_fields(item, locale),
-           card_files: ProductCard.resolve_files(item)
+           # This card is the ADMIN view of the item (the View action), so it
+           # carries the operator rows a client-facing embed must not show.
+           card_fields: ProductCard.build_fields(item, locale, admin: true),
+           card_files: ProductCard.resolve_files(item),
+           # A deleted item has no edit page to offer — the Deleted tab's
+           # own menu hides Edit for the same reason.
+           card_edit_path: item.status != "deleted" && socket.assigns.edit_path_fn.(item.uuid)
          )}
 
       _ ->
@@ -4922,7 +4928,13 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         files={@card_files}
         target={nil}
         on_close="card_close"
-      />
+      >
+        <:extra_actions>
+          <.link :if={@card_edit_path} navigate={@card_edit_path} class="btn btn-primary">
+            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")}
+          </.link>
+        </:extra_actions>
+      </ProductCard.product_card>
       </div>
     </PhoenixKitWeb.Components.LayoutWrapper.app_layout>
     """

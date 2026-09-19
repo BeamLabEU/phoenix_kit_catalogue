@@ -1065,6 +1065,9 @@ msgstr "No results found."
 msgid "Add Supplier"
 msgstr "Add Supplier"
 
+msgid "Primary supplier"
+msgstr "Primary supplier"
+
 msgid "Supplier SKU"
 msgstr "Supplier SKU"
 
