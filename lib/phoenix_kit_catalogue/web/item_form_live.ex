@@ -4013,7 +4013,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
             </select>
 
             <div :if={supplier_rows == []} class="text-sm text-base-content/50 italic py-2">
-              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "No suppliers linked yet.")}
+              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Suppliers not set.")}
             </div>
 
             <div :if={supplier_rows != []} class="overflow-x-auto">

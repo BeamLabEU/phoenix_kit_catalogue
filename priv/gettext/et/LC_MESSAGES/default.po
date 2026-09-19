@@ -1101,8 +1101,8 @@ msgstr "Tarneaeg (päevades)"
 msgid "Min. Order Qty"
 msgstr "Min. tellimiskogus"
 
-msgid "No suppliers linked yet."
-msgstr "Tarnijaid pole veel seotud."
+msgid "Suppliers not set."
+msgstr "Tarnijad määramata."
 
 msgid "Lead (d)"
 msgstr "Tarneaeg (p)"
@@ -1116,8 +1116,6 @@ msgstr "Esmane"
 msgid "Make primary"
 msgstr "Tee esmaseks"
 
-msgid "Remove this supplier link?"
-msgstr "Eemaldada tarnija seos?"
 
 msgid "-- Select supplier --"
 msgstr "-- Vali tarnija --"
@@ -2180,8 +2178,8 @@ msgstr "Otsingule vastavaid tooteid pole."
 msgid "No manufacturer — items imported without a maker"
 msgstr "Tootja puudub — tooted imporditakse ilma valmistajata"
 
-msgid "No metadata attached yet. Pick a field below to add one."
-msgstr "Metaandmeid pole veel lisatud. Vali allpool väli, et lisada."
+msgid "Metadata not set."
+msgstr "Metaandmed määramata."
 
 msgid "No other catalogues available to reference yet."
 msgstr "Viitamiseks pole veel teisi katalooge."

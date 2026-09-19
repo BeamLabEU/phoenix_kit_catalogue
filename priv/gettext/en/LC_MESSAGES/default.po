@@ -1101,8 +1101,8 @@ msgstr "Lead Time (days)"
 msgid "Min. Order Qty"
 msgstr "Min. Order Qty"
 
-msgid "No suppliers linked yet."
-msgstr "No suppliers linked yet."
+msgid "Suppliers not set."
+msgstr "Suppliers not set."
 
 msgid "Lead (d)"
 msgstr "Lead (d)"
@@ -1116,8 +1116,6 @@ msgstr "Primary"
 msgid "Make primary"
 msgstr "Make primary"
 
-msgid "Remove this supplier link?"
-msgstr "Remove this supplier link?"
 
 msgid "-- Select supplier --"
 msgstr "-- Select supplier --"
@@ -2180,7 +2178,7 @@ msgstr ""
 msgid "No manufacturer — items imported without a maker"
 msgstr ""
 
-msgid "No metadata attached yet. Pick a field below to add one."
+msgid "Metadata not set."
 msgstr ""
 
 msgid "No other catalogues available to reference yet."

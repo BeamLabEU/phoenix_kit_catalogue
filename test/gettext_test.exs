@@ -113,7 +113,11 @@ defmodule PhoenixKitCatalogue.GettextTest do
            "Seda asukohta pole enam. Vali mõni teine."},
           # "No manufacturer" read as if there were none (boss, 2026-09-19).
           {"-- Manufacturer not set --", "-- Производитель не указан --",
-           "-- Tootja määramata --"}
+           "-- Tootja määramata --"},
+          # "No suppliers linked yet." — what does "linked" mean? (boss,
+          # 2026-09-19); the metadata one had the same jargon.
+          {"Suppliers not set.", "Поставщики не указаны.", "Tarnijad määramata."},
+          {"Metadata not set.", "Метаданные не указаны.", "Metaandmed määramata."}
         ] do
       Gettext.put_locale(PhoenixKitCatalogue.Gettext, "ru")
       assert Gettext.gettext(PhoenixKitCatalogue.Gettext, msgid) == ru
