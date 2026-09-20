@@ -5085,7 +5085,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               has_files={Map.get(@file_counts, cat.uuid, 0) > 0}
             />
           </.table_default_cell>
-          <.table_default_cell class="font-medium">
+          <.table_default_cell class={name_cell_class()}>
             <div class="flex items-center gap-2 min-w-0">
               <.link
                 :if={cat.status != "deleted"}
@@ -5133,7 +5133,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               <.icon name="hero-folder-open" class="w-4 h-4 text-base-content/40" />
             </span>
           </td>
-          <td class="font-medium">
+          <td class={name_cell_class()}>
             <.link patch={Paths.uncategorized_browse(@catalogue.uuid)} class="link link-hover">
               {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Uncategorized")}
             </.link>
@@ -5378,7 +5378,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
             <td class="w-8"></td>
             <td class="w-8"></td>
             <td :if={@photo_col?} class="w-12"></td>
-            <td class="font-medium">
+            <td class={name_cell_class()}>
               <.link patch={Paths.uncategorized_browse(@catalogue.uuid)} class="link link-hover">
                 {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Uncategorized")}
               </.link>
@@ -5427,7 +5427,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
   defp category_tree_name_cell(assigns) do
     ~H"""
-    <td class="relative font-medium">
+    <td class={"relative " <> name_cell_class()}>
       <span
         :for={level <- 1..@depth//1}
         aria-hidden="true"
