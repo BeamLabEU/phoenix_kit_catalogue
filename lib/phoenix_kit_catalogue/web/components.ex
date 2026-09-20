@@ -864,7 +864,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
           phx_click={@phx_click}
           phx_target={@phx_target}
           uuid={@category.uuid}
-          class="font-medium truncate text-left hover:text-primary"
+          class={"truncate text-left hover:text-primary " <> name_cell_class()}
         >
           {@name || @category.name}
         </.category_card_trigger>
@@ -999,7 +999,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
           phx_click={@phx_click}
           phx_target={@phx_target}
           uuid="__uncategorized__"
-          class="font-medium truncate text-left hover:text-primary"
+          class={"truncate text-left hover:text-primary " <> name_cell_class()}
         >
           {gettext("Uncategorized")}
         </.category_card_trigger>

@@ -353,9 +353,10 @@ defmodule PhoenixKitCatalogue.Catalogue.SupplierCommentsTest do
   end
 
   test "the resolver is self-registered through the resource_links/0 callback" do
-    assert PhoenixKitCatalogue.resource_links() == %{
-             "catalogue_item_supplier" => PhoenixKitCatalogue
-           }
+    # Registered BESIDE the record deep-links (item, category, …), not
+    # instead of them — this callback carries both kinds now.
+    assert PhoenixKitCatalogue.resource_links()["catalogue_item_supplier"] ==
+             PhoenixKitCatalogue
 
     assert function_exported?(PhoenixKitCatalogue, :resolve_comment_resources, 1)
   end
