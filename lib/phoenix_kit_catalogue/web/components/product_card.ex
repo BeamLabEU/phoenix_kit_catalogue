@@ -318,11 +318,16 @@ defmodule PhoenixKitCatalogue.Web.Components.ProductCard do
 
   defp supplier_value(_item), do: nil
 
+  # Rescued on its own, not with the row read: a supplier whose identity no
+  # longer resolves must still leave the cost the row does know (panel
+  # review, 2026-09-20).
   defp supplier_name(%{supplier_uuid: uuid}) when is_binary(uuid) do
     case Catalogue.resolve_supplier(uuid) do
       {:ok, %{name: name}} -> name
       _ -> nil
     end
+  rescue
+    _ -> nil
   end
 
   defp supplier_name(_info), do: nil
