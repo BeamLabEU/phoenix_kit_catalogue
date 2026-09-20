@@ -282,6 +282,12 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         socket
         |> assign(:prior_category_uuid, cat_key)
         |> assign(:selected_categories, MapSet.new())
+        # A View card belongs to the level it was opened from: leaving that
+        # level closes it. Without this the card outlives the drill — and
+        # since only `card_close` ever cleared the flag, a dismissal the
+        # server never heard about (see core's `modal/1`) came back as
+        # another level's item, carrying an Edit link to it.
+        |> assign(:card_open, false)
       else
         socket
       end
@@ -801,6 +807,39 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   end
 
   def handle_event("show_product_card", _params, socket), do: {:noreply, socket}
+
+  # The same card for the row ABOVE the items (boss via Max, 2026-09-20:
+  # catalogues and categories want a View too). It fills the SAME assigns —
+  # one dialog on the page, so closing it stays one path — and is scoped
+  # through `category_in_catalogue` for the reason the item event is.
+  def handle_event("show_category_card", %{"uuid" => uuid}, socket) do
+    case category_in_catalogue(socket, uuid) do
+      %Category{} = category ->
+        locale = socket.assigns[:current_locale] || "en"
+
+        {:noreply,
+         assign(socket,
+           card_open: true,
+           card_name: ProductCard.resolve_name(category, locale),
+           card_images: ProductCard.resolve_images(category),
+           card_fields: ProductCard.build_category_fields(category, locale, admin: true),
+           # The category form takes a featured image but no file folder,
+           # so there is never a file list to show here.
+           card_files: [],
+           card_edit_path:
+             category.status != "deleted" &&
+               with_return_to(
+                 Paths.category_edit(category.uuid),
+                 current_level_path(socket.assigns)
+               )
+         )}
+
+      _ ->
+        {:noreply, socket}
+    end
+  end
+
+  def handle_event("show_category_card", _params, socket), do: {:noreply, socket}
 
   def handle_event("card_close", _params, socket) do
     {:noreply, assign(socket, :card_open, false)}
@@ -5137,6 +5176,13 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       mode="auto"
       id={"category-menu-#{@cat.uuid}"}
     >
+      <.table_row_menu_button
+        phx-click="show_category_card"
+        phx-value-uuid={@cat.uuid}
+        icon="hero-eye"
+        label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "View")}
+      />
+      <.table_row_menu_divider />
       <.table_row_menu_link
         navigate={with_return_to(Paths.category_edit(@cat.uuid), @return_to)}
         icon="hero-pencil"
@@ -5760,6 +5806,13 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               </span>
               <div class="ml-auto">
                 <.table_row_menu mode="auto" id={"category-box-menu-#{cat.uuid}"}>
+                  <.table_row_menu_button
+                    phx-click="show_category_card"
+                    phx-value-uuid={cat.uuid}
+                    icon="hero-eye"
+                    label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "View")}
+                  />
+                  <.table_row_menu_divider />
                   <.table_row_menu_link
                     navigate={with_return_to(Paths.category_edit(cat.uuid), @return_to)}
                     icon="hero-pencil"
@@ -5877,6 +5930,13 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
           mode="auto"
           id={"category-tile-menu-#{@category.uuid}"}
         >
+          <.table_row_menu_button
+            phx-click="show_category_card"
+            phx-value-uuid={@category.uuid}
+            icon="hero-eye"
+            label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "View")}
+          />
+          <.table_row_menu_divider />
           <.table_row_menu_link
             navigate={with_return_to(Paths.category_edit(@category.uuid), @return_to)}
             icon="hero-pencil"
@@ -5902,6 +5962,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
           uuid={@category.uuid}
           restore_event="restore_category"
           delete_type="category"
+          preview_event="show_category_card"
         />
       </:menu>
     </.category_card>
@@ -6591,7 +6652,10 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
   attr(:preview_event, :string,
     default: nil,
-    doc: "When set (items), opens the read-only product card. Categories leave it off."
+    doc:
+      "The event that opens this row's read-only card — `show_product_card` " <>
+        "for an item, `show_category_card` for a category. Both fill the one " <>
+        "card on the page, which offers no Edit for a deleted row."
   )
 
   defp trash_row_menu(assigns) do

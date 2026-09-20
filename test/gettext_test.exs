@@ -119,7 +119,10 @@ defmodule PhoenixKitCatalogue.GettextTest do
           {"Metadata not set.", "Метаданные не указаны.", "Metaandmed määramata."},
           # The View popup's operator rows (boss, 2026-09-19: an item was
           # "either editing or nothing at all").
-          {"Primary supplier", "Основной поставщик", "Peamine tarnija"}
+          {"Primary supplier", "Основной поставщик", "Peamine tarnija"},
+          # The catalogue's and category's own View cards (Max, 2026-09-20).
+          {"Standard", "Стандартный", "Standardne"},
+          {"Markup", "Наценка", "Juurdehindlus"}
         ] do
       Gettext.put_locale(PhoenixKitCatalogue.Gettext, "ru")
       assert Gettext.gettext(PhoenixKitCatalogue.Gettext, msgid) == ru

@@ -664,6 +664,9 @@ msgstr "Tüüp"
 msgid "Smart"
 msgstr "Nutikas"
 
+msgid "Standard"
+msgstr "Standardne"
+
 msgid "Standard — items priced directly"
 msgstr "Standardne — toodetel on otsene hind"
 
@@ -672,6 +675,9 @@ msgstr "Nutikas — tooted viitavad teistele kataloogidele"
 
 msgid "Markup %"
 msgstr "Juurdehindlus %"
+
+msgid "Markup"
+msgstr "Juurdehindlus"
 
 msgid "Discount"
 msgstr "Allahindlus"

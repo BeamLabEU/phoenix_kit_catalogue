@@ -1080,6 +1080,66 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
     end
   end
 
+  # ─────────────────────────────────────────────────────────────────
+  # View popup (Max, 2026-09-20 — the same read-only card the items have)
+  # ─────────────────────────────────────────────────────────────────
+
+  describe "View popup" do
+    test "opens the catalogue's card with its operator rows and an Edit link", %{conn: conn} do
+      {:ok, folder} = Catalogue.create_folder(%{name: "Showrooms"})
+
+      catalogue =
+        fixture_catalogue(%{name: "Kitchen Furniture", description: "Frames and hardware."})
+
+      {:ok, catalogue} = Catalogue.move_catalogue_to_folder(catalogue, folder.uuid)
+      cat = fixture_category(catalogue, %{name: "Hardware"})
+      fixture_item(%{name: "Soft hinge", catalogue_uuid: catalogue.uuid, category_uuid: cat.uuid})
+
+      # Inside the folder, where this catalogue's row is listed. The rows
+      # (and so their menus) only arrive on the connected mount's load —
+      # the static render is a skeleton.
+      {:ok, view, _static} = live(conn, @base <> "?folder=" <> folder.uuid)
+      html = render(view)
+
+      assert html =~ ~s(phx-click="show_catalogue_card")
+      refute has_element?(view, "#catalogue-index-card-edit")
+
+      html = render_click(view, "show_catalogue_card", %{"uuid" => catalogue.uuid})
+
+      assert html =~ "Kitchen Furniture"
+      assert html =~ "Standard"
+      assert html =~ "Showrooms"
+      assert html =~ "Frames and hardware."
+      assert has_element?(view, "#catalogue-index-card-edit")
+      assert html =~ ~r/href="[^"]*\/catalogue\/#{Regex.escape(catalogue.uuid)}\/edit"/
+    end
+
+    test "a uuid that is not a catalogue opens nothing", %{conn: conn} do
+      fixture_catalogue(%{name: "Kitchen Furniture"})
+
+      {:ok, view, _html} = live(conn, @base)
+
+      html =
+        render_click(view, "show_catalogue_card", %{
+          "uuid" => "00000000-0000-0000-0000-000000000000"
+        })
+
+      refute has_element?(view, "#catalogue-index-card-edit")
+      refute html =~ "Kind"
+    end
+
+    test "Open and View are different actions on a catalogue row", %{conn: conn} do
+      catalogue = fixture_catalogue(%{name: "Kitchen Furniture"})
+
+      {:ok, view, _static} = live(conn, @base)
+      html = render(view)
+
+      # Open navigates into the catalogue; View opens the card over the list.
+      assert html =~ ~s(href="#{@base}/#{catalogue.uuid}")
+      assert html =~ ~s(phx-click="show_catalogue_card")
+    end
+  end
+
   # The Items cell of the table row whose name cell contains `name`.
   defp deleted_row_item_count(html, name) do
     html
