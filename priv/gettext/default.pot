@@ -660,6 +660,12 @@ msgstr ""
 msgid "Unit"
 msgstr ""
 
+msgid "Unknown item"
+msgstr ""
+
+msgid "Unknown supplier"
+msgstr ""
+
 msgid "Unit of measure"
 msgstr ""
 

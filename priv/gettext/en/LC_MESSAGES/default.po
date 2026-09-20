@@ -655,6 +655,12 @@ msgstr "Final price"
 msgid "Unit"
 msgstr "Unit"
 
+msgid "Unknown item"
+msgstr "Unknown item"
+
+msgid "Unknown supplier"
+msgstr "Unknown supplier"
+
 msgid "Unit of measure"
 msgstr "Unit of measure"
 

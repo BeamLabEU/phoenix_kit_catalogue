@@ -655,6 +655,12 @@ msgstr "Lõpphind"
 msgid "Unit"
 msgstr "Ühik"
 
+msgid "Unknown item"
+msgstr "Tundmatu toode"
+
+msgid "Unknown supplier"
+msgstr "Tundmatu tarnija"
+
 msgid "Unit of measure"
 msgstr "Mõõtühik"
 
