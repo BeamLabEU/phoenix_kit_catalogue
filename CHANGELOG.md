@@ -1,3 +1,49 @@
+## 0.42.0 - 2026-09-20
+
+Review: `dev_docs/pull_requests/2026/130-view-cards-readable-activity/`.
+
+**Requires `phoenix_kit` 2.34.0 or later** — the floor is raised from 2.13.11.
+The Events page and the bulk bar use `PhoenixKit.Activity.split_changes/1`,
+`humanize_metadata_key/1` and `bulk_select_scope`'s `swap`, which first ship
+in core 2.34.0; on an older core the Events page raises on any entry with
+metadata.
+
+### Added
+
+- **View for catalogues and categories** (#130). The read-only card the items
+  have, one level up: a catalogue shows its kind, status, folder, counts and
+  markup/discount; a category its status, the path above it and what it
+  holds. The operator rows sit behind `admin: true`, as on the item card, and
+  a deleted row offers no Edit. The old "View" link into a catalogue is now
+  "Open".
+- **Activity entries link to the record** (#130). `resource_links/0` carries
+  path templates for items, categories, catalogues, PDFs, attribute groups,
+  folders and supplier rows (which open their item), so the Subject of an
+  entry is no longer a bare uuid.
+
+### Changed
+
+- **An update says what changed** (#130). `.updated` entries for items,
+  categories and catalogues carry a `"changes"` map of `from`/`to` pairs for
+  the fields that really moved (a description records only that it changed).
+  Moves record both ends as snapshotted `{uuid, label}` references instead of
+  `from_*_uuid` / `to_*_uuid`, a bulk move caps its uuid list at ten, a cost
+  revision records `changes.unit_cost` instead of `old_cost` / `new_cost`, and
+  a supplier row's entry names the supplier and the item. The Events page
+  leads each line with the change.
+- A listing row's name is `text-base` everywhere, through one
+  `name_cell_class/0` (#130).
+
+### Fixed
+
+- The bulk action bar replaces the controls row instead of pushing every row
+  down, so the next click no longer lands on the wrong checkbox (#130).
+- A View card is closed when the detail page changes level, so it cannot
+  come back showing another level's row (#130).
+- The deep-link conformance test could not see a logged resource type that
+  was never given a link; every logged type is now linked or listed as
+  unlinked on purpose.
+
 ## 0.41.0 - 2026-09-20
 
 Review: `dev_docs/pull_requests/2026/129-supplier-comments-view-popup/`.
