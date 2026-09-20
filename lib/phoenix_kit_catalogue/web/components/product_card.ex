@@ -1,8 +1,18 @@
 defmodule PhoenixKitCatalogue.Web.Components.ProductCard do
   @moduledoc """
-  A read-only product card for a catalogue `%Item{}` — opened from the
-  `ItemPicker` thumbnail or a list's featured-image thumb, and potentially
-  shown to a CLIENT, not just admins, so it has to stand on its own.
+  A read-only card for a catalogue row — opened from the `ItemPicker`
+  thumbnail, a list's featured-image thumb, or the View action in any row
+  menu. The item form is the one potentially shown to a CLIENT rather than
+  an admin, so the card has to stand on its own.
+
+  Three kinds of row have one (an `%Item{}`, a `%Catalogue{}` and a
+  `%Category{}`), and they differ only in their FIELDS — the media half is
+  identical, because `Attachments` gives all three the same featured
+  image / files folder shape. Hence one render and three builders:
+  `build_fields/3`, `build_catalogue_fields/3` and
+  `build_category_fields/3`. Each takes `:admin` (default `false`), which
+  is what adds the operator rows — status, place, counts, sourcing and
+  pricing internals. Leave it off for anything a client can reach.
 
   The render itself (`product_card/1`, `product_card_body/1`) delegates to
   core's `PhoenixKitWeb.Components.Core.PreviewCard` — the same carousel +
@@ -12,9 +22,9 @@ defmodule PhoenixKitCatalogue.Web.Components.ProductCard do
 
   Image/file resolution and field extraction (the DB-backed work) live in
   the public helpers `resolve_images/1`, `resolve_files/1`, `resolve_name/2`,
-  and `build_fields/2` so the delegation stays render-only and testable
-  without a database. `product_card_body/1` is the same content without
-  the modal shell (the "notpopup" form).
+  and the three field builders, so the delegation stays render-only and
+  testable without a database. `product_card_body/1` is the same content
+  without the modal shell (the "notpopup" form).
 
   ## Usage (from a LiveComponent or LiveView that owns the state)
 
@@ -38,7 +48,15 @@ defmodule PhoenixKitCatalogue.Web.Components.ProductCard do
 
   alias PhoenixKit.Modules.Storage
   alias PhoenixKitCatalogue.{Attachments, Catalogue, Metadata}
-  alias PhoenixKitCatalogue.Schemas.Item
+  alias PhoenixKitCatalogue.Schemas.{Category, Item}
+  # `Catalogue` above is the context; the schema of the same name needs its own.
+  alias PhoenixKitCatalogue.Schemas.Catalogue, as: CatalogueSchema
+
+  # The three rows a person can open a View card on. They share the whole
+  # media half (`Attachments` gives items and catalogues a featured image
+  # plus a files folder, categories a featured image), so only the field
+  # list differs — one builder each, below.
+  @carded [Item, CatalogueSchema, Category]
 
   # ── Render ───────────────────────────────────────────────────────
 
@@ -151,8 +169,10 @@ defmodule PhoenixKitCatalogue.Web.Components.ProductCard do
   maps. Nil/blank-safe and rescued — a missing folder or a Storage
   hiccup degrades to just the main image (or `[]` if there is none).
   """
-  @spec resolve_images(Item.t() | term()) :: [%{uuid: String.t(), name: String.t() | nil}]
-  def resolve_images(%Item{data: data}) when is_map(data) do
+  @spec resolve_images(Item.t() | CatalogueSchema.t() | Category.t() | term()) :: [
+          %{uuid: String.t(), name: String.t() | nil}
+        ]
+  def resolve_images(%{__struct__: struct, data: data}) when struct in @carded and is_map(data) do
     folder_images =
       data
       |> read_uuid("files_folder_uuid")
@@ -179,9 +199,9 @@ defmodule PhoenixKitCatalogue.Web.Components.ProductCard do
   flagged so the card can offer the inline viewer. Nil/blank-safe and
   rescued the same way `resolve_images/1` is.
   """
-  @spec resolve_files(Item.t() | term()) ::
+  @spec resolve_files(Item.t() | CatalogueSchema.t() | Category.t() | term()) ::
           [%{uuid: String.t(), name: String.t() | nil, size: integer() | nil, pdf?: boolean()}]
-  def resolve_files(%Item{data: data}) when is_map(data) do
+  def resolve_files(%{__struct__: struct, data: data}) when struct in @carded and is_map(data) do
     case read_uuid(data, "files_folder_uuid") do
       nil ->
         []
@@ -195,9 +215,11 @@ defmodule PhoenixKitCatalogue.Web.Components.ProductCard do
 
   def resolve_files(_), do: []
 
-  @doc "Resolves the item's display name for the given locale (translation, then bare name)."
-  @spec resolve_name(Item.t() | term(), String.t()) :: String.t() | nil
-  def resolve_name(%Item{} = item, locale), do: Catalogue.translated_name(item, locale)
+  @doc "Resolves the row's display name for the given locale (translation, then bare name)."
+  @spec resolve_name(Item.t() | CatalogueSchema.t() | Category.t() | term(), String.t()) ::
+          String.t() | nil
+  def resolve_name(%{__struct__: struct} = record, locale) when struct in @carded,
+    do: Catalogue.translated_name(record, locale)
 
   def resolve_name(_, _), do: nil
 
@@ -223,10 +245,9 @@ defmodule PhoenixKitCatalogue.Web.Components.ProductCard do
     |> scalar_fields(opts)
     |> Enum.concat(admin_fields(item, locale, opts))
     |> Enum.concat([{gettext("Description"), resolve_description(item, locale)}])
-    |> Enum.concat(metadata_fields(item))
+    |> Enum.concat(metadata_fields(:item, item))
     |> Enum.concat(attribute_fields(item, locale))
-    |> Enum.map(fn {label, value} -> {label, to_display(value)} end)
-    |> Enum.reject(fn {_label, value} -> blank?(value) end)
+    |> finish_fields()
   end
 
   def build_fields(_, _, _), do: []
@@ -259,6 +280,166 @@ defmodule PhoenixKitCatalogue.Web.Components.ProductCard do
       []
     end
   end
+
+  @doc """
+  Builds the `{label, value}` list for a CATALOGUE's View card — the same
+  read-only look the items have, for the row above them.
+
+  `opts` mirrors `build_fields/3`: `:admin` (default `false`) adds the rows
+  only an operator may see — status, where it is filed, what it holds, and
+  its markup/discount. Everything outside that gate is what a catalogue
+  would show a client, so a future client-facing embed stays safe by
+  default.
+  """
+  @spec build_catalogue_fields(CatalogueSchema.t() | term(), String.t(), keyword()) ::
+          [{String.t(), String.t()}]
+  def build_catalogue_fields(catalogue, locale, opts \\ [])
+
+  def build_catalogue_fields(%CatalogueSchema{} = catalogue, locale, opts) do
+    [{gettext("Kind"), kind_value(catalogue)}]
+    |> Enum.concat(catalogue_admin_fields(catalogue, locale, opts))
+    |> Enum.concat([{gettext("Description"), resolve_description(catalogue, locale)}])
+    |> Enum.concat(metadata_fields(:catalogue, catalogue))
+    |> finish_fields()
+  end
+
+  def build_catalogue_fields(_, _, _), do: []
+
+  # Counts are one GROUP BY each, like the item card's location path — paid
+  # per click on View, never per row.
+  defp catalogue_admin_fields(%CatalogueSchema{} = catalogue, locale, opts) do
+    if Keyword.get(opts, :admin, false) do
+      [
+        {gettext("Status"), Helpers.status_label(catalogue.status)},
+        {gettext("Folder"), folder_value(catalogue, locale)},
+        {gettext("Categories"),
+         count_value(&Catalogue.category_count_for_catalogue/1, catalogue)},
+        {gettext("Items"), count_value(&Catalogue.item_count_for_catalogue/1, catalogue)},
+        {gettext("Markup"), percentage_value(catalogue.markup_percentage)},
+        {gettext("Discount"), percentage_value(catalogue.discount_percentage)}
+      ]
+    else
+      []
+    end
+  end
+
+  @doc """
+  Builds the `{label, value}` list for a CATEGORY's View card.
+
+  Same `:admin` contract as `build_catalogue_fields/3`: status, the path it
+  sits on and what it holds are operator rows; the description is not.
+  """
+  @spec build_category_fields(Category.t() | term(), String.t(), keyword()) ::
+          [{String.t(), String.t()}]
+  def build_category_fields(category, locale, opts \\ [])
+
+  def build_category_fields(%Category{} = category, locale, opts) do
+    category
+    |> category_admin_fields(locale, opts)
+    |> Enum.concat([{gettext("Description"), resolve_description(category, locale)}])
+    |> finish_fields()
+  end
+
+  def build_category_fields(_, _, _), do: []
+
+  defp category_admin_fields(%Category{} = category, locale, opts) do
+    if Keyword.get(opts, :admin, false) do
+      [
+        {gettext("Status"), Helpers.status_label(category.status)},
+        # The path ABOVE this category — its own name is already the card's
+        # title, so repeating it in the location would read as a loop.
+        {gettext("Location"), category_parent_path(category, locale)},
+        {gettext("Subcategories"), subcategory_count(category)},
+        {gettext("Items"), category_item_count(category)}
+      ]
+    else
+      []
+    end
+  end
+
+  # The shared tail of every builder: stringify, then drop what is not set,
+  # so a card only ever shows filled rows.
+  defp finish_fields(fields) do
+    fields
+    |> Enum.map(fn {label, value} -> {label, to_display(value)} end)
+    |> Enum.reject(fn {_label, value} -> blank?(value) end)
+  end
+
+  defp kind_value(%CatalogueSchema{kind: "smart"}),
+    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Smart")
+
+  defp kind_value(_), do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Standard")
+
+  # Nothing filed at the root, rather than a made-up "Root" row.
+  defp folder_value(%CatalogueSchema{folder_uuid: uuid}, locale) when is_binary(uuid) do
+    case Catalogue.get_folder(uuid) do
+      %{} = folder -> Catalogue.translated_name(folder, locale)
+      _ -> nil
+    end
+  rescue
+    _ -> nil
+  end
+
+  defp folder_value(_catalogue, _locale), do: nil
+
+  defp category_parent_path(%Category{} = category, locale) do
+    catalogue =
+      case category.catalogue_uuid && Catalogue.get_catalogue(category.catalogue_uuid) do
+        %{} = found -> [Catalogue.translated_name(found, locale)]
+        _ -> []
+      end
+
+    ancestors =
+      category.uuid
+      |> Catalogue.list_category_ancestors()
+      |> Enum.map(&Catalogue.translated_name(&1, locale))
+
+    (catalogue ++ ancestors)
+    |> Enum.reject(&blank?/1)
+    |> Enum.join(" › ")
+  rescue
+    _ -> nil
+  end
+
+  # A count of 0 is a fact worth showing ("this holds nothing"), so these
+  # return a string rather than dropping out through `blank?/1`.
+  defp count_value(fun, %CatalogueSchema{uuid: uuid}) when is_binary(uuid) do
+    to_string(fun.(uuid))
+  rescue
+    _ -> nil
+  end
+
+  defp count_value(_fun, _catalogue), do: nil
+
+  defp subcategory_count(%Category{catalogue_uuid: cat_uuid, uuid: uuid})
+       when is_binary(cat_uuid) and is_binary(uuid) do
+    cat_uuid
+    |> Catalogue.category_children_counts(mode: :active)
+    |> Map.get(uuid, 0)
+    |> to_string()
+  rescue
+    _ -> nil
+  end
+
+  defp subcategory_count(_category), do: nil
+
+  defp category_item_count(%Category{catalogue_uuid: cat_uuid, uuid: uuid})
+       when is_binary(cat_uuid) and is_binary(uuid) do
+    cat_uuid
+    |> Catalogue.item_counts_by_category_for_catalogue(mode: :active)
+    |> Map.get(uuid, 0)
+    |> to_string()
+  rescue
+    _ -> nil
+  end
+
+  defp category_item_count(_category), do: nil
+
+  defp percentage_value(%Decimal{} = value) do
+    if Decimal.equal?(value, 0), do: nil, else: Decimal.to_string(value, :normal) <> "%"
+  end
+
+  defp percentage_value(_value), do: nil
 
   # "Kitchens › Hardware › Hinges" — the same place the item form's Location
   # section names, read straight from the row rather than from that tree
@@ -500,15 +681,15 @@ defmodule PhoenixKitCatalogue.Web.Components.ProductCard do
     end
   end
 
-  defp resolve_description(%Item{} = item, locale),
-    do: Catalogue.translated_description(item, locale)
+  defp resolve_description(%{__struct__: struct} = record, locale) when struct in @carded,
+    do: Catalogue.translated_description(record, locale)
 
-  defp metadata_fields(%Item{} = item) do
-    state = Metadata.build_state(:item, item)
+  defp metadata_fields(kind, record) do
+    state = Metadata.build_state(kind, record)
 
     Enum.map(state.attached, fn key ->
       label =
-        case Metadata.definition(:item, key) do
+        case Metadata.definition(kind, key) do
           %{label: label} -> label
           _ -> key
         end

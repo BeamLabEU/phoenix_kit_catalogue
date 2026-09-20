@@ -13,6 +13,7 @@ defmodule PhoenixKitCatalogue.Web.EventsLive do
   import PhoenixKitWeb.Components.Core.Icon, only: [icon: 1]
   import PhoenixKitWeb.Components.Core.Select, only: [select: 1]
 
+  alias PhoenixKit.Activity
   alias PhoenixKit.Utils.Routes
   alias PhoenixKit.Utils.Values
   alias PhoenixKitCatalogue.Paths
@@ -232,15 +233,58 @@ defmodule PhoenixKitCatalogue.Web.EventsLive do
     end
   end
 
+  # What MOVED leads the line; the rest is context. Matches the platform
+  # Activity list, so the same event reads the same on both pages (boss via
+  # Max, 2026-09-20).
+  #
+  # Values go through `humanize_metadata_value/1`, never bare interpolation:
+  # metadata now carries maps — a `from`/`to` diff, a snapshotted
+  # `{uuid, label}` reference — and `"#{v}"` on a map raises
+  # Protocol.UndefinedError, taking the whole page with it.
+  @summary_change_limit 3
+
   defp summarize_metadata(nil), do: nil
 
   defp summarize_metadata(meta) do
-    meta
-    |> Map.drop(["actor_role"])
-    |> Enum.reject(fn {_k, v} -> v == nil or v == "" end)
+    {changes, rest} = Activity.split_changes(meta)
+
+    [summarize_changes(changes), summarize_rest(rest)]
+    |> Enum.reject(&(&1 in [nil, ""]))
+    |> Enum.join(" · ")
     |> case do
-      [] -> nil
-      entries -> Enum.map_join(entries, ", ", fn {k, v} -> "#{k}: #{v}" end)
+      "" -> nil
+      summary -> summary
+    end
+  end
+
+  defp summarize_changes(changes) when map_size(changes) == 0, do: nil
+
+  defp summarize_changes(changes) do
+    shown = changes |> Enum.sort() |> Enum.take(@summary_change_limit)
+    hidden = map_size(changes) - length(shown)
+
+    summary =
+      Enum.map_join(shown, ", ", fn {field, change} ->
+        "#{Activity.humanize_metadata_key(field)} #{Activity.humanize_metadata_value(change)}"
+      end)
+
+    if hidden > 0, do: summary <> " +#{hidden}", else: summary
+  end
+
+  defp summarize_rest(meta) do
+    meta
+    # `name` is already rendered in bold beside this summary, and the uuid
+    # keys are plumbing a reader cannot use.
+    |> Map.drop(["actor_role", "name", "item_uuid", "uuids", "uuids_truncated"])
+    |> Enum.reject(fn {_k, v} -> v in [nil, ""] end)
+    |> case do
+      [] ->
+        nil
+
+      entries ->
+        Enum.map_join(entries, ", ", fn {k, v} ->
+          "#{Activity.humanize_metadata_key(k)}: #{Activity.humanize_metadata_value(v)}"
+        end)
     end
   end
 

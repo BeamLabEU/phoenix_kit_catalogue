@@ -161,6 +161,97 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
       refute has_element?(view, "#catalogue-detail-product-edit")
       refute html =~ "/items/#{item.uuid}/edit"
     end
+
+    test "a category's menu opens its own card, with the path above it", %{conn: conn} do
+      catalogue = fixture_catalogue(%{name: "Kitchen"})
+      hardware = fixture_category(catalogue, %{name: "Hardware"})
+      hinges = fixture_category(catalogue, %{name: "Hinges", parent_uuid: hardware.uuid})
+
+      fixture_item(%{
+        name: "Soft hinge",
+        catalogue_uuid: catalogue.uuid,
+        category_uuid: hinges.uuid
+      })
+
+      {:ok, view, html} = live(conn, url(catalogue.uuid) <> "?category=" <> hardware.uuid)
+
+      assert html =~ ~s(phx-click="show_category_card")
+      refute has_element?(view, "#catalogue-detail-product-edit")
+
+      html = render_click(view, "show_category_card", %{"uuid" => hinges.uuid})
+
+      assert html =~ "Hinges"
+      # The path ABOVE it — its own name is the card's title already.
+      assert html =~ "Kitchen › Hardware"
+      assert html =~ "Items"
+      # Its Edit goes to the CATEGORY form, carrying the level to come back to.
+      assert has_element?(view, "#catalogue-detail-product-edit")
+
+      assert html =~
+               ~r/href="[^"]*\/categories\/#{Regex.escape(hinges.uuid)}\/edit\?[^"]*return_to=/
+    end
+
+    test "a category from another catalogue opens nothing", %{conn: conn} do
+      catalogue = fixture_catalogue(%{name: "Kitchen"})
+      cat = fixture_category(catalogue, %{name: "Hardware"})
+
+      other = fixture_catalogue(%{name: "Bathroom"})
+      elsewhere = fixture_category(other, %{name: "Taps"})
+
+      {:ok, view, before} = live(conn, url(catalogue.uuid) <> "?category=" <> cat.uuid)
+      # Nothing on this page names the other catalogue's category, so the
+      # name alone proves whether the card opened.
+      refute before =~ "Taps"
+
+      html = render_click(view, "show_category_card", %{"uuid" => elsewhere.uuid})
+
+      refute html =~ "Taps"
+      refute has_element?(view, "#catalogue-detail-product-edit")
+      refute html =~ "/categories/#{elsewhere.uuid}/edit"
+    end
+
+    test "a deleted category's card offers no Edit link", %{conn: conn} do
+      catalogue = fixture_catalogue(%{name: "Kitchen"})
+      cat = fixture_category(catalogue, %{name: "Hardware"})
+
+      {:ok, _} = Catalogue.trash_category(cat)
+
+      {:ok, view, _html} = live(conn, url(catalogue.uuid) <> "?view=deleted")
+      html = render_click(view, "show_category_card", %{"uuid" => cat.uuid})
+
+      assert html =~ "Hardware"
+      refute has_element?(view, "#catalogue-detail-product-edit")
+      refute html =~ "/categories/#{cat.uuid}/edit"
+    end
+
+    # A card belongs to the level it was opened from. Only `card_close` used
+    # to clear it, so a dismissal the server never heard about (Escape or a
+    # backdrop click over a dialog whose `open` attribute a patch had
+    # stripped — fixed in core's `modal/1`) came back on the next render,
+    # over another level, as an item that is not there.
+    test "drilling to another level closes an open card", %{conn: conn} do
+      catalogue = fixture_catalogue(%{name: "Kitchen"})
+      hinges = fixture_category(catalogue, %{name: "Hinges"})
+      panels = fixture_category(catalogue, %{name: "Panels"})
+
+      item =
+        fixture_item(%{
+          name: "Soft hinge",
+          catalogue_uuid: catalogue.uuid,
+          category_uuid: hinges.uuid
+        })
+
+      {:ok, view, _html} = live(conn, url(catalogue.uuid) <> "?category=" <> hinges.uuid)
+
+      html = render_click(view, "show_product_card", %{"uuid" => item.uuid})
+      assert html =~ "Kitchen › Hinges"
+      assert has_element?(view, "#catalogue-detail-product-edit")
+
+      html = render_patch(view, url(catalogue.uuid) <> "?category=" <> panels.uuid)
+
+      refute html =~ "Kitchen › Hinges"
+      refute has_element?(view, "#catalogue-detail-product-edit")
+    end
   end
 
   describe "root landing" do

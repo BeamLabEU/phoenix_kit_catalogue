@@ -655,6 +655,12 @@ msgstr "Final price"
 msgid "Unit"
 msgstr "Unit"
 
+msgid "Unknown item"
+msgstr "Unknown item"
+
+msgid "Unknown supplier"
+msgstr "Unknown supplier"
+
 msgid "Unit of measure"
 msgstr "Unit of measure"
 
@@ -664,6 +670,9 @@ msgstr "Kind"
 msgid "Smart"
 msgstr "Smart"
 
+msgid "Standard"
+msgstr "Standard"
+
 msgid "Standard — items priced directly"
 msgstr "Standard — items priced directly"
 
@@ -672,6 +681,9 @@ msgstr "Smart — items reference other catalogues"
 
 msgid "Markup %"
 msgstr "Markup %"
+
+msgid "Markup"
+msgstr "Markup"
 
 msgid "Discount"
 msgstr "Discount"
