@@ -77,6 +77,7 @@ defmodule PhoenixKitCatalogue.Web.UIConventionsTest do
   @listing_sources ~w(
     lib/phoenix_kit_catalogue/web/components.ex
     lib/phoenix_kit_catalogue/web/catalogue_detail_live.ex
+    lib/phoenix_kit_catalogue/web/catalogues_live.ex
     lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex
   )
 
@@ -97,5 +98,42 @@ defmodule PhoenixKitCatalogue.Web.UIConventionsTest do
     # text-base (16px) over the siblings' text-sm (14px): the title outranks
     # the facts. A change back to text-sm or smaller is the regression.
     assert PhoenixKitCatalogue.Web.Components.name_cell_class() =~ "text-base"
+  end
+
+  # The first pass at this only looked for a `<td class="font-medium">`, and
+  # the index page's names are `<.link class="link link-hover font-medium">`
+  # inside an unclassed cell — so they stayed 12px while the deeper pages
+  # grew (caught by Max, 2026-09-20). A name is a name wherever it renders:
+  # a table cell, a card header, a link or a button.
+  #
+  # A broad "unsized font-medium" scan flags buttons, labels and links that
+  # correctly inherit from a sized cell, so this counts the helper's call
+  # sites per file instead: removing one fails here and names the file. Raise
+  # a number when a page legitimately gains a name; never lower one to get
+  # green.
+  @name_cell_sites %{
+    "lib/phoenix_kit_catalogue/web/catalogues_live.ex" => 8,
+    "lib/phoenix_kit_catalogue/web/catalogue_detail_live.ex" => 5,
+    "lib/phoenix_kit_catalogue/web/components.ex" => 4,
+    "lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex" => 2
+  }
+
+  test "every listing page still sizes its row names through the helper" do
+    actual =
+      Map.new(@name_cell_sites, fn {file, _expected} ->
+        count =
+          file
+          |> File.read!()
+          |> then(&Regex.scan(~r/name_cell_class\(\)/, &1))
+          |> length()
+
+        {file, count}
+      end)
+
+    for {file, expected} <- @name_cell_sites do
+      assert actual[file] >= expected,
+             "#{file} sizes #{actual[file]} row names through name_cell_class/0, " <>
+               "down from #{expected} — a name went back to inheriting table-sm's 12px"
+    end
   end
 end

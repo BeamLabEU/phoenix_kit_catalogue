@@ -4244,12 +4244,20 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                the only category order, so the shortcut is always offered
                with >1 sibling) next to the view toggle — not two stacked
                right-aligned rows. --%>
+          <%!-- The bulk action bars REPLACE this row rather than stacking
+               above the tables: revealing a bar without hiding something
+               pushed every row down 52px, and the next click then landed on
+               the wrong checkbox (boss via Max, 2026-09-20). Sort, the
+               status tabs, columns and the view toggle are all unusable
+               while a selection is open anyway. Both scopes below name this
+               id, and it stays hidden while either holds a selection. --%>
           <div
             :if={
               @child_categories != [] or length(@status_tabs) > 1 or
                 (@show_items_section and
                    (@items != [] or @search_results not in [nil, []]))
             }
+            id="detail-level-controls"
             class="flex flex-wrap items-center gap-2"
           >
             <%!-- One tab per populated status — sharing the row with the
@@ -4370,6 +4378,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
             :if={@child_categories != []}
             id="categories-bulk"
             total_count={length(@child_categories)}
+            swap="#detail-level-controls"
             class="flex flex-col gap-2"
           >
             <div :if={@view_mode == "active"} data-bulk-show="has-selection" style="display: none;">
@@ -5797,7 +5806,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               />
               <.link
                 patch={Paths.category_browse(@catalogue.uuid, cat.uuid)}
-                class="font-medium truncate hover:text-primary"
+                class={"truncate hover:text-primary " <> name_cell_class()}
               >
                 {cat.name}
               </.link>
@@ -6046,10 +6055,15 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     ~H"""
     <div class="flex flex-col gap-2">
       <%!-- ── Active list: core List-UI toolkit ── --%>
+      <%!-- Swap only when this list's controls live in the page row. With
+           its own toolbar (a mixed level) the row is on screen already and
+           the action buttons appear INSIDE it, so nothing moves and there
+           is nothing to replace. --%>
       <.bulk_select_scope
         :if={@items != []}
         id="items-bulk"
         total_count={@items_total}
+        swap={if @controls_in_page_header, do: "#detail-level-controls"}
         class="flex flex-col gap-2"
       >
         <%!-- With the sort selector + Reorder-all promoted to the page

@@ -114,8 +114,48 @@ defmodule PhoenixKitCatalogue do
   # callback on every loaded module and registers the resolver itself. A
   # host's `config :phoenix_kit, :comment_resource_handlers` entry for the
   # same type is an override, not a requirement.
-  def resource_links,
-    do: %{PhoenixKitCatalogue.Catalogue.supplier_comment_resource_type() => __MODULE__}
+  def resource_links do
+    %{PhoenixKitCatalogue.Catalogue.supplier_comment_resource_type() => __MODULE__}
+    |> Map.merge(record_links())
+  end
+
+  # Every catalogue row an activity entry can name, pointed at the page that
+  # shows it. Core renders the Subject of an Activity entry as a plain uuid
+  # until a type resolves here — the owner opened an event and had no way
+  # through to what it happened to (boss via Max, 2026-09-20).
+  #
+  # These are TEMPLATES, not a resolver module: core fills `:uuid` and
+  # `:metadata.<key>` from the entry it already holds, so a link costs no
+  # query at all. Paths are RAW — core applies the prefix and locale once at
+  # render, and pre-applying them would double up.
+  #
+  # `{path, the metadata key that names the row}`. The title key differs per
+  # type because the logs do: a PDF is known by its filename, everything else
+  # by its name. Core falls back to "<type> <short-uuid>" when the key is
+  # missing, so a link never renders blank. Pinned by
+  # `test/activity_resource_links_test.exs`.
+  @record_links %{
+    "item" => {"/admin/catalogue/items/:uuid/edit", "name"},
+    "category" => {"/admin/catalogue/categories/:uuid/edit", "name"},
+    "catalogue" => {"/admin/catalogue/:uuid", "name"},
+    "pdf" => {"/admin/catalogue/pdfs/:uuid", "original_filename"},
+    "attribute_group" => {"/admin/catalogue/attributes/:uuid/edit", "name"},
+    # A folder is not a page of its own — it is a location on the index.
+    "folder" => {"/admin/catalogue?folder=:uuid", "name"},
+    # A supplier row belongs to its item's Suppliers tab, so the link goes to
+    # the ITEM — metadata.item_uuid, not the join row's own uuid.
+    "item_supplier_info" => {"/admin/catalogue/items/:metadata.item_uuid/edit", "name"}
+  }
+
+  @doc false
+  # The resource types this module deep-links, for the conformance test.
+  def record_link_types, do: Map.keys(@record_links)
+
+  defp record_links do
+    Map.new(@record_links, fn {type, {path, title_key}} ->
+      {type, %{"path" => path, "title" => ":metadata.#{title_key}"}}
+    end)
+  end
 
   @doc """
   Resolver for supplier comment threads (`"catalogue_item_supplier"`): turns

@@ -45,6 +45,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   alias PhoenixKitCatalogue.Catalogue.PubSub
   alias PhoenixKitCatalogue.Errors
   alias PhoenixKitCatalogue.Paths
+  alias PhoenixKitCatalogue.Web.Components, as: Shared
   alias PhoenixKitCatalogue.Web.Components.AttributeSetItemsModal
   alias PhoenixKitCatalogue.Web.Components.ProductCard
   alias PhoenixKitCatalogue.Web.{TableConfig, TableQuery, ViewConfig}
@@ -1425,7 +1426,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
             draggable="false"
             phx-click="navigate_folder"
             phx-value-uuid={@folder.uuid}
-            class="font-medium text-left truncate cursor-pointer hover:text-primary transition-colors"
+            class={"text-left truncate cursor-pointer hover:text-primary transition-colors " <> Shared.name_cell_class()}
           >
             {@folder.name}
           </button>
@@ -1529,7 +1530,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
           <.link
             navigate={Paths.catalogue_detail(@c_row.uuid)}
             draggable="false"
-            class="link link-hover font-medium truncate flex-1 min-w-0"
+            class={"link link-hover truncate flex-1 min-w-0 " <> Shared.name_cell_class()}
           >
             {@c_row.name}
           </.link>
@@ -1708,7 +1709,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
                         draggable="false"
                         phx-click="navigate_folder"
                         phx-value-uuid={folder.uuid}
-                        class="font-medium text-left truncate cursor-pointer hover:text-primary transition-colors"
+                        class={"text-left truncate cursor-pointer hover:text-primary transition-colors " <> Shared.name_cell_class()}
                       >
                         {folder.name}
                       </button>
@@ -1792,7 +1793,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
                     <.link
                       navigate={Paths.catalogue_detail(c_row.uuid)}
                       draggable="false"
-                      class="link link-hover font-medium truncate"
+                      class={"link link-hover truncate " <> Shared.name_cell_class()}
                     >
                       {c_row.name}
                     </.link>
@@ -1867,7 +1868,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     <div class="bg-base-100 border border-base-200 rounded-lg divide-y divide-base-200">
       <div :for={{folder, _depth} <- @tree} class="flex items-center gap-2 px-3 py-2 min-w-0">
         <.icon name="hero-folder" class="w-4 h-4 text-warning shrink-0" />
-        <span class="flex-1 min-w-0 truncate text-sm font-medium text-base-content/50">
+        <span class={"flex-1 min-w-0 truncate text-base-content/50 " <> Shared.name_cell_class()}>
           {folder.name}
         </span>
         <button
@@ -4487,8 +4488,8 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     assigns = %{row: row}
 
     ~H"""
-    <.link :if={@row.status != "deleted"} navigate={Paths.catalogue_detail(@row.uuid)} class="link link-hover font-medium">{@row.name}</.link>
-    <span :if={@row.status == "deleted"} class="font-medium text-base-content/50">{@row.name}</span>
+    <.link :if={@row.status != "deleted"} navigate={Paths.catalogue_detail(@row.uuid)} class={"link link-hover " <> Shared.name_cell_class()}>{@row.name}</.link>
+    <span :if={@row.status == "deleted"} class={Shared.name_cell_class() <> " text-base-content/50"}>{@row.name}</span>
     """
   end
 
@@ -4525,7 +4526,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     assigns = %{row: row}
 
     ~H"""
-    <.link navigate={Paths.attribute_group_edit(@row.uuid)} class="link link-hover font-medium">{@row.name}</.link>
+    <.link navigate={Paths.attribute_group_edit(@row.uuid)} class={"link link-hover " <> Shared.name_cell_class()}>{@row.name}</.link>
     """
   end
 
