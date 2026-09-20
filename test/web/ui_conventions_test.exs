@@ -68,4 +68,34 @@ defmodule PhoenixKitCatalogue.Web.UIConventionsTest do
     assert prompts != []
     assert Enum.reject(prompts, &(&1 =~ ~r/^— .+ —$|^All /)) == []
   end
+
+  # The listing tables the catalogue pages are read from. Their name column is
+  # the row's title, and a bare `font-medium` on the cell inherits daisyUI's
+  # `table-sm` 12px — smaller than the `text-sm` facts beside it, which is
+  # what the owner saw (2026-09-20: "too small"). `name_cell_class/0` sets the
+  # size in one place; a new name cell must use it rather than hand-roll one.
+  @listing_sources ~w(
+    lib/phoenix_kit_catalogue/web/components.ex
+    lib/phoenix_kit_catalogue/web/catalogue_detail_live.ex
+    lib/phoenix_kit_catalogue/web/components/item_selector_modal.ex
+  )
+
+  test "a listing table's name cell sizes itself through name_cell_class/0" do
+    offenders =
+      for file <- @listing_sources,
+          {line, number} <- file |> File.read!() |> String.split("\n") |> Enum.with_index(1),
+          # a table cell whose only styling is `font-medium`
+          Regex.match?(~r/<(?:\.table_default_cell|td) class="(?:relative )?font-medium">/, line),
+          do: "#{file}:#{number}: #{String.trim(line)}"
+
+    assert offenders == [],
+           "these cells inherit table-sm's 12px — use name_cell_class():\n" <>
+             Enum.join(offenders, "\n")
+  end
+
+  test "name_cell_class/0 is larger than the text-sm cells beside it" do
+    # text-base (16px) over the siblings' text-sm (14px): the title outranks
+    # the facts. A change back to text-sm or smaller is the regression.
+    assert PhoenixKitCatalogue.Web.Components.name_cell_class() =~ "text-base"
+  end
 end

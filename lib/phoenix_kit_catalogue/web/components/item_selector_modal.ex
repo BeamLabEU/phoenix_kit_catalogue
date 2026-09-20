@@ -1352,7 +1352,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
                     <Shared.featured_thumb resource={tile} />
                   </button>
                 </.table_default_cell>
-                <.table_default_cell class="font-medium">
+                <.table_default_cell class={Shared.name_cell_class()}>
                   <div class="flex items-center gap-2 min-w-0">
                     <button
                       type="button"
@@ -1395,7 +1395,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
                     </span>
                   </button>
                 </.table_default_cell>
-                <.table_default_cell class="font-medium">
+                <.table_default_cell class={Shared.name_cell_class()}>
                   <button
                     type="button"
                     phx-click="browse_category"
