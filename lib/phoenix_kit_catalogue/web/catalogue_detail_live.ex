@@ -4933,7 +4933,12 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         on_close="card_close"
       >
         <:extra_actions>
-          <.link :if={@card_edit_path} navigate={@card_edit_path} class="btn btn-primary">
+          <.link
+            :if={@card_edit_path}
+            id="catalogue-detail-product-edit"
+            navigate={@card_edit_path}
+            class="btn btn-primary"
+          >
             {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")}
           </.link>
         </:extra_actions>
@@ -6191,6 +6196,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               uuid={item.uuid}
               restore_event="restore_item"
               delete_type="item"
+              preview_event="show_product_card"
             />
           </:card_actions>
           <%!-- Desktop table view: sort headers, bulk-select, DnD unchanged --%>
@@ -6307,6 +6313,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                   uuid={item.uuid}
                   restore_event="restore_item"
                   delete_type="item"
+                  preview_event="show_product_card"
                 />
               </.table_default_cell>
             </.sortable_row>
@@ -6576,15 +6583,28 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     """
   end
 
-  # The Deleted tab's row menu: Restore / Delete Forever.
+  # The Deleted tab's row menu: View (items) / Restore / Delete forever.
   attr(:id, :string, required: true)
   attr(:uuid, :string, required: true)
   attr(:restore_event, :string, required: true)
   attr(:delete_type, :string, required: true)
 
+  attr(:preview_event, :string,
+    default: nil,
+    doc: "When set (items), opens the read-only product card. Categories leave it off."
+  )
+
   defp trash_row_menu(assigns) do
     ~H"""
     <.table_row_menu mode="auto" id={@id}>
+      <.table_row_menu_button
+        :if={@preview_event}
+        phx-click={@preview_event}
+        phx-value-uuid={@uuid}
+        icon="hero-eye"
+        label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "View")}
+      />
+      <.table_row_menu_divider :if={@preview_event} />
       <.table_row_menu_button
         phx-click={@restore_event}
         phx-value-uuid={@uuid}
