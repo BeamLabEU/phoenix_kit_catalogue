@@ -655,6 +655,12 @@ msgstr "Итоговая цена"
 msgid "Unit"
 msgstr "Единица"
 
+msgid "Unknown item"
+msgstr "Неизвестная позиция"
+
+msgid "Unknown supplier"
+msgstr "Неизвестный поставщик"
+
 msgid "Unit of measure"
 msgstr "Единица измерения"
 
@@ -664,6 +670,9 @@ msgstr "Тип"
 msgid "Smart"
 msgstr "Смарт"
 
+msgid "Standard"
+msgstr "Стандартный"
+
 msgid "Standard — items priced directly"
 msgstr "Стандартный — позиции с прямыми ценами"
 
@@ -672,6 +681,9 @@ msgstr "Смарт — позиции ссылаются на другие ка�
 
 msgid "Markup %"
 msgstr "Наценка %"
+
+msgid "Markup"
+msgstr "Наценка"
 
 msgid "Discount"
 msgstr "Скидка"

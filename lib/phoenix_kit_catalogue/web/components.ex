@@ -760,6 +760,20 @@ defmodule PhoenixKitCatalogue.Web.Components do
   def card_media_band, do: "relative h-40 bg-base-200 overflow-hidden"
 
   @doc """
+  Classes for a NAME cell in the catalogue's listing tables — the item's
+  and the category's alike, so the two cannot drift apart on a page that
+  shows both.
+
+  The name is the row's title and now reads larger than the facts beside
+  it (boss via Max, 2026-09-20: "we have space to increase the size of the
+  titles a little bit"). It used to carry no size class at all, so it
+  inherited daisyUI's `table-sm` 12px while every sibling cell set
+  `text-sm` — the one column a person scans was the smallest text in the
+  row.
+  """
+  def name_cell_class, do: "text-base font-medium"
+
+  @doc """
   The band as a DYNAMIC attribute for `table_default`.
 
   `card_media_class` only exists in core after this module's released pin,
@@ -850,7 +864,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
           phx_click={@phx_click}
           phx_target={@phx_target}
           uuid={@category.uuid}
-          class="font-medium truncate text-left hover:text-primary"
+          class={"truncate text-left hover:text-primary " <> name_cell_class()}
         >
           {@name || @category.name}
         </.category_card_trigger>
@@ -985,7 +999,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
           phx_click={@phx_click}
           phx_target={@phx_target}
           uuid="__uncategorized__"
-          class="font-medium truncate text-left hover:text-primary"
+          class={"truncate text-left hover:text-primary " <> name_cell_class()}
         >
           {gettext("Uncategorized")}
         </.category_card_trigger>
@@ -2734,7 +2748,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
     assigns = assign(assigns, :sale_price, pricing.sale_price)
 
     ~H"""
-    <.table_default_cell class="font-medium">
+    <.table_default_cell class={name_cell_class()}>
       <.link
         :if={@edit_path && @item.uuid}
         navigate={safe_call(@edit_path, @item.uuid)}
@@ -3048,7 +3062,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
     assigns = assign(assigns, :name_link, item_name_link(assigns, assigns.item))
 
     ~H"""
-    <.table_default_cell class="font-medium">
+    <.table_default_cell class={name_cell_class()}>
       <.link :if={@name_link} navigate={@name_link} class="link link-hover">
         {@item.name || "—"}
       </.link>
