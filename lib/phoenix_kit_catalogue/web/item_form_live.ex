@@ -19,10 +19,11 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   import PhoenixKitWeb.Components.Core.TableRowMenu,
     only: [table_row_menu: 1, table_row_menu_button: 1, table_row_menu_divider: 1]
 
-  # `<.input label=...>` renders its label as a plain `font-semibold` span
-  # while `<.select>` and this component use daisyUI's `fieldset-legend`,
-  # so the two sizes disagree wherever they sit side by side. The supplier
-  # modal labels every field through this one component instead.
+  # Core's field label — the one `<.input>` and `<.select>` render too. A
+  # field built from parts (the supplier dialog's price, …) labels itself
+  # through it, so every label on the page has one size (boss, 2026-09-19:
+  # "why a different font?"). Never wrap a field in daisyUI's `.fieldset`:
+  # it sets font-size .75rem and shrinks the label inside.
   import PhoenixKitWeb.Components.Core.FormFieldLabel, only: [label: 1]
 
   # Entities renders the control for every admin-defined supplier field,
@@ -224,7 +225,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
     catalogue_uuid = params["catalogue_uuid"]
 
     if Catalogue.get_catalogue(catalogue_uuid) do
-      # "Add Item" carries the level it was clicked from (?category=...) so
+      # "Add item" carries the level it was clicked from (?category=...) so
       # the form opens with that category already selected. Validated — a
       # forged or stale uuid must not seed a category from another catalogue.
       item = %Item{
@@ -274,7 +275,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
     |> assign(
       page_title:
         if(action == :new,
-          do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "New Item"),
+          do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "New item"),
           else: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit %{name}", name: item.name)
         ),
       action: action,
@@ -914,16 +915,19 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
     addable = Enum.map(addable_suppliers(socket.assigns), & &1.uuid)
 
     {:noreply,
-     update(socket, :supplier_draft, &SupplierDraft.add(&1, params["supplier_add"], addable))}
+     socket
+     |> update(:supplier_draft, &SupplierDraft.add(&1, params["supplier_add"], addable))
+     |> threads_follow_adds(socket.assigns.supplier_draft.adds)}
   end
 
   def handle_event("stage_supplier_remove", %{"supplier" => supplier_uuid}, socket) do
     {:noreply,
-     update(
-       socket,
+     socket
+     |> update(
        :supplier_draft,
        &SupplierDraft.remove(&1, supplier_uuid, socket.assigns.supplier_infos)
-     )}
+     )
+     |> threads_follow_adds(socket.assigns.supplier_draft.adds)}
   end
 
   def handle_event("restore_supplier", %{"supplier" => supplier_uuid}, socket),
@@ -1045,20 +1049,25 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   # LiveView itself rendered, never taken from the payload — a crafted uuid
   # must not be able to address another item's thread or an arbitrary
   # company.
-  def handle_event("open_supplier_comments", %{"uuid" => uuid}, socket) do
+  # A staged row opens the thread it will be created with.
+  def handle_event("open_supplier_comments", %{"supplier" => supplier_uuid}, socket) do
     with true <- socket.assigns.supplier_comments_available,
-         %{} = info <- owned_supplier_info(socket, uuid),
-         thread when is_binary(thread) <- socket.assigns.supplier_comment_threads[info.uuid] do
+         %{} = row <- Enum.find(supplier_rows(socket.assigns), &(&1.key == supplier_uuid)),
+         thread when is_binary(thread) <- socket.assigns.supplier_comment_threads[row.key] do
       {:noreply,
        assign(socket, :supplier_comments, %{
          thread_uuid: thread,
-         company_uuid: socket.assigns.supplier_company_links[info.uuid],
-         name: supplier_display_name(info, socket.assigns.all_suppliers)
+         company_uuid: row_company_uuid(socket.assigns, row),
+         name: row.name
        })}
     else
       _ -> {:noreply, socket}
     end
   end
+
+  # Any other shape — a page loaded before rows were keyed by supplier
+  # sends the row's uuid — opens nothing.
+  def handle_event("open_supplier_comments", _params, socket), do: {:noreply, socket}
 
   def handle_event("close_supplier_comments", _params, socket) do
     {:noreply, assign(socket, :supplier_comments, nil)}
@@ -1395,20 +1404,38 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
       |> Map.new(&{&1.uuid, Catalogue.supplier_crm_company_uuid(&1)})
       |> Map.filter(fn {_uuid, company} -> is_binary(company) end)
 
-    threads =
-      if socket.assigns[:supplier_comments_available],
-        do: Map.new(infos, &{&1.uuid, Catalogue.supplier_comment_thread_uuid(&1)}),
-        else: %{}
+    socket
+    |> assign(supplier_infos: infos, supplier_company_links: links)
+    |> assign_comment_threads()
+  end
+
+  # One comment thread per row, keyed by supplier like the rows: a saved
+  # row's own, and for a staged row the thread it will be created with
+  # (`thread_for_pair/2`) — so a supplier picked but not yet saved can be
+  # commented on (Max, 2026-09-19). A new item has no uuid to derive one
+  # from, so its staged rows get none until it is created.
+  defp assign_comment_threads(%{assigns: %{supplier_comments_available: true}} = socket) do
+    %{supplier_infos: infos, supplier_draft: draft, item: item} = socket.assigns
+    known = socket.assigns[:supplier_comment_threads] || %{}
+
+    saved = Map.new(infos, &{&1.supplier_uuid, Catalogue.supplier_comment_thread_uuid(&1)})
+
+    staged =
+      for supplier_uuid <- draft.adds, is_binary(item.uuid), into: %{} do
+        {supplier_uuid,
+         Map.get(known, supplier_uuid) ||
+           Catalogue.supplier_comment_thread_for_pair(item.uuid, supplier_uuid)}
+      end
+
+    threads = Map.merge(staged, saved)
 
     socket
-    |> assign(
-      supplier_infos: infos,
-      supplier_company_links: links,
-      supplier_comment_threads: threads
-    )
+    |> assign(:supplier_comment_threads, threads)
     |> assign(:supplier_comment_previews, comment_previews(threads))
     |> sync_comment_subscriptions(threads)
   end
+
+  defp assign_comment_threads(socket), do: socket
 
   # Everything the Suppliers tab derives from the DB: the rows (+ CRM
   # links, threads, previews, subscriptions), the supplier names, and the
@@ -1423,6 +1450,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
     |> then(fn socket ->
       update(socket, :supplier_draft, &SupplierDraft.reconcile(&1, socket.assigns.supplier_infos))
     end)
+    |> assign_comment_threads()
     |> refresh_supplier_history()
   end
 
@@ -1438,6 +1466,31 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   end
 
   defp refresh_supplier_history(socket), do: socket
+
+  # A staged row gained or lost: its comment thread comes or goes with it.
+  defp threads_follow_adds(socket, adds_before) do
+    if socket.assigns.supplier_draft.adds == adds_before,
+      do: socket,
+      else: assign_comment_threads(socket)
+  end
+
+  # The CRM company behind a row, for the comments modal's link: a saved
+  # row's resolved link, or — for a staged one — its picked supplier's.
+  defp row_company_uuid(assigns, %{info: %{uuid: uuid}}),
+    do: assigns.supplier_company_links[uuid]
+
+  defp row_company_uuid(assigns, %{key: supplier_uuid}) do
+    case Enum.find(assigns.all_suppliers, &(&1.uuid == supplier_uuid)) do
+      %{source: source} ->
+        Catalogue.supplier_crm_company_uuid(%{
+          supplier_source: Atom.to_string(source),
+          supplier_uuid: supplier_uuid
+        })
+
+      nil ->
+        nil
+    end
+  end
 
   # The place the section shows: the one picked, else where the item is.
   defp location_shown(assigns), do: assigns.location_target || assigns.location_current
@@ -1522,7 +1575,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   # ── Inline comment previews ──────────────────────────────────────────
 
   attr(:preview, :map, required: true)
-  attr(:uuid, :string, required: true)
+  attr(:supplier, :string, required: true)
 
   defp supplier_comment_preview(assigns) do
     ~H"""
@@ -1534,7 +1587,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
         <.button
           type="button"
           phx-click="open_supplier_comments"
-          phx-value-uuid={@uuid}
+          phx-value-supplier={@supplier}
           variant="ghost"
           size="xs"
         >
@@ -1557,7 +1610,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
         :if={@preview.latest != []}
         type="button"
         phx-click="open_supplier_comments"
-        phx-value-uuid={@uuid}
+        phx-value-supplier={@supplier}
         variant="ghost"
         size="xs"
         class="self-start"
@@ -1584,10 +1637,10 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
     type = Catalogue.supplier_comment_resource_type()
     counts = PhoenixKitComments.count_comments(type, threads |> Map.values() |> Enum.uniq())
 
-    Map.new(threads, fn {info_uuid, thread} ->
+    Map.new(threads, fn {key, thread} ->
       count = Map.get(counts, thread, 0)
 
-      {info_uuid, %{count: count, latest: latest_comments(type, thread, count)}}
+      {key, %{count: count, latest: latest_comments(type, thread, count)}}
     end)
   rescue
     # A preview is decoration; it must never take the sourcing tab down.
@@ -2250,6 +2303,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
     |> then(
       &assign(&1, :supplier_draft, SupplierDraft.reconcile(draft, &1.assigns.supplier_infos))
     )
+    |> assign_comment_threads()
     |> assign(location_target: target, location_target_path: target_path)
   end
 
@@ -2945,7 +2999,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
            for its `decimal` type — added for this — so the value is
            exact rather than a float. --%>
       <div class="md:col-span-2">
-        <.label class="block mb-2">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Unit Cost")}</.label>
+        <.label class="block mb-2">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Unit cost")}</.label>
         <%!-- Deliberately raw (L029): the kit input wraps each field
              in its own feedback div, which would break the daisyUI
              join grouping of these two inputs. --%>
@@ -2982,7 +3036,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
 
       <div :if={@supplier_terms_visible}>
         <.label for={"#{@form_id}-lead-time"} class="block mb-2">
-          {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Lead Time (days)")}
+          {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Lead time (days)")}
         </.label>
         <.input
           type="number"
@@ -2997,7 +3051,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
 
       <div :if={@supplier_terms_visible}>
         <.label for={"#{@form_id}-moq"} class="block mb-2">
-          {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Min. Order Qty")}
+          {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Min. order qty")}
         </.label>
         <.decimal_input
           id={"#{@form_id}-moq"}
@@ -3017,7 +3071,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
       </div>
       <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
         <div :for={field <- @supplier_fields} class="flex flex-col gap-1">
-          <span class="label-text font-medium">{field["label"]}</span>
+          <span class="label font-semibold">{field["label"]}</span>
           <.field_input
             field={field}
             id={"#{@form_id}-custom-#{field["key"]}"}
@@ -3113,7 +3167,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
           class={"tab #{if @current_tab == :sourcing, do: "tab-active"}"}
         >
           <.icon name="hero-building-storefront" class="w-4 h-4 mr-1" />
-          {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Suppliers and Manufacturer")}
+          {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Suppliers and manufacturer")}
           <span :if={@action == :edit and @supplier_infos != []} class="badge badge-sm badge-ghost ml-2">
             {length(@supplier_infos)}
           </span>
@@ -3125,7 +3179,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
           class={"tab #{if @current_tab == :files, do: "tab-active"}"}
         >
           <.icon name="hero-paper-clip" class="w-4 h-4 mr-1" />
-          {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Photos and Files")}
+          {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Photos and files")}
           <%!-- Same badge the catalogue/category editors carry — the
           item editor was the one missing it (Max, 2026-08-31). --%>
           <span :if={@files_state.files != []} class="badge badge-sm badge-ghost ml-2">
@@ -3157,7 +3211,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
         mode={@media_selection_mode}
         file_type_filter={@media_filter}
         lock_file_type
-        title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Select Featured Image")}
+        title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Select featured image")}
         selected_uuids={@media_selected_uuids}
         scope_folder_id={@files_folder_uuid}
         phoenix_kit_current_user={assigns[:phoenix_kit_current_user]}
@@ -3254,7 +3308,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                 placeholder={
                   Gettext.gettext(
                     PhoenixKitCatalogue.Gettext,
-                    "Product specifications, dimensions, materials..."
+                    "Product specifications, dimensions, materials…"
                   )
                 }
                 class="w-full"
@@ -3299,7 +3353,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                     d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"
                   />
                 </svg>
-                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Pricing & Identification")}
+                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Pricing & identification")}
               </h2>
 
               <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -3310,13 +3364,13 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                   class="font-mono"
                   placeholder={Gettext.gettext(PhoenixKitCatalogue.Gettext, "e.g., KF-001")}
                 />
-                <div class="fieldset">
+                <div>
                   <.decimal_input
                     field={@form[:base_price]}
-                    label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Base Price")}
+                    label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Base price")}
                     placeholder={Gettext.gettext(PhoenixKitCatalogue.Gettext, "0.00")}
                   />
-                  <span class="fieldset-label text-base-content/50 mt-1">
+                  <span class="block text-xs text-base-content/50 mt-1">
                     {Gettext.gettext(
                       PhoenixKitCatalogue.Gettext,
                       "Cost/purchase price before catalogue markup."
@@ -3324,19 +3378,9 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                   </span>
                 </div>
                 <div>
-                  <%!-- Label hand-rolled to match `<.input>`'s (label mb-2 +
-                       plain font-semibold span): core's `<.select>` labels
-                       through FormFieldLabel, whose `fieldset-legend` span
-                       renders smaller — and in this grid of inputs the Unit
-                       field visibly broke the row. Candidate core fix noted
-                       in the 2026-08-30 report; local until that lands. --%>
-                  <label class="label mb-2" for={@form[:unit].id}>
-                    <span class="font-semibold">
-                      {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Unit")}
-                    </span>
-                  </label>
                   <.select
                     field={@form[:unit]}
+                    label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Unit")}
                     class="transition-colors focus-within:select-primary"
                     options={[
                       {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Piece"), "piece"},
@@ -3348,10 +3392,10 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                     ]}
                   />
                 </div>
-                <div class="fieldset">
+                <div>
                   <.decimal_input
                     field={@form[:markup_percentage]}
-                    label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Markup Override (%)")}
+                    label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Markup override (%)")}
                     placeholder={
                       if @catalogue_markup,
                         do:
@@ -3361,17 +3405,17 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                         else: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Inherit catalogue markup")
                     }
                   />
-                  <span class="fieldset-label text-base-content/50 mt-1">
+                  <span class="block text-xs text-base-content/50 mt-1">
                     {Gettext.gettext(
                       PhoenixKitCatalogue.Gettext,
                       "Leave blank to inherit the catalogue's markup. Set (including 0) to override just this item."
                     )}
                   </span>
                 </div>
-                <div class="fieldset">
+                <div>
                   <.decimal_input
                     field={@form[:discount_percentage]}
-                    label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Discount Override (%)")}
+                    label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Discount override (%)")}
                     placeholder={
                       if @catalogue_discount,
                         do:
@@ -3381,7 +3425,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                         else: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Inherit catalogue discount")
                     }
                   />
-                  <span class="fieldset-label text-base-content/50 mt-1">
+                  <span class="block text-xs text-base-content/50 mt-1">
                     {Gettext.gettext(
                       PhoenixKitCatalogue.Gettext,
                       "Leave blank to inherit the catalogue's discount. Set (including 0) to override just this item."
@@ -3396,9 +3440,9 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
               <div class="divider my-0"></div>
               <h2 class="text-base font-semibold text-base-content/80 flex items-center gap-2">
                 <.icon name="hero-link" class="w-4 h-4" />
-                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Catalogue Rules")}
+                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Catalogue rules")}
               </h2>
-              <p class="text-sm text-base-content/60 -mt-2">
+              <p class="text-xs text-base-content/50 -mt-2">
                 {Gettext.gettext(
                   PhoenixKitCatalogue.Gettext,
                   "Pick which catalogues this item applies to and set a value + unit per catalogue. Rows left blank inherit the defaults below."
@@ -3406,30 +3450,30 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
               </p>
 
               <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div class="fieldset">
+                <div>
                   <.decimal_input
                     field={@form[:default_value]}
-                    label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Default Value")}
+                    label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Default value")}
                     placeholder={Gettext.gettext(PhoenixKitCatalogue.Gettext, "e.g., 5")}
                   />
-                  <span class="fieldset-label text-base-content/50 mt-1">
+                  <span class="block text-xs text-base-content/50 mt-1">
                     {Gettext.gettext(
                       PhoenixKitCatalogue.Gettext,
-                      "Used for any selected catalogue that doesn't have its own value. If no catalogues are selected, this is the item's standalone fee (e.g. $50 flat)."
+                      "Used for any selected catalogue that doesn't have its own value. If no catalogues are selected, this is the item's standalone fee (e.g., $50 flat)."
                     )}
                   </span>
                 </div>
-                <div class="fieldset">
+                <div>
                   <.select
                     field={@form[:default_unit]}
-                    label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Default Unit")}
+                    label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Default unit")}
                     class="transition-colors focus-within:select-primary"
                     options={[
                       {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Percent (%)"), "percent"},
                       {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Flat amount"), "flat"}
                     ]}
                   />
-                  <span class="fieldset-label text-base-content/50 mt-1">
+                  <span class="block text-xs text-base-content/50 mt-1">
                     {Gettext.gettext(
                       PhoenixKitCatalogue.Gettext,
                       "Used for any selected catalogue that doesn't have its own unit."
@@ -3495,7 +3539,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
               </div>
             </div>
 
-            <div class="fieldset">
+            <div>
               <.select
                 field={@form[:status]}
                 label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Status")}
@@ -3506,7 +3550,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                   {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Discontinued"), "discontinued"}
                 ]}
               />
-              <span class="fieldset-label text-base-content/50 mt-1">
+              <span class="block text-xs text-base-content/50 mt-1">
                 {Gettext.gettext(
                   PhoenixKitCatalogue.Gettext,
                   "Discontinued items are kept for reference but hidden from active listings."
@@ -3724,7 +3768,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                 name="attach_set_uuid"
                 value={nil}
                 phx-change="attach_set"
-                prompt={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Attach a set...")}
+                prompt={Gettext.gettext(PhoenixKitCatalogue.Gettext, "— Attach a set —")}
                 options={attachable_set_options(assigns)}
                 class="w-full"
               />
@@ -3769,7 +3813,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
               <.select
                 name="attribute_group_uuid"
                 value={@selected_attribute_group_uuid}
-                prompt={Gettext.gettext(PhoenixKitCatalogue.Gettext, "— No attribute group —")}
+                prompt={Gettext.gettext(PhoenixKitCatalogue.Gettext, "— Attribute group not set —")}
                 options={attribute_group_options_for_select(@attribute_group_options)}
                 class="w-full transition-colors focus-within:select-primary"
               />
@@ -3894,7 +3938,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
               <.select
                 field={@form[:manufacturer_uuid]}
                 class="transition-colors focus-within:select-primary"
-                prompt={Gettext.gettext(PhoenixKitCatalogue.Gettext, "-- No manufacturer --")}
+                prompt={Gettext.gettext(PhoenixKitCatalogue.Gettext, "— Manufacturer not set —")}
                 options={manufacturer_options(@manufacturers)}
               />
             </div>
@@ -3952,7 +3996,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
               aria-label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Add supplier")}
             >
               <option value="" selected>
-                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "-- Add supplier --")}
+                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "— Add supplier —")}
               </option>
               <option :for={{label, uuid} <- supplier_options(addable)} value={uuid}>
                 {label}
@@ -3960,7 +4004,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
             </select>
 
             <div :if={supplier_rows == []} class="text-sm text-base-content/50 italic py-2">
-              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "No suppliers linked yet.")}
+              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Suppliers not set.")}
             </div>
 
             <div :if={supplier_rows != []} class="overflow-x-auto">
@@ -3971,7 +4015,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                     <th :if={@supplier_terms_visible}>
                       {Gettext.gettext(PhoenixKitCatalogue.Gettext, "SKU")}
                     </th>
-                    <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Unit Cost")}</th>
+                    <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Unit cost")}</th>
                     <th :if={@supplier_terms_visible}>
                       {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Lead (d)")}
                     </th>
@@ -4081,9 +4125,9 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                              dropdown does not). --%>
                         <.table_row_menu :if={not row.removed?} id={"supplier-actions-#{row.key}"}>
                           <.table_row_menu_button
-                            :if={info && Map.has_key?(@supplier_comment_threads, info.uuid)}
+                            :if={Map.has_key?(@supplier_comment_threads, row.key)}
                             phx-click="open_supplier_comments"
-                            phx-value-uuid={info && info.uuid}
+                            phx-value-supplier={row.key}
                             icon="hero-chat-bubble-left-ellipsis"
                             label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Comments")}
                           />
@@ -4099,7 +4143,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                             phx-click="open_supplier_history"
                             phx-value-uuid={info && info.uuid}
                             icon="hero-clock"
-                            label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Price History")}
+                            label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Price history")}
                           />
                           <.table_row_menu_button
                             :if={not row.primary?}
@@ -4129,13 +4173,14 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                     <%!-- The supplier's latest comments on THIS item, inline
                          — the row's own thread, not the CRM company's. --%>
                     <tr
-                      :if={info && Map.has_key?(@supplier_comment_previews, info.uuid)}
+                      :if={not row.removed? and Map.has_key?(@supplier_comment_previews, row.key)}
+                      id={"supplier-comments-row-#{row.key}"}
                       class="border-0"
                     >
                       <td colspan={supplier_table_colspan(assigns)} class="pt-0 pb-3">
                         <.supplier_comment_preview
-                          preview={@supplier_comment_previews[info.uuid]}
-                          uuid={info.uuid}
+                          preview={@supplier_comment_previews[row.key]}
+                          supplier={row.key}
                         />
                       </td>
                     </tr>
@@ -4150,7 +4195,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
           <dialog :if={@supplier_history_open} open class="modal">
             <div class="modal-box max-w-lg">
               <h3 class="font-bold text-lg mb-4">
-                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Price History")}
+                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Price history")}
                 <span :if={@supplier_history_name} class="font-normal text-base-content/60 ml-1">
                   — {@supplier_history_name}
                 </span>
@@ -4162,10 +4207,10 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                 <table class="table table-xs w-full">
                   <thead>
                     <tr>
-                      <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Unit Cost")}</th>
+                      <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Unit cost")}</th>
                       <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Currency")}</th>
-                      <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Valid From")}</th>
-                      <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Valid To")}</th>
+                      <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Valid from")}</th>
+                      <th>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Valid to")}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -4254,7 +4299,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
             value="stay"
             class="btn-outline"
             disabled={@uploads.attachment_files.entries != []}
-            phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Saving...")}
+            phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Saving…")}
           >
             {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Save")}
           </.button>
@@ -4263,11 +4308,11 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
             name="save_action"
             value="exit"
             disabled={@uploads.attachment_files.entries != []}
-            phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Saving...")}
+            phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Saving…")}
           >
             {if @uploads.attachment_files.entries != [],
-              do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Waiting for uploads..."),
-              else: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Save & Exit")}
+              do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Waiting for uploads…"),
+              else: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Save & exit")}
           </.button>
         </div>
 
@@ -4286,6 +4331,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
       <.modal
         :if={@supplier_form != nil}
         id="supplier-form-modal"
+        class="text-sm"
         show
         on_close="close_supplier_form"
         max_width="lg"
@@ -4470,7 +4516,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                 size="xs"
                 class="btn-error"
                 phx-click="confirm_remove_supplier_field"
-                phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Working...")}
+                phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Working…")}
               >
                 {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Remove")}
               </.button>
@@ -4501,6 +4547,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
       <.modal
         :if={@supplier_field_editor != nil}
         id="supplier-field-editor-modal"
+        class="text-sm"
         show
         on_close="close_supplier_field_editor"
         max_width="md"
@@ -4518,7 +4565,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
           class="flex flex-col gap-4"
         >
           <label class="form-control">
-            <span class="label-text font-medium pb-1">
+            <span class="label mb-2 font-semibold">
               {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Name")}
               <span class="text-error">*</span>
             </span>
@@ -4526,7 +4573,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
               type="text"
               name="label"
               value={@supplier_field_editor.label}
-              placeholder={Gettext.gettext(PhoenixKitCatalogue.Gettext, "e.g. Incoterm")}
+              placeholder={Gettext.gettext(PhoenixKitCatalogue.Gettext, "e.g., Incoterm")}
               class="input input-bordered w-full"
             />
           </label>
@@ -4538,7 +4585,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
 
           <%= if @supplier_field_editor.mode == :new do %>
             <label class="form-control">
-              <span class="label-text font-medium pb-1">
+              <span class="label mb-2 font-semibold">
                 {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Type")}
               </span>
               <select name="type" class="select select-bordered w-full">
@@ -4553,7 +4600,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
             </label>
           <% else %>
             <div class="flex flex-col gap-1">
-              <span class="label-text font-medium">
+              <span class="label font-semibold">
                 {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Type")}
               </span>
               <p class="text-sm">{supplier_field_type_label(@supplier_field_editor.type)}</p>
@@ -4567,7 +4614,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
           <% end %>
 
           <div :if={@supplier_field_editor.type == "select"} class="flex flex-col gap-2">
-            <span class="label-text font-medium">
+            <span class="label font-semibold">
               {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Choices")}
             </span>
             <div
@@ -4617,7 +4664,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
           <.button
             form="supplier-field-editor-form"
             type="submit"
-            phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Saving...")}
+            phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Saving…")}
           >
             {if @supplier_field_editor.mode == :new,
               do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Add field"),
@@ -4647,8 +4694,8 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
               type="search"
               name="q"
               value={@location_picker.query}
-              placeholder={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Find a catalogue or category…")}
-              aria-label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Find a catalogue or category…")}
+              placeholder={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search catalogues and categories…")}
+              aria-label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search catalogues and categories…")}
               phx-debounce="200"
               autocomplete="off"
               class="grow"

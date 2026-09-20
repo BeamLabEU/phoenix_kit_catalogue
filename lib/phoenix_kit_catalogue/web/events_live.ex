@@ -40,7 +40,7 @@ defmodule PhoenixKitCatalogue.Web.EventsLive do
        page: 1,
        has_more: false,
        # Starts true: nothing loads until the connected mount, and the
-       # dead render must not claim "No events recorded yet".
+       # dead render must not claim "No events recorded yet.".
        loading: true,
        filter_action: nil,
        filter_resource_type: nil,
@@ -275,27 +275,27 @@ defmodule PhoenixKitCatalogue.Web.EventsLive do
     >
     <div class="flex flex-col w-full px-4 py-6 gap-4">
       <%!-- Filters --%>
-      <div class="bg-base-200 rounded-lg p-3">
+      <div class="bg-base-200 rounded-lg p-3 text-sm">
         <.form for={%{}} id="events-filter" phx-change="filter" class="flex flex-wrap gap-3 items-end">
-          <div class="fieldset">
+          <div>
             <.select
               name="filter[action]"
               id="events-filter-action"
               label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Action")}
               value={@filter_action}
-              prompt={Gettext.gettext(PhoenixKitCatalogue.Gettext, "All Actions")}
+              prompt={Gettext.gettext(PhoenixKitCatalogue.Gettext, "All actions")}
               options={Enum.map(@action_types, &{&1, &1})}
               class="select-sm"
             />
           </div>
 
-          <div class="fieldset">
+          <div>
             <.select
               name="filter[resource_type]"
               id="events-filter-resource"
               label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Resource")}
               value={@filter_resource_type}
-              prompt={Gettext.gettext(PhoenixKitCatalogue.Gettext, "All Types")}
+              prompt={Gettext.gettext(PhoenixKitCatalogue.Gettext, "All types")}
               options={Enum.map(@resource_types, &{humanize_resource_type(&1), &1})}
               class="select-sm"
             />
@@ -390,7 +390,7 @@ defmodule PhoenixKitCatalogue.Web.EventsLive do
       <%= if @total == 0 and not @loading do %>
         <div class="text-center py-12 text-base-content/60">
           <.icon name="hero-bell-slash" class="w-12 h-12 mx-auto mb-2 opacity-50" />
-          <p>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "No events recorded yet")}</p>
+          <p>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "No events recorded yet.")}</p>
         </div>
       <% end %>
 
