@@ -664,6 +664,9 @@ msgstr "Kind"
 msgid "Smart"
 msgstr "Smart"
 
+msgid "Standard"
+msgstr "Standard"
+
 msgid "Standard — items priced directly"
 msgstr "Standard — items priced directly"
 
@@ -672,6 +675,9 @@ msgstr "Smart — items reference other catalogues"
 
 msgid "Markup %"
 msgstr "Markup %"
+
+msgid "Markup"
+msgstr "Markup"
 
 msgid "Discount"
 msgstr "Discount"
