@@ -122,7 +122,12 @@ defmodule PhoenixKitCatalogue.GettextTest do
           {"Primary supplier", "Основной поставщик", "Peamine tarnija"},
           # The catalogue's and category's own View cards (Max, 2026-09-20).
           {"Standard", "Стандартный", "Standardne"},
-          {"Markup", "Наценка", "Juurdehindlus"}
+          {"Markup", "Наценка", "Juurdehindlus"},
+          # The activity feed's fallbacks for a reference that no longer
+          # resolves (the sweep's code-vs-catalogue diff caught these two
+          # as raw English literals, 2026-09-20).
+          {"Unknown supplier", "Неизвестный поставщик", "Tundmatu tarnija"},
+          {"Unknown item", "Неизвестная позиция", "Tundmatu toode"}
         ] do
       Gettext.put_locale(PhoenixKitCatalogue.Gettext, "ru")
       assert Gettext.gettext(PhoenixKitCatalogue.Gettext, msgid) == ru

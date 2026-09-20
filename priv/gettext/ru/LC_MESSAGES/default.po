@@ -655,6 +655,12 @@ msgstr "Итоговая цена"
 msgid "Unit"
 msgstr "Единица"
 
+msgid "Unknown item"
+msgstr "Неизвестная позиция"
+
+msgid "Unknown supplier"
+msgstr "Неизвестный поставщик"
+
 msgid "Unit of measure"
 msgstr "Единица измерения"
 

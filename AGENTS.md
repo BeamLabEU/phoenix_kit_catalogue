@@ -86,6 +86,18 @@ PHOENIX_KIT_ENTITIES_PATH=../phoenix_kit_entities mix test
 PHOENIX_KIT_COMMENTS_PATH=../phoenix_kit_comments mix test
 ```
 
+⚠️ **`dialyzer` does not notice a recompiled dep.** The PLT is built with
+`check_plt: false`, so after core changes underneath (a `<APP>_PATH` run while
+that repo is being worked on) dialyzer keeps answering from the old core and
+reports `call_to_missing` for functions that plainly exist — the code
+compiles and the suite passes, so the only wrong thing is dialyzer. Clear the
+PLT and let it rebuild:
+
+```bash
+rm -f _build/dev/dialyxir_*.plt _build/dev/dialyxir_*.plt.hash
+PHOENIX_KIT_PATH=../phoenix_kit mix precommit
+```
+
 Repo-local aliases:
 
 - `mix quality` — `format` + `credo --strict` + `dialyzer` (applies formatting).

@@ -142,4 +142,49 @@ defmodule PhoenixKitCatalogue.ActivityResourceLinksTest do
       assert ActivityLog.changed_fields(item, item, [:description]) == %{}
     end
   end
+
+  describe "ref/3 — a reference must not lie" do
+    # Falling back to the "nowhere" label made a move into a since-deleted
+    # category read as "moved to Uncategorized": an audit row stating
+    # something that never happened (codex, 2026-09-20 — the only seat to
+    # find it).
+    test "an unresolved reference says the row is gone, not that it went nowhere" do
+      ref = ActivityLog.ref("019da71b-c29c-77b0-9000-04bceff82062", nil, "Uncategorized")
+
+      refute ref["label"] == "Uncategorized"
+      assert ref["label"] =~ "Deleted"
+      assert ref["label"] =~ "019da71b", "the uuid stays identifiable"
+      assert ref["uuid"] == "019da71b-c29c-77b0-9000-04bceff82062"
+    end
+
+    test "no uuid really is nowhere" do
+      assert ActivityLog.ref(nil, nil, "Uncategorized") == %{"label" => "Uncategorized"}
+    end
+
+    test "a resolved reference keeps its name" do
+      assert ActivityLog.ref("abc", "Hardware", "Uncategorized") ==
+               %{"uuid" => "abc", "label" => "Hardware"}
+    end
+  end
+
+  describe "display values never raise" do
+    # `to_string/1` is wrong or fatal for most of what a field can hold: a
+    # list of strings loses its boundaries, a tuple raises and takes the save
+    # down with it (codex, 2026-09-20).
+    test "a list keeps its boundaries instead of becoming an iolist" do
+      diff = ActivityLog.changed_fields(%Item{unit: ["a", "b"]}, %Item{unit: ["ab"]}, [:unit])
+
+      assert diff["unit"]["from"] == ~s(["a", "b"])
+      assert diff["unit"]["to"] == ~s(["ab"])
+    end
+
+    test "a tuple or a MapSet does not crash the log" do
+      for value <- [{:draft, 1}, MapSet.new([1]), [:a, :b]] do
+        assert %{"unit" => %{"to" => shown}} =
+                 ActivityLog.changed_fields(%Item{unit: nil}, %Item{unit: value}, [:unit])
+
+        assert is_binary(shown)
+      end
+    end
+  end
 end

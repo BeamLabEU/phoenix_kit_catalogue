@@ -7,6 +7,8 @@ defmodule PhoenixKitCatalogue.Web.UIConventionsTest do
   """
   use ExUnit.Case, async: true
 
+  alias PhoenixKitCatalogue.Web.Components
+
   @web_sources Path.wildcard("lib/phoenix_kit_catalogue/web/**/*.ex")
   # Words that keep their capital inside a sentence-case string: names of
   # things, not headings. Acronyms (SKU, PDF) and words with digits (Pro100)
@@ -97,7 +99,7 @@ defmodule PhoenixKitCatalogue.Web.UIConventionsTest do
   test "name_cell_class/0 is larger than the text-sm cells beside it" do
     # text-base (16px) over the siblings' text-sm (14px): the title outranks
     # the facts. A change back to text-sm or smaller is the regression.
-    assert PhoenixKitCatalogue.Web.Components.name_cell_class() =~ "text-base"
+    assert Components.name_cell_class() =~ "text-base"
   end
 
   # The first pass at this only looked for a `<td class="font-medium">`, and

@@ -189,8 +189,20 @@ defmodule PhoenixKitCatalogue.Catalogue.ActivityLog do
 
   def ref(nil, _label, nowhere_label), do: %{"label" => nowhere_label}
 
-  def ref(uuid, label, nowhere_label) do
-    %{"uuid" => uuid, "label" => presence(label) || nowhere_label}
+  def ref(uuid, label, _nowhere_label) do
+    %{"uuid" => uuid, "label" => presence(label) || unresolved_label(uuid)}
+  end
+
+  # A reference that HAS a uuid but whose name would not resolve is NOT the
+  # same as no reference at all. Falling back to the nowhere label made a
+  # move into a since-deleted category read as "moved to Uncategorized" —
+  # an audit row stating something that never happened, and the reader has
+  # no way to tell (design review, codex, 2026-09-20; it was the only seat
+  # to spot it). Say plainly that the row is gone, and keep the uuid so the
+  # reference is still identifiable.
+  defp unresolved_label(uuid) do
+    short = uuid |> to_string() |> String.slice(0, 8)
+    "#{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Deleted")} (#{short}…)"
   end
 
   @doc """
@@ -225,8 +237,14 @@ defmodule PhoenixKitCatalogue.Catalogue.ActivityLog do
   defp display_value(%Decimal{} = value), do: Decimal.to_string(value, :normal)
   defp display_value(value) when is_binary(value), do: value
   defp display_value(value) when is_number(value) or is_boolean(value), do: to_string(value)
-  defp display_value(%{} = value) when not is_struct(value), do: inspect(value)
-  defp display_value(value), do: to_string(value)
+
+  # Everything else is inspected rather than stringified. `to_string/1` is
+  # wrong or fatal for most of what a schema field can hold: a list of
+  # strings comes out as an iolist with its boundaries gone (`["a", "b"]`
+  # → `"ab"`), and a tuple, MapSet or atom list raises — taking the whole
+  # save down for the sake of an audit row (codex, 2026-09-20). No field in
+  # the lists above holds one today; this is about the next one that does.
+  defp display_value(value), do: inspect(value)
 
   @doc """
   Runs `op_fun` and, on `{:ok, _}`, logs an activity entry with `attrs_fun(record)`.

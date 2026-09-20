@@ -640,8 +640,18 @@ defmodule PhoenixKitCatalogue.Catalogue.ItemSupplierInfos do
 
     %{
       "name" => [supplier, item] |> Enum.reject(&is_nil/1) |> Enum.join(" — "),
-      "supplier" => ActivityLog.ref(info.supplier_uuid, supplier, "unknown supplier"),
-      "item" => ActivityLog.ref(info.item_uuid, item, "unknown item"),
+      "supplier" =>
+        ActivityLog.ref(
+          info.supplier_uuid,
+          supplier,
+          Gettext.gettext(PhoenixKitCatalogue.Gettext, "Unknown supplier")
+        ),
+      "item" =>
+        ActivityLog.ref(
+          info.item_uuid,
+          item,
+          Gettext.gettext(PhoenixKitCatalogue.Gettext, "Unknown item")
+        ),
       # The scalar stays beside the ref: the deep-link template builds the
       # URL from `:metadata.item_uuid`, and a template can only read a flat
       # value — it cannot reach into the ref map.
