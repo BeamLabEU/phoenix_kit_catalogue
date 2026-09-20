@@ -5,7 +5,7 @@
 **Reviewer**: Claude Fable 5.1 — post-merge pass
 **Date**: 2026-09-20
 **Merge**: `cf6df93` (`80944aa..f7a98bf`), 25 files, +1549 / −134
-**Status**: reviewed; 1 test gap closed, **release held** on finding 1
+**Status**: reviewed; 1 test gap closed; finding 1 resolved in 0.42.0 (core floor raised to 2.34.0)
 
 ## Scope
 
@@ -60,6 +60,10 @@ release commit. **Order: release core → `mix deps.update phoenix_kit` →
 raise the floor → precommit + test → publish the catalogue.** Until then
 the catalogue must not be published: 0.41.x from this tree would crash the
 Events page for every host.
+
+**Resolved 2026-09-20.** Core 2.34.0 shipped #837. The lock moved to 2.34.0
+and the floor is now `>= 2.34.0 and < 3.0.0` (`mix.exs`,
+`test/core_pin_conformance_test.exs`, AGENTS.md); released as 0.42.0.
 
 ### 2. IMPROVEMENT - MEDIUM — the link conformance test could not see a missing type (fixed)
 
