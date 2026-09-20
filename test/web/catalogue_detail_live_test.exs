@@ -61,7 +61,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
   # now; the catalogue's item menus and cards no longer offer it. The PDF
   # library keeps its own page in the module's menu.
   describe "no PDF search on the catalogue page" do
-    test "an item's menu and card offer Edit and Delete, not Search PDFs", %{conn: conn} do
+    test "an item's menu offers View, Edit and Delete, not Search PDFs", %{conn: conn} do
       catalogue = fixture_catalogue()
       cat = fixture_category(catalogue, %{name: "Hinges"})
       fixture_item(%{name: "Soft hinge", catalogue_uuid: catalogue.uuid, category_uuid: cat.uuid})
@@ -70,12 +70,16 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
       html = render(view)
 
       assert html =~ "Soft hinge"
+      # No featured image on the fixture, so show_product_card is the menu's
+      # View, not a photo thumb.
+      assert html =~ ~s(phx-click="show_product_card")
       refute html =~ "Search PDFs"
       refute html =~ "show_pdf_search"
 
       for mode <- ~w(card comfy) do
         html = render_click(view, "set_view", %{"mode" => mode})
         assert html =~ "Soft hinge"
+        assert html =~ ~s(phx-click="show_product_card")
         refute html =~ "Search PDFs"
       end
     end
@@ -98,6 +102,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
       # The place line belongs to the card alone — the page behind it never
       # writes one, so it is what proves the popup opened in admin mode.
       refute before =~ "Kitchen › Hinges"
+      # The listing's own Edit would satisfy a bare "/items/…/edit" check.
+      refute has_element?(view, "#catalogue-detail-product-edit")
 
       html = render_click(view, "show_product_card", %{"uuid" => item.uuid})
 
@@ -105,8 +111,11 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
       assert html =~ "HNG-SC"
       # The rows the View action exists for — a read-only look at the item.
       assert html =~ "Kitchen › Hinges"
-      # And a way out of reading into editing.
-      assert html =~ "/items/#{item.uuid}/edit"
+      # The card's own Edit, carrying this page's return path — not the
+      # listing row's, which was already on the page.
+      assert has_element?(view, "#catalogue-detail-product-edit")
+      assert html =~ ~r/id="catalogue-detail-product-edit"/
+      assert html =~ ~r/href="[^"]*\/items\/#{Regex.escape(item.uuid)}\/edit\?[^"]*return_to=/
     end
 
     test "a crafted uuid from another catalogue opens nothing", %{conn: conn} do
@@ -122,6 +131,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
 
       # No card, and above all no Edit link carrying this page's return path.
       refute html =~ "Tap cartridge"
+      refute has_element?(view, "#catalogue-detail-product-edit")
       refute html =~ "/items/#{elsewhere.uuid}/edit"
     end
 
@@ -138,12 +148,17 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
 
       {:ok, _} = Catalogue.trash_item(item)
 
-      {:ok, view, _html} =
+      {:ok, view, html} =
         live(conn, url(catalogue.uuid) <> "?category=" <> cat.uuid <> "&view=deleted")
+
+      # The Deleted tab's item menu still offers View (search results on
+      # this page already did; the listing menus had dropped it).
+      assert html =~ ~s(phx-click="show_product_card")
 
       html = render_click(view, "show_product_card", %{"uuid" => item.uuid})
 
       assert html =~ "Old hinge"
+      refute has_element?(view, "#catalogue-detail-product-edit")
       refute html =~ "/items/#{item.uuid}/edit"
     end
   end

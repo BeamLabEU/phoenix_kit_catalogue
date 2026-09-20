@@ -1,3 +1,48 @@
+## 0.41.0 - 2026-09-20
+
+Review: `dev_docs/pull_requests/2026/129-supplier-comments-view-popup/`.
+
+### Added
+
+- **A staged supplier can be commented on before Save** (#129). A pair's
+  comment thread is known before its row exists — the inherited thread, else a
+  name-based (v5) uuid of the item × supplier — so the comment box works on a
+  supplier that has only been picked. Save stamps the same uuid. A duplicated
+  item's copied supplier rows get the copy's own pair thread, never the
+  source's. A new item has no uuid yet, so its staged rows get none until it
+  exists.
+- **View is on the item menus** (#129) and opens the read-only product card.
+  The card gained the rows an operator opens it for — status, location
+  (catalogue › category), manufacturer, primary supplier with cost — behind
+  `admin: true`, because the same component is embedded in client-facing
+  surfaces that must not show them. The card's footer offers Edit (not for a
+  deleted item), carrying `return_to`.
+
+### Changed
+
+- Unset selects say "— X not set —" rather than "— No manufacturer —", which
+  read as if there were none to pick; empty states say "Suppliers not set."
+  and "Metadata not set." rather than "linked" or "attached" (#129).
+- **One label size, sentence case, one prompt style** (#129). daisyUI's
+  `.fieldset` was shrinking labels to 12px beside 14px ones; every field now
+  uses core's label, headings and help text match, and titles/buttons/tabs are
+  sentence case. The rules live in `dev_docs/guides/ui-conventions.md` and
+  `test/web/ui_conventions_test.exs`.
+- PDF search left the catalogue page for now (#129): the item lists offer
+  View, Edit and Delete. The item form's PDFs tab and the PDF library page
+  are untouched; the shared menus keep their optional `pdf_search_event`.
+
+### Fixed
+
+- The View popup is scoped like every other item event on the catalogue page,
+  so a crafted uuid cannot open an item from another catalogue with this
+  page's return path on its Edit link. A supplier hard-deleted after its row
+  was written falls back to `supplier_name_snapshot`; name and cost rescue
+  separately, so one failing resolve no longer drops the other (#129).
+- The Deleted tab's listing menus now offer View as well. Search results and
+  photo thumbs already opened the card; the trash ⋮ (Restore / Delete forever)
+  had dropped the new action. (Post-merge review fix.)
+
 ## 0.40.0 - 2026-09-19
 
 Review: `dev_docs/pull_requests/2026/128-item-location-staged-suppliers/`.
