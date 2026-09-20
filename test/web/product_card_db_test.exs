@@ -344,6 +344,9 @@ defmodule PhoenixKitCatalogue.Web.Components.ProductCardDBTest do
         Catalogue.create_supplier_info(%{
           item_uuid: item.uuid,
           supplier_uuid: supplier.uuid,
+          # The item form stamps the snapshot on every row it writes; the
+          # card's fallback is only worth anything on a row that has one.
+          supplier_name_snapshot: supplier.name,
           unit_cost: Decimal.new("8.5"),
           currency: "EUR"
         })
@@ -378,6 +381,19 @@ defmodule PhoenixKitCatalogue.Web.Components.ProductCardDBTest do
       refute "Location" in labels
       refute "Manufacturer" in labels
       refute "Primary supplier" in labels
+    end
+
+    test "a supplier that no longer resolves falls back to the row's snapshot", %{
+      item: item,
+      supplier: supplier
+    } do
+      # Suppliers are hard-delete only, so the row's snapshot is the last
+      # name there is.
+      {:ok, _} = Catalogue.delete_supplier(supplier)
+
+      fields = Map.new(ProductCard.build_fields(item, "en", admin: true))
+
+      assert fields["Primary supplier"] == "#{supplier.name} · 8.50 EUR"
     end
 
     test "an item with no category, manufacturer or supplier shows only what is set", %{
