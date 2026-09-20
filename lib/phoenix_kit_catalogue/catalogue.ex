@@ -7260,6 +7260,10 @@ defmodule PhoenixKitCatalogue.Catalogue do
   defdelegate supplier_comment_resource_type(), to: SupplierComments, as: :resource_type
   defdelegate supplier_comment_thread_uuid(info), to: SupplierComments, as: :thread_uuid
 
+  defdelegate supplier_comment_thread_for_pair(item_uuid, supplier_uuid),
+    to: SupplierComments,
+    as: :thread_for_pair
+
   defdelegate resolve_supplier_comment_resources(uuids),
     to: SupplierComments,
     as: :resolve_resources

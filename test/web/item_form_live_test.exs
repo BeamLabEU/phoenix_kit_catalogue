@@ -103,7 +103,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLiveTest do
 
       {:ok, _view, html} = live(conn, new_item_url(catalogue.uuid))
 
-      assert html =~ "New Item"
+      assert html =~ "New item"
       assert html =~ ~s(name="item[name]")
       assert html =~ ~s(name="item[base_price]")
     end
@@ -233,7 +233,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLiveTest do
           "item" => base_item_params(%{"name" => "Bad Price", "base_price" => "abc"})
         })
 
-      assert html =~ "New Item"
+      assert html =~ "New item"
       assert TestRepo.all(Item) == []
     end
 
@@ -351,7 +351,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLiveTest do
         |> render_submit()
 
       # Still on the form — no redirect.
-      assert html =~ "New Item"
+      assert html =~ "New item"
       # User's typed SKU is still in the input so they don't lose work.
       assert html =~ "user-typed-sku"
       # And nothing got written.

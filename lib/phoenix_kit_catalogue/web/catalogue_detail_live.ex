@@ -84,7 +84,6 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   alias PhoenixKitCatalogue.Paths
   alias PhoenixKitCatalogue.Schemas.Category
   alias PhoenixKitCatalogue.Schemas.Item
-  alias PhoenixKitCatalogue.Web.Components.PdfSearchModal
   alias PhoenixKitCatalogue.Web.Components.ProductCard
   alias PhoenixKitCatalogue.Web.LevelSwitchers
   alias PhoenixKitCatalogue.Web.TableConfig
@@ -126,7 +125,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   def mount(%{"uuid" => uuid}, _session, socket) do
     socket =
       assign(socket,
-        page_title: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Loading..."),
+        page_title: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Loading…"),
         catalogue_uuid: uuid,
         catalogue: nil,
         # ── Drill-down position ──
@@ -182,6 +181,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         card_images: [],
         card_fields: [],
         card_files: [],
+        card_edit_path: nil,
         confirm_delete: nil,
         confirm_delete_scope: nil,
         trash_modal: nil,
@@ -231,8 +231,6 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         search_total: 0,
         search_has_more: false,
         search_loading: false,
-        show_pdf_search: false,
-        pdf_search_item: nil,
         # True between a cross-tab `{:catalogue_bulk_change, …}` and its
         # deferred `:bulk_change_apply`: the plain data-changed refresh is
         # held back so the leaving-rows flash can play before the reload.
@@ -542,10 +540,6 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   def handle_info({:catalogue_view_sort_changed, _scope, _by, _dir, _from}, socket),
     do: {:noreply, socket}
 
-  def handle_info({:pdf_search_modal_closed}, socket) do
-    {:noreply, assign(socket, show_pdf_search: false, pdf_search_item: nil)}
-  end
-
   # Cross-tab live reorder: another open detail page just reordered
   # items inside a card on the same catalogue. Refresh just that card's
   # items (preserves scroll) and fire the same flash the originator
@@ -780,7 +774,10 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   # uuid against the card's own state.
 
   def handle_event("show_product_card", %{"uuid" => uuid}, socket) do
-    case Catalogue.get_item(uuid) do
+    # Scoped like every other item event on this page: the card now carries
+    # operator details and an Edit link, so a crafted uuid must not show an
+    # item from another catalogue here — with this page's return path on it.
+    case item_in_catalogue(socket, uuid) do
       %Item{} = item ->
         locale = socket.assigns[:current_locale] || "en"
 
@@ -789,8 +786,13 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
            card_open: true,
            card_name: ProductCard.resolve_name(item, locale),
            card_images: ProductCard.resolve_images(item),
-           card_fields: ProductCard.build_fields(item, locale),
-           card_files: ProductCard.resolve_files(item)
+           # This card is the ADMIN view of the item (the View action), so it
+           # carries the operator rows a client-facing embed must not show.
+           card_fields: ProductCard.build_fields(item, locale, admin: true),
+           card_files: ProductCard.resolve_files(item),
+           # A deleted item has no edit page to offer — the Deleted tab's
+           # own menu hides Edit for the same reason.
+           card_edit_path: item.status != "deleted" && socket.assigns.edit_path_fn.(item.uuid)
          )}
 
       _ ->
@@ -802,19 +804,6 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
   def handle_event("card_close", _params, socket) do
     {:noreply, assign(socket, :card_open, false)}
-  end
-
-  def handle_event("show_pdf_search", %{"uuid" => uuid}, socket) do
-    case Catalogue.get_item(uuid) do
-      nil ->
-        {:noreply, socket}
-
-      item ->
-        {:noreply,
-         socket
-         |> assign(:pdf_search_item, item)
-         |> assign(:show_pdf_search, true)}
-    end
   end
 
   def handle_event("delete_item", %{"uuid" => uuid}, socket) do
@@ -1816,7 +1805,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
            :error,
            Gettext.gettext(
              PhoenixKitCatalogue.Gettext,
-             "Selected items share positions. Apply \"Reorder all\" first to normalise."
+             "Selected items share positions. Apply “Reorder all” first to normalise."
            )
          )}
 
@@ -2261,7 +2250,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         disabled={@disabled}
         class={["select select-sm w-full", @class]}
       >
-        <option value="">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "-- Select category --")}</option>
+        <option value="">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "— Select category —")}</option>
         <%= for {cat, depth} <- @targets do %>
           <option value={cat.uuid} selected={@target_uuid == cat.uuid}>
             {String.duplicate("— ", depth)}{cat.name}
@@ -4067,10 +4056,10 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                      current one — new_category_path pre-seeds parent_uuid
                      from @current_category, so there's no ambiguity. --%>
                 <.link navigate={new_category_path(assigns)} class="btn btn-outline btn-sm">
-                  <.icon name="hero-folder-plus" class="w-4 h-4" /> {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Add Category")}
+                  <.icon name="hero-folder-plus" class="w-4 h-4" /> {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Add category")}
                 </.link>
                 <.link navigate={new_item_path(assigns)} class="btn btn-primary btn-sm">
-                  <.icon name="hero-plus" class="w-4 h-4" /> {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Add Item")}
+                  <.icon name="hero-plus" class="w-4 h-4" /> {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Add item")}
                 </.link>
                 <.link navigate={Paths.catalogue_edit(@catalogue.uuid)} class="btn btn-ghost btn-sm">
                   {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")}
@@ -4112,7 +4101,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
             </div>
             <%= if @search_loading and is_nil(@search_results) do %>
               <span class="text-sm text-base-content/60">
-                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Searching for \"%{query}\"...", query: @search_query)}
+                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Searching for “%{query}”…", query: @search_query)}
               </span>
             <% else %>
               <%!-- The summary counts ITEMS. Suppress it when a search
@@ -4188,7 +4177,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               columns={[:name, :sku, :price, :unit, :status]}
               markup_percentage={@catalogue.markup_percentage}
               edit_path={if @view_mode != "deleted", do: @edit_path_fn}
-              pdf_search_event={if @view_mode != "deleted", do: "show_pdf_search"}
+              preview_event="show_product_card"
               on_restore={if @view_mode == "deleted", do: "restore_item"}
               on_permanent_delete={if @view_mode == "deleted", do: "show_delete_confirm"}
               permanent_delete_type="item"
@@ -4577,10 +4566,10 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         show={match?({"item", _}, @confirm_delete)}
         on_confirm="permanently_delete_item"
         on_cancel="cancel_delete"
-        title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Permanently Delete Item")}
+        title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Permanently delete item")}
         title_icon="hero-trash"
         messages={[{:warning, Gettext.gettext(PhoenixKitCatalogue.Gettext, "This item will be permanently deleted. This cannot be undone.")}]}
-        confirm_text={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete Forever")}
+        confirm_text={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete forever")}
         danger={true}
       />
 
@@ -4588,10 +4577,10 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         show={match?({"category", _}, @confirm_delete)}
         on_confirm="permanently_delete_category"
         on_cancel="cancel_delete"
-        title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Permanently Delete Category")}
+        title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Permanently delete category")}
         title_icon="hero-trash"
         messages={[{:warning, category_delete_warning(@confirm_delete_scope)}]}
-        confirm_text={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete Forever")}
+        confirm_text={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete forever")}
         danger={true}
       />
 
@@ -4929,17 +4918,9 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
           <% end %>
         </p>
         <p class="text-sm text-base-content/70 mt-2">
-          {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Each copy is named after its original with \"(copy)\" added and placed right after it.")}
+          {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Each copy is named after its original with “(copy)” added and placed right after it.")}
         </p>
       </.confirm_modal>
-
-      <.live_component
-        :if={@pdf_search_item}
-        module={PdfSearchModal}
-        id="catalogue-detail-pdf-search"
-        item={@pdf_search_item}
-        show={@show_pdf_search}
-      />
 
       <ProductCard.product_card
         id="catalogue-detail-product"
@@ -4950,7 +4931,13 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         files={@card_files}
         target={nil}
         on_close="card_close"
-      />
+      >
+        <:extra_actions>
+          <.link :if={@card_edit_path} navigate={@card_edit_path} class="btn btn-primary">
+            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")}
+          </.link>
+        </:extra_actions>
+      </ProductCard.product_card>
       </div>
     </PhoenixKitWeb.Components.LayoutWrapper.app_layout>
     """
@@ -5172,7 +5159,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       <.table_row_menu_button
         phx-click="restore_category"
         phx-value-uuid={@cat.uuid}
-        phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Restoring...")}
+        phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Restoring…")}
         icon="hero-arrow-path"
         label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Restore")}
         variant="success"
@@ -5183,7 +5170,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         phx-value-uuid={@cat.uuid}
         phx-value-type="category"
         icon="hero-trash"
-        label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete Forever")}
+        label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete forever")}
         variant="error"
       />
     </.table_row_menu>
@@ -6195,8 +6182,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               :if={item.uuid && @view_mode != "deleted"}
               item={item}
               edit_path={@edit_path_fn}
+              preview_event="show_product_card"
               on_delete="delete_item"
-              pdf_search_event="show_pdf_search"
             />
             <.trash_row_menu
               :if={item.uuid && @view_mode == "deleted"}
@@ -6311,8 +6298,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                 :if={@view_mode != "deleted"}
                 item={item}
                 edit_path={@edit_path_fn}
+                preview_event="show_product_card"
                 on_delete="delete_item"
-                pdf_search_event="show_pdf_search"
               />
               <.table_default_cell :if={@view_mode == "deleted"} class="text-right whitespace-nowrap">
                 <.trash_row_menu
@@ -6601,7 +6588,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       <.table_row_menu_button
         phx-click={@restore_event}
         phx-value-uuid={@uuid}
-        phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Restoring...")}
+        phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Restoring…")}
         icon="hero-arrow-path"
         label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Restore")}
         variant="success"
@@ -6612,7 +6599,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         phx-value-uuid={@uuid}
         phx-value-type={@delete_type}
         icon="hero-trash"
-        label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete Forever")}
+        label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete forever")}
         variant="error"
       />
     </.table_row_menu>
@@ -6676,14 +6663,13 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   defp presence(desc), do: if(String.trim(desc) == "", do: nil, else: desc)
 
   defp search_placeholder(nil),
-    do:
-      Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search items by name, description, or SKU...")
+    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search items by name, description, or SKU…")
 
   defp search_placeholder(:uncategorized),
-    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search uncategorized items...")
+    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search uncategorized items…")
 
   defp search_placeholder(%Category{}),
-    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search within this category...")
+    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search within this category…")
 
   defp level_items_empty(_current, "deleted"),
     do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Nothing deleted here.")
