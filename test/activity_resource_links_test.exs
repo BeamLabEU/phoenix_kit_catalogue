@@ -45,6 +45,41 @@ defmodule PhoenixKitCatalogue.ActivityResourceLinksTest do
              "the thread resolver must stay a module, not become a template"
     end
 
+    # The test above walks the link map's OWN keys, so it cannot see a type
+    # that was never added. This one reads the types the module actually
+    # logs: a new `resource_type:` must either get a template or be named
+    # here as deliberately unlinked, instead of rendering as a bare uuid
+    # without anyone having decided that.
+    #
+    # Unlinked on purpose: manufacturers and suppliers are CRM companies with
+    # no page in this module; a smart rule, an attribute set and a supplier
+    # field have no page of their own; the module row is not a record.
+    @unlinked ~w(manufacturer supplier smart_rule attribute_set supplier_field module)
+
+    test "every resource type the module logs is linked, or unlinked on purpose" do
+      logged =
+        "lib/**/*.ex"
+        |> Path.wildcard()
+        |> Enum.flat_map(fn file ->
+          Regex.scan(~r/resource_type: "([a-z_]+)"/, File.read!(file), capture: :all_but_first)
+        end)
+        |> List.flatten()
+        |> Enum.uniq()
+
+      linked = PhoenixKitCatalogue.record_link_types()
+
+      assert logged != [], "found no logged resource types — has the log call changed shape?"
+
+      for type <- logged do
+        assert type in linked or type in @unlinked,
+               "#{type} is logged but has no deep-link template and is not listed as unlinked"
+      end
+
+      for type <- linked ++ @unlinked do
+        assert type in logged, "#{type} is no longer logged anywhere — drop it from the list"
+      end
+    end
+
     defp record_templates do
       PhoenixKitCatalogue.resource_links()
       |> Map.take(PhoenixKitCatalogue.record_link_types())
