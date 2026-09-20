@@ -320,17 +320,21 @@ defmodule PhoenixKitCatalogue.Web.Components.ProductCard do
 
   # Rescued on its own, not with the row read: a supplier whose identity no
   # longer resolves must still leave the cost the row does know (panel
-  # review, 2026-09-20).
-  defp supplier_name(%{supplier_uuid: uuid}) when is_binary(uuid) do
+  # review, 2026-09-20). Suppliers are hard-delete only, so for a deleted
+  # one the row's own snapshot is the last name there is — the item form
+  # falls back to it too.
+  defp supplier_name(%{supplier_uuid: uuid} = info) when is_binary(uuid) do
     case Catalogue.resolve_supplier(uuid) do
       {:ok, %{name: name}} -> name
-      _ -> nil
+      _ -> snapshot_name(info)
     end
   rescue
-    _ -> nil
+    _ -> snapshot_name(info)
   end
 
-  defp supplier_name(_info), do: nil
+  defp supplier_name(info), do: snapshot_name(info)
+
+  defp snapshot_name(info), do: Map.get(info, :supplier_name_snapshot)
 
   defp supplier_cost(%{unit_cost: %Decimal{} = cost} = info),
     do: compact_join([Browse.format_price(cost), info.currency], " ")

@@ -774,7 +774,10 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   # uuid against the card's own state.
 
   def handle_event("show_product_card", %{"uuid" => uuid}, socket) do
-    case Catalogue.get_item(uuid) do
+    # Scoped like every other item event on this page: the card now carries
+    # operator details and an Edit link, so a crafted uuid must not show an
+    # item from another catalogue here — with this page's return path on it.
+    case item_in_catalogue(socket, uuid) do
       %Item{} = item ->
         locale = socket.assigns[:current_locale] || "en"
 

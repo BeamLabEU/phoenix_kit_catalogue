@@ -109,6 +109,22 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
       assert html =~ "/items/#{item.uuid}/edit"
     end
 
+    test "a crafted uuid from another catalogue opens nothing", %{conn: conn} do
+      catalogue = fixture_catalogue(%{name: "Kitchen"})
+      cat = fixture_category(catalogue, %{name: "Hinges"})
+      fixture_item(%{name: "Soft hinge", catalogue_uuid: catalogue.uuid, category_uuid: cat.uuid})
+
+      other = fixture_catalogue(%{name: "Bathroom"})
+      elsewhere = fixture_item(%{name: "Tap cartridge", catalogue_uuid: other.uuid})
+
+      {:ok, view, _html} = live(conn, url(catalogue.uuid) <> "?category=" <> cat.uuid)
+      html = render_click(view, "show_product_card", %{"uuid" => elsewhere.uuid})
+
+      # No card, and above all no Edit link carrying this page's return path.
+      refute html =~ "Tap cartridge"
+      refute html =~ "/items/#{elsewhere.uuid}/edit"
+    end
+
     test "a deleted item's card offers no Edit link", %{conn: conn} do
       catalogue = fixture_catalogue()
       cat = fixture_category(catalogue, %{name: "Hinges"})
