@@ -3755,8 +3755,33 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
             </.link>
           </:actions>
         </.table_toolbar>
+        <%!-- The table's own controls, on their own row — this list has no
+             status tabs, so the row carries only the right-hand group. It
+             used to get sort and Columns from `table_toolbar`, which now
+             renders search, filters and actions alone: without this the
+             legacy groups list would silently lose both (zai,
+             2026-09-21). --%>
+        <Shared.list_controls_row>
+          <:controls>
+            <.sort_controls
+              scope={:attribute_groups}
+              selected={["position", "name" | cfg.columns]}
+              sort_by={cfg.sort_by}
+              sort_dir={cfg.sort_dir}
+              manual_value="position"
+            />
+            <button type="button" phx-click="show_column_modal" class="btn btn-outline btn-sm">
+              <.icon name="hero-adjustments-horizontal" class="w-4 h-4" />
+              <span class="hidden sm:inline">
+                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Columns")}
+              </span>
+            </button>
+            <.view_toggle view={cfg.view} />
+          </:controls>
+        </Shared.list_controls_row>
         <.simple_table
           scope={:attribute_groups}
+          show_view_toggle={false}
           cfg={cfg}
           rows={derive_rows(@attribute_group_rows, :attribute_groups, cfg)}
           total={length(@attribute_group_rows)}
