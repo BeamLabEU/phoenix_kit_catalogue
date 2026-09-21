@@ -242,16 +242,8 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
 
   def handle_event("continue_to_confirm", _params, socket) do
     cond do
-      not Enum.any?(socket.assigns.column_mappings, &(&1.target == :name)) ->
-        {:noreply,
-         put_flash(
-           socket,
-           :error,
-           Gettext.gettext(
-             PhoenixKitCatalogue.Gettext,
-             "You must map at least one column to 'Item Name'. Scroll down to the column mapping section and pick the column that holds item names."
-           )
-         )}
+      message = mapping_blocker(socket.assigns) ->
+        {:noreply, put_flash(socket, :error, message)}
 
       socket.assigns.import_category_mode == :create and
           not new_record_valid?(socket.assigns.new_category_changeset) ->
@@ -388,39 +380,15 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
     do: {:noreply, socket}
 
   def handle_event("execute_import", _params, socket) do
-    catalogue_uuid = socket.assigns.selected_catalogue.uuid
-    import_lang = if socket.assigns.multilang_enabled, do: socket.assigns.current_lang, else: nil
+    # Re-read at Run: the catalogue picked on the first step may have been
+    # trashed since, and nothing live is imported into the trash.
+    case Catalogue.get_catalogue(socket.assigns.selected_catalogue.uuid) do
+      %{status: status} when status != "deleted" ->
+        run_import(socket)
 
-    # Wrap the three :create-mode resolutions in a single transaction
-    # so a failure on the second or third doesn't leave the first as
-    # an orphan record. Modes other than :create are read-only inside
-    # the transaction (they just look up the picked uuid), so this is
-    # a no-op cost when nobody is creating anything.
-    txn =
-      PhoenixKit.RepoHelper.repo().transaction(fn ->
-        with {:ok, c_uuid, s1} <- resolve_import_category(socket, catalogue_uuid, import_lang),
-             {:ok, m_uuid, s2} <- resolve_import_manufacturer(s1),
-             {:ok, s_uuid, s3} <- resolve_import_supplier(s2) do
-          {c_uuid, m_uuid, s_uuid, s3}
-        else
-          {:error, message, socket} ->
-            PhoenixKit.RepoHelper.repo().rollback({:error, message, socket})
-        end
-      end)
-
-    case txn do
-      {:ok, {category_uuid, manufacturer_uuid, supplier_uuid, socket}} ->
-        start_import(
-          socket,
-          catalogue_uuid,
-          category_uuid,
-          manufacturer_uuid,
-          supplier_uuid,
-          import_lang
-        )
-
-      {:error, {:error, message, socket}} ->
-        {:noreply, put_flash(socket, :error, message)}
+      _ ->
+        {:noreply,
+         put_flash(socket, :error, PhoenixKitCatalogue.Errors.message(:catalogue_not_found))}
     end
   end
 
@@ -649,7 +617,10 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
   def handle_info({PlacePicker, "import-catalogue-picker", id}, socket),
     do: {:noreply, maybe_update_catalogue(socket, %{"catalogue" => PlaceTree.uuid(id) || ""})}
 
-  def handle_info({PlacePicker, "import-category-picker", id}, socket) do
+  def handle_info(
+        {PlacePicker, "import-category-picker", id},
+        %{assigns: %{import_category_mode: :existing}} = socket
+      ) do
     {:noreply,
      assign(socket,
        import_category_mode: :existing,
@@ -1107,8 +1078,74 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
   # the actual category record gets persisted — deferring creation to
   # execute time means cancelling out of the confirm step doesn't
   # leave an orphan category behind.
+  # What stops the mapping step before any record is created: no column
+  # for the item name, or "An existing category" with nothing picked (it
+  # would import everything uncategorized — not what the choice says).
+  defp mapping_blocker(assigns) do
+    cond do
+      not Enum.any?(assigns.column_mappings, &(&1.target == :name)) ->
+        Gettext.gettext(
+          PhoenixKitCatalogue.Gettext,
+          "You must map at least one column to 'Item Name'. Scroll down to the column mapping section and pick the column that holds item names."
+        )
+
+      assigns.import_category_mode == :existing and is_nil(assigns.import_category_uuid) ->
+        Gettext.gettext(
+          PhoenixKitCatalogue.Gettext,
+          "Pick the category to import into, or choose another option."
+        )
+
+      true ->
+        nil
+    end
+  end
+
+  defp run_import(socket) do
+    catalogue_uuid = socket.assigns.selected_catalogue.uuid
+    import_lang = if socket.assigns.multilang_enabled, do: socket.assigns.current_lang, else: nil
+
+    # Wrap the three :create-mode resolutions in a single transaction
+    # so a failure on the second or third doesn't leave the first as
+    # an orphan record. Modes other than :create are read-only inside
+    # the transaction (they just look up the picked uuid), so this is
+    # a no-op cost when nobody is creating anything.
+    txn =
+      PhoenixKit.RepoHelper.repo().transaction(fn ->
+        with {:ok, c_uuid, s1} <- resolve_import_category(socket, catalogue_uuid, import_lang),
+             {:ok, m_uuid, s2} <- resolve_import_manufacturer(s1),
+             {:ok, s_uuid, s3} <- resolve_import_supplier(s2) do
+          {c_uuid, m_uuid, s_uuid, s3}
+        else
+          {:error, message, socket} ->
+            PhoenixKit.RepoHelper.repo().rollback({:error, message, socket})
+        end
+      end)
+
+    case txn do
+      {:ok, {category_uuid, manufacturer_uuid, supplier_uuid, socket}} ->
+        start_import(
+          socket,
+          catalogue_uuid,
+          category_uuid,
+          manufacturer_uuid,
+          supplier_uuid,
+          import_lang
+        )
+
+      {:error, {:error, message, socket}} ->
+        {:noreply, put_flash(socket, :error, message)}
+    end
+  end
+
   defp resolve_import_category(socket, catalogue_uuid, import_lang) do
     case socket.assigns.import_category_mode do
+      :existing when is_nil(socket.assigns.import_category_uuid) ->
+        {:error,
+         Gettext.gettext(
+           PhoenixKitCatalogue.Gettext,
+           "Pick the category to import into, or choose another option."
+         ), socket}
+
       :existing ->
         {:ok, socket.assigns.import_category_uuid, socket}
 

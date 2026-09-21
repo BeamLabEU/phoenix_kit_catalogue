@@ -14,6 +14,7 @@ defmodule PhoenixKitCatalogue.Web.FormLVBranchesTest do
   use PhoenixKitCatalogue.LiveCase, async: false
 
   alias PhoenixKitCatalogue.Catalogue
+  alias PhoenixKitCatalogue.Test.Repo, as: TestRepo
 
   describe "inline validation errors actually render" do
     test "clearing the name on the catalogue form shows the error, not silence",
@@ -199,18 +200,58 @@ defmodule PhoenixKitCatalogue.Web.FormLVBranchesTest do
       landing = fixture_category(other, %{name: "Vanishing landing"})
       {:ok, view, _html} = edit(conn, mover)
 
+      # Removed by someone else before their change reached this page (a
+      # write with no broadcast; the broadcast would drop the pick at once).
       pick(view, "category:" <> landing.uuid, "Vanishing")
-      {:ok, _} = Catalogue.permanently_delete_category(landing)
+      {:ok, _} = TestRepo.delete(landing)
 
       assert move(view) =~ "Parent category not found."
       assert Catalogue.get_category(mover.uuid).catalogue_uuid == cat.uuid
 
       parent = fixture_category(cat, %{name: "Trashed later"})
       pick(view, "category:" <> parent.uuid, "Trashed later")
-      {:ok, _} = Catalogue.trash_category(parent)
+      {:ok, _} = parent |> Ecto.Changeset.change(status: "deleted") |> TestRepo.update()
 
       assert move(view) =~ "Parent category not found."
       assert Catalogue.get_category(mover.uuid).parent_uuid == nil
+    end
+
+    test "the branch is read from where the category is now, not where the page found it",
+         %{conn: conn, catalogue: cat, other_catalogue: other} do
+      home = fixture_category(cat, %{name: "Home"})
+
+      {:ok, cat_obj} =
+        Catalogue.create_category(%{
+          name: "Wanderer",
+          catalogue_uuid: cat.uuid,
+          parent_uuid: home.uuid
+        })
+
+      {:ok, view, _html} = edit(conn, cat_obj)
+
+      # Someone else moves it to the other catalogue; the admin then picks
+      # the top level of the catalogue the page first showed it in.
+      {:ok, _} = Catalogue.move_category_to_catalogue(cat_obj, other.uuid)
+      pick(view, "catalogue:" <> cat.uuid, "Branches Cat")
+      move(view)
+
+      moved = Catalogue.get_category(cat_obj.uuid)
+      assert moved.catalogue_uuid == cat.uuid
+      assert moved.parent_uuid == nil
+    end
+
+    test "a pick the refreshed tree lost is dropped", %{conn: conn, catalogue: cat} do
+      cat_obj = fixture_category(cat, %{name: "Stays"})
+      landing = fixture_category(cat, %{name: "Going away"})
+      {:ok, view, _html} = edit(conn, cat_obj)
+
+      pick(view, "category:" <> landing.uuid, "Going away")
+      assert :sys.get_state(view.pid).socket.assigns.move_target
+
+      {:ok, _} = Catalogue.trash_category(landing)
+      _ = render(view)
+      assert :sys.get_state(view.pid).socket.assigns.move_target == nil
+      assert has_element?(view, "#category-move-button[disabled]")
     end
 
     test "the category form's Move section owns its open state on the client",
@@ -237,6 +278,32 @@ defmodule PhoenixKitCatalogue.Web.FormLVBranchesTest do
   end
 
   describe "CategoryFormLive :new — parent picked in the tree" do
+    test "a parent trashed after it was picked is dropped, and the context refuses it",
+         %{conn: conn, catalogue: cat} do
+      doors = fixture_category(cat, %{name: "Doors"})
+      {:ok, view, _html} = live(conn, "/en/admin/catalogue/#{cat.uuid}/categories/new")
+
+      view |> element("#category-parent-picker-change") |> render_click()
+
+      view
+      |> element(~s(#category-parent-picker [data-place="category:#{doors.uuid}"]))
+      |> render_click()
+
+      {:ok, _} = Catalogue.trash_category(doors)
+      _ = render(view)
+      assert :sys.get_state(view.pid).socket.assigns.parent_pick == "root"
+
+      # Whatever the form posts, a trashed parent is never taken.
+      assert {:error, changeset} =
+               Catalogue.create_category(%{
+                 name: "Under the trash",
+                 catalogue_uuid: cat.uuid,
+                 parent_uuid: doors.uuid
+               })
+
+      assert changeset.errors[:parent_uuid]
+    end
+
     test "it starts at the top level, and saves under the category picked",
          %{conn: conn, catalogue: cat} do
       doors = fixture_category(cat, %{name: "Doors"})

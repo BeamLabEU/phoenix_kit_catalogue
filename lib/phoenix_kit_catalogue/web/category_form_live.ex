@@ -249,14 +249,28 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
 
   defp loc(socket), do: socket.assigns[:current_locale]
 
+  # A pick the rebuilt tree no longer offers (its category was trashed or
+  # moved away meanwhile) is dropped, not kept on a row nobody can see.
   defp refresh_trees(%{assigns: %{action: :new}} = socket) do
     catalogue = Catalogue.get_catalogue(socket.assigns.catalogue_uuid)
-    assign(socket, :parent_tree, parent_tree(catalogue, loc(socket)))
+    tree = parent_tree(catalogue, loc(socket))
+    pick = socket.assigns.parent_pick
+
+    assign(socket,
+      parent_tree: tree,
+      parent_pick: if(PlaceTree.find(tree, pick), do: pick, else: PlaceTree.root_id())
+    )
   end
 
   defp refresh_trees(%{assigns: %{action: :edit, category: category}} = socket) do
     catalogue = Catalogue.get_catalogue(category.catalogue_uuid)
-    assign(socket, :move_tree, move_tree(category, catalogue, loc(socket)))
+    tree = move_tree(category, catalogue, loc(socket))
+    target = socket.assigns.move_target
+
+    assign(socket,
+      move_tree: tree,
+      move_target: if(target && PlaceTree.find(tree, target), do: target)
+    )
   end
 
   # Where the category is now, as the move tree names it.
@@ -473,9 +487,16 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
     end
   end
 
+  # Which branch is read from the category as it is NOW: someone may have
+  # moved it to another catalogue since the page loaded.
   defp move_to(socket, target) do
-    own = socket.assigns.category.catalogue_uuid
+    case Catalogue.get_category(socket.assigns.category.uuid) do
+      %Category{} = category -> move_to(assign(socket, :category, category), target, category)
+      nil -> {:noreply, move_failed(socket, "move_category", :not_found)}
+    end
+  end
 
+  defp move_to(socket, target, %Category{catalogue_uuid: own}) do
     case target do
       "catalogue:" <> ^own ->
         reparent(socket, nil)

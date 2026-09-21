@@ -67,6 +67,34 @@ defmodule PhoenixKitCatalogue.Web.MoveToFolderPickerTest do
     assert Catalogue.get_catalogue(ctx.kitchen.uuid).folder_uuid == nil
   end
 
+  test "confirm acts on the tree's pick, never on a posted folder", %{conn: conn} = ctx do
+    {:ok, view, _html} = live(conn, @base)
+    open(view, "catalogue", ctx.kitchen.uuid)
+
+    # Nothing picked but where it is: a forged or malformed field moves nothing.
+    render_submit(view, "confirm_move", %{"folder_uuid" => ctx.archive.uuid})
+    assert Catalogue.get_catalogue(ctx.kitchen.uuid).folder_uuid == nil
+
+    open(view, "catalogue", ctx.kitchen.uuid)
+    render_submit(view, "confirm_move", %{"folder_uuid" => "not-a-uuid"})
+    assert Process.alive?(view.pid)
+    assert Catalogue.get_catalogue(ctx.kitchen.uuid).folder_uuid == nil
+  end
+
+  test "filed under a trashed folder, it is at the top level in the tree", %{conn: conn} = ctx do
+    {:ok, _} = Catalogue.move_catalogue_to_folder(ctx.kitchen, ctx.archive.uuid)
+    {:ok, _} = Catalogue.trash_folder(ctx.archive)
+    {:ok, view, _html} = live(conn, @base)
+    open(view, "catalogue", ctx.kitchen.uuid)
+
+    assert view |> element(~s(#move-folder-picker li[aria-selected="true"])) |> render() =~
+             "Top level"
+
+    # Confirming where it already is moves nothing and says nothing moved.
+    html = confirm(view)
+    refute html =~ "Catalogue moved."
+  end
+
   test "a folder cannot be picked into its own branch", %{conn: conn} = ctx do
     {:ok, view, _html} = live(conn, @base)
     open(view, "folder", ctx.rooms.uuid)

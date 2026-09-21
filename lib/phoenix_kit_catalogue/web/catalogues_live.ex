@@ -2299,12 +2299,15 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   def handle_event("open_move", %{"type" => type, "uuid" => uuid}, socket)
       when type in ~w(folder catalogue) do
     target_type = if type == "folder", do: :folder, else: :catalogue
-    current = current_folder_place(target_type, uuid)
 
     tree =
       Gettext.gettext(PhoenixKitCatalogue.Gettext, "Top level")
       |> PlaceTree.folders()
       |> PlaceTree.prune(if target_type == :folder, do: ["folder:" <> uuid], else: [])
+
+    # Filed under a trashed folder, it shows at the top level; so does the tree.
+    current = current_folder_place(target_type, uuid)
+    current = if PlaceTree.find(tree, current), do: current, else: PlaceTree.root_id()
 
     {:noreply,
      assign(socket,
@@ -2319,13 +2322,21 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     {:noreply, assign(socket, :move_dialog, nil)}
   end
 
-  def handle_event("confirm_move", %{"folder_uuid" => target}, socket) do
-    target = if target == "", do: nil, else: target
+  # Acts on what the dialog's tree picked, not on the posted field: only a
+  # row the tree offers (a forged or malformed folder uuid never reaches
+  # the move), and a pick of where it already is moves nothing.
+  def handle_event("confirm_move", _params, socket) do
+    %{move_pick: pick, move_current: current, move_tree: tree} = socket.assigns
 
     socket =
-      case socket.assigns.move_dialog do
-        {:catalogue, uuid} -> do_move_catalogue(socket, uuid, target)
-        {:folder, uuid} -> do_move_folder(socket, uuid, target)
+      with true <- pick != current,
+           true <- PlaceTree.member?(tree, pick, [:root, :folder]),
+           target = PlaceTree.uuid(pick),
+           {type, uuid} <- socket.assigns.move_dialog do
+        if type == :catalogue,
+          do: do_move_catalogue(socket, uuid, target),
+          else: do_move_folder(socket, uuid, target)
+      else
         _ -> socket
       end
 

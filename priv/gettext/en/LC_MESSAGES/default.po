@@ -3674,3 +3674,6 @@ msgstr ""
 
 msgid "uncategorized"
 msgstr ""
+
+msgid "Pick the category to import into, or choose another option."
+msgstr ""
