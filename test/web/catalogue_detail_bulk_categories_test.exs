@@ -9,6 +9,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailBulkCategoriesTest do
 
   alias PhoenixKitCatalogue.Catalogue
   alias PhoenixKitCatalogue.Catalogue.PubSub, as: CataloguePubSub
+  alias PhoenixKitCatalogue.Web.PlaceTree
 
   @base "/en/admin/catalogue"
 
@@ -30,7 +31,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailBulkCategoriesTest do
   defp offered_categories(tree),
     do:
       tree
-      |> PhoenixKitCatalogue.Web.PlaceTree.ids_of([:category])
+      |> PlaceTree.ids_of([:category])
       |> Enum.map(&String.replace_prefix(&1, "category:", ""))
 
   test "categories render inside a BulkSelectScope with client-side checkboxes and the same toolbar as items",

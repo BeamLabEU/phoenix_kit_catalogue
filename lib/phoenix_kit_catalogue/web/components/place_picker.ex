@@ -422,24 +422,21 @@ defmodule PhoenixKitCatalogue.Web.Components.PlacePicker do
       nil
     else
       full = PlaceTree.find(assigns.tree, node.id) || node
-
-      case PlaceTree.ids_of(full.children, assigns.pickable) do
-        [] ->
-          nil
-
-        under ->
-          count = Enum.count(under, &(&1 in picked))
-
-          cond do
-            count == 0 -> :none
-            count == length(under) -> :all
-            true -> :some
-          end
-      end
+      check_state(PlaceTree.ids_of(full.children, assigns.pickable), picked)
     end
   end
 
   defp branch_check(_assigns, _picked), do: nil
+
+  defp check_state([], _picked), do: nil
+
+  defp check_state(under, picked) do
+    case Enum.count(under, &(&1 in picked)) do
+      0 -> :none
+      count when count == length(under) -> :all
+      _ -> :some
+    end
+  end
 
   attr(:state, :atom, required: true)
 
