@@ -138,4 +138,30 @@ defmodule PhoenixKitCatalogue.Web.ImportPickersTest do
     assert assigns(view).import_category_mode == :none
     assert assigns(view).import_category_uuid == nil
   end
+
+  test "An existing category with nothing picked does not continue", %{conn: conn} = ctx do
+    {:ok, view, _html} = live(conn, @import_url)
+    render_change(view, "validate_upload", %{"catalogue" => ctx.kitchen.uuid})
+    upload(view, ctx.kitchen)
+    render_change(view, "select_import_category", %{"category_mode" => "existing"})
+
+    html = render_click(view, "continue_to_confirm", %{})
+    assert html =~ "Pick the category to import into"
+    assert assigns(view).step == :map
+  end
+
+  test "a catalogue trashed after it was picked is not imported into", %{conn: conn} = ctx do
+    {:ok, view, _html} = live(conn, @import_url)
+    render_change(view, "validate_upload", %{"catalogue" => ctx.kitchen.uuid})
+    upload(view, ctx.kitchen)
+    render_click(view, "continue_to_confirm", %{})
+    assert assigns(view).step == :confirm
+
+    {:ok, _} = Catalogue.trash_catalogue(ctx.kitchen)
+    html = render_click(view, "execute_import", %{})
+
+    assert html =~ "Catalogue not found."
+    assert assigns(view).import_task == nil
+    refute Enum.any?(Catalogue.list_items_for_catalogue(ctx.kitchen.uuid), &(&1.name == "Hinge"))
+  end
 end

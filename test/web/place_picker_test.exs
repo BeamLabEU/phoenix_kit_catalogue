@@ -221,6 +221,17 @@ defmodule PhoenixKitCatalogue.Web.PlacePickerTest do
       refute html =~ ~s(data-place="category:#{ctx.oak.uuid}")
     end
 
+    test "a pushed pick_all on a single picker changes nothing", %{conn: conn} = ctx do
+      view = host(conn, PlaceTree.places("standard"))
+
+      view
+      |> with_target("#pp")
+      |> render_click("pick_all", %{"id" => "folder:" <> ctx.rooms.uuid})
+
+      assert Process.alive?(view.pid)
+      assert state(view).picked == []
+    end
+
     test "the search box posts nothing into the host form", %{conn: conn} do
       view = host(conn, PlaceTree.places("standard"))
       search_box = view |> element("#pp-search") |> render()

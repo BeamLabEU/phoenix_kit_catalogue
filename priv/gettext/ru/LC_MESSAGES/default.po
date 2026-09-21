@@ -3687,3 +3687,6 @@ msgstr "верхний уровень"
 
 msgid "uncategorized"
 msgstr "без категории"
+
+msgid "Pick the category to import into, or choose another option."
+msgstr "Выберите категорию для импорта или другой вариант."

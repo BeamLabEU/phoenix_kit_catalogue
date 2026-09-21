@@ -26,7 +26,8 @@ defmodule PhoenixKitCatalogue.Web.Components.PlacePicker do
     * `current` — the id to badge "Current" (where the record is now)
     * `field` — `true` shows the picked place's path and a Change button,
       the tree only while changing (for forms); `false` (default) shows the
-      tree at once (for dialogs)
+      tree at once (for dialogs). Single pickers only: a multiple one has
+      no single path to show
     * `path_skip` — row types left out of the shown path (default folders)
     * `placeholder` — the path text while nothing is picked
     * `name` — renders hidden inputs so a surrounding form posts the value;
@@ -124,8 +125,9 @@ defmodule PhoenixKitCatalogue.Web.Components.PlacePicker do
 
   # A folder's box: every pickable row under it, checked when any is not,
   # else cleared. The whole branch counts — rows a search hides too.
-  def handle_event("pick_all", %{"id" => id}, socket) when is_binary(id) do
-    %{tree: tree, pickable: pickable, multiple: true} = socket.assigns
+  def handle_event("pick_all", %{"id" => id}, %{assigns: %{multiple: true}} = socket)
+      when is_binary(id) do
+    %{tree: tree, pickable: pickable} = socket.assigns
 
     case PlaceTree.find(tree, id) do
       %{children: children} ->
