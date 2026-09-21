@@ -11,7 +11,6 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
   import PhoenixKitWeb.Components.Core.Button, only: [button: 1]
   import PhoenixKitWeb.Components.Core.Icon, only: [icon: 1]
   import PhoenixKitWeb.Components.Core.Input, only: [input: 1]
-  import PhoenixKitWeb.Components.Core.Modal, only: [confirm_modal: 1]
   import PhoenixKitWeb.Components.Core.Select, only: [select: 1]
   import PhoenixKitCatalogue.Web.Components, only: [attachments_files_panel: 1]
 
@@ -147,7 +146,6 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
        category: category,
        catalogue_uuid: catalogue_uuid,
        parent_catalogue_name: parent_catalogue && parent_catalogue.name,
-       confirm_delete_all: false,
        other_catalogues: other_catalogues,
        parent_options: parent_options,
        parent_move_target: category && category.parent_uuid,
@@ -473,37 +471,6 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
   def handle_event("clear_featured_image", _params, socket),
     do: Attachments.clear_featured_image(socket)
 
-  def handle_event("show_delete_confirm", _params, socket) do
-    {:noreply, assign(socket, :confirm_delete_all, true)}
-  end
-
-  def handle_event("delete_category", _params, socket) do
-    case Catalogue.permanently_delete_category(socket.assigns.category, actor_opts(socket)) do
-      {:ok, _} ->
-        {:noreply,
-         socket
-         |> put_flash(
-           :info,
-           Gettext.gettext(
-             PhoenixKitCatalogue.Gettext,
-             "Category and all its items permanently deleted."
-           )
-         )
-         |> push_navigate(
-           to: socket.assigns[:return_to] || Paths.catalogue_detail(socket.assigns.catalogue_uuid)
-         )}
-
-      {:error, _} ->
-        {:noreply,
-         socket
-         |> assign(:confirm_delete_all, false)
-         |> put_flash(
-           :error,
-           Gettext.gettext(PhoenixKitCatalogue.Gettext, "Failed to delete category.")
-         )}
-    end
-  end
-
   # Only a value the select offered is kept (see catalogue_move_options/1).
   def handle_event("select_move_target", params, socket) do
     value = params["move_target"]
@@ -568,10 +535,6 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
       {:error, reason} ->
         {:noreply, move_failed(socket, "move_category_under", reason)}
     end
-  end
-
-  def handle_event("cancel_delete", _params, socket) do
-    {:noreply, assign(socket, :confirm_delete_all, false)}
   end
 
   # {:ai_translation, ...} events folded into the form by `use ...AITranslate.Embed`.
@@ -1055,53 +1018,6 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
           </div>
         </div>
       </details>
-
-      <%!-- Danger zone — collapsed by default; matches the integrations
-           page Danger Zone pattern (red border, exclamation-triangle,
-           confirm modal on click). --%>
-      <details
-        :if={@action == :edit}
-        id="category-danger-zone"
-        phx-mounted={Phoenix.LiveView.JS.ignore_attributes(["open"])}
-        class="card bg-base-100 border-2 border-error/30"
-      >
-        <summary class="card-body py-3 cursor-pointer flex-row items-center gap-2 select-none">
-          <.icon name="hero-exclamation-triangle" class="w-4 h-4 text-error" />
-          <h3 class="font-semibold text-error text-base">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Danger zone")}</h3>
-          <.icon name="hero-chevron-down" class="w-4 h-4 ml-auto text-base-content/40" />
-        </summary>
-
-        <div class="card-body pt-0 space-y-4">
-          <div class="flex items-center justify-between gap-4">
-            <div>
-              <p class="font-medium text-sm">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Permanently delete category")}</p>
-              <p class="text-xs text-base-content/60">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "This will permanently delete this category and all its items. This cannot be undone.")}</p>
-            </div>
-            <%!-- `variant="error"`, not `class="btn-error"` — the class form
-                 leaves the default btn-primary on the element next to it. --%>
-            <.button
-              phx-click="show_delete_confirm"
-              variant="error"
-              size="sm"
-              class="btn-outline shrink-0"
-            >
-              <.icon name="hero-trash" class="w-4 h-4" />
-              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete forever")}
-            </.button>
-          </div>
-        </div>
-      </details>
-
-      <.confirm_modal
-        show={@confirm_delete_all}
-        on_confirm="delete_category"
-        on_cancel="cancel_delete"
-        title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Permanently delete category")}
-        title_icon="hero-trash"
-        messages={[{:warning, Gettext.gettext(PhoenixKitCatalogue.Gettext, "This will permanently delete this category and all its items.")}]}
-        confirm_text={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Delete forever")}
-        danger={true}
-      />
       </div>
     </PhoenixKitWeb.Components.LayoutWrapper.app_layout>
     """
