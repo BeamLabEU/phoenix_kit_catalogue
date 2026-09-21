@@ -1999,6 +1999,29 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
 
   defp default_folder_name, do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "New folder")
 
+  # "New folder", then "New folder 2", "New folder 3"… — the first name no
+  # folder beside it already has. Every new folder used to be called the
+  # same thing (boss via Max, 2026-09-21). Siblings only, as a file explorer
+  # counts: the same name in another folder is no clash. The base is
+  # translated, the number is not, so it reads right in every language.
+  defp next_folder_name(socket, parent_uuid) do
+    base = default_folder_name()
+
+    taken =
+      for {folder, _depth} <- socket.assigns.folder_tree,
+          folder.parent_uuid == parent_uuid,
+          into: MapSet.new(),
+          do: folder.name
+
+    if MapSet.member?(taken, base) do
+      Stream.iterate(2, &(&1 + 1))
+      |> Stream.map(&"#{base} #{&1}")
+      |> Enum.find(&(not MapSet.member?(taken, &1)))
+    else
+      base
+    end
+  end
+
   # Move (no-op when the parent is unchanged) then write the level's
   # same-type order. A failed move skips the reorder — the flash carries
   # the reason (cycle, trashed target, ...).
@@ -2125,11 +2148,11 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       case params["parent"] do
         parent when is_binary(parent) and parent != "" ->
           if Map.has_key?(socket.assigns.folder_lookup, parent),
-            do: %{name: default_folder_name(), parent_uuid: parent},
-            else: %{name: default_folder_name()}
+            do: %{name: next_folder_name(socket, parent), parent_uuid: parent},
+            else: %{name: next_folder_name(socket, nil)}
 
         _ ->
-          %{name: default_folder_name()}
+          %{name: next_folder_name(socket, nil)}
       end
 
     case Catalogue.create_folder(attrs, actor_opts(socket)) do
@@ -2151,7 +2174,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     # under a missing/trashed folder.
     if Map.has_key?(socket.assigns.folder_lookup, parent_uuid) do
       case Catalogue.create_folder(
-             %{name: default_folder_name(), parent_uuid: parent_uuid},
+             %{name: next_folder_name(socket, parent_uuid), parent_uuid: parent_uuid},
              actor_opts(socket)
            ) do
         {:ok, folder} ->
