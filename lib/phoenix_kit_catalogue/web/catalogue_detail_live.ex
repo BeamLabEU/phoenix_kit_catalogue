@@ -6478,8 +6478,10 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     |> Enum.reverse()
   end
 
-  # Active-list sort dropdown options. `:position` is "Manual" (the DnD
-  # mode). gettext via the module backend so labels localize.
+  # Active-list sort dropdown options. `:position` is "Manual order" (the
+  # DnD mode) — the same wording the index's dropdown uses for the same
+  # thing; these two said "Manual" and "Manual order" side by side.
+  # gettext via the module backend so labels localize.
   # In-memory categories sort — the list is small and already loaded.
   # Manual (:position) mirrors the DB order and is what enables drag.
   defp sort_categories(categories, counts, sort_by, dir) do
@@ -6498,7 +6500,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
   defp category_sort_options do
     [
-      {:position, Gettext.gettext(PhoenixKitCatalogue.Gettext, "Manual")},
+      {:position, Gettext.gettext(PhoenixKitCatalogue.Gettext, "Manual order")},
       {:name, Gettext.gettext(PhoenixKitCatalogue.Gettext, "Name")},
       {:items, Gettext.gettext(PhoenixKitCatalogue.Gettext, "Items")},
       {:updated, Gettext.gettext(PhoenixKitCatalogue.Gettext, "Updated")}
@@ -6507,7 +6509,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
   defp item_sort_options do
     [
-      {:position, Gettext.gettext(PhoenixKitCatalogue.Gettext, "Manual")},
+      {:position, Gettext.gettext(PhoenixKitCatalogue.Gettext, "Manual order")},
       {:name, Gettext.gettext(PhoenixKitCatalogue.Gettext, "Name")},
       {:sku, Gettext.gettext(PhoenixKitCatalogue.Gettext, "SKU")},
       {:base_price, Gettext.gettext(PhoenixKitCatalogue.Gettext, "Price")},

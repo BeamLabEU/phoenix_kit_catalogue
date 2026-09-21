@@ -426,11 +426,49 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLive do
       current_locale={assigns[:current_locale]}
     >
       <div class="flex flex-col w-full px-4 py-6 gap-6">
-        <%!-- Filter toolbar: the same underline status tabs every other
-             catalogue list uses — this screen had a daisyUI `join` of two
-             buttons and no counts, which is exactly the drift the owner
-             pointed at (boss via Max, 2026-09-21). Retry-stuck sits beside
-             them as a page action, not a tab. --%>
+        <%!-- Same two rows, in the same order, as every other catalogue
+             list (boss via Max, 2026-09-21): the search and the page's
+             actions on top, then the status tabs with the table's own
+             controls on the right. This screen had them the other way
+             round with the upload zone in between, and its status choice
+             was a daisyUI `join` of two uncounted buttons. --%>
+        <% visible_pdfs = filter_by_search(@pdfs, @search) %>
+        <%!-- The two rows are one block: they sit as close together here as
+             they do on the index, not a page gap apart. --%>
+        <div class="flex flex-col gap-3">
+        <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+          <Shared.search_input
+            id="pdf-library-search"
+            query={@search}
+            placeholder={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search by filename…")}
+            on_search="search"
+            on_clear="clear_search"
+            class={Shared.search_width_class()}
+          />
+          <div class="flex flex-wrap items-center gap-2">
+            <button
+              :if={@filter == "active"}
+              type="button"
+              phx-click="requeue_stuck"
+              phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Re-queuing…")}
+              class="btn btn-ghost btn-sm"
+              title={
+                Gettext.gettext(
+                  PhoenixKitCatalogue.Gettext,
+                  "Re-queue any PDFs whose text extraction never ran or got stuck (e.g., after the job queue was down)."
+                )
+              }
+            >
+              <.icon name="hero-arrow-path" class="w-4 h-4" />
+              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Retry stuck")}
+            </button>
+            <button type="button" phx-click="open_content_search" class="btn btn-sm btn-outline">
+              <.icon name="hero-document-magnifying-glass" class="w-4 h-4" />
+              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search PDF contents")}
+            </button>
+          </div>
+        </div>
+
         <Shared.list_controls_row>
           <%!-- Counted tabs need the counts, and those arrive with the list
                on the connected render — the dead render would otherwise
@@ -452,31 +490,14 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLive do
               phx-value-filter="trashed"
             />
           </:tabs>
-          <:controls>
-            <button
-              :if={@filter == "active"}
-              type="button"
-              phx-click="requeue_stuck"
-              phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Re-queuing…")}
-              class="btn btn-ghost btn-sm"
-              title={
-                Gettext.gettext(
-                  PhoenixKitCatalogue.Gettext,
-                  "Re-queue any PDFs whose text extraction never ran or got stuck (e.g., after the job queue was down)."
-                )
-              }
-            >
-              <.icon name="hero-arrow-path" class="w-4 h-4" />
-              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Retry stuck")}
-            </button>
-            <%!-- The loose "N PDFs" line that used to sit here said the
-                 same thing the Active tab now says, one control along. --%>
-            <button type="button" phx-click="open_content_search" class="btn btn-sm btn-outline">
-              <.icon name="hero-document-magnifying-glass" class="w-4 h-4" />
-              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search PDF contents")}
-            </button>
+          <%!-- The table's own control, on the tabs row where every other
+               catalogue list keeps it. The loose "N PDFs" line that used
+               to sit here says what the Active tab now says. --%>
+          <:controls :if={visible_pdfs != []}>
+            <.view_toggle_instant view={@view_mode} id="pdf-view-pref" />
           </:controls>
         </Shared.list_controls_row>
+        </div>
 
         <%!-- Upload zone (hidden in trash view) --%>
         <div :if={@filter == "active"} class="bg-base-100 rounded-lg p-4">
@@ -501,22 +522,6 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLive do
           <% end %>
 
           <div :if={@upload_error} class="text-error text-xs mt-2">{@upload_error}</div>
-        </div>
-
-        <%!-- Filename search shares its row with the table/card view
-             toggle (the table's built-in toggle is suppressed below).
-             Content search lives in the modal behind the header button. --%>
-        <% visible_pdfs = filter_by_search(@pdfs, @search) %>
-        <div class="flex flex-wrap items-center gap-3">
-          <Shared.search_input
-            id="pdf-library-search"
-            query={@search}
-            placeholder={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search by filename…")}
-            on_search="search"
-            on_clear="clear_search"
-            class={Shared.search_width_class()}
-          />
-          <.view_toggle_instant :if={visible_pdfs != []} view={@view_mode} id="pdf-view-pref" class="ml-auto" />
         </div>
 
         <.live_component
