@@ -15,6 +15,8 @@ defmodule PhoenixKitCatalogue.Web.TreeSortTest do
   """
   use PhoenixKitCatalogue.LiveCase, async: false
 
+  alias PhoenixKitCatalogue.Catalogue
+  alias PhoenixKitCatalogue.Web.TableConfig
   alias PhoenixKitCatalogue.Web.ViewConfig
 
   @base "/en/admin/catalogue"
@@ -121,7 +123,7 @@ defmodule PhoenixKitCatalogue.Web.TreeSortTest do
       {:ok, view, _html} = live(conn, "#{@base}/#{c.uuid}")
       sort_categories(view, "name")
 
-      before = PhoenixKitCatalogue.Catalogue.get_category(a.uuid).position
+      before = Catalogue.get_category(a.uuid).position
 
       render_click(view, "drop_row", %{
         "type" => "category",
@@ -130,7 +132,7 @@ defmodule PhoenixKitCatalogue.Web.TreeSortTest do
         "entries" => ["category:#{a.uuid}", "category:#{b.uuid}"]
       })
 
-      assert PhoenixKitCatalogue.Catalogue.get_category(a.uuid).position == before
+      assert Catalogue.get_category(a.uuid).position == before
     end
 
     test "a nest dropped under a sort still nests, as the index files a catalogue", %{
@@ -148,7 +150,7 @@ defmodule PhoenixKitCatalogue.Web.TreeSortTest do
         "target" => b.uuid
       })
 
-      assert PhoenixKitCatalogue.Catalogue.get_category(a.uuid).parent_uuid == b.uuid
+      assert Catalogue.get_category(a.uuid).parent_uuid == b.uuid
     end
 
     test "the bulk Reorder is offered only in Manual order", %{conn: conn, catalogue: c} do
@@ -244,10 +246,10 @@ defmodule PhoenixKitCatalogue.Web.TreeSortTest do
 
   describe "the catalogues index" do
     setup %{catalogue: catalogue} do
-      {:ok, folder} = PhoenixKitCatalogue.Catalogue.create_folder(%{name: "Showroom folder"})
+      {:ok, folder} = Catalogue.create_folder(%{name: "Showroom folder"})
 
       {:ok, filed} =
-        PhoenixKitCatalogue.Catalogue.update_catalogue(
+        Catalogue.update_catalogue(
           fixture_catalogue(%{name: "Inside the folder"}),
           %{folder_uuid: folder.uuid}
         )
@@ -309,7 +311,7 @@ defmodule PhoenixKitCatalogue.Web.TreeSortTest do
         "entries" => ["catalogue:#{loose.uuid}"]
       })
 
-      assert PhoenixKitCatalogue.Catalogue.get_catalogue(loose.uuid).folder_uuid == nil
+      assert Catalogue.get_catalogue(loose.uuid).folder_uuid == nil
     end
 
     # Crossed, not sampled: a folder has only some of a catalogue's columns,
@@ -317,7 +319,7 @@ defmodule PhoenixKitCatalogue.Web.TreeSortTest do
     # sortable column, both directions, must render the tree with the folder
     # in it — a sort key that reads a field a folder lacks would crash here.
     for {id, _} <-
-          PhoenixKitCatalogue.Web.TableConfig.columns(:catalogues)
+          TableConfig.columns(:catalogues)
           |> Enum.filter(& &1.sortable?)
           |> Enum.map(&{&1.id, &1}),
         dir <- ~w(asc desc) do
