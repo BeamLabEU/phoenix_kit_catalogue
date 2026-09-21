@@ -2681,7 +2681,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
             <img
               :if={ctx && ctx.image_url}
               src={ctx.image_url}
-              alt=""
+              alt={ctx.name || ""}
               class="w-12 h-12 rounded-lg object-cover bg-base-200 shrink-0"
             />
             <div class="min-w-0">
@@ -3213,7 +3213,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
                 <img
                   :if={entry.item.thumb_url}
                   src={entry.item.thumb_url}
-                  alt=""
+                  alt={entry.item.name || ""}
                   class="w-10 h-10 rounded object-cover bg-base-200"
                 />
                 <div

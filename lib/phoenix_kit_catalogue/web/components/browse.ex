@@ -649,7 +649,7 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
       <img
         :if={@item.photo_url}
         src={@item.photo_url}
-        alt={@item.name}
+        alt={@item.name || ""}
         class="w-full h-full object-cover"
         decoding="async"
       />
@@ -1079,7 +1079,7 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
             <img
               :if={@item.thumb_url}
               src={@item.thumb_url}
-              alt=""
+              alt={@item.name || ""}
               class="w-8 h-8 max-w-none [.pk-comfy_&]:w-16 [.pk-comfy_&]:h-16 rounded object-cover bg-base-200"
             />
             <div
