@@ -2533,9 +2533,14 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   def handle_event("permanently_delete_catalogue", _params, socket) do
     case socket.assigns.confirm_delete do
       {"catalogue", uuid} ->
+        # Deleted tab only: a catalogue restored meanwhile (another tab, or
+        # a stale dialog) is live again and is not deleted forever.
         with %{} = catalogue <- Catalogue.get_catalogue(uuid),
              {:ok, _} <-
-               Catalogue.permanently_delete_catalogue(catalogue, actor_opts(socket)) do
+               Catalogue.permanently_delete_catalogue(
+                 catalogue,
+                 [only_trashed: true] ++ actor_opts(socket)
+               ) do
           {:noreply,
            socket
            |> put_flash(
@@ -2553,6 +2558,13 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
                :error,
                Gettext.gettext(PhoenixKitCatalogue.Gettext, "Catalogue not found.")
              )
+             |> load_data(:index)}
+
+          {:error, :not_in_trash} ->
+            {:noreply,
+             socket
+             |> assign(:confirm_delete, nil)
+             |> put_flash(:error, Errors.message(:not_in_trash))
              |> load_data(:index)}
 
           {:error, reason} ->

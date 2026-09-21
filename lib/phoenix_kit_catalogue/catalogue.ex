@@ -1008,6 +1008,10 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
     * `:actor_uuid` — UUID to attribute on the activity log
     * `:force` — when `true`, deletes even if smart-rule references exist
+    * `:only_trashed` — pass `true` from a Deleted-tab action: the call
+      then refuses with `{:error, :not_in_trash}` when the catalogue,
+      re-read under the lock, is no longer trashed (restored in another
+      tab meanwhile)
 
   ## Examples
 
@@ -1026,6 +1030,10 @@ defmodule PhoenixKitCatalogue.Catalogue do
       repo().transaction(fn ->
         lock_catalogue!(catalogue.uuid)
         lock_catalogue_rows!(catalogue.uuid)
+
+        if opts[:only_trashed] == true and
+             not match?(%{status: "deleted"}, repo().get(Catalogue, catalogue.uuid)),
+           do: repo().rollback(:not_in_trash)
 
         # Counted under the lock: a rule added between a pre-flight count
         # and the delete would be wiped by V102's ON DELETE CASCADE.
