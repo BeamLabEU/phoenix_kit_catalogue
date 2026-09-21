@@ -56,6 +56,7 @@ defmodule PhoenixKitCatalogue.Web.SettingsLive do
 
     assign(socket,
       context_menu_enabled: Settings.context_menu_enabled?(),
+      seo_fields_visible: Settings.seo_fields_visible?(),
       sweep_enabled: Settings.sweep_enabled?(),
       sweep_interval: Settings.sweep_interval_minutes(),
       sweep_max_per_run: Settings.sweep_max_per_run(),
@@ -69,6 +70,10 @@ defmodule PhoenixKitCatalogue.Web.SettingsLive do
   @impl true
   def handle_event("toggle_context_menu", params, socket) do
     {:noreply, save(socket, &Settings.update_context_menu_enabled/1, checked?(params))}
+  end
+
+  def handle_event("toggle_seo_fields", params, socket) do
+    {:noreply, save(socket, &Settings.update_seo_fields_visible/1, checked?(params))}
   end
 
   def handle_event("toggle_sweep", params, socket) do
@@ -178,6 +183,28 @@ defmodule PhoenixKitCatalogue.Web.SettingsLive do
               <:description>
                 {gettext(
                   "Right-clicking anywhere on a row opens the same menu its ⋮ button does, at the pointer. Turn this off to leave the browser's own menu — copy, open in a new tab, inspect — in place everywhere."
+                )}
+              </:description>
+            </.checkbox>
+          </form>
+        </.form_section>
+
+        <.form_section
+          title={gettext("Item form")}
+          icon="hero-pencil-square"
+          body_class="space-y-4"
+        >
+          <form phx-change="toggle_seo_fields" id="catalogue-seo-fields-form">
+            <.checkbox
+              variant="toggle"
+              id="catalogue-seo-fields"
+              name="value"
+              checked={@seo_fields_visible}
+              label={gettext("Show the URL slug and SEO fields")}
+            >
+              <:description>
+                {gettext(
+                  "Off hides them from the item form; what they already hold is kept and saved unchanged, and comes back when you turn this on."
                 )}
               </:description>
             </.checkbox>

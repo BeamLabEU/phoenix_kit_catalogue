@@ -718,6 +718,18 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
     |> assign_changeset(Catalogue.change_category(category))
   end
 
+  # What an SEO field holds. Core's `get_lang_data/3` answers %{} whenever
+  # multilang is off, while a single-language save stores these flat under
+  # `data` — so they read blank and the next save erased them. Same fix as
+  # the item form's `seo_value/2`.
+  defp seo_value(%{multilang_enabled: true} = assigns, field),
+    do: Map.get(assigns.lang_data, "_" <> field) || ""
+
+  defp seo_value(assigns, field) do
+    data = Ecto.Changeset.get_field(assigns.changeset, :data) || %{}
+    Map.get(Multilang.get_primary_data(data), "_" <> field) || ""
+  end
+
   @impl true
   def render(assigns) do
     assigns =
@@ -838,7 +850,7 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
               <.input
                 type="text"
                 name={translatable_param_name(assigns, "category", "seo_title")}
-                value={Map.get(@lang_data, "_seo_title") || ""}
+                value={seo_value(assigns, "seo_title")}
                 label={gettext("SEO title")}
                 class="w-full"
               />
@@ -846,7 +858,7 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
               <.input
                 type="text"
                 name={translatable_param_name(assigns, "category", "seo_description")}
-                value={Map.get(@lang_data, "_seo_description") || ""}
+                value={seo_value(assigns, "seo_description")}
                 label={gettext("SEO description")}
                 class="w-full"
               />
