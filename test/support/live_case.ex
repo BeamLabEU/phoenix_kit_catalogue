@@ -37,6 +37,7 @@ defmodule PhoenixKitCatalogue.LiveCase do
 
   alias Ecto.Adapters.SQL
   alias Ecto.Adapters.SQL.Sandbox
+  alias PhoenixKit.Modules.Languages
   alias PhoenixKit.Users.Auth
   alias PhoenixKit.Users.Auth.Scope
   alias PhoenixKitCatalogue.Test.Repo, as: TestRepo
@@ -127,7 +128,7 @@ defmodule PhoenixKitCatalogue.LiveCase do
     # `Multilang.current_locale/0`; `with_request_locale/2` lets a test
     # view a page in another language.
     with %{"pk_test_request_locale" => dialect} when is_binary(dialect) <- session do
-      PhoenixKit.Modules.Languages.put_request_locale(dialect)
+      Languages.put_request_locale(dialect)
     end
 
     case session do
