@@ -3365,9 +3365,45 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
               <.icon name="hero-arrow-uturn-left" class="w-4 h-4" />
               {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Up")}
             </button>
+            <%!-- Rename where you stand: the folder you are inside has no
+                 row of its own on screen, so its ⋮ menu was one level up
+                 and renaming meant leaving (boss via Max, 2026-09-21). The
+                 same inline field the folder rows use — Enter or clicking
+                 away saves, a blank name keeps the old one. --%>
             <span class="flex items-center gap-1.5 text-sm font-medium min-w-0">
               <.icon name="hero-folder-open" class="w-4 h-4 text-warning shrink-0" />
-              <span class="truncate">{location.name}</span>
+              <%= if @renaming_folder == location.uuid do %>
+                <form
+                  id={"location-rename-#{location.uuid}"}
+                  phx-submit="rename_folder"
+                  phx-value-uuid={location.uuid}
+                  class="min-w-0"
+                >
+                  <input
+                    type="text"
+                    name="name"
+                    value={location.name}
+                    aria-label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Folder name")}
+                    phx-mounted={Phoenix.LiveView.JS.focus()}
+                    phx-blur="rename_folder"
+                    phx-value-uuid={location.uuid}
+                    class="input input-sm w-full max-w-60"
+                  />
+                </form>
+              <% else %>
+                <span class="truncate">{location.name}</span>
+                <button
+                  type="button"
+                  id="location-rename-button"
+                  phx-click="start_rename_folder"
+                  phx-value-uuid={location.uuid}
+                  class="btn btn-ghost btn-xs btn-square shrink-0"
+                  title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Rename folder")}
+                  aria-label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Rename folder")}
+                >
+                  <.icon name="hero-pencil" class="w-3.5 h-3.5" />
+                </button>
+              <% end %>
             </span>
           </div>
           <.catalogues_tree_table
