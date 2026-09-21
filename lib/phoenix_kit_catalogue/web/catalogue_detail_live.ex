@@ -4051,11 +4051,33 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                top, clamped to ONE line so its cost is fixed no matter how
                long the field is — the full text is in the hover tooltip. --%>
           <% level_desc = level_description(@current_category, @catalogue) %>
+          <% level_img = level_image(@current_category, @catalogue) %>
           <% show_search_input = @view_mode in ["active", "deleted"] or @search_results != nil or @search_loading %>
-          <div :if={show_search_input or level_desc} class="flex flex-col gap-3 mb-3">
-            <p :if={level_desc} class="text-sm text-base-content/60 truncate" title={level_desc}>
-              {level_desc}
-            </p>
+          <div :if={show_search_input || level_desc || level_img} class="flex flex-col gap-3 mb-3">
+            <%!-- The place's own picture beside its description. Inside a
+                 category there was no way to see the image attached to it
+                 (boss via Max, 2026-09-21); the catalogue's top level shows
+                 the catalogue's the same way. A category's opens its View
+                 card, which holds every picture it has. --%>
+            <div :if={level_img || level_desc} class="flex items-center gap-3 min-w-0">
+              <button
+                :if={match?(%Category{}, level_img)}
+                type="button"
+                id="level-image"
+                phx-click="show_category_card"
+                phx-value-uuid={level_img.uuid}
+                class="shrink-0 cursor-pointer"
+                title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "View")}
+              >
+                <.featured_thumb resource={level_img} class="w-16 h-16" comfy_scale={false} />
+              </button>
+              <span :if={level_img && !match?(%Category{}, level_img)} id="level-image">
+                <.featured_thumb resource={level_img} class="w-16 h-16" comfy_scale={false} />
+              </span>
+              <p :if={level_desc} class="text-sm text-base-content/60 truncate" title={level_desc}>
+                {level_desc}
+              </p>
+            </div>
             <%!-- flex-wrap, not flex-col: on narrow screens the search takes
                  the line (grow + wide basis) and the actions wrap under it,
                  still right-aligned via ml-auto — same edge the controls row
@@ -6929,6 +6951,15 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   # Shown under the admin header: the catalogue's description at root, the
   # current category's when drilled. The :uncategorized pseudo node has none;
   # blank strings count as absent.
+  # The level's own picture: the drilled category's, or the catalogue's at the
+  # top. nil when it has none, or in the Uncategorized bucket, which is not a
+  # thing with a picture.
+  defp level_image(%Category{} = category, _catalogue),
+    do: if(featured_image_uuid(category), do: category)
+
+  defp level_image(nil, catalogue), do: if(featured_image_uuid(catalogue), do: catalogue)
+  defp level_image(_uncategorized, _catalogue), do: nil
+
   defp level_description(%Category{description: desc}, _catalogue), do: presence(desc)
   defp level_description(nil, catalogue), do: presence(catalogue.description)
   defp level_description(_uncategorized, _catalogue), do: nil
