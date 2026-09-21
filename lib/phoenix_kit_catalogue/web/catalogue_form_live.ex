@@ -18,6 +18,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
 
   import PhoenixKitCatalogue.Web.Helpers,
     only: [
+      open_on_viewing_language: 2,
       narrow_new_data: 2,
       actor_opts: 1,
       assign_ai_translation: 3,
@@ -109,6 +110,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
        |> Attachments.allow_attachment_upload()
        |> assign_changeset(changeset)
        |> mount_multilang()
+       |> open_on_viewing_language(action)
        |> assign_ai_translation("catalogue", if(action == :edit, do: catalogue, else: nil))}
     end
   end
