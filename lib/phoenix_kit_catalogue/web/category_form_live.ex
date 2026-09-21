@@ -16,7 +16,6 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
 
   import PhoenixKitCatalogue.Web.Helpers,
     only: [
-      open_on_viewing_language: 2,
       narrow_new_data: 2,
       actor_opts: 1,
       assign_ai_translation: 3,
@@ -151,8 +150,7 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
      |> Attachments.mount_attachments(category)
      |> Attachments.allow_attachment_upload()
      |> assign_changeset(changeset)
-     |> mount_multilang()
-     |> open_on_viewing_language(action)
+     |> mount_multilang(open_on: if(action == :edit, do: :viewing_language, else: :primary))
      |> assign_ai_translation("catalogue_category", if(action == :edit, do: category, else: nil))}
   end
 

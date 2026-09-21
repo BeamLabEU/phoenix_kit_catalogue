@@ -145,7 +145,8 @@ Repo-local aliases:
 - **Activity logging** — every mutating context function takes `opts` with
   `actor_uuid:` and logs via `Catalogue.ActivityLog`, which logs only on the
   `{:ok, _}` branch and must never crash the operation. LiveViews obtain the
-  actor via `actor_opts/1` from `Web.Helpers`. `test/activity_logging_test.exs`
+  actor via `actor_opts/1` from `Web.Helpers` (core's `PhoenixKitWeb.Actor`:
+  the scope first, then the bare current user). `test/activity_logging_test.exs`
   pins one test per action atom — extend it for new actions.
 - **PubSub** — mutations broadcast `{:catalogue_data_changed, kind, uuid,
   parent_catalogue_uuid}` on the `"phoenix_kit_catalogue"` topic via
