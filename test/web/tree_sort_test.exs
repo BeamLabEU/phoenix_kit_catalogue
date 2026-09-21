@@ -124,6 +124,56 @@ defmodule PhoenixKitCatalogue.Web.TreeSortTest do
       assert PhoenixKitCatalogue.Catalogue.get_category(a.uuid).parent_uuid == nil
     end
 
+    for by <- ~w(position name items updated), dir <- ~w(asc desc) do
+      test "the tree renders, nested and openable, sorted by #{by} #{dir}", %{
+        conn: conn,
+        catalogue: c,
+        b: b
+      } do
+        {:ok, view, _html} = live(conn, "#{@base}/#{c.uuid}")
+        render_click(view, "toggle_category_expand", %{"uuid" => b.uuid})
+
+        view
+        |> element("#categories-sort-selector")
+        |> render_change(%{"sort_by" => unquote(by), "sort_dir" => unquote(dir)})
+
+        names = tree_names(render(view))
+        assert Enum.sort(names) == ["A handles", "B doors", "Y oak", "Z glass"]
+
+        # Children always directly under their parent, whatever the order.
+        b_at = Enum.find_index(names, &(&1 == "B doors"))
+        assert Enum.slice(names, b_at + 1, 2) |> Enum.sort() == ["Y oak", "Z glass"]
+      end
+    end
+
+    # Nested levels sort by their OWN counts. The crossed test above runs on
+    # empty categories, where every count is 0 and :items is indistinguishable
+    # from input order — so this one puts items two levels down.
+    test "Items orders a nested level by that level's counts", %{
+      conn: conn,
+      catalogue: c,
+      b: b,
+      y: y
+    } do
+      for n <- 1..2,
+          do: fixture_item(%{catalogue_uuid: c.uuid, category_uuid: y.uuid, name: "Oak #{n}"})
+
+      {:ok, view, _html} = live(conn, "#{@base}/#{c.uuid}")
+      render_click(view, "toggle_category_expand", %{"uuid" => b.uuid})
+
+      # Manual order puts Z before Y inside B; Items desc must put Y (2) first.
+      assert tree_names(render(view)) |> Enum.slice(1, 2) == ["Z glass", "Y oak"]
+
+      names =
+        view
+        |> element("#categories-sort-selector")
+        |> render_change(%{"sort_by" => "items", "sort_dir" => "desc"})
+        |> tree_names()
+
+      b_at = Enum.find_index(names, &(&1 == "B doors"))
+      assert Enum.slice(names, b_at + 1, 2) == ["Y oak", "Z glass"]
+    end
+
     test "card view follows the sort too", %{conn: conn, catalogue: c} do
       {:ok, view, _html} = live(conn, "#{@base}/#{c.uuid}")
       html = sort_categories(view, "name")
@@ -223,6 +273,27 @@ defmodule PhoenixKitCatalogue.Web.TreeSortTest do
       })
 
       assert PhoenixKitCatalogue.Catalogue.get_catalogue(loose.uuid).folder_uuid == nil
+    end
+
+    # Crossed, not sampled: a folder has only some of a catalogue's columns,
+    # and the folder half of each level goes through the same sort. Every
+    # sortable column, both directions, must render the tree with the folder
+    # in it — a sort key that reads a field a folder lacks would crash here.
+    for {id, _} <-
+          PhoenixKitCatalogue.Web.TableConfig.columns(:catalogues)
+          |> Enum.filter(& &1.sortable?)
+          |> Enum.map(&{&1.id, &1}),
+        dir <- ~w(asc desc) do
+      test "the folder tree renders sorted by #{id} #{dir}", %{conn: conn, folder: folder} do
+        {:ok, view, _html} = live(conn, @base)
+        render_change(view, "set_sort", %{"sort_by" => unquote(id)})
+
+        if unquote(dir) == "desc" do
+          render_change(view, "set_sort", %{"sort_dir" => "desc"})
+        end
+
+        assert has_element?(view, ~s([data-tree-uuid="#{folder.uuid}"]))
+      end
     end
 
     test "a search still lists every match flat", %{conn: conn} do
