@@ -2214,14 +2214,15 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   # (form submit → "name") and by clicking off (phx-blur → "value").
   # A blank name is treated as "no change" — the folder keeps its name.
   # Only the folder whose field is open: Enter closes the field, and the
-  # blur its removal can fire afterwards must not write a second time.
+  # blur its removal can fire afterwards must not write a second time. And
+  # only a live one — another admin may have removed it meanwhile.
   def handle_event("rename_folder", %{"uuid" => uuid} = params, socket) do
     name = trim_param(params["name"] || params["value"])
 
     socket =
       with true <- socket.assigns.renaming_folder == uuid,
            true <- name != "",
-           %{} = folder <- Catalogue.get_folder(uuid),
+           %{status: "active"} = folder <- Catalogue.get_folder(uuid),
            {:ok, _} <- Catalogue.update_folder(folder, %{name: name}, actor_opts(socket)) do
         socket
       else
