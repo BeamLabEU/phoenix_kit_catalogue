@@ -760,6 +760,71 @@ defmodule PhoenixKitCatalogue.Web.Components do
   def card_media_band, do: "relative h-40 bg-base-200 overflow-hidden"
 
   @doc """
+  The row that carries a list's status tabs on the left and the controls that
+  belong to the table on the right — sort, Reorder all, Columns, the view
+  toggle.
+
+  One component because the screens disagreed and the owner noticed: inside a
+  catalogue these controls sat on the tabs row, while the index put them up on
+  the search row with the tabs alone underneath, so the same page furniture
+  landed in two places depending on where you were (boss via Max,
+  2026-09-21). The tabs row is the agreed home — the controls act on the table
+  the tabs choose, so they read as one thing.
+
+  Both slots are optional: a screen with no trash renders the row with only
+  its controls, and the controls stay right-aligned either way.
+  """
+  attr(:class, :string, default: nil)
+  slot(:tabs)
+  slot(:controls)
+
+  def list_controls_row(assigns) do
+    ~H"""
+    <div :if={@tabs != [] or @controls != []} class={["flex flex-wrap items-center gap-2", @class]}>
+      <div :if={@tabs != []} class="flex items-center gap-0.5 flex-wrap">
+        {render_slot(@tabs)}
+      </div>
+      <div :if={@controls != []} class="ml-auto flex flex-wrap items-center justify-end gap-2">
+        {render_slot(@controls)}
+      </div>
+    </div>
+    """
+  end
+
+  @doc """
+  One status tab — "Active (24)", "Deleted (39)".
+
+  The count is not optional. The index showed a bare "Active" beside a
+  "Deleted (19)" while the catalogue pages counted both, and the owner circled
+  exactly that (boss via Max, 2026-09-21): a tab that omits its count reads as
+  though it has none to give.
+  """
+  attr(:label, :string, required: true)
+  attr(:count, :integer, required: true)
+  attr(:active, :boolean, required: true)
+  attr(:variant, :atom, default: :primary, values: [:primary, :error])
+  attr(:rest, :global, include: ~w(phx-click phx-value-mode phx-value-uuid))
+
+  def status_tab(assigns) do
+    ~H"""
+    <button
+      type="button"
+      class={[
+        "px-3 py-1.5 text-xs font-medium border-b-2 transition-colors cursor-pointer whitespace-nowrap",
+        cond do
+          not @active -> "border-transparent text-base-content/50 hover:text-base-content"
+          @variant == :error -> "border-error text-error"
+          true -> "border-primary text-primary"
+        end
+      ]}
+      {@rest}
+    >
+      {@label} ({@count})
+    </button>
+    """
+  end
+
+  @doc """
   Classes for a NAME cell in the catalogue's listing tables — the item's
   and the category's alike, so the two cannot drift apart on a page that
   shows both.
@@ -1592,14 +1657,25 @@ defmodule PhoenixKitCatalogue.Web.Components do
     assigns = assign(assigns, :placeholder, placeholder)
 
     ~H"""
+    <%!-- One search box for the whole module. There were three: this one
+         (`flex-1`, no icon), the index's fixed `sm:w-64` label+icon, and
+         the PDF library's `grow basis-64 sm:max-w-72` — so the field was a
+         different size and shape depending on the screen, which the owner
+         noticed (boss via Max, 2026-09-21). A search box earns its width
+         from what it searches, so it still grows to fill its group; what
+         is shared is the height, the magnifier and the clear button. --%>
     <div class={["flex gap-2", @class]}>
       <form id={@id} phx-change={@on_search} phx-submit={@on_search} class="flex-1 relative">
+        <.icon
+          name="hero-magnifying-glass"
+          class="w-4 h-4 opacity-50 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"
+        />
         <input
           type="text"
           name="query"
           value={@query}
           placeholder={@placeholder}
-          class="input input-sm w-full pr-8"
+          class="input input-sm w-full pl-9 pr-8"
           phx-debounce={@debounce}
           autocomplete="off"
         />

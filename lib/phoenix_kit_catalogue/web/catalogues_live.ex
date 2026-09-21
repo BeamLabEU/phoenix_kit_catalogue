@@ -751,6 +751,22 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     end
   end
 
+  # What the Active tab answers for, counted the same way its sibling is so
+  # the two numbers are comparable: what the list under it would show right
+  # now, narrowed by any search. The tab used to carry no count at all while
+  # Deleted did, which is what the owner circled (boss via Max, 2026-09-21).
+  defp active_tab_count(assigns) do
+    query = current_search(assigns)
+    rows = assigns.catalogue_rows
+    folders = Enum.map(assigns.folder_tree, fn {folder, _depth} -> folder end)
+
+    if String.trim(query) == "" do
+      length(rows) + length(folders)
+    else
+      length(TableQuery.search(rows, query)) + length(TableQuery.search(folders, query))
+    end
+  end
+
   # The trashed-folders list narrowed the same way, so the tab's count
   # and the list under it agree while searching. Depth is kept — a
   # matching subfolder stays indented under where it lived.
@@ -2947,6 +2963,12 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     {:noreply, push_url_state(socket, [search_query: q], replace: true)}
   end
 
+  # The shared search box's clear button, which the hand-rolled label input
+  # this replaced never had.
+  def handle_event("table_search_clear", _params, socket) do
+    {:noreply, push_url_state(socket, [search_query: ""], replace: true)}
+  end
+
   def handle_event("load_more_items", _params, socket) do
     if item_results?(socket.assigns) and socket.assigns.item_has_more and
          not socket.assigns.item_loading do
@@ -3127,14 +3149,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         <div :if={@active_tab == :index and @index_loaded} class="flex flex-col gap-4">
           <% cfg = @view_configs.catalogues %>
           <% items? = item_results?(assigns) %>
-          <.table_toolbar
-            scope={:catalogues}
-            cfg={cfg}
-            allow_flat_reorder={@folder_tree == []}
-          >
-            <:view_toggle>
-              <.view_toggle view={cfg.view} />
-            </:view_toggle>
+          <.table_toolbar scope={:catalogues} cfg={cfg}>
             <:filters>
               <%!-- No folder select here: search works where the user
                     stands — the drilled folder's subtree — and scope is
@@ -3197,39 +3212,52 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
                it's a filter/menu-panel control, not a trash-visibility
                one. Items mode is a live view of items, so the trash
                toggle rests with it. --%>
-          <div
-            :if={deleted_count > 0 or @catalogue_view_mode == "deleted"}
-            class="flex items-center gap-0.5"
-          >
-            <button
-              type="button"
-              phx-click="switch_catalogue_view"
-              phx-value-mode="active"
-              class={[
-                "px-3 py-1.5 text-xs font-medium border-b-2 transition-colors cursor-pointer",
-                if(@catalogue_view_mode == "active",
-                  do: "border-primary text-primary",
-                  else: "border-transparent text-base-content/50 hover:text-base-content"
-                )
-              ]}
-            >
-              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Active")}
-            </button>
-            <button
-              type="button"
-              phx-click="switch_catalogue_view"
-              phx-value-mode="deleted"
-              class={[
-                "px-3 py-1.5 text-xs font-medium border-b-2 transition-colors cursor-pointer",
-                if(@catalogue_view_mode == "deleted",
-                  do: "border-error text-error",
-                  else: "border-transparent text-base-content/50 hover:text-base-content"
-                )
-              ]}
-            >
-              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Deleted")} ({deleted_count})
-            </button>
-          </div>
+          <%!-- Tabs left, the table's own controls right — the same row and
+               the same order as inside a catalogue. --%>
+          <Shared.list_controls_row>
+            <:tabs :if={deleted_count > 0 or @catalogue_view_mode == "deleted"}>
+              <Shared.status_tab
+                label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Active")}
+                count={active_tab_count(assigns)}
+                active={@catalogue_view_mode == "active"}
+                phx-click="switch_catalogue_view"
+                phx-value-mode="active"
+              />
+              <Shared.status_tab
+                label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Deleted")}
+                count={deleted_count}
+                active={@catalogue_view_mode == "deleted"}
+                variant={:error}
+                phx-click="switch_catalogue_view"
+                phx-value-mode="deleted"
+              />
+            </:tabs>
+            <:controls>
+              <.sort_controls
+                scope={:catalogues}
+                selected={["position", "name" | cfg.columns]}
+                sort_by={cfg.sort_by}
+                sort_dir={cfg.sort_dir}
+                manual_value="position"
+              />
+              <button
+                :if={cfg.sort_by == "position" and @folder_tree == []}
+                type="button"
+                phx-click="open_catalogues_reorder_modal"
+                class="btn btn-outline btn-sm"
+              >
+                <.icon name="hero-arrows-up-down" class="w-4 h-4" />
+                <span class="hidden sm:inline">{gettext("Reorder all")}</span>
+              </button>
+              <button type="button" phx-click="show_column_modal" class="btn btn-outline btn-sm">
+                <.icon name="hero-adjustments-horizontal" class="w-4 h-4" />
+                <span class="hidden sm:inline">
+                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Columns")}
+                </span>
+              </button>
+              <.view_toggle view={cfg.view} />
+            </:controls>
+          </Shared.list_controls_row>
           <%!-- Location row: Up + current folder name, whenever drilled
                in — including the flat search/sorted table, where it is
                the only sign of WHERE the search is looking now that the
@@ -4221,72 +4249,32 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
 
   attr(:scope, :atom, required: true)
   attr(:cfg, :map, required: true)
-  attr(:allow_flat_reorder, :boolean, default: true)
 
   slot(:filters)
   slot(:actions)
-  slot(:view_toggle)
 
   defp table_toolbar(assigns) do
     ~H"""
-    <%!-- Two coherent groups instead of one flat flex-wrap: search+filters
-         left, view tools + create actions right. A flat wrap broke lines
-         between arbitrary neighbors (a stray "New folder" alone on row 1,
-         the primary action stranded bottom-left…); grouped, a narrow
-         screen drops the whole right group under the left one as a unit,
-         so every width renders an intentional-looking toolbar. --%>
+    <%!-- Search and filters left, create actions right. The table's own
+         controls — sort, Reorder all, Columns, the view toggle — are NOT
+         here: they sit on the tabs row below, where the catalogue pages
+         have always kept them (boss via Max, 2026-09-21). Two groups
+         rather than one flat wrap, so a narrow screen drops the actions
+         under the search as a unit instead of scattering buttons. --%>
     <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 mb-3">
       <div class="flex flex-wrap items-center gap-2">
-        <form id={"#{@scope}-table-search"} phx-change="table_search" phx-submit="table_search" class="contents">
-          <label class="input input-sm w-full sm:w-64">
-            <.icon name="hero-magnifying-glass" class="h-4 w-4 opacity-50" />
-            <input
-              type="search"
-              name="query"
-              value={@cfg[:search] || ""}
-              phx-debounce="300"
-              placeholder={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search…")}
-              class="grow"
-            />
-          </label>
-        </form>
+        <Shared.search_input
+          id={"#{@scope}-table-search"}
+          query={@cfg[:search] || ""}
+          on_search="table_search"
+          on_clear="table_search_clear"
+          class="w-full sm:w-72"
+        />
         {render_slot(@filters)}
       </div>
 
-      <div class="flex flex-wrap items-center gap-2">
-        <%!-- Two wrap-as-a-unit clusters: view tools and create/folder
-             actions. At widths where both can't share a row, the actions
-             cluster drops to its OWN row instead of its buttons scattering
-             between rows. The inner flex-wrap is the ultra-narrow fallback. --%>
-        <div class="flex items-center gap-2">
-          <.sort_controls
-            scope={@scope}
-            selected={["position", "name" | @cfg.columns]}
-            sort_by={@cfg.sort_by}
-            sort_dir={@cfg.sort_dir}
-            manual_value="position"
-          />
-          <button
-            :if={@scope == :catalogues and @cfg.sort_by == "position" and @allow_flat_reorder}
-            type="button"
-            phx-click="open_catalogues_reorder_modal"
-            class="btn btn-outline btn-sm"
-          >
-            <.icon name="hero-arrows-up-down" class="w-4 h-4" />
-            <span class="hidden sm:inline">{gettext("Reorder all")}</span>
-          </button>
-          <button type="button" phx-click="show_column_modal" class="btn btn-outline btn-sm">
-            <.icon name="hero-adjustments-horizontal" class="w-4 h-4" />
-            <span class="hidden sm:inline">
-              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Columns")}
-            </span>
-          </button>
-          {render_slot(@view_toggle)}
-        </div>
-        <div :if={@actions != []} class="w-px h-6 bg-base-300 mx-1 hidden md:block"></div>
-        <div :if={@actions != []} class="flex flex-wrap items-center gap-2 w-full md:w-auto">
-          {render_slot(@actions)}
-        </div>
+      <div :if={@actions != []} class="flex flex-wrap items-center gap-2">
+        {render_slot(@actions)}
       </div>
     </div>
     """
