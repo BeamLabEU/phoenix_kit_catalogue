@@ -1972,6 +1972,9 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
 
   defp render_folder_cell("status", folder, _meta), do: status_badge_cell(folder.status)
   defp render_folder_cell("updated", folder, _meta), do: ts(folder.updated_at)
+  # Folders sort by Created too, so they show it — an empty cell under the
+  # column the list is sorted by reads as an arbitrary order.
+  defp render_folder_cell("created", folder, _meta), do: ts(folder.inserted_at)
 
   defp render_folder_cell(_id, _folder, _meta) do
     assigns = %{}

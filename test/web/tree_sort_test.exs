@@ -108,10 +108,37 @@ defmodule PhoenixKitCatalogue.Web.TreeSortTest do
       refute has_element?(view, ~s(#category-tree-row-#{b.uuid} [data-tree-item]))
     end
 
-    test "a drop pushed under a sort changes nothing", %{conn: conn, catalogue: c, a: a, b: b} do
-      # The handle is gone, but a hook push can still arrive (a stale page,
-      # a forged event). The server refuses it rather than writing a
-      # position the sort chose.
+    test "an edge drop pushed under a sort writes no order", %{
+      conn: conn,
+      catalogue: c,
+      a: a,
+      b: b
+    } do
+      # The handle is gone, but a hook push can still arrive (a drag begun
+      # before someone changed the shared sort, a stale page, a forged
+      # event). An EDGE drop writes sibling order, which the sort would
+      # hide — refused.
+      {:ok, view, _html} = live(conn, "#{@base}/#{c.uuid}")
+      sort_categories(view, "name")
+
+      before = PhoenixKitCatalogue.Catalogue.get_category(a.uuid).position
+
+      render_click(view, "drop_row", %{
+        "type" => "category",
+        "uuid" => a.uuid,
+        "parent" => "root",
+        "entries" => ["category:#{a.uuid}", "category:#{b.uuid}"]
+      })
+
+      assert PhoenixKitCatalogue.Catalogue.get_category(a.uuid).position == before
+    end
+
+    test "a nest dropped under a sort still nests, as the index files a catalogue", %{
+      conn: conn,
+      catalogue: c,
+      a: a,
+      b: b
+    } do
       {:ok, view, _html} = live(conn, "#{@base}/#{c.uuid}")
       sort_categories(view, "name")
 
@@ -121,7 +148,17 @@ defmodule PhoenixKitCatalogue.Web.TreeSortTest do
         "target" => b.uuid
       })
 
-      assert PhoenixKitCatalogue.Catalogue.get_category(a.uuid).parent_uuid == nil
+      assert PhoenixKitCatalogue.Catalogue.get_category(a.uuid).parent_uuid == b.uuid
+    end
+
+    test "the bulk Reorder is offered only in Manual order", %{conn: conn, catalogue: c} do
+      hidden = ~s(#categories-bulk [class*="data-bulk-action*=reorder"])
+
+      {:ok, view, _html} = live(conn, "#{@base}/#{c.uuid}")
+      refute has_element?(view, hidden)
+
+      sort_categories(view, "name")
+      assert has_element?(view, hidden)
     end
 
     for by <- ~w(position name items updated), dir <- ~w(asc desc) do

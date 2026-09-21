@@ -3156,7 +3156,10 @@ defmodule PhoenixKitCatalogue.Catalogue do
     query =
       from(c in Category,
         where: c.catalogue_uuid == ^catalogue_uuid,
-        order_by: [asc: :position, asc: :name]
+        # uuid last: two siblings sharing a position and a name would
+        # otherwise come back in either order, and a sort that keeps ties
+        # in input order (or reverses them) would swap them between renders.
+        order_by: [asc: :position, asc: :name, asc: :uuid]
       )
 
     query =
@@ -3338,7 +3341,8 @@ defmodule PhoenixKitCatalogue.Catalogue do
   # rewriting `parent_uuid` to nil — so a child never vanishes when its
   # parent is trashed (trash is non-cascading, parity with categories).
   defp normalized_folder_rows(mode, exclude_uuids) do
-    base = from(f in Folder, order_by: [asc: f.position, asc: f.name])
+    # uuid last — see `normalized_category_rows/3`.
+    base = from(f in Folder, order_by: [asc: f.position, asc: f.name, asc: f.uuid])
 
     query =
       case mode do
