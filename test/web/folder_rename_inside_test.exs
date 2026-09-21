@@ -57,6 +57,21 @@ defmodule PhoenixKitCatalogue.Web.FolderRenameInsideTest do
     assert Catalogue.get_folder(folder.uuid).name == "Blurred name"
   end
 
+  test "the blur that follows Enter writes nothing more", %{conn: conn, folder: folder} do
+    # Enter closes the field; removing the focused input can then fire its
+    # phx-blur with whatever the input last held. It must not rename again.
+    view = inside(conn, folder)
+    view |> element("#location-rename-button") |> render_click()
+
+    view
+    |> form("#location-rename-#{folder.uuid}", %{"name" => "New name"})
+    |> render_submit()
+
+    render_blur(view, "rename_folder", %{"uuid" => folder.uuid, "value" => "New na"})
+
+    assert Catalogue.get_folder(folder.uuid).name == "New name"
+  end
+
   test "at the top level there is no location row to rename", %{conn: conn} do
     {:ok, view, _html} = live(conn, @base)
     refute has_element?(view, "#location-rename-button")
