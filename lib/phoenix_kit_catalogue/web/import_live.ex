@@ -2728,16 +2728,32 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
     end)
   end
 
+  # Back at the upload step with another catalogue picked, a category
+  # picked in the old one would send the items there (an item's catalogue
+  # follows its category) — so a pick the new tree lacks is dropped.
   defp assign_catalogue_categories(%{assigns: %{selected_catalogue: %{} = catalogue}} = socket) do
-    assign(socket,
+    socket
+    |> assign(
       catalogue_categories: Catalogue.list_categories_for_catalogue(catalogue.uuid),
       import_category_tree:
         PlaceTree.categories(catalogue, locale: socket.assigns[:current_locale])
     )
+    |> drop_stale_category_pick()
   end
 
-  defp assign_catalogue_categories(socket),
-    do: assign(socket, catalogue_categories: [], import_category_tree: [])
+  defp assign_catalogue_categories(socket) do
+    socket
+    |> assign(catalogue_categories: [], import_category_tree: [])
+    |> drop_stale_category_pick()
+  end
+
+  defp drop_stale_category_pick(%{assigns: %{import_category_mode: :existing}} = socket) do
+    if offered_category(socket, socket.assigns.import_category_uuid),
+      do: socket,
+      else: assign(socket, import_category_mode: :none, import_category_uuid: nil)
+  end
+
+  defp drop_stale_category_pick(socket), do: socket
 
   # Only a category of the selected catalogue counts.
   defp offered_category(socket, uuid) when is_binary(uuid) do

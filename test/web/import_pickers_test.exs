@@ -115,4 +115,27 @@ defmodule PhoenixKitCatalogue.Web.ImportPickersTest do
 
     assert assigns(view).import_category_uuid == nil
   end
+
+  test "going back and switching catalogue drops a category picked in the old one",
+       %{conn: conn} = ctx do
+    {:ok, view, _html} = live(conn, @import_url)
+    render_change(view, "validate_upload", %{"catalogue" => ctx.kitchen.uuid})
+    upload(view, ctx.kitchen)
+
+    render_change(view, "select_import_category", %{
+      "category_mode" => "existing",
+      "existing_category_uuid" => ctx.oak.uuid
+    })
+
+    assert assigns(view).import_category_uuid == ctx.oak.uuid
+
+    render_click(view, "go_back", %{})
+    other = Catalogue.get_catalogue(ctx.foreign.catalogue_uuid)
+    render_submit(view, "parse_file", %{"catalogue" => other.uuid})
+
+    assert assigns(view).step == :map
+    assert assigns(view).selected_catalogue.uuid == other.uuid
+    assert assigns(view).import_category_mode == :none
+    assert assigns(view).import_category_uuid == nil
+  end
 end
