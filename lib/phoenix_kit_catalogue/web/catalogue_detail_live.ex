@@ -1545,7 +1545,14 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         socket
       )
       when is_binary(uuid) do
-    with true <- categories_reorderable?(socket.assigns),
+    # Nesting, not ordering: under any sort the moved category lands where
+    # the sort puts it, which is what nesting means. Reachable under a sort
+    # only by a drag that started in Manual order before someone changed the
+    # shared sort — and the index files a catalogue the same way (its
+    # `move_to_folder` is also the row menu's Move), so the two pages agree
+    # (codex, 2026-09-21). Edge drops (`drop_row`) write sibling order and
+    # stay Manual-only.
+    with true <- categories_tree_mode?(socket.assigns),
          {:ok, _} <- Ecto.UUID.cast(uuid),
          {:ok, target_uuid} <- resolve_tree_target(socket, target) do
       {:noreply,
@@ -4385,7 +4392,17 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
             swap="#detail-level-controls"
             class="flex flex-col gap-2"
           >
-            <div :if={@view_mode == "active"} data-bulk-show="has-selection" style="display: none;">
+            <%!-- Reorder rewrites the manual order, which a sort hides — so,
+                 like the item list's, it is offered only in Manual order
+                 (codex, 2026-09-21; the item bar uses the same rule). --%>
+            <div
+              :if={@view_mode == "active"}
+              data-bulk-show="has-selection"
+              style="display: none;"
+              class={
+                @categories_sort_by != :position && "[&_[data-bulk-action*=reorder]]:!hidden"
+              }
+            >
               <.bulk_actions_toolbar
                 on_open_reorder="open_categories_reorder_modal"
                 reorder_dialog_id="categories-reorder-modal"
