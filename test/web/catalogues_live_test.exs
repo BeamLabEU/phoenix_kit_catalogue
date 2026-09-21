@@ -1115,6 +1115,43 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
   # View popup (Max, 2026-09-20 — the same read-only card the items have)
   # ─────────────────────────────────────────────────────────────────
 
+  # The Deleted view loads the trashed catalogues into `catalogue_rows`; the
+  # Active tab counted those and "Reorder all" renumbered them.
+  describe "Active tab and Reorder all while the Deleted view shows" do
+    setup do
+      live = for n <- 1..3, do: fixture_catalogue(%{name: "Live #{n}"})
+      trashed = fixture_catalogue(%{name: "Trashed one"})
+      {:ok, _} = Catalogue.trash_catalogue(trashed)
+      %{live: live, trashed: trashed}
+    end
+
+    test "the Active tab still counts the live catalogues", %{conn: conn} do
+      {:ok, view, html} = live(conn, @base)
+      assert html =~ ~r/Active\s*\(3\)/
+
+      deleted = render_click(view, "switch_catalogue_view", %{"mode" => "deleted"})
+      assert deleted =~ ~r/Active\s*\(3\)/
+    end
+
+    test "Reorder all is not offered, and a pushed apply renumbers nothing", %{
+      conn: conn,
+      live: live,
+      trashed: trashed
+    } do
+      {:ok, view, _html} = live(conn, @base)
+      render_click(view, "switch_catalogue_view", %{"mode" => "deleted"})
+      all = [trashed | live]
+      positions = fn -> Enum.map(all, &Catalogue.get_catalogue(&1.uuid).position) end
+      before = positions.()
+
+      refute has_element?(view, ~s(button[phx-click="open_catalogues_reorder_modal"]))
+
+      render_click(view, "apply_catalogues_reorder", %{"strategy" => "name_desc"})
+
+      assert positions.() == before
+    end
+  end
+
   describe "View popup" do
     test "opens the catalogue's card with its operator rows and an Edit link", %{conn: conn} do
       {:ok, folder} = Catalogue.create_folder(%{name: "Showrooms"})

@@ -116,6 +116,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
        sets_enabled: false,
        confirm_delete: nil,
        catalogue_view_mode: "active",
+       active_catalogues: [],
        deleted_catalogue_rows: [],
        deleted_catalogue_count: 0,
        deleted_folder_count: 0,
@@ -452,15 +453,15 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
           mode: if(mode == "deleted", do: :restorable, else: :active)
         )
 
-      catalogues =
-        if mode == "deleted" do
-          deleted_catalogues
-        else
-          Catalogue.catalogues_by_folder()
-          |> Map.values()
-          |> List.flatten()
-          |> Catalogue.localize(socket.assigns[:current_locale])
-        end
+      # Loaded in BOTH views, like the deleted rows above: the Active tab
+      # counts them while the Deleted list is showing.
+      active_catalogues =
+        Catalogue.catalogues_by_folder()
+        |> Map.values()
+        |> List.flatten()
+        |> Catalogue.localize(socket.assigns[:current_locale])
+
+      catalogues = if mode == "deleted", do: deleted_catalogues, else: active_catalogues
 
       catalogue_rows = build_catalogue_rows(catalogues, folder_lookup, item_counts)
 
@@ -468,6 +469,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       |> assign(
         catalogue_rows: catalogue_rows,
         catalogue_file_counts: Catalogue.attached_file_counts(catalogue_rows),
+        active_catalogues: active_catalogues,
         deleted_catalogue_rows: deleted_catalogues,
         deleted_catalogue_count: deleted_cat_count,
         deleted_folder_count: deleted_folder_count,
@@ -756,12 +758,14 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   end
 
   # What the Active tab answers for, counted the same way its sibling is so
-  # the two numbers are comparable: what the list under it would show right
-  # now, narrowed by any search. The tab used to carry no count at all while
-  # Deleted did, which is what the owner circled (boss via Max, 2026-09-21).
+  # the two numbers are comparable: every live catalogue and folder, narrowed
+  # by any search. The tab used to carry no count at all while Deleted did,
+  # which is what the owner circled (boss via Max, 2026-09-21). Counted from
+  # `active_catalogues`, not `catalogue_rows`: in the Deleted view those rows
+  # are the trashed catalogues, and the tab read trashed + live folders.
   defp active_tab_count(assigns) do
     query = current_search(assigns)
-    rows = assigns.catalogue_rows
+    rows = assigns.active_catalogues
     folders = Enum.map(assigns.folder_tree, fn {folder, _depth} -> folder end)
 
     if String.trim(query) == "" do
@@ -1179,6 +1183,14 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   # Under another sort a drop would land where the SORT puts it and write a
   # position nobody chose. The drop handlers check this too: a hook push can
   # arrive under any sort, or be forged.
+  # "Reorder all" re-indexes `catalogue_rows` into 1..N, so it is offered
+  # only where those rows are the whole live list: no folder tree, and the
+  # Active view. In the Deleted view the rows are the trashed catalogues, and
+  # numbering them alone collides with every live row's position.
+  defp reorder_all_offered?(assigns) do
+    assigns.folder_tree == [] and assigns.catalogue_view_mode == "active"
+  end
+
   defp catalogues_reorderable?(cfg, view_mode, lookup) do
     cfg.sort_by == "position" and catalogues_structure_mode?(cfg, view_mode, lookup)
   end
@@ -1216,10 +1228,15 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
 
     Enum.map(TableQuery.sort(folders, :catalogues, folder_by, folder_dir), &{:folder, &1}) ++
       Enum.map(
-        TableQuery.sort(catalogues, :catalogues, cfg.sort_by, cfg.sort_dir),
+        TableQuery.sort(catalogues, :catalogues, catalogue_level_sort(cfg.sort_by), cfg.sort_dir),
         &{:catalogue, &1}
       )
   end
+
+  # Every catalogue on one level of the tree sits in the same folder, so a
+  # Folder sort there would order nothing: sort by name in that direction.
+  defp catalogue_level_sort("folder"), do: "name"
+  defp catalogue_level_sort(sort_by), do: sort_by
 
   # Folder is URL state (?folder=), set by navigating, and no longer a
   # filterable column — `filterable_ids/1` drops "folder" before this is
@@ -2322,7 +2339,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   # feature's own comments describe as how the column got into that state the
   # first time; gating only the handles would have left the same door open.
   def handle_event("open_catalogues_reorder_modal", _params, socket) do
-    if socket.assigns.folder_tree == [] do
+    if reorder_all_offered?(socket.assigns) do
       {:noreply, assign(socket, :show_catalogues_reorder, true)}
     else
       {:noreply, socket}
@@ -2338,9 +2355,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   # re-indexing into 1..N can't collide with unseen rows.
   def handle_event("apply_catalogues_reorder", %{"strategy" => strategy_str}, socket)
       when is_map_key(@catalogues_reorder_strategy_map, strategy_str) do
-    if socket.assigns.folder_tree != [] do
-      {:noreply, socket}
-    else
+    if reorder_all_offered?(socket.assigns) do
       strategy = Map.fetch!(@catalogues_reorder_strategy_map, strategy_str)
 
       ordered =
@@ -2360,6 +2375,8 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
           log_operation_error(socket, "apply_catalogues_reorder", %{reason: reason})
           {:noreply, put_flash(socket, :error, gettext("Failed to reorder."))}
       end
+    else
+      {:noreply, socket}
     end
   end
 
@@ -3377,7 +3394,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
                 manual_value="position"
               />
               <button
-                :if={cfg.sort_by == "position" and @folder_tree == []}
+                :if={cfg.sort_by == "position" and reorder_all_offered?(assigns)}
                 type="button"
                 phx-click="open_catalogues_reorder_modal"
                 class="btn btn-outline btn-sm"
