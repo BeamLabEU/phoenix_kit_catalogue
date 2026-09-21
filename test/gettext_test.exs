@@ -137,7 +137,14 @@ defmodule PhoenixKitCatalogue.GettextTest do
           {"Run the sweep automatically", "Запускать фоновый перевод автоматически",
            "Käivita taustatõlge automaatselt"},
           {"Enter a whole number above 0.", "Введите целое число больше 0.",
-           "Sisesta täisarv, mis on suurem kui 0."}
+           "Sisesta täisarv, mis on suurem kui 0."},
+          # Rename-from-inside, the level's own Edit button and the item
+          # form's SEO switch (boss via Max, 2026-09-21).
+          {"Rename folder", "Переименовать папку", "Nimeta kaust ümber"},
+          {"Edit category", "Редактировать категорию", "Muuda kategooriat"},
+          {"Edit catalogue", "Редактировать каталог", "Muuda kataloogi"},
+          {"Show the URL slug and SEO fields", "Показывать URL-слаг и SEO-поля",
+           "Näita URL-slugi ja SEO välju"}
         ] do
       Gettext.put_locale(PhoenixKitCatalogue.Gettext, "ru")
       assert Gettext.gettext(PhoenixKitCatalogue.Gettext, msgid) == ru

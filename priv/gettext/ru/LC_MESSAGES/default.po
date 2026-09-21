@@ -3642,3 +3642,24 @@ msgstr "Сортировка каждого списка задаётся в с�
 
 msgid "Enable more languages."
 msgstr "Включить другие языки."
+
+msgid "Rename folder"
+msgstr "Переименовать папку"
+
+msgid "Folder name"
+msgstr "Название папки"
+
+msgid "Edit category"
+msgstr "Редактировать категорию"
+
+msgid "Edit catalogue"
+msgstr "Редактировать каталог"
+
+msgid "Item form"
+msgstr "Форма позиции"
+
+msgid "Show the URL slug and SEO fields"
+msgstr "Показывать URL-слаг и SEO-поля"
+
+msgid "Off hides them from the item form; what they already hold is kept and saved unchanged, and comes back when you turn this on."
+msgstr "Если выключено, они скрыты в форме позиции; то, что в них уже есть, сохраняется без изменений и вернётся, когда вы снова включите этот параметр."

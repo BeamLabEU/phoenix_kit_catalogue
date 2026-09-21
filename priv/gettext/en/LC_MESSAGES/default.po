@@ -3629,3 +3629,24 @@ msgstr ""
 
 msgid "Enable more languages."
 msgstr ""
+
+msgid "Rename folder"
+msgstr ""
+
+msgid "Folder name"
+msgstr ""
+
+msgid "Edit category"
+msgstr ""
+
+msgid "Edit catalogue"
+msgstr ""
+
+msgid "Item form"
+msgstr ""
+
+msgid "Show the URL slug and SEO fields"
+msgstr ""
+
+msgid "Off hides them from the item form; what they already hold is kept and saved unchanged, and comes back when you turn this on."
+msgstr ""
