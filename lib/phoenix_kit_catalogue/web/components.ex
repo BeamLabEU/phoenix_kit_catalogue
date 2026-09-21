@@ -2549,6 +2549,14 @@ defmodule PhoenixKitCatalogue.Web.Components do
 
   attr(:selected_uuids, :any, default: nil, doc: "MapSet of selected item UUIDs")
 
+  attr(:context_menu, :boolean,
+    default: false,
+    doc:
+      "Right-click a row or card for the menu in its actions slot. Threaded " <>
+        "from the page: one setting, and a hundred rows would otherwise be a " <>
+        "hundred settings reads per render."
+  )
+
   attr(:on_toggle_select, :string,
     default: nil,
     doc:
@@ -2579,6 +2587,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
       view_mode={@view_mode}
       view_event={@view_event}
       {card_media_frame()}
+      card_context_menu={@context_menu}
       items={@items}
       on_reorder={@on_reorder}
       reorder_scope={@reorder_scope}
@@ -2661,6 +2670,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
       >
         <.table_default_row
           :for={item <- @items}
+          data-row-menu-context={@context_menu}
           class={
             [
               if(@on_reorder, do: "sortable-item"),
