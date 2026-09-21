@@ -4043,6 +4043,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
             <div class="flex flex-wrap items-center gap-3">
               <.search_input
                 :if={show_search_input}
+                id="catalogue-level-search"
                 class={search_width_class()}
                 query={@search_query}
                 placeholder={search_placeholder(@current_category)}

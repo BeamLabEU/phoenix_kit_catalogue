@@ -1669,8 +1669,12 @@ defmodule PhoenixKitCatalogue.Web.Components do
   attr(:class, :string, default: "")
 
   attr(:id, :string,
-    default: "catalogue-search-input",
-    doc: "Form id — LiveView warns without one and cannot recover the form after a disconnect."
+    required: true,
+    doc:
+      "Form id — LiveView warns without one and cannot recover the form after " <>
+        "a disconnect. Required rather than defaulted: a default is the same " <>
+        "id on every caller, so two search boxes on one page would silently " <>
+        "share it and break recovery for both (zai, 2026-09-21)."
   )
 
   def search_input(assigns) do
