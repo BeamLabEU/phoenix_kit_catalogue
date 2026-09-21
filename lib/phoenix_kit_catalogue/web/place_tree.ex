@@ -47,12 +47,18 @@ defmodule PhoenixKitCatalogue.Web.PlaceTree do
     * `:categories` — `false` stops at the catalogues (default `true`)
     * `:catalogue_hint` — shown beside every catalogue row, saying what
       picking the catalogue itself means ("top level", "uncategorized")
+    * `:locale` — names in that language, as the page shows them
   """
   @spec places(String.t() | nil, keyword()) :: [tree_node()]
   def places(kind, opts \\ []) do
+    locale = Keyword.get(opts, :locale)
+
     by_folder =
       Map.new(Catalogue.catalogues_by_folder(), fn {folder_uuid, catalogues} ->
-        {folder_uuid, Enum.filter(catalogues, &(is_nil(kind) or &1.kind == kind))}
+        {folder_uuid,
+         catalogues
+         |> Enum.filter(&(is_nil(kind) or &1.kind == kind))
+         |> Catalogue.localize(locale)}
       end)
 
     categories =
@@ -62,6 +68,7 @@ defmodule PhoenixKitCatalogue.Web.PlaceTree do
         |> List.flatten()
         |> Enum.map(& &1.uuid)
         |> Catalogue.list_live_categories()
+        |> Catalogue.localize(locale)
         |> Enum.group_by(& &1.catalogue_uuid)
       else
         %{}
@@ -104,11 +111,18 @@ defmodule PhoenixKitCatalogue.Web.PlaceTree do
   One catalogue's categories. With `root: hint` they hang under a `"root"`
   row named after the catalogue, which stands for its top level (the hint
   says so beside the name) — no parent, no category; without, the
-  categories are the roots.
+  categories are the roots. `:locale` names them in that language.
   """
   @spec categories(map(), keyword()) :: [tree_node()]
   def categories(%{uuid: uuid} = catalogue, opts \\ []) do
-    nodes = [uuid] |> Catalogue.list_live_categories() |> category_nodes()
+    locale = Keyword.get(opts, :locale)
+    catalogue = Catalogue.localize_one(catalogue, locale)
+
+    nodes =
+      [uuid]
+      |> Catalogue.list_live_categories()
+      |> Catalogue.localize(locale)
+      |> category_nodes()
 
     case Keyword.get(opts, :root) do
       nil ->
