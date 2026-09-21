@@ -2008,6 +2008,21 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       assert html =~ "Shelving Wall"
     end
 
+    test "the header image carries the scoped catalogue's name as alt text (#93)", %{
+      conn: conn,
+      cat: cat
+    } do
+      # The <img> and the title text are plain sibling <div>s in the
+      # :title slot — no shared button/label merges them into one
+      # accessible name, so a real alt is required here.
+      {:ok, _} =
+        Catalogue.update_catalogue(cat, %{data: %{"featured_image_uuid" => UUIDv7.generate()}})
+
+      {:ok, _view, html} = open(conn, "c=#{cat.uuid}&sel=click")
+
+      assert html =~ ~s(alt="Picker Catalogue")
+    end
+
     test "context_header off falls back to the plain title; explicit title wins", %{
       conn: conn,
       cat: cat
@@ -2018,6 +2033,25 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
 
       {:ok, _view, html} = open(conn, "c=#{cat.uuid}&title=Order+sheet&sel=click")
       assert html =~ "Order sheet"
+    end
+
+    test "the tray row's thumbnail carries the item's name as alt text (#93)", %{
+      conn: conn,
+      cat: cat,
+      screw: screw
+    } do
+      # The <img> and {entry.item.name} are plain sibling elements in
+      # the tray row — no shared button/label merges them into one
+      # accessible name, so a real alt is required here.
+      {:ok, _} =
+        Catalogue.update_item(screw, %{data: %{"featured_image_uuid" => UUIDv7.generate()}})
+
+      {:ok, view, _html} = open(conn, "c=#{cat.uuid}&sel=click")
+
+      view |> picker() |> render_click("card_click", %{"uuid" => screw.uuid})
+      html = view |> picker() |> render_click("toggle_tray", %{})
+
+      assert html =~ ~s(alt="M8 Screw")
     end
 
     test "show_tray off hides the cart button and refuses its toggle", %{

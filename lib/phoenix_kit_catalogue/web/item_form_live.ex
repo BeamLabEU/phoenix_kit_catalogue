@@ -3747,6 +3747,11 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                           class="checkbox checkbox-xs"
                         />
                         <% thumb = chip_thumb(preview, value) %>
+                        <%!-- alt="" is deliberate (#93): this img sits inside
+                             the <label> alongside the checkbox and
+                             {value.label} below — the label's one computed
+                             accessible name already carries the text, so a
+                             non-empty alt would announce it twice. --%>
                         <img
                           :if={thumb}
                           src={URLSigner.signed_url(thumb, "thumbnail")}
@@ -3784,7 +3789,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
                         <img
                           :if={preview.thumbs[value.key]}
                           src={URLSigner.signed_url(preview.thumbs[value.key], "thumbnail")}
-                          alt=""
+                          alt={value.label || ""}
                           class="w-5 h-5 rounded object-cover"
                         />
                         <span class="text-sm">{value.label}</span>
