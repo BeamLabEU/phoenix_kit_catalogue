@@ -152,7 +152,8 @@ defmodule PhoenixKitCatalogue.Web.SettingsLive do
       flash={@flash}
       phoenix_kit_current_scope={assigns[:phoenix_kit_current_scope]}
       page_title={gettext("Catalogue")}
-      page_subtitle={gettext("Settings")}
+      page_section={gettext("Settings")}
+      page_section_path={Routes.path("/admin/settings")}
       current_path={assigns[:url_path] || Routes.path("/admin/settings/catalogue")}
       current_locale={assigns[:current_locale]}
     >
