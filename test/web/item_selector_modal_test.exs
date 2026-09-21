@@ -2008,19 +2008,23 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       assert html =~ "Shelving Wall"
     end
 
-    test "the header image carries the scoped catalogue's name as alt text (#93)", %{
-      conn: conn,
-      cat: cat
-    } do
-      # The <img> and the title text are plain sibling <div>s in the
-      # :title slot — no shared button/label merges them into one
-      # accessible name, so a real alt is required here.
+    test "the header image stays decorative: the labelled title already names the dialog (#93)",
+         %{conn: conn, cat: cat} do
+      # The <img> sits inside the modal's <:title> slot, i.e. inside the <h3>
+      # that aria-labelledby names the dialog by, next to header_title/3's
+      # text (ctx.name when drilled or untitled). A real alt would put the
+      # name into the dialog's accessible name twice, so alt="" is pinned.
       {:ok, _} =
         Catalogue.update_catalogue(cat, %{data: %{"featured_image_uuid" => UUIDv7.generate()}})
 
       {:ok, _view, html} = open(conn, "c=#{cat.uuid}&sel=click")
 
-      assert html =~ ~s(alt="Picker Catalogue")
+      header_img =
+        html
+        |> LazyHTML.from_fragment()
+        |> LazyHTML.query("img.w-12.h-12")
+
+      assert LazyHTML.attribute(header_img, "alt") == [""]
     end
 
     test "context_header off falls back to the plain title; explicit title wins", %{
@@ -2051,7 +2055,14 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModalTest do
       view |> picker() |> render_click("card_click", %{"uuid" => screw.uuid})
       html = view |> picker() |> render_click("toggle_tray", %{})
 
-      assert html =~ ~s(alt="M8 Screw")
+      # Scoped to the tray row: the browse list renders the same item with
+      # the same alt, so a page-wide match would pass with the tray at alt="".
+      tray_img =
+        html
+        |> LazyHTML.from_fragment()
+        |> LazyHTML.query("[id$=\"-tray-#{screw.uuid}\"] img")
+
+      assert LazyHTML.attribute(tray_img, "alt") == ["M8 Screw"]
     end
 
     test "show_tray off hides the cart button and refuses its toggle", %{
