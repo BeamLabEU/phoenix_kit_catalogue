@@ -86,6 +86,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   alias PhoenixKitCatalogue.Schemas.Item
   alias PhoenixKitCatalogue.Web.Components.ProductCard
   alias PhoenixKitCatalogue.Web.LevelSwitchers
+  alias PhoenixKitCatalogue.Web.Settings, as: CatalogueSettings
   alias PhoenixKitCatalogue.Web.TableConfig
   alias PhoenixKitCatalogue.Web.ViewConfig
 
@@ -126,6 +127,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     socket =
       assign(socket,
         page_title: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Loading…"),
+        # One settings read per mount, threaded down to the rows and cards.
+        row_context_menu: CatalogueSettings.context_menu_enabled?(),
         catalogue_uuid: uuid,
         catalogue: nil,
         # ── Drill-down position ──
@@ -4210,6 +4213,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
           <div :if={@search_results not in [nil, []]} class={["transition-opacity", @search_loading && "opacity-50"]}>
             <.item_table
+              context_menu={@row_context_menu}
               photo_click="show_product_card"
               file_counts={@file_counts}
               attribute_map={@attribute_map}
@@ -4456,6 +4460,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                    other sort falls back to the flat sortable table, the
                    same split the index makes. --%>
               <.categories_tree_table
+                context_menu={@row_context_menu}
                 :if={categories_tree_mode?(assigns)}
                 rows={
                   category_tree_rows(
@@ -4476,6 +4481,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                 uncategorized_active_count={@uncategorized_active_count}
               />
               <.categories_table
+                context_menu={@row_context_menu}
                 :if={not categories_tree_mode?(assigns)}
                 categories_sort_by={@categories_sort_by}
                 categories_columns={tab_columns(@categories_columns, @view_mode)}
@@ -4499,6 +4505,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                    down — the index's card-level idiom. Same
                    CatalogueTreeDnD contract as the tree table. --%>
               <.categories_card_level
+                context_menu={@row_context_menu}
                 catalogue={@catalogue}
                 tree_children={card_tree_children(assigns)}
                 root_uuid={normalize_category_key(@current_category_uuid)}
@@ -4529,6 +4536,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
           <%!-- The current node's own direct items --%>
           <.level_items
+                context_menu={@row_context_menu}
             view_mode_pref={@view_mode_pref}
             attribute_map={@attribute_map}
             supplier_costs={@supplier_costs}
@@ -5017,6 +5025,10 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
   attr(:return_to, :string, default: nil)
 
+  # Threaded from the page, not read per row: one setting, and a hundred
+  # rows would otherwise be a hundred settings reads per render.
+  attr(:context_menu, :boolean, default: false)
+
   defp categories_table(assigns) do
     assigns =
       assigns
@@ -5069,7 +5081,11 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         enabled={@draggable?}
         event="reorder_categories"
       >
-        <.sortable_row :for={cat <- @child_categories} item_id={cat.uuid}>
+        <.sortable_row
+          :for={cat <- @child_categories}
+          item_id={cat.uuid}
+          data-row-menu-context={@context_menu}
+        >
           <.drag_handle_cell :if={@draggable? and cat.status == "active"} />
           <td :if={@draggable? and cat.status != "active"} class="w-8"></td>
           <.table_default_cell class="w-8">
@@ -5134,7 +5150,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
             />
           </.table_default_cell>
         </.sortable_row>
-        <tr :if={@show_uncat}>
+        <tr :if={@show_uncat} data-row-menu-context={@context_menu}>
           <td :if={@draggable?} class="w-8"></td>
           <td class="w-8"></td>
           <td :if={@photo_col?} class="w-12 !pr-0 !py-1 [.pk-comfy_&]:w-22 [.pk-comfy_&]:!py-1.5">
@@ -5258,6 +5274,10 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
   attr(:return_to, :string, default: nil)
 
+  # Threaded from the page, not read per row: one setting, and a hundred
+  # rows would otherwise be a hundred settings reads per render.
+  attr(:context_menu, :boolean, default: false)
+
   defp categories_tree_table(assigns) do
     cats = Enum.map(assigns.rows, fn {cat, _d, _h, _e} -> cat end)
 
@@ -5328,6 +5348,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
           <.table_default_row
             :for={{cat, depth, child_count, expanded?} <- @rows}
             id={"category-tree-row-" <> cat.uuid}
+            data-row-menu-context={@context_menu}
             phx-mounted={
               depth > 0 &&
                 Phoenix.LiveView.JS.transition({"ease-out duration-150", "opacity-0", "opacity-100"})
@@ -5383,7 +5404,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
             />
             </.table_default_cell>
           </.table_default_row>
-          <tr :if={@show_uncat}>
+          <tr :if={@show_uncat} data-row-menu-context={@context_menu}>
             <td class="w-8"></td>
             <td class="w-8"></td>
             <td :if={@photo_col?} class="w-12"></td>
@@ -5683,6 +5704,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   attr(:uncategorized_active_count, :integer, default: 0)
 
   attr(:return_to, :string, default: nil)
+  attr(:context_menu, :boolean, default: false)
 
   defp categories_card_level(assigns) do
     assigns =
@@ -5710,6 +5732,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         {gettext("Drop here to move to this level")}
       </div>
       <.category_card_entries
+        context_menu={@context_menu}
         entries={@roots}
         parent_key="root"
         catalogue={@catalogue}
@@ -5760,6 +5783,10 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   # strip lifts.
   attr(:return_to, :string, default: nil)
 
+  # Threaded from the page, not read per row: one setting, and a hundred
+  # rows would otherwise be a hundred settings reads per render.
+  attr(:context_menu, :boolean, default: false)
+
   defp category_card_entries(assigns) do
     ~H"""
     <div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
@@ -5787,6 +5814,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
             data-tree-type="category"
             data-tree-parent={@parent_key}
             data-tree-drop={cat.uuid}
+            data-row-menu-context={@context_menu}
             class="col-span-full rounded-lg border border-base-300 bg-base-200/40 p-3 flex flex-col gap-2"
           >
             <div class="flex items-center gap-2 min-w-0">
@@ -5844,6 +5872,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               </div>
             </div>
             <.category_card_entries
+              context_menu={@context_menu}
               entries={Map.get(@tree_children, cat.uuid, [])}
               parent_key={cat.uuid}
               catalogue={@catalogue}
@@ -6022,6 +6051,10 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         "drag there would interleave unrelated sequences."
   )
 
+  # Threaded from the page, not read per row: one setting, and a hundred
+  # rows would otherwise be a hundred settings reads per render.
+  attr(:context_menu, :boolean, default: false)
+
   defp level_items(assigns) do
     # `draggable?` controls the handle *column* (manual sort, not the deleted
     # list); `reorderable?` controls the actual grip + DnD, which needs ≥2
@@ -6158,6 +6191,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
           show_toggle={false}
           items={@items}
           storage_key={view_storage_key()}
+          card_context_menu={@context_menu}
           on_reorder={if @reorderable?, do: "reorder_items"}
           {card_media_frame()}
         >
@@ -6350,7 +6384,11 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
             enabled={@reorderable?}
             event="reorder_items"
           >
-            <.sortable_row :for={item <- @items} item_id={item.uuid}>
+            <.sortable_row
+              :for={item <- @items}
+              item_id={item.uuid}
+              data-row-menu-context={@context_menu}
+            >
               <.drag_handle_cell :if={@reorderable?} />
               <%!-- Single-item list: keep the column width so the layout
                    doesn't jump when a delete drops the list to one row. --%>

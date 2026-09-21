@@ -33,6 +33,7 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLive do
   alias PhoenixKitCatalogue.Paths
   alias PhoenixKitCatalogue.Web.Components, as: Shared
   alias PhoenixKitCatalogue.Web.Helpers
+  alias PhoenixKitCatalogue.Web.Settings, as: CatalogueSettings
   alias PhoenixKitCatalogue.Web.TableQuery
   alias PhoenixKitCatalogue.Web.ViewConfig
 
@@ -65,6 +66,8 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLive do
      socket
      |> assign(
        page_title: Gettext.gettext(PhoenixKitCatalogue.Gettext, "PDFs"),
+       # One settings read per mount, threaded down to the rows and cards.
+       row_context_menu: CatalogueSettings.context_menu_enabled?(),
        # Module-wide view preference, shared with every catalogue page.
        view_mode: ViewConfig.load_view(socket.assigns[:phoenix_kit_current_user]),
        pdfs: [],
@@ -562,6 +565,7 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLive do
             show_toggle={false}
             storage_key={view_storage_key()}
             items={visible_pdfs}
+            card_context_menu={@row_context_menu}
             card_title={fn pdf -> pdf.original_filename end}
             card_fields={fn pdf ->
               [
@@ -614,7 +618,10 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLive do
             </.table_default_header>
             <.table_default_body>
               <%= for pdf <- visible_pdfs do %>
-                <.table_default_row id={"pdf-row-#{pdf.uuid}"}>
+                <.table_default_row
+                id={"pdf-row-#{pdf.uuid}"}
+                data-row-menu-context={@row_context_menu}
+              >
                   <.table_default_cell class="font-medium">
                     <.link navigate={Paths.pdf_detail(pdf.uuid)} class="link link-hover">
                       {pdf.original_filename}

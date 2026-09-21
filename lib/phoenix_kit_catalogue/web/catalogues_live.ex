@@ -48,6 +48,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   alias PhoenixKitCatalogue.Web.Components, as: Shared
   alias PhoenixKitCatalogue.Web.Components.AttributeSetItemsModal
   alias PhoenixKitCatalogue.Web.Components.ProductCard
+  alias PhoenixKitCatalogue.Web.Settings, as: CatalogueSettings
   alias PhoenixKitCatalogue.Web.{TableConfig, TableQuery, ViewConfig}
 
   # What the Duplicate dialog starts with (see `Catalogue.duplicate_catalogue/2`).
@@ -81,6 +82,9 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     {:ok,
      assign(socket,
        page_title: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Catalogues"),
+       # One settings read per mount, threaded down to the rows. Reading it
+       # per row would be a hundred reads per render of one page-wide switch.
+       row_context_menu: CatalogueSettings.context_menu_enabled?(),
        catalogue_rows: [],
        attribute_group_rows: [],
        attribute_set_rows: [],
@@ -1284,6 +1288,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   attr(:current, :any, default: nil)
   attr(:renaming_folder, :any, default: nil)
   attr(:file_counts, :map, default: %{})
+  attr(:row_context_menu, :boolean, default: false)
 
   # Card-view counterpart of the tree table, as GROUPS: each folder is a
   # visible box containing its catalogue cards (and nested folder boxes),
@@ -1301,7 +1306,8 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       cats_by_folder: Enum.group_by(assigns.catalogue_rows, & &1[:folder_uuid]),
       cfg: assigns.cfg,
       renaming_folder: assigns.renaming_folder,
-      file_counts: assigns.file_counts
+      file_counts: assigns.file_counts,
+      context_menu: assigns.row_context_menu
     }
 
     root = assigns.current && assigns.current.uuid
@@ -1406,6 +1412,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       data-tree-type="folder"
       data-tree-parent={@parent_key}
       data-tree-drop={@folder.uuid}
+      data-row-menu-context={@ctx.context_menu}
       class="rounded-lg border border-base-300 bg-base-100 p-3"
     >
       <div class="flex items-center gap-2 min-w-0">
@@ -1513,6 +1520,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       data-tree-uuid={@c_row.uuid}
       data-tree-type="catalogue"
       data-tree-parent={@parent_key}
+      data-row-menu-context={@ctx.context_menu}
       class="card card-sm bg-base-200 shadow-sm overflow-hidden"
     >
       <%!-- Same band as every other card in the module (boss via Max,
@@ -1611,6 +1619,9 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   attr(:renaming_folder, :any, default: nil)
   attr(:file_counts, :map, default: %{})
 
+  # Threaded from the page: one setting, not a read per row.
+  attr(:context_menu, :boolean, default: false)
+
   defp catalogues_tree_table(assigns) do
     assigns =
       assign(
@@ -1678,6 +1689,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
                   data-tree-type="folder"
                   data-tree-parent={parent_key}
                   data-tree-drop={folder.uuid}
+                  data-row-menu-context={@context_menu}
                 >
                   <td
                     data-tree-item={"folder:" <> folder.uuid}
@@ -1781,6 +1793,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
                   data-tree-uuid={c_row.uuid}
                   data-tree-type="catalogue"
                   data-tree-parent={parent_key}
+                  data-row-menu-context={@context_menu}
                 >
                   <td
                     data-tree-item={"catalogue:" <> c_row.uuid}
@@ -3295,6 +3308,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
           </div>
           <.catalogues_tree_table
             :if={tree?}
+            context_menu={@row_context_menu}
             file_counts={@catalogue_file_counts}
             rows={
               build_catalogue_tree_rows(
@@ -3310,6 +3324,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
           />
           <.catalogues_card_level
             :if={card_level?}
+            row_context_menu={@row_context_menu}
             folder_tree={@folder_tree}
             catalogue_rows={@catalogue_rows}
             cfg={cfg}
@@ -3338,11 +3353,13 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
             total={@item_total}
             query={current_search(assigns)}
             loading={@item_loading}
+            context_menu={@row_context_menu}
           />
           <.simple_table
             :if={!tree? and !card_level?}
             scope={:catalogues}
             cfg={cfg}
+            context_menu={@row_context_menu}
             show_view_toggle={false}
             file_counts={@catalogue_file_counts}
             rows={derive_rows(@catalogue_rows, :catalogues, cfg, @folder_lookup)}
@@ -3598,6 +3615,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
             show_toggle={false}
             storage_key={view_storage_key()}
             items={@attribute_set_rows}
+            card_context_menu={@row_context_menu}
             wrapper_class="overflow-x-auto rounded-lg border border-base-content/10 shadow-none"
           >
             <.table_default_header>
@@ -3609,7 +3627,11 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
               </tr>
             </.table_default_header>
             <.table_default_body>
-              <.table_default_row :for={s <- @attribute_set_rows} id={"attr-set-#{s.uuid}"}>
+              <.table_default_row
+                :for={s <- @attribute_set_rows}
+                id={"attr-set-#{s.uuid}"}
+                data-row-menu-context={@row_context_menu}
+              >
                 <.table_default_cell class="align-top">
                   <.link
                     navigate={KitRoutes.path("/admin/entities/#{s.key}/data")}
@@ -3782,6 +3804,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         <.simple_table
           scope={:attribute_groups}
           show_view_toggle={false}
+          context_menu={@row_context_menu}
           cfg={cfg}
           rows={derive_rows(@attribute_group_rows, :attribute_groups, cfg)}
           total={length(@attribute_group_rows)}
@@ -4200,6 +4223,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   attr(:total, :integer, required: true)
   attr(:query, :string, required: true)
   attr(:loading, :boolean, default: false)
+  attr(:context_menu, :boolean, default: false)
 
   # Cross-catalogue item results. Each row leads with the item, then
   # says WHERE it lives (catalogue, then category) — a hit here can come
@@ -4232,7 +4256,12 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
           </tr>
         </thead>
         <tbody>
-          <tr :for={item <- @items} id={"item-result-#{item.uuid}"} class="hover">
+          <tr
+            :for={item <- @items}
+            id={"item-result-#{item.uuid}"}
+            class="hover"
+            data-row-menu-context={@context_menu}
+          >
             <td>
               <.link
                 navigate={item_result_path(item)}
@@ -4335,6 +4364,14 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   attr(:file_counts, :map, default: %{})
   attr(:show_view_toggle, :boolean, default: true)
 
+  attr(:context_menu, :boolean,
+    default: false,
+    doc:
+      "Right-click a row or card for the menu in its actions slot. Threaded " <>
+        "from the page rather than read per row: it is one setting, and a " <>
+        "hundred rows would otherwise be a hundred settings reads per render."
+  )
+
   slot(:row_actions, required: true)
   slot(:card_actions, required: true)
 
@@ -4373,6 +4410,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       variant="zebra"
       size="sm"
       toggleable
+      card_context_menu={@context_menu}
       show_toggle={@show_view_toggle}
       view_mode={@cfg.view}
       view_event="set_view"
@@ -4406,7 +4444,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         </.table_default_row>
       </.table_default_header>
       <.sortable_tbody :if={@draggable} id={"#{@scope}-table-body"} enabled={@reorderable?} event="reorder_catalogues">
-        <.sortable_row :for={row <- @rows} item_id={row.uuid}>
+        <.sortable_row :for={row <- @rows} item_id={row.uuid} data-row-menu-context={@context_menu}>
           <.drag_handle_cell :if={@reorderable?} />
           <td :if={!@reorderable?} class="w-8"></td>
           <.table_default_cell :if={@photo_col?} class="w-12 !pr-0 !py-1 [.pk-comfy_&]:w-22 [.pk-comfy_&]:!py-1.5">
@@ -4432,7 +4470,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         </.sortable_row>
       </.sortable_tbody>
       <.table_default_body :if={!@draggable}>
-        <.table_default_row :for={row <- @rows}>
+        <.table_default_row :for={row <- @rows} data-row-menu-context={@context_menu}>
           <.table_default_cell :if={@photo_col?} class="w-12 !pr-0 !py-1 [.pk-comfy_&]:w-22 [.pk-comfy_&]:!py-1.5">
             <.link
               :if={@scope == :catalogues and row.status != "trashed"}
