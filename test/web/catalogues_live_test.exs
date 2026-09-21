@@ -598,6 +598,31 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
       assert Catalogue.get_catalogue(catalogue.uuid) == nil
     end
 
+    test "delete forever refuses a catalogue restored after its dialog opened", %{conn: conn} do
+      # Deleting forever belongs to the trash. A dialog left open while
+      # someone restores the catalogue (another tab, another admin) must
+      # not delete what is live again — nor may a forged confirm on a
+      # catalogue that was never trashed.
+      catalogue = fixture_catalogue(%{name: "Came back"})
+      Catalogue.trash_catalogue(catalogue)
+
+      {:ok, view, _html} = live(conn, @base)
+      _ = render_click(view, "switch_catalogue_view", %{"mode" => "deleted"})
+
+      render_click(view, "show_delete_confirm", %{"uuid" => catalogue.uuid, "type" => "catalogue"})
+
+      {:ok, _} = Catalogue.restore_catalogue(Catalogue.get_catalogue(catalogue.uuid))
+      html = render_click(view, "permanently_delete_catalogue", %{})
+
+      assert %{status: "active"} = Catalogue.get_catalogue(catalogue.uuid)
+      assert html =~ "It was restored in the meantime, so it was not deleted."
+
+      live_one = fixture_catalogue(%{name: "Never trashed"})
+      render_click(view, "show_delete_confirm", %{"uuid" => live_one.uuid, "type" => "catalogue"})
+      render_click(view, "permanently_delete_catalogue", %{})
+      assert %{status: "active"} = Catalogue.get_catalogue(live_one.uuid)
+    end
+
     test "show_delete_confirm opens the modal; cancel_delete clears the confirm state", %{
       conn: conn
     } do
