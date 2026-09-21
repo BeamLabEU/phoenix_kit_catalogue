@@ -9,6 +9,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailBranchesTest do
   use PhoenixKitCatalogue.LiveCase, async: false
 
   alias PhoenixKitCatalogue.Catalogue
+  alias PhoenixKitCatalogue.Web.PlaceTree
 
   setup do
     cat = fixture_catalogue(%{name: "Detail Branches"})
@@ -197,7 +198,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailBranchesTest do
       modal = :sys.get_state(view.pid).socket.assigns.bulk_move_modal
       assert modal.count == 1
       assert modal.target == nil
-      assert PhoenixKitCatalogue.Web.PlaceTree.find(modal.tree, "category:" <> cat_a.uuid)
+      assert PlaceTree.find(modal.tree, "category:" <> cat_a.uuid)
     end
 
     test "confirm_bulk_move_items uncategorizes the selection",
