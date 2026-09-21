@@ -760,6 +760,22 @@ defmodule PhoenixKitCatalogue.Web.Components do
   def card_media_band, do: "relative h-40 bg-base-200 overflow-hidden"
 
   @doc """
+  What a sortable column header is given as its `sort`: the current sort as
+  core's `sort_header_cell/1` wants it — or `nil` in Manual order, which
+  renders the header as a plain label.
+
+  Headers sort by a click only once the list is already sorted by a column
+  (boss via Max, 2026-09-21). In Manual order a click would silently leave
+  the order someone arranged by hand and take the drag handles with it, so
+  there the dropdown is the one way out, and the arrows appear once you are
+  out. Takes the atom (`:position`) the catalogue page uses and the string
+  (`"position"`) the index uses.
+  """
+  @spec header_sort(atom() | String.t(), :asc | :desc) :: map() | nil
+  def header_sort(by, _dir) when by in [:position, "position"], do: nil
+  def header_sort(by, dir), do: %{by: by, dir: dir}
+
+  @doc """
   The width every search box in the module uses.
 
   There were four rules — `flex-1`, `w-full sm:w-64`,
@@ -1206,22 +1222,43 @@ defmodule PhoenixKitCatalogue.Web.Components do
         "and pass down; see that function's doc."
   )
 
+  attr(:sort, :map,
+    default: nil,
+    doc:
+      "`header_sort/2` of the categories' sort: the Items and Updated headers " <>
+        "(the two sortable category columns) sort by a click when it is a map, " <>
+        "and are plain labels when nil (Manual order)."
+  )
+
+  attr(:sort_event, :string, default: "toggle_sort_categories")
+
   def category_header_cells(assigns) do
     ~H"""
     <%= for col <- category_cell_ids(@columns, @extension_columns) do %>
       <%= case col do %>
         <% "items" -> %>
-          <.table_default_header_cell class="text-right w-px whitespace-nowrap">
+          <.sort_header_cell
+            field={:items}
+            sort={@sort}
+            event={@sort_event}
+            align={:right}
+            class="text-right w-px whitespace-nowrap"
+          >
             {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Items")}
-          </.table_default_header_cell>
+          </.sort_header_cell>
         <% "image" -> %>
           <.table_default_header_cell class="w-px whitespace-nowrap">
             {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Image")}
           </.table_default_header_cell>
         <% "updated" -> %>
-          <.table_default_header_cell class="w-px whitespace-nowrap">
+          <.sort_header_cell
+            field={:updated}
+            sort={@sort}
+            event={@sort_event}
+            class="w-px whitespace-nowrap"
+          >
             {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Updated")}
-          </.table_default_header_cell>
+          </.sort_header_cell>
         <% "subcategories" -> %>
           <.table_default_header_cell class="text-right w-px whitespace-nowrap">
             {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Subcategories")}
