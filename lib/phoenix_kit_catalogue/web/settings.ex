@@ -17,6 +17,7 @@ defmodule PhoenixKitCatalogue.Web.Settings do
   | key                                            | type | default        |
   |-------------------------------------------------|------|----------------|
   | `catalogue_row_context_menu_enabled`             | bool | `true`         |
+  | `catalogue_item_seo_fields_visible`              | bool | `false`        |
   | `catalogue_translation_sweep_enabled`            | bool | `false`        |
   | `catalogue_translation_sweep_interval_minutes`   | int  | `60`           |
   | `catalogue_translation_sweep_langs`              | json | see below      |
@@ -37,6 +38,7 @@ defmodule PhoenixKitCatalogue.Web.Settings do
   @module_key "catalogue"
 
   @context_menu_key "catalogue_row_context_menu_enabled"
+  @seo_fields_key "catalogue_item_seo_fields_visible"
 
   @enabled_key "catalogue_translation_sweep_enabled"
   @interval_key "catalogue_translation_sweep_interval_minutes"
@@ -60,6 +62,23 @@ defmodule PhoenixKitCatalogue.Web.Settings do
   """
   @spec context_menu_enabled?() :: boolean()
   def context_menu_enabled?, do: Settings.get_boolean_setting(@context_menu_key, true)
+
+  @doc """
+  Does the item form show its URL slug, SEO title and SEO description?
+
+  Default `false`: the current client has no use for them and they crowd
+  the form (boss via Max, 2026-09-21: "hidden for now"). Hidden is not
+  gone — the form still carries their stored values, so a save keeps them,
+  and turning this on brings the fields back with their contents.
+  """
+  @spec seo_fields_visible?() :: boolean()
+  def seo_fields_visible?, do: Settings.get_boolean_setting(@seo_fields_key, false)
+
+  @doc "Shows or hides the item form's slug and SEO fields."
+  @spec update_seo_fields_visible(boolean()) :: {:ok, struct()} | {:error, term()}
+  def update_seo_fields_visible(visible?) when is_boolean(visible?) do
+    Settings.update_boolean_setting_with_module(@seo_fields_key, visible?, @module_key)
+  end
 
   @doc "Turns the right-click row menu on or off."
   @spec update_context_menu_enabled(boolean()) :: {:ok, struct()} | {:error, term()}
