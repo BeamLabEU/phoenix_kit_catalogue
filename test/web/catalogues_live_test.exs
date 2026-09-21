@@ -158,7 +158,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
   # ─────────────────────────────────────────────────────────────────
 
   describe "catalogues tree table" do
-    test "manual order shows collapsible folder rows; other sorts flatten", %{conn: conn} do
+    test "manual order shows collapsible folder rows; other sorts keep the tree", %{conn: conn} do
       {:ok, folder} = Catalogue.create_folder(%{name: "Tree parent"})
       {:ok, _child} = Catalogue.create_folder(%{name: "Tree child", parent_uuid: folder.uuid})
       filed = fixture_catalogue(%{name: "Filed in tree"})
@@ -188,10 +188,16 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
       assert expanded =~ "Tree child"
       assert expanded =~ "Filed in tree"
 
-      # Switching to a real sort falls back to the flat sortable table.
-      flat = render_click(view, "set_sort", %{"sort_by" => "name"})
-      refute flat =~ "catalogues-tree-table"
-      assert flat =~ "Filed in tree"
+      # A real sort orders each level and keeps the tree — it used to swap
+      # it for a flat list of every catalogue, which is what the owner
+      # reported as "sometimes it's just a flat list" (2026-09-21). The open
+      # folder stays open; the grip handles go, since a drop would land
+      # wherever the sort puts it.
+      sorted = render_click(view, "set_sort", %{"sort_by" => "name"})
+      assert sorted =~ "catalogues-tree-table"
+      assert sorted =~ "Tree child"
+      assert sorted =~ "Filed in tree"
+      refute sorted =~ ~s(data-tree-item="folder:#{folder.uuid}")
     end
 
     test "drilling re-roots the tree and Up walks back", %{conn: conn} do
@@ -590,6 +596,31 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
       render_click(view, "permanently_delete_catalogue", %{})
 
       assert Catalogue.get_catalogue(catalogue.uuid) == nil
+    end
+
+    test "delete forever refuses a catalogue restored after its dialog opened", %{conn: conn} do
+      # Deleting forever belongs to the trash. A dialog left open while
+      # someone restores the catalogue (another tab, another admin) must
+      # not delete what is live again — nor may a forged confirm on a
+      # catalogue that was never trashed.
+      catalogue = fixture_catalogue(%{name: "Came back"})
+      Catalogue.trash_catalogue(catalogue)
+
+      {:ok, view, _html} = live(conn, @base)
+      _ = render_click(view, "switch_catalogue_view", %{"mode" => "deleted"})
+
+      render_click(view, "show_delete_confirm", %{"uuid" => catalogue.uuid, "type" => "catalogue"})
+
+      {:ok, _} = Catalogue.restore_catalogue(Catalogue.get_catalogue(catalogue.uuid))
+      html = render_click(view, "permanently_delete_catalogue", %{})
+
+      assert %{status: "active"} = Catalogue.get_catalogue(catalogue.uuid)
+      assert html =~ "It was restored in the meantime, so it was not deleted."
+
+      live_one = fixture_catalogue(%{name: "Never trashed"})
+      render_click(view, "show_delete_confirm", %{"uuid" => live_one.uuid, "type" => "catalogue"})
+      render_click(view, "permanently_delete_catalogue", %{})
+      assert %{status: "active"} = Catalogue.get_catalogue(live_one.uuid)
     end
 
     test "show_delete_confirm opens the modal; cancel_delete clears the confirm state", %{
