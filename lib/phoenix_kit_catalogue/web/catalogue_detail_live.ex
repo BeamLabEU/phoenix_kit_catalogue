@@ -4121,8 +4121,17 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                 <.link navigate={new_item_path(assigns)} class="btn btn-primary btn-sm">
                   <.icon name="hero-plus" class="w-4 h-4" /> {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Add item")}
                 </.link>
-                <.link navigate={Paths.catalogue_edit(@catalogue.uuid)} class="btn btn-ghost btn-sm">
-                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")}
+                <%!-- Edits the place you are standing in: the category when
+                     drilled into one, the catalogue otherwise. It always
+                     edited the catalogue, which is not what "Edit" on a
+                     category's page reads as (boss via Max, 2026-09-21).
+                     The label names which, so the two cannot be confused. --%>
+                <.link
+                  id="level-edit-button"
+                  navigate={level_edit_path(assigns)}
+                  class="btn btn-ghost btn-sm"
+                >
+                  {level_edit_label(@current_category)}
                 </.link>
               </div>
             </div>
@@ -6689,6 +6698,17 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   # travels with you — the new-item/new-category forms prefill the
   # category/parent, and return_to brings save/cancel back HERE instead
   # of dumping everyone at the catalogue root.
+
+  # Where the level's Edit button goes: the drilled category's form (back to
+  # this level after saving), else the catalogue's. The Uncategorized bucket
+  # is the catalogue's own, so it edits the catalogue.
+  defp level_edit_path(%{current_category: %Category{uuid: uuid}} = assigns),
+    do: with_return_to(Paths.category_edit(uuid), current_level_path(assigns))
+
+  defp level_edit_path(assigns), do: Paths.catalogue_edit(assigns.catalogue_uuid)
+
+  defp level_edit_label(%Category{}), do: gettext("Edit category")
+  defp level_edit_label(_), do: gettext("Edit catalogue")
 
   defp current_level_path(assigns) do
     case assigns.current_category do
