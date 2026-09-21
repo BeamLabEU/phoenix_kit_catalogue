@@ -1467,20 +1467,23 @@ defmodule PhoenixKitCatalogue.Web.Components do
 
   @doc """
   The managed "Image" column's cell content (`TableConfig.columns/1`'s
-  `"image"` id): the item/category's `featured_image_uuid`, or empty
-  space — never a broken-image glyph — when it has none.
+  `"image"` id): the item/category's `featured_image_uuid`, else the same
+  letter tile the automatic column shows, so a row without a picture keeps
+  the offset either way — never a broken-image glyph.
 
   A plain, opt-in twin of `featured_thumb/1`'s automatic photo column:
-  that one appears on its own whenever some row on the level has a
-  picture (or an attached file) and isn't listed in the Columns modal;
-  this one is an ordinary managed column an admin turns on/off/reorders
-  like any other, and always shows the "small" storage variant with no
-  paperclip/attachment badge.
+  that one is on whenever a list has rows and the Columns modal does not
+  list this one; this one is an ordinary managed column an admin turns
+  on/off/reorders like any other, and always shows the "small" storage
+  variant with no paperclip/attachment badge.
   """
   attr(:resource, :any, required: true)
 
   def image_column_cell(assigns) do
-    assigns = assign(assigns, :uuid, featured_image_uuid(assigns.resource))
+    assigns =
+      assigns
+      |> assign(:uuid, featured_image_uuid(assigns.resource))
+      |> assign(:initial, thumb_initial(assigns.resource))
 
     ~H"""
     <img
@@ -1491,6 +1494,14 @@ defmodule PhoenixKitCatalogue.Web.Components do
       onerror="this.style.display='none'"
       class="w-10 h-10 rounded object-cover bg-base-200"
     />
+    <span
+      :if={!@uuid}
+      data-thumb-letter
+      aria-hidden="true"
+      class="w-10 h-10 rounded bg-base-200 flex items-center justify-center text-base-content/40 font-bold"
+    >
+      {@initial}
+    </span>
     """
   end
 
