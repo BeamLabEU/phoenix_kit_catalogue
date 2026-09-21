@@ -104,6 +104,7 @@ defmodule PhoenixKitCatalogue.Attachments do
   alias PhoenixKitCatalogue.Catalogue.PubSub
   alias PhoenixKitCatalogue.Schemas.{Catalogue, Category, Item, Pdf}
   alias PhoenixKitCatalogue.Web.Helpers, as: WebHelpers
+  alias PhoenixKitWeb.Actor
 
   @upload_name :attachment_files
   @doc "Returns the upload ref name used for the inline files dropzone."
@@ -415,7 +416,7 @@ defmodule PhoenixKitCatalogue.Attachments do
           do: %{"media_order" => new_order, "featured_image_uuid" => nil},
           else: %{"media_order" => new_order}
 
-      case write_owned_data(resource, data, current_user_uuid(socket)) do
+      case write_owned_data(resource, data, Actor.uuid(socket)) do
         {:ok, updated} ->
           socket
           |> assign(:attachments_resource, updated)
@@ -598,7 +599,7 @@ defmodule PhoenixKitCatalogue.Attachments do
   end
 
   defp assign_resolved_folder(socket) do
-    case find_resource_folder(socket.assigns[:attachments_resource], current_user_uuid(socket)) do
+    case find_resource_folder(socket.assigns[:attachments_resource], Actor.uuid(socket)) do
       %{uuid: uuid} -> assign(socket, :files_folder_uuid, uuid)
       _ -> socket
     end
@@ -669,7 +670,7 @@ defmodule PhoenixKitCatalogue.Attachments do
     resource = socket.assigns[:attachments_resource]
 
     if persisted?(resource) and media_order != socket.assigns[:media_order_persisted] do
-      case write_owned_data(resource, %{"media_order" => media_order}, current_user_uuid(socket)) do
+      case write_owned_data(resource, %{"media_order" => media_order}, Actor.uuid(socket)) do
         {:ok, updated} ->
           socket
           |> assign(:attachments_resource, updated)
@@ -721,7 +722,7 @@ defmodule PhoenixKitCatalogue.Attachments do
       case write_owned_data(
              resource,
              %{"files_folder_uuid" => folder_uuid},
-             current_user_uuid(socket)
+             Actor.uuid(socket)
            ) do
         {:ok, updated} ->
           assign(socket, :attachments_resource, updated)
@@ -932,7 +933,7 @@ defmodule PhoenixKitCatalogue.Attachments do
   rename failures log and return `:ok` so the save flow isn't blocked.
   """
   def maybe_rename_pending_folder(socket, resource) do
-    actor = current_user_uuid(socket)
+    actor = Actor.uuid(socket)
 
     with folder_uuid when is_binary(folder_uuid) <- socket.assigns[:files_folder_uuid],
          {:ok, _} <- folder_name_for(resource),
@@ -1115,7 +1116,7 @@ defmodule PhoenixKitCatalogue.Attachments do
 
   defp resolve_or_create_folder(socket) do
     resource = socket.assigns[:attachments_resource]
-    actor = current_user_uuid(socket)
+    actor = Actor.uuid(socket)
     parent_uuid = parent_folder_uuid(resource, actor)
 
     case find_resource_folder(resource, actor) do
@@ -1136,7 +1137,7 @@ defmodule PhoenixKitCatalogue.Attachments do
   end
 
   defp create_folder(socket, folder_name, parent_uuid) do
-    user_uuid = current_user_uuid(socket)
+    user_uuid = Actor.uuid(socket)
 
     case Storage.create_folder(%{
            name: folder_name,
@@ -1285,13 +1286,6 @@ defmodule PhoenixKitCatalogue.Attachments do
 
   defp safe_get_file(_), do: nil
 
-  defp current_user_uuid(socket) do
-    case socket.assigns[:phoenix_kit_current_user] do
-      %{uuid: uuid} -> uuid
-      _ -> nil
-    end
-  end
-
   # Re-queries the folder and merges the featured image if needed.
   # Use this after any state change that can affect the files list —
   # uploads, featured-image changes, trashing, etc.
@@ -1336,7 +1330,7 @@ defmodule PhoenixKitCatalogue.Attachments do
   end
 
   defp store_upload(%{path: path}, entry, socket, folder_uuid) do
-    user_uuid = current_user_uuid(socket)
+    user_uuid = Actor.uuid(socket)
 
     if is_nil(user_uuid) do
       {:ok, {:error, :no_user}}
