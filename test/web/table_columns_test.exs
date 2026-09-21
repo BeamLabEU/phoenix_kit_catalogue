@@ -183,13 +183,15 @@ defmodule PhoenixKitCatalogue.Web.TableColumnsTest do
            th |> LazyHTML.text() |> String.trim()}
         end)
 
-      # Leading drag + checkbox columns are fixed (w-8); every header
-      # after Name must be too, or it shares the spare width with Name.
+      # Leading drag + checkbox columns (w-8) and the preview column (w-12,
+      # always there since 2026-09-21) are fixed; every header after Name
+      # must be too, or it shares the spare width with Name.
       {before, [{name_classes, "Name"} | rest]} =
         Enum.split_while(heads, fn {_c, text} -> text != "Name" end)
 
       refute name_classes =~ ~r/\bw-/
-      assert Enum.all?(before, fn {c, _} -> c =~ "w-8" end)
+      assert Enum.all?(before, fn {c, _} -> c =~ ~r/\bw-(8|12)\b/ end)
+      assert Enum.any?(before, fn {c, _} -> c =~ ~r/\bw-12\b/ end), "the preview column is there"
 
       assert Enum.map(rest, &elem(&1, 1)) == [
                "Items",

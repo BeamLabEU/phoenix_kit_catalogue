@@ -53,7 +53,9 @@ defmodule PhoenixKitCatalogue.Web.TreeSortTest do
   defp tree_names(html) do
     html
     |> LazyHTML.from_fragment()
-    |> LazyHTML.query(~s([id^="category-tree-row-"] a[href*="category="]))
+    # The name link only — the preview cell links to the same place, and it
+    # now always renders (its text is the letter tile).
+    |> LazyHTML.query(~s([id^="category-tree-row-"] a.link[href*="category="]))
     |> Enum.map(&LazyHTML.text/1)
     |> Enum.map(&String.trim/1)
   end

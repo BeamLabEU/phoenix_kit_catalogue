@@ -450,12 +450,24 @@ defmodule PhoenixKitCatalogue.Web.Components do
         "the thumb inert."
   )
 
+  attr(:letter, :boolean,
+    default: false,
+    doc:
+      "With no image and no files, show the item picker's first-letter tile " <>
+        "instead of nothing. The admin lists pass it: they always carry a " <>
+        "preview column now, so a row without a picture gets a tile in it " <>
+        "rather than an empty gap (boss via Max, 2026-09-21)."
+  )
+
   def featured_thumb(assigns) do
-    assigns = assign(assigns, :uuid, featured_image_uuid(assigns.resource))
+    assigns =
+      assigns
+      |> assign(:uuid, featured_image_uuid(assigns.resource))
+      |> assign(:initial, assigns.letter && thumb_initial(assigns.resource))
 
     ~H"""
     <button
-      :if={(@uuid || @has_files) && @on_click}
+      :if={(@uuid || @has_files || @initial) && @on_click}
       type="button"
       phx-click={@on_click}
       phx-value-uuid={@resource.uuid}
@@ -465,20 +477,54 @@ defmodule PhoenixKitCatalogue.Web.Components do
       <.thumb_visual
         uuid={@uuid}
         has_files={@has_files}
+        initial={@initial}
         class={@class}
         variant={@variant}
         comfy_scale={@comfy_scale}
       />
     </button>
     <.thumb_visual
-      :if={(@uuid || @has_files) && !@on_click}
+      :if={(@uuid || @has_files || @initial) && !@on_click}
       uuid={@uuid}
       has_files={@has_files}
+      initial={@initial}
       class={@class}
       variant={@variant}
       comfy_scale={@comfy_scale}
     />
     """
+  end
+
+  @doc """
+  A preview-column tile for a row that is not a picture of anything — a
+  folder, the Uncategorized bucket. Exactly a thumbnail's size (compact and
+  comfy), so every row in a list keeps its name at the same place.
+  """
+  attr(:icon, :string, required: true)
+  attr(:icon_class, :string, default: "text-base-content/40")
+
+  def thumb_icon_tile(assigns) do
+    ~H"""
+    <span
+      class="relative block shrink-0 w-10 h-10 [.pk-comfy_&]:w-18 [.pk-comfy_&]:h-18"
+      aria-hidden="true"
+    >
+      <span class="w-full h-full rounded bg-base-200 flex items-center justify-center">
+        <.icon name={@icon} class={"w-5 h-5 " <> @icon_class} />
+      </span>
+    </span>
+    """
+  end
+
+  # The picker's rule (`Browse`): an item's SKU initial, else its name's;
+  # a category's or catalogue's name. Always one visible character.
+  defp thumb_initial(resource) do
+    text = Map.get(resource, :sku) || Map.get(resource, :name) || ""
+
+    case String.trim(to_string(text)) do
+      "" -> "?"
+      t -> t |> String.first() |> String.upcase()
+    end
   end
 
   attr(:options, :list, required: true)
@@ -1371,6 +1417,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
   # stay aligned across rows either way.
   attr(:uuid, :string, default: nil)
   attr(:has_files, :boolean, required: true)
+  attr(:initial, :any, default: nil)
   attr(:class, :any, required: true)
   attr(:variant, :string, default: "thumbnail")
   attr(:comfy_scale, :boolean, default: true)
@@ -1391,11 +1438,21 @@ defmodule PhoenixKitCatalogue.Web.Components do
         class="w-full h-full rounded object-cover bg-base-200"
       />
       <span
-        :if={!@uuid}
+        :if={!@uuid and @has_files}
         class="w-full h-full rounded bg-base-200 flex items-center justify-center"
         title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Files")}
       >
         <.icon name="hero-paper-clip" class="w-4 h-4 rotate-45 text-base-content/50" />
+      </span>
+      <%!-- The item picker's no-photo tile, so a list row without a
+           picture looks like the picker's does. --%>
+      <span
+        :if={!@uuid and !@has_files and @initial}
+        data-thumb-letter
+        aria-hidden="true"
+        class="w-full h-full rounded bg-base-200 flex items-center justify-center text-base-content/40 font-bold"
+      >
+        {@initial}
       </span>
       <span
         :if={@uuid && @has_files}
@@ -2610,7 +2667,11 @@ defmodule PhoenixKitCatalogue.Web.Components do
       # (inline-left of the name made rows jagged); it only exists when at
       # least one row would render a thumb or a paperclip.
       |> then(
-        &assign(&1, :photo_col?, any_featured_thumb?(&1.items) or map_size(&1.file_counts) > 0)
+        # Always a preview column when there are rows: an image, the files
+        # tile, or the picker's letter — never a column that comes and goes
+        # with whether some row happens to have a picture (boss via Max,
+        # 2026-09-21).
+        &assign(&1, :photo_col?, &1.items != [])
       )
 
     ~H"""
@@ -2753,6 +2814,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
               resource={item}
               on_click={@photo_click}
               has_files={Map.get(@file_counts, item.uuid, 0) > 0}
+              letter
             />
           </.table_default_cell>
           <.item_cell
