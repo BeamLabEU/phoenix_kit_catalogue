@@ -1705,8 +1705,10 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     {:noreply, socket}
   end
 
+  # A header click; like the categories' below, a push naming Manual order
+  # is ignored — headers never offer it.
   def handle_event("toggle_sort_items", %{"by" => field_str}, socket)
-      when field_str in @items_sort_field_strs do
+      when field_str in @items_sort_field_strs and field_str != "position" do
     field = String.to_existing_atom(field_str)
 
     dir =

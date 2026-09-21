@@ -100,6 +100,17 @@ defmodule PhoenixKitCatalogue.Web.HeaderSortTest do
       view |> element(~s(#{@header}[phx-value-by="sku"])) |> render_click()
       assert ViewConfig.load_global_sort(:detail_items) == {"sku", :asc}
     end
+
+    test "a pushed header click naming Manual order is ignored", %{
+      conn: conn,
+      items_catalogue: c
+    } do
+      {:ok, view, _html} = live(conn, "#{@base}/#{c.uuid}")
+      render_change(view, "sort_items", %{"sort_by" => "name"})
+
+      render_click(view, "toggle_sort_items", %{"by" => "position"})
+      assert ViewConfig.load_global_sort(:detail_items) == {"name", :asc}
+    end
   end
 
   describe "the catalogues index" do
@@ -114,6 +125,14 @@ defmodule PhoenixKitCatalogue.Web.HeaderSortTest do
 
       view |> element(~s(#{@header}[phx-value-by="name"])) |> render_click()
       assert ViewConfig.load_global_sort(:catalogues) == {"name", :desc}
+    end
+
+    test "a pushed header click naming Manual order is ignored", %{conn: conn} do
+      {:ok, view, _html} = live(conn, @base)
+      render_change(view, "set_sort", %{"sort_by" => "name"})
+
+      render_click(view, "toggle_sort", %{"by" => "position"})
+      assert ViewConfig.load_global_sort(:catalogues) == {"name", :asc}
     end
   end
 end

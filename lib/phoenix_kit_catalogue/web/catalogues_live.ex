@@ -2836,10 +2836,13 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   # raising in the user's face.
   def handle_event("set_sort", _params, socket), do: {:noreply, socket}
 
+  # A header click. Headers only sort out of Manual order, so a push naming
+  # "position" is stale or forged and must not switch everyone's shared
+  # sort back to Manual.
   def handle_event("toggle_sort", %{"by" => by}, socket) do
     scope = active_scope(socket.assigns)
 
-    if MapSet.member?(known_sortable_ids(scope), by) do
+    if by != "position" and MapSet.member?(known_sortable_ids(scope), by) do
       cfg = current_cfg(socket.assigns)
       dir = if cfg.sort_by == by, do: flip(cfg.sort_dir), else: :asc
       {:noreply, put_cfg(socket, scope, %{cfg | sort_by: by, sort_dir: sort_dir_for(by, dir)})}
