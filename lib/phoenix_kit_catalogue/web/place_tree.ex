@@ -45,6 +45,8 @@ defmodule PhoenixKitCatalogue.Web.PlaceTree do
   ## Options
 
     * `:categories` — `false` stops at the catalogues (default `true`)
+    * `:catalogue_hint` — shown beside every catalogue row, saying what
+      picking the catalogue itself means ("top level", "uncategorized")
   """
   @spec places(String.t() | nil, keyword()) :: [tree_node()]
   def places(kind, opts \\ []) do
@@ -70,8 +72,16 @@ defmodule PhoenixKitCatalogue.Web.PlaceTree do
       |> Enum.map(&elem(&1, 0))
       |> Enum.group_by(& &1.parent_uuid)
 
+    hint = Keyword.get(opts, :catalogue_hint)
+
     place_level(nil, folder_children, by_folder, categories)
+    |> map_nodes(fn node ->
+      if hint && node.type == :catalogue, do: Map.put(node, :hint, hint), else: node
+    end)
   end
+
+  defp map_nodes(nodes, fun),
+    do: Enum.map(nodes, fn node -> fun.(%{node | children: map_nodes(node.children, fun)}) end)
 
   defp place_level(folder_uuid, folder_children, by_folder, categories) do
     folders =
@@ -91,17 +101,30 @@ defmodule PhoenixKitCatalogue.Web.PlaceTree do
   end
 
   @doc """
-  One catalogue's categories. With `root: hint` they hang under the
-  catalogue's own row, which stands for its top level (the hint says so
-  beside its name); without, the categories are the roots.
+  One catalogue's categories. With `root: hint` they hang under a `"root"`
+  row named after the catalogue, which stands for its top level (the hint
+  says so beside the name) — no parent, no category; without, the
+  categories are the roots.
   """
   @spec categories(map(), keyword()) :: [tree_node()]
   def categories(%{uuid: uuid} = catalogue, opts \\ []) do
     nodes = [uuid] |> Catalogue.list_live_categories() |> category_nodes()
 
     case Keyword.get(opts, :root) do
-      nil -> nodes
-      hint -> [Map.put(catalogue_node(catalogue, nodes), :hint, hint)]
+      nil ->
+        nodes
+
+      hint ->
+        [
+          %{
+            id: @root,
+            type: :root,
+            name: catalogue.name,
+            hint: hint,
+            archived?: false,
+            children: nodes
+          }
+        ]
     end
   end
 

@@ -119,10 +119,10 @@ defmodule PhoenixKitCatalogue.Web.PlacePickerTest do
     test "categories/2 hangs them under the catalogue's own row when asked", ctx do
       assert [%{name: "Doors"}] = PlaceTree.categories(ctx.kitchen)
 
-      assert [%{id: id, hint: "top level", children: [%{name: "Doors"}]}] =
+      assert [%{id: "root", type: :root, name: "Kitchen", hint: "top level"} = root] =
                PlaceTree.categories(ctx.kitchen, root: "top level")
 
-      assert id == "catalogue:" <> ctx.kitchen.uuid
+      assert [%{name: "Doors"}] = root.children
     end
 
     test "folders/1 puts every folder under the root row", ctx do
