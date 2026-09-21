@@ -19,6 +19,14 @@ defmodule PhoenixKitCatalogue.Web.ItemFormSeoTest do
 
   defp edit_item_url(item_uuid), do: "#{@base}/items/#{item_uuid}/edit"
 
+  # These tests drive the slug and SEO inputs, which the item form shows
+  # only while Settings → Catalogue's switch is on (off by default; the off
+  # side is pinned in test/web/item_seo_fields_test.exs).
+  setup do
+    {:ok, _} = PhoenixKitCatalogue.Web.Settings.update_seo_fields_visible(true)
+    :ok
+  end
+
   defp enable_multilang! do
     {:ok, _} = Languages.enable_system()
     {:ok, _} = Languages.add_language("fr-FR")
