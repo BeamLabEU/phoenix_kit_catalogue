@@ -86,47 +86,131 @@ defmodule PhoenixKitCatalogue.Web.FormLVBranchesTest do
   end
 
   describe "CategoryFormLive — move flows" do
-    test "select_move_target sets the candidate catalogue uuid",
-         %{conn: conn, catalogue: cat, other_catalogue: other} do
-      cat_obj = fixture_category(cat, %{name: "Movable"})
-      {:ok, view, _html} = live(conn, "/en/admin/catalogue/categories/#{cat_obj.uuid}/edit")
+    # One Move, picked in a tree of every catalogue of the category's kind
+    # (boss via Max, 2026-09-21: proper pickers, no flat lists): a place in
+    # its own catalogue reparents, a place in another moves it there.
+    defp edit(conn, category),
+      do: live(conn, "/en/admin/catalogue/categories/#{category.uuid}/edit")
+
+    defp pick(view, place, name) do
+      view |> element("#category-move-picker-change") |> render_click()
 
       view
-      |> form("#category-move-form", %{"move_target" => "catalogue:" <> other.uuid})
-      |> render_change()
+      |> element("#category-move-picker-search")
+      |> render_hook("search", %{"value" => name})
 
-      assert :sys.get_state(view.pid).socket.assigns.move_target == "catalogue:" <> other.uuid
+      view |> element(~s(#category-move-picker [data-place="#{place}"])) |> render_click()
     end
 
-    test "move_category executes the move when target is set",
-         %{conn: conn, catalogue: cat, other_catalogue: other} do
-      cat_obj = fixture_category(cat, %{name: "ToMove"})
-      {:ok, view, _html} = live(conn, "/en/admin/catalogue/categories/#{cat_obj.uuid}/edit")
+    defp move(view), do: view |> element("#category-move-button") |> render_click()
 
-      view
-      |> form("#category-move-form", %{"move_target" => "catalogue:" <> other.uuid})
-      |> render_change()
-
-      render_click(view, "move_category", %{})
-
-      assert Catalogue.get_category(cat_obj.uuid).catalogue_uuid == other.uuid
-    end
-
-    test "move_category lands under a category of the other catalogue",
+    test "a category of another catalogue: it moves there, under it",
          %{conn: conn, catalogue: cat, other_catalogue: other} do
       cat_obj = fixture_category(cat, %{name: "ToNest"})
-      parent = fixture_category(other, %{name: "LandingParent"})
-      {:ok, view, _html} = live(conn, "/en/admin/catalogue/categories/#{cat_obj.uuid}/edit")
+      landing = fixture_category(other, %{name: "LandingParent"})
+      {:ok, view, _html} = edit(conn, cat_obj)
 
-      view
-      |> form("#category-move-form", %{"move_target" => "category:" <> parent.uuid})
-      |> render_change()
-
-      render_click(view, "move_category", %{})
+      pick(view, "category:" <> landing.uuid, "LandingParent")
+      assert {:error, {:live_redirect, _}} = move(view)
 
       moved = Catalogue.get_category(cat_obj.uuid)
       assert moved.catalogue_uuid == other.uuid
-      assert moved.parent_uuid == parent.uuid
+      assert moved.parent_uuid == landing.uuid
+    end
+
+    test "another catalogue's own row: its top level",
+         %{conn: conn, catalogue: cat, other_catalogue: other} do
+      cat_obj = fixture_category(cat, %{name: "ToMove"})
+      {:ok, view, _html} = edit(conn, cat_obj)
+
+      pick(view, "catalogue:" <> other.uuid, "Other Cat")
+      move(view)
+
+      moved = Catalogue.get_category(cat_obj.uuid)
+      assert moved.catalogue_uuid == other.uuid
+      assert moved.parent_uuid == nil
+    end
+
+    test "a category of its own catalogue reparents, and the own row goes back to the top",
+         %{conn: conn, catalogue: cat} do
+      parent = fixture_category(cat, %{name: "NewParent"})
+      child = fixture_category(cat, %{name: "OrphanChild"})
+      {:ok, view, _html} = edit(conn, child)
+
+      pick(view, "category:" <> parent.uuid, "NewParent")
+      html = move(view)
+      assert html =~ "Category moved into NewParent."
+      assert Catalogue.get_category(child.uuid).parent_uuid == parent.uuid
+
+      pick(view, "catalogue:" <> cat.uuid, "Branches Cat")
+      move(view)
+      assert Catalogue.get_category(child.uuid).parent_uuid == nil
+    end
+
+    test "its own subtree and catalogues of the other kind are not offered",
+         %{conn: conn, catalogue: cat} do
+      {:ok, smart} = Catalogue.create_catalogue(%{name: "Smart elsewhere", kind: "smart"})
+      cat_obj = fixture_category(cat, %{name: "Stayer"})
+
+      {:ok, grandchild_parent} =
+        Catalogue.create_category(%{
+          name: "Below",
+          catalogue_uuid: cat.uuid,
+          parent_uuid: cat_obj.uuid
+        })
+
+      {:ok, view, _html} = edit(conn, cat_obj)
+      view |> element("#category-move-picker-change") |> render_click()
+      html = view |> element("#category-move-picker") |> render()
+
+      assert html =~ ~s(data-place="catalogue:#{cat.uuid}")
+      refute html =~ smart.uuid
+      refute html =~ ~s(data-place="category:#{cat_obj.uuid}")
+
+      # Forged picks of what the tree left out never become the target.
+      for id <- ["category:" <> grandchild_parent.uuid, "catalogue:" <> smart.uuid] do
+        view |> with_target("#category-move-picker") |> render_click("pick", %{"id" => id})
+      end
+
+      assert :sys.get_state(view.pid).socket.assigns.move_target == nil
+      assert has_element?(view, "#category-move-button[disabled]")
+      render_click(view, "move_category", %{})
+      assert Catalogue.get_category(cat_obj.uuid).catalogue_uuid == cat.uuid
+    end
+
+    test "Move waits for a pick, and picking where it is takes the pick back",
+         %{conn: conn, catalogue: cat, other_catalogue: other} do
+      cat_obj = fixture_category(cat, %{name: "Untargeted"})
+      {:ok, view, _html} = edit(conn, cat_obj)
+
+      assert has_element?(view, "#category-move-button[disabled]")
+      render_click(view, "move_category", %{})
+      assert Catalogue.get_category(cat_obj.uuid).catalogue_uuid == cat.uuid
+
+      pick(view, "catalogue:" <> other.uuid, "Other Cat")
+      refute has_element?(view, "#category-move-button[disabled]")
+      pick(view, "catalogue:" <> cat.uuid, "Branches Cat")
+      assert has_element?(view, "#category-move-button[disabled]")
+    end
+
+    test "a destination removed after it was picked is refused with a message",
+         %{conn: conn, catalogue: cat, other_catalogue: other} do
+      mover = fixture_category(cat, %{name: "Mover"})
+      landing = fixture_category(other, %{name: "Vanishing landing"})
+      {:ok, view, _html} = edit(conn, mover)
+
+      pick(view, "category:" <> landing.uuid, "Vanishing")
+      {:ok, _} = Catalogue.permanently_delete_category(landing)
+
+      assert move(view) =~ "Parent category not found."
+      assert Catalogue.get_category(mover.uuid).catalogue_uuid == cat.uuid
+
+      parent = fixture_category(cat, %{name: "Trashed later"})
+      pick(view, "category:" <> parent.uuid, "Trashed later")
+      {:ok, _} = Catalogue.trash_category(parent)
+
+      assert move(view) =~ "Parent category not found."
+      assert Catalogue.get_category(mover.uuid).parent_uuid == nil
     end
 
     test "the category form's Move section owns its open state on the client",
@@ -134,59 +218,9 @@ defmodule PhoenixKitCatalogue.Web.FormLVBranchesTest do
       cat_obj = fixture_category(cat, %{name: "Owner"})
 
       # Picking a destination re-renders the page; without this the
-      # patch drops the user's `open` and the section folds shut. (The
-      # item form moves items through its Location section instead.)
-      {:ok, view, _html} = live(conn, "/en/admin/catalogue/categories/#{cat_obj.uuid}/edit")
+      # patch drops the user's `open` and the section folds shut.
+      {:ok, view, _html} = edit(conn, cat_obj)
       assert render(element(view, "#category-move-section")) =~ "ignore_attrs"
-    end
-
-    test "a destination category deleted after the page opened is refused with a message",
-         %{conn: conn, catalogue: cat, other_catalogue: other} do
-      cat_obj = fixture_category(cat, %{name: "Mover"})
-      landing = fixture_category(other, %{name: "Vanishing landing"})
-      {:ok, view, _html} = live(conn, "/en/admin/catalogue/categories/#{cat_obj.uuid}/edit")
-
-      view
-      |> form("#category-move-form", %{"move_target" => "category:" <> landing.uuid})
-      |> render_change()
-
-      {:ok, _} = Catalogue.permanently_delete_category(landing)
-      html = render_click(view, "move_category", %{})
-
-      assert html =~ "Parent category not found."
-      assert Catalogue.get_category(cat_obj.uuid).catalogue_uuid == cat.uuid
-    end
-
-    test "a catalogue of the other kind is not offered; unoffered values are ignored",
-         %{conn: conn, catalogue: cat, other_catalogue: other} do
-      {:ok, smart} = Catalogue.create_catalogue(%{name: "Smart elsewhere", kind: "smart"})
-      cat_obj = fixture_category(cat, %{name: "Stayer"})
-      {:ok, view, html} = live(conn, "/en/admin/catalogue/categories/#{cat_obj.uuid}/edit")
-
-      assert html =~ "Other Cat — top level" or html =~ "Other Cat &mdash; top level"
-      refute html =~ smart.uuid
-
-      render_change(view, "select_move_target", %{"move_target" => "catalogue:" <> smart.uuid})
-      assert :sys.get_state(view.pid).socket.assigns.move_target == nil
-
-      render_click(view, "move_category", %{})
-      assert Catalogue.get_category(cat_obj.uuid).catalogue_uuid == cat.uuid
-      _ = other
-    end
-
-    test "a refused reparent says why", %{conn: conn, catalogue: cat} do
-      parent = fixture_category(cat, %{name: "Trashed later"})
-      cat_obj = fixture_category(cat, %{name: "Child to be"})
-      {:ok, view, _html} = live(conn, "/en/admin/catalogue/categories/#{cat_obj.uuid}/edit")
-
-      view
-      |> form("#category-parent-move-form", %{"parent_uuid" => parent.uuid})
-      |> render_change()
-
-      {:ok, _} = Catalogue.trash_category(parent)
-      html = render_click(view, "move_under_parent", %{})
-
-      assert html =~ "Parent category not found."
     end
 
     test "the metadata card owns its open state too", %{conn: conn, catalogue: cat} do
@@ -200,75 +234,52 @@ defmodule PhoenixKitCatalogue.Web.FormLVBranchesTest do
       {:ok, view, _html} = live(conn, "/en/admin/catalogue/items/#{item.uuid}/edit")
       assert render(element(view, "#item-meta-section")) =~ "ignore_attrs"
     end
+  end
 
-    test "the parent select reaches the server through its form",
+  describe "CategoryFormLive :new — parent picked in the tree" do
+    test "it starts at the top level, and saves under the category picked",
          %{conn: conn, catalogue: cat} do
-      parent = fixture_category(cat, %{name: "NewParent"})
-      cat_obj = fixture_category(cat, %{name: "Child"})
-      {:ok, view, _html} = live(conn, "/en/admin/catalogue/categories/#{cat_obj.uuid}/edit")
+      doors = fixture_category(cat, %{name: "Doors"})
+      {:ok, view, _html} = live(conn, "/en/admin/catalogue/#{cat.uuid}/categories/new")
+
+      assert view |> element("#category-parent-picker-path") |> render() =~ "Branches Cat"
+
+      view |> element("#category-parent-picker-change") |> render_click()
 
       view
-      |> form("#category-parent-move-form", %{"parent_uuid" => parent.uuid})
-      |> render_change()
+      |> element(~s(#category-parent-picker [data-place="category:#{doors.uuid}"]))
+      |> render_click()
 
-      render_click(view, "move_under_parent", %{})
+      assert view |> element("#category-parent-picker-path") |> render() =~ "Doors"
 
-      assert Catalogue.get_category(cat_obj.uuid).parent_uuid == parent.uuid
+      view
+      |> form("#category-form", %{"category" => %{"name" => "Oak"}})
+      |> render_submit()
+
+      assert [%{parent_uuid: parent}] =
+               Enum.filter(Catalogue.list_live_categories([cat.uuid]), &(&1.name == "Oak"))
+
+      assert parent == doors.uuid
     end
 
-    test "move_category with no target is a no-op", %{conn: conn, catalogue: cat} do
-      cat_obj = fixture_category(cat, %{name: "Untargeted"})
-      {:ok, view, _html} = live(conn, "/en/admin/catalogue/categories/#{cat_obj.uuid}/edit")
-
-      render_click(view, "move_category", %{})
-
-      # Still in the same catalogue — no crash, no move.
-      assert Catalogue.get_category(cat_obj.uuid).catalogue_uuid == cat.uuid
-    end
-
-    test "select_parent_move_target sets candidate parent uuid", %{conn: conn, catalogue: cat} do
-      parent = fixture_category(cat, %{name: "Parent"})
-      child = fixture_category(cat, %{name: "Child"})
-      {:ok, view, _html} = live(conn, "/en/admin/catalogue/categories/#{child.uuid}/edit")
-
-      render_change(view, "select_parent_move_target", %{"parent_uuid" => parent.uuid})
-
-      assert :sys.get_state(view.pid).socket.assigns.parent_move_target == parent.uuid
-    end
-
-    test "a forged non-string parent_uuid is ignored, and Move does not crash",
+    test "a parent in the URL starts picked; the catalogue's own row means top level",
          %{conn: conn, catalogue: cat} do
-      child = fixture_category(cat, %{name: "Child"})
-      {:ok, view, _html} = live(conn, "/en/admin/catalogue/categories/#{child.uuid}/edit")
+      doors = fixture_category(cat, %{name: "Doors"})
 
-      render_change(view, "select_parent_move_target", %{"parent_uuid" => ["x"]})
-      assert :sys.get_state(view.pid).socket.assigns.parent_move_target == nil
+      {:ok, view, _html} =
+        live(conn, "/en/admin/catalogue/#{cat.uuid}/categories/new?parent_uuid=#{doors.uuid}")
 
-      render_click(view, "move_under_parent", %{})
-      assert Catalogue.get_category(child.uuid).parent_uuid == nil
-    end
+      assert view |> element("#category-parent-picker-path") |> render() =~ "Doors"
 
-    test "move_under_parent re-parents under the chosen category",
-         %{conn: conn, catalogue: cat} do
-      parent = fixture_category(cat, %{name: "NewParent"})
-      child = fixture_category(cat, %{name: "OrphanChild"})
-      {:ok, view, _html} = live(conn, "/en/admin/catalogue/categories/#{child.uuid}/edit")
+      view |> element("#category-parent-picker-change") |> render_click()
+      view |> element(~s(#category-parent-picker [data-place="root"])) |> render_click()
 
-      render_change(view, "select_parent_move_target", %{"parent_uuid" => parent.uuid})
-      render_click(view, "move_under_parent", %{})
+      view
+      |> form("#category-form", %{"category" => %{"name" => "Top one"}})
+      |> render_submit()
 
-      assert Catalogue.get_category(child.uuid).parent_uuid == parent.uuid
-    end
-
-    test "select_parent_move_target with empty string clears selection",
-         %{conn: conn, catalogue: cat} do
-      cat_obj = fixture_category(cat, %{name: "Detached"})
-      {:ok, view, _html} = live(conn, "/en/admin/catalogue/categories/#{cat_obj.uuid}/edit")
-
-      render_change(view, "select_parent_move_target", %{"parent_uuid" => ""})
-
-      # No crash; clears the assigns.
-      assert :sys.get_state(view.pid).socket.assigns.parent_move_target in [nil, ""]
+      assert [%{parent_uuid: nil}] =
+               Enum.filter(Catalogue.list_live_categories([cat.uuid]), &(&1.name == "Top one"))
     end
   end
 

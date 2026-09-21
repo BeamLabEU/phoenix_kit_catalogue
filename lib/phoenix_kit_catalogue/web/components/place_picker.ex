@@ -74,10 +74,12 @@ defmodule PhoenixKitCatalogue.Web.Components.PlacePicker do
   end
 
   # The rows above what is picked (or where the record is now) start open,
-  # so the admin sees it in place.
+  # so the admin sees it in place — and a root row, which only holds the
+  # rest of the tree.
   defp opened_at(assigns) do
     ids = List.wrap(assigns.value) ++ List.wrap(assigns.current)
-    MapSet.new(Enum.flat_map(ids, &PlaceTree.ancestor_ids(assigns.tree, &1)))
+    roots = for %{type: :root, id: id} <- assigns.tree, do: id
+    MapSet.new(roots ++ Enum.flat_map(ids, &PlaceTree.ancestor_ids(assigns.tree, &1)))
   end
 
   defp refilter(socket) do
