@@ -1545,7 +1545,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         socket
       )
       when is_binary(uuid) do
-    with true <- categories_tree_mode?(socket.assigns),
+    with true <- categories_reorderable?(socket.assigns),
          {:ok, _} <- Ecto.UUID.cast(uuid),
          {:ok, target_uuid} <- resolve_tree_target(socket, target) do
       {:noreply,
@@ -1567,7 +1567,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         socket
       )
       when is_binary(uuid) and is_list(entries) do
-    with true <- categories_tree_mode?(socket.assigns),
+    with true <- categories_reorderable?(socket.assigns),
          {:ok, _} <- Ecto.UUID.cast(uuid),
          {:ok, target_uuid} <- resolve_tree_target(socket, parent),
          {:ok, ordered_uuids} <- parse_category_entries(entries),
@@ -4455,20 +4455,22 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
             data-storage-key={view_storage_key()}
           >
             <div data-table-view class="hidden md:block">
-              <%!-- Manual order gets the collapsible tree (the index's
-                   folder browser one level down — Max, 2026-08-29); any
-                   other sort falls back to the flat sortable table, the
-                   same split the index makes. --%>
+              <%!-- The active categories are always the collapsible tree
+                   (the index's folder browser one level down — Max,
+                   2026-08-29); a sort orders each sibling group inside it
+                   and takes the drag handles away. The flat table is for
+                   the other status tabs, which keep no tree. --%>
               <.categories_tree_table
                 context_menu={@row_context_menu}
                 :if={categories_tree_mode?(assigns)}
                 rows={
                   category_tree_rows(
-                    @category_tree_children,
+                    sorted_tree_children(@category_tree_children, assigns),
                     normalize_category_key(@current_category_uuid),
                     @expanded_categories
                   )
                 }
+                reorderable={categories_reorderable?(assigns)}
                 catalogue={@catalogue}
                 current_uuid={normalize_category_key(@current_category_uuid)}
                 return_to={current_level_path(assigns)}
@@ -5122,9 +5124,11 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               <span :if={cat.status == "deleted"} class="font-medium">
                 {cat.name}
               </span>
-              <%!-- Same words as the tree's toggle (a bare icon here only
-                   moved the tree's puzzle to the sorted view); no toggle,
-                   since a sorted table has no outline to open. --%>
+              <%!-- Same words as the tree's toggle, but no toggle: this table
+                   only renders for the status tabs (the trash among them),
+                   which keep no tree to open. It used to render for every
+                   non-manual sort too, where these words looked like the
+                   tree's button and did nothing (boss via Max, 2026-09-21). --%>
               <span
                 :if={MapSet.member?(@children_with_subs, cat.uuid)}
                 class="badge badge-ghost badge-sm font-normal whitespace-nowrap"
@@ -5278,6 +5282,13 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   # rows would otherwise be a hundred settings reads per render.
   attr(:context_menu, :boolean, default: false)
 
+  attr(:reorderable, :boolean,
+    default: true,
+    doc:
+      "Manual order: drag handles on. Off under any other sort, where a drop " <>
+        "would land wherever the sort puts it and write a position nobody chose."
+  )
+
   defp categories_tree_table(assigns) do
     cats = Enum.map(assigns.rows, fn {cat, _d, _h, _e} -> cat end)
 
@@ -5358,8 +5369,12 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
             data-tree-parent={tree_parent_key(cat, @current_uuid)}
             data-tree-drop={cat.uuid}
           >
+            <%!-- The cell stays under any sort so the columns do not shift;
+                 only the handle goes. It is the drag source, so without it
+                 nothing in this row can be dragged. --%>
             <.table_default_cell class="w-8 !pr-0">
               <span
+                :if={@reorderable}
                 data-tree-item={"category:" <> cat.uuid}
                 class="pk-drag-handle cursor-grab text-base-content/30 hover:text-base-content/60"
                 title={gettext("Drag to reorder or nest")}
@@ -5502,11 +5517,41 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
   defp tree_parent_key(%{parent_uuid: parent}, _current_uuid), do: parent
 
-  # The browser shows the tree when there is a manual order to stand on
-  # — same rule as the index's folder tree. Any other sort falls back to
-  # the flat sortable table.
+  # The active categories are ALWAYS the tree. A sort orders each sibling
+  # group within it; it never swaps the structure for a flat table. It used
+  # to: any sort but Manual order dropped the subcategories and left a
+  # "2 subcategories" badge that looked like the tree's toggle and did
+  # nothing — and since the sort is one shared setting pushed live, one
+  # person's "Name" flattened everyone's tree (boss via Max, 2026-09-21:
+  # "sometimes it's just a flat list, or you can't even open the
+  # subcategories"). The flat table is the trash's now, and only the trash's.
   defp categories_tree_mode?(assigns) do
-    assigns.view_mode == "active" and assigns.categories_sort_by == :position
+    assigns.view_mode == "active"
+  end
+
+  # Dragging writes manual positions, so it exists only in Manual order.
+  # Under any other sort a drop would put a row where the SORT, not the user,
+  # decides — and write a position nobody chose. The drop handlers check
+  # this server-side: a hook push can arrive under any sort, or be forged.
+  defp categories_reorderable?(assigns) do
+    categories_tree_mode?(assigns) and assigns.categories_sort_by == :position
+  end
+
+  # The tree's sibling groups, each ordered by the current sort. One index
+  # serves the tree table and the card boxes, so the two views cannot order
+  # the same level differently (card view used to ignore the sort). Items
+  # sorts by the same `child_counts` the Items column shows, so the column
+  # always reads as sorted.
+  defp sorted_tree_children(index, assigns) do
+    Map.new(index, fn {parent, siblings} ->
+      {parent,
+       sort_categories(
+         siblings,
+         assigns.child_counts,
+         assigns.categories_sort_by,
+         assigns.categories_sort_dir
+       )}
+    end)
   end
 
   # The root's loose items presented like any subcategory (Max,
@@ -6609,7 +6654,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   defp card_tree_children(%{view_mode: "deleted"} = assigns),
     do: %{normalize_category_key(assigns.current_category_uuid) => assigns.child_categories}
 
-  defp card_tree_children(assigns), do: assigns.category_tree_children
+  defp card_tree_children(assigns),
+    do: sorted_tree_children(assigns.category_tree_children, assigns)
 
   # The Deleted tab always shows the Status column — it is what says a row
   # is in the trash now that the tab has no red styling of its own.

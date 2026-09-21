@@ -1141,9 +1141,10 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   #
   # File-explorer view of the catalogues index: folders as collapsible
   # rows with catalogues nested under them (Core.TreeTable name cells
-  # inside table_default). Shown in Manual order with no search/status
-  # filter — any other sort or an active filter falls back to the flat
-  # sortable table. The drilled ?folder= sets the tree's root; the
+  # inside table_default). Shown under every sort with no search/status
+  # filter — a sort orders each level (`order_level/2`), and a search or
+  # an active filter falls back to the flat sortable table. The drilled
+  # ?folder= sets the tree's root; the
   # "__unfiled__" sentinel (reachable only via old URLs since the folder
   # select was removed) stays a flat filtered list.
 
@@ -1160,12 +1161,64 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     cfg.view == "card" and catalogues_structure_mode?(cfg, view_mode, lookup)
   end
 
+  # The folders stay under every sort: a sort orders each level, it never
+  # swaps the tree for a flat list of every catalogue. It used to, and since
+  # the sort is one shared setting pushed live, one person's "Name" dropped
+  # everyone's folders at once (boss via Max, 2026-09-21: "sometimes it's
+  # just a flat list"). A search or a filter still flattens — a result set
+  # is a list, and a tree with its non-matching parents cut out is worse.
   defp catalogues_structure_mode?(cfg, view_mode, lookup) do
     folder_filter = cfg.filters["folder"]
 
-    view_mode == "active" and cfg.sort_by == "position" and
+    view_mode == "active" and
       (cfg[:search] || "") == "" and Map.delete(cfg.filters, "folder") == %{} and
       (folder_filter == nil or Map.has_key?(lookup, folder_filter))
+  end
+
+  # Dragging writes the manual order, so it exists only in Manual order.
+  # Under another sort a drop would land where the SORT puts it and write a
+  # position nobody chose. The drop handlers check this too: a hook push can
+  # arrive under any sort, or be forged.
+  defp catalogues_reorderable?(cfg, view_mode, lookup) do
+    cfg.sort_by == "position" and catalogues_structure_mode?(cfg, view_mode, lookup)
+  end
+
+  # A folder has some of a catalogue's columns; for the rest it falls back
+  # to its name, ascending — the way a file explorer keeps folders readable
+  # under a sort that only means something for files.
+  @folder_sort_fields ~w(name updated created)
+
+  # One level of the tree, in display order.
+  #
+  # Manual order: one interleaved sequence of folders and catalogues
+  # (`drop_row` writes them into it together), so a catalogue dropped
+  # between two folders stays there. Ties (legacy per-type sequences) put
+  # folders first, then name.
+  #
+  # Any other sort: folders first, then catalogues — the file-explorer
+  # convention — each ordered by the chosen column, catalogues through the
+  # same `TableQuery.sort/4` the flat table uses so the two agree.
+  defp order_level(level, %{sort_by: "position"}) do
+    Enum.sort_by(level, fn
+      {:folder, f} -> {f.position, 0, String.downcase(f.name || "")}
+      {:catalogue, c} -> {c[:position], 1, String.downcase(c[:name] || "")}
+    end)
+  end
+
+  defp order_level(level, cfg) do
+    folders = for {:folder, f} <- level, do: f
+    catalogues = for {:catalogue, c} <- level, do: c
+
+    {folder_by, folder_dir} =
+      if cfg.sort_by in @folder_sort_fields,
+        do: {cfg.sort_by, cfg.sort_dir},
+        else: {"name", :asc}
+
+    Enum.map(TableQuery.sort(folders, :catalogues, folder_by, folder_dir), &{:folder, &1}) ++
+      Enum.map(
+        TableQuery.sort(catalogues, :catalogues, cfg.sort_by, cfg.sort_dir),
+        &{:catalogue, &1}
+      )
   end
 
   # Folder is URL state (?folder=), set by navigating, and no longer a
@@ -1215,7 +1268,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   # child folders first, then the catalogues filed at that level.
   # `catalogue_rows` are the enriched (orphan-promoted) row maps, so a
   # catalogue in a trashed folder surfaces at the root.
-  defp build_catalogue_tree_rows(folder_tree, catalogue_rows, expanded, current) do
+  defp build_catalogue_tree_rows(folder_tree, catalogue_rows, expanded, current, cfg) do
     folders = Enum.map(folder_tree, fn {f, _depth} -> f end)
     folders_by_parent = Enum.group_by(folders, & &1.parent_uuid)
     cats_by_folder = Enum.group_by(catalogue_rows, & &1[:folder_uuid])
@@ -1226,32 +1279,28 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     walk_catalogue_level(
       current && current.uuid,
       0,
-      folders_by_parent,
-      cats_by_folder,
+      %{folders_by_parent: folders_by_parent, cats: cats_by_folder, cfg: cfg},
       with_children,
       expanded
     )
   end
 
-  defp walk_catalogue_level(parent, depth, folders_by_parent, cats, with_children, expanded) do
+  defp walk_catalogue_level(parent, depth, index, with_children, expanded) do
+    %{folders_by_parent: folders_by_parent, cats: cats} = index
+
     # `parent_key` identifies the sibling group for drag-reorder ("root"
     # at the top level). Both folders and the catalogues filed here share
     # this level's parent.
     parent_key = parent || "root"
 
-    # One merged manual order per level: both types sort together by
-    # `position` (drop_row writes one interleaved sequence), so a
-    # catalogue dropped between two folders STAYS between them. Ties
-    # (e.g. legacy per-type sequences) put folders first, then name.
+    # See `order_level/2`: one interleaved manual sequence, or folders then
+    # catalogues by the chosen column.
     level =
       (Map.get(folders_by_parent, parent, []) |> Enum.map(&{:folder, &1})) ++
         (Map.get(cats, parent, []) |> Enum.map(&{:catalogue, &1}))
 
     level
-    |> Enum.sort_by(fn
-      {:folder, f} -> {f.position, 0, String.downcase(f.name || "")}
-      {:catalogue, c} -> {c[:position], 1, String.downcase(c[:name] || "")}
-    end)
+    |> order_level(index.cfg)
     |> Enum.flat_map(fn
       {:folder, folder} ->
         count = length(Map.get(cats, folder.uuid, []))
@@ -1264,14 +1313,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         if expanded? do
           [
             row
-            | walk_catalogue_level(
-                folder.uuid,
-                depth + 1,
-                folders_by_parent,
-                cats,
-                with_children,
-                expanded
-              )
+            | walk_catalogue_level(folder.uuid, depth + 1, index, with_children, expanded)
           ]
         else
           [row]
@@ -1353,10 +1395,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       (Map.get(ctx.folders_by_parent, parent_uuid, []) |> Enum.map(&{:folder, &1})) ++
         (Map.get(ctx.cats_by_folder, parent_uuid, []) |> Enum.map(&{:catalogue, &1}))
 
-    Enum.sort_by(level, fn
-      {:folder, f} -> {f.position, 0, String.downcase(f.name || "")}
-      {:catalogue, c} -> {c[:position], 1, String.downcase(c[:name] || "")}
-    end)
+    order_level(level, ctx.cfg)
   end
 
   attr(:entries, :list, required: true)
@@ -1417,6 +1456,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     >
       <div class="flex items-center gap-2 min-w-0">
         <span
+          :if={@ctx.cfg.sort_by == "position"}
           data-tree-item={"folder:" <> @folder.uuid}
           class="cursor-grab active:cursor-grabbing text-base-content/40 shrink-0"
           title={
@@ -1535,6 +1575,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         >
           <:overlay>
             <span
+              :if={@ctx.cfg.sort_by == "position"}
               data-tree-item={"catalogue:" <> @c_row.uuid}
               class="pk-drag-handle cursor-grab active:cursor-grabbing absolute top-1.5 right-1.5 rounded bg-base-100/80 p-0.5 text-base-content/50 hover:text-base-content/80"
               title={
@@ -1623,6 +1664,10 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   attr(:context_menu, :boolean, default: false)
 
   defp catalogues_tree_table(assigns) do
+    # Manual order only — see `catalogues_reorderable?/3`. The table is only
+    # rendered in structure mode, so the sort is the one condition left.
+    assigns = assign(assigns, :reorderable, assigns.cfg.sort_by == "position")
+
     assigns =
       assign(
         assigns,
@@ -1691,12 +1736,15 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
                   data-tree-drop={folder.uuid}
                   data-row-menu-context={@context_menu}
                 >
+                  <%!-- The cell stays under any sort so the columns do not
+                       shift; the drag source (the attribute) and its icon
+                       exist only in Manual order. --%>
                   <td
-                    data-tree-item={"folder:" <> folder.uuid}
-                    class="w-8 cursor-grab active:cursor-grabbing text-base-content/40"
-                    title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Drag to reorder or move into a folder")}
+                    data-tree-item={@reorderable && "folder:" <> folder.uuid}
+                    class={["w-8 text-base-content/40", @reorderable && "cursor-grab active:cursor-grabbing"]}
+                    title={@reorderable && Gettext.gettext(PhoenixKitCatalogue.Gettext, "Drag to reorder or move into a folder")}
                   >
-                    <.icon name="hero-bars-3" class="w-4 h-4" />
+                    <.icon :if={@reorderable} name="hero-bars-3" class="w-4 h-4" />
                   </td>
                   <.table_default_cell
                     :if={@photo_col?}
@@ -1796,11 +1844,11 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
                   data-row-menu-context={@context_menu}
                 >
                   <td
-                    data-tree-item={"catalogue:" <> c_row.uuid}
-                    class="w-8 cursor-grab active:cursor-grabbing text-base-content/40"
-                    title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Drag to reorder or move into a folder")}
+                    data-tree-item={@reorderable && "catalogue:" <> c_row.uuid}
+                    class={["w-8 text-base-content/40", @reorderable && "cursor-grab active:cursor-grabbing"]}
+                    title={@reorderable && Gettext.gettext(PhoenixKitCatalogue.Gettext, "Drag to reorder or move into a folder")}
                   >
-                    <.icon name="hero-bars-3" class="w-4 h-4" />
+                    <.icon :if={@reorderable} name="hero-bars-3" class="w-4 h-4" />
                   </td>
                   <.table_default_cell
                     :if={@photo_col?}
@@ -2820,7 +2868,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
 
     with {:ok, target} <- target,
          true <-
-           catalogues_structure_mode?(
+           catalogues_reorderable?(
              cfg,
              socket.assigns.catalogue_view_mode,
              socket.assigns.folder_lookup
@@ -2839,7 +2887,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       when is_list(ordered_ids) do
     cfg = current_cfg(socket.assigns)
 
-    if catalogues_structure_mode?(
+    if catalogues_reorderable?(
          cfg,
          socket.assigns.catalogue_view_mode,
          socket.assigns.folder_lookup
@@ -3315,7 +3363,8 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
                 @folder_tree,
                 @catalogue_rows,
                 @expanded_folders,
-                current_tree_folder(cfg, @folder_lookup)
+                current_tree_folder(cfg, @folder_lookup),
+                cfg
               )
             }
             cfg={cfg}

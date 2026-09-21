@@ -158,7 +158,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
   # ─────────────────────────────────────────────────────────────────
 
   describe "catalogues tree table" do
-    test "manual order shows collapsible folder rows; other sorts flatten", %{conn: conn} do
+    test "manual order shows collapsible folder rows; other sorts keep the tree", %{conn: conn} do
       {:ok, folder} = Catalogue.create_folder(%{name: "Tree parent"})
       {:ok, _child} = Catalogue.create_folder(%{name: "Tree child", parent_uuid: folder.uuid})
       filed = fixture_catalogue(%{name: "Filed in tree"})
@@ -188,10 +188,16 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLiveTest do
       assert expanded =~ "Tree child"
       assert expanded =~ "Filed in tree"
 
-      # Switching to a real sort falls back to the flat sortable table.
-      flat = render_click(view, "set_sort", %{"sort_by" => "name"})
-      refute flat =~ "catalogues-tree-table"
-      assert flat =~ "Filed in tree"
+      # A real sort orders each level and keeps the tree — it used to swap
+      # it for a flat list of every catalogue, which is what the owner
+      # reported as "sometimes it's just a flat list" (2026-09-21). The open
+      # folder stays open; the grip handles go, since a drop would land
+      # wherever the sort puts it.
+      sorted = render_click(view, "set_sort", %{"sort_by" => "name"})
+      assert sorted =~ "catalogues-tree-table"
+      assert sorted =~ "Tree child"
+      assert sorted =~ "Filed in tree"
+      refute sorted =~ ~s(data-tree-item="folder:#{folder.uuid}")
     end
 
     test "drilling re-roots the tree and Up walks back", %{conn: conn} do

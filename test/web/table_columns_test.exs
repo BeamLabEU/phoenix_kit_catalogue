@@ -84,17 +84,24 @@ defmodule PhoenixKitCatalogue.Web.TableColumnsTest do
       end
     end
 
-    test "the flat table (any sort but manual order)", %{conn: conn, catalogue: catalogue} do
+    # A sort no longer swaps in a flat table (boss via Max, 2026-09-21) — it
+    # keeps the tree and takes the drag handles away. The handle's CELL has
+    # to stay, or every row under a sort is one cell short of its header.
+    test "the tree table under a sort, with its drag handles gone", %{
+      conn: conn,
+      catalogue: catalogue
+    } do
       {:ok, view, _html} = live(conn, "#{@base}/#{catalogue.uuid}")
       html = render_click(view, "sort_categories", %{"sort_by" => "name"})
 
-      assert_rectangular(html, "category-menu-uncategorized\"")
+      refute html =~ "data-tree-item"
+      assert_rectangular(html, "category-menu-uncategorized-tree")
 
       for ids <- @column_sets do
         html =
           render_click(view, "reorder_columns_detail_categories", %{"ordered_ids" => ids})
 
-        assert_rectangular(html, "category-menu-uncategorized\"")
+        assert_rectangular(html, "category-menu-uncategorized-tree")
       end
     end
 
