@@ -3873,8 +3873,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     ]
   end
 
-  defp status_tab_active_class("deleted"), do: "border-error text-error"
-  defp status_tab_active_class(_), do: "border-primary text-primary"
+  defp status_tab_variant("deleted"), do: :error
+  defp status_tab_variant(_), do: :primary
 
   # The level identity the current view_mode was chosen for. `current` is a
   # %Category{}, the :uncategorized sentinel (the Uncategorized drill), or
@@ -4043,7 +4043,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
             <div class="flex flex-wrap items-center gap-3">
               <.search_input
                 :if={show_search_input}
-                class="grow basis-64 min-w-0 sm:max-w-xl"
+                class={search_width_class()}
                 query={@search_query}
                 placeholder={search_placeholder(@current_category)}
               />
@@ -4251,38 +4251,35 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                status tabs, columns and the view toggle are all unusable
                while a selection is open anyway. Both scopes below name this
                id, and it stays hidden while either holds a selection. --%>
-          <div
+          <.list_controls_row
             :if={
               @child_categories != [] or length(@status_tabs) > 1 or
                 (@show_items_section and
                    (@items != [] or @search_results not in [nil, []]))
             }
             id="detail-level-controls"
-            class="flex flex-wrap items-center gap-2"
           >
             <%!-- One tab per populated status — sharing the row with the
                  sort/columns/view controls (no dedicated tab row). The
                  tabs stay even though the Active tab is now a pure
                  category browser: they are also the way into the
                  inactive/discontinued views and the trash. --%>
-            <div :if={length(@status_tabs) > 1} class="flex items-center gap-0.5 flex-wrap">
-              <button
+            <%!-- A lone tab is not a choice — one populated status means the
+                 row carries its controls alone. `:if` on the slot ENTRY
+                 drops it from the slot list, so the wrapper div does not
+                 render empty either. --%>
+            <:tabs :if={length(@status_tabs) > 1}>
+              <.status_tab
                 :for={{status, label, count} <- @status_tabs}
-                type="button"
+                label={label}
+                count={count}
+                active={@view_mode == status}
+                variant={status_tab_variant(status)}
                 phx-click="switch_view"
                 phx-value-mode={status}
-                class={[
-                  "px-3 py-1.5 text-xs font-medium border-b-2 transition-colors cursor-pointer whitespace-nowrap",
-                  if(@view_mode == status,
-                    do: status_tab_active_class(status),
-                    else: "border-transparent text-base-content/50 hover:text-base-content"
-                  )
-                ]}
-              >
-                {label} ({count})
-              </button>
-            </div>
-            <div class="ml-auto flex flex-wrap items-center justify-end gap-2">
+              />
+            </:tabs>
+            <:controls>
             <.sort_selector
               :if={@child_categories != []}
               sort_by={@categories_sort_by}
@@ -4291,6 +4288,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               manual_field={:position}
               event="sort_categories"
               id="categories-sort-selector"
+              label
             />
             <%!-- Item-only levels put the items sort here too — same row,
                  same order as the catalogues index. Mixed levels keep the
@@ -4304,6 +4302,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               manual_field={:position}
               event="sort_items"
               id="items-header-sort-selector"
+              label
             />
             <button
               :if={
@@ -4345,8 +4344,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               </span>
             </button>
               <.view_toggle_instant view={@view_mode_pref} id="detail-view-pref" />
-            </div>
-          </div>
+            </:controls>
+          </.list_controls_row>
 
           <.reorder_modal
             id="categories-reorder-modal"
@@ -6098,6 +6097,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               options={item_sort_options()}
               manual_field={:position}
               event="sort_items"
+              label
             />
             <%!-- Move isn't a built-in toolbar action (core ships
                  Reorder/Delete/Clear), so it's a custom client-side

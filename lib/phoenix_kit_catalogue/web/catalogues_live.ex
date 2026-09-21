@@ -2710,7 +2710,12 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     end
   end
 
-  def handle_event("flip_sort_dir", _p, socket) do
+  # Core's sort_selector sends the direction on the SAME event as the field,
+  # carrying only the control that moved (see its moduledoc: deriving the
+  # other half from assigns is what makes an arrow click mid-change safe).
+  # The direction it sends is already the flipped one, but this reads the
+  # current value rather than trusting it — the DOM can be stale.
+  def handle_event("set_sort", %{"sort_dir" => _dir}, socket) do
     scope = active_scope(socket.assigns)
     cfg = current_cfg(socket.assigns)
     {:noreply, put_cfg(socket, scope, %{cfg | sort_dir: flip(cfg.sort_dir)})}
@@ -4268,7 +4273,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
           query={@cfg[:search] || ""}
           on_search="table_search"
           on_clear="table_search_clear"
-          class="w-full sm:w-72"
+          class={Shared.search_width_class()}
         />
         {render_slot(@filters)}
       </div>
