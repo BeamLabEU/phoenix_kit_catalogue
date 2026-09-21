@@ -47,7 +47,9 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   alias PhoenixKitCatalogue.Paths
   alias PhoenixKitCatalogue.Web.Components, as: Shared
   alias PhoenixKitCatalogue.Web.Components.AttributeSetItemsModal
+  alias PhoenixKitCatalogue.Web.Components.PlacePicker
   alias PhoenixKitCatalogue.Web.Components.ProductCard
+  alias PhoenixKitCatalogue.Web.PlaceTree
   alias PhoenixKitCatalogue.Web.Settings, as: CatalogueSettings
   alias PhoenixKitCatalogue.Web.{TableConfig, TableQuery, ViewConfig}
 
@@ -126,9 +128,11 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
        expanded_folders: MapSet.new(),
        renaming_folder: nil,
        move_dialog: nil,
+       move_tree: [],
+       move_pick: nil,
+       move_current: nil,
        duplicate_confirm: nil,
        duplicating: %{},
-       folder_options: [],
        view_configs: load_view_configs(socket),
        catalogue_file_counts: %{},
        show_catalogues_reorder: false,
@@ -209,6 +213,9 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
 
     finish_duplicate(assign(socket, :duplicating, running), source_uuid, {:error, :failed})
   end
+
+  def handle_info({PlacePicker, "move-folder-picker", id}, socket),
+    do: {:noreply, assign(socket, :move_pick, id)}
 
   def handle_info(:auto_migrate_legacy, socket) do
     Catalogue.auto_migrate_attribute_groups()
@@ -476,8 +483,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         catalogue_view_mode: mode,
         folder_tree: active_tree,
         folder_tree_deleted: deleted_folder_tree,
-        folder_lookup: folder_lookup,
-        folder_options: folder_options(active_tree)
+        folder_lookup: folder_lookup
       )
       |> drop_stale_folder_filter(folder_lookup)
       |> assign(
@@ -1094,14 +1100,21 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
 
   # Depth-indented `{value, label}` options for the "Move to folder"
   # picker — active folders only; root is the empty-string sentinel.
-  defp folder_options(active_tree) do
-    nested =
-      Enum.map(active_tree, fn {folder, depth} ->
-        {folder.uuid, String.duplicate("  ", depth) <> folder.name}
-      end)
+  # Where a catalogue or folder is filed now, as the folder tree names it.
+  defp current_folder_place(:catalogue, uuid),
+    do: folder_place(Catalogue.get_catalogue(uuid), :folder_uuid)
 
-    [{"", Gettext.gettext(PhoenixKitCatalogue.Gettext, "— Root (unfiled) —")} | nested]
+  defp current_folder_place(:folder, uuid),
+    do: folder_place(Catalogue.get_folder(uuid), :parent_uuid)
+
+  defp folder_place(%{} = record, field) do
+    case Map.get(record, field) do
+      uuid when is_binary(uuid) -> "folder:" <> uuid
+      nil -> PlaceTree.root_id()
+    end
   end
+
+  defp folder_place(nil, _field), do: PlaceTree.root_id()
 
   defp clear_folder_filter(socket) do
     cfg = Map.fetch!(socket.assigns.view_configs, :catalogues)
@@ -2280,10 +2293,26 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     {:noreply, assign(socket, :card_open, false)}
   end
 
+  # "Move to folder": the folder tree under its top level (boss via Max,
+  # 2026-09-21: proper pickers, no flat lists) — a folder being moved
+  # leaves its own branch out. What is picked posts with the dialog's form.
   def handle_event("open_move", %{"type" => type, "uuid" => uuid}, socket)
       when type in ~w(folder catalogue) do
     target_type = if type == "folder", do: :folder, else: :catalogue
-    {:noreply, assign(socket, move_dialog: {target_type, uuid})}
+    current = current_folder_place(target_type, uuid)
+
+    tree =
+      Gettext.gettext(PhoenixKitCatalogue.Gettext, "Top level")
+      |> PlaceTree.folders()
+      |> PlaceTree.prune(if target_type == :folder, do: ["folder:" <> uuid], else: [])
+
+    {:noreply,
+     assign(socket,
+       move_dialog: {target_type, uuid},
+       move_tree: tree,
+       move_pick: current,
+       move_current: current
+     )}
   end
 
   def handle_event("cancel_move", _params, socket) do
@@ -4168,9 +4197,16 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
             {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Move to folder")}
           </h3>
           <p class="text-sm text-base-content/60">{move_dialog_label(@move_dialog)}</p>
-          <select name="folder_uuid" class="select w-full">
-            <option :for={{value, label} <- @folder_options} value={value}>{label}</option>
-          </select>
+          <.live_component
+            module={PlacePicker}
+            id="move-folder-picker"
+            tree={@move_tree}
+            value={@move_pick}
+            current={@move_current}
+            pickable={[:root, :folder]}
+            path_skip={[]}
+            name="folder_uuid"
+          />
           <div class="flex justify-end gap-2">
             <button type="button" phx-click="cancel_move" class="btn btn-ghost btn-sm">
               {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Cancel")}
