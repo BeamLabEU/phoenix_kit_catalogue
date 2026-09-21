@@ -3629,3 +3629,24 @@ msgstr "Le tri de chaque liste se règle dans la liste elle-même."
 
 msgid "Enable more languages."
 msgstr "Activer d’autres langues."
+
+msgid "Rename folder"
+msgstr "Renommer le dossier"
+
+msgid "Folder name"
+msgstr "Nom du dossier"
+
+msgid "Edit category"
+msgstr "Modifier la catégorie"
+
+msgid "Edit catalogue"
+msgstr "Modifier le catalogue"
+
+msgid "Item form"
+msgstr "Formulaire d’article"
+
+msgid "Show the URL slug and SEO fields"
+msgstr "Afficher le slug d’URL et les champs SEO"
+
+msgid "Off hides them from the item form; what they already hold is kept and saved unchanged, and comes back when you turn this on."
+msgstr "Désactivé, ils sont masqués dans le formulaire d’article ; ce qu’ils contiennent déjà est conservé, enregistré tel quel et réapparaît quand vous réactivez cette option."

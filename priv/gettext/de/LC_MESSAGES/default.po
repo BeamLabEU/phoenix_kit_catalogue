@@ -3629,3 +3629,24 @@ msgstr "Die Sortierung jeder Liste wird in der Liste selbst festgelegt."
 
 msgid "Enable more languages."
 msgstr "Weitere Sprachen aktivieren."
+
+msgid "Rename folder"
+msgstr "Ordner umbenennen"
+
+msgid "Folder name"
+msgstr "Ordnername"
+
+msgid "Edit category"
+msgstr "Kategorie bearbeiten"
+
+msgid "Edit catalogue"
+msgstr "Katalog bearbeiten"
+
+msgid "Item form"
+msgstr "Artikelformular"
+
+msgid "Show the URL slug and SEO fields"
+msgstr "URL-Slug und SEO-Felder anzeigen"
+
+msgid "Off hides them from the item form; what they already hold is kept and saved unchanged, and comes back when you turn this on."
+msgstr "Aus blendet sie im Artikelformular aus; was sie schon enthalten, bleibt erhalten, wird unverändert gespeichert und ist wieder da, sobald Sie dies einschalten."

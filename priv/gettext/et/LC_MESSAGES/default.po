@@ -3629,3 +3629,24 @@ msgstr "Iga loendi sortimine määratakse loendis endas."
 
 msgid "Enable more languages."
 msgstr "Lülita sisse rohkem keeli."
+
+msgid "Rename folder"
+msgstr "Nimeta kaust ümber"
+
+msgid "Folder name"
+msgstr "Kausta nimi"
+
+msgid "Edit category"
+msgstr "Muuda kategooriat"
+
+msgid "Edit catalogue"
+msgstr "Muuda kataloogi"
+
+msgid "Item form"
+msgstr "Toote vorm"
+
+msgid "Show the URL slug and SEO fields"
+msgstr "Näita URL-slugi ja SEO välju"
+
+msgid "Off hides them from the item form; what they already hold is kept and saved unchanged, and comes back when you turn this on."
+msgstr "Välja lülitatuna on need toote vormist peidetud; nende senine sisu säilib, salvestatakse muutmata ja tuleb tagasi, kui selle sisse lülitate."
