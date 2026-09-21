@@ -109,6 +109,14 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLive do
       # Both counts, not just this tab's: the status tabs carry a number
       # each, the way every other catalogue list's do (boss via Max,
       # 2026-09-21). Two cheap COUNTs on a filter change, never per render.
+      #
+      # These are STATUS totals and do not narrow with the search, unlike
+      # the index's tabs — the index holds every row, while `list_pdfs/1`
+      # caps at 100 and the filename search runs over that page in the
+      # browser, so a search-narrowed count here would be "of the first
+      # hundred", which is worse than a true total. Switching tab clears
+      # the search (`set_filter`), so the two are never read against each
+      # other across a tab.
       socket
       |> assign(pdfs: Catalogue.list_pdfs(status: socket.assigns.filter), pdfs_loaded: true)
       |> assign(

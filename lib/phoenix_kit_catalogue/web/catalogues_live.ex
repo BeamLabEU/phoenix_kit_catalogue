@@ -2711,15 +2711,24 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   end
 
   # Core's sort_selector sends the direction on the SAME event as the field,
-  # carrying only the control that moved (see its moduledoc: deriving the
-  # other half from assigns is what makes an arrow click mid-change safe).
-  # The direction it sends is already the flipped one, but this reads the
-  # current value rather than trusting it — the DOM can be stale.
-  def handle_event("set_sort", %{"sort_dir" => _dir}, socket) do
+  # carrying only the control that moved. The button asks for an ABSOLUTE
+  # direction (`phx-value-sort_dir` is already the flipped one), and this
+  # applies what it asked for rather than flipping the server's value: two
+  # clicks queued before the first patch lands would otherwise flip twice
+  # and leave the user back where they started, having asked once (grok,
+  # 2026-09-21). Applying an absolute value makes a duplicate event a
+  # no-op. `sort_dir_for/2` still forces `:asc` under manual order.
+  def handle_event("set_sort", %{"sort_dir" => dir}, socket) when dir in ~w(asc desc) do
     scope = active_scope(socket.assigns)
     cfg = current_cfg(socket.assigns)
-    {:noreply, put_cfg(socket, scope, %{cfg | sort_dir: flip(cfg.sort_dir)})}
+    want = if dir == "desc", do: :desc, else: :asc
+    {:noreply, put_cfg(socket, scope, %{cfg | sort_dir: sort_dir_for(cfg.sort_by, want)})}
   end
+
+  # Anything else on this event — a direction that is not asc/desc, or a
+  # payload shape a future core sends — leaves the sort alone rather than
+  # raising in the user's face.
+  def handle_event("set_sort", _params, socket), do: {:noreply, socket}
 
   def handle_event("toggle_sort", %{"by" => by}, socket) do
     scope = active_scope(socket.assigns)
