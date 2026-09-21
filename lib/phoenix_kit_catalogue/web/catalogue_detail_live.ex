@@ -844,6 +844,28 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
   def handle_event("show_category_card", _params, socket), do: {:noreply, socket}
 
+  # The catalogue's own card, from its picture at the top of the page —
+  # always the page's catalogue, so nothing is read from the payload.
+  def handle_event("show_catalogue_card", _params, socket) do
+    case Catalogue.get_catalogue(socket.assigns.catalogue_uuid) do
+      %{} = catalogue ->
+        locale = socket.assigns[:current_locale] || "en"
+
+        {:noreply,
+         assign(socket,
+           card_open: true,
+           card_name: ProductCard.resolve_name(catalogue, locale),
+           card_images: ProductCard.resolve_images(catalogue),
+           card_fields: ProductCard.build_catalogue_fields(catalogue, locale, admin: true),
+           card_files: ProductCard.resolve_files(catalogue),
+           card_edit_path: catalogue.status != "deleted" && Paths.catalogue_edit(catalogue.uuid)
+         )}
+
+      _ ->
+        {:noreply, socket}
+    end
+  end
+
   def handle_event("card_close", _params, socket) do
     {:noreply, assign(socket, :card_open, false)}
   end
@@ -4059,23 +4081,24 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
             <%!-- The place's own picture beside its description. Inside a
                  category there was no way to see the image attached to it
                  (boss via Max, 2026-09-21); the catalogue's top level shows
-                 the catalogue's the same way. A category's opens its View
-                 card, which holds every picture it has. --%>
+                 the catalogue's the same way. Either opens its View card,
+                 which holds every picture it has. --%>
             <div :if={level_img || level_desc} class="flex items-center gap-3 min-w-0">
               <button
-                :if={match?(%Category{}, level_img)}
+                :if={level_img}
                 type="button"
                 id="level-image"
-                phx-click="show_category_card"
+                phx-click={
+                  if match?(%Category{}, level_img),
+                    do: "show_category_card",
+                    else: "show_catalogue_card"
+                }
                 phx-value-uuid={level_img.uuid}
                 class="shrink-0 cursor-pointer"
                 title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "View")}
               >
                 <.featured_thumb resource={level_img} class="w-16 h-16" comfy_scale={false} />
               </button>
-              <span :if={level_img && !match?(%Category{}, level_img)} id="level-image">
-                <.featured_thumb resource={level_img} class="w-16 h-16" comfy_scale={false} />
-              </span>
               <p :if={level_desc} class="text-sm text-base-content/60 truncate" title={level_desc}>
                 {level_desc}
               </p>

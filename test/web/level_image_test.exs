@@ -49,10 +49,15 @@ defmodule PhoenixKitCatalogue.Web.LevelImageTest do
     refute has_element?(view, "#level-image")
   end
 
-  test "the catalogue's top level shows the catalogue's picture", %{conn: conn, catalogue: c} do
+  test "the catalogue's top level shows the catalogue's picture, which opens its card",
+       %{conn: conn, catalogue: c} do
     {_c, image} = with_image(c, &Catalogue.update_catalogue/2)
 
     {:ok, view, _html} = live(conn, "#{@base}/#{c.uuid}")
     assert view |> element("#level-image") |> render() =~ image
+
+    view |> element("#level-image") |> render_click()
+    assert :sys.get_state(view.pid).socket.assigns[:card_open]
+    assert :sys.get_state(view.pid).socket.assigns[:card_name] == c.name
   end
 end
