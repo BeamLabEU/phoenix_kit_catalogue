@@ -1680,10 +1680,10 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         for(c <- visible_columns(:catalogues, assigns.cfg), c.id not in ["name", "folder"], do: c)
       )
 
-    catalogue_rows = for {:catalogue, c_row, _depth, _parent} <- assigns.rows, do: c_row
-
+    # Always, like every other list (boss via Max, 2026-09-21) — folders
+    # get a folder tile, catalogues their picture or the letter tile.
     assigns =
-      assign(assigns, :photo_col?, any_media_thumb?(catalogue_rows, assigns.file_counts))
+      assign(assigns, :photo_col?, assigns.rows != [])
 
     ~H"""
     <%!-- The location row (Up + folder name) is rendered by the parent —
@@ -1759,10 +1759,19 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
                   >
                     <.icon :if={@reorderable} name="hero-bars-3" class="w-4 h-4" />
                   </td>
+                  <%!-- The preview column says what the row is — a folder tile
+                       here, the catalogue's picture or letter below — so the
+                       small type icon before the name has gone: one visual
+                       per row, always in the same column (boss via Max,
+                       2026-09-21). --%>
                   <.table_default_cell
                     :if={@photo_col?}
                     class="w-12 !pr-0 !py-1 [.pk-comfy_&]:w-22 [.pk-comfy_&]:!py-1.5"
                   >
+                    <Shared.thumb_icon_tile
+                      icon={if meta.expanded, do: "hero-folder-open", else: "hero-folder"}
+                      icon_class="text-warning"
+                    />
                   </.table_default_cell>
                   <.tree_name_cell
                     depth={depth}
@@ -1771,8 +1780,6 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
                     expanded={meta.expanded}
                     toggle_event="toggle_folder_expand"
                     value={folder.uuid}
-                    icon={if meta.expanded, do: "hero-folder-open", else: "hero-folder"}
-                    icon_class="w-4 h-4 text-warning shrink-0"
                     toggle_label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Toggle folder")}
                   >
                     <%= if @renaming_folder == folder.uuid do %>
@@ -1871,15 +1878,11 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
                       <.featured_thumb
                         resource={c_row}
                         has_files={Map.get(@file_counts, c_row.uuid, 0) > 0}
+                        letter
                       />
                     </.link>
                   </.table_default_cell>
-                  <.tree_name_cell
-                    depth={depth}
-                    indent="1rem"
-                    icon="hero-document-text"
-                    icon_class="w-4 h-4 text-base-content/40 shrink-0"
-                  >
+                  <.tree_name_cell depth={depth} indent="1rem">
                     <.link
                       navigate={Paths.catalogue_detail(c_row.uuid)}
                       draggable="false"
@@ -4488,7 +4491,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         &assign(
           &1,
           :photo_col?,
-          &1.scope == :catalogues and any_media_thumb?(&1.rows, &1.file_counts)
+          &1.scope == :catalogues and &1.rows != []
         )
       )
 
@@ -4553,12 +4556,13 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
               navigate={Paths.catalogue_detail(row.uuid)}
               draggable="false"
             >
-              <.featured_thumb resource={row} has_files={Map.get(@file_counts, row.uuid, 0) > 0} />
+              <.featured_thumb resource={row} has_files={Map.get(@file_counts, row.uuid, 0) > 0} letter />
             </.link>
             <.featured_thumb
               :if={@scope != :catalogues or row.status == "trashed"}
               resource={row}
               has_files={Map.get(@file_counts, row.uuid, 0) > 0}
+              letter
             />
           </.table_default_cell>
           <.table_default_cell :for={c <- @cols} class={[column_fit_class(c.id), c.align == :right && "text-right"]}>
@@ -4577,12 +4581,13 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
               navigate={Paths.catalogue_detail(row.uuid)}
               draggable="false"
             >
-              <.featured_thumb resource={row} has_files={Map.get(@file_counts, row.uuid, 0) > 0} />
+              <.featured_thumb resource={row} has_files={Map.get(@file_counts, row.uuid, 0) > 0} letter />
             </.link>
             <.featured_thumb
               :if={@scope != :catalogues or row.status == "trashed"}
               resource={row}
               has_files={Map.get(@file_counts, row.uuid, 0) > 0}
+              letter
             />
           </.table_default_cell>
           <.table_default_cell :for={c <- @cols} class={[column_fit_class(c.id), c.align == :right && "text-right"]}>

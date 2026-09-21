@@ -5080,7 +5080,11 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         # both on, a row gets the same picture twice. The managed
         # column wins once it's turned on; this one is the fallback for
         # everyone who hasn't opted in (owner's call, 2026-09-09).
-        any_media_thumb?(assigns.child_categories, assigns.file_counts) and
+        # Always there when there are rows (boss via Max, 2026-09-21: a
+        # preview column that comes and goes with whether some row has a
+        # picture left names jumping level to level) — a row without one
+        # gets the picker's letter tile.
+        assigns.child_categories != [] and
           "image" not in assigns.categories_columns
       )
       |> assign(:extension_columns, TableConfig.extension_columns(:detail_categories))
@@ -5142,12 +5146,13 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
             (boss, 2026-08-31); a deleted row keeps the bare thumb like
             its name stays unlinked. --%>
             <.link :if={cat.status != "deleted"} patch={Paths.category_browse(@catalogue.uuid, cat.uuid)}>
-              <.featured_thumb resource={cat} has_files={Map.get(@file_counts, cat.uuid, 0) > 0} />
+              <.featured_thumb resource={cat} has_files={Map.get(@file_counts, cat.uuid, 0) > 0} letter />
             </.link>
             <.featured_thumb
               :if={cat.status == "deleted"}
               resource={cat}
               has_files={Map.get(@file_counts, cat.uuid, 0) > 0}
+              letter
             />
           </.table_default_cell>
           <.table_default_cell class={name_cell_class()}>
@@ -5196,9 +5201,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
           <td :if={@draggable?} class="w-8"></td>
           <td class="w-8"></td>
           <td :if={@photo_col?} class="w-12 !pr-0 !py-1 [.pk-comfy_&]:w-22 [.pk-comfy_&]:!py-1.5">
-            <span class="w-8 h-8 rounded bg-base-200 flex items-center justify-center">
-              <.icon name="hero-folder-open" class="w-4 h-4 text-base-content/40" />
-            </span>
+            <.thumb_icon_tile icon="hero-folder-open" />
           </td>
           <td class={name_cell_class()}>
             <.link patch={Paths.uncategorized_browse(@catalogue.uuid)} class="link link-hover">
@@ -5341,7 +5344,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         :photo_col?,
         # See the matching comment on `categories_table/1` above — same
         # managed-"Image"-column-suppresses-the-automatic-one rule.
-        any_media_thumb?(cats, assigns.file_counts) and
+        (cats != [] or assigns.show_uncat) and
           "image" not in assigns.categories_columns
       )
       |> assign(:extension_columns, TableConfig.extension_columns(:detail_categories))
@@ -5439,7 +5442,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
             </.table_default_cell>
             <.table_default_cell :if={@photo_col?} class="w-12 !pr-0 !py-1 [.pk-comfy_&]:w-22 [.pk-comfy_&]:!py-1.5">
               <.link patch={Paths.category_browse(@catalogue.uuid, cat.uuid)}>
-                <.featured_thumb resource={cat} has_files={Map.get(@file_counts, cat.uuid, 0) > 0} />
+                <.featured_thumb resource={cat} has_files={Map.get(@file_counts, cat.uuid, 0) > 0} letter />
               </.link>
             </.table_default_cell>
             <.category_tree_name_cell
@@ -5469,7 +5472,9 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
           <tr :if={@show_uncat} data-row-menu-context={@context_menu}>
             <td class="w-8"></td>
             <td class="w-8"></td>
-            <td :if={@photo_col?} class="w-12"></td>
+            <td :if={@photo_col?} class="w-12 !pr-0 !py-1 [.pk-comfy_&]:w-22 [.pk-comfy_&]:!py-1.5">
+              <.thumb_icon_tile icon="hero-folder-open" />
+            </td>
             <td class={name_cell_class()}>
               <.link patch={Paths.uncategorized_browse(@catalogue.uuid)} class="link link-hover">
                 {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Uncategorized")}
@@ -6172,7 +6177,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       # wins once it's turned on (owner's call, 2026-09-09).
       |> assign(
         :photo_col?,
-        any_media_thumb?(assigns.items, assigns.file_counts) and
+        assigns.items != [] and
           "image" not in assigns.items_columns
       )
       |> assign(:extension_columns, TableConfig.extension_columns(:detail_items))
@@ -6491,6 +6496,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                   resource={item}
                   on_click="show_product_card"
                   has_files={Map.get(@file_counts, item.uuid, 0) > 0}
+                  letter
                 />
               </.table_default_cell>
               <.item_pricing_cell
