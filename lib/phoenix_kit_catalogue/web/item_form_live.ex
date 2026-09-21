@@ -360,14 +360,31 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   # a collision); a blank submission is treated as "no change" rather
   # than clearing the language's existing slug, then `Slugs.maybe_generate/3`
   # fills any language present in `data` that still has no slug at all.
+  #
+  # A slug THIS form generated is not the user's: it follows the name until
+  # someone types one. `:derived_slug` remembers what was generated, per
+  # language, and such an entry — in the changeset or echoed back by the
+  # slug input (hidden by default, so always echoed) — is dropped before
+  # generating again. Without it the first debounced keystroke froze the
+  # slug: "Oa" → `oa`, and saving "Oak panel" kept `oa`.
+  #
+  # Returns `{params, derived_slug}`; the caller assigns the latter.
   defp apply_slug(params, socket) do
-    existing_slug = Ecto.Changeset.get_field(socket.assigns.changeset, :slug) || %{}
+    derived = socket.assigns[:derived_slug] || %{}
+    user_value? = fn {lang, value} -> Map.get(derived, lang) != value end
+
+    existing_slug =
+      (Ecto.Changeset.get_field(socket.assigns.changeset, :slug) || %{})
+      |> Enum.filter(user_value?)
+      |> Map.new()
 
     merged_slug =
       case params["slug"] do
         incoming when is_map(incoming) ->
           incoming
-          |> Enum.filter(fn {_lang, value} -> is_binary(value) and value != "" end)
+          |> Enum.filter(fn {_lang, value} = entry ->
+            is_binary(value) and value != "" and user_value?.(entry)
+          end)
           |> Enum.into(existing_slug)
 
         _ ->
@@ -389,7 +406,12 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
       )
       |> Ecto.Changeset.get_field(:slug)
 
-    Map.put(params, "slug", generated_slug || merged_slug)
+    slug = generated_slug || merged_slug
+
+    derived =
+      for {lang, value} <- slug, not Map.has_key?(merged_slug, lang), into: %{}, do: {lang, value}
+
+    {Map.put(params, "slug", slug), derived}
   end
 
   # What an SEO field holds, for the form to show (and, hidden, to post
@@ -712,8 +734,8 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
         preserve_fields: @preserve_fields
       )
       |> merge_seo_params(socket)
-      |> apply_slug(socket)
 
+    {item_params, derived_slug} = apply_slug(item_params, socket)
     {item_params, extension_error} = absorb_item_extensions(item_params, socket)
 
     changeset =
@@ -722,7 +744,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
       |> Map.put(:action, :validate)
       |> add_extension_error(extension_error)
 
-    {:noreply, assign_changeset(socket, changeset)}
+    {:noreply, socket |> assign(:derived_slug, derived_slug) |> assign_changeset(changeset)}
   end
 
   def handle_event("save", params, socket) do
@@ -745,8 +767,9 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
         preserve_fields: @preserve_fields
       )
       |> merge_seo_params(socket)
-      |> apply_slug(socket)
 
+    {item_params, derived_slug} = apply_slug(item_params, socket)
+    socket = assign(socket, :derived_slug, derived_slug)
     {item_params, extension_error} = absorb_item_extensions(item_params, socket)
 
     case extension_error do
@@ -2855,6 +2878,8 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
       Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit %{name}", name: item.name)
     )
     |> assign(:needs_primary_translation, false)
+    # A saved slug is stored, no longer derived: it stops following the name.
+    |> assign(:derived_slug, %{})
     |> assign(location_target: nil, location_target_path: [])
     |> assign_location(item)
     |> assign_changeset(Catalogue.change_item(item))

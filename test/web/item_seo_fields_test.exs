@@ -89,6 +89,56 @@ defmodule PhoenixKitCatalogue.Web.ItemSeoFieldsTest do
     assert html =~ "Kept title"
   end
 
+  # The hidden slug input echoes whatever the last validate generated, and
+  # the generated slug used to count as the user's own: the first debounced
+  # keystroke fixed it, and "Birch board" saved as `bi` — invisibly, with the
+  # field hidden.
+  describe "a new item's slug follows its name" do
+    defp new_item_view(conn) do
+      catalogue = fixture_catalogue(%{name: "Slug cat"})
+      {:ok, view, _html} = live(conn, "/en/admin/catalogue/#{catalogue.uuid}/items/new")
+      {view, catalogue}
+    end
+
+    defp saved_slug(catalogue, name) do
+      [item] =
+        Catalogue.list_items_for_catalogue(catalogue.uuid)
+        |> Enum.filter(&(&1.name == name))
+
+      item.slug
+    end
+
+    test "hidden: a later name replaces the slug an earlier keystroke derived", %{conn: conn} do
+      {view, catalogue} = new_item_view(conn)
+
+      view |> form("#item-form", %{"item" => %{"name" => "Bi"}}) |> render_change()
+      view |> form("#item-form", %{"item" => %{"name" => "Birch board"}}) |> render_change()
+      view |> form("#item-form", %{"item" => %{"name" => "Birch board"}}) |> render_submit()
+
+      assert Map.values(saved_slug(catalogue, "Birch board")) == ["birch-board"]
+    end
+
+    test "shown: a slug the person typed stays theirs", %{conn: conn} do
+      {:ok, _} = Settings.update_seo_fields_visible(true)
+      {view, catalogue} = new_item_view(conn)
+
+      view |> form("#item-form", %{"item" => %{"name" => "Oa"}}) |> render_change()
+      lang = slug_input_lang(view)
+
+      view
+      |> form("#item-form", %{"item" => %{"name" => "Oak panel", "slug" => %{lang => "my-slug"}}})
+      |> render_submit()
+
+      assert saved_slug(catalogue, "Oak panel") == %{lang => "my-slug"}
+    end
+
+    # The language key the form rendered its slug input under.
+    defp slug_input_lang(view) do
+      [_, lang] = Regex.run(~r/name="item\[slug\]\[([^\]]+)\]"/, render(view))
+      lang
+    end
+  end
+
   test "the settings page switch writes the setting", %{conn: conn} do
     {:ok, view, _html} = live(conn, "/en/admin/settings/catalogue")
 

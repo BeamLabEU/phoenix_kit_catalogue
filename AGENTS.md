@@ -327,6 +327,7 @@ Settings → Catalogue (`Web.SettingsLive`), read and written through
 |---|---|---|
 | `catalogue_enabled` | bool | module enable flag — Admin → Modules owns it, not the settings page |
 | `catalogue_row_context_menu_enabled` | bool | default `true`; right-click a list row for its `⋮` menu |
+| `catalogue_item_seo_fields_visible` | bool | default `false`; shows the item form's URL slug and SEO fields (hidden, their values are still carried through a save) |
 | `catalogue_translation_sweep_enabled` | bool | default `false`; seeds the worker chain |
 | `catalogue_translation_sweep_interval_minutes` | int | default `60` |
 | `catalogue_translation_sweep_langs` | json | `%{"codes" => [...]}`; a bare list is rejected by the `:map` column |
