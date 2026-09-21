@@ -14,6 +14,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormSeoTest do
   alias PhoenixKit.Modules.Languages
   alias PhoenixKitCatalogue.Catalogue
   alias PhoenixKitCatalogue.Catalogue.Translations
+  alias PhoenixKitCatalogue.Web.Settings
 
   @base "/en/admin/catalogue"
 
@@ -23,7 +24,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormSeoTest do
   # only while Settings → Catalogue's switch is on (off by default; the off
   # side is pinned in test/web/item_seo_fields_test.exs).
   setup do
-    {:ok, _} = PhoenixKitCatalogue.Web.Settings.update_seo_fields_visible(true)
+    {:ok, _} = Settings.update_seo_fields_visible(true)
     :ok
   end
 
