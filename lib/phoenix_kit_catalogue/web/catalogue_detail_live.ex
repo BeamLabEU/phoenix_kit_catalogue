@@ -1658,17 +1658,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         _ -> socket.assigns.categories_sort_dir
       end
 
-    socket =
-      socket
-      |> assign(categories_sort_by: field, categories_sort_dir: dir)
-      |> persist_detail_sort(:detail_categories)
-
-    {:noreply,
-     assign(
-       socket,
-       :child_categories,
-       sort_categories(socket.assigns.child_categories, socket.assigns.child_counts, field, dir)
-     )}
+    {:noreply, apply_categories_sort(socket, field, dir)}
   end
 
   # Sortable column header click — toggles direction on the active field,
@@ -1730,6 +1720,26 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   end
 
   def handle_event("toggle_sort_items", _params, socket), do: {:noreply, socket}
+
+  # A category column header: the same field flips the direction, another
+  # field starts ascending. Headers only sort once the list is out of Manual
+  # order (`header_sort/2`), so a click never lands here from Manual — and a
+  # push naming :position (or anything unknown) is ignored rather than
+  # quietly putting the list back into drag mode.
+  def handle_event("toggle_sort_categories", %{"by" => by}, socket)
+      when by in ~w(name items updated) do
+    field = String.to_existing_atom(by)
+
+    dir =
+      if field == socket.assigns.categories_sort_by and
+           socket.assigns.categories_sort_dir == :asc,
+         do: :desc,
+         else: :asc
+
+    {:noreply, apply_categories_sort(socket, field, dir)}
+  end
+
+  def handle_event("toggle_sort_categories", _params, socket), do: {:noreply, socket}
 
   # Open the strategy-reorder modal. Captures the client-side selection
   # (via the BulkSelectScope hook payload). A 0–1 selection collapses to
@@ -4479,6 +4489,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                    the other status tabs, which keep no tree. --%>
               <.categories_tree_table
                 context_menu={@row_context_menu}
+                sort={header_sort(@categories_sort_by, @categories_sort_dir)}
                 :if={categories_tree_mode?(assigns)}
                 rows={
                   category_tree_rows(
@@ -4501,6 +4512,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               />
               <.categories_table
                 context_menu={@row_context_menu}
+                sort={header_sort(@categories_sort_by, @categories_sort_dir)}
                 :if={not categories_tree_mode?(assigns)}
                 categories_sort_by={@categories_sort_by}
                 categories_columns={tab_columns(@categories_columns, @view_mode)}
@@ -5048,6 +5060,11 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   # rows would otherwise be a hundred settings reads per render.
   attr(:context_menu, :boolean, default: false)
 
+  attr(:sort, :map,
+    default: nil,
+    doc: "`header_sort/2` of the categories' sort — nil in Manual order (plain headers)."
+  )
+
   defp categories_table(assigns) do
     assigns =
       assigns
@@ -5088,10 +5105,14 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
           />
           <.table_default_header_cell :if={@view_mode not in ["active", "deleted"]} class="w-8"></.table_default_header_cell>
           <.table_default_header_cell :if={@photo_col?} class="w-12 !pr-0 !py-1 [.pk-comfy_&]:w-22 [.pk-comfy_&]:!py-1.5"></.table_default_header_cell>
-          <.table_default_header_cell>
+          <.sort_header_cell field={:name} sort={@sort} event="toggle_sort_categories">
             {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Name")}
-          </.table_default_header_cell>
-          <.category_header_cells columns={@categories_columns} extension_columns={@extension_columns} />
+          </.sort_header_cell>
+          <.category_header_cells
+            columns={@categories_columns}
+            extension_columns={@extension_columns}
+            sort={@sort}
+          />
           <.actions_header_cell />
         </.table_default_row>
       </.table_default_header>
@@ -5306,6 +5327,11 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         "would land wherever the sort puts it and write a position nobody chose."
   )
 
+  attr(:sort, :map,
+    default: nil,
+    doc: "`header_sort/2` of the categories' sort — nil in Manual order (plain headers)."
+  )
+
   defp categories_tree_table(assigns) do
     cats = Enum.map(assigns.rows, fn {cat, _d, _h, _e} -> cat end)
 
@@ -5359,10 +5385,14 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               aria_label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Select all categories")}
             />
             <.table_default_header_cell :if={@photo_col?} class="w-12 !pr-0 !py-1 [.pk-comfy_&]:w-22 [.pk-comfy_&]:!py-1.5"></.table_default_header_cell>
-            <.table_default_header_cell>
+            <.sort_header_cell field={:name} sort={@sort} event="toggle_sort_categories">
               {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Name")}
-            </.table_default_header_cell>
-            <.category_header_cells columns={@categories_columns} extension_columns={@extension_columns} />
+            </.sort_header_cell>
+            <.category_header_cells
+              columns={@categories_columns}
+              extension_columns={@extension_columns}
+              sort={@sort}
+            />
             <.actions_header_cell />
           </.table_default_row>
         </.table_default_header>
@@ -6383,13 +6413,13 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                    of the name made rows jagged); only when some row on
                    this level actually has one. --%>
               <.table_default_header_cell :if={@photo_col?} class="w-12 !pr-0 !py-1 [.pk-comfy_&]:w-22 [.pk-comfy_&]:!py-1.5"></.table_default_header_cell>
-              <.sort_header_cell field={:name} sort={%{by: @items_sort_by, dir: @items_sort_dir}} event="toggle_sort_items">
+              <.sort_header_cell field={:name} sort={header_sort(@items_sort_by, @items_sort_dir)} event="toggle_sort_items">
                 {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Name")}
               </.sort_header_cell>
               <%= for col <- @items_columns do %>
                 <%= case col do %>
                   <% "sku" -> %>
-                    <.sort_header_cell field={:sku} sort={%{by: @items_sort_by, dir: @items_sort_dir}} event="toggle_sort_items" class="w-px whitespace-nowrap">
+                    <.sort_header_cell field={:sku} sort={header_sort(@items_sort_by, @items_sort_dir)} event="toggle_sort_items" class="w-px whitespace-nowrap">
                       {Gettext.gettext(PhoenixKitCatalogue.Gettext, "SKU")}
                     </.sort_header_cell>
                   <% "image" -> %>
@@ -6397,7 +6427,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                       {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Image")}
                     </.table_default_header_cell>
                   <% "price" -> %>
-                    <.sort_header_cell field={:base_price} sort={%{by: @items_sort_by, dir: @items_sort_dir}} event="toggle_sort_items" class="w-px whitespace-nowrap">
+                    <.sort_header_cell field={:base_price} sort={header_sort(@items_sort_by, @items_sort_dir)} event="toggle_sort_items" class="w-px whitespace-nowrap">
                       {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Price")}
                     </.sort_header_cell>
                   <% "supplier_price" -> %>
@@ -6409,7 +6439,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                       {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Unit")}
                     </.table_default_header_cell>
                   <% "status" -> %>
-                    <.sort_header_cell field={:status} sort={%{by: @items_sort_by, dir: @items_sort_dir}} event="toggle_sort_items" class="w-px whitespace-nowrap">
+                    <.sort_header_cell field={:status} sort={header_sort(@items_sort_by, @items_sort_dir)} event="toggle_sort_items" class="w-px whitespace-nowrap">
                       {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Status")}
                     </.sort_header_cell>
                   <% "attributes" -> %>
@@ -6583,6 +6613,22 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   # DnD mode) — the same wording the index's dropdown uses for the same
   # thing; these two said "Manual" and "Manual order" side by side.
   # gettext via the module backend so labels localize.
+  # One path for the dropdown and the headers: set, persist (it is the
+  # shared sort, so this also tells every other open page), re-sort the flat
+  # list; the tree re-sorts itself at render.
+  defp apply_categories_sort(socket, field, dir) do
+    socket
+    |> assign(categories_sort_by: field, categories_sort_dir: dir)
+    |> persist_detail_sort(:detail_categories)
+    |> then(fn s ->
+      assign(
+        s,
+        :child_categories,
+        sort_categories(s.assigns.child_categories, s.assigns.child_counts, field, dir)
+      )
+    end)
+  end
+
   # In-memory categories sort — the list is small and already loaded.
   # Manual (:position) mirrors the DB order and is what enables drag.
   defp sort_categories(categories, counts, sort_by, dir) do

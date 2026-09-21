@@ -1668,6 +1668,11 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     # rendered in structure mode, so the sort is the one condition left.
     assigns = assign(assigns, :reorderable, assigns.cfg.sort_by == "position")
 
+    # The index keys its columns by string id, and core's sortable header
+    # compares `field` to the sort's `by` exactly — so the Name header gets
+    # the same kind of id the other columns do.
+    assigns = assign(assigns, :name_col_id, "name")
+
     assigns =
       assign(
         assigns,
@@ -1716,12 +1721,20 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
               class="w-12 !pr-0 !py-1 [.pk-comfy_&]:w-22 [.pk-comfy_&]:!py-1.5"
             >
             </.table_default_header_cell>
-            <.table_default_header_cell>
+            <%!-- The tree shows under every sort now, so it carries the same
+                 sortable headers as the flat table — plain in Manual order. --%>
+            <.sort_header_cell field={@name_col_id} sort={Shared.header_sort(@cfg.sort_by, @cfg.sort_dir)}>
               {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Name")}
-            </.table_default_header_cell>
-            <.table_default_header_cell :for={c <- @cols} class={[column_fit_class(c.id), c.align == :right && "text-right"]}>
+            </.sort_header_cell>
+            <.sort_header_cell
+              :for={c <- @cols}
+              field={c.id}
+              sort={c.sortable? && Shared.header_sort(@cfg.sort_by, @cfg.sort_dir)}
+              align={c.align}
+              class={[column_fit_class(c.id), c.align == :right && "text-right"]}
+            >
               {c.label.()}
-            </.table_default_header_cell>
+            </.sort_header_cell>
             <.actions_header_cell />
           </.table_default_row>
         </.table_default_header>
@@ -4478,20 +4491,19 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         <.table_default_row>
           <.drag_handle_header_cell :if={@draggable} />
           <.table_default_header_cell :if={@photo_col?} class="w-12 !pr-0 !py-1 [.pk-comfy_&]:w-22 [.pk-comfy_&]:!py-1.5"></.table_default_header_cell>
-          <.table_default_header_cell
+          <%!-- Core's sortable header, as every catalogue table uses: arrows
+               once the list is sorted by a column, a plain label in Manual
+               order (`Shared.header_sort/2`) and on a column that cannot
+               sort. --%>
+          <.sort_header_cell
             :for={c <- @cols}
+            field={c.id}
+            sort={c.sortable? && Shared.header_sort(@cfg.sort_by, @cfg.sort_dir)}
+            align={c.align}
             class={[column_fit_class(c.id), c.align == :right && "text-right"]}
           >
-            <.sort_header
-              :if={c.sortable?}
-              by={c.id}
-              label={c.label.()}
-              sort_by={@cfg.sort_by}
-              sort_dir={@cfg.sort_dir}
-              align={c.align}
-            />
-            <span :if={!c.sortable?}>{c.label.()}</span>
-          </.table_default_header_cell>
+            {c.label.()}
+          </.sort_header_cell>
           <.actions_header_cell />
         </.table_default_row>
       </.table_default_header>
@@ -4569,35 +4581,6 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   end
 
   # ── Sort header button ───────────────────────────────────────────
-
-  attr(:by, :string, required: true)
-  attr(:label, :string, required: true)
-  attr(:sort_by, :string, required: true)
-  attr(:sort_dir, :atom, required: true)
-  attr(:align, :atom, default: :left)
-
-  defp sort_header(assigns) do
-    assigns = assign(assigns, :active?, assigns.sort_by == assigns.by)
-
-    ~H"""
-    <button
-      type="button"
-      phx-click="toggle_sort"
-      phx-value-by={@by}
-      class={[
-        "inline-flex items-center gap-1 cursor-pointer select-none",
-        @align == :right && "justify-end w-full"
-      ]}
-    >
-      <span>{@label}</span>
-      <.icon
-        :if={@active?}
-        name={if @sort_dir == :asc, do: "hero-chevron-up-mini", else: "hero-chevron-down-mini"}
-        class="w-3.5 h-3.5"
-      />
-    </button>
-    """
-  end
 
   # ── Cell renderers ───────────────────────────────────────────────
 
