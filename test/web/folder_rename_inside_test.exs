@@ -8,6 +8,7 @@ defmodule PhoenixKitCatalogue.Web.FolderRenameInsideTest do
   use PhoenixKitCatalogue.LiveCase, async: false
 
   alias PhoenixKitCatalogue.Catalogue
+  alias PhoenixKitCatalogue.Test.Repo, as: TestRepo
 
   @base "/en/admin/catalogue"
 
@@ -70,6 +71,22 @@ defmodule PhoenixKitCatalogue.Web.FolderRenameInsideTest do
     render_blur(view, "rename_folder", %{"uuid" => folder.uuid, "value" => "New na"})
 
     assert Catalogue.get_folder(folder.uuid).name == "New name"
+  end
+
+  test "a folder removed while its field was open is not renamed", %{conn: conn, folder: folder} do
+    view = inside(conn, folder)
+    view |> element("#location-rename-button") |> render_click()
+
+    # Removed by someone else before their change reached this page: a
+    # write with no broadcast is that window (the broadcast would reload
+    # the page and take the field away).
+    {:ok, _} = folder |> Ecto.Changeset.change(status: "deleted") |> TestRepo.update()
+
+    view
+    |> form("#location-rename-#{folder.uuid}", %{"name" => "Too late"})
+    |> render_submit()
+
+    assert Catalogue.get_folder(folder.uuid).name == "Old name"
   end
 
   test "at the top level there is no location row to rename", %{conn: conn} do
