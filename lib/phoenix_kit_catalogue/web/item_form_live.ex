@@ -39,6 +39,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
 
   import PhoenixKitCatalogue.Web.Helpers,
     only: [
+      open_on_viewing_language: 2,
       log_operation_error: 3,
       narrow_new_data: 2,
       actor_opts: 1,
@@ -334,6 +335,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
     |> assign_changeset(changeset)
     |> assign_rule_state(item, kind, catalogue_uuid)
     |> mount_multilang()
+    |> open_on_viewing_language(action)
     |> adjust_multilang_for_item(item)
     |> assign_attribute_state(item, action)
     |> assign_ai_translation("catalogue_item", if(action == :edit, do: item, else: nil))
