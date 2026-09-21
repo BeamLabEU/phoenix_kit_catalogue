@@ -760,6 +760,22 @@ defmodule PhoenixKitCatalogue.Web.Components do
   def card_media_band, do: "relative h-40 bg-base-200 overflow-hidden"
 
   @doc """
+  The width every search box in the module uses.
+
+  There were four rules — `flex-1`, `w-full sm:w-64`,
+  `grow basis-64 sm:max-w-72` and `grow basis-64 sm:max-w-xl` — so the field
+  rendered a different size on every screen, which is what the owner saw
+  (boss via Max, 2026-09-21).
+
+  Fixed rather than growing, deliberately: a `grow` rule gives a different
+  rendered width on each page, because what sits beside the box differs —
+  filters and two create buttons on the index, one toggle inside a
+  catalogue. The same rule that reads as "consistent" in the markup is what
+  produced the inconsistency on screen.
+  """
+  def search_width_class, do: "w-full sm:w-80"
+
+  @doc """
   The row that carries a list's status tabs on the left and the controls that
   belong to the table on the right — sort, Reorder all, Columns, the view
   toggle.
@@ -774,13 +790,18 @@ defmodule PhoenixKitCatalogue.Web.Components do
   Both slots are optional: a screen with no trash renders the row with only
   its controls, and the controls stay right-aligned either way.
   """
+  attr(:id, :string, default: nil)
   attr(:class, :string, default: nil)
   slot(:tabs)
   slot(:controls)
 
   def list_controls_row(assigns) do
     ~H"""
-    <div :if={@tabs != [] or @controls != []} class={["flex flex-wrap items-center gap-2", @class]}>
+    <div
+      :if={@tabs != [] or @controls != []}
+      id={@id}
+      class={["flex flex-wrap items-center gap-2", @class]}
+    >
       <div :if={@tabs != []} class="flex items-center gap-0.5 flex-wrap">
         {render_slot(@tabs)}
       </div>
@@ -803,7 +824,10 @@ defmodule PhoenixKitCatalogue.Web.Components do
   attr(:count, :integer, required: true)
   attr(:active, :boolean, required: true)
   attr(:variant, :atom, default: :primary, values: [:primary, :error])
-  attr(:rest, :global, include: ~w(phx-click phx-value-mode phx-value-uuid))
+  # `phx-*` is a global prefix, so the click event and whatever
+  # `phx-value-…` the screen keys its tabs on (mode, filter, state) pass
+  # through without being listed here.
+  attr(:rest, :global)
 
   def status_tab(assigns) do
     ~H"""

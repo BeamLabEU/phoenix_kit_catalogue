@@ -31,6 +31,7 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLive do
   alias PhoenixKitCatalogue.Catalogue.ActivityLog
   alias PhoenixKitCatalogue.Catalogue.PubSub, as: CataloguePubSub
   alias PhoenixKitCatalogue.Paths
+  alias PhoenixKitCatalogue.Web.Components, as: Shared
   alias PhoenixKitCatalogue.Web.Helpers
   alias PhoenixKitCatalogue.Web.TableQuery
   alias PhoenixKitCatalogue.Web.ViewConfig
@@ -105,11 +106,22 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLive do
   # (`connected?` false) we skip it — the connected render fills the list in.
   defp assign_pdfs(socket) do
     if connected?(socket) do
-      assign(socket, pdfs: Catalogue.list_pdfs(status: socket.assigns.filter), pdfs_loaded: true)
+      # Both counts, not just this tab's: the status tabs carry a number
+      # each, the way every other catalogue list's do (boss via Max,
+      # 2026-09-21). Two cheap COUNTs on a filter change, never per render.
+      socket
+      |> assign(pdfs: Catalogue.list_pdfs(status: socket.assigns.filter), pdfs_loaded: true)
+      |> assign(
+        active_count: Catalogue.count_pdfs(status: "active"),
+        trashed_count: Catalogue.count_pdfs(status: "trashed")
+      )
     else
       # Not loaded yet, not empty — the dead render must show a skeleton,
       # not "No PDFs uploaded yet."
-      assign(socket, pdfs: [], pdfs_loaded: false)
+      # The tabs are hidden until `pdfs_loaded`, so these are placeholders
+      # that never reach the screen — they exist so the assigns have the
+      # same shape in both branches.
+      assign(socket, pdfs: [], pdfs_loaded: false, active_count: 0, trashed_count: 0)
     end
   end
 
@@ -136,6 +148,12 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLive do
   @impl true
   def handle_event("search", %{"query" => q}, socket) do
     {:noreply, push_url_state(socket, [search: q], replace: true)}
+  end
+
+  # The shared search box's clear button — the hand-rolled input this
+  # replaced had none.
+  def handle_event("clear_search", _params, socket) do
+    {:noreply, push_url_state(socket, [search: ""], replace: true)}
   end
 
   def handle_event("open_content_search", _params, socket) do
@@ -400,60 +418,57 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLive do
       current_locale={assigns[:current_locale]}
     >
       <div class="flex flex-col w-full px-4 py-6 gap-6">
-        <%!-- Filter toolbar: active/trash toggle + retry-stuck + count --%>
-        <div class="flex items-center gap-3 flex-wrap">
-          <div class="join">
-            <button
-              type="button"
+        <%!-- Filter toolbar: the same underline status tabs every other
+             catalogue list uses — this screen had a daisyUI `join` of two
+             buttons and no counts, which is exactly the drift the owner
+             pointed at (boss via Max, 2026-09-21). Retry-stuck sits beside
+             them as a page action, not a tab. --%>
+        <Shared.list_controls_row>
+          <%!-- Counted tabs need the counts, and those arrive with the list
+               on the connected render — the dead render would otherwise
+               flash "Active (0)" beside the skeleton. --%>
+          <:tabs :if={@pdfs_loaded}>
+            <Shared.status_tab
+              label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Active")}
+              count={@active_count}
+              active={@filter == "active"}
               phx-click="set_filter"
               phx-value-filter="active"
-              class={[
-                "join-item btn btn-sm",
-                if(@filter == "active", do: "btn-primary", else: "btn-ghost")
-              ]}
-            >
-              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Active")}
-            </button>
-            <button
-              type="button"
+            />
+            <Shared.status_tab
+              label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Trash")}
+              count={@trashed_count}
+              active={@filter == "trashed"}
+              variant={:error}
               phx-click="set_filter"
               phx-value-filter="trashed"
-              class={[
-                "join-item btn btn-sm",
-                if(@filter == "trashed", do: "btn-primary", else: "btn-ghost")
-              ]}
+            />
+          </:tabs>
+          <:controls>
+            <button
+              :if={@filter == "active"}
+              type="button"
+              phx-click="requeue_stuck"
+              phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Re-queuing…")}
+              class="btn btn-ghost btn-sm"
+              title={
+                Gettext.gettext(
+                  PhoenixKitCatalogue.Gettext,
+                  "Re-queue any PDFs whose text extraction never ran or got stuck (e.g., after the job queue was down)."
+                )
+              }
             >
-              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Trash")}
+              <.icon name="hero-arrow-path" class="w-4 h-4" />
+              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Retry stuck")}
             </button>
-          </div>
-          <button
-            :if={@filter == "active"}
-            type="button"
-            phx-click="requeue_stuck"
-            phx-disable-with={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Re-queuing…")}
-            class="btn btn-ghost btn-sm"
-            title={
-              Gettext.gettext(
-                PhoenixKitCatalogue.Gettext,
-                "Re-queue any PDFs whose text extraction never ran or got stuck (e.g., after the job queue was down)."
-              )
-            }
-          >
-            <.icon name="hero-arrow-path" class="w-4 h-4" />
-            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Retry stuck")}
-          </button>
-          <div class="text-sm text-base-content/60">
-            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "%{count} PDFs", count: length(@pdfs))}
-          </div>
-          <button
-            type="button"
-            phx-click="open_content_search"
-            class="btn btn-sm btn-outline ml-auto"
-          >
-            <.icon name="hero-document-magnifying-glass" class="w-4 h-4" />
-            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search PDF contents")}
-          </button>
-        </div>
+            <%!-- The loose "N PDFs" line that used to sit here said the
+                 same thing the Active tab now says, one control along. --%>
+            <button type="button" phx-click="open_content_search" class="btn btn-sm btn-outline">
+              <.icon name="hero-document-magnifying-glass" class="w-4 h-4" />
+              {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search PDF contents")}
+            </button>
+          </:controls>
+        </Shared.list_controls_row>
 
         <%!-- Upload zone (hidden in trash view) --%>
         <div :if={@filter == "active"} class="bg-base-100 rounded-lg p-4">
@@ -485,24 +500,14 @@ defmodule PhoenixKitCatalogue.Web.PdfLibraryLive do
              Content search lives in the modal behind the header button. --%>
         <% visible_pdfs = filter_by_search(@pdfs, @search) %>
         <div class="flex flex-wrap items-center gap-3">
-          <form
+          <Shared.search_input
             id="pdf-library-search"
-            phx-change="search"
-            phx-submit="search"
-            class="grow basis-64 sm:max-w-72"
-          >
-            <label class="input input-sm w-full">
-              <.icon name="hero-magnifying-glass" class="h-4 w-4 opacity-50" />
-              <input
-                type="search"
-                name="query"
-                value={@search}
-                placeholder={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search by filename…")}
-                class="grow"
-                phx-debounce="300"
-              />
-            </label>
-          </form>
+            query={@search}
+            placeholder={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search by filename…")}
+            on_search="search"
+            on_clear="clear_search"
+            class={Shared.search_width_class()}
+          />
           <.view_toggle_instant :if={visible_pdfs != []} view={@view_mode} id="pdf-view-pref" class="ml-auto" />
         </div>
 
