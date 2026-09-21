@@ -141,9 +141,10 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
        category: category,
        catalogue_uuid: catalogue_uuid,
        parent_catalogue_name: parent_catalogue && parent_catalogue.name,
-       parent_tree: if(action == :new, do: parent_tree(parent_catalogue), else: []),
+       parent_tree: if(action == :new, do: parent_tree(parent_catalogue, loc(socket)), else: []),
        parent_pick: parent_place(category.parent_uuid),
-       move_tree: if(action == :edit, do: move_tree(category, parent_catalogue), else: []),
+       move_tree:
+         if(action == :edit, do: move_tree(category, parent_catalogue, loc(socket)), else: []),
        move_target: nil
      )
      |> assign(current_tab: :details, extensions: Extensions.sections(:category))
@@ -223,10 +224,11 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
 
   # Where a new category goes: under the catalogue's own row (its top
   # level) or under one of its categories — a tree, never a flat list.
-  defp parent_tree(catalogue),
+  defp parent_tree(catalogue, locale),
     do:
       PlaceTree.categories(catalogue,
-        root: Gettext.gettext(PhoenixKitCatalogue.Gettext, "top level")
+        root: Gettext.gettext(PhoenixKitCatalogue.Gettext, "top level"),
+        locale: locale
       )
 
   defp parent_place(uuid) when is_binary(uuid) and uuid != "", do: "category:" <> uuid
@@ -234,29 +236,28 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
 
   # Where this category can move: any live catalogue of its kind, at its
   # top level or under a category — never into its own subtree.
-  defp move_tree(%Category{uuid: uuid}, %{kind: kind}) do
+  defp move_tree(%Category{uuid: uuid}, %{kind: kind}, locale) do
     kind
-    |> PlaceTree.places(catalogue_hint: Gettext.gettext(PhoenixKitCatalogue.Gettext, "top level"))
+    |> PlaceTree.places(
+      catalogue_hint: Gettext.gettext(PhoenixKitCatalogue.Gettext, "top level"),
+      locale: locale
+    )
     |> PlaceTree.prune(["category:" <> uuid])
   end
 
-  defp move_tree(_category, _catalogue), do: []
+  defp move_tree(_category, _catalogue, _locale), do: []
 
-  defp refresh_trees(%{assigns: %{action: :new}} = socket),
-    do:
-      assign(
-        socket,
-        :parent_tree,
-        parent_tree(Catalogue.get_catalogue(socket.assigns.catalogue_uuid))
-      )
+  defp loc(socket), do: socket.assigns[:current_locale]
 
-  defp refresh_trees(%{assigns: %{action: :edit, category: category}} = socket),
-    do:
-      assign(
-        socket,
-        :move_tree,
-        move_tree(category, Catalogue.get_catalogue(category.catalogue_uuid))
-      )
+  defp refresh_trees(%{assigns: %{action: :new}} = socket) do
+    catalogue = Catalogue.get_catalogue(socket.assigns.catalogue_uuid)
+    assign(socket, :parent_tree, parent_tree(catalogue, loc(socket)))
+  end
+
+  defp refresh_trees(%{assigns: %{action: :edit, category: category}} = socket) do
+    catalogue = Catalogue.get_catalogue(category.catalogue_uuid)
+    assign(socket, :move_tree, move_tree(category, catalogue, loc(socket)))
+  end
 
   # Where the category is now, as the move tree names it.
   defp current_place(%Category{parent_uuid: nil, catalogue_uuid: catalogue_uuid}),
@@ -500,7 +501,11 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
 
         {:noreply,
          socket
-         |> assign(category: updated, move_target: nil, move_tree: move_tree(updated, catalogue))
+         |> assign(
+           category: updated,
+           move_target: nil,
+           move_tree: move_tree(updated, catalogue, loc(socket))
+         )
          |> put_flash(:info, moved_flash(socket, target))}
 
       {:error, :would_create_cycle} ->
@@ -691,7 +696,10 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
       :page_title,
       Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit %{name}", name: category.name)
     )
-    |> assign(:move_tree, move_tree(category, Catalogue.get_catalogue(category.catalogue_uuid)))
+    |> assign(
+      :move_tree,
+      move_tree(category, Catalogue.get_catalogue(category.catalogue_uuid), loc(socket))
+    )
     |> assign_changeset(Catalogue.change_category(category))
   end
 
