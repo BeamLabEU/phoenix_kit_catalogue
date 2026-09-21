@@ -2678,10 +2678,15 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
             >
               <span class="hero-arrow-left w-5 h-5"></span>
             </button>
+            <%!-- Decorative on purpose: this <img> and the title text both sit
+                 inside the modal's <:title> slot, which core renders as the
+                 <h3> that aria-labelledby names the dialog by — and
+                 header_title/3 already yields ctx.name when drilled or
+                 untitled, so a real alt would announce the name twice. --%>
             <img
               :if={ctx && ctx.image_url}
               src={ctx.image_url}
-              alt={ctx.name || ""}
+              alt=""
               class="w-12 h-12 rounded-lg object-cover bg-base-200 shrink-0"
             />
             <div class="min-w-0">
