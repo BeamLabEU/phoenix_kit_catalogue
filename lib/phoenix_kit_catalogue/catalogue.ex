@@ -1774,6 +1774,12 @@ defmodule PhoenixKitCatalogue.Catalogue do
       repo().transaction(fn ->
         attrs = narrow_data_ownership(Category, category.uuid, attrs, opts)
 
+        # A new parent is checked for a cycle against the tree as committed:
+        # under the catalogue's lock (as `move_category_under/3` takes it),
+        # two opposite re-parents no longer both pass — or deadlock on each
+        # other's parent row.
+        if reparenting?(category, attrs), do: lock_catalogue!(category.catalogue_uuid)
+
         changeset =
           category
           |> Category.changeset(attrs)
@@ -1863,6 +1869,13 @@ defmodule PhoenixKitCatalogue.Catalogue do
       {key, nil}, acc -> Map.delete(acc, key)
       {key, value}, acc -> Map.put(acc, key, value)
     end)
+  end
+
+  defp reparenting?(%Category{parent_uuid: current}, attrs) do
+    case Map.get(attrs, :parent_uuid, Map.get(attrs, "parent_uuid", current)) do
+      parent when parent in [nil, ""] -> false
+      parent -> to_string(parent) != to_string(current)
+    end
   end
 
   # Guards both create_category/2 and update_category/3 against a
