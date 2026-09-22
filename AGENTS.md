@@ -486,6 +486,13 @@ Pointers, not docs — the moduledocs are the contract.
   queue is missing; `requeue_stuck_extractions/1` is the operator-driven heal
   for stuck rows. Engine selection lives in `Catalogue.PdfEngines` (pdfium as a
   precompiled NIF, poppler as fallback when installed).
+- **Place pickers** — every place choice (a category's parent, a move
+  target, the import/export catalogue, the item form's Location) is core's
+  `PhoenixKitWeb.Components.TreePicker` over a `Web.PlaceTree` tree, never a
+  flat list. Core's defaults are not the catalogue's: pass `pickable`,
+  `path_skip={[:folder]}` and, with `name`, `post={&PlaceTree.post/1}` (the
+  bare uuid, `""` for the top level). The host handles
+  `{TreePicker, id, value}` and re-checks the id against live data.
 - **Item picker** — `<.item_picker>` LiveComponent; the parent LV needs
   `handle_info/2` clauses for `{:item_picker_select, id, item}` and
   `{:item_picker_clear, id}`. It needs no form around it and no overflow rules

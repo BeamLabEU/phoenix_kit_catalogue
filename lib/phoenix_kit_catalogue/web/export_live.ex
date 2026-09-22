@@ -16,8 +16,8 @@ defmodule PhoenixKitCatalogue.Web.ExportLive do
   alias PhoenixKitCatalogue.Catalogue
   alias PhoenixKitCatalogue.Export
   alias PhoenixKitCatalogue.Paths
-  alias PhoenixKitCatalogue.Web.Components.PlacePicker
   alias PhoenixKitCatalogue.Web.PlaceTree
+  alias PhoenixKitWeb.Components.TreePicker
 
   @impl true
   def mount(_params, _session, socket) do
@@ -53,7 +53,7 @@ defmodule PhoenixKitCatalogue.Web.ExportLive do
   # The catalogues ticked in the tree; its hidden inputs also post them
   # with every change of the form.
   @impl true
-  def handle_info({PlacePicker, "export-catalogue-picker", ids}, socket) when is_list(ids) do
+  def handle_info({TreePicker, "export-catalogue-picker", ids}, socket) when is_list(ids) do
     known = MapSet.new(socket.assigns.catalogues, & &1.uuid)
 
     uuids =
@@ -91,13 +91,15 @@ defmodule PhoenixKitCatalogue.Web.ExportLive do
               <%!-- A folder's box ticks every catalogue in it. --%>
               <div class="border border-base-300 rounded-box bg-base-100 p-2">
                 <.live_component
-                  module={PlacePicker}
+                  module={TreePicker}
                   id="export-catalogue-picker"
                   tree={@catalogue_tree}
                   value={Enum.map(@selected_catalogue_uuids, &("catalogue:" <> &1))}
                   pickable={[:catalogue]}
                   multiple
                   name="catalogue_uuids[]"
+                  path_skip={[:folder]}
+                  post={&PlaceTree.post/1}
                 />
               </div>
             </div>

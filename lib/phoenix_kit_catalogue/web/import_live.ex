@@ -45,8 +45,8 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
   alias PhoenixKitCatalogue.Import.Source.Universal
   alias PhoenixKitCatalogue.Paths
   alias PhoenixKitCatalogue.Schemas.{Category, Item, Manufacturer, Supplier}
-  alias PhoenixKitCatalogue.Web.Components.PlacePicker
   alias PhoenixKitCatalogue.Web.PlaceTree
+  alias PhoenixKitWeb.Components.TreePicker
 
   @max_file_size 10_000_000
   @preview_rows 5
@@ -613,11 +613,11 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
 
   # The target catalogue, picked in the folder tree (boss via Max,
   # 2026-09-21: proper pickers, no flat lists).
-  def handle_info({PlacePicker, "import-catalogue-picker", id}, socket),
+  def handle_info({TreePicker, "import-catalogue-picker", id}, socket),
     do: {:noreply, maybe_update_catalogue(socket, %{"catalogue" => PlaceTree.uuid(id) || ""})}
 
   def handle_info(
-        {PlacePicker, "import-category-picker", id},
+        {TreePicker, "import-category-picker", id},
         %{assigns: %{import_category_mode: :existing}} = socket
       ) do
     {:noreply,
@@ -1828,7 +1828,7 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
                  is picked it folds to its path and a Change button. --%>
             <.live_component
               :if={@catalogues != []}
-              module={PlacePicker}
+              module={TreePicker}
               id="import-catalogue-picker"
               tree={@catalogue_tree}
               value={@selected_catalogue && "catalogue:" <> @selected_catalogue.uuid}
@@ -1837,6 +1837,7 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
               field={@selected_catalogue != nil}
               placeholder={Gettext.gettext(PhoenixKitCatalogue.Gettext, "— Select a catalogue —")}
               name="catalogue"
+              post={&PlaceTree.post/1}
             />
             <p :if={@catalogues == []} class="text-sm text-base-content/50 mt-1">
               {Gettext.gettext(PhoenixKitCatalogue.Gettext, "No catalogues yet.")}
@@ -2057,13 +2058,14 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
                  select above (boss via Max, 2026-09-21). --%>
             <.live_component
               :if={@import_category_mode == :existing}
-              module={PlacePicker}
+              module={TreePicker}
               id="import-category-picker"
               tree={@import_category_tree}
               value={@import_category_uuid && "category:" <> @import_category_uuid}
               pickable={[:category]}
               path_skip={[]}
               name="existing_category_uuid"
+              post={&PlaceTree.post/1}
             />
 
             <%!-- Column picker for category --%>

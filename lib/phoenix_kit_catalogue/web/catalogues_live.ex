@@ -47,11 +47,11 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   alias PhoenixKitCatalogue.Paths
   alias PhoenixKitCatalogue.Web.Components, as: Shared
   alias PhoenixKitCatalogue.Web.Components.AttributeSetItemsModal
-  alias PhoenixKitCatalogue.Web.Components.PlacePicker
   alias PhoenixKitCatalogue.Web.Components.ProductCard
   alias PhoenixKitCatalogue.Web.PlaceTree
   alias PhoenixKitCatalogue.Web.Settings, as: CatalogueSettings
   alias PhoenixKitCatalogue.Web.{TableConfig, TableQuery, ViewConfig}
+  alias PhoenixKitWeb.Components.TreePicker
 
   # What the Duplicate dialog starts with (see `Catalogue.duplicate_catalogue/2`).
   @duplicate_defaults %{skus: true, files: true, suppliers: true, archived: false}
@@ -214,7 +214,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     finish_duplicate(assign(socket, :duplicating, running), source_uuid, {:error, :failed})
   end
 
-  def handle_info({PlacePicker, "move-folder-picker", id}, socket),
+  def handle_info({TreePicker, "move-folder-picker", id}, socket),
     do: {:noreply, assign(socket, :move_pick, id)}
 
   def handle_info(:auto_migrate_legacy, socket) do
@@ -4209,7 +4209,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
           </h3>
           <p class="text-sm text-base-content/60">{move_dialog_label(@move_dialog)}</p>
           <.live_component
-            module={PlacePicker}
+            module={TreePicker}
             id="move-folder-picker"
             tree={@move_tree}
             value={@move_pick}
@@ -4217,6 +4217,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
             pickable={[:root, :folder]}
             path_skip={[]}
             name="folder_uuid"
+            post={&PlaceTree.post/1}
           />
           <div class="flex justify-end gap-2">
             <button type="button" phx-click="cancel_move" class="btn btn-ghost btn-sm">

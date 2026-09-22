@@ -41,8 +41,8 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
   alias PhoenixKitCatalogue.Extensions
   alias PhoenixKitCatalogue.Paths
   alias PhoenixKitCatalogue.Schemas.Category
-  alias PhoenixKitCatalogue.Web.Components.PlacePicker
   alias PhoenixKitCatalogue.Web.PlaceTree
+  alias PhoenixKitWeb.Components.TreePicker
 
   @translatable_fields ["name", "description", "seo_title", "seo_description"]
 
@@ -563,11 +563,11 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
     do: {:noreply, Attachments.close_media_selector(socket)}
 
   # The New form's parent: shown by the picker, posted by its hidden input.
-  def handle_info({PlacePicker, "category-parent-picker", id}, socket),
+  def handle_info({TreePicker, "category-parent-picker", id}, socket),
     do: {:noreply, assign(socket, :parent_pick, id)}
 
   # Picking where the category already is takes a staged move back.
-  def handle_info({PlacePicker, "category-move-picker", id}, socket) do
+  def handle_info({TreePicker, "category-move-picker", id}, socket) do
     target = if id == current_place(socket.assigns.category), do: nil, else: id
     {:noreply, assign(socket, :move_target, target)}
   end
@@ -875,7 +875,7 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
             <div :if={@action == :new} class="flex flex-col gap-2">
               <.label>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Parent category")}</.label>
               <.live_component
-                module={PlacePicker}
+                module={TreePicker}
                 id="category-parent-picker"
                 tree={@parent_tree}
                 value={@parent_pick}
@@ -883,6 +883,7 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
                 path_skip={[]}
                 field
                 name="category[parent_uuid]"
+                post={&PlaceTree.post/1}
               />
               <span class="block text-xs text-base-content/50">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Pick a category to nest this one inside, or the catalogue itself for its top level. You can move it later.")}</span>
             </div>
@@ -998,12 +999,14 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
         <div class="card-body pt-0 flex flex-col gap-3">
           <p class="text-xs text-base-content/60">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Pick where it goes: a catalogue's top level, or under a category. Its subcategories and items come along.")}</p>
           <.live_component
-            module={PlacePicker}
+            module={TreePicker}
             id="category-move-picker"
             tree={@move_tree}
             value={@move_target || current_place(@category)}
             current={current_place(@category)}
             field
+            pickable={[:catalogue, :category]}
+            path_skip={[:folder]}
           />
           <div class="flex justify-end">
             <.button

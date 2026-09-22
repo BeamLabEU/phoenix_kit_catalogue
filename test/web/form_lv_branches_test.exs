@@ -100,7 +100,7 @@ defmodule PhoenixKitCatalogue.Web.FormLVBranchesTest do
       |> element("#category-move-picker-search")
       |> render_hook("search", %{"value" => name})
 
-      view |> element(~s(#category-move-picker [data-place="#{place}"])) |> render_click()
+      view |> element(~s(#category-move-picker [data-tree-node="#{place}"])) |> render_click()
     end
 
     defp move(view), do: view |> element("#category-move-button") |> render_click()
@@ -164,9 +164,9 @@ defmodule PhoenixKitCatalogue.Web.FormLVBranchesTest do
       view |> element("#category-move-picker-change") |> render_click()
       html = view |> element("#category-move-picker") |> render()
 
-      assert html =~ ~s(data-place="catalogue:#{cat.uuid}")
+      assert html =~ ~s(data-tree-node="catalogue:#{cat.uuid}")
       refute html =~ smart.uuid
-      refute html =~ ~s(data-place="category:#{cat_obj.uuid}")
+      refute html =~ ~s(data-tree-node="category:#{cat_obj.uuid}")
 
       # Forged picks of what the tree left out never become the target.
       for id <- ["category:" <> grandchild_parent.uuid, "catalogue:" <> smart.uuid] do
@@ -286,7 +286,7 @@ defmodule PhoenixKitCatalogue.Web.FormLVBranchesTest do
       view |> element("#category-parent-picker-change") |> render_click()
 
       view
-      |> element(~s(#category-parent-picker [data-place="category:#{doors.uuid}"]))
+      |> element(~s(#category-parent-picker [data-tree-node="category:#{doors.uuid}"]))
       |> render_click()
 
       {:ok, _} = Catalogue.trash_category(doors)
@@ -314,7 +314,7 @@ defmodule PhoenixKitCatalogue.Web.FormLVBranchesTest do
       view |> element("#category-parent-picker-change") |> render_click()
 
       view
-      |> element(~s(#category-parent-picker [data-place="category:#{doors.uuid}"]))
+      |> element(~s(#category-parent-picker [data-tree-node="category:#{doors.uuid}"]))
       |> render_click()
 
       assert view |> element("#category-parent-picker-path") |> render() =~ "Doors"
@@ -339,7 +339,7 @@ defmodule PhoenixKitCatalogue.Web.FormLVBranchesTest do
       assert view |> element("#category-parent-picker-path") |> render() =~ "Doors"
 
       view |> element("#category-parent-picker-change") |> render_click()
-      view |> element(~s(#category-parent-picker [data-place="root"])) |> render_click()
+      view |> element(~s(#category-parent-picker [data-tree-node="root"])) |> render_click()
 
       view
       |> form("#category-form", %{"category" => %{"name" => "Top one"}})
