@@ -458,6 +458,47 @@ defmodule PhoenixKitCatalogue.Web.Components.BrowseTest do
       assert onblur =~ "delete this.dataset.pkZero"
     end
 
+    # The handlers themselves, run in node on a stand-in `this` — the
+    # attribute strings above only prove the wiring. Skipped without node.
+    test "in a browser-like run: 0 clears on focus and returns on blur, typed text stays" do
+      case System.find_executable("node") do
+        nil ->
+          :ok
+
+        node ->
+          html =
+            render_component(&Browse.qty_stepper/1, id: "q1", uuid: "u-1", qty: "0", precision: 0)
+
+          attr = fn name ->
+            [js] = Regex.run(~r/#{name}="([^"]*)"/, html, capture: :all_but_first)
+            String.replace(js, "&#39;", "'")
+          end
+
+          run = fn value, typed ->
+            script = """
+            const el = {value: #{Jason.encode!(value)}, dataset: {}};
+            const focus = new Function(#{Jason.encode!(attr.("onfocus"))});
+            const blur = new Function(#{Jason.encode!(attr.("onblur"))});
+            focus.call(el); const focused = el.value;
+            if (#{Jason.encode!(typed)} !== null) el.value = #{Jason.encode!(typed)};
+            blur.call(el);
+            process.stdout.write(JSON.stringify([focused, el.value]));
+            """
+
+            {out, 0} = System.cmd(node, ["-e", script])
+            Jason.decode!(out)
+          end
+
+          assert run.("0", nil) == ["", "0"]
+          assert run.("0", "8") == ["", "8"]
+          assert run.("0,00", nil) == ["", "0,00"]
+          assert run.("0,00", "15") == ["", "15"]
+          assert run.("2.5", nil) == ["2.5", "2.5"]
+          assert run.("2.5", "3") == ["2.5", "3"]
+          assert run.("", nil) == ["", ""]
+      end
+    end
+
     test "the free-decimal text control carries the same zero handlers" do
       html =
         render_component(&Browse.qty_stepper/1, id: "q1", uuid: "u-1", qty: "0", precision: :any)
