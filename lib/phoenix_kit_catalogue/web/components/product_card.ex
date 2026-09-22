@@ -599,7 +599,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ProductCard do
   # (client, 2026-09-12).
   defp list_folder_images(folder_uuid) when is_binary(folder_uuid) do
     folder_uuid
-    |> Attachments.list_folder_files(file_type: "image", exclude_system_managed: true)
+    |> Attachments.list_folder_files(only: :images)
     |> Enum.map(&%{uuid: &1.uuid, name: &1.original_file_name})
   rescue
     _ -> []
@@ -610,7 +610,7 @@ defmodule PhoenixKitCatalogue.Web.Components.ProductCard do
     # the paperclip count and this list agree, so system-managed files
     # are excluded here too.
     folder_uuid
-    |> Attachments.list_folder_files(exclude_file_type: "image", exclude_system_managed: true)
+    |> Attachments.list_folder_files(only: :non_images)
     |> Enum.map(
       &%{uuid: &1.uuid, name: &1.original_file_name, size: &1.size, pdf?: pdf_file?(&1)}
     )
