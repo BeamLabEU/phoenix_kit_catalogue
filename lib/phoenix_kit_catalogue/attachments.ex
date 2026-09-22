@@ -1054,18 +1054,27 @@ defmodule PhoenixKitCatalogue.Attachments do
         {:ok, uuid, socket}
 
       nil ->
-        socket.assigns[:attachments_resource]
-        |> ensure_resource_folder(Actor.uuid(socket))
-        |> case do
-          {:ok, %{uuid: uuid}} -> {:ok, uuid, assign(socket, :files_folder_uuid, uuid)}
-          {:error, reason} -> {:error, reason}
+        resource = socket.assigns[:attachments_resource]
+
+        case ensure_resource_folder(resource, Actor.uuid(socket)) do
+          {:ok, %{uuid: uuid}} ->
+            {:ok, uuid,
+             socket
+             |> assign(:files_folder_uuid, uuid)
+             |> assign(:attachments_resource, with_pointer(resource, uuid))}
+
+          {:error, reason} ->
+            {:error, reason}
         end
     end
   end
 
   # Race-safe find-or-create. A host name taken under the parent by another
   # resource's folder (or refused) gets the uuid-bearing deterministic name
-  # instead, which cannot collide.
+  # instead, which cannot collide. A saved resource's pointer is written in
+  # the same locked step (`:claim`): a host name carries no uuid, so until
+  # the pointer lands a same-named resource would take the folder for its
+  # own.
   defp ensure_resource_folder(resource, actor_uuid) do
     parent_uuid = parent_folder_uuid(resource, actor_uuid)
 
@@ -1073,13 +1082,24 @@ defmodule PhoenixKitCatalogue.Attachments do
       {:ok, deterministic} ->
         ResourceFolders.ensure(folder_name(resource, actor_uuid), parent_uuid, actor_uuid,
           lookup: fn -> find_resource_folder(resource, actor_uuid) end,
-          fallback_name: deterministic
+          fallback_name: deterministic,
+          claim: &claim_folder(resource, &1)
         )
 
       :pending ->
         ResourceFolders.ensure(@pending_prefix <> Ecto.UUID.generate(), parent_uuid, actor_uuid)
     end
   end
+
+  defp claim_folder(%schema{uuid: uuid}, folder),
+    do: ResourceFolders.write_pointer(schema, uuid, {:data, "files_folder_uuid"}, folder.uuid)
+
+  # The pointer `claim_folder/2` wrote, on the resource the form holds —
+  # so `persist_folder_pointer/2` has nothing left to write.
+  defp with_pointer(%{uuid: uuid} = resource, folder_uuid) when is_binary(uuid),
+    do: %{resource | data: Map.put(resource_data(resource), "files_folder_uuid", folder_uuid)}
+
+  defp with_pointer(resource, _folder_uuid), do: resource
 
   # Upload cap is 20 files per submit; the inline grid is not paginated
   # and renders every row. Anything over this is almost certainly data
