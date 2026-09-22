@@ -166,7 +166,7 @@ defmodule PhoenixKitCatalogue.Web.Settings do
     Settings.get_integer_setting(@max_per_run_key, @default_max_per_run)
   end
 
-  @doc "Sets the per-tick enqueue cap."
+  @doc "Sets the most catalogue translation jobs waiting or running at once."
   @spec update_sweep_max_per_run(pos_integer()) :: {:ok, struct()} | {:error, term()}
   def update_sweep_max_per_run(n) when is_integer(n) and n > 0 do
     Settings.update_setting_with_module(@max_per_run_key, Integer.to_string(n), @module_key)

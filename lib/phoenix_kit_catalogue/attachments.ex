@@ -116,6 +116,7 @@ defmodule PhoenixKitCatalogue.Attachments do
   @app :phoenix_kit_catalogue
   @pending_prefix "catalogue-attachment-pending-"
   @doc "Returns the upload ref name used for the inline files dropzone."
+  @spec upload_name() :: atom()
   def upload_name, do: @upload_name
 
   # ── Mount ────────────────────────────────────────────────────────
@@ -134,6 +135,8 @@ defmodule PhoenixKitCatalogue.Attachments do
       because its UI only renders the featured-image card; it has no
       files grid, so the file list query was wasted.
   """
+  @spec mount_attachments(Phoenix.LiveView.Socket.t(), struct(), keyword()) ::
+          Phoenix.LiveView.Socket.t()
   def mount_attachments(socket, resource, opts \\ []) do
     files_grid? = Keyword.get(opts, :files_grid, true)
 
@@ -166,6 +169,7 @@ defmodule PhoenixKitCatalogue.Attachments do
   ceiling and auto-upload. Progress is consumed by `handle_progress/3`
   which this module captures for the caller.
   """
+  @spec allow_attachment_upload(Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
   def allow_attachment_upload(socket),
     do: CoreAttachments.allow(socket, @upload_name, &handle_progress/3)
 
@@ -190,6 +194,7 @@ defmodule PhoenixKitCatalogue.Attachments do
   nil/empty order is the identity — legacy records sort as before
   (folder `inserted_at`).
   """
+  @spec apply_media_order([map()], [String.t()] | nil) :: [map()]
   defdelegate apply_media_order(files, order), to: CoreAttachments, as: :apply_order
 
   @doc """
@@ -200,6 +205,7 @@ defmodule PhoenixKitCatalogue.Attachments do
   the payload missed keep their place at the tail, so the list can
   never lose or invent a file.
   """
+  @spec handle_reorder_files(Phoenix.LiveView.Socket.t(), term()) :: Phoenix.LiveView.Socket.t()
   def handle_reorder_files(socket, ordered_ids) when is_list(ordered_ids) do
     files = socket.assigns.files_state.files
     # Only strings can be ids; anything else in a crafted payload is
@@ -273,6 +279,8 @@ defmodule PhoenixKitCatalogue.Attachments do
   # ── Event bodies ─────────────────────────────────────────────────
 
   @doc "Opens the media selector modal scoped to the resource's folder."
+  @spec open_featured_image_picker(Phoenix.LiveView.Socket.t()) ::
+          {:noreply, Phoenix.LiveView.Socket.t()}
   def open_featured_image_picker(socket) do
     case ensure_folder(socket) do
       {:ok, _folder_uuid, socket} ->
@@ -302,6 +310,7 @@ defmodule PhoenixKitCatalogue.Attachments do
   leaves them there, so the grid (and, if the folder's contents changed,
   every other surface counting them) must catch up on close.
   """
+  @spec close_media_selector(Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
   def close_media_selector(socket) do
     socket
     |> reset_media_selector()
@@ -317,11 +326,15 @@ defmodule PhoenixKitCatalogue.Attachments do
   end
 
   @doc "Cancels an in-flight upload entry by ref."
+  @spec cancel_attachment_upload(Phoenix.LiveView.Socket.t(), String.t()) ::
+          {:noreply, Phoenix.LiveView.Socket.t()}
   def cancel_attachment_upload(socket, ref) do
     {:noreply, cancel_upload(socket, @upload_name, ref)}
   end
 
   @doc "Nulls the featured image pointer in socket state (save persists)."
+  @spec clear_featured_image(Phoenix.LiveView.Socket.t()) ::
+          {:noreply, Phoenix.LiveView.Socket.t()}
   def clear_featured_image(socket) do
     {:noreply,
      socket
@@ -343,6 +356,8 @@ defmodule PhoenixKitCatalogue.Attachments do
 
   Also clears the featured pointer if the removed file was featured.
   """
+  @spec trash_file(Phoenix.LiveView.Socket.t(), String.t()) ::
+          {:noreply, Phoenix.LiveView.Socket.t()}
   def trash_file(socket, uuid) do
     folder_uuid = socket.assigns[:files_folder_uuid]
 
@@ -435,6 +450,8 @@ defmodule PhoenixKitCatalogue.Attachments do
   target is a no-op (modal already set folder_uuid). Both refresh
   the grid from the folder.
   """
+  @spec handle_media_selected(Phoenix.LiveView.Socket.t(), [String.t()]) ::
+          {:noreply, Phoenix.LiveView.Socket.t()}
   def handle_media_selected(socket, file_uuids) do
     socket =
       case socket.assigns[:media_selector_target] do
@@ -453,6 +470,7 @@ defmodule PhoenixKitCatalogue.Attachments do
   over PubSub that the resource changed in another session (an upload or
   removal there) — the form's own pointers (featured image) are untouched.
   """
+  @spec refresh_files(Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
   def refresh_files(socket) do
     socket
     |> resolve_files_folder()
@@ -616,6 +634,8 @@ defmodule PhoenixKitCatalogue.Attachments do
   # save, when the pending folder is renamed. Owned-key write, so a
   # translation fingerprint or a sync's namespace written meanwhile is
   # kept. Never fatal: the files are attached either way.
+  @spec persist_folder_pointer(Phoenix.LiveView.Socket.t(), String.t() | nil) ::
+          Phoenix.LiveView.Socket.t()
   def persist_folder_pointer(socket, folder_uuid) when is_binary(folder_uuid) do
     resource = socket.assigns[:attachments_resource]
 
@@ -823,6 +843,7 @@ defmodule PhoenixKitCatalogue.Attachments do
   Merges `files_folder_uuid` and `featured_image_uuid` into `params["data"]`.
   Call right before passing params to your context's create/update.
   """
+  @spec inject_attachment_data(map(), Phoenix.LiveView.Socket.t()) :: map()
   def inject_attachment_data(params, socket) do
     params
     |> inject_files_folder(socket.assigns[:files_folder_uuid])
@@ -835,6 +856,7 @@ defmodule PhoenixKitCatalogue.Attachments do
   the deterministic name now that the resource has a UUID. Non-fatal:
   rename failures log and return `:ok` so the save flow isn't blocked.
   """
+  @spec maybe_rename_pending_folder(Phoenix.LiveView.Socket.t(), struct()) :: :ok
   def maybe_rename_pending_folder(socket, resource) do
     actor = Actor.uuid(socket)
 
@@ -884,6 +906,7 @@ defmodule PhoenixKitCatalogue.Attachments do
   defdelegate file_icon(file), to: Format
 
   @doc "Translates LiveView upload error atoms to user-facing text."
+  @spec upload_error_message(term()) :: String.t()
   defdelegate upload_error_message(reason), to: CoreAttachments, as: :error_message
 
   # ── Internals ────────────────────────────────────────────────────
@@ -908,6 +931,7 @@ defmodule PhoenixKitCatalogue.Attachments do
   # 3-arity hook (receives the resource itself) and falls back to the
   # original 2-arity contract; a failing hook or a non-uuid answer falls
   # back to the root, logged (`ResourceFolders.parent_uuid/4`).
+  @spec parent_folder_uuid(term(), String.t() | nil) :: String.t() | nil
   def parent_folder_uuid(resource, actor_uuid),
     do: ResourceFolders.parent_uuid(@app, resource_kind(resource), actor_uuid, resource)
 
@@ -921,6 +945,7 @@ defmodule PhoenixKitCatalogue.Attachments do
   @doc false
   # Folder name for a resource: the host's (`:attachments_folder_name`) or
   # the deterministic `catalogue-<kind>-<uuid>` (see `folder_name_for/1`).
+  @spec folder_name(term(), String.t() | nil) :: String.t()
   def folder_name(resource, actor_uuid) do
     ResourceFolders.host_name(@app, resource, actor_uuid) ||
       case folder_name_for(resource) do
@@ -935,6 +960,8 @@ defmodule PhoenixKitCatalogue.Attachments do
   # under parent → at root → anywhere (the name carries the resource's
   # uuid). Live folders only. An unsaved resource has no folder to find.
   # See moduledoc "Host-named folders".
+  @spec find_resource_folder(term(), String.t() | nil) ::
+          PhoenixKit.Modules.Storage.Folder.t() | nil
   def find_resource_folder(resource, actor_uuid) do
     case folder_name_for(resource) do
       {:ok, deterministic} ->
@@ -974,6 +1001,7 @@ defmodule PhoenixKitCatalogue.Attachments do
   # "catalogue-category-<uuid>", "catalogue-<uuid>") — `nil` for an unsaved
   # (`:new`) resource. Public so `PhoenixKitCatalogue.MediaReorganizer` can
   # locate pre-hook-config folders without depending on `folder_name_for/1`.
+  @spec legacy_folder_name(term()) :: String.t() | nil
   def legacy_folder_name(resource), do: deterministic_name(resource)
 
   # The owning folder: the stored one while it is live — a folder trashed

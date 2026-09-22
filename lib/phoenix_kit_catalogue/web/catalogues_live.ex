@@ -1086,8 +1086,6 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     end)
   end
 
-  # Depth-indented `{value, label}` options for the "Move to folder"
-  # picker — active folders only; root is the empty-string sentinel.
   # Where a catalogue or folder is filed now, as the folder tree names it.
   defp current_folder_place(:catalogue, uuid),
     do: folder_place(Catalogue.get_catalogue(uuid), :folder_uuid)
