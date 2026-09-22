@@ -429,7 +429,12 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
 
   def category_chips(assigns) do
     ~H"""
-    <div id={@id} class="flex gap-1.5 overflow-x-auto pb-1" role="group" aria-label={gettext("Categories")}>
+    <div
+      id={@id}
+      class="flex gap-1.5 overflow-x-auto pb-1"
+      role="group"
+      aria-label={gettext("Categories")}
+    >
       <button
         type="button"
         class={[
@@ -1197,6 +1202,17 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
   defp col_responsive_class(:category), do: "hidden lg:table-cell"
   defp col_responsive_class(_), do: nil
 
+  # A zero clears itself on focus, as core's `decimal_input` does
+  # (BeamLabEU/phoenix_kit#859): a field showing 0 (0,00, 0.0) empties
+  # when it gains focus, so a typed 1 is 1 and not 10 — the caret used to
+  # land after the zero; leaving it still empty puts the zero back, and
+  # `qty_commit` then carries that zero as before. Inline handlers on the
+  # control, no hook; a programmatic value change fires no `input` event,
+  # so neither `qty_change` nor the row's selected-state hook sees the swap.
+  @zero_test "/^\\s*[-+]?(?:0+(?:[.,]0*)?|[.,]0+)\\s*$/.test(this.value)"
+  @zero_on_focus "if(#{@zero_test}){this.dataset.pkZero=this.value;this.value=''}"
+  @zero_on_blur "if(this.dataset.pkZero!=null){if(this.value.trim()==='')this.value=this.dataset.pkZero;delete this.dataset.pkZero}"
+
   @doc """
   Quantity input: a native `<input type="number">` — the browser's own
   spinner arrows, the same control the rest of the kit uses for numbers
@@ -1266,6 +1282,11 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
   attr(:size, :string, default: "sm", values: ~w(xs sm))
 
   def qty_stepper(assigns) do
+    assigns =
+      assigns
+      |> assign(:zero_on_focus, @zero_on_focus)
+      |> assign(:zero_on_blur, @zero_on_blur)
+
     ~H"""
     <%!-- The form wraps the join (Enter commits via phx-submit; phx-blur
          commits on focus loss). phx-change catches what blur never sees:
@@ -1357,6 +1378,8 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
           phx-value-uuid={@uuid}
           phx-target={@target}
           aria-label={gettext("Quantity")}
+          onfocus={@zero_on_focus}
+          onblur={@zero_on_blur}
         />
         <span
           :if={@unit}
