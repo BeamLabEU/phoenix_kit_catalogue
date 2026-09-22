@@ -329,6 +329,27 @@ defmodule PhoenixKitCatalogue.Web.FormLVBranchesTest do
       assert parent == doors.uuid
     end
 
+    test "a post still carrying the old parent does not undo the pick",
+         %{conn: conn, catalogue: cat} do
+      doors = fixture_category(cat, %{name: "Doors"})
+      {:ok, view, _html} = live(conn, "/en/admin/catalogue/#{cat.uuid}/categories/new")
+
+      view |> element("#category-parent-picker-change") |> render_click()
+
+      view
+      |> element(~s(#category-parent-picker [data-tree-node="category:#{doors.uuid}"]))
+      |> render_click()
+
+      # Sent before the pick's patch landed: the old, top-level value.
+      render_change(view, "validate", %{"category" => %{"name" => "Oa", "parent_uuid" => ""}})
+      render_submit(view, "save", %{"category" => %{"name" => "Oak", "parent_uuid" => ""}})
+
+      assert [%{parent_uuid: parent}] =
+               Enum.filter(Catalogue.list_live_categories([cat.uuid]), &(&1.name == "Oak"))
+
+      assert parent == doors.uuid
+    end
+
     test "a parent in the URL starts picked; the catalogue's own row means top level",
          %{conn: conn, catalogue: cat} do
       doors = fixture_category(cat, %{name: "Doors"})
