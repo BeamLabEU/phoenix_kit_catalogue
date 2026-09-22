@@ -23,7 +23,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailImageColumnTest do
 
     opened = render_click(view, "show_column_modal", %{})
     assert opened =~ ~s(phx-value-column_id="image")
-    assert opened =~ ~s(phx-value-scope="detail_items")
+    assert opened =~ ~s(phx-value-section="detail_items")
   end
 
   test "adding it renders the item's featured image via the small storage variant",
@@ -40,7 +40,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailImageColumnTest do
     render_click(view, "show_column_modal", %{})
 
     updated =
-      render_click(view, "add_column", %{"column_id" => "image", "scope" => "detail_items"})
+      render_click(view, "add_column", %{"column_id" => "image", "section" => "detail_items"})
 
     assert updated =~ "/small/"
     assert updated =~ item.data["featured_image_uuid"]
@@ -58,7 +58,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailImageColumnTest do
     render_click(view, "show_column_modal", %{})
 
     updated =
-      render_click(view, "add_column", %{"column_id" => "image", "scope" => "detail_items"})
+      render_click(view, "add_column", %{"column_id" => "image", "section" => "detail_items"})
 
     assert updated =~ "Widget"
     refute updated =~ "/small/"
@@ -81,7 +81,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailImageColumnTest do
     updated =
       render_click(view, "add_column", %{
         "column_id" => "image",
-        "scope" => "detail_categories"
+        "section" => "detail_categories"
       })
 
     assert updated =~ "/small/"
@@ -125,7 +125,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailImageColumnTest do
       render_click(view, "show_column_modal", %{})
 
       updated =
-        render_click(view, "add_column", %{"column_id" => "image", "scope" => "detail_items"})
+        render_click(view, "add_column", %{"column_id" => "image", "section" => "detail_items"})
 
       # Once, not twice: the desktop table cell renders the managed
       # column; the mobile card's own facts grid skips "image" as a
@@ -158,7 +158,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailImageColumnTest do
       render_click(view, "show_column_modal", %{})
 
       updated =
-        render_click(view, "add_column", %{"column_id" => "image", "scope" => "detail_items"})
+        render_click(view, "add_column", %{"column_id" => "image", "section" => "detail_items"})
 
       assert updated =~ "Widget"
       refute updated =~ "/thumbnail/"
@@ -201,7 +201,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailImageColumnTest do
       updated =
         render_click(view, "add_column", %{
           "column_id" => "image",
-          "scope" => "detail_categories"
+          "section" => "detail_categories"
         })
 
       # Once, not twice — see the matching comment on the items test above.
@@ -232,7 +232,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailImageColumnTest do
       updated =
         render_click(view, "add_column", %{
           "column_id" => "image",
-          "scope" => "detail_categories"
+          "section" => "detail_categories"
         })
 
       assert updated =~ "Configurable"

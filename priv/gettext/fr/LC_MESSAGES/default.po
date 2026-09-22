@@ -926,15 +926,6 @@ msgstr ""
 msgid "Columns"
 msgstr ""
 
-msgid "Shown"
-msgstr ""
-
-msgid "Available"
-msgstr ""
-
-msgid "Reset"
-msgstr ""
-
 msgid "Apply"
 msgstr ""
 

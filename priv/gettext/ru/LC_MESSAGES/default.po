@@ -936,15 +936,6 @@ msgstr "Окончательно удалено %{count} позиций."
 msgid "Columns"
 msgstr "Колонки"
 
-msgid "Shown"
-msgstr "Показаны"
-
-msgid "Available"
-msgstr "Доступные"
-
-msgid "Reset"
-msgstr "Сбросить"
-
 msgid "Apply"
 msgstr "Применить"
 
