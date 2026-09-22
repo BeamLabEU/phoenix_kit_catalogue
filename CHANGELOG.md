@@ -1,3 +1,22 @@
+## 0.44.2 - 2026-09-22
+
+Review: `dev_docs/pull_requests/2026/135-selector-qty-unit-columns/`.
+
+Built against `phoenix_kit` 2.37.4; the floor stays at 2.34.0.
+
+### Changed
+
+- In the item selector's list views, when the host shows a separate unit
+  column, the quantity fields no longer repeat the unit ("pc", "m") after
+  the number. All the fields are now the same width and line up in one
+  straight column (#135). Hiding the unit column does not bring the unit
+  back, which matches how the price column already behaves.
+- Prices in the item selector's list views now use equal-width digits, so
+  they line up digit under digit.
+- On the item form, the price, markup and discount fields now also empty
+  a zero when you click into them. This comes from `phoenix_kit` 2.37.4's
+  `decimal_input`.
+
 ## 0.44.1 - 2026-09-22
 
 Review: `dev_docs/pull_requests/2026/134-qty-zero-clears-on-focus/`.
