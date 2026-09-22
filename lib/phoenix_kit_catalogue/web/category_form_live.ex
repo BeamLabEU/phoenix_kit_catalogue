@@ -399,6 +399,7 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
       # different catalogue than the one being edited.
       |> Map.put("catalogue_uuid", socket.assigns.catalogue_uuid)
       |> normalize_parent_uuid()
+      |> with_parent_pick(socket)
       |> merge_translatable_params(socket, @translatable_fields,
         changeset: socket.assigns.changeset,
         preserve_fields: @preserve_fields
@@ -423,6 +424,7 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
       |> Map.get("category", %{})
       |> Map.put("catalogue_uuid", socket.assigns.catalogue_uuid)
       |> normalize_parent_uuid()
+      |> with_parent_pick(socket)
       |> merge_translatable_params(socket, @translatable_fields,
         changeset: socket.assigns.changeset,
         preserve_fields: @preserve_fields
@@ -605,6 +607,14 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
     do: Map.put(params, "parent_uuid", nil)
 
   defp normalize_parent_uuid(params), do: params
+
+  # A new category's parent is the server's pick, not the posted value: a
+  # keystroke sent before the pick's patch arrived still carries the old
+  # one. (An existing category changes parent only through Move.)
+  defp with_parent_pick(params, %{assigns: %{action: :new, parent_pick: pick}}),
+    do: Map.put(params, "parent_uuid", PlaceTree.uuid(pick))
+
+  defp with_parent_pick(params, _socket), do: params
 
   # actor_opts/1 imported from PhoenixKitCatalogue.Web.Helpers
 
