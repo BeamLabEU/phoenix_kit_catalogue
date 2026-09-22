@@ -596,9 +596,6 @@ msgstr "või lohistage"
 msgid "File is too large (max 10MB)."
 msgstr "Fail on liiga suur (maks. 10 MB)"
 
-msgid "File type not accepted."
-msgstr "Failitüüp pole toetatud."
-
 msgid "Only PDF files are accepted."
 msgstr "Aktsepteeritakse ainult PDF-faile."
 
@@ -1846,9 +1843,6 @@ msgstr "Uut tarnijat ei õnnestunud luua. Kontrolli vormi ja proovi uuesti."
 msgid "Could not load more matches. Please try again."
 msgstr "Rohkem vasteid ei õnnestunud laadida. Proovi uuesti."
 
-msgid "Could not prepare the files folder."
-msgstr "Failikausta ei õnnestunud ette valmistada."
-
 msgid "Could not remove file."
 msgstr "Faili ei õnnestunud eemaldada."
 
@@ -2526,9 +2520,6 @@ msgstr "Luuakse"
 msgid "Too many files at once."
 msgstr "Korraga liiga palju faile."
 
-msgid "Too many files."
-msgstr "Liiga palju faile."
-
 msgid "Trashed"
 msgstr "Prügikastis"
 
@@ -2549,15 +2540,6 @@ msgstr "Uuendused"
 
 msgid "Upload & parse"
 msgstr "Laadi üles ja analüüsi"
-
-msgid "Upload error: %{reason}"
-msgstr "Üleslaadimise viga: %{reason}"
-
-msgid "Upload failed for %{name}."
-msgstr "%{name} üleslaadimine ebaõnnestus."
-
-msgid "%{name} is identical to %{existing}, which is already attached — nothing was added."
-msgstr "%{name} on identne juba manustatud failiga %{existing} — midagi ei lisatud."
 
 msgid "Upload failed for an unexpected reason. Please try again."
 msgstr "Üleslaadimine ebaõnnestus ootamatul põhjusel. Proovi uuesti."

@@ -14,6 +14,7 @@ defmodule PhoenixKitCatalogue.AttachmentsApiTest do
   alias Ecto.Adapters.SQL
   alias PhoenixKit.Modules.Storage
   alias PhoenixKit.Modules.Storage.File, as: StorageFile
+  alias PhoenixKit.Modules.Storage.ResourceFolders
   alias PhoenixKitCatalogue.Attachments
   alias PhoenixKitCatalogue.Catalogue
   alias PhoenixKitCatalogue.Test.Repo
@@ -144,12 +145,14 @@ defmodule PhoenixKitCatalogue.AttachmentsApiTest do
 
       # Lives in another folder → linked in, listed here from now on.
       shared = Repo.get!(StorageFile, insert_file!(user_uuid, elsewhere.uuid, "shared.pdf"))
-      assert {:ok, ^shared} = Attachments.file_stored({:ok, shared, :duplicate}, folder)
+      assert {:ok, ^shared} = ResourceFolders.place_stored({:ok, shared, :duplicate}, folder)
       assert shared.uuid in Enum.map(Attachments.list_folder_files(folder), & &1.uuid)
 
       # Already home here → nothing to add, and the uploader is told so.
       here = Repo.get!(StorageFile, insert_file!(user_uuid, folder, "here.pdf"))
-      assert {:already_attached, ^here} = Attachments.file_stored({:ok, here, :duplicate}, folder)
+
+      assert {:already_attached, ^here} =
+               ResourceFolders.place_stored({:ok, here, :duplicate}, folder)
 
       assert Attachments.duplicate_notice("again.pdf", here) ==
                "again.pdf is identical to here.pdf, which is already attached — nothing was added."
@@ -158,24 +161,24 @@ defmodule PhoenixKitCatalogue.AttachmentsApiTest do
       # attached as a home row — the link insert's on_conflict: :nothing
       # must not read as a fresh success.
       assert {:already_attached, ^shared} =
-               Attachments.file_stored({:ok, shared, :duplicate}, folder)
+               ResourceFolders.place_stored({:ok, shared, :duplicate}, folder)
 
       # A trashed duplicate was removed on purpose; re-uploading restores it.
       gone = Repo.get!(StorageFile, insert_file!(user_uuid, folder, "gone.pdf"))
       {:ok, gone} = Storage.trash_file(gone)
-      assert {:ok, back} = Attachments.file_stored({:ok, gone, :duplicate}, folder)
+      assert {:ok, back} = ResourceFolders.place_stored({:ok, gone, :duplicate}, folder)
       assert back.status == "active"
 
       # An assignment failure is surfaced, not swallowed (the folder was
       # deleted between ensure_folder and store: the FK refuses the adopt).
       loose = Repo.get!(StorageFile, insert_file!(user_uuid, nil, "loose.pdf"))
-      assert {:error, _} = Attachments.file_stored({:ok, loose}, Ecto.UUID.generate())
+      assert {:error, _} = ResourceFolders.place_stored({:ok, loose}, Ecto.UUID.generate())
 
       # A fresh file is home-adopted; an error passes through.
       fresh = Repo.get!(StorageFile, insert_file!(user_uuid, nil, "fresh.pdf"))
-      assert {:ok, _} = Attachments.file_stored({:ok, fresh}, folder)
+      assert {:ok, _} = ResourceFolders.place_stored({:ok, fresh}, folder)
       assert Repo.get!(StorageFile, fresh.uuid).folder_uuid == folder
-      assert Attachments.file_stored({:error, :boom}, folder) == {:error, :boom}
+      assert ResourceFolders.place_stored({:error, :boom}, folder) == {:error, :boom}
     end
 
     test "list_folder_files/2 still honours the older type options", %{

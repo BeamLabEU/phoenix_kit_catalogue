@@ -596,9 +596,6 @@ msgstr "or drag & drop"
 msgid "File is too large (max 10MB)."
 msgstr "File is too large (max 10MB)."
 
-msgid "File type not accepted."
-msgstr "File type not accepted."
-
 msgid "Only PDF files are accepted."
 msgstr "Only PDF files are accepted."
 
@@ -1846,9 +1843,6 @@ msgstr ""
 msgid "Could not load more matches. Please try again."
 msgstr ""
 
-msgid "Could not prepare the files folder."
-msgstr ""
-
 msgid "Could not remove file."
 msgstr ""
 
@@ -2526,9 +2520,6 @@ msgstr ""
 msgid "Too many files at once."
 msgstr ""
 
-msgid "Too many files."
-msgstr ""
-
 msgid "Trashed"
 msgstr ""
 
@@ -2549,15 +2540,6 @@ msgstr ""
 
 msgid "Upload & parse"
 msgstr ""
-
-msgid "Upload error: %{reason}"
-msgstr ""
-
-msgid "Upload failed for %{name}."
-msgstr ""
-
-msgid "%{name} is identical to %{existing}, which is already attached — nothing was added."
-msgstr "%{name} is identical to %{existing}, which is already attached — nothing was added."
 
 msgid "Upload failed for an unexpected reason. Please try again."
 msgstr ""
