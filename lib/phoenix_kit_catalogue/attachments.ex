@@ -1122,8 +1122,13 @@ defmodule PhoenixKitCatalogue.Attachments do
 
   Options:
 
-    * `:only` — `:images`, `:non_images` or `:all` (default), in SQL, so
-      the cap cannot eat the rows a caller wanted (the card's documents).
+    * `:only` — `:images`, `:non_images`, `{:type, file_type}`,
+      `{:not_type, file_type}` or `:all` (default), in SQL, so the cap
+      cannot eat the rows a caller wanted (the card's documents).
+    * `:file_type` / `:exclude_file_type` — the older spelling of
+      `{:type, t}` / `{:not_type, t}`, still honoured. System-managed files
+      are always left out, so the older `:exclude_system_managed` is no
+      longer needed.
   """
   @spec list_folder_files(String.t() | nil, keyword()) :: [File.t()]
   def list_folder_files(folder_uuid, opts \\ [])
@@ -1140,11 +1145,28 @@ defmodule PhoenixKitCatalogue.Attachments do
 
   defp folder_files!(folder_uuid, opts) do
     ResourceFolders.list_files(folder_uuid,
-      only: Keyword.get(opts, :only, :all),
+      only: only_option(opts),
       order: :oldest,
       limit: @files_grid_limit
     )
   end
+
+  defp only_option(opts) do
+    cond do
+      only = opts[:only] -> only
+      type = opts[:file_type] -> {:type, type}
+      type = opts[:exclude_file_type] -> {:not_type, type}
+      true -> :all
+    end
+  end
+
+  @doc """
+  The query behind `list_folder_files/2`, unordered and uncapped: core's
+  `ResourceFolders.files_query/1`. Kept for callers that count or order
+  the set themselves.
+  """
+  @spec folder_files_query(String.t()) :: Ecto.Query.t()
+  def folder_files_query(folder_uuid), do: ResourceFolders.files_query(folder_uuid)
 
   # The editor's own listing. System-managed rows (tiles, chunks) are
   # hidden here as they are on the card and in core's media browser, so

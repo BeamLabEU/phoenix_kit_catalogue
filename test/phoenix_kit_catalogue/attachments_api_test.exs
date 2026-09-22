@@ -178,6 +178,28 @@ defmodule PhoenixKitCatalogue.AttachmentsApiTest do
       assert Attachments.file_stored({:error, :boom}, folder) == {:error, :boom}
     end
 
+    test "list_folder_files/2 still honours the older type options", %{
+      item: item,
+      user_uuid: user_uuid
+    } do
+      photo = insert_file!(user_uuid, nil, "photo.jpg")
+
+      pdf =
+        insert_file!(user_uuid, nil, "spec.pdf", %{
+          file_type: "document",
+          mime_type: "application/pdf"
+        })
+
+      {:ok, updated} = Attachments.attach_files(item, [photo, pdf])
+      folder = updated.data["files_folder_uuid"]
+
+      uuids = &Enum.map(&1, fn file -> file.uuid end)
+      assert uuids.(Attachments.list_folder_files(folder, file_type: "image")) == [photo]
+      assert uuids.(Attachments.list_folder_files(folder, exclude_file_type: "image")) == [pdf]
+      assert uuids.(Attachments.list_folder_files(folder, only: {:type, "document"})) == [pdf]
+      assert Repo.aggregate(Attachments.folder_files_query(folder), :count) == 2
+    end
+
     test "update_catalogue/3 honours :data_owned_keys like update_item/3 does" do
       catalogue = fixture_catalogue(%{name: "Owned Keys"})
       {:ok, catalogue} = Catalogue.update_catalogue(catalogue, %{data: %{"other" => "kept"}})
