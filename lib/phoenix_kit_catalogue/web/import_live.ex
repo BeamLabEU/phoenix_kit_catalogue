@@ -103,7 +103,6 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
        category_match_across_languages: false,
        new_category: nil,
        new_category_changeset: nil,
-       catalogue_categories: [],
        import_category_tree: [],
        import_manufacturer_mode: :none,
        import_manufacturer_uuid: nil,
@@ -637,7 +636,7 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
 
   defp continue_or_parse(socket) do
     if socket.assigns.filename do
-      {:noreply, socket |> assign(:step, :map) |> assign_catalogue_categories()}
+      {:noreply, socket |> assign(:step, :map) |> assign_import_category_tree()}
     else
       parse_uploaded_file(socket)
     end
@@ -773,7 +772,7 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
         {:noreply,
          socket
          # The selected catalogue's existing categories, as a list and a tree.
-         |> assign_catalogue_categories()
+         |> assign_import_category_tree()
          |> assign(
            step: :map,
            headers: data.headers,
@@ -1073,11 +1072,6 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
      )}
   end
 
-  # Resolves the category to pin imported items to, based on the
-  # current `import_category_mode`. For `:create` mode this is where
-  # the actual category record gets persisted — deferring creation to
-  # execute time means cancelling out of the confirm step doesn't
-  # leave an orphan category behind.
   # What stops the mapping step before any record is created: no column
   # for the item name, or "An existing category" with nothing picked (it
   # would import everything uncategorized — not what the choice says).
@@ -1137,6 +1131,11 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
     end
   end
 
+  # Resolves the category to pin imported items to, based on the
+  # current `import_category_mode`. For `:create` mode this is where
+  # the actual category record gets persisted — deferring creation to
+  # execute time means cancelling out of the confirm step doesn't
+  # leave an orphan category behind.
   defp resolve_import_category(socket, catalogue_uuid, import_lang) do
     case socket.assigns.import_category_mode do
       :existing when is_nil(socket.assigns.import_category_uuid) ->
@@ -2744,11 +2743,9 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
 
   # ── Private helpers ─────────────────────────────────────────────
 
-  # Builds the label shown for one catalogue in the Target Catalogue
-  # picker. Counts are passed in as separate `%{uuid => count}` maps so
-  # the picker stays a thin renderer over data the LiveView already
-  # has — no per-option DB lookups, no N+1.
-  # Folders › catalogues, each with its counts beside its name.
+  # Folders › catalogues, each with its counts beside its name. The
+  # counts are passed in as `%{uuid => count}` maps the LiveView already
+  # has — no per-row DB lookups, no N+1.
   defp catalogue_tree(locale, item_counts, category_counts) do
     nil
     |> PlaceTree.places(categories: false, locale: locale)
@@ -2768,19 +2765,18 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
   # Back at the upload step with another catalogue picked, a category
   # picked in the old one would send the items there (an item's catalogue
   # follows its category) — so a pick the new tree lacks is dropped.
-  defp assign_catalogue_categories(%{assigns: %{selected_catalogue: %{} = catalogue}} = socket) do
+  defp assign_import_category_tree(%{assigns: %{selected_catalogue: %{} = catalogue}} = socket) do
     socket
     |> assign(
-      catalogue_categories: Catalogue.list_categories_for_catalogue(catalogue.uuid),
       import_category_tree:
         PlaceTree.categories(catalogue, locale: socket.assigns[:current_locale])
     )
     |> drop_stale_category_pick()
   end
 
-  defp assign_catalogue_categories(socket) do
+  defp assign_import_category_tree(socket) do
     socket
-    |> assign(catalogue_categories: [], import_category_tree: [])
+    |> assign(import_category_tree: [])
     |> drop_stale_category_pick()
   end
 

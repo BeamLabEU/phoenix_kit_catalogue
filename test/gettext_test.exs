@@ -151,7 +151,12 @@ defmodule PhoenixKitCatalogue.GettextTest do
           {"Top level", "Верхний уровень", "Ülemine tase"},
           {"uncategorized", "без категории", "kategoriseerimata"},
           {"An existing category — pick it below", "Существующая категория — выберите ниже",
-           "Olemasolev kategooria — vali allpool"}
+           "Olemasolev kategooria — vali allpool"},
+          {"top level", "верхний уровень", "ülemine tase"},
+          {"Select all", "Выбрать все", "Vali kõik"},
+          {"Pick the category to import into, or choose another option.",
+           "Выберите категорию для импорта или другой вариант.",
+           "Vali kategooria, kuhu importida, või mõni muu valik."}
         ] do
       Gettext.put_locale(PhoenixKitCatalogue.Gettext, "ru")
       assert Gettext.gettext(PhoenixKitCatalogue.Gettext, msgid) == ru

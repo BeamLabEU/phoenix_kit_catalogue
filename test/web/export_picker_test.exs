@@ -55,4 +55,18 @@ defmodule PhoenixKitCatalogue.Web.ExportPickerTest do
     assert html =~ ctx.kitchen.uuid
     assert html =~ "2 / "
   end
+
+  # A destination/format change posted before a tick's re-render reached
+  # the browser carries the previous ticks; the picker's own message is
+  # the selection, so the stale post must not undo the tick.
+  test "a form change with stale ticks keeps the picker's selection", %{conn: conn} = ctx do
+    {:ok, view, _html} = live(conn, @url)
+
+    view
+    |> element(~s(#export-catalogue-picker [data-place="catalogue:#{ctx.loose.uuid}"]))
+    |> render_click()
+
+    render_change(view, "change_form", %{"catalogue_uuids" => [ctx.bath.uuid]})
+    assert selected(view) == [ctx.loose.uuid]
+  end
 end

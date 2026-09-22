@@ -866,7 +866,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   # never move the item.
 
   def handle_event("open_location_picker", _params, socket) do
-    tree = ItemLocation.tree(socket.assigns.catalogue_kind)
+    tree = ItemLocation.tree(socket.assigns.catalogue_kind, socket.assigns[:current_locale])
 
     {:noreply,
      assign(socket, :location_picker, %{
