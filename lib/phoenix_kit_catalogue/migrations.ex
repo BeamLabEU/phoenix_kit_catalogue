@@ -248,11 +248,14 @@ defmodule PhoenixKitCatalogue.Migrations do
   # core's per-user view preferences (`phoenix_kit_user_view_prefs`, core
   # V200): one row per scope (`catalogue.<scope>`) and one module-wide row
   # (`catalogue`). This copies them once. An empty column list is kept —
-  # it meant "every optional column hidden" here and does in core too. A
-  # row already in core wins. It runs only while the chain is below V3 —
-  # `up/1` replays every version, and a later run would bring back a
-  # choice the user has since reset. Skipped where core's table is not
-  # there yet. The `custom_fields` key is left in place, unread.
+  # it meant "every optional column hidden" here and does in core too. Only
+  # the module's own scopes are copied, and the selector's two choices land
+  # as two fields. A row already in core wins. It runs once: the
+  # `catalogue_view_prefs_copied_at` setting is written right after it, and
+  # `up/1` replays every version, so a later run would otherwise bring back
+  # a choice the user has since reset. Where core's table is not there yet
+  # it waits for a later run; the chain's own version marker plays no part.
+  # The `custom_fields` key is left in place, unread.
   defp v3_statements(prefix, p) do
     [
       """
@@ -263,13 +266,7 @@ defmodule PhoenixKitCatalogue.Migrations do
           WHERE t.relname = 'phoenix_kit_user_view_prefs' AND n.nspname = '#{prefix}'
             AND t.relkind = 'r'
         ) AND NOT EXISTS (
-          SELECT 1 FROM pg_description d
-          JOIN pg_class c ON c.oid = d.objoid
-          JOIN pg_namespace n ON n.oid = c.relnamespace
-          WHERE c.relname = '#{@version_table}' AND n.nspname = '#{prefix}'
-            AND d.classoid = 'pg_catalog.pg_class'::regclass AND d.objsubid = 0
-            AND d.description ~ '^#{@marker_prefix}[0-9]+$'
-            AND substring(d.description from #{String.length(@marker_prefix) + 1})::int >= 3
+          SELECT 1 FROM #{p}phoenix_kit_settings WHERE key = 'catalogue_view_prefs_copied_at'
         ) THEN
           INSERT INTO #{p}phoenix_kit_user_view_prefs (user_uuid, key, prefs, inserted_at, updated_at)
           SELECT u.uuid,
@@ -288,7 +285,8 @@ defmodule PhoenixKitCatalogue.Migrations do
                  THEN u.custom_fields -> 'catalogue_view_configs'
                  ELSE '{}'::jsonb END
           ) s
-          WHERE s.key ~ '^[a-z][a-z_]{0,99}$'
+          WHERE s.key IN ('catalogues', 'suppliers', 'manufacturers', 'attribute_groups',
+                          'detail_items', 'detail_categories')
             AND jsonb_typeof(s.value) = 'object'
           ON CONFLICT (user_uuid, key) DO NOTHING;
 
@@ -297,7 +295,8 @@ defmodule PhoenixKitCatalogue.Migrations do
                  'catalogue',
                  jsonb_strip_nulls(jsonb_build_object(
                    'view', CASE WHEN jsonb_typeof(c.cfg -> '__view__') = 'string' THEN c.cfg -> '__view__' END,
-                   'selector', CASE WHEN jsonb_typeof(c.cfg -> '__selector__') = 'object' THEN c.cfg -> '__selector__' END
+                   'selector_view', CASE WHEN jsonb_typeof(c.cfg -> '__selector__' -> 'view') = 'string' THEN c.cfg -> '__selector__' -> 'view' END,
+                   'selector_hidden', CASE WHEN jsonb_typeof(c.cfg -> '__selector__' -> 'hidden') = 'array' THEN c.cfg -> '__selector__' -> 'hidden' END
                  )),
                  date_trunc('second', now()),
                  date_trunc('second', now())
@@ -306,6 +305,10 @@ defmodule PhoenixKitCatalogue.Migrations do
           WHERE jsonb_typeof(c.cfg) = 'object'
             AND (c.cfg ? '__view__' OR c.cfg ? '__selector__')
           ON CONFLICT (user_uuid, key) DO NOTHING;
+
+          INSERT INTO #{p}phoenix_kit_settings (key, value, module)
+          VALUES ('catalogue_view_prefs_copied_at', now()::text, 'catalogue')
+          ON CONFLICT (key) DO NOTHING;
         END IF;
       END $$
       """
