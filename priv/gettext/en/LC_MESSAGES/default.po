@@ -3180,12 +3180,12 @@ msgstr "Include subcategory items"
 #: lib/phoenix_kit_catalogue/web/catalogue_detail_live.ex:4523
 #: lib/phoenix_kit_catalogue/web/catalogue_detail_live.ex:5033
 #: lib/phoenix_kit_catalogue/web/catalogue_detail_live.ex:5136
-#, elixir-autogen, elixir-format, fuzzy
+#, elixir-autogen, elixir-format
 msgid "New subcategory"
-msgstr "New Category"
+msgstr ""
 
 #: lib/phoenix_kit_catalogue/web/catalogue_detail_live.ex:3459
-#, elixir-autogen, elixir-format, fuzzy
+#, elixir-autogen, elixir-format
 msgid "Search for"
 msgstr ""
 
@@ -3631,6 +3631,9 @@ msgid "Destination:"
 msgstr ""
 
 msgid "Pick a category to nest this one inside, or the catalogue itself for its top level. You can move it later."
+msgstr ""
+
+msgid "The chosen parent is no longer available. Pick another place."
 msgstr ""
 
 msgid "Pick where it goes: a catalogue's top level, or under a category. Its subcategories and items come along."
