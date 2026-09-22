@@ -149,6 +149,13 @@ defmodule PhoenixKitCatalogue.Attachments do
       # out in the user's saved order (boss, 2026-08-31: the client
       # reorders images after adding them).
       |> assign(:media_order, read_list(resource_data(resource), "media_order"))
+      # What the record held when this form opened: a clear marker is
+      # written only for something the form knew about.
+      |> assign(:media_order_at_mount, read_list(resource_data(resource), "media_order"))
+      |> assign(
+        :featured_image_at_mount,
+        read_string(resource_data(resource), "featured_image_uuid")
+      )
       # What the row holds — so a same-place drop writes nothing, and a
       # broadcast can tell "someone else reordered" from "our own write".
       |> assign(:media_order_persisted, read_list(resource_data(resource), "media_order"))
@@ -847,9 +854,14 @@ defmodule PhoenixKitCatalogue.Attachments do
   def inject_attachment_data(params, socket) do
     params
     |> inject_files_folder(socket.assigns[:files_folder_uuid])
-    |> inject_featured_image(socket.assigns[:featured_image_uuid])
-    |> inject_media_order(socket.assigns[:files_state])
+    |> inject_featured_image(socket.assigns[:featured_image_uuid], socket)
+    |> inject_media_order(socket.assigns[:files_state], socket)
   end
+
+  # A clear marker says "the person cleared this here", so it is written
+  # only by a form that HAD one to clear: one opened before another tab
+  # set an image would otherwise delete it on any save.
+  defp knew?(socket, key), do: socket.assigns[key] not in [nil, []]
 
   @doc """
   After a `:new` save, renames the pending (random-named) folder to
@@ -1222,12 +1234,16 @@ defmodule PhoenixKitCatalogue.Attachments do
   # touches `:data` (`Schemas.Item`/`Schemas.Category`) drops a `nil`
   # top-level entry before it reaches storage, so the stored shape ends
   # up identical to a record that never had the key — not a JSON `null`.
-  defp inject_featured_image(params, nil) do
-    data = ensure_data_map(params)
-    Map.put(params, "data", Map.put(data, "featured_image_uuid", nil))
+  defp inject_featured_image(params, nil, socket) do
+    if knew?(socket, :featured_image_at_mount) do
+      data = ensure_data_map(params)
+      Map.put(params, "data", Map.put(data, "featured_image_uuid", nil))
+    else
+      params
+    end
   end
 
-  defp inject_featured_image(params, uuid) when is_binary(uuid) do
+  defp inject_featured_image(params, uuid, _socket) when is_binary(uuid) do
     data = ensure_data_map(params)
     Map.put(params, "data", Map.put(data, "featured_image_uuid", uuid))
   end
@@ -1236,16 +1252,20 @@ defmodule PhoenixKitCatalogue.Attachments do
   # uploads get persisted positions too, and the save is what makes the
   # order real (same lifecycle as the featured pointer). Only written
   # once the user HAS files: a legacy record without any stays untouched.
-  defp inject_media_order(params, %{files: [_ | _] = files}) do
+  defp inject_media_order(params, %{files: [_ | _] = files}, _socket) do
     data = ensure_data_map(params)
     Map.put(params, "data", Map.put(data, "media_order", Enum.map(files, &to_string(&1.uuid))))
   end
 
-  # `nil` marker, not `Map.delete/2` — see `inject_featured_image/2`'s
-  # comment just above.
-  defp inject_media_order(params, _files_state) do
-    data = ensure_data_map(params)
-    Map.put(params, "data", Map.put(data, "media_order", nil))
+  # `nil` marker, not `Map.delete/2` — see `inject_featured_image/3`'s
+  # comment just above; and only from a form that had an order to lose.
+  defp inject_media_order(params, _files_state, socket) do
+    if knew?(socket, :media_order_at_mount) do
+      data = ensure_data_map(params)
+      Map.put(params, "data", Map.put(data, "media_order", nil))
+    else
+      params
+    end
   end
 
   defp ensure_data_map(params) do
