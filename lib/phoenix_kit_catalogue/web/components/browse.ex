@@ -429,12 +429,7 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
 
   def category_chips(assigns) do
     ~H"""
-    <div
-      id={@id}
-      class="flex gap-1.5 overflow-x-auto pb-1"
-      role="group"
-      aria-label={gettext("Categories")}
-    >
+    <div id={@id} class="flex gap-1.5 overflow-x-auto pb-1" role="group" aria-label={gettext("Categories")}>
       <button
         type="button"
         class={[
@@ -1243,7 +1238,15 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
   suffix. `precision: :any` is free text (`type="text"`,
   `inputmode="decimal"`, no spinner, no step/min/max): the browser's
   locale rules for number controls never get to reject a dot or a comma,
-  and the server takes the value unrounded. `min`/`max`/`step` shape the arrows and keyboard ONLY — the
+  and the server takes the value unrounded.
+
+  A zero clears itself on focus: a field showing `0` (or `0.0`, and `0,00`
+  in free-text mode) empties when it gains focus, so a typed `8` is `8`
+  and not `08`; leaving it still empty puts the zero back. Typed text is
+  kept, a non-zero value is never touched. The swap is programmatic, so
+  `qty_change` and the row's selected-state hook never see it, and
+  `qty_commit` (blur) carries the restored zero as before; a host's own
+  `phx-focus` would see the emptied field. `min`/`max`/`step` shape the arrows and keyboard ONLY — the
   form is `novalidate`, so they never gate the submit (a browser
   validation failure would leave Enter silently dead), and every limit
   is re-enforced server-side, exactly as before.
