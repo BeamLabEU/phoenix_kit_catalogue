@@ -40,10 +40,11 @@ defmodule PhoenixKitCatalogue.Web.ItemLocation do
   @doc """
   The picker's tree for items of `kind` (`"standard"` | `"smart"`):
   folders first, then the catalogues filed at that level, each catalogue
-  holding its category tree — `PlaceTree.places/2`.
+  holding its category tree — `PlaceTree.places/2`. Names are in
+  `locale`, as the page shows them (`nil`: the primary language).
   """
-  @spec tree(String.t()) :: [tree_node()]
-  def tree(kind), do: PlaceTree.places(kind)
+  @spec tree(String.t(), String.t() | nil) :: [tree_node()]
+  def tree(kind, locale \\ nil), do: PlaceTree.places(kind, locale: locale)
 
   @doc "Whether `target` is a place the tree offers (a catalogue or category row)."
   @spec member?([tree_node()], term()) :: boolean()
@@ -59,16 +60,16 @@ defmodule PhoenixKitCatalogue.Web.ItemLocation do
 
   @doc """
   The names from the catalogue down to `target`, read from the database —
-  for the section's path before the tree has been loaded. `[]` when the
-  place no longer exists.
+  for the section's path before the tree has been loaded — in `locale`
+  (`nil`: the primary language). `[]` when the place no longer exists.
   """
-  @spec path_names(target() | nil) :: [String.t()]
-  def path_names(target) do
+  @spec path_names(target() | nil, String.t() | nil) :: [String.t()]
+  def path_names(target, locale \\ nil) do
     case parse(target) do
       {:catalogue, uuid} ->
         case Catalogue.get_catalogue(uuid) do
           nil -> []
-          catalogue -> [catalogue.name]
+          catalogue -> [Catalogue.localize_one(catalogue, locale).name]
         end
 
       {:category, uuid} ->
@@ -80,8 +81,12 @@ defmodule PhoenixKitCatalogue.Web.ItemLocation do
             catalogue = Catalogue.get_catalogue(category.catalogue_uuid)
             ancestors = Catalogue.list_category_ancestors(category.uuid)
 
-            Enum.reject([catalogue && catalogue.name], &is_nil/1) ++
-              Enum.map(ancestors, & &1.name) ++ [category.name]
+            [catalogue]
+            |> Enum.reject(&is_nil/1)
+            |> Kernel.++(ancestors)
+            |> Kernel.++([category])
+            |> Catalogue.localize(locale)
+            |> Enum.map(& &1.name)
         end
 
       :error ->
