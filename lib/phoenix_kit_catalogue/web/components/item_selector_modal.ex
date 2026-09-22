@@ -685,15 +685,11 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
 
   defp refresh_user(other), do: other
 
-  # Best-effort persistence: store what the user just chose and keep the
-  # REFRESHED user on the socket — the save merges into the whole
-  # custom_fields map, so a stale snapshot would clobber the previous
-  # choice on the next save (the save_view_on/2 lesson in ViewConfig).
+  # Best-effort persistence of what the user just chose (the module-wide
+  # view-preferences row; see ViewConfig).
   defp persist_selector(socket, choices) do
-    case ViewConfig.save_selector(socket.assigns.current_user, choices) do
-      {:ok, updated} -> assign(socket, current_user: updated)
-      _ -> socket
-    end
+    _ = ViewConfig.save_selector(socket.assigns.current_user, choices)
+    socket
   end
 
   # A column toggle both applies and persists: what is saved is the

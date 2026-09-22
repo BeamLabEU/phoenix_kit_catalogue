@@ -926,15 +926,6 @@ msgstr "Jäädavalt kustutati %{count} toodet."
 msgid "Columns"
 msgstr "Veerud"
 
-msgid "Shown"
-msgstr "Näidatud"
-
-msgid "Available"
-msgstr "Saadaval"
-
-msgid "Reset"
-msgstr "Lähtesta"
-
 msgid "Apply"
 msgstr "Rakenda"
 

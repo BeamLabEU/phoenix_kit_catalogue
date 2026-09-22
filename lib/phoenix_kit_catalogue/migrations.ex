@@ -122,7 +122,7 @@ defmodule PhoenixKitCatalogue.Migrations do
 
   use Ecto.Migration
 
-  @current_version 2
+  @current_version 3
   @marker_prefix "pkc_schema:"
   @version_table "phoenix_kit_cat_catalogues"
 
@@ -219,10 +219,12 @@ defmodule PhoenixKitCatalogue.Migrations do
     target = min(target, @current_version)
 
     v2 = if target >= 2, do: v2_statements(p), else: []
+    v3 = if target >= 3, do: v3_statements(prefix, p), else: []
 
     List.flatten([
       v1_statements(prefix, p),
       v2,
+      v3,
       "COMMENT ON TABLE #{p}#{@version_table} IS '#{@marker_prefix}#{target}'"
     ])
   end
@@ -234,6 +236,79 @@ defmodule PhoenixKitCatalogue.Migrations do
       foreign_keys(prefix, p),
       checks(prefix, p),
       indexes(p)
+    ]
+  end
+
+  # ── V3: each user's table choices move to core ─────────────────────
+  #
+  # The admin tables' per-user columns / sort / filters, the module-wide
+  # view and the item selector's choices lived in
+  # `phoenix_kit_users.custom_fields["catalogue_view_configs"]`, written as
+  # a whole map from whatever copy of the user a page held. They are now
+  # core's per-user view preferences (`phoenix_kit_user_view_prefs`, core
+  # V200): one row per scope (`catalogue.<scope>`) and one module-wide row
+  # (`catalogue`). This copies them once. An empty column list is kept —
+  # it meant "every optional column hidden" here and does in core too. A
+  # row already in core wins. It runs only while the chain is below V3 —
+  # `up/1` replays every version, and a later run would bring back a
+  # choice the user has since reset. Skipped where core's table is not
+  # there yet. The `custom_fields` key is left in place, unread.
+  defp v3_statements(prefix, p) do
+    [
+      """
+      DO $$
+      BEGIN
+        IF EXISTS (
+          SELECT 1 FROM pg_class t JOIN pg_namespace n ON n.oid = t.relnamespace
+          WHERE t.relname = 'phoenix_kit_user_view_prefs' AND n.nspname = '#{prefix}'
+            AND t.relkind = 'r'
+        ) AND NOT EXISTS (
+          SELECT 1 FROM pg_description d
+          JOIN pg_class c ON c.oid = d.objoid
+          JOIN pg_namespace n ON n.oid = c.relnamespace
+          WHERE c.relname = '#{@version_table}' AND n.nspname = '#{prefix}'
+            AND d.classoid = 'pg_catalog.pg_class'::regclass AND d.objsubid = 0
+            AND d.description ~ '^#{@marker_prefix}[0-9]+$'
+            AND substring(d.description from #{String.length(@marker_prefix) + 1})::int >= 3
+        ) THEN
+          INSERT INTO #{p}phoenix_kit_user_view_prefs (user_uuid, key, prefs, inserted_at, updated_at)
+          SELECT u.uuid,
+                 'catalogue.' || s.key,
+                 jsonb_strip_nulls(jsonb_build_object(
+                   'columns', CASE WHEN jsonb_typeof(s.value -> 'columns') = 'array' THEN s.value -> 'columns' END,
+                   'sort_by', CASE WHEN jsonb_typeof(s.value -> 'sort_by') = 'string' THEN s.value -> 'sort_by' END,
+                   'sort_dir', CASE WHEN jsonb_typeof(s.value -> 'sort_dir') = 'string' THEN s.value -> 'sort_dir' END,
+                   'filters', CASE WHEN jsonb_typeof(s.value -> 'filters') = 'object' THEN s.value -> 'filters' END
+                 )),
+                 date_trunc('second', now()),
+                 date_trunc('second', now())
+          FROM #{p}phoenix_kit_users u
+          CROSS JOIN LATERAL jsonb_each(
+            CASE WHEN jsonb_typeof(u.custom_fields -> 'catalogue_view_configs') = 'object'
+                 THEN u.custom_fields -> 'catalogue_view_configs'
+                 ELSE '{}'::jsonb END
+          ) s
+          WHERE s.key ~ '^[a-z][a-z_]{0,99}$'
+            AND jsonb_typeof(s.value) = 'object'
+          ON CONFLICT (user_uuid, key) DO NOTHING;
+
+          INSERT INTO #{p}phoenix_kit_user_view_prefs (user_uuid, key, prefs, inserted_at, updated_at)
+          SELECT u.uuid,
+                 'catalogue',
+                 jsonb_strip_nulls(jsonb_build_object(
+                   'view', CASE WHEN jsonb_typeof(c.cfg -> '__view__') = 'string' THEN c.cfg -> '__view__' END,
+                   'selector', CASE WHEN jsonb_typeof(c.cfg -> '__selector__') = 'object' THEN c.cfg -> '__selector__' END
+                 )),
+                 date_trunc('second', now()),
+                 date_trunc('second', now())
+          FROM #{p}phoenix_kit_users u
+          CROSS JOIN LATERAL (SELECT u.custom_fields -> 'catalogue_view_configs' AS cfg) c
+          WHERE jsonb_typeof(c.cfg) = 'object'
+            AND (c.cfg ? '__view__' OR c.cfg ? '__selector__')
+          ON CONFLICT (user_uuid, key) DO NOTHING;
+        END IF;
+      END $$
+      """
     ]
   end
 

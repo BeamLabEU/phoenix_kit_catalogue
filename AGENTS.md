@@ -335,8 +335,12 @@ Settings → Catalogue (`Web.SettingsLive`), read and written through
 | `catalogue_translation_sweep_max_per_run` | int | default `200` |
 | `catalogue_sort_catalogues` / `catalogue_sort_detail_items` / `catalogue_sort_detail_categories` | json | the module-global shared sort per scope (`%{"by" => …, "dir" => …}`), written by the admin sort selectors and read by the popup and widgets — not on the settings page |
 
-Not a Settings key: per-user table/view preferences live under
-`phoenix_kit_users.custom_fields["catalogue_view_configs"]` (`Web.ViewConfig`).
+Not a Settings key: per-user table/view preferences are core's
+`PhoenixKit.Users.ViewPrefs` rows (`Web.ViewConfig`) — `catalogue.<scope>` for a
+table's columns, sort and filters, `catalogue` for the module-wide view and the
+item selector's choices. A save writes only the fields it changed; never keep
+them in `custom_fields` (a whole-map write from a page's copy of the user drops
+what another tab saved).
 
 Permission: one key, `"catalogue"` (`permission_metadata/0`), no sub-permissions.
 PubSub topic: `"phoenix_kit_catalogue"`.
@@ -345,7 +349,7 @@ PubSub topic: `"phoenix_kit_catalogue"`.
 
 Owns a versioned chain: `PhoenixKitCatalogue.Migrations` via
 `migration_module/0`, marker `pkc_schema:<N>` as a `COMMENT ON TABLE
-phoenix_kit_cat_catalogues`, currently V2. `mix phoenix_kit.update` applies it
+phoenix_kit_cat_catalogues`, currently V3. `mix phoenix_kit.update` applies it
 in hosts; tests replay `up_statements/2` directly through the repo (`up/1` uses
 `execute/1`, which only works inside an `Ecto.Migration` run).
 
@@ -361,7 +365,10 @@ in hosts; tests replay `up_statements/2` directly through the repo (`up/1` uses
   projection tables plus their sync triggers, and the attribute-set GIN index)
   is that case.
 - Statements stay idempotent (`CREATE TABLE IF NOT EXISTS`, guarded
-  `DO $$ … pg_constraint … $$`). Adoption is a presence check only: it cannot
+  `DO $$ … pg_constraint … $$`). The chain replays every version on each run,
+  so a one-time data copy (V3: the old `custom_fields` view configs into core's
+  view preferences) guards on the stored marker being below its version, or a
+  replay would redo it over what users changed since. Adoption is a presence check only: it cannot
   repair a table whose columns drifted, which is why the core pin floor exists —
   core's chain always runs first, so every adopted table is at core's current
   shape by the time this one runs.

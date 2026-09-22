@@ -926,15 +926,6 @@ msgstr "Permanently deleted %{count} items."
 msgid "Columns"
 msgstr "Columns"
 
-msgid "Shown"
-msgstr "Shown"
-
-msgid "Available"
-msgstr "Available"
-
-msgid "Reset"
-msgstr "Reset"
-
 msgid "Apply"
 msgstr "Apply"
 
