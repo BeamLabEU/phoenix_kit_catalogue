@@ -1,3 +1,25 @@
+## 0.44.1 - 2026-09-22
+
+Review: `dev_docs/pull_requests/2026/134-qty-zero-clears-on-focus/`.
+
+Built against `phoenix_kit` 2.37.3; the floor stays at 2.34.0.
+
+### Changed
+
+- In the item selector, a quantity field showing zero now empties when you
+  click into it, so typing `8` gives `8`, not `08`. Leaving the field empty
+  puts the zero back (#134). It works the same way as core's
+  `decimal_input`.
+
+### Fixed
+
+- A zero that emptied on focus is no longer lost when the field
+  re-renders while you are in it.
+- Pressing Enter in the emptied field now commits the zero, not an empty
+  value.
+- If you type a quantity and then erase it, the row now goes back to zero
+  as soon as you leave the field, instead of keeping the erased amount.
+
 ## 0.44.0 - 2026-09-22
 
 Reviews: `dev_docs/pull_requests/2026/132-image-alt-text/` and
