@@ -21,6 +21,10 @@ defmodule PhoenixKitCatalogue.Catalogue.DuplicationTest do
   alias PhoenixKitCatalogue.Schemas.{CatalogueRule, Item, ItemSupplierInfo}
   alias PhoenixKitCatalogue.Test.Repo
 
+  defmodule SharedNameHook do
+    def name(_resource, _actor), do: {:ok, "Shared"}
+  end
+
   setup do
     cat = fixture_catalogue(%{name: "Dup"})
     alpha = fixture_category(cat, %{name: "Alpha", position: 0})
@@ -168,6 +172,28 @@ defmodule PhoenixKitCatalogue.Catalogue.DuplicationTest do
                Repo.all(from(l in FolderLink, where: l.folder_uuid == ^new_folder))
 
       assert Repo.get!(StorageFile, file_uuid).folder_uuid == folder.uuid
+    end
+
+    test "a copy whose host folder name is its source's takes the deterministic one",
+         %{a: a} do
+      Application.put_env(
+        :phoenix_kit_catalogue,
+        :attachments_folder_name,
+        {SharedNameHook, :name}
+      )
+
+      on_exit(fn -> Application.delete_env(:phoenix_kit_catalogue, :attachments_folder_name) end)
+
+      user_uuid = insert_user!()
+      {:ok, folder} = Storage.create_folder(%{name: "Shared", user_uuid: user_uuid})
+      _file = insert_file!(user_uuid, folder.uuid, "photo.jpg")
+      {:ok, _} = Catalogue.update_item(a, %{data: %{"files_folder_uuid" => folder.uuid}})
+
+      assert {:ok, copy} =
+               Catalogue.duplicate_item(Catalogue.get_item!(a.uuid), actor_uuid: user_uuid)
+
+      assert Storage.get_folder(copy.data["files_folder_uuid"]).name ==
+               "catalogue-item-#{copy.uuid}"
     end
 
     test "a 255-character name is trimmed so the suffix still fits", %{a: a} do
