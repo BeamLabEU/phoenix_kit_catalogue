@@ -250,7 +250,9 @@ defmodule PhoenixKitCatalogue.Migrations do
   # (`catalogue`). This copies them once. An empty column list is kept —
   # it meant "every optional column hidden" here and does in core too. Only
   # the module's own scopes are copied, and the selector's two choices land
-  # as two fields. A row already in core wins. It runs once: the
+  # as two fields. A field already in core wins, and the legacy fields its
+  # row lacks are added — a user who switched the view before the copy
+  # keeps the selector choices they never touched. It runs once: the
   # `catalogue_view_prefs_copied_at` setting is written right after it, and
   # `up/1` replays every version, so a later run would otherwise bring back
   # a choice the user has since reset. Where core's table is not there yet
@@ -268,7 +270,7 @@ defmodule PhoenixKitCatalogue.Migrations do
         ) AND NOT EXISTS (
           SELECT 1 FROM #{p}phoenix_kit_settings WHERE key = 'catalogue_view_prefs_copied_at'
         ) THEN
-          INSERT INTO #{p}phoenix_kit_user_view_prefs (user_uuid, key, prefs, inserted_at, updated_at)
+          INSERT INTO #{p}phoenix_kit_user_view_prefs AS existing (user_uuid, key, prefs, inserted_at, updated_at)
           SELECT u.uuid,
                  'catalogue.' || s.key,
                  jsonb_strip_nulls(jsonb_build_object(
@@ -288,9 +290,10 @@ defmodule PhoenixKitCatalogue.Migrations do
           WHERE s.key IN ('catalogues', 'suppliers', 'manufacturers', 'attribute_groups',
                           'detail_items', 'detail_categories')
             AND jsonb_typeof(s.value) = 'object'
-          ON CONFLICT (user_uuid, key) DO NOTHING;
+          ON CONFLICT (user_uuid, key)
+            DO UPDATE SET prefs = EXCLUDED.prefs || existing.prefs;
 
-          INSERT INTO #{p}phoenix_kit_user_view_prefs (user_uuid, key, prefs, inserted_at, updated_at)
+          INSERT INTO #{p}phoenix_kit_user_view_prefs AS existing (user_uuid, key, prefs, inserted_at, updated_at)
           SELECT u.uuid,
                  'catalogue',
                  jsonb_strip_nulls(jsonb_build_object(
@@ -304,7 +307,8 @@ defmodule PhoenixKitCatalogue.Migrations do
           CROSS JOIN LATERAL (SELECT u.custom_fields -> 'catalogue_view_configs' AS cfg) c
           WHERE jsonb_typeof(c.cfg) = 'object'
             AND (c.cfg ? '__view__' OR c.cfg ? '__selector__')
-          ON CONFLICT (user_uuid, key) DO NOTHING;
+          ON CONFLICT (user_uuid, key)
+            DO UPDATE SET prefs = EXCLUDED.prefs || existing.prefs;
 
           INSERT INTO #{p}phoenix_kit_settings (key, value, module)
           VALUES ('catalogue_view_prefs_copied_at', now()::text, 'catalogue')
