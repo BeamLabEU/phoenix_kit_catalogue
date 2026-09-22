@@ -3067,6 +3067,21 @@ defmodule PhoenixKitCatalogue.Catalogue do
   defdelegate list_category_ancestors(category_uuid), to: Tree, as: :ancestors_in_order
 
   @doc """
+  Returns the uuids of `category_uuids` and every category below them,
+  trashed rows included, as text. A move or trash picker prunes these:
+  a live category under a trashed one is still in the subtree, which a
+  tree of live rows alone cannot see (it shows such a row at the top).
+  Strings that are not UUIDs are ignored.
+  """
+  @spec category_subtree_uuids([String.t()]) :: [Ecto.UUID.t()]
+  def category_subtree_uuids(category_uuids) when is_list(category_uuids) do
+    category_uuids
+    |> Enum.filter(&match?({:ok, _}, Ecto.UUID.cast(&1)))
+    |> Tree.subtree_uuids_for()
+    |> Enum.map(&load_uuid/1)
+  end
+
+  @doc """
   Returns same-catalogue active categories that can receive items from
   a category about to be deleted (the category itself and its V103
   descendants are excluded). Used by the admin "delete category" modal

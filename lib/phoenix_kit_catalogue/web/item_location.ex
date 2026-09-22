@@ -40,10 +40,11 @@ defmodule PhoenixKitCatalogue.Web.ItemLocation do
   @doc """
   The picker's tree for items of `kind` (`"standard"` | `"smart"`):
   folders first, then the catalogues filed at that level, each catalogue
-  holding its category tree — `PlaceTree.places/2`.
+  holding its category tree — `PlaceTree.places/2`, its names in
+  `locale` (nil keeps the stored ones).
   """
-  @spec tree(String.t()) :: [tree_node()]
-  def tree(kind), do: PlaceTree.places(kind)
+  @spec tree(String.t(), String.t() | nil) :: [tree_node()]
+  def tree(kind, locale \\ nil), do: PlaceTree.places(kind, locale: locale)
 
   @doc "Whether `target` is a place the tree offers (a catalogue or category row)."
   @spec member?([tree_node()], term()) :: boolean()

@@ -15,6 +15,7 @@ defmodule PhoenixKitCatalogue.Web.FormLVBranchesTest do
 
   alias PhoenixKitCatalogue.Catalogue
   alias PhoenixKitCatalogue.Test.Repo, as: TestRepo
+  alias PhoenixKitCatalogue.Web.PlaceTree
 
   describe "inline validation errors actually render" do
     test "clearing the name on the catalogue form shows the error, not silence",
@@ -179,6 +180,31 @@ defmodule PhoenixKitCatalogue.Web.FormLVBranchesTest do
       assert Catalogue.get_category(cat_obj.uuid).catalogue_uuid == cat.uuid
     end
 
+    # A › B (trashed) › C (restored on its own): the live tree shows C at
+    # the top level, yet it is still in A's subtree, so moving A there
+    # would be a cycle the context refuses.
+    test "a live category below a trashed one of its subtree is not offered",
+         %{conn: conn, catalogue: cat} do
+      a = fixture_category(cat, %{name: "Top A"})
+
+      {:ok, b} =
+        Catalogue.create_category(%{name: "Mid B", catalogue_uuid: cat.uuid, parent_uuid: a.uuid})
+
+      {:ok, c} =
+        Catalogue.create_category(%{name: "Low C", catalogue_uuid: cat.uuid, parent_uuid: b.uuid})
+
+      {:ok, _} = Catalogue.trash_category(b)
+      {:ok, _} = Catalogue.restore_category(Catalogue.get_category(c.uuid))
+      assert %{status: "active", parent_uuid: parent} = Catalogue.get_category(c.uuid)
+      assert parent == b.uuid
+
+      {:ok, view, _html} = edit(conn, a)
+      tree = :sys.get_state(view.pid).socket.assigns.move_tree
+
+      assert PlaceTree.find(tree, "catalogue:" <> cat.uuid)
+      refute PlaceTree.find(tree, "category:" <> c.uuid)
+    end
+
     test "Move waits for a pick, and picking where it is takes the pick back",
          %{conn: conn, catalogue: cat, other_catalogue: other} do
       cat_obj = fixture_category(cat, %{name: "Untargeted"})
@@ -278,6 +304,47 @@ defmodule PhoenixKitCatalogue.Web.FormLVBranchesTest do
   end
 
   describe "CategoryFormLive :new — parent picked in the tree" do
+    # A `?parent_uuid=` the tree does not offer (trashed since the link was
+    # rendered, another catalogue's, not a UUID) used to stay picked with
+    # no row to show it: the hidden input posted it and Save failed on a
+    # field the form renders no error for.
+    test "a parent in the URL the tree does not offer starts at the top level, and saves",
+         %{conn: conn, catalogue: cat, other_catalogue: other} do
+      trashed = fixture_category(cat, %{name: "Gone"})
+      {:ok, _} = Catalogue.trash_category(trashed)
+      foreign = fixture_category(other, %{name: "Elsewhere"})
+
+      for {parent, name} <- [
+            {trashed.uuid, "After trash"},
+            {foreign.uuid, "After foreign"},
+            {"nope", "After junk"}
+          ] do
+        {:ok, view, _html} =
+          live(conn, "/en/admin/catalogue/#{cat.uuid}/categories/new?parent_uuid=#{parent}")
+
+        assert :sys.get_state(view.pid).socket.assigns.parent_pick == "root"
+
+        view
+        |> form("#category-form", %{"category" => %{"name" => name}})
+        |> render_submit()
+
+        assert [%{parent_uuid: nil}] =
+                 Enum.filter(Catalogue.list_live_categories([cat.uuid]), &(&1.name == name))
+      end
+    end
+
+    test "its catalogue deleted forever while the form is open does not crash it",
+         %{conn: conn} do
+      doomed = fixture_catalogue(%{name: "Doomed"})
+      {:ok, view, _html} = live(conn, "/en/admin/catalogue/#{doomed.uuid}/categories/new")
+
+      {:ok, _} = Catalogue.permanently_delete_catalogue(doomed)
+      _ = render(view)
+
+      assert Process.alive?(view.pid)
+      assert :sys.get_state(view.pid).socket.assigns.parent_tree == []
+    end
+
     test "a parent trashed after it was picked is dropped, and the context refuses it",
          %{conn: conn, catalogue: cat} do
       doors = fixture_category(cat, %{name: "Doors"})
