@@ -3564,8 +3564,8 @@ msgstr "Loendid"
 msgid "Minutes between runs"
 msgstr "Minuteid käivituste vahel"
 
-msgid "Most jobs per run"
-msgstr "Kõige rohkem töid käivituse kohta"
+msgid "Most jobs queued at once"
+msgstr "Kõige rohkem töid korraga järjekorras"
 
 msgid "Off by default. Turning it on starts the schedule immediately; each tick enqueues translation jobs for whatever is still missing."
 msgstr "Vaikimisi väljas. Sisselülitamisel käivitub ajakava kohe; iga käivitus paneb järjekorda tõlketööd kõige jaoks, mis on veel tõlkimata."

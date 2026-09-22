@@ -3564,8 +3564,8 @@ msgstr "Listes"
 msgid "Minutes between runs"
 msgstr "Minutes entre deux exécutions"
 
-msgid "Most jobs per run"
-msgstr "Tâches maximum par exécution"
+msgid "Most jobs queued at once"
+msgstr "Tâches maximum en file à la fois"
 
 msgid "Off by default. Turning it on starts the schedule immediately; each tick enqueues translation jobs for whatever is still missing."
 msgstr "Désactivée par défaut. Une fois activée, la planification démarre aussitôt ; chaque exécution met en file la traduction de tout ce qui manque encore."

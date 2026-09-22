@@ -3564,7 +3564,7 @@ msgstr ""
 msgid "Minutes between runs"
 msgstr ""
 
-msgid "Most jobs per run"
+msgid "Most jobs queued at once"
 msgstr ""
 
 msgid "Off by default. Turning it on starts the schedule immediately; each tick enqueues translation jobs for whatever is still missing."
