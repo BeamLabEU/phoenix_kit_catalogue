@@ -596,9 +596,6 @@ msgstr "или перетащите"
 msgid "File is too large (max 10MB)."
 msgstr "Файл слишком большой (макс. 10 МБ)"
 
-msgid "File type not accepted."
-msgstr "Тип файла не поддерживается."
-
 msgid "Only PDF files are accepted."
 msgstr "Принимаются только PDF-файлы."
 
@@ -1856,9 +1853,6 @@ msgstr "Не удалось создать нового поставщика. П
 msgid "Could not load more matches. Please try again."
 msgstr "Не удалось загрузить больше результатов. Попробуйте снова."
 
-msgid "Could not prepare the files folder."
-msgstr "Не удалось подготовить папку файлов."
-
 msgid "Could not remove file."
 msgstr "Не удалось удалить файл."
 
@@ -2536,9 +2530,6 @@ msgstr "К созданию"
 msgid "Too many files at once."
 msgstr "Слишком много файлов за раз."
 
-msgid "Too many files."
-msgstr "Слишком много файлов."
-
 msgid "Trashed"
 msgstr "В корзине"
 
@@ -2559,15 +2550,6 @@ msgstr "Обновления"
 
 msgid "Upload & parse"
 msgstr "Загрузить и разобрать"
-
-msgid "Upload error: %{reason}"
-msgstr "Ошибка загрузки: %{reason}"
-
-msgid "Upload failed for %{name}."
-msgstr "Не удалось загрузить %{name}."
-
-msgid "%{name} is identical to %{existing}, which is already attached — nothing was added."
-msgstr "%{name} совпадает с уже прикреплённым файлом %{existing} — ничего не добавлено."
 
 msgid "Upload failed for an unexpected reason. Please try again."
 msgstr "Загрузка не удалась по неожиданной причине. Попробуйте снова."

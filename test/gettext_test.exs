@@ -924,23 +924,22 @@ defmodule PhoenixKitCatalogue.GettextTest do
   end
 
   test "the duplicate-upload notice interpolates both names in ru and et" do
-    # Client, 2026-09-12: "uploaded three PDFs, two show" — a runtime-form
-    # call like the rest, so no extractor ever saw it; pinned with real
-    # bindings so interpolation is exercised, not just the msgid.
-    msgid = "%{name} is identical to %{existing}, which is already attached — nothing was added."
-    bindings = [name: "b.pdf", existing: "a.pdf"]
+    # Client, 2026-09-12: "uploaded three PDFs, two show". The notice is
+    # core's (`PhoenixKitWeb.Attachments`), so it is translated by core's
+    # backend; pinned with real bindings so interpolation is exercised.
+    existing = %{original_file_name: "a.pdf"}
 
-    Gettext.put_locale(PhoenixKitCatalogue.Gettext, "ru")
+    Gettext.put_locale(PhoenixKitWeb.Gettext, "ru")
 
-    assert Gettext.gettext(PhoenixKitCatalogue.Gettext, msgid, bindings) ==
+    assert PhoenixKitCatalogue.Attachments.duplicate_notice("b.pdf", existing) ==
              "b.pdf совпадает с уже прикреплённым файлом a.pdf — ничего не добавлено."
 
-    Gettext.put_locale(PhoenixKitCatalogue.Gettext, "et")
+    Gettext.put_locale(PhoenixKitWeb.Gettext, "et")
 
-    assert Gettext.gettext(PhoenixKitCatalogue.Gettext, msgid, bindings) ==
+    assert PhoenixKitCatalogue.Attachments.duplicate_notice("b.pdf", existing) ==
              "b.pdf on identne juba manustatud failiga a.pdf — midagi ei lisatud."
   after
-    Gettext.put_locale(PhoenixKitCatalogue.Gettext, "en")
+    Gettext.put_locale(PhoenixKitWeb.Gettext, "en")
   end
 
   test "the permanent-delete scope and race strings are translated in ru and et" do

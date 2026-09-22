@@ -98,7 +98,6 @@ defmodule PhoenixKitCatalogue.Attachments do
 
   import Phoenix.LiveView,
     only: [
-      allow_upload: 3,
       cancel_upload: 3,
       consume_uploaded_entry: 3,
       put_flash: 3
@@ -106,12 +105,12 @@ defmodule PhoenixKitCatalogue.Attachments do
 
   alias PhoenixKit.Modules.Storage
   alias PhoenixKit.Modules.Storage.{File, ResourceFolders}
-  alias PhoenixKit.Users.Auth, as: UsersAuth
   alias PhoenixKit.Utils.Format
   alias PhoenixKitCatalogue.Catalogue.PubSub
   alias PhoenixKitCatalogue.Schemas.{Catalogue, Category, Item, Pdf}
   alias PhoenixKitCatalogue.Web.Helpers, as: WebHelpers
   alias PhoenixKitWeb.Actor
+  alias PhoenixKitWeb.Attachments, as: CoreAttachments
 
   @upload_name :attachment_files
   @app :phoenix_kit_catalogue
@@ -167,15 +166,8 @@ defmodule PhoenixKitCatalogue.Attachments do
   ceiling and auto-upload. Progress is consumed by `handle_progress/3`
   which this module captures for the caller.
   """
-  def allow_attachment_upload(socket) do
-    allow_upload(socket, @upload_name,
-      accept: :any,
-      max_entries: 20,
-      max_file_size: 100_000_000,
-      auto_upload: true,
-      progress: &handle_progress/3
-    )
-  end
+  def allow_attachment_upload(socket),
+    do: CoreAttachments.allow(socket, @upload_name, &handle_progress/3)
 
   defp assign_files_folder(socket, resource) do
     assign(socket, :files_folder_uuid, read_string(resource_data(resource), "files_folder_uuid"))
@@ -198,19 +190,7 @@ defmodule PhoenixKitCatalogue.Attachments do
   nil/empty order is the identity — legacy records sort as before
   (folder `inserted_at`).
   """
-  def apply_media_order(files, order) when is_list(order) and order != [] do
-    index = order |> Enum.with_index() |> Map.new()
-    tail_base = length(order)
-
-    files
-    |> Enum.with_index()
-    |> Enum.sort_by(fn {file, position} ->
-      {Map.get(index, to_string(file.uuid), tail_base), position}
-    end)
-    |> Enum.map(&elem(&1, 0))
-  end
-
-  def apply_media_order(files, _order), do: files
+  defdelegate apply_media_order(files, order), to: CoreAttachments, as: :apply_order
 
   @doc """
   The `"reorder_files"` event handler body, shared by the three form
@@ -259,17 +239,7 @@ defmodule PhoenixKitCatalogue.Attachments do
           end
       end
 
-    case socket.assigns[:featured_image_file] do
-      nil ->
-        folder_files
-
-      %{uuid: featured_uuid} = featured_file ->
-        if Enum.any?(folder_files, &(&1.uuid == featured_uuid)) do
-          folder_files
-        else
-          [featured_file | folder_files]
-        end
-    end
+    CoreAttachments.with_featured(folder_files, socket.assigns[:featured_image_file])
   end
 
   # A featured image that was trashed since the pointer was written (from
@@ -317,14 +287,11 @@ defmodule PhoenixKitCatalogue.Attachments do
          |> assign(:show_media_selector, true)}
 
       {:error, reason} ->
-        Logger.warning("Failed to ensure attachments folder: #{inspect(reason)}")
+        Logger.warning(
+          "Failed to ensure attachments folder: #{ResourceFolders.describe_failure(reason)}"
+        )
 
-        {:noreply,
-         put_flash(
-           socket,
-           :error,
-           Gettext.gettext(PhoenixKitCatalogue.Gettext, "Could not prepare the files folder.")
-         )}
+        {:noreply, put_flash(socket, :error, CoreAttachments.folder_error_message())}
     end
   end
 
@@ -591,14 +558,7 @@ defmodule PhoenixKitCatalogue.Attachments do
     do: put_flash(socket, :info, duplicate_notice(entry.client_name, existing))
 
   @doc false
-  def duplicate_notice(client_name, existing) do
-    Gettext.gettext(
-      PhoenixKitCatalogue.Gettext,
-      "%{name} is identical to %{existing}, which is already attached — nothing was added.",
-      name: client_name,
-      existing: existing.original_file_name || client_name
-    )
-  end
+  defdelegate duplicate_notice(client_name, existing), to: CoreAttachments
 
   # A drag is an action, not a draft: like an upload it lands at once,
   # so the popup's carousel and a reload agree with the editor without
@@ -924,20 +884,7 @@ defmodule PhoenixKitCatalogue.Attachments do
   defdelegate file_icon(file), to: Format
 
   @doc "Translates LiveView upload error atoms to user-facing text."
-  def upload_error_message(:too_large),
-    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "File is too large.")
-
-  def upload_error_message(:not_accepted),
-    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "File type not accepted.")
-
-  def upload_error_message(:too_many_files),
-    do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Too many files.")
-
-  def upload_error_message(other),
-    do:
-      Gettext.gettext(PhoenixKitCatalogue.Gettext, "Upload error: %{reason}",
-        reason: inspect(other)
-      )
+  defdelegate upload_error_message(reason), to: CoreAttachments, as: :error_message
 
   # ── Internals ────────────────────────────────────────────────────
 
@@ -1220,78 +1167,16 @@ defmodule PhoenixKitCatalogue.Attachments do
     end
   end
 
-  defp store_upload(%{path: path}, entry, socket, folder_uuid) do
-    user_uuid = Actor.uuid(socket)
-
-    if is_nil(user_uuid) do
-      {:ok, {:error, :no_user}}
-    else
-      file_checksum = UsersAuth.calculate_file_hash(path)
-      # `client_name` is browser-supplied and only checked against `:accept`,
-      # so strip any path before it reaches Storage as a filename. (`ext` was
-      # already safe — `Path.extname/1` cannot return a separator.)
-      client_name = Path.basename(entry.client_name || "")
-      ext = client_name |> Path.extname() |> String.trim_leading(".") |> String.downcase()
-      file_type = file_type_from_mime(entry.client_type)
-
-      path
-      |> Storage.store_file_in_buckets(file_type, user_uuid, file_checksum, ext, client_name)
-      |> then(&{:ok, file_stored(&1, folder_uuid)})
-    end
-  end
-
-  @doc false
-  # What a Storage store result means for THIS folder. A fresh file, or a
-  # content-duplicate that lives elsewhere, is attached (home-adopted or
-  # linked); a duplicate whose home is already this folder is reported
-  # as `:already_attached` so the uploader hears that nothing was added.
-  def file_stored(stored, folder_uuid), do: ResourceFolders.place_stored(stored, folder_uuid)
+  defp store_upload(%{path: path}, entry, socket, folder_uuid),
+    do: {:ok, CoreAttachments.store(path, entry, Actor.uuid(socket), folder_uuid)}
 
   defp put_upload_error(socket, entry, reason) do
-    Logger.warning("Attachment upload failed for #{entry.client_name}: #{inspect(reason)}")
-
-    put_flash(
-      socket,
-      :error,
-      Gettext.gettext(PhoenixKitCatalogue.Gettext, "Upload failed for %{name}.",
-        name: entry.client_name
-      )
+    Logger.warning(
+      "Attachment upload failed for #{Path.basename(to_string(entry.client_name))}: " <>
+        ResourceFolders.describe_failure(reason)
     )
-  end
 
-  @document_mimes ~w(
-    application/pdf
-    application/msword
-    application/vnd.openxmlformats-officedocument.wordprocessingml.document
-    application/vnd.ms-excel
-    application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
-  )
-
-  # Matches `Storage.determine_file_type/1` for types the browser
-  # surfaces; anything we can't bucket falls to "other" (allowed since
-  # the phoenix_kit allowlist was widened).
-  defp file_type_from_mime(mime) when mime in [nil, ""], do: "other"
-
-  defp file_type_from_mime(mime) when is_binary(mime) do
-    file_type_from_prefix(mime) ||
-      file_type_from_exact(mime) ||
-      file_type_from_keyword(mime) ||
-      "other"
-  end
-
-  defp file_type_from_prefix("image/" <> _), do: "image"
-  defp file_type_from_prefix("video/" <> _), do: "video"
-  defp file_type_from_prefix("audio/" <> _), do: "audio"
-  defp file_type_from_prefix("text/" <> _), do: "document"
-  defp file_type_from_prefix(_), do: nil
-
-  defp file_type_from_exact(mime) when mime in @document_mimes, do: "document"
-  defp file_type_from_exact(_), do: nil
-
-  defp file_type_from_keyword(mime) do
-    if String.contains?(mime, "zip") or String.contains?(mime, "archive") do
-      "archive"
-    end
+    put_flash(socket, :error, CoreAttachments.failed_message(entry.client_name, reason))
   end
 
   defp inject_files_folder(params, nil), do: params
