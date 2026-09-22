@@ -43,7 +43,7 @@ defmodule PhoenixKitCatalogue.Web.ViewConfig do
   alias PhoenixKitWeb.TableColumns
 
   # The module-wide row: the view (card / comfy / table) and the item
-  # selector's choices (2026-08-31, boss: "save settings after a user
+  # selector's two choices (`selector_view`, `selector_hidden`) (2026-08-31, boss: "save settings after a user
   # changes them") — starting view + hidden columns, one set per user for
   # every selector embed. Selector values are stored raw and validated by
   # the consumer against its granted columns.
@@ -178,14 +178,9 @@ defmodule PhoenixKitCatalogue.Web.ViewConfig do
   """
   @spec load_selector(map() | nil) :: %{view: String.t() | nil, hidden: [String.t()] | nil}
   def load_selector(user) do
-    stored =
-      case ViewPrefs.get(user, @module_key)["selector"] do
-        %{} = selector -> selector
-        _ -> %{}
-      end
-
-    view = stored["view"]
-    hidden = stored["hidden"]
+    stored = ViewPrefs.get(user, @module_key)
+    view = stored["selector_view"]
+    hidden = stored["selector_hidden"]
 
     %{
       view: if(view in ["table", "comfy", "card"], do: view),
@@ -194,8 +189,9 @@ defmodule PhoenixKitCatalogue.Web.ViewConfig do
   end
 
   @doc """
-  Stores the selector choices (merge — a `nil` half keeps what is saved).
-  Best-effort like `save_view/2`.
+  Stores the selector choices — each half its own field, so a `nil` half
+  keeps what is saved and two tabs changing different halves both keep
+  theirs. Best-effort like `save_view/2`.
   """
   @spec save_selector(map() | nil, %{
           optional(:view) => String.t(),
@@ -203,18 +199,13 @@ defmodule PhoenixKitCatalogue.Web.ViewConfig do
         }) ::
           {:ok, map()} | {:error, term()}
   def save_selector(user, choices) do
-    stored =
-      case ViewPrefs.get(user, @module_key)["selector"] do
-        %{} = selector -> selector
-        _ -> %{}
-      end
+    fields =
+      %{"selector_view" => choices[:view], "selector_hidden" => choices[:hidden]}
+      |> Map.reject(fn {_k, v} -> is_nil(v) end)
 
-    stored =
-      stored
-      |> then(fn s -> if v = choices[:view], do: Map.put(s, "view", v), else: s end)
-      |> then(fn s -> if h = choices[:hidden], do: Map.put(s, "hidden", h), else: s end)
-
-    ViewPrefs.put(user, @module_key, %{"selector" => stored})
+    if fields == %{},
+      do: {:ok, ViewPrefs.get(user, @module_key)},
+      else: ViewPrefs.put(user, @module_key, fields)
   end
 
   @doc "`save_view/2` for a LiveView: stores the signed-in user's choice."

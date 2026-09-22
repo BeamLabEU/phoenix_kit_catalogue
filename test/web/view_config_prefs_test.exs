@@ -79,11 +79,15 @@ defmodule PhoenixKitCatalogue.Web.ViewConfigPrefsTest do
       Enum.find(Migrations.up_statements("public"), &(&1 =~ "phoenix_kit_user_view_prefs"))
     end
 
-    defp set_marker(version),
-      do:
-        Repo.query!(
-          "COMMENT ON TABLE public.phoenix_kit_cat_catalogues IS 'pkc_schema:#{version}'"
-        )
+    defp copied?(done?) do
+      Repo.query!("DELETE FROM phoenix_kit_settings WHERE key = 'catalogue_view_prefs_copied_at'")
+
+      if done?,
+        do:
+          Repo.query!(
+            "INSERT INTO phoenix_kit_settings (key, value, module) VALUES ('catalogue_view_prefs_copied_at', 'x', 'catalogue')"
+          )
+    end
 
     defp legacy!(user, configs) do
       {:ok, user} =
@@ -103,7 +107,9 @@ defmodule PhoenixKitCatalogue.Web.ViewConfigPrefsTest do
           "suppliers" => %{"columns" => ["status"], "sort_by" => "name", "sort_dir" => "desc"},
           "catalogues" => %{"columns" => [], "filters" => %{"status" => "active"}},
           "__view__" => "table",
-          "__selector__" => %{"hidden" => ["sku"]}
+          "__selector__" => %{"hidden" => ["sku"], "view" => "card"},
+          # Not a scope of this module.
+          "typo" => %{"columns" => ["status"]}
         })
 
       b = legacy!(user!(), %{"suppliers" => %{"columns" => ["website"]}})
@@ -113,7 +119,7 @@ defmodule PhoenixKitCatalogue.Web.ViewConfigPrefsTest do
       long = legacy!(user!(), %{String.duplicate("a", 300) => %{"columns" => ["x"]}})
       {:ok, _} = ViewPrefs.put(b, "catalogue.suppliers", %{"columns" => ["status"]})
 
-      set_marker(2)
+      copied?(false)
       Repo.query!(v3_statement())
 
       assert ViewPrefs.get(a, "catalogue.suppliers") ==
@@ -123,7 +129,10 @@ defmodule PhoenixKitCatalogue.Web.ViewConfigPrefsTest do
                %{"columns" => [], "filters" => %{"status" => "active"}}
 
       assert ViewPrefs.get(a, "catalogue") ==
-               %{"view" => "table", "selector" => %{"hidden" => ["sku"]}}
+               %{"view" => "table", "selector_view" => "card", "selector_hidden" => ["sku"]}
+
+      assert VC.load_selector(a) == %{view: "card", hidden: ["sku"]}
+      assert ViewPrefs.get(a, "catalogue.typo") == %{}
 
       assert ViewPrefs.get(a, "catalogue.__selector__") == %{}
       assert ViewPrefs.get(b, "catalogue.suppliers") == %{"columns" => ["status"]}
@@ -135,13 +144,25 @@ defmodule PhoenixKitCatalogue.Web.ViewConfigPrefsTest do
              ) == 0
     end
 
-    test "does nothing once the chain is at V3" do
+    test "runs once: after the copy, a replay changes nothing" do
       user = legacy!(user!(), %{"suppliers" => %{"columns" => ["status"]}})
-
-      set_marker(3)
+      copied?(false)
       Repo.query!(v3_statement())
+      {:ok, _} = VC.reset_columns(user, :suppliers)
 
+      Repo.query!(v3_statement())
       assert ViewPrefs.get(user, "catalogue.suppliers") == %{}
+    end
+
+    test "a copy the chain skipped is still made once core has the table" do
+      # The chain's version marker says V3, but no copy ever ran (core's
+      # table was not there yet when it did).
+      user = legacy!(user!(), %{"suppliers" => %{"columns" => ["status"]}})
+      Repo.query!("COMMENT ON TABLE public.phoenix_kit_cat_catalogues IS 'pkc_schema:3'")
+      copied?(false)
+
+      Repo.query!(v3_statement())
+      assert ViewPrefs.get(user, "catalogue.suppliers") == %{"columns" => ["status"]}
     end
   end
 end
