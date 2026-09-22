@@ -107,6 +107,7 @@ defmodule PhoenixKitCatalogue.Attachments do
   alias PhoenixKit.Modules.Storage
   alias PhoenixKit.Modules.Storage.{File, ResourceFolders}
   alias PhoenixKit.Users.Auth, as: UsersAuth
+  alias PhoenixKit.Utils.Format
   alias PhoenixKitCatalogue.Catalogue.PubSub
   alias PhoenixKitCatalogue.Schemas.{Catalogue, Category, Item, Pdf}
   alias PhoenixKitCatalogue.Web.Helpers, as: WebHelpers
@@ -914,27 +915,13 @@ defmodule PhoenixKitCatalogue.Attachments do
 
   # ── Template helpers ─────────────────────────────────────────────
 
-  @doc "Renders a byte count as a human string. Nil-safe."
-  def format_file_size(nil), do: "—"
+  @doc "Renders a byte count as a human string (decimal units). Nil-safe."
+  @spec format_file_size(integer() | nil) :: String.t()
+  def format_file_size(bytes), do: Format.bytes(bytes, base: 1000, unknown: "—")
 
-  def format_file_size(bytes) when is_integer(bytes) do
-    cond do
-      bytes >= 1_000_000_000 -> "#{Float.round(bytes / 1_000_000_000, 1)} GB"
-      bytes >= 1_000_000 -> "#{Float.round(bytes / 1_000_000, 1)} MB"
-      bytes >= 1_000 -> "#{Float.round(bytes / 1_000, 1)} KB"
-      true -> "#{bytes} B"
-    end
-  end
-
-  def format_file_size(_), do: "—"
-
-  @doc "Picks a heroicon name for a file based on its Storage type."
-  def file_icon(%{file_type: "image"}), do: "hero-photo"
-  def file_icon(%{file_type: "video"}), do: "hero-film"
-  def file_icon(%{file_type: "audio"}), do: "hero-musical-note"
-  def file_icon(%{file_type: "archive"}), do: "hero-archive-box"
-  def file_icon(%{mime_type: "application/pdf"}), do: "hero-document-text"
-  def file_icon(_), do: "hero-document"
+  @doc "Heroicon name for a file's Storage type / mime (`Format.file_icon/1`)."
+  @spec file_icon(map()) :: String.t()
+  defdelegate file_icon(file), to: Format
 
   @doc "Translates LiveView upload error atoms to user-facing text."
   def upload_error_message(:too_large),
