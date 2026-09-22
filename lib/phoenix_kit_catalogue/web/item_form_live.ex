@@ -285,7 +285,9 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
       action: action,
       item: item,
       catalogue_uuid: catalogue_uuid,
-      parent_catalogue_name: parent_catalogue && parent_catalogue.name,
+      parent_catalogue_name:
+        parent_catalogue &&
+          Catalogue.localize_one(parent_catalogue, socket.assigns[:current_locale]).name,
       catalogue_kind: kind,
       catalogue_markup: markup_from_catalogue(parent_catalogue),
       catalogue_discount: discount_from_catalogue(parent_catalogue),
@@ -866,7 +868,9 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
 
   def handle_event("open_location_picker", _params, socket) do
     {:noreply,
-     assign(socket, :location_picker, %{tree: ItemLocation.tree(socket.assigns.catalogue_kind)})}
+     assign(socket, :location_picker, %{
+       tree: ItemLocation.tree(socket.assigns.catalogue_kind, socket.assigns[:current_locale])
+     })}
   end
 
   def handle_event("close_location_picker", _params, socket),
@@ -1472,7 +1476,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
 
     assign(socket,
       location_current: current,
-      location_current_path: ItemLocation.path_names(current)
+      location_current_path: ItemLocation.path_names(current, socket.assigns[:current_locale])
     )
   end
 
@@ -2007,10 +2011,15 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   def handle_info({:catalogue_data_changed, :category, _uuid, _parent}, socket) do
     {:noreply,
      assign(socket,
-       location_current_path: ItemLocation.path_names(socket.assigns.location_current),
+       location_current_path:
+         ItemLocation.path_names(socket.assigns.location_current, socket.assigns[:current_locale]),
        location_target_path:
          if(socket.assigns.location_target,
-           do: ItemLocation.path_names(socket.assigns.location_target),
+           do:
+             ItemLocation.path_names(
+               socket.assigns.location_target,
+               socket.assigns[:current_locale]
+             ),
            else: []
          )
      )}
