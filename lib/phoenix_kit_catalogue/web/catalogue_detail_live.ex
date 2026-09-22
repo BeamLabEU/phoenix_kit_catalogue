@@ -83,13 +83,13 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   alias PhoenixKitCatalogue.Paths
   alias PhoenixKitCatalogue.Schemas.Category
   alias PhoenixKitCatalogue.Schemas.Item
-  alias PhoenixKitCatalogue.Web.Components.PlacePicker
   alias PhoenixKitCatalogue.Web.Components.ProductCard
   alias PhoenixKitCatalogue.Web.LevelSwitchers
   alias PhoenixKitCatalogue.Web.PlaceTree
   alias PhoenixKitCatalogue.Web.Settings, as: CatalogueSettings
   alias PhoenixKitCatalogue.Web.TableConfig
   alias PhoenixKitCatalogue.Web.ViewConfig
+  alias PhoenixKitWeb.Components.TreePicker
 
   @per_page 100
   # Cross-tab bulk-change red-flash → state-refresh delay. Long enough
@@ -664,7 +664,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   # Picks from the move dialogs' trees; a pick after its dialog closed
   # falls through to the catch-all.
   def handle_info(
-        {PlacePicker, "trash-target-picker", id},
+        {TreePicker, "trash-target-picker", id},
         %{assigns: %{trash_modal: %{} = modal}} = socket
       ) do
     target = modal |> picked_in(id, [:category]) |> PlaceTree.uuid()
@@ -672,7 +672,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   end
 
   def handle_info(
-        {PlacePicker, "bulk-move-items-picker", id},
+        {TreePicker, "bulk-move-items-picker", id},
         %{assigns: %{bulk_move_modal: %{} = modal}} = socket
       ) do
     target = picked_in(modal, id, [:catalogue, :category])
@@ -680,7 +680,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   end
 
   def handle_info(
-        {PlacePicker, "bulk-move-categories-picker", id},
+        {TreePicker, "bulk-move-categories-picker", id},
         %{assigns: %{bulk_move_categories_modal: %{} = modal}} = socket
       ) do
     target = picked_in(modal, id, [:catalogue, :category])
@@ -4658,11 +4658,12 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
             </p>
             <.live_component
               :if={@trash_modal[:tree] != []}
-              module={PlacePicker}
+              module={TreePicker}
               id="trash-target-picker"
               tree={@trash_modal[:tree]}
               value={@trash_modal[:target_uuid] && "category:" <> @trash_modal[:target_uuid]}
               pickable={[:category]}
+              path_skip={[:folder]}
             />
           </div>
         </div>
@@ -4702,11 +4703,13 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
         <div class="mt-4 flex flex-col gap-3">
           <.live_component
-            module={PlacePicker}
+            module={TreePicker}
             id="bulk-move-items-picker"
             tree={@bulk_move_modal[:tree]}
             value={@bulk_move_modal[:target]}
             current={"catalogue:" <> @catalogue_uuid}
+            pickable={[:catalogue, :category]}
+            path_skip={[:folder]}
           />
           <.move_destination
             id="bulk-move-items-destination"
@@ -4735,11 +4738,13 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
         <div class="mt-4 flex flex-col gap-3">
           <.live_component
-            module={PlacePicker}
+            module={TreePicker}
             id="bulk-move-categories-picker"
             tree={@bulk_move_categories_modal[:tree]}
             value={@bulk_move_categories_modal[:target]}
             current={"catalogue:" <> @catalogue_uuid}
+            pickable={[:catalogue, :category]}
+            path_skip={[:folder]}
           />
           <.move_destination
             id="bulk-move-categories-destination"

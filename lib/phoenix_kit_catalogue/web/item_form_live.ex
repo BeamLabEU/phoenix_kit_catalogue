@@ -74,6 +74,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   alias PhoenixKitCatalogue.Web.ItemLocation
   alias PhoenixKitCatalogue.Web.Settings, as: CatalogueSettings
   alias PhoenixKitCatalogue.Web.SupplierDraft
+  alias PhoenixKitWeb.Components.TreePicker
 
   # Admin-defined extra fields on supplier rows (the entities-backed
   # feature built 2026-08-21). HIDDEN by owner decision the same day —
@@ -864,81 +865,12 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   # never move the item.
 
   def handle_event("open_location_picker", _params, socket) do
-    tree = ItemLocation.tree(socket.assigns.catalogue_kind)
-
     {:noreply,
-     assign(socket, :location_picker, %{
-       tree: tree,
-       shown: tree,
-       query: "",
-       open: opened_at_place(tree, socket.assigns)
-     })}
+     assign(socket, :location_picker, %{tree: ItemLocation.tree(socket.assigns.catalogue_kind)})}
   end
 
   def handle_event("close_location_picker", _params, socket),
     do: {:noreply, assign(socket, :location_picker, nil)}
-
-  def handle_event(
-        "location_search",
-        %{"q" => query},
-        %{assigns: %{location_picker: %{} = picker}} = socket
-      )
-      when is_binary(query) do
-    {shown, open} = ItemLocation.filter(picker.tree, query)
-
-    # Cleared: back to the tree as it opened, the item's place showing.
-    open =
-      if String.trim(query) == "",
-        do: opened_at_place(picker.tree, socket.assigns),
-        else: MapSet.new(open)
-
-    {:noreply,
-     assign(socket, :location_picker, %{picker | shown: shown, query: query, open: open})}
-  end
-
-  def handle_event(
-        "toggle_location_node",
-        %{"id" => id},
-        %{assigns: %{location_picker: %{} = picker}} = socket
-      )
-      when is_binary(id) do
-    open =
-      if MapSet.member?(picker.open, id),
-        do: MapSet.delete(picker.open, id),
-        else: MapSet.put(picker.open, id)
-
-    {:noreply, assign(socket, :location_picker, %{picker | open: open})}
-  end
-
-  # Only a row the tree offered is taken. Picking the item's own place
-  # takes a staged move back.
-  def handle_event(
-        "pick_location",
-        %{"target" => target},
-        %{assigns: %{location_picker: %{tree: tree}}} = socket
-      ) do
-    socket =
-      cond do
-        target == socket.assigns.location_current ->
-          assign(socket, location_target: nil, location_target_path: [])
-
-        ItemLocation.member?(tree, target) ->
-          assign(socket,
-            location_target: target,
-            location_target_path: ItemLocation.path_in(tree, target)
-          )
-
-        true ->
-          socket
-      end
-
-    {:noreply, assign(socket, :location_picker, nil)}
-  end
-
-  # A stale or forged event with the picker closed.
-  def handle_event(event, _params, socket)
-      when event in ["location_search", "toggle_location_node", "pick_location"],
-      do: {:noreply, socket}
 
   def handle_event("reset_location", _params, socket),
     do: {:noreply, assign(socket, location_target: nil, location_target_path: [])}
@@ -1535,13 +1467,6 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   # The place the section shows: the one picked, else where the item is.
   defp location_shown(assigns), do: assigns.location_target || assigns.location_current
 
-  # The tree opens at that place: the rows above it, and the place itself —
-  # most moves stay inside the item's own catalogue.
-  defp opened_at_place(tree, assigns) do
-    place = location_shown(assigns)
-    MapSet.new([place | ItemLocation.ancestor_ids(tree, place)])
-  end
-
   defp assign_location(socket, item) do
     current = ItemLocation.target_of(item)
 
@@ -1973,10 +1898,36 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
 
   defp format_field_value(value), do: to_string(value)
 
+  # ── Location picker ──────────────────────────────────────────────
+
+  # A row picked in the Location picker stages the move; picking the item's
+  # own place takes a staged move back. The picker only sends rows its tree
+  # offers, and the tree is checked again here.
+  @impl true
+  def handle_info({TreePicker, "location-tree-picker", target}, socket) do
+    tree = socket.assigns.location_picker && socket.assigns.location_picker.tree
+
+    socket =
+      cond do
+        target == socket.assigns.location_current ->
+          assign(socket, location_target: nil, location_target_path: [])
+
+        tree && ItemLocation.member?(tree, target) ->
+          assign(socket,
+            location_target: target,
+            location_target_path: ItemLocation.path_in(tree, target)
+          )
+
+        true ->
+          socket
+      end
+
+    {:noreply, assign(socket, :location_picker, nil)}
+  end
+
   # ── Attachments handle_info (delegated to Attachments module) ────
 
   # {:ai_translation, ...} events folded into the form by `use ...AITranslate.Embed`.
-  @impl true
   def handle_info({:media_selected, file_uuids}, socket),
     do: Attachments.handle_media_selected(socket, file_uuids)
 
@@ -2922,88 +2873,6 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
     </nav>
     """
   end
-
-  # One row of the Location tree and, when open, the rows under it. A
-  # folder only opens; a catalogue or category row is a place to pick
-  # (a catalogue itself means "in it, no category").
-  attr(:node, :map, required: true)
-  attr(:open, :any, required: true)
-  attr(:current, :string, default: nil)
-  attr(:picked, :string, default: nil)
-
-  defp location_node(assigns) do
-    assigns =
-      assign(assigns,
-        expanded?: MapSet.member?(assigns.open, assigns.node.id),
-        branch?: assigns.node.children != [],
-        selected?: assigns.node.id == (assigns.picked || assigns.current)
-      )
-
-    ~H"""
-    <li role="treeitem" aria-expanded={@branch? && to_string(@expanded?)} aria-selected={to_string(@selected?)}>
-      <div class={[
-        "flex items-center gap-1 rounded-field pr-2 hover:bg-base-200",
-        @selected? && "bg-primary/10"
-      ]}>
-        <button
-          :if={@branch?}
-          type="button"
-          phx-click="toggle_location_node"
-          phx-value-id={@node.id}
-          class="btn btn-ghost btn-xs btn-square shrink-0"
-          aria-label={
-            if @expanded?,
-              do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Collapse"),
-              else: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Expand")
-          }
-        >
-          <.icon
-            name={if @expanded?, do: "hero-chevron-down-mini", else: "hero-chevron-right-mini"}
-            class="w-4 h-4"
-          />
-        </button>
-        <span :if={not @branch?} class="w-6 shrink-0"></span>
-        <button
-          type="button"
-          phx-click={if @node.type == :folder, do: "toggle_location_node", else: "pick_location"}
-          phx-value-id={@node.type == :folder && @node.id}
-          phx-value-target={@node.type != :folder && @node.id}
-          data-location={@node.id}
-          class={[
-            "flex flex-1 items-center gap-2 py-1.5 text-left min-w-0",
-            @node.type == :folder && "text-base-content/70"
-          ]}
-        >
-          <.icon name={location_icon(@node.type)} class="w-4 h-4 shrink-0 text-base-content/50" />
-          <span class="truncate">{@node.name}</span>
-          <span :if={@node.archived?} class="badge badge-xs badge-ghost">
-            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Archived")}
-          </span>
-          <span :if={@node.id == @current} class="badge badge-xs badge-outline ml-auto shrink-0">
-            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Current")}
-          </span>
-        </button>
-      </div>
-      <ul
-        :if={@branch? and @expanded?}
-        role="group"
-        class="ml-3 pl-2 border-l border-base-content/10"
-      >
-        <.location_node
-          :for={child <- @node.children}
-          node={child}
-          open={@open}
-          current={@current}
-          picked={@picked}
-        />
-      </ul>
-    </li>
-    """
-  end
-
-  defp location_icon(:folder), do: "hero-folder"
-  defp location_icon(:catalogue), do: "hero-book-open"
-  defp location_icon(:category), do: "hero-rectangle-stack"
 
   # The row dialog's fields — price, the optional terms, the admin-defined
   # extras. Every control names its form through `form=`, so the dialog's
@@ -4754,37 +4623,18 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
       >
         <:title>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Choose a location")}</:title>
 
-        <form id="location-search-form" phx-change="location_search" phx-submit="location_search">
-          <label class="input input-sm w-full">
-            <.icon name="hero-magnifying-glass" class="w-4 h-4 opacity-50" />
-            <input
-              id="location-search"
-              type="search"
-              name="q"
-              value={@location_picker.query}
-              placeholder={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search catalogues and categories…")}
-              aria-label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search catalogues and categories…")}
-              phx-debounce="200"
-              autocomplete="off"
-              class="grow"
-            />
-          </label>
-        </form>
-
-        <div class="mt-3 max-h-[60vh] overflow-y-auto">
-          <p :if={@location_picker.shown == []} class="px-2 py-3 text-sm text-base-content/50">
-            {Gettext.gettext(PhoenixKitCatalogue.Gettext, "No matches.")}
-          </p>
-          <ul :if={@location_picker.shown != []} id="location-tree" role="tree" class="text-sm">
-            <.location_node
-              :for={node <- @location_picker.shown}
-              node={node}
-              open={@location_picker.open}
-              current={@location_current}
-              picked={@location_target}
-            />
-          </ul>
-        </div>
+        <.live_component
+          module={TreePicker}
+          id="location-tree-picker"
+          tree={@location_picker.tree}
+          value={@location_target || @location_current}
+          current={@location_current}
+          pickable={[:catalogue, :category]}
+          path_skip={[:folder]}
+          search_placeholder={
+            Gettext.gettext(PhoenixKitCatalogue.Gettext, "Search catalogues and categories…")
+          }
+        />
       </.modal>
       </div>
     </PhoenixKitWeb.Components.LayoutWrapper.app_layout>

@@ -1079,7 +1079,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
       render_hook(view, "request_bulk_move_items", %{"uuids" => [item.uuid]})
 
       view
-      |> element(~s(#bulk-move-items-picker [data-place="catalogue:#{catalogue.uuid}"]))
+      |> element(~s(#bulk-move-items-picker [data-tree-node="catalogue:#{catalogue.uuid}"]))
       |> render_click()
 
       render_click(view, "confirm_bulk_move_items", %{})
