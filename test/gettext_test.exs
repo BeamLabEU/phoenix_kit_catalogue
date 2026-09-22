@@ -326,6 +326,27 @@ defmodule PhoenixKitCatalogue.GettextTest do
     assert untranslated == []
   end
 
+  test "the category form's place strings are translated, and English reads as written" do
+    msgids = ["The chosen parent is no longer available. Pick another place.", "New subcategory"]
+
+    untranslated =
+      for locale <- ["de", "et", "fr", "ru"],
+          msgid <- msgids,
+          Gettext.with_locale(PhoenixKitCatalogue.Gettext, locale, fn ->
+            Gettext.gettext(PhoenixKitCatalogue.Gettext, msgid)
+          end) == msgid,
+          do: {locale, msgid}
+
+    assert untranslated == []
+
+    # A fuzzy English entry is served too: this one rendered "New Category".
+    for msgid <- msgids do
+      assert Gettext.with_locale(PhoenixKitCatalogue.Gettext, "en", fn ->
+               Gettext.gettext(PhoenixKitCatalogue.Gettext, msgid)
+             end) == msgid
+    end
+  end
+
   test "Tab.localized_label/1 returns Russian translation for Catalogues" do
     Gettext.put_locale(PhoenixKitCatalogue.Gettext, "ru")
 

@@ -3639,6 +3639,9 @@ msgstr ""
 msgid "Pick a category to nest this one inside, or the catalogue itself for its top level. You can move it later."
 msgstr ""
 
+msgid "The chosen parent is no longer available. Pick another place."
+msgstr ""
+
 msgid "Pick where it goes: a catalogue's top level, or under a category. Its subcategories and items come along."
 msgstr ""
 

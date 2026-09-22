@@ -3633,6 +3633,9 @@ msgstr "Sihtkoht:"
 msgid "Pick a category to nest this one inside, or the catalogue itself for its top level. You can move it later."
 msgstr "Vali kategooria, mille alla see paigutada, või kataloog ise selle ülemise taseme jaoks. Saad seda hiljem teisaldada."
 
+msgid "The chosen parent is no longer available. Pick another place."
+msgstr "Valitud ülemkategooria pole enam saadaval. Vali teine koht."
+
 msgid "Pick where it goes: a catalogue's top level, or under a category. Its subcategories and items come along."
 msgstr "Vali, kuhu see läheb: kataloogi ülemine tase või mõne kategooria alla. Alamkategooriad ja tooted tulevad kaasa."
 

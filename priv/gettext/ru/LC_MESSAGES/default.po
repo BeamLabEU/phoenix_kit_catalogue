@@ -3646,6 +3646,9 @@ msgstr "Куда:"
 msgid "Pick a category to nest this one inside, or the catalogue itself for its top level. You can move it later."
 msgstr "Выберите категорию, в которую вложить эту, или сам каталог — для его верхнего уровня. Переместить её можно и позже."
 
+msgid "The chosen parent is no longer available. Pick another place."
+msgstr "Выбранная родительская категория больше недоступна. Выберите другое место."
+
 msgid "Pick where it goes: a catalogue's top level, or under a category. Its subcategories and items come along."
 msgstr "Выберите, куда её переместить: на верхний уровень каталога или внутрь категории. Подкатегории и позиции переместятся вместе с ней."
 

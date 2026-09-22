@@ -127,6 +127,7 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
 
   defp mount_category_form(socket, action, category, changeset, catalogue_uuid) do
     parent_catalogue = catalogue_uuid && Catalogue.get_catalogue(catalogue_uuid)
+    parent_tree = if action == :new, do: parent_tree(parent_catalogue, loc(socket)), else: []
 
     {:ok,
      socket
@@ -139,9 +140,9 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
        action: action,
        category: category,
        catalogue_uuid: catalogue_uuid,
-       parent_catalogue_name: parent_catalogue && parent_catalogue.name,
-       parent_tree: if(action == :new, do: parent_tree(parent_catalogue, loc(socket)), else: []),
-       parent_pick: parent_place(category.parent_uuid),
+       parent_catalogue_name: catalogue_name(parent_catalogue, loc(socket)),
+       parent_tree: parent_tree,
+       parent_pick: offered_pick(parent_tree, parent_place(category.parent_uuid)),
        move_tree:
          if(action == :edit, do: move_tree(category, parent_catalogue, loc(socket)), else: []),
        move_target: nil
@@ -154,10 +155,6 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
      |> assign_ai_translation("catalogue_category", if(action == :edit, do: category, else: nil))}
   end
 
-  # Tree-flattened options for the parent picker. Root entry first,
-  # then each category prefixed with indentation that matches its
-  # depth. For edit mode, the category's own subtree is excluded so
-  # the user can't pick itself or one of its descendants.
   defp safe_return_to(rt) when is_binary(rt) do
     if Routes.local_path?(rt), do: rt
   end
@@ -222,6 +219,9 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
 
   # Where a new category goes: under the catalogue's own row (its top
   # level) or under one of its categories — a tree, never a flat list.
+  # Nowhere once the catalogue is gone.
+  defp parent_tree(nil, _locale), do: []
+
   defp parent_tree(catalogue, locale),
     do:
       PlaceTree.categories(catalogue,
@@ -231,6 +231,15 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
 
   defp parent_place(uuid) when is_binary(uuid) and uuid != "", do: "category:" <> uuid
   defp parent_place(_uuid), do: PlaceTree.root_id()
+
+  # A parent in the URL is used only when the tree offers it: one from
+  # another catalogue, trashed or made up would only be refused at save.
+  # (An edit form has no parent tree and never posts a parent.)
+  defp offered_pick(tree, pick),
+    do: if(PlaceTree.find(tree, pick), do: pick, else: PlaceTree.root_id())
+
+  defp catalogue_name(nil, _locale), do: nil
+  defp catalogue_name(catalogue, locale), do: Catalogue.localize_one(catalogue, locale).name
 
   # Where this category can move: any live catalogue of its kind, at its
   # top level or under a category — never into its own subtree.
@@ -256,7 +265,7 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
 
     assign(socket,
       parent_tree: tree,
-      parent_pick: if(PlaceTree.find(tree, pick), do: pick, else: PlaceTree.root_id())
+      parent_pick: offered_pick(tree, pick)
     )
   end
 
@@ -269,6 +278,22 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
       move_tree: tree,
       move_target: if(target && PlaceTree.find(tree, target), do: target)
     )
+  end
+
+  # Moved elsewhere meanwhile (another tab, a bulk move): the Move
+  # picker's current place follows the row, so picking where it now is
+  # stages nothing. Only the placement is re-read; typed fields stay.
+  defp refresh_placement(%{assigns: %{category: %Category{uuid: uuid} = category}} = socket) do
+    case Catalogue.get_category(uuid) do
+      %Category{parent_uuid: parent, catalogue_uuid: catalogue} ->
+        assign(socket,
+          category: %{category | parent_uuid: parent, catalogue_uuid: catalogue},
+          catalogue_uuid: catalogue
+        )
+
+      nil ->
+        socket
+    end
   end
 
   # Where the category is now, as the move tree names it.
@@ -580,18 +605,16 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
   # place trees, so a place created or removed meanwhile shows as it is.
   def handle_info({:catalogue_data_changed, kind, uuid, _parent}, socket)
       when kind in [:category, :catalogue, :folder] do
-    socket = refresh_trees(socket)
-
     socket =
       case socket.assigns.category do
         %{uuid: ^uuid} when kind == :category and is_binary(uuid) ->
-          Attachments.refresh_files(socket)
+          socket |> refresh_placement() |> Attachments.refresh_files()
 
         _ ->
           socket
       end
 
-    {:noreply, socket}
+    {:noreply, refresh_trees(socket)}
   end
 
   # Catch-all so stray monitor signals or unrelated PubSub traffic
@@ -693,8 +716,12 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
              )}
         end
 
-      {:error, changeset} ->
+      {:error, %Ecto.Changeset{} = changeset} ->
         {:noreply, assign_changeset(socket, changeset)}
+
+      # Gone, or moved to another catalogue meanwhile.
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, Errors.message(reason))}
     end
   end
 
@@ -895,6 +922,9 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
                 name="category[parent_uuid]"
                 post={&PlaceTree.post/1}
               />
+              <p :if={@changeset.errors[:parent_uuid]} class="text-xs text-error">
+                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "The chosen parent is no longer available. Pick another place.")}
+              </p>
               <span class="block text-xs text-base-content/50">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Pick a category to nest this one inside, or the catalogue itself for its top level. You can move it later.")}</span>
             </div>
 

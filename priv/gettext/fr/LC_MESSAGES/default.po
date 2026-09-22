@@ -3182,7 +3182,7 @@ msgstr ""
 #: lib/phoenix_kit_catalogue/web/catalogue_detail_live.ex:5136
 #, elixir-autogen, elixir-format
 msgid "New subcategory"
-msgstr ""
+msgstr "Nouvelle sous-catégorie"
 
 #: lib/phoenix_kit_catalogue/web/catalogue_detail_live.ex:3459
 #, elixir-autogen, elixir-format
@@ -3632,6 +3632,9 @@ msgstr "Destination :"
 
 msgid "Pick a category to nest this one inside, or the catalogue itself for its top level. You can move it later."
 msgstr "Choisissez une catégorie où l’imbriquer, ou le catalogue lui-même pour son premier niveau. Vous pourrez la déplacer plus tard."
+
+msgid "The chosen parent is no longer available. Pick another place."
+msgstr "Le parent choisi n’est plus disponible. Choisissez un autre emplacement."
 
 msgid "Pick where it goes: a catalogue's top level, or under a category. Its subcategories and items come along."
 msgstr "Choisissez où la placer : au premier niveau d’un catalogue ou sous une catégorie. Ses sous-catégories et articles suivent."
