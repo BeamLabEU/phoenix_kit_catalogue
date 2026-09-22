@@ -246,7 +246,7 @@ defmodule PhoenixKitCatalogue.Migrations do
   # `phoenix_kit_users.custom_fields["catalogue_view_configs"]`, written as
   # a whole map from whatever copy of the user a page held. They are now
   # core's per-user view preferences (`phoenix_kit_user_view_prefs`, core
-  # V200): one row per scope (`catalogue.<scope>`) and one module-wide row
+  # V201): one row per scope (`catalogue.<scope>`) and one module-wide row
   # (`catalogue`). This copies them once. An empty column list is kept —
   # it meant "every optional column hidden" here and does in core too. Only
   # the module's own scopes are copied, and the selector's two choices land
