@@ -138,6 +138,9 @@ defmodule PhoenixKitCatalogue.GettextTest do
            "Käivita taustatõlge automaatselt"},
           {"Enter a whole number above 0.", "Введите целое число больше 0.",
            "Sisesta täisarv, mis on suurem kui 0."},
+          # The sweep's cap became a ceiling on queued jobs (2026-09-22).
+          {"Most jobs queued at once", "Не больше заданий в очереди одновременно",
+           "Kõige rohkem töid korraga järjekorras"},
           # Rename-from-inside, the level's own Edit button and the item
           # form's SEO switch (boss via Max, 2026-09-21).
           {"Rename folder", "Переименовать папку", "Nimeta kaust ümber"},

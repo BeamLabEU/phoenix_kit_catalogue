@@ -332,7 +332,7 @@ Settings → Catalogue (`Web.SettingsLive`), read and written through
 | `catalogue_translation_sweep_enabled` | bool | default `false`; seeds the worker chain |
 | `catalogue_translation_sweep_interval_minutes` | int | default `60` |
 | `catalogue_translation_sweep_langs` | json | `%{"codes" => [...]}`; a bare list is rejected by the `:map` column |
-| `catalogue_translation_sweep_max_per_run` | int | default `200` |
+| `catalogue_translation_sweep_max_per_run` | int | default `200`; despite the name, the most catalogue translation jobs queued at once — a tick tops up to it |
 | `catalogue_sort_catalogues` / `catalogue_sort_detail_items` / `catalogue_sort_detail_categories` | json | the module-global shared sort per scope (`%{"by" => …, "dir" => …}`), written by the admin sort selectors and read by the popup and widgets — not on the settings page |
 
 Not a Settings key: per-user table/view preferences are core's
@@ -533,7 +533,11 @@ Pointers, not docs — the moduledocs are the contract.
 - **AI translation** — `ai_translatables/0` plus
   `PhoenixKitCatalogue.AITranslatable` integrate with `phoenix_kit_ai`; the
   operator-facing sweep is `Workers.TranslationSweepWorker` driven by
-  `Web.Settings` and the Translations page.
+  `Web.Settings` and the Translations page. The worker is a source for
+  `phoenix_kit_ai`'s `PhoenixKitAI.TranslationSweep`, which owns the chain,
+  the caps and the recorded outcome; the worker supplies settings,
+  candidates and prompts, and keeps its name because scheduled jobs point
+  at it.
 - **Extension slot** — `PhoenixKitCatalogue.Extension` is the behaviour a
   sibling implements to add a section to the item/category forms and own a
   namespace under `data`. Discovery is duck-typed through

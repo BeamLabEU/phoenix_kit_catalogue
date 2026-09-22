@@ -3564,8 +3564,8 @@ msgstr "Listen"
 msgid "Minutes between runs"
 msgstr "Minuten zwischen den Durchläufen"
 
-msgid "Most jobs per run"
-msgstr "Maximale Aufträge pro Durchlauf"
+msgid "Most jobs queued at once"
+msgstr "Maximale Aufträge gleichzeitig in der Warteschlange"
 
 msgid "Off by default. Turning it on starts the schedule immediately; each tick enqueues translation jobs for whatever is still missing."
 msgstr "Standardmäßig aus. Beim Einschalten startet der Zeitplan sofort; jeder Durchlauf stellt Übersetzungsaufträge für alles ein, was noch fehlt."
