@@ -1768,17 +1768,23 @@ defmodule PhoenixKitCatalogue.Catalogue do
   mechanism is identical.
   """
   @spec update_category(Category.t(), map(), keyword()) ::
-          {:ok, Category.t()} | {:error, Ecto.Changeset.t(Category.t())}
+          {:ok, Category.t()}
+          | {:error, Ecto.Changeset.t(Category.t()) | :not_found | :catalogue_moved}
   def update_category(%Category{} = category, attrs, opts \\ []) do
     result =
-      repo().transaction(fn ->
-        attrs = narrow_data_ownership(Category, category.uuid, attrs, opts)
-
+      locked_transaction(fn ->
         # A new parent is checked for a cycle against the tree as committed:
-        # under the catalogue's lock (as `move_category_under/3` takes it),
-        # two opposite re-parents no longer both pass — or deadlock on each
-        # other's parent row.
-        if reparenting?(category, attrs), do: lock_catalogue!(category.catalogue_uuid)
+        # under the lock of the catalogue the row is in now (not the
+        # caller's copy's), taken before any row lock — the order
+        # `move_category_under/3` takes them in — so two opposite re-parents
+        # neither both pass nor deadlock on each other's rows. The checks
+        # then run on the locked row.
+        category =
+          if reparenting?(category, attrs),
+            do: lock_row_in_catalogue!(Category, category.uuid),
+            else: category
+
+        attrs = narrow_data_ownership(Category, category.uuid, attrs, opts)
 
         changeset =
           category
@@ -1815,7 +1821,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
         {:ok, updated}
 
-      {:error, _changeset} = error ->
+      {:error, _reason} = error ->
         error
     end
   end
