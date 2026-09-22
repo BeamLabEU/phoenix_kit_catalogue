@@ -142,7 +142,7 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
        catalogue_uuid: catalogue_uuid,
        parent_catalogue_name: catalogue_name(parent_catalogue, loc(socket)),
        parent_tree: parent_tree,
-       parent_pick: offered_pick(parent_tree, parent_place(category.parent_uuid)),
+       parent_pick: offered_parent(parent_tree, parent_place(category.parent_uuid), action),
        move_tree:
          if(action == :edit, do: move_tree(category, parent_catalogue, loc(socket)), else: []),
        move_target: nil
@@ -219,7 +219,7 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
 
   # Where a new category goes: under the catalogue's own row (its top
   # level) or under one of its categories — a tree, never a flat list.
-  # Nowhere once the catalogue is gone.
+  # A catalogue deleted forever while the form is open has no tree.
   defp parent_tree(nil, _locale), do: []
 
   defp parent_tree(catalogue, locale),
@@ -232,11 +232,15 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
   defp parent_place(uuid) when is_binary(uuid) and uuid != "", do: "category:" <> uuid
   defp parent_place(_uuid), do: PlaceTree.root_id()
 
-  # A parent in the URL is used only when the tree offers it: one from
-  # another catalogue, trashed or made up would only be refused at save.
-  # (An edit form has no parent tree and never posts a parent.)
-  defp offered_pick(tree, pick),
+  # A parent the tree does not offer — `?parent_uuid=` naming a category
+  # trashed since the link was rendered, one of another catalogue, or not
+  # a UUID at all — falls back to the top level. Kept, the picker would
+  # show nothing picked while its hidden input still posted the uuid, and
+  # Save would fail on a field the form renders no error for.
+  defp offered_parent(tree, pick, :new),
     do: if(PlaceTree.find(tree, pick), do: pick, else: PlaceTree.root_id())
+
+  defp offered_parent(_tree, pick, _action), do: pick
 
   defp catalogue_name(nil, _locale), do: nil
   defp catalogue_name(catalogue, locale), do: Catalogue.localize_one(catalogue, locale).name
@@ -249,7 +253,9 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
       catalogue_hint: Gettext.gettext(PhoenixKitCatalogue.Gettext, "top level"),
       locale: locale
     )
-    |> PlaceTree.prune(["category:" <> uuid])
+    # The database subtree, not the tree's: a live category under a
+    # trashed one of this subtree shows at the top level.
+    |> PlaceTree.prune(Enum.map(Catalogue.category_subtree_uuids([uuid]), &("category:" <> &1)))
   end
 
   defp move_tree(_category, _catalogue, _locale), do: []
@@ -261,11 +267,10 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
   defp refresh_trees(%{assigns: %{action: :new}} = socket) do
     catalogue = Catalogue.get_catalogue(socket.assigns.catalogue_uuid)
     tree = parent_tree(catalogue, loc(socket))
-    pick = socket.assigns.parent_pick
 
     assign(socket,
       parent_tree: tree,
-      parent_pick: offered_pick(tree, pick)
+      parent_pick: offered_parent(tree, socket.assigns.parent_pick, :new)
     )
   end
 

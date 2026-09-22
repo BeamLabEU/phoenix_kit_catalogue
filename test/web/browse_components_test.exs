@@ -53,6 +53,9 @@ defmodule PhoenixKitCatalogue.Web.Components.BrowseTest do
       refute html =~ ~s(loading="lazy")
       assert html =~ "aspect-square"
       assert html =~ "object-cover"
+      # The item's name, not "" — a screen reader must hear what the
+      # picture is of (#93).
+      assert html =~ ~s(alt="M8 Screw")
     end
 
     test "selected state rides data-selected; the badge stays server-drawn" do
@@ -344,6 +347,9 @@ defmodule PhoenixKitCatalogue.Web.Components.BrowseTest do
       [img] = Regex.run(~r/<img[^>]*>/, html)
       assert img =~ "max-w-none"
       assert html =~ "w-full"
+      # The item's name, not "" — a screen reader must hear what the
+      # picture is of (#93).
+      assert img =~ ~s(alt="Widget")
     end
 
     test "item_table renders the checkbox header cell in lockstep" do

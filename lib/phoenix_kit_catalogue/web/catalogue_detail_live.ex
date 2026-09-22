@@ -2128,7 +2128,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       catalogue_hint: Gettext.gettext(PhoenixKitCatalogue.Gettext, "top level"),
       locale: loc(socket)
     )
-    |> PlaceTree.prune(Enum.map(uuids, &("category:" <> &1)))
+    |> PlaceTree.prune(subtree_places(uuids))
   end
 
   # Where a category's items can go when it is trashed: this catalogue's
@@ -2137,8 +2137,14 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   defp trash_tree(socket, uuids) do
     socket.assigns.catalogue
     |> PlaceTree.categories(locale: loc(socket))
-    |> PlaceTree.prune(Enum.map(uuids, &("category:" <> &1)))
+    |> PlaceTree.prune(subtree_places(uuids))
   end
+
+  # The picked categories and everything below them in the database —
+  # including a live category under a trashed one, which the live tree
+  # shows at the top level rather than under the category being moved.
+  defp subtree_places(uuids),
+    do: uuids |> Catalogue.category_subtree_uuids() |> Enum.map(&("category:" <> &1))
 
   defp tree_category?(tree, uuid) when is_binary(uuid),
     do: PlaceTree.member?(tree, "category:" <> uuid, [:category])

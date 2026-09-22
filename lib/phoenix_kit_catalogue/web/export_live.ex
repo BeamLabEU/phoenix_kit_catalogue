@@ -52,8 +52,11 @@ defmodule PhoenixKitCatalogue.Web.ExportLive do
     {:noreply, apply_form_params(socket, params)}
   end
 
-  # The catalogues ticked in the tree; its hidden inputs also post them
-  # with every change of the form.
+  # The catalogues ticked in the tree — the one source of the selection.
+  # Its hidden inputs also post them with every change of the form, but a
+  # destination or format change sent before a tick's re-render landed
+  # would post the previous ticks and undo it, so `change_form` ignores
+  # them.
   @impl true
   def handle_info({TreePicker, "export-catalogue-picker", ids}, socket) when is_list(ids) do
     known = MapSet.new(socket.assigns.catalogues, & &1.uuid)
@@ -207,7 +210,6 @@ defmodule PhoenixKitCatalogue.Web.ExportLive do
 
   defp apply_form_params(socket, params) do
     destination_key = Map.get(params, "destination")
-    catalogue_uuids = Map.get(params, "catalogue_uuids", [])
     format_str = presence(Map.get(params, "format"))
 
     selected_destination =
@@ -218,14 +220,6 @@ defmodule PhoenixKitCatalogue.Web.ExportLive do
       else
         socket.assigns.selected_destination
       end
-
-    # Validate that the selected uuids are known catalogues
-    known_uuids = Enum.map(socket.assigns.catalogues, & &1.uuid)
-
-    selected_catalogue_uuids =
-      catalogue_uuids
-      |> List.wrap()
-      |> Enum.filter(fn uuid -> uuid in known_uuids end)
 
     # Reset format if the destination changed and the format is no longer valid
     selected_format =
@@ -247,7 +241,6 @@ defmodule PhoenixKitCatalogue.Web.ExportLive do
 
     assign(socket,
       selected_destination: selected_destination,
-      selected_catalogue_uuids: selected_catalogue_uuids,
       selected_format: selected_format,
       selected_prefix_catalogue: selected_prefix_catalogue
     )
