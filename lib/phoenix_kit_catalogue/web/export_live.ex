@@ -8,6 +8,8 @@ defmodule PhoenixKitCatalogue.Web.ExportLive do
 
   use Phoenix.LiveView
 
+  require Logger
+
   import PhoenixKitWeb.Components.Core.Checkbox, only: [checkbox: 1]
   import PhoenixKitWeb.Components.Core.FormFieldLabel, only: [label: 1]
   import PhoenixKitWeb.Components.Core.Icon, only: [icon: 1]
@@ -64,7 +66,12 @@ defmodule PhoenixKitCatalogue.Web.ExportLive do
     {:noreply, assign(socket, :selected_catalogue_uuids, uuids)}
   end
 
-  def handle_info(_msg, socket), do: {:noreply, socket}
+  # Catch-all so an unrelated message cannot crash the page; logged, as
+  # every other catalogue page does, so a dropped one can be found.
+  def handle_info(msg, socket) do
+    Logger.debug("ExportLive ignored unhandled message: #{inspect(msg)}")
+    {:noreply, socket}
+  end
 
   @impl true
   def render(assigns) do

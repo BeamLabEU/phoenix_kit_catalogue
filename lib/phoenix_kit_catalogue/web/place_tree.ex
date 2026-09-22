@@ -194,24 +194,31 @@ defmodule PhoenixKitCatalogue.Web.PlaceTree do
   # ── Pure operations (core's Tree) ──────────────────────────────────
 
   @doc "See `PhoenixKit.Utils.Tree.prune/2`."
+  @spec prune([tree_node()], [String.t()]) :: [tree_node()]
   defdelegate prune(tree, ids), to: Tree
 
   @doc "See `PhoenixKit.Utils.Tree.find/2`."
+  @spec find([tree_node()], term()) :: tree_node() | nil
   defdelegate find(tree, id), to: Tree
 
   @doc "See `PhoenixKit.Utils.Tree.member?/3`."
+  @spec member?([tree_node()], term(), [atom()] | :all) :: boolean()
   defdelegate member?(tree, id, types), to: Tree
 
   @doc "See `PhoenixKit.Utils.Tree.path/3`."
+  @spec path_in([tree_node()], term(), [atom()]) :: [String.t()]
   defdelegate path_in(tree, id, skip \\ []), to: Tree, as: :path
 
   @doc "See `PhoenixKit.Utils.Tree.ancestor_ids/2`."
+  @spec ancestor_ids([tree_node()], term()) :: [String.t()]
   defdelegate ancestor_ids(tree, id), to: Tree
 
   @doc "See `PhoenixKit.Utils.Tree.filter/2`."
+  @spec filter([tree_node()], String.t()) :: {[tree_node()], [String.t()]}
   defdelegate filter(tree, query), to: Tree
 
   @doc "See `PhoenixKit.Utils.Tree.ids_of/2`."
+  @spec ids_of([tree_node()], [atom()] | :all) :: [String.t()]
   defdelegate ids_of(tree, types), to: Tree
 
   @doc """
