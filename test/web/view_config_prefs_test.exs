@@ -144,6 +144,28 @@ defmodule PhoenixKitCatalogue.Web.ViewConfigPrefsTest do
              ) == 0
     end
 
+    test "a field chosen in core before the copy wins; the legacy fields it lacks are added" do
+      user =
+        legacy!(user!(), %{
+          "suppliers" => %{"columns" => ["website"], "sort_by" => "name"},
+          "__view__" => "table",
+          "__selector__" => %{"hidden" => ["sku"]}
+        })
+
+      # Between the deploy and the migration, the user changed the view and
+      # a table's columns in core.
+      {:ok, _} = VC.save_view(user, "card")
+      {:ok, _} = ViewPrefs.put(user, "catalogue.suppliers", %{"columns" => ["status"]})
+
+      copied?(false)
+      Repo.query!(v3_statement())
+
+      assert ViewPrefs.get(user, "catalogue") == %{"view" => "card", "selector_hidden" => ["sku"]}
+
+      assert ViewPrefs.get(user, "catalogue.suppliers") ==
+               %{"columns" => ["status"], "sort_by" => "name"}
+    end
+
     test "runs once: after the copy, a replay changes nothing" do
       user = legacy!(user!(), %{"suppliers" => %{"columns" => ["status"]}})
       copied?(false)
