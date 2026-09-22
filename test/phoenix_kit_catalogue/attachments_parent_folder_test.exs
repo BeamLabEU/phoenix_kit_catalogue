@@ -212,4 +212,28 @@ defmodule PhoenixKitCatalogue.AttachmentsParentFolderTest do
     assert {renamed.name, renamed.parent_uuid} ==
              {"catalogue-item-#{saved_item.uuid}", container.uuid}
   end
+
+  test "opening the picker records the folder as the item's at once, so a same-named item cannot take it" do
+    {:ok, container} = Storage.create_folder(%{name: "Köök"})
+    hooks_on(container)
+    first = fixture_item(%{name: "Käepide", sku: "RK-1"})
+    second = fixture_item(%{name: "Käepide", sku: "RK-1"})
+
+    socket_for = fn item ->
+      Attachments.mount_attachments(%Phoenix.LiveView.Socket{assigns: %{__changed__: %{}}}, item)
+    end
+
+    {:noreply, socket} = Attachments.open_featured_image_picker(socket_for.(first))
+    folder_uuid = socket.assigns.files_folder_uuid
+    assert Storage.get_folder(folder_uuid).name == "Käepide [RK-1]"
+
+    assert PhoenixKitCatalogue.Catalogue.get_item!(first.uuid).data["files_folder_uuid"] ==
+             folder_uuid
+
+    {:noreply, other} = Attachments.open_featured_image_picker(socket_for.(second))
+    refute other.assigns.files_folder_uuid == folder_uuid
+
+    assert Storage.get_folder(other.assigns.files_folder_uuid).name ==
+             "catalogue-item-#{second.uuid}"
+  end
 end
