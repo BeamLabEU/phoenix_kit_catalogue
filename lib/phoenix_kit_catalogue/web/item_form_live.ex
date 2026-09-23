@@ -2840,6 +2840,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
     |> assign(:derived_slug, %{})
     |> assign(location_target: nil, location_target_path: [])
     |> assign_location(item)
+    |> Attachments.after_save(item)
     |> assign_changeset(Catalogue.change_item(item))
   end
 

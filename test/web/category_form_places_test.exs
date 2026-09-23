@@ -73,4 +73,51 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormPlacesTest do
       resource_uuid: category.uuid
     )
   end
+
+  # PR #136 review: Save posted the `:catalogue_uuid` assign, which a
+  # move made elsewhere left behind, so the row alone went back to the
+  # old catalogue while its subtree stayed in the new one.
+  test "Save after a move made elsewhere keeps the category where it is", %{conn: conn} do
+    from = fixture_catalogue(%{name: "From"})
+    to = fixture_catalogue(%{name: "To"})
+    parent = fixture_category(from, %{name: "Old parent"})
+    category = fixture_category(from, %{name: "Travelled", parent_uuid: parent.uuid})
+
+    {:ok, view, _html} = live(conn, "#{@base}/categories/#{category.uuid}/edit")
+
+    # Moved to the other catalogue without the form hearing of it.
+    Repo.update_all(
+      from(c in PhoenixKitCatalogue.Schemas.Category, where: c.uuid == ^category.uuid),
+      set: [catalogue_uuid: to.uuid, parent_uuid: nil]
+    )
+
+    send(view.pid, {TreePicker, "category-move-picker", "catalogue:" <> to.uuid})
+    view |> element("#category-move-button") |> render_click()
+
+    view
+    |> form(form_selector(), %{"category" => %{"name" => "Travelled"}})
+    |> render_submit()
+
+    assert Catalogue.get_category(category.uuid).catalogue_uuid == to.uuid
+  end
+
+  test "a bulk move re-reads the form's place", %{conn: conn} do
+    from = fixture_catalogue(%{name: "From"})
+    to = fixture_catalogue(%{name: "To"})
+    category = fixture_category(from, %{name: "Bulk moved"})
+
+    {:ok, view, _html} = live(conn, "#{@base}/categories/#{category.uuid}/edit")
+
+    Repo.update_all(
+      from(c in PhoenixKitCatalogue.Schemas.Category, where: c.uuid == ^category.uuid),
+      set: [catalogue_uuid: to.uuid]
+    )
+
+    # What a bulk move broadcasts: no category uuid.
+    send(view.pid, {:catalogue_data_changed, :category, nil, to.uuid})
+    _ = render(view)
+
+    send(view.pid, {TreePicker, "category-move-picker", "catalogue:" <> to.uuid})
+    assert has_element?(view, "#category-move-button[disabled]")
+  end
 end

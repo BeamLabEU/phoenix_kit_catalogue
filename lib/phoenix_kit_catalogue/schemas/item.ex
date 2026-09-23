@@ -178,7 +178,7 @@ defmodule PhoenixKitCatalogue.Schemas.Item do
 
   # `nil` is never a legitimate STORED value for a top-level `data` key —
   # a caller that wants to clear one (see
-  # `PhoenixKitCatalogue.Attachments.inject_featured_image/2` /
+  # `PhoenixKitCatalogue.Attachments.inject_attachment_data/2` /
   # `inject_media_order/2`, which write an explicit `nil` as their
   # "absent, not merely untouched" signal for
   # `Catalogue.update_item/3`'s `:data_owned_keys` splicing) means

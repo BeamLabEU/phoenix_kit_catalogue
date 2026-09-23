@@ -256,7 +256,11 @@ defmodule PhoenixKitCatalogue.Migrations do
   # `catalogue_view_prefs_copied_at` setting is written right after it, and
   # `up/1` replays every version, so a later run would otherwise bring back
   # a choice the user has since reset. Where core's table is not there yet
-  # it waits for a later run; the chain's own version marker plays no part.
+  # it copies nothing and writes no setting, so the next replay of the chain
+  # makes the copy; the chain's own version marker plays no part in the
+  # guard. A host only replays the chain when a later version is pending,
+  # though — core's chain runs first in the same update, so on that path
+  # the table is always there.
   # The `custom_fields` key is left in place, unread.
   defp v3_statements(prefix, p) do
     [

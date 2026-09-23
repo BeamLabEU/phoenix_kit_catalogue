@@ -858,6 +858,26 @@ defmodule PhoenixKitCatalogue.Attachments do
     |> inject_media_order(socket.assigns[:files_state], socket)
   end
 
+  @doc """
+  Re-baselines the attachment assigns on a save that keeps the form open.
+  `mount_attachments/3` records what the record held when the form
+  opened; after a stay-save the record holds what was just saved, so a
+  later clear or removal must be judged against that. Without this, an
+  image picked and saved here reads as "never known", and clearing it
+  on the next save writes no marker — the image stays on the record.
+  """
+  @spec after_save(Phoenix.LiveView.Socket.t(), struct()) :: Phoenix.LiveView.Socket.t()
+  def after_save(socket, resource) do
+    data = resource_data(resource)
+    order = read_list(data, "media_order")
+
+    socket
+    |> assign(:attachments_resource, resource)
+    |> assign(:media_order_at_mount, order)
+    |> assign(:featured_image_at_mount, read_string(data, "featured_image_uuid"))
+    |> assign(:media_order_persisted, order)
+  end
+
   # A clear marker says "the person cleared this here", so it is written
   # only by a form that HAD one to clear: one opened before another tab
   # set an image would otherwise delete it on any save.
@@ -1011,8 +1031,8 @@ defmodule PhoenixKitCatalogue.Attachments do
   @doc false
   # The deterministic legacy name for a resource ("catalogue-item-<uuid>",
   # "catalogue-category-<uuid>", "catalogue-<uuid>") — `nil` for an unsaved
-  # (`:new`) resource. Public so `PhoenixKitCatalogue.MediaReorganizer` can
-  # locate pre-hook-config folders without depending on `folder_name_for/1`.
+  # (`:new`) resource. Public so `Catalogue.Duplication` can locate a
+  # source's pre-hook-config folder without depending on `folder_name_for/1`.
   @spec legacy_folder_name(term()) :: String.t() | nil
   def legacy_folder_name(resource), do: deterministic_name(resource)
 

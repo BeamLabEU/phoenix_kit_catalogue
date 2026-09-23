@@ -352,6 +352,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueFormLive do
       :page_title,
       Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit %{name}", name: catalogue.name)
     )
+    |> Attachments.after_save(catalogue)
     |> assign_changeset(Catalogue.change_catalogue(catalogue))
   end
 

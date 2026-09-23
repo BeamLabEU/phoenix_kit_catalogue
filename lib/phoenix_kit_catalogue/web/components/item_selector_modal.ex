@@ -215,8 +215,8 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
 
   Pass `current_user` (the `phoenix_kit_users` struct the host's
   live_session already assigns) and the selector remembers the view and
-  column visibility each user last chose — stored beside the admin
-  tables' preferences in `custom_fields` (`ViewConfig.load_selector/1`),
+  column visibility each user last chose — stored in core's per-user
+  view preferences beside the admin tables' (`ViewConfig.load_selector/1`),
   one set per user across every selector embed. The saved choice beats
   the host's STARTING attrs (`view`, `hidden_columns`), never the grant:
   saved names outside `columns` are ignored, and quantity mode still
@@ -320,7 +320,6 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
 
   import PhoenixKitCatalogue.Web.Components.Browse
 
-  alias PhoenixKit.Users.Auth
   alias PhoenixKit.Utils.Number
   require Logger
 
@@ -383,7 +382,6 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
 
   defp initialize(socket, assigns) do
     original_scope = assigns[:scope] || %{}
-    assigns = Map.put(assigns, :current_user, refresh_user(assigns[:current_user]))
 
     # BrowseState.init/1 validates the scope keys (atoms, search_items/2
     # vocabulary) so a string-keyed map cannot silently widen browsing.
@@ -671,19 +669,6 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
   defp prefs_hidden(stored, granted) when is_list(stored) do
     Enum.filter(granted, &(to_string(&1) in stored))
   end
-
-  # The host's current_user assign is a snapshot from the HOST's mount —
-  # a choice saved in a previous open of this selector (same page visit)
-  # is invisible to it, so a reopen would load yesterday's prefs and the
-  # next save would write over today's. Re-read the row at init; keep the
-  # snapshot when the re-read fails (a stub user in tests, no row).
-  defp refresh_user(%Auth.User{uuid: uuid} = user) do
-    Auth.get_user!(uuid)
-  rescue
-    _ -> user
-  end
-
-  defp refresh_user(other), do: other
 
   # Best-effort persistence of what the user just chose (the module-wide
   # view-preferences row; see ViewConfig).
