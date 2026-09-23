@@ -2,8 +2,7 @@ defmodule PhoenixKitCatalogue.Catalogue.ActivityLog do
   @moduledoc false
   # Shared activity-logging helper used by every Catalogue submodule.
   # Wraps `PhoenixKit.Activity.log/1` with the catalogue module key
-  # injected. External plugins must guard with `Code.ensure_loaded?/1`,
-  # which we do here once so callers don't have to repeat it.
+  # injected; core never raises, so callers need no guard of their own.
   #
   # ## Convention — layered logging
   #
@@ -33,51 +32,20 @@ defmodule PhoenixKitCatalogue.Catalogue.ActivityLog do
   # `{:error, _}` branches that the form's error display didn't
   # already handle.
 
-  require Logger
-
   @module_key "catalogue"
 
   @doc """
   Direct, fire-and-forget log call. Always returns `:ok`.
 
   Use this from inside transactions, multi-step operations, and the
-  module enable/disable callbacks. Never raises — DB hiccups, missing
-  table (host hasn't run core's V90 migration), or a mis-shaped Activity
-  context all swallow silently with a `Logger.warning`. Returning a
-  result from the primary operation must take precedence over logging
-  fidelity.
+  module enable/disable callbacks. Never raises: core's
+  `PhoenixKit.Activity.log/1` logs a DB hiccup, a missing table or a dead
+  pool and returns it, and the result is dropped here — returning a result
+  from the primary operation must take precedence over logging fidelity.
   """
   @spec log(map()) :: :ok
   def log(attrs) when is_map(attrs) do
-    if Code.ensure_loaded?(PhoenixKit.Activity) do
-      try do
-        PhoenixKit.Activity.log(Map.put(attrs, :module, @module_key))
-      rescue
-        e in Postgrex.Error ->
-          # Host hasn't run the activity migration — silent so test DBs
-          # without the table don't spam warnings.
-          if match?(%{postgres: %{code: :undefined_table}}, e) do
-            :ok
-          else
-            Logger.warning(
-              "PhoenixKitCatalogue activity log failed: #{Exception.message(e)} — attrs=#{inspect(Map.take(attrs, [:action, :resource_type, :resource_uuid]))}"
-            )
-          end
-
-        DBConnection.OwnershipError ->
-          # Async PubSub broadcast crossing into a logging path without
-          # sandbox checkout (test-only) — swallow per publishing-Batch-5.
-          :ok
-
-        error ->
-          Logger.warning(
-            "PhoenixKitCatalogue activity log failed: #{Exception.message(error)} — attrs=#{inspect(Map.take(attrs, [:action, :resource_type, :resource_uuid]))}"
-          )
-      catch
-        :exit, _reason -> :ok
-      end
-    end
-
+    _ = PhoenixKit.Activity.log(Map.put(attrs, :module, @module_key))
     :ok
   end
 

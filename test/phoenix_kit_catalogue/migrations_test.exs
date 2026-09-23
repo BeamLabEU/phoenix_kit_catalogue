@@ -25,8 +25,8 @@ defmodule PhoenixKitCatalogue.MigrationsTest do
     phoenix_kit_cat_item_attribute_sets
   )
 
-  test "chain is V2 and marks phoenix_kit_cat_catalogues" do
-    assert Migrations.current_version() == 2
+  test "chain is V3 and marks phoenix_kit_cat_catalogues" do
+    assert Migrations.current_version() == 3
     assert Migrations.version_table() == "phoenix_kit_cat_catalogues"
   end
 
@@ -39,7 +39,7 @@ defmodule PhoenixKitCatalogue.MigrationsTest do
     end
 
     assert List.last(stmts) ==
-             "COMMENT ON TABLE public.phoenix_kit_cat_catalogues IS 'pkc_schema:2'"
+             "COMMENT ON TABLE public.phoenix_kit_cat_catalogues IS 'pkc_schema:3'"
   end
 
   test "no statement can destroy data, in either direction" do
@@ -212,7 +212,10 @@ defmodule PhoenixKitCatalogue.MigrationsTest do
              "missing guarded constraint #{name}"
     end
 
-    assert length(@constraints) == Enum.count(stmts, &(&1 =~ ~r/DO \$\$/))
+    # Every constraint guard is pinned (V3's data copy is a DO block too,
+    # but not a guard).
+    assert length(@constraints) ==
+             Enum.count(stmts, &(&1 =~ ~r/DO \$\$/ and &1 =~ "ADD CONSTRAINT"))
   end
 
   test "down only rewrites the marker" do
@@ -246,7 +249,7 @@ defmodule PhoenixKitCatalogue.MigrationsTest do
              "CREATE INDEX IF NOT EXISTS phoenix_kit_cat_item_attribute_sets_selected_values_gin ON public.phoenix_kit_cat_item_attribute_sets USING gin ((data -> 'selected_value_slugs'))"
 
     assert List.last(Migrations.up_statements("public")) ==
-             "COMMENT ON TABLE public.phoenix_kit_cat_catalogues IS 'pkc_schema:2'"
+             "COMMENT ON TABLE public.phoenix_kit_cat_catalogues IS 'pkc_schema:3'"
   end
 
   test "down to 1 only re-stamps the marker" do
@@ -274,7 +277,7 @@ defmodule PhoenixKitCatalogue.MigrationsTest do
   end
 
   test "up_statements/2 defaults target to current_version/0" do
-    assert Migrations.up_statements("public") == Migrations.up_statements("public", 2)
+    assert Migrations.up_statements("public") == Migrations.up_statements("public", 3)
   end
 
   test "the module registers the chain" do

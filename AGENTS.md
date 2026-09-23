@@ -145,7 +145,8 @@ Repo-local aliases:
 - **Activity logging** — every mutating context function takes `opts` with
   `actor_uuid:` and logs via `Catalogue.ActivityLog`, which logs only on the
   `{:ok, _}` branch and must never crash the operation. LiveViews obtain the
-  actor via `actor_opts/1` from `Web.Helpers`. `test/activity_logging_test.exs`
+  actor via `actor_opts/1` from `Web.Helpers` (core's `PhoenixKitWeb.Actor`:
+  the scope first, then the bare current user). `test/activity_logging_test.exs`
   pins one test per action atom — extend it for new actions.
 - **PubSub** — mutations broadcast `{:catalogue_data_changed, kind, uuid,
   parent_catalogue_uuid}` on the `"phoenix_kit_catalogue"` topic via
@@ -331,11 +332,15 @@ Settings → Catalogue (`Web.SettingsLive`), read and written through
 | `catalogue_translation_sweep_enabled` | bool | default `false`; seeds the worker chain |
 | `catalogue_translation_sweep_interval_minutes` | int | default `60` |
 | `catalogue_translation_sweep_langs` | json | `%{"codes" => [...]}`; a bare list is rejected by the `:map` column |
-| `catalogue_translation_sweep_max_per_run` | int | default `200` |
+| `catalogue_translation_sweep_max_per_run` | int | default `200`; despite the name, the most catalogue translation jobs queued at once — a tick tops up to it |
 | `catalogue_sort_catalogues` / `catalogue_sort_detail_items` / `catalogue_sort_detail_categories` | json | the module-global shared sort per scope (`%{"by" => …, "dir" => …}`), written by the admin sort selectors and read by the popup and widgets — not on the settings page |
 
-Not a Settings key: per-user table/view preferences live under
-`phoenix_kit_users.custom_fields["catalogue_view_configs"]` (`Web.ViewConfig`).
+Not a Settings key: per-user table/view preferences are core's
+`PhoenixKit.Users.ViewPrefs` rows (`Web.ViewConfig`) — `catalogue.<scope>` for a
+table's columns, sort and filters, `catalogue` for the module-wide view and the
+item selector's choices. A save writes only the fields it changed; never keep
+them in `custom_fields` (a whole-map write from a page's copy of the user drops
+what another tab saved).
 
 Permission: one key, `"catalogue"` (`permission_metadata/0`), no sub-permissions.
 PubSub topic: `"phoenix_kit_catalogue"`.
@@ -344,7 +349,7 @@ PubSub topic: `"phoenix_kit_catalogue"`.
 
 Owns a versioned chain: `PhoenixKitCatalogue.Migrations` via
 `migration_module/0`, marker `pkc_schema:<N>` as a `COMMENT ON TABLE
-phoenix_kit_cat_catalogues`, currently V2. `mix phoenix_kit.update` applies it
+phoenix_kit_cat_catalogues`, currently V3. `mix phoenix_kit.update` applies it
 in hosts; tests replay `up_statements/2` directly through the repo (`up/1` uses
 `execute/1`, which only works inside an `Ecto.Migration` run).
 
@@ -360,7 +365,10 @@ in hosts; tests replay `up_statements/2` directly through the repo (`up/1` uses
   projection tables plus their sync triggers, and the attribute-set GIN index)
   is that case.
 - Statements stay idempotent (`CREATE TABLE IF NOT EXISTS`, guarded
-  `DO $$ … pg_constraint … $$`). Adoption is a presence check only: it cannot
+  `DO $$ … pg_constraint … $$`). The chain replays every version on each run,
+  so a one-time data copy (V3: the old `custom_fields` view configs into core's
+  view preferences) guards on the stored marker being below its version, or a
+  replay would redo it over what users changed since. Adoption is a presence check only: it cannot
   repair a table whose columns drifted, which is why the core pin floor exists —
   core's chain always runs first, so every adopted table is at core's current
   shape by the time this one runs.
@@ -485,6 +493,13 @@ Pointers, not docs — the moduledocs are the contract.
   queue is missing; `requeue_stuck_extractions/1` is the operator-driven heal
   for stuck rows. Engine selection lives in `Catalogue.PdfEngines` (pdfium as a
   precompiled NIF, poppler as fallback when installed).
+- **Place pickers** — every place choice (a category's parent, a move
+  target, the import/export catalogue, the item form's Location) is core's
+  `PhoenixKitWeb.Components.TreePicker` over a `Web.PlaceTree` tree, never a
+  flat list. Core's defaults are not the catalogue's: pass `pickable`,
+  `path_skip={[:folder]}` and, with `name`, `post={&PlaceTree.post/1}` (the
+  bare uuid, `""` for the top level). The host handles
+  `{TreePicker, id, value}` and re-checks the id against live data.
 - **Item picker** — `<.item_picker>` LiveComponent; the parent LV needs
   `handle_info/2` clauses for `{:item_picker_select, id, item}` and
   `{:item_picker_clear, id}`. It needs no form around it and no overflow rules
@@ -518,7 +533,11 @@ Pointers, not docs — the moduledocs are the contract.
 - **AI translation** — `ai_translatables/0` plus
   `PhoenixKitCatalogue.AITranslatable` integrate with `phoenix_kit_ai`; the
   operator-facing sweep is `Workers.TranslationSweepWorker` driven by
-  `Web.Settings` and the Translations page.
+  `Web.Settings` and the Translations page. The worker is a source for
+  `phoenix_kit_ai`'s `PhoenixKitAI.TranslationSweep`, which owns the chain,
+  the caps and the recorded outcome; the worker supplies settings,
+  candidates and prompts, and keeps its name because scheduled jobs point
+  at it.
 - **Extension slot** — `PhoenixKitCatalogue.Extension` is the behaviour a
   sibling implements to add a section to the item/category forms and own a
   namespace under `data`. Discovery is duck-typed through

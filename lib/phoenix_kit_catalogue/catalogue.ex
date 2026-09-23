@@ -1768,10 +1768,22 @@ defmodule PhoenixKitCatalogue.Catalogue do
   mechanism is identical.
   """
   @spec update_category(Category.t(), map(), keyword()) ::
-          {:ok, Category.t()} | {:error, Ecto.Changeset.t(Category.t())}
+          {:ok, Category.t()}
+          | {:error, Ecto.Changeset.t(Category.t()) | :not_found | :catalogue_moved}
   def update_category(%Category{} = category, attrs, opts \\ []) do
     result =
-      repo().transaction(fn ->
+      locked_transaction(fn ->
+        # A new parent is checked for a cycle against the tree as committed:
+        # under the lock of the catalogue the row is in now (not the
+        # caller's copy's), taken before any row lock — the order
+        # `move_category_under/3` takes them in — so two opposite re-parents
+        # neither both pass nor deadlock on each other's rows. The checks
+        # then run on the locked row.
+        category =
+          if reparenting?(category, attrs),
+            do: lock_row_in_catalogue!(Category, category.uuid),
+            else: category
+
         attrs = narrow_data_ownership(Category, category.uuid, attrs, opts)
 
         changeset =
@@ -1809,7 +1821,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
         {:ok, updated}
 
-      {:error, _changeset} = error ->
+      {:error, _reason} = error ->
         error
     end
   end
@@ -1863,6 +1875,13 @@ defmodule PhoenixKitCatalogue.Catalogue do
       {key, nil}, acc -> Map.delete(acc, key)
       {key, value}, acc -> Map.put(acc, key, value)
     end)
+  end
+
+  defp reparenting?(%Category{parent_uuid: current}, attrs) do
+    case Map.get(attrs, :parent_uuid, Map.get(attrs, "parent_uuid", current)) do
+      parent when parent in [nil, ""] -> false
+      parent -> to_string(parent) != to_string(current)
+    end
   end
 
   # Guards both create_category/2 and update_category/3 against a

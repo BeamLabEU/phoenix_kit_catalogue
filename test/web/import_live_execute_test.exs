@@ -140,4 +140,44 @@ defmodule PhoenixKitCatalogue.Web.ImportLiveExecuteTest do
       assert :sys.get_state(view.pid).socket.assigns.step == :map
     end
   end
+
+  describe "the import's activity rows" do
+    test "start and finish are logged under the catalogue module, by the importer",
+         %{conn: conn, catalogue: cat, scope: scope} do
+      {:ok, view, _html} = live(with_scope(conn, scope), @import_url)
+      render_change(view, "validate_upload", %{"catalogue" => cat.uuid})
+
+      file =
+        Phoenix.LiveViewTest.file_input(view, "#upload-form", :import_file, [
+          %{
+            last_modified: 1_700_000_000_000,
+            name: "logged.csv",
+            content: "name\nLogged Item\n",
+            type: "text/csv"
+          }
+        ])
+
+      render_upload(file, "logged.csv")
+      render_submit(view, "parse_file", %{"catalogue" => cat.uuid})
+      render_click(view, "continue_to_confirm", %{})
+      render_click(view, "execute_import", %{})
+
+      assert_eventually(fn -> :sys.get_state(view.pid).socket.assigns.step == :done end)
+
+      for action <- ["import.started", "import.completed"] do
+        row =
+          assert_activity_logged(action, resource_uuid: cat.uuid, actor_uuid: scope.user.uuid)
+
+        assert row.module == "catalogue", "#{action} was logged without the catalogue module"
+      end
+    end
+  end
+
+  defp assert_eventually(check, attempts \\ 50) do
+    cond do
+      check.() -> :ok
+      attempts == 0 -> flunk("condition never became true")
+      true -> Process.sleep(20) && assert_eventually(check, attempts - 1)
+    end
+  end
 end
