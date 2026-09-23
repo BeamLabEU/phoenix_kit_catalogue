@@ -307,6 +307,17 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
 
   defp current_place(%Category{parent_uuid: parent_uuid}), do: "category:" <> parent_uuid
 
+  # The catalogue the form files the category under. An edit takes the
+  # category's own, so it matches the row the changeset is built on and
+  # Save can never change it: only a move moves a category between
+  # catalogues. The `:catalogue_uuid` assign can trail a move made
+  # elsewhere, and posting it re-filed the category row alone into the
+  # old catalogue while its children and items stayed in the new one.
+  defp form_catalogue_uuid(%{assigns: %{action: :edit, category: %Category{catalogue_uuid: c}}}),
+    do: c
+
+  defp form_catalogue_uuid(socket), do: socket.assigns.catalogue_uuid
+
   defp assign_changeset(socket, changeset) do
     socket
     |> assign(:changeset, changeset)
@@ -427,7 +438,7 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
       # payload must not win it. `:catalogue_uuid` is in the cast allowlist,
       # so with `put_new` a forged submit could file the record under a
       # different catalogue than the one being edited.
-      |> Map.put("catalogue_uuid", socket.assigns.catalogue_uuid)
+      |> Map.put("catalogue_uuid", form_catalogue_uuid(socket))
       |> normalize_parent_uuid()
       |> with_parent_pick(socket)
       |> merge_translatable_params(socket, @translatable_fields,
@@ -452,7 +463,7 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
     category_params =
       params
       |> Map.get("category", %{})
-      |> Map.put("catalogue_uuid", socket.assigns.catalogue_uuid)
+      |> Map.put("catalogue_uuid", form_catalogue_uuid(socket))
       |> normalize_parent_uuid()
       |> with_parent_pick(socket)
       |> merge_translatable_params(socket, @translatable_fields,
@@ -521,8 +532,13 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
   # moved it to another catalogue since the page loaded.
   defp move_to(socket, target) do
     case Catalogue.get_category(socket.assigns.category.uuid) do
-      %Category{} = category -> move_to(assign(socket, :category, category), target, category)
-      nil -> {:noreply, move_failed(socket, "move_category", :not_found)}
+      %Category{} = category ->
+        socket
+        |> assign(category: category, catalogue_uuid: category.catalogue_uuid)
+        |> move_to(target, category)
+
+      nil ->
+        {:noreply, move_failed(socket, "move_category", :not_found)}
     end
   end
 
@@ -614,6 +630,10 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
       case socket.assigns.category do
         %{uuid: ^uuid} when kind == :category and is_binary(uuid) ->
           socket |> refresh_placement() |> Attachments.refresh_files()
+
+        # A bulk move names no category: it may have moved this one.
+        %{uuid: own} when kind == :category and is_nil(uuid) and is_binary(own) ->
+          refresh_placement(socket)
 
         _ ->
           socket
@@ -761,6 +781,7 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
       :move_tree,
       move_tree(category, Catalogue.get_catalogue(category.catalogue_uuid), loc(socket))
     )
+    |> Attachments.after_save(category)
     |> assign_changeset(Catalogue.change_category(category))
   end
 

@@ -367,7 +367,8 @@ in hosts; tests replay `up_statements/2` directly through the repo (`up/1` uses
 - Statements stay idempotent (`CREATE TABLE IF NOT EXISTS`, guarded
   `DO $$ … pg_constraint … $$`). The chain replays every version on each run,
   so a one-time data copy (V3: the old `custom_fields` view configs into core's
-  view preferences) guards on the stored marker being below its version, or a
+  view preferences) guards on a settings row it writes once done
+  (`catalogue_view_prefs_copied_at`), not on the version marker, or a
   replay would redo it over what users changed since. Adoption is a presence check only: it cannot
   repair a table whose columns drifted, which is why the core pin floor exists —
   core's chain always runs first, so every adopted table is at core's current

@@ -25,15 +25,6 @@ defmodule PhoenixKitCatalogue.Catalogue.Tree do
   defp repo, do: PhoenixKit.RepoHelper.repo()
 
   @doc """
-  Returns `[uuid]` for every descendant of `root_uuid`, not including
-  `root_uuid` itself. Empty list for a leaf.
-  """
-  @spec descendant_uuids(Ecto.UUID.t()) :: [Ecto.UUID.t()]
-  def descendant_uuids(root_uuid) when is_binary(root_uuid) do
-    subtree_uuids_for([root_uuid]) -- [root_uuid]
-  end
-
-  @doc """
   Returns `[uuid]` for `root_uuid` and every descendant. Order
   unspecified. Used for subtree updates (trash, move_to_catalogue,
   permanent delete).

@@ -176,7 +176,7 @@ defmodule PhoenixKitCatalogue.Web.ViewConfigPrefsTest do
       assert ViewPrefs.get(user, "catalogue.suppliers") == %{}
     end
 
-    test "a copy the chain skipped is still made once core has the table" do
+    test "a copy the chain skipped is made by a later replay of the chain" do
       # The chain's version marker says V3, but no copy ever ran (core's
       # table was not there yet when it did).
       user = legacy!(user!(), %{"suppliers" => %{"columns" => ["status"]}})

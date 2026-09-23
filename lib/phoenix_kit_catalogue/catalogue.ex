@@ -1860,7 +1860,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
   # An owned key present in `owned` with a non-`nil` value overwrites the
   # fresh row's value for that key — the caller's normal write. An owned
   # key present with an EXPLICIT `nil` is a "clear this" marker (see
-  # `PhoenixKitCatalogue.Attachments.inject_featured_image/2` /
+  # `PhoenixKitCatalogue.Attachments.inject_attachment_data/2` /
   # `inject_media_order/2`, which write `nil` rather than simply omitting
   # the key) and comes out of the result entirely — the record must end
   # up looking exactly like one that never had the key, not one holding
@@ -1877,9 +1877,12 @@ defmodule PhoenixKitCatalogue.Catalogue do
     end)
   end
 
+  # Any change of parent, to the top level included: a move there skips
+  # no cycle check, but it must not slip past the lock a trash or restore
+  # decides the subtree under.
   defp reparenting?(%Category{parent_uuid: current}, attrs) do
     case Map.get(attrs, :parent_uuid, Map.get(attrs, "parent_uuid", current)) do
-      parent when parent in [nil, ""] -> false
+      parent when parent in [nil, ""] -> not is_nil(current)
       parent -> to_string(parent) != to_string(current)
     end
   end
@@ -7252,7 +7255,6 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
   defdelegate search_categories(catalogue_uuid, query, opts \\ []), to: Search
   defdelegate match_search_text(query, term), to: Search, as: :match_text
-  defdelegate category_subtree_uuids(roots), to: Tree, as: :subtree_uuids_for
   defdelegate count_search_items_in_catalogue(catalogue_uuid, query), to: Search
   defdelegate search_items_in_category(category_uuid, query, opts \\ []), to: Search
   defdelegate count_search_items_in_category(category_uuid, query), to: Search
