@@ -23,6 +23,28 @@ defmodule PhoenixKitCatalogue.AIPrompt do
   reason to carry — attribute values (e.g. sizes) are exactly where units
   show up.
 
+  ## Glossary
+
+  Both templates carry a `{{Glossary}}` slot, which
+  `PhoenixKitAI.Translation.build_variables/4` binds from the operator's
+  configured terminology (`PhoenixKitAI.Translations.glossary/1`, keyed
+  per target language). It renders as exactly nothing when no glossary is
+  configured — the bound value carries its own heading, so an install
+  without one gets no terminology instruction at all, only the blank line
+  the empty slot leaves behind.
+
+  A glossary matters more here than anywhere else in PhoenixKit: a
+  catalogue's value is that the same term reads the same way across every
+  product, and left to itself a model renders "Materials and finish" as
+  both `Materialien und Finish` and `Material und Oberfläche` across
+  neighbouring items.
+
+  Unlike the shared `phoenixkit-translate-content` prompt — created once
+  and never rewritten, so existing installs must add the slot themselves —
+  these two are content-addressed (see Rollout below), so the slot reaches
+  every install on the next call after deploy without an operator doing
+  anything.
+
   ## Rollout
 
   Each prompt is content-addressed: `ensure_prompt/0`/`ensure_sets_prompt/0`
@@ -72,6 +94,8 @@ defmodule PhoenixKitCatalogue.AIPrompt do
     did not translate. The response must end immediately after the last
     marker's translated value.
 
+  {{Glossary}}
+
   OUTPUT FORMAT — for each field below that has a real (non-placeholder,
   non-blank) value, emit ONE marker named after the field (uppercase),
   followed by the translation, and nothing else:
@@ -119,6 +143,8 @@ defmodule PhoenixKitCatalogue.AIPrompt do
     did not translate. The response must end immediately after the last
     marker's translated value.
 
+  {{Glossary}}
+
   OUTPUT FORMAT — for each field below that has a real (non-placeholder,
   non-blank) value, emit ONE marker named after the field (uppercase),
   followed by the translation, and nothing else:
@@ -152,12 +178,19 @@ defmodule PhoenixKitCatalogue.AIPrompt do
   the same uuid — callers holding an old `prompt_uuid` still resolve to
   the current rules.
   """
-  @spec ensure_prompt() :: {:ok, String.t()} | {:error, term()}
-  def ensure_prompt do
+  # The `glossary_slot?` argument exists for the same reason `content/1`'s
+  # does: the upgrade round trip this rollout promises — a prompt stored by
+  # a pre-binding install, rewritten in place with the slot once
+  # `phoenix_kit_ai` is upgraded, same uuid — cannot be observed at all
+  # without driving the capability, only inferred from reading
+  # `maybe_update/2`. Defaults to the detected capability, so every caller
+  # is unaffected.
+  @spec ensure_prompt(boolean()) :: {:ok, String.t()} | {:error, term()}
+  def ensure_prompt(glossary_slot? \\ glossary_slot_supported?()) do
     ensure(
       @slug,
       @name,
-      @content,
+      content(glossary_slot?),
       "Catalogue item/category translation: name, description, summary, SEO title/description."
     )
   end
@@ -169,15 +202,69 @@ defmodule PhoenixKitCatalogue.AIPrompt do
   as `ensure_prompt/0`, under its own slug so it never collides with the
   item/category prompt or the shared `phoenixkit-translate-content` one.
   """
-  @spec ensure_sets_prompt() :: {:ok, String.t()} | {:error, term()}
-  def ensure_sets_prompt do
+  @spec ensure_sets_prompt(boolean()) :: {:ok, String.t()} | {:error, term()}
+  def ensure_sets_prompt(glossary_slot? \\ glossary_slot_supported?()) do
     ensure(
       @sets_slug,
       @sets_name,
-      @sets_content,
+      sets_content(glossary_slot?),
       "Catalogue attribute-set translation: set label, value title."
     )
   end
+
+  @glossary_slot "{{Glossary}}\n\n"
+
+  @doc false
+  # The item/category template as it should be stored RIGHT NOW: with the
+  # `{{Glossary}}` slot when the installed `phoenix_kit_ai` binds that
+  # variable, without it when it doesn't.
+  #
+  # Not a constant, because whether the slot is safe is a property of the
+  # installed dependency, not of this source file. `mix.exs` pins
+  # `phoenix_kit_ai` loosely (`~> 0.18`), and the binding arrived much
+  # later — so on an older AI the slot would reach the model as the literal
+  # text `{{Glossary}}`. That is not a cosmetic blemish: both templates
+  # instruct the model that a value which "looks like an unfilled template
+  # slot" is to be skipped silently, so a literal `{{Glossary}}` lands in
+  # the RULES section as an instruction about nothing, in a prompt whose
+  # whole point is that the model follows its rules exactly.
+  #
+  # Feature detection rather than a version bump: a version constraint
+  # would have to name a release that does not exist yet, and would force
+  # this repo and `phoenix_kit_ai` to merge in a fixed order. The capability
+  # answers the only question that matters — does the engine bind it?
+  #
+  # Because both prompts are content-addressed (`content_sha` below), an
+  # install that later upgrades `phoenix_kit_ai` picks the slot up on the
+  # next `ensure_prompt/0` call, with no operator action; one that
+  # downgrades loses it the same way.
+  # The flag is an argument with a default rather than an inlined call so a
+  # test can drive BOTH branches deterministically — otherwise the only
+  # assertion available is "whatever this install does", which passes either
+  # way and proves nothing about the branch that is not taken here.
+  @spec content(boolean()) :: String.t()
+  def content(glossary_slot? \\ glossary_slot_supported?()),
+    do: with_glossary_slot(@content, glossary_slot?)
+
+  @doc false
+  @spec sets_content(boolean()) :: String.t()
+  def sets_content(glossary_slot? \\ glossary_slot_supported?()),
+    do: with_glossary_slot(@sets_content, glossary_slot?)
+
+  @doc false
+  # Whether the installed `PhoenixKitAI.Translation` binds `{{Glossary}}`.
+  # `build_variables/4` is the arity that takes the glossary; the older
+  # engine only has `/3`.
+  @spec glossary_slot_supported?() :: boolean()
+  def glossary_slot_supported? do
+    Code.ensure_loaded?(PhoenixKitAI.Translation) and
+      function_exported?(PhoenixKitAI.Translation, :build_variables, 4)
+  end
+
+  defp with_glossary_slot(template, true), do: template
+
+  defp with_glossary_slot(template, false),
+    do: String.replace(template, @glossary_slot, "", global: false)
 
   defp ensure(slug, name, content, description) do
     case PhoenixKitAI.get_prompt_by_slug(slug) do
