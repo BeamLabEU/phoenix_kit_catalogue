@@ -16,7 +16,6 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
 
   import PhoenixKitCatalogue.Web.Helpers,
     only: [
-      open_on_viewing_language: 2,
       narrow_new_data: 2,
       actor_opts: 1,
       assign_ai_translation: 3,
@@ -42,8 +41,8 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
   alias PhoenixKitCatalogue.Extensions
   alias PhoenixKitCatalogue.Paths
   alias PhoenixKitCatalogue.Schemas.Category
-  alias PhoenixKitCatalogue.Web.Components.PlacePicker
   alias PhoenixKitCatalogue.Web.PlaceTree
+  alias PhoenixKitWeb.Components.TreePicker
 
   @translatable_fields ["name", "description", "seo_title", "seo_description"]
 
@@ -141,7 +140,7 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
        action: action,
        category: category,
        catalogue_uuid: catalogue_uuid,
-       parent_catalogue_name: parent_catalogue && parent_catalogue.name,
+       parent_catalogue_name: catalogue_name(parent_catalogue, loc(socket)),
        parent_tree: parent_tree,
        parent_pick: offered_parent(parent_tree, parent_place(category.parent_uuid), action),
        move_tree:
@@ -152,8 +151,7 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
      |> Attachments.mount_attachments(category)
      |> Attachments.allow_attachment_upload()
      |> assign_changeset(changeset)
-     |> mount_multilang()
-     |> open_on_viewing_language(action)
+     |> mount_multilang(open_on: if(action == :edit, do: :viewing_language, else: :primary))
      |> assign_ai_translation("catalogue_category", if(action == :edit, do: category, else: nil))}
   end
 
@@ -244,6 +242,9 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
 
   defp offered_parent(_tree, pick, _action), do: pick
 
+  defp catalogue_name(nil, _locale), do: nil
+  defp catalogue_name(catalogue, locale), do: Catalogue.localize_one(catalogue, locale).name
+
   # Where this category can move: any live catalogue of its kind, at its
   # top level or under a category — never into its own subtree.
   defp move_tree(%Category{uuid: uuid}, %{kind: kind}, locale) do
@@ -282,6 +283,22 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
       move_tree: tree,
       move_target: if(target && PlaceTree.find(tree, target), do: target)
     )
+  end
+
+  # Moved elsewhere meanwhile (another tab, a bulk move): the Move
+  # picker's current place follows the row, so picking where it now is
+  # stages nothing. Only the placement is re-read; typed fields stay.
+  defp refresh_placement(%{assigns: %{category: %Category{uuid: uuid} = category}} = socket) do
+    case Catalogue.get_category(uuid) do
+      %Category{parent_uuid: parent, catalogue_uuid: catalogue} ->
+        assign(socket,
+          category: %{category | parent_uuid: parent, catalogue_uuid: catalogue},
+          catalogue_uuid: catalogue
+        )
+
+      nil ->
+        socket
+    end
   end
 
   # Where the category is now, as the move tree names it.
@@ -412,6 +429,7 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
       # different catalogue than the one being edited.
       |> Map.put("catalogue_uuid", socket.assigns.catalogue_uuid)
       |> normalize_parent_uuid()
+      |> with_parent_pick(socket)
       |> merge_translatable_params(socket, @translatable_fields,
         changeset: socket.assigns.changeset,
         preserve_fields: @preserve_fields
@@ -436,6 +454,7 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
       |> Map.get("category", %{})
       |> Map.put("catalogue_uuid", socket.assigns.catalogue_uuid)
       |> normalize_parent_uuid()
+      |> with_parent_pick(socket)
       |> merge_translatable_params(socket, @translatable_fields,
         changeset: socket.assigns.changeset,
         preserve_fields: @preserve_fields
@@ -576,11 +595,11 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
     do: {:noreply, Attachments.close_media_selector(socket)}
 
   # The New form's parent: shown by the picker, posted by its hidden input.
-  def handle_info({PlacePicker, "category-parent-picker", id}, socket),
+  def handle_info({TreePicker, "category-parent-picker", id}, socket),
     do: {:noreply, assign(socket, :parent_pick, id)}
 
   # Picking where the category already is takes a staged move back.
-  def handle_info({PlacePicker, "category-move-picker", id}, socket) do
+  def handle_info({TreePicker, "category-move-picker", id}, socket) do
     target = if id == current_place(socket.assigns.category), do: nil, else: id
     {:noreply, assign(socket, :move_target, target)}
   end
@@ -591,18 +610,16 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
   # place trees, so a place created or removed meanwhile shows as it is.
   def handle_info({:catalogue_data_changed, kind, uuid, _parent}, socket)
       when kind in [:category, :catalogue, :folder] do
-    socket = refresh_trees(socket)
-
     socket =
       case socket.assigns.category do
         %{uuid: ^uuid} when kind == :category and is_binary(uuid) ->
-          Attachments.refresh_files(socket)
+          socket |> refresh_placement() |> Attachments.refresh_files()
 
         _ ->
           socket
       end
 
-    {:noreply, socket}
+    {:noreply, refresh_trees(socket)}
   end
 
   # Catch-all so stray monitor signals or unrelated PubSub traffic
@@ -618,6 +635,14 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
     do: Map.put(params, "parent_uuid", nil)
 
   defp normalize_parent_uuid(params), do: params
+
+  # A new category's parent is the server's pick, not the posted value: a
+  # keystroke sent before the pick's patch arrived still carries the old
+  # one. (An existing category changes parent only through Move.)
+  defp with_parent_pick(params, %{assigns: %{action: :new, parent_pick: pick}}),
+    do: Map.put(params, "parent_uuid", PlaceTree.uuid(pick))
+
+  defp with_parent_pick(params, _socket), do: params
 
   # actor_opts/1 imported from PhoenixKitCatalogue.Web.Helpers
 
@@ -696,8 +721,12 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
              )}
         end
 
-      {:error, changeset} ->
+      {:error, %Ecto.Changeset{} = changeset} ->
         {:noreply, assign_changeset(socket, changeset)}
+
+      # Gone, or moved to another catalogue meanwhile.
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, Errors.message(reason))}
     end
   end
 
@@ -888,7 +917,7 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
             <div :if={@action == :new} class="flex flex-col gap-2">
               <.label>{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Parent category")}</.label>
               <.live_component
-                module={PlacePicker}
+                module={TreePicker}
                 id="category-parent-picker"
                 tree={@parent_tree}
                 value={@parent_pick}
@@ -896,7 +925,11 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
                 path_skip={[]}
                 field
                 name="category[parent_uuid]"
+                post={&PlaceTree.post/1}
               />
+              <p :if={@changeset.errors[:parent_uuid]} class="text-xs text-error">
+                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "The chosen parent is no longer available. Pick another place.")}
+              </p>
               <span class="block text-xs text-base-content/50">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Pick a category to nest this one inside, or the catalogue itself for its top level. You can move it later.")}</span>
             </div>
 
@@ -1011,12 +1044,14 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
         <div class="card-body pt-0 flex flex-col gap-3">
           <p class="text-xs text-base-content/60">{Gettext.gettext(PhoenixKitCatalogue.Gettext, "Pick where it goes: a catalogue's top level, or under a category. Its subcategories and items come along.")}</p>
           <.live_component
-            module={PlacePicker}
+            module={TreePicker}
             id="category-move-picker"
             tree={@move_tree}
             value={@move_target || current_place(@category)}
             current={current_place(@category)}
             field
+            pickable={[:catalogue, :category]}
+            path_skip={[:folder]}
           />
           <div class="flex justify-end">
             <.button

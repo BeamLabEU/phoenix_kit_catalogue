@@ -45,8 +45,8 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
   alias PhoenixKitCatalogue.Import.Source.Universal
   alias PhoenixKitCatalogue.Paths
   alias PhoenixKitCatalogue.Schemas.{Category, Item, Manufacturer, Supplier}
-  alias PhoenixKitCatalogue.Web.Components.PlacePicker
   alias PhoenixKitCatalogue.Web.PlaceTree
+  alias PhoenixKitWeb.Components.TreePicker
 
   @max_file_size 10_000_000
   @preview_rows 5
@@ -476,7 +476,7 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
 
   def handle_event("apply_pro100", _params, socket) do
     plan = socket.assigns.import_plan
-    actor = extract_actor_uuid(socket)
+    actor = actor_uuid(socket)
 
     {persisted_count, failures} =
       Enum.reduce(plan.updates, {0, []}, &apply_pro100_update(&1, actor, &2))
@@ -504,14 +504,13 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
        when creates != [] do
     exec_plan = Pro100Plan.to_executor_plan(creates)
 
-    opts =
-      case extract_actor_uuid(socket) do
-        nil -> []
-        actor -> [actor_uuid: actor]
-      end
-
     result =
-      Executor.execute(exec_plan, socket.assigns.selected_catalogue.uuid, nil, opts)
+      Executor.execute(
+        exec_plan,
+        socket.assigns.selected_catalogue.uuid,
+        nil,
+        PhoenixKitWeb.Actor.opts(socket)
+      )
 
     {result.created, create_errors_to_skips(result.errors, creates)}
   end
@@ -613,11 +612,11 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
 
   # The target catalogue, picked in the folder tree (boss via Max,
   # 2026-09-21: proper pickers, no flat lists).
-  def handle_info({PlacePicker, "import-catalogue-picker", id}, socket),
+  def handle_info({TreePicker, "import-catalogue-picker", id}, socket),
     do: {:noreply, maybe_update_catalogue(socket, %{"catalogue" => PlaceTree.uuid(id) || ""})}
 
   def handle_info(
-        {PlacePicker, "import-category-picker", id},
+        {TreePicker, "import-category-picker", id},
         %{assigns: %{import_category_mode: :existing}} = socket
       ) do
     {:noreply,
@@ -1366,7 +1365,7 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
             manufacturer_uuid: manufacturer_uuid,
             supplier_uuid: supplier_uuid,
             match_categories_across_languages: match_across_languages,
-            actor_uuid: extract_actor_uuid(socket)
+            actor_uuid: actor_uuid(socket)
           )
         rescue
           # Narrow to the exception families we actually expect from
@@ -1828,7 +1827,7 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
                  is picked it folds to its path and a Change button. --%>
             <.live_component
               :if={@catalogues != []}
-              module={PlacePicker}
+              module={TreePicker}
               id="import-catalogue-picker"
               tree={@catalogue_tree}
               value={@selected_catalogue && "catalogue:" <> @selected_catalogue.uuid}
@@ -1837,6 +1836,7 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
               field={@selected_catalogue != nil}
               placeholder={Gettext.gettext(PhoenixKitCatalogue.Gettext, "— Select a catalogue —")}
               name="catalogue"
+              post={&PlaceTree.post/1}
             />
             <p :if={@catalogues == []} class="text-sm text-base-content/50 mt-1">
               {Gettext.gettext(PhoenixKitCatalogue.Gettext, "No catalogues yet.")}
@@ -2057,13 +2057,14 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
                  select above (boss via Max, 2026-09-21). --%>
             <.live_component
               :if={@import_category_mode == :existing}
-              module={PlacePicker}
+              module={TreePicker}
               id="import-category-picker"
               tree={@import_category_tree}
               value={@import_category_uuid && "category:" <> @import_category_uuid}
               pickable={[:category]}
               path_skip={[]}
               name="existing_category_uuid"
+              post={&PlaceTree.post/1}
             />
 
             <%!-- Column picker for category --%>
@@ -3039,36 +3040,27 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
   defp error_to_string(err), do: inspect(err)
 
   defp log_import_started(socket, import_plan) do
-    if Code.ensure_loaded?(PhoenixKit.Activity) do
-      catalogue = socket.assigns[:selected_catalogue]
+    catalogue = socket.assigns[:selected_catalogue]
 
-      ActivityLog.log(%{
-        action: "import.started",
-        mode: "manual",
-        actor_uuid: extract_actor_uuid(socket),
-        resource_type: "catalogue",
-        resource_uuid: catalogue && catalogue.uuid,
-        metadata: %{
-          "catalogue_name" => (catalogue && catalogue.name) || "",
-          "items_planned" => length(import_plan.items || []),
-          "categories_planned" => length(import_plan.categories_to_create || []),
-          "filename" => socket.assigns[:filename] || ""
-        }
-      })
-    end
-  rescue
-    e ->
-      Logger.warning("[Catalogue.Import] Failed to log import.started: #{Exception.message(e)}")
+    ActivityLog.log(%{
+      action: "import.started",
+      mode: "manual",
+      actor_uuid: actor_uuid(socket),
+      resource_type: "catalogue",
+      resource_uuid: catalogue && catalogue.uuid,
+      metadata: %{
+        "catalogue_name" => (catalogue && catalogue.name) || "",
+        "items_planned" => length(import_plan.items || []),
+        "categories_planned" => length(import_plan.categories_to_create || []),
+        "filename" => socket.assigns[:filename] || ""
+      }
+    })
   end
 
-  defp log_import_activity(socket, result) do
-    if Code.ensure_loaded?(PhoenixKit.Activity) do
-      PhoenixKit.Activity.log(build_import_log(socket, result))
-    end
-  rescue
-    e ->
-      Logger.warning("[Catalogue.Import] Failed to log import.completed: #{Exception.message(e)}")
-  end
+  # Through `ActivityLog`, like every other catalogue entry: logging the
+  # map straight to core left the row without the catalogue's module key,
+  # so the catalogue's Events page never showed a finished import.
+  defp log_import_activity(socket, result), do: ActivityLog.log(build_import_log(socket, result))
 
   defp build_import_log(socket, result) do
     catalogue = socket.assigns[:selected_catalogue]
@@ -3076,7 +3068,7 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
     %{
       action: "import.completed",
       mode: "manual",
-      actor_uuid: extract_actor_uuid(socket),
+      actor_uuid: actor_uuid(socket),
       resource_type: "catalogue",
       resource_uuid: catalogue && catalogue.uuid,
       metadata: import_log_metadata(socket, catalogue, result)
@@ -3102,13 +3094,6 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
   defp catalogue_name(_), do: ""
 
   defp count_field(result, key), do: result[key] || 0
-
-  defp extract_actor_uuid(socket) do
-    case socket.assigns[:phoenix_kit_current_user] do
-      %{uuid: uuid} -> uuid
-      _ -> nil
-    end
-  end
 
   # ── Upload form helpers ─────────────────────────────────────────
 

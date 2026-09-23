@@ -138,6 +138,9 @@ defmodule PhoenixKitCatalogue.GettextTest do
            "Käivita taustatõlge automaatselt"},
           {"Enter a whole number above 0.", "Введите целое число больше 0.",
            "Sisesta täisarv, mis on suurem kui 0."},
+          # The sweep's cap became a ceiling on queued jobs (2026-09-22).
+          {"Most jobs queued at once", "Не больше заданий в очереди одновременно",
+           "Kõige rohkem töid korraga järjekorras"},
           # Rename-from-inside, the level's own Edit button and the item
           # form's SEO switch (boss via Max, 2026-09-21).
           {"Rename folder", "Переименовать папку", "Nimeta kaust ümber"},
@@ -326,6 +329,27 @@ defmodule PhoenixKitCatalogue.GettextTest do
           do: {locale, msgid}
 
     assert untranslated == []
+  end
+
+  test "the category form's place strings are translated, and English reads as written" do
+    msgids = ["The chosen parent is no longer available. Pick another place.", "New subcategory"]
+
+    untranslated =
+      for locale <- ["de", "et", "fr", "ru"],
+          msgid <- msgids,
+          Gettext.with_locale(PhoenixKitCatalogue.Gettext, locale, fn ->
+            Gettext.gettext(PhoenixKitCatalogue.Gettext, msgid)
+          end) == msgid,
+          do: {locale, msgid}
+
+    assert untranslated == []
+
+    # A fuzzy English entry is served too: this one rendered "New Category".
+    for msgid <- msgids do
+      assert Gettext.with_locale(PhoenixKitCatalogue.Gettext, "en", fn ->
+               Gettext.gettext(PhoenixKitCatalogue.Gettext, msgid)
+             end) == msgid
+    end
   end
 
   test "Tab.localized_label/1 returns Russian translation for Catalogues" do
@@ -929,23 +953,22 @@ defmodule PhoenixKitCatalogue.GettextTest do
   end
 
   test "the duplicate-upload notice interpolates both names in ru and et" do
-    # Client, 2026-09-12: "uploaded three PDFs, two show" — a runtime-form
-    # call like the rest, so no extractor ever saw it; pinned with real
-    # bindings so interpolation is exercised, not just the msgid.
-    msgid = "%{name} is identical to %{existing}, which is already attached — nothing was added."
-    bindings = [name: "b.pdf", existing: "a.pdf"]
+    # Client, 2026-09-12: "uploaded three PDFs, two show". The notice is
+    # core's (`PhoenixKitWeb.Attachments`), so it is translated by core's
+    # backend; pinned with real bindings so interpolation is exercised.
+    existing = %{original_file_name: "a.pdf"}
 
-    Gettext.put_locale(PhoenixKitCatalogue.Gettext, "ru")
+    Gettext.put_locale(PhoenixKitWeb.Gettext, "ru")
 
-    assert Gettext.gettext(PhoenixKitCatalogue.Gettext, msgid, bindings) ==
+    assert PhoenixKitCatalogue.Attachments.duplicate_notice("b.pdf", existing) ==
              "b.pdf совпадает с уже прикреплённым файлом a.pdf — ничего не добавлено."
 
-    Gettext.put_locale(PhoenixKitCatalogue.Gettext, "et")
+    Gettext.put_locale(PhoenixKitWeb.Gettext, "et")
 
-    assert Gettext.gettext(PhoenixKitCatalogue.Gettext, msgid, bindings) ==
+    assert PhoenixKitCatalogue.Attachments.duplicate_notice("b.pdf", existing) ==
              "b.pdf on identne juba manustatud failiga a.pdf — midagi ei lisatud."
   after
-    Gettext.put_locale(PhoenixKitCatalogue.Gettext, "en")
+    Gettext.put_locale(PhoenixKitWeb.Gettext, "en")
   end
 
   test "the permanent-delete scope and race strings are translated in ru and et" do

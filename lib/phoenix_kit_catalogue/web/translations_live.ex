@@ -426,9 +426,9 @@ defmodule PhoenixKitCatalogue.Web.TranslationsLive do
 
     # Caps how many rows one click enqueues SYNCHRONOUSLY in this LiveView
     # process (each row does a dedup query + an Oban insert) — reuses the
-    # sweep's own per-tick cap rather than inventing a second knob; a
-    # filter matching more than that gets queued a batch at a time, one
-    # click per batch, same as the sweep already self-throttles per tick.
+    # sweep's own ceiling on queued jobs rather than inventing a second
+    # knob; a filter matching more than that gets queued a batch at a
+    # time, one click per batch.
     cap = SweepSettings.sweep_max_per_run()
     rows = Enum.take(matched, cap)
     truncated? = length(matched) > cap
