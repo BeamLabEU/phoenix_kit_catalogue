@@ -177,12 +177,19 @@ defmodule PhoenixKitCatalogue.AIPrompt do
   the same uuid — callers holding an old `prompt_uuid` still resolve to
   the current rules.
   """
-  @spec ensure_prompt() :: {:ok, String.t()} | {:error, term()}
-  def ensure_prompt do
+  # The `glossary_slot?` argument exists for the same reason `content/1`'s
+  # does: the upgrade round trip this rollout promises — a prompt stored by
+  # a pre-binding install, rewritten in place with the slot once
+  # `phoenix_kit_ai` is upgraded, same uuid — cannot be observed at all
+  # without driving the capability, only inferred from reading
+  # `maybe_update/2`. Defaults to the detected capability, so every caller
+  # is unaffected.
+  @spec ensure_prompt(boolean()) :: {:ok, String.t()} | {:error, term()}
+  def ensure_prompt(glossary_slot? \\ glossary_slot_supported?()) do
     ensure(
       @slug,
       @name,
-      content(),
+      content(glossary_slot?),
       "Catalogue item/category translation: name, description, summary, SEO title/description."
     )
   end
@@ -194,12 +201,12 @@ defmodule PhoenixKitCatalogue.AIPrompt do
   as `ensure_prompt/0`, under its own slug so it never collides with the
   item/category prompt or the shared `phoenixkit-translate-content` one.
   """
-  @spec ensure_sets_prompt() :: {:ok, String.t()} | {:error, term()}
-  def ensure_sets_prompt do
+  @spec ensure_sets_prompt(boolean()) :: {:ok, String.t()} | {:error, term()}
+  def ensure_sets_prompt(glossary_slot? \\ glossary_slot_supported?()) do
     ensure(
       @sets_slug,
       @sets_name,
-      sets_content(),
+      sets_content(glossary_slot?),
       "Catalogue attribute-set translation: set label, value title."
     )
   end
