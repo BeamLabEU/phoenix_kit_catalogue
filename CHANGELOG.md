@@ -1,3 +1,22 @@
+## 0.44.3 - 2026-09-23
+
+Review: `dev_docs/pull_requests/2026/137-translation-glossary-slot/`.
+
+Built against `phoenix_kit` 2.37.5 and `phoenix_kit_ai` 0.23.2; the floors
+stay at 2.34.0 and `~> 0.18`.
+
+### Added
+
+- Both catalogue translation prompts (items and categories, and attribute
+  sets) now follow the glossary you set up in AI → Translations, per target
+  language. A catalogue term is then translated the same way on every
+  product (#137). You don't need to do anything: the prompts update
+  themselves the next time they are used after the upgrade. With no
+  glossary set up, nothing changes.
+- The glossary needs `phoenix_kit_ai` 0.23.2 or later. On an older version
+  the prompts stay exactly as they were, and they pick the glossary up by
+  themselves once `phoenix_kit_ai` is upgraded.
+
 ## 0.44.2 - 2026-09-22
 
 Review: `dev_docs/pull_requests/2026/135-selector-qty-unit-columns/`.
