@@ -30,7 +30,8 @@ defmodule PhoenixKitCatalogue.AIPrompt do
   configured terminology (`PhoenixKitAI.Translations.glossary/1`, keyed
   per target language). It renders as exactly nothing when no glossary is
   configured — the bound value carries its own heading, so an install
-  without one sees no change in the prompt at all.
+  without one gets no terminology instruction at all, only the blank line
+  the empty slot leaves behind.
 
   A glossary matters more here than anywhere else in PhoenixKit: a
   catalogue's value is that the same term reads the same way across every
