@@ -49,7 +49,8 @@ defmodule PhoenixKitCatalogue.AIPrompt do
 
   Each prompt is content-addressed: `ensure_prompt/0`/`ensure_sets_prompt/0`
   are idempotent by their own slug, and `Prompt.metadata["content_sha"]`
-  (sha256 hex of the module's template) tells them whether the stored row
+  (sha256 hex of the template as `content/1`/`sets_content/1` render it
+  for the installed `phoenix_kit_ai`) tells them whether the stored row
   still matches. Editing a template and redeploying makes the next call
   update the stored prompt in place and keep the same uuid — no version
   counter, because the content already is the version.
@@ -238,6 +239,7 @@ defmodule PhoenixKitCatalogue.AIPrompt do
   # install that later upgrades `phoenix_kit_ai` picks the slot up on the
   # next `ensure_prompt/0` call, with no operator action; one that
   # downgrades loses it the same way.
+  #
   # The flag is an argument with a default rather than an inlined call so a
   # test can drive BOTH branches deterministically — otherwise the only
   # assertion available is "whatever this install does", which passes either
