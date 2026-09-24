@@ -112,6 +112,29 @@ defmodule PhoenixKitCatalogue.AIPromptSourceFieldsTest do
     end
   end
 
+  describe "the no-extension rule" do
+    # A shop's `summary` is the description's first ~500 characters, cut
+    # mid-sentence. The model continued one such summary past the cut: a
+    # 500-character source came back as 1976 (de-DE) and 2126 (fr-FR).
+    test "is in every capability combination of both templates" do
+      for glossary? <- [true, false], source_fields? <- [true, false] do
+        for template <- [
+              AIPrompt.content(glossary?, source_fields?),
+              AIPrompt.sets_content(glossary?, source_fields?)
+            ] do
+          assert template =~ ~r/do not complete, extend\s+or summarise it/
+          assert template =~ ~r/ends mid-sentence, end\s+the translation/
+        end
+      end
+    end
+
+    test "is in the shipped templates" do
+      for template <- [AIPrompt.content(), AIPrompt.sets_content()] do
+        assert template =~ ~r/do not complete, extend\s+or summarise it/
+      end
+    end
+  end
+
   describe "source_fields_supported?/0" do
     test "answers the capability question, not a version question" do
       # `build_variables/3` arrived in the same release that started binding

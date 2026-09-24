@@ -118,11 +118,18 @@ defmodule PhoenixKitCatalogue.AIPrompt do
     their abbreviations.
   """
 
-  # Descriptions are Markdown with `## Section` headings. Without this
+  # A shop's `summary` can be the description's first ~500 characters, cut
+  # mid-sentence; without the first rule a model continued it past the cut
+  # (1976 characters of de-DE for a 500-character source).
+  #
+  # Descriptions are Markdown with `## Section` headings. Without the second
   # rule, models imitating the `---FIELD---` output format turned each
   # heading into a marker line of its own (`---MINIATURE_DETAILS---`,
   # `---SIZE AND USABLE SPACE---`), which cut the description short.
   @shared_rules """
+  - Translate each field's text exactly as given — do not complete, extend
+    or summarise it. If the source ends mid-sentence, end the translation
+    at the same point.
   - A field's value may contain Markdown: headings (`##`, `###`), lists,
     links and blank lines. All of it belongs to that one field — reproduce
     it inside that field's section with the same structure, translating
