@@ -225,7 +225,7 @@ defmodule PhoenixKitCatalogue.AIPrompt do
   the same uuid — callers holding an old `prompt_uuid` still resolve to
   the current rules.
   """
-  # The `glossary_slot?` argument exists for the same reason `content/1`'s
+  # The `glossary_slot?` argument exists for the same reason `content/2`'s
   # does: the upgrade round trip this rollout promises — a prompt stored by
   # a pre-binding install, rewritten in place with the slot once
   # `phoenix_kit_ai` is upgraded, same uuid — cannot be observed at all
@@ -274,9 +274,9 @@ defmodule PhoenixKitCatalogue.AIPrompt do
   # variable, without it when it doesn't.
   #
   # Not a constant, because whether the slot is safe is a property of the
-  # installed dependency, not of this source file. `mix.exs` pins
-  # `phoenix_kit_ai` loosely (`~> 0.18`), and the binding arrived much
-  # later — so on an older AI the slot would reach the model as the literal
+  # installed dependency, not of this source file. `mix.exs` pinned
+  # `phoenix_kit_ai` loosely (`~> 0.18`) when this was written, and the
+  # binding arrived much later — so on an older AI the slot would reach the model as the literal
   # text `{{Glossary}}`. That is not a cosmetic blemish: both templates
   # instruct the model that a value which "looks like an unfilled template
   # slot" is to be skipped silently, so a literal `{{Glossary}}` lands in
