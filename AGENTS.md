@@ -11,9 +11,9 @@ and import/export. Admin-only LiveView UI; no public API surface. Deep feature
 semantics live in module `@moduledoc`s and `dev_docs/` — this file holds
 conventions, contracts and non-obvious boundaries.
 
-- **Depends on:** `phoenix_kit` `>= 2.34.0 and < 3.0.0` (Hex, patch-precise
+- **Depends on:** `phoenix_kit` `>= 2.38.0 and < 3.0.0` (Hex, patch-precise
   floor — see the comment in `mix.exs` and `test/core_pin_conformance_test.exs`),
-  `phoenix_kit_ai` `~> 0.18` (hard dep; the AI-translate integration is
+  `phoenix_kit_ai` `~> 0.24` (hard dep; the AI-translate integration is
   duck-typed through `ai_translatables/0`), `phoenix_kit_entities` `~> 0.4`
   (hard dep; attribute sets and supplier fields report `:entities_disabled`
   rather than crash when the module is off or too old),
