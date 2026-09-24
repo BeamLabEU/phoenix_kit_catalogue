@@ -1,3 +1,45 @@
+## 0.45.0 - 2026-09-24
+
+Reviews: `dev_docs/pull_requests/2026/136-core-shared-toolkits/`,
+`138-translation-source-fields-markdown/`, `139-qty-autocomplete-off/`.
+
+**Requires `phoenix_kit` 2.38.0 or later and `phoenix_kit_ai` 0.24 or
+later.** The requirements are now `>= 2.38.0 and < 3.0.0` and `~> 0.24`.
+This release uses core's shared toolkits (#860) and phoenix_kit_ai's
+`TranslationSweep`, and it does not compile against older versions of
+either. Built against `phoenix_kit` 2.38.1 and `phoenix_kit_ai` 0.24.0.
+
+### Changed
+
+- Now built on core's shared toolkits (#136): activity logging and the
+  acting user, the place pickers (core's `TreePicker`), attachments and
+  per-record media folders, and per-user table and item-selector choices
+  (core's view preferences). Migration V3 copies each user's saved table
+  and selector choices once, so nothing a user set up is lost.
+- The AI-translation sweep runs on phoenix_kit_ai's shared
+  `TranslationSweep` engine. Its settings, and jobs already scheduled, keep
+  working.
+- The translation prompts list only the fields a call actually sends
+  (#138), so a partly filled item no longer comes back with a note about
+  the fields it skipped. Both prompts update themselves the next time they
+  are used after the upgrade.
+
+### Fixed
+
+- A description's Markdown headings (`## Size`) stay inside the translated
+  description. Before, the translation could stop at the first heading
+  (#138).
+- A summary cut off mid-sentence is translated up to the same point and
+  no further. Before, the model could continue writing past it (#138).
+- The quantity field in the item selector no longer shows the browser's
+  saved-input suggestions (#139).
+- A form that saves and stays open can clear the featured image on a later
+  save (#136).
+- Saving a category that another admin had moved to a different catalogue
+  no longer moves it back (#136).
+- Moving a category to the top level now takes the catalogue lock like any
+  other move (#136).
+
 ## 0.44.3 - 2026-09-23
 
 Review: `dev_docs/pull_requests/2026/137-translation-glossary-slot/`.
