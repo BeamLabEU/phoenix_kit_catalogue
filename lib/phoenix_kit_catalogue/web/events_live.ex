@@ -309,6 +309,8 @@ defmodule PhoenixKitCatalogue.Web.EventsLive do
       flash={@flash}
       phoenix_kit_current_scope={assigns[:phoenix_kit_current_scope]}
       page_title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Events")}
+      page_section={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Catalogues")}
+      page_section_path={Paths.index()}
       page_subtitle={
         Gettext.gettext(PhoenixKitCatalogue.Gettext, "Catalogues") <>
           " · " <>

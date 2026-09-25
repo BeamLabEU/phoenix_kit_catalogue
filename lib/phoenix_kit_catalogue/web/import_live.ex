@@ -72,6 +72,8 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
      socket
      |> assign(
        page_title: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Import"),
+       page_section: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Catalogues"),
+       page_section_path: Paths.index(),
        step: :upload,
        catalogues: catalogues,
        catalogue_tree:
