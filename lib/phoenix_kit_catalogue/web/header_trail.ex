@@ -24,7 +24,7 @@ defmodule PhoenixKitCatalogue.Web.HeaderTrail do
   The crumbs from the catalogue down to `category` — the catalogue, its
   ancestors, then the category itself — each linking to its level page,
   named in `locale`. `[]` without a catalogue; the catalogue alone for a
-  `nil` category or one that no longer exists.
+  `nil` category, one that no longer exists, or one of another catalogue.
   """
   @spec place_crumbs(map() | nil, Category.t() | String.t() | nil, String.t() | nil) :: [map()]
   def place_crumbs(nil, _category, _locale), do: []
@@ -52,11 +52,17 @@ defmodule PhoenixKitCatalogue.Web.HeaderTrail do
     end
   end
 
-  defp category_crumbs(catalogue_uuid, %Category{} = category, locale) do
+  defp category_crumbs(
+         catalogue_uuid,
+         %Category{catalogue_uuid: catalogue_uuid} = category,
+         locale
+       ) do
     category.uuid
     |> Catalogue.list_category_ancestors()
     |> Kernel.++([category])
     |> Catalogue.localize(locale)
     |> Enum.map(&%{label: &1.name, path: Paths.category_browse(catalogue_uuid, &1.uuid)})
   end
+
+  defp category_crumbs(_catalogue_uuid, %Category{}, _locale), do: []
 end
