@@ -393,6 +393,14 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
   defp tab_path(:index), do: Paths.index()
   defp tab_path(:attribute_groups), do: Paths.attribute_groups()
 
+  # The header's section: the landing page IS the module, so it has none;
+  # the Attributes list sits under it.
+  defp tab_section(:index), do: nil
+  defp tab_section(:attribute_groups), do: tab_title(:index)
+
+  defp tab_section_path(:index), do: nil
+  defp tab_section_path(:attribute_groups), do: Paths.index()
+
   # Graceful handler for a delete event that fires while `confirm_delete`
   # is nil (e.g. someone pushed the event without first opening the
   # modal). Clears the state, flashes a warning, and logs a warning
@@ -3323,6 +3331,8 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
       flash={@flash}
       phoenix_kit_current_scope={assigns[:phoenix_kit_current_scope]}
       page_title={tab_title(@active_tab)}
+      page_section={tab_section(@active_tab)}
+      page_section_path={tab_section_path(@active_tab)}
       current_path={assigns[:url_path] || tab_path(@active_tab)}
       current_locale={assigns[:current_locale]}
     >
