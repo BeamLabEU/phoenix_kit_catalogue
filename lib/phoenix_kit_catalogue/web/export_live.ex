@@ -31,6 +31,8 @@ defmodule PhoenixKitCatalogue.Web.ExportLive do
      socket
      |> assign(
        page_title: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Export"),
+       page_section: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Catalogues"),
+       page_section_path: Paths.index(),
        destinations: destinations,
        selected_destination: selected_destination,
        catalogues: catalogues,

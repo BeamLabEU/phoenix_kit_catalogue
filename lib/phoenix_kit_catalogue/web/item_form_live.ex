@@ -71,6 +71,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   alias PhoenixKitCatalogue.Metadata
   alias PhoenixKitCatalogue.Paths
   alias PhoenixKitCatalogue.Schemas.Item
+  alias PhoenixKitCatalogue.Web.HeaderTrail
   alias PhoenixKitCatalogue.Web.ItemLocation
   alias PhoenixKitCatalogue.Web.Settings, as: CatalogueSettings
   alias PhoenixKitCatalogue.Web.SupplierDraft
@@ -280,14 +281,12 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
       page_title:
         if(action == :new,
           do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "New item"),
-          else: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit %{name}", name: item.name)
+          else: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")
         ),
+      page_crumbs: header_crumbs(action, item, parent_catalogue, socket.assigns[:current_locale]),
       action: action,
       item: item,
       catalogue_uuid: catalogue_uuid,
-      parent_catalogue_name:
-        parent_catalogue &&
-          Catalogue.localize_one(parent_catalogue, socket.assigns[:current_locale]).name,
       catalogue_kind: kind,
       catalogue_markup: markup_from_catalogue(parent_catalogue),
       catalogue_discount: discount_from_catalogue(parent_catalogue),
@@ -604,6 +603,14 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
   # kind-specific sections.
   defp load_parent_catalogue(nil), do: nil
   defp load_parent_catalogue(catalogue_uuid), do: Catalogue.get_catalogue(catalogue_uuid)
+
+  # The header's trail: the catalogue and the category chain the item sits
+  # in — what the level page it was opened from shows — plus, when editing,
+  # the item itself (text: an item has no page but this form).
+  defp header_crumbs(action, item, parent_catalogue, locale) do
+    place = HeaderTrail.place_crumbs(parent_catalogue, item.category_uuid, locale)
+    if action == :edit, do: place ++ HeaderTrail.record_crumb(item.name), else: place
+  end
 
   defp catalogue_kind(%{kind: kind}) when is_binary(kind), do: kind
   defp catalogue_kind(_), do: "standard"
@@ -2832,8 +2839,13 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
     socket
     |> assign(:item, item)
     |> assign(
-      :page_title,
-      Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit %{name}", name: item.name)
+      :page_crumbs,
+      header_crumbs(
+        :edit,
+        item,
+        load_parent_catalogue(item.catalogue_uuid),
+        socket.assigns[:current_locale]
+      )
     )
     |> assign(:needs_primary_translation, false)
     # A saved slug is stored, no longer derived: it stops following the name.
@@ -3021,8 +3033,9 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
       flash={@flash}
       phoenix_kit_current_scope={assigns[:phoenix_kit_current_scope]}
       page_title={@page_title}
-      page_section={@parent_catalogue_name}
-      page_section_path={@catalogue_uuid && Paths.catalogue_detail(@catalogue_uuid)}
+      page_section={gettext("Catalogues")}
+      page_section_path={Paths.index()}
+      page_crumbs={@page_crumbs}
       page_subtitle={
         if @action == :new,
           do:
