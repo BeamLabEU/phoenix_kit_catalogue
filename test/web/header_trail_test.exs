@@ -68,6 +68,10 @@ defmodule PhoenixKitCatalogue.Web.HeaderTrailTest do
                HeaderTrail.place_crumbs(catalogue, UUIDv7.generate(), nil)
 
       assert HeaderTrail.place_crumbs(nil, child, nil) == []
+
+      # A category of another catalogue is never drawn under this one.
+      other = fixture_catalogue(%{name: "Elsewhere HT"})
+      assert [%{label: "Elsewhere HT"}] = HeaderTrail.place_crumbs(other, child, nil)
     end
 
     test "a record crumb is text, and a blank name adds nothing" do
@@ -163,6 +167,25 @@ defmodule PhoenixKitCatalogue.Web.HeaderTrailTest do
         browse_link(catalogue, parent),
         title("New category")
       ])
+    end
+
+    test "new under a parent the picker refuses: only the catalogue crumb", %{conn: conn} do
+      catalogue = fixture_catalogue(%{name: "Target HT"})
+      {_other, foreign_parent, _child} = nested_place()
+
+      {:ok, _view, html} =
+        live(
+          conn,
+          "#{@base}/#{catalogue.uuid}/categories/new?parent_uuid=#{foreign_parent.uuid}"
+        )
+
+      bar = header(html)
+
+      # `offered_parent/3` sends another catalogue's category back to the
+      # top level; the trail must say the same, not draw that chain.
+      assert_in_order(bar, [section_link(), detail_link(catalogue), title("New category")])
+      refute bar =~ "Doors HT"
+      refute bar =~ foreign_parent.uuid
     end
   end
 

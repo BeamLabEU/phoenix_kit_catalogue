@@ -129,6 +129,7 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
   defp mount_category_form(socket, action, category, changeset, catalogue_uuid) do
     parent_catalogue = catalogue_uuid && Catalogue.get_catalogue(catalogue_uuid)
     parent_tree = if action == :new, do: parent_tree(parent_catalogue, loc(socket)), else: []
+    parent_pick = offered_parent(parent_tree, parent_place(category.parent_uuid), action)
 
     {:ok,
      socket
@@ -138,12 +139,12 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
            do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "New category"),
            else: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")
          ),
-       page_crumbs: header_crumbs(action, category, parent_catalogue, loc(socket)),
+       page_crumbs: header_crumbs(action, category, parent_pick, parent_catalogue, loc(socket)),
        action: action,
        category: category,
        catalogue_uuid: catalogue_uuid,
        parent_tree: parent_tree,
-       parent_pick: offered_parent(parent_tree, parent_place(category.parent_uuid), action),
+       parent_pick: parent_pick,
        move_tree:
          if(action == :edit, do: move_tree(category, parent_catalogue, loc(socket)), else: []),
        move_target: nil
@@ -244,12 +245,14 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
   defp offered_parent(_tree, pick, _action), do: pick
 
   # The header's trail. New: the catalogue and the parent chain the form
-  # was opened under. Edit: the same chain down to the category itself,
-  # which links to its own level page.
-  defp header_crumbs(:new, %Category{parent_uuid: parent_uuid}, catalogue, locale),
-    do: HeaderTrail.place_crumbs(catalogue, parent_uuid, locale)
+  # opens under — the parent the picker offers, not the raw `?parent_uuid=`,
+  # which `offered_parent/3` may have sent back to the top level. Edit: the
+  # same chain down to the category itself, which links to its own level
+  # page.
+  defp header_crumbs(:new, _category, parent_pick, catalogue, locale),
+    do: HeaderTrail.place_crumbs(catalogue, PlaceTree.uuid(parent_pick), locale)
 
-  defp header_crumbs(:edit, %Category{} = category, catalogue, locale),
+  defp header_crumbs(:edit, %Category{} = category, _parent_pick, catalogue, locale),
     do: HeaderTrail.place_crumbs(catalogue, category, locale)
 
   # Where this category can move: any live catalogue of its kind, at its
@@ -782,7 +785,7 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
 
     socket
     |> assign(:category, category)
-    |> assign(:page_crumbs, header_crumbs(:edit, category, catalogue, loc(socket)))
+    |> assign(:page_crumbs, header_crumbs(:edit, category, nil, catalogue, loc(socket)))
     |> assign(:move_tree, move_tree(category, catalogue, loc(socket)))
     |> Attachments.after_save(category)
     |> assign_changeset(Catalogue.change_category(category))

@@ -1,3 +1,25 @@
+## 0.45.1 - 2026-09-25
+
+Review: `dev_docs/pull_requests/2026/142-admin-header-trail/`.
+
+Built against `phoenix_kit` 2.40.0 and `phoenix_kit_ai` 0.24.1; the
+requirements are unchanged.
+
+### Fixed
+
+- The admin header's trail never loses a level (#142). Every page names
+  `Catalogues` as its section, linking to the landing page; the item and
+  category forms show the catalogue and the whole category chain above
+  them, and an edit page adds the record itself. Page titles are the page
+  alone (`Edit`, `New item`) instead of repeating the trail. The PDF
+  library's title is now `PDFs`, matching its tab.
+- A new category opened under a parent that the form cannot use (one in
+  another catalogue, or one deleted since the link was shown) no longer
+  shows that parent in the header. The header now matches the form, which
+  already fell back to the top level.
+- The Events and PDFs pages no longer repeat `Catalogues ·` in their
+  subtitle.
+
 ## 0.45.0 - 2026-09-24
 
 Reviews: `dev_docs/pull_requests/2026/136-core-shared-toolkits/`,
