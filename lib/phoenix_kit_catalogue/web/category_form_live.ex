@@ -41,6 +41,7 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
   alias PhoenixKitCatalogue.Extensions
   alias PhoenixKitCatalogue.Paths
   alias PhoenixKitCatalogue.Schemas.Category
+  alias PhoenixKitCatalogue.Web.HeaderTrail
   alias PhoenixKitCatalogue.Web.PlaceTree
   alias PhoenixKitWeb.Components.TreePicker
 
@@ -135,12 +136,12 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
        page_title:
          if(action == :new,
            do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "New category"),
-           else: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit %{name}", name: category.name)
+           else: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit")
          ),
+       page_crumbs: header_crumbs(action, category, parent_catalogue, loc(socket)),
        action: action,
        category: category,
        catalogue_uuid: catalogue_uuid,
-       parent_catalogue_name: catalogue_name(parent_catalogue, loc(socket)),
        parent_tree: parent_tree,
        parent_pick: offered_parent(parent_tree, parent_place(category.parent_uuid), action),
        move_tree:
@@ -242,8 +243,14 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
 
   defp offered_parent(_tree, pick, _action), do: pick
 
-  defp catalogue_name(nil, _locale), do: nil
-  defp catalogue_name(catalogue, locale), do: Catalogue.localize_one(catalogue, locale).name
+  # The header's trail. New: the catalogue and the parent chain the form
+  # was opened under. Edit: the same chain down to the category itself,
+  # which links to its own level page.
+  defp header_crumbs(:new, %Category{parent_uuid: parent_uuid}, catalogue, locale),
+    do: HeaderTrail.place_crumbs(catalogue, parent_uuid, locale)
+
+  defp header_crumbs(:edit, %Category{} = category, catalogue, locale),
+    do: HeaderTrail.place_crumbs(catalogue, category, locale)
 
   # Where this category can move: any live catalogue of its kind, at its
   # top level or under a category — never into its own subtree.
@@ -771,16 +778,12 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
   # assigns need re-deriving; the Move tree is rebuilt in case the save
   # renamed the category shown in it.
   defp refresh_after_edit(socket, category) do
+    catalogue = Catalogue.get_catalogue(category.catalogue_uuid)
+
     socket
     |> assign(:category, category)
-    |> assign(
-      :page_title,
-      Gettext.gettext(PhoenixKitCatalogue.Gettext, "Edit %{name}", name: category.name)
-    )
-    |> assign(
-      :move_tree,
-      move_tree(category, Catalogue.get_catalogue(category.catalogue_uuid), loc(socket))
-    )
+    |> assign(:page_crumbs, header_crumbs(:edit, category, catalogue, loc(socket)))
+    |> assign(:move_tree, move_tree(category, catalogue, loc(socket)))
     |> Attachments.after_save(category)
     |> assign_changeset(Catalogue.change_category(category))
   end
@@ -812,8 +815,9 @@ defmodule PhoenixKitCatalogue.Web.CategoryFormLive do
       flash={@flash}
       phoenix_kit_current_scope={assigns[:phoenix_kit_current_scope]}
       page_title={@page_title}
-      page_section={@parent_catalogue_name}
-      page_section_path={@catalogue_uuid && Paths.catalogue_detail(@catalogue_uuid)}
+      page_section={gettext("Catalogues")}
+      page_section_path={Paths.index()}
+      page_crumbs={@page_crumbs}
       page_subtitle={if @action == :new, do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Add a new category to organize items within this catalogue."), else: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Update category details and ordering.")}
       current_path={assigns[:url_path] || Paths.catalogue_detail(@catalogue_uuid)}
       current_locale={assigns[:current_locale]}

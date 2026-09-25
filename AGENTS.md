@@ -415,6 +415,16 @@ in hosts; tests replay `up_statements/2` directly through the repo (`up/1` uses
 
 Pointers, not docs — the moduledocs are the contract.
 
+- **The admin header's trail never loses a level.** Every page under the
+  module hands core `page_section` = `Catalogues` (linking to the landing
+  page; the settings page says `Settings`), `page_crumbs` = every level
+  between — the catalogue, the category chain, and on an edit page the
+  record — and `page_title` = the page alone (`Edit`, `New item`), never a
+  dash-joined trail. The detail page builds its crumbs in `LevelSwitchers`
+  from what it loaded; forms and the PDF page take theirs from
+  `Web.HeaderTrail`. The rules and per-page shapes are core's
+  `dev_docs/guides/2026-09-25-admin-header-trail.md`; the pages are pinned
+  in `test/web/header_trail_test.exs`.
 - **Right-click a row** — a row or card flagged `data-row-menu-context` opens
   the `⋮` menu rendered inside it at the pointer (core's `RowMenu` hook; see
   `TableRowMenu`'s "Right-click" section). Every file that renders a
