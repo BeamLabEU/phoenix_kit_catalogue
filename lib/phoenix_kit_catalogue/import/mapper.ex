@@ -13,6 +13,7 @@ defmodule PhoenixKitCatalogue.Import.Mapper do
           | :base_price
           | :markup_percentage
           | :unit
+          | :item_type
           | :category
           | :manufacturer
           | :supplier
@@ -91,6 +92,17 @@ defmodule PhoenixKitCatalogue.Import.Mapper do
     "kuupmeeter" => "m3"
   }
 
+  # Item-type cell values. Anything else (and a blank cell) leaves the item
+  # without a type of its own — as in the catalogue.
+  @item_type_aliases %{
+    "goods" => "goods",
+    "kaup" => "goods",
+    "товар" => "goods",
+    "service" => "service",
+    "teenus" => "service",
+    "услуга" => "service"
+  }
+
   @header_patterns %{
     sku: ~w(sku artikkel article code kood nr number art artikelnr item_code product_code),
     name: ~w(name nimi nimetus kirjeldus description bezeichnung toode product),
@@ -98,6 +110,9 @@ defmodule PhoenixKitCatalogue.Import.Mapper do
     markup_percentage:
       ~w(markup margin naceenka juurdehindlus aufschlag markup_percentage markup_percent markup%),
     unit: ~w(unit uhik einheit masseinheit measure uom),
+    # Specific on purpose: headers are matched by substring, so a bare
+    # "type" would claim "Unit type" before :unit is tried.
+    item_type: ["item_type", "item type", "itemtype", "liik"],
     manufacturer:
       ~w(manufacturer hersteller tootja brand bra_nd vendor maker producer firma manufacturer_name),
     supplier: ~w(supplier tarnija lieferant distributor reseller wholesaler supplier_name)
@@ -118,6 +133,7 @@ defmodule PhoenixKitCatalogue.Import.Mapper do
       {:base_price, "Base price"},
       {:markup_percentage, "Markup override (%)"},
       {:unit, "Unit of measure"},
+      {:item_type, "Item type"},
       {:category, "Create categories"},
       {:manufacturer, "Manufacturer"},
       {:supplier, "Supplier"}
@@ -237,6 +253,9 @@ defmodule PhoenixKitCatalogue.Import.Mapper do
 
     * `:category_uuid` — the target category UUID (nil = uncategorized)
     * `:language` — the import language code (nil = no multilang)
+    * `:catalogue_item_type` — the catalogue's item type, which its inheriting
+      items read as (see `item_matches_existing?/3`); read from the catalogue
+      when not given
   """
   @spec detect_existing_duplicates(import_plan(), String.t(), keyword()) :: non_neg_integer()
   def detect_existing_duplicates(plan, catalogue_uuid, opts \\ []) do
@@ -266,9 +285,21 @@ defmodule PhoenixKitCatalogue.Import.Mapper do
         |> PhoenixKit.RepoHelper.repo().all()
       end
 
+    catalogue_type =
+      if existing_items == [] do
+        nil
+      else
+        Keyword.get_lazy(opts, :catalogue_item_type, fn ->
+          PhoenixKitCatalogue.Schemas.Catalogue
+          |> where([c], c.uuid == ^catalogue_uuid)
+          |> select([c], c.item_type)
+          |> PhoenixKit.RepoHelper.repo().one()
+        end)
+      end
+
     Enum.count(plan.items, fn import_item ->
       Enum.any?(existing_items, fn existing ->
-        fields_match?(import_item, existing, category_uuid, language)
+        fields_match?(import_item, existing, category_uuid, language, catalogue_type)
       end)
     end)
   end
@@ -277,24 +308,34 @@ defmodule PhoenixKitCatalogue.Import.Mapper do
   Checks if an import item matches an existing item on all mapped fields,
   including category and language.
 
+  The item type counts only when the row names one: it must then equal the
+  existing item's effective type — its own `item_type`, else
+  `:catalogue_item_type`, else goods. A row without a type (no column, a
+  blank or unknown cell) matches whatever type the item has, so re-importing
+  a price list still skips items whose type was set by hand.
+
   ## Options
 
     * `:category_uuid` — the target category UUID (nil = uncategorized)
     * `:language` — the import language code (nil = no multilang)
+    * `:catalogue_item_type` — the item type of the catalogue the existing
+      item belongs to (nil = goods)
   """
   @spec item_matches_existing?(map(), map(), keyword()) :: boolean()
   def item_matches_existing?(import_item, existing, opts \\ []) do
     category_uuid = Keyword.get(opts, :category_uuid)
     language = Keyword.get(opts, :language)
-    fields_match?(import_item, existing, category_uuid, language)
+    catalogue_type = Keyword.get(opts, :catalogue_item_type)
+    fields_match?(import_item, existing, category_uuid, language, catalogue_type)
   end
 
-  defp fields_match?(import_item, existing, category_uuid, language) do
+  defp fields_match?(import_item, existing, category_uuid, language, catalogue_type) do
     name_matches?(import_item, existing) and
       sku_matches?(import_item, existing) and
       price_matches?(import_item, existing) and
       markup_matches?(import_item, existing) and
       unit_matches?(import_item, existing) and
+      item_type_matches?(import_item, existing, catalogue_type) and
       category_matches?(existing, category_uuid) and
       language_matches?(import_item, existing, language)
   end
@@ -330,6 +371,11 @@ defmodule PhoenixKitCatalogue.Import.Mapper do
     end
   end
 
+  defp item_type_matches?(%{item_type: type}, existing, catalogue_type) when is_binary(type),
+    do: (Map.get(existing, :item_type) || catalogue_type || "goods") == type
+
+  defp item_type_matches?(_import_item, _existing, _catalogue_type), do: true
+
   defp category_matches?(existing, nil), do: is_nil(existing.category_uuid)
   defp category_matches?(existing, uuid), do: existing.category_uuid == uuid
 
@@ -359,6 +405,17 @@ defmodule PhoenixKitCatalogue.Import.Mapper do
       true -> "piece"
     end
   end
+
+  @doc """
+  Normalizes an item-type cell (`kaup`/`товар`/`goods` → `"goods"`,
+  `teenus`/`услуга`/`service` → `"service"`, case-insensitive). A blank or
+  unknown value is `nil` — the item keeps its catalogue's type.
+  """
+  @spec normalize_item_type(String.t() | nil) :: String.t() | nil
+  def normalize_item_type(value) when is_binary(value),
+    do: Map.get(@item_type_aliases, value |> String.trim() |> String.downcase())
+
+  def normalize_item_type(_), do: nil
 
   @doc """
   Resolves a PRO100 unit label to a canonical unit, or `:unknown` if it has no
@@ -524,6 +581,13 @@ defmodule PhoenixKitCatalogue.Import.Mapper do
     acc
     |> Map.put(:unit, normalized)
     |> Map.put(:data, Map.put(data, "original_unit", String.trim(value)))
+  end
+
+  defp apply_mapping(acc, :item_type, value, _unit_map) do
+    case normalize_item_type(value) do
+      nil -> acc
+      type -> Map.put(acc, :item_type, type)
+    end
   end
 
   defp apply_mapping(acc, :category, value, _unit_map),
