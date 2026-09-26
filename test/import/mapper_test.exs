@@ -519,4 +519,49 @@ defmodule PhoenixKitCatalogue.Import.MapperTest do
       refute Map.has_key?(panel, :item_type)
     end
   end
+
+  describe "item_matches_existing?/3 (item type)" do
+    defp existing_item(item_type) do
+      %{
+        name: "Transport",
+        sku: nil,
+        base_price: nil,
+        markup_percentage: nil,
+        unit: "piece",
+        item_type: item_type,
+        category_uuid: nil,
+        data: %{}
+      }
+    end
+
+    test "a row naming another type than the item's own is not a duplicate" do
+      refute Mapper.item_matches_existing?(
+               %{name: "Transport", item_type: "service"},
+               existing_item("goods")
+             )
+
+      assert Mapper.item_matches_existing?(
+               %{name: "Transport", item_type: "service"},
+               existing_item("service")
+             )
+    end
+
+    test "an inheriting item is compared by its catalogue's type" do
+      row = %{name: "Transport", item_type: "service"}
+
+      assert Mapper.item_matches_existing?(row, existing_item(nil),
+               catalogue_item_type: "service"
+             )
+
+      refute Mapper.item_matches_existing?(row, existing_item(nil), catalogue_item_type: "goods")
+      # No catalogue type given: the item reads as goods.
+      refute Mapper.item_matches_existing?(row, existing_item(nil))
+    end
+
+    test "a row without a type matches whatever type the item has" do
+      for type <- [nil, "goods", "service"] do
+        assert Mapper.item_matches_existing?(%{name: "Transport"}, existing_item(type))
+      end
+    end
+  end
 end

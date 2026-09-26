@@ -1061,7 +1061,8 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
     existing_duplicates =
       Mapper.detect_existing_duplicates(import_plan, socket.assigns.selected_catalogue.uuid,
         category_uuid: import_category,
-        language: import_lang
+        language: import_lang,
+        catalogue_item_type: socket.assigns.selected_catalogue.item_type
       )
 
     {:noreply,
@@ -1347,7 +1348,8 @@ defmodule PhoenixKitCatalogue.Web.ImportLive do
     import_plan =
       maybe_deduplicate(import_plan, socket.assigns.duplicate_mode, catalogue_uuid,
         category_uuid: category_uuid,
-        language: import_lang
+        language: import_lang,
+        catalogue_item_type: socket.assigns.selected_catalogue.item_type
       )
 
     log_import_started(socket, import_plan)
