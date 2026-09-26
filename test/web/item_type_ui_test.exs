@@ -135,6 +135,22 @@ defmodule PhoenixKitCatalogue.Web.ItemTypeUITest do
       render_click(view, "reset_location", %{})
       assert first_option_text(render(view), "item_item_type") =~ "As in catalogue (Goods)"
     end
+
+    test "a stay-save re-reads the catalogue type the hint names", %{conn: conn} do
+      catalogue = fixture_catalogue()
+      item = fixture_item(%{name: "Panel", catalogue_uuid: catalogue.uuid})
+      {:ok, view, html} = live(conn, edit_item_url(item.uuid))
+      assert first_option_text(html, "item_item_type") =~ "As in catalogue (Goods)"
+
+      {:ok, _} = Catalogue.update_catalogue(catalogue, %{item_type: "service"})
+
+      render_submit(view, "save", %{
+        "item" => %{"name" => "Panel", "item_type" => ""},
+        "save_action" => "stay"
+      })
+
+      assert first_option_text(render(view), "item_item_type") =~ "As in catalogue (Service)"
+    end
   end
 
   describe "product card" do

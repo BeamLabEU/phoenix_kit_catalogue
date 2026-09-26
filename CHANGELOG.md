@@ -1,3 +1,40 @@
+## 0.46.0 - 2026-09-26
+
+Reviews: `dev_docs/pull_requests/2026/140-item-units/`,
+`141-item-type/`.
+
+Built against `phoenix_kit` 2.40.1 and `phoenix_kit_ai` 0.24.1; the
+requirements are unchanged. The line under a page title (the page
+description) now shows only when an admin turns on "show page
+descriptions" under Settings → General. The pages still send it.
+
+### Added
+
+- More measurement units (#140). Services can be priced per hour, service,
+  visit or kilometre, and goods gain pack, roll, kilogram, litre and cubic
+  metre, alongside the units already there. The item form's unit field
+  offers all fifteen, in two groups.
+- An item type, goods or service (#141), independent of whether a catalogue
+  prices items or fees. The catalogue carries the default; an item may
+  name its own or leave it blank and follow the catalogue. Migration V4
+  adds the columns (existing catalogues read as goods, existing items
+  follow their catalogue). Search, the item lists and the item selector
+  can keep to one type. The catalogue form, the item form, the product
+  card and the items table show it, and a copy, an import or an export
+  carries it.
+
+### Fixed
+
+- Importing a unit column that uses one of the new codes (`hour`,
+  `service`, `pack`, …) or the abbreviation the tables show for it — in
+  English, Estonian, Russian, German or French — no longer stores the
+  item as pieces. A catalogue exported to JSON and imported back keeps
+  its units.
+- `list_items_for_catalogue/2` and `list_items_for_category/2` honour an
+  `item_types` filter, as the paged listings and the counts already did.
+- Saving an item and staying on the form re-reads "As in catalogue (…)".
+  It names the catalogue's type as it is after the save.
+
 ## 0.45.1 - 2026-09-25
 
 Review: `dev_docs/pull_requests/2026/142-admin-header-trail/`.

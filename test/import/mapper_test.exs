@@ -2,6 +2,7 @@ defmodule PhoenixKitCatalogue.Import.MapperTest do
   use ExUnit.Case, async: true
 
   alias PhoenixKitCatalogue.Import.Mapper
+  alias PhoenixKitCatalogue.Schemas.Item
 
   describe "auto_detect_mappings/1" do
     test "detects English headers" do
@@ -207,6 +208,28 @@ defmodule PhoenixKitCatalogue.Import.MapperTest do
 
       for alias_value <- ["m3", "m³", "м3", "м³", "kuupmeeter"] do
         assert Mapper.normalize_unit(alias_value) == "m3", "#{alias_value} should map to m3"
+      end
+    end
+
+    # Export writes the code (`"hour"`), and the tables show `unit_label/1`
+    # (`"h"`, de `"Std."`, fr `"prestation"`). An unknown label becomes
+    # "piece", so each of those has to come back as the same code.
+    test "every allowed unit code and its English label round-trip" do
+      for code <- Item.allowed_units() do
+        assert Mapper.normalize_unit(code) == code
+        assert Mapper.normalize_unit(Item.unit_label(code)) == code
+      end
+    end
+
+    test "translated labels of the new units round-trip" do
+      for locale <- ~w(et ru de fr), code <- ~w(hour service visit km pack roll kg litre m3) do
+        label =
+          Gettext.with_locale(PhoenixKitCatalogue.Gettext, locale, fn ->
+            Item.unit_label(code)
+          end)
+
+        assert Mapper.normalize_unit(label) == code,
+               "#{locale} label #{inspect(label)} for #{code} became #{inspect(Mapper.normalize_unit(label))}"
       end
     end
   end
