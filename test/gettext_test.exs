@@ -1114,7 +1114,7 @@ defmodule PhoenixKitCatalogue.GettextTest do
     Gettext.put_locale(PhoenixKitCatalogue.Gettext, "en")
   end
 
-  test "Item.unit_label/1 is translated for every unit code, in et/ru/en" do
+  test "Item.unit_label/1 is translated for every unit code in et/ru/en, and the new codes in de/fr too" do
     alias PhoenixKitCatalogue.Schemas.Item
 
     expected = %{
