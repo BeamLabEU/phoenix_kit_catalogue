@@ -75,6 +75,24 @@ defmodule PhoenixKitCatalogue.Web.ItemTypeSelectorTest do
     refute render(view) =~ ~s(id="picked")
   end
 
+  test "a bare-string scope type works like a one-element list", %{
+    conn: conn,
+    cat: cat,
+    shelf: shelf,
+    bolt: bolt,
+    transport: transport
+  } do
+    {:ok, view, _html} =
+      open(conn, "c=#{cat.uuid}&type=goods&details=true&pre=#{transport.uuid}:1&sel=click")
+
+    view |> picker() |> render_click("toggle_tray", %{})
+    assert render(view) =~ "Not available in this selection"
+
+    view |> picker() |> render_click("browse_category", %{"uuid" => shelf.uuid})
+    view |> picker() |> render_click("show_detail", %{"uuid" => to_string(bolt.uuid)})
+    assert has_element?(view, "#picker-detail-card")
+  end
+
   test "an item that became a service after it was listed opens no detail", %{
     conn: conn,
     cat: cat,

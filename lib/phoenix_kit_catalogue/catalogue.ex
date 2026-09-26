@@ -1377,13 +1377,16 @@ defmodule PhoenixKitCatalogue.Catalogue do
     do: order_by(query, [i], asc: i.position, asc: i.name, asc: i.uuid)
 
   @doc """
-  Counts non-deleted uncategorized items for a catalogue (items with
+  Counts the uncategorized items of a catalogue (items with
   `category_uuid IS NULL`). Used to decide whether the infinite-scroll
   detail view needs to show an "Uncategorized" card at all.
 
   ## Options
 
-    * `:mode` — `:active` (default) or `:deleted`
+    * `:mode` — `:active` (default, all but deleted) or `:deleted`
+    * `:status` — only items with this exact status; wins over `:mode`
+    * `:value_slugs` — only items carrying all of these attribute value
+      slugs (`filter_by_attribute_values/2`); `[]` = all.
     * `:item_types` — only items of these EFFECTIVE types
       (`filter_by_item_types/2`); `nil`/`[]` = all.
   """
@@ -7249,8 +7252,8 @@ defmodule PhoenixKitCatalogue.Catalogue do
   UI's entry point: unlike `Item.effective_type/1` it never raises and needs
   no preload. The item's own `item_type` answers without a query; otherwise
   a preloaded catalogue (or `category.catalogue`) is used, and failing that
-  the catalogue's type is read. An item without a (live) catalogue reads as
-  goods.
+  the catalogue's type is read — whatever the catalogue's status. An item
+  without a catalogue (or whose catalogue row is gone) reads as goods.
   """
   @spec effective_item_type(Item.t()) :: String.t()
   def effective_item_type(%Item{item_type: type}) when is_binary(type), do: type

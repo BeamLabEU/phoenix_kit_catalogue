@@ -305,6 +305,21 @@ defmodule PhoenixKitCatalogue.Catalogue.ItemTypeTest do
       assert by_name["Panel"]["item_type"] == ""
     end
 
+    test "duplicate detection reads the catalogue's type for inheriting items", ctx do
+      count = fn row ->
+        Mapper.detect_existing_duplicates(%{items: [row]}, ctx.services_cat.uuid,
+          category_uuid: ctx.visits.uuid
+        )
+      end
+
+      # Transport inherits "service" from its catalogue; Template overrides to goods.
+      assert count.(%{name: "Transport", item_type: "service"}) == 1
+      assert count.(%{name: "Transport", item_type: "goods"}) == 0
+      assert count.(%{name: "Template", item_type: "goods"}) == 1
+      assert count.(%{name: "Template", item_type: "service"}) == 0
+      assert count.(%{name: "Transport"}) == 1
+    end
+
     test "the JSON source maps item_type back onto the import target", ctx do
       items = Catalogue.list_items_by_uuids([ctx.install.uuid, ctx.panel.uuid])
 

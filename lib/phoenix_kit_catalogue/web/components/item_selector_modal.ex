@@ -1720,12 +1720,13 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemSelectorModal do
     end
   end
 
-  # By the EFFECTIVE type, as the fetch layer filters. Hydrated rows come
-  # from `list_items_by_uuids/2` with the catalogue preloaded.
+  # By the EFFECTIVE type, as the fetch layer filters — and, like it
+  # (`Catalogue.filter_by_item_types/2`), a bare "goods" counts as ["goods"].
+  # Hydrated rows come from `list_items_by_uuids/2` with the catalogue preloaded.
   defp item_type_ok?(types, _item) when types in [nil, []], do: true
 
   defp item_type_ok?(types, item),
-    do: Catalogue.effective_item_type(item) in Enum.map(types, &to_string/1)
+    do: Catalogue.effective_item_type(item) in (types |> List.wrap() |> Enum.map(&to_string/1))
 
   defp only_ok?(:uncategorized_only, item), do: is_nil(item.category_uuid)
   defp only_ok?(:categorized_only, item), do: not is_nil(item.category_uuid)
