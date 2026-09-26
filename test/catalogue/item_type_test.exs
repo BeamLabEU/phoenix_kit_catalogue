@@ -160,6 +160,26 @@ defmodule PhoenixKitCatalogue.Catalogue.ItemTypeTest do
       assert Catalogue.count_items_for_catalogue(ctx.goods_cat.uuid) == 3
     end
 
+    test "the unpaged listings take the same item_types filter", ctx do
+      assert names(Catalogue.list_items_for_catalogue(ctx.goods_cat.uuid, item_types: ["goods"])) ==
+               ["Loose", "Panel"]
+
+      assert names(
+               Catalogue.list_items_for_catalogue(ctx.services_cat.uuid, item_types: ["service"])
+             ) == ["Transport"]
+
+      assert names(Catalogue.list_items_for_catalogue(ctx.goods_cat.uuid)) ==
+               ["Loose", "Paigaldus", "Panel"]
+
+      assert names(Catalogue.list_items_for_category(ctx.shelf.uuid, item_types: ["goods"])) ==
+               ["Panel"]
+
+      assert names(Catalogue.list_items_for_category(ctx.visits.uuid, item_types: ["goods"])) ==
+               ["Template"]
+
+      assert names(Catalogue.list_items_for_category(ctx.shelf.uuid)) == ["Paigaldus", "Panel"]
+    end
+
     test "list_items_for_category_paged/2 and item_count_for_category/2", ctx do
       assert names(Catalogue.list_items_for_category_paged(ctx.shelf.uuid, item_types: ["goods"])) ==
                ["Panel"]

@@ -5381,14 +5381,22 @@ defmodule PhoenixKitCatalogue.Catalogue do
   Pass `:preload` in `opts` to add more (e.g.
   `preload: [catalogue_rules: :referenced_catalogue]` for smart-pricing
   consumers); the lists are concatenated, not replaced.
+
+  ## Options
+
+    * `:item_types` — only items of these EFFECTIVE types
+      (`filter_by_item_types/2`); `nil`/`[]` = all. Same option as
+      `list_items_for_category_paged/2`.
   """
   @spec list_items_for_category(Ecto.UUID.t(), keyword()) :: [Item.t()]
   def list_items_for_category(category_uuid, opts \\ []) do
     from(i in Item,
+      as: :item,
       where: i.category_uuid == ^category_uuid and i.status != "deleted",
       order_by: [asc: i.position, asc: i.name],
       preload: ^Helpers.merge_preloads([:catalogue, category: :catalogue], opts)
     )
+    |> filter_by_item_types(opts)
     |> repo().all()
     |> Manufacturers.hydrate()
   end
@@ -5405,16 +5413,24 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
   Default preloads `[:catalogue, category: :catalogue]`.
   Pass `:preload` in `opts` to add more — see `list_items_for_category/2`.
+
+  ## Options
+
+    * `:item_types` — only items of these EFFECTIVE types
+      (`filter_by_item_types/2`); `nil`/`[]` = all. Same option as
+      `list_catalogue_items_paged/2`.
   """
   @spec list_items_for_catalogue(Ecto.UUID.t(), keyword()) :: [Item.t()]
   def list_items_for_catalogue(catalogue_uuid, opts \\ []) do
     from(i in Item,
+      as: :item,
       left_join: c in Category,
       on: i.category_uuid == c.uuid,
       where: i.catalogue_uuid == ^catalogue_uuid and i.status != "deleted",
       order_by: [asc_nulls_last: c.position, asc: i.position, asc: i.name, asc: i.uuid],
       preload: ^Helpers.merge_preloads([:catalogue, category: :catalogue], opts)
     )
+    |> filter_by_item_types(opts)
     |> repo().all()
     |> Manufacturers.hydrate()
   end
@@ -5688,7 +5704,9 @@ defmodule PhoenixKitCatalogue.Catalogue do
     * `:sku` — stock keeping unit (max 100 chars; not unique — the same
       SKU may appear on multiple items)
     * `:base_price` — decimal, must be >= 0 (cost/purchase price before markup)
-    * `:unit` — `"piece"` (default), `"m2"`, or `"running_meter"`
+    * `:unit` — one of `Item.allowed_units/0` (default `"piece"`)
+    * `:item_type` — `"goods"` or `"service"`; omit (or pass nil) to inherit
+      the catalogue's type. Read it back with `Item.effective_type/2`
     * `:status` — `"active"` (default), `"inactive"`, `"discontinued"`, or `"deleted"`
     * `:category_uuid` — the parent category (optional — leave nil for uncategorized items)
     * `:manufacturer_uuid` — the manufacturer (optional)

@@ -94,10 +94,8 @@ defmodule PhoenixKitCatalogue.Web.Components.ItemPicker do
       consumers are unaffected.
     * `:format_unit` — 1-arity function taking the item's unit string and
       returning a display label (`""` to omit). Only used when
-      `:show_unit` is `true`. Defaults to a built-in mapping of common
-      abbreviations (`piece`→`pc`, `set`→`set`, `pair`→`pair`,
-      `sheet`→`sheet`, `m2`→`m²`, `running_meter`→`rm`; unknown strings
-      pass through). Supply your own to use a different unit vocabulary.
+      `:show_unit` is `true`. Defaults to `Item.unit_label/1` (unknown
+      strings pass through). Supply your own to use a different vocabulary.
     * `:show_sku` — when `true`, renders the item's `:sku` as its own
       column between the name/breadcrumb block and the price/unit block
       on each dropdown row (as an em dash when the item has no SKU on

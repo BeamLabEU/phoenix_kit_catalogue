@@ -2874,6 +2874,10 @@ defmodule PhoenixKitCatalogue.Web.ItemFormLive do
     |> assign(:derived_slug, %{})
     |> assign(location_target: nil, location_target_path: [])
     |> assign_location(item)
+    # The hint names the catalogue the item is in NOW. A stay-save does
+    # not remount, and the value taken when the form opened (or when
+    # Location was picked) goes stale if that catalogue's type changed.
+    |> assign_catalogue_item_type()
     |> Attachments.after_save(item)
     |> assign_changeset(Catalogue.change_item(item))
   end
