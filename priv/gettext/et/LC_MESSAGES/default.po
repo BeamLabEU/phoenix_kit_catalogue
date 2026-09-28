@@ -3734,3 +3734,15 @@ msgstr "Teenus"
 
 msgid "— As in catalogue (%{type}) —"
 msgstr "— Nagu kataloogis (%{type}) —"
+
+msgid "Universal"
+msgstr "Universaalne"
+
+msgid "Furniture"
+msgstr "Furnituur"
+
+msgid "Materials"
+msgstr "Materjalid"
+
+msgid "JSON (export)"
+msgstr "JSON (eksport)"

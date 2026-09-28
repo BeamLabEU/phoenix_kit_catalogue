@@ -3747,3 +3747,15 @@ msgstr "Услуга"
 
 msgid "— As in catalogue (%{type}) —"
 msgstr "— Как в каталоге (%{type}) —"
+
+msgid "Universal"
+msgstr "Универсальный"
+
+msgid "Furniture"
+msgstr "Фурнитура"
+
+msgid "Materials"
+msgstr "Материалы"
+
+msgid "JSON (export)"
+msgstr "JSON (экспорт)"

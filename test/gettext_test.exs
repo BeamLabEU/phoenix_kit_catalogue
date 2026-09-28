@@ -1240,4 +1240,30 @@ defmodule PhoenixKitCatalogue.GettextTest do
       assert Item.item_type_label("service") == "Teenus"
     end)
   end
+
+  test "import sources and export destinations label themselves in the viewer's locale" do
+    # PR #143 dropped the hard-coded "Фурнитура (Furniture)" bilingual
+    # labels for English ones; the selects render `label/0` / `formats/0`
+    # as-is, so the translation has to happen inside those callbacks.
+    alias PhoenixKitCatalogue.Export
+    alias PhoenixKitCatalogue.Import.Source
+
+    Gettext.with_locale(PhoenixKitCatalogue.Gettext, "ru", fn ->
+      assert Source.Universal.label() == "Универсальный"
+      assert Export.Universal.label() == "Универсальный"
+
+      assert Source.Universal.formats() == [
+               {:spreadsheet, "XLSX / CSV"},
+               {:json, "JSON (экспорт)"}
+             ]
+
+      assert Source.Pro100.formats() == [{:furniture, "Фурнитура"}, {:materials, "Материалы"}]
+      assert Export.Pro100.formats() == [{:furniture, "Фурнитура"}, {:materials, "Материалы"}]
+    end)
+
+    Gettext.with_locale(PhoenixKitCatalogue.Gettext, "et", fn ->
+      assert Source.Universal.label() == "Universaalne"
+      assert Export.Pro100.formats() == [{:furniture, "Furnituur"}, {:materials, "Materjalid"}]
+    end)
+  end
 end

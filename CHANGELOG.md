@@ -1,3 +1,19 @@
+## 0.46.1 - 2026-09-28
+
+Review: `dev_docs/pull_requests/2026/143-english-source-labels/`.
+
+### Changed
+
+- The import sources and export destinations are named in English
+  (#143): Universal, Furniture, Materials, JSON (export), instead of the
+  earlier mixed Russian-and-English labels.
+
+### Fixed
+
+- Those names now follow the admin's language, in every locale the module
+  ships (English, Russian, Estonian, German, French). Before, they were
+  the same fixed text for everyone.
+
 ## 0.46.0 - 2026-09-26
 
 Reviews: `dev_docs/pull_requests/2026/140-item-units/`,
