@@ -135,7 +135,7 @@ defmodule PhoenixKitCatalogue.Web.Components.Browse do
         # The raw code stays for the host's pick payload; the label is
         # what renders, in the popup's OWN locale — `Item.unit_label/1`
         # reads the process locale, which the `locale` attr overrides
-        # for names but never reached units (2026-09-16: "шт" in the
+        # for names but never reached units (2026-09-16: the Russian "pcs" in the
         # order rows, "piece" in the picker).
         unit_label: unit_label_in(item.unit, locale),
         manufacturer: item.manufacturer_name || item.manufacturer_name_snapshot,
