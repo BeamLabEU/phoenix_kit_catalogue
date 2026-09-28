@@ -6,9 +6,14 @@ defmodule PhoenixKitCatalogue.Import.Source.Universal do
   @impl true
   def key, do: :universal
   @impl true
-  def label, do: "Universal"
+  def label, do: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Universal")
   @impl true
-  def formats, do: [{:spreadsheet, "XLSX / CSV"}, {:json, "JSON (export)"}]
+  def formats,
+    do: [
+      {:spreadsheet, "XLSX / CSV"},
+      {:json, Gettext.gettext(PhoenixKitCatalogue.Gettext, "JSON (export)")}
+    ]
+
   @impl true
   def accept, do: ~w(.xlsx .csv .json)
   @impl true

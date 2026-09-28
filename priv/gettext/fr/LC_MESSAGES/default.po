@@ -3734,3 +3734,15 @@ msgstr "Service"
 
 msgid "— As in catalogue (%{type}) —"
 msgstr "— Comme dans le catalogue (%{type}) —"
+
+msgid "Universal"
+msgstr "Universel"
+
+msgid "Furniture"
+msgstr "Quincaillerie"
+
+msgid "Materials"
+msgstr "Matériaux"
+
+msgid "JSON (export)"
+msgstr "JSON (export)"
