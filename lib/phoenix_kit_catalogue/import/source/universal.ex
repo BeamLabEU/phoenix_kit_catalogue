@@ -6,9 +6,9 @@ defmodule PhoenixKitCatalogue.Import.Source.Universal do
   @impl true
   def key, do: :universal
   @impl true
-  def label, do: "Универсальный (Universal)"
+  def label, do: "Universal"
   @impl true
-  def formats, do: [{:spreadsheet, "XLSX / CSV"}, {:json, "JSON (экспорт)"}]
+  def formats, do: [{:spreadsheet, "XLSX / CSV"}, {:json, "JSON (export)"}]
   @impl true
   def accept, do: ~w(.xlsx .csv .json)
   @impl true

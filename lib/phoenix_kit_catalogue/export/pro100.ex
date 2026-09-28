@@ -46,8 +46,8 @@ defmodule PhoenixKitCatalogue.Export.Pro100 do
   @impl true
   def formats do
     [
-      {:furniture, "Фурнитура (Furniture)"},
-      {:materials, "Материалы (Materials)"}
+      {:furniture, "Furniture"},
+      {:materials, "Materials"}
     ]
   end
 
