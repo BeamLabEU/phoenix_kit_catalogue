@@ -4192,7 +4192,15 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                 phx-value-mode={status}
               />
             </:tabs>
+            <%!-- The list's own controls behind one button (boss via Max,
+                 2026-10-05: the top was too busy). It stays on THIS row
+                 rather than joining the create buttons above: this row is
+                 what the bulk bars replace, and a level with no status
+                 tabs would otherwise have nothing here to swap out — the
+                 bar would push the rows down again. --%>
             <:controls>
+              <.view_options id="detail-view-options">
+                <:controls>
             <.sort_selector
               :if={@child_categories != []}
               sort_by={@categories_sort_by}
@@ -4257,6 +4265,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               </span>
             </button>
               <.view_toggle_instant view={@view_mode_pref} id="detail-view-pref" />
+                </:controls>
+              </.view_options>
             </:controls>
           </.list_controls_row>
 
@@ -4896,6 +4906,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     <.table_default
       id="catalogue-categories-table"
       size="sm"
+      {table_fit()}
       wrapper_class="overflow-x-auto shadow-none rounded-none"
     >
       <.table_default_header>
@@ -4908,7 +4919,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
           />
           <.table_default_header_cell :if={@view_mode not in ["active", "deleted"]} class="w-8"></.table_default_header_cell>
           <.table_default_header_cell :if={@photo_col?} class="w-12 !pr-0 !py-1 [.pk-comfy_&]:w-22 [.pk-comfy_&]:!py-1.5"></.table_default_header_cell>
-          <.sort_header_cell field={:name} sort={@sort} event="toggle_sort_categories">
+          <.sort_header_cell field={:name} sort={@sort} event="toggle_sort_categories" data-col-lead>
             {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Name")}
           </.sort_header_cell>
           <.category_header_cells
@@ -5177,6 +5188,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       <.table_default
         id="catalogue-categories-tree-table"
         size="sm"
+        {table_fit()}
         wrapper_class="overflow-x-auto shadow-none rounded-none"
       >
         <.table_default_header>
@@ -5187,7 +5199,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               aria_label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Select all categories")}
             />
             <.table_default_header_cell :if={@photo_col?} class="w-12 !pr-0 !py-1 [.pk-comfy_&]:w-22 [.pk-comfy_&]:!py-1.5"></.table_default_header_cell>
-            <.sort_header_cell field={:name} sort={@sort} event="toggle_sort_categories">
+            <.sort_header_cell field={:name} sort={@sort} event="toggle_sort_categories" data-col-lead>
               {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Name")}
             </.sort_header_cell>
             <.category_header_cells
@@ -6133,6 +6145,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
           card_context_menu={@context_menu}
           on_reorder={if @reorderable?, do: "reorder_items"}
           {card_media_frame()}
+          {table_fit()}
         >
           <%!-- The picture leads the card and the selection checkbox rides
                 in its corner, exactly as the categories grid above does it
@@ -6264,62 +6277,62 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                    of the name made rows jagged); only when some row on
                    this level actually has one. --%>
               <.table_default_header_cell :if={@photo_col?} class="w-12 !pr-0 !py-1 [.pk-comfy_&]:w-22 [.pk-comfy_&]:!py-1.5"></.table_default_header_cell>
-              <.sort_header_cell field={:name} sort={header_sort(@items_sort_by, @items_sort_dir)} event="toggle_sort_items">
+              <.sort_header_cell field={:name} sort={header_sort(@items_sort_by, @items_sort_dir)} event="toggle_sort_items" data-col-lead>
                 {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Name")}
               </.sort_header_cell>
               <%= for col <- @items_columns do %>
                 <%= case col do %>
                   <% "sku" -> %>
-                    <.sort_header_cell field={:sku} sort={header_sort(@items_sort_by, @items_sort_dir)} event="toggle_sort_items" class="w-px whitespace-nowrap">
+                    <.sort_header_cell field={:sku} sort={header_sort(@items_sort_by, @items_sort_dir)} event="toggle_sort_items" data-col-priority={column_priority(col)} class="w-px whitespace-nowrap">
                       {Gettext.gettext(PhoenixKitCatalogue.Gettext, "SKU")}
                     </.sort_header_cell>
                   <% "image" -> %>
-                    <.table_default_header_cell class="w-px whitespace-nowrap">
+                    <.table_default_header_cell data-col-priority={column_priority(col)} class="w-px whitespace-nowrap">
                       {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Image")}
                     </.table_default_header_cell>
                   <% "price" -> %>
-                    <.sort_header_cell field={:base_price} sort={header_sort(@items_sort_by, @items_sort_dir)} event="toggle_sort_items" class="w-px whitespace-nowrap">
+                    <.sort_header_cell field={:base_price} sort={header_sort(@items_sort_by, @items_sort_dir)} event="toggle_sort_items" data-col-priority={column_priority(col)} class="w-px whitespace-nowrap">
                       {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Price")}
                     </.sort_header_cell>
                   <% "supplier_price" -> %>
-                    <.table_default_header_cell class="w-px whitespace-nowrap">
+                    <.table_default_header_cell data-col-priority={column_priority(col)} class="w-px whitespace-nowrap">
                       {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Supplier price")}
                     </.table_default_header_cell>
                   <% "unit" -> %>
-                    <.table_default_header_cell class="w-px whitespace-nowrap">
+                    <.table_default_header_cell data-col-priority={column_priority(col)} class="w-px whitespace-nowrap">
                       {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Unit")}
                     </.table_default_header_cell>
                   <% "item_type" -> %>
-                    <.table_default_header_cell class="w-px whitespace-nowrap">
+                    <.table_default_header_cell data-col-priority={column_priority(col)} class="w-px whitespace-nowrap">
                       {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Item type")}
                     </.table_default_header_cell>
                   <% "status" -> %>
-                    <.sort_header_cell field={:status} sort={header_sort(@items_sort_by, @items_sort_dir)} event="toggle_sort_items" class="w-px whitespace-nowrap">
+                    <.sort_header_cell field={:status} sort={header_sort(@items_sort_by, @items_sort_dir)} event="toggle_sort_items" data-col-priority={column_priority(col)} class="w-px whitespace-nowrap">
                       {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Status")}
                     </.sort_header_cell>
                   <% "attributes" -> %>
-                    <.table_default_header_cell class="w-px">
+                    <.table_default_header_cell data-col-priority={column_priority(col)} class="w-px">
                       {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Attributes")}
                     </.table_default_header_cell>
                   <% "files" -> %>
-                    <.table_default_header_cell class="w-px whitespace-nowrap">
+                    <.table_default_header_cell data-col-priority={column_priority(col)} class="w-px whitespace-nowrap">
                       {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Files")}
                     </.table_default_header_cell>
                   <% "description" -> %>
-                    <.table_default_header_cell class="w-px">
+                    <.table_default_header_cell data-col-priority={column_priority(col)} class="w-px">
                       {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Description")}
                     </.table_default_header_cell>
                   <% "updated" -> %>
-                    <.table_default_header_cell class="w-px whitespace-nowrap">
+                    <.table_default_header_cell data-col-priority={column_priority(col)} class="w-px whitespace-nowrap">
                       {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Updated")}
                     </.table_default_header_cell>
                   <% "created" -> %>
-                    <.table_default_header_cell class="w-px whitespace-nowrap">
+                    <.table_default_header_cell data-col-priority={column_priority(col)} class="w-px whitespace-nowrap">
                       {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Created")}
                     </.table_default_header_cell>
                   <% other -> %>
                     <%= if ext = Map.get(@extension_columns, other) do %>
-                      <.table_default_header_cell class="w-px whitespace-nowrap">{ext.label.()}</.table_default_header_cell>
+                      <.table_default_header_cell data-col-priority={column_priority(col)} class="w-px whitespace-nowrap">{ext.label.()}</.table_default_header_cell>
                     <% end %>
                 <% end %>
               <% end %>
