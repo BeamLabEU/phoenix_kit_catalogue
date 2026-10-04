@@ -3746,3 +3746,12 @@ msgstr "Matériaux"
 
 msgid "JSON (export)"
 msgstr "JSON (export)"
+
+msgid "View options"
+msgstr "Options d’affichage"
+
+msgid "Filters"
+msgstr "Filtres"
+
+msgid "List"
+msgstr "Liste"

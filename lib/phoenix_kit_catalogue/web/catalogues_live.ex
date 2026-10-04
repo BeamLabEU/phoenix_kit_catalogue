@@ -815,6 +815,12 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     end
   end
 
+  # What the View options button counts: the filters narrowing the index.
+  defp index_active_filters(assigns, cfg) do
+    status = if cfg.filters["status"] in [nil, ""], do: 0, else: 1
+    status + length(active_attribute_slugs(assigns))
+  end
+
   # The `?attr=` slugs are item-level, so they act only in items mode —
   # in catalogues mode (and the trash) they ride the URL inert.
   defp active_attribute_slugs(assigns) do
@@ -3347,29 +3353,6 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
           <% cfg = @view_configs.catalogues %>
           <% items? = item_results?(assigns) %>
           <.table_toolbar scope={:catalogues} cfg={cfg}>
-            <:filters>
-              <%!-- No folder select here: search works where the user
-                    stands — the drilled folder's subtree — and scope is
-                    chosen by navigating folders (Max, 2026-08-29). --%>
-              <.enum_filter
-                id="status"
-                label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Status")}
-                value={cfg.filters["status"]}
-                prompt={Gettext.gettext(PhoenixKitCatalogue.Gettext, "All statuses")}
-                options={TableQuery.enum_options(@catalogue_rows, :catalogues, "status")}
-              />
-              <%!-- The attribute filter is an item-level question, so it
-                    lives with items mode and filters the results directly
-                    (Max, 2026-08-29 — it used to mean "catalogues
-                    containing such items", which needed a disclaimer). --%>
-              <.attribute_filter
-                :if={@catalogue_view_mode == "active" and @attribute_filter_options != []}
-                options={@attribute_filter_options}
-                selected={active_attribute_slugs(assigns)}
-                counts={@attribute_value_counts}
-                always_visible
-              />
-            </:filters>
             <:actions>
               <button
                 :if={@catalogue_view_mode == "active"}
@@ -3411,7 +3394,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
                toggle rests with it. --%>
           <%!-- Tabs left, the table's own controls right — the same row and
                the same order as inside a catalogue. --%>
-          <Shared.list_controls_row>
+          <Shared.list_controls_row id="catalogues-controls" active_filters={index_active_filters(assigns, cfg)}>
             <:tabs :if={deleted_count > 0 or @catalogue_view_mode == "deleted"}>
               <Shared.status_tab
                 label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Active")}
@@ -3429,6 +3412,29 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
                 phx-value-mode="deleted"
               />
             </:tabs>
+            <:filters>
+              <%!-- No folder select here: search works where the user
+                    stands — the drilled folder's subtree — and scope is
+                    chosen by navigating folders (Max, 2026-08-29). --%>
+              <.enum_filter
+                id="status"
+                label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Status")}
+                value={cfg.filters["status"]}
+                prompt={Gettext.gettext(PhoenixKitCatalogue.Gettext, "All statuses")}
+                options={TableQuery.enum_options(@catalogue_rows, :catalogues, "status")}
+              />
+              <%!-- The attribute filter is an item-level question, so it
+                    lives with items mode and filters the results directly
+                    (Max, 2026-08-29 — it used to mean "catalogues
+                    containing such items", which needed a disclaimer). --%>
+              <.attribute_filter
+                :if={@catalogue_view_mode == "active" and @attribute_filter_options != []}
+                options={@attribute_filter_options}
+                selected={active_attribute_slugs(assigns)}
+                counts={@attribute_value_counts}
+                always_visible
+              />
+            </:filters>
             <:controls>
               <.sort_controls
                 scope={:catalogues}
@@ -3968,15 +3974,6 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
         <div :if={@attr_tab_loaded and not @sets_enabled} class="flex flex-col gap-4">
         <% cfg = @view_configs.attribute_groups %>
         <.table_toolbar scope={:attribute_groups} cfg={cfg}>
-          <:filters>
-            <.enum_filter
-              id="status"
-              label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Status")}
-              value={cfg.filters["status"]}
-              prompt={Gettext.gettext(PhoenixKitCatalogue.Gettext, "All statuses")}
-              options={TableQuery.enum_options(@attribute_group_rows, :attribute_groups, "status")}
-            />
-          </:filters>
           <:actions>
             <.link navigate={Paths.attribute_group_new()} class="btn btn-primary btn-sm">
               <.icon name="hero-plus" class="w-4 h-4" />
@@ -3990,7 +3987,19 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
              renders search, filters and actions alone: without this the
              legacy groups list would silently lose both (zai,
              2026-09-21). --%>
-        <Shared.list_controls_row>
+        <Shared.list_controls_row
+          id="attribute-groups-controls"
+          active_filters={if cfg.filters["status"] in [nil, ""], do: 0, else: 1}
+        >
+          <:filters>
+            <.enum_filter
+              id="status"
+              label={Gettext.gettext(PhoenixKitCatalogue.Gettext, "Status")}
+              value={cfg.filters["status"]}
+              prompt={Gettext.gettext(PhoenixKitCatalogue.Gettext, "All statuses")}
+              options={TableQuery.enum_options(@attribute_group_rows, :attribute_groups, "status")}
+            />
+          </:filters>
           <:controls>
             <.sort_controls
               scope={:attribute_groups}
@@ -4538,10 +4547,10 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
 
   defp table_toolbar(assigns) do
     ~H"""
-    <%!-- Search and filters left, create actions right. The table's own
+    <%!-- Search left, create actions right. The filters and the table's own
          controls — sort, Reorder all, Columns, the view toggle — are NOT
-         here: they sit on the tabs row below, where the catalogue pages
-         have always kept them (boss via Max, 2026-09-21). Two groups
+         here: they sit behind the View options button on the tabs row
+         below (boss via Max, 2026-10-05: the top was too busy). Two groups
          rather than one flat wrap, so a narrow screen drops the actions
          under the search as a unit instead of scattering buttons. --%>
     <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 mb-3">

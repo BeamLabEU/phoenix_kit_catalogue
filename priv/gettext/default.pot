@@ -3752,3 +3752,12 @@ msgstr ""
 
 msgid "JSON (export)"
 msgstr ""
+
+msgid "View options"
+msgstr ""
+
+msgid "Filters"
+msgstr ""
+
+msgid "List"
+msgstr ""

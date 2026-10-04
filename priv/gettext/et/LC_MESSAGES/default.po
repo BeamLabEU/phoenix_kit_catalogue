@@ -3746,3 +3746,12 @@ msgstr "Materjalid"
 
 msgid "JSON (export)"
 msgstr "JSON (eksport)"
+
+msgid "View options"
+msgstr "Vaate valikud"
+
+msgid "Filters"
+msgstr "Filtrid"
+
+msgid "List"
+msgstr "Loend"
