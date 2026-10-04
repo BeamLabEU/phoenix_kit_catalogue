@@ -936,7 +936,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
             <span class="text-xs font-semibold uppercase tracking-wide text-base-content/50">
               {gettext("Filters")}
             </span>
-            <div class="flex flex-col items-start gap-2 [&_select]:w-full [&>form]:w-full">
+            <div class="flex flex-col items-stretch gap-2 [&_.select]:w-full [&_select]:w-full [&>form]:!block">
               {render_slot(@filters)}
             </div>
           </div>
