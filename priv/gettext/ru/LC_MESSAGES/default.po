@@ -3759,3 +3759,12 @@ msgstr "Материалы"
 
 msgid "JSON (export)"
 msgstr "JSON (экспорт)"
+
+msgid "View options"
+msgstr "Параметры вида"
+
+msgid "Filters"
+msgstr "Фильтры"
+
+msgid "List"
+msgstr "Список"

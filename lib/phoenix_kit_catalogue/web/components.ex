@@ -90,6 +90,10 @@ defmodule PhoenixKitCatalogue.Web.Components do
   import PhoenixKitWeb.Components.Core.DraggableList, only: [draggable_list: 1]
   import PhoenixKitWeb.Components.Core.Icon, only: [icon: 1]
   import PhoenixKitWeb.Components.Core.Input, only: [input: 1]
+
+  import PhoenixKitWeb.Components.Core.PopoverPanel,
+    only: [popover_panel: 1, toggle_popover: 1]
+
   import PhoenixKitWeb.Components.Core.Select, only: [select: 1]
   import PhoenixKitWeb.Components.Core.TableDefault
   import PhoenixKitWeb.Components.Core.TableRowMenu
@@ -856,10 +860,24 @@ defmodule PhoenixKitCatalogue.Web.Components do
   """
   attr(:id, :string, default: nil)
   attr(:class, :string, default: nil)
+
+  attr(:active_filters, :integer,
+    default: 0,
+    doc: "How many filters in the pop-up are narrowing the list — shown on its button."
+  )
+
   slot(:tabs)
-  slot(:controls)
+
+  slot(:filters,
+    doc: "Filters that narrow the list (a status select, the attribute filter). In the pop-up."
+  )
+
+  slot(:controls, doc: "Sort, Reorder all, Columns, the view toggle. In the pop-up.")
 
   def list_controls_row(assigns) do
+    assigns =
+      assign(assigns, :popover_id, (assigns.id || "list-controls") <> "-view-options")
+
     ~H"""
     <%!-- `ignore_attributes(["style"])`: this row is what a bulk-select
          scope REPLACES — the hook hides it with an inline
@@ -871,7 +889,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
          Handing `style` to the client is the same fix core's collapse pad
          uses. --%>
     <div
-      :if={@tabs != [] or @controls != []}
+      :if={@tabs != [] or @controls != [] or @filters != []}
       id={@id}
       phx-mounted={Phoenix.LiveView.JS.ignore_attributes(["style"])}
       class={["flex flex-wrap items-center gap-2", @class]}
@@ -879,9 +897,85 @@ defmodule PhoenixKitCatalogue.Web.Components do
       <div :if={@tabs != []} class="flex items-center gap-0.5 flex-wrap">
         {render_slot(@tabs)}
       </div>
-      <div :if={@controls != []} class="ml-auto flex flex-wrap items-center justify-end gap-2">
-        {render_slot(@controls)}
+      <%!-- Everything that tunes the list — filters, sort, columns, the
+           view — behind ONE button. Spread along the row they were most of
+           what a person saw before the list itself (boss via Max,
+           2026-10-05: the top of the pages is too busy). The button counts
+           the filters that are on, so a narrowed list never looks like the
+           whole list. --%>
+      <div :if={@controls != [] or @filters != []} class="ml-auto relative">
+        <button
+          type="button"
+          phx-click={toggle_popover(@popover_id)}
+          aria-haspopup="dialog"
+          class={[
+            "btn btn-sm gap-1",
+            if(@active_filters > 0, do: "btn-primary", else: "btn-outline")
+          ]}
+        >
+          <.icon name="hero-adjustments-horizontal" class="w-4 h-4" />
+          {gettext("View options")}
+          <span :if={@active_filters > 0} class="badge badge-xs">{@active_filters}</span>
+        </button>
+        <.popover_panel id={@popover_id} width_class="sm:w-80">
+          <div class="card-body p-4 gap-4">
+            <div :if={@filters != []} class="flex flex-col gap-2">
+              <span class="text-xs font-semibold uppercase tracking-wide text-base-content/50">
+                {gettext("Filters")}
+              </span>
+              <div class="flex flex-col items-start gap-2 [&_select]:w-full [&>form]:w-full">
+                {render_slot(@filters)}
+              </div>
+            </div>
+            <div :if={@controls != []} class="flex flex-col gap-2">
+              <span class="text-xs font-semibold uppercase tracking-wide text-base-content/50">
+                {gettext("List")}
+              </span>
+              <%!-- In the pop-up there is room for words: the buttons'
+                   `hidden sm:inline` labels are for a crowded row. --%>
+              <div class="flex flex-col items-start gap-2 [&_.btn>span.hidden]:inline">
+                {render_slot(@controls)}
+              </div>
+            </div>
+          </div>
+        </.popover_panel>
       </div>
+    </div>
+    """
+  end
+
+  @doc """
+  Search refinements behind one button beside the search box — the
+  attribute filter, "Include subcategory items".
+
+  They narrow what a search returns, so they stay with the search rather
+  than moving into the list's View options (which a search view does not
+  show). Folded away for the same reason as those: spread along the row,
+  they crowded out the create buttons (boss via Max, 2026-10-05). The
+  button counts what is switched on.
+  """
+  attr(:id, :string, required: true, doc: "the pop-up's DOM id")
+  attr(:active, :integer, default: 0)
+  slot(:inner_block, required: true)
+
+  def search_filters(assigns) do
+    ~H"""
+    <div class="relative">
+      <button
+        type="button"
+        phx-click={toggle_popover(@id)}
+        aria-haspopup="dialog"
+        class={["btn btn-sm gap-1", if(@active > 0, do: "btn-primary", else: "btn-outline")]}
+      >
+        <.icon name="hero-funnel" class="w-4 h-4" />
+        {gettext("Filters")}
+        <span :if={@active > 0} class="badge badge-xs">{@active}</span>
+      </button>
+      <.popover_panel id={@id} align="start" width_class="sm:w-80">
+        <div class="card-body p-4 gap-3 items-start">
+          {render_slot(@inner_block)}
+        </div>
+      </.popover_panel>
     </div>
     """
   end

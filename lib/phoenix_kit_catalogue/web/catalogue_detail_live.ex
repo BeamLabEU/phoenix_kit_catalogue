@@ -3940,47 +3940,56 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                 query={@search_query}
                 placeholder={search_placeholder(@current_category)}
               />
-              <%!-- A SEARCH refinement only (Max, 2026-08-30: "should
-                    only do something when searching") — the browse list
-                    always shows the category's own items; the toggle
-                    pre-arms the next search. Always offered next to the
-                    search box (Max, 2026-08-30: "should alwasy be
-                    there"), but no control at all without subcategories
-                    (Max, 2026-08-29). --%>
-              <label
-                :if={
-                  show_search_input and match?(%Category{}, @current_category) and
-                    @child_categories != []
+              <% subtree_toggle? =
+                show_search_input and match?(%Category{}, @current_category) and
+                  @child_categories != [] %>
+              <% attr_filter? =
+                @attribute_filter_options != [] and
+                  not (effective_search_type(assigns) == "categories" and
+                         (@search_results != nil or @search_loading)) %>
+              <.search_filters
+                :if={subtree_toggle? or attr_filter?}
+                id="catalogue-level-filters"
+                active={
+                  length(active_attribute_slugs(assigns)) +
+                    if(subtree_toggle? and subtree_items?(assigns), do: 1, else: 0)
                 }
-                class="flex items-center gap-2 text-sm cursor-pointer select-none"
               >
-                <input
-                  type="checkbox"
-                  class="toggle toggle-sm"
-                  checked={subtree_items?(assigns)}
-                  phx-click="toggle_items_scope"
+                <%!-- A SEARCH refinement only (Max, 2026-08-30: "should
+                      only do something when searching") — the browse list
+                      always shows the category's own items; the toggle
+                      pre-arms the next search. Always offered next to the
+                      search box (Max, 2026-08-30: "should alwasy be
+                      there"), but no control at all without subcategories
+                      (Max, 2026-08-29). --%>
+                <label
+                  :if={subtree_toggle?}
+                  class="flex items-center gap-2 text-sm cursor-pointer select-none"
+                >
+                  <input
+                    type="checkbox"
+                    class="toggle toggle-sm"
+                    checked={subtree_items?(assigns)}
+                    phx-click="toggle_items_scope"
+                  />
+                  {gettext("Include subcategory items")}
+                </label>
+                <%!-- Attribute filter: "show me the blue doors" (Max,
+                      2026-08-28). Only the sets this catalogue actually
+                      uses are offered, so it stays empty and out of the way
+                      where attributes aren't used at all. Hidden while a
+                      categories-type search is showing: the filter is
+                      item-level, and an active control whose toggles
+                      provably change nothing on screen is a lie (panel
+                      finding, 2026-08-29). --%>
+                <.attribute_filter
+                  :if={attr_filter?}
+                  options={@attribute_filter_options}
+                  selected={active_attribute_slugs(assigns)}
+                  counts={@attribute_value_counts}
+                  always_visible
                 />
-                {gettext("Include subcategory items")}
-              </label>
-              <%!-- Attribute filter: "show me the blue doors" (Max,
-                    2026-08-28). Only the sets this catalogue actually
-                    uses are offered, so it stays empty and out of the way
-                    where attributes aren't used at all. Hidden while a
-                    categories-type search is showing: the filter is
-                    item-level, and an active control whose toggles
-                    provably change nothing on screen is a lie (panel
-                    finding, 2026-08-29). --%>
-              <.attribute_filter
-                :if={
-                  @attribute_filter_options != [] and
-                    not (effective_search_type(assigns) == "categories" and
-                           (@search_results != nil or @search_loading))
-                }
-                options={@attribute_filter_options}
-                selected={active_attribute_slugs(assigns)}
-                counts={@attribute_value_counts}
-                always_visible
-              />
+              </.search_filters>
               <div :if={@view_mode == "active"} class="ml-auto flex flex-wrap items-center gap-2">
                 <%!-- On every level (boss's call, 2026-08-18 — subcategories
                      are a first-class flow): at root it creates a root
@@ -5230,10 +5239,27 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                 data-uuid={cat.uuid}
               />
             </.table_default_cell>
-            <.table_default_cell :if={@photo_col?} class="w-12 !pr-0 !py-1 [.pk-comfy_&]:w-22 [.pk-comfy_&]:!py-1.5">
-              <.link patch={Paths.category_browse(@catalogue.uuid, cat.uuid)}>
+            <%!-- A subcategory's picture does NOT sit in this column. With
+                 it here every row started at the same place and only the
+                 name moved 20px, so an opened branch read as more top-level
+                 categories (client via Max, 2026-10-05: they deleted a
+                 subcategory inside a category, came back out and wondered
+                 why one was missing). The column carries the branch's rail
+                 instead, and the picture moves into the name cell, after
+                 the indent. --%>
+            <.table_default_cell
+              :if={@photo_col?}
+              class="relative w-12 !pr-0 !py-1 [.pk-comfy_&]:w-22 [.pk-comfy_&]:!py-1.5"
+            >
+              <.link :if={depth == 0} patch={Paths.category_browse(@catalogue.uuid, cat.uuid)}>
                 <.featured_thumb resource={cat} has_files={Map.get(@file_counts, cat.uuid, 0) > 0} letter />
               </.link>
+              <span
+                :if={depth > 0}
+                aria-hidden="true"
+                class="absolute inset-y-0 left-1/2 border-l-2 border-base-content/20"
+              >
+              </span>
             </.table_default_cell>
             <.category_tree_name_cell
               cat={cat}
@@ -5241,6 +5267,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               depth={depth}
               child_count={child_count}
               expanded={expanded?}
+              has_files={Map.get(@file_counts, cat.uuid, 0) > 0}
+              thumb={@photo_col?}
             />
             <.category_body_cells
               columns={@categories_columns}
@@ -5306,26 +5334,50 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   # The button looks the same open or closed — only its triangle turns. A
   # filled "on" state read as selected (Max, 2026-09-19); the tinted branch
   # below it already says it is open.
+  #
+  # A subcategory row is set in, not just its name: an elbow, then its own
+  # picture (the photo column holds the rail for it), then the name. Each
+  # level deeper adds another step and another rail.
   attr(:cat, :map, required: true)
   attr(:catalogue, :map, required: true)
   attr(:depth, :integer, required: true)
   attr(:child_count, :integer, required: true)
   attr(:expanded, :boolean, required: true)
+  attr(:has_files, :boolean, default: false)
+  attr(:thumb, :boolean, default: false, doc: "the table has a photo column")
 
   defp category_tree_name_cell(assigns) do
     ~H"""
     <td class={"relative " <> name_cell_class()}>
       <span
-        :for={level <- 1..@depth//1}
+        :for={level <- 2..@depth//1}
         aria-hidden="true"
         class="absolute inset-y-0 border-l-2 border-base-content/20"
-        style={"left: calc(0.75rem + #{level - 1} * 1.25rem)"}
+        style={"left: calc(1.25rem + #{level - 2} * 1.75rem)"}
       >
       </span>
       <div
         class="flex items-center gap-2 min-w-0"
-        style={@depth > 0 && "padding-left: calc(#{@depth} * 1.25rem)"}
+        style={@depth > 1 && "padding-left: calc(#{@depth - 1} * 1.75rem)"}
       >
+        <.icon
+          :if={@depth > 0}
+          name="hero-arrow-turn-down-right"
+          class="w-4 h-4 shrink-0 text-base-content/40"
+        />
+        <.link
+          :if={@depth > 0 and @thumb}
+          patch={Paths.category_browse(@catalogue.uuid, @cat.uuid)}
+          class="shrink-0"
+        >
+          <.featured_thumb
+            resource={@cat}
+            has_files={@has_files}
+            letter
+            class="w-9 h-9"
+            comfy_scale={false}
+          />
+        </.link>
         <.link
           patch={Paths.category_browse(@catalogue.uuid, @cat.uuid)}
           class="link link-hover font-medium truncate"
