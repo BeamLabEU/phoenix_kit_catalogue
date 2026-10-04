@@ -860,24 +860,10 @@ defmodule PhoenixKitCatalogue.Web.Components do
   """
   attr(:id, :string, default: nil)
   attr(:class, :string, default: nil)
-
-  attr(:active_filters, :integer,
-    default: 0,
-    doc: "How many filters in the pop-up are narrowing the list — shown on its button."
-  )
-
   slot(:tabs)
-
-  slot(:filters,
-    doc: "Filters that narrow the list (a status select, the attribute filter). In the pop-up."
-  )
-
-  slot(:controls, doc: "Sort, Reorder all, Columns, the view toggle. In the pop-up.")
+  slot(:controls)
 
   def list_controls_row(assigns) do
-    assigns =
-      assign(assigns, :popover_id, (assigns.id || "list-controls") <> "-view-options")
-
     ~H"""
     <%!-- `ignore_attributes(["style"])`: this row is what a bulk-select
          scope REPLACES — the hook hides it with an inline
@@ -889,7 +875,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
          Handing `style` to the client is the same fix core's collapse pad
          uses. --%>
     <div
-      :if={@tabs != [] or @controls != [] or @filters != []}
+      :if={@tabs != [] or @controls != []}
       id={@id}
       phx-mounted={Phoenix.LiveView.JS.ignore_attributes(["style"])}
       class={["flex flex-wrap items-center gap-2", @class]}
@@ -897,49 +883,75 @@ defmodule PhoenixKitCatalogue.Web.Components do
       <div :if={@tabs != []} class="flex items-center gap-0.5 flex-wrap">
         {render_slot(@tabs)}
       </div>
-      <%!-- Everything that tunes the list — filters, sort, columns, the
-           view — behind ONE button. Spread along the row they were most of
-           what a person saw before the list itself (boss via Max,
-           2026-10-05: the top of the pages is too busy). The button counts
-           the filters that are on, so a narrowed list never looks like the
-           whole list. --%>
-      <div :if={@controls != [] or @filters != []} class="ml-auto relative">
-        <button
-          type="button"
-          phx-click={toggle_popover(@popover_id)}
-          aria-haspopup="dialog"
-          class={[
-            "btn btn-sm gap-1",
-            if(@active_filters > 0, do: "btn-primary", else: "btn-outline")
-          ]}
-        >
-          <.icon name="hero-adjustments-horizontal" class="w-4 h-4" />
-          {gettext("View options")}
-          <span :if={@active_filters > 0} class="badge badge-xs">{@active_filters}</span>
-        </button>
-        <.popover_panel id={@popover_id} width_class="sm:w-80">
-          <div class="card-body p-4 gap-4">
-            <div :if={@filters != []} class="flex flex-col gap-2">
-              <span class="text-xs font-semibold uppercase tracking-wide text-base-content/50">
-                {gettext("Filters")}
-              </span>
-              <div class="flex flex-col items-start gap-2 [&_select]:w-full [&>form]:w-full">
-                {render_slot(@filters)}
-              </div>
-            </div>
-            <div :if={@controls != []} class="flex flex-col gap-2">
-              <span class="text-xs font-semibold uppercase tracking-wide text-base-content/50">
-                {gettext("List")}
-              </span>
-              <%!-- In the pop-up there is room for words: the buttons'
-                   `hidden sm:inline` labels are for a crowded row. --%>
-              <div class="flex flex-col items-start gap-2 [&_.btn>span.hidden]:inline">
-                {render_slot(@controls)}
-              </div>
+      <div :if={@controls != []} class="ml-auto flex flex-wrap items-center justify-end gap-2">
+        {render_slot(@controls)}
+      </div>
+    </div>
+    """
+  end
+
+  @doc """
+  Everything that tunes a list — its filters, sort, Reorder all, Columns,
+  the view — behind ONE button, beside the page's create buttons.
+
+  Spread along their own row they were most of what a person saw before the
+  list itself (boss via Max, 2026-10-05: the top of the pages is too busy).
+  The button counts the filters that are on and turns solid, so a narrowed
+  list never looks like the whole list.
+
+  A page with a single control (the PDF library's view toggle) keeps it on
+  the tabs row through `list_controls_row/1`: a pop-up holding one switch
+  is a click for nothing.
+  """
+  attr(:id, :string, required: true, doc: "the pop-up's DOM id")
+
+  attr(:active_filters, :integer,
+    default: 0,
+    doc: "How many of the pop-up's filters are narrowing the list."
+  )
+
+  slot(:filters, doc: "Filters that narrow the list (a status select, the attribute filter).")
+  slot(:controls, doc: "Sort, Reorder all, Columns, the view toggle.")
+
+  def view_options(assigns) do
+    ~H"""
+    <div :if={@controls != [] or @filters != []} class="relative">
+      <button
+        type="button"
+        phx-click={toggle_popover(@id)}
+        aria-haspopup="dialog"
+        title={gettext("View options")}
+        class={[
+          "btn btn-sm gap-1",
+          if(@active_filters > 0, do: "btn-primary", else: "btn-outline")
+        ]}
+      >
+        <.icon name="hero-adjustments-horizontal" class="w-4 h-4" />
+        <span class="hidden xl:inline">{gettext("View options")}</span>
+        <span :if={@active_filters > 0} class="badge badge-xs">{@active_filters}</span>
+      </button>
+      <.popover_panel id={@id} width_class="sm:w-80">
+        <div class="card-body p-4 gap-4">
+          <div :if={@filters != []} class="flex flex-col gap-2">
+            <span class="text-xs font-semibold uppercase tracking-wide text-base-content/50">
+              {gettext("Filters")}
+            </span>
+            <div class="flex flex-col items-start gap-2 [&_select]:w-full [&>form]:w-full">
+              {render_slot(@filters)}
             </div>
           </div>
-        </.popover_panel>
-      </div>
+          <div :if={@controls != []} class="flex flex-col gap-2">
+            <span class="text-xs font-semibold uppercase tracking-wide text-base-content/50">
+              {gettext("List")}
+            </span>
+            <%!-- In the pop-up there is room for words: the buttons'
+                 `hidden sm:inline` labels are for a crowded row. --%>
+            <div class="flex flex-col items-start gap-2 [&_.btn>span.hidden]:inline">
+              {render_slot(@controls)}
+            </div>
+          </div>
+        </div>
+      </.popover_panel>
     </div>
     """
   end
@@ -965,10 +977,11 @@ defmodule PhoenixKitCatalogue.Web.Components do
         type="button"
         phx-click={toggle_popover(@id)}
         aria-haspopup="dialog"
+        title={gettext("Filters")}
         class={["btn btn-sm gap-1", if(@active > 0, do: "btn-primary", else: "btn-outline")]}
       >
         <.icon name="hero-funnel" class="w-4 h-4" />
-        {gettext("Filters")}
+        <span class="hidden xl:inline">{gettext("Filters")}</span>
         <span :if={@active > 0} class="badge badge-xs">{@active}</span>
       </button>
       <.popover_panel id={@id} align="start" width_class="sm:w-80">
@@ -1300,6 +1313,34 @@ defmodule PhoenixKitCatalogue.Web.Components do
   def column_fit_class(_id), do: "w-px whitespace-nowrap"
 
   @doc """
+  How soon a column is dropped when the table does not fit its width —
+  core's `fit` reads it off the header cell as `data-col-priority`. The
+  highest number goes first; `1` is the last to go. The name, the checkbox
+  and the row menu carry none and never go.
+
+  The order is "what would you still want on a phone": what a row IS
+  (status, price) outlasts what it has (counts, SKU), which outlasts where
+  and when (folder, dates), which outlasts prose.
+  """
+  @spec column_priority(String.t() | atom()) :: pos_integer()
+  def column_priority(id) when is_atom(id), do: column_priority(Atom.to_string(id))
+  def column_priority(id) when id in ~w(status price), do: 1
+  def column_priority(id) when id in ~w(items sku base_price), do: 2
+  def column_priority(id) when id in ~w(subcategories unit folder supplier_price), do: 3
+  def column_priority(id) when id in ~w(kind item_type markup discount files image updated), do: 4
+  def column_priority(id) when id in ~w(description attributes created), do: 6
+  def column_priority(_id), do: 5
+
+  @doc """
+  `fit` for `table_default`, as a DYNAMIC attribute — the same reason as
+  `card_media_frame/0`: the attribute arrives in core after this module's
+  pin, and an older core ignores the extra assign (the table then scrolls
+  sideways as it always did). `fit_pack: false` because these tables size
+  their own columns (`column_fit_class/1`), prose columns included.
+  """
+  def table_fit, do: %{fit: true, fit_pack: false}
+
+  @doc """
   Classes for a prose cell's CONTENT (a description, an attribute list): as
   wide as the text up to 16rem, then wrapping, two lines at most. The
   width sits on the content because a table ignores `max-width` on the
@@ -1384,12 +1425,13 @@ defmodule PhoenixKitCatalogue.Web.Components do
             sort={@sort}
             event={@sort_event}
             align={:right}
+            data-col-priority={column_priority(col)}
             class="text-right w-px whitespace-nowrap"
           >
             {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Items")}
           </.sort_header_cell>
         <% "image" -> %>
-          <.table_default_header_cell class="w-px whitespace-nowrap">
+          <.table_default_header_cell data-col-priority={column_priority(col)} class="w-px whitespace-nowrap">
             {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Image")}
           </.table_default_header_cell>
         <% "updated" -> %>
@@ -1397,32 +1439,33 @@ defmodule PhoenixKitCatalogue.Web.Components do
             field={:updated}
             sort={@sort}
             event={@sort_event}
+            data-col-priority={column_priority(col)}
             class="w-px whitespace-nowrap"
           >
             {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Updated")}
           </.sort_header_cell>
         <% "subcategories" -> %>
-          <.table_default_header_cell class="text-right w-px whitespace-nowrap">
+          <.table_default_header_cell data-col-priority={column_priority(col)} class="text-right w-px whitespace-nowrap">
             {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Subcategories")}
           </.table_default_header_cell>
         <% "description" -> %>
-          <.table_default_header_cell class="w-px">
+          <.table_default_header_cell data-col-priority={column_priority(col)} class="w-px">
             {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Description")}
           </.table_default_header_cell>
         <% "files" -> %>
-          <.table_default_header_cell class="w-px whitespace-nowrap">
+          <.table_default_header_cell data-col-priority={column_priority(col)} class="w-px whitespace-nowrap">
             {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Files")}
           </.table_default_header_cell>
         <% "status" -> %>
-          <.table_default_header_cell class="w-px whitespace-nowrap">
+          <.table_default_header_cell data-col-priority={column_priority(col)} class="w-px whitespace-nowrap">
             {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Status")}
           </.table_default_header_cell>
         <% "created" -> %>
-          <.table_default_header_cell class="w-px whitespace-nowrap">
+          <.table_default_header_cell data-col-priority={column_priority(col)} class="w-px whitespace-nowrap">
             {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Created")}
           </.table_default_header_cell>
         <% ext_id -> %>
-          <.table_default_header_cell class="w-px whitespace-nowrap">
+          <.table_default_header_cell data-col-priority={column_priority(col)} class="w-px whitespace-nowrap">
             {@extension_columns[ext_id].label.()}
           </.table_default_header_cell>
       <% end %>
@@ -2833,6 +2876,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
       view_mode={@view_mode}
       view_event={@view_event}
       {card_media_frame()}
+      {if @id, do: table_fit(), else: %{}}
       card_context_menu={@context_menu}
       items={@items}
       on_reorder={@on_reorder}
@@ -2905,7 +2949,12 @@ defmodule PhoenixKitCatalogue.Web.Components do
         <.table_default_row>
           <.table_default_header_cell :if={!is_nil(@on_reorder) or @selectable} class="w-10"></.table_default_header_cell>
           <.table_default_header_cell :if={@photo_col?} class="w-12 !pr-0 !py-1 [.pk-comfy_&]:w-22 [.pk-comfy_&]:!py-1.5"></.table_default_header_cell>
-          <.table_default_header_cell :for={col <- @columns} class={column_fit_class(col)}>
+          <.table_default_header_cell
+            :for={col <- @columns}
+            class={column_fit_class(col)}
+            data-col-priority={col != :name && column_priority(col)}
+            data-col-lead={col == :name}
+          >
             {column_label(col)}
           </.table_default_header_cell>
           <.actions_header_cell :if={@has_actions} />
