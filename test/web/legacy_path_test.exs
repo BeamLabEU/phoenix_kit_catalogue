@@ -105,6 +105,22 @@ defmodule PhoenixKitCatalogue.Web.LegacyPathTest do
                ["/phoenix_kit/en/admin/catalogues/abc?category=def"]
     end
 
+    # The router drops empty segments, so this reaches `forward/2` with the
+    # raw path intact; `redirect/2` raises on a target that starts `//`.
+    test "a path with leading slashes is answered, never a crash or a protocol-relative redirect" do
+      conn =
+        :get
+        |> Plug.Test.conn("/admin/catalogue")
+        |> Phoenix.Controller.put_format("html")
+        |> Map.put(:request_path, "//evil.example/admin/catalogue")
+        |> Legacy.forward(%{})
+
+      assert conn.status == 301
+
+      assert Plug.Conn.get_resp_header(conn, "location") ==
+               ["/evil.example/admin/catalogues"]
+    end
+
     test "never a redirect to the address it came in on" do
       conn = forward("/phoenix_kit/en/admin/catalogues/abc")
 

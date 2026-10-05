@@ -279,7 +279,7 @@ defmodule PhoenixKitCatalogue do
         # subtab paths (attributes, import, events).
         #
         # Without this, hidden subtabs with literal `:uuid` segments
-        # (e.g. "catalogue/:uuid/edit") never match a real URL, so the
+        # (e.g. "catalogues/:uuid/edit") never match a real URL, so the
         # parent "Catalogues" tab is the only thing that lights up on
         # detail/form pages — which looks wrong in the sidebar.
         match:

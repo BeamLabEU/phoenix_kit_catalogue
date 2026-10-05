@@ -929,7 +929,8 @@ defmodule PhoenixKitCatalogue.Web.Components do
       "Always show the words. Off, they show from the `xl` width up and the button is its icon below that — for a row it shares with the search and the create buttons."
   )
 
-  slot :row, doc: "A setting with its control: the label on the left, the control on the right." do
+  slot :row,
+    doc: "A setting with its control: the label on the left, the control on the right." do
     attr(:label, :string, required: true)
   end
 

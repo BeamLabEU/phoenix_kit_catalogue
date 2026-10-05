@@ -63,6 +63,11 @@ defmodule PhoenixKitCatalogue.Web.LegacyPathController do
   """
   @spec target(String.t(), String.t() | nil) :: {:ok, String.t()} | :unchanged
   def target(path, query \\ "") do
+    # The router ignores empty segments, so `//host/admin/catalogue` matches
+    # and `request_path` still starts with two slashes — a target `redirect/2`
+    # refuses as a protocol-relative URL, raising a 500 instead of answering.
+    path = "/" <> String.trim_leading(path, "/")
+
     moved =
       Enum.reduce(@moves, path, fn {old, new}, acc ->
         old = Routes.apply_admin_segment(old)

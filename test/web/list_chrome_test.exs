@@ -15,6 +15,16 @@ defmodule PhoenixKitCatalogue.Web.ListChromeTest do
 
   @base "/en/admin/catalogues"
 
+  # `<.table_default fit>` first shipped in phoenix_kit 2.54.0. The module
+  # passes it as a dynamic attribute (`Components.table_fit/0`), so an older
+  # core just ignores it and the tables scroll as they always did — which is
+  # also why the tests that look for a fitted table have nothing to find there.
+  @core_fit? :fit in Enum.map(
+               PhoenixKitWeb.Components.Core.TableDefault.__components__()[:table_default].attrs,
+               & &1.name
+             )
+  @needs_fit if @core_fit?, do: false, else: "needs phoenix_kit >= 2.54.0 (<.table_default fit>)"
+
   setup %{conn: conn, scope: scope} do
     catalogue = fixture_catalogue(%{name: "Chrome cat"})
     parent = fixture_category(catalogue, %{name: "Doors", position: 0})
@@ -142,6 +152,7 @@ defmodule PhoenixKitCatalogue.Web.ListChromeTest do
     end
 
     for mode <- ~w(table comfy) do
+      @tag skip: @needs_fit
       test "every row lines up with the header in #{mode} view", %{conn: conn} do
         {:ok, view, _html} = live(conn, @base)
         html = render_click(view, "set_view", %{"mode" => unquote(mode)})
@@ -296,6 +307,7 @@ defmodule PhoenixKitCatalogue.Web.ListChromeTest do
     # The Image column takes the photo column's place, and with it the cell
     # that draws the first level's rail — the name cell then has to draw every
     # level itself, or a first-level subcategory is not set in at all.
+    @tag skip: @needs_fit
     test "a subcategory is still set in when the Image column replaces the photo column", %{
       conn: conn,
       catalogue: catalogue,
@@ -319,6 +331,7 @@ defmodule PhoenixKitCatalogue.Web.ListChromeTest do
       assert_rows_line_up(html, ["catalogue-categories-tree-table-fit"])
     end
 
+    @tag skip: @needs_fit
     test "every row lines up with the header: tree with an opened branch, and the items table", %{
       conn: conn,
       catalogue: catalogue,
