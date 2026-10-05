@@ -159,7 +159,7 @@ defmodule PhoenixKitCatalogue.Web.SettingsLive do
       page_title={gettext("Catalogue")}
       page_section={gettext("Settings")}
       page_section_path={Routes.path("/admin/settings")}
-      current_path={assigns[:url_path] || Routes.path("/admin/settings/catalogue")}
+      current_path={assigns[:url_path] || Routes.path("/admin/settings/catalogues")}
       current_locale={assigns[:current_locale]}
     >
       <div class="flex flex-col w-full max-w-3xl mx-auto px-4 py-6 gap-6">

@@ -73,7 +73,7 @@ defmodule PhoenixKitCatalogue.Test.Router do
 
   # Settings → Catalogue. A separate scope because the page lives under
   # /admin/settings, not /admin/catalogues — the real route comes from the
-  # module's `settings_tabs/0`, which resolves a bare "catalogue" path
+  # module's `settings_tabs/0`, which resolves a bare "catalogues" path
   # against the settings prefix.
   scope "/en/admin/settings", PhoenixKitCatalogue.Web do
     pipe_through(:browser)
@@ -81,7 +81,7 @@ defmodule PhoenixKitCatalogue.Test.Router do
     live_session :catalogue_settings_test,
       on_mount: {PhoenixKitCatalogue.LiveCase, :assign_test_current_user},
       layout: {PhoenixKitCatalogue.Test.Layouts, :app} do
-      live("/catalogue", SettingsLive, :settings)
+      live("/catalogues", SettingsLive, :settings)
     end
   end
 
