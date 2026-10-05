@@ -3758,3 +3758,9 @@ msgstr "Sortieren nach"
 
 msgid "Layout"
 msgstr "Layout"
+
+msgid "Reorder all categories"
+msgstr "Alle Kategorien neu ordnen"
+
+msgid "Reorder all items"
+msgstr "Alle Artikel neu ordnen"

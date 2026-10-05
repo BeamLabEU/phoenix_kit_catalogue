@@ -56,6 +56,10 @@ defmodule PhoenixKitCatalogue.GettextTest do
           {"Filters", "Фильтры", "Filtrid"},
           {"Sort by", "Сортировать по", "Sorteeri"},
           {"Layout", "Вид", "Paigutus"},
+          # A level with categories AND items names each list's Reorder all:
+          {"Reorder all categories", "Переупорядочить все категории",
+           "Järjesta kõik kategooriad ümber"},
+          {"Reorder all items", "Переупорядочить все позиции", "Järjesta kõik tooted ümber"},
           # Found by the 2026-08-29 sweep: all of these were rendered by the
           # UI and present in NO catalogue. `:set_not_found` is the sharpest —
           # `errors_test.exs` pinned `Errors.message(:set_not_found) ==

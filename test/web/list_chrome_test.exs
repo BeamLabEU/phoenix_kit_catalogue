@@ -58,6 +58,14 @@ defmodule PhoenixKitCatalogue.Web.ListChromeTest do
 
   defp spanning?({_, attrs, _}), do: List.keymember?(attrs, "colspan", 0)
 
+  # {{categories_by, dir}, {items_by, dir}} as the LiveView holds them.
+  defp sorts(view) do
+    a = :sys.get_state(view.pid).socket.assigns
+    {{a.categories_sort_by, a.categories_sort_dir}, {a.items_sort_by, a.items_sort_dir}}
+  end
+
+  defp position(html, text), do: html |> :binary.match(text) |> elem(0)
+
   defp children({_, _, kids}), do: Enum.filter(kids, &is_tuple/1)
   defp find(node, tag), do: Enum.find(children(node), &(elem(&1, 0) == tag))
   defp cells(tr), do: Enum.filter(children(tr), &(elem(&1, 0) in ["td", "th"]))
@@ -191,6 +199,48 @@ defmodule PhoenixKitCatalogue.Web.ListChromeTest do
       assert bar =~ "order-last"
       assert bar =~ "sticky"
       refute html =~ ~s(data-bulk-swap)
+    end
+
+    # A level with subcategories and items has two lists and ONE sort for
+    # both. The items' own used to sit in a bar between the two tables.
+    test "a level with both lists has one sort, in View options, for both", %{
+      conn: conn,
+      catalogue: catalogue,
+      parent: parent
+    } do
+      fixture_item(%{catalogue_uuid: catalogue.uuid, category_uuid: parent.uuid, name: "Door B"})
+      {:ok, view, html} = live(conn, "#{@base}/#{catalogue.uuid}?category=#{parent.uuid}")
+
+      assert inside?(html, "#detail-view-options", "#level-sort-selector")
+      assert count(html, "#categories-sort-selector") == 0
+      assert count(html, "#items-header-sort-selector") == 0
+
+      # the items' action bar is the docked one, hidden until a row is ticked
+      [bar] =
+        html
+        |> doc()
+        |> LazyHTML.query(~s(#items-bulk > [data-bulk-show="has-selection"]))
+        |> LazyHTML.attribute("class")
+
+      assert bar =~ "order-last"
+
+      # a field both lists have sorts both
+      render_hook(view, "sort_level", %{"sort_by" => "name"})
+      html = render_hook(view, "sort_level", %{"sort_dir" => "desc"})
+      assert sorts(view) == {{:name, :desc}, {:name, :desc}}
+      assert position(html, "Door B") < position(html, "Door A")
+
+      # a field only the items have: the categories stand on Name
+      render_hook(view, "sort_level", %{"sort_by" => "sku"})
+      assert {{:name, _}, {:sku, _}} = sorts(view)
+
+      # Manual order is manual for both
+      render_hook(view, "sort_level", %{"sort_by" => "position"})
+      assert {{:position, _}, {:position, _}} = sorts(view)
+
+      # an unknown field changes nothing
+      render_hook(view, "sort_level", %{"sort_by" => "inserted_at; drop"})
+      assert {{:position, _}, {:position, _}} = sorts(view)
     end
 
     test "the search refinements live in Filters", %{

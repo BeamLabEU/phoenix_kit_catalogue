@@ -3771,3 +3771,9 @@ msgstr "Сортировать по"
 
 msgid "Layout"
 msgstr "Вид"
+
+msgid "Reorder all categories"
+msgstr "Переупорядочить все категории"
+
+msgid "Reorder all items"
+msgstr "Переупорядочить все позиции"
