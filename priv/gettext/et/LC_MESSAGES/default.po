@@ -3758,3 +3758,9 @@ msgstr "Sorteeri"
 
 msgid "Layout"
 msgstr "Paigutus"
+
+msgid "Reorder all categories"
+msgstr "Järjesta kõik kategooriad ümber"
+
+msgid "Reorder all items"
+msgstr "Järjesta kõik tooted ümber"

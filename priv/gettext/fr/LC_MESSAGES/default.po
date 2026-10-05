@@ -3758,3 +3758,9 @@ msgstr "Trier par"
 
 msgid "Layout"
 msgstr "Disposition"
+
+msgid "Reorder all categories"
+msgstr "Réorganiser toutes les catégories"
+
+msgid "Reorder all items"
+msgstr "Réorganiser tous les articles"

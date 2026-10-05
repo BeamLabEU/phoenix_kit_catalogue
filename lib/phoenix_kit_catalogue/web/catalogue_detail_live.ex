@@ -102,6 +102,13 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   # input into atoms. `:position` is the manual-order default.
   @items_sort_fields ~w(position name sku base_price status)a
   @items_sort_field_strs Enum.map(@items_sort_fields, &Atom.to_string/1)
+  @categories_sort_fields ~w(position name items updated)a
+  # A level's ONE sort, for a level that lists categories and items both:
+  # every field either list can sort by.
+  @level_sort_field_strs Enum.map(
+                           Enum.uniq(@categories_sort_fields ++ @items_sort_fields),
+                           &Atom.to_string/1
+                         )
 
   # Hardcoded string→atom whitelist for the reorder modal strategies —
   # NEVER String.to_existing_atom on the submitted value.
@@ -1541,6 +1548,39 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       end
 
     {:noreply, socket |> apply_items_sort(field, dir) |> persist_detail_sort(:detail_items)}
+  end
+
+  # One sort for a level that lists categories AND items (Max, 2026-10-05:
+  # "it makes sense for both tables to share the same sort. I doubt anyone
+  # would want two different sorts for them"). Each list sorts by the field
+  # if it has it and by name if it does not — Price orders the items and
+  # leaves the categories alphabetical, Items (a count) the other way round.
+  # Manual order is manual for both. A column header still sorts its own
+  # table, which is how the two can be told apart when someone does want to.
+  def handle_event("sort_level", params, socket) do
+    {current_by, current_dir} = level_sort(socket.assigns)
+
+    by =
+      case params["sort_by"] do
+        f when f in @level_sort_field_strs -> String.to_existing_atom(f)
+        _ -> current_by
+      end
+
+    dir =
+      case params["sort_dir"] do
+        "desc" -> :desc
+        "asc" -> :asc
+        _ -> current_dir
+      end
+
+    categories_by = if by in @categories_sort_fields, do: by, else: :name
+    items_by = if by in @items_sort_fields, do: by, else: :name
+
+    {:noreply,
+     socket
+     |> apply_categories_sort(categories_by, dir)
+     |> apply_items_sort(items_by, dir)
+     |> persist_detail_sort(:detail_items)}
   end
 
   # Categories sort — same SortSelector contract as items/catalogues
@@ -3967,6 +4007,9 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                      results out itself and carries its own view toggle. On
                      every status tab, so not under the create buttons'
                      Active-only rule. --%>
+                <% both_lists? =
+                  @child_categories != [] and @show_items_section and @items != [] and
+                    @view_mode != "deleted" %>
                 <.view_options
                     :if={
                       is_nil(@search_results) and not @search_loading and
@@ -3975,11 +4018,22 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                     id="detail-view-options"
                   >
                   <%!-- `label={false}`: the row's own label says "Sort by".
-                       A level shows categories or, without any, its items:
-                       one sort row, for whichever list the level leads
-                       with. A mixed level's items keep their sort in their
-                       own section's bar. --%>
-                  <:row :if={@child_categories != []} label={gettext("Sort by")}>
+                       A level that lists categories AND items has ONE sort
+                       for both (`sort_level`); the items' own used to sit in
+                       a bar between the two tables (Max, 2026-10-05: "taking
+                       up a whole row"). --%>
+                  <:row :if={both_lists?} label={gettext("Sort by")}>
+                    <.sort_selector
+                      sort_by={elem(level_sort(assigns), 0)}
+                      sort_dir={elem(level_sort(assigns), 1)}
+                      options={level_sort_options()}
+                      manual_field={:position}
+                      event="sort_level"
+                      id="level-sort-selector"
+                      label={false}
+                    />
+                  </:row>
+                  <:row :if={not both_lists? and @child_categories != []} label={gettext("Sort by")}>
                     <.sort_selector
                       sort_by={@categories_sort_by}
                       sort_dir={@categories_sort_dir}
@@ -3992,8 +4046,8 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                   </:row>
                   <:row
                     :if={
-                      @child_categories == [] and @show_items_section and @items != [] and
-                        @view_mode == "active"
+                      not both_lists? and @show_items_section and @items != [] and
+                        @view_mode != "deleted"
                     }
                     label={gettext("Sort by")}
                   >
@@ -4022,7 +4076,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                     </button>
                     <button
                       :if={
-                        @child_categories == [] and @show_items_section and @items_total > 1 and
+                        @show_items_section and @items_total > 1 and
                           @items_sort_by == :position and @view_mode == "active"
                       }
                       type="button"
@@ -4030,7 +4084,9 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                       class={view_option_action_class()}
                     >
                       <.icon name="hero-arrows-up-down" class="w-4 h-4" />
-                      {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Reorder all")}
+                      {if both_lists?,
+                        do: gettext("Reorder all items"),
+                        else: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Reorder all")}
                     </button>
                     <button
                       :if={
@@ -4044,7 +4100,9 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                       class={view_option_action_class()}
                     >
                       <.icon name="hero-arrows-up-down" class="w-4 h-4" />
-                      {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Reorder all")}
+                      {if both_lists?,
+                        do: gettext("Reorder all categories"),
+                        else: Gettext.gettext(PhoenixKitCatalogue.Gettext, "Reorder all")}
                     </button>
                   </:action>
                 </.view_options>
@@ -4482,7 +4540,6 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
             attribute_map={@attribute_map}
             supplier_costs={@supplier_costs}
             items_columns={tab_columns(@items_columns, @view_mode)}
-            controls_in_page_header={@child_categories == []}
             reorder_allowed={@current_category != nil or @child_categories == []}
             :if={@show_items_section}
             items={@items}
@@ -6031,14 +6088,6 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   attr(:items_columns, :list, default: ["sku", "price", "unit", "status"])
   attr(:view_mode_pref, :string, required: true)
 
-  attr(:controls_in_page_header, :boolean,
-    default: false,
-    doc:
-      "Item-only levels render the sort selector + Reorder-all in the page " <>
-        "control row; the in-section toolbar then only offers selection-scoped " <>
-        "reorder and bulk actions."
-  )
-
   attr(:reorder_allowed, :boolean,
     default: true,
     doc:
@@ -6084,51 +6133,34 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     ~H"""
     <div class="flex flex-col gap-2">
       <%!-- ── Active list: core List-UI toolkit ── --%>
-      <%!-- With its own toolbar (a mixed level: the sort sits in it) the
-           bar is on screen already and the action buttons appear INSIDE it,
-           so nothing moves. Without one, the bar exists only while rows are
-           ticked and docks under the list (`bulk_dock_class/0`). --%>
+      <%!-- The list has no bar of its own: its sort and Reorder all are in
+           the page's View options, on every kind of level. The action bar
+           exists only while rows are ticked and docks under the list
+           (`bulk_dock_class/0`). --%>
       <.bulk_select_scope
         :if={@items != []}
         id="items-bulk"
         total_count={@items_total}
         class="flex flex-col gap-2"
       >
-        <%!-- With the sort selector + Reorder-all promoted to the page
-             control row, the toolbar has nothing to show until rows are
-             selected — hide the empty bar (hook re-shows it on selection). --%>
         <div
           :if={@view_mode != "deleted"}
-          data-bulk-show={if @controls_in_page_header, do: "has-selection"}
-          style={if @controls_in_page_header, do: "display: none;"}
+          data-bulk-show="has-selection"
+          style="display: none;"
           class={[
-            @controls_in_page_header && bulk_dock_class(),
+            bulk_dock_class(),
             !@reorder_allowed && "[&_[data-bulk-action*=reorder]]:!hidden"
           ]}
         >
           <.bulk_actions_toolbar
             on_open_reorder="open_items_reorder_modal"
           reorder_dialog_id="items-reorder-modal"
-          reorder_gate={
-            if not @controls_in_page_header and @items_total > 1 and
-                 @items_sort_by == :position,
-               do: :always,
-               else: :multi
-          }
+          reorder_gate={:multi}
           on_bulk_delete="request_bulk_delete_items"
           noun_singular={Gettext.gettext(PhoenixKitCatalogue.Gettext, "item")}
           noun_plural={Gettext.gettext(PhoenixKitCatalogue.Gettext, "items")}
         >
           <:leading>
-            <.sort_selector
-              :if={!@controls_in_page_header}
-              sort_by={@items_sort_by}
-              sort_dir={@items_sort_dir}
-              options={item_sort_options()}
-              manual_field={:position}
-              event="sort_items"
-              label
-            />
             <%!-- Move isn't a built-in toolbar action (core ships
                  Reorder/Delete/Clear), so it's a custom client-side
                  button: `data-bulk-action` makes the BulkSelectScope
@@ -6567,6 +6599,21 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
       {:items, Gettext.gettext(PhoenixKitCatalogue.Gettext, "Items")},
       {:updated, Gettext.gettext(PhoenixKitCatalogue.Gettext, "Updated")}
     ]
+  end
+
+  # Every field either list sorts by, categories' first, each once.
+  defp level_sort_options do
+    Enum.uniq_by(category_sort_options() ++ item_sort_options(), &elem(&1, 0))
+  end
+
+  # What the level's one sort control shows. The lists agree unless one of
+  # them is on a field the other lacks (then that field is the level's
+  # sort and the other list is on its Name stand-in) or a column header
+  # sorted one table on its own — the items' sort speaks for the level then.
+  defp level_sort(assigns) do
+    if assigns.categories_sort_by in @items_sort_fields,
+      do: {assigns.items_sort_by, assigns.items_sort_dir},
+      else: {assigns.categories_sort_by, assigns.categories_sort_dir}
   end
 
   defp item_sort_options do
