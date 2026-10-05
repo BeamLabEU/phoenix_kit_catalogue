@@ -882,8 +882,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
 
   One component because the screens disagreed and the owner noticed: the
   same page furniture landed in two places depending on where you were (boss
-  via Max, 2026-09-21). Inside a catalogue this is also the row a bulk
-  selection's action bar takes the place of, so it must keep something on it.
+  via Max, 2026-09-21).
 
   Both slots are optional, and the controls stay right-aligned either way.
   """
@@ -894,19 +893,9 @@ defmodule PhoenixKitCatalogue.Web.Components do
 
   def list_controls_row(assigns) do
     ~H"""
-    <%!-- `ignore_attributes(["style"])`: this row is what a bulk-select
-         scope REPLACES — the hook hides it with an inline
-         `style="display: none"` while a selection is open. Nothing here
-         renders a style from the server, so LiveView's patcher would strip
-         that one on the next re-render of this row and the controls would
-         come back UNDER the bulk bar, pushing every table row down again
-         (grok, 2026-09-21 — the shift this mechanism exists to prevent).
-         Handing `style` to the client is the same fix core's collapse pad
-         uses. --%>
     <div
       :if={@tabs != [] or @controls != []}
       id={@id}
-      phx-mounted={Phoenix.LiveView.JS.ignore_attributes(["style"])}
       class={["flex flex-wrap items-center gap-2", @class]}
     >
       <div :if={@tabs != []} class="flex items-center gap-0.5 flex-wrap">
@@ -993,6 +982,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
   end
 
   @doc "Classes for a command in the View options pop-up: a full-width menu item."
+  @spec view_option_action_class() :: String.t()
   def view_option_action_class, do: "btn btn-ghost btn-sm w-full justify-start gap-2 font-normal"
 
   @doc """
@@ -1002,6 +992,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
   it — it would still be there, backdrop and all, when the dialog shuts
   (codex, 2026-10-05).
   """
+  @spec push_closing(String.t(), String.t()) :: struct()
   def push_closing(event, popover_id) do
     event |> JS.push() |> hide_popover(popover_id)
   end
@@ -1395,6 +1386,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
   sideways as it always did). `fit_pack: false` because these tables size
   their own columns (`column_fit_class/1`), prose columns included.
   """
+  @spec table_fit() :: %{fit: true, fit_pack: false}
   def table_fit, do: %{fit: true, fit_pack: false}
 
   @doc """
