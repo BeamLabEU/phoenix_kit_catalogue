@@ -68,13 +68,15 @@ defmodule PhoenixKitCatalogue.Web.LegacyPathController do
     # refuses as a protocol-relative URL, raising a 500 instead of answering.
     path = "/" <> String.trim_leading(path, "/")
 
-    moved =
-      Enum.reduce(@moves, path, fn {old, new}, acc ->
-        old = Routes.apply_admin_segment(old)
-        new = Routes.apply_admin_segment(new)
-
-        Regex.replace(~r{#{Regex.escape(old)}(?=/|$)}, acc, new, global: false)
+    moves =
+      Map.new(@moves, fn {old, new} ->
+        {Routes.apply_admin_segment(old), Routes.apply_admin_segment(new)}
       end)
+
+    pattern = moves |> Map.keys() |> Enum.map_join("|", &Regex.escape/1)
+
+    moved =
+      Regex.replace(~r{(?:#{pattern})(?=/|$)}, path, &Map.fetch!(moves, &1), global: false)
 
     cond do
       moved == path -> :unchanged
