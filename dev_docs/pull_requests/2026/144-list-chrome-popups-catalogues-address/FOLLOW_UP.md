@@ -24,3 +24,12 @@ See the release commit: `mix precommit` and `mix test` (Hex core 2.53.0, and `PH
 ## Open
 
 Column fitting takes effect only on `phoenix_kit` >= 2.54.0, which is unreleased on Hex.
+
+## Codex release recheck — 2026-10-05
+
+- Fixed `CODEX_REVIEW.md`'s IMPROVEMENT - MEDIUM: row alignment and Image-column
+  tree layout are checked on older cores too. Only hook-presence assertions
+  depend on core support; all four formerly skipped tests now run.
+- Fixed the NITPICK about suffix preservation: one replacement across both
+  configured legacy addresses, with regressions for both pattern orders.
+- See `CODEX_REVIEW.md` for the combined release-sweep validation.

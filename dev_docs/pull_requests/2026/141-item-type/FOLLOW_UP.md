@@ -23,3 +23,12 @@ Re-verified by reading `main` at `e8a969f` (0.46.1) on 2026-10-05 (quality sweep
 ## Open
 
 None.
+
+## Codex release recheck — 2026-10-05
+
+- Fixed `CODEX_REVIEW.md`'s BUG - MEDIUM: import confirmation reads the current
+  catalogue default, and execution retains its already re-fetched catalogue
+  before Skip duplicates. The three regressions in
+  `test/web/import_live_execute_test.exs` reproduce the stale counter,
+  unnecessary duplicate, and incorrectly skipped row.
+- Combined validation is recorded in PR #144's `CODEX_REVIEW.md`.

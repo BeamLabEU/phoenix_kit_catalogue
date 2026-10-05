@@ -40,6 +40,12 @@ defmodule PhoenixKitCatalogue.Web.LegacyPathTest do
     test "only the whole segment moves, and only once" do
       assert Legacy.target("/admin/catalogue/x/admin/catalogue") ==
                {:ok, "/admin/catalogues/x/admin/catalogue"}
+
+      assert Legacy.target("/admin/catalogue/x/admin/settings/catalogue", "q=1") ==
+               {:ok, "/admin/catalogues/x/admin/settings/catalogue?q=1"}
+
+      assert Legacy.target("/admin/settings/catalogue/x/admin/catalogue") ==
+               {:ok, "/admin/settings/catalogues/x/admin/catalogue"}
     end
 
     # The answer that would otherwise be a redirect to the same address.
