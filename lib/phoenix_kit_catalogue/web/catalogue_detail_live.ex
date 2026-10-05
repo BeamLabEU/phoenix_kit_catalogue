@@ -5434,14 +5434,16 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
   # The hook gathers a level by this key: "root" is the level the view
   # is standing in (the drilled node, or the catalogue's top level).
-  # The category tree's distances. A step is the photo column's width (3rem,
-  # 5.5rem in the comfortable view) plus the elbow and its gap (1.5rem), so a
+  # The category tree's distances. A step is the photo column's width as it
+  # is DRAWN (3.25rem — the picture and its padding, wider than the `w-12`
+  # the cell asks for — and 5.5rem in the comfortable view) plus the elbow
+  # and its gap (1.5rem), so a
   # subcategory's picture starts exactly that far right of its parent's. The
   # rail sits under the middle of the picture one step back: the cell's
   # padding (0.75rem) + the elbow (1.5rem) + half a picture (1.25rem, 2.25rem
   # comfortable), less half its own 2px.
   defp tree_step_class(true) do
-    "[--tree-step:4.5rem] [--tree-rail:3.4375rem] " <>
+    "[--tree-step:4.75rem] [--tree-rail:3.4375rem] " <>
       "[.pk-comfy_&]:[--tree-step:7rem] [.pk-comfy_&]:[--tree-rail:4.4375rem]"
   end
 
