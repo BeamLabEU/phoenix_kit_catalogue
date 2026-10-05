@@ -782,7 +782,9 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLiveTest do
 
       # One button for the whole page — Max: two side-by-side "Columns"
       # buttons "probobly should be in the same popup".
-      assert length(String.split(html, ~s(phx-click="show_column_modal"))) == 2
+      # The button pushes the event and closes the View options pop-up it
+      # sits in, so its phx-click is a JS command naming the event.
+      assert length(Regex.scan(~r/phx-click="[^"]*show_column_modal/, html)) == 1
 
       # The modal carries a section per table, each editing its own
       # scope without touching the other.

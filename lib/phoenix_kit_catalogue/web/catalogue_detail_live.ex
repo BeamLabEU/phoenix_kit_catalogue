@@ -3951,7 +3951,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                 :if={subtree_toggle? or attr_filter?}
                 id="catalogue-level-filters"
                 active={
-                  length(active_attribute_slugs(assigns)) +
+                  if(attr_filter?, do: length(active_attribute_slugs(assigns)), else: 0) +
                     if(subtree_toggle? and subtree_items?(assigns), do: 1, else: 0)
                 }
               >
@@ -3988,6 +3988,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                   selected={active_attribute_slugs(assigns)}
                   counts={@attribute_value_counts}
                   always_visible
+                  inline
                 />
               </.search_filters>
               <div :if={@view_mode == "active"} class="ml-auto flex flex-wrap items-center gap-2">
@@ -4231,7 +4232,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                   @items_sort_by == :position and @view_mode == "active"
               }
               type="button"
-              phx-click="open_items_reorder_modal"
+              phx-click={push_closing("open_items_reorder_modal", "detail-view-options")}
               class="btn btn-outline btn-sm"
             >
               <.icon name="hero-arrows-up-down" class="w-4 h-4" />
@@ -4245,7 +4246,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                   @categories_sort_by == :position
               }
               type="button"
-              phx-click="open_categories_reorder_modal"
+              phx-click={push_closing("open_categories_reorder_modal", "detail-view-options")}
               class="btn btn-outline btn-sm"
             >
               <.icon name="hero-arrows-up-down" class="w-4 h-4" />
@@ -4256,7 +4257,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
             <button
               :if={detail_column_scopes(assigns) != []}
               type="button"
-              phx-click="show_column_modal"
+              phx-click={push_closing("show_column_modal", "detail-view-options")}
               class="btn btn-outline btn-sm"
             >
               <.icon name="hero-adjustments-horizontal" class="w-4 h-4" />
@@ -5361,16 +5362,20 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   defp category_tree_name_cell(assigns) do
     ~H"""
     <td class={"relative " <> name_cell_class()}>
+      <%!-- With a photo column the first level's rail is drawn there, so
+           this cell starts one level in. Without one (the Image column is
+           on, which replaces it) every level's rail and step is here. --%>
+      <% own = if @thumb, do: @depth - 1, else: @depth %>
       <span
-        :for={level <- 2..@depth//1}
+        :for={level <- 1..own//1}
         aria-hidden="true"
         class="absolute inset-y-0 border-l-2 border-base-content/20"
-        style={"left: calc(1.25rem + #{level - 2} * 1.75rem)"}
+        style={"left: calc(1.25rem + #{level - 1} * 1.75rem)"}
       >
       </span>
       <div
         class="flex items-center gap-2 min-w-0"
-        style={@depth > 1 && "padding-left: calc(#{@depth - 1} * 1.75rem)"}
+        style={own > 0 && "padding-left: calc(#{own} * 1.75rem)"}
       >
         <.icon
           :if={@depth > 0}
