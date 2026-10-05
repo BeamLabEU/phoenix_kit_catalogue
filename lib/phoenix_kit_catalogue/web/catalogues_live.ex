@@ -3399,38 +3399,41 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
                 />
               </:filters>
             <:actions>
-              <Shared.view_options
-                id="catalogues-view-options"
-              >
-              <:controls>
-                <.sort_controls
-                  scope={:catalogues}
-                  selected={["position", "name" | cfg.columns]}
-                  sort_by={cfg.sort_by}
-                  sort_dir={cfg.sort_dir}
-                  manual_value="position"
-                />
-                <button
-                  :if={cfg.sort_by == "position" and reorder_all_offered?(assigns)}
-                  type="button"
-                  phx-click={push_closing("open_catalogues_reorder_modal", "catalogues-view-options")}
-                  class="btn btn-outline btn-sm"
-                >
-                  <.icon name="hero-arrows-up-down" class="w-4 h-4" />
-                  <span class="hidden sm:inline">{gettext("Reorder all")}</span>
-                </button>
-                <button
-                  type="button"
-                  phx-click={push_closing("show_column_modal", "catalogues-view-options")}
-                  class="btn btn-outline btn-sm"
-                >
-                  <.icon name="hero-adjustments-horizontal" class="w-4 h-4" />
-                  <span class="hidden sm:inline">
+              <Shared.view_options id="catalogues-view-options">
+                <:row label={gettext("Sort by")}>
+                  <.sort_controls
+                    scope={:catalogues}
+                    selected={["position", "name" | cfg.columns]}
+                    sort_by={cfg.sort_by}
+                    sort_dir={cfg.sort_dir}
+                    manual_value="position"
+                    label={false}
+                  />
+                </:row>
+                <:row label={gettext("Layout")}>
+                  <.view_toggle view={cfg.view} />
+                </:row>
+                <:action>
+                  <button
+                    type="button"
+                    phx-click={push_closing("show_column_modal", "catalogues-view-options")}
+                    class={Shared.view_option_action_class()}
+                  >
+                    <.icon name="hero-view-columns" class="w-4 h-4" />
                     {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Columns")}
-                  </span>
-                </button>
-                <.view_toggle view={cfg.view} />
-              </:controls>
+                  </button>
+                  <button
+                    :if={cfg.sort_by == "position" and reorder_all_offered?(assigns)}
+                    type="button"
+                    phx-click={
+                      push_closing("open_catalogues_reorder_modal", "catalogues-view-options")
+                    }
+                    class={Shared.view_option_action_class()}
+                  >
+                    <.icon name="hero-arrows-up-down" class="w-4 h-4" />
+                    {gettext("Reorder all")}
+                  </button>
+                </:action>
               </Shared.view_options>
               <button
                 :if={@catalogue_view_mode == "active"}
@@ -4013,29 +4016,30 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
               />
             </:filters>
           <:actions>
-            <Shared.view_options
-              id="attribute-groups-view-options"
-            >
-              <:controls>
+            <Shared.view_options id="attribute-groups-view-options">
+              <:row label={gettext("Sort by")}>
                 <.sort_controls
                   scope={:attribute_groups}
                   selected={["position", "name" | cfg.columns]}
                   sort_by={cfg.sort_by}
                   sort_dir={cfg.sort_dir}
                   manual_value="position"
+                  label={false}
                 />
+              </:row>
+              <:row label={gettext("Layout")}>
+                <.view_toggle view={cfg.view} />
+              </:row>
+              <:action>
                 <button
                   type="button"
                   phx-click={push_closing("show_column_modal", "attribute-groups-view-options")}
-                  class="btn btn-outline btn-sm"
+                  class={Shared.view_option_action_class()}
                 >
-                  <.icon name="hero-adjustments-horizontal" class="w-4 h-4" />
-                  <span class="hidden sm:inline">
-                    {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Columns")}
-                  </span>
+                  <.icon name="hero-view-columns" class="w-4 h-4" />
+                  {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Columns")}
                 </button>
-                <.view_toggle view={cfg.view} />
-              </:controls>
+              </:action>
             </Shared.view_options>
             <.link navigate={Paths.attribute_group_new()} class="btn btn-primary btn-sm">
               <.icon name="hero-plus" class="w-4 h-4" />

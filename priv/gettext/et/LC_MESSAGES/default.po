@@ -3753,5 +3753,8 @@ msgstr "Vaate valikud"
 msgid "Filters"
 msgstr "Filtrid"
 
-msgid "List"
-msgstr "Loend"
+msgid "Sort by"
+msgstr "Sorteeri"
+
+msgid "Layout"
+msgstr "Paigutus"

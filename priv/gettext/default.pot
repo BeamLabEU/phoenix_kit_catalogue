@@ -3759,5 +3759,8 @@ msgstr ""
 msgid "Filters"
 msgstr ""
 
-msgid "List"
+msgid "Sort by"
+msgstr ""
+
+msgid "Layout"
 msgstr ""

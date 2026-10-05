@@ -11,7 +11,7 @@ defmodule PhoenixKitCatalogue.Web.ImportLiveExecuteTest do
 
   alias PhoenixKitCatalogue.Catalogue
 
-  @import_url "/en/admin/catalogue/import"
+  @import_url "/en/admin/catalogues/import"
 
   setup do
     cat = fixture_catalogue(%{name: "Execute Cat"})

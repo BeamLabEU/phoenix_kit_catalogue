@@ -3766,5 +3766,8 @@ msgstr "Параметры вида"
 msgid "Filters"
 msgstr "Фильтры"
 
-msgid "List"
-msgstr "Список"
+msgid "Sort by"
+msgstr "Сортировать по"
+
+msgid "Layout"
+msgstr "Вид"

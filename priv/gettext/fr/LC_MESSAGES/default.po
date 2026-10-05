@@ -3753,5 +3753,8 @@ msgstr "Options d’affichage"
 msgid "Filters"
 msgstr "Filtres"
 
-msgid "List"
-msgstr "Liste"
+msgid "Sort by"
+msgstr "Trier par"
+
+msgid "Layout"
+msgstr "Disposition"

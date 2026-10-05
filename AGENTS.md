@@ -26,10 +26,10 @@ conventions, contracts and non-obvious boundaries.
   extension slot (`PhoenixKitCatalogue.Extension` / `.Extensions`) — neither
   side declares a dependency on the other. A few siblings reference the module
   name behind `Code.ensure_loaded?/1` guards only.
-- **Admin surface:** parent tab `:admin_catalogue` at `/admin/catalogue`, with
+- **Admin surface:** parent tab `:admin_catalogue` at `/admin/catalogues`, with
   subtabs All catalogues, Attributes, Import, Export, Events, PDFs,
   Translations, plus hidden form/detail tabs. One stateless HTTP route:
-  `GET /admin/catalogue/export/download`.
+  `GET /admin/catalogues/export/download`.
 - **Module key** `"catalogue"`; settings prefix `catalogue_`. The module's
   NAME is "Catalogues" everywhere a person reads it — `module_name/0`, the
   permission label, the sidebar parent, the header's section, page
@@ -400,7 +400,7 @@ in hosts; tests replay `up_statements/2` directly through the repo (`up/1` uses
   Endpoint, `PhoenixKit.PubSub`, `PhoenixKit.PubSub.Manager` and
   `PhoenixKit.TaskSupervisor`.
 - Test support: `test/support/data_case.ex`, `live_case.ex` (Test.Endpoint plus
-  a router scoped at `/en/admin/catalogue`), `activity_log_assertions.ex`,
+  a router scoped at `/en/admin/catalogues`), `activity_log_assertions.ex`,
   `test_repo.ex`, `test_router.ex`, `test_layouts.ex`.
 - `PGUSER` / `PGPASSWORD` / `PGHOST` are honoured. `PGDATABASE` and `PGPOOL`
   override the database name and pool size, so the suite can point at a database
