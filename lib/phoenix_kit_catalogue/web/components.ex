@@ -92,12 +92,13 @@ defmodule PhoenixKitCatalogue.Web.Components do
   import PhoenixKitWeb.Components.Core.Input, only: [input: 1]
 
   import PhoenixKitWeb.Components.Core.PopoverPanel,
-    only: [popover_panel: 1, toggle_popover: 1]
+    only: [popover_panel: 1, toggle_popover: 1, hide_popover: 2]
 
   import PhoenixKitWeb.Components.Core.Select, only: [select: 1]
   import PhoenixKitWeb.Components.Core.TableDefault
   import PhoenixKitWeb.Components.Core.TableRowMenu
 
+  alias Phoenix.LiveView.JS
   alias PhoenixKit.Modules.Storage.URLSigner
   alias PhoenixKitCatalogue.Attachments
   alias PhoenixKitCatalogue.Catalogue
@@ -546,6 +547,11 @@ defmodule PhoenixKitCatalogue.Web.Components do
         "every value should show them greyed out, not vanish the button."
   )
 
+  attr(:inline, :boolean,
+    default: false,
+    doc: "Draw the choices in place (inside a pop-up) rather than as a dropdown."
+  )
+
   attr(:counts, :map,
     default: %{},
     doc:
@@ -583,7 +589,20 @@ defmodule PhoenixKitCatalogue.Web.Components do
       |> assign(:usable?, usable_filter?(assigns))
 
     ~H"""
-    <div :if={@usable?} id={@id} class={["dropdown", @class]}>
+    <%!-- Inside a pop-up the choices are drawn in place: a dropdown nested
+         in a pop-up closes its parent, fights it for Escape and is clipped
+         by it (grok, 2026-10-05). --%>
+    <div :if={@usable? and @inline} id={@id} class={["w-full", @class]}>
+      <div class="flex items-center gap-1.5 mb-1 text-sm font-medium">
+        <.icon name="hero-swatch" class="w-4 h-4" />
+        {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Attributes")}
+        <span :if={@active_count > 0} class="badge badge-xs badge-primary">{@active_count}</span>
+      </div>
+      <div class="max-h-72 overflow-y-auto -mx-1">
+        <.attribute_filter_choices options={@options} selected={@selected} counts={@counts} />
+      </div>
+    </div>
+    <div :if={@usable? and not @inline} id={@id} class={["dropdown", @class]}>
       <%!-- `role="button"`, not a bare label: without it a screen reader
            reads the trigger as plain text and Enter does nothing — the
            dropdown only opened because Tab-focus happens to trip
@@ -603,64 +622,76 @@ defmodule PhoenixKitCatalogue.Web.Components do
         tabindex="0"
         class="dropdown-content z-[1] p-2 shadow-lg bg-base-100 rounded-box w-64 mt-1 max-h-96 overflow-y-auto"
       >
-        <div :for={set <- @options} class="mb-1 last:mb-0">
-          <div class="px-2 py-1 text-xs font-semibold uppercase tracking-wide text-base-content/50">
-            {set.name}
-            <span :if={selected_count(set, @selected) > 0} class="badge badge-xs badge-primary ml-1">
-              {selected_count(set, @selected)}
-            </span>
-          </div>
-          <ul class="menu menu-sm p-0">
-            <li :for={value <- set.values} class={value_dead?(value, @counts, @selected) && "disabled"}>
-              <button
-                type="button"
-                phx-click={!value_dead?(value, @counts, @selected) && "toggle_attribute_filter"}
-                phx-value-slug={value.slug}
-                disabled={value_dead?(value, @counts, @selected)}
-                aria-pressed={to_string(value.slug in @selected)}
-                title={
-                  value_dead?(value, @counts, @selected) &&
-                    Gettext.gettext(
-                      PhoenixKitCatalogue.Gettext,
-                      "Nothing matches this together with the filters already on."
-                    )
-                }
-              >
-                <%!-- A tick that LOOKS like a checkbox rather than one.
-                     A real <input> inside a <button> is invalid HTML: it
-                     may take focus of its own, and there it has no name
-                     to announce — the row's name belongs to the button.
-                     The button carries the state as aria-pressed. --%>
-                <span
-                  aria-hidden="true"
-                  class={[
-                    "w-4 h-4 shrink-0 rounded border flex items-center justify-center",
-                    if(value.slug in @selected,
-                      do: "bg-primary border-primary text-primary-content",
-                      else: "border-base-content/30"
-                    )
-                  ]}
-                >
-                  <.icon :if={value.slug in @selected} name="hero-check" class="w-3 h-3" />
-                </span>
-                <span class="truncate">{value.title}</span>
-                <span class="ml-auto text-xs opacity-50">{Map.get(@counts, value.slug, 0)}</span>
-              </button>
-            </li>
-          </ul>
-        </div>
-
-        <button
-          :if={@selected != []}
-          type="button"
-          phx-click="clear_attribute_filter"
-          class="btn btn-ghost btn-xs w-full mt-2"
-        >
-          <.icon name="hero-x-mark" class="w-3.5 h-3.5" />
-          {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Clear filters")}
-        </button>
+        <.attribute_filter_choices options={@options} selected={@selected} counts={@counts} />
       </div>
     </div>
+    """
+  end
+
+  attr(:options, :list, required: true)
+  attr(:selected, :list, required: true)
+  attr(:counts, :map, required: true)
+
+  # The sets and their value toggles — the same list in the dropdown and
+  # drawn in place inside a pop-up.
+  defp attribute_filter_choices(assigns) do
+    ~H"""
+    <div :for={set <- @options} class="mb-1 last:mb-0">
+      <div class="px-2 py-1 text-xs font-semibold uppercase tracking-wide text-base-content/50">
+        {set.name}
+        <span :if={selected_count(set, @selected) > 0} class="badge badge-xs badge-primary ml-1">
+          {selected_count(set, @selected)}
+        </span>
+      </div>
+      <ul class="menu menu-sm p-0">
+        <li :for={value <- set.values} class={value_dead?(value, @counts, @selected) && "disabled"}>
+          <button
+            type="button"
+            phx-click={!value_dead?(value, @counts, @selected) && "toggle_attribute_filter"}
+            phx-value-slug={value.slug}
+            disabled={value_dead?(value, @counts, @selected)}
+            aria-pressed={to_string(value.slug in @selected)}
+            title={
+              value_dead?(value, @counts, @selected) &&
+                Gettext.gettext(
+                  PhoenixKitCatalogue.Gettext,
+                  "Nothing matches this together with the filters already on."
+                )
+            }
+          >
+            <%!-- A tick that LOOKS like a checkbox rather than one.
+                 A real <input> inside a <button> is invalid HTML: it
+                 may take focus of its own, and there it has no name
+                 to announce — the row's name belongs to the button.
+                 The button carries the state as aria-pressed. --%>
+            <span
+              aria-hidden="true"
+              class={[
+                "w-4 h-4 shrink-0 rounded border flex items-center justify-center",
+                if(value.slug in @selected,
+                  do: "bg-primary border-primary text-primary-content",
+                  else: "border-base-content/30"
+                )
+              ]}
+            >
+              <.icon :if={value.slug in @selected} name="hero-check" class="w-3 h-3" />
+            </span>
+            <span class="truncate">{value.title}</span>
+            <span class="ml-auto text-xs opacity-50">{Map.get(@counts, value.slug, 0)}</span>
+          </button>
+        </li>
+      </ul>
+    </div>
+
+    <button
+      :if={@selected != []}
+      type="button"
+      phx-click="clear_attribute_filter"
+      class="btn btn-ghost btn-xs w-full mt-2"
+    >
+      <.icon name="hero-x-mark" class="w-3.5 h-3.5" />
+      {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Clear filters")}
+    </button>
     """
   end
 
@@ -844,19 +875,17 @@ defmodule PhoenixKitCatalogue.Web.Components do
   def search_width_class, do: "w-full sm:w-80"
 
   @doc """
-  The row that carries a list's status tabs on the left and the controls that
-  belong to the table on the right — sort, Reorder all, Columns, the view
-  toggle.
+  The row that carries a list's status tabs on the left and, on the right,
+  whatever belongs to the table — on most pages the single View options
+  button (`view_options/1`), on a page with one control (the PDF library's
+  view toggle) that control itself.
 
-  One component because the screens disagreed and the owner noticed: inside a
-  catalogue these controls sat on the tabs row, while the index put them up on
-  the search row with the tabs alone underneath, so the same page furniture
-  landed in two places depending on where you were (boss via Max,
-  2026-09-21). The tabs row is the agreed home — the controls act on the table
-  the tabs choose, so they read as one thing.
+  One component because the screens disagreed and the owner noticed: the
+  same page furniture landed in two places depending on where you were (boss
+  via Max, 2026-09-21). Inside a catalogue this is also the row a bulk
+  selection's action bar takes the place of, so it must keep something on it.
 
-  Both slots are optional: a screen with no trash renders the row with only
-  its controls, and the controls stay right-aligned either way.
+  Both slots are optional, and the controls stay right-aligned either way.
   """
   attr(:id, :string, default: nil)
   attr(:class, :string, default: nil)
@@ -927,7 +956,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
         ]}
       >
         <.icon name="hero-adjustments-horizontal" class="w-4 h-4" />
-        <span class="hidden xl:inline">{gettext("View options")}</span>
+        <span class="hidden md:inline">{gettext("View options")}</span>
         <span :if={@active_filters > 0} class="badge badge-xs">{@active_filters}</span>
       </button>
       <.popover_panel id={@id} width_class="sm:w-80">
@@ -954,6 +983,17 @@ defmodule PhoenixKitCatalogue.Web.Components do
       </.popover_panel>
     </div>
     """
+  end
+
+  @doc """
+  `phx-click` for a control inside a pop-up that opens a dialog (Columns,
+  Reorder all): push the event AND close the pop-up. The pop-up is opened
+  and closed on the client, so the server opening a dialog does not close
+  it — it would still be there, backdrop and all, when the dialog shuts
+  (codex, 2026-10-05).
+  """
+  def push_closing(event, popover_id) do
+    event |> JS.push() |> hide_popover(popover_id)
   end
 
   @doc """
@@ -1324,10 +1364,17 @@ defmodule PhoenixKitCatalogue.Web.Components do
   """
   @spec column_priority(String.t() | atom()) :: pos_integer()
   def column_priority(id) when is_atom(id), do: column_priority(Atom.to_string(id))
-  def column_priority(id) when id in ~w(status price), do: 1
+  def column_priority(id) when id in ~w(status price final_price), do: 1
   def column_priority(id) when id in ~w(items sku base_price), do: 2
-  def column_priority(id) when id in ~w(subcategories unit folder supplier_price), do: 3
-  def column_priority(id) when id in ~w(kind item_type markup discount files image updated), do: 4
+
+  def column_priority(id)
+      when id in ~w(subcategories unit folder supplier_price category catalogue),
+      do: 3
+
+  def column_priority(id)
+      when id in ~w(kind item_type markup discount files image updated manufacturer),
+      do: 4
+
   def column_priority(id) when id in ~w(description attributes created), do: 6
   def column_priority(_id), do: 5
 
