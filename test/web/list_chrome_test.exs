@@ -233,7 +233,7 @@ defmodule PhoenixKitCatalogue.Web.ListChromeTest do
       html = render_click(view, "toggle_category_expand", %{"uuid" => parent.uuid})
 
       # the photo column is gone: no rail cell before the name
-      refute html =~ "left-1/2 border-l-2"
+      refute html =~ "left-[1.9375rem]"
 
       sub = html |> doc() |> LazyHTML.query("#category-tree-row-#{child.uuid}")
       name_cell = sub |> LazyHTML.query("td.relative") |> LazyHTML.to_html()

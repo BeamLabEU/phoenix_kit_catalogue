@@ -5278,7 +5278,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               <span
                 :if={depth > 0}
                 aria-hidden="true"
-                class="absolute inset-y-0 left-1/2 border-l-2 border-base-content/20"
+                class="absolute inset-y-0 left-[1.9375rem] [.pk-comfy_&]:left-[2.9375rem] border-l-2 border-base-content/20"
               >
               </span>
             </.table_default_cell>
