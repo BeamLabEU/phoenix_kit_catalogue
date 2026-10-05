@@ -5370,20 +5370,32 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   defp category_tree_name_cell(assigns) do
     ~H"""
     <td class={"relative " <> name_cell_class()}>
-      <%!-- With a photo column the first level's rail is drawn there, so
-           this cell starts one level in. Without one (the Image column is
-           on, which replaces it) every level's rail and step is here. --%>
+      <%!-- One rule at every depth: a level's rail drops from the middle
+           of its parent's picture, and its row starts one whole step in —
+           elbow, picture and gaps, 4.25rem — so the child's elbow lands
+           under the parent's name. The first cut stepped 1.75rem from the
+           second level on and hung those rails off the elbow instead, so
+           level one and level two did not look like the same thing (Max,
+           2026-10-05). With a photo column the first level's rail is drawn
+           there, under the parent's big picture, and this cell starts one
+           level in.
+
+           Without one (the Image column is on, which replaces it) a row is
+           elbow and name only: every level's rail and step is here, at the
+           elbow's own width. --%>
       <% own = if @thumb, do: @depth - 1, else: @depth %>
+      <% step = if @thumb, do: 4.25, else: 1.75 %>
+      <% rail = if @thumb, do: 3.3125, else: 1.25 %>
       <span
         :for={level <- 1..own//1}
         aria-hidden="true"
         class="absolute inset-y-0 border-l-2 border-base-content/20"
-        style={"left: calc(1.25rem + #{level - 1} * 1.75rem)"}
+        style={"left: calc(#{rail}rem + #{level - 1} * #{step}rem)"}
       >
       </span>
       <div
         class="flex items-center gap-2 min-w-0"
-        style={own > 0 && "padding-left: calc(#{own} * 1.75rem)"}
+        style={own > 0 && "padding-left: calc(#{own} * #{step}rem)"}
       >
         <.icon
           :if={@depth > 0}

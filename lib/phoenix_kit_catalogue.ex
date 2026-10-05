@@ -538,13 +538,13 @@ defmodule PhoenixKitCatalogue do
     [
       Tab.new!(
         id: :admin_settings_catalogue,
-        label: "Catalogue",
+        label: "Catalogues",
         gettext_backend: PhoenixKitCatalogue.Gettext,
         gettext_domain: "default",
         icon: "hero-rectangle-stack",
-        path: "catalogue",
+        path: "catalogues",
         # Between Posts (922) and Comments (924): Settings orders its module
-        # entries by priority, and this is where "Catalogue" reads in that
+        # entries by priority, and this is where "Catalogues" reads in that
         # run of names.
         priority: 923,
         level: :admin,

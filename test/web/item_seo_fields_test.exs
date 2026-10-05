@@ -140,7 +140,7 @@ defmodule PhoenixKitCatalogue.Web.ItemSeoFieldsTest do
   end
 
   test "the settings page switch writes the setting", %{conn: conn} do
-    {:ok, view, _html} = live(conn, "/en/admin/settings/catalogue")
+    {:ok, view, _html} = live(conn, "/en/admin/settings/catalogues")
 
     view |> form("#catalogue-seo-fields-form", %{"value" => "true"}) |> render_change()
     assert Settings.seo_fields_visible?()

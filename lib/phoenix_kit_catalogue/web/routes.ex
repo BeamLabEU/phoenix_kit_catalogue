@@ -26,6 +26,13 @@ defmodule PhoenixKitCatalogue.Web.Routes do
       get("/admin/catalogue/*rest", PhoenixKitCatalogue.Web.LegacyPathController, :forward,
         as: :catalogue_legacy_path_locale
       )
+
+      get(
+        "/admin/settings/catalogue",
+        PhoenixKitCatalogue.Web.LegacyPathController,
+        :forward,
+        as: :catalogue_legacy_settings_locale
+      )
     end
   end
 
@@ -45,6 +52,13 @@ defmodule PhoenixKitCatalogue.Web.Routes do
 
       get("/admin/catalogue/*rest", PhoenixKitCatalogue.Web.LegacyPathController, :forward,
         as: :catalogue_legacy_path
+      )
+
+      get(
+        "/admin/settings/catalogue",
+        PhoenixKitCatalogue.Web.LegacyPathController,
+        :forward,
+        as: :catalogue_legacy_settings
       )
     end
   end

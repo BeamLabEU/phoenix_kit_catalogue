@@ -27,6 +27,14 @@ defmodule PhoenixKitCatalogue.Web.LegacyPathTest do
                "/admin/catalogues/abc?category=def&q=oak"
     end
 
+    test "the settings page" do
+      assert Legacy.target("/phoenix_kit/en/admin/settings/catalogue") ==
+               "/phoenix_kit/en/admin/settings/catalogues"
+
+      assert Legacy.target("/admin/settings/catalogues") == "/admin/settings/catalogues"
+      assert Legacy.target("/admin/settings/catalogue-x") == "/admin/settings/catalogue-x"
+    end
+
     test "only the whole segment moves, and only once" do
       assert Legacy.target("/admin/catalogues/abc") == "/admin/catalogues/abc"
       assert Legacy.target("/admin/catalogue-old") == "/admin/catalogue-old"
@@ -42,6 +50,7 @@ defmodule PhoenixKitCatalogue.Web.LegacyPathTest do
 
       assert source =~ ~s("/admin/catalogue",)
       assert source =~ ~s("/admin/catalogue/*rest")
+      assert source =~ ~s("/admin/settings/catalogue",)
       assert source =~ "LegacyPathController"
     end
   end

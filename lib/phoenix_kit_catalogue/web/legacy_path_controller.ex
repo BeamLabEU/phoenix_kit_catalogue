@@ -8,13 +8,18 @@ defmodule PhoenixKitCatalogue.Web.LegacyPathController do
   address working: bookmarks, links in sent mail and in the activity log,
   and sibling modules released before the change.
 
+  The settings page moved the same way, from `/admin/settings/catalogue` to
+  `/admin/settings/catalogues`.
+
   The rest of the path, the locale and URL prefix in front of it, and the
   query string all carry over unchanged.
   """
   use PhoenixKitWeb, :controller
 
-  @old "/admin/catalogue"
-  @new "/admin/catalogues"
+  @moves [
+    {"/admin/settings/catalogue", "/admin/settings/catalogues"},
+    {"/admin/catalogue", "/admin/catalogues"}
+  ]
 
   def forward(conn, _params) do
     conn
@@ -29,7 +34,11 @@ defmodule PhoenixKitCatalogue.Web.LegacyPathController do
   """
   @spec target(String.t(), String.t()) :: String.t()
   def target(path, query \\ "") do
-    moved = Regex.replace(~r{#{@old}(?=/|$)}, path, @new, global: false)
+    moved =
+      Enum.reduce(@moves, path, fn {old, new}, acc ->
+        Regex.replace(~r{#{old}(?=/|$)}, acc, new, global: false)
+      end)
+
     if query in [nil, ""], do: moved, else: moved <> "?" <> query
   end
 end
