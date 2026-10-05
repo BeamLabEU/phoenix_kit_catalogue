@@ -5369,33 +5369,31 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
   defp category_tree_name_cell(assigns) do
     ~H"""
-    <td class={"relative " <> name_cell_class()}>
-      <%!-- One rule at every depth: a level's rail drops from the middle
-           of its parent's picture, and its row starts one whole step in —
-           elbow, picture and gaps, 4.25rem — so the child's elbow lands
-           under the parent's name. The first cut stepped 1.75rem from the
-           second level on and hung those rails off the elbow instead, so
-           level one and level two did not look like the same thing (Max,
-           2026-10-05). With a photo column the first level's rail is drawn
-           there, under the parent's big picture, and this cell starts one
-           level in.
+    <td class={["relative", name_cell_class(), tree_step_class(@thumb)]}>
+      <%!-- One rule at every depth: a subcategory's picture is the size of
+           its parent's, a level's rail drops from the middle of its
+           parent's picture, and every level starts the same distance in
+           from the one above — the photo column's width plus the elbow.
+           Smaller pictures on the inner levels made the first step wider
+           than the rest, whatever the indent said (Max, 2026-10-05). The
+           distances are CSS variables because the picture, and so the
+           step, is larger in the comfortable view (`tree_step_class/1`).
 
-           Without one (the Image column is on, which replaces it) a row is
-           elbow and name only: every level's rail and step is here, at the
-           elbow's own width. --%>
+           With a photo column the first level's rail is drawn there, under
+           the parent's picture, and this cell starts one level in. Without
+           one (the Image column is on, which replaces it) a row is elbow
+           and name only, and every level's rail and step is here. --%>
       <% own = if @thumb, do: @depth - 1, else: @depth %>
-      <% step = if @thumb, do: 4.25, else: 1.75 %>
-      <% rail = if @thumb, do: 3.3125, else: 1.25 %>
       <span
         :for={level <- 1..own//1}
         aria-hidden="true"
         class="absolute inset-y-0 border-l-2 border-base-content/20"
-        style={"left: calc(#{rail}rem + #{level - 1} * #{step}rem)"}
+        style={"left: calc(var(--tree-rail) + #{level - 1} * var(--tree-step))"}
       >
       </span>
       <div
         class="flex items-center gap-2 min-w-0"
-        style={own > 0 && "padding-left: calc(#{own} * #{step}rem)"}
+        style={own > 0 && "padding-left: calc(#{own} * var(--tree-step))"}
       >
         <.icon
           :if={@depth > 0}
@@ -5407,13 +5405,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
           patch={Paths.category_browse(@catalogue.uuid, @cat.uuid)}
           class="shrink-0"
         >
-          <.featured_thumb
-            resource={@cat}
-            has_files={@has_files}
-            letter
-            class="w-9 h-9"
-            comfy_scale={false}
-          />
+          <.featured_thumb resource={@cat} has_files={@has_files} letter />
         </.link>
         <.link
           patch={Paths.category_browse(@catalogue.uuid, @cat.uuid)}
@@ -5442,6 +5434,20 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
   # The hook gathers a level by this key: "root" is the level the view
   # is standing in (the drilled node, or the catalogue's top level).
+  # The category tree's distances. A step is the photo column's width (3rem,
+  # 5.5rem in the comfortable view) plus the elbow and its gap (1.5rem), so a
+  # subcategory's picture starts exactly that far right of its parent's. The
+  # rail sits under the middle of the picture one step back: the cell's
+  # padding (0.75rem) + the elbow (1.5rem) + half a picture (1.25rem, 2.25rem
+  # comfortable), less half its own 2px.
+  defp tree_step_class(true) do
+    "[--tree-step:4.5rem] [--tree-rail:3.4375rem] " <>
+      "[.pk-comfy_&]:[--tree-step:7rem] [.pk-comfy_&]:[--tree-rail:4.4375rem]"
+  end
+
+  # No pictures in the tree: elbow and name only.
+  defp tree_step_class(false), do: "[--tree-step:1.75rem] [--tree-rail:1.25rem]"
+
   # A bulk-action bar that appears on selection docks at the bottom of its
   # list instead of opening above it. Above, it either pushed every row down
   # — the next click then landed on the wrong checkbox (boss via Max,
