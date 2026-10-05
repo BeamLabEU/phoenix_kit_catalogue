@@ -5399,7 +5399,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
   # A tree row's name cell. The NAME opens the chapter's content — that
   # category's own page ("how else are people supposed to get to the
-  # items" — Max, 2026-08-29); the button after it unfolds the outline in
+  # items" — Max, 2026-08-29); the button under it unfolds the outline in
   # place and says so in words. It replaced a bare `›` chevron before the
   # name (boss, 2026-09-19): a right chevron reads as "go there", which
   # the name already does, and the space it reserved on childless rows
@@ -5457,33 +5457,43 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
           name="hero-arrow-turn-down-right"
           class="w-4 h-4 shrink-0 text-base-content/40"
         />
+        <%!-- The extra margin makes the picture-to-name gap the one a
+             top-level row has across its photo column, which is also what
+             puts this row's name exactly one step in — over its own
+             children's elbows. --%>
         <.link
           :if={@depth > 0 and @thumb}
           patch={Paths.category_browse(@catalogue.uuid, @cat.uuid)}
-          class="shrink-0"
+          class="shrink-0 mr-1 [.pk-comfy_&]:mr-2"
         >
           <.featured_thumb resource={@cat} has_files={@has_files} letter />
         </.link>
-        <.link
-          patch={Paths.category_browse(@catalogue.uuid, @cat.uuid)}
-          class="link link-hover font-medium truncate"
-        >
-          {@cat.name}
-        </.link>
-        <button
-          :if={@child_count > 0}
-          type="button"
-          phx-click="toggle_category_expand"
-          phx-value-uuid={@cat.uuid}
-          aria-expanded={to_string(@expanded)}
-          class="btn btn-xs btn-outline rounded-full font-normal gap-1 shrink-0 whitespace-nowrap border-base-content/20 text-base-content/70"
-        >
-          <.icon
-            name="hero-play-solid"
-            class={"w-2.5 h-2.5 transition-transform" <> if(@expanded, do: " rotate-90", else: "")}
-          />
-          {subcategories_label(@child_count)}
-        </button>
+        <%!-- The toggle sits UNDER the name, not beside it: it starts where
+             the name starts, which is where the elbows of the rows it opens
+             start, so the button and what it unfolds read as one column
+             (Max, 2026-10-05). --%>
+        <div class="flex flex-col items-start gap-1 min-w-0">
+          <.link
+            patch={Paths.category_browse(@catalogue.uuid, @cat.uuid)}
+            class="link link-hover font-medium truncate max-w-full"
+          >
+            {@cat.name}
+          </.link>
+          <button
+            :if={@child_count > 0}
+            type="button"
+            phx-click="toggle_category_expand"
+            phx-value-uuid={@cat.uuid}
+            aria-expanded={to_string(@expanded)}
+            class="btn btn-xs btn-outline rounded-full font-normal gap-1 shrink-0 whitespace-nowrap border-base-content/20 text-base-content/70"
+          >
+            <.icon
+              name="hero-play-solid"
+              class={"w-2.5 h-2.5 transition-transform" <> if(@expanded, do: " rotate-90", else: "")}
+            />
+            {subcategories_label(@child_count)}
+          </button>
+        </div>
       </div>
     </td>
     """
