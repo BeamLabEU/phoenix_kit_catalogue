@@ -1557,14 +1557,14 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
   # leaves the categories alphabetical, Items (a count) the other way round.
   # Manual order is manual for both. A column header still sorts its own
   # table, which is how the two can be told apart when someone does want to.
+  #
+  # The direction arrow sends a direction and no field. It turns both lists
+  # round on the fields they are ALREADY on — re-deriving them from the one
+  # field the control shows would quietly put a list a header had sorted back
+  # on Name.
   def handle_event("sort_level", params, socket) do
-    {current_by, current_dir} = level_sort(socket.assigns)
-
-    by =
-      case params["sort_by"] do
-        f when f in @level_sort_field_strs -> String.to_existing_atom(f)
-        _ -> current_by
-      end
+    assigns = socket.assigns
+    {_current_by, current_dir} = level_sort(assigns)
 
     dir =
       case params["sort_dir"] do
@@ -1573,8 +1573,17 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         _ -> current_dir
       end
 
-    categories_by = if by in @categories_sort_fields, do: by, else: :name
-    items_by = if by in @items_sort_fields, do: by, else: :name
+    {categories_by, items_by} =
+      case params["sort_by"] do
+        f when f in @level_sort_field_strs ->
+          by = String.to_existing_atom(f)
+
+          {if(by in @categories_sort_fields, do: by, else: :name),
+           if(by in @items_sort_fields, do: by, else: :name)}
+
+        _ ->
+          {assigns.categories_sort_by, assigns.items_sort_by}
+      end
 
     {:noreply,
      socket

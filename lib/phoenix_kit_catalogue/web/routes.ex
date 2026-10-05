@@ -4,8 +4,9 @@ defmodule PhoenixKitCatalogue.Web.Routes do
 
   Injects the stateless export-download GET route into the host app's
   router via the `route_module/0` callback on `PhoenixKit.Module`, and the
-  two GET routes that send the module's old `/admin/catalogue` address on to
-  `/admin/catalogues` (`Web.LegacyPathController`).
+  GET routes that send the module's old addresses — `/admin/catalogue`,
+  anything under it, and `/admin/settings/catalogue` — on to the current
+  ones (`Web.LegacyPathController`).
   Called at compile time by `PhoenixKit.Integration.compile_external_admin_routes/1`.
   """
 

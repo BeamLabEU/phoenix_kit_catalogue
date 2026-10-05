@@ -815,7 +815,7 @@ defmodule PhoenixKitCatalogue.Web.CataloguesLive do
     end
   end
 
-  # What the View options button counts: the filters narrowing the index.
+  # What the Filters button counts: the filters narrowing the index.
   defp index_active_filters(assigns, cfg) do
     # Not in the Deleted view: its rows are all one status, so the select
     # narrows nothing there and a count would claim a filter that is inert.

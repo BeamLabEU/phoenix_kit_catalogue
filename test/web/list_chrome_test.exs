@@ -243,6 +243,32 @@ defmodule PhoenixKitCatalogue.Web.ListChromeTest do
       assert {{:position, _}, {:position, _}} = sorts(view)
     end
 
+    test "the shared sort: a categories-only field, a split made by a header, and what is stored",
+         %{
+           conn: conn,
+           catalogue: catalogue,
+           parent: parent
+         } do
+      {:ok, view, _html} = live(conn, "#{@base}/#{catalogue.uuid}?category=#{parent.uuid}")
+
+      # a field only the categories have: the items stand on Name
+      render_hook(view, "sort_level", %{"sort_by" => "items"})
+      assert {{:items, :asc}, {:name, :asc}} = sorts(view)
+
+      # a column header sorts its own table and leaves the other alone …
+      render_hook(view, "toggle_sort_items", %{"by" => "sku"})
+      assert {{:items, _}, {:sku, _}} = sorts(view)
+
+      # … and the arrow then turns BOTH round without moving either off its field
+      render_hook(view, "sort_level", %{"sort_dir" => "desc"})
+      assert sorts(view) == {{:items, :desc}, {:sku, :desc}}
+
+      # both lists' sorts are the shared, stored ones: a fresh page opens on them
+      render_hook(view, "sort_level", %{"sort_by" => "name"})
+      {:ok, fresh, _html} = live(conn, "#{@base}/#{catalogue.uuid}?category=#{parent.uuid}")
+      assert sorts(fresh) == {{:name, :desc}, {:name, :desc}}
+    end
+
     test "the search refinements live in Filters", %{
       conn: conn,
       catalogue: catalogue,
