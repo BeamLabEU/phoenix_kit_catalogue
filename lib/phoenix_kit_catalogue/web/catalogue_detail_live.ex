@@ -4200,7 +4200,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                  tabs would otherwise have nothing here to swap out — the
                  bar would push the rows down again. --%>
             <:controls>
-              <.view_options id="detail-view-options">
+              <.view_options id="detail-view-options" labelled>
                 <:controls>
             <.sort_selector
               :if={@child_categories != []}
