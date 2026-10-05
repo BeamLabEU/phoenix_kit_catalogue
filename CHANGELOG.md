@@ -1,3 +1,22 @@
+## 0.47.1 - 2026-10-05
+
+Reviews: `dev_docs/pull_requests/2026/141-item-type/`,
+`144-list-chrome-popups-catalogues-address/` (`CODEX_REVIEW.md`).
+
+The requirements are unchanged.
+
+### Fixed
+
+- Skip duplicates in the import wizard compared against the catalogue's
+  item type as it was when the file was uploaded. If the catalogue's default
+  type was changed meanwhile (Goods to Service or back), an incoming row could
+  create a duplicate of an existing item or be skipped wrongly. The count on
+  the confirmation step and the run itself now use the current default.
+- An old-address redirect no longer rewrites a second old address further
+  along the path; only the first one moves.
+- The layout tests for row alignment and the Image-column category tree run
+  on every `phoenix_kit` version, not only 2.54.0 and later.
+
 ## 0.47.0 - 2026-10-05
 
 Reviews: `dev_docs/pull_requests/2026/144-list-chrome-popups-catalogues-address/`.
