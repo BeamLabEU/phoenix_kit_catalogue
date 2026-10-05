@@ -925,8 +925,8 @@ defmodule PhoenixKitCatalogue.Web.Components do
 
   Spread along their own row they were most of what a person saw before the
   list itself (boss via Max, 2026-10-05: the top of the pages is too busy).
-  The button counts the filters that are on and turns solid, so a narrowed
-  list never looks like the whole list.
+  Filters are not here: they narrow WHICH rows show and sit in the Filters
+  pop-up beside the search (`search_filters/1`); this one is HOW they show.
 
   A page with a single control (the PDF library's view toggle) keeps it on
   the tabs row through `list_controls_row/1`: a pop-up holding one switch
@@ -934,62 +934,66 @@ defmodule PhoenixKitCatalogue.Web.Components do
   """
   attr(:id, :string, required: true, doc: "the pop-up's DOM id")
 
-  attr(:active_filters, :integer,
-    default: 0,
-    doc: "How many of the pop-up's filters are narrowing the list."
-  )
-
   attr(:labelled, :boolean,
     default: false,
     doc:
-      "Always show the words. Off, they show from the `xl` width up and the button is its icon below that — for a row it shares with the search and the create buttons. On where it has a row to itself."
+      "Always show the words. Off, they show from the `xl` width up and the button is its icon below that — for a row it shares with the search and the create buttons."
   )
 
-  slot(:filters, doc: "Filters that narrow the list (a status select, the attribute filter).")
-  slot(:controls, doc: "Sort, Reorder all, Columns, the view toggle.")
+  slot :row, doc: "A setting with its control: the label on the left, the control on the right." do
+    attr(:label, :string, required: true)
+  end
+
+  slot(:action,
+    doc:
+      "A full-width command under the settings (Columns, Reorder all). Give the button `view_option_action_class/0`."
+  )
 
   def view_options(assigns) do
     ~H"""
-    <div :if={@controls != [] or @filters != []} class="relative">
+    <div :if={@row != [] or @action != []} class="relative">
       <button
         type="button"
         phx-click={toggle_popover(@id)}
         aria-haspopup="dialog"
         title={gettext("View options")}
-        class={[
-          "btn btn-sm gap-1",
-          if(@active_filters > 0, do: "btn-primary", else: "btn-outline")
-        ]}
+        class="btn btn-sm btn-outline gap-1"
       >
         <.icon name="hero-adjustments-horizontal" class="w-4 h-4" />
         <span class={!@labelled && "hidden xl:inline"}>{gettext("View options")}</span>
-        <span :if={@active_filters > 0} class="badge badge-xs">{@active_filters}</span>
       </button>
-      <.popover_panel id={@id} width_class="sm:w-80">
-        <div class="card-body p-4 gap-4">
-          <div :if={@filters != []} class="flex flex-col gap-2">
-            <span class="text-xs font-semibold uppercase tracking-wide text-base-content/50">
-              {gettext("Filters")}
-            </span>
-            <div class="flex flex-col items-stretch gap-2 [&>form]:!block">
-              {render_slot(@filters)}
+      <.popover_panel id={@id} width_class="sm:w-72">
+        <%!-- A short settings list, not a pile of controls: every row is
+             a label and its control on one line, the commands sit under a
+             rule as menu items (Max, 2026-10-05: the first cut "looks a
+             bit clunky" — three controls of three shapes, left-aligned). --%>
+        <div class="p-2">
+          <div :if={@row != []} class="flex flex-col px-2 py-1">
+            <div
+              :for={row <- @row}
+              class="flex items-center justify-between gap-4 min-h-10 text-sm"
+            >
+              <span class="text-base-content/70 whitespace-nowrap">{row.label}</span>
+              <div class="flex items-center justify-end gap-1 min-w-0">{render_slot(row)}</div>
             </div>
           </div>
-          <div :if={@controls != []} class="flex flex-col gap-2">
-            <span class="text-xs font-semibold uppercase tracking-wide text-base-content/50">
-              {gettext("List")}
-            </span>
-            <%!-- In the pop-up there is room for words: the buttons'
-                 `hidden sm:inline` labels are for a crowded row. --%>
-            <div class="flex flex-col items-start gap-2 [&_.btn>span.hidden]:inline">
-              {render_slot(@controls)}
-            </div>
+          <div
+            :if={@action != []}
+            class={[
+              "flex flex-col [&_.btn>span.hidden]:inline",
+              @row != [] && "border-t border-base-content/10 mt-1 pt-1"
+            ]}
+          >
+            {render_slot(@action)}
           </div>
         </div>
       </.popover_panel>
     </div>
     """
   end
+
+  @doc "Classes for a command in the View options pop-up: a full-width menu item."
+  def view_option_action_class, do: "btn btn-ghost btn-sm w-full justify-start gap-2 font-normal"
 
   @doc """
   `phx-click` for a control inside a pop-up that opens a dialog (Columns,

@@ -14,7 +14,7 @@ defmodule PhoenixKitCatalogue.Web.ItemFormUploadTest do
   alias PhoenixKitCatalogue.Attachments
   alias PhoenixKitCatalogue.Catalogue
 
-  @base "/en/admin/catalogue"
+  @base "/en/admin/catalogues"
   @buckets_cache :phoenix_kit_buckets_cache
 
   setup do

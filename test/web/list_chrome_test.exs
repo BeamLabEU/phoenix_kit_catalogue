@@ -13,7 +13,7 @@ defmodule PhoenixKitCatalogue.Web.ListChromeTest do
   """
   use PhoenixKitCatalogue.LiveCase, async: false
 
-  @base "/en/admin/catalogue"
+  @base "/en/admin/catalogues"
 
   setup %{conn: conn, scope: scope} do
     catalogue = fixture_catalogue(%{name: "Chrome cat"})
@@ -145,16 +145,52 @@ defmodule PhoenixKitCatalogue.Web.ListChromeTest do
   end
 
   describe "inside a catalogue" do
-    test "the list controls live in View options, on the row the bulk bar replaces", %{
+    test "the list controls live in View options, up with the create buttons", %{
       conn: conn,
       catalogue: catalogue
     } do
       {:ok, _view, html} = live(conn, "#{@base}/#{catalogue.uuid}")
 
-      assert inside?(html, "#detail-level-controls", "#detail-view-options")
       assert inside?(html, "#detail-view-options", "#categories-sort-selector")
       assert inside?(html, "#detail-view-options", ~s(button[phx-click*="show_column_modal"]))
       assert count(html, "#categories-sort-selector") == 1
+      assert count(html, "#detail-view-options") == 1
+    end
+
+    # No row is kept on the page just to hold a button: without status tabs,
+    # a picture or a description there is nothing between the toolbar and
+    # the tables.
+    test "the caption row exists only when it has something to say", %{
+      conn: conn,
+      catalogue: catalogue
+    } do
+      {:ok, _view, html} = live(conn, "#{@base}/#{catalogue.uuid}")
+      assert count(html, "#detail-level-caption") == 0
+
+      described = fixture_catalogue(%{name: "Described", description: "Pipes and fittings."})
+      fixture_category(described, %{name: "Any"})
+
+      {:ok, _view, html} = live(conn, "#{@base}/#{described.uuid}")
+      assert inside?(html, "#detail-level-caption", "p")
+      assert html =~ "Pipes and fittings."
+    end
+
+    # The bar docks under its list, so ticking a row moves nothing above it.
+    test "a selection's action bar sits after the table, not before it", %{
+      conn: conn,
+      catalogue: catalogue
+    } do
+      {:ok, _view, html} = live(conn, "#{@base}/#{catalogue.uuid}")
+
+      [bar] =
+        html
+        |> doc()
+        |> LazyHTML.query(~s(#categories-bulk > [data-bulk-show="has-selection"]))
+        |> LazyHTML.attribute("class")
+
+      assert bar =~ "order-last"
+      assert bar =~ "sticky"
+      refute html =~ ~s(data-bulk-swap)
     end
 
     test "the search refinements live in Filters", %{

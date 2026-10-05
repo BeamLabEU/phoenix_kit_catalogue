@@ -54,7 +54,8 @@ defmodule PhoenixKitCatalogue.GettextTest do
           # (boss via Max, 2026-10-05: the top of the pages was too busy):
           {"View options", "Параметры вида", "Vaate valikud"},
           {"Filters", "Фильтры", "Filtrid"},
-          {"List", "Список", "Loend"},
+          {"Sort by", "Сортировать по", "Sorteeri"},
+          {"Layout", "Вид", "Paigutus"},
           # Found by the 2026-08-29 sweep: all of these were rendered by the
           # UI and present in NO catalogue. `:set_not_found` is the sharpest —
           # `errors_test.exs` pinned `Errors.message(:set_not_found) ==

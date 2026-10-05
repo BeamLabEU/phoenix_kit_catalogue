@@ -3888,46 +3888,16 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
         </div>
 
         <div :if={@catalogue} class="flex flex-col gap-6">
-          <%!-- In-body header, one row: the scoped search sits top-left
-               (where the old in-page breadcrumb was — the trail now lives
-               in the admin header), the level actions right. The search
-               input stays up whenever a search is on screen even outside
-               Active: `?q=` survives the level load, so a deep link into a
-               node whose Active tab is empty lands in the Deleted view
-               with results rendered — hiding it would leave no way to
-               clear. The level's DESCRIPTION (the catalogue's at root, the
-               category's when drilled) is a small muted line at the very
-               top, clamped to ONE line so its cost is fixed no matter how
-               long the field is — the full text is in the hover tooltip. --%>
-          <% level_desc = level_description(@current_category, @catalogue) %>
-          <% level_img = level_image(@current_category, @catalogue) %>
+          <%!-- In-body header, one row: the scoped search and its Filters
+               top-left (where the old in-page breadcrumb was — the trail now
+               lives in the admin header), View options and the level actions
+               right. The search input stays up whenever a search is on screen
+               even outside Active: `?q=` survives the level load, so a deep
+               link into a node whose Active tab is empty lands in the Deleted
+               view with results rendered — hiding it would leave no way to
+               clear. --%>
           <% show_search_input = @view_mode in ["active", "deleted"] or @search_results != nil or @search_loading %>
-          <div :if={show_search_input || level_desc || level_img} class="flex flex-col gap-3 mb-3">
-            <%!-- The place's own picture beside its description. Inside a
-                 category there was no way to see the image attached to it
-                 (boss via Max, 2026-09-21); the catalogue's top level shows
-                 the catalogue's the same way. Either opens its View card,
-                 which holds every picture it has. --%>
-            <div :if={level_img || level_desc} class="flex items-center gap-3 min-w-0">
-              <button
-                :if={level_img}
-                type="button"
-                id="level-image"
-                phx-click={
-                  if match?(%Category{}, level_img),
-                    do: "show_category_card",
-                    else: "show_catalogue_card"
-                }
-                phx-value-uuid={level_img.uuid}
-                class="shrink-0 cursor-pointer"
-                title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "View")}
-              >
-                <.featured_thumb resource={level_img} class="w-16 h-16" comfy_scale={false} />
-              </button>
-              <p :if={level_desc} class="text-sm text-base-content/60 truncate" title={level_desc}>
-                {level_desc}
-              </p>
-            </div>
+          <div class="flex flex-col gap-3 mb-3">
             <%!-- flex-wrap, not flex-col: on narrow screens the search takes
                  the line (grow + wide basis) and the actions wrap under it,
                  still right-aligned via ml-auto — same edge the controls row
@@ -3991,16 +3961,110 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                   inline
                 />
               </.search_filters>
-              <div :if={@view_mode == "active"} class="ml-auto flex flex-wrap items-center gap-2">
+              <div class="ml-auto flex flex-wrap items-center justify-end gap-2">
+                <%!-- The list's own controls, behind one button, where the
+                     index keeps them. Browse view only: a search lays its
+                     results out itself and carries its own view toggle. On
+                     every status tab, so not under the create buttons'
+                     Active-only rule. --%>
+                <.view_options
+                    :if={
+                      is_nil(@search_results) and not @search_loading and
+                        (@child_categories != [] or (@show_items_section and @items != []))
+                    }
+                    id="detail-view-options"
+                  >
+                  <%!-- `label={false}`: the row's own label says "Sort by".
+                       A level shows categories or, without any, its items:
+                       one sort row, for whichever list the level leads
+                       with. A mixed level's items keep their sort in their
+                       own section's bar. --%>
+                  <:row :if={@child_categories != []} label={gettext("Sort by")}>
+                    <.sort_selector
+                      sort_by={@categories_sort_by}
+                      sort_dir={@categories_sort_dir}
+                      options={category_sort_options()}
+                      manual_field={:position}
+                      event="sort_categories"
+                      id="categories-sort-selector"
+                      label={false}
+                    />
+                  </:row>
+                  <:row
+                    :if={
+                      @child_categories == [] and @show_items_section and @items != [] and
+                        @view_mode == "active"
+                    }
+                    label={gettext("Sort by")}
+                  >
+                    <.sort_selector
+                      sort_by={@items_sort_by}
+                      sort_dir={@items_sort_dir}
+                      options={item_sort_options()}
+                      manual_field={:position}
+                      event="sort_items"
+                      id="items-header-sort-selector"
+                      label={false}
+                    />
+                  </:row>
+                  <:row label={gettext("Layout")}>
+                    <.view_toggle_instant view={@view_mode_pref} id="detail-view-pref" />
+                  </:row>
+                  <:action>
+                    <button
+                      :if={detail_column_scopes(assigns) != []}
+                      type="button"
+                      phx-click={push_closing("show_column_modal", "detail-view-options")}
+                      class={view_option_action_class()}
+                    >
+                      <.icon name="hero-view-columns" class="w-4 h-4" />
+                      {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Columns")}
+                    </button>
+                    <button
+                      :if={
+                        @child_categories == [] and @show_items_section and @items_total > 1 and
+                          @items_sort_by == :position and @view_mode == "active"
+                      }
+                      type="button"
+                      phx-click={push_closing("open_items_reorder_modal", "detail-view-options")}
+                      class={view_option_action_class()}
+                    >
+                      <.icon name="hero-arrows-up-down" class="w-4 h-4" />
+                      {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Reorder all")}
+                    </button>
+                    <button
+                      :if={
+                        @view_mode == "active" and length(@child_categories) > 1 and
+                          @categories_sort_by == :position
+                      }
+                      type="button"
+                      phx-click={
+                        push_closing("open_categories_reorder_modal", "detail-view-options")
+                      }
+                      class={view_option_action_class()}
+                    >
+                      <.icon name="hero-arrows-up-down" class="w-4 h-4" />
+                      {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Reorder all")}
+                    </button>
+                  </:action>
+                </.view_options>
                 <%!-- On every level (boss's call, 2026-08-18 — subcategories
                      are a first-class flow): at root it creates a root
                      category, drilled it creates a SUBCATEGORY of the
                      current one — new_category_path pre-seeds parent_uuid
                      from @current_category, so there's no ambiguity. --%>
-                <.link navigate={new_category_path(assigns)} class="btn btn-outline btn-sm">
+                <.link
+                  :if={@view_mode == "active"}
+                  navigate={new_category_path(assigns)}
+                  class="btn btn-outline btn-sm"
+                >
                   <.icon name="hero-folder-plus" class="w-4 h-4" /> {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Add category")}
                 </.link>
-                <.link navigate={new_item_path(assigns)} class="btn btn-primary btn-sm">
+                <.link
+                  :if={@view_mode == "active"}
+                  navigate={new_item_path(assigns)}
+                  class="btn btn-primary btn-sm"
+                >
                   <.icon name="hero-plus" class="w-4 h-4" /> {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Add item")}
                 </.link>
                 <%!-- Edits the place you are standing in: the category when
@@ -4008,12 +4072,19 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                      edited the catalogue, which is not what "Edit" on a
                      category's page reads as (boss via Max, 2026-09-21).
                      The label names which, so the two cannot be confused. --%>
+                <%!-- A pencil below the wide-desktop width, where the words
+                     would push the row onto a second line; the words are
+                     its tooltip there and its label above. --%>
                 <.link
+                  :if={@view_mode == "active"}
                   id="level-edit-button"
                   navigate={level_edit_path(assigns)}
-                  class="btn btn-ghost btn-sm"
+                  class="btn btn-ghost btn-sm gap-1"
+                  title={level_edit_label(@current_category)}
+                  aria-label={level_edit_label(@current_category)}
                 >
-                  {level_edit_label(@current_category)}
+                  <.icon name="hero-pencil-square" class="w-4 h-4" />
+                  <span class="hidden xl:inline">{level_edit_label(@current_category)}</span>
                 </.link>
               </div>
             </div>
@@ -4154,35 +4225,21 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
         <%!-- ── Browse view (no active search) ──────────────────────── --%>
         <div :if={is_nil(@search_results) and not @search_loading} class="flex flex-col gap-6">
-          <%!-- One control row: category Reorder-all (manual/drag order is
-               the only category order, so the shortcut is always offered
-               with >1 sibling) next to the view toggle — not two stacked
-               right-aligned rows. --%>
-          <%!-- The bulk action bars REPLACE this row rather than stacking
-               above the tables: revealing a bar without hiding something
-               pushed every row down 52px, and the next click then landed on
-               the wrong checkbox (boss via Max, 2026-09-20). Sort, the
-               status tabs, columns and the view toggle are all unusable
-               while a selection is open anyway. Both scopes below name this
-               id, and it stays hidden while either holds a selection. --%>
-          <.list_controls_row
-            :if={
-              @child_categories != [] or length(@status_tabs) > 1 or
-                (@show_items_section and
-                   (@items != [] or @search_results not in [nil, []]))
-            }
-            id="detail-level-controls"
+          <%!-- One line above the tables, and only when it has something to
+               say: the status tabs (a lone status is not a choice) and the
+               place's own picture and description. The description used to
+               take a row of its own at the very top, and the list controls
+               another — a sentence and a button, each alone on a line (Max,
+               2026-10-05: "awkward and lopsided"). The controls are up with
+               the create buttons now; this is what is left, as a caption. --%>
+          <% level_desc = level_description(@current_category, @catalogue) %>
+          <% level_img = level_image(@current_category, @catalogue) %>
+          <div
+            :if={length(@status_tabs) > 1 or level_desc || level_img}
+            id="detail-level-caption"
+            class="flex items-center gap-3 min-w-0"
           >
-            <%!-- One tab per populated status — sharing the row with the
-                 sort/columns/view controls (no dedicated tab row). The
-                 tabs stay even though the Active tab is now a pure
-                 category browser: they are also the way into the
-                 inactive/discontinued views and the trash. --%>
-            <%!-- A lone tab is not a choice — one populated status means the
-                 row carries its controls alone. `:if` on the slot ENTRY
-                 drops it from the slot list, so the wrapper div does not
-                 render empty either. --%>
-            <:tabs :if={length(@status_tabs) > 1}>
+            <div :if={length(@status_tabs) > 1} class="flex items-center gap-0.5 shrink-0">
               <.status_tab
                 :for={{status, label, count} <- @status_tabs}
                 label={label}
@@ -4192,84 +4249,35 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
                 phx-click="switch_view"
                 phx-value-mode={status}
               />
-            </:tabs>
-            <%!-- The list's own controls behind one button (boss via Max,
-                 2026-10-05: the top was too busy). It stays on THIS row
-                 rather than joining the create buttons above: this row is
-                 what the bulk bars replace, and a level with no status
-                 tabs would otherwise have nothing here to swap out — the
-                 bar would push the rows down again. --%>
-            <:controls>
-              <.view_options id="detail-view-options" labelled>
-                <:controls>
-            <.sort_selector
-              :if={@child_categories != []}
-              sort_by={@categories_sort_by}
-              sort_dir={@categories_sort_dir}
-              options={category_sort_options()}
-              manual_field={:position}
-              event="sort_categories"
-              id="categories-sort-selector"
-              label
-            />
-            <%!-- Item-only levels put the items sort here too — same row,
-                 same order as the catalogues index. Mixed levels keep the
-                 items controls in their own section to avoid two identical
-                 unlabeled sort dropdowns side by side. --%>
-            <.sort_selector
-              :if={@child_categories == [] and @show_items_section and @items != [] and @view_mode == "active"}
-              sort_by={@items_sort_by}
-              sort_dir={@items_sort_dir}
-              options={item_sort_options()}
-              manual_field={:position}
-              event="sort_items"
-              id="items-header-sort-selector"
-              label
-            />
+            </div>
+            <%!-- The place's own picture beside its description. Inside a
+                 category there was no way to see the image attached to it
+                 (boss via Max, 2026-09-21); the catalogue's top level shows
+                 the catalogue's the same way. Either opens its View card,
+                 which holds every picture it has. --%>
             <button
-              :if={
-                @child_categories == [] and @show_items_section and @items_total > 1 and
-                  @items_sort_by == :position and @view_mode == "active"
+              :if={level_img}
+              type="button"
+              id="level-image"
+              phx-click={
+                if match?(%Category{}, level_img),
+                  do: "show_category_card",
+                  else: "show_catalogue_card"
               }
-              type="button"
-              phx-click={push_closing("open_items_reorder_modal", "detail-view-options")}
-              class="btn btn-outline btn-sm"
+              phx-value-uuid={level_img.uuid}
+              class="shrink-0 cursor-pointer"
+              title={Gettext.gettext(PhoenixKitCatalogue.Gettext, "View")}
             >
-              <.icon name="hero-arrows-up-down" class="w-4 h-4" />
-              <span class="hidden sm:inline">
-                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Reorder all")}
-              </span>
+              <.featured_thumb resource={level_img} class="w-9 h-9" comfy_scale={false} />
             </button>
-            <button
-              :if={
-                @view_mode == "active" and length(@child_categories) > 1 and
-                  @categories_sort_by == :position
-              }
-              type="button"
-              phx-click={push_closing("open_categories_reorder_modal", "detail-view-options")}
-              class="btn btn-outline btn-sm"
+            <p
+              :if={level_desc}
+              class="min-w-0 text-sm text-base-content/60 truncate"
+              title={level_desc}
             >
-              <.icon name="hero-arrows-up-down" class="w-4 h-4" />
-              <span class="hidden sm:inline">
-                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Reorder all")}
-              </span>
-            </button>
-            <button
-              :if={detail_column_scopes(assigns) != []}
-              type="button"
-              phx-click={push_closing("show_column_modal", "detail-view-options")}
-              class="btn btn-outline btn-sm"
-            >
-              <.icon name="hero-adjustments-horizontal" class="w-4 h-4" />
-              <span class="hidden sm:inline">
-                {Gettext.gettext(PhoenixKitCatalogue.Gettext, "Columns")}
-              </span>
-            </button>
-              <.view_toggle_instant view={@view_mode_pref} id="detail-view-pref" />
-                </:controls>
-              </.view_options>
-            </:controls>
-          </.list_controls_row>
+              {level_desc}
+            </p>
+          </div>
 
           <.reorder_modal
             id="categories-reorder-modal"
@@ -4301,7 +4309,6 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
             :if={@child_categories != []}
             id="categories-bulk"
             total_count={length(@child_categories)}
-            swap="#detail-level-controls"
             class="flex flex-col gap-2"
           >
             <%!-- Reorder rewrites the manual order, which a sort hides — so,
@@ -4311,9 +4318,10 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               :if={@view_mode == "active"}
               data-bulk-show="has-selection"
               style="display: none;"
-              class={
+              class={[
+                bulk_dock_class(),
                 @categories_sort_by != :position && "[&_[data-bulk-action*=reorder]]:!hidden"
-              }
+              ]}
             >
               <.bulk_actions_toolbar
                 on_open_reorder="open_categories_reorder_modal"
@@ -4357,7 +4365,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
               :if={@view_mode == "deleted"}
               data-bulk-show="has-selection"
               style="display: none;"
-              class="[&_[data-bulk-action*=reorder]]:!hidden"
+              class={[bulk_dock_class(), "[&_[data-bulk-action*=reorder]]:!hidden"]}
             >
               <.bulk_actions_toolbar
                 on_open_reorder="open_categories_reorder_modal"
@@ -5422,6 +5430,18 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
 
   # The hook gathers a level by this key: "root" is the level the view
   # is standing in (the drilled node, or the catalogue's top level).
+  # A bulk-action bar that appears on selection docks at the bottom of its
+  # list instead of opening above it. Above, it either pushed every row down
+  # — the next click then landed on the wrong checkbox (boss via Max,
+  # 2026-09-20) — or needed a row kept on the page for it to take the place
+  # of, which is the lone-button row this page used to carry. Below the
+  # table nothing moves: `order-last` puts it after the rows without moving
+  # the markup, and `sticky` keeps it in view on a long list.
+  defp bulk_dock_class do
+    "order-last sticky bottom-4 z-30 self-center w-fit max-w-full rounded-box " <>
+      "border border-base-content/10 bg-base-100 shadow-xl"
+  end
+
   defp tree_parent_key(%{parent_uuid: parent}, current_uuid)
        when parent == current_uuid or is_nil(parent),
        do: "root"
@@ -6044,15 +6064,14 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
     ~H"""
     <div class="flex flex-col gap-2">
       <%!-- ── Active list: core List-UI toolkit ── --%>
-      <%!-- Swap only when this list's controls live in the page row. With
-           its own toolbar (a mixed level) the row is on screen already and
-           the action buttons appear INSIDE it, so nothing moves and there
-           is nothing to replace. --%>
+      <%!-- With its own toolbar (a mixed level: the sort sits in it) the
+           bar is on screen already and the action buttons appear INSIDE it,
+           so nothing moves. Without one, the bar exists only while rows are
+           ticked and docks under the list (`bulk_dock_class/0`). --%>
       <.bulk_select_scope
         :if={@items != []}
         id="items-bulk"
         total_count={@items_total}
-        swap={if @controls_in_page_header, do: "#detail-level-controls"}
         class="flex flex-col gap-2"
       >
         <%!-- With the sort selector + Reorder-all promoted to the page
@@ -6062,9 +6081,10 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
           :if={@view_mode != "deleted"}
           data-bulk-show={if @controls_in_page_header, do: "has-selection"}
           style={if @controls_in_page_header, do: "display: none;"}
-          class={
+          class={[
+            @controls_in_page_header && bulk_dock_class(),
             !@reorder_allowed && "[&_[data-bulk-action*=reorder]]:!hidden"
-          }
+          ]}
         >
           <.bulk_actions_toolbar
             on_open_reorder="open_items_reorder_modal"
@@ -6121,7 +6141,7 @@ defmodule PhoenixKitCatalogue.Web.CatalogueDetailLive do
           :if={@view_mode == "deleted"}
           data-bulk-show="has-selection"
           style="display: none;"
-          class="[&_[data-bulk-action*=reorder]]:!hidden"
+          class={[bulk_dock_class(), "[&_[data-bulk-action*=reorder]]:!hidden"]}
         >
           <.bulk_actions_toolbar
             on_open_reorder="open_items_reorder_modal"

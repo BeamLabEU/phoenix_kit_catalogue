@@ -17,7 +17,7 @@ defmodule PhoenixKitCatalogue.Web.ExtensionSlotTest do
   alias PhoenixKitCatalogue.Test.FakeModule
   alias PhoenixKitCatalogue.Web.Settings
 
-  @base "/en/admin/catalogue"
+  @base "/en/admin/catalogues"
 
   defp edit_item_url(uuid), do: "#{@base}/items/#{uuid}/edit"
   defp edit_category_url(uuid), do: "#{@base}/categories/#{uuid}/edit"
