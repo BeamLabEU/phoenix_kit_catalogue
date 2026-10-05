@@ -939,6 +939,12 @@ defmodule PhoenixKitCatalogue.Web.Components do
     doc: "How many of the pop-up's filters are narrowing the list."
   )
 
+  attr(:labelled, :boolean,
+    default: false,
+    doc:
+      "Always show the words. Off, they show from the `xl` width up and the button is its icon below that — for a row it shares with the search and the create buttons. On where it has a row to itself."
+  )
+
   slot(:filters, doc: "Filters that narrow the list (a status select, the attribute filter).")
   slot(:controls, doc: "Sort, Reorder all, Columns, the view toggle.")
 
@@ -956,7 +962,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
         ]}
       >
         <.icon name="hero-adjustments-horizontal" class="w-4 h-4" />
-        <span class="hidden md:inline">{gettext("View options")}</span>
+        <span class={!@labelled && "hidden xl:inline"}>{gettext("View options")}</span>
         <span :if={@active_filters > 0} class="badge badge-xs">{@active_filters}</span>
       </button>
       <.popover_panel id={@id} width_class="sm:w-80">
