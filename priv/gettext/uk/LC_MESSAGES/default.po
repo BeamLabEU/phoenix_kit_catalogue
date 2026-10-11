@@ -127,7 +127,7 @@ msgid "Drag to reorder or move into a folder"
 msgstr "Перетягніть, щоб змінити порядок або перемістити до папки"
 
 msgid "This will permanently delete this folder. Only empty folders can be deleted. This cannot be undone."
-msgstr "Цю папку буде видалено остаточно. Видаляти можна лише порожні папки. Цю дію не можна скасувати."
+msgstr "Це остаточно видалить цю папку. Видаляти можна лише порожні папки. Цю дію не можна скасувати."
 
 msgid "Only empty folders can be deleted — move its contents out first."
 msgstr "Видаляти можна лише порожні папки — спочатку перемістіть її вміст."
@@ -151,10 +151,10 @@ msgid "Pending"
 msgstr "Очікує"
 
 msgid "Extracting"
-msgstr "Видобування"
+msgstr "Витягування"
 
 msgid "Extracted"
-msgstr "Видобуто"
+msgstr "Витягнуто"
 
 msgid "Scanned (no text)"
 msgstr "Відскановано (без тексту)"
@@ -204,7 +204,7 @@ msgid "Cannot move a category under itself or one of its descendants."
 msgstr "Неможливо перемістити категорію саму в себе або в одну з її дочірніх категорій."
 
 msgid "Target belongs to a different catalogue. Move the category to the target catalogue first."
-msgstr "Ціль належить іншому каталогу. Спочатку перемістіть категорію до цільового каталогу."
+msgstr "Цільовий елемент належить іншому каталогу. Спочатку перемістіть категорію до цільового каталогу."
 
 msgid "Parent category not found."
 msgstr "Батьківську категорію не знайдено."
@@ -249,10 +249,10 @@ msgid "Each catalogue can only be referenced once per item."
 msgstr "Кожен каталог можна вказати в позиції лише один раз."
 
 msgid "Invalid price: %{raw}"
-msgstr "Некоректна ціна: %{raw}"
+msgstr "Недійсна ціна: %{raw}"
 
 msgid "Invalid markup: %{raw}"
-msgstr "Некоректна націнка: %{raw}"
+msgstr "Недійсна націнка: %{raw}"
 
 msgid "Sheet '%{sheet}' is empty."
 msgstr "Аркуш '%{sheet}' порожній."
@@ -286,7 +286,7 @@ msgid "%{n}d ago"
 msgstr "%{n} дн. тому"
 
 msgid "%b %d, %Y"
-msgstr "%b %d, %Y"
+msgstr "%d.%m.%Y"
 
 ## Flash messages
 msgid "Catalogue created."
@@ -1018,7 +1018,7 @@ msgid "That folder no longer exists."
 msgstr "Цієї папки більше не існує."
 
 msgid "This will permanently delete this folder. Subfolders are moved to root and catalogues filed here are unfiled — neither is deleted. This cannot be undone."
-msgstr "Папку буде видалено остаточно. Підпапки буде переміщено в корінь, а каталоги з цієї папки стануть каталогами без папки — жоден з них не буде видалено. Цю дію неможливо скасувати."
+msgstr "Це остаточно видалить цю папку. Підпапки буде переміщено в корінь, а каталоги з цієї папки стануть каталогами без папки — жоден з них не буде видалено. Цю дію неможливо скасувати."
 
 msgid "Folder moved."
 msgstr "Папку переміщено."
@@ -1061,13 +1061,13 @@ msgid "Delete Supplier"
 msgstr "Видалити постачальника"
 
 msgid "This will permanently delete this catalogue, all its categories, and all items. This cannot be undone."
-msgstr "Цей каталог, усі його категорії та всі позиції буде видалено остаточно. Цю дію неможливо скасувати."
+msgstr "Це остаточно видалить цей каталог, усі його категорії та всі позиції. Цю дію неможливо скасувати."
 
 msgid "This will permanently delete this manufacturer. Items referencing it will lose the association."
-msgstr "Цього виробника буде видалено остаточно. Позиції, що на нього посилаються, втратять цей зв'язок."
+msgstr "Це остаточно видалить цього виробника. Позиції, що на нього посилаються, втратять цей зв'язок."
 
 msgid "This will permanently delete this supplier. Manufacturer links will be removed."
-msgstr "Цього постачальника буде видалено остаточно. Зв'язки з виробниками буде прибрано."
+msgstr "Це остаточно видалить цього постачальника. Зв'язки з виробниками буде прибрано."
 
 msgid "No results found."
 msgstr "Нічого не знайдено."
@@ -1080,7 +1080,7 @@ msgid "Primary supplier"
 msgstr "Основний постачальник"
 
 msgid "Supplier SKU"
-msgstr "Артикул постачальника"
+msgstr "SKU постачальника"
 
 msgid "Lead time (days)"
 msgstr "Строк постачання (днів)"
@@ -1279,19 +1279,19 @@ msgid "No attribute groups yet. Create one to define reusable options like color
 msgstr "Груп атрибутів поки немає. Створіть групу, щоб задати багаторазові опції, як-от кольори та оздоблення."
 
 msgid "This will permanently delete this group with all its attributes and values. Groups used by items cannot be deleted — archive them instead."
-msgstr "Групу разом з усіма її атрибутами та значеннями буде видалено остаточно. Групи, що використовуються позиціями, видалити неможливо — архівуйте їх."
+msgstr "Це остаточно видалить цю групу разом з усіма її атрибутами та значеннями. Групи, що використовуються позиціями, видалити неможливо — архівуйте їх."
 
 msgid "e.g., Idea doors"
 msgstr "напр., Двері Idea"
 
 msgid "Define a reusable set of options — colors, trims, surfaces — that items can inherit."
-msgstr "Задайте багаторазовий набір опцій — кольори, кромки, поверхні — які можуть успадковувати позиції."
+msgstr "Задайте багаторазовий набір опцій — кольори, декоративні планки, поверхні — які можуть успадковувати позиції."
 
 msgid "Manage this group's attributes, values, and translations."
 msgstr "Керуйте атрибутами, значеннями та перекладами цієї групи."
 
 msgid "No attributes yet. Add one below — e.g., Color, Trim, Surface."
-msgstr "Атрибутів поки немає. Додайте нижче — напр., Колір, Кромка, Поверхня."
+msgstr "Атрибутів поки немає. Додайте нижче — напр., Колір, Декоративна планка, Поверхня."
 
 msgid "Failed to add attribute."
 msgstr "Не вдалося додати атрибут."
@@ -1321,13 +1321,13 @@ msgid "Remove value"
 msgstr "Прибрати значення"
 
 msgid "You are editing translations. Empty fields fall back to the primary language; new attributes and values are always created in the primary language."
-msgstr "Ви редагуєте переклади. Порожні поля використовують основну мову; нові атрибути та значення завжди створюються основною мовою."
+msgstr "Ви редагуєте переклади. Порожні поля замінюються значенням основної мови; нові атрибути та значення завжди створюються основною мовою."
 
 msgid "Attribute group"
 msgstr "Група атрибутів"
 
 msgid "Pick a group to give this item its options — colors, trims, surfaces. Applied when you save."
-msgstr "Виберіть групу, щоб задати цій позиції її опції — кольори, кромки, поверхні. Застосовується під час збереження."
+msgstr "Виберіть групу, щоб задати цій позиції її опції — кольори, декоративні планки, поверхні. Застосовується під час збереження."
 
 msgid "Manage groups"
 msgstr "Керування групами"
@@ -1396,7 +1396,7 @@ msgid "New Attribute Set"
 msgstr "Новий набір атрибутів"
 
 msgid "Invalid value for %{field}."
-msgstr "Недопустиме значення для %{field}."
+msgstr "Недійсне значення для %{field}."
 
 msgid "A field with this name already exists."
 msgstr "Поле з такою назвою вже існує."
@@ -1693,7 +1693,7 @@ msgid " or drag & drop"
 msgstr " або перетягніть сюди"
 
 msgid "%b %d, %Y %H:%M"
-msgstr "%b %d, %Y %H:%M"
+msgstr "%d.%m.%Y %H:%M"
 
 msgid "%{count} items already exist in this catalogue with identical data."
 msgstr "Позицій з ідентичними даними, що вже є в цьому каталозі: %{count}."
@@ -1854,7 +1854,7 @@ msgid "Could not save the uploaded file. Please try again or contact support if 
 msgstr "Не вдалося зберегти завантажений файл. Спробуйте ще раз або зверніться до підтримки, якщо помилка повторюється."
 
 msgid "Could not start extraction. The :catalogue_pdf Oban queue may not be running."
-msgstr "Не вдалося запустити видобування. Черга Oban :catalogue_pdf, можливо, не працює."
+msgstr "Не вдалося запустити витягування. Черга Oban :catalogue_pdf, можливо, не працює."
 
 msgid "Create categories"
 msgstr "Створити категорії"
@@ -1914,7 +1914,7 @@ msgid "Errors"
 msgstr "Помилки"
 
 msgid "Extraction failed"
-msgstr "Не вдалося видобути текст"
+msgstr "Не вдалося витягти текст"
 
 msgid "File"
 msgstr "Файл"
@@ -2138,7 +2138,7 @@ msgid "No discontinued items here."
 msgstr "Знятих з виробництва позицій тут немає."
 
 msgid "No extractable text"
-msgstr "Немає тексту для видобування"
+msgstr "Немає тексту для витягування"
 
 msgid "No inactive items here."
 msgstr "Неактивних позицій тут немає."
@@ -2165,7 +2165,7 @@ msgid "No other categories available — use Uncategorized instead."
 msgstr "Немає інших категорій — використайте «Без категорії»."
 
 msgid "No stuck extractions to re-queue."
-msgstr "Немає завислих видобувань для повторної постановки в чергу."
+msgstr "Немає завислих витягувань для повторної постановки в чергу."
 
 msgid "No supplier — leave manufacturers unlinked"
 msgstr "Без постачальника — залишити виробників непов'язаними"
@@ -2188,7 +2188,7 @@ msgid "Open the PDF in a new tab"
 msgstr "Відкрити PDF у новій вкладці"
 
 msgid "PDF files only. Identical content is deduplicated; same file uploaded again under a new name shares one underlying file + extraction."
-msgstr "Лише файли PDF. Ідентичний вміст дедуплікується; той самий файл, завантажений повторно під новою назвою, використовує один спільний файл і одне видобування тексту."
+msgstr "Лише файли PDF. Ідентичний вміст дедуплікується; той самий файл, завантажений повторно під новою назвою, використовує один спільний файл і одне витягування тексту."
 
 msgid "PRO100 sync preview"
 msgstr "Попередній перегляд синхронізації PRO100"
@@ -2251,19 +2251,19 @@ msgid "Product specifications, dimensions, materials…"
 msgstr "Специфікації товару, розміри, матеріали…"
 
 msgid "Re-queue any PDFs whose text extraction never ran or got stuck (e.g., after the job queue was down)."
-msgstr "Повторно поставте в чергу PDF, у яких видобування тексту не запустилося або зависло (напр., після простою черги завдань)."
+msgstr "Повторно поставте в чергу PDF, у яких витягування тексту не запустилося або зависло (напр., після простою черги завдань)."
 
 msgid "Re-queued %{count} stuck extraction(s)."
-msgstr "Повторно поставлено в чергу завислих видобувань: %{count}."
+msgstr "Повторно поставлено в чергу завислих витягувань: %{count}."
 
 msgid "Re-queued %{count} stuck extraction(s); %{skipped} already running."
-msgstr "Повторно поставлено в чергу завислих видобувань: %{count}; уже виконується: %{skipped}."
+msgstr "Повторно поставлено в чергу завислих витягувань: %{count}; уже виконується: %{skipped}."
 
 msgid "Re-queued %{ok}; %{failed} could not be queued — the :catalogue_pdf queue may not be running."
 msgstr "Повторно поставлено в чергу: %{ok}; не вдалося поставити в чергу: %{failed} — черга :catalogue_pdf, імовірно, не працює."
 
 msgid "Re-queued text extraction."
-msgstr "Видобування тексту повторно поставлено в чергу."
+msgstr "Витягування тексту повторно поставлено в чергу."
 
 msgid "Re-queuing…"
 msgstr "Постановка в чергу…"
@@ -2307,7 +2307,7 @@ msgid "Retry"
 msgstr "Повторити"
 
 msgid "Retry extraction"
-msgstr "Повторити видобування"
+msgstr "Повторити витягування"
 
 msgid "Retry stuck"
 msgstr "Повторити завислі"
@@ -2483,7 +2483,7 @@ msgid "Target category not found."
 msgstr "Цільову категорію не знайдено."
 
 msgid "Text extraction in progress. This page will refresh automatically when it completes."
-msgstr "Триває видобування тексту. Сторінка оновиться автоматично після завершення."
+msgstr "Триває витягування тексту. Сторінка оновиться автоматично після завершення."
 
 msgid "The file is empty."
 msgstr "Файл порожній."
@@ -2516,7 +2516,7 @@ msgid "This will permanently delete this category and all its items. This cannot
 msgstr "Це остаточно видалить цю категорію та всі її позиції. Цю дію не можна скасувати."
 
 msgid "To create"
-msgstr "До створення"
+msgstr "Буде створено"
 
 msgid "Too many files at once."
 msgstr "Забагато файлів одночасно."
@@ -3149,7 +3149,7 @@ msgid "Could not create the set."
 msgstr "Не вдалося створити набір."
 
 msgid "One dimension from one vendor — a color range, a trim series. Items attach any number of sets. Sets are edited in the Entities module."
-msgstr "Один вимір від одного постачальника — діапазон кольорів, серія оздоблення. До позицій можна прив'язати будь-яку кількість наборів. Набори редагуються в модулі «Сутності»."
+msgstr "Один вимір від одного постачальника — діапазон кольорів, серія декоративних планок. До позицій можна прив'язати будь-яку кількість наборів. Набори редагуються в модулі «Сутності»."
 
 ## Attribute sets viewer listing (2026-08-27 scale pass)
 msgid "Search sets and values…"
