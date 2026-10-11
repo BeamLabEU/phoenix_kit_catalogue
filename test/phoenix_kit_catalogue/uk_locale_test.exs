@@ -1,8 +1,13 @@
 defmodule PhoenixKitCatalogue.UkLocaleTest do
   @moduledoc """
-  Pins the Ukrainian (`uk`) catalogue: complete against `default.pot`,
-  no fuzzy or empty entries, resolves through the backend, picks the right
-  plural branch, and leaves English untouched.
+  Pins the Ukrainian (`uk`) catalogue.
+
+  Like every locale of this module it carries exactly the msgids of
+  `default.pot` (`msgid_plural` included), in both directions, because new
+  strings are added by hand to the template and to every locale. It has no
+  fuzzy or empty entries, and each `msgstr` keeps the `%{...}` bindings of its
+  msgid. It also resolves through the backend, picks the right plural branch,
+  localizes the `strftime` date formats, and leaves English untouched.
   """
   use ExUnit.Case, async: true
 
@@ -12,11 +17,10 @@ defmodule PhoenixKitCatalogue.UkLocaleTest do
   @pot_path Path.join(["priv", "gettext", "default.pot"])
   @uk_path Path.join(["priv", "gettext", "uk", "LC_MESSAGES", "default.po"])
 
-  setup do
-    previous = Gettext.get_locale(PhoenixKitCatalogue.Gettext)
-    on_exit(fn -> Gettext.put_locale(PhoenixKitCatalogue.Gettext, previous) end)
-    :ok
-  end
+  @date_formats [
+    {"%b %d, %Y", "11.10.2026"},
+    {"%b %d, %Y %H:%M", "11.10.2026 10:05"}
+  ]
 
   describe "uk catalogue file" do
     test "has exactly the msgids of default.pot" do
@@ -34,12 +38,20 @@ defmodule PhoenixKitCatalogue.UkLocaleTest do
       messages = parse!(@uk_path).messages
 
       empty = for m <- messages, empty_msgstr?(m), do: IO.iodata_to_binary(m.msgid)
-
-      fuzzy =
-        for m <- messages, "fuzzy" in List.flatten(m.flags), do: IO.iodata_to_binary(m.msgid)
+      fuzzy = for m <- messages, fuzzy?(m), do: IO.iodata_to_binary(m.msgid)
 
       assert empty == []
       assert fuzzy == []
+    end
+
+    test "every msgstr form keeps the %{...} bindings of its msgid" do
+      mismatches =
+        for message <- parse!(@uk_path).messages,
+            {expected, actual} <- binding_pairs(message),
+            expected != actual,
+            do: {IO.iodata_to_binary(message.msgid), expected, actual}
+
+      assert mismatches == []
     end
   end
 
@@ -52,6 +64,14 @@ defmodule PhoenixKitCatalogue.UkLocaleTest do
             {"Suppliers", "Постачальники"}
           ] do
         assert gettext_in("uk", msgid) == uk
+      end
+    end
+
+    test "date formats are localized, not left as the English strftime patterns" do
+      datetime = ~U[2026-10-11 10:05:00Z]
+
+      for {msgid, expected} <- @date_formats do
+        assert datetime |> Calendar.strftime(gettext_in("uk", msgid)) == expected
       end
     end
 
@@ -72,6 +92,10 @@ defmodule PhoenixKitCatalogue.UkLocaleTest do
         assert gettext_in("en", msgid) == msgid
       end
 
+      for {msgid, _} <- @date_formats do
+        assert gettext_in("en", msgid) == msgid
+      end
+
       Gettext.put_locale(PhoenixKitCatalogue.Gettext, "en")
       assert ngettext_item(1) == "1 item"
       assert ngettext_item(5) == "5 items"
@@ -85,11 +109,32 @@ defmodule PhoenixKitCatalogue.UkLocaleTest do
 
   defp msgid_keys(%Messages{messages: messages}), do: MapSet.new(messages, &Message.key/1)
 
+  defp fuzzy?(%{flags: flags}), do: Enum.any?(flags, &("fuzzy" in &1))
+
   defp empty_msgstr?(%Message.Singular{msgstr: msgstr}),
     do: IO.iodata_to_binary(msgstr) == ""
 
   defp empty_msgstr?(%Message.Plural{msgstr: forms}),
     do: Enum.any?(forms, fn {_, s} -> IO.iodata_to_binary(s) == "" end)
+
+  # {expected, actual} sorted binding lists for every msgstr form. Plural form 0
+  # is checked against the singular msgid, the other forms against msgid_plural.
+  defp binding_pairs(%Message.Singular{msgid: msgid, msgstr: msgstr}),
+    do: [{bindings(msgid), bindings(msgstr)}]
+
+  defp binding_pairs(%Message.Plural{msgid: msgid, msgid_plural: plural, msgstr: forms}) do
+    for {index, msgstr} <- forms do
+      source = if index == 0, do: msgid, else: plural
+      {bindings(source), bindings(msgstr)}
+    end
+  end
+
+  defp bindings(iodata) do
+    ~r/%\{[^}]*\}/
+    |> Regex.scan(IO.iodata_to_binary(iodata))
+    |> List.flatten()
+    |> Enum.sort()
+  end
 
   defp gettext_in(locale, msgid) do
     Gettext.put_locale(PhoenixKitCatalogue.Gettext, locale)
