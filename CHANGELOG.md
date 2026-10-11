@@ -1,3 +1,14 @@
+## 0.47.2 - 2026-10-11
+
+Review: `dev_docs/pull_requests/2026/146-ukrainian-translation/` (`CLAUDE_REVIEW.md`).
+
+The requirements are unchanged.
+
+### Added
+
+- Ukrainian (`uk`) translation of the whole module, including the Slavic
+  plural forms and localized date formats. Thanks to timujinne (#146).
+
 ## 0.47.1 - 2026-10-05
 
 Reviews: `dev_docs/pull_requests/2026/141-item-type/`,
