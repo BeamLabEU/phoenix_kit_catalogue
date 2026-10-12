@@ -56,7 +56,13 @@ defmodule PhoenixKitCatalogue.MixProject do
 
   def application do
     [
-      extra_applications: [:logger, :phoenix_kit]
+      extra_applications: [:logger, :phoenix_kit],
+      # The default media folder layout (`PhoenixKitCatalogue.MediaFolders`):
+      # a host's own `config :phoenix_kit_catalogue, ...` replaces either key.
+      env: [
+        attachments_parent_folder: {PhoenixKitCatalogue.MediaFolders, :default_parent_for},
+        attachments_folder_name: {PhoenixKitCatalogue.MediaFolders, :default_folder_name}
+      ]
     ]
   end
 
