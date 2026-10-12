@@ -70,6 +70,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
   }
 
   alias PhoenixKit.Utils.Values
+  alias PhoenixKitCatalogue.MediaFolders
   alias PhoenixKitCatalogue.Schemas.{Catalogue, Category, Folder, Item, ItemAttributeSet}
 
   require Logger
@@ -805,6 +806,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
           opts
         )
 
+        MediaFolders.follow([{catalogue, updated}], opts[:actor_uuid])
         ok
 
       error ->
@@ -816,8 +818,16 @@ defmodule PhoenixKitCatalogue.Catalogue do
   @spec delete_catalogue(Catalogue.t(), keyword()) ::
           {:ok, Catalogue.t()} | {:error, Ecto.Changeset.t(Catalogue.t())}
   def delete_catalogue(%Catalogue{} = catalogue, opts \\ []) do
+    release =
+      MediaFolders.release_plan([
+        from(c in Catalogue, where: c.uuid == ^catalogue.uuid),
+        from(c in Category, where: c.catalogue_uuid == ^catalogue.uuid)
+      ])
+
     case repo().delete(catalogue) do
       {:ok, _} = ok ->
+        MediaFolders.release(release)
+
         log_activity(%{
           action: "catalogue.deleted",
           mode: "manual",
@@ -1053,11 +1063,14 @@ defmodule PhoenixKitCatalogue.Catalogue do
         if ref_count > 0 and not force?,
           do: repo().rollback({:referenced_by_smart_items, ref_count})
 
+        release = catalogue_release_plan(catalogue.uuid)
         do_permanently_delete_catalogue(catalogue.uuid)
-        ref_count
+        {ref_count, release}
       end)
 
-    with {:ok, ref_count} <- result do
+    with {:ok, {ref_count, release}} <- result do
+      MediaFolders.release(release)
+
       log_activity(%{
         action: "catalogue.permanently_deleted",
         mode: "manual",
@@ -1085,6 +1098,15 @@ defmodule PhoenixKitCatalogue.Catalogue do
     repo().one(
       from(c in Catalogue, where: c.uuid == ^catalogue_uuid, lock: "FOR UPDATE", select: c.uuid)
     ) || repo().rollback(:not_found)
+  end
+
+  # The folders of a catalogue and everything in it, read while they exist.
+  defp catalogue_release_plan(catalogue_uuid) do
+    MediaFolders.release_plan([
+      from(c in Catalogue, where: c.uuid == ^catalogue_uuid),
+      from(c in Category, where: c.catalogue_uuid == ^catalogue_uuid),
+      from(i in Item, where: i.catalogue_uuid == ^catalogue_uuid)
+    ])
   end
 
   defp do_permanently_delete_catalogue(catalogue_uuid) do
@@ -1890,6 +1912,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
           opts
         )
 
+        MediaFolders.follow([{category, updated}], opts[:actor_uuid])
         {:ok, updated}
 
       {:error, _reason} = error ->
@@ -2037,8 +2060,12 @@ defmodule PhoenixKitCatalogue.Catalogue do
   @doc "Hard-deletes a category. Prefer `trash_category/1` for soft-delete."
   @spec delete_category(Category.t(), keyword()) :: {:ok, Category.t()} | {:error, term()}
   def delete_category(%Category{} = category, opts \\ []) do
+    release = MediaFolders.release_plan([from(c in Category, where: c.uuid == ^category.uuid)])
+
     case repo().delete(category) do
       {:ok, _} = ok ->
+        MediaFolders.release(release)
+
         log_activity(%{
           action: "category.deleted",
           mode: "manual",
@@ -2108,6 +2135,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
         now = DateTime.utc_now()
         subtree = Tree.subtree_uuids(category.uuid)
         lock_categories!(subtree)
+        moving = disposition_moving(disposition, subtree)
 
         case apply_item_disposition(disposition, subtree, category, now) do
           {:ok, items_handled} ->
@@ -2126,7 +2154,8 @@ defmodule PhoenixKitCatalogue.Catalogue do
               |> repo().update_all([])
 
             changed? = children + self + items_handled > 0
-            {repo().get!(Category, root), length(subtree), items_handled, changed?}
+            pairs = disposition_pairs(moving, disposition, category)
+            {repo().get!(Category, root), length(subtree), items_handled, changed?, pairs}
 
           {:error, reason} ->
             repo().rollback(reason)
@@ -2136,10 +2165,12 @@ defmodule PhoenixKitCatalogue.Catalogue do
     case result do
       # Already in the trash with nothing live under it: this call trashed
       # nothing, so it records nothing.
-      {:ok, {updated, _subtree_size, _items_handled, false}} ->
+      {:ok, {updated, _subtree_size, _items_handled, false, _pairs}} ->
         {:ok, updated}
 
-      {:ok, {updated, subtree_size, items_handled, true}} ->
+      {:ok, {updated, subtree_size, items_handled, true, pairs}} ->
+        MediaFolders.follow(pairs, opts[:actor_uuid])
+
         # `broadcast: false` lets `bulk_trash_categories/3` run this inside
         # its own transaction and fan out once after that commits.
         log_activity(
@@ -2167,6 +2198,29 @@ defmodule PhoenixKitCatalogue.Catalogue do
         error
     end
   end
+
+  # The items a trash takes out of the subtree, with a folder, as they are
+  # now — their folders follow them to the catalogue or the target category.
+  defp disposition_moving(:cascade, _subtree), do: []
+
+  defp disposition_moving(_disposition, subtree) do
+    MediaFolders.moving_records(
+      from(i in Item, where: i.category_uuid in ^subtree and i.status != "deleted")
+    )
+  end
+
+  defp disposition_pairs(moving, :uncategorize, category),
+    do:
+      Enum.map(moving, &{&1, %{&1 | category_uuid: nil, catalogue_uuid: category.catalogue_uuid}})
+
+  defp disposition_pairs(moving, {:move_to, target_uuid}, category) do
+    Enum.map(
+      moving,
+      &{&1, %{&1 | category_uuid: target_uuid, catalogue_uuid: category.catalogue_uuid}}
+    )
+  end
+
+  defp disposition_pairs(_moving, _disposition, _category), do: []
 
   defp apply_item_disposition(:cascade, subtree, category, now) do
     {count, _} =
@@ -2380,9 +2434,22 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
         {doomed, kept} = permanent_delete_split(fresh, subtree)
 
+        release =
+          MediaFolders.release_plan([
+            from(c in Category, where: c.uuid in ^doomed),
+            from(i in Item, where: i.category_uuid in ^doomed)
+          ])
+
         # A live subcategory kept from a trashed parent moves to the top
         # level, where the Active tab already lists it, after its last row.
+        # Its folder goes with it while its old parent still exists.
+        moving = MediaFolders.moving_records(from(c in Category, where: c.uuid in ^kept))
         move_kept_to_top_level(fresh.catalogue_uuid, kept)
+
+        moving
+        |> Enum.map(&{&1, %{&1 | parent_uuid: nil}})
+        |> MediaFolders.follow(opts[:actor_uuid])
+
         restamp_orphaned_trash(fresh.catalogue_uuid, subtree, doomed, kept)
 
         {items_cascaded, _} =
@@ -2400,11 +2467,13 @@ defmodule PhoenixKitCatalogue.Catalogue do
         from(c in Category, where: c.uuid in ^doomed)
         |> repo().delete_all()
 
-        {length(doomed), items_cascaded, length(kept)}
+        {length(doomed), items_cascaded, length(kept), release}
       end)
 
     case result do
-      {:ok, {subtree_size, items_cascaded, kept_count}} ->
+      {:ok, {subtree_size, items_cascaded, kept_count, release}} ->
+        MediaFolders.release(release)
+
         log_activity(%{
           action: "category.permanently_deleted",
           mode: "manual",
@@ -2776,6 +2845,8 @@ defmodule PhoenixKitCatalogue.Catalogue do
         if source_catalogue_uuid != target_catalogue_uuid and Keyword.get(opts, :broadcast, true),
           do: broadcast_moved_out(source_catalogue_uuid)
 
+        before = %{moved | catalogue_uuid: source_catalogue_uuid, parent_uuid: from_parent_uuid}
+        MediaFolders.follow([{before, moved}], opts[:actor_uuid])
         {:ok, moved}
 
       error ->
@@ -2961,6 +3032,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
         Keyword.take(opts, [:broadcast, :mode])
       )
 
+      MediaFolders.follow([{%{moved | parent_uuid: from_parent_uuid}, moved}], opts[:actor_uuid])
       {:ok, moved}
     end
   end
@@ -6050,6 +6122,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
           opts
         )
 
+        MediaFolders.follow([{item, updated}], opts[:actor_uuid])
         {:ok, updated}
 
       {:error, _changeset} = error ->
@@ -6060,8 +6133,12 @@ defmodule PhoenixKitCatalogue.Catalogue do
   @doc "Hard-deletes an item. Prefer `trash_item/1` for soft-delete."
   @spec delete_item(Item.t(), keyword()) :: {:ok, Item.t()} | {:error, term()}
   def delete_item(%Item{} = item, opts \\ []) do
+    release = MediaFolders.release_plan([from(i in Item, where: i.uuid == ^item.uuid)])
+
     case repo().delete(item) do
       {:ok, _} = ok ->
+        MediaFolders.release(release)
+
         log_activity(%{
           action: "item.deleted",
           mode: "manual",
@@ -6155,12 +6232,14 @@ defmodule PhoenixKitCatalogue.Catalogue do
           do: repo().rollback(:parent_catalogue_deleted)
 
         if fresh.status == "deleted",
-          do: {:restored, do_restore_item(fresh)},
+          do: {:restored, do_restore_item(fresh), fresh},
           else: {:unchanged, {fresh, false}}
       end)
 
     case result do
-      {:ok, {:restored, {restored, detached?}}} ->
+      {:ok, {:restored, {restored, detached?}, fresh}} ->
+        if detached?, do: MediaFolders.follow([{fresh, restored}], opts[:actor_uuid])
+
         log_activity(%{
           action: "item.restored",
           mode: "manual",
@@ -6229,11 +6308,14 @@ defmodule PhoenixKitCatalogue.Catalogue do
         if opts[:only_trashed] == true and locked.status != "deleted",
           do: repo().rollback(:not_in_trash)
 
+        release = MediaFolders.release_plan([from(i in Item, where: i.uuid == ^item.uuid)])
         from(i in Item, where: i.uuid == ^item.uuid) |> repo().delete_all()
-        item
+        release
       end)
 
-    with {:ok, _} <- result do
+    with {:ok, release} <- result do
+      MediaFolders.release(release)
+
       log_activity(%{
         action: "item.permanently_deleted",
         mode: "manual",
@@ -6399,7 +6481,11 @@ defmodule PhoenixKitCatalogue.Catalogue do
     end
 
     case locked_transaction(restore) do
-      {:ok, {count, count_detached, restored_uuids, catalogue_uuids}} ->
+      {:ok, {count, count_detached, restored_uuids, catalogue_uuids, detached}} ->
+        detached
+        |> Enum.map(&{&1, %{&1 | category_uuid: nil}})
+        |> MediaFolders.follow(opts[:actor_uuid])
+
         if count > 0 do
           log_activity(
             %{
@@ -6476,8 +6562,10 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
     catalogue_uuids = items |> Enum.map(& &1.catalogue_uuid) |> Enum.uniq()
 
+    detached = Enum.filter(items, &(&1.uuid in detached_uuids))
+
     {count_attached + count_detached, count_detached, attached_uuids ++ detached_uuids,
-     catalogue_uuids}
+     catalogue_uuids, detached}
   end
 
   @doc """
@@ -6491,6 +6579,11 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
   def bulk_permanently_delete_items(uuids, opts) when is_list(uuids) do
     uuids = scope_item_uuids(uuids, opts[:catalogue_uuid])
+
+    release =
+      MediaFolders.release_plan([
+        from(i in Item, where: i.uuid in ^uuids) |> only_trashed_items(opts)
+      ])
 
     {count, catalogue_uuids} =
       locked_transaction(fn ->
@@ -6506,6 +6599,8 @@ defmodule PhoenixKitCatalogue.Catalogue do
       |> bulk_result()
 
     if count > 0 do
+      MediaFolders.release(release)
+
       log_activity(
         %{
           action: "item.bulk_permanently_deleted",
@@ -6642,6 +6737,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
         target_category = lock_destination_category(destination, target_catalogue)
         check_move_destination!(scope, target_catalogue)
+        moving = MediaFolders.moving_items(uuids)
 
         {count, _} =
           from(i in Item,
@@ -6655,12 +6751,17 @@ defmodule PhoenixKitCatalogue.Catalogue do
             ]
           )
 
-        {count, target_catalogue, target_category}
+        {count, target_catalogue, target_category, moving}
       end)
 
-    with {:ok, {count, target_catalogue, target_category}} <- result do
+    with {:ok, {count, target_catalogue, target_category, moving}} <- result do
       if count > 0,
         do: log_bulk_item_move(uuids, count, scope, target_catalogue, target_category, opts)
+
+      moving
+      |> Enum.filter(&(&1.catalogue_uuid == scope))
+      |> Enum.map(&{&1, %{&1 | catalogue_uuid: target_catalogue, category_uuid: target_category}})
+      |> MediaFolders.follow(opts[:actor_uuid])
 
       {:ok, count}
     end
@@ -7080,6 +7181,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
       if before.catalogue_uuid != moved.catalogue_uuid and Keyword.get(opts, :broadcast, true),
         do: PubSub.broadcast(:item, nil, before.catalogue_uuid)
 
+      MediaFolders.follow([{before, moved}], opts[:actor_uuid])
       {:ok, moved}
     end
   end
@@ -7212,6 +7314,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
       if Keyword.get(opts, :broadcast, true),
         do: PubSub.broadcast(:item, nil, before.catalogue_uuid)
 
+      MediaFolders.follow([{before, moved}], opts[:actor_uuid])
       {:ok, moved}
     end
   end
