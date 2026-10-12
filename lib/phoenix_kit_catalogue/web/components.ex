@@ -2302,6 +2302,7 @@ defmodule PhoenixKitCatalogue.Web.Components do
       :if={@has_catalogues or @has_categories}
       id={@id}
       open={@open}
+      phx-mounted={Phoenix.LiveView.JS.ignore_attributes(["open"])}
       class={["collapse collapse-arrow bg-base-200 border border-base-300", @class]}
     >
       <summary class="collapse-title min-h-0 py-3 pr-10 text-sm font-medium cursor-pointer">
