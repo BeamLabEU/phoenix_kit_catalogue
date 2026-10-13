@@ -24,7 +24,21 @@ defmodule PhoenixKitCatalogue.API do
   active catalogue, optional (the only one) otherwise.
   """
 
-  alias PhoenixKitCatalogue.API.{CatalogueScope, Refs}
+  alias PhoenixKitCatalogue.API.{CatalogueScope, Gate, Refs, Tools}
+
+  @doc """
+  The catalogue's admin tools, as `PhoenixKitCatalogue.api_tools/0` hands them
+  to core. FAIL CLOSED: a tool declared `danger: :always` (today only
+  `catalogue.delete_products`) is withheld unless the loaded core can enforce
+  the confirmation gate (`Gate.available?/0`). A core without the gate ignores
+  the `danger` field and would trash on the first call; a version number or a
+  `mix.exs` floor does not prove the gate exists (the stand and the forks use
+  git and path pins), so the check is made on the running code.
+  """
+  @spec tools(boolean()) :: [PhoenixKit.API.Tool.t()]
+  def tools(gate? \\ Gate.available?()) do
+    Enum.filter(Tools.all(), fn tool -> gate? or tool.danger != :always end)
+  end
 
   @doc """
   Resolves references (see the moduledoc). Answers one
