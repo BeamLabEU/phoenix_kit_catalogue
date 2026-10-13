@@ -21,6 +21,18 @@ defmodule PhoenixKitCatalogue.API.UpsertCategoriesTest do
   defp rows({:ok, %{"results" => rows}}), do: rows
   defp category(id), do: Catalogue.get_category(id)
 
+  # The same request, previewed and then executed against the same data: the
+  # rows must answer alike (action and error code, and the id when it exists).
+  defp shapes(rows),
+    do: Enum.map(rows, &{&1["action"], get_in(&1, ["error", "code"])})
+
+  defp preview_then_execute(catalogue, items) do
+    assert {:preview, %{"rows" => preview_rows}, _} =
+             upsert(catalogue, items, %{dry_run?: true})
+
+    {preview_rows, rows(upsert(catalogue, items))}
+  end
+
   test "creates categories by external_id, a child naming its parent from the same request",
        %{catalogue: catalogue} do
     result =
@@ -240,6 +252,138 @@ defmodule PhoenixKitCatalogue.API.UpsertCategoriesTest do
     assert row["error"]["context"]["existing_id"] == holder.uuid
   end
 
+  test "a position beyond the column fails its own row and the batch carries on",
+       %{catalogue: catalogue} do
+    c = fixture_category(catalogue, %{name: "Plain", position: 2})
+
+    items = [
+      %{"external_id" => "P-1", "name" => "First"},
+      %{"external_id" => "P-2", "name" => "Epoch", "position" => 99_999_999_999},
+      %{"id" => c.uuid, "position" => 99_999_999_999},
+      %{"external_id" => "P-3", "name" => "Last"}
+    ]
+
+    assert {:preview, %{"rows" => preview_rows}, _} = upsert(catalogue, items, %{dry_run?: true})
+    executed = rows(upsert(catalogue, items))
+
+    for result <- [preview_rows, executed] do
+      assert Enum.map(result, & &1["action"]) == ["created", "error", "error", "created"]
+
+      assert Enum.map(result, &get_in(&1, ["error", "code"])) == [
+               nil,
+               "validation_failed",
+               "validation_failed",
+               nil
+             ]
+
+      assert [%{"path" => "position"}] = Enum.at(result, 1)["error"]["context"]["errors"]
+    end
+
+    assert category(c.uuid).position == 2
+    assert Enum.map(executed, & &1["id"]) |> Enum.map(&is_binary/1) == [true, false, false, true]
+
+    # the largest value the column holds is accepted
+    assert [%{"action" => "created"}] =
+             rows(
+               upsert(catalogue, [
+                 %{"external_id" => "P-4", "name" => "Max", "position" => 2_147_483_647}
+               ])
+             )
+  end
+
+  test "a name is stored trimmed on create and on update, so a retry is unchanged",
+       %{catalogue: catalogue} do
+    padded = %{"external_id" => "N-1", "name" => "  Padded  "}
+
+    assert [%{"action" => "created", "id" => id}] = rows(upsert(catalogue, [padded]))
+    assert category(id).name == "Padded"
+
+    assert [%{"action" => "unchanged"}] = rows(upsert(catalogue, [padded]))
+    assert category(id).name == "Padded"
+
+    assert [%{"action" => "unchanged"}] =
+             rows(upsert(catalogue, [%{"id" => id, "name" => "   Padded"}]))
+
+    assert [%{"action" => "updated"}] =
+             rows(upsert(catalogue, [%{"id" => id, "name" => "  Renamed  "}]))
+
+    assert category(id).name == "Renamed"
+  end
+
+  test "a name of only blanks on an existing id is a validation error at the name",
+       %{catalogue: catalogue} do
+    c = fixture_category(catalogue, %{name: "Plain"})
+
+    items = [%{"id" => c.uuid, "name" => "   "}]
+
+    {preview_rows, executed} = preview_then_execute(catalogue, items)
+
+    for [row] <- [preview_rows, executed] do
+      assert row["error"]["code"] == "validation_failed"
+      assert [%{"path" => "name"}] = row["error"]["context"]["errors"]
+    end
+
+    assert category(c.uuid).name == "Plain"
+  end
+
+  test "a row with a bad parent writes nothing, whatever else it carries", %{
+    catalogue: catalogue
+  } do
+    c = fixture_category(catalogue, %{name: "Plain", position: 1})
+    foreign = fixture_category(fixture_catalogue(%{name: "Elsewhere"}), %{name: "Foreign"})
+    before = length(Catalogue.list_categories_metadata_for_catalogue(catalogue.uuid))
+
+    rows =
+      rows(
+        upsert(catalogue, [
+          %{
+            "id" => c.uuid,
+            "name" => "Renamed",
+            "position" => 9,
+            "parent" => %{"id" => foreign.uuid}
+          },
+          %{"external_id" => "B-1", "name" => "Orphan", "parent" => %{"external_id" => "NOPE"}},
+          %{
+            "external_id" => "B-2",
+            "name" => "Foreign child",
+            "parent" => %{"id" => foreign.uuid}
+          }
+        ])
+      )
+
+    assert Enum.map(rows, &get_in(&1, ["error", "code"])) == [
+             "not_found",
+             "not_found",
+             "not_found"
+           ]
+
+    reread = category(c.uuid)
+    assert {reread.name, reread.position, reread.parent_uuid} == {"Plain", 1, nil}
+    assert length(Catalogue.list_categories_metadata_for_catalogue(catalogue.uuid)) == before
+  end
+
+  test "an empty or two-key parent reference is a validation error on its row only", %{
+    catalogue: catalogue
+  } do
+    c = fixture_category(catalogue, %{name: "Plain"})
+
+    rows =
+      rows(
+        upsert(catalogue, [
+          %{"id" => c.uuid, "name" => "A", "parent" => %{}},
+          %{"id" => c.uuid, "name" => "B", "parent" => %{"id" => c.uuid, "external_id" => "X"}},
+          %{"external_id" => "R-1", "name" => "Fine"}
+        ])
+      )
+
+    assert Enum.map(rows, & &1["action"]) == ["error", "error", "created"]
+
+    assert Enum.map(Enum.take(rows, 2), &get_in(&1, ["error", "code"])) ==
+             ["validation_failed", "validation_failed"]
+
+    assert category(c.uuid).name == "Plain"
+  end
+
   test "the schema refuses unknown fields and bad values", %{catalogue: catalogue} do
     for {extra, path} <- [
           {%{"data" => %{}}, "items[0].data"},
@@ -269,7 +413,7 @@ defmodule PhoenixKitCatalogue.API.UpsertCategoriesTest do
         %{"external_id" => "C-1", "name" => "Shelves"},
         %{"external_id" => "C-2", "name" => "Glass", "parent" => %{"external_id" => "C-1"}},
         %{"id" => c.uuid, "name" => "Renamed"},
-        %{"id" => c.uuid, "name" => "Plain"}
+        %{"id" => c.uuid, "name" => "Renamed"}
       ]
 
       before = length(Catalogue.list_categories_metadata_for_catalogue(catalogue.uuid))
@@ -364,6 +508,110 @@ defmodule PhoenixKitCatalogue.API.UpsertCategoriesTest do
 
       assert row["action"] == "error"
       assert row["error"]["code"] == "not_found"
+    end
+
+    test "a later row meets what an earlier row of the request created" do
+      for {second, expected} <- [
+            {%{"external_id" => "N-1", "name" => "Second"}, {"updated", nil}},
+            {%{"external_id" => "N-1", "name" => "First"}, {"unchanged", nil}},
+            {%{"external_id" => "N-1"}, {"unchanged", nil}}
+          ] do
+        catalogue = fixture_catalogue(%{name: "Dup #{System.unique_integer([:positive])}"})
+        items = [%{"external_id" => "N-1", "name" => "First"}, second]
+
+        {preview_rows, executed} = preview_then_execute(catalogue, items)
+
+        assert shapes(preview_rows) == shapes(executed)
+        assert shapes(executed) == [{"created", nil}, expected]
+      end
+    end
+
+    test "two rows giving one new external_id to two categories: the second is refused",
+         %{catalogue: catalogue} do
+      a = fixture_category(catalogue, %{name: "A"})
+      b = fixture_category(catalogue, %{name: "B"})
+
+      {preview_rows, executed} =
+        preview_then_execute(catalogue, [
+          %{"id" => a.uuid, "external_id" => "Z"},
+          %{"id" => b.uuid, "external_id" => "Z"}
+        ])
+
+      assert shapes(preview_rows) == shapes(executed)
+      assert shapes(executed) == [{"updated", nil}, {"error", "already_exists"}]
+      assert Enum.at(preview_rows, 1)["error"]["context"]["existing_id"] == a.uuid
+      assert Enum.at(executed, 1)["error"]["context"]["existing_id"] == a.uuid
+    end
+
+    test "an external_id one row frees can be taken by the next, and found by it", %{
+      catalogue: catalogue
+    } do
+      {:ok, a} =
+        Catalogue.create_category(%{
+          name: "A",
+          catalogue_uuid: catalogue.uuid,
+          data: %{"api" => %{"external_id" => "X"}}
+        })
+
+      b = fixture_category(catalogue, %{name: "B"})
+
+      items = [
+        %{"id" => a.uuid, "external_id" => "Z"},
+        %{"id" => b.uuid, "external_id" => "X"},
+        # Z now names A, and X names B
+        %{"external_id" => "Z", "name" => "A renamed"},
+        %{"external_id" => "X", "name" => "B renamed", "parent" => %{"external_id" => "Z"}}
+      ]
+
+      {preview_rows, executed} = preview_then_execute(catalogue, items)
+
+      assert shapes(preview_rows) == shapes(executed)
+
+      assert shapes(executed) == [
+               {"updated", nil},
+               {"updated", nil},
+               {"updated", nil},
+               {"updated", nil}
+             ]
+
+      assert Enum.map(Enum.drop(preview_rows, 2), & &1["id"]) == [a.uuid, b.uuid]
+      assert category(b.uuid).parent_uuid == a.uuid
+    end
+
+    test "a row meets the values an earlier row of the request gave the same category", %{
+      catalogue: catalogue
+    } do
+      c = fixture_category(catalogue, %{name: "Plain"})
+
+      {preview_rows, executed} =
+        preview_then_execute(catalogue, [
+          %{"id" => c.uuid, "name" => "Renamed"},
+          %{"id" => c.uuid, "name" => "Plain"},
+          %{"id" => c.uuid, "name" => "Plain"}
+        ])
+
+      assert shapes(preview_rows) == shapes(executed)
+      assert shapes(executed) == [{"updated", nil}, {"updated", nil}, {"unchanged", nil}]
+    end
+
+    test "a category the request creates can be re-parented and used as a parent in the preview",
+         %{catalogue: catalogue} do
+      items = [
+        %{"external_id" => "T-1", "name" => "Top"},
+        %{"external_id" => "T-2", "name" => "Mid", "parent" => %{"external_id" => "T-1"}},
+        # closes a loop through two categories the request created
+        %{"external_id" => "T-1", "parent" => %{"external_id" => "T-2"}}
+      ]
+
+      {preview_rows, executed} = preview_then_execute(catalogue, items)
+
+      assert shapes(preview_rows) == shapes(executed)
+
+      assert shapes(executed) == [
+               {"created", nil},
+               {"created", nil},
+               {"error", "validation_failed"}
+             ]
     end
   end
 end
