@@ -1,4 +1,9 @@
-## Unreleased
+## 0.48.1 - 2026-10-13
+
+Reviews: `dev_docs/pull_requests/2026/148-media-folders/` (`CODEX_REVIEW.md`),
+`147-quality-sweep/` (`CODEX_REVIEW.md`).
+
+The requirements are unchanged.
 
 ### Fixed
 
