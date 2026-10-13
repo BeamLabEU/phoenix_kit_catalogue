@@ -7,7 +7,7 @@ Guidance for AI agents working on `phoenix_kit_catalogue`.
 Product catalogue management as a pluggable PhoenixKit module: manufacturers,
 suppliers, catalogues, nested categories and items, with soft-delete,
 multilingual names/descriptions, move operations, attribute sets, a PDF library
-and import/export. Admin-only LiveView UI; no public API surface. Deep feature
+and import/export. Admin-only LiveView UI; no public routes of its own; the shop API tools are served by core. Deep feature
 semantics live in module `@moduledoc`s and `dev_docs/` — this file holds
 conventions, contracts and non-obvious boundaries.
 
@@ -41,9 +41,13 @@ conventions, contracts and non-obvious boundaries.
 - **No authorization in the context.** Mutating functions accept `actor_uuid`
   only for activity logging. Permission gating happens at the LiveView mount
   layer (`live_session :phoenix_kit_admin`, `:catalogue` permission key).
-- **Admin-only.** No public routes, JSON endpoints, or webhook receivers. The
-  plain HTTP routes — the stateless export download and the redirects from
-  the module's old addresses — are both behind `:phoenix_kit_require_admin`.
+- **Admin-only.** No public routes, JSON endpoints of its own, or webhook
+  receivers. The plain HTTP routes — the stateless export download and the
+  redirects from the module's old addresses — are both behind
+  `:phoenix_kit_require_admin`. The one exception to "no JSON surface" is the
+  shop API: eight `catalogue.*` tools (`api_tools/0`, `PhoenixKitCatalogue.API`)
+  that core's API layer serves behind its own keys, scopes and rate limits;
+  this module declares them and adds no route.
 - **No per-item versioning.** Soft-delete (`status`) is the only history
   mechanism; the activity log is the audit trail.
 - **No always-on background work.** Two jobs, both opt-in by config:
@@ -262,6 +266,7 @@ lib/phoenix_kit_catalogue/
   schemas/                            18 Ecto schemas, one per phoenix_kit_cat_* table
   migrations.ex                       module-owned versioned chain
   paths.ex  errors.ex  metadata.ex  attachments.ex
+  api.ex  api/                        shop API tools and reference resolution (api_tools/0)
   extension.ex  extensions.ex         the duck-typed item/category form extension slot
   import/  export/  pro100/           source + destination registries
   ai_translatable*.ex  ai_prompt.ex   phoenix_kit_ai integration
@@ -350,7 +355,7 @@ PubSub topic: `"phoenix_kit_catalogue"`.
 
 Owns a versioned chain: `PhoenixKitCatalogue.Migrations` via
 `migration_module/0`, marker `pkc_schema:<N>` as a `COMMENT ON TABLE
-phoenix_kit_cat_catalogues`, currently V4. `mix phoenix_kit.update` applies it
+phoenix_kit_cat_catalogues`, currently V5. `mix phoenix_kit.update` applies it
 in hosts; tests replay `up_statements/2` directly through the repo (`up/1` uses
 `execute/1`, which only works inside an `Ecto.Migration` run).
 
@@ -380,6 +385,13 @@ in hosts; tests replay `up_statements/2` directly through the repo (`up/1` uses
   core's dump, `DROP TRIGGER IF EXISTS` before a recreate, and a slug
   projection's own sync function deleting only projection rows it is about to
   re-insert.
+- **V5 is the shop API's `external_id` uniqueness**: two partial unique expression
+  indexes (`phoenix_kit_cat_items_external_id_uniq`,
+  `phoenix_kit_cat_categories_external_id_uniq`) on `(catalogue_uuid,
+  data -> 'api' ->> 'external_id')` for live rows that have an id. A trashed row
+  frees its id; the changesets map the index to an error on `:data`; a restore
+  that would collide answers `{:error, :external_id_taken}` (`Catalogue`'s
+  `guard_external_id/1`), and a copy drops the id (`Duplication.copy_data/3`).
 - UUIDv7 PKs and `use PhoenixKit.SchemaPrefix` on every table-backed schema.
 
 ## Testing
@@ -459,6 +471,25 @@ Pointers, not docs — the moduledocs are the contract.
   trashed card counts what its Restore brings back), and how to add a path
   without breaking the randomized combination test:
   `dev_docs/guides/trash-and-restore.md`.
+- **Shop API tools** — the handlers (`API.ListProducts`, `GetProducts`,
+  `CreateProducts`, `UpdateProducts`, `SetTranslations`, `DeleteProducts`,
+  `ListCategories`, `UpsertCategories`; each `call/2`) run after core has checked
+  the key, its scope, its owner's `catalogue` permission and the input schema.
+  Rules: write only through the `Catalogue` facade, with `API.Common.write_opts/3`
+  (key owner as actor, `mode: "auto"`, `via: "api"` metadata); never accept
+  `base_price`, markup, discount or raw `data` (the conformance test walks every
+  schema); write `data` only through `:data_owned_paths`; answer a batch per row
+  and never stop at a bad one; support `ctx.dry_run?` with a preview and a
+  fingerprint. A reference is `{id}`, `{sku}` or `{external_id}`
+  (`API.resolve_refs/2`, shared with the sibling modules). The API layer is the
+  one place besides the facade that calls `Catalogue.Slugs` and
+  `Catalogue.Translations` directly (the handler builds the slug changeset
+  itself), and `Catalogue.RefLookup` through the facade only.
+  `catalogue.delete_products` is `danger: :always` and trashes, never
+  hard-deletes: it must only ever run under a core that enforces the
+  confirmation gate (the `phoenix_kit` floor in `mix.exs`).
+  Guide: `dev_docs/guides/api-tools.md`; tests: `test/phoenix_kit_catalogue/api/`,
+  through `Test.ApiCase`.
 - **Moves and copies** — a move lands only in a live catalogue (and
   live category) of the same kind — standard and smart items price
   differently — and tells both catalogues. Duplicate (`Catalogue.Duplication`:
