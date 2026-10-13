@@ -6,7 +6,10 @@ defmodule PhoenixKitCatalogue.UpdateItemsTest do
 
   use PhoenixKitCatalogue.DataCase, async: false
 
-  import PhoenixKitCatalogue.LiveCase, only: [fixture_catalogue: 1, fixture_item: 1]
+  import ExUnit.CaptureLog
+
+  import PhoenixKitCatalogue.LiveCase,
+    only: [fixture_catalogue: 1, fixture_category: 2, fixture_item: 1]
 
   alias PhoenixKitCatalogue.Catalogue
   alias PhoenixKitCatalogue.Catalogue.PubSub
@@ -39,6 +42,37 @@ defmodule PhoenixKitCatalogue.UpdateItemsTest do
       {result, :counters.get(counter, 1)}
     after
       :telemetry.detach(handler)
+    end
+  end
+
+  # `{sql, params}` of every statement `fun` runs in this process, in order.
+  defp recorded_queries(fun) do
+    handler = "update-items-queries-#{System.unique_integer([:positive])}"
+    test_pid = self()
+
+    :telemetry.attach(
+      handler,
+      [:phoenix_kit_catalogue, :test, :repo, :query],
+      fn _event, _measurements, metadata, _config ->
+        if self() == test_pid,
+          do: send(test_pid, {:recorded_query, metadata.query, metadata.params})
+      end,
+      nil
+    )
+
+    try do
+      fun.()
+      drain_recorded_queries([])
+    after
+      :telemetry.detach(handler)
+    end
+  end
+
+  defp drain_recorded_queries(acc) do
+    receive do
+      {:recorded_query, query, params} -> drain_recorded_queries([{query, params} | acc])
+    after
+      0 -> Enum.reverse(acc)
     end
   end
 
@@ -81,6 +115,49 @@ defmodule PhoenixKitCatalogue.UpdateItemsTest do
     assert Catalogue.get_item(c.uuid).name == "C"
   end
 
+  test "an upper-case spelling of a uuid finds the row and counts as the same row", %{
+    catalogue: catalogue
+  } do
+    a = fixture_item(%{name: "A", catalogue_uuid: catalogue.uuid})
+    upper = String.upcase(a.uuid)
+    assert upper != a.uuid
+
+    rows = [{upper, %{name: "A2"}}, {a.uuid, %{name: "A3"}}]
+
+    assert {:ok, [{^upper, {:updated, %{name: "A2"}}}, {uuid, {:error, :duplicate_row}}]} =
+             Catalogue.update_items(rows, batch_opts())
+
+    assert uuid == a.uuid
+    assert Catalogue.get_item(a.uuid).name == "A2"
+  end
+
+  test "a bad option raises before any query, whatever the rows are" do
+    ghost = Ecto.UUID.generate()
+
+    queries =
+      recorded_queries(fn ->
+        assert_raise ArgumentError, ~r/data_owned_paths/, fn ->
+          Catalogue.update_items([{ghost, %{name: "x"}}], batch_opts(data_owned_paths: "nope"))
+        end
+
+        assert_raise ArgumentError, ~r/data_owned_paths/, fn ->
+          Catalogue.update_items(
+            [{ghost, %{name: "x"}, [data_owned_paths: "nope"]}],
+            batch_opts()
+          )
+        end
+
+        assert_raise ArgumentError, ~r/slug_owned_langs/, fn ->
+          Catalogue.update_items(
+            [{ghost, %{name: "x"}}],
+            batch_opts(slug_owned_langs: ["en-US"])
+          )
+        end
+      end)
+
+    assert queries == []
+  end
+
   test "a row that violates a constraint does not stop the others", %{catalogue: catalogue} do
     {:ok, _taken} =
       Catalogue.create_item(%{
@@ -92,6 +169,9 @@ defmodule PhoenixKitCatalogue.UpdateItemsTest do
     first = fixture_item(%{name: "First", catalogue_uuid: catalogue.uuid})
     second = fixture_item(%{name: "Second", catalogue_uuid: catalogue.uuid})
     third = fixture_item(%{name: "Third", catalogue_uuid: catalogue.uuid})
+    fourth = fixture_item(%{name: "Fourth", catalogue_uuid: catalogue.uuid})
+    :ok = PubSub.subscribe()
+    flush_messages()
 
     paths = [
       data_owned_paths: [["api", "external_id"]],
@@ -101,17 +181,108 @@ defmodule PhoenixKitCatalogue.UpdateItemsTest do
     rows = [
       {first.uuid, %{name: "First 2"}},
       {second.uuid, %{data: %{"api" => %{"external_id" => "TAKEN"}}}, paths},
-      {third.uuid, %{name: "Third 2"}}
+      {third.uuid, %{name: "Third 2"}},
+      {fourth.uuid, %{name: "Fourth"}}
     ]
 
+    {result, inserts} =
+      count_activity_inserts(fn -> Catalogue.update_items(rows, batch_opts()) end)
+
     assert {:ok,
-            [{_, {:updated, _}}, {_, {:error, %Ecto.Changeset{} = changeset}}, {_, {:updated, _}}]} =
-             Catalogue.update_items(rows, batch_opts())
+            [
+              {_, {:updated, _}},
+              {_, {:error, %Ecto.Changeset{} = changeset}},
+              {_, {:updated, _}},
+              {_, {:unchanged, _}}
+            ]} = result
 
     assert %{data: ["external_id is already taken in this catalogue"]} = errors_on(changeset)
     assert Catalogue.get_item(first.uuid).name == "First 2"
     assert Catalogue.get_item(third.uuid).name == "Third 2"
     assert Catalogue.get_item(second.uuid).data == %{}
+
+    # One insert for the two rows that changed; one announcement naming only them.
+    assert inserts == 1
+    cat_uuid = catalogue.uuid
+    assert_receive {:catalogue_bulk_change, ^cat_uuid, :updated, announced, _from}
+    assert Enum.sort(announced) == Enum.sort([first.uuid, third.uuid])
+    refute_receive {:catalogue_bulk_change, _, _, _, _}, 50
+  end
+
+  test "a row the database refuses is answered :database_error and the others are written", %{
+    catalogue: catalogue
+  } do
+    first = fixture_item(%{name: "First", catalogue_uuid: catalogue.uuid})
+    middle = fixture_item(%{name: "Middle", catalogue_uuid: catalogue.uuid})
+    last = fixture_item(%{name: "Last", catalogue_uuid: catalogue.uuid})
+
+    rows = [
+      {first.uuid, %{name: "First 2"}},
+      {middle.uuid, %{name: "a" <> <<0>> <> "b"}},
+      {last.uuid, %{name: "Last 2"}}
+    ]
+
+    log =
+      capture_log(fn ->
+        assert {:ok, [{_, {:updated, _}}, {_, {:error, :database_error}}, {_, {:updated, _}}]} =
+                 Catalogue.update_items(rows, batch_opts())
+      end)
+
+    assert Catalogue.get_item(first.uuid).name == "First 2"
+    assert Catalogue.get_item(middle.uuid).name == "Middle"
+    assert Catalogue.get_item(last.uuid).name == "Last 2"
+
+    # The warning names the row and the structured error fields, never the message.
+    assert log =~ middle.uuid
+    assert log =~ "pg_code=22021"
+    refute log =~ "invalid byte sequence"
+  end
+
+  test "the categories are locked FOR SHARE before the items FOR UPDATE, each in uuid order", %{
+    catalogue: catalogue
+  } do
+    # Created first, so its uuid sorts lowest: the unsorted list would start with it.
+    incoming = fixture_category(catalogue, %{name: "Incoming shelf"})
+    shelf_a = fixture_category(catalogue, %{name: "Shelf A"})
+    shelf_b = fixture_category(catalogue, %{name: "Shelf B"})
+    a = fixture_item(%{name: "A", catalogue_uuid: catalogue.uuid, category_uuid: shelf_a.uuid})
+    b = fixture_item(%{name: "B", catalogue_uuid: catalogue.uuid, category_uuid: shelf_b.uuid})
+    c = fixture_item(%{name: "C", catalogue_uuid: catalogue.uuid})
+
+    # Input order is the reverse of creation order.
+    rows = [
+      {c.uuid, %{category_uuid: incoming.uuid}},
+      {b.uuid, %{name: "B2"}},
+      {a.uuid, %{name: "A2"}}
+    ]
+
+    queries =
+      recorded_queries(fn -> assert {:ok, _} = Catalogue.update_items(rows, batch_opts()) end)
+
+    category_lock =
+      Enum.find_index(queries, fn {sql, _} ->
+        sql =~ ~r/FROM "phoenix_kit_cat_categories".*ORDER BY \w+\."uuid" FOR SHARE\z/s
+      end)
+
+    item_lock =
+      Enum.find_index(queries, fn {sql, _} ->
+        sql =~ ~r/FROM "phoenix_kit_cat_items".*ORDER BY \w+\."uuid" FOR UPDATE\z/s
+      end)
+
+    assert category_lock, "no category read ORDER BY uuid FOR SHARE"
+    assert item_lock, "no item read ORDER BY uuid FOR UPDATE"
+    assert category_lock < item_lock
+
+    # The category lock covers the current categories and the incoming one, sorted.
+    {_sql, [category_params]} = Enum.at(queries, category_lock)
+    assert category_params == Enum.sort(category_params)
+
+    assert Enum.sort(category_params) ==
+             Enum.sort(Enum.map([incoming, shelf_a, shelf_b], &Ecto.UUID.dump!(&1.uuid)))
+
+    # The item lock covers every row of the batch.
+    {_sql, [item_params]} = Enum.at(queries, item_lock)
+    assert Enum.sort(item_params) == Enum.sort(Enum.map([a, b, c], &Ecto.UUID.dump!(&1.uuid)))
   end
 
   test "three changed rows make one activity insert and no per-row broadcast", %{
@@ -168,6 +339,7 @@ defmodule PhoenixKitCatalogue.UpdateItemsTest do
     {:ok, _} = Catalogue.update_items([{a.uuid, %{name: "A2"}}], batch_opts(broadcast: false))
 
     refute_receive {:catalogue_bulk_change, _, _, _, _}, 100
+    refute_receive {:catalogue_data_changed, _, _, _}, 50
   end
 
   test "each changed row gets its own entry with the actor, the metadata and the diff", %{
@@ -212,7 +384,9 @@ defmodule PhoenixKitCatalogue.UpdateItemsTest do
     refute_activity_logged("item.updated", resource_uuid: a.uuid)
   end
 
-  test "rows apply to the fresh row, not to a stale copy", %{catalogue: catalogue} do
+  test "data_owned_paths merge into the stored data and keep its other keys", %{
+    catalogue: catalogue
+  } do
     a =
       fixture_item(%{
         name: "A",
