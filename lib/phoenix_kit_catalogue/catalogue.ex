@@ -916,15 +916,8 @@ defmodule PhoenixKitCatalogue.Catalogue do
           {:ok, Catalogue.t()} | {:error, term()}
   def restore_catalogue(%Catalogue{} = catalogue, opts \\ []) do
     result =
-      repo().transaction(fn ->
-        lock_catalogues_order!()
-        lock_catalogue!(catalogue.uuid)
-
-        case repo().get(Catalogue, catalogue.uuid) do
-          nil -> repo().rollback(:not_found)
-          %Catalogue{status: "deleted"} = fresh -> {:restored, do_restore_catalogue(fresh)}
-          fresh -> {:unchanged, {fresh, 0, 0}}
-        end
+      guard_external_id(fn ->
+        repo().transaction(fn -> restore_locked_catalogue(catalogue) end)
       end)
 
     case result do
@@ -949,6 +942,17 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
       {:error, _} = error ->
         error
+    end
+  end
+
+  defp restore_locked_catalogue(catalogue) do
+    lock_catalogues_order!()
+    lock_catalogue!(catalogue.uuid)
+
+    case repo().get(Catalogue, catalogue.uuid) do
+      nil -> repo().rollback(:not_found)
+      %Catalogue{status: "deleted"} = fresh -> {:restored, do_restore_catalogue(fresh)}
+      fresh -> {:unchanged, {fresh, 0, 0}}
     end
   end
 
@@ -4656,7 +4660,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
   # every lock first. Nested in an outer transaction there is nothing to
   # release, so the error goes back to the caller.
   defp locked_transaction(fun, attempts \\ 3) do
-    case repo().transaction(fun) do
+    case guard_external_id(fn -> repo().transaction(fun) end) do
       {:error, :catalogue_moved} = error when attempts > 1 ->
         if repo().in_transaction?(), do: error, else: locked_transaction(fun, attempts - 1)
 
@@ -4664,6 +4668,31 @@ defmodule PhoenixKitCatalogue.Catalogue do
         result
     end
   end
+
+  # A restore brings rows back with `update_all`, which cannot map a
+  # constraint to a changeset: a live row that took the `external_id` of a
+  # trashed one arrives as a raised unique violation on one of the two V5
+  # indexes. Only that one is turned into a result; every other database
+  # error is re-raised untouched. The exception unwinds the transaction, so
+  # nothing is half-restored.
+  @external_id_indexes [
+    "phoenix_kit_cat_items_external_id_uniq",
+    "phoenix_kit_cat_categories_external_id_uniq"
+  ]
+
+  defp guard_external_id(fun) do
+    fun.()
+  rescue
+    error in Postgrex.Error ->
+      if external_id_violation?(error),
+        do: {:error, :external_id_taken},
+        else: reraise(error, __STACKTRACE__)
+  end
+
+  defp external_id_violation?(%Postgrex.Error{postgres: %{code: :unique_violation} = postgres}),
+    do: postgres[:constraint] in @external_id_indexes
+
+  defp external_id_violation?(_error), do: false
 
   # Bulk paths: locks every catalogue the rows live in, then checks none
   # moved between that read and the locks. A category move takes the same

@@ -67,6 +67,9 @@ defmodule PhoenixKitCatalogue.GettextTest do
           # untranslated, so a green test guarded the bug.
           {"Attribute set not found.", "Набор атрибутов не найден.",
            "Atribuutide komplekti ei leitud."},
+          {"Another active row already uses the same external id.",
+           "Другая активная запись уже использует этот внешний идентификатор.",
+           "Mõni teine aktiivne kirje kasutab juba sama välist ID-d."},
           {"Multiple values", "Несколько значений", "Mitu väärtust"},
           {"Fixed value", "Фиксированное значение", "Kindel väärtus"},
           {"Previous page", "Предыдущая страница", "Eelmine leht"},

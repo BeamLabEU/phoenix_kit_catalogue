@@ -58,6 +58,7 @@ defmodule PhoenixKitCatalogue.Errors do
           | :file_too_large
           | :too_many_rows
           | :parent_catalogue_deleted
+          | :external_id_taken
           | :catalogue_moved
           | :not_in_trash
           | :cycle
@@ -189,6 +190,13 @@ defmodule PhoenixKitCatalogue.Errors do
       Gettext.gettext(
         PhoenixKitCatalogue.Gettext,
         "Cannot restore — the parent catalogue is deleted. Restore the catalogue first."
+      )
+
+  def message(:external_id_taken),
+    do:
+      Gettext.gettext(
+        PhoenixKitCatalogue.Gettext,
+        "Another active row already uses the same external id."
       )
 
   def message(:catalogue_moved),

@@ -242,6 +242,9 @@ msgstr "Файл CSV порожній."
 msgid "Cannot restore — the parent catalogue is deleted. Restore the catalogue first."
 msgstr "Неможливо відновити — батьківський каталог видалено. Спочатку відновіть каталог."
 
+msgid "Another active row already uses the same external id."
+msgstr "Інший активний запис уже використовує цей зовнішній ідентифікатор."
+
 msgid "Cannot delete: %{count} smart items still reference this catalogue."
 msgstr "Неможливо видалити: смарт-позицій, що посилаються на цей каталог: %{count}."
 
