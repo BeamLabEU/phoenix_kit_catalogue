@@ -211,6 +211,91 @@ defmodule PhoenixKitCatalogue.ItemPagingTest do
     assert length(Catalogue.list_items_keyset(catalogue_uuid: catalogue.uuid).items) == 3
   end
 
+  test "the upper limit is 100 rows per page", %{catalogue: catalogue} do
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+    rows =
+      for n <- 1..101 do
+        %{
+          uuid: Ecto.UUID.generate(),
+          name: "Bulk#{n}",
+          status: "active",
+          unit: "piece",
+          data: %{},
+          catalogue_uuid: catalogue.uuid,
+          inserted_at: now,
+          updated_at: now
+        }
+      end
+
+    {101, _} = Repo.insert_all(Item, rows)
+
+    page = Catalogue.list_items_keyset(catalogue_uuid: catalogue.uuid, limit: 5000)
+    assert length(page.items) == 100
+    assert is_binary(page.next_cursor)
+
+    {:ok, cursor} = Catalogue.decode_items_cursor(page.next_cursor)
+
+    rest =
+      Catalogue.list_items_keyset(catalogue_uuid: catalogue.uuid, limit: 5000, cursor: cursor)
+
+    assert length(rest.items) == 1
+    assert rest.next_cursor == nil
+  end
+
+  test "q treats LIKE wildcards literally and a blank q lists everything",
+       %{catalogue: catalogue} do
+    for name <- ["A100%", "Axyz", "B_1"],
+        do: fixture_item(%{name: name, catalogue_uuid: catalogue.uuid})
+
+    found = fn q -> names(Catalogue.list_items_keyset(catalogue_uuid: catalogue.uuid, q: q)) end
+
+    assert found.("%") == ["A100%"]
+    assert found.("_") == ["B_1"]
+    assert found.("\\") == []
+    assert found.("  ") |> Enum.sort() == ["A100%", "Axyz", "B_1"]
+
+    assert Catalogue.count_items_matching(catalogue_uuid: catalogue.uuid, q: "%") == 1
+    assert Catalogue.count_items_matching(catalogue_uuid: catalogue.uuid, q: "_") == 1
+  end
+
+  test "a category that is not a UUID matches nothing and never raises", %{catalogue: catalogue} do
+    fixture_item(%{name: "Somewhere", catalogue_uuid: catalogue.uuid})
+
+    for bad <- ["nope", "", 123, :atom, %{}] do
+      opts = [catalogue_uuid: catalogue.uuid, category_uuid: bad]
+
+      assert Catalogue.list_items_keyset(opts) == %{items: [], next_cursor: nil},
+             "listed for #{inspect(bad)}"
+
+      assert Catalogue.count_items_matching(opts) == 0, "counted for #{inspect(bad)}"
+    end
+  end
+
+  test "items come back with the category preloaded", %{catalogue: catalogue} do
+    category = fixture_category(catalogue, %{name: "Shelf"})
+
+    fixture_item(%{name: "In", catalogue_uuid: catalogue.uuid, category_uuid: category.uuid})
+    fixture_item(%{name: "Out", catalogue_uuid: catalogue.uuid})
+
+    %{items: items} = Catalogue.list_items_keyset(catalogue_uuid: catalogue.uuid)
+
+    by_name = Map.new(items, &{&1.name, &1})
+    refute match?(%Ecto.Association.NotLoaded{}, by_name["In"].category)
+    refute match?(%Ecto.Association.NotLoaded{}, by_name["Out"].category)
+    assert by_name["In"].category.uuid == category.uuid
+    assert by_name["Out"].category == nil
+  end
+
+  test "a bound before year 1 is no bound and does not raise", %{catalogue: catalogue} do
+    for n <- 1..2, do: fixture_item(%{name: "Old#{n}", catalogue_uuid: catalogue.uuid})
+    ancient = DateTime.new!(Date.new!(-9999, 1, 1), ~T[00:00:00], "Etc/UTC")
+
+    opts = [catalogue_uuid: catalogue.uuid, updated_since: ancient]
+    assert length(Catalogue.list_items_keyset(opts).items) == 2
+    assert Catalogue.count_items_matching(opts) == 2
+  end
+
   describe "decode_items_cursor/1" do
     test "round-trips what a page issued", %{catalogue: catalogue} do
       for n <- 1..3, do: fixture_item(%{name: "R#{n}", catalogue_uuid: catalogue.uuid})
@@ -222,6 +307,18 @@ defmodule PhoenixKitCatalogue.ItemPagingTest do
       assert at == last.updated_at
     end
 
+    test "a well-formed cursor with a year the database cannot take is :error" do
+      for year <- ["-9999", "-4713", "0000"] do
+        forged =
+          Base.url_encode64(
+            Jason.encode!(["#{year}-01-01T00:00:00Z", Ecto.UUID.generate()]),
+            padding: false
+          )
+
+        assert Catalogue.decode_items_cursor(forged) == :error, "accepted year #{year}"
+      end
+    end
+
     test "garbage is :error, never a raise" do
       for bad <- [
             "",
@@ -230,7 +327,14 @@ defmodule PhoenixKitCatalogue.ItemPagingTest do
             Base.url_encode64("not json", padding: false),
             Base.url_encode64(~s(["2026-01-01T00:00:00Z"]), padding: false),
             Base.url_encode64(~s(["yesterday","not-a-uuid"]), padding: false),
-            Base.url_encode64(~s({"a":1}), padding: false)
+            Base.url_encode64(~s(["2026-01-01T00:00:00Z","not-a-uuid"]), padding: false),
+            Base.url_encode64(~s(["yesterday","#{Ecto.UUID.generate()}"]), padding: false),
+            Base.url_encode64(~s({"a":1}), padding: false),
+            Base.url_encode64("42", padding: false),
+            Base.url_encode64("[1,2]", padding: false),
+            Base.url_encode64(~s(["2026-01-01T00:00:00Z",5]), padding: false),
+            nil,
+            42
           ] do
         assert Catalogue.decode_items_cursor(bad) == :error, "accepted #{inspect(bad)}"
       end
