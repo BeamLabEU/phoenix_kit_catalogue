@@ -12,27 +12,34 @@ defmodule PhoenixKitCatalogue.Catalogue.ItemPaging do
   handed to a client is opaque (`Base.url_encode64` of a JSON pair);
   `decode_cursor/1` answers `:error` for anything this module did not issue.
 
+  A row whose transaction commits after a later page was read, with an
+  `updated_at` earlier than the cursor, is not seen by that walk, and a row
+  updated during the walk moves to the end and can come back a second time. A
+  client therefore finishes an export by re-running from the last `updated_at`
+  it saw (`:updated_since` is inclusive) and de-duplicating by id.
+
   ## Options
 
     * `:catalogue_uuid` — required.
     * `:category_uuid` — exactly this category (not its subtree).
     * `:status` — `"active"`, `"inactive"` or `"discontinued"`; default every
-      status but `"deleted"`. The context does not stop an explicit
-      `"deleted"` (it lists the trashed rows whatever `:include_deleted` says),
-      so a caller exposing this to clients must keep `"deleted"` out of its
-      accepted values.
+      status but `"deleted"`. `"deleted"` matches only with `include_deleted:
+      true`; without it nothing is listed, so trashed rows never leak through
+      a status filter.
     * `:include_deleted` — default `false`. `true` and no `:status`: trashed
       rows (status `"deleted"`) are listed too, so an incremental export can
       see deletions (a trash bumps `updated_at`). An explicit `:status` wins.
-    * `:updated_since` — a `DateTime`; INCLUSIVE (`>=`): a row changed in the
-      same second as the last row of the previous page is not lost, the
+    * `:updated_since` — a UTC `DateTime`; INCLUSIVE (`>=`): a row changed in
+      the same second as the last row of the previous page is not lost, the
       client de-duplicates by id.
     * `:q` — a case-insensitive substring match on `name`, `description` and
-      `sku` ONLY. It deliberately does not reuse the admin's `Search.match_text/2`,
+      `sku` ONLY. A term with a NUL character (which Postgres cannot store or
+      compare) matches nothing. It deliberately does not reuse the admin's `Search.match_text/2`,
       which also matches every string inside `data` (shop price fields, cost,
       vendor, tags): through the API that is a way to read fields the caller's
       scopes do not allow, one substring at a time.
-    * `:cursor` — the `{DateTime, uuid}` pair `decode_cursor/1` returns.
+    * `:cursor` — the `{DateTime, uuid}` pair `decode_cursor/1` returns (no
+      other value is accepted).
     * `:limit` — default 20, clamped to 1..100.
   """
 
@@ -44,8 +51,9 @@ defmodule PhoenixKitCatalogue.Catalogue.ItemPaging do
   @default_limit 20
   @max_limit 100
 
-  # Postgres `timestamp` takes more, but Postgrex cannot encode a year before 1
-  # reliably, and a forged cursor must be refused rather than crash the query.
+  # Postgres `timestamp` and Postgrex stop at about year -4713, but rows only
+  # carry real dates: a forged cursor outside this range is refused rather
+  # than sent to the database.
   @year_range 1..9999
 
   defp repo, do: PhoenixKit.RepoHelper.repo()
@@ -114,17 +122,26 @@ defmodule PhoenixKitCatalogue.Catalogue.ItemPaging do
         query
 
       trimmed ->
-        pattern = "%#{Helpers.sanitize_like(trimmed)}%"
-
-        where(
-          query,
-          [item: i],
-          ilike(i.name, ^pattern) or ilike(i.description, ^pattern) or ilike(i.sku, ^pattern)
-        )
+        if String.contains?(trimmed, <<0>>),
+          do: where(query, [item: i], false),
+          else: match_pattern(query, trimmed)
     end
   end
 
   defp match_text(query, _none), do: query
+
+  defp match_pattern(query, trimmed) do
+    pattern = "%#{Helpers.sanitize_like(trimmed)}%"
+
+    where(
+      query,
+      [item: i],
+      ilike(i.name, ^pattern) or ilike(i.description, ^pattern) or ilike(i.sku, ^pattern)
+    )
+  end
+
+  defp by_status(query, "deleted", include_deleted) when include_deleted != true,
+    do: where(query, [item: i], false)
 
   defp by_status(query, nil, true), do: query
   defp by_status(query, nil, _include_deleted), do: where(query, [item: i], i.status != "deleted")

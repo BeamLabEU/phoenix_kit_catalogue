@@ -95,7 +95,9 @@ defmodule PhoenixKitCatalogue.ItemPagingTest do
     assert names(result) == ["Edge", "New"]
   end
 
-  test "filters: status, category, text; deleted rows are never listed", %{catalogue: catalogue} do
+  test "filters: status, category, text; trashed rows only with include_deleted", %{
+    catalogue: catalogue
+  } do
     category = fixture_category(catalogue, %{name: "Shelf"})
 
     fixture_item(%{
@@ -126,6 +128,17 @@ defmodule PhoenixKitCatalogue.ItemPagingTest do
 
     assert names(Catalogue.list_items_keyset(base ++ [include_deleted: true, status: "inactive"])) ==
              ["Pine panel"]
+
+    # an explicit "deleted" status never lists trashed rows unless include_deleted says so
+    assert Catalogue.list_items_keyset(base ++ [status: "deleted"]) == %{
+             items: [],
+             next_cursor: nil
+           }
+
+    assert Catalogue.count_items_matching(base ++ [status: "deleted"]) == 0
+
+    assert names(Catalogue.list_items_keyset(base ++ [status: "deleted", include_deleted: true])) ==
+             ["Gone panel"]
 
     assert Catalogue.count_items_matching(base ++ [include_deleted: true]) == 4
     assert Catalogue.count_items_matching(base) == 3
@@ -167,6 +180,19 @@ defmodule PhoenixKitCatalogue.ItemPagingTest do
     # Values that exist only inside `data` are not an oracle (they are shop fields).
     for q <- ["12.34", "12", "Acme", "secret-tag", "Schlicht"] do
       assert {count.(q), listed.(q)} == {0, 0}, "#{q} matched the data column"
+    end
+  end
+
+  test "a q with a NUL character matches nothing and never raises", %{catalogue: catalogue} do
+    fixture_item(%{name: "ab", catalogue_uuid: catalogue.uuid})
+
+    for q <- ["\u0000", "a\u0000b", " \u0000 ", <<0>>] do
+      opts = [catalogue_uuid: catalogue.uuid, q: q]
+
+      assert Catalogue.list_items_keyset(opts) == %{items: [], next_cursor: nil},
+             "listed for #{inspect(q)}"
+
+      assert Catalogue.count_items_matching(opts) == 0, "counted for #{inspect(q)}"
     end
   end
 
@@ -316,6 +342,14 @@ defmodule PhoenixKitCatalogue.ItemPagingTest do
           )
 
         assert Catalogue.decode_items_cursor(forged) == :error, "accepted year #{year}"
+      end
+    end
+
+    test "a year above 9999 is :error" do
+      for iso <- ["10000-01-01T00:00:00Z", "9999-12-31T23:59:59-01:00"] do
+        forged = Base.url_encode64(Jason.encode!([iso, Ecto.UUID.generate()]), padding: false)
+
+        assert Catalogue.decode_items_cursor(forged) == :error, "accepted #{iso}"
       end
     end
 
