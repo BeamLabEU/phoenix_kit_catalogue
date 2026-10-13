@@ -135,6 +135,50 @@ defmodule PhoenixKitCatalogue.API.Schemas do
     }
   end
 
+  @doc "Rows of `catalogue.set_translations`: `{ref, translations: {language => fields}}`."
+  def set_translations do
+    %{
+      "type" => "object",
+      "required" => ["items"],
+      "properties" => %{
+        "catalogue_id" => @uuid,
+        "items" => %{
+          "type" => "array",
+          "minItems" => 1,
+          "maxItems" => 500,
+          "items" => %{
+            "type" => "object",
+            "required" => ["ref", "translations"],
+            "properties" => %{
+              "ref" => ref(),
+              # language code => fields; the handler checks the codes and counts the languages
+              "translations" => %{
+                "type" => "object",
+                "additionalProperties" => translation_fields()
+              }
+            },
+            "additionalProperties" => false
+          }
+        }
+      },
+      "additionalProperties" => false
+    }
+  end
+
+  defp translation_fields do
+    %{
+      "type" => "object",
+      "properties" => %{
+        "name" => nullable_text(255),
+        "description" => %{"type" => ["string", "null"]},
+        "slug" => nullable_text(200),
+        "seo_title" => nullable_text(255),
+        "seo_description" => nullable_text(500)
+      },
+      "additionalProperties" => false
+    }
+  end
+
   def list_categories do
     %{
       "type" => "object",

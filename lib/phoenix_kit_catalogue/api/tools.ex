@@ -17,7 +17,14 @@ defmodule PhoenixKitCatalogue.API.Tools do
 
   @spec all() :: [Tool.t()]
   def all do
-    [list_products(), get_products(), create_products(), update_products(), list_categories()]
+    [
+      list_products(),
+      get_products(),
+      create_products(),
+      update_products(),
+      set_translations(),
+      list_categories()
+    ]
   end
 
   defp list_products do
@@ -101,6 +108,29 @@ defmodule PhoenixKitCatalogue.API.Tools do
       input_schema: Schemas.update_products(),
       output_schema: Schemas.batch_output(),
       handler: {PhoenixKitCatalogue.API.UpdateProducts, :call},
+      annotations: %{idempotent: true},
+      max_items: 500
+    )
+  end
+
+  defp set_translations do
+    Tool.new!(
+      name: "catalogue.set_translations",
+      audience: :admin,
+      scope: "catalogue.products:write",
+      permission: @permission,
+      title: "Set product translations",
+      description:
+        "Sets the name, description, URL slug and SEO title and description of up to 500 items, per language. " <>
+          "Each item is named by a reference and carries a translations object keyed by language code " <>
+          "(a full code of an enabled language such as de-DE, or a bare code that matches exactly one). " <>
+          "The item's primary language is changed with catalogue.update_products instead. null clears a field. " <>
+          "A slug is cut to 60 characters at a word boundary; one that another item already uses is refused, " <>
+          "and a missing slug is generated from the name (made unique with -2, -3). An existing slug is never " <>
+          "rewritten by a name. Rows are independent; each answers updated, unchanged or error.",
+      input_schema: Schemas.set_translations(),
+      output_schema: Schemas.batch_output(),
+      handler: {PhoenixKitCatalogue.API.SetTranslations, :call},
       annotations: %{idempotent: true},
       max_items: 500
     )
