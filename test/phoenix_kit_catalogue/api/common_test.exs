@@ -220,8 +220,13 @@ defmodule PhoenixKitCatalogue.API.CommonTest do
 
     {:ok, _} = PhoenixKitCatalogue.Catalogue.trash_category(trashed)
 
-    assert {:ok, cache} = Common.category_verdict(own.uuid, catalogue, %{})
-    assert cache == %{own.uuid => :ok}
+    assert {{:ok, own_uuid}, cache} = Common.category_verdict(own.uuid, catalogue, %{})
+    assert own_uuid == own.uuid
+    assert cache == %{own.uuid => {:ok, own.uuid}}
+
+    # the upper-case form is the same category: canonical answer, same cache entry
+    assert {{:ok, ^own_uuid}, ^cache} =
+             Common.category_verdict(String.upcase(own.uuid), catalogue, cache)
 
     assert {{:error, "is not an active category of this catalogue"}, _} =
              Common.category_verdict(foreign.uuid, catalogue, %{})

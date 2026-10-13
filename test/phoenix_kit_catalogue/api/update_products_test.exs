@@ -8,7 +8,7 @@ defmodule PhoenixKitCatalogue.API.UpdateProductsTest do
 
   alias PhoenixKitCatalogue.Catalogue
   alias PhoenixKitCatalogue.Catalogue.PubSub
-  alias PhoenixKitCatalogue.Test.ApiCase
+  alias PhoenixKitCatalogue.Test.{ApiCase, QueryHook}
 
   @tool "catalogue.update_products"
 
@@ -152,8 +152,13 @@ defmodule PhoenixKitCatalogue.API.UpdateProductsTest do
              run_update(catalogue, [entry(%{"id" => a.uuid}, %{"category_id" => shelf.uuid})])
 
     assert Catalogue.get_item!(a.uuid).category_uuid == shelf.uuid
-    moved = assert_activity_logged("item.moved", resource_uuid: a.uuid)
+
+    moved =
+      assert_activity_logged("item.moved", resource_uuid: a.uuid, actor_uuid: ApiCase.user_uuid())
+
     assert moved.metadata["via"] == "api"
+    assert moved.metadata["tool"] == "catalogue.update_products"
+    assert moved.mode == "auto"
 
     assert {:ok, %{"summary" => %{"unchanged" => 1}}} =
              run_update(catalogue, [entry(%{"id" => a.uuid}, %{"category_id" => shelf.uuid})])
@@ -335,7 +340,7 @@ defmodule PhoenixKitCatalogue.API.UpdateProductsTest do
     refute_receive {:catalogue_data_changed, _, _, _}, 50
   end
 
-  test "recategorising many items is one bulk event and one data-changed event; each move logs item.moved (D12)",
+  test "recategorising many items is one bulk event and one data-changed event; each move logs item.moved",
        %{catalogue: catalogue} do
     shelf = fixture_category(catalogue, %{name: "Move target"})
     items = for n <- 1..3, do: item(catalogue, "Mover #{n}")
@@ -353,7 +358,7 @@ defmodule PhoenixKitCatalogue.API.UpdateProductsTest do
     refute_receive {:catalogue_data_changed, _, _, _}, 50
 
     # The documented exception to "one log insert": a move keeps the context's own
-    # `item.moved` entry (readable from/to), so N moves are N entries, not 3 broadcasts.
+    # `item.moved` entry (readable from/to), so N moves are N entries, not N broadcasts.
     moved = Enum.filter(list_activities(), &(&1.action == "item.moved"))
     assert length(moved) == 3
 
@@ -370,6 +375,222 @@ defmodule PhoenixKitCatalogue.API.UpdateProductsTest do
              run_update(catalogue, entries)
 
     assert {:error, :validation_failed, _, _} = run_update(catalogue, [])
+  end
+
+  test "an upper-case category id moves, compares and previews like the lower-case one", %{
+    catalogue: catalogue
+  } do
+    shelf = fixture_category(catalogue, %{name: "Shelf"})
+    other = fixture_category(catalogue, %{name: "Other"})
+    upper = String.upcase(shelf.uuid)
+    a = item(catalogue, "Alpha")
+
+    # a move, with another column changed in the same row
+    assert [%{"action" => "updated"}] =
+             rows(
+               run_update(catalogue, [
+                 entry(%{"id" => a.uuid}, %{"name" => "Alpha 2", "category_id" => upper})
+               ])
+             )
+
+    reread = Catalogue.get_item!(a.uuid)
+    assert {reread.name, reread.category_uuid} == {"Alpha 2", shelf.uuid}
+
+    # the same category in the other case: nothing to do, not an error
+    assert [%{"action" => "unchanged"}] =
+             rows(run_update(catalogue, [entry(%{"id" => a.uuid}, %{"category_id" => upper})]))
+
+    # the preview names the canonical ids
+    assert {:preview, %{"rows" => [same]}, _} =
+             run_update(catalogue, [entry(%{"id" => a.uuid}, %{"category_id" => upper})], %{
+               dry_run?: true
+             })
+
+    assert same["action"] == "unchanged"
+
+    assert {:preview, %{"rows" => [row]}, _} =
+             run_update(
+               catalogue,
+               [entry(%{"id" => a.uuid}, %{"category_id" => String.upcase(other.uuid)})],
+               %{dry_run?: true}
+             )
+
+    assert row["changes"]["category_id"] == %{"from" => shelf.uuid, "to" => other.uuid}
+  end
+
+  test "an archived catalogue is refused and nothing is written" do
+    {:ok, catalogue} = Catalogue.create_catalogue(%{name: "Archived to update"})
+    a = item(catalogue, "Alpha")
+    {:ok, archived} = Catalogue.update_catalogue(catalogue, %{status: "archived"})
+
+    assert {:error, :validation_failed, message, %{errors: [%{path: "catalogue_id"}]}} =
+             run_update(archived, [entry(%{"id" => a.uuid}, %{"name" => "Alpha 2"})])
+
+    assert message =~ "archived"
+    assert Catalogue.get_item!(a.uuid).name == "Alpha"
+    refute_activity_logged("item.updated", resource_uuid: a.uuid)
+  end
+
+  test "a blank sku in changes is a row error and writes nothing; null clears it", %{
+    catalogue: catalogue
+  } do
+    a = item(catalogue, "Alpha", %{sku: "KEEP"})
+
+    assert [%{"action" => "error", "error" => %{"code" => "validation_failed"}}] =
+             rows(
+               run_update(catalogue, [entry(%{"id" => a.uuid}, %{"sku" => "   ", "name" => "X"})])
+             )
+
+    reread = Catalogue.get_item!(a.uuid)
+    assert {reread.name, reread.sku} == {"Alpha", "KEEP"}
+
+    assert [%{"action" => "updated"}] =
+             rows(run_update(catalogue, [entry(%{"id" => a.uuid}, %{"sku" => nil})]))
+
+    assert Catalogue.get_item!(a.uuid).sku == nil
+  end
+
+  test "when every row is rejected at planning, nothing is written and no transaction is opened",
+       %{
+         catalogue: catalogue
+       } do
+    {result, sql} =
+      QueryHook.queries(fn ->
+        run_update(catalogue, [entry(%{"sku" => "NOPE"}, %{"name" => "X"})])
+      end)
+
+    assert {:ok, %{"summary" => %{"error" => 1}}} = result
+    refute Enum.any?(sql, &(&1 =~ ~r/^(begin|savepoint)/i)), inspect(sql)
+  end
+
+  describe "a world that changes between planning and writing" do
+    test "an item trashed meanwhile is a not_found row that says whether its columns were stored",
+         %{catalogue: catalogue} do
+      a = item(catalogue, "Alpha")
+      b = item(catalogue, "Beta")
+      :ok = PubSub.subscribe()
+      flush()
+
+      result =
+        QueryHook.after_query(
+          ~s(SELECT p0."category_uuid" FROM "phoenix_kit_cat_items"),
+          fn -> {:ok, _} = Catalogue.trash_item(Catalogue.get_item!(a.uuid)) end,
+          fn ->
+            run_update(catalogue, [
+              entry(%{"id" => a.uuid}, %{"name" => "Alpha 2"}),
+              entry(%{"id" => b.uuid}, %{"name" => "Beta 2"})
+            ])
+          end
+        )
+
+      assert [trashed, ok] = rows(result)
+      assert trashed["action"] == "error"
+      assert trashed["error"]["code"] == "not_found"
+      assert trashed["id"] == a.uuid
+      assert ok["action"] == "updated"
+      assert {:ok, %{"summary" => %{"error" => 1, "updated" => 1}}} = result
+
+      # The row stays in the trash. The column write is the one `update_item/3` makes
+      # on a trashed row (it stores the fields, keeps the status): the row says so.
+      reread = Catalogue.get_item!(a.uuid)
+      assert {reread.status, reread.name} == {"deleted", "Alpha 2"}
+      assert trashed["error"]["context"] == %{"saved" => true}
+
+      cat_uuid = catalogue.uuid
+      assert_receive {:catalogue_bulk_change, ^cat_uuid, :updated, uuids, _from}
+      assert Enum.sort(uuids) == Enum.sort([a.uuid, b.uuid])
+    end
+
+    test "a category trashed after planning fails the move, keeps the saved columns and announces the item",
+         %{catalogue: catalogue} do
+      shelf = fixture_category(catalogue, %{name: "Doomed shelf"})
+      a = item(catalogue, "Alpha")
+      :ok = PubSub.subscribe()
+      flush()
+
+      result =
+        QueryHook.after_query(
+          ~s(UPDATE "phoenix_kit_cat_items"),
+          fn -> {:ok, _} = Catalogue.trash_category(Catalogue.get_category(shelf.uuid)) end,
+          fn ->
+            run_update(catalogue, [
+              entry(%{"id" => a.uuid}, %{"name" => "Alpha 2", "category_id" => shelf.uuid})
+            ])
+          end
+        )
+
+      assert [row] = rows(result)
+      assert row["action"] == "error"
+      assert row["id"] == a.uuid
+      assert row["error"]["code"] == "validation_failed"
+      assert row["error"]["context"] == %{"saved" => true, "reason" => "category_not_found"}
+      assert row["error"]["message"] =~ "category was not changed"
+      refute row["error"]["message"] =~ ":category_not_found"
+
+      reread = Catalogue.get_item!(a.uuid)
+      assert {reread.name, reread.category_uuid} == {"Alpha 2", nil}
+
+      cat_uuid = catalogue.uuid
+      assert_receive {:catalogue_bulk_change, ^cat_uuid, :updated, [uuid], _from}
+      assert uuid == a.uuid
+    end
+
+    test "a move that finds nothing saved before it reports saved false and announces nothing",
+         %{catalogue: catalogue} do
+      shelf = fixture_category(catalogue, %{name: "Doomed shelf"})
+      a = item(catalogue, "Alpha")
+      :ok = PubSub.subscribe()
+      flush()
+
+      result =
+        QueryHook.after_query(
+          ~s(SELECT p0."category_uuid" FROM "phoenix_kit_cat_items"),
+          fn -> {:ok, _} = Catalogue.trash_category(Catalogue.get_category(shelf.uuid)) end,
+          fn ->
+            run_update(catalogue, [entry(%{"id" => a.uuid}, %{"category_id" => shelf.uuid})])
+          end
+        )
+
+      assert [%{"action" => "error", "error" => %{"context" => %{"saved" => false}}}] =
+               rows(result)
+
+      refute_receive {:catalogue_bulk_change, _, _, _, _}, 50
+    end
+
+    test "a category re-homed to another catalogue after planning is reported, not silent", %{
+      catalogue: catalogue
+    } do
+      other = fixture_catalogue(%{name: "Other home"})
+      shelf = fixture_category(catalogue, %{name: "Wandering shelf"})
+      a = item(catalogue, "Alpha")
+      :ok = PubSub.subscribe()
+      flush()
+
+      result =
+        QueryHook.after_query(
+          ~s(UPDATE "phoenix_kit_cat_items"),
+          fn ->
+            {:ok, _} =
+              Catalogue.move_category_to_catalogue(Catalogue.get_category(shelf.uuid), other.uuid)
+          end,
+          fn ->
+            run_update(catalogue, [
+              entry(%{"id" => a.uuid}, %{"name" => "Alpha 2", "category_id" => shelf.uuid})
+            ])
+          end
+        )
+
+      assert [row] = rows(result)
+      assert row["action"] == "error"
+      assert row["error"]["context"] == %{"saved" => true, "reason" => "catalogue_changed"}
+      assert row["error"]["message"] =~ "another catalogue"
+
+      # both catalogues are told, the old one by the batch announcement
+      cat_uuid = catalogue.uuid
+      other_uuid = other.uuid
+      assert_receive {:catalogue_bulk_change, ^other_uuid, :updated, [_], _from}
+      assert_receive {:catalogue_bulk_change, ^cat_uuid, :updated, [_], _from}
+    end
   end
 
   describe "dry run" do
@@ -425,6 +646,71 @@ defmodule PhoenixKitCatalogue.API.UpdateProductsTest do
       # the second row names the same item again: the plan refuses it
       assert same["action"] == "error"
       assert same["error"]["code"] == "validation_failed"
+    end
+
+    test "an external_id another live item holds is an already_exists row, like the write will say",
+         %{catalogue: catalogue} do
+      holder = item(catalogue, "Holder", %{data: %{"api" => %{"external_id" => "TAKEN"}}})
+      a = item(catalogue, "Alpha")
+      b = item(catalogue, "Beta", %{data: %{"api" => %{"external_id" => "MINE"}}})
+
+      entries = [
+        entry(%{"id" => a.uuid}, %{"external_id" => "TAKEN"}),
+        # b keeps its own id: not a conflict
+        entry(%{"id" => b.uuid}, %{"external_id" => "MINE", "name" => "Beta 2"})
+      ]
+
+      assert {:preview, %{"rows" => [taken, mine], "summary" => %{"error" => 1, "updated" => 1}},
+              _} =
+               run_update(catalogue, entries, %{dry_run?: true})
+
+      assert taken["action"] == "error"
+      assert taken["error"]["code"] == "already_exists"
+      assert taken["error"]["context"]["existing_id"] == holder.uuid
+      assert mine["action"] == "updated"
+
+      # ... and the real write gives the same answer for the same rows
+      assert [executed_taken, _] = rows(run_update(catalogue, entries))
+      assert executed_taken["error"]["code"] == taken["error"]["code"]
+      assert executed_taken["error"]["context"]["existing_id"] == holder.uuid
+    end
+
+    test "the preview walks the rows in order: a released id can be taken, a claimed one cannot",
+         %{catalogue: catalogue} do
+      a = item(catalogue, "Alpha", %{data: %{"api" => %{"external_id" => "E-A"}}})
+      b = item(catalogue, "Beta")
+      c = item(catalogue, "Gamma")
+      d = item(catalogue, "Delta")
+
+      entries = [
+        # a lets go of E-A and takes E-NEW
+        entry(%{"id" => a.uuid}, %{"external_id" => "E-NEW"}),
+        # so b may take E-A
+        entry(%{"id" => b.uuid}, %{"external_id" => "E-A"}),
+        # but c may not take E-NEW (a holds it now)
+        entry(%{"id" => c.uuid}, %{"external_id" => "E-NEW"}),
+        # and d may not take E-A (b holds it now)
+        entry(%{"id" => d.uuid}, %{"external_id" => "E-A"})
+      ]
+
+      assert {:preview, %{"rows" => preview_rows}, _} =
+               run_update(catalogue, entries, %{dry_run?: true})
+
+      assert Enum.map(preview_rows, & &1["action"]) == ["updated", "updated", "error", "error"]
+
+      assert Enum.map(Enum.drop(preview_rows, 2), & &1["error"]["code"]) == [
+               "already_exists",
+               "already_exists"
+             ]
+
+      assert Enum.map(Enum.drop(preview_rows, 2), & &1["error"]["context"]["existing_id"]) == [
+               a.uuid,
+               b.uuid
+             ]
+
+      # the real write ends the same way
+      executed = rows(run_update(catalogue, entries))
+      assert Enum.map(executed, & &1["action"]) == Enum.map(preview_rows, & &1["action"])
     end
   end
 

@@ -238,6 +238,23 @@ defmodule PhoenixKitCatalogue.API.CreateProductsTest do
            |> Enum.sort() == ["OK-1", "OK-2"]
   end
 
+  test "an upper-case category_id files the item under that category", %{catalogue: catalogue} do
+    category = fixture_category(catalogue, %{name: "Upper shelf"})
+
+    assert [%{"action" => "created", "id" => id}] =
+             rows(
+               create(catalogue, [
+                 %{
+                   "sku" => "UPPER-1",
+                   "name" => "Filed",
+                   "category_id" => String.upcase(category.uuid)
+                 }
+               ])
+             )
+
+    assert Catalogue.get_item!(id).category_uuid == category.uuid
+  end
+
   test "a malformed category_id, a short id and blank name/sku/external_id are row errors, not one 422",
        %{catalogue: catalogue} do
     # Row-level fields have no length floor in the schema (`Schemas.row_id/0`,

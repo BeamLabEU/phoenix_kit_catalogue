@@ -146,20 +146,34 @@ defmodule PhoenixKitCatalogue.API.Common do
 
   @doc """
   Whether `id` is an active category of `catalogue`. Returns `{verdict, cache}`
-  where `verdict` is `:ok` or `{:error, message}`; the caller threads `cache`
-  (a map) through a batch so each category is read once.
+  where `verdict` is `{:ok, canonical_uuid}` (the lower-case form of the id, the
+  only form the context's writes accept) or `{:error, message}`; the caller
+  threads `cache` (a map) through a batch so each category is read once.
   """
-  @spec category_verdict(term(), struct(), map()) :: {:ok | {:error, String.t()}, map()}
+  @spec category_verdict(term(), struct(), map()) ::
+          {{:ok, Ecto.UUID.t()} | {:error, String.t()}, map()}
   def category_verdict(id, catalogue, cache) do
-    case Map.fetch(cache, id) do
+    key = cache_key(id)
+
+    case Map.fetch(cache, key) do
       {:ok, verdict} ->
         {verdict, cache}
 
       :error ->
-        verdict = verdict_for(id, catalogue.uuid)
-        {verdict, Map.put(cache, id, verdict)}
+        verdict = verdict_for(key, catalogue.uuid)
+        {verdict, Map.put(cache, key, verdict)}
     end
   end
+
+  # An upper-case UUID and its lower-case form are one category (and one cache entry).
+  defp cache_key(id) when is_binary(id) and byte_size(id) == 36 do
+    case Ecto.UUID.cast(id) do
+      {:ok, uuid} -> uuid
+      :error -> id
+    end
+  end
+
+  defp cache_key(id), do: id
 
   # The schema lets any string through (row-level ids, see `Schemas`), so a
   # malformed id is answered here, per row, before it can reach Ecto as a
@@ -174,7 +188,9 @@ defmodule PhoenixKitCatalogue.API.Common do
     end
   end
 
-  defp active_in?(%{status: "active", catalogue_uuid: target}, target), do: :ok
+  defp active_in?(%{status: "active", catalogue_uuid: target, uuid: uuid}, target),
+    do: {:ok, uuid}
+
   defp active_in?(_category, _target), do: {:error, "is not an active category of this catalogue"}
 
   # --- reference and changeset failures -----------------------------------------------
