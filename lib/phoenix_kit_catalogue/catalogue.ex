@@ -54,6 +54,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
     CrmLink,
     Duplication,
     Helpers,
+    ItemPaging,
     ItemSupplierInfos,
     Links,
     Manufacturers,
@@ -8208,4 +8209,9 @@ defmodule PhoenixKitCatalogue.Catalogue do
   defdelegate item_attribute_group_map(item_uuids), to: Attributes
   defdelegate attribute_group_names(group_uuids), to: Attributes
   defdelegate resolved_group(group_uuid, lang), to: Attributes
+
+  # ── Keyset paging for the shop API's incremental export ──────────
+  defdelegate list_items_keyset(opts), to: ItemPaging, as: :page
+  defdelegate count_items_matching(opts), to: ItemPaging, as: :count
+  defdelegate decode_items_cursor(cursor), to: ItemPaging, as: :decode_cursor
 end
