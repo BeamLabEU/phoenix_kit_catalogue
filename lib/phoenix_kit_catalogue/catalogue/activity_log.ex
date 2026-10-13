@@ -65,15 +65,28 @@ defmodule PhoenixKitCatalogue.Catalogue.ActivityLog do
     :ok
   end
 
+  # Keys the entry itself owns; an extra map never supplies them, even when the
+  # entry has no value for them.
+  @reserved_keys ["changes", "name", "sku"]
+
   @doc """
   Merges `extra` (the API's `via` / `key_prefix` / `request_id` / `tool`) into an
-  entry's metadata. The entry's own keys win: a caller cannot overwrite the
-  identity (`"name"`, `"sku"`) or the diff (`"changes"`). `nil` and `%{}` change
+  entry's metadata. Only string keys are taken, and never the reserved ones
+  (`"name"`, `"sku"` and `"changes"`), so a caller cannot supply the identity
+  or the diff. On a clash the entry's own key wins. `nil` and `%{}` change
   nothing.
   """
   @spec with_extra(map(), map() | nil) :: map()
-  def with_extra(metadata, extra) when is_map(extra) and map_size(extra) > 0,
-    do: Map.merge(extra, metadata)
+  def with_extra(metadata, extra) when is_map(metadata) and is_map(extra) do
+    extra =
+      for {key, value} <- extra,
+          is_binary(key),
+          key not in @reserved_keys,
+          into: %{},
+          do: {key, value}
+
+    Map.merge(extra, metadata)
+  end
 
   def with_extra(metadata, _extra), do: metadata
 
@@ -95,7 +108,9 @@ defmodule PhoenixKitCatalogue.Catalogue.ActivityLog do
   `data_paths` names `data` sub-paths (`["ecommerce", "compare_at_price"]`) whose
   values are compared too; each that moved appears under the key
   `"data.ecommerce.compare_at_price"`. A map or list leaf is written as JSON;
-  any value is clipped to 500 characters.
+  any value is clipped to 500 characters. The key joins the path with dots, so
+  a path segment that itself contains a dot cannot be told apart from two
+  segments.
   """
   @spec with_changes(map(), struct(), struct(), [atom()], [[String.t()]]) :: map()
   def with_changes(metadata, before, now, fields, data_paths \\ []) do
@@ -177,13 +192,11 @@ defmodule PhoenixKitCatalogue.Catalogue.ActivityLog do
       from = Map.get(old, lang)
       to = Map.get(new, lang)
 
+      {from, to} = {display_value(from), display_value(to)}
+
       if from == to,
         do: acc,
-        else:
-          Map.put(acc, "slug." <> to_string(lang), %{
-            "from" => display_value(from),
-            "to" => display_value(to)
-          })
+        else: Map.put(acc, "slug." <> to_string(lang), %{"from" => from, "to" => to})
     end)
   end
 
@@ -217,10 +230,11 @@ defmodule PhoenixKitCatalogue.Catalogue.ActivityLog do
 
   defp data_display(value), do: value |> display_value() |> clip()
 
-  defp clip(text) when byte_size(text) > @max_data_display,
-    do: String.slice(text, 0, @max_data_display) <> "…"
-
-  defp clip(text), do: text
+  defp clip(text) when is_binary(text) do
+    if String.length(text) > @max_data_display,
+      do: String.slice(text, 0, @max_data_display) <> "…",
+      else: text
+  end
 
   # A bulk row records which rows it touched, but not an unbounded list of
   # them: a 500-item move would put 18KB of uuids into every reader's page,
