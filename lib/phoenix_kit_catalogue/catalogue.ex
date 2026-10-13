@@ -80,7 +80,9 @@ defmodule PhoenixKitCatalogue.Catalogue do
   # turns these into `from`/`to` pairs, which core renders as `old → new`.
   #
   # `description` is tracked but records only THAT it changed — see
-  # `ActivityLog`'s `@flag_only_fields`. A move is not here at all; it has its
+  # `ActivityLog`'s `@flag_only_fields`. `slug` is a per-language map and is
+  # reported per language (`slug.en-US`), so a changed slug leaves the old one
+  # in the log. A move is not here at all; it has its
   # own action (`item.moved`, `category.moved`, `catalogue.moved_to_folder`)
   # carrying both ends.
   @item_logged_fields [
@@ -94,10 +96,11 @@ defmodule PhoenixKitCatalogue.Catalogue do
     :status,
     :default_value,
     :default_unit,
-    :description
+    :description,
+    :slug
   ]
 
-  @category_logged_fields [:name, :status, :description]
+  @category_logged_fields [:name, :status, :description, :parent_uuid, :position]
 
   # A move's two ends, snapshotted with the names they had at the time. The
   # log used to carry `from_category_uuid`/`to_category_uuid` and friends —
@@ -186,6 +189,17 @@ defmodule PhoenixKitCatalogue.Catalogue do
   # broadcast at the end of the batch.
   defp log_activity(attrs, opts \\ []) do
     {parent_catalogue_uuid, attrs} = Map.pop(attrs, :parent_catalogue_uuid)
+
+    # The shop API's `via` / `key_prefix` / `request_id` / `tool` ride in
+    # `opts[:log_metadata]`; the entry's own metadata wins on a clash.
+    attrs =
+      case Keyword.get(opts, :log_metadata) do
+        extra when is_map(extra) and map_size(extra) > 0 ->
+          Map.update(attrs, :metadata, extra, &ActivityLog.with_extra(&1, extra))
+
+        _none ->
+          attrs
+      end
 
     # The caller's `mode` wins over the site's default ("manual"): the
     # importer passes `mode: "auto"`, and until 2026-09-12 every site but
@@ -1815,7 +1829,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
             parent_catalogue_uuid: category.catalogue_uuid,
             metadata: %{"name" => category.name, "catalogue_uuid" => category.catalogue_uuid}
           },
-          Keyword.take(opts, [:broadcast, :mode])
+          Keyword.take(opts, [:broadcast, :mode, :log_metadata])
         )
 
         ok
@@ -6090,15 +6104,18 @@ defmodule PhoenixKitCatalogue.Catalogue do
       end)
 
     with {:ok, trashed} <- result do
-      log_activity(%{
-        action: "item.trashed",
-        mode: "manual",
-        actor_uuid: opts[:actor_uuid],
-        resource_type: "item",
-        resource_uuid: trashed.uuid,
-        parent_catalogue_uuid: trashed.catalogue_uuid,
-        metadata: %{"name" => trashed.name}
-      })
+      log_activity(
+        %{
+          action: "item.trashed",
+          mode: "manual",
+          actor_uuid: opts[:actor_uuid],
+          resource_type: "item",
+          resource_uuid: trashed.uuid,
+          parent_catalogue_uuid: trashed.catalogue_uuid,
+          metadata: %{"name" => trashed.name}
+        },
+        Keyword.take(opts, [:log_metadata, :broadcast, :mode])
+      )
 
       {:ok, trashed}
     end
@@ -6144,17 +6161,20 @@ defmodule PhoenixKitCatalogue.Catalogue do
 
     case result do
       {:ok, {:restored, {restored, detached?}}} ->
-        log_activity(%{
-          action: "item.restored",
-          mode: "manual",
-          actor_uuid: opts[:actor_uuid],
-          resource_type: "item",
-          resource_uuid: restored.uuid,
-          parent_catalogue_uuid: restored.catalogue_uuid,
-          metadata:
-            %{"name" => restored.name}
-            |> Map.merge(if detached?, do: %{"detached_from_category" => true}, else: %{})
-        })
+        log_activity(
+          %{
+            action: "item.restored",
+            mode: "manual",
+            actor_uuid: opts[:actor_uuid],
+            resource_type: "item",
+            resource_uuid: restored.uuid,
+            parent_catalogue_uuid: restored.catalogue_uuid,
+            metadata:
+              %{"name" => restored.name}
+              |> Map.merge(if detached?, do: %{"detached_from_category" => true}, else: %{})
+          },
+          Keyword.take(opts, [:log_metadata, :broadcast, :mode])
+        )
 
         {:ok, restored}
 
@@ -7057,7 +7077,7 @@ defmodule PhoenixKitCatalogue.Catalogue do
               ])
           }
         },
-        Keyword.take(opts, [:broadcast, :mode])
+        Keyword.take(opts, [:broadcast, :mode, :log_metadata])
       )
 
       if before.catalogue_uuid != moved.catalogue_uuid and Keyword.get(opts, :broadcast, true),
