@@ -24,7 +24,8 @@ defmodule PhoenixKitCatalogue.API.Tools do
       update_products(),
       set_translations(),
       delete_products(),
-      list_categories()
+      list_categories(),
+      upsert_categories()
     ]
   end
 
@@ -174,6 +175,28 @@ defmodule PhoenixKitCatalogue.API.Tools do
       output_schema: Schemas.categories_output(),
       handler: {PhoenixKitCatalogue.API.ListCategories, :call},
       annotations: %{read_only: true, idempotent: true}
+    )
+  end
+
+  defp upsert_categories do
+    Tool.new!(
+      name: "catalogue.upsert_categories",
+      audience: :admin,
+      scope: "catalogue.categories:write",
+      permission: @permission,
+      title: "Create or update categories",
+      description:
+        "Creates or updates up to 500 categories of one catalogue, processed in order. A row names its " <>
+          "category by id or by external_id. Found: the given name, parent and position are changed when they " <>
+          "differ (parent is {id} or {external_id} of a category of the same catalogue, or null for the top " <>
+          "level; leave it out to keep the parent). Not found with only an external_id: created, which needs a " <>
+          "name, and later rows may name it as their parent. An id that does not exist is an error: an id " <>
+          "cannot be chosen. Rows are independent; each answers created, updated, unchanged or error.",
+      input_schema: Schemas.upsert_categories(),
+      output_schema: Schemas.batch_output(),
+      handler: {PhoenixKitCatalogue.API.UpsertCategories, :call},
+      annotations: %{idempotent: true},
+      max_items: 500
     )
   end
 end
