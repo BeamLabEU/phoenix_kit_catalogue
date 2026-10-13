@@ -1,3 +1,33 @@
+## 0.48.0 - 2026-10-13
+
+Reviews: `dev_docs/pull_requests/2026/147-quality-sweep/`,
+`148-media-folders/` (`CLAUDE_REVIEW.md`).
+
+The requirements are unchanged.
+
+### Added
+
+- A default media folder layout: `Catalogues/<catalogue>/<category…>/<item>`
+  with PDFs in `Catalogues/PDF`, installed as both attachment hooks by
+  `mix.exs`. A record's folder follows its renames and moves (including the
+  trash and restore paths that move items), and a hard delete frees the folder's
+  name. A host that configured either hook keeps its old behaviour; set both
+  keys to `nil` to turn the layout off. Folders that predate it are moved by
+  `mix phoenix_kit.media.reorganize --source catalogue`. Thanks to timujinne
+  (#148).
+
+### Fixed
+
+- A media folder that could not follow its record (every candidate name taken in
+  the destination) no longer rolls back the permanent delete or bulk trash that
+  asked it to follow; the folder stays where it is.
+- Quality sweep (#147): text imports are decoded from UTF-8/UTF-16 (or refused
+  with a message), a malformed XLSX is a parse error, the export download needs
+  the `catalogue` permission, old-address redirects never raise, the shared sort
+  is written only when it changes, and audit rows carry their actor.
+- The test suite runs against phoenix_kit 2.62 (the locale segment is left out
+  of an admin path on a single-language site).
+
 ## 0.47.2 - 2026-10-11
 
 Review: `dev_docs/pull_requests/2026/146-ukrainian-translation/` (`CLAUDE_REVIEW.md`).

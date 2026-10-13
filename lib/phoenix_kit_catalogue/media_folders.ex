@@ -513,21 +513,25 @@ defmodule PhoenixKitCatalogue.MediaFolders do
   # Moves and/or renames the folder under the folder-tree's name lock. A
   # name another folder there already has gives way to the record's own
   # name as of now (an item's namesake check, in the new place), then to
-  # the deterministic name.
+  # the deterministic name; when all of them are taken the folder stays
+  # where it is. The refusal is settled here, before the write: the context
+  # calls `follow/2` from inside its own transactions too, and a refused
+  # folder update rolls back, which in a nested transaction would take the
+  # caller's delete or trash down with it.
   defp relocate(folder, parent_uuid, name, record) do
     result =
       repo().transaction(fn ->
-        name =
-          free_name(
-            [name, own_name(record), Attachments.legacy_folder_name(record)],
-            folder,
-            parent_uuid
-          )
-
-        folder |> write_changes(changes(folder, parent_uuid, name)) |> or_rollback()
+        case free_name(
+               [name, own_name(record), Attachments.legacy_folder_name(record)],
+               folder,
+               parent_uuid
+             ) do
+          nil -> {:error, :name_taken}
+          name -> write_changes(folder, changes(folder, parent_uuid, name))
+        end
       end)
 
-    with {:error, reason} <- result do
+    with {:ok, {:error, reason}} <- result do
       Logger.warning(
         "[Catalogue] media folder #{folder.uuid} did not follow #{kind(record)} " <>
           "#{record.uuid}: #{ResourceFolders.describe_failure(reason)}"
@@ -543,13 +547,10 @@ defmodule PhoenixKitCatalogue.MediaFolders do
     with {:ok, _folder} <- Storage.update_folder(folder, attrs), do: :ok
   end
 
-  defp or_rollback(:ok), do: :ok
-  defp or_rollback({:error, reason}), do: repo().rollback(reason)
-
   defp free_name(names, folder, parent_uuid) do
     names
     |> Enum.uniq()
-    |> Enum.find(List.last(names), fn name ->
+    |> Enum.find(fn name ->
       ResourceFolders.lock_name(parent_uuid, name)
 
       case ResourceFolders.find_under(name, parent_uuid) do

@@ -410,6 +410,12 @@ in hosts; tests replay `up_statements/2` directly through the repo (`up/1` uses
 - Test support: `test/support/data_case.ex`, `live_case.ex` (Test.Endpoint plus
   a router scoped at `/en/admin/catalogues`), `activity_log_assertions.ex`,
   `test_repo.ex`, `test_router.ex`, `test_layouts.ex`.
+- The test helper makes the test site multilingual with the locale prefix
+  kept (`Languages.enable_system/0` +
+  `set_default_language_no_prefix(false)`): core leaves the locale segment out
+  of an admin path on a single-language site, and the suite's expectations
+  are the `/en/admin/...` shape. `Test.Router` serves both prefixes in one
+  live session, so a patch between them stays on the same view.
 - `PGUSER` / `PGPASSWORD` / `PGHOST` are honoured. `PGDATABASE` and `PGPOOL`
   override the database name and pool size, so the suite can point at a database
   it does not own and cannot `CREATEDB` for itself, e.g.
